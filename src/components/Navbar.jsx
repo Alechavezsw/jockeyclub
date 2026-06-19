@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Sun, Moon, Shield, User, Menu, X, Landmark, Bell } from 'lucide-react';
+import { Sun, Moon, Shield, User, Menu, X, Bell } from 'lucide-react';
 
 export default function Navbar({ currentView, setCurrentView, userRole, setUserRole, theme, toggleTheme }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -55,7 +55,18 @@ export default function Navbar({ currentView, setCurrentView, userRole, setUserR
           onClick={() => handleNavClick('dashboard')} 
           style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }}
         >
-          <Landmark style={{ color: 'var(--primary-gold)', width: '28px', height: '28px' }} />
+          <img 
+            src="/Gemini_Generated_Image_n1d2h3n1d2h3n1d2.png" 
+            alt="Logo" 
+            style={{ 
+              width: '46px', 
+              height: '46px', 
+              borderRadius: '50%', 
+              objectFit: 'cover', 
+              border: '2px solid var(--primary-gold)',
+              boxShadow: '0 0 10px rgba(207, 161, 58, 0.4)'
+            }} 
+          />
           <span className="serif-font" style={{
             fontSize: '1.4rem',
             fontWeight: '700',

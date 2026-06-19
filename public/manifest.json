@@ -1,0 +1,23 @@
+{
+  "short_name": "Jockey Club SJ",
+  "name": "Jockey Club San Juan - Portal de Gestión",
+  "description": "Portal ERP de autogestión, administración, deportes y contabilidad para socios y directores de Jockey Club San Juan, Sede Rivadavia.",
+  "icons": [
+    {
+      "src": "/Gemini_Generated_Image_n1d2h3n1d2h3n1d2.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/Gemini_Generated_Image_n1d2h3n1d2h3n1d2.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#060e0a",
+  "theme_color": "#cfa13a",
+  "display": "standalone",
+  "orientation": "portrait"
+}

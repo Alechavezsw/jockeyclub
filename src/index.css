@@ -950,3 +950,610 @@ a {
 .slide-up {
   animation: slideUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
+/* --- ESTILOS DE CONTABILIDAD Y TRAZABILIDAD (FASE 2) --- */
+
+.accounting-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2rem;
+}
+
+@media (min-width: 1200px) {
+  .accounting-grid {
+    grid-template-columns: 420px 1fr;
+  }
+}
+
+/* Tabla de Balance Contable Profesional */
+.balance-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+}
+
+.balance-table th {
+  color: var(--text-gold);
+  border-bottom: 2px solid var(--border-glass-hover);
+  padding: 0.75rem 1rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.8rem;
+  letter-spacing: 0.05em;
+}
+
+.balance-table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border-glass);
+  font-size: 0.95rem;
+}
+
+.balance-row-category {
+  font-weight: 700;
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.balance-row-account {
+  padding-left: 2rem !important;
+  color: var(--text-secondary);
+}
+
+.balance-row-total {
+  font-weight: 700;
+  color: var(--primary-gold);
+  border-top: 2px solid var(--border-glass-hover) !important;
+  border-bottom: 4px double var(--primary-gold) !important; /* Tradición contable: doble subrayado */
+  background: rgba(207, 161, 58, 0.03);
+}
+
+.balance-row-subtotal {
+  font-weight: 600;
+  color: var(--text-primary);
+  border-top: 1px solid var(--border-glass-hover) !important;
+  background: rgba(255, 255, 255, 0.01);
+}
+
+/* Tarjeta de Asiento Contable Individual */
+.ledger-entry-card {
+  border-left: 3px solid var(--primary-gold);
+  background: rgba(255, 255, 255, 0.01);
+  padding: 1.25rem;
+  border-radius: var(--radius-sm);
+  border-top: 1px solid var(--border-glass);
+  border-right: 1px solid var(--border-glass);
+  border-bottom: 1px solid var(--border-glass);
+  margin-bottom: 1rem;
+  transition: var(--transition-fast);
+}
+
+.ledger-entry-card:hover {
+  background: rgba(255, 255, 255, 0.02);
+  border-color: var(--border-glass-hover);
+}
+
+/* Fila del Formulario Dinámico de Asientos */
+.entry-form-row {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr 1fr 40px;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+@media (max-width: 576px) {
+  .entry-form-row {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+}
+
+/* Bitácora de Trazabilidad - Consola de Operaciones */
+.traceability-log {
+  background: #040806;
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-sm);
+  padding: 1.25rem;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 0.85rem;
+  max-height: 420px;
+  overflow-y: auto;
+  color: #10b981;
+  box-shadow: inset 0 0 15px rgba(0,0,0,0.8);
+}
+
+.traceability-item {
+  padding: 0.4rem 0;
+  border-bottom: 1px dashed rgba(16, 185, 129, 0.15);
+  display: flex;
+  gap: 0.75rem;
+  line-height: 1.4;
+}
+
+.traceability-time {
+  color: var(--primary-gold);
+  flex-shrink: 0;
+}
+
+.traceability-text {
+  color: #c7d2cc;
+}
+
+/* Directorio de Empleados */
+.staff-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.5rem;
+}
+
+.staff-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 1.25rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-glass);
+  background: var(--bg-glass);
+  transition: var(--transition-smooth);
+}
+
+.staff-card:hover {
+  border-color: var(--border-glass-hover);
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-premium);
+}
+
+.staff-avatar-container {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.staff-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--emerald-accent);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.pulsing-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--emerald-accent);
+  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  animation: pulse-green 2s infinite;
+}
+
+.pulsing-dot.inactive {
+  background-color: var(--text-muted);
+  box-shadow: none;
+  animation: none;
+}
+
+@keyframes pulse-green {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+  }
+}
+
+/* Custom Scrollbar - Premium Dark Emerald & Gold */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+  border-left: 1px solid var(--border-glass);
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, var(--bg-tertiary) 0%, var(--primary-gold) 100%);
+  border-radius: 5px;
+  border: 2px solid var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--primary-gold-hover);
+}
+
+
+/* Glowing Form inputs on focus */
+.form-input:focus {
+  border-color: var(--primary-gold);
+  box-shadow: 0 0 15px rgba(207, 161, 58, 0.25), inset 0 0 8px rgba(207, 161, 58, 0.05);
+}
+
+/* Animated hover row glow for tables */
+.admin-table tbody tr:hover td, .balance-table tbody tr:hover td {
+  background: rgba(212, 175, 55, 0.02) !important;
+  color: var(--text-primary);
+  transition: background 0.2s ease-out;
+}
+
+/* Pulsing effect for interactive elements */
+@keyframes goldGlowPulse {
+  0% { box-shadow: 0 0 10px rgba(207, 161, 58, 0.15); }
+  50% { box-shadow: 0 0 22px rgba(207, 161, 58, 0.35); }
+  100% { box-shadow: 0 0 10px rgba(207, 161, 58, 0.15); }
+}
+
+.virtual-card:hover {
+  animation: goldGlowPulse 3s infinite;
+}
+
+/* Print view for official Jockey Club report exports */
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-family: 'Times New Roman', Times, serif;
+    font-size: 11pt;
+  }
+  
+  .app-container, .main-content {
+    background: #ffffff !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .ambient-glow, footer, navbar, .filter-btn, button, select, input, .navbar, .btn {
+    display: none !important;
+  }
+
+  .glass-card, .glass-panel {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .balance-table, .admin-table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+    margin-top: 20px !important;
+  }
+
+  .balance-table th, .balance-table td, .admin-table th, .admin-table td {
+    border: 1px solid #000000 !important;
+    color: #000000 !important;
+    padding: 6px 8px !important;
+    font-size: 10pt !important;
+  }
+
+  .balance-row-category {
+    background: #f0f0f0 !important;
+    font-weight: bold !important;
+  }
+
+  .balance-row-total {
+    border-bottom: 4px double #000000 !important;
+    background: #e5e5e5 !important;
+  }
+
+  .print-header {
+    display: block !important;
+    text-align: center;
+    margin-bottom: 30px;
+    border-bottom: 2px solid #000000;
+    padding-bottom: 10px;
+  }
+}
+
+/* Helper to hide print header on screen */
+.print-header {
+  display: none;
+}
+
+/* Sports Stats Grid */
+.sports-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.sport-stat-card {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-sm);
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  transition: var(--transition-smooth);
+  position: relative;
+  overflow: hidden;
+}
+
+.sport-stat-card:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--primary-gold);
+  transform: translateY(-3px);
+  box-shadow: 0 4px 20px rgba(207, 161, 58, 0.1);
+}
+
+.sport-stat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sport-name {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.sport-metric-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  letter-spacing: 0.05em;
+}
+
+.sport-stat-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.sport-stat-progress {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 0.25rem 0;
+}
+
+.sport-stat-progress .progress-bar {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 1s ease-out;
+  position: relative;
+}
+
+.sport-stat-progress .progress-bar::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.3) 50%, rgba(255,255,255,0) 100%);
+  animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.sport-stat-footer {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* ========================================= */
+/* ADMIN DASHBOARD GLOBAL LAYOUT (Fase 4)    */
+/* ========================================= */
+
+.admin-layout-wrapper {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  background-color: var(--bg-color);
+}
+
+.admin-sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  background: rgba(6, 14, 10, 0.95);
+  border-right: 1px solid var(--border-glass);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  backdrop-filter: blur(10px);
+  z-index: 50;
+}
+
+.admin-sidebar-header {
+  padding: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  border-bottom: 1px solid var(--border-glass);
+}
+
+.admin-sidebar-menu {
+  flex-grow: 1;
+  overflow-y: auto;
+  padding: 1rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.sidebar-menu-item {
+  display: flex;
+  align-items: center;
+  padding: 0.85rem 1.5rem;
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  border-left: 3px solid transparent;
+  cursor: pointer;
+  background: transparent;
+  border-top: none;
+  border-right: none;
+  border-bottom: none;
+  width: 100%;
+  text-align: left;
+}
+
+.sidebar-menu-item:hover {
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-primary);
+}
+
+.sidebar-menu-item.active {
+  background: rgba(207, 161, 58, 0.1);
+  color: var(--primary-gold);
+  border-left-color: var(--primary-gold);
+}
+
+.sidebar-menu-item svg {
+  margin-right: 1rem;
+  width: 18px;
+  height: 18px;
+  opacity: 0.8;
+}
+
+.admin-main-area {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+.admin-topbar {
+  height: 70px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border-glass);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2rem;
+  background: rgba(6, 14, 10, 0.8);
+  backdrop-filter: blur(10px);
+  z-index: 40;
+}
+
+.admin-search-bar {
+  display: flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-md);
+  padding: 0.5rem 1rem;
+  width: 350px;
+  border: 1px solid var(--border-glass);
+}
+
+.admin-search-bar input {
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  outline: none;
+  width: 100%;
+  margin-left: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.admin-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.admin-content-scroll {
+  flex-grow: 1;
+  overflow-y: auto;
+  padding: 2rem;
+}
+
+/* Dashboard Masonry Layout */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+
+@media (max-width: 1200px) {
+  .dashboard-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+  .admin-sidebar {
+    position: absolute;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+  }
+  .admin-sidebar.open {
+    transform: translateX(0);
+  }
+}
+
+.action-buttons-row {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.action-buttons-row .btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 1.25rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  transition: all 0.2s ease;
+}
+
+.action-buttons-row .btn:hover {
+  background: rgba(207, 161, 58, 0.1);
+  border-color: var(--primary-gold);
+  transform: translateY(-2px);
+}
+
+.sync-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  background: rgba(255,255,255,0.05);
+  padding: 0.4rem 0.8rem;
+  border-radius: 20px;
+}
+.sync-indicator.online {
+  color: var(--emerald-accent);
+}
+.sync-indicator.offline {
+  color: var(--danger-accent);
+}
+
