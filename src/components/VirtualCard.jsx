@@ -1,5 +1,7 @@
-import React, { useState, useRef } from 'react';
-import { QrCode, Shield } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { Shield } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
+import { buildCredentialQRPayload } from '../domain/credentials/qr';
 
 export default function VirtualCard({ member }) {
   const cardRef = useRef(null);
@@ -184,40 +186,55 @@ export default function VirtualCard({ member }) {
         </div>
 
         {/* === BOTTOM ROW === */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', position: 'relative', zIndex: 2 }}>
-          <div>
-            <div style={{ fontSize: '0.55rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'rgba(255,255,255,0.35)', marginBottom: '0.25rem' }}>
-              Titular
-            </div>
-            <div style={{
-              fontFamily: "'Playfair Display', serif",
-              fontSize: '0.92rem', fontWeight: '700',
-              color: '#fff',
-              letterSpacing: '0.04em',
-              textShadow: '0 1px 4px rgba(0,0,0,0.5)',
-              maxWidth: '180px',
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}>
-              {member?.name}
-            </div>
-            <div style={{ marginTop: '0.35rem' }}>
-              <span style={{
-                fontSize: '0.6rem', fontWeight: '800',
-                textTransform: 'uppercase', letterSpacing: '0.1em',
-                color: t.accent,
-                background: `${t.accent}15`,
-                border: `1px solid ${t.accent}40`,
-                padding: '0.15rem 0.5rem',
-                borderRadius: '6px',
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', position: 'relative', zIndex: 2, gap: '0.65rem' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: '0.65rem', minWidth: 0 }}>
+            {member?.photo && (
+              <div style={{
+                width: 44,
+                height: 44,
+                borderRadius: 10,
+                overflow: 'hidden',
+                flexShrink: 0,
+                border: `1px solid ${t.accent}55`,
+                boxShadow: `0 2px 10px rgba(0,0,0,0.45)`,
               }}>
-                {t.label}
-              </span>
+                <img src={member.photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              </div>
+            )}
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: '0.55rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'rgba(255,255,255,0.35)', marginBottom: '0.25rem' }}>
+                Titular
+              </div>
+              <div style={{
+                fontFamily: "'Playfair Display', serif",
+                fontSize: '0.92rem', fontWeight: '700',
+                color: '#fff',
+                letterSpacing: '0.04em',
+                textShadow: '0 1px 4px rgba(0,0,0,0.5)',
+                maxWidth: member?.photo ? '140px' : '180px',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}>
+                {member?.name}
+              </div>
+              <div style={{ marginTop: '0.35rem' }}>
+                <span style={{
+                  fontSize: '0.6rem', fontWeight: '800',
+                  textTransform: 'uppercase', letterSpacing: '0.1em',
+                  color: t.accent,
+                  background: `${t.accent}15`,
+                  border: `1px solid ${t.accent}40`,
+                  padding: '0.15rem 0.5rem',
+                  borderRadius: '6px',
+                }}>
+                  {t.label}
+                </span>
+              </div>
             </div>
           </div>
 
-          {/* QR Code */}
+          {/* QR Code real: codifica la credencial del socio */}
           <div style={{
             background: 'rgba(255,255,255,0.96)',
             borderRadius: '10px',
@@ -229,7 +246,7 @@ export default function VirtualCard({ member }) {
             width: '48px', height: '48px',
             flexShrink: 0,
           }}>
-            <QrCode size={36} color="#060e0a" strokeWidth={1.5} />
+            <QRCodeSVG value={buildCredentialQRPayload(member)} size={38} level="M" bgColor="transparent" fgColor="#060e0a" />
           </div>
         </div>
 

@@ -1,16 +1,70 @@
-# React + Vite
+# Jockey Club San Juan — Portal Institucional
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Sistema de socios y ERP operativo para la **Sede Rivadavia**: reservas, contabilidad de partida doble, cajas, gastos, personal, eventos, alertas y control de acceso.
 
-Currently, two official plugins are available:
+**Versión:** 1.0.0
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Stack
 
-## React Compiler
+- React 19 + Vite 8 + React Router
+- Dominio contable y permisos por rol (`src/domain`)
+- Supabase listo (Auth, Postgres, RLS) vía migraciones en `supabase/migrations`
+- Tests de dominio con Vitest
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Arranque
 
-## Expanding the ESLint configuration
+```bash
+npm install
+npm run dev
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Build de producción:
+
+```bash
+npm run build
+npm run preview
+```
+
+Tests:
+
+```bash
+npm test
+```
+
+## Acceso
+
+El portal exige login. En desarrollo, los accesos de prueba están **ocultos** detrás de un enlace discreto en la pantalla de ingreso (clave `jockey2026`):
+
+| Email | Rol |
+|-------|-----|
+| `socio@jockey.sj` | Socio |
+| `caja@jockey.sj` | Cajero |
+| `contabilidad@jockey.sj` | Contador |
+| `personal@jockey.sj` | Personal |
+| `admin@jockey.sj` | Administrador |
+
+Para ocultarlos del todo: `VITE_SHOW_DEMO_LOGINS=false` en `.env`.
+
+## Producción (Supabase)
+
+1. Crear un proyecto Supabase **dedicado** al club.
+2. Copiar `.env.example` → `.env` y completar URL + anon key.
+3. Aplicar migraciones: `npx supabase db push`
+4. Crear usuarios reales en Auth y perfiles con rol (`member`, `cashier`, `accountant`, `staff`, `admin`).
+
+## Seguridad operativa
+
+- Sin toggle de rol en la UI: el perfil lo define la sesión.
+- Admin y submódulos contables filtrados por permiso.
+- `ErrorBoundary` ante fallos de interfaz.
+- PWA / Service Worker solo en build de producción.
+- Meta `noindex` (portal privado).
+
+## Rutas
+
+| Ruta | Uso |
+|------|-----|
+| `/` | Inicio socio (u redirección al panel operativo) |
+| `/reservas` | Reservas de instalaciones |
+| `/revista` | Revista / noticias |
+| `/panel/:tab?` | ERP interno (según rol) |

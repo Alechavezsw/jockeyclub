@@ -1,30 +1,82 @@
-import { useState } from 'react';
-import { BookOpen, Plus, DollarSign, PieChart, ShieldAlert, CheckCircle2, Trash2, Printer, Search, TrendingUp, Book } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { BookOpen, Plus, DollarSign, PieChart, ShieldAlert, CheckCircle2, Trash2, Printer, Search, TrendingUp, Book, ListTree, Wallet, Receipt } from 'lucide-react';
+import {
+  DEFAULT_CHART_OF_ACCOUNTS,
+  getPostableAccounts,
+  getAccountById,
+  resolveAccountId,
+} from '../domain/accounting/chartOfAccounts';
+import {
+  formatCurrency,
+  getAccountBalance as domainAccountBalance,
+  buildPostedEntry,
+  normalizeLines,
+} from '../domain/accounting/journal';
+import ChartOfAccountsPanel from './erp/ChartOfAccountsPanel';
+import CashRegistersPanel from './erp/CashRegistersPanel';
+import ExpensesPanel from './erp/ExpensesPanel';
+import { allowedAccountingSubtabs } from '../domain/auth/roles';
+import { useAuth } from '../context/AuthContext';
 
 const ACCOUNT_PLAN = {
-  activos: ['Caja', 'Banco Nación', 'Equipamiento Canchas', 'Caballos Criollos'],
+  activos: ['Caja General', 'Caja Cantina', 'Banco Nación', 'Equipamiento Canchas', 'Caballos Criollos'],
   pasivos: ['Proveedores Hípicos', 'Sueldos a Pagar', 'Impuestos Pendientes'],
   patrimonioNeto: ['Capital Social', 'Resultados Acumulados'],
-  ingresos: ['Cuotas Sociales', 'Reservas Gourmet', 'Concesión Golf'],
-  gastos: ['Sueldos y Jornales', 'Mantenimiento de Canchas', 'Alimento Equino']
+  ingresos: ['Cuotas Sociales', 'Reservas e Instalaciones', 'Concesión Gastronómica', 'Eventos y Fiestas'],
+  gastos: ['Sueldos y Jornales', 'Mantenimiento de Canchas', 'Alimento Equino', 'Servicios e Insumos', 'Gastos de Eventos']
 };
 
-const ALL_ACCOUNTS = [
-  ...ACCOUNT_PLAN.activos,
-  ...ACCOUNT_PLAN.pasivos,
-  ...ACCOUNT_PLAN.patrimonioNeto,
-  ...ACCOUNT_PLAN.ingresos,
-  ...ACCOUNT_PLAN.gastos
-];
+function lineAccountName(line, chart) {
+  if (line.account) return line.account;
+  return getAccountById(chart, line.accountId)?.name || line.accountId || '—';
+}
 
-export default function AccountingTab({ journalEntries, addJournalEntry }) {
-  const [subTab, setSubTab] = useState('diary');
+function lineSide(line) {
+  if (line.type) return line.type;
+  return (Number(line.credit) || 0) > 0 ? 'credit' : 'debit';
+}
+
+function lineAmount(line) {
+  if (line.amount != null && line.amount !== '') return Number(line.amount) || 0;
+  return Number(line.debit) || Number(line.credit) || 0;
+}
+
+export default function AccountingTab({
+  journalEntries,
+  addJournalEntry,
+  chartOfAccounts = DEFAULT_CHART_OF_ACCOUNTS,
+  setChartOfAccounts,
+  cashRegisters = [],
+  cashSessions = [],
+  cashMovements = [],
+  openRegister,
+  closeRegister,
+  addCashMovement,
+  expenses = [],
+  submitExpense,
+  setExpenseApproved,
+  setExpenseRejected,
+  setExpensePaid,
+  initialSubTab = null,
+}) {
+  const { role } = useAuth();
+  const accountingTabs = allowedAccountingSubtabs(role || 'admin');
+  const [subTab, setSubTab] = useState(() =>
+    initialSubTab && accountingTabs.includes(initialSubTab) ? initialSubTab : accountingTabs[0] || 'diary'
+  );
+  const postableAccounts = useMemo(() => getPostableAccounts(chartOfAccounts), [chartOfAccounts]);
+  const ALL_ACCOUNTS = useMemo(() => postableAccounts.map((a) => a.name), [postableAccounts]);
+
+  useEffect(() => {
+    const tabs = allowedAccountingSubtabs(role || 'admin');
+    if (!tabs.includes(subTab)) setSubTab(tabs[0] || 'diary');
+  }, [role, subTab]);
   
   // Estado para el formulario de nuevo asiento contable
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [description, setDescription] = useState('');
   const [lines, setLines] = useState([
-    { account: 'Caja', type: 'debit', amount: '' },
+    { account: 'Caja General', type: 'debit', amount: '' },
     { account: 'Cuotas Sociales', type: 'credit', amount: '' }
   ]);
   const [formSuccess, setFormSuccess] = useState(false);
@@ -36,15 +88,10 @@ export default function AccountingTab({ journalEntries, addJournalEntry }) {
   const [filterEndDate, setFilterEndDate] = useState('');
 
   // Estado para Libro Mayor
-  const [selectedMayorAccount, setSelectedMayorAccount] = useState('Caja');
+  const [selectedMayorAccount, setSelectedMayorAccount] = useState('Caja General');
 
   // Estado para interactividad de gráficos SVG
   const [hoveredExpenseSegment, setHoveredExpenseSegment] = useState(null);
-
-  // Formatear moneda argentina
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 }).format(amount);
-  };
 
   // Dinámicamente calcular totales de Debe y Haber del formulario activo
   const totalDebit = lines
@@ -60,7 +107,7 @@ export default function AccountingTab({ journalEntries, addJournalEntry }) {
 
   // Manejar adición de una fila de cuenta en el formulario
   const addLine = () => {
-    setLines([...lines, { account: 'Caja', type: 'debit', amount: '' }]);
+    setLines([...lines, { account: 'Caja General', type: 'debit', amount: '' }]);
   };
 
   // Eliminar una fila de cuenta en el formulario
@@ -79,7 +126,7 @@ export default function AccountingTab({ journalEntries, addJournalEntry }) {
     }));
   };
 
-  // Guardar asiento legal
+  // Guardar asiento legal (partida doble validada + cuenta del plan)
   const handleSaveEntry = (e) => {
     e.preventDefault();
     if (!isBalanced) {
@@ -87,60 +134,36 @@ export default function AccountingTab({ journalEntries, addJournalEntry }) {
       return;
     }
 
-    const cleanLines = lines.map(l => ({
-      account: l.account,
-      type: l.type,
-      amount: parseFloat(l.amount)
-    }));
-
-    const newEntry = {
-      date,
-      description,
-      lines: cleanLines,
-      id: Date.now()
-    };
-
-    addJournalEntry(newEntry);
-    setFormSuccess(true);
-    setFormError('');
-
-    // Resetear formulario
-    setDescription('');
-    setLines([
-      { account: 'Caja', type: 'debit', amount: '' },
-      { account: 'Cuotas Sociales', type: 'credit', amount: '' }
-    ]);
-
-    setTimeout(() => {
-      setFormSuccess(false);
-      setSubTab('diary');
-    }, 2000);
+    try {
+      const newEntry = buildPostedEntry({
+        date,
+        description,
+        lines,
+        sourceModule: 'manual',
+        chart: chartOfAccounts,
+      });
+      addJournalEntry(newEntry);
+      setFormSuccess(true);
+      setFormError('');
+      setDescription('');
+      setLines([
+        { account: 'Caja General', type: 'debit', amount: '' },
+        { account: 'Cuotas Sociales', type: 'credit', amount: '' }
+      ]);
+      setTimeout(() => {
+        setFormSuccess(false);
+        setSubTab('diary');
+      }, 2000);
+    } catch (err) {
+      setFormError(err.message || 'No se pudo guardar el asiento.');
+    }
   };
 
-  // --- CÁLCULO DINÁMICO DE BALANCES EN BASE A LOS ASIENTOS DIARIOS ---
-  
-  // Obtener saldo neto de cada cuenta contable en base a los asientos del Libro Diario
+  // --- CÁLCULO DINÁMICO DE BALANCES (soporta asientos legacy y accountId) ---
   const getAccountBalance = (accountName) => {
-    let balance = 0;
-    journalEntries.forEach(entry => {
-      entry.lines.forEach(line => {
-        if (line.account === accountName) {
-          const amt = parseFloat(line.amount) || 0;
-          
-          // Reglas de saldo según el tipo de cuenta
-          const isAssetOrExpense = ACCOUNT_PLAN.activos.includes(accountName) || ACCOUNT_PLAN.gastos.includes(accountName);
-          
-          if (isAssetOrExpense) {
-            // Activos y Gastos aumentan por el Debe (debit) y disminuyen por el Haber (credit)
-            balance += line.type === 'debit' ? amt : -amt;
-          } else {
-            // Pasivos, PN e Ingresos aumentan por el Haber (credit) y disminuyen por el Debe (debit)
-            balance += line.type === 'credit' ? amt : -amt;
-          }
-        }
-      });
-    });
-    return balance;
+    const accountId = resolveAccountId(chartOfAccounts, accountName);
+    if (!accountId) return 0;
+    return domainAccountBalance(accountId, journalEntries, chartOfAccounts);
   };
 
   // Dinamizar sumatoria de categorías
@@ -163,9 +186,10 @@ export default function AccountingTab({ journalEntries, addJournalEntry }) {
 
   // --- FILTRO DE LIBRO DIARIO ---
   const filteredJournalEntries = journalEntries.filter(entry => {
-    const matchesSearch = 
-      entry.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      entry.lines.some(l => l.account.toLowerCase().includes(searchTerm.toLowerCase()));
+    const concept = (entry.description || entry.concept || '').toLowerCase();
+    const matchesSearch =
+      concept.includes(searchTerm.toLowerCase()) ||
+      entry.lines.some((l) => lineAccountName(l, chartOfAccounts).toLowerCase().includes(searchTerm.toLowerCase()));
 
     const entryDateStr = entry.date;
     const matchesStart = filterStartDate ? entryDateStr >= filterStartDate : true;
@@ -178,43 +202,35 @@ export default function AccountingTab({ journalEntries, addJournalEntry }) {
   const getMayorReport = (accountName) => {
     let runningBalance = 0;
     const ledgerLines = [];
+    const accountId = resolveAccountId(chartOfAccounts, accountName);
+    const isAssetOrExpense = ACCOUNT_PLAN.activos.includes(accountName) || ACCOUNT_PLAN.gastos.includes(accountName);
 
-    // Recorrer cronológicamente para calcular el saldo acumulado (antiguos a nuevos)
     const chronologicalEntries = [...journalEntries].reverse();
 
-    chronologicalEntries.forEach(entry => {
-      entry.lines.forEach(line => {
-        if (line.account === accountName) {
-          const amt = parseFloat(line.amount) || 0;
-          const isAssetOrExpense = ACCOUNT_PLAN.activos.includes(accountName) || ACCOUNT_PLAN.gastos.includes(accountName);
-          
-          let debitVal = 0;
-          let creditVal = 0;
-
-          if (line.type === 'debit') {
-            debitVal = amt;
-            runningBalance += isAssetOrExpense ? amt : -amt;
-          } else {
-            creditVal = amt;
-            runningBalance += isAssetOrExpense ? -amt : amt;
-          }
-
-          ledgerLines.push({
-            id: entry.id,
-            date: entry.date,
-            description: entry.description,
-            debit: debitVal,
-            credit: creditVal,
-            balance: runningBalance
-          });
+    chronologicalEntries.forEach((entry) => {
+      normalizeLines(entry.lines || [], chartOfAccounts).forEach((line) => {
+        if (line.accountId !== accountId) return;
+        const debitVal = line.debit;
+        const creditVal = line.credit;
+        if (isAssetOrExpense) {
+          runningBalance += debitVal - creditVal;
+        } else {
+          runningBalance += creditVal - debitVal;
         }
+        ledgerLines.push({
+          id: entry.id,
+          date: entry.date,
+          description: entry.description || entry.concept,
+          debit: debitVal,
+          credit: creditVal,
+          balance: runningBalance,
+        });
       });
     });
 
-    // Devolver invertido (más recientes primero) para la tabla de visualización
     return {
       lines: ledgerLines.reverse(),
-      finalBalance: runningBalance
+      finalBalance: runningBalance,
     };
   };
 
@@ -239,53 +255,41 @@ export default function AccountingTab({ journalEntries, addJournalEntry }) {
         </div>
       </div>
 
-      {/* Selector de Sub-pestañas Internas */}
+      {/* Selector de Sub-pestañas Internas (filtrado por rol) */}
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-        <button
-          onClick={() => setSubTab('diary')}
-          className={`filter-btn ${subTab === 'diary' ? 'active' : ''}`}
-          style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 1rem' }}
-        >
-          <BookOpen size={14} /> Libro Diario
-        </button>
-        <button
-          onClick={() => setSubTab('mayor')}
-          className={`filter-btn ${subTab === 'mayor' ? 'active' : ''}`}
-          style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 1rem' }}
-        >
-          <Book size={14} /> Libro Mayor
-        </button>
-        <button
-          onClick={() => setSubTab('create')}
-          className={`filter-btn ${subTab === 'create' ? 'active' : ''}`}
-          style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 1rem' }}
-        >
-          <Plus size={14} /> Crear Asiento Legal
-        </button>
-        <button
-          onClick={() => setSubTab('balance')}
-          className={`filter-btn ${subTab === 'balance' ? 'active' : ''}`}
-          style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 1rem' }}
-        >
-          <PieChart size={14} /> Balance General
-        </button>
-        <button
-          onClick={() => setSubTab('results')}
-          className={`filter-btn ${subTab === 'results' ? 'active' : ''}`}
-          style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 1rem' }}
-        >
-          <DollarSign size={14} /> Estado de Resultados
-        </button>
-        <button
-          onClick={() => setSubTab('charts')}
-          className={`filter-btn ${subTab === 'charts' ? 'active' : ''}`}
-          style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 1rem', background: 'rgba(16, 185, 129, 0.05)', borderColor: 'rgba(16, 185, 129, 0.2)' }}
-        >
-          <TrendingUp size={14} style={{ color: 'var(--emerald-accent)' }} /> Reportes & Gráficos
-        </button>
+        {[
+          { key: 'diary', icon: <BookOpen size={14} />, label: 'Libro Diario' },
+          { key: 'mayor', icon: <Book size={14} />, label: 'Libro Mayor' },
+          { key: 'create', icon: <Plus size={14} />, label: 'Crear Asiento Legal' },
+          { key: 'balance', icon: <PieChart size={14} />, label: 'Balance General' },
+          { key: 'results', icon: <DollarSign size={14} />, label: 'Estado de Resultados' },
+          { key: 'charts', icon: <TrendingUp size={14} style={{ color: 'var(--emerald-accent)' }} />, label: 'Reportes & Gráficos', accent: true },
+          { key: 'plan', icon: <ListTree size={14} />, label: 'Plan de Cuentas' },
+          { key: 'cash', icon: <Wallet size={14} />, label: 'Cajas' },
+          { key: 'expenses', icon: <Receipt size={14} />, label: 'Gastos' },
+        ]
+          .filter((tab) => accountingTabs.includes(tab.key))
+          .map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setSubTab(tab.key)}
+              className={`filter-btn ${subTab === tab.key ? 'active' : ''}`}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                padding: '0.5rem 1rem',
+                ...(tab.accent
+                  ? { background: 'rgba(16, 185, 129, 0.05)', borderColor: 'rgba(16, 185, 129, 0.2)' }
+                  : {}),
+              }}
+            >
+              {tab.icon} {tab.label}
+            </button>
+          ))}
 
         {/* Botón de Impresión de Reportes */}
-        {subTab !== 'create' && (
+        {subTab !== 'create' && subTab !== 'plan' && subTab !== 'cash' && subTab !== 'expenses' && (
           <button 
             onClick={handlePrint}
             className="btn btn-secondary btn-sm"
@@ -372,7 +376,12 @@ export default function AccountingTab({ journalEntries, addJournalEntry }) {
 
                 {/* Glosa o Explicación */}
                 <p style={{ fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '0.75rem', fontStyle: 'italic' }}>
-                  "{entry.description}"
+                  "{entry.description || entry.concept}"
+                  {entry.sourceModule && entry.sourceModule !== 'manual' ? (
+                    <span style={{ fontStyle: 'normal', marginLeft: 8, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                      [{entry.sourceModule}]
+                    </span>
+                  ) : null}
                 </p>
 
                 {/* Tabla de Cuentas */}
@@ -386,7 +395,8 @@ export default function AccountingTab({ journalEntries, addJournalEntry }) {
 
                   {/* Filas de Cuentas */}
                   {entry.lines.map((line, lIndex) => {
-                    const isCredit = line.type === 'credit';
+                    const isCredit = lineSide(line) === 'credit';
+                    const amt = lineAmount(line);
                     return (
                       <div 
                         key={lIndex} 
@@ -399,13 +409,13 @@ export default function AccountingTab({ journalEntries, addJournalEntry }) {
                         }}
                       >
                         <div style={{ paddingLeft: isCredit ? '2rem' : '0', color: isCredit ? 'var(--text-secondary)' : 'var(--text-primary)' }}>
-                          {isCredit ? 'a ' : ''}{line.account}
+                          {isCredit ? 'a ' : ''}{lineAccountName(line, chartOfAccounts)}
                         </div>
                         <div style={{ textAlign: 'right', color: 'var(--text-primary)' }}>
-                          {!isCredit ? formatCurrency(line.amount) : '-'}
+                          {!isCredit ? formatCurrency(amt) : '-'}
                         </div>
                         <div style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>
-                          {isCredit ? formatCurrency(line.amount) : '-'}
+                          {isCredit ? formatCurrency(amt) : '-'}
                         </div>
                       </div>
                     );
@@ -1044,7 +1054,7 @@ export default function AccountingTab({ journalEntries, addJournalEntry }) {
                     <div style={{ position: 'absolute', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', width: '80px' }}>
                       {hoveredExpenseSegment ? (
                         <>
-                          <span style={{ fontSize: '1rem', fontWeight: '800', color: '#fff', lineHeight: 1 }}>
+                          <span style={{ fontSize: '1rem', fontWeight: '800', color: 'var(--text-strong)', lineHeight: 1 }}>
                             {Math.round((getAccountBalance(hoveredExpenseSegment) / totalGastos) * 100)}%
                           </span>
                           <span style={{ fontSize: '0.52rem', color: 'var(--text-secondary)', textTransform: 'uppercase', marginTop: '0.15rem', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '65px' }}>
@@ -1053,7 +1063,7 @@ export default function AccountingTab({ journalEntries, addJournalEntry }) {
                         </>
                       ) : (
                         <>
-                          <span style={{ fontSize: '0.9rem', fontWeight: '800', color: '#fff', lineHeight: 1 }}>
+                          <span style={{ fontSize: '0.9rem', fontWeight: '800', color: 'var(--text-strong)', lineHeight: 1 }}>
                             {formatCurrency(totalGastos)}
                           </span>
                           <span style={{ fontSize: '0.55rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Egresos</span>
@@ -1089,11 +1099,11 @@ export default function AccountingTab({ journalEntries, addJournalEntry }) {
                           >
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', maxWidth: '70%' }}>
                               <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: colors[idx % colors.length], display: 'inline-block', flexShrink: 0 }} />
-                              <span style={{ color: isHovered ? '#fff' : 'var(--text-secondary)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                              <span style={{ color: isHovered ? 'var(--text-strong)' : 'var(--text-secondary)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
                                 {gAccount}
                               </span>
                             </div>
-                            <strong style={{ color: isHovered ? 'var(--primary-gold)' : '#fff', flexShrink: 0 }}>
+                            <strong style={{ color: isHovered ? 'var(--primary-gold)' : 'var(--text-strong)', flexShrink: 0 }}>
                               {pct}%
                             </strong>
                           </div>
@@ -1107,6 +1117,37 @@ export default function AccountingTab({ journalEntries, addJournalEntry }) {
 
           </div>
         </div>
+      )}
+
+      {subTab === 'plan' && setChartOfAccounts && (
+        <ChartOfAccountsPanel
+          chartOfAccounts={chartOfAccounts}
+          setChartOfAccounts={setChartOfAccounts}
+          journalEntries={journalEntries}
+        />
+      )}
+
+      {subTab === 'cash' && openRegister && (
+        <CashRegistersPanel
+          cashRegisters={cashRegisters}
+          cashSessions={cashSessions}
+          cashMovements={cashMovements}
+          chartOfAccounts={chartOfAccounts}
+          openRegister={openRegister}
+          closeRegister={closeRegister}
+          addCashMovement={addCashMovement}
+        />
+      )}
+
+      {subTab === 'expenses' && submitExpense && (
+        <ExpensesPanel
+          expenses={expenses}
+          chartOfAccounts={chartOfAccounts}
+          submitExpense={submitExpense}
+          setExpenseApproved={setExpenseApproved}
+          setExpenseRejected={setExpenseRejected}
+          setExpensePaid={setExpensePaid}
+        />
       )}
     </div>
   );

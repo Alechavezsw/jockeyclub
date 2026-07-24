@@ -1,0 +1,182 @@
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { isSupabaseConfigured, supabase } from '../lib/supabase';
+import { DEMO_USERS } from '../domain/auth/demoUsers';
+import { ROLE_LABELS, canAccessAdmin } from '../domain/auth/roles';
+
+const AuthContext = createContext(null);
+const SESSION_KEY = 'jockey-auth-session';
+
+function loadLocalSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function mapProfile(sessionUser, profileRow) {
+  return {
+    id: sessionUser.id,
+    email: sessionUser.email,
+    fullName: profileRow?.full_name || sessionUser.user_metadata?.full_name || sessionUser.email,
+    role: profileRow?.role || sessionUser.user_metadata?.role || 'member',
+    memberId: profileRow?.member_number || sessionUser.user_metadata?.memberId || null,
+    isLocal: !isSupabaseConfigured,
+  };
+}
+
+export function AuthProvider({ children }) {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [authError, setAuthError] = useState('');
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function boot() {
+      setLoading(true);
+      try {
+        if (isSupabaseConfigured && supabase) {
+          const { data } = await supabase.auth.getSession();
+          const session = data?.session;
+          if (session?.user) {
+            const { data: profile } = await supabase
+              .from('profiles')
+              .select('full_name, role')
+              .eq('id', session.user.id)
+              .maybeSingle();
+
+            let memberNumber = null;
+            if (profile?.role === 'member') {
+              const { data: member } = await supabase
+                .from('members')
+                .select('member_number')
+                .eq('profile_id', session.user.id)
+                .maybeSingle();
+              memberNumber = member?.member_number || null;
+            }
+
+            if (mounted) {
+              setUser(
+                mapProfile(session.user, {
+                  ...profile,
+                  member_number: memberNumber,
+                })
+              );
+            }
+          } else if (mounted) {
+            setUser(null);
+          }
+
+          const { data: sub } = supabase.auth.onAuthStateChange(async (_event, nextSession) => {
+            if (!nextSession?.user) {
+              setUser(null);
+              return;
+            }
+            const { data: profile } = await supabase
+              .from('profiles')
+              .select('full_name, role')
+              .eq('id', nextSession.user.id)
+              .maybeSingle();
+            setUser(mapProfile(nextSession.user, profile));
+          });
+
+          return () => sub?.subscription?.unsubscribe?.();
+        }
+
+        const local = loadLocalSession();
+        if (mounted) setUser(local);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    }
+
+    const cleanupPromise = boot();
+    return () => {
+      mounted = false;
+      Promise.resolve(cleanupPromise).then((cleanup) => cleanup?.());
+    };
+  }, []);
+
+  const login = useCallback(async ({ email, password }) => {
+    setAuthError('');
+    const normalized = email.trim().toLowerCase();
+
+    if (isSupabaseConfigured && supabase) {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: normalized,
+        password,
+      });
+      if (error) {
+        setAuthError(error.message || 'No se pudo iniciar sesión.');
+        throw error;
+      }
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('full_name, role')
+        .eq('id', data.user.id)
+        .maybeSingle();
+      const mapped = mapProfile(data.user, profile);
+      setUser(mapped);
+      return mapped;
+    }
+
+    const demo = DEMO_USERS.find(
+      (u) => u.email === normalized && u.password === password
+    );
+    if (!demo) {
+      const err = new Error('Credenciales inválidas.');
+      setAuthError(err.message);
+      throw err;
+    }
+    const sessionUser = {
+      id: demo.id,
+      email: demo.email,
+      fullName: demo.fullName,
+      role: demo.role,
+      memberId: demo.memberId,
+      isLocal: true,
+    };
+    localStorage.setItem(SESSION_KEY, JSON.stringify(sessionUser));
+    setUser(sessionUser);
+    return sessionUser;
+  }, []);
+
+  const logout = useCallback(async () => {
+    setAuthError('');
+    if (isSupabaseConfigured && supabase) {
+      await supabase.auth.signOut();
+    }
+    localStorage.removeItem(SESSION_KEY);
+    // Compat: limpiar toggle legacy
+    localStorage.removeItem('jockey-role');
+    setUser(null);
+  }, []);
+
+  const value = useMemo(
+    () => ({
+      user,
+      loading,
+      authError,
+      isAuthenticated: Boolean(user),
+      role: user?.role || null,
+      roleLabel: user ? ROLE_LABELS[user.role] || user.role : null,
+      canAccessAdmin: user ? canAccessAdmin(user.role) : false,
+      isSupabase: isSupabaseConfigured,
+      login,
+      logout,
+      setAuthError,
+    }),
+    [user, loading, authError, login, logout]
+  );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+// eslint-disable-next-line react-refresh/only-export-components -- hook de conveniencia junto al provider
+export function useAuth() {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth debe usarse dentro de AuthProvider');
+  return ctx;
+}

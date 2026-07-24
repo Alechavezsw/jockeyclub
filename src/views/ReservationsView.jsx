@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
-import { 
-  Calendar, Clock, Users, Shield, CheckCircle2, ChevronRight, X, AlertCircle, 
+import { useState } from 'react';
+import {
+  Clock, Users, Shield, CheckCircle2, ChevronRight, X, AlertCircle,
   Wind, Thermometer, ShieldAlert, Sparkles, Utensils, Award
 } from 'lucide-react';
+import { hasReservationConflict } from '../domain/reservations/conflicts';
 
 const FACILITIES = [
   // 1. Deportes de Cancha
@@ -267,14 +268,8 @@ export default function ReservationsView({ member, reservations, addReservation,
     setSelectedFacility(null);
   };
 
-  const isSlotTaken = (facilityId, checkDate, checkTime) => {
-    return reservations.some(res => 
-      res.facilityId === facilityId && 
-      res.date === checkDate && 
-      res.time === checkTime &&
-      res.status !== 'cancelled'
-    );
-  };
+  const isSlotTaken = (facilityId, checkDate, checkTime) =>
+    hasReservationConflict(reservations, { facilityId, date: checkDate, time: checkTime });
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -311,7 +306,11 @@ export default function ReservationsView({ member, reservations, addReservation,
       status: 'confirmed'
     };
 
-    addReservation(newReservation);
+    const result = addReservation(newReservation);
+    if (result && result.ok === false) {
+      setErrorMessage(result.error);
+      return;
+    }
     setBookingSuccess(true);
     setErrorMessage('');
 
@@ -495,7 +494,7 @@ export default function ReservationsView({ member, reservations, addReservation,
         <div className="zonda-warning-header fade-in">
           <Wind size={20} style={{ flexShrink: 0, marginTop: '2px' }} />
           <div>
-            <strong style={{ display: 'block', color: '#fff', marginBottom: '0.2rem', fontSize: '0.95rem' }}>
+            <strong style={{ display: 'block', color: 'var(--text-strong)', marginBottom: '0.2rem', fontSize: '0.95rem' }}>
               ⚠️ RESTRICCIÓN ACTIVA: VIENTO ZONDA EN RIVADAVIA
             </strong>
             Debido a las fuertes ráfagas y el polvo en suspensión, las actividades y reservas en canchas y pistas al aire libre se encuentran **suspendidas** temporalmente. Puede continuar reservando las disciplinas en salones climatizados y gimnasio cubierto.
@@ -678,7 +677,8 @@ export default function ReservationsView({ member, reservations, addReservation,
                   </div>
 
                   {/* Selector de Acompañantes */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '1rem', alignItems: 'end' }}>
+                  <div className="res-guests-row" style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '1rem', alignItems: 'end' }}>
+                    <style>{`@media (max-width: 520px) { .res-guests-row { grid-template-columns: 1fr !important; } }`}</style>
                     <div className="form-group" style={{ marginBottom: 0 }}>
                       <label className="form-label">Invitados</label>
                       <select 

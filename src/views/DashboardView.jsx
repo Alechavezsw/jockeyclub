@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import VirtualCard from '../components/VirtualCard';
-import { 
-  Calendar, CreditCard, Award, MapPin, CloudSun, Compass, ShieldAlert, 
-  ArrowRight, UserCheck, Mail, Users, Send, MessageSquare, CheckCircle2, 
-  Clock, Info, ChevronRight, X, Sparkles, Radio, Bell, TrendingUp,
-  Zap, Star, Activity, Heart, Trophy, Target, BarChart3, Sun, Wind
+import {
+  Calendar, CreditCard, MapPin, ShieldAlert,
+  ArrowRight, Mail, Users, Send, MessageSquare, CheckCircle2,
+  Clock, Info, ChevronRight, X, Sparkles, Radio, Bell,
+  Activity, Trophy, Wind
 } from 'lucide-react';
 
 export default function DashboardView({ 
@@ -12,9 +12,8 @@ export default function DashboardView({
   reservations, 
   cancelReservation, 
   setCurrentView, 
-  latestNews, 
+  latestNews,
   staffMembers = [],
-  members = [],
   claims = [],
   setClaims,
   messages = [],
@@ -107,9 +106,9 @@ export default function DashboardView({
           border-radius: 20px;
           overflow: hidden;
           margin-bottom: 2rem;
-          background: linear-gradient(135deg, rgba(6,14,10,0.95) 0%, rgba(10,25,16,0.98) 100%);
+          background: linear-gradient(135deg, var(--hero-grad-a) 0%, var(--hero-grad-b) 100%);
           border: 1px solid var(--border-glass);
-          box-shadow: 0 25px 60px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05);
+          box-shadow: var(--shadow-premium), inset 0 1px 0 rgba(255,255,255,0.05);
         }
         .db-hero-bg {
           position: absolute;
@@ -142,7 +141,7 @@ export default function DashboardView({
           font-size: 2.5rem;
           font-weight: 700;
           line-height: 1.1;
-          background: linear-gradient(135deg, #fff 0%, var(--text-secondary) 100%);
+          background: linear-gradient(135deg, var(--text-strong) 0%, var(--text-secondary) 100%);
           -webkit-background-clip: text;
           -webkit-text-fill-color: transparent;
           background-clip: text;
@@ -170,7 +169,7 @@ export default function DashboardView({
         .db-hero-stat-val {
           font-size: 1.75rem;
           font-weight: 800;
-          color: #fff;
+          color: var(--text-strong);
           line-height: 1;
         }
         .db-hero-stat-lbl {
@@ -197,7 +196,7 @@ export default function DashboardView({
           gap: 0.6rem;
           padding: 1.25rem 1rem;
           border-radius: 16px;
-          background: rgba(255,255,255,0.02);
+          background: var(--surface-soft);
           border: 1px solid var(--border-glass);
           cursor: pointer;
           transition: all 0.25s ease;
@@ -240,10 +239,13 @@ export default function DashboardView({
           .db-grid { grid-template-columns: 1fr; }
           .db-quick-bar { grid-template-columns: repeat(2, 1fr); }
         }
+        @media (max-width: 420px) {
+          .db-quick-bar { grid-template-columns: 1fr; }
+        }
 
         /* Cards premium */
         .db-card {
-          background: rgba(10,20,15,0.6);
+          background: var(--surface-card);
           border: 1px solid var(--border-glass);
           border-radius: 18px;
           padding: 1.5rem;
@@ -280,6 +282,13 @@ export default function DashboardView({
           gap: 1rem;
           margin-bottom: 1.5rem;
         }
+        @media (max-width: 900px) {
+          .db-stat-row { grid-template-columns: 1fr 1fr; }
+        }
+        @media (max-width: 520px) {
+          .db-stat-row { grid-template-columns: 1fr; }
+          .db-stat-value { font-size: 1.35rem; }
+        }
         .db-stat-card {
           border-radius: 16px;
           padding: 1.25rem;
@@ -309,6 +318,12 @@ export default function DashboardView({
           grid-template-columns: repeat(3, 1fr);
           gap: 0.75rem;
         }
+        @media (max-width: 900px) {
+          .db-sport-grid { grid-template-columns: 1fr 1fr; }
+        }
+        @media (max-width: 520px) {
+          .db-sport-grid { grid-template-columns: 1fr; }
+        }
         .db-sport-card {
           border-radius: 14px;
           padding: 1rem;
@@ -322,7 +337,7 @@ export default function DashboardView({
           transform: translateY(-2px);
           border-color: rgba(255,255,255,0.1);
         }
-        .db-sport-name { font-size: 0.95rem; font-weight: 700; color: #fff; }
+        .db-sport-name { font-size: 0.95rem; font-weight: 700; color: var(--text-strong); }
         .db-sport-sub { font-size: 0.7rem; color: var(--text-muted); }
         .db-sport-progress-track {
           height: 4px;
@@ -351,7 +366,7 @@ export default function DashboardView({
           border: 1px solid var(--border-glass);
           cursor: pointer;
           transition: all 0.2s ease;
-          background: rgba(255,255,255,0.01);
+          background: var(--surface-softer);
         }
         .db-msg-item.unread {
           border-left: 3px solid var(--primary-gold);
@@ -366,7 +381,7 @@ export default function DashboardView({
           align-items: center;
           padding: 0.85rem 1rem;
           border-radius: 12px;
-          background: rgba(255,255,255,0.02);
+          background: var(--surface-soft);
           border: 1px solid var(--border-glass);
           transition: all 0.2s ease;
           gap: 1rem;
@@ -378,7 +393,7 @@ export default function DashboardView({
         .db-claim-item {
           padding: 1rem;
           border-radius: 12px;
-          background: rgba(255,255,255,0.01);
+          background: var(--surface-softer);
           border: 1px solid var(--border-glass);
           display: flex;
           flex-direction: column;
@@ -394,7 +409,7 @@ export default function DashboardView({
           border: 1px solid var(--border-glass);
           cursor: pointer;
           transition: all 0.2s ease;
-          background: rgba(255,255,255,0.01);
+          background: var(--surface-softer);
           display: grid;
           grid-template-columns: 80px 1fr;
         }
@@ -408,7 +423,7 @@ export default function DashboardView({
           gap: 0.75rem;
           padding: 0.6rem 0.75rem;
           border-radius: 10px;
-          background: rgba(255,255,255,0.01);
+          background: var(--surface-softer);
           border: 1px solid rgba(255,255,255,0.03);
         }
 
@@ -435,14 +450,14 @@ export default function DashboardView({
         .db-weather {
           border-radius: 16px;
           padding: 1.25rem;
-          background: linear-gradient(135deg, rgba(16,185,129,0.08) 0%, rgba(6,14,10,0.6) 100%);
+          background: var(--weather-grad);
           border: 1px solid rgba(16,185,129,0.12);
           display: flex;
           flex-direction: column;
           gap: 1rem;
         }
         .db-weather.zonda {
-          background: linear-gradient(135deg, rgba(239,68,68,0.12) 0%, rgba(6,14,10,0.6) 100%);
+          background: var(--weather-grad-zonda);
           border-color: rgba(239,68,68,0.2);
         }
         .db-temp {
@@ -460,7 +475,7 @@ export default function DashboardView({
           padding: 0.65rem 0.85rem;
           border-radius: 12px;
           border: 1px solid var(--border-glass);
-          background: rgba(255,255,255,0.01);
+          background: var(--surface-softer);
           transition: all 0.2s ease;
         }
         .db-adherent-row:hover { border-color: var(--primary-gold); background: rgba(207,161,58,0.03); }
@@ -588,7 +603,7 @@ export default function DashboardView({
                 <p style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-muted)', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                   <MapPin size={10} /> Rivadavia, San Juan
                 </p>
-                <div className="db-temp" style={{ color: isZondaActive ? '#f87171' : '#fff' }}>
+                <div className="db-temp" style={{ color: isZondaActive ? '#f87171' : 'var(--text-strong)' }}>
                   {isZondaActive ? '38°' : '22°'}
                 </div>
                 <p style={{ fontSize: '0.9rem', fontWeight: '600', marginTop: '0.25rem' }}>{isZondaActive ? 'Viento Zonda Fuerte' : 'Soleado y Templado'}</p>
@@ -831,7 +846,7 @@ export default function DashboardView({
             </div>
 
             {showNewClaimForm && (
-              <form onSubmit={handleCreateClaim} style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-glass)', borderRadius: '14px', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }} className="fade-in">
+              <form onSubmit={handleCreateClaim} style={{ background: 'var(--surface-soft)', border: '1px solid var(--border-glass)', borderRadius: '14px', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }} className="fade-in">
                 {claimSuccess ? (
                   <div style={{ textAlign: 'center', padding: '1rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
                     <CheckCircle2 size={36} color="var(--emerald-accent)" />
@@ -840,7 +855,8 @@ export default function DashboardView({
                   </div>
                 ) : (
                   <>
-                    <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: '0.75rem' }}>
+                    <div className="db-claim-grid" style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: '0.75rem' }}>
+                      <style>{`@media (max-width: 600px) { .db-claim-grid { grid-template-columns: 1fr !important; } }`}</style>
                       <div>
                         <label style={{ fontSize: '0.72rem', textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.05em', display: 'block', marginBottom: '0.35rem' }}>Sector</label>
                         <select className="form-input" value={claimType} onChange={e => setClaimType(e.target.value)} style={{ padding: '0.5rem', fontSize: '0.82rem' }}>
@@ -914,17 +930,17 @@ export default function DashboardView({
                   const colors = ['var(--primary-gold)', 'var(--emerald-accent)', '#818cf8', '#ec4899', '#f59e0b', '#a855f7'];
 
                   return (
-                    <div key={survey.id} style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-glass)', borderRadius: '14px', padding: '1.1rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                    <div key={survey.id} style={{ background: 'var(--surface-softer)', border: '1px solid var(--border-glass)', borderRadius: '14px', padding: '1.1rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.4rem' }}>
                         <span style={{ fontSize: '0.68rem', background: 'rgba(255,255,255,0.05)', padding: '0.15rem 0.5rem', borderRadius: '6px', color: 'var(--text-secondary)', fontWeight: '600' }}>{survey.category}</span>
                         <span style={{ fontSize: '0.68rem', color: survey.active ? 'var(--emerald-accent)' : '#ef4444', fontWeight: '600' }}>{survey.active ? '🟢 Abierta' : '🔴 Cerrada'}</span>
                       </div>
-                      <p style={{ fontSize: '0.9rem', fontWeight: '600', color: '#fff', lineHeight: 1.4 }}>{survey.question}</p>
+                      <p style={{ fontSize: '0.9rem', fontWeight: '600', color: 'var(--text-strong)', lineHeight: 1.4 }}>{survey.question}</p>
 
                       {!hasVoted && survey.active ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
                           {survey.options.map(opt => (
-                            <label key={opt.id} style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', padding: '0.6rem 0.75rem', borderRadius: '10px', border: '1px solid', borderColor: selectedOptions[survey.id] === opt.id ? 'var(--primary-gold)' : 'var(--border-glass)', background: selectedOptions[survey.id] === opt.id ? 'rgba(207,161,58,0.05)' : 'rgba(255,255,255,0.01)', cursor: 'pointer', transition: 'all 0.15s ease', fontSize: '0.82rem', color: 'var(--text-primary)' }}>
+                            <label key={opt.id} style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', padding: '0.6rem 0.75rem', borderRadius: '10px', border: '1px solid', borderColor: selectedOptions[survey.id] === opt.id ? 'var(--primary-gold)' : 'var(--border-glass)', background: selectedOptions[survey.id] === opt.id ? 'rgba(207,161,58,0.05)' : 'var(--surface-softer)', cursor: 'pointer', transition: 'all 0.15s ease', fontSize: '0.82rem', color: 'var(--text-primary)' }}>
                               <input type="radio" name={`survey-${survey.id}`} value={opt.id} checked={selectedOptions[survey.id] === opt.id} onChange={() => setSelectedOptions(prev => ({ ...prev, [survey.id]: opt.id }))} style={{ accentColor: 'var(--primary-gold)', cursor: 'pointer' }} />
                               {opt.text}
                             </label>
@@ -948,7 +964,7 @@ export default function DashboardView({
                               })}
                             </svg>
                             <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
-                              <span style={{ fontSize: activeHoverOpt ? '1.15rem' : '1rem', fontWeight: '800', color: '#fff', lineHeight: 1 }}>{activeHoverOpt ? `${hoverPct}%` : totalVotes}</span>
+                              <span style={{ fontSize: activeHoverOpt ? '1.15rem' : '1rem', fontWeight: '800', color: 'var(--text-strong)', lineHeight: 1 }}>{activeHoverOpt ? `${hoverPct}%` : totalVotes}</span>
                               <span style={{ fontSize: '0.52rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>{activeHoverOpt ? 'votos' : 'Total'}</span>
                             </div>
                           </div>
@@ -960,7 +976,7 @@ export default function DashboardView({
                                 <div key={opt.id} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', cursor: 'pointer', padding: '0.15rem 0.3rem', borderRadius: '6px', background: isHov ? 'rgba(255,255,255,0.03)' : 'transparent', transition: 'background 0.15s' }} onMouseEnter={() => setHoveredSegments(p => ({ ...p, [survey.id]: opt.id }))} onMouseLeave={() => setHoveredSegments(p => ({ ...p, [survey.id]: null }))}>
                                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: colors[i % colors.length], flexShrink: 0, display: 'inline-block' }} />
                                   <span style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{opt.text}</span>
-                                  <strong style={{ color: isHov ? 'var(--primary-gold)' : '#fff', flexShrink: 0 }}>{pct}%</strong>
+                                  <strong style={{ color: isHov ? 'var(--primary-gold)' : 'var(--text-strong)', flexShrink: 0 }}>{pct}%</strong>
                                 </div>
                               );
                             })}
@@ -985,7 +1001,7 @@ export default function DashboardView({
                 Cerrar <X size={16} />
               </button>
             </div>
-            <VirtualCard member={{ name: selectedAdherent.name, memberId: `2026${Math.floor(100000000000 + Math.random() * 900000000000)}`, tier: selectedAdherent.tier, outstandingBalance: selectedAdherent.outstandingBalance, yearsActive: 1, status: selectedAdherent.status }} />
+            <VirtualCard member={{ name: selectedAdherent.name, memberId: `2026${String(Math.abs([...selectedAdherent.id].reduce((h, c) => h * 31 + c.charCodeAt(0), 7))).padEnd(12, '0').slice(0, 12)}`, tier: selectedAdherent.tier, outstandingBalance: selectedAdherent.outstandingBalance, yearsActive: 1, status: selectedAdherent.status }} />
             <div style={{ marginTop: '1rem', background: 'rgba(6,14,10,0.9)', border: '1px solid var(--primary-gold)', padding: '0.85rem 1.25rem', borderRadius: '10px', color: 'var(--text-gold)', fontSize: '0.82rem', textAlign: 'center', maxWidth: '350px' }}>
               <strong style={{ display: 'block', color: '#fff', marginBottom: '0.25rem' }}>Credencial de Adherente Familiar</strong>
               Vinculada a {member.name}. Autorizado para reservas y acceso a sedes deportivas.

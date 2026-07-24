@@ -1,34 +1,35 @@
-import React, { useState } from 'react';
-import { Sun, Moon, Shield, User, Menu, X, Bell } from 'lucide-react';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Sun, Moon, Shield, User, Menu, X, Bell, LogOut, Mail, QrCode } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { navItemsForRole, ROLE_LABELS, canAccessQrGate } from '../domain/auth/roles';
 
-export default function Navbar({ currentView, setCurrentView, userRole, setUserRole, theme, toggleTheme }) {
+export default function Navbar({
+  currentView,
+  setCurrentView,
+  theme,
+  toggleTheme,
+  notifications = [],
+  unreadMessages = 0,
+}) {
+  const { user, role, logout, roleLabel } = useAuth();
+  const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
+  const [showNotifs, setShowNotifs] = useState(false);
 
-  const navItems = [
-    { id: 'dashboard', label: 'Inicio', roles: ['member', 'admin'] },
-    { id: 'reservations', label: 'Reservar Canchas', roles: ['member'] },
-    { id: 'news', label: 'Revista Digital', roles: ['member', 'admin'] },
-    { id: 'admin', label: 'Administración', roles: ['admin'] }
-  ];
+  const visibleItems = navItemsForRole(role || 'member');
+  const showAccessGate = canAccessQrGate(role);
 
   const handleNavClick = (viewId) => {
     setCurrentView(viewId);
     setIsOpen(false);
   };
 
-  const toggleRole = () => {
-    const nextRole = userRole === 'member' ? 'admin' : 'member';
-    setUserRole(nextRole);
-    // Redirigir a inicio al cambiar de rol para evitar inconsistencias
-    if (nextRole === 'member' && currentView === 'admin') {
-      setCurrentView('dashboard');
-    } else if (nextRole === 'admin' && currentView === 'reservations') {
-      setCurrentView('admin');
-    }
+  const handleLogout = async () => {
+    await logout();
+    setCurrentView('dashboard');
+    setIsOpen(false);
   };
-
-  // Filtrar ítems de navegación según el rol activo
-  const visibleItems = navItems.filter(item => item.roles.includes(userRole));
 
   return (
     <nav className="glass-panel" style={{
@@ -41,36 +42,38 @@ export default function Navbar({ currentView, setCurrentView, userRole, setUserR
       borderLeft: 'none',
       borderRight: 'none'
     }}>
-      <div style={{
+      <div className="nav-inner-bar" style={{
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        padding: '1rem 2rem',
+        padding: '1rem 1.25rem',
         maxWidth: '1400px',
         margin: '0 auto',
-        width: '100%'
+        width: '100%',
+        boxSizing: 'border-box',
+        gap: '0.5rem',
       }}>
-        {/* Marca / Logotipo */}
-        <div 
-          onClick={() => handleNavClick('dashboard')} 
-          style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }}
+        <div
+          onClick={() => handleNavClick('dashboard')}
+          style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer', minWidth: 0 }}
         >
-          <img 
-            src="/Gemini_Generated_Image_n1d2h3n1d2h3n1d2.png" 
-            alt="Logo" 
-            style={{ 
-              width: '46px', 
-              height: '46px', 
-              borderRadius: '50%', 
-              objectFit: 'cover', 
+          <img
+            src="/logo-jockey-club.png"
+            alt="Jockey Club San Juan"
+            style={{
+              width: '42px',
+              height: '42px',
+              borderRadius: '50%',
+              objectFit: 'cover',
               border: '2px solid var(--primary-gold)',
-              boxShadow: '0 0 10px rgba(207, 161, 58, 0.4)'
-            }} 
+              boxShadow: '0 0 10px rgba(207, 161, 58, 0.4)',
+              flexShrink: 0,
+            }}
           />
-          <span className="serif-font" style={{
-            fontSize: '1.4rem',
+          <span className="serif-font nav-brand-text" style={{
+            fontSize: 'clamp(1rem, 2.5vw, 1.35rem)',
             fontWeight: '700',
-            letterSpacing: '0.15em',
+            letterSpacing: '0.12em',
             color: 'var(--text-primary)',
             textTransform: 'uppercase'
           }}>
@@ -78,15 +81,18 @@ export default function Navbar({ currentView, setCurrentView, userRole, setUserR
           </span>
         </div>
 
-        {/* Enlaces de Navegación Escritorio */}
-        <div style={{ display: 'none', gap: '1.5rem', alignItems: 'center', WebkitBoxAlign: 'center' }} className="desktop-menu-container">
+        <div style={{ display: 'none', gap: '1.5rem', alignItems: 'center' }} className="desktop-menu-container">
           <style>{`
-            @media (min-width: 768px) {
+            @media (min-width: 1024px) {
               .desktop-menu-container { display: flex !important; }
               .mobile-toggle { display: none !important; }
             }
+            @media (max-width: 480px) {
+              .nav-brand-text { display: none !important; }
+              .nav-inner-bar { padding: 0.75rem 1rem !important; }
+            }
           `}</style>
-          
+
           {visibleItems.map(item => (
             <button
               key={item.id}
@@ -120,36 +126,163 @@ export default function Navbar({ currentView, setCurrentView, userRole, setUserR
           ))}
         </div>
 
-        {/* Controles de Configuración y Cambio de Rol */}
-        <div className="desktop-menu-container" style={{ display: 'none', alignItems: 'center', gap: '1rem' }}>
-          {/* Indicador de Notificaciones */}
-          <button style={{
-            background: 'rgba(255,255,255,0.03)',
-            border: '1px solid var(--border-glass)',
-            borderRadius: '50%',
-            width: '40px',
-            height: '40px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            color: 'var(--text-primary)',
-            position: 'relative'
-          }}>
-            <Bell size={18} />
-            <div style={{
-              position: 'absolute',
-              top: '8px',
-              right: '8px',
-              width: '8px',
-              height: '8px',
-              backgroundColor: 'var(--primary-gold)',
-              borderRadius: '50%'
-            }} />
+        <div className="desktop-menu-container" style={{ display: 'none', alignItems: 'center', gap: '0.75rem' }}>
+          {showAccessGate && (
+            <button
+              onClick={() => { navigate('/acceso'); setIsOpen(false); }}
+              title="Control QR · portería"
+              style={{
+                background: 'rgba(207,161,58,0.12)',
+                border: '1px solid rgba(207,161,58,0.4)',
+                borderRadius: 20,
+                height: 40,
+                padding: '0 0.85rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                cursor: 'pointer',
+                color: 'var(--text-gold)',
+                fontFamily: 'inherit',
+                fontSize: '0.8rem',
+                fontWeight: 700,
+              }}
+            >
+              <QrCode size={16} /> Acceso QR
+            </button>
+          )}
+          <button
+            onClick={() => handleNavClick('messages')}
+            title="Mensajería interna"
+            style={{
+              background: currentView === 'messages' ? 'rgba(207,161,58,0.12)' : 'rgba(255,255,255,0.03)',
+              border: `1px solid ${currentView === 'messages' ? 'rgba(207,161,58,0.4)' : 'var(--border-glass)'}`,
+              borderRadius: '50%',
+              width: '40px',
+              height: '40px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              color: currentView === 'messages' ? 'var(--primary-gold)' : 'var(--text-primary)',
+              position: 'relative'
+            }}
+          >
+            <Mail size={18} />
+            {unreadMessages > 0 && (
+              <span style={{
+                position: 'absolute',
+                top: '-4px',
+                right: '-4px',
+                minWidth: '18px',
+                height: '18px',
+                borderRadius: '9px',
+                background: 'var(--primary-gold)',
+                color: '#060e0a',
+                fontSize: '0.68rem',
+                fontWeight: '800',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '0 4px',
+                border: '2px solid var(--bg-primary, #060e0a)'
+              }}>
+                {unreadMessages > 9 ? '9+' : unreadMessages}
+              </span>
+            )}
           </button>
 
-          {/* Toggle Claro/Oscuro */}
-          <button 
+          <div style={{ position: 'relative' }}>
+            <button
+              onClick={() => setShowNotifs((v) => !v)}
+              title="Notificaciones"
+              style={{
+                background: 'rgba(255,255,255,0.03)',
+                border: '1px solid var(--border-glass)',
+                borderRadius: '50%',
+                width: '40px',
+                height: '40px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                color: 'var(--text-primary)',
+                position: 'relative'
+              }}
+            >
+              <Bell size={18} />
+              {notifications.length > 0 && (
+                <span style={{
+                  position: 'absolute',
+                  top: '-4px',
+                  right: '-4px',
+                  minWidth: '18px',
+                  height: '18px',
+                  borderRadius: '9px',
+                  background: 'var(--primary-gold)',
+                  color: '#060e0a',
+                  fontSize: '0.68rem',
+                  fontWeight: '800',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '0 4px',
+                  border: '2px solid var(--bg-primary, #060e0a)'
+                }}>
+                  {notifications.length > 9 ? '9+' : notifications.length}
+                </span>
+              )}
+            </button>
+
+            {showNotifs && (
+              <div className="glass-panel" style={{
+                position: 'absolute',
+                top: 'calc(100% + 10px)',
+                right: 0,
+                width: '340px',
+                maxHeight: '420px',
+                overflowY: 'auto',
+                borderRadius: '14px',
+                padding: '0.75rem',
+                zIndex: 200,
+                boxShadow: '0 18px 50px rgba(0,0,0,0.55)'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.25rem 0.5rem 0.6rem', borderBottom: '1px solid var(--border-glass)' }}>
+                  <strong style={{ fontSize: '0.9rem' }}>Notificaciones</strong>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{notifications.length} pendientes</span>
+                </div>
+                {notifications.length === 0 ? (
+                  <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', textAlign: 'center', padding: '1.25rem 0.5rem' }}>
+                    Sin novedades por ahora.
+                  </p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginTop: '0.5rem' }}>
+                    {notifications.map((n) => (
+                      <button
+                        key={n.id}
+                        onClick={() => { handleNavClick(n.view || 'dashboard'); setShowNotifs(false); }}
+                        style={{
+                          background: 'rgba(255,255,255,0.02)',
+                          border: '1px solid var(--border-glass)',
+                          borderRadius: '10px',
+                          padding: '0.6rem 0.75rem',
+                          textAlign: 'left',
+                          cursor: 'pointer',
+                          fontFamily: 'inherit',
+                          color: 'var(--text-primary)'
+                        }}
+                      >
+                        <div style={{ fontSize: '0.82rem', fontWeight: '600', marginBottom: '0.15rem' }}>{n.title}</div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{n.detail}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <button
             onClick={toggleTheme}
             style={{
               background: 'rgba(255,255,255,0.03)',
@@ -162,41 +295,45 @@ export default function Navbar({ currentView, setCurrentView, userRole, setUserR
               justifyContent: 'center',
               cursor: 'pointer',
               color: 'var(--text-primary)',
-              transition: 'var(--transition-fast)'
             }}
             title={theme === 'dark' ? 'Modo Claro' : 'Modo Oscuro'}
           >
             {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
           </button>
 
-          {/* Selector de Rol Dinámico */}
-          <button 
-            onClick={toggleRole}
+          <div
             className="btn"
             style={{
-              padding: '0.5rem 1rem',
-              fontSize: '0.85rem',
+              padding: '0.45rem 0.85rem',
+              fontSize: '0.8rem',
               borderRadius: '20px',
-              background: userRole === 'admin' ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' : 'rgba(207, 161, 58, 0.1)',
-              border: `1px solid ${userRole === 'admin' ? 'transparent' : 'rgba(207, 161, 58, 0.3)'}`,
-              color: userRole === 'admin' ? '#ffffff' : 'var(--primary-gold)',
-              boxShadow: userRole === 'admin' ? '0 4px 10px rgba(16, 185, 129, 0.2)' : 'none'
+              background: role === 'member' ? 'rgba(207, 161, 58, 0.1)' : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+              border: `1px solid ${role === 'member' ? 'rgba(207, 161, 58, 0.3)' : 'transparent'}`,
+              color: role === 'member' ? 'var(--primary-gold)' : '#fff',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              maxWidth: 220,
             }}
+            title={user?.email}
           >
-            {userRole === 'admin' ? (
-              <>
-                <Shield size={14} /> Administrador
-              </>
-            ) : (
-              <>
-                <User size={14} /> Socio
-              </>
-            )}
+            {role === 'member' ? <User size={14} /> : <Shield size={14} />}
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {user?.fullName?.split(' ')[0] || 'Usuario'} · {roleLabel || ROLE_LABELS[role]}
+            </span>
+          </div>
+
+          <button
+            onClick={handleLogout}
+            className="btn btn-secondary btn-sm"
+            style={{ display: 'flex', alignItems: 'center', gap: 6, borderRadius: 20 }}
+            title="Cerrar sesión"
+          >
+            <LogOut size={14} /> Salir
           </button>
         </div>
 
-        {/* Botón de Menú Móvil */}
-        <button 
+        <button
           onClick={() => setIsOpen(!isOpen)}
           className="mobile-toggle"
           style={{
@@ -211,7 +348,6 @@ export default function Navbar({ currentView, setCurrentView, userRole, setUserR
         </button>
       </div>
 
-      {/* Menú Desplegable Móvil */}
       {isOpen && (
         <div className="glass-panel" style={{
           position: 'absolute',
@@ -243,18 +379,82 @@ export default function Navbar({ currentView, setCurrentView, userRole, setUserR
                 padding: '0.75rem 1rem',
                 textAlign: 'left',
                 width: '100%',
-                transition: 'var(--transition-fast)'
               }}
             >
               {item.label}
             </button>
           ))}
 
+          {showAccessGate && (
+            <button
+              type="button"
+              onClick={() => { navigate('/acceso'); setIsOpen(false); }}
+              style={{
+                background: 'rgba(207, 161, 58, 0.05)',
+                border: 'none',
+                borderLeft: '3px solid var(--primary-gold)',
+                color: 'var(--primary-gold)',
+                fontFamily: 'inherit',
+                fontSize: '1rem',
+                fontWeight: '600',
+                cursor: 'pointer',
+                padding: '0.75rem 1rem',
+                textAlign: 'left',
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <QrCode size={16} /> Acceso QR
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => handleNavClick('messages')}
+            style={{
+              background: currentView === 'messages' ? 'rgba(207, 161, 58, 0.05)' : 'transparent',
+              border: 'none',
+              borderLeft: currentView === 'messages' ? '3px solid var(--primary-gold)' : '3px solid transparent',
+              color: currentView === 'messages' ? 'var(--primary-gold)' : 'var(--text-secondary)',
+              fontFamily: 'inherit',
+              fontSize: '1rem',
+              fontWeight: '600',
+              cursor: 'pointer',
+              padding: '0.75rem 1rem',
+              textAlign: 'left',
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <Mail size={16} /> Mensajes
+            {unreadMessages > 0 && (
+              <span style={{
+                marginLeft: 'auto',
+                background: 'var(--primary-gold)',
+                color: '#060e0a',
+                borderRadius: 10,
+                padding: '0.1rem 0.45rem',
+                fontSize: '0.72rem',
+                fontWeight: 800,
+              }}>
+                {unreadMessages}
+              </span>
+            )}
+          </button>
+
           <hr style={{ border: 'none', borderTop: '1px solid var(--border-glass)', margin: '0.5rem 0' }} />
+
+          <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+            {user?.fullName} · <span style={{ color: 'var(--text-gold)' }}>{roleLabel}</span>
+          </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Tema:</span>
-            <button 
+            <button
               onClick={toggleTheme}
               style={{
                 background: 'rgba(255,255,255,0.03)',
@@ -273,21 +473,9 @@ export default function Navbar({ currentView, setCurrentView, userRole, setUserR
             </button>
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Rol de Acceso:</span>
-            <button 
-              onClick={toggleRole}
-              className="btn btn-sm"
-              style={{
-                borderRadius: '20px',
-                background: userRole === 'admin' ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' : 'rgba(207, 161, 58, 0.1)',
-                border: `1px solid ${userRole === 'admin' ? 'transparent' : 'rgba(207, 161, 58, 0.3)'}`,
-                color: userRole === 'admin' ? '#ffffff' : 'var(--primary-gold)'
-              }}
-            >
-              {userRole === 'admin' ? 'Administrador' : 'Socio'}
-            </button>
-          </div>
+          <button type="button" className="btn btn-secondary" onClick={handleLogout} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            <LogOut size={16} /> Cerrar sesión
+          </button>
         </div>
       )}
     </nav>

@@ -1,13 +1,13 @@
-const CACHE_NAME = 'jockey-club-sj-cache-v1';
+const CACHE_NAME = 'jockey-club-sj-cache-v3';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
   '/favicon.svg',
-  '/Gemini_Generated_Image_n1d2h3n1d2h3n1d2.png',
+  '/logo-jockey-club.png',
   '/manifest.json'
 ];
 
-// Instalar el Service Worker y almacenar recursos en caché
+// Instalar el Service Worker y almacenar recursos base en caché
 self.addEventListener('install', (e) => {
   e.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
@@ -31,40 +31,28 @@ self.addEventListener('activate', (e) => {
   );
 });
 
-// Interceptar peticiones y servir desde caché
+// Estrategia network-first: siempre intenta la red (la app se actualiza al
+// instante) y usa la caché solo como fallback offline.
 self.addEventListener('fetch', (e) => {
-  // Solo procesar peticiones HTTP/HTTPS (ignorar extensiones chrome-extension u otros esquemas)
-  if (!e.request.url.startsWith('http')) return;
+  if (!e.request.url.startsWith('http') || e.request.method !== 'GET') return;
 
   e.respondWith(
-    caches.match(e.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        // Devolver respuesta cacheada, pero intentar actualizarla en segundo plano para la próxima visita
-        fetch(e.request).then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            caches.open(CACHE_NAME).then((cache) => cache.put(e.request, networkResponse));
+    fetch(e.request)
+      .then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+          const responseToCache = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(e.request, responseToCache));
+        }
+        return networkResponse;
+      })
+      .catch(() =>
+        caches.match(e.request).then((cached) => {
+          if (cached) return cached;
+          // Fallback offline para navegación de página
+          if (e.request.mode === 'navigate') {
+            return caches.match('/index.html');
           }
-        }).catch(() => {/* Silenciar errores de red en offline */});
-        
-        return cachedResponse;
-      }
-
-      // Si no está en caché, intentar por red
-      return fetch(e.request).then((response) => {
-        // Cachear dinámicamente respuestas válidas de assets
-        if (response && response.status === 200 && response.type === 'basic') {
-          const responseToCache = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(e.request, responseToCache);
-          });
-        }
-        return response;
-      }).catch(() => {
-        // Fallback offline para navegación de página
-        if (e.request.mode === 'navigate') {
-          return caches.match('/index.html');
-        }
-      });
-    })
+        })
+      )
   );
 });

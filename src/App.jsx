@@ -1,9 +1,24 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import DashboardView from './views/DashboardView';
 import ReservationsView from './views/ReservationsView';
 import NewsBoardView from './views/NewsBoardView';
 import AdminView from './views/AdminView';
+import LoginView from './views/LoginView';
+import MessagesView from './views/MessagesView';
+import useErpStore from './hooks/useErpStore';
+import { AlertsBanner } from './components/erp/AlertsPanel';
+import SessionStatusBar from './components/SessionStatusBar';
+import { useAuth } from './context/AuthContext';
+import { canAccessAdmin, canAccessQrGate } from './domain/auth/roles';
+import AccessControlView from './views/AccessControlView';
+import { hasReservationConflict } from './domain/reservations/conflicts';
+import { filterAlertsForRole } from './domain/alerts/alerts';
+import { countUnread } from './domain/messaging/messages';
+import { applyAutomaticDues } from './domain/members/dues';
+import { createHrRecord } from './domain/staff/hr';
+import { isSupabaseConfigured } from './lib/supabase';
 
 // Datos de semilla predeterminados para socios de Jockey Club San Juan (con teléfonos 264 y adherentes)
 const DEFAULT_MEMBERS = [
@@ -15,6 +30,8 @@ const DEFAULT_MEMBERS = [
     outstandingBalance: 32000, // Saldo inicial para demostrar el flujo de cobro
     yearsActive: 5,
     status: 'active',
+    nextDueDate: '2026-06-01',
+    overdueSince: '2026-06-01',
     adherents: [
       { id: 'adh-01', name: 'Sofía Chávez', tier: 'royal', relationship: 'Hijo/a', outstandingBalance: 0, status: 'active' },
       { id: 'adh-02', name: 'María Inés de Chávez', tier: 'royal', relationship: 'Cónyuge', outstandingBalance: 0, status: 'active' }
@@ -28,6 +45,7 @@ const DEFAULT_MEMBERS = [
     outstandingBalance: 0,
     yearsActive: 8,
     status: 'active',
+    nextDueDate: '2026-07-28', // próxima a vencer
     adherents: []
   },
   {
@@ -38,6 +56,7 @@ const DEFAULT_MEMBERS = [
     outstandingBalance: 0,
     yearsActive: 12,
     status: 'active',
+    nextDueDate: '2026-08-15',
     adherents: [
       { id: 'adh-03', name: 'Adolfo Sarmiento (Hijo)', tier: 'platinum', relationship: 'Hijo/a', outstandingBalance: 0, status: 'active' }
     ]
@@ -50,6 +69,8 @@ const DEFAULT_MEMBERS = [
     outstandingBalance: 45000,
     yearsActive: 4,
     status: 'active',
+    nextDueDate: '2026-05-10',
+    overdueSince: '2026-05-10',
     adherents: [
       { id: 'adh-04', name: 'Delfina Del Carril', tier: 'gold', relationship: 'Hijo/a', outstandingBalance: 12000, status: 'active' }
     ]
@@ -62,6 +83,7 @@ const DEFAULT_MEMBERS = [
     outstandingBalance: 0,
     yearsActive: 2,
     status: 'active',
+    nextDueDate: '2026-07-30', // próxima a vencer
     adherents: []
   }
 ];
@@ -91,7 +113,31 @@ const DEFAULT_RESERVATIONS = [
     guests: 1,
     guestNames: 'Facundo Del Carril',
     status: 'confirmed'
-  }
+  },
+  {
+    id: 3,
+    facilityId: 'rugby_masc',
+    facilityName: 'Rugby Masculino - Cancha Principal',
+    memberId: '2026887744320988',
+    memberName: 'Alejandro Chávez',
+    date: '2026-07-20',
+    time: '08:00',
+    guests: 0,
+    guestNames: '',
+    status: 'confirmed'
+  },
+  {
+    id: 4,
+    facilityId: 'fitness',
+    facilityName: 'Fitness · Gimnasio Cubierto',
+    memberId: '2026887744320988',
+    memberName: 'Alejandro Chávez',
+    date: '2026-07-14',
+    time: '19:00',
+    guests: 1,
+    guestNames: 'Sofía Chávez',
+    status: 'confirmed'
+  },
 ];
 
 // Datos de semilla predeterminados para noticias del Jockey Club San Juan
@@ -175,30 +221,102 @@ const DEFAULT_JOURNAL_ENTRIES = [
       { account: 'Mantenimiento de Canchas', type: 'debit', amount: 150000 },
       { account: 'Caja', type: 'credit', amount: 150000 }
     ]
-  }
+  },
+  {
+    id: 6,
+    date: '2026-04-05',
+    description: 'Cobro cuota social (Transferencia Banco Nación) - Socio: Alejandro Chávez (Cred. 202688...)',
+    lines: [
+      { account: 'Banco Nación', type: 'debit', amount: 45000 },
+      { account: 'Cuotas Sociales', type: 'credit', amount: 45000 }
+    ],
+    sourceModule: 'cuotas',
+  },
+  {
+    id: 7,
+    date: '2026-05-03',
+    description: 'Cobro cuota social (Efectivo) - Socio: Alejandro Chávez (Cred. 202688...)',
+    lines: [
+      { account: 'Caja General', type: 'debit', amount: 45000 },
+      { account: 'Cuotas Sociales', type: 'credit', amount: 45000 }
+    ],
+    sourceModule: 'cuotas',
+  },
+  {
+    id: 8,
+    date: '2026-06-02',
+    description: 'Cobro cuota social (Mercado Pago) - Socio: Victoria Cantoni (Cred. 202044...)',
+    lines: [
+      { account: 'Banco Nación', type: 'debit', amount: 38000 },
+      { account: 'Cuotas Sociales', type: 'credit', amount: 38000 }
+    ],
+    sourceModule: 'cuotas',
+  },
 ];
 
 // Datos de semilla para el personal de San Juan y bitácora de trazabilidad
 const DEFAULT_STAFF = [
   {
     id: 'emp-01',
+    employeeNumber: 'E-001',
     name: 'Juan Pérez',
     role: 'Head Greenkeeper',
     specialty: 'Mantenimiento Canchas Rugby, Hockey y Turf',
-    status: 'active', 
+    department: 'Mantenimiento',
+    documentType: 'DNI',
+    documentNumber: '28445112',
+    cuil: '20-28445112-3',
+    birthDate: '1985-03-12',
+    nationality: 'Argentina',
+    maritalStatus: 'casado',
+    phone: '+5492644112233',
+    email: 'jperez@jockey.sj',
+    address: 'Av. Libertador 450, Rivadavia',
+    emergencyContact: 'Laura Pérez',
+    emergencyPhone: '+5492644112299',
+    hireDate: '2018-02-01',
+    contractType: 'Relación de dependencia',
+    workShift: 'Mañana / tarde rotativa',
+    reportsTo: 'Dirección de Operaciones',
+    status: 'active',
     currentTask: 'Fertilizando Cancha Principal de Rugby para el Cuyano',
     avatar: 'JP',
+    notes: 'Referente técnico de canchas. Certificación en riego automatizado.',
     activities: [
       { id: 1, time: '09:15', date: '2026-05-19', description: 'Niveló el cajón de arena de la cancha de vóley playa.' },
       { id: 2, time: '11:30', date: '2026-05-19', description: 'Inspeccionó el sistema de riego en cancha de hockey sobre césped.' },
       { id: 3, time: '14:00', date: '2026-05-19', description: 'Coordinó corte de césped en cancha principal de rugby.' }
-    ]
+    ],
+    attendance: [
+      { date: '2026-07-22', checkIn: '07:55', checkOut: '16:10', status: 'present' },
+      { date: '2026-07-21', checkIn: '08:20', checkOut: '16:05', status: 'late', notes: 'Ingreso demorado por logística de fertilizante' },
+      { date: '2026-07-20', checkIn: '07:50', checkOut: '16:00', status: 'present' },
+    ],
+    documents: [
+      { id: 'd1', name: 'DNI digitalizado', type: 'Identidad', date: '2018-02-01', status: 'vigente' },
+      { id: 'd2', name: 'Alta AFIP', type: 'Laboral', date: '2018-02-05', status: 'vigente' },
+      { id: 'd3', name: 'Art / cobertura', type: 'Seguros', date: '2026-01-10', status: 'vigente' },
+    ],
   },
   {
     id: 'emp-02',
+    employeeNumber: 'E-002',
     name: 'Carlos Ruiz',
     role: 'Coordinador de Rugby Cuyano',
     specialty: 'Planificación de Partidos e Infantiles',
+    department: 'Deportes',
+    documentType: 'DNI',
+    documentNumber: '30112233',
+    cuil: '20-30112233-8',
+    birthDate: '1988-11-04',
+    nationality: 'Argentina',
+    phone: '+5492644223344',
+    email: 'cruiz@jockey.sj',
+    address: 'Calle Mendoza 210, Capital',
+    hireDate: '2019-06-15',
+    contractType: 'Relación de dependencia',
+    workShift: 'Tarde / fines de semana',
+    reportsTo: 'Comisión de Rugby',
     status: 'active',
     currentTask: 'Coordinando fixtures con clubes de Mendoza',
     avatar: 'CR',
@@ -206,13 +324,34 @@ const DEFAULT_STAFF = [
       { id: 1, time: '08:00', date: '2026-05-19', description: 'Revisión técnica de protectores de postes en cancha 1 y 2.' },
       { id: 2, time: '10:30', date: '2026-05-19', description: 'Organizó cronograma de partidos de infantiles para el fin de semana.' },
       { id: 3, time: '13:00', date: '2026-05-19', description: 'Supervisó entrenamiento liviano de la división juvenil M-17.' }
-    ]
+    ],
+    attendance: [
+      { date: '2026-07-22', checkIn: '09:00', checkOut: '18:00', status: 'present' },
+      { date: '2026-07-21', checkIn: '09:05', checkOut: '18:10', status: 'present' },
+    ],
+    documents: [
+      { id: 'd1', name: 'DNI digitalizado', type: 'Identidad', date: '2019-06-15', status: 'vigente' },
+      { id: 'd2', name: 'Certificado de capacitación', type: 'Capacitación', date: '2025-03-01', status: 'vigente' },
+    ],
   },
   {
     id: 'emp-03',
+    employeeNumber: 'E-003',
     name: 'Roberto Gómez',
     role: 'Encargado del Club & Cantina',
     specialty: 'Gastronomía, Cantina y Eventos',
+    department: 'Gastronomía',
+    documentType: 'DNI',
+    documentNumber: '25998877',
+    cuil: '20-25998877-1',
+    birthDate: '1979-07-22',
+    nationality: 'Argentina',
+    phone: '+5492644334455',
+    email: 'rgomez@jockey.sj',
+    hireDate: '2015-09-01',
+    contractType: 'Relación de dependencia',
+    workShift: 'Rotativa eventos',
+    reportsTo: 'Administración',
     status: 'active',
     currentTask: 'Organizando stock de bebidas para el Tercer Tiempo',
     avatar: 'RG',
@@ -220,13 +359,32 @@ const DEFAULT_STAFF = [
       { id: 1, time: '10:00', date: '2026-05-19', description: 'Supervisó recepción de mercadería para la cantina.' },
       { id: 2, time: '12:30', date: '2026-05-19', description: 'Coordinó el servicio de almuerzo en el quincho de socios.' },
       { id: 3, time: '16:00', date: '2026-05-19', description: 'Alineó personal para el evento gastronómico del Torneo Cordillerano.' }
-    ]
+    ],
+    attendance: [
+      { date: '2026-07-22', checkIn: '10:00', checkOut: '19:30', status: 'present' },
+    ],
+    documents: [
+      { id: 'd1', name: 'Libreta sanitaria', type: 'Salud', date: '2026-02-01', status: 'vigente' },
+    ],
   },
   {
     id: 'emp-04',
+    employeeNumber: 'E-004',
     name: 'Sofía Álvarez',
     role: 'Directora Hípica y Turf',
     specialty: 'Saltos Hípicos y Pistas de Vareo',
+    department: 'Hípica',
+    documentType: 'DNI',
+    documentNumber: '32771100',
+    cuil: '27-32771100-4',
+    birthDate: '1990-01-18',
+    nationality: 'Argentina',
+    phone: '+5492644445566',
+    email: 'salvarez@jockey.sj',
+    hireDate: '2020-03-10',
+    contractType: 'Relación de dependencia',
+    workShift: 'Completa',
+    reportsTo: 'Mesa Directiva',
     status: 'active',
     currentTask: 'Inspeccionando cajones y pista de turf para el vareo',
     avatar: 'SA',
@@ -234,13 +392,33 @@ const DEFAULT_STAFF = [
       { id: 1, time: '09:00', date: '2026-05-18', description: 'Inspeccionó la altura de los obstáculos en la pista de saltos.' },
       { id: 2, time: '14:00', date: '2026-05-18', description: 'Coordinó con los jinetes locales los horarios de las pistas de equitación.' },
       { id: 3, time: '19:00', date: '2026-05-18', description: 'Cierre del registro de inscritos para el Torneo Cordillerano.' }
-    ]
+    ],
+    attendance: [
+      { date: '2026-07-22', checkIn: '08:30', checkOut: '17:00', status: 'present' },
+      { date: '2026-07-19', status: 'absent', notes: 'Licencia personal' },
+    ],
+    documents: [
+      { id: 'd1', name: 'Título / credencial hípica', type: 'Profesional', date: '2020-03-10', status: 'vigente' },
+    ],
   },
   {
     id: 'emp-05',
+    employeeNumber: 'E-005',
     name: 'Martina Benítez',
     role: 'Cajero Central',
     specialty: 'Administración y Cobros',
+    department: 'Tesorería',
+    documentType: 'DNI',
+    documentNumber: '35112244',
+    cuil: '27-35112244-9',
+    birthDate: '1994-09-30',
+    nationality: 'Argentina',
+    phone: '+5492644556677',
+    email: 'mbenitez@jockey.sj',
+    hireDate: '2022-01-20',
+    contractType: 'Relación de dependencia',
+    workShift: 'Administrativa 8–16',
+    reportsTo: 'Contaduría',
     status: 'active',
     currentTask: 'Conciliación Caja Diaria',
     avatar: 'MB',
@@ -248,8 +426,78 @@ const DEFAULT_STAFF = [
       { id: 1, time: '08:30', date: '2026-05-19', description: 'Apertura de terminal and arqueo inicial de caja.' },
       { id: 2, time: '11:00', date: '2026-05-19', description: 'Procesó pagos de cuotas sociales de socios en secretaría.' },
       { id: 3, time: '15:30', date: '2026-05-19', description: 'Conciliación de transferencias de Banco Nación recibidas.' }
-    ]
+    ],
+    attendance: [
+      { date: '2026-07-22', checkIn: '08:00', checkOut: '16:00', status: 'present' },
+      { date: '2026-07-21', checkIn: '08:00', checkOut: '16:05', status: 'present' },
+    ],
+    documents: [
+      { id: 'd1', name: 'DNI digitalizado', type: 'Identidad', date: '2022-01-20', status: 'vigente' },
+      { id: 'd2', name: 'Declaración jurada caja', type: 'Laboral', date: '2026-01-02', status: 'vigente' },
+    ],
   }
+];
+
+// RR.HH. personal: novedades, faltas, tardanzas, permisos, solicitudes
+const DEFAULT_STAFF_HR = [
+  createHrRecord({
+    type: 'novedad',
+    title: 'Cambio de turnos por Torneo Cordillerano',
+    detail: 'El personal de mantenimiento y hípica refuerza fines de semana del 12 al 14 de junio.',
+    date: '2026-07-18',
+    time: '09:00',
+    status: 'registered',
+  }),
+  createHrRecord({
+    type: 'falta',
+    employeeId: 'emp-04',
+    employeeName: 'Sofía Álvarez',
+    title: 'Ausencia con aviso',
+    detail: 'Licencia personal — cubierta por coordinación hípica.',
+    date: '2026-07-19',
+    time: '08:00',
+    status: 'registered',
+  }),
+  createHrRecord({
+    type: 'tardanza',
+    employeeId: 'emp-01',
+    employeeName: 'Juan Pérez',
+    title: 'Ingreso 25 min tarde',
+    detail: 'Logística de fertilizante demorada en ingreso a sede.',
+    date: '2026-07-21',
+    time: '08:20',
+    status: 'registered',
+  }),
+  createHrRecord({
+    type: 'permiso',
+    employeeId: 'emp-05',
+    employeeName: 'Martina Benítez',
+    title: 'Permiso médico medio día',
+    detail: 'Turno médico por la tarde. Cubre secretaría.',
+    date: '2026-07-24',
+    time: '10:15',
+    status: 'pending',
+  }),
+  createHrRecord({
+    type: 'solicitud',
+    employeeId: 'emp-02',
+    employeeName: 'Carlos Ruiz',
+    title: 'Franco compensatorio',
+    detail: 'Por jornada extendida del fin de semana de infantiles.',
+    date: '2026-07-22',
+    time: '11:00',
+    status: 'pending',
+  }),
+  createHrRecord({
+    type: 'solicitud',
+    employeeId: 'emp-03',
+    employeeName: 'Roberto Gómez',
+    title: 'Anticipo de sueldo',
+    detail: 'Solicitud formal por gastos familiares.',
+    date: '2026-07-15',
+    time: '14:30',
+    status: 'approved',
+  }),
 ];
 
 // NUEVO: Semillas para Solicitudes, Pedidos y Reclamos
@@ -285,30 +533,51 @@ const DEFAULT_MESSAGES = [
   {
     id: 1,
     date: '2026-05-19',
+    createdAt: '2026-05-19T09:00:00.000Z',
     sender: 'Secretaría JCSJ',
-    recipientId: '2026887744320988', // Alejandro Chávez (titular)
+    senderId: 'ops',
+    recipientId: '2026887744320988',
     subject: 'Convocatoria a Asamblea Anual Ordinaria en Sede Rivadavia',
     content: 'Estimado socio, le informamos que el próximo 30 de mayo a las 18:00 hs se llevará a cabo la Asamblea Ordinaria en el Salón de Honor de República del Líbano 1799 Oeste. Su presencia es de suma importancia.',
-    isRead: false
+    isRead: false,
+    parentId: null,
   },
   {
     id: 2,
     date: '2026-05-15',
+    createdAt: '2026-05-15T11:00:00.000Z',
     sender: 'Tesorería Jockey Club',
+    senderId: 'ops',
     recipientId: '2026887744320988',
     subject: 'Recordatorio Cuota de Mayo JCSJ',
     content: 'Le recordamos que posee un saldo de cuota social mensual pendiente de cancelación. Puede regularizarlo de manera directa en las terminales del club o mediante transferencia bancaria.',
-    isRead: true
+    isRead: true,
+    parentId: null,
   },
   {
     id: 3,
     date: '2026-05-18',
+    createdAt: '2026-05-18T16:00:00.000Z',
     sender: 'Comisión Hípica JCSJ',
-    recipientId: 'all', // Mensaje global
+    senderId: 'ops',
+    recipientId: 'all',
     subject: 'Apertura de Inscripciones Torneo Cordillerano',
     content: 'Se informa a todos los socios activos de las disciplinas de equitación e hipismo que se encuentran abiertas las planillas de inscripción para el prestigioso Torneo Cordillerano de Saltos Hípicos 2026.',
-    isRead: false
-  }
+    isRead: false,
+    parentId: null,
+  },
+  {
+    id: 4,
+    date: '2026-05-20',
+    createdAt: '2026-05-20T10:30:00.000Z',
+    sender: 'Alejandro Chávez',
+    senderId: '2026887744320988',
+    recipientId: 'ops',
+    subject: 'Consulta por horario de cancha de tenis',
+    content: 'Buenos días. Quisiera saber si el próximo sábado habrá disponibilidad en Tenis Tradicional por la mañana. Gracias.',
+    isRead: false,
+    parentId: null,
+  },
 ];
 
 // NUEVO: Semillas para Registro de Accesos QR (Control de Ingreso)
@@ -320,7 +589,7 @@ const DEFAULT_ENTRY_LOGS = [
     memberName: 'Victoria Cantoni',
     memberId: '2020445599881122',
     role: 'Socio Titular',
-    status: 'granted', // 'granted' o 'denied'
+    status: 'granted',
     notes: 'Acceso aprobado - Sin deuda pendiente'
   },
   {
@@ -332,7 +601,47 @@ const DEFAULT_ENTRY_LOGS = [
     role: 'Socio Titular',
     status: 'granted',
     notes: 'Acceso aprobado - Socio Vitalicio Royal'
-  }
+  },
+  {
+    id: 3,
+    date: '2026-07-20',
+    time: '07:50',
+    memberName: 'Alejandro Chávez',
+    memberId: '2026887744320988',
+    role: 'Socio Titular',
+    status: 'granted',
+    notes: 'Ingreso sede Rivadavia · Rugby matutino'
+  },
+  {
+    id: 4,
+    date: '2026-07-18',
+    time: '18:10',
+    memberName: 'Alejandro Chávez',
+    memberId: '2026887744320988',
+    role: 'Socio Titular',
+    status: 'denied',
+    notes: 'Acceso denegado temporalmente · Cuota vencida'
+  },
+  {
+    id: 5,
+    date: '2026-07-15',
+    time: '09:20',
+    memberName: 'Alejandro Chávez',
+    memberId: '2026887744320988',
+    role: 'Socio Titular',
+    status: 'granted',
+    notes: 'Ingreso con grupo familiar (2 adherentes)'
+  },
+  {
+    id: 6,
+    date: '2026-07-12',
+    time: '16:40',
+    memberName: 'Bautista Del Carril',
+    memberId: '2022112233445566',
+    role: 'Socio Titular',
+    status: 'granted',
+    notes: 'Ingreso Tenis · Polvo de ladrillo'
+  },
 ];
 
 // Semillas para Encuestas y Consultas Colectivas
@@ -366,20 +675,57 @@ const DEFAULT_SURVEYS = [
 ];
 
 export default function App() {
+  const { user, loading: authLoading, isAuthenticated, role } = useAuth();
+  const userRole = role || 'member';
+
   // Inicialización de Estados Cargando desde LocalStorage o Valores de Semilla
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem('jockey-theme') || 'dark';
   });
 
-  const [userRole, setUserRole] = useState(() => {
-    return localStorage.getItem('jockey-role') || 'member'; // 'member' (Socio) o 'admin'
-  });
+  // Navegación por URL: el "view id" histórico se traduce a rutas reales.
+  const navigate = useNavigate();
+  const location = useLocation();
+  const isOperativeRole = canAccessAdmin(userRole);
 
-  const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard', 'reservations', 'news', 'admin'
+  const pathForView = (viewId) => {
+    switch (viewId) {
+      case 'reservations': return isOperativeRole ? '/panel' : '/reservas';
+      case 'news': return '/revista';
+      case 'messages': return '/mensajes';
+      case 'admin': return isOperativeRole ? '/panel' : '/';
+      case 'dashboard':
+      default: return isOperativeRole ? '/panel' : '/';
+    }
+  };
+
+  const setCurrentView = (viewId) => navigate(pathForView(viewId));
+
+  const currentView = location.pathname.startsWith('/reservas')
+    ? 'reservations'
+    : location.pathname.startsWith('/revista')
+      ? 'news'
+      : location.pathname.startsWith('/mensajes')
+        ? 'messages'
+        : 'dashboard';
 
   const [members, setMembers] = useState(() => {
     const local = localStorage.getItem('jockey-members');
-    return local ? JSON.parse(local) : DEFAULT_MEMBERS;
+    const stored = local ? JSON.parse(local) : null;
+    const defaultsById = Object.fromEntries(DEFAULT_MEMBERS.map((m) => [m.memberId, m]));
+    const base = !stored
+      ? DEFAULT_MEMBERS
+      : stored.map((m) => {
+          const seed = defaultsById[m.memberId];
+          if (!seed) return m;
+          return {
+            ...m,
+            nextDueDate: m.nextDueDate || seed.nextDueDate,
+            overdueSince: m.overdueSince || seed.overdueSince,
+          };
+        });
+    // Cuota vencida → deuda generada sola (sin botón manual)
+    return applyAutomaticDues(base);
   });
 
   const [reservations, setReservations] = useState(() => {
@@ -404,7 +750,28 @@ export default function App() {
 
   const [staffMembers, setStaffMembers] = useState(() => {
     const local = localStorage.getItem('jockey-staff-members');
-    return local ? JSON.parse(local) : DEFAULT_STAFF;
+    const stored = local ? JSON.parse(local) : null;
+    if (!stored) return DEFAULT_STAFF;
+    const defaultsById = Object.fromEntries(DEFAULT_STAFF.map((e) => [e.id, e]));
+    return stored.map((emp) => {
+      const seed = defaultsById[emp.id];
+      if (!seed) return emp;
+      return {
+        ...seed,
+        ...emp,
+        employeeNumber: emp.employeeNumber || seed.employeeNumber,
+        department: emp.department || seed.department,
+        hireDate: emp.hireDate || seed.hireDate,
+        attendance: emp.attendance?.length ? emp.attendance : seed.attendance,
+        documents: emp.documents?.length ? emp.documents : seed.documents,
+        activities: emp.activities?.length ? emp.activities : seed.activities,
+      };
+    });
+  });
+
+  const [staffHrRecords, setStaffHrRecords] = useState(() => {
+    const local = localStorage.getItem('jockey-staff-hr');
+    return local ? JSON.parse(local) : DEFAULT_STAFF_HR;
   });
 
   // NUEVOS ESTADOS FASE 3
@@ -476,10 +843,6 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
-    localStorage.setItem('jockey-role', userRole);
-  }, [userRole]);
-
-  useEffect(() => {
     localStorage.setItem('jockey-members', JSON.stringify(members));
   }, [members]);
 
@@ -503,6 +866,10 @@ export default function App() {
     localStorage.setItem('jockey-staff-members', JSON.stringify(staffMembers));
   }, [staffMembers]);
 
+  useEffect(() => {
+    localStorage.setItem('jockey-staff-hr', JSON.stringify(staffHrRecords));
+  }, [staffHrRecords]);
+
   // NUEVO: Guardar estados Fase 3
   useEffect(() => {
     localStorage.setItem('jockey-claims', JSON.stringify(claims));
@@ -520,21 +887,28 @@ export default function App() {
     localStorage.setItem('jockey-surveys', JSON.stringify(surveys));
   }, [surveys]);
 
-  // Socio Activo Logueado (Alejandro Chávez)
-  const activeMember = members.find(m => m.memberId === '2026887744320988') || members[0];
+  // Socio activo: el vinculado a la sesión, o el primero como fallback operativo
+  const activeMember =
+    members.find((m) => m.memberId === user?.memberId) ||
+    members.find((m) => m.memberId === '2026887744320988') ||
+    members[0];
 
   // Alternar Tema Claro / Oscuro
   const toggleTheme = () => {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
   };
 
-  // Agregar una reserva
+  // Agregar una reserva (con guardia de dominio contra turnos duplicados)
   const addReservation = (newRes) => {
+    if (hasReservationConflict(reservations, newRes)) {
+      return { ok: false, error: 'El turno ya está reservado para esa instalación, fecha y horario.' };
+    }
     const resWithId = {
       ...newRes,
       id: Date.now()
     };
     setReservations(prev => [resWithId, ...prev]);
+    return { ok: true };
   };
 
   // Cancelar una reserva
@@ -549,10 +923,36 @@ export default function App() {
     );
   };
 
-  // Agregar un asiento diario (Contabilidad)
-  const addJournalEntry = (newEntry) => {
-    setJournalEntries(prev => [newEntry, ...prev]);
+  const erp = useErpStore({ setJournalEntries, isZondaActive });
+
+  const messageIdentity = {
+    userId: user?.id,
+    memberId: user?.memberId || activeMember?.memberId || null,
+    role: userRole,
   };
+  const unreadMessages = isAuthenticated ? countUnread(messages, messageIdentity) : 0;
+
+  // Campanita: alertas/reclamos (operativos) o recordatorio de mensajes (socio)
+  const notifications = (() => {
+    if (!isAuthenticated) return [];
+    if (userRole === 'member') {
+      return messages
+        .filter((m) => (m.recipientId === activeMember?.memberId || m.recipientId === 'all') && !m.isRead)
+        .map((m) => ({ id: `msg-${m.id}`, title: m.subject, detail: `${m.sender} · ${m.date}`, view: 'messages' }));
+    }
+    const roleAlerts = filterAlertsForRole(erp.alerts || [], userRole)
+      .filter((a) => !a.requiresAck || !(erp.alertAcks || []).some((ack) => ack.alertId === a.id))
+      .map((a) => ({ id: `alert-${a.id}`, title: a.title, detail: a.body, view: 'dashboard' }));
+    const claimNotifs = ['staff', 'admin', 'superadmin'].includes(userRole)
+      ? claims
+          .filter((c) => c.status === 'pending')
+          .map((c) => ({ id: `claim-${c.id}`, title: `Reclamo: ${c.title}`, detail: `${c.memberName} · ${c.date}`, view: 'dashboard' }))
+      : [];
+    const inboxNotifs = messages
+      .filter((m) => m.recipientId === 'ops' && !m.isRead)
+      .map((m) => ({ id: `inbox-${m.id}`, title: m.subject, detail: `${m.sender} · ${m.date}`, view: 'messages' }));
+    return [...inboxNotifs, ...roleAlerts, ...claimNotifs];
+  })();
 
   // Agregar un anuncio/noticia (Admin)
   const addNewsArticle = (newArticle) => {
@@ -570,90 +970,114 @@ export default function App() {
     });
   };
 
-  // Renderizador condicional de vistas según el enrutamiento y rol
-  const renderView = () => {
-    switch (currentView) {
-      case 'reservations':
-        if (userRole !== 'member') {
-          setCurrentView('dashboard');
-          return null;
-        }
-        return (
-          <ReservationsView 
-            member={activeMember}
-            reservations={reservations}
-            addReservation={addReservation}
-            setCurrentView={setCurrentView}
-            isZondaActive={isZondaActive}
-          />
-        );
-      case 'news':
-        return (
-          <NewsBoardView 
-            newsList={newsList}
-            addNewsArticle={addNewsArticle}
-            userRole={userRole}
-            member={activeMember}
-            toggleEventRSVP={toggleEventRSVP}
-            rsvpList={rsvpList}
-          />
-        );
-      case 'admin':
-        if (userRole !== 'admin') {
-          setCurrentView('dashboard');
-          return null;
-        }
-        return (
-          <AdminView 
-            members={members}
-            reservations={reservations}
-            setMembers={setMembers}
-            setReservations={setReservations}
-            latestNews={newsList}
-            journalEntries={journalEntries}
-            setJournalEntries={setJournalEntries}
-            addJournalEntry={addJournalEntry}
-            staffMembers={staffMembers}
-            setStaffMembers={setStaffMembers}
-            claims={claims}
-            setClaims={setClaims}
-            messages={messages}
-            setMessages={setMessages}
-            entryLogs={entryLogs}
-            setEntryLogs={setEntryLogs}
-            surveys={surveys}
-            setSurveys={setSurveys}
-            isOnline={isOnline}
-            syncQueue={syncQueue}
-            setSyncQueue={setSyncQueue}
-            userRole={userRole}
-            setUserRole={setUserRole}
-            setCurrentView={setCurrentView}
-          />
-        );
-      case 'dashboard':
-      default:
-        return (
-          <DashboardView 
-            member={activeMember}
-            reservations={reservations}
-            cancelReservation={cancelReservation}
-            setCurrentView={setCurrentView}
-            latestNews={newsList}
-            staffMembers={staffMembers}
-            members={members}
-            claims={claims}
-            setClaims={setClaims}
-            messages={messages}
-            setMessages={setMessages}
-            isZondaActive={isZondaActive}
-            setIsZondaActive={setIsZondaActive}
-            surveys={surveys}
-            setSurveys={setSurveys}
-          />
-        );
-    }
-  };
+  // Vistas por rol: los socios ven su portal personal y los roles operativos
+  // (cajero, contador, personal, admin) su panel de trabajo, cada una con URL propia.
+  const memberDashboard = (
+      <DashboardView
+        member={activeMember}
+        reservations={reservations}
+        cancelReservation={cancelReservation}
+        setCurrentView={setCurrentView}
+        latestNews={newsList}
+        staffMembers={staffMembers}
+        members={members}
+        claims={claims}
+        setClaims={setClaims}
+        messages={messages}
+        setMessages={setMessages}
+        isZondaActive={isZondaActive}
+        setIsZondaActive={setIsZondaActive}
+        surveys={surveys}
+        setSurveys={setSurveys}
+      />
+    );
+
+  const operativePanel = (
+      <AdminView
+        members={members}
+        reservations={reservations}
+        setMembers={setMembers}
+        setReservations={setReservations}
+        latestNews={newsList}
+        journalEntries={journalEntries}
+        setJournalEntries={setJournalEntries}
+        addJournalEntry={erp.addPostedEntry}
+        staffMembers={staffMembers}
+        setStaffMembers={setStaffMembers}
+        staffHrRecords={staffHrRecords}
+        setStaffHrRecords={setStaffHrRecords}
+        claims={claims}
+        setClaims={setClaims}
+        messages={messages}
+        setMessages={setMessages}
+        entryLogs={entryLogs}
+        setEntryLogs={setEntryLogs}
+        surveys={surveys}
+        setSurveys={setSurveys}
+        isOnline={isOnline}
+        syncQueue={syncQueue}
+        setSyncQueue={setSyncQueue}
+        userRole={userRole}
+        setCurrentView={setCurrentView}
+        erp={erp}
+      />
+    );
+
+  const reservationsView = (
+    <ReservationsView
+      member={activeMember}
+      reservations={reservations}
+      addReservation={addReservation}
+      setCurrentView={setCurrentView}
+      isZondaActive={isZondaActive}
+    />
+  );
+
+  const newsView = (
+    <NewsBoardView
+      newsList={newsList}
+      addNewsArticle={addNewsArticle}
+      userRole={canAccessAdmin(userRole) ? 'admin' : 'member'}
+      member={activeMember}
+      toggleEventRSVP={toggleEventRSVP}
+      rsvpList={rsvpList}
+    />
+  );
+
+  if (authLoading) {
+    return (
+      <div className="app-container" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>
+        <p style={{ color: 'var(--text-secondary)' }}>Cargando sesión…</p>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="app-container">
+        <div className="ambient-glow ambient-glow-1" />
+        <div className="ambient-glow ambient-glow-2" />
+        <main className="main-content">
+          <LoginView />
+        </main>
+      </div>
+    );
+  }
+
+  const isAccessGate = location.pathname.startsWith('/acceso');
+  const formatCurrency = (amount) =>
+    new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 }).format(amount || 0);
+
+  const accessGateView = canAccessQrGate(userRole) ? (
+    <AccessControlView
+      members={members}
+      entryLogs={entryLogs}
+      setEntryLogs={setEntryLogs}
+      formatCurrency={formatCurrency}
+    />
+  ) : (
+    <Navigate to="/panel" replace />
+  );
 
   return (
     <div className="app-container">
@@ -661,39 +1085,80 @@ export default function App() {
       <div className="ambient-glow ambient-glow-1" />
       <div className="ambient-glow ambient-glow-2" />
 
-      {/* Barra de Navegación */}
-      <Navbar 
-        currentView={currentView}
-        setCurrentView={setCurrentView}
-        userRole={userRole}
-        setUserRole={setUserRole}
-        theme={theme}
-        toggleTheme={toggleTheme}
-      />
+      {!isAccessGate && (
+        <Navbar
+          currentView={currentView}
+          setCurrentView={setCurrentView}
+          theme={theme}
+          toggleTheme={toggleTheme}
+          notifications={notifications}
+          unreadMessages={unreadMessages}
+        />
+      )}
 
       {/* Contenido Principal */}
-      <main className="main-content">
-        {renderView()}
+      <main className="main-content" style={isAccessGate ? { padding: 0, maxWidth: 'none' } : undefined}>
+        {!isAccessGate && (
+          <>
+            <SessionStatusBar />
+            <AlertsBanner
+              alerts={erp.alerts}
+              alertAcks={erp.alertAcks}
+              userRole={userRole}
+              onAck={erp.ackAlert}
+            />
+          </>
+        )}
+        <Routes>
+          <Route path="/" element={isOperativeRole ? <Navigate to="/panel" replace /> : memberDashboard} />
+          <Route path="/reservas" element={userRole === 'member' ? reservationsView : <Navigate to="/panel" replace />} />
+          <Route path="/revista" element={userRole === 'member' ? newsView : <Navigate to="/panel" replace />} />
+          <Route
+            path="/mensajes"
+            element={
+              <MessagesView
+                messages={messages}
+                setMessages={setMessages}
+                members={members}
+              />
+            }
+          />
+          <Route path="/acceso" element={accessGateView} />
+          <Route path="/panel/qr_control" element={<Navigate to="/acceso" replace />} />
+          <Route path="/panel" element={isOperativeRole ? operativePanel : <Navigate to="/" replace />} />
+          <Route path="/panel/:tab/:memberId?" element={isOperativeRole ? operativePanel : <Navigate to="/" replace />} />
+          <Route path="*" element={<Navigate to={isOperativeRole ? '/panel' : '/'} replace />} />
+        </Routes>
       </main>
 
-      {/* Pie de Página Premium */}
-      <footer style={{
-        textAlign: 'center',
-        padding: '2.5rem 1.5rem',
-        borderTop: '1px solid var(--border-glass)',
-        color: 'var(--text-muted)',
-        fontSize: '0.85rem',
-        marginTop: 'auto',
-        zIndex: 1,
-        position: 'relative',
-        background: 'rgba(6, 14, 10, 0.2)'
-      }}>
-        <p className="serif-font" style={{ fontSize: '1rem', color: 'var(--text-gold)', letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
-          Jockey Club San Juan
-        </p>
-        <p style={{ marginBottom: '0.25rem' }}>© 2026 Todos los derechos reservados. Miembro de la Unión de Rugby de Cuyo y la Federación Hípica de San Juan.</p>
-        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Desarrollado para Portal Exclusivo de Socios y Gestión Operativa Interna de Sede Rivadavia.</p>
-      </footer>
+      {!isAccessGate && (
+        <footer style={{
+          textAlign: 'center',
+          padding: '2rem 1.5rem',
+          borderTop: '1px solid var(--border-glass)',
+          color: 'var(--text-muted)',
+          fontSize: '0.85rem',
+          marginTop: 'auto',
+          zIndex: 1,
+          position: 'relative',
+          background: 'rgba(6, 14, 10, 0.2)'
+        }}>
+          <p className="serif-font" style={{ fontSize: '1rem', color: 'var(--text-gold)', letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
+            Jockey Club San Juan
+          </p>
+          <p style={{ marginBottom: '0.35rem' }}>
+            República del Líbano 1799 Oeste, Rivadavia · © {new Date().getFullYear()}
+          </p>
+          <p style={{ fontSize: '0.75rem', marginBottom: '0.35rem' }}>
+            Unión de Rugby de Cuyo · Federación Hípica de San Juan
+          </p>
+          <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+            Portal institucional v{import.meta.env.VITE_APP_VERSION || '1.0.0'}
+            {' · '}
+            {isSupabaseConfigured ? 'Infraestructura conectada' : 'Entorno local controlado'}
+          </p>
+        </footer>
+      )}
     </div>
   );
 }

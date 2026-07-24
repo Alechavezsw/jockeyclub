@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Calendar, Tag, Check, Award, Plus, X, Globe, Eye } from 'lucide-react';
 
-export default function NewsBoardView({ newsList, addNewsArticle, userRole, member, toggleEventRSVP, rsvpList }) {
+export default function NewsBoardView({ newsList, addNewsArticle, userRole, toggleEventRSVP, rsvpList }) {
   const [activeCategory, setActiveCategory] = useState('todos');
   const [showPublishModal, setShowPublishModal] = useState(false);
   

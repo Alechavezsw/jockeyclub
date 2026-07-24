@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
-import { User, Clock, Plus, Search, ClipboardList, Activity, ToggleLeft, ToggleRight, Sparkles, Send, ShieldAlert, BadgeCheck } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Clock, Plus, Search, ClipboardList, Activity, ToggleLeft, ToggleRight, Sparkles, Send, ShieldAlert, BadgeCheck } from 'lucide-react';
 
-export default function StaffTab({ staffMembers, setStaffMembers }) {
+import StaffHrPanel from './admin/StaffHrPanel';
+
+export default function StaffTab({ staffMembers, setStaffMembers, onOpenProfile, hrRecords = [], setHrRecords }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStaffId, setSelectedStaffId] = useState('all');
   
@@ -11,12 +13,66 @@ export default function StaffTab({ staffMembers, setStaffMembers }) {
   const [newActivityTime, setNewActivityTime] = useState(new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }));
   const [formSuccess, setFormSuccess] = useState(false);
 
+  const [showHireForm, setShowHireForm] = useState(false);
+  const [hireForm, setHireForm] = useState({
+    name: '',
+    role: '',
+    specialty: '',
+    department: 'Operaciones',
+    phone: '',
+  });
+  const [hireError, setHireError] = useState('');
+
+  const handleHireEmployee = (e) => {
+    e.preventDefault();
+    setHireError('');
+    if (!hireForm.name.trim() || !hireForm.role.trim()) {
+      setHireError('Nombre y cargo son obligatorios.');
+      return;
+    }
+    const initials = hireForm.name
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((p) => p[0]?.toUpperCase() || '')
+      .join('');
+    const employee = {
+      id: `emp-${Date.now()}`,
+      employeeNumber: `E-${String(staffMembers.length + 1).padStart(3, '0')}`,
+      name: hireForm.name.trim(),
+      role: hireForm.role.trim(),
+      specialty: hireForm.specialty.trim() || hireForm.role.trim(),
+      department: hireForm.department,
+      phone: hireForm.phone.trim(),
+      status: 'active',
+      currentTask: 'Esperando asignación...',
+      avatar: initials || 'EM',
+      hireDate: new Date().toISOString().split('T')[0],
+      contractType: 'Relación de dependencia',
+      workShift: 'A definir',
+      nationality: 'Argentina',
+      activities: [
+        {
+          id: 1,
+          time: new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
+          date: new Date().toISOString().split('T')[0],
+          description: 'Alta de empleado en el registro institucional.',
+        },
+      ],
+      attendance: [],
+      documents: [],
+    };
+    setStaffMembers((prev) => [employee, ...prev]);
+    setHireForm({ name: '', role: '', specialty: '', department: 'Operaciones', phone: '' });
+    setShowHireForm(false);
+  };
+
   // Estado para cambiar tarea actual de empleado
   const [editingTaskId, setEditingTaskId] = useState(null);
   const [newTaskText, setNewTaskText] = useState('');
 
   // Sincronizar el ID del empleado activo del formulario si la lista cambia
-  React.useEffect(() => {
+  useEffect(() => {
     if (staffMembers.length > 0 && !activeEmployeeId) {
       setActiveEmployeeId(staffMembers[0].id);
     }
@@ -149,6 +205,57 @@ export default function StaffTab({ staffMembers, setStaffMembers }) {
 
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
+        <div>
+          <h4 className="serif-font" style={{ fontSize: '1.25rem', margin: 0 }}>Registro de Empleados</h4>
+          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>Altas, bitácora y estado de guardia operativa.</p>
+        </div>
+        <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowHireForm((v) => !v)} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Plus size={14} /> Alta de empleado
+        </button>
+      </div>
+
+      {showHireForm && (
+        <form onSubmit={handleHireEmployee} className="glass-card" style={{ padding: '1rem', display: 'grid', gap: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}>
+          <div>
+            <label className="form-label">Nombre completo</label>
+            <input className="form-input" required value={hireForm.name} onChange={(e) => setHireForm({ ...hireForm, name: e.target.value })} />
+          </div>
+          <div>
+            <label className="form-label">Cargo</label>
+            <input className="form-input" required value={hireForm.role} onChange={(e) => setHireForm({ ...hireForm, role: e.target.value })} placeholder="Greenkeeper / Cajero..." />
+          </div>
+          <div>
+            <label className="form-label">Especialidad</label>
+            <input className="form-input" value={hireForm.specialty} onChange={(e) => setHireForm({ ...hireForm, specialty: e.target.value })} />
+          </div>
+          <div>
+            <label className="form-label">Área</label>
+            <select className="form-input" value={hireForm.department} onChange={(e) => setHireForm({ ...hireForm, department: e.target.value })}>
+              <option>Operaciones</option>
+              <option>Administración</option>
+              <option>Hípica</option>
+              <option>Deportes</option>
+              <option>Gastronomía</option>
+              <option>Seguridad</option>
+            </select>
+          </div>
+          <div>
+            <label className="form-label">Teléfono</label>
+            <input className="form-input" value={hireForm.phone} onChange={(e) => setHireForm({ ...hireForm, phone: e.target.value })} placeholder="+549264..." />
+          </div>
+          {hireError && <p style={{ color: '#ef4444', gridColumn: '1 / -1', margin: 0 }}>{hireError}</p>}
+          <div>
+            <button type="submit" className="btn btn-primary btn-sm">Registrar empleado</button>
+          </div>
+        </form>
+      )}
+
+      <StaffHrPanel
+        staffMembers={staffMembers}
+        hrRecords={hrRecords}
+        setHrRecords={setHrRecords}
+      />
       
       {/* Sección Superior: Resumen de Estado */}
       <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '1.5rem' }} className="responsive-staff-grid">
@@ -242,7 +349,7 @@ export default function StaffTab({ staffMembers, setStaffMembers }) {
             </div>
             
             {/* Buscador de Personal */}
-            <div style={{ position: 'relative', width: '220px' }}>
+            <div style={{ position: 'relative', width: '100%', maxWidth: 280, minWidth: 0 }}>
               <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
               <input
                 type="text"
@@ -281,12 +388,37 @@ export default function StaffTab({ staffMembers, setStaffMembers }) {
                         </div>
                         <div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                            <strong style={{ color: 'var(--text-primary)', fontSize: '0.95rem' }}>{emp.name}</strong>
+                            <button
+                              type="button"
+                              onClick={() => onOpenProfile?.(emp.id)}
+                              title="Ver legajo completo"
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                padding: 0,
+                                cursor: 'pointer',
+                                fontFamily: 'inherit',
+                                textAlign: 'left',
+                              }}
+                            >
+                              <strong style={{
+                                color: 'var(--text-primary)',
+                                fontSize: '0.95rem',
+                                textDecoration: 'underline',
+                                textDecorationColor: 'rgba(207,161,58,0.4)',
+                                textUnderlineOffset: 3,
+                              }}>
+                                {emp.name}
+                              </strong>
+                            </button>
                             <span className={`status-pulse-led ${isActive ? 'active' : 'inactive'}`} title={isActive ? 'En Guardia' : 'Fuera de Turno'} />
                           </div>
                           <span style={{ fontSize: '0.75rem', color: 'var(--primary-gold)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                             {emp.role}
                           </span>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                            {emp.employeeNumber || emp.id} · Ver legajo
+                          </div>
                         </div>
                       </div>
 
@@ -524,7 +656,7 @@ export default function StaffTab({ staffMembers, setStaffMembers }) {
           </div>
         ) : (
           <div className="activity-timeline" style={{ paddingLeft: '2rem' }}>
-            {filteredActivities.map((act, index) => {
+            {filteredActivities.map((act) => {
               const isSystem = act.description.startsWith('Se le asignó') || act.description.includes('turno de guardia');
               return (
                 <div key={`${act.employeeId}-${act.id}`} className={`activity-item ${isSystem ? 'system' : ''} fade-in`}>

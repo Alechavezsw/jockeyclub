@@ -17,5 +17,12 @@ export default defineConfig([
       globals: globals.browser,
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
+    rules: {
+      // Reglas experimentales del compilador de React: marcan Date.now()/Math.random()
+      // dentro de event handlers como impuras (falso positivo sin el compilador).
+      'react-hooks/purity': 'off',
+      // Patrón legacy de sincronización de estado en efectos; visible pero no bloqueante.
+      'react-hooks/set-state-in-effect': 'warn',
+    },
   },
 ])
