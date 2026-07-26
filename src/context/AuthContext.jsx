@@ -104,22 +104,37 @@ export function AuthProvider({ children }) {
     const normalized = email.trim().toLowerCase();
 
     if (isSupabaseConfigured && supabase) {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: normalized,
-        password,
-      });
-      if (error) {
-        setAuthError(error.message || 'No se pudo iniciar sesión.');
-        throw error;
+      try {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: normalized,
+          password,
+        });
+        if (error) {
+          setAuthError(
+            error.message === 'Invalid login credentials'
+              ? 'Email o contraseña incorrectos.'
+              : (error.message || 'No se pudo iniciar sesión.')
+          );
+          throw error;
+        }
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('full_name, role')
+          .eq('id', data.user.id)
+          .maybeSingle();
+        const mapped = mapProfile(data.user, profile);
+        setUser(mapped);
+        return mapped;
+      } catch (err) {
+        const msg = String(err?.message || err || '');
+        // Típico cuando VITE_SUPABASE_ANON_KEY tiene comillas/saltos en Vercel
+        if (/Invalid value|Failed to execute 'fetch'/i.test(msg)) {
+          setAuthError(
+            'Configuración de Supabase inválida (URL/clave). En Vercel: variables VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY sin comillas, luego Redeploy.'
+          );
+        }
+        throw err;
       }
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('full_name, role')
-        .eq('id', data.user.id)
-        .maybeSingle();
-      const mapped = mapProfile(data.user, profile);
-      setUser(mapped);
-      return mapped;
     }
 
     const demo = DEMO_USERS.find(

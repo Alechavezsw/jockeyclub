@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jockey-club-sj-cache-v4';
+const CACHE_NAME = 'jockey-club-sj-cache-v5';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -38,6 +38,14 @@ self.addEventListener('activate', (e) => {
 // instante) y usa la caché solo como fallback offline.
 self.addEventListener('fetch', (e) => {
   if (!e.request.url.startsWith('http') || e.request.method !== 'GET') return;
+
+  // Nunca interceptar APIs externas (Supabase auth/rest rompe con SW agresivo)
+  try {
+    const host = new URL(e.request.url).hostname;
+    if (host.includes('supabase.co') || host.includes('supabase.in')) return;
+  } catch {
+    return;
+  }
 
   e.respondWith(
     fetch(e.request)

@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import {
   ArrowLeft, CheckCircle2, AlertCircle, Camera, CameraOff, History, QrCode,
 } from 'lucide-react';
 import { parseCredentialQRPayload } from '../domain/credentials/qr';
 import { parseGuestPassPayload, isGuestPassValid } from '../domain/credentials/guestPass';
+import QrLiveScanner from '../components/QrLiveScanner';
 
-const SCANNER_REGION_ID = 'jcsj-qr-reader';
 const COOLDOWN_MS = 2800;
 
 function playBeep(success) {
@@ -57,13 +56,11 @@ export default function AccessControlView({
   guestPasses = [],
 }) {
   const navigate = useNavigate();
-  const scannerRef = useRef(null);
   const processingRef = useRef(false);
   const cooldownTimerRef = useRef(null);
   const [cameraOn, setCameraOn] = useState(false);
   const [cameraError, setCameraError] = useState('');
   const [result, setResult] = useState(null);
-  const [scannerKey, setScannerKey] = useState(0);
   const [isWide, setIsWide] = useState(() =>
     typeof window !== 'undefined' ? window.matchMedia('(min-width: 900px)').matches : false
   );
@@ -82,27 +79,8 @@ export default function AccessControlView({
     }, ms);
   }, []);
 
-  const stopCamera = useCallback(async () => {
-    const scanner = scannerRef.current;
-    scannerRef.current = null;
-    if (!scanner) {
-      setCameraOn(false);
-      return;
-    }
-    try {
-      const state = scanner.getState?.();
-      // 2 = SCANNING in html5-qrcode Html5QrcodeScannerState
-      if (scanner.isScanning || state === 2) await scanner.stop();
-    } catch {
-      /* ignore */
-    }
-    try {
-      await scanner.clear();
-    } catch {
-      /* ignore */
-    }
+  const stopCamera = useCallback(() => {
     setCameraOn(false);
-    setScannerKey((k) => k + 1);
   }, []);
 
   const processPayload = useCallback((raw) => {
@@ -198,89 +176,15 @@ export default function AccessControlView({
     beginCooldown();
   }, [members, guestPasses, formatCurrency, setEntryLogs, beginCooldown]);
 
-  const startCamera = useCallback(async () => {
+  const startCamera = useCallback(() => {
     setCameraError('');
     setResult(null);
-    await stopCamera();
-
-    // Esperar remount del contenedor (#id) tras clear()
-    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-
-    const el = document.getElementById(SCANNER_REGION_ID);
-    if (!el) {
-      setCameraError('No se encontró el área del lector. Recargá la página.');
-      return;
-    }
-
-    const scanner = new Html5Qrcode(SCANNER_REGION_ID, {
-      formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
-      verbose: false,
-    });
-    scannerRef.current = scanner;
-
-    const config = {
-      fps: 16,
-      // Área grande: leer QR de celular a celular
-      qrbox: (viewW, viewH) => {
-        const side = Math.floor(Math.min(viewW, viewH) * 0.82);
-        return { width: Math.max(220, side), height: Math.max(220, side) };
-      },
-      aspectRatio: 1,
-      disableFlip: false,
-      experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-      videoConstraints: {
-        facingMode: { ideal: 'environment' },
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-      },
-    };
-
-    const onSuccess = (decoded) => processPayload(decoded);
-
-    try {
-      let started = false;
-      try {
-        const cameras = await Html5Qrcode.getCameras();
-        if (cameras?.length) {
-          const back = cameras.find((c) => /back|rear|environment|trasera|atrás|atras/i.test(c.label || ''))
-            || cameras[cameras.length - 1];
-          await scanner.start(back.id, config, onSuccess, () => {});
-          started = true;
-        }
-      } catch {
-        /* fallback facingMode */
-      }
-
-      if (!started) {
-        try {
-          await scanner.start({ facingMode: 'environment' }, config, onSuccess, () => {});
-        } catch {
-          await scanner.start({ facingMode: 'user' }, config, onSuccess, () => {});
-        }
-      }
-      setCameraOn(true);
-    } catch (err) {
-      setCameraOn(false);
-      const msg = String(err?.message || err || '');
-      setCameraError(
-        /permission|notallowed|denied|permission_dismissed/i.test(msg)
-          ? 'Permití el acceso a la cámara del dispositivo para leer credenciales.'
-          : 'No se pudo iniciar la cámara. Probá en HTTPS, otro navegador, o usá el código manual.'
-      );
-      try {
-        await scanner.clear();
-      } catch {
-        /* ignore */
-      }
-      scannerRef.current = null;
-      setScannerKey((k) => k + 1);
-    }
-  }, [processPayload, stopCamera]);
+    setCameraOn(true);
+  }, []);
 
   useEffect(() => () => {
     if (cooldownTimerRef.current) clearTimeout(cooldownTimerRef.current);
-    stopCamera();
-  }, [stopCamera]);
+  }, []);
 
   useEffect(() => {
     const mq = window.matchMedia('(min-width: 900px)');
@@ -362,16 +266,8 @@ export default function AccessControlView({
           gap: 0.75rem;
           min-width: 0;
         }
-        #${SCANNER_REGION_ID} {
-          width: 100%;
-          height: 100%;
-          min-height: inherit;
-        }
-        #${SCANNER_REGION_ID} video {
-          object-fit: cover !important;
+        .access-scanner-shell .qr-live {
           border-radius: 18px;
-          width: 100% !important;
-          height: 100% !important;
         }
         .access-result-overlay {
           position: absolute;
@@ -543,7 +439,14 @@ export default function AccessControlView({
 
       <div className="access-gate-layout">
         <div className="access-scanner-shell">
-          <div key={scannerKey} id={SCANNER_REGION_ID} />
+          {cameraOn && (
+            <QrLiveScanner
+              active={cameraOn}
+              paused={Boolean(result)}
+              onDecode={processPayload}
+              onError={setCameraError}
+            />
+          )}
 
           {!cameraOn && !result && (
             <div className="access-idle-hint">
@@ -552,7 +455,7 @@ export default function AccessControlView({
                 Lector de credenciales
               </p>
               <p style={{ margin: 0, fontSize: '0.8rem', maxWidth: 300 }}>
-                Activá la cámara y pedile al socio que abra la credencial a pantalla completa.
+                Activá la cámara. Pedile al socio la credencial a pantalla completa y tocá la imagen para enfocar.
               </p>
             </div>
           )}
