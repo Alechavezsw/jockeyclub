@@ -3,12 +3,13 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   Users, Calendar, DollarSign, Activity, CreditCard, Check, ShieldAlert,
   Clock, BookOpen, ClipboardList, MessageSquare, Phone,
-  FileSpreadsheet, Radio, Database, BellRing, PartyPopper
+  FileSpreadsheet, Radio, Database, BellRing, PartyPopper, LayoutDashboard, Trophy, Store
 } from 'lucide-react';
 import AccountingTab from '../components/AccountingTab';
 import StaffTab from '../components/StaffTab';
 import AlertsPanel from '../components/erp/AlertsPanel';
 import ClubEventsPanel from '../components/erp/ClubEventsPanel';
+import AdminDashboardTab from '../components/admin/AdminDashboardTab';
 import MembersTab from '../components/admin/MembersTab';
 import MemberProfilePanel from '../components/admin/MemberProfilePanel';
 import StaffProfilePanel from '../components/admin/StaffProfilePanel';
@@ -19,10 +20,13 @@ import ReportsTab from '../components/admin/ReportsTab';
 import SurveysTab from '../components/admin/SurveysTab';
 import MigrationTab from '../components/admin/MigrationTab';
 import DuesControlTab from '../components/admin/DuesControlTab';
+import DisciplinesTab from '../components/admin/DisciplinesTab';
+import ClubFacilitiesPanel from '../components/admin/ClubFacilitiesPanel';
 import { DEFAULT_CHART_OF_ACCOUNTS, resolveAccountId } from '../domain/accounting/chartOfAccounts';
 import { getAccountBalance as domainAccountBalance } from '../domain/accounting/journal';
-import { allowedAdminTabs, ROLE_LABELS, ROLE_PANEL_META } from '../domain/auth/roles';
+import { allowedAdminTabs, canAccessConcessions, ROLE_LABELS, ROLE_PANEL_META } from '../domain/auth/roles';
 import { getUpcomingDuesMembers } from '../domain/members/dues';
+import { useAuth } from '../context/AuthContext';
 
 /**
  * Panel operativo del club. Orquesta la cabecera, las métricas por rol y las
@@ -50,7 +54,9 @@ export default function AdminView({
   setSurveys,
   erp = {},
   userRole = 'admin',
+  isZondaActive = false,
 }) {
+  const { user } = useAuth();
   const chartOfAccounts = erp.chartOfAccounts || DEFAULT_CHART_OF_ACCOUNTS;
   const permittedTabs = allowedAdminTabs(userRole);
   const panelMeta = ROLE_PANEL_META[userRole] || ROLE_PANEL_META.admin;
@@ -58,17 +64,29 @@ export default function AdminView({
   // La pestaña activa vive en la URL (/panel/:tab); perfiles en /panel/members|:staff/:id
   const { tab: routeTab, memberId: routeEntityId } = useParams();
   const navigate = useNavigate();
-  const activeTab = routeTab && permittedTabs.includes(routeTab) ? routeTab : permittedTabs[0] || 'members';
-  const setActiveTab = (tabKey) => navigate(`/panel/${tabKey}`);
+  const activeTab = routeTab && permittedTabs.includes(routeTab) ? routeTab : permittedTabs[0] || 'dashboard';
+  // Subtab de contabilidad a enfocar al entrar (ej. acceso directo "Arqueo de Caja")
+  const [accountingSubTabFocus, setAccountingSubTabFocus] = useState(null);
+  const goToTab = (tabKey, focus = null) => {
+    if (tabKey === 'concessions') {
+      navigate('/concesiones');
+      return;
+    }
+    if (tabKey === 'accounting') {
+      // Cajero: si no hay foco, abrir directo en Cajas.
+      const nextFocus = focus || (userRole === 'cashier' ? 'cash' : null);
+      setAccountingSubTabFocus(nextFocus);
+    }
+    navigate(`/panel/${tabKey}`);
+  };
+  const setActiveTab = (tabKey) => goToTab(tabKey);
+  const showConcessionsTab = canAccessConcessions(userRole);
   const profileMember = activeTab === 'members' && routeEntityId
     ? members.find((m) => m.memberId === routeEntityId) || null
     : null;
   const profileStaff = activeTab === 'staff' && routeEntityId
     ? staffMembers.find((e) => e.id === routeEntityId) || null
     : null;
-
-  // Subtab de contabilidad a enfocar al entrar (ej. acceso directo "Arqueo de Caja")
-  const [accountingSubTabFocus] = useState(null);
 
   // --- CÁLCULOS CONTABLES DINÁMICOS PARA MÉTRICAS ERP ---
   const getAccountBalance = (accountName) => {
@@ -273,7 +291,8 @@ export default function AdminView({
         </div>
       </div>
 
-      {/* Tarjetas de Métricas según el rol operativo */}
+      {/* Tarjetas de Métricas según el rol (ocultas en Inicio: el dashboard ya las resume) */}
+      {activeTab !== 'dashboard' && (
       <div className="admin-metrics">
         {(() => {
           const metricsByRole = {
@@ -348,15 +367,23 @@ export default function AdminView({
           ));
         })()}
       </div>
+      )}
 
       {/* Control de Pestañas Integrado */}
       <div className="glass-panel" style={{ padding: '0.5rem', borderRadius: '12px', marginBottom: '1.5rem' }}>
         <div className="tab-button-grid">
           {[
+            { key: 'dashboard', icon: <LayoutDashboard size={14} />, label: 'Inicio' },
             { key: 'members', icon: <Users size={14} />, label: 'Socios' },
             { key: 'dues', icon: <ShieldAlert size={14} />, label: 'Cuotas' },
             { key: 'bookings', icon: <Calendar size={14} />, label: 'Reservas' },
-            { key: 'accounting', icon: <BookOpen size={14} />, label: 'Contabilidad' },
+            { key: 'disciplines', icon: <Trophy size={14} />, label: 'Disciplinas' },
+            { key: 'concessions', icon: <Store size={14} />, label: 'Concesiones', external: true },
+            {
+              key: 'accounting',
+              icon: userRole === 'cashier' ? <DollarSign size={14} /> : <BookOpen size={14} />,
+              label: userRole === 'cashier' ? 'Caja' : 'Contabilidad',
+            },
             { key: 'staff', icon: <ClipboardList size={14} />, label: 'Personal' },
             { key: 'events', icon: <PartyPopper size={14} />, label: 'Fiestas' },
             { key: 'alerts', icon: <BellRing size={14} />, label: 'Alertas' },
@@ -366,7 +393,11 @@ export default function AdminView({
             { key: 'surveys', icon: <Radio size={14} />, label: 'Encuestas' },
             { key: 'migration', icon: <Database size={14} />, label: 'Migración' },
           ]
-            .filter((tab) => permittedTabs.includes(tab.key))
+            .filter((tab) => (
+              tab.key === 'concessions'
+                ? showConcessionsTab
+                : permittedTabs.includes(tab.key)
+            ))
             .map(tab => (
             <button
               key={tab.key}
@@ -386,6 +417,39 @@ export default function AdminView({
       </div>
 
       {/* --- CONTENIDO DE CADA TAB --- */}
+
+      {activeTab === 'dashboard' && (
+        <AdminDashboardTab
+          userRole={userRole}
+          userName={user?.fullName || ROLE_LABELS[userRole] || ''}
+          permittedTabs={permittedTabs}
+          goToTab={goToTab}
+          members={members}
+          reservations={reservations}
+          claims={claims}
+          messages={messages}
+          entryLogs={entryLogs}
+          surveys={surveys}
+          staffMembers={staffMembers}
+          staffHrRecords={staffHrRecords}
+          clubEvents={erp.clubEvents || []}
+          alerts={erp.alerts || []}
+          alertAcks={erp.alertAcks || []}
+          onAckAlert={erp.ackAlert}
+          totalMembers={totalMembers}
+          paymentCollectionRate={paymentCollectionRate}
+          totalActivos={totalActivos}
+          totalIngresos={totalIngresos}
+          overdueMembersCount={overdueMembersCount}
+          upcomingDuesCount={upcomingDuesCount}
+          totalOutstanding={totalOutstanding}
+          pendingClaimsCount={pendingClaimsCount}
+          activeBookingsCount={activeBookingsCount}
+          pendingBookingsCount={pendingBookingsCount}
+          formatCurrency={formatCurrency}
+          getAccountBalance={getAccountBalance}
+        />
+      )}
 
       {activeTab === 'dues' && (
         <DuesControlTab members={members} formatCurrency={formatCurrency} />
@@ -418,6 +482,15 @@ export default function AdminView({
         <BookingsTab reservations={reservations} setReservations={setReservations} />
       )}
 
+      {activeTab === 'disciplines' && (
+        <DisciplinesTab
+          members={members}
+          reservations={reservations}
+          staffMembers={staffMembers}
+          onOpenMember={(id) => navigate(`/panel/members/${id}`)}
+        />
+      )}
+
       {activeTab === 'accounting' && (
         <AccountingTab
           key={accountingSubTabFocus || 'default'}
@@ -432,11 +505,28 @@ export default function AdminView({
           openRegister={erp.openRegister}
           closeRegister={erp.closeRegister}
           addCashMovement={erp.addCashMovement}
+          transferCash={erp.transferCash}
           expenses={erp.expenses}
           submitExpense={erp.submitExpense}
           setExpenseApproved={erp.setExpenseApproved}
           setExpenseRejected={erp.setExpenseRejected}
           setExpensePaid={erp.setExpensePaid}
+          suppliers={erp.suppliers}
+          upsertSupplier={erp.upsertSupplier}
+          toggleSupplierStatus={erp.toggleSupplierStatus}
+          members={members}
+          unidentifiedCollections={erp.unidentifiedCollections}
+          upsertUnidentifiedCollection={erp.upsertUnidentifiedCollection}
+          galiciaDebits={erp.galiciaDebits}
+          upsertGaliciaDebit={erp.upsertGaliciaDebit}
+          fixedExpenses={erp.fixedExpenses}
+          addFixedExpense={erp.addFixedExpense}
+          toggleFixedExpense={erp.toggleFixedExpense}
+          fixedDiscounts={erp.fixedDiscounts}
+          addFixedDiscount={erp.addFixedDiscount}
+          toggleFixedDiscount={erp.toggleFixedDiscount}
+          paymentOrders={erp.paymentOrders}
+          upsertPaymentOrder={erp.upsertPaymentOrder}
         />
       )}
 
@@ -530,6 +620,10 @@ export default function AdminView({
 
       {activeTab === 'migration' && (
         <MigrationTab setMembers={setMembers} />
+      )}
+
+      {activeTab === 'bookings' && (
+        <ClubFacilitiesPanel reservations={reservations} isZondaActive={isZondaActive} />
       )}
     </div>
   );

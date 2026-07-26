@@ -12,7 +12,7 @@ export const DEFAULT_CHART_OF_ACCOUNTS = [
   { id: 'coa-1.1', code: '1.1', name: 'Activo Corriente', accountType: 'asset', parentId: 'coa-1', level: 2, isPostable: false, isCashAccount: false },
   { id: 'coa-1.1.01', code: '1.1.01', name: 'Caja General', accountType: 'asset', parentId: 'coa-1.1', level: 3, isPostable: true, isCashAccount: true },
   { id: 'coa-1.1.02', code: '1.1.02', name: 'Caja Cantina', accountType: 'asset', parentId: 'coa-1.1', level: 3, isPostable: true, isCashAccount: true },
-  { id: 'coa-1.1.03', code: '1.1.03', name: 'Banco Nación', accountType: 'asset', parentId: 'coa-1.1', level: 3, isPostable: true, isCashAccount: false },
+  { id: 'coa-1.1.03', code: '1.1.03', name: 'Banco Nación', accountType: 'asset', parentId: 'coa-1.1', level: 3, isPostable: true, isCashAccount: true },
   { id: 'coa-1.2.01', code: '1.2.01', name: 'Equipamiento Canchas', accountType: 'asset', parentId: 'coa-1', level: 3, isPostable: true, isCashAccount: false },
   { id: 'coa-1.2.02', code: '1.2.02', name: 'Caballos Criollos', accountType: 'asset', parentId: 'coa-1', level: 3, isPostable: true, isCashAccount: false },
   { id: 'coa-2', code: '2', name: 'PASIVO', accountType: 'liability', parentId: null, level: 1, isPostable: false, isCashAccount: false },

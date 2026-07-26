@@ -31,6 +31,12 @@ export function duesAmountForHousehold(titularTier, familyGroup = []) {
   return titular + family;
 }
 
+/** Cuota vigente del socio: titular + adherentes activos. */
+export function duesAmountForMember(member) {
+  const family = (member?.adherents || []).filter((a) => a && a.status !== 'inactive');
+  return duesAmountForHousehold(member?.tier, family);
+}
+
 /**
  * Socios con cuota vencida: saldo pendiente > 0,
  * o fecha de vencimiento ya pasada.
@@ -55,7 +61,10 @@ export function getOverdueMembers(members, today = new Date()) {
         ...m,
         duesStatus: 'overdue',
         daysOverdue,
-        amountDue: m.outstandingBalance || duesAmountForTier(m.tier),
+        dueDate: m.nextDueDate || m.overdueSince || null,
+        amountDue: (m.outstandingBalance || 0) > 0
+          ? m.outstandingBalance
+          : duesAmountForMember(m),
       };
     })
     .sort((a, b) => (b.amountDue || 0) - (a.amountDue || 0));
@@ -81,7 +90,8 @@ export function getUpcomingDuesMembers(members, { withinDays = 15, today = new D
         ...m,
         duesStatus: 'upcoming',
         daysUntil,
-        amountDue: duesAmountForTier(m.tier),
+        dueDate: m.nextDueDate || toISODate(due),
+        amountDue: duesAmountForMember(m),
         nextDueDate: m.nextDueDate || toISODate(due),
       };
     })
@@ -114,7 +124,7 @@ export function applyAutomaticDues(members, today = new Date()) {
 
     return {
       ...m,
-      outstandingBalance: duesAmountForTier(m.tier),
+      outstandingBalance: duesAmountForMember(m),
       overdueSince: m.overdueSince || toISODate(due),
     };
   });

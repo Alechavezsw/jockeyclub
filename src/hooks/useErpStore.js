@@ -5,6 +5,7 @@ import {
   openCashSession,
   closeCashSession,
   buildCashMovementEntry,
+  buildCashTransferEntry,
   getOpenSession,
 } from '../domain/accounting/cash';
 import {
@@ -13,6 +14,17 @@ import {
   rejectExpense,
   payExpense,
 } from '../domain/accounting/expenses';
+import {
+  DEFAULT_SUPPLIERS,
+  setSupplierStatus,
+} from '../domain/accounting/suppliers';
+import {
+  DEFAULT_UNIDENTIFIED_COLLECTIONS,
+  DEFAULT_GALICIA_DEBITS,
+  DEFAULT_FIXED_EXPENSES,
+  DEFAULT_FIXED_DISCOUNTS,
+  DEFAULT_PAYMENT_ORDERS,
+} from '../domain/accounting/treasury';
 import {
   DEFAULT_ALERTS,
   createAlert,
@@ -25,6 +37,19 @@ import {
   registerForEvent,
   countRegistrations,
 } from '../domain/events/clubEvents';
+import {
+  DEFAULT_CONCESSIONS,
+  DEFAULT_CANON_PAYMENTS,
+  defaultChecklist,
+  upsertConcession as upsertConcessionDomain,
+  renewConcession,
+  createCanonPayment,
+  buildCanonJournalEntry,
+  setChecklistItem,
+  addConcessionDocument,
+  removeConcessionDocument,
+  syncConcessionAlerts,
+} from '../domain/concessions/concessions';
 import { buildPostedEntry, normalizeLines } from '../domain/accounting/journal';
 
 function load(key, fallback) {
@@ -65,11 +90,46 @@ export default function useErpStore({ setJournalEntries, isZondaActive }) {
   const [cashSessions, setCashSessions] = useState(() => load('jockey-cash-sessions', []));
   const [cashMovements, setCashMovements] = useState(() => load('jockey-cash-movements', []));
   const [expenses, setExpenses] = useState(() => load('jockey-expenses', []));
+  const [suppliers, setSuppliers] = useState(() => load('jockey-suppliers', DEFAULT_SUPPLIERS));
+  const [unidentifiedCollections, setUnidentifiedCollections] = useState(() =>
+    load('jockey-unidentified-collections', DEFAULT_UNIDENTIFIED_COLLECTIONS)
+  );
+  const [galiciaDebits, setGaliciaDebits] = useState(() =>
+    load('jockey-galicia-debits', DEFAULT_GALICIA_DEBITS)
+  );
+  const [fixedExpenses, setFixedExpenses] = useState(() =>
+    load('jockey-fixed-expenses', DEFAULT_FIXED_EXPENSES)
+  );
+  const [fixedDiscounts, setFixedDiscounts] = useState(() =>
+    load('jockey-fixed-discounts', DEFAULT_FIXED_DISCOUNTS)
+  );
+  const [paymentOrders, setPaymentOrders] = useState(() =>
+    load('jockey-payment-orders', DEFAULT_PAYMENT_ORDERS)
+  );
   const [alerts, setAlerts] = useState(() => load('jockey-alerts', DEFAULT_ALERTS));
   const [alertAcks, setAlertAcks] = useState(() => load('jockey-alert-acks', []));
   const [clubEvents, setClubEvents] = useState(() => load('jockey-club-events', DEFAULT_CLUB_EVENTS));
   const [eventRegistrations, setEventRegistrations] = useState(() =>
     load('jockey-event-registrations', [])
+  );
+  const [concessions, setConcessions] = useState(() => {
+    const loaded = load('jockey-concessions', null);
+    if (!loaded) return DEFAULT_CONCESSIONS;
+    return loaded.map((c) => {
+      const seed = DEFAULT_CONCESSIONS.find((d) => d.id === c.id);
+      return {
+        ...(seed || {}),
+        ...c,
+        checklist: c.checklist || seed?.checklist || defaultChecklist(),
+        documents: c.documents?.length ? c.documents : (seed?.documents || []),
+        renewalHistory: c.renewalHistory || seed?.renewalHistory || [],
+        spaceId: c.spaceId || seed?.spaceId || '',
+        portalCode: c.portalCode || seed?.portalCode || '',
+      };
+    });
+  });
+  const [canonPayments, setCanonPayments] = useState(() =>
+    load('jockey-canon-payments', DEFAULT_CANON_PAYMENTS)
   );
 
   // Migración one-shot de asientos legacy
@@ -87,14 +147,26 @@ export default function useErpStore({ setJournalEntries, isZondaActive }) {
   useEffect(() => persist('jockey-cash-sessions', cashSessions), [cashSessions]);
   useEffect(() => persist('jockey-cash-movements', cashMovements), [cashMovements]);
   useEffect(() => persist('jockey-expenses', expenses), [expenses]);
+  useEffect(() => persist('jockey-suppliers', suppliers), [suppliers]);
+  useEffect(() => persist('jockey-unidentified-collections', unidentifiedCollections), [unidentifiedCollections]);
+  useEffect(() => persist('jockey-galicia-debits', galiciaDebits), [galiciaDebits]);
+  useEffect(() => persist('jockey-fixed-expenses', fixedExpenses), [fixedExpenses]);
+  useEffect(() => persist('jockey-fixed-discounts', fixedDiscounts), [fixedDiscounts]);
+  useEffect(() => persist('jockey-payment-orders', paymentOrders), [paymentOrders]);
   useEffect(() => persist('jockey-alerts', alerts), [alerts]);
   useEffect(() => persist('jockey-alert-acks', alertAcks), [alertAcks]);
   useEffect(() => persist('jockey-club-events', clubEvents), [clubEvents]);
   useEffect(() => persist('jockey-event-registrations', eventRegistrations), [eventRegistrations]);
+  useEffect(() => persist('jockey-concessions', concessions), [concessions]);
+  useEffect(() => persist('jockey-canon-payments', canonPayments), [canonPayments]);
 
   useEffect(() => {
     setAlerts((prev) => syncZondaAlert(prev, isZondaActive));
   }, [isZondaActive]);
+
+  useEffect(() => {
+    setAlerts((prev) => syncConcessionAlerts(prev, concessions));
+  }, [concessions]);
 
   const addPostedEntry = useCallback(
     (entryInput) => {
@@ -168,6 +240,68 @@ export default function useErpStore({ setJournalEntries, isZondaActive }) {
     [cashSessions, cashRegisters, chartOfAccounts, setJournalEntries]
   );
 
+  /** Traspaso entre cajas/bancos. Requiere caja origen abierta. */
+  const transferCash = useCallback(
+    ({ fromRegisterId, toAccountId, amount, concept }) => {
+      const fromRegister = cashRegisters.find((r) => r.id === fromRegisterId);
+      if (!fromRegister) throw new Error('Caja origen no encontrada.');
+      const fromSession = getOpenSession(cashSessions, fromRegisterId);
+      if (!fromSession) throw new Error('Abra la caja origen antes de traspasar.');
+      if (!toAccountId) throw new Error('Seleccione destino del traspaso.');
+      if (toAccountId === fromRegister.accountId) {
+        throw new Error('El destino no puede ser la misma cuenta de origen.');
+      }
+
+      const amt = Number(amount);
+      if (!amt || amt <= 0) throw new Error('Importe inválido.');
+
+      const entry = buildCashTransferEntry({
+        date: new Date().toISOString().slice(0, 10),
+        concept: concept?.trim() || `Traspaso desde ${fromRegister.name}`,
+        fromAccountId: fromRegister.accountId,
+        toAccountId,
+        amount: amt,
+        chart: chartOfAccounts,
+      });
+
+      const stamp = Date.now();
+      const conceptText = concept?.trim() || entry.description;
+      const outMove = {
+        id: `cm-${stamp}-out`,
+        cashSessionId: fromSession.id,
+        movementType: 'transfer_out',
+        amount: amt,
+        concept: conceptText,
+        relatedAccountId: toAccountId,
+        memberId: null,
+        journalEntryId: entry.id,
+        createdAt: new Date().toISOString(),
+      };
+
+      const destRegister = cashRegisters.find((r) => r.accountId === toAccountId);
+      const destSession = destRegister ? getOpenSession(cashSessions, destRegister.id) : null;
+      const moves = [outMove];
+      if (destSession) {
+        moves.unshift({
+          id: `cm-${stamp}-in`,
+          cashSessionId: destSession.id,
+          movementType: 'transfer_in',
+          amount: amt,
+          concept: conceptText,
+          relatedAccountId: fromRegister.accountId,
+          memberId: null,
+          journalEntryId: entry.id,
+          createdAt: new Date().toISOString(),
+        });
+      }
+
+      setCashMovements((prev) => [...moves, ...prev]);
+      setJournalEntries((prev) => [entry, ...prev]);
+      return { entry, movements: moves };
+    },
+    [cashRegisters, cashSessions, chartOfAccounts, setJournalEntries]
+  );
+
   const submitExpense = useCallback((payload) => {
     const expense = createExpenseDraft(payload);
     setExpenses((prev) => [expense, ...prev]);
@@ -213,10 +347,127 @@ export default function useErpStore({ setJournalEntries, isZondaActive }) {
     setAlertAcks((prev) => acknowledgeAlert(prev, alertId, profileId));
   }, []);
 
+  const upsertConcession = useCallback((concession) => {
+    setConcessions((prev) => upsertConcessionDomain(prev, concession));
+  }, []);
+
+  const renewConcessionContract = useCallback((concessionId, options = {}) => {
+    const months = typeof options === 'number' ? options : (options.months ?? 12);
+    const rest = typeof options === 'number' ? {} : options;
+    setConcessions((prev) =>
+      prev.map((c) => (c.id === concessionId ? renewConcession(c, { months, ...rest }) : c))
+    );
+  }, []);
+
+  const setConcessionStatus = useCallback((concessionId, statusManual) => {
+    setConcessions((prev) =>
+      prev.map((c) => (c.id === concessionId ? { ...c, statusManual } : c))
+    );
+  }, []);
+
+  const toggleConcessionChecklist = useCallback((concessionId, itemId, done) => {
+    setConcessions((prev) =>
+      prev.map((c) => (c.id === concessionId ? setChecklistItem(c, itemId, done) : c))
+    );
+  }, []);
+
+  const addDocToConcession = useCallback((concessionId, doc) => {
+    setConcessions((prev) =>
+      prev.map((c) => (c.id === concessionId ? addConcessionDocument(c, doc) : c))
+    );
+  }, []);
+
+  const removeDocFromConcession = useCallback((concessionId, docId) => {
+    setConcessions((prev) =>
+      prev.map((c) => (c.id === concessionId ? removeConcessionDocument(c, docId) : c))
+    );
+  }, []);
+
+  const recordCanonPayment = useCallback(
+    (payload) => {
+      const concession = concessions.find((c) => c.id === payload.concessionId);
+      if (!concession) throw new Error('Concesión no encontrada.');
+      const payment = createCanonPayment(payload);
+      const entry = buildCanonJournalEntry(payment, concession, chartOfAccounts);
+      const withReceipt = {
+        ...payment,
+        receipt: `CAN-${String(Date.now()).slice(-8)}`,
+        journalEntryId: entry.id,
+      };
+      setCanonPayments((prev) => [withReceipt, ...prev]);
+      setJournalEntries((prev) => [entry, ...prev]);
+      return withReceipt;
+    },
+    [concessions, chartOfAccounts]
+  );
+
   const addClubEvent = useCallback((payload) => {
     const event = createClubEvent(payload);
     setClubEvents((prev) => [event, ...prev]);
     return event;
+  }, []);
+
+  const upsertSupplier = useCallback((supplier) => {
+    setSuppliers((prev) => {
+      const idx = prev.findIndex((s) => s.id === supplier.id);
+      if (idx === -1) return [supplier, ...prev];
+      const next = [...prev];
+      next[idx] = supplier;
+      return next;
+    });
+    return supplier;
+  }, []);
+
+  const toggleSupplierStatus = useCallback((supplierId, status) => {
+    setSuppliers((prev) => prev.map((s) => (
+      s.id === supplierId ? setSupplierStatus(s, status) : s
+    )));
+  }, []);
+
+  const upsertUnidentifiedCollection = useCallback((item) => {
+    setUnidentifiedCollections((prev) => {
+      const idx = prev.findIndex((x) => x.id === item.id);
+      if (idx === -1) return [item, ...prev];
+      const next = [...prev];
+      next[idx] = item;
+      return next;
+    });
+  }, []);
+
+  const upsertGaliciaDebit = useCallback((item) => {
+    setGaliciaDebits((prev) => {
+      const idx = prev.findIndex((x) => x.id === item.id);
+      if (idx === -1) return [item, ...prev];
+      const next = [...prev];
+      next[idx] = item;
+      return next;
+    });
+  }, []);
+
+  const addFixedExpense = useCallback((item) => {
+    setFixedExpenses((prev) => [item, ...prev]);
+  }, []);
+
+  const toggleFixedExpense = useCallback((id) => {
+    setFixedExpenses((prev) => prev.map((x) => (x.id === id ? { ...x, active: !x.active } : x)));
+  }, []);
+
+  const addFixedDiscount = useCallback((item) => {
+    setFixedDiscounts((prev) => [item, ...prev]);
+  }, []);
+
+  const toggleFixedDiscount = useCallback((id) => {
+    setFixedDiscounts((prev) => prev.map((x) => (x.id === id ? { ...x, active: !x.active } : x)));
+  }, []);
+
+  const upsertPaymentOrder = useCallback((item) => {
+    setPaymentOrders((prev) => {
+      const idx = prev.findIndex((x) => x.id === item.id);
+      if (idx === -1) return [item, ...prev];
+      const next = [...prev];
+      next[idx] = item;
+      return next;
+    });
   }, []);
 
   const registerMemberToEvent = useCallback(
@@ -250,22 +501,47 @@ export default function useErpStore({ setJournalEntries, isZondaActive }) {
     cashSessions,
     cashMovements,
     expenses,
+    suppliers,
+    unidentifiedCollections,
+    galiciaDebits,
+    fixedExpenses,
+    fixedDiscounts,
+    paymentOrders,
     alerts,
     alertAcks,
     clubEvents,
     eventRegistrations,
+    concessions,
+    canonPayments,
     addPostedEntry,
     openRegister,
     closeRegister,
     addCashMovement,
+    transferCash,
     submitExpense,
     setExpenseApproved,
     setExpenseRejected,
     setExpensePaid,
+    upsertSupplier,
+    toggleSupplierStatus,
+    upsertUnidentifiedCollection,
+    upsertGaliciaDebit,
+    addFixedExpense,
+    toggleFixedExpense,
+    addFixedDiscount,
+    toggleFixedDiscount,
+    upsertPaymentOrder,
     publishAlert,
     deactivateAlert,
     ackAlert,
     addClubEvent,
     registerMemberToEvent,
+    upsertConcession,
+    renewConcessionContract,
+    setConcessionStatus,
+    toggleConcessionChecklist,
+    addDocToConcession,
+    removeDocFromConcession,
+    recordCanonPayment,
   };
 }

@@ -28,13 +28,20 @@ export function canAccessQrGate(role) {
   return ['staff', 'cashier', 'admin', 'superadmin'].includes(role);
 }
 
+/** Quién puede usar la sección aparte de Concesiones (`/concesiones`). */
+export function canAccessConcessions(role) {
+  return ['admin', 'superadmin', 'accountant'].includes(role);
+}
+
 /** Tabs del AdminView permitidos por rol. */
 export function allowedAdminTabs(role) {
   if (role === 'admin' || role === 'superadmin') {
     return [
+      'dashboard',
       'members',
       'dues',
       'bookings',
+      'disciplines',
       'accounting',
       'staff',
       'events',
@@ -47,13 +54,13 @@ export function allowedAdminTabs(role) {
     ];
   }
   if (role === 'accountant') {
-    return ['dues', 'accounting', 'reports', 'events'];
+    return ['dashboard', 'dues', 'accounting', 'reports', 'events'];
   }
   if (role === 'cashier') {
-    return ['members', 'dues', 'accounting', 'events'];
+    return ['dashboard', 'members', 'dues', 'accounting', 'events'];
   }
   if (role === 'staff') {
-    return ['bookings', 'staff', 'events', 'alerts', 'claims'];
+    return ['dashboard', 'bookings', 'disciplines', 'staff', 'events', 'alerts', 'claims'];
   }
   return [];
 }
@@ -61,10 +68,15 @@ export function allowedAdminTabs(role) {
 /** Subpestañas de Contabilidad por rol. */
 export function allowedAccountingSubtabs(role) {
   if (role === 'admin' || role === 'superadmin' || role === 'accountant') {
-    return ['diary', 'mayor', 'create', 'balance', 'results', 'charts', 'plan', 'cash', 'expenses'];
+    return [
+      'diary', 'mayor', 'create', 'balance', 'results', 'charts', 'plan',
+      'cash', 'expenses', 'suppliers',
+      'unidentified', 'galicia', 'fixed_expenses', 'fixed_discounts', 'balances', 'payment_orders',
+    ];
   }
   if (role === 'cashier') {
-    return ['diary', 'cash', 'expenses'];
+    // Solo operación de caja; gastos/proveedores/diario viven en Contabilidad (admin/contador).
+    return ['cash'];
   }
   return ['diary'];
 }
@@ -82,6 +94,7 @@ export function navItemsForRole(role) {
     return [
       { id: 'dashboard', label: 'Inicio' },
       { id: 'reservations', label: 'Reservar Canchas' },
+      { id: 'payments', label: 'Mi Cuenta' },
       { id: 'news', label: 'Revista Digital' },
     ];
   }

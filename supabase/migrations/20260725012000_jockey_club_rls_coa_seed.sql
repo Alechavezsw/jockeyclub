@@ -1,0 +1,3 @@
+-- RLS helpers, policies, plan de cuentas y cajas (aplicado vía MCP en remoto).
+-- Este archivo documenta el estado esperado del proyecto JC.
+-- Ver también seed de usuarios operativos en scripts/seed-ops-users.sql

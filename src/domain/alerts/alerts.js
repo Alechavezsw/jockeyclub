@@ -50,7 +50,9 @@ export function filterAlertsForRole(alerts, role = 'member') {
     if (alert.audience === 'all') return true;
     if (alert.audience === 'members') return role === 'member' || role === 'admin';
     if (alert.audience === 'staff') return ['staff', 'cashier', 'accountant', 'admin'].includes(role) || role === 'admin';
-    if (alert.audience === 'admin') return role === 'admin';
+    if (alert.audience === 'admin') {
+      return ['admin', 'superadmin', 'accountant'].includes(role);
+    }
     return true;
   });
 }

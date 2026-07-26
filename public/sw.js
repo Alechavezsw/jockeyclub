@@ -1,7 +1,10 @@
-const CACHE_NAME = 'jockey-club-sj-cache-v3';
+const CACHE_NAME = 'jockey-club-sj-cache-v4';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
+  '/perfil',
+  '/cuenta',
+  '/reservas',
   '/favicon.svg',
   '/logo-jockey-club.png',
   '/manifest.json'

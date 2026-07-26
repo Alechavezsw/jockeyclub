@@ -16,4 +16,9 @@ describe('credential QR payload', () => {
     expect(parseCredentialQRPayload('hola')).toBeNull();
     expect(parseCredentialQRPayload('')).toBeNull();
   });
+
+  it('tolera espacios y payload embebido', () => {
+    expect(parseCredentialQRPayload('  JCSJ: 2026887744320988  ')).toBe('2026887744320988');
+    expect(parseCredentialQRPayload('xJCSJ:2026887744320988y')).toBe('2026887744320988');
+  });
 });

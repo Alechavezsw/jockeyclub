@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BookOpen, Plus, DollarSign, PieChart, ShieldAlert, CheckCircle2, Trash2, Printer, Search, TrendingUp, Book, ListTree, Wallet, Receipt } from 'lucide-react';
+import {
+  BookOpen, Plus, DollarSign, PieChart, ShieldAlert, CheckCircle2, Trash2, Printer, Search,
+  TrendingUp, Book, ListTree, Wallet, Receipt, Truck, HelpCircle, Building2, Repeat, Percent,
+  Scale, FileSpreadsheet,
+} from 'lucide-react';
 import {
   DEFAULT_CHART_OF_ACCOUNTS,
   getPostableAccounts,
@@ -15,8 +19,22 @@ import {
 import ChartOfAccountsPanel from './erp/ChartOfAccountsPanel';
 import CashRegistersPanel from './erp/CashRegistersPanel';
 import ExpensesPanel from './erp/ExpensesPanel';
+import SuppliersPanel from './erp/SuppliersPanel';
+import {
+  UnidentifiedCollectionsPanel,
+  GaliciaDebitsPanel,
+  FixedExpensesPanel,
+  FixedDiscountsPanel,
+  BalancesPanel,
+  PaymentOrdersPanel,
+} from './erp/TreasuryPanels';
 import { allowedAccountingSubtabs } from '../domain/auth/roles';
 import { useAuth } from '../context/AuthContext';
+
+const TREASURY_TABS = new Set([
+  'cash', 'expenses', 'suppliers',
+  'unidentified', 'galicia', 'fixed_expenses', 'fixed_discounts', 'balances', 'payment_orders',
+]);
 
 const ACCOUNT_PLAN = {
   activos: ['Caja General', 'Caja Cantina', 'Banco Nación', 'Equipamiento Canchas', 'Caballos Criollos'],
@@ -52,11 +70,28 @@ export default function AccountingTab({
   openRegister,
   closeRegister,
   addCashMovement,
+  transferCash,
   expenses = [],
   submitExpense,
   setExpenseApproved,
   setExpenseRejected,
   setExpensePaid,
+  suppliers = [],
+  upsertSupplier,
+  toggleSupplierStatus,
+  members = [],
+  unidentifiedCollections = [],
+  upsertUnidentifiedCollection,
+  galiciaDebits = [],
+  upsertGaliciaDebit,
+  fixedExpenses = [],
+  addFixedExpense,
+  toggleFixedExpense,
+  fixedDiscounts = [],
+  addFixedDiscount,
+  toggleFixedDiscount,
+  paymentOrders = [],
+  upsertPaymentOrder,
   initialSubTab = null,
 }) {
   const { role } = useAuth();
@@ -255,21 +290,35 @@ export default function AccountingTab({
         </div>
       </div>
 
-      {/* Selector de Sub-pestañas Internas (filtrado por rol) */}
-      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-        {[
-          { key: 'diary', icon: <BookOpen size={14} />, label: 'Libro Diario' },
-          { key: 'mayor', icon: <Book size={14} />, label: 'Libro Mayor' },
-          { key: 'create', icon: <Plus size={14} />, label: 'Crear Asiento Legal' },
-          { key: 'balance', icon: <PieChart size={14} />, label: 'Balance General' },
-          { key: 'results', icon: <DollarSign size={14} />, label: 'Estado de Resultados' },
-          { key: 'charts', icon: <TrendingUp size={14} style={{ color: 'var(--emerald-accent)' }} />, label: 'Reportes & Gráficos', accent: true },
-          { key: 'plan', icon: <ListTree size={14} />, label: 'Plan de Cuentas' },
-          { key: 'cash', icon: <Wallet size={14} />, label: 'Cajas' },
-          { key: 'expenses', icon: <Receipt size={14} />, label: 'Gastos' },
-        ]
-          .filter((tab) => accountingTabs.includes(tab.key))
-          .map((tab) => (
+      {/* Subpestañas: ocultas si el rol solo tiene una (ej. cajero → solo Caja) */}
+      {accountingTabs.length > 1 && (
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          {(() => {
+            const tabDefs = {
+              diary: { key: 'diary', icon: <BookOpen size={14} />, label: 'Libro Diario' },
+              mayor: { key: 'mayor', icon: <Book size={14} />, label: 'Libro Mayor' },
+              create: { key: 'create', icon: <Plus size={14} />, label: 'Crear Asiento Legal' },
+              balance: { key: 'balance', icon: <PieChart size={14} />, label: 'Balance General' },
+              results: { key: 'results', icon: <DollarSign size={14} />, label: 'Estado de Resultados' },
+              charts: {
+                key: 'charts',
+                icon: <TrendingUp size={14} style={{ color: 'var(--emerald-accent)' }} />,
+                label: 'Reportes & Gráficos',
+                accent: true,
+              },
+              plan: { key: 'plan', icon: <ListTree size={14} />, label: 'Plan de Cuentas' },
+              cash: { key: 'cash', icon: <Wallet size={14} />, label: 'Cajas' },
+              expenses: { key: 'expenses', icon: <Receipt size={14} />, label: 'Gastos' },
+              suppliers: { key: 'suppliers', icon: <Truck size={14} />, label: 'Proveedores' },
+              unidentified: { key: 'unidentified', icon: <HelpCircle size={14} />, label: 'Cobranzas sin identificar' },
+              galicia: { key: 'galicia', icon: <Building2 size={14} />, label: 'Débitos Aut. Galicia' },
+              fixed_expenses: { key: 'fixed_expenses', icon: <Repeat size={14} />, label: 'Gastos Fijos' },
+              fixed_discounts: { key: 'fixed_discounts', icon: <Percent size={14} />, label: 'Descuentos Fijos' },
+              balances: { key: 'balances', icon: <Scale size={14} />, label: 'Saldos' },
+              payment_orders: { key: 'payment_orders', icon: <FileSpreadsheet size={14} />, label: 'Órdenes de pago' },
+            };
+            return accountingTabs.map((key) => tabDefs[key]).filter(Boolean);
+          })().map((tab) => (
             <button
               key={tab.key}
               onClick={() => setSubTab(tab.key)}
@@ -288,18 +337,18 @@ export default function AccountingTab({
             </button>
           ))}
 
-        {/* Botón de Impresión de Reportes */}
-        {subTab !== 'create' && subTab !== 'plan' && subTab !== 'cash' && subTab !== 'expenses' && (
-          <button 
-            onClick={handlePrint}
-            className="btn btn-secondary btn-sm"
-            style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.4rem 0.85rem' }}
-            title="Imprimir reporte en formato oficial"
-          >
-            <Printer size={14} /> Exportar / Imprimir
-          </button>
-        )}
-      </div>
+          {subTab !== 'create' && subTab !== 'plan' && !TREASURY_TABS.has(subTab) && (
+            <button
+              onClick={handlePrint}
+              className="btn btn-secondary btn-sm"
+              style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.4rem 0.85rem' }}
+              title="Imprimir reporte en formato oficial"
+            >
+              <Printer size={14} /> Exportar / Imprimir
+            </button>
+          )}
+        </div>
+      )}
 
       {/* SUB-TAB 1: LIBRO DIARIO CON BUSCADOR Y FILTROS */}
       {subTab === 'diary' && (
@@ -1136,6 +1185,7 @@ export default function AccountingTab({
           openRegister={openRegister}
           closeRegister={closeRegister}
           addCashMovement={addCashMovement}
+          transferCash={transferCash}
         />
       )}
 
@@ -1147,6 +1197,63 @@ export default function AccountingTab({
           setExpenseApproved={setExpenseApproved}
           setExpenseRejected={setExpenseRejected}
           setExpensePaid={setExpensePaid}
+        />
+      )}
+
+      {subTab === 'suppliers' && upsertSupplier && (
+        <SuppliersPanel
+          suppliers={suppliers}
+          upsertSupplier={upsertSupplier}
+          toggleSupplierStatus={toggleSupplierStatus}
+          expenses={expenses}
+        />
+      )}
+
+      {subTab === 'unidentified' && upsertUnidentifiedCollection && (
+        <UnidentifiedCollectionsPanel
+          items={unidentifiedCollections}
+          members={members}
+          onAdd={upsertUnidentifiedCollection}
+          onMatch={upsertUnidentifiedCollection}
+          onReject={upsertUnidentifiedCollection}
+        />
+      )}
+
+      {subTab === 'galicia' && upsertGaliciaDebit && (
+        <GaliciaDebitsPanel
+          items={galiciaDebits}
+          members={members}
+          onAdd={upsertGaliciaDebit}
+          onSetStatus={upsertGaliciaDebit}
+        />
+      )}
+
+      {subTab === 'fixed_expenses' && addFixedExpense && (
+        <FixedExpensesPanel
+          items={fixedExpenses}
+          onAdd={addFixedExpense}
+          onToggle={toggleFixedExpense}
+        />
+      )}
+
+      {subTab === 'fixed_discounts' && addFixedDiscount && (
+        <FixedDiscountsPanel
+          items={fixedDiscounts}
+          onAdd={addFixedDiscount}
+          onToggle={toggleFixedDiscount}
+        />
+      )}
+
+      {subTab === 'balances' && (
+        <BalancesPanel members={members} getAccountBalance={getAccountBalance} />
+      )}
+
+      {subTab === 'payment_orders' && upsertPaymentOrder && (
+        <PaymentOrdersPanel
+          items={paymentOrders}
+          suppliers={suppliers}
+          onAdd={upsertPaymentOrder}
+          onSetStatus={upsertPaymentOrder}
         />
       )}
     </div>

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   canAccessAdmin,
+  canAccessConcessions,
   allowedAdminTabs,
   allowedAccountingSubtabs,
   navItemsForRole,
@@ -25,7 +26,7 @@ describe('allowedAdminTabs', () => {
     expect(tabs).toContain('bookings');
   });
 
-  it('el cajero ve socios y contabilidad pero no migración', () => {
+  it('el cajero ve socios y módulo de caja (accounting) pero no migración', () => {
     const tabs = allowedAdminTabs('cashier');
     expect(tabs).toContain('members');
     expect(tabs).toContain('accounting');
@@ -38,11 +39,13 @@ describe('allowedAdminTabs', () => {
     expect(tabs).not.toContain('members');
   });
 
-  it('el admin ve las pestañas operativas sin dashboard ni control QR (página aparte)', () => {
+  it('el admin inicia en dashboard y no tiene QR ni concesiones como pestaña (secciones aparte)', () => {
     const tabs = allowedAdminTabs('admin');
-    expect(tabs).not.toContain('dashboard');
+    expect(tabs[0]).toBe('dashboard');
     expect(tabs).not.toContain('qr_control');
-    expect(tabs.length).toBeGreaterThanOrEqual(11);
+    expect(tabs).not.toContain('concessions');
+    expect(tabs).toContain('disciplines');
+    expect(tabs.length).toBeGreaterThanOrEqual(13);
   });
 
   it('un rol desconocido no ve ninguna', () => {
@@ -50,15 +53,32 @@ describe('allowedAdminTabs', () => {
   });
 });
 
+describe('canAccessConcessions', () => {
+  it('admin y contador acceden a /concesiones; cajero y socio no', () => {
+    expect(canAccessConcessions('admin')).toBe(true);
+    expect(canAccessConcessions('superadmin')).toBe(true);
+    expect(canAccessConcessions('accountant')).toBe(true);
+    expect(canAccessConcessions('cashier')).toBe(false);
+    expect(canAccessConcessions('staff')).toBe(false);
+    expect(canAccessConcessions('member')).toBe(false);
+  });
+});
+
 describe('allowedAccountingSubtabs', () => {
-  it('el cajero opera diario, caja y gastos', () => {
-    expect(allowedAccountingSubtabs('cashier')).toEqual(['diary', 'cash', 'expenses']);
+  it('el cajero solo ve operación de caja', () => {
+    const tabs = allowedAccountingSubtabs('cashier');
+    expect(tabs).toEqual(['cash']);
   });
 });
 
 describe('navItemsForRole', () => {
   it('el socio ve inicio, reservas y revista', () => {
-    expect(navItemsForRole('member').map((i) => i.id)).toEqual(['dashboard', 'reservations', 'news']);
+    expect(navItemsForRole('member').map((i) => i.id)).toEqual([
+      'dashboard',
+      'reservations',
+      'payments',
+      'news',
+    ]);
   });
 
   it('los roles operativos ven solo su panel, sin revista de socios', () => {

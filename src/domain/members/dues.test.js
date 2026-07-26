@@ -3,6 +3,7 @@ import {
   applyAutomaticDues,
   afterCollectDues,
   duesAmountForHousehold,
+  duesAmountForMember,
   getOverdueMembers,
   getUpcomingDuesMembers,
 } from './dues';
@@ -44,5 +45,15 @@ describe('dues classification', () => {
   it('suma cuota del titular y adherentes al alta', () => {
     expect(duesAmountForHousehold('gold', [])).toBe(32000);
     expect(duesAmountForHousehold('gold', [{ tier: 'gold' }, { tier: 'platinum' }])).toBe(32000 + 32000 + 38000);
+  });
+
+  it('calcula cuota del socio con adherentes activos', () => {
+    expect(duesAmountForMember({
+      tier: 'royal',
+      adherents: [
+        { tier: 'royal', status: 'active' },
+        { tier: 'gold', status: 'inactive' },
+      ],
+    })).toBe(45000 + 45000);
   });
 });

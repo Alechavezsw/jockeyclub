@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import { Search, Filter, Plus, Check, ChevronDown, ChevronUp, Trash2, Users, UserPlus, X, CreditCard, Camera } from 'lucide-react';
+import { Search, Filter, Plus, Check, ChevronDown, ChevronUp, Trash2, Users, UserPlus, X, CreditCard, Camera, FileDown } from 'lucide-react';
 import { afterCollectDues, duesAmountForHousehold, duesAmountForTier } from '../../domain/members/dues';
+import { exportMembersPdf } from '../../domain/members/exportMembersPdf';
+import { DISCIPLINE_OPTIONS } from '../../domain/sports/disciplines';
 import VirtualCard from '../VirtualCard';
 import CollectDuesModal from './CollectDuesModal';
 
@@ -136,10 +138,6 @@ function PhotoPicker({ value, onChange, label = 'Foto', size = 88 }) {
 
 const RELATIONSHIP_OPTIONS = [
   'Cónyuge', 'Hijo/a', 'Padre/Madre', 'Hermano/a', 'Nieto/a', 'Otro',
-];
-
-const DISCIPLINE_OPTIONS = [
-  'Rugby', 'Hockey', 'Tenis', 'Hípica', 'Fitness', 'Natación', 'Golf', 'Padel',
 ];
 
 /** Gestión de socios titulares y adherentes familiares. */
@@ -467,6 +465,19 @@ export default function MembersTab({ members, setMembers, addJournalEntry, forma
             ))}
           </div>
         </div>
+
+        <button
+          type="button"
+          onClick={() => exportMembersPdf(filteredMembers, {
+            formatCurrency,
+            filterLabel: tierFilter === 'todos' ? 'Todos' : tierFilter,
+          })}
+          className="btn btn-secondary"
+          style={{ padding: '0.5rem 1.1rem', fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          title="Exportar padrón filtrado a PDF"
+        >
+          <FileDown size={16} /> Exportar PDF
+        </button>
 
         <button
           onClick={() => setShowAddForm(!showAddForm)}

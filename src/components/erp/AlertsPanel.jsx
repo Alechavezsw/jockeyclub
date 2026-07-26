@@ -2,17 +2,34 @@ import { useState } from 'react';
 import { BellRing, Megaphone, ShieldAlert } from 'lucide-react';
 import { ALERT_SEVERITY, filterAlertsForRole, isAlertVisible } from '../../domain/alerts/alerts';
 
-export function AlertsBanner({ alerts, alertAcks, userRole = 'member', onAck }) {
+export function AlertsBanner({
+  alerts,
+  alertAcks,
+  userRole = 'member',
+  onAck,
+  /** Si se pasa, solo muestra alertas con estos `source`. */
+  onlySources,
+  /** Excluye alertas con estos `source` (ej. concession_expiry en el banner global). */
+  excludeSources,
+  className,
+  style,
+  maxItems = 3,
+}) {
   const visible = filterAlertsForRole(alerts, userRole).filter((a) => {
+    if (onlySources?.length && !onlySources.includes(a.source)) return false;
+    if (excludeSources?.length && excludeSources.includes(a.source)) return false;
     if (!a.requiresAck) return true;
-    return !alertAcks.some((ack) => ack.alertId === a.id);
+    return !(alertAcks || []).some((ack) => ack.alertId === a.id);
   });
 
   if (visible.length === 0) return null;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1rem' }}>
-      {visible.slice(0, 3).map((alert) => {
+    <div
+      className={className}
+      style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1rem', ...style }}
+    >
+      {visible.slice(0, maxItems).map((alert) => {
         const sev = ALERT_SEVERITY[alert.severity] || ALERT_SEVERITY.info;
         return (
           <div

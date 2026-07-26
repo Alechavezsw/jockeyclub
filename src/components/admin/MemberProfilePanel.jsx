@@ -2,13 +2,23 @@ import { useMemo, useState } from 'react';
 import {
   ArrowLeft, User, CreditCard, Users, Wallet, DoorOpen, CalendarDays,
   MessageSquare, ClipboardList, Activity, Phone, Mail, MapPin,
+  Pencil, FileText, Ticket, Bell,
 } from 'lucide-react';
 import VirtualCard from '../VirtualCard';
+import GuestPassPanel from '../GuestPassPanel';
 import { formatShortDate } from '../../domain/members/dues';
+import {
+  applyMemberProfileUpdate,
+  upsertMemberDocument,
+  DOCUMENT_TYPES,
+} from '../../domain/members/profileEdit';
 
 const SECTIONS = [
   { id: 'ficha', label: 'Ficha', icon: User },
+  { id: 'editar', label: 'Editar', icon: Pencil, memberOnly: true },
   { id: 'tarjeta', label: 'Tarjeta', icon: CreditCard },
+  { id: 'invitados', label: 'Invitados', icon: Ticket, memberOnly: true },
+  { id: 'docs', label: 'Documentos', icon: FileText, memberOnly: true },
   { id: 'familia', label: 'Grupo familiar', icon: Users },
   { id: 'movimientos', label: 'Movimientos', icon: Wallet },
   { id: 'entradas', label: 'Entradas', icon: DoorOpen },
@@ -64,14 +74,22 @@ function TimelineItem({ when, title, detail, tone = 'neutral' }) {
 export default function MemberProfilePanel({
   member,
   onBack,
+  backLabel = 'Padrón',
   formatCurrency,
   journalEntries = [],
   entryLogs = [],
   reservations = [],
   claims = [],
   messages = [],
+  updateMember = null,
+  guestPasses = [],
+  setGuestPasses = null,
+  selfService = false,
 }) {
   const [section, setSection] = useState('ficha');
+  const [editForm, setEditForm] = useState(null);
+  const [editMsg, setEditMsg] = useState('');
+  const visibleSections = SECTIONS.filter((s) => !s.memberOnly || selfService);
 
   const movements = useMemo(() => {
     if (!member) return [];
@@ -201,7 +219,7 @@ export default function MemberProfilePanel({
             onClick={onBack}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}
           >
-            <ArrowLeft size={14} /> Padrón
+            <ArrowLeft size={14} /> {backLabel}
           </button>
           <div style={{
             width: 64,
@@ -251,14 +269,35 @@ export default function MemberProfilePanel({
       </div>
 
       <div className="section-chips" style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '1.15rem' }}>
-        {SECTIONS.map((s) => {
+        {visibleSections.map((s) => {
           const Icon = s.icon;
           const active = section === s.id;
           return (
             <button
               key={s.id}
               type="button"
-              onClick={() => setSection(s.id)}
+              onClick={() => {
+                setSection(s.id);
+                if (s.id === 'editar' && member) {
+                  setEditForm({
+                    phone: member.phone || '',
+                    phoneAlt: member.phoneAlt || '',
+                    email: member.email || '',
+                    address: member.address || '',
+                    city: member.city || '',
+                    province: member.province || '',
+                    postalCode: member.postalCode || '',
+                    emergencyContact: member.emergencyContact || '',
+                    emergencyPhone: member.emergencyPhone || '',
+                    photo: member.photo || '',
+                    preferredSports: (member.preferredSports || member.disciplines || []).join(', '),
+                    notifyDues: member.notifyDues !== false,
+                    notifyReservations: member.notifyReservations !== false,
+                    notifyEvents: member.notifyEvents !== false,
+                  });
+                  setEditMsg('');
+                }
+              }}
               className="btn btn-secondary btn-sm"
               style={{
                 display: 'inline-flex',
@@ -333,8 +372,135 @@ export default function MemberProfilePanel({
         )}
 
         {section === 'tarjeta' && (
-          <div style={{ display: 'flex', justifyContent: 'center', padding: '0.5rem 0' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 0' }}>
             <VirtualCard member={member} />
+            <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)', textAlign: 'center', maxWidth: 320 }}>
+              Credencial disponible offline (PWA). En móvil, tocá para pantalla completa.
+            </p>
+          </div>
+        )}
+
+        {section === 'editar' && selfService && editForm && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!updateMember) return;
+              const updated = applyMemberProfileUpdate(member, {
+                ...editForm,
+                preferredSports: editForm.preferredSports
+                  .split(',')
+                  .map((s) => s.trim())
+                  .filter(Boolean),
+                disciplines: editForm.preferredSports
+                  .split(',')
+                  .map((s) => s.trim())
+                  .filter(Boolean),
+              });
+              updateMember(updated);
+              setEditMsg('Datos actualizados correctamente.');
+            }}
+            style={{ display: 'grid', gap: '0.85rem', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}
+          >
+            {[
+              ['phone', 'WhatsApp'],
+              ['phoneAlt', 'Tel. alternativo'],
+              ['email', 'Email'],
+              ['address', 'Domicilio'],
+              ['city', 'Localidad'],
+              ['province', 'Provincia'],
+              ['postalCode', 'CP'],
+              ['emergencyContact', 'Contacto emergencia'],
+              ['emergencyPhone', 'Tel. emergencia'],
+              ['photo', 'URL foto'],
+              ['preferredSports', 'Disciplinas (separadas por coma)'],
+            ].map(([key, label]) => (
+              <div key={key} style={{ gridColumn: key === 'preferredSports' || key === 'address' || key === 'photo' ? '1 / -1' : undefined }}>
+                <label className="form-label">{label}</label>
+                <input
+                  className="form-input"
+                  value={editForm[key] || ''}
+                  onChange={(ev) => setEditForm({ ...editForm, [key]: ev.target.value })}
+                />
+              </div>
+            ))}
+            <div style={{ gridColumn: '1 / -1', display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
+              {[
+                ['notifyDues', 'Avisos de cuota'],
+                ['notifyReservations', 'Avisos de reservas'],
+                ['notifyEvents', 'Avisos de eventos'],
+              ].map(([key, label]) => (
+                <label key={key} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.85rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(editForm[key])}
+                    onChange={(ev) => setEditForm({ ...editForm, [key]: ev.target.checked })}
+                  />
+                  <Bell size={13} /> {label}
+                </label>
+              ))}
+            </div>
+            <div style={{ gridColumn: '1 / -1' }}>
+              <button type="submit" className="btn btn-primary" disabled={!updateMember}>Guardar cambios</button>
+              {editMsg && <span style={{ marginLeft: 12, color: 'var(--emerald-accent)', fontSize: '0.85rem' }}>{editMsg}</span>}
+            </div>
+          </form>
+        )}
+
+        {section === 'invitados' && selfService && setGuestPasses && (
+          <GuestPassPanel
+            member={member}
+            guestPasses={guestPasses}
+            setGuestPasses={setGuestPasses}
+          />
+        )}
+
+        {section === 'docs' && selfService && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              Subí documentación para revisión de Secretaría (demo local).
+            </p>
+            {DOCUMENT_TYPES.map((doc) => {
+              const existing = (member.documents || []).find((d) => d.type === doc.id);
+              return (
+                <div
+                  key={doc.id}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: '0.75rem',
+                    flexWrap: 'wrap',
+                    alignItems: 'center',
+                    padding: '0.75rem 0.9rem',
+                    borderRadius: 10,
+                    border: '1px solid var(--border-glass)',
+                  }}
+                >
+                  <div>
+                    <strong style={{ fontSize: '0.9rem' }}>{doc.label}</strong>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                      {existing
+                        ? `${existing.fileName} · ${existing.status === 'pending_review' ? 'En revisión' : existing.status}`
+                        : 'Sin archivo'}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={!updateMember}
+                    onClick={() => {
+                      if (!updateMember) return;
+                      updateMember(upsertMemberDocument(member, {
+                        type: doc.id,
+                        fileName: `${doc.id}-${member.memberId}.pdf`,
+                        note: 'Carga desde portal socio',
+                      }));
+                    }}
+                  >
+                    {existing ? 'Reemplazar' : 'Cargar'}
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
 

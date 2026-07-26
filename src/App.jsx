@@ -7,18 +7,23 @@ import NewsBoardView from './views/NewsBoardView';
 import AdminView from './views/AdminView';
 import LoginView from './views/LoginView';
 import MessagesView from './views/MessagesView';
+import PaymentHistoryView from './views/PaymentHistoryView';
+import MemberProfilePanel from './components/admin/MemberProfilePanel';
 import useErpStore from './hooks/useErpStore';
 import { AlertsBanner } from './components/erp/AlertsPanel';
 import SessionStatusBar from './components/SessionStatusBar';
 import { useAuth } from './context/AuthContext';
-import { canAccessAdmin, canAccessQrGate } from './domain/auth/roles';
+import { canAccessAdmin, canAccessQrGate, canAccessConcessions } from './domain/auth/roles';
 import AccessControlView from './views/AccessControlView';
+import ConcessionsView from './views/ConcessionsView';
+import ConcessionPortalView from './views/ConcessionPortalView';
 import { hasReservationConflict } from './domain/reservations/conflicts';
 import { filterAlertsForRole } from './domain/alerts/alerts';
 import { countUnread } from './domain/messaging/messages';
 import { applyAutomaticDues } from './domain/members/dues';
 import { createHrRecord } from './domain/staff/hr';
 import { isSupabaseConfigured } from './lib/supabase';
+import { notifyNextOnWaitlist } from './domain/reservations/waitlist';
 
 // Datos de semilla predeterminados para socios de Jockey Club San Juan (con teléfonos 264 y adherentes)
 const DEFAULT_MEMBERS = [
@@ -26,6 +31,26 @@ const DEFAULT_MEMBERS = [
     name: 'Alejandro Chávez', // El socio activo predeterminado
     memberId: '2026887744320988',
     phone: '+5492645551234',
+    phoneAlt: '+5492645551299',
+    email: 'socio@jockey.sj',
+    address: 'Av. Libertador San Martín 2450',
+    city: 'Rivadavia',
+    province: 'San Juan',
+    postalCode: '5400',
+    documentType: 'DNI',
+    documentNumber: '28.445.912',
+    birthDate: '1985-03-14',
+    gender: 'Masculino',
+    maritalStatus: 'Casado/a',
+    nationality: 'Argentina',
+    joinDate: '2021-04-10',
+    emergencyContact: 'María Inés de Chávez',
+    emergencyPhone: '+5492645551002',
+    paymentMethod: 'Débito automático',
+    billingName: 'Alejandro Chávez',
+    cuitCuil: '20-28445912-3',
+    taxCondition: 'Consumidor Final',
+    disciplines: ['Tenis', 'Pádel', 'Equitación'],
     tier: 'royal',
     outstandingBalance: 32000, // Saldo inicial para demostrar el flujo de cobro
     yearsActive: 5,
@@ -46,6 +71,7 @@ const DEFAULT_MEMBERS = [
     yearsActive: 8,
     status: 'active',
     nextDueDate: '2026-07-28', // próxima a vencer
+    disciplines: ['Hockey', 'Fitness'],
     adherents: []
   },
   {
@@ -57,8 +83,9 @@ const DEFAULT_MEMBERS = [
     yearsActive: 12,
     status: 'active',
     nextDueDate: '2026-08-15',
+    disciplines: ['Hípica', 'Golf'],
     adherents: [
-      { id: 'adh-03', name: 'Adolfo Sarmiento (Hijo)', tier: 'platinum', relationship: 'Hijo/a', outstandingBalance: 0, status: 'active' }
+      { id: 'adh-03', name: 'Adolfo Sarmiento (Hijo)', tier: 'platinum', relationship: 'Hijo/a', outstandingBalance: 0, status: 'active', disciplines: ['Hípica'] }
     ]
   },
   {
@@ -71,8 +98,9 @@ const DEFAULT_MEMBERS = [
     status: 'active',
     nextDueDate: '2026-05-10',
     overdueSince: '2026-05-10',
+    disciplines: ['Rugby', 'Fútbol'],
     adherents: [
-      { id: 'adh-04', name: 'Delfina Del Carril', tier: 'gold', relationship: 'Hijo/a', outstandingBalance: 12000, status: 'active' }
+      { id: 'adh-04', name: 'Delfina Del Carril', tier: 'gold', relationship: 'Hijo/a', outstandingBalance: 12000, status: 'active', disciplines: ['Tenis'] }
     ]
   },
   {
@@ -84,6 +112,7 @@ const DEFAULT_MEMBERS = [
     yearsActive: 2,
     status: 'active',
     nextDueDate: '2026-07-30', // próxima a vencer
+    disciplines: ['Natación', 'Voleibol', 'Fitness'],
     adherents: []
   }
 ];
@@ -693,6 +722,9 @@ export default function App() {
       case 'reservations': return isOperativeRole ? '/panel' : '/reservas';
       case 'news': return '/revista';
       case 'messages': return '/mensajes';
+      case 'payments': return '/cuenta';
+      case 'profile': return '/perfil';
+      case 'concessions': return '/concesiones';
       case 'admin': return isOperativeRole ? '/panel' : '/';
       case 'dashboard':
       default: return isOperativeRole ? '/panel' : '/';
@@ -707,7 +739,13 @@ export default function App() {
       ? 'news'
       : location.pathname.startsWith('/mensajes')
         ? 'messages'
-        : 'dashboard';
+        : location.pathname.startsWith('/cuenta')
+          ? 'payments'
+          : location.pathname.startsWith('/perfil')
+            ? 'profile'
+            : location.pathname.startsWith('/concesiones')
+              ? 'concessions'
+              : 'dashboard';
 
   const [members, setMembers] = useState(() => {
     const local = localStorage.getItem('jockey-members');
@@ -719,9 +757,21 @@ export default function App() {
           const seed = defaultsById[m.memberId];
           if (!seed) return m;
           return {
+            ...seed,
             ...m,
+            // Completar ficha con datos de semilla si faltan en localStorage
             nextDueDate: m.nextDueDate || seed.nextDueDate,
             overdueSince: m.overdueSince || seed.overdueSince,
+            email: m.email || seed.email,
+            address: m.address || seed.address,
+            city: m.city || seed.city,
+            province: m.province || seed.province,
+            documentNumber: m.documentNumber || seed.documentNumber,
+            documentType: m.documentType || seed.documentType,
+            birthDate: m.birthDate || seed.birthDate,
+            joinDate: m.joinDate || seed.joinDate,
+            disciplines: m.disciplines?.length ? m.disciplines : seed.disciplines,
+            adherents: m.adherents?.length ? m.adherents : seed.adherents,
           };
         });
     // Cuota vencida → deuda generada sola (sin botón manual)
@@ -793,6 +843,22 @@ export default function App() {
   const [surveys, setSurveys] = useState(() => {
     const local = localStorage.getItem('jockey-surveys');
     return local ? JSON.parse(local) : DEFAULT_SURVEYS;
+  });
+
+  const [guestPasses, setGuestPasses] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('jockey-guest-passes') || '[]');
+    } catch {
+      return [];
+    }
+  });
+
+  const [waitlist, setWaitlist] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('jockey-waitlist') || '[]');
+    } catch {
+      return [];
+    }
   });
 
   const [isZondaActive, setIsZondaActive] = useState(() => {
@@ -887,6 +953,14 @@ export default function App() {
     localStorage.setItem('jockey-surveys', JSON.stringify(surveys));
   }, [surveys]);
 
+  useEffect(() => {
+    localStorage.setItem('jockey-guest-passes', JSON.stringify(guestPasses));
+  }, [guestPasses]);
+
+  useEffect(() => {
+    localStorage.setItem('jockey-waitlist', JSON.stringify(waitlist));
+  }, [waitlist]);
+
   // Socio activo: el vinculado a la sesión, o el primero como fallback operativo
   const activeMember =
     members.find((m) => m.memberId === user?.memberId) ||
@@ -911,15 +985,43 @@ export default function App() {
     return { ok: true };
   };
 
-  // Cancelar una reserva
+  // Cancelar una reserva (y avisar al primero de la lista de espera)
   const cancelReservation = (resId) => {
-    setReservations(prev => 
-      prev.map(res => {
-        if (res.id === resId) {
-          return { ...res, status: 'cancelled' };
+    const current = reservations.find((r) => r.id === resId);
+    setReservations((prev) =>
+      prev.map((res) => (res.id === resId ? { ...res, status: 'cancelled' } : res))
+    );
+    if (current) {
+      setWaitlist((prev) => {
+        const { entries, notified } = notifyNextOnWaitlist(prev, {
+          facilityId: current.facilityId,
+          date: current.date,
+          time: current.time,
+        });
+        if (notified) {
+          setMessages((msgs) => [
+            {
+              id: `wl-msg-${Date.now()}`,
+              date: new Date().toISOString().slice(0, 10),
+              sender: 'Reservas · Jockey Club',
+              senderId: 'ops',
+              recipientId: notified.memberId,
+              subject: 'Turno liberado · lista de espera',
+              content: `Se liberó ${notified.facilityName} el ${notified.date} a las ${notified.time}. Reservá desde Instalaciones.`,
+              isRead: false,
+            },
+            ...msgs,
+          ]);
         }
-        return res;
-      })
+        return entries;
+      });
+    }
+  };
+
+  const updateMember = (nextMember) => {
+    if (!nextMember?.memberId) return;
+    setMembers((prev) =>
+      prev.map((m) => (m.memberId === nextMember.memberId ? { ...m, ...nextMember } : m))
     );
   };
 
@@ -936,9 +1038,41 @@ export default function App() {
   const notifications = (() => {
     if (!isAuthenticated) return [];
     if (userRole === 'member') {
-      return messages
+      const msgNotifs = messages
         .filter((m) => (m.recipientId === activeMember?.memberId || m.recipientId === 'all') && !m.isRead)
         .map((m) => ({ id: `msg-${m.id}`, title: m.subject, detail: `${m.sender} · ${m.date}`, view: 'messages' }));
+      const duesNotifs = [];
+      if (activeMember && activeMember.notifyDues !== false) {
+        if ((activeMember.outstandingBalance || 0) > 0) {
+          duesNotifs.push({
+            id: 'dues-debt',
+            title: 'Cuota pendiente',
+            detail: 'Tenés saldo por abonar. Tocá para pagar.',
+            view: 'payments',
+          });
+        } else if (activeMember.nextDueDate) {
+          const days = Math.ceil(
+            (new Date(`${activeMember.nextDueDate}T12:00:00`) - new Date()) / 86400000
+          );
+          if (days >= 0 && days <= 10) {
+            duesNotifs.push({
+              id: 'dues-soon',
+              title: 'Próximo vencimiento de cuota',
+              detail: `Vence en ${days} día(s) (${activeMember.nextDueDate}).`,
+              view: 'payments',
+            });
+          }
+        }
+      }
+      const waitNotifs = (waitlist || [])
+        .filter((w) => w.memberId === activeMember?.memberId && w.status === 'notified')
+        .map((w) => ({
+          id: `wl-${w.id}`,
+          title: 'Turno liberado',
+          detail: `${w.facilityName} · ${w.date} ${w.time}`,
+          view: 'reservations',
+        }));
+      return [...duesNotifs, ...waitNotifs, ...msgNotifs];
     }
     const roleAlerts = filterAlertsForRole(erp.alerts || [], userRole)
       .filter((a) => !a.requiresAck || !(erp.alertAcks || []).some((ack) => ack.alertId === a.id))
@@ -977,6 +1111,7 @@ export default function App() {
         member={activeMember}
         reservations={reservations}
         cancelReservation={cancelReservation}
+        addReservation={addReservation}
         setCurrentView={setCurrentView}
         latestNews={newsList}
         staffMembers={staffMembers}
@@ -989,6 +1124,11 @@ export default function App() {
         setIsZondaActive={setIsZondaActive}
         surveys={surveys}
         setSurveys={setSurveys}
+        waitlist={waitlist}
+        setWaitlist={setWaitlist}
+        guestPasses={guestPasses}
+        setGuestPasses={setGuestPasses}
+        updateMember={updateMember}
       />
     );
 
@@ -1020,6 +1160,7 @@ export default function App() {
         userRole={userRole}
         setCurrentView={setCurrentView}
         erp={erp}
+        isZondaActive={isZondaActive}
       />
     );
 
@@ -1030,6 +1171,8 @@ export default function App() {
       addReservation={addReservation}
       setCurrentView={setCurrentView}
       isZondaActive={isZondaActive}
+      waitlist={waitlist}
+      setWaitlist={setWaitlist}
     />
   );
 
@@ -1044,6 +1187,34 @@ export default function App() {
     />
   );
 
+  const paymentHistoryView = (
+    <PaymentHistoryView
+      member={activeMember}
+      setCurrentView={setCurrentView}
+      updateMember={updateMember}
+    />
+  );
+
+  const memberProfileView = (
+    <MemberProfilePanel
+      member={activeMember}
+      onBack={() => setCurrentView('dashboard')}
+      backLabel="Inicio"
+      selfService
+      updateMember={updateMember}
+      guestPasses={guestPasses}
+      setGuestPasses={setGuestPasses}
+      formatCurrency={(amount) =>
+        new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 }).format(amount || 0)
+      }
+      journalEntries={journalEntries}
+      entryLogs={entryLogs}
+      reservations={reservations}
+      claims={claims}
+      messages={messages}
+    />
+  );
+
   if (authLoading) {
     return (
       <div className="app-container" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>
@@ -1052,13 +1223,31 @@ export default function App() {
     );
   }
 
+  const isConcessionPortal = location.pathname.startsWith('/concesionario/');
+
   if (!isAuthenticated) {
     return (
       <div className="app-container">
         <div className="ambient-glow ambient-glow-1" />
         <div className="ambient-glow ambient-glow-2" />
         <main className="main-content">
-          <LoginView />
+          {isConcessionPortal ? (
+            <Routes>
+              <Route
+                path="/concesionario/:code"
+                element={
+                  <ConcessionPortalView
+                    code={decodeURIComponent(location.pathname.split('/').pop() || '')}
+                    concessions={erp.concessions || []}
+                    canonPayments={erp.canonPayments || []}
+                  />
+                }
+              />
+              <Route path="*" element={<LoginView />} />
+            </Routes>
+          ) : (
+            <LoginView />
+          )}
         </main>
       </div>
     );
@@ -1074,6 +1263,24 @@ export default function App() {
       entryLogs={entryLogs}
       setEntryLogs={setEntryLogs}
       formatCurrency={formatCurrency}
+      guestPasses={guestPasses}
+    />
+  ) : (
+    <Navigate to="/panel" replace />
+  );
+
+  const concessionsView = canAccessConcessions(userRole) ? (
+    <ConcessionsView
+      concessions={erp.concessions || []}
+      canonPayments={erp.canonPayments || []}
+      upsertConcession={erp.upsertConcession}
+      renewConcessionContract={erp.renewConcessionContract}
+      setConcessionStatus={erp.setConcessionStatus}
+      toggleConcessionChecklist={erp.toggleConcessionChecklist}
+      addDocToConcession={erp.addDocToConcession}
+      removeDocFromConcession={erp.removeDocFromConcession}
+      recordCanonPayment={erp.recordCanonPayment}
+      renewedBy={user?.fullName || user?.email || 'admin'}
     />
   ) : (
     <Navigate to="/panel" replace />
@@ -1106,6 +1313,7 @@ export default function App() {
               alertAcks={erp.alertAcks}
               userRole={userRole}
               onAck={erp.ackAlert}
+              excludeSources={['concession_expiry', 'concession_docs']}
             />
           </>
         )}
@@ -1113,6 +1321,8 @@ export default function App() {
           <Route path="/" element={isOperativeRole ? <Navigate to="/panel" replace /> : memberDashboard} />
           <Route path="/reservas" element={userRole === 'member' ? reservationsView : <Navigate to="/panel" replace />} />
           <Route path="/revista" element={userRole === 'member' ? newsView : <Navigate to="/panel" replace />} />
+          <Route path="/cuenta" element={userRole === 'member' ? paymentHistoryView : <Navigate to="/panel" replace />} />
+          <Route path="/perfil" element={userRole === 'member' ? memberProfileView : <Navigate to="/panel" replace />} />
           <Route
             path="/mensajes"
             element={
@@ -1124,7 +1334,18 @@ export default function App() {
             }
           />
           <Route path="/acceso" element={accessGateView} />
+          <Route path="/concesiones" element={concessionsView} />
+          <Route
+            path="/concesionario/:code"
+            element={
+              <ConcessionPortalView
+                concessions={erp.concessions || []}
+                canonPayments={erp.canonPayments || []}
+              />
+            }
+          />
           <Route path="/panel/qr_control" element={<Navigate to="/acceso" replace />} />
+          <Route path="/panel/concessions" element={<Navigate to="/concesiones" replace />} />
           <Route path="/panel" element={isOperativeRole ? operativePanel : <Navigate to="/" replace />} />
           <Route path="/panel/:tab/:memberId?" element={isOperativeRole ? operativePanel : <Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to={isOperativeRole ? '/panel' : '/'} replace />} />

@@ -122,3 +122,59 @@ export function buildCashMovementEntry({
     chart,
   });
 }
+
+/** Cuentas líquidas (cajas + bancos). */
+export function isLiquidAccount(account) {
+  return Boolean(account?.isCashAccount || String(account?.code || '').startsWith('1.1.'));
+}
+
+/**
+ * Contrapartidas válidas según tipo de movimiento.
+ * Evita mezclar patrimonio / activos fijos en el selector de caja.
+ */
+export function counterpartAccountsForMovement(chart, movementType, excludeAccountId = null) {
+  const postable = (chart || []).filter((a) => a.isPostable);
+  if (movementType === 'income') {
+    return postable.filter(
+      (a) => (a.accountType === 'income' || a.accountType === 'liability') && a.id !== excludeAccountId
+    );
+  }
+  if (movementType === 'expense') {
+    return postable.filter(
+      (a) => (a.accountType === 'expense' || a.accountType === 'liability') && a.id !== excludeAccountId
+    );
+  }
+  // transfer: otras cuentas líquidas
+  return postable.filter((a) => isLiquidAccount(a) && a.id !== excludeAccountId);
+}
+
+export function buildCashTransferEntry({
+  date,
+  concept,
+  fromAccountId,
+  toAccountId,
+  amount,
+  chart,
+}) {
+  const amt = Number(amount);
+  if (!fromAccountId || !toAccountId) throw new Error('Indique origen y destino del traspaso.');
+  if (fromAccountId === toAccountId) throw new Error('Origen y destino deben ser distintos.');
+  if (!amt || amt <= 0) throw new Error('Importe de traspaso inválido.');
+
+  return buildPostedEntry({
+    date: date || new Date().toISOString().slice(0, 10),
+    description: concept || 'Traspaso de fondos',
+    lines: [
+      { accountId: toAccountId, debit: amt, credit: 0 },
+      { accountId: fromAccountId, debit: 0, credit: amt },
+    ],
+    sourceModule: 'caja_traspaso',
+    chart,
+  });
+}
+
+export function closedSessions(sessions = []) {
+  return [...sessions]
+    .filter((s) => s.status === 'closed' || s.status === 'discrepancy')
+    .sort((a, b) => String(b.closedAt || '').localeCompare(String(a.closedAt || '')));
+}

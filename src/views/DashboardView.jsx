@@ -1,5 +1,9 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import VirtualCard from '../components/VirtualCard';
+import MemberFacilitiesBooking from '../components/MemberFacilitiesBooking';
+import GuestPassPanel from '../components/GuestPassPanel';
+import { FACILITIES } from '../domain/reservations/facilities';
+import { getFacilityLiveStatus } from '../domain/reservations/availability';
 import {
   Calendar, CreditCard, MapPin, ShieldAlert,
   ArrowRight, Mail, Users, Send, MessageSquare, CheckCircle2,
@@ -10,7 +14,8 @@ import {
 export default function DashboardView({ 
   member, 
   reservations, 
-  cancelReservation, 
+  cancelReservation,
+  addReservation,
   setCurrentView, 
   latestNews,
   staffMembers = [],
@@ -21,7 +26,12 @@ export default function DashboardView({
   isZondaActive,
   setIsZondaActive,
   surveys = [],
-  setSurveys
+  setSurveys,
+  waitlist = [],
+  setWaitlist,
+  guestPasses = [],
+  setGuestPasses,
+  updateMember,
 }) {
   const [showNewClaimForm, setShowNewClaimForm] = useState(false);
   const [claimType, setClaimType] = useState('Mantenimiento');
@@ -61,8 +71,16 @@ export default function DashboardView({
     return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 }).format(amount);
   };
 
-  const greenkeeper = staffMembers.find(s => s.role === 'Head Greenkeeper');
-  const directoraHipica = staffMembers.find(s => s.role === 'Directora Hípica y Turf');
+  const liveSnapshot = useMemo(() => {
+    const highlightIds = ['tenis_trad', 'padel_vidrio', 'rugby_masc', 'piscina_verano', 'gimnasio_musc'];
+    return highlightIds
+      .map((id) => FACILITIES.find((f) => f.id === id))
+      .filter(Boolean)
+      .map((fac) => ({
+        fac,
+        live: getFacilityLiveStatus(fac, { reservations, isZondaActive }),
+      }));
+  }, [reservations, isZondaActive]);
 
   const handleMarkAsRead = (msgId) => {
     setMessages(prev => prev.map(msg => msg.id === msgId ? { ...msg, isRead: true } : msg));
@@ -104,7 +122,7 @@ export default function DashboardView({
         .db-hero {
           position: relative;
           border-radius: 20px;
-          overflow: hidden;
+          overflow: visible;
           margin-bottom: 2rem;
           background: linear-gradient(135deg, var(--hero-grad-a) 0%, var(--hero-grad-b) 100%);
           border: 1px solid var(--border-glass);
@@ -113,6 +131,8 @@ export default function DashboardView({
         .db-hero-bg {
           position: absolute;
           inset: 0;
+          border-radius: inherit;
+          overflow: hidden;
           background: 
             radial-gradient(ellipse 60% 50% at 80% 50%, ${tc.secondary} 0%, transparent 70%),
             radial-gradient(ellipse 40% 60% at 10% 80%, rgba(16,185,129,0.06) 0%, transparent 60%);
@@ -179,7 +199,35 @@ export default function DashboardView({
           color: var(--text-muted);
         }
         .db-hero-card-wrapper {
-          flex-shrink: 0;
+          flex: 1 1 280px;
+          min-width: 0;
+          width: 100%;
+          max-width: 360px;
+          display: flex;
+          justify-content: center;
+        }
+        .db-hero-card-wrapper .vc-wrap {
+          margin-bottom: 0 !important;
+          width: 100%;
+        }
+        @media (max-width: 720px) {
+          .db-hero-content {
+            padding: 1.35rem 1.1rem 1.5rem;
+            flex-direction: column;
+            align-items: stretch;
+            gap: 1.25rem;
+          }
+          .db-hero-name {
+            font-size: 1.85rem;
+          }
+          .db-hero-stats {
+            gap: 1.1rem;
+            flex-wrap: wrap;
+          }
+          .db-hero-card-wrapper {
+            max-width: 100%;
+            flex-basis: 100%;
+          }
         }
 
         /* Quick Actions Bar */
@@ -521,6 +569,18 @@ export default function DashboardView({
         </div>
       </div>
 
+      {(member.outstandingBalance || 0) > 0 && member.notifyDues !== false && (
+        <div className="dues-banner">
+          <span>
+            <ShieldAlert size={16} style={{ verticalAlign: -3, marginRight: 6 }} />
+            Cuota pendiente: {formatCurrency(member.outstandingBalance)}. Podés pagar online desde Mi Cuenta.
+          </span>
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => setCurrentView('payments')}>
+            Pagar ahora
+          </button>
+        </div>
+      )}
+
       {/* ===== QUICK ACTIONS ===== */}
       <div className="db-quick-bar">
         <div className="db-quick-btn" onClick={() => setCurrentView('reservations')}>
@@ -552,6 +612,31 @@ export default function DashboardView({
           <span className="db-quick-btn-sub">{isZondaActive ? 'Actividades suspendidas' : 'Sin alertas activas'}</span>
         </div>
       </div>
+
+      {/* ===== DISPONIBILIDAD EN VIVO + CALENDARIO + RESERVA ===== */}
+      {addReservation && (
+        <div style={{ marginBottom: '1.75rem' }}>
+          <MemberFacilitiesBooking
+            member={member}
+            reservations={reservations}
+            addReservation={addReservation}
+            isZondaActive={isZondaActive}
+            waitlist={waitlist}
+            setWaitlist={setWaitlist}
+            compact
+          />
+        </div>
+      )}
+
+      {setGuestPasses && (
+        <div className="glass-card" style={{ padding: '1.1rem 1.2rem', marginBottom: '1.75rem' }}>
+          <GuestPassPanel
+            member={member}
+            guestPasses={guestPasses}
+            setGuestPasses={setGuestPasses}
+          />
+        </div>
+      )}
 
       {/* ===== MAIN GRID ===== */}
       <div className="db-grid">
@@ -620,19 +705,28 @@ export default function DashboardView({
             )}
 
             <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              {[
-                { label: 'Canchas Rugby & Hockey', ok: !isZondaActive, detail: isZondaActive ? 'SUSPENDIDO' : greenkeeper?.status === 'active' ? 'Habilitado c/ Precaución' : 'Condiciones óptimas' },
-                { label: 'Pistas Hípicas & Turf', ok: !isZondaActive && directoraHipica?.status === 'active', detail: isZondaActive ? 'SUSPENDIDO' : directoraHipica?.status === 'active' ? 'Coordinador activo' : 'Pre-calentamiento' },
-                { label: 'Piscina de Verano', ok: false, detail: 'Cerrada · Temporada Dic–Mar' },
-              ].map((f, i) => (
-                <div key={i} className="facility-row">
-                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: f.ok ? 'var(--emerald-accent)' : '#ef4444', boxShadow: `0 0 6px ${f.ok ? 'var(--emerald-accent)' : '#ef4444'}`, flexShrink: 0 }} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '0.78rem', fontWeight: '600', color: 'var(--text-primary)' }}>{f.label}</div>
-                    <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>{f.detail}</div>
+              {liveSnapshot.map(({ fac, live }) => {
+                const ok = live.status === 'available';
+                const warn = live.status === 'occupied';
+                const color = ok ? 'var(--emerald-accent)' : warn ? '#f59e0b' : '#ef4444';
+                return (
+                  <div key={fac.id} className="facility-row">
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: color, boxShadow: `0 0 6px ${color}`, flexShrink: 0 }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '0.78rem', fontWeight: '600', color: 'var(--text-primary)' }}>{fac.name.split(' - ')[0]}</div>
+                      <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>{live.label} · {live.detail}</div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
+              <button
+                type="button"
+                onClick={() => setCurrentView('reservations')}
+                className="btn btn-secondary btn-sm"
+                style={{ marginTop: '0.25rem', alignSelf: 'stretch' }}
+              >
+                Ver calendario y reservar
+              </button>
             </div>
           </div>
 
@@ -673,7 +767,20 @@ export default function DashboardView({
 
           {/* Stats Row */}
           <div className="db-stat-row">
-            <div className="db-stat-card" style={{ background: 'linear-gradient(135deg, rgba(207,161,58,0.12) 0%, rgba(6,14,10,0.8) 100%)', borderColor: 'rgba(207,161,58,0.2)' }}>
+            <div
+              className="db-stat-card is-clickable"
+              role="button"
+              tabIndex={0}
+              onClick={() => setCurrentView('payments')}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setCurrentView('payments');
+                }
+              }}
+              title="Ver historial de pagos"
+              style={{ background: 'linear-gradient(135deg, rgba(207,161,58,0.12) 0%, rgba(6,14,10,0.8) 100%)', borderColor: 'rgba(207,161,58,0.2)' }}
+            >
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <CreditCard size={16} color="var(--primary-gold)" />
                 <span className="db-stat-label">Estado Contable</span>
@@ -681,7 +788,9 @@ export default function DashboardView({
               <div className="db-stat-value" style={{ color: member.outstandingBalance > 0 ? '#f59e0b' : 'var(--emerald-accent)' }}>
                 {member.outstandingBalance > 0 ? formatCurrency(member.outstandingBalance) : '✓ Al Día'}
               </div>
-              <span className="db-stat-sub">{member.outstandingBalance > 0 ? 'Pago pendiente' : 'Próx. cobro: 01/06'}</span>
+              <span className="db-stat-sub">
+                {member.outstandingBalance > 0 ? 'Pago pendiente · Ver historial' : 'Ver historial de pagos →'}
+              </span>
             </div>
 
             <div className="db-stat-card" style={{ background: 'linear-gradient(135deg, rgba(16,185,129,0.12) 0%, rgba(6,14,10,0.8) 100%)', borderColor: 'rgba(16,185,129,0.2)' }}>

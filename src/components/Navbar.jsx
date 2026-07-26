@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sun, Moon, Shield, User, Menu, X, Bell, LogOut, Mail, QrCode } from 'lucide-react';
+import { Sun, Moon, Shield, User, Menu, X, Bell, LogOut, Mail, QrCode, Store } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { navItemsForRole, ROLE_LABELS, canAccessQrGate } from '../domain/auth/roles';
+import { navItemsForRole, ROLE_LABELS, canAccessQrGate, canAccessConcessions } from '../domain/auth/roles';
 
 export default function Navbar({
   currentView,
@@ -19,6 +19,7 @@ export default function Navbar({
 
   const visibleItems = navItemsForRole(role || 'member');
   const showAccessGate = canAccessQrGate(role);
+  const showConcessions = canAccessConcessions(role);
 
   const handleNavClick = (viewId) => {
     setCurrentView(viewId);
@@ -32,7 +33,7 @@ export default function Navbar({
   };
 
   return (
-    <nav className="glass-panel" style={{
+    <nav className="glass-panel nav-bar-shell" style={{
       position: 'sticky',
       top: 0,
       zIndex: 100,
@@ -40,7 +41,8 @@ export default function Navbar({
       borderRadius: '0 0 var(--radius-md) var(--radius-md)',
       borderTop: 'none',
       borderLeft: 'none',
-      borderRight: 'none'
+      borderRight: 'none',
+      background: 'color-mix(in srgb, var(--bg-secondary) 92%, transparent)',
     }}>
       <div className="nav-inner-bar" style={{
         display: 'flex',
@@ -127,6 +129,30 @@ export default function Navbar({
         </div>
 
         <div className="desktop-menu-container" style={{ display: 'none', alignItems: 'center', gap: '0.75rem' }}>
+          {showConcessions && (
+            <button
+              onClick={() => { navigate('/concesiones'); setIsOpen(false); }}
+              title="Concesiones · contratos y vencimientos"
+              style={{
+                background: currentView === 'concessions' ? 'rgba(207,161,58,0.22)' : 'rgba(207,161,58,0.12)',
+                border: '1px solid rgba(207,161,58,0.4)',
+                borderRadius: 20,
+                height: 40,
+                padding: '0 0.85rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                cursor: 'pointer',
+                color: 'var(--text-gold)',
+                fontFamily: 'inherit',
+                fontSize: '0.8rem',
+                fontWeight: 700,
+              }}
+            >
+              <Store size={15} /> Concesiones
+            </button>
+          )}
           {showAccessGate && (
             <button
               onClick={() => { navigate('/acceso'); setIsOpen(false); }}
@@ -301,27 +327,34 @@ export default function Navbar({
             {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
           </button>
 
-          <div
+          <button
+            type="button"
             className="btn"
+            onClick={() => {
+              if (role === 'member') handleNavClick('profile');
+            }}
             style={{
               padding: '0.45rem 0.85rem',
               fontSize: '0.8rem',
               borderRadius: '20px',
-              background: role === 'member' ? 'rgba(207, 161, 58, 0.1)' : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+              background: role === 'member'
+                ? (currentView === 'profile' ? 'rgba(207, 161, 58, 0.22)' : 'rgba(207, 161, 58, 0.1)')
+                : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
               border: `1px solid ${role === 'member' ? 'rgba(207, 161, 58, 0.3)' : 'transparent'}`,
               color: role === 'member' ? 'var(--primary-gold)' : '#fff',
               display: 'flex',
               alignItems: 'center',
               gap: '0.4rem',
               maxWidth: 220,
+              cursor: role === 'member' ? 'pointer' : 'default',
             }}
-            title={user?.email}
+            title={role === 'member' ? 'Ver mis datos de socio' : user?.email}
           >
             {role === 'member' ? <User size={14} /> : <Shield size={14} />}
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {user?.fullName?.split(' ')[0] || 'Usuario'} · {roleLabel || ROLE_LABELS[role]}
             </span>
-          </div>
+          </button>
 
           <button
             onClick={handleLogout}
@@ -349,19 +382,22 @@ export default function Navbar({
       </div>
 
       {isOpen && (
-        <div className="glass-panel" style={{
+        <div className="nav-mobile-menu" style={{
           position: 'absolute',
           top: '100%',
           left: 0,
           right: 0,
           borderLeft: 'none',
           borderRight: 'none',
+          borderTop: '1px solid var(--border-glass)',
           borderRadius: `0 0 var(--radius-md) var(--radius-md)`,
-          padding: '1.5rem',
+          padding: '1.25rem 1.5rem 1.5rem',
           display: 'flex',
           flexDirection: 'column',
-          gap: '1rem',
-          zIndex: 99
+          gap: '0.85rem',
+          zIndex: 120,
+          background: 'var(--bg-secondary)',
+          boxShadow: '0 18px 40px rgba(0,0,0,0.55)',
         }}>
           {visibleItems.map(item => (
             <button
@@ -384,6 +420,31 @@ export default function Navbar({
               {item.label}
             </button>
           ))}
+
+          {showConcessions && (
+            <button
+              type="button"
+              onClick={() => { navigate('/concesiones'); setIsOpen(false); }}
+              style={{
+                background: currentView === 'concessions' ? 'rgba(207, 161, 58, 0.05)' : 'transparent',
+                border: 'none',
+                borderLeft: currentView === 'concessions' ? '3px solid var(--primary-gold)' : '3px solid transparent',
+                color: currentView === 'concessions' ? 'var(--primary-gold)' : 'var(--text-secondary)',
+                fontFamily: 'inherit',
+                fontSize: '1rem',
+                fontWeight: '600',
+                cursor: 'pointer',
+                padding: '0.75rem 1rem',
+                textAlign: 'left',
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <Store size={16} /> Concesiones
+            </button>
+          )}
 
           {showAccessGate && (
             <button
@@ -448,9 +509,29 @@ export default function Navbar({
 
           <hr style={{ border: 'none', borderTop: '1px solid var(--border-glass)', margin: '0.5rem 0' }} />
 
-          <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+          <button
+            type="button"
+            onClick={() => {
+              if (role === 'member') handleNavClick('profile');
+            }}
+            style={{
+              fontSize: '0.85rem',
+              color: 'var(--text-secondary)',
+              background: 'transparent',
+              border: 'none',
+              padding: 0,
+              textAlign: 'left',
+              cursor: role === 'member' ? 'pointer' : 'default',
+              fontFamily: 'inherit',
+            }}
+          >
             {user?.fullName} · <span style={{ color: 'var(--text-gold)' }}>{roleLabel}</span>
-          </div>
+            {role === 'member' && (
+              <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-gold)', marginTop: 2 }}>
+                Ver mis datos →
+              </span>
+            )}
+          </button>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Tema:</span>

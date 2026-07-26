@@ -6,12 +6,24 @@ export function buildCredentialQRPayload(member) {
 /** Extrae memberId desde el payload leído por el molinete / cámara. */
 export function parseCredentialQRPayload(raw) {
   if (!raw) return null;
-  const text = String(raw).trim();
-  if (text.startsWith('JCSJ:')) {
+  // Normaliza basura típica de lectores (espacios, saltos, BOM, comillas).
+  const text = String(raw)
+    .replace(/^\uFEFF/, '')
+    .trim()
+    .replace(/^["']|["']$/g, '')
+    .replace(/\s+/g, '');
+
+  if (/^JCSJ:/i.test(text)) {
     const id = text.slice(5).trim();
     return id || null;
   }
-  // Fallback: solo dígitos de credencial
+
+  // Algunos lectores entregan solo el número de credencial
   if (/^\d{10,20}$/.test(text)) return text;
+
+  // Último recurso: buscar patrón JCSJ:… embebido
+  const embedded = text.match(/JCSJ:(\d{10,20})/i);
+  if (embedded) return embedded[1];
+
   return null;
 }

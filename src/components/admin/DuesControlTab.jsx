@@ -22,16 +22,9 @@ function matchesTier(member, tier) {
   return (member.tier || '').toLowerCase() === tier;
 }
 
-/** Logo oficial WhatsApp (SVG de marca). */
 function WhatsAppIcon({ size = 16 }) {
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-      focusable="false"
-    >
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <path
         fill="#25D366"
         d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.435 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"
@@ -44,40 +37,45 @@ function buildWhatsAppUrl(member, formatCurrency, isOverdue) {
   const cleanPhone = String(member.phone || '').replace(/[+\s-]/g, '');
   if (!cleanPhone) return null;
 
+  const dueLabel = formatShortDate(member.dueDate || member.nextDueDate);
   const msg = isOverdue
-    ? `Estimado/a ${member.name}, le saludamos del Jockey Club San Juan. Le recordamos que posee una cuota vencida de ${formatCurrency(member.amountDue)}. Puede regularizarla en administración o por transferencia. ¡Gracias!`
-    : `Estimado/a ${member.name}, le saludamos del Jockey Club San Juan. Le recordamos que su próxima cuota (${formatCurrency(member.amountDue)}) vence pronto. Ante cualquier consulta estamos a disposición. ¡Gracias!`;
+    ? `Estimado/a ${member.name}, le saludamos del Jockey Club San Juan. Le recordamos que posee una cuota vencida de ${formatCurrency(member.amountDue)} (vencimiento ${dueLabel}). Puede regularizarla en administración o por transferencia. ¡Gracias!`
+    : `Estimado/a ${member.name}, le saludamos del Jockey Club San Juan. Le recordamos que su próxima cuota (${formatCurrency(member.amountDue)}) vence el ${dueLabel}. Ante cualquier consulta estamos a disposición. ¡Gracias!`;
 
   return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`;
+}
+
+function plazoLabel(member, isOverdue) {
+  if (isOverdue) {
+    if (member.daysOverdue == null) return 'En mora';
+    if (member.daysOverdue === 0) return 'Vence hoy';
+    return `${member.daysOverdue} día${member.daysOverdue === 1 ? '' : 's'}`;
+  }
+  if (member.daysUntil == null) return 'Próxima';
+  if (member.daysUntil === 0) return 'Hoy';
+  if (member.daysUntil === 1) return 'Mañana';
+  return `En ${member.daysUntil} días`;
 }
 
 function MemberDuesRow({ member, formatCurrency, tone = 'overdue' }) {
   const isOverdue = tone === 'overdue';
   const waUrl = buildWhatsAppUrl(member, formatCurrency, isOverdue);
+  const dueIso = member.dueDate || member.nextDueDate || member.overdueSince;
 
   return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: '1.4fr 0.9fr 0.9fr 1fr',
-        gap: '0.75rem',
-        alignItems: 'center',
-        padding: '0.85rem 1rem',
-        borderBottom: '1px solid var(--border-glass)',
-        fontSize: '0.88rem',
-      }}
-      className="dues-row"
-    >
+    <div className="dues-row">
       <div>
         <strong style={{ color: 'var(--text-primary)' }}>{member.name}</strong>
         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
-          {member.tier?.toUpperCase()} · Cred. {member.memberId?.slice(0, 8)}…
+          {(member.tier || '').toUpperCase()}
+          {member.memberId ? ` · ${member.memberId}` : ''}
         </div>
       </div>
-      <div style={{ color: isOverdue ? '#fca5a5' : 'var(--text-secondary)' }}>
-        {isOverdue
-          ? (member.daysOverdue != null ? `${member.daysOverdue} días` : 'En mora')
-          : (member.daysUntil != null ? `En ${member.daysUntil} días` : 'Próxima')}
+      <div style={{ color: isOverdue ? '#fca5a5' : '#fcd34d', fontWeight: 600 }}>
+        {plazoLabel(member, isOverdue)}
+      </div>
+      <div style={{ color: 'var(--text-secondary)', fontSize: '0.84rem' }}>
+        {formatShortDate(dueIso)}
       </div>
       <div style={{ fontWeight: 700, color: isOverdue ? '#ef4444' : '#f59e0b' }}>
         {formatCurrency(member.amountDue)}
@@ -102,10 +100,13 @@ function MemberDuesRow({ member, formatCurrency, tone = 'overdue' }) {
               textDecoration: 'none',
               fontSize: '0.78rem',
               fontWeight: 600,
+              maxWidth: '100%',
             }}
           >
             <WhatsAppIcon size={18} />
-            <span>{member.phone}</span>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {member.phone}
+            </span>
           </a>
         ) : (
           <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Sin teléfono</span>
@@ -115,11 +116,21 @@ function MemberDuesRow({ member, formatCurrency, tone = 'overdue' }) {
   );
 }
 
+function DuesTableHead({ labels }) {
+  return (
+    <div className="dues-head">
+      {labels.map((label) => (
+        <span key={label}>{label}</span>
+      ))}
+    </div>
+  );
+}
+
 export default function DuesControlTab({ members = [], formatCurrency }) {
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all'); // all | overdue | upcoming
+  const [statusFilter, setStatusFilter] = useState('all');
   const [tierFilter, setTierFilter] = useState('all');
-  const [sortBy, setSortBy] = useState('amount'); // amount | name | days
+  const [sortBy, setSortBy] = useState('amount');
 
   const overdueAll = useMemo(() => getOverdueMembers(members), [members]);
   const upcomingAll = useMemo(() => getUpcomingDuesMembers(members, { withinDays: 15 }), [members]);
@@ -140,10 +151,12 @@ export default function DuesControlTab({ members = [], formatCurrency }) {
 
   const overdue = useMemo(
     () => applyListFilters(overdueAll, 'overdue'),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- filtros locales
     [overdueAll, search, tierFilter, sortBy]
   );
   const upcoming = useMemo(
     () => applyListFilters(upcomingAll, 'upcoming'),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [upcomingAll, search, tierFilter, sortBy]
   );
 
@@ -166,10 +179,33 @@ export default function DuesControlTab({ members = [], formatCurrency }) {
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
       <style>{`
-        @media (max-width: 800px) {
-          .dues-row {
-            grid-template-columns: 1fr !important;
-            gap: 0.45rem !important;
+        .dues-row,
+        .dues-head {
+          display: grid;
+          grid-template-columns: minmax(160px, 1.5fr) 0.75fr 0.95fr 0.85fr minmax(140px, 1.1fr);
+          gap: 0.75rem;
+          align-items: center;
+          padding: 0.85rem 1rem;
+          font-size: 0.88rem;
+        }
+        .dues-head {
+          padding: 0.55rem 1rem;
+          font-size: 0.72rem;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+          color: var(--text-muted);
+          border-bottom: 1px solid var(--border-glass);
+        }
+        .dues-row {
+          border-bottom: 1px solid var(--border-glass);
+        }
+        .dues-row:last-child {
+          border-bottom: none;
+        }
+        @media (max-width: 900px) {
+          .dues-row,
+          .dues-head {
+            grid-template-columns: 1fr 1fr;
           }
           .dues-head {
             display: none !important;
@@ -178,9 +214,13 @@ export default function DuesControlTab({ members = [], formatCurrency }) {
             grid-template-columns: 1fr !important;
           }
           .dues-row > div:first-child {
+            grid-column: 1 / -1;
             padding-bottom: 0.35rem;
             border-bottom: 1px solid var(--border-glass);
             margin-bottom: 0.15rem;
+          }
+          .dues-row > div:last-child {
+            grid-column: 1 / -1;
           }
         }
       `}</style>
@@ -194,7 +234,6 @@ export default function DuesControlTab({ members = [], formatCurrency }) {
         </p>
       </div>
 
-      {/* Buscador y filtros */}
       <div
         className="glass-card dues-filters"
         style={{
@@ -332,104 +371,64 @@ export default function DuesControlTab({ members = [], formatCurrency }) {
         </button>
       </div>
 
-      {/* Vencidas */}
       {showOverdue && (
-      <section className="glass-card" style={{ padding: 0, overflow: 'hidden', border: '1px solid rgba(239,68,68,0.25)' }}>
-        <div style={{
-          padding: '0.9rem 1.1rem',
-          borderBottom: '1px solid rgba(239,68,68,0.25)',
-          background: 'rgba(239,68,68,0.08)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-        }}>
-          <AlertTriangle size={16} style={{ color: '#ef4444' }} />
-          <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#ef4444' }}>Cuotas vencidas</h3>
-          <span style={{ marginLeft: 'auto', fontSize: '0.8rem', color: '#fca5a5' }}>{overdue.length} socios</span>
-        </div>
+        <section className="glass-card" style={{ padding: 0, overflow: 'hidden', border: '1px solid rgba(239,68,68,0.25)' }}>
+          <div style={{
+            padding: '0.9rem 1.1rem',
+            borderBottom: '1px solid rgba(239,68,68,0.25)',
+            background: 'rgba(239,68,68,0.08)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+          >
+            <AlertTriangle size={16} style={{ color: '#ef4444' }} />
+            <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#ef4444' }}>Cuotas vencidas</h3>
+            <span style={{ marginLeft: 'auto', fontSize: '0.8rem', color: '#fca5a5' }}>{overdue.length} socios</span>
+          </div>
 
-        <div className="dues-head" style={{
-          display: 'grid',
-          gridTemplateColumns: '1.4fr 0.9fr 0.9fr 1fr',
-          gap: '0.75rem',
-          padding: '0.55rem 1rem',
-          fontSize: '0.72rem',
-          textTransform: 'uppercase',
-          letterSpacing: '0.04em',
-          color: 'var(--text-muted)',
-          borderBottom: '1px solid var(--border-glass)',
-        }}>
-          <span>Socio</span>
-          <span>Mora</span>
-          <span>Importe</span>
-          <span>WhatsApp</span>
-        </div>
+          <DuesTableHead labels={['Socio', 'Mora', 'Vencimiento', 'Importe', 'WhatsApp']} />
 
-        {overdue.length === 0 ? (
-          <p style={{ padding: '1.5rem 1rem', color: 'var(--text-muted)', margin: 0 }}>
-            No hay resultados con los filtros actuales.
-          </p>
-        ) : (
-          overdue.map((m) => (
-            <MemberDuesRow key={m.memberId} member={m} formatCurrency={formatCurrency} tone="overdue" />
-          ))
-        )}
-      </section>
+          {overdue.length === 0 ? (
+            <p style={{ padding: '1.5rem 1rem', color: 'var(--text-muted)', margin: 0 }}>
+              No hay resultados con los filtros actuales.
+            </p>
+          ) : (
+            overdue.map((m) => (
+              <MemberDuesRow key={m.memberId} member={m} formatCurrency={formatCurrency} tone="overdue" />
+            ))
+          )}
+        </section>
       )}
 
-      {/* A vencer */}
       {showUpcoming && (
-      <section className="glass-card" style={{ padding: 0, overflow: 'hidden', border: '1px solid rgba(245,158,11,0.25)' }}>
-        <div style={{
-          padding: '0.9rem 1.1rem',
-          borderBottom: '1px solid rgba(245,158,11,0.25)',
-          background: 'rgba(245,158,11,0.08)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-        }}>
-          <Clock3 size={16} style={{ color: '#f59e0b' }} />
-          <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#f59e0b' }}>Próximas a vencer</h3>
-          <span style={{ marginLeft: 'auto', fontSize: '0.8rem', color: '#fcd34d' }}>{upcoming.length} socios</span>
-        </div>
+        <section className="glass-card" style={{ padding: 0, overflow: 'hidden', border: '1px solid rgba(245,158,11,0.25)' }}>
+          <div style={{
+            padding: '0.9rem 1.1rem',
+            borderBottom: '1px solid rgba(245,158,11,0.25)',
+            background: 'rgba(245,158,11,0.08)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+          >
+            <Clock3 size={16} style={{ color: '#f59e0b' }} />
+            <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#f59e0b' }}>Próximas a vencer</h3>
+            <span style={{ marginLeft: 'auto', fontSize: '0.8rem', color: '#fcd34d' }}>{upcoming.length} socios</span>
+          </div>
 
-        <div className="dues-head" style={{
-          display: 'grid',
-          gridTemplateColumns: '1.4fr 0.9fr 0.9fr 1fr',
-          gap: '0.75rem',
-          padding: '0.55rem 1rem',
-          fontSize: '0.72rem',
-          textTransform: 'uppercase',
-          letterSpacing: '0.04em',
-          color: 'var(--text-muted)',
-          borderBottom: '1px solid var(--border-glass)',
-        }}>
-          <span>Socio</span>
-          <span>Vence</span>
-          <span>Cuota</span>
-          <span>WhatsApp</span>
-        </div>
+          <DuesTableHead labels={['Socio', 'Plazo', 'Vencimiento', 'Cuota', 'WhatsApp']} />
 
-        {upcoming.length === 0 ? (
-          <p style={{ padding: '1.5rem 1rem', color: 'var(--text-muted)', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Users size={14} /> No hay resultados con los filtros actuales.
-          </p>
-        ) : (
-          upcoming.map((m) => (
-            <div key={m.memberId}>
-              <MemberDuesRow member={m} formatCurrency={formatCurrency} tone="upcoming" />
-              <div style={{
-                padding: '0 1rem 0.75rem',
-                marginTop: '-0.35rem',
-                fontSize: '0.75rem',
-                color: 'var(--text-muted)',
-              }}>
-                Vencimiento: {formatShortDate(m.nextDueDate)}
-              </div>
-            </div>
-          ))
-        )}
-      </section>
+          {upcoming.length === 0 ? (
+            <p style={{ padding: '1.5rem 1rem', color: 'var(--text-muted)', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Users size={14} /> No hay resultados con los filtros actuales.
+            </p>
+          ) : (
+            upcoming.map((m) => (
+              <MemberDuesRow key={m.memberId} member={m} formatCurrency={formatCurrency} tone="upcoming" />
+            ))
+          )}
+        </section>
       )}
     </div>
   );

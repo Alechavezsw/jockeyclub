@@ -1,9 +1,25 @@
-import { useState } from 'react';
-import { Calendar, Tag, Check, Award, Plus, X, Globe, Eye } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Calendar, Tag, Check, Award, Plus, X, Globe, Eye, Bookmark } from 'lucide-react';
 
 export default function NewsBoardView({ newsList, addNewsArticle, userRole, toggleEventRSVP, rsvpList }) {
   const [activeCategory, setActiveCategory] = useState('todos');
   const [showPublishModal, setShowPublishModal] = useState(false);
+  const [savedIds, setSavedIds] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('jockey-saved-news') || '[]');
+    } catch {
+      return [];
+    }
+  });
+  const [showSavedOnly, setShowSavedOnly] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem('jockey-saved-news', JSON.stringify(savedIds));
+  }, [savedIds]);
+
+  const toggleSave = (id) => {
+    setSavedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
   
   // Estado para el formulario de publicación de anuncios (Admin)
   const [title, setTitle] = useState('');
@@ -20,10 +36,11 @@ export default function NewsBoardView({ newsList, addNewsArticle, userRole, togg
     { id: 'institucional', label: 'Institucional' }
   ];
 
-  // Filtrar noticias por categoría seleccionada
-  const filteredNews = activeCategory === 'todos' 
-    ? newsList 
-    : newsList.filter(item => item.category.toLowerCase() === activeCategory.toLowerCase());
+  // Filtrar noticias por categoría / guardados
+  const filteredNews = (activeCategory === 'todos'
+    ? newsList
+    : newsList.filter((item) => item.category.toLowerCase() === activeCategory.toLowerCase())
+  ).filter((item) => !showSavedOnly || savedIds.includes(item.id));
 
   const handlePublish = (e) => {
     e.preventDefault();
@@ -93,6 +110,14 @@ export default function NewsBoardView({ newsList, addNewsArticle, userRole, togg
               {cat.label}
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => setShowSavedOnly((v) => !v)}
+            className={`filter-btn ${showSavedOnly ? 'active' : ''}`}
+            style={{ padding: '0.5rem 1.25rem', borderRadius: '30px', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            <Bookmark size={14} /> Guardados ({savedIds.length})
+          </button>
         </div>
       </div>
 
@@ -162,11 +187,25 @@ export default function NewsBoardView({ newsList, addNewsArticle, userRole, togg
                   </div>
 
                   {/* Pie del Artículo (RSVP e interacción) */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-glass)', paddingTop: '1rem', marginTop: 'auto' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-glass)', paddingTop: '1rem', marginTop: 'auto', gap: '0.5rem', flexWrap: 'wrap' }}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                       <Tag size={12} style={{ color: 'var(--primary-gold)' }} /> Por Comisión Directiva
                     </span>
 
+                    <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      title={savedIds.includes(article.id) ? 'Quitar de guardados' : 'Guardar'}
+                      onClick={() => toggleSave(article.id)}
+                      style={{
+                        padding: '0.35rem 0.65rem',
+                        borderColor: savedIds.includes(article.id) ? 'var(--primary-gold)' : undefined,
+                        color: savedIds.includes(article.id) ? 'var(--text-gold)' : undefined,
+                      }}
+                    >
+                      <Bookmark size={12} />
+                    </button>
                     {article.isEvent && userRole === 'member' ? (
                       isMemberRsvpd(article.id) ? (
                         <button
@@ -207,6 +246,7 @@ export default function NewsBoardView({ newsList, addNewsArticle, userRole, togg
                         <Eye size={12} /> Leer Más
                       </button>
                     )}
+                    </div>
                   </div>
                 </div>
               </div>

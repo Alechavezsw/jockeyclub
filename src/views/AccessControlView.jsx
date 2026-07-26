@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Html5Qrcode } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import {
   ArrowLeft, CheckCircle2, AlertCircle, Camera, CameraOff, History, QrCode,
 } from 'lucide-react';
 import { parseCredentialQRPayload } from '../domain/credentials/qr';
+import { parseGuestPassPayload, isGuestPassValid } from '../domain/credentials/guestPass';
 
 const SCANNER_REGION_ID = 'jcsj-qr-reader';
+const COOLDOWN_MS = 2800;
 
 function playBeep(success) {
   try {
@@ -52,13 +54,16 @@ export default function AccessControlView({
   entryLogs = [],
   setEntryLogs,
   formatCurrency,
+  guestPasses = [],
 }) {
   const navigate = useNavigate();
   const scannerRef = useRef(null);
   const processingRef = useRef(false);
+  const cooldownTimerRef = useRef(null);
   const [cameraOn, setCameraOn] = useState(false);
   const [cameraError, setCameraError] = useState('');
   const [result, setResult] = useState(null);
+  const [scannerKey, setScannerKey] = useState(0);
   const [isWide, setIsWide] = useState(() =>
     typeof window !== 'undefined' ? window.matchMedia('(min-width: 900px)').matches : false
   );
@@ -67,30 +72,82 @@ export default function AccessControlView({
   );
   const [manualCode, setManualCode] = useState('');
 
+  const beginCooldown = useCallback((ms = COOLDOWN_MS) => {
+    processingRef.current = true;
+    if (cooldownTimerRef.current) clearTimeout(cooldownTimerRef.current);
+    cooldownTimerRef.current = setTimeout(() => {
+      processingRef.current = false;
+      setResult(null);
+      cooldownTimerRef.current = null;
+    }, ms);
+  }, []);
+
   const stopCamera = useCallback(async () => {
     const scanner = scannerRef.current;
     scannerRef.current = null;
-    if (!scanner) return;
+    if (!scanner) {
+      setCameraOn(false);
+      return;
+    }
     try {
-      if (scanner.isScanning) await scanner.stop();
+      const state = scanner.getState?.();
+      // 2 = SCANNING in html5-qrcode Html5QrcodeScannerState
+      if (scanner.isScanning || state === 2) await scanner.stop();
+    } catch {
+      /* ignore */
+    }
+    try {
       await scanner.clear();
     } catch {
       /* ignore */
     }
     setCameraOn(false);
+    setScannerKey((k) => k + 1);
   }, []);
 
   const processPayload = useCallback((raw) => {
     if (processingRef.current) return;
+
+    const guestParsed = parseGuestPassPayload(raw);
+    if (guestParsed) {
+      const pass = (guestPasses || []).find((p) => p.id === guestParsed.id);
+      const host = members.find((m) => m.memberId === guestParsed.hostMemberId);
+      const valid = pass && isGuestPassValid(pass) && host?.status === 'active';
+      setResult({
+        status: valid ? 'granted' : 'denied',
+        title: valid ? 'INVITADO AUTORIZADO' : 'PASE INVÁLIDO',
+        detail: valid
+          ? `${pass.guestName} · invitado de ${host?.name || 'socio'}`
+          : 'Pase vencido, revocado o no registrado.',
+        memberName: pass?.guestName || null,
+      });
+      playBeep(valid);
+      if (valid) {
+        setEntryLogs((prev) => [{
+          id: Date.now(),
+          date: new Date().toISOString().split('T')[0],
+          time: new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+          memberName: `${pass.guestName} (invitado)`,
+          memberId: host?.memberId || guestParsed.hostMemberId,
+          role: 'Invitado del día',
+          status: 'granted',
+          notes: `Pase ${pass.id} · anfitrión ${host?.name || ''}`,
+        }, ...(prev || [])]);
+      }
+      beginCooldown();
+      return;
+    }
+
     const memberId = parseCredentialQRPayload(raw);
     if (!memberId) {
       setResult({
         status: 'denied',
         title: 'QR no válido',
-        detail: 'Acercá la credencial digital del Jockey Club.',
+        detail: 'Acercá la credencial digital del Jockey Club (pantalla completa).',
         memberName: null,
       });
       playBeep(false);
+      beginCooldown(1600);
       return;
     }
 
@@ -103,30 +160,31 @@ export default function AccessControlView({
         memberName: null,
       });
       playBeep(false);
+      beginCooldown();
       return;
     }
 
-    processingRef.current = true;
-    const isAllowed = member.status === 'active' && (member.outstandingBalance || 0) === 0;
+    // Activo entra; deuda se informa pero no bloquea el molinete (evita falsos “lector roto”).
+    const isSuspended = member.status !== 'active';
+    const hasDebt = (member.outstandingBalance || 0) > 0;
+    const isAllowed = !isSuspended;
     const status = isAllowed ? 'granted' : 'denied';
-    const notes = !isAllowed
-      ? (member.status !== 'active'
-        ? 'Cuenta suspendida'
-        : `Deuda pendiente de ${formatCurrency(member.outstandingBalance)}`)
-      : 'Acceso aprobado · Sin deuda pendiente';
+    const notes = isSuspended
+      ? 'Cuenta suspendida'
+      : hasDebt
+        ? `Ingreso OK · Deuda ${formatCurrency(member.outstandingBalance)}`
+        : 'Acceso aprobado · Sin deuda pendiente';
 
     setResult({
       status,
-      title: isAllowed ? 'ACCESO AUTORIZADO' : 'ACCESO DENEGADO',
-      detail: isAllowed
-        ? `${member.name} · ${member.tier?.toUpperCase()}`
-        : `${member.name} · ${notes}`,
+      title: isAllowed ? (hasDebt ? 'ACCESO CON DEUDA' : 'ACCESO AUTORIZADO') : 'ACCESO DENEGADO',
+      detail: `${member.name} · ${isAllowed ? (member.tier?.toUpperCase() || 'SOCIO') : notes}`,
       memberName: member.name,
       photo: member.photo,
     });
     playBeep(isAllowed);
 
-    const newEntryLog = {
+    setEntryLogs((prev) => [{
       id: Date.now(),
       date: new Date().toISOString().split('T')[0],
       time: new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
@@ -135,60 +193,79 @@ export default function AccessControlView({
       role: member.tier === 'royal' ? 'Socio Royal' : member.tier === 'platinum' ? 'Socio Platinum' : 'Socio Gold',
       status,
       notes,
-    };
-    setEntryLogs((prev) => [newEntryLog, ...(prev || [])]);
+    }, ...(prev || [])]);
 
-    setTimeout(() => {
-      processingRef.current = false;
-      setResult(null);
-    }, 3200);
-  }, [members, formatCurrency, setEntryLogs]);
+    beginCooldown();
+  }, [members, guestPasses, formatCurrency, setEntryLogs, beginCooldown]);
 
   const startCamera = useCallback(async () => {
     setCameraError('');
     setResult(null);
     await stopCamera();
 
-    const scanner = new Html5Qrcode(SCANNER_REGION_ID);
+    // Esperar remount del contenedor (#id) tras clear()
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+    const el = document.getElementById(SCANNER_REGION_ID);
+    if (!el) {
+      setCameraError('No se encontró el área del lector. Recargá la página.');
+      return;
+    }
+
+    const scanner = new Html5Qrcode(SCANNER_REGION_ID, {
+      formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+      verbose: false,
+    });
     scannerRef.current = scanner;
 
     const config = {
-      fps: 10,
+      fps: 16,
+      // Área grande: leer QR de celular a celular
       qrbox: (viewW, viewH) => {
-        const side = Math.min(
-          Math.floor(viewW * 0.72),
-          Math.floor(viewH * 0.62),
-          Math.floor(Math.min(viewW, viewH) * 0.7),
-          320
-        );
-        return { width: Math.max(180, side), height: Math.max(180, side) };
+        const side = Math.floor(Math.min(viewW, viewH) * 0.82);
+        return { width: Math.max(220, side), height: Math.max(220, side) };
       },
-      aspectRatio: window.matchMedia('(min-width: 900px)').matches ? 4 / 3 : 1,
+      aspectRatio: 1,
+      disableFlip: false,
+      experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+      videoConstraints: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+      },
     };
 
-    const tryStart = async (cameraConfig) => {
-      await scanner.start(
-        cameraConfig,
-        config,
-        (decoded) => processPayload(decoded),
-        () => { /* ignore frame miss */ }
-      );
-    };
+    const onSuccess = (decoded) => processPayload(decoded);
 
     try {
+      let started = false;
       try {
-        await tryStart({ facingMode: 'environment' });
+        const cameras = await Html5Qrcode.getCameras();
+        if (cameras?.length) {
+          const back = cameras.find((c) => /back|rear|environment|trasera|atrás|atras/i.test(c.label || ''))
+            || cameras[cameras.length - 1];
+          await scanner.start(back.id, config, onSuccess, () => {});
+          started = true;
+        }
       } catch {
-        await tryStart({ facingMode: 'user' });
+        /* fallback facingMode */
+      }
+
+      if (!started) {
+        try {
+          await scanner.start({ facingMode: 'environment' }, config, onSuccess, () => {});
+        } catch {
+          await scanner.start({ facingMode: 'user' }, config, onSuccess, () => {});
+        }
       }
       setCameraOn(true);
     } catch (err) {
       setCameraOn(false);
+      const msg = String(err?.message || err || '');
       setCameraError(
-        err?.message?.includes('Permission')
-          || err?.name === 'NotAllowedError'
+        /permission|notallowed|denied|permission_dismissed/i.test(msg)
           ? 'Permití el acceso a la cámara del dispositivo para leer credenciales.'
-          : 'No se pudo iniciar la cámara. Usá el código manual o revisá permisos del navegador.'
+          : 'No se pudo iniciar la cámara. Probá en HTTPS, otro navegador, o usá el código manual.'
       );
       try {
         await scanner.clear();
@@ -196,10 +273,12 @@ export default function AccessControlView({
         /* ignore */
       }
       scannerRef.current = null;
+      setScannerKey((k) => k + 1);
     }
   }, [processPayload, stopCamera]);
 
   useEffect(() => () => {
+    if (cooldownTimerRef.current) clearTimeout(cooldownTimerRef.current);
     stopCamera();
   }, [stopCamera]);
 
@@ -464,7 +543,7 @@ export default function AccessControlView({
 
       <div className="access-gate-layout">
         <div className="access-scanner-shell">
-          <div id={SCANNER_REGION_ID} />
+          <div key={scannerKey} id={SCANNER_REGION_ID} />
 
           {!cameraOn && !result && (
             <div className="access-idle-hint">
@@ -473,7 +552,7 @@ export default function AccessControlView({
                 Lector de credenciales
               </p>
               <p style={{ margin: 0, fontSize: '0.8rem', maxWidth: 300 }}>
-                Activá la cámara y acercá el QR de la tarjeta virtual del socio.
+                Activá la cámara y pedile al socio que abra la credencial a pantalla completa.
               </p>
             </div>
           )}
