@@ -1,0 +1,122 @@
+import { isSupabaseConfigured } from '../lib/supabase';
+import * as repos from './repos';
+
+/**
+ * Carga inicial de todos los dominios desde Supabase.
+ * Devuelve null si no hay Supabase (modo local/demo).
+ */
+export async function bootstrapFromDb() {
+  if (!isSupabaseConfigured) return null;
+
+  const [
+    members,
+    reservations,
+    waitlist,
+    newsList,
+    rsvpList,
+    journalEntries,
+    staffMembers,
+    staffHrRecords,
+    claims,
+    messages,
+    entryLogs,
+    surveys,
+    guestPasses,
+    chartOfAccounts,
+    cashRegisters,
+    cashSessions,
+    cashMovements,
+    expenses,
+    suppliers,
+    unidentifiedCollections,
+    galiciaDebits,
+    fixedExpenses,
+    fixedDiscounts,
+    paymentOrders,
+    alerts,
+    alertAcks,
+    clubEvents,
+    eventRegistrations,
+    concessions,
+    canonPayments,
+    zondaSetting,
+    health,
+  ] = await Promise.all([
+    repos.listMembers(),
+    repos.listReservations(),
+    repos.listWaitlist(),
+    repos.listNews(),
+    repos.listRsvps(),
+    repos.listJournalEntries(),
+    repos.listEmployees(),
+    repos.listHrRecords(),
+    repos.listClaims(),
+    repos.listMessages(),
+    repos.listAccessLogs(),
+    repos.listSurveys(),
+    repos.listGuestPasses(),
+    repos.listChartOfAccounts(),
+    repos.listCashRegisters(),
+    repos.listCashSessions(),
+    repos.listCashMovements(),
+    repos.listExpenses(),
+    repos.listSuppliers(),
+    repos.listUnidentifiedCollections(),
+    repos.listGaliciaDebits(),
+    repos.listFixedExpenses(),
+    repos.listFixedDiscounts(),
+    repos.listPaymentOrders(),
+    repos.listAlerts(),
+    repos.listAlertAcks(),
+    repos.listClubEvents(),
+    repos.listEventRegistrations(),
+    repos.listConcessions(),
+    repos.listCanonPayments(),
+    repos.getSetting('zonda'),
+    repos.healthCheck(),
+  ]);
+
+  return {
+    app: {
+      members,
+      reservations,
+      waitlist,
+      newsList,
+      rsvpList,
+      journalEntries,
+      staffMembers,
+      staffHrRecords,
+      claims,
+      messages,
+      entryLogs,
+      surveys,
+      guestPasses,
+      isZondaActive: Boolean(zondaSetting?.active),
+    },
+    erp: {
+      chartOfAccounts,
+      cashRegisters,
+      cashSessions,
+      cashMovements,
+      expenses,
+      suppliers,
+      unidentifiedCollections,
+      galiciaDebits,
+      fixedExpenses,
+      fixedDiscounts,
+      paymentOrders,
+      alerts,
+      alertAcks,
+      clubEvents,
+      eventRegistrations,
+      concessions,
+      canonPayments,
+    },
+    health,
+    memberDbIds: Object.fromEntries(
+      (members || []).map((m) => [m.memberId, m.id])
+    ),
+  };
+}
+
+export { repos };

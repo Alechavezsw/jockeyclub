@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import DashboardView from './views/DashboardView';
@@ -24,6 +24,7 @@ import { applyAutomaticDues } from './domain/members/dues';
 import { createHrRecord } from './domain/staff/hr';
 import { isSupabaseConfigured } from './lib/supabase';
 import { notifyNextOnWaitlist } from './domain/reservations/waitlist';
+import { bootstrapFromDb, repos } from './data/bootstrap';
 
 // Datos de semilla predeterminados para socios de Jockey Club San Juan (con teléfonos 264 y adherentes)
 const DEFAULT_MEMBERS = [
@@ -706,6 +707,12 @@ const DEFAULT_SURVEYS = [
 export default function App() {
   const { user, loading: authLoading, isAuthenticated, role } = useAuth();
   const userRole = role || 'member';
+  const cloudMode = isSupabaseConfigured;
+  const hydratedRef = useRef(false);
+  const [dbReady, setDbReady] = useState(!isSupabaseConfigured);
+  const [dbError, setDbError] = useState('');
+  const [dbHealthy, setDbHealthy] = useState(false);
+  const [memberDbIds, setMemberDbIds] = useState({});
 
   // Inicialización de Estados Cargando desde LocalStorage o Valores de Semilla
   const [theme, setTheme] = useState(() => {
@@ -884,82 +891,70 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('jockey-sync-queue', JSON.stringify(syncQueue));
-  }, [syncQueue]);
+    if (!cloudMode) localStorage.setItem('jockey-sync-queue', JSON.stringify(syncQueue));
+  }, [syncQueue, cloudMode]);
 
-  // Sincronización automática al recuperar conexión
+  // Sincronización automática al recuperar conexión (solo modo local)
   useEffect(() => {
+    if (cloudMode) return undefined;
     if (isOnline && syncQueue.length > 0) {
       const syncTimeout = setTimeout(() => {
         setSyncQueue([]);
-        // Notificación opcional (se manejará visualmente en el admin dashboard)
       }, 2000);
       return () => clearTimeout(syncTimeout);
     }
-  }, [isOnline, syncQueue.length]);
+    return undefined;
+  }, [isOnline, syncQueue.length, cloudMode]);
 
   useEffect(() => {
-    localStorage.setItem('jockey-zonda', isZondaActive);
-  }, [isZondaActive]);
+    if (!cloudMode) localStorage.setItem('jockey-zonda', isZondaActive);
+  }, [isZondaActive, cloudMode]);
 
-  // Guardar datos en LocalStorage ante cambios
   useEffect(() => {
     localStorage.setItem('jockey-theme', theme);
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
 
+  // Persistencia local solo si no hay Supabase
   useEffect(() => {
-    localStorage.setItem('jockey-members', JSON.stringify(members));
-  }, [members]);
-
+    if (!cloudMode) localStorage.setItem('jockey-members', JSON.stringify(members));
+  }, [members, cloudMode]);
   useEffect(() => {
-    localStorage.setItem('jockey-reservations', JSON.stringify(reservations));
-  }, [reservations]);
-
+    if (!cloudMode) localStorage.setItem('jockey-reservations', JSON.stringify(reservations));
+  }, [reservations, cloudMode]);
   useEffect(() => {
-    localStorage.setItem('jockey-news', JSON.stringify(newsList));
-  }, [newsList]);
-
+    if (!cloudMode) localStorage.setItem('jockey-news', JSON.stringify(newsList));
+  }, [newsList, cloudMode]);
   useEffect(() => {
-    localStorage.setItem('jockey-rsvps', JSON.stringify(rsvpList));
-  }, [rsvpList]);
-
+    if (!cloudMode) localStorage.setItem('jockey-rsvps', JSON.stringify(rsvpList));
+  }, [rsvpList, cloudMode]);
   useEffect(() => {
-    localStorage.setItem('jockey-journal-entries', JSON.stringify(journalEntries));
-  }, [journalEntries]);
-
+    if (!cloudMode) localStorage.setItem('jockey-journal-entries', JSON.stringify(journalEntries));
+  }, [journalEntries, cloudMode]);
   useEffect(() => {
-    localStorage.setItem('jockey-staff-members', JSON.stringify(staffMembers));
-  }, [staffMembers]);
-
+    if (!cloudMode) localStorage.setItem('jockey-staff-members', JSON.stringify(staffMembers));
+  }, [staffMembers, cloudMode]);
   useEffect(() => {
-    localStorage.setItem('jockey-staff-hr', JSON.stringify(staffHrRecords));
-  }, [staffHrRecords]);
-
-  // NUEVO: Guardar estados Fase 3
+    if (!cloudMode) localStorage.setItem('jockey-staff-hr', JSON.stringify(staffHrRecords));
+  }, [staffHrRecords, cloudMode]);
   useEffect(() => {
-    localStorage.setItem('jockey-claims', JSON.stringify(claims));
-  }, [claims]);
-
+    if (!cloudMode) localStorage.setItem('jockey-claims', JSON.stringify(claims));
+  }, [claims, cloudMode]);
   useEffect(() => {
-    localStorage.setItem('jockey-messages', JSON.stringify(messages));
-  }, [messages]);
-
+    if (!cloudMode) localStorage.setItem('jockey-messages', JSON.stringify(messages));
+  }, [messages, cloudMode]);
   useEffect(() => {
-    localStorage.setItem('jockey-entry-logs', JSON.stringify(entryLogs));
-  }, [entryLogs]);
-
+    if (!cloudMode) localStorage.setItem('jockey-entry-logs', JSON.stringify(entryLogs));
+  }, [entryLogs, cloudMode]);
   useEffect(() => {
-    localStorage.setItem('jockey-surveys', JSON.stringify(surveys));
-  }, [surveys]);
-
+    if (!cloudMode) localStorage.setItem('jockey-surveys', JSON.stringify(surveys));
+  }, [surveys, cloudMode]);
   useEffect(() => {
-    localStorage.setItem('jockey-guest-passes', JSON.stringify(guestPasses));
-  }, [guestPasses]);
-
+    if (!cloudMode) localStorage.setItem('jockey-guest-passes', JSON.stringify(guestPasses));
+  }, [guestPasses, cloudMode]);
   useEffect(() => {
-    localStorage.setItem('jockey-waitlist', JSON.stringify(waitlist));
-  }, [waitlist]);
+    if (!cloudMode) localStorage.setItem('jockey-waitlist', JSON.stringify(waitlist));
+  }, [waitlist, cloudMode]);
 
   // Socio activo: el vinculado a la sesión, o el primero como fallback operativo
   const activeMember =
@@ -973,9 +968,19 @@ export default function App() {
   };
 
   // Agregar una reserva (con guardia de dominio contra turnos duplicados)
-  const addReservation = (newRes) => {
+  const addReservation = async (newRes) => {
     if (hasReservationConflict(reservations, newRes)) {
       return { ok: false, error: 'El turno ya está reservado para esa instalación, fecha y horario.' };
+    }
+    if (cloudMode) {
+      try {
+        const dbId = memberDbIds[newRes.memberId] || await repos.findMemberDbIdByNumber(newRes.memberId);
+        const saved = await repos.createReservation(newRes, dbId);
+        setReservations((prev) => [saved, ...prev]);
+        return { ok: true, reservation: saved };
+      } catch (err) {
+        return { ok: false, error: err.message || 'No se pudo guardar la reserva en la base.' };
+      }
     }
     const resWithId = {
       ...newRes,
@@ -986,11 +991,22 @@ export default function App() {
   };
 
   // Cancelar una reserva (y avisar al primero de la lista de espera)
-  const cancelReservation = (resId) => {
+  const cancelReservation = async (resId) => {
     const current = reservations.find((r) => r.id === resId);
-    setReservations((prev) =>
-      prev.map((res) => (res.id === resId ? { ...res, status: 'cancelled' } : res))
-    );
+    if (cloudMode && current) {
+      try {
+        const saved = await repos.updateReservation(resId, { status: 'cancelled' });
+        setReservations((prev) => prev.map((res) => (res.id === resId ? saved : res)));
+      } catch {
+        setReservations((prev) =>
+          prev.map((res) => (res.id === resId ? { ...res, status: 'cancelled' } : res))
+        );
+      }
+    } else {
+      setReservations((prev) =>
+        prev.map((res) => (res.id === resId ? { ...res, status: 'cancelled' } : res))
+      );
+    }
     if (current) {
       setWaitlist((prev) => {
         const { entries, notified } = notifyNextOnWaitlist(prev, {
@@ -999,33 +1015,279 @@ export default function App() {
           time: current.time,
         });
         if (notified) {
-          setMessages((msgs) => [
-            {
-              id: `wl-msg-${Date.now()}`,
-              date: new Date().toISOString().slice(0, 10),
-              sender: 'Reservas · Jockey Club',
-              senderId: 'ops',
-              recipientId: notified.memberId,
-              subject: 'Turno liberado · lista de espera',
-              content: `Se liberó ${notified.facilityName} el ${notified.date} a las ${notified.time}. Reservá desde Instalaciones.`,
-              isRead: false,
-            },
-            ...msgs,
-          ]);
+          const msg = {
+            id: `wl-msg-${Date.now()}`,
+            date: new Date().toISOString().slice(0, 10),
+            sender: 'Reservas · Jockey Club',
+            senderId: 'ops',
+            recipientId: notified.memberId,
+            subject: 'Turno liberado · lista de espera',
+            content: `Se liberó ${notified.facilityName} el ${notified.date} a las ${notified.time}. Reservá desde Instalaciones.`,
+            isRead: false,
+          };
+          if (cloudMode) {
+            repos.insertMessage(msg).then((saved) => {
+              setMessages((msgs) => [saved, ...msgs]);
+            }).catch(() => setMessages((msgs) => [msg, ...msgs]));
+          } else {
+            setMessages((msgs) => [msg, ...msgs]);
+          }
+        }
+        if (cloudMode) {
+          repos.replaceWaitlist(entries, memberDbIds).then(setWaitlist).catch(() => {});
         }
         return entries;
       });
     }
   };
 
-  const updateMember = (nextMember) => {
+  const updateMember = async (nextMember) => {
     if (!nextMember?.memberId) return;
+    if (cloudMode) {
+      try {
+        const current = members.find((m) => m.memberId === nextMember.memberId) || {};
+        const saved = await repos.upsertMember({ ...current, ...nextMember });
+        setMembers((prev) =>
+          prev.map((m) => (m.memberId === nextMember.memberId ? { ...m, ...saved } : m))
+        );
+        if (saved.id) {
+          setMemberDbIds((prev) => ({ ...prev, [saved.memberId]: saved.id }));
+        }
+        // Pagos nuevos en paymentHistory
+        const prevHist = current.paymentHistory || [];
+        const nextHist = nextMember.paymentHistory || saved.paymentHistory || [];
+        if (nextHist.length > prevHist.length && saved.id) {
+          const newest = nextHist[0];
+          if (newest && !String(newest.id || '').includes('-')) {
+            await repos.insertMemberPayment(saved.id, newest);
+          }
+        }
+        return;
+      } catch (err) {
+        setDbError(err.message || 'No se pudo guardar el socio');
+      }
+    }
     setMembers((prev) =>
       prev.map((m) => (m.memberId === nextMember.memberId ? { ...m, ...nextMember } : m))
     );
   };
 
-  const erp = useErpStore({ setJournalEntries, isZondaActive });
+  const erp = useErpStore({ setJournalEntries, isZondaActive, userId: user?.id });
+
+  useEffect(() => {
+    if (!isAuthenticated) hydratedRef.current = false;
+  }, [isAuthenticated]);
+
+  // Hidratar desde Supabase tras login
+  useEffect(() => {
+    if (!cloudMode || !isAuthenticated || authLoading) return undefined;
+    if (hydratedRef.current) return undefined;
+    let cancelled = false;
+    (async () => {
+      setDbReady(false);
+      setDbError('');
+      try {
+        const data = await bootstrapFromDb();
+        if (cancelled || !data) return;
+        const { app, erp: erpData, health, memberDbIds: ids } = data;
+        setMembers(applyAutomaticDues(app.members || []));
+        setReservations(app.reservations || []);
+        setWaitlist(app.waitlist || []);
+        setNewsList(app.newsList || []);
+        setRsvpList(app.rsvpList || []);
+        setJournalEntries(app.journalEntries || []);
+        setStaffMembers(app.staffMembers || []);
+        setStaffHrRecords(app.staffHrRecords || []);
+        setClaims(app.claims || []);
+        setMessages(app.messages || []);
+        setEntryLogs(app.entryLogs || []);
+        setSurveys(app.surveys || []);
+        setGuestPasses(app.guestPasses || []);
+        setIsZondaActive(Boolean(app.isZondaActive));
+        setMemberDbIds(ids || {});
+        erp.applyErpHydration({
+          ...erpData,
+          chartOfAccounts: erpData.chartOfAccounts || [],
+          cashRegisters: erpData.cashRegisters || [],
+          suppliers: erpData.suppliers || [],
+          alerts: erpData.alerts || [],
+          clubEvents: erpData.clubEvents || [],
+          concessions: erpData.concessions || [],
+        });
+        setDbHealthy(Boolean(health?.ok));
+        hydratedRef.current = true;
+      } catch (err) {
+        if (!cancelled) setDbError(err.message || 'No se pudo cargar la base de datos');
+      } finally {
+        if (!cancelled) setDbReady(true);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cloudMode, isAuthenticated, authLoading]);
+
+  // Wrappers de escritura BD para setters usados en vistas
+  const setEntryLogsDb = (updater) => {
+    setEntryLogs((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      if (cloudMode && Array.isArray(next) && next.length > prev.length) {
+        const newest = next[0];
+        if (newest && !String(newest.id || '').includes('-')) {
+          const dbId = memberDbIds[newest.memberId];
+          repos.insertAccessLog(newest, dbId).then((saved) => {
+            setEntryLogs((cur) => [saved, ...cur.filter((x) => x !== newest && x.id !== newest.id)]);
+          }).catch(() => {});
+        }
+      }
+      return next;
+    });
+  };
+
+  const setMessagesDb = (updater) => {
+    setMessages((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      if (cloudMode && Array.isArray(next) && next.length > prev.length) {
+        const newest = next[0];
+        if (newest && !String(newest.id || '').includes('-')) {
+          repos.insertMessage(newest).then((saved) => {
+            setMessages((cur) => [saved, ...cur.filter((x) => x.id !== newest.id)]);
+          }).catch(() => {});
+        } else if (newest?.id && newest.isRead) {
+          repos.updateMessage(newest.id, { isRead: true }).catch(() => {});
+        }
+      } else if (cloudMode && Array.isArray(next)) {
+        next.forEach((m) => {
+          const old = prev.find((p) => p.id === m.id);
+          if (old && !old.isRead && m.isRead && String(m.id).includes('-')) {
+            repos.updateMessage(m.id, { isRead: true }).catch(() => {});
+          }
+        });
+      }
+      return next;
+    });
+  };
+
+  const setClaimsDb = (updater) => {
+    setClaims((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      if (cloudMode && Array.isArray(next)) {
+        if (next.length > prev.length) {
+          const newest = next[0];
+          const dbId = memberDbIds[newest.memberId];
+          repos.upsertClaim(newest, dbId).then((saved) => {
+            setClaims((cur) => [saved, ...cur.filter((x) => x.id !== newest.id)]);
+          }).catch(() => {});
+        } else {
+          next.forEach((c) => {
+            const old = prev.find((p) => p.id === c.id);
+            if (old && JSON.stringify(old) !== JSON.stringify(c) && String(c.id).includes('-')) {
+              repos.upsertClaim(c, memberDbIds[c.memberId]).catch(() => {});
+            }
+          });
+        }
+      }
+      return next;
+    });
+  };
+
+  const setGuestPassesDb = (updater) => {
+    setGuestPasses((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      if (cloudMode && Array.isArray(next) && next.length > prev.length) {
+        const newest = next[0];
+        const hostDb = memberDbIds[newest.hostMemberId];
+        repos.upsertGuestPass(newest, hostDb).catch(() => {});
+      }
+      return next;
+    });
+  };
+
+  const setWaitlistDb = (updater) => {
+    setWaitlist((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      if (cloudMode && Array.isArray(next)) {
+        repos.replaceWaitlist(next, memberDbIds).catch(() => {});
+      }
+      return next;
+    });
+  };
+
+  const setStaffMembersDb = (updater) => {
+    setStaffMembers((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      if (cloudMode && Array.isArray(next)) {
+        next.forEach((emp) => {
+          const old = prev.find((p) => p.id === emp.id);
+          if (!old || JSON.stringify(old) !== JSON.stringify(emp)) {
+            repos.upsertEmployee(emp).catch(() => {});
+          }
+        });
+      }
+      return next;
+    });
+  };
+
+  const setStaffHrDb = (updater) => {
+    setStaffHrRecords((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      if (cloudMode && Array.isArray(next) && next.length > prev.length) {
+        const newest = next[0];
+        repos.insertHrRecord(newest).then((saved) => {
+          setStaffHrRecords((cur) => [saved, ...cur.filter((x) => x.id !== newest.id)]);
+        }).catch(() => {});
+      }
+      return next;
+    });
+  };
+
+  const setSurveysDb = (updater) => {
+    setSurveys((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      if (cloudMode && Array.isArray(next) && next.length > prev.length) {
+        const newest = next[0];
+        repos.upsertSurvey(newest).then((saved) => {
+          setSurveys((cur) => [saved, ...cur.filter((x) => x.id !== newest.id)]);
+        }).catch(() => {});
+      }
+      return next;
+    });
+  };
+
+  const setNewsDb = (updater) => {
+    setNewsList((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      if (cloudMode && Array.isArray(next) && next.length > prev.length) {
+        const newest = next[0];
+        repos.upsertNews(newest).then((saved) => {
+          setNewsList((cur) => [saved, ...cur.filter((x) => x.id !== newest.id)]);
+        }).catch(() => {});
+      }
+      return next;
+    });
+  };
+
+  const setMembersDb = (updater) => {
+    setMembers((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      if (cloudMode && Array.isArray(next)) {
+        const prevIds = new Set(prev.map((m) => m.memberId));
+        next.forEach((m) => {
+          const old = prev.find((p) => p.memberId === m.memberId);
+          if (!old || JSON.stringify(old) !== JSON.stringify(m)) {
+            repos.upsertMember(m).then((saved) => {
+              setMemberDbIds((ids) => ({ ...ids, [saved.memberId]: saved.id }));
+              if (!prevIds.has(m.memberId)) {
+                setMembers((cur) =>
+                  cur.map((x) => (x.memberId === saved.memberId ? { ...x, ...saved } : x))
+                );
+              }
+            }).catch(() => {});
+          }
+        });
+      }
+      return next;
+    });
+  };
 
   const messageIdentity = {
     userId: user?.id,
@@ -1090,17 +1352,34 @@ export default function App() {
 
   // Agregar un anuncio/noticia (Admin)
   const addNewsArticle = (newArticle) => {
-    setNewsList(prev => [newArticle, ...prev]);
+    setNewsDb((prev) => [newArticle, ...prev]);
   };
 
   // Confirmar/Desconfirmar asistencia a evento (Socio)
-  const toggleEventRSVP = (eventId) => {
-    setRsvpList(prev => {
-      if (prev.includes(eventId)) {
-        return prev.filter(id => id !== eventId);
-      } else {
-        return [...prev, eventId];
+  const toggleEventRSVP = async (eventId) => {
+    const memberNumber = activeMember?.memberId;
+    setRsvpList((prev) => {
+      const list = Array.isArray(prev) ? prev : [];
+      // Compat: rsvpList puede ser array de ids o de objetos
+      const has = list.some((x) => x === eventId || x?.newsId === eventId);
+      if (has) {
+        return list.filter((x) => x !== eventId && x?.newsId !== eventId);
       }
+      const entry = {
+        newsId: eventId,
+        memberId: memberNumber,
+        memberName: activeMember?.name,
+        status: 'going',
+      };
+      if (cloudMode && memberNumber) {
+        repos.upsertRsvp(entry, memberDbIds[memberNumber]).then((saved) => {
+          setRsvpList((cur) => {
+            const base = Array.isArray(cur) ? cur.filter((x) => x !== eventId && x?.newsId !== eventId) : [];
+            return [...base, saved];
+          });
+        }).catch(() => {});
+      }
+      return [...list, entry];
     });
   };
 
@@ -1117,17 +1396,17 @@ export default function App() {
         staffMembers={staffMembers}
         members={members}
         claims={claims}
-        setClaims={setClaims}
+        setClaims={setClaimsDb}
         messages={messages}
-        setMessages={setMessages}
+        setMessages={setMessagesDb}
         isZondaActive={isZondaActive}
         setIsZondaActive={setIsZondaActive}
         surveys={surveys}
-        setSurveys={setSurveys}
+        setSurveys={setSurveysDb}
         waitlist={waitlist}
-        setWaitlist={setWaitlist}
+        setWaitlist={setWaitlistDb}
         guestPasses={guestPasses}
-        setGuestPasses={setGuestPasses}
+        setGuestPasses={setGuestPassesDb}
         updateMember={updateMember}
       />
     );
@@ -1136,24 +1415,24 @@ export default function App() {
       <AdminView
         members={members}
         reservations={reservations}
-        setMembers={setMembers}
+        setMembers={setMembersDb}
         setReservations={setReservations}
         latestNews={newsList}
         journalEntries={journalEntries}
         setJournalEntries={setJournalEntries}
         addJournalEntry={erp.addPostedEntry}
         staffMembers={staffMembers}
-        setStaffMembers={setStaffMembers}
+        setStaffMembers={setStaffMembersDb}
         staffHrRecords={staffHrRecords}
-        setStaffHrRecords={setStaffHrRecords}
+        setStaffHrRecords={setStaffHrDb}
         claims={claims}
-        setClaims={setClaims}
+        setClaims={setClaimsDb}
         messages={messages}
-        setMessages={setMessages}
+        setMessages={setMessagesDb}
         entryLogs={entryLogs}
-        setEntryLogs={setEntryLogs}
+        setEntryLogs={setEntryLogsDb}
         surveys={surveys}
-        setSurveys={setSurveys}
+        setSurveys={setSurveysDb}
         isOnline={isOnline}
         syncQueue={syncQueue}
         setSyncQueue={setSyncQueue}
@@ -1172,7 +1451,7 @@ export default function App() {
       setCurrentView={setCurrentView}
       isZondaActive={isZondaActive}
       waitlist={waitlist}
-      setWaitlist={setWaitlist}
+      setWaitlist={setWaitlistDb}
     />
   );
 
@@ -1203,7 +1482,7 @@ export default function App() {
       selfService
       updateMember={updateMember}
       guestPasses={guestPasses}
-      setGuestPasses={setGuestPasses}
+      setGuestPasses={setGuestPassesDb}
       formatCurrency={(amount) =>
         new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 }).format(amount || 0)
       }
@@ -1215,10 +1494,13 @@ export default function App() {
     />
   );
 
-  if (authLoading) {
+  if (authLoading || (cloudMode && isAuthenticated && !dbReady)) {
     return (
       <div className="app-container" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>
-        <p style={{ color: 'var(--text-secondary)' }}>Cargando sesión…</p>
+        <p style={{ color: 'var(--text-secondary)' }}>
+          {authLoading ? 'Cargando sesión…' : 'Sincronizando con la base de datos…'}
+        </p>
+        {dbError && <p style={{ color: 'var(--danger-accent)', fontSize: '0.85rem' }}>{dbError}</p>}
       </div>
     );
   }
@@ -1261,7 +1543,7 @@ export default function App() {
     <AccessControlView
       members={members}
       entryLogs={entryLogs}
-      setEntryLogs={setEntryLogs}
+      setEntryLogs={setEntryLogsDb}
       formatCurrency={formatCurrency}
       guestPasses={guestPasses}
     />
@@ -1312,7 +1594,7 @@ export default function App() {
               alerts={erp.alerts}
               alertAcks={erp.alertAcks}
               userRole={userRole}
-              onAck={erp.ackAlert}
+              onAck={(alertId) => erp.ackAlert(alertId, user?.id || 'local-user')}
               excludeSources={['concession_expiry', 'concession_docs']}
             />
           </>
@@ -1328,7 +1610,7 @@ export default function App() {
             element={
               <MessagesView
                 messages={messages}
-                setMessages={setMessages}
+                setMessages={setMessagesDb}
                 members={members}
               />
             }
@@ -1376,7 +1658,9 @@ export default function App() {
           <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
             Portal institucional v{import.meta.env.VITE_APP_VERSION || '1.0.0'}
             {' · '}
-            {isSupabaseConfigured ? 'Infraestructura conectada' : 'Entorno local controlado'}
+            {cloudMode
+              ? (dbHealthy ? 'Base de datos conectada' : (dbError ? `BD: ${dbError}` : 'Base de datos configurada'))
+              : 'Entorno local controlado'}
           </p>
         </footer>
       )}

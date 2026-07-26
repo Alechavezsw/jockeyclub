@@ -26,6 +26,29 @@ function mapProfile(sessionUser, profileRow) {
   };
 }
 
+async function loadUserFromSession(sessionUser) {
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('full_name, role')
+    .eq('id', sessionUser.id)
+    .maybeSingle();
+
+  let memberNumber = null;
+  if (profile?.role === 'member') {
+    const { data: member } = await supabase
+      .from('members')
+      .select('member_number')
+      .eq('profile_id', sessionUser.id)
+      .maybeSingle();
+    memberNumber = member?.member_number || null;
+  }
+
+  return mapProfile(sessionUser, {
+    ...profile,
+    member_number: memberNumber,
+  });
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -33,6 +56,7 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     let mounted = true;
+    let unsubscribe = null;
 
     async function boot() {
       setLoading(true);
@@ -41,48 +65,26 @@ export function AuthProvider({ children }) {
           const { data } = await supabase.auth.getSession();
           const session = data?.session;
           if (session?.user) {
-            const { data: profile } = await supabase
-              .from('profiles')
-              .select('full_name, role')
-              .eq('id', session.user.id)
-              .maybeSingle();
-
-            let memberNumber = null;
-            if (profile?.role === 'member') {
-              const { data: member } = await supabase
-                .from('members')
-                .select('member_number')
-                .eq('profile_id', session.user.id)
-                .maybeSingle();
-              memberNumber = member?.member_number || null;
-            }
-
-            if (mounted) {
-              setUser(
-                mapProfile(session.user, {
-                  ...profile,
-                  member_number: memberNumber,
-                })
-              );
-            }
+            const mapped = await loadUserFromSession(session.user);
+            if (mounted) setUser(mapped);
           } else if (mounted) {
             setUser(null);
           }
 
           const { data: sub } = supabase.auth.onAuthStateChange(async (_event, nextSession) => {
             if (!nextSession?.user) {
-              setUser(null);
+              if (mounted) setUser(null);
               return;
             }
-            const { data: profile } = await supabase
-              .from('profiles')
-              .select('full_name, role')
-              .eq('id', nextSession.user.id)
-              .maybeSingle();
-            setUser(mapProfile(nextSession.user, profile));
+            try {
+              const mapped = await loadUserFromSession(nextSession.user);
+              if (mounted) setUser(mapped);
+            } catch {
+              if (mounted) setUser(mapProfile(nextSession.user, null));
+            }
           });
-
-          return () => sub?.subscription?.unsubscribe?.();
+          unsubscribe = () => sub?.subscription?.unsubscribe?.();
+          return;
         }
 
         const local = loadLocalSession();
@@ -92,10 +94,10 @@ export function AuthProvider({ children }) {
       }
     }
 
-    const cleanupPromise = boot();
+    boot();
     return () => {
       mounted = false;
-      Promise.resolve(cleanupPromise).then((cleanup) => cleanup?.());
+      unsubscribe?.();
     };
   }, []);
 
@@ -117,17 +119,11 @@ export function AuthProvider({ children }) {
           );
           throw error;
         }
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('full_name, role')
-          .eq('id', data.user.id)
-          .maybeSingle();
-        const mapped = mapProfile(data.user, profile);
+        const mapped = await loadUserFromSession(data.user);
         setUser(mapped);
         return mapped;
       } catch (err) {
         const msg = String(err?.message || err || '');
-        // Típico cuando VITE_SUPABASE_ANON_KEY tiene comillas/saltos en Vercel
         if (/Invalid value|Failed to execute 'fetch'/i.test(msg)) {
           setAuthError(
             'Configuración de Supabase inválida (URL/clave). En Vercel: variables VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY sin comillas, luego Redeploy.'
@@ -164,7 +160,6 @@ export function AuthProvider({ children }) {
       await supabase.auth.signOut();
     }
     localStorage.removeItem(SESSION_KEY);
-    // Compat: limpiar toggle legacy
     localStorage.removeItem('jockey-role');
     setUser(null);
   }, []);
