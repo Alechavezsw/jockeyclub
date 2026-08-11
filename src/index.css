@@ -44,8 +44,8 @@
   --radius-lg: 24px;
   --radius-xl: 32px;
 
-  --transition-smooth: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-  --transition-fast: all 0.2s ease-out;
+  --transition-smooth: background-color 0.4s cubic-bezier(0.16, 1, 0.3, 1), color 0.4s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.4s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.4s cubic-bezier(0.16, 1, 0.3, 1), transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-fast: background-color 0.2s ease-out, color 0.2s ease-out, border-color 0.2s ease-out, box-shadow 0.2s ease-out, transform 0.2s ease-out, opacity 0.2s ease-out;
 
   /* Controles nativos (selects, date pickers, scrollbars) en oscuro */
   color-scheme: dark;
@@ -96,6 +96,10 @@
   box-sizing: border-box;
 }
 
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
 body {
   font-family: 'Outfit', sans-serif;
   background-color: var(--bg-primary);
@@ -103,7 +107,47 @@ body {
   line-height: 1.6;
   min-height: 100vh;
   overflow-x: hidden;
-  transition: var(--transition-smooth);
+  touch-action: manipulation;
+  transition: background-color 0.4s cubic-bezier(0.16, 1, 0.3, 1), color 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Accesibilidad: foco visible + skip link + motion */
+:focus-visible {
+  outline: 2px solid var(--primary-gold);
+  outline-offset: 2px;
+}
+
+.skip-link {
+  position: absolute;
+  left: 0.75rem;
+  top: 0.75rem;
+  z-index: 1000;
+  padding: 0.55rem 0.9rem;
+  border-radius: var(--radius-sm);
+  background: var(--primary-gold);
+  color: #060e0a;
+  font-weight: 700;
+  font-size: 0.85rem;
+  transform: translateY(-150%);
+  transition: transform 0.2s ease-out;
+}
+
+.skip-link:focus,
+.skip-link:focus-visible {
+  transform: translateY(0);
+  outline: 2px solid var(--text-strong);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* Tipografía */
@@ -760,10 +804,18 @@ select.form-input,
 }
 
 .form-input:focus {
-  outline: none;
   border-color: var(--primary-gold);
   box-shadow: 0 0 10px rgba(207, 161, 58, 0.15);
   background: var(--bg-tertiary);
+}
+
+.form-input:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.form-input:focus-visible {
+  outline: 2px solid var(--primary-gold);
+  outline-offset: 1px;
 }
 
 /* Grilla de Selección de Horarios */
@@ -1506,7 +1558,7 @@ select.form-input,
   text-decoration: none;
   font-size: 0.9rem;
   font-weight: 500;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease, opacity 0.2s ease;
   border-left: 3px solid transparent;
   cursor: pointer;
   background: transparent;
@@ -2221,7 +2273,7 @@ select.form-input,
   border: 1px solid var(--border-glass);
   border-radius: var(--radius-md);
   color: var(--text-primary);
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease, opacity 0.2s ease;
 }
 
 /* Utilidades responsive globales */
@@ -2656,7 +2708,7 @@ select.form-input,
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease, opacity 0.2s ease;
 }
 
 .mfb-filter-chip:hover {
@@ -2688,7 +2740,7 @@ select.form-input,
   color: var(--text-secondary);
   font-size: 0.82rem;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease, opacity 0.2s ease;
 }
 
 .mfb-tab span {

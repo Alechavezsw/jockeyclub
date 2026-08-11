@@ -1,22 +1,13 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import DashboardView from './views/DashboardView';
-import ReservationsView from './views/ReservationsView';
-import NewsBoardView from './views/NewsBoardView';
-import AdminView from './views/AdminView';
 import LoginView from './views/LoginView';
-import MessagesView from './views/MessagesView';
-import PaymentHistoryView from './views/PaymentHistoryView';
-import MemberProfilePanel from './components/admin/MemberProfilePanel';
 import useErpStore from './hooks/useErpStore';
 import { AlertsBanner } from './components/erp/AlertsPanel';
 import SessionStatusBar from './components/SessionStatusBar';
 import { useAuth } from './context/AuthContext';
 import { canAccessAdmin, canAccessQrGate, canAccessConcessions } from './domain/auth/roles';
-import AccessControlView from './views/AccessControlView';
-import ConcessionsView from './views/ConcessionsView';
-import ConcessionPortalView from './views/ConcessionPortalView';
 import { hasReservationConflict } from './domain/reservations/conflicts';
 import { filterAlertsForRole } from './domain/alerts/alerts';
 import { countUnread } from './domain/messaging/messages';
@@ -25,6 +16,25 @@ import { createHrRecord } from './domain/staff/hr';
 import { isSupabaseConfigured } from './lib/supabase';
 import { notifyNextOnWaitlist } from './domain/reservations/waitlist';
 import { bootstrapFromDb, repos } from './data/bootstrap';
+
+// Lazy load de vistas pesadas (bundle-dynamic-imports)
+const ReservationsView = lazy(() => import('./views/ReservationsView'));
+const NewsBoardView = lazy(() => import('./views/NewsBoardView'));
+const AdminView = lazy(() => import('./views/AdminView'));
+const MessagesView = lazy(() => import('./views/MessagesView'));
+const PaymentHistoryView = lazy(() => import('./views/PaymentHistoryView'));
+const MemberProfilePanel = lazy(() => import('./components/admin/MemberProfilePanel'));
+const AccessControlView = lazy(() => import('./views/AccessControlView'));
+const ConcessionsView = lazy(() => import('./views/ConcessionsView'));
+const ConcessionPortalView = lazy(() => import('./views/ConcessionPortalView'));
+
+function RouteFallback() {
+  return (
+    <div style={{ minHeight: '40vh', display: 'grid', placeItems: 'center', color: 'var(--text-secondary)' }} aria-live="polite">
+      Cargando…
+    </div>
+  );
+}
 
 // Datos de semilla predeterminados para socios de Jockey Club San Juan (con teléfonos 264 y adherentes)
 const DEFAULT_MEMBERS = [
@@ -1585,11 +1595,23 @@ export default function App() {
         />
       )}
 
+      <a href="#contenido-principal" className="skip-link">Saltar al contenido</a>
+
       {/* Contenido Principal */}
-      <main className="main-content" style={isAccessGate ? { padding: 0, maxWidth: 'none' } : undefined}>
+      <main
+        id="contenido-principal"
+        className="main-content"
+        tabIndex={-1}
+        style={isAccessGate ? { padding: 0, maxWidth: 'none' } : undefined}
+      >
         {!isAccessGate && (
           <>
             <SessionStatusBar />
+            {dbError ? (
+              <p className="conc-error" role="alert" aria-live="assertive" style={{ margin: '0 0 0.75rem' }}>
+                {dbError}
+              </p>
+            ) : null}
             <AlertsBanner
               alerts={erp.alerts}
               alertAcks={erp.alertAcks}
@@ -1599,6 +1621,7 @@ export default function App() {
             />
           </>
         )}
+        <Suspense fallback={<RouteFallback />}>
         <Routes>
           <Route path="/" element={isOperativeRole ? <Navigate to="/panel" replace /> : memberDashboard} />
           <Route path="/reservas" element={userRole === 'member' ? reservationsView : <Navigate to="/panel" replace />} />
@@ -1632,6 +1655,7 @@ export default function App() {
           <Route path="/panel/:tab/:memberId?" element={isOperativeRole ? operativePanel : <Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to={isOperativeRole ? '/panel' : '/'} replace />} />
         </Routes>
+        </Suspense>
       </main>
 
       {!isAccessGate && (

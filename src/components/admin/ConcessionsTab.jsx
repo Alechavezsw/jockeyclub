@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import {
   Store, AlertTriangle, CheckCircle2, Clock, Plus, RefreshCw, Ban, Search,
-  CalendarDays, FileText, Download, Receipt, ClipboardList, KeyRound, Link2,
+  CalendarDays, FileText, Download, Receipt, ClipboardList, KeyRound, Link2, Upload,
 } from 'lucide-react';
 import {
   CONCESSION_TYPES,
@@ -19,6 +19,8 @@ import {
   missingRequiredDocuments,
 } from '../../domain/concessions/concessions';
 import { downloadCanonReceiptPdf } from '../../domain/concessions/exportCanonReceiptPdf';
+import { isSupabaseConfigured } from '../../lib/supabase';
+import { uploadConcessionDocument, validateConcessionDocFile } from '../../data/storage';
 
 function formatCurrency(amount) {
   return new Intl.NumberFormat('es-AR', {
@@ -91,7 +93,9 @@ export default function ConcessionsTab({
   const [selectedId, setSelectedId] = useState(null);
   const [detailTab, setDetailTab] = useState('resumen');
   const [payForm, setPayForm] = useState({ period: '', amount: '', method: 'transfer', note: '' });
-  const [docForm, setDocForm] = useState({ type: 'contrato', name: '', note: '' });
+  const [docForm, setDocForm] = useState({ type: 'contrato', name: '', note: '', file: null });
+  const [contractFile, setContractFile] = useState(null);
+  const [saving, setSaving] = useState(false);
   const [calCursor, setCalCursor] = useState(() => {
     const d = new Date();
     return { year: d.getFullYear(), month: d.getMonth() };
@@ -129,9 +133,10 @@ export default function ConcessionsTab({
   const progress = selected ? checklistProgress(selected) : null;
   const missingDocs = selected ? missingRequiredDocuments(selected) : [];
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
     setError('');
+    setSaving(true);
     try {
       const overlap = findSpaceOverlap(concessions, {
         spaceId: form.spaceId,
@@ -141,6 +146,8 @@ export default function ConcessionsTab({
       if (overlap) {
         throw new Error(`El espacio ya está ocupado por «${overlap.name}» en ese período.`);
       }
+      if (contractFile) validateConcessionDocFile(contractFile);
+
       const created = createConcession({
         ...form,
         noticeDays: Number(form.noticeDays) || 30,
@@ -149,12 +156,52 @@ export default function ConcessionsTab({
         deposit: Number(form.deposit) || 0,
       });
       if (!saveConcession) throw new Error('Guardado no disponible.');
-      saveConcession(created);
+
+      const saved = await saveConcession(created);
+      const concessionId = saved?.id || created.id;
+
+      if (contractFile) {
+        if (!isSupabaseConfigured) {
+          throw new Error('Para subir el contrato necesitás Supabase configurado.');
+        }
+        const uploaded = await uploadConcessionDocument(contractFile, {
+          concessionId,
+          type: 'contrato',
+        });
+        const withDoc = {
+          ...saved,
+          documents: [
+            ...(saved.documents || []),
+            {
+              id: `doc-${Date.now()}`,
+              type: 'contrato',
+              name: uploaded.name,
+              url: uploaded.url,
+              path: uploaded.path,
+              mimeType: uploaded.mimeType,
+              size: uploaded.size,
+              uploadedAt: new Date().toISOString(),
+              note: 'Contrato adjunto en el alta',
+            },
+          ],
+          checklist: {
+            ...(saved.checklist || {}),
+            contrato: true,
+          },
+        };
+        const finalSaved = await saveConcession(withDoc);
+        setSelectedId(finalSaved?.id || concessionId);
+      } else {
+        setSelectedId(concessionId);
+      }
+
       setForm(EMPTY_FORM);
+      setContractFile(null);
       setShowForm(false);
-      setSelectedId(created.id);
     } catch (err) {
       setError(err.message || 'No se pudo guardar la concesión.');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -170,21 +217,51 @@ export default function ConcessionsTab({
         note: payForm.note,
       });
       setPayForm({ period: '', amount: '', method: 'transfer', note: '' });
-      downloadCanonReceiptPdf({ concession: selected, payment });
+      void downloadCanonReceiptPdf({ concession: selected, payment });
     } catch (err) {
       setError(err.message || 'No se pudo registrar el cobro.');
     }
   };
 
-  const addDoc = (e) => {
+  const addDoc = async (e) => {
     e.preventDefault();
     if (!selected || !addDocToConcession) return;
-    addDocToConcession(selected.id, {
-      type: docForm.type,
-      name: docForm.name || DOC_TYPES[docForm.type] || 'Documento',
-      note: docForm.note,
-    });
-    setDocForm({ type: 'contrato', name: '', note: '' });
+    setError('');
+    setSaving(true);
+    try {
+      let payload = {
+        type: docForm.type,
+        name: docForm.name || DOC_TYPES[docForm.type] || 'Documento',
+        note: docForm.note,
+      };
+      if (docForm.file) {
+        validateConcessionDocFile(docForm.file);
+        if (!isSupabaseConfigured) {
+          throw new Error('Para subir archivos necesitás Supabase configurado.');
+        }
+        const uploaded = await uploadConcessionDocument(docForm.file, {
+          concessionId: selected.id,
+          type: docForm.type,
+        });
+        payload = {
+          ...payload,
+          name: docForm.name || uploaded.name,
+          url: uploaded.url,
+          path: uploaded.path,
+          mimeType: uploaded.mimeType,
+          size: uploaded.size,
+        };
+      }
+      await addDocToConcession(selected.id, payload);
+      if (docForm.type === 'contrato' && toggleConcessionChecklist) {
+        toggleConcessionChecklist(selected.id, 'contrato', true);
+      }
+      setDocForm({ type: 'contrato', name: '', note: '', file: null });
+    } catch (err) {
+      setError(err.message || 'No se pudo adjuntar el documento.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const exportCsv = () => {
@@ -318,11 +395,33 @@ export default function ConcessionsTab({
               <label className="form-label">Ubicación / nota física</label>
               <input className="form-input" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
             </div>
+            <div style={{ gridColumn: '1 / -1' }}>
+              <label className="form-label">Contrato (PDF o foto)</label>
+              <input
+                type="file"
+                className="form-input"
+                accept="application/pdf,image/*"
+                onChange={(e) => setContractFile(e.target.files?.[0] || null)}
+              />
+              <p style={{ margin: '0.35rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                Opcional al alta. Máx. 10 MB · PDF, JPG, PNG o WEBP.
+                {contractFile ? ` · Seleccionado: ${contractFile.name}` : ''}
+              </p>
+            </div>
           </div>
           {error && <p className="conc-error">{error}</p>}
           <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button type="submit" className="btn btn-primary btn-sm">Guardar</button>
-            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowForm(false)}>Cancelar</button>
+            <button type="submit" className="btn btn-primary btn-sm" disabled={saving}>
+              <Upload size={14} /> {saving ? 'Guardando…' : 'Guardar'}
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={saving}
+              onClick={() => { setShowForm(false); setContractFile(null); }}
+            >
+              Cancelar
+            </button>
           </div>
         </form>
       )}
@@ -576,7 +675,7 @@ export default function ConcessionsTab({
                           <button
                             type="button"
                             className="btn btn-secondary btn-sm"
-                            onClick={() => downloadCanonReceiptPdf({ concession: selected, payment: p })}
+                            onClick={() => { void downloadCanonReceiptPdf({ concession: selected, payment: p }); }}
                           >
                             PDF
                           </button>
@@ -604,10 +703,28 @@ export default function ConcessionsTab({
                         </select>
                       </div>
                       <div>
-                        <label className="form-label">Nombre archivo</label>
+                        <label className="form-label">Archivo (PDF / foto)</label>
+                        <input
+                          type="file"
+                          className="form-input"
+                          accept="application/pdf,image/*"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0] || null;
+                            setDocForm((prev) => ({
+                              ...prev,
+                              file,
+                              name: prev.name || file?.name || '',
+                            }));
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <label className="form-label">Nombre (opcional)</label>
                         <input className="form-input" value={docForm.name} onChange={(e) => setDocForm({ ...docForm, name: e.target.value })} placeholder="contrato.pdf" />
                       </div>
-                      <button type="submit" className="btn btn-primary btn-sm">Adjuntar</button>
+                      <button type="submit" className="btn btn-primary btn-sm" disabled={saving || !docForm.file}>
+                        <Upload size={14} /> {saving ? 'Subiendo…' : 'Subir'}
+                      </button>
                     </form>
                     <ul className="conc-pay-list">
                       {(selected.documents || []).length === 0 && <li className="conc-empty">Sin documentos.</li>}
@@ -616,6 +733,16 @@ export default function ConcessionsTab({
                           <span>{DOC_TYPES[d.type] || d.type}</span>
                           <strong>{d.name}</strong>
                           <em>{formatDate((d.uploadedAt || '').slice(0, 10))}</em>
+                          {d.url ? (
+                            <a
+                              className="btn btn-secondary btn-sm"
+                              href={d.url}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              Ver
+                            </a>
+                          ) : null}
                           <button
                             type="button"
                             className="btn btn-secondary btn-sm"

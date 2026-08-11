@@ -1,5 +1,3 @@
-import { jsPDF } from 'jspdf';
-
 function formatCurrency(amount) {
   return new Intl.NumberFormat('es-AR', {
     style: 'currency',
@@ -18,8 +16,9 @@ const METHOD = {
 };
 
 /** Recibo PDF de un pago de socio. */
-export function downloadPaymentReceiptPdf({ member, payment }) {
+export async function downloadPaymentReceiptPdf({ member, payment }) {
   if (!payment) throw new Error('Pago no encontrado.');
+  const { jsPDF } = await import('jspdf');
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const gold = [180, 140, 50];
 

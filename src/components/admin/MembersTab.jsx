@@ -468,10 +468,10 @@ export default function MembersTab({ members, setMembers, addJournalEntry, forma
 
         <button
           type="button"
-          onClick={() => exportMembersPdf(filteredMembers, {
+          onClick={() => { void exportMembersPdf(filteredMembers, {
             formatCurrency,
             filterLabel: tierFilter === 'todos' ? 'Todos' : tierFilter,
-          })}
+          }); }}
           className="btn btn-secondary"
           style={{ padding: '0.5rem 1.1rem', fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: 6 }}
           title="Exportar padrón filtrado a PDF"

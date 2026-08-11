@@ -142,6 +142,8 @@ export default function LoginView() {
                 type="email"
                 required
                 autoComplete="username"
+                spellCheck={false}
+                name="email"
                 placeholder="usuario@jockeyclubsanjuan.org"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -167,8 +169,8 @@ export default function LoginView() {
           </div>
 
           {authError && (
-            <div role="alert" style={{ color: '#ef4444', fontSize: '0.85rem', display: 'flex', gap: 6, alignItems: 'center' }}>
-              <Shield size={14} /> {authError}
+            <div role="alert" aria-live="assertive" style={{ color: '#ef4444', fontSize: '0.85rem', display: 'flex', gap: 6, alignItems: 'center' }}>
+              <Shield size={14} aria-hidden="true" /> {authError}
             </div>
           )}
 

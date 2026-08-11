@@ -709,31 +709,56 @@ export async function listConcessions() {
   return (rows || []).map(M.concessionFromRow);
 }
 
+function isUuid(id) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(id || ''));
+}
+
 export async function upsertConcession(c) {
   const row = {
     space_id: c.spaceId || null,
     name: c.name,
     concession_type: c.type || c.concessionType || 'otro',
-    status: c.status || 'active',
-    holder_name: c.holderName || null,
-    holder_cuit: c.holderCuit || null,
-    holder_email: c.holderEmail || null,
-    holder_phone: c.holderPhone || null,
+    status: c.statusManual || c.status || 'active',
+    holder_name: c.concessionaire || c.holderName || null,
+    holder_cuit: c.cuit || c.holderCuit || null,
+    holder_email: c.contactEmail || c.holderEmail || null,
+    holder_phone: c.contactPhone || c.holderPhone || null,
     start_date: c.startDate || null,
     end_date: c.endDate || null,
-    monthly_canon: Number(c.monthlyCanon) || 0,
+    monthly_canon: Number(c.monthlyFee ?? c.monthlyCanon) || 0,
     portal_code: c.portalCode || null,
-    checklist: c.checklist || [],
-    documents: c.documents || [],
-    renewal_history: c.renewalHistory || [],
+    checklist: c.checklist && typeof c.checklist === 'object' ? c.checklist : {},
+    documents: Array.isArray(c.documents) ? c.documents : [],
+    renewal_history: Array.isArray(c.renewalHistory) ? c.renewalHistory : [],
     notes: c.notes || null,
-    meta: c.meta || {},
+    meta: {
+      ...(c.meta || {}),
+      contactName: c.contactName || '',
+      location: c.location || '',
+      noticeDays: c.noticeDays ?? 30,
+      revenueSharePct: c.revenueSharePct ?? 0,
+      deposit: c.deposit ?? 0,
+      autoRenew: Boolean(c.autoRenew),
+      incomeAccountId: c.incomeAccountId || 'coa-4.1.04',
+      concessionaire: c.concessionaire || c.holderName || '',
+      cuit: c.cuit || c.holderCuit || '',
+    },
   };
-  if (c.id && String(c.id).includes('-')) {
-    const saved = await unwrap(sb().from('concessions').update(row).eq('id', c.id).select().single());
+
+  if (isUuid(c.id)) {
+    const saved = await unwrap(
+      sb().from('concessions').update(row).eq('id', c.id).select().single(),
+      'No se pudo actualizar la concesión'
+    );
+    await audit('upsert', 'concessions', saved.id, { name: saved.name });
     return M.concessionFromRow(saved);
   }
-  const saved = await unwrap(sb().from('concessions').insert(row).select().single());
+
+  const saved = await unwrap(
+    sb().from('concessions').insert(row).select().single(),
+    'No se pudo crear la concesión'
+  );
+  await audit('create', 'concessions', saved.id, { name: saved.name });
   return M.concessionFromRow(saved);
 }
 

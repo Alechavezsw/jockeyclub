@@ -99,6 +99,11 @@ export default function ConcessionPortalView({ code: codeProp, concessions = [],
               <li key={d.id}>
                 <span>{DOC_TYPES[d.type] || d.type}</span>
                 <strong>{d.name || '—'}</strong>
+                {d.url ? (
+                  <a href={d.url} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm">
+                    Ver
+                  </a>
+                ) : null}
               </li>
             ))}
           </ul>

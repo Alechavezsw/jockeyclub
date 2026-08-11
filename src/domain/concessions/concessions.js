@@ -158,6 +158,10 @@ export function addConcessionDocument(concession, doc) {
     name: String(doc.name || '').trim(),
     uploadedAt: doc.uploadedAt || new Date().toISOString(),
     note: String(doc.note || '').trim(),
+    url: doc.url || '',
+    path: doc.path || '',
+    mimeType: doc.mimeType || '',
+    size: doc.size || 0,
   };
   return {
     ...concession,

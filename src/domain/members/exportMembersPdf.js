@@ -1,6 +1,3 @@
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
-
 const TIER_LABEL = {
   royal: 'Royal',
   platinum: 'Platinum',
@@ -24,11 +21,16 @@ function formatCredential(id = '') {
 /**
  * Genera y descarga un PDF del padrón de socios (lista filtrada actual).
  */
-export function exportMembersPdf(members = [], {
+export async function exportMembersPdf(members = [], {
   formatCurrency = formatMoney,
   filterLabel = 'Todos',
   fileName,
 } = {}) {
+  const [{ jsPDF }, autoTableMod] = await Promise.all([
+    import('jspdf'),
+    import('jspdf-autotable'),
+  ]);
+  const autoTable = autoTableMod.default;
   const list = Array.isArray(members) ? members : [];
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
   const generatedAt = new Date().toLocaleString('es-AR');

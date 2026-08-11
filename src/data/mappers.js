@@ -419,26 +419,47 @@ export function clubEventFromRow(row) {
   };
 }
 
+function normalizeChecklist(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+  return {};
+}
+
 export function concessionFromRow(row) {
+  const meta = row.meta || {};
+  const monthly = Number(row.monthly_canon) || 0;
   return {
     id: row.id,
-    spaceId: row.space_id || '',
+    spaceId: row.space_id || meta.spaceId || '',
     name: row.name,
-    type: row.concession_type || 'otro',
+    type: row.concession_type || meta.type || 'otro',
     status: row.status,
+    statusManual: row.status || meta.statusManual || 'active',
+    // Shape UI (dominio)
+    concessionaire: row.holder_name || meta.concessionaire || '',
+    cuit: row.holder_cuit || meta.cuit || '',
+    contactEmail: row.holder_email || meta.contactEmail || '',
+    contactPhone: row.holder_phone || meta.contactPhone || '',
+    contactName: meta.contactName || '',
+    location: meta.location || '',
+    noticeDays: meta.noticeDays ?? 30,
+    revenueSharePct: meta.revenueSharePct ?? 0,
+    deposit: meta.deposit ?? 0,
+    autoRenew: Boolean(meta.autoRenew),
+    incomeAccountId: meta.incomeAccountId || 'coa-4.1.04',
+    // Compat aliases
     holderName: row.holder_name || '',
     holderCuit: row.holder_cuit || '',
     holderEmail: row.holder_email || '',
     holderPhone: row.holder_phone || '',
     startDate: row.start_date,
     endDate: row.end_date,
-    monthlyCanon: Number(row.monthly_canon) || 0,
+    monthlyFee: monthly,
+    monthlyCanon: monthly,
     portalCode: row.portal_code || '',
-    checklist: row.checklist || [],
-    documents: row.documents || [],
-    renewalHistory: row.renewal_history || [],
+    checklist: normalizeChecklist(row.checklist),
+    documents: Array.isArray(row.documents) ? row.documents : [],
+    renewalHistory: Array.isArray(row.renewal_history) ? row.renewal_history : [],
     notes: row.notes || '',
-    ...(row.meta || {}),
   };
 }
 

@@ -440,16 +440,19 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
     if (cloud()) {
       const saved = await repos.upsertConcession(concession);
       setConcessions((prev) => {
-        const idx = prev.findIndex((c) => c.id === saved.id);
-        if (idx === -1) return [saved, ...prev];
-        const next = [...prev];
+        const withoutTemp = prev.filter((c) => c.id !== concession.id && c.id !== saved.id);
+        const idx = withoutTemp.findIndex((c) => c.id === saved.id);
+        if (idx === -1) return [saved, ...withoutTemp];
+        const next = [...withoutTemp];
         next[idx] = saved;
         return next;
       });
       return saved;
     }
-    setConcessions((prev) => upsertConcessionDomain(prev, concession));
-    return concession;
+    const list = upsertConcessionDomain([], concession);
+    const local = list[0] || concession;
+    setConcessions((prev) => upsertConcessionDomain(prev, local));
+    return local;
   }, []);
 
   const renewConcessionContract = useCallback((concessionId, options = {}) => {
@@ -481,23 +484,30 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
     });
   }, []);
 
-  const addDocToConcession = useCallback((concessionId, doc) => {
-    setConcessions((prev) => {
-      const next = prev.map((c) => (c.id === concessionId ? addConcessionDocument(c, doc) : c));
-      const target = next.find((c) => c.id === concessionId);
-      if (cloud() && target) repos.upsertConcession(target).catch(() => {});
-      return next;
-    });
-  }, []);
+  const addDocToConcession = useCallback(async (concessionId, doc) => {
+    const current = concessions.find((c) => c.id === concessionId);
+    if (!current) throw new Error('Concesión no encontrada.');
+    const updated = addConcessionDocument(current, doc);
+    if (cloud()) {
+      const saved = await repos.upsertConcession(updated);
+      setConcessions((prev) => prev.map((c) => (c.id === concessionId || c.id === saved.id ? saved : c)));
+      return saved;
+    }
+    setConcessions((prev) => prev.map((c) => (c.id === concessionId ? updated : c)));
+    return updated;
+  }, [concessions]);
 
-  const removeDocFromConcession = useCallback((concessionId, docId) => {
-    setConcessions((prev) => {
-      const next = prev.map((c) => (c.id === concessionId ? removeConcessionDocument(c, docId) : c));
-      const target = next.find((c) => c.id === concessionId);
-      if (cloud() && target) repos.upsertConcession(target).catch(() => {});
-      return next;
-    });
-  }, []);
+  const removeDocFromConcession = useCallback(async (concessionId, docId) => {
+    const current = concessions.find((c) => c.id === concessionId);
+    if (!current) return;
+    const updated = removeConcessionDocument(current, docId);
+    if (cloud()) {
+      const saved = await repos.upsertConcession(updated);
+      setConcessions((prev) => prev.map((c) => (c.id === concessionId || c.id === saved.id ? saved : c)));
+      return;
+    }
+    setConcessions((prev) => prev.map((c) => (c.id === concessionId ? updated : c)));
+  }, [concessions]);
 
   const recordCanonPayment = useCallback(
     async (payload) => {

@@ -55,13 +55,29 @@ export default function Navbar({
         boxSizing: 'border-box',
         gap: '0.5rem',
       }}>
-        <div
+        <button
+          type="button"
           onClick={() => handleNavClick('dashboard')}
-          style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer', minWidth: 0 }}
+          aria-label="Ir al inicio · Jockey Club San Juan"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.75rem',
+            cursor: 'pointer',
+            minWidth: 0,
+            background: 'transparent',
+            border: 'none',
+            padding: 0,
+            font: 'inherit',
+            color: 'inherit',
+          }}
         >
           <img
             src="/logo-jockey-club.png"
-            alt="Jockey Club San Juan"
+            alt=""
+            width={42}
+            height={42}
+            fetchPriority="high"
             style={{
               width: '42px',
               height: '42px',
@@ -81,7 +97,7 @@ export default function Navbar({
           }}>
             Jockey Club
           </span>
-        </div>
+        </button>
 
         <div style={{ display: 'none', gap: '1.5rem', alignItems: 'center' }} className="desktop-menu-container">
           <style>{`
@@ -178,8 +194,10 @@ export default function Navbar({
             </button>
           )}
           <button
+            type="button"
             onClick={() => handleNavClick('messages')}
             title="Mensajería interna"
+            aria-label={unreadMessages > 0 ? `Mensajes, ${unreadMessages} sin leer` : 'Mensajes'}
             style={{
               background: currentView === 'messages' ? 'rgba(207,161,58,0.12)' : 'rgba(255,255,255,0.03)',
               border: `1px solid ${currentView === 'messages' ? 'rgba(207,161,58,0.4)' : 'var(--border-glass)'}`,
@@ -194,7 +212,7 @@ export default function Navbar({
               position: 'relative'
             }}
           >
-            <Mail size={18} />
+            <Mail size={18} aria-hidden="true" />
             {unreadMessages > 0 && (
               <span style={{
                 position: 'absolute',
@@ -220,8 +238,11 @@ export default function Navbar({
 
           <div style={{ position: 'relative' }}>
             <button
+              type="button"
               onClick={() => setShowNotifs((v) => !v)}
               title="Notificaciones"
+              aria-label={notifications.length > 0 ? `Notificaciones, ${notifications.length} pendientes` : 'Notificaciones'}
+              aria-expanded={showNotifs}
               style={{
                 background: 'rgba(255,255,255,0.03)',
                 border: '1px solid var(--border-glass)',
@@ -236,7 +257,7 @@ export default function Navbar({
                 position: 'relative'
               }}
             >
-              <Bell size={18} />
+              <Bell size={18} aria-hidden="true" />
               {notifications.length > 0 && (
                 <span style={{
                   position: 'absolute',
@@ -309,6 +330,7 @@ export default function Navbar({
           </div>
 
           <button
+            type="button"
             onClick={toggleTheme}
             style={{
               background: 'rgba(255,255,255,0.03)',
@@ -322,9 +344,10 @@ export default function Navbar({
               cursor: 'pointer',
               color: 'var(--text-primary)',
             }}
-            title={theme === 'dark' ? 'Modo Claro' : 'Modo Oscuro'}
+            title={theme === 'dark' ? 'Modo claro' : 'Modo oscuro'}
+            aria-label={theme === 'dark' ? 'Activar modo claro' : 'Activar modo oscuro'}
           >
-            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+            {theme === 'dark' ? <Sun size={18} aria-hidden="true" /> : <Moon size={18} aria-hidden="true" />}
           </button>
 
           <button
@@ -367,8 +390,11 @@ export default function Navbar({
         </div>
 
         <button
+          type="button"
           onClick={() => setIsOpen(!isOpen)}
           className="mobile-toggle"
+          aria-label={isOpen ? 'Cerrar menú' : 'Abrir menú'}
+          aria-expanded={isOpen}
           style={{
             background: 'transparent',
             border: 'none',
@@ -377,7 +403,7 @@ export default function Navbar({
             padding: '0.5rem'
           }}
         >
-          {isOpen ? <X size={24} /> : <Menu size={24} />}
+          {isOpen ? <X size={24} aria-hidden="true" /> : <Menu size={24} aria-hidden="true" />}
         </button>
       </div>
 

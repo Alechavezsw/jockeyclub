@@ -294,7 +294,7 @@ function CardFace({
           <QRCodeSVG
             value={buildCredentialQRPayload(member)}
             size={isFull ? 80 : 38}
-            level="M"
+            level="H"
             includeMargin={isFull}
             bgColor="#ffffff"
             fgColor="#060e0a"
@@ -348,8 +348,10 @@ export default function VirtualCard({ member }) {
       return undefined;
     }
 
+    // Solo ocultar al pasar a segundo plano. No usar blur/hasFocus:
+    // en móviles dispara falsos positivos y deja la credencial en negro al mostrar el QR al molinete.
     const sync = () => {
-      setSecureHide(document.hidden || !document.hasFocus());
+      setSecureHide(Boolean(document.hidden));
     };
 
     const onKey = (e) => {
@@ -364,8 +366,6 @@ export default function VirtualCard({ member }) {
     const onContext = (e) => e.preventDefault();
 
     document.addEventListener('visibilitychange', sync);
-    window.addEventListener('blur', sync);
-    window.addEventListener('focus', sync);
     window.addEventListener('keydown', onKey, true);
     document.addEventListener('contextmenu', onContext, true);
     document.body.style.overflow = 'hidden';
@@ -373,8 +373,6 @@ export default function VirtualCard({ member }) {
 
     return () => {
       document.removeEventListener('visibilitychange', sync);
-      window.removeEventListener('blur', sync);
-      window.removeEventListener('focus', sync);
       window.removeEventListener('keydown', onKey, true);
       document.removeEventListener('contextmenu', onContext, true);
       document.body.style.overflow = '';
@@ -513,19 +511,19 @@ export default function VirtualCard({ member }) {
               style={{
                 marginTop: '1.1rem',
                 background: '#fff',
-                borderRadius: 16,
-                padding: 14,
+                borderRadius: 18,
+                padding: 18,
                 boxShadow: '0 8px 28px rgba(0,0,0,0.35)',
               }}
               aria-label="Código QR para acceso"
             >
               <QRCodeSVG
                 value={buildCredentialQRPayload(member)}
-                size={220}
-                level="L"
+                size={280}
+                level="H"
                 includeMargin
                 bgColor="#ffffff"
-                fgColor="#060e0a"
+                fgColor="#000000"
               />
             </div>
             <p className="vc-secure-foot">

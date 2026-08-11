@@ -47,7 +47,7 @@ export default function PaymentHistoryView({ member, setCurrentView, updateMembe
   );
   const alDia = summary.outstanding <= 0;
 
-  const handlePay = () => {
+  const handlePay = async () => {
     if (!updateMember) {
       setError('Pago no disponible en este momento.');
       return;
@@ -66,7 +66,7 @@ export default function PaymentHistoryView({ member, setCurrentView, updateMembe
           : `Pago confirmado (${formatCurrency(result.payment.amount)}). Comprobante ${result.payment.receipt}.`
       );
       try {
-        downloadPaymentReceiptPdf({ member: result.member, payment: result.payment });
+        await downloadPaymentReceiptPdf({ member: result.member, payment: result.payment });
       } catch {
         /* PDF opcional */
       }
@@ -195,7 +195,7 @@ export default function PaymentHistoryView({ member, setCurrentView, updateMembe
                     type="button"
                     className="btn btn-secondary btn-sm"
                     style={{ marginTop: 4, display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                    onClick={() => downloadPaymentReceiptPdf({ member, payment: pay })}
+                    onClick={() => { void downloadPaymentReceiptPdf({ member, payment: pay }); }}
                   >
                     <Download size={12} /> PDF
                   </button>

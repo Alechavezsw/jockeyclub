@@ -58,7 +58,7 @@ export default function AccessControlView({
   const navigate = useNavigate();
   const processingRef = useRef(false);
   const cooldownTimerRef = useRef(null);
-  const [cameraOn, setCameraOn] = useState(false);
+  const [cameraOn, setCameraOn] = useState(true);
   const [cameraError, setCameraError] = useState('');
   const [result, setResult] = useState(null);
   const [isWide, setIsWide] = useState(() =>
@@ -455,7 +455,7 @@ export default function AccessControlView({
                 Lector de credenciales
               </p>
               <p style={{ margin: 0, fontSize: '0.8rem', maxWidth: 300 }}>
-                Activá la cámara. Pedile al socio la credencial a pantalla completa y tocá la imagen para enfocar.
+                Pedile al socio la credencial a pantalla completa. Tocá la imagen para enfocar, o usá el ícono de foto si la cámara falla.
               </p>
             </div>
           )}
@@ -484,7 +484,11 @@ export default function AccessControlView({
 
         <aside className="access-side">
           {cameraError && (
-            <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--danger-accent)' }}>{cameraError}</p>
+            <p role="alert" style={{ margin: 0, fontSize: '0.82rem', color: 'var(--danger-accent)' }}>
+              {cameraError}
+              {' '}
+              Tip: usá el botón de foto (arriba a la derecha del lector) o el código manual.
+            </p>
           )}
 
           <div className="access-actions">
