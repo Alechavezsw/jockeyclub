@@ -33,19 +33,16 @@ async function loadUserFromSession(sessionUser) {
     .eq('id', sessionUser.id)
     .maybeSingle();
 
-  let memberNumber = null;
-  if (profile?.role === 'member') {
-    const { data: member } = await supabase
-      .from('members')
-      .select('member_number')
-      .eq('profile_id', sessionUser.id)
-      .maybeSingle();
-    memberNumber = member?.member_number || null;
-  }
+  // Siempre resolver credencial vinculada (no solo si role === member)
+  const { data: member } = await supabase
+    .from('members')
+    .select('member_number')
+    .eq('profile_id', sessionUser.id)
+    .maybeSingle();
 
   return mapProfile(sessionUser, {
     ...profile,
-    member_number: memberNumber,
+    member_number: member?.member_number || null,
   });
 }
 

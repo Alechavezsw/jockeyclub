@@ -11,6 +11,8 @@ export default function Navbar({
   toggleTheme,
   notifications = [],
   unreadMessages = 0,
+  onOpenNotification,
+  onDismissNotification,
 }) {
   const { user, role, logout, roleLabel } = useAuth();
   const navigate = useNavigate();
@@ -294,9 +296,11 @@ export default function Navbar({
                 zIndex: 200,
                 boxShadow: '0 18px 50px rgba(0,0,0,0.55)'
               }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.25rem 0.5rem 0.6rem', borderBottom: '1px solid var(--border-glass)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.25rem 0.5rem 0.6rem', borderBottom: '1px solid var(--border-glass)', gap: 8 }}>
                   <strong style={{ fontSize: '0.9rem' }}>Notificaciones</strong>
-                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{notifications.length} pendientes</span>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                    {notifications.length === 0 ? 'Al día' : `${notifications.length} pendientes`}
+                  </span>
                 </div>
                 {notifications.length === 0 ? (
                   <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', textAlign: 'center', padding: '1.25rem 0.5rem' }}>
@@ -305,23 +309,55 @@ export default function Navbar({
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginTop: '0.5rem' }}>
                     {notifications.map((n) => (
-                      <button
+                      <div
                         key={n.id}
-                        onClick={() => { handleNavClick(n.view || 'dashboard'); setShowNotifs(false); }}
                         style={{
-                          background: 'rgba(255,255,255,0.02)',
-                          border: '1px solid var(--border-glass)',
-                          borderRadius: '10px',
-                          padding: '0.6rem 0.75rem',
-                          textAlign: 'left',
-                          cursor: 'pointer',
-                          fontFamily: 'inherit',
-                          color: 'var(--text-primary)'
+                          display: 'flex',
+                          gap: 6,
+                          alignItems: 'stretch',
                         }}
                       >
-                        <div style={{ fontSize: '0.82rem', fontWeight: '600', marginBottom: '0.15rem' }}>{n.title}</div>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{n.detail}</div>
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (typeof onOpenNotification === 'function') onOpenNotification(n);
+                            else handleNavClick(n.view || 'dashboard');
+                            setShowNotifs(false);
+                          }}
+                          style={{
+                            flex: 1,
+                            background: 'rgba(255,255,255,0.02)',
+                            border: '1px solid var(--border-glass)',
+                            borderRadius: '10px',
+                            padding: '0.6rem 0.75rem',
+                            textAlign: 'left',
+                            cursor: 'pointer',
+                            fontFamily: 'inherit',
+                            color: 'var(--text-primary)',
+                          }}
+                        >
+                          <div style={{ fontSize: '0.82rem', fontWeight: '600', marginBottom: '0.15rem' }}>{n.title}</div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{n.detail}</div>
+                        </button>
+                        {typeof onDismissNotification === 'function' && (
+                          <button
+                            type="button"
+                            title="Descartar"
+                            aria-label={`Descartar ${n.title}`}
+                            onClick={() => onDismissNotification(n.id)}
+                            style={{
+                              width: 34,
+                              borderRadius: 10,
+                              border: '1px solid var(--border-glass)',
+                              background: 'rgba(255,255,255,0.03)',
+                              color: 'var(--text-muted)',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
                     ))}
                   </div>
                 )}

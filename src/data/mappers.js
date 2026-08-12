@@ -158,15 +158,22 @@ export function waitlistFromRow(row) {
 }
 
 export function accessLogFromRow(row) {
+  const rawTime = String(row.logged_at || '');
+  // Postgres time / timetz → "HH:MM:SS" o "HH:MM:SS.mmm"
+  const timeMatch = rawTime.match(/(\d{2}:\d{2}:\d{2})/);
+  const meta = row.meta && typeof row.meta === 'object' ? row.meta : {};
   return {
     id: row.id,
     date: row.logged_on,
-    time: String(row.logged_at || '').slice(0, 8),
+    time: timeMatch ? timeMatch[1] : rawTime.slice(0, 8),
     memberName: row.member_name,
     memberId: row.member_number,
     role: row.role_label || '',
+    group: meta.group || '',
+    activity: meta.activity || '',
     status: row.status,
     notes: row.notes || '',
+    source: meta.source || 'access_gate',
   };
 }
 
@@ -198,6 +205,10 @@ export function messageFromRow(row) {
   };
 }
 
+function isUuid(id) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(id || ''));
+}
+
 export function messageToRow(msg) {
   return {
     sender_name: msg.sender,
@@ -206,7 +217,11 @@ export function messageToRow(msg) {
     subject: msg.subject,
     body: msg.content,
     is_read: Boolean(msg.isRead),
-    parent_id: msg.parentId || null,
+    parent_id: isUuid(msg.parentId) ? msg.parentId : null,
+    meta: {
+      ...(msg.meta || {}),
+      clientId: msg.id && !isUuid(msg.id) ? String(msg.id) : undefined,
+    },
   };
 }
 

@@ -42,6 +42,7 @@ export function allowedAdminTabs(role) {
       'dues',
       'bookings',
       'disciplines',
+      'access',
       'accounting',
       'staff',
       'events',
@@ -57,10 +58,10 @@ export function allowedAdminTabs(role) {
     return ['dashboard', 'dues', 'accounting', 'reports', 'events'];
   }
   if (role === 'cashier') {
-    return ['dashboard', 'members', 'dues', 'accounting', 'events'];
+    return ['dashboard', 'members', 'dues', 'access', 'accounting', 'events'];
   }
   if (role === 'staff') {
-    return ['dashboard', 'bookings', 'disciplines', 'staff', 'events', 'alerts', 'claims'];
+    return ['dashboard', 'bookings', 'disciplines', 'access', 'staff', 'events', 'alerts', 'claims'];
   }
   return [];
 }

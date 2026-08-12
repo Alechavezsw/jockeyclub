@@ -24,12 +24,14 @@ describe('allowedAdminTabs', () => {
     expect(tabs).not.toContain('messaging');
     expect(tabs).toContain('claims');
     expect(tabs).toContain('bookings');
+    expect(tabs).toContain('access');
   });
 
   it('el cajero ve socios y módulo de caja (accounting) pero no migración', () => {
     const tabs = allowedAdminTabs('cashier');
     expect(tabs).toContain('members');
     expect(tabs).toContain('accounting');
+    expect(tabs).toContain('access');
     expect(tabs).not.toContain('migration');
   });
 
@@ -45,7 +47,8 @@ describe('allowedAdminTabs', () => {
     expect(tabs).not.toContain('qr_control');
     expect(tabs).not.toContain('concessions');
     expect(tabs).toContain('disciplines');
-    expect(tabs.length).toBeGreaterThanOrEqual(13);
+    expect(tabs).toContain('access');
+    expect(tabs.length).toBeGreaterThanOrEqual(14);
   });
 
   it('un rol desconocido no ve ninguna', () => {

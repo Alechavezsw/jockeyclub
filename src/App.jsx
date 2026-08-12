@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import DashboardView from './views/DashboardView';
@@ -9,8 +9,12 @@ import SessionStatusBar from './components/SessionStatusBar';
 import { useAuth } from './context/AuthContext';
 import { canAccessAdmin, canAccessQrGate, canAccessConcessions } from './domain/auth/roles';
 import { hasReservationConflict } from './domain/reservations/conflicts';
-import { filterAlertsForRole } from './domain/alerts/alerts';
-import { countUnread } from './domain/messaging/messages';
+import { countUnread, markMessageRead } from './domain/messaging/messages';
+import {
+  buildNotifications,
+  loadDismissedNotificationIds,
+  saveDismissedNotificationIds,
+} from './domain/notifications/buildNotifications';
 import { applyAutomaticDues } from './domain/members/dues';
 import { createHrRecord } from './domain/staff/hr';
 import { isSupabaseConfigured } from './lib/supabase';
@@ -1142,34 +1146,58 @@ export default function App() {
       const next = typeof updater === 'function' ? updater(prev) : updater;
       if (cloudMode && Array.isArray(next) && next.length > prev.length) {
         const newest = next[0];
-        if (newest && !String(newest.id || '').includes('-')) {
-          const dbId = memberDbIds[newest.memberId];
+        const alreadySaved = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          String(newest?.id || '')
+        );
+        if (newest && !alreadySaved) {
+          const dbId = memberDbIds[newest.memberId] || null;
           repos.insertAccessLog(newest, dbId).then((saved) => {
-            setEntryLogs((cur) => [saved, ...cur.filter((x) => x !== newest && x.id !== newest.id)]);
-          }).catch(() => {});
+            setEntryLogs((cur) => [saved, ...cur.filter((x) => x !== newest && String(x.id) !== String(newest.id))]);
+          }).catch((err) => {
+            setDbError(err?.message || 'No se pudo guardar la lectura de acceso en la base de datos');
+          });
         }
       }
       return next;
     });
   };
 
+  const isDbUuid = (id) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(id || ''));
+
+  const refreshMessages = useCallback(async () => {
+    if (!cloudMode || !isAuthenticated) return;
+    try {
+      const list = await repos.listMessages();
+      setMessages(list || []);
+    } catch {
+      /* silencioso: no pisar bandeja local ante un fallo puntual */
+    }
+  }, [cloudMode, isAuthenticated]);
+
   const setMessagesDb = (updater) => {
     setMessages((prev) => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
-      if (cloudMode && Array.isArray(next) && next.length > prev.length) {
+      if (!cloudMode || !Array.isArray(next)) return next;
+
+      // Alta de mensaje nuevo (id local msg-… / numérico → insert en BD)
+      if (next.length > prev.length) {
         const newest = next[0];
-        if (newest && !String(newest.id || '').includes('-')) {
+        if (newest && !isDbUuid(newest.id)) {
           repos.insertMessage(newest).then((saved) => {
-            setMessages((cur) => [saved, ...cur.filter((x) => x.id !== newest.id)]);
-          }).catch(() => {});
-        } else if (newest?.id && newest.isRead) {
-          repos.updateMessage(newest.id, { isRead: true }).catch(() => {});
+            setMessages((cur) => [saved, ...cur.filter((x) => String(x.id) !== String(newest.id))]);
+          }).catch((err) => {
+            setDbError(err?.message || 'No se pudo enviar el mensaje a la base de datos');
+          });
         }
-      } else if (cloudMode && Array.isArray(next)) {
+      } else {
+        // Marcar leído (broadcasts "all" quedan solo locales: is_read es compartido)
         next.forEach((m) => {
-          const old = prev.find((p) => p.id === m.id);
-          if (old && !old.isRead && m.isRead && String(m.id).includes('-')) {
-            repos.updateMessage(m.id, { isRead: true }).catch(() => {});
+          const old = prev.find((p) => String(p.id) === String(m.id));
+          if (old && !old.isRead && m.isRead && isDbUuid(m.id) && m.recipientId !== 'all') {
+            repos.updateMessage(m.id, { isRead: true }).catch((err) => {
+              setDbError(err?.message || 'No se pudo marcar el mensaje como leído');
+            });
           }
         });
       }
@@ -1301,64 +1329,46 @@ export default function App() {
 
   const messageIdentity = {
     userId: user?.id,
-    memberId: user?.memberId || activeMember?.memberId || null,
+    memberId: user?.memberId || null,
     role: userRole,
   };
   const unreadMessages = isAuthenticated ? countUnread(messages, messageIdentity) : 0;
 
-  // Campanita: alertas/reclamos (operativos) o recordatorio de mensajes (socio)
-  const notifications = (() => {
-    if (!isAuthenticated) return [];
-    if (userRole === 'member') {
-      const msgNotifs = messages
-        .filter((m) => (m.recipientId === activeMember?.memberId || m.recipientId === 'all') && !m.isRead)
-        .map((m) => ({ id: `msg-${m.id}`, title: m.subject, detail: `${m.sender} · ${m.date}`, view: 'messages' }));
-      const duesNotifs = [];
-      if (activeMember && activeMember.notifyDues !== false) {
-        if ((activeMember.outstandingBalance || 0) > 0) {
-          duesNotifs.push({
-            id: 'dues-debt',
-            title: 'Cuota pendiente',
-            detail: 'Tenés saldo por abonar. Tocá para pagar.',
-            view: 'payments',
-          });
-        } else if (activeMember.nextDueDate) {
-          const days = Math.ceil(
-            (new Date(`${activeMember.nextDueDate}T12:00:00`) - new Date()) / 86400000
-          );
-          if (days >= 0 && days <= 10) {
-            duesNotifs.push({
-              id: 'dues-soon',
-              title: 'Próximo vencimiento de cuota',
-              detail: `Vence en ${days} día(s) (${activeMember.nextDueDate}).`,
-              view: 'payments',
-            });
-          }
-        }
-      }
-      const waitNotifs = (waitlist || [])
-        .filter((w) => w.memberId === activeMember?.memberId && w.status === 'notified')
-        .map((w) => ({
-          id: `wl-${w.id}`,
-          title: 'Turno liberado',
-          detail: `${w.facilityName} · ${w.date} ${w.time}`,
-          view: 'reservations',
-        }));
-      return [...duesNotifs, ...waitNotifs, ...msgNotifs];
+  const [dismissedNotifIds, setDismissedNotifIds] = useState(() => loadDismissedNotificationIds());
+
+  const sessionMember = user?.memberId
+    ? members.find((m) => m.memberId === user.memberId) || null
+    : null;
+
+  // Campanita: solo datos reales de la sesión (sin semillas / sin socio fallback)
+  const notifications = (!isAuthenticated || (cloudMode && !dbReady))
+    ? []
+    : buildNotifications({
+      role: userRole,
+      userId: user?.id,
+      memberId: user?.memberId || null,
+      member: sessionMember,
+      messages,
+      waitlist,
+      claims,
+      alerts: erp.alerts || [],
+      alertAcks: erp.alertAcks || [],
+      dismissedIds: dismissedNotifIds,
+    });
+
+  const dismissNotification = useCallback((notifId) => {
+    setDismissedNotifIds((prev) => saveDismissedNotificationIds([...prev, notifId]));
+  }, []);
+
+  const handleNotificationOpen = useCallback((notif) => {
+    if (!notif) return;
+    dismissNotification(notif.id);
+    if (notif.kind === 'message' && notif.messageId) {
+      setMessagesDb((prev) => markMessageRead(prev, notif.messageId));
     }
-    const roleAlerts = filterAlertsForRole(erp.alerts || [], userRole)
-      .filter((a) => !a.requiresAck || !(erp.alertAcks || []).some((ack) => ack.alertId === a.id))
-      .map((a) => ({ id: `alert-${a.id}`, title: a.title, detail: a.body, view: 'dashboard' }));
-    const claimNotifs = ['staff', 'admin', 'superadmin'].includes(userRole)
-      ? claims
-          .filter((c) => c.status === 'pending')
-          .map((c) => ({ id: `claim-${c.id}`, title: `Reclamo: ${c.title}`, detail: `${c.memberName} · ${c.date}`, view: 'dashboard' }))
-      : [];
-    const inboxNotifs = messages
-      .filter((m) => m.recipientId === 'ops' && !m.isRead)
-      .map((m) => ({ id: `inbox-${m.id}`, title: m.subject, detail: `${m.sender} · ${m.date}`, view: 'messages' }));
-    return [...inboxNotifs, ...roleAlerts, ...claimNotifs];
-  })();
+    if (notif.path) navigate(notif.path);
+    else if (notif.view) setCurrentView(notif.view);
+  }, [dismissNotification, navigate, setCurrentView]);
 
   // Agregar un anuncio/noticia (Admin)
   const addNewsArticle = (newArticle) => {
@@ -1592,6 +1602,8 @@ export default function App() {
           toggleTheme={toggleTheme}
           notifications={notifications}
           unreadMessages={unreadMessages}
+          onOpenNotification={handleNotificationOpen}
+          onDismissNotification={dismissNotification}
         />
       )}
 
@@ -1635,6 +1647,7 @@ export default function App() {
                 messages={messages}
                 setMessages={setMessagesDb}
                 members={members}
+                onRefresh={refreshMessages}
               />
             }
           />

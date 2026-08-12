@@ -569,28 +569,84 @@ export default function QrLiveScanner({
         }
         .qr-live-frame {
           position: absolute;
-          inset: 10%;
-          border: 2.5px solid rgba(207,161,58,0.95);
-          border-radius: 20px;
-          box-shadow: 0 0 0 9999px rgba(0,0,0,0.28);
+          inset: 12%;
+          border: 1.5px solid rgba(207,161,58,0.55);
+          border-radius: 18px;
+          box-shadow: 0 0 0 9999px rgba(0,0,0,0.22);
           pointer-events: none;
         }
+        /* Esquinas sutiles en lugar de “láser” agresivo */
+        .qr-live-frame::before,
         .qr-live-frame::after {
           content: '';
           position: absolute;
-          left: 6%;
-          right: 6%;
-          height: 2px;
-          top: 50%;
-          background: linear-gradient(90deg, transparent, rgba(207,161,58,0.95), transparent);
-          animation: qr-scan-line 1.4s ease-in-out infinite;
+          width: 22px;
+          height: 22px;
+          border-color: rgba(207,161,58,0.85);
+          border-style: solid;
+          pointer-events: none;
         }
-        @keyframes qr-scan-line {
-          0%, 100% { transform: translateY(-48px); opacity: 0.35; }
-          50% { transform: translateY(48px); opacity: 1; }
+        .qr-live-frame::before {
+          top: -1px;
+          left: -1px;
+          border-width: 2px 0 0 2px;
+          border-radius: 4px 0 0 0;
+        }
+        .qr-live-frame::after {
+          right: -1px;
+          bottom: -1px;
+          border-width: 0 2px 2px 0;
+          border-radius: 0 0 4px 0;
+          /* sin animación de láser */
+          animation: none;
+          left: auto;
+          top: auto;
+          height: 22px;
+          background: none;
+        }
+        .qr-live-corners {
+          position: absolute;
+          inset: 12%;
+          pointer-events: none;
+          z-index: 2;
+        }
+        .qr-live-corners span {
+          position: absolute;
+          width: 22px;
+          height: 22px;
+          border-color: rgba(207,161,58,0.85);
+          border-style: solid;
+        }
+        .qr-live-corners span:nth-child(1) {
+          top: -1px;
+          right: -1px;
+          border-width: 2px 2px 0 0;
+          border-radius: 0 4px 0 0;
+        }
+        .qr-live-corners span:nth-child(2) {
+          bottom: -1px;
+          left: -1px;
+          border-width: 0 0 2px 2px;
+          border-radius: 0 0 0 4px;
+        }
+        .qr-live-sweep {
+          position: absolute;
+          left: 8%;
+          right: 8%;
+          top: 18%;
+          height: 1px;
+          background: linear-gradient(90deg, transparent, rgba(207,161,58,0.35), transparent);
+          opacity: 0.55;
+          animation: qr-sweep 3.2s ease-in-out infinite;
+          pointer-events: none;
+          z-index: 2;
+        }
+        @keyframes qr-sweep {
+          0%, 100% { transform: translateY(0); opacity: 0.2; }
+          50% { transform: translateY(min(52vh, 280px)); opacity: 0.45; }
         }
         @media (prefers-reduced-motion: reduce) {
-          .qr-live-frame::after { animation: none; }
+          .qr-live-sweep { animation: none; opacity: 0.3; top: 50%; }
         }
         .qr-live-hint {
           position: absolute;
@@ -640,7 +696,12 @@ export default function QrLiveScanner({
         aria-label="Vista de cámara del lector QR"
       />
       <canvas ref={canvasRef} style={{ display: 'none' }} />
-      <div className="qr-live-frame" />
+      <div className="qr-live-frame" aria-hidden="true" />
+      <div className="qr-live-corners" aria-hidden="true">
+        <span />
+        <span />
+      </div>
+      <div className="qr-live-sweep" aria-hidden="true" />
       <div className="qr-live-tools">
         <button type="button" title="Cambiar cámara" aria-label="Cambiar cámara" onClick={switchCamera}>
           <RefreshCw size={18} aria-hidden="true" />

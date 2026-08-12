@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   Users, Calendar, DollarSign, Activity, CreditCard, Check, ShieldAlert,
   Clock, BookOpen, ClipboardList, MessageSquare, Phone,
-  FileSpreadsheet, Radio, Database, BellRing, PartyPopper, LayoutDashboard, Trophy, Store
+  FileSpreadsheet, Radio, Database, BellRing, PartyPopper, LayoutDashboard, Trophy, Store, DoorOpen
 } from 'lucide-react';
 import AccountingTab from '../components/AccountingTab';
 import StaffTab from '../components/StaffTab';
@@ -21,6 +21,7 @@ import SurveysTab from '../components/admin/SurveysTab';
 import MigrationTab from '../components/admin/MigrationTab';
 import DuesControlTab from '../components/admin/DuesControlTab';
 import DisciplinesTab from '../components/admin/DisciplinesTab';
+import AccessLogsTab from '../components/admin/AccessLogsTab';
 import ClubFacilitiesPanel from '../components/admin/ClubFacilitiesPanel';
 import { DEFAULT_CHART_OF_ACCOUNTS, resolveAccountId } from '../domain/accounting/chartOfAccounts';
 import { getAccountBalance as domainAccountBalance } from '../domain/accounting/journal';
@@ -378,6 +379,7 @@ export default function AdminView({
             { key: 'dues', icon: <ShieldAlert size={14} />, label: 'Cuotas' },
             { key: 'bookings', icon: <Calendar size={14} />, label: 'Reservas' },
             { key: 'disciplines', icon: <Trophy size={14} />, label: 'Disciplinas' },
+            { key: 'access', icon: <DoorOpen size={14} />, label: 'Ingresos' },
             { key: 'concessions', icon: <Store size={14} />, label: 'Concesiones', external: true },
             {
               key: 'accounting',
@@ -488,6 +490,13 @@ export default function AdminView({
           reservations={reservations}
           staffMembers={staffMembers}
           onOpenMember={(id) => navigate(`/panel/members/${id}`)}
+        />
+      )}
+
+      {activeTab === 'access' && (
+        <AccessLogsTab
+          entryLogs={entryLogs}
+          onOpenGate={() => navigate('/acceso')}
         />
       )}
 

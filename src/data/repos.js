@@ -209,16 +209,41 @@ export async function listAccessLogs() {
   return (rows || []).map(M.accessLogFromRow);
 }
 
+/** Hora HH:MM:SS 24h — Postgres `time` rechaza formatos locales (`p. m.`, puntos, etc.). */
+function toSqlTime(value) {
+  if (typeof value === 'string') {
+    const m = value.trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+    if (m) {
+      const hh = String(Math.min(23, Number(m[1]))).padStart(2, '0');
+      const mm = m[2];
+      const ss = (m[3] || '00').padStart(2, '0');
+      return `${hh}:${mm}:${ss}`;
+    }
+  }
+  const d = value instanceof Date ? value : new Date();
+  return d.toTimeString().slice(0, 8);
+}
+
+function isUuid(id) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(id || ''));
+}
+
 export async function insertAccessLog(log, memberDbId = null) {
   const row = {
-    member_id: memberDbId,
-    member_number: log.memberId || null,
+    member_id: isUuid(memberDbId) ? memberDbId : null,
+    member_number: log.memberId ? String(log.memberId) : null,
     member_name: log.memberName || null,
     role_label: log.role || null,
     status: log.status || 'granted',
     notes: log.notes || null,
     logged_on: log.date || new Date().toISOString().slice(0, 10),
-    logged_at: log.time || new Date().toLocaleTimeString('es-AR', { hour12: false }),
+    logged_at: toSqlTime(log.time || new Date()),
+    meta: {
+      clientId: log.id && !isUuid(log.id) ? String(log.id) : undefined,
+      source: log.source || 'access_gate',
+      group: log.group || '',
+      activity: log.activity || '',
+    },
   };
   const saved = await unwrap(
     sb().from('access_logs').insert(row).select().single(),
@@ -707,10 +732,6 @@ export async function ackAlert(alertId, profileId) {
 export async function listConcessions() {
   const rows = await unwrap(sb().from('concessions').select('*').order('name'));
   return (rows || []).map(M.concessionFromRow);
-}
-
-function isUuid(id) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(id || ''));
 }
 
 export async function upsertConcession(c) {

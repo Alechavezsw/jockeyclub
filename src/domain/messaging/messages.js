@@ -47,9 +47,15 @@ export function getInbox(messages, identity) {
     .sort((a, b) => String(b.createdAt || b.date).localeCompare(String(a.createdAt || a.date)));
 }
 
-export function getSent(messages, { userId, memberId }) {
+export function getSent(messages, { userId, memberId, role }) {
   return [...messages]
-    .filter((m) => m.senderId === userId || (memberId && m.senderId === memberId))
+    .filter((m) => {
+      if (memberId && m.senderId === memberId) return true;
+      if (userId && m.senderId === userId) return true;
+      // Staff/admin: también lo enviado como buzón ops
+      if (canAccessAdmin(role) && m.senderId === MAILBOX.OPERATIONS) return true;
+      return false;
+    })
     .sort((a, b) => String(b.createdAt || b.date).localeCompare(String(a.createdAt || a.date)));
 }
 

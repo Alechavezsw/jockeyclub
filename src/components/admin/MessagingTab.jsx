@@ -1,12 +1,16 @@
 import { useState } from 'react';
 import { Send, Phone } from 'lucide-react';
+import { createMessage, MAILBOX } from '../../domain/messaging/messages';
+import { useAuth } from '../../context/AuthContext';
 
 /** Mensajería interna al portal del socio y cobranza vía WhatsApp. */
 export default function MessagingTab({ members, messages, setMessages, formatCurrency }) {
-  const [msgRecipient, setMsgRecipient] = useState('all');
+  const { user } = useAuth();
+  const [msgRecipient, setMsgRecipient] = useState(MAILBOX.ALL_MEMBERS);
   const [msgSubject, setMsgSubject] = useState('');
   const [msgContent, setMsgContent] = useState('');
   const [msgSuccess, setMsgSuccess] = useState(false);
+  const [msgError, setMsgError] = useState('');
   const [whatsappTemplate, setWhatsappTemplate] = useState(
     'Estimado/a *{nombre}*, le saludamos cordialmente de la Comisión Directiva del Jockey Club San Juan (Sede Rivadavia). Le recordamos amablemente que posee un saldo pendiente de cuota social de *{saldo}*. Puede regularizar su situación en la administración central o mediante transferencia al Banco Nación. ¡Muchas gracias!'
   );
@@ -14,22 +18,18 @@ export default function MessagingTab({ members, messages, setMessages, formatCur
 
   const handleSendMessage = (e) => {
     e.preventDefault();
+    setMsgError('');
     if (!msgSubject.trim() || !msgContent.trim()) return;
 
-    const newMsg = {
-      id: Date.now(),
-      date: new Date().toISOString().split('T')[0],
-      createdAt: new Date().toISOString(),
-      sender: 'Tesorería Jockey Club',
-      senderId: 'ops',
+    const newMsg = createMessage({
+      sender: user?.fullName || 'Administración Jockey Club',
+      senderId: MAILBOX.OPERATIONS,
       recipientId: msgRecipient,
-      subject: msgSubject.trim(),
-      content: msgContent.trim(),
-      isRead: false,
-      parentId: null,
-    };
+      subject: msgSubject,
+      content: msgContent,
+    });
 
-    setMessages([newMsg, ...messages]);
+    setMessages((prev) => [newMsg, ...(prev || [])]);
     setMsgSubject('');
     setMsgContent('');
     setMsgSuccess(true);
@@ -70,8 +70,13 @@ export default function MessagingTab({ members, messages, setMessages, formatCur
         </div>
 
         {msgSuccess && (
-          <div style={{ background: 'rgba(16, 185, 129, 0.1)', border: '1px solid var(--emerald-accent)', color: 'var(--emerald-accent)', padding: '0.6rem', borderRadius: '6px', fontSize: '0.8rem', textAlign: 'center' }}>
-            ¡Mensaje inyectado en el portal del socio con éxito!
+          <div role="status" style={{ background: 'rgba(16, 185, 129, 0.1)', border: '1px solid var(--emerald-accent)', color: 'var(--emerald-accent)', padding: '0.6rem', borderRadius: '6px', fontSize: '0.8rem', textAlign: 'center' }}>
+            Mensaje enviado. Quedará visible en la bandeja del destinatario.
+          </div>
+        )}
+        {msgError && (
+          <div role="alert" style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid var(--danger-accent)', color: '#f87171', padding: '0.6rem', borderRadius: '6px', fontSize: '0.8rem' }}>
+            {msgError}
           </div>
         )}
 

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Inbox, Send, PenSquare, MailOpen, ArrowLeft, CheckCheck, Search, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -12,7 +12,7 @@ import {
 } from '../domain/messaging/messages';
 import { canAccessAdmin } from '../domain/auth/roles';
 
-export default function MessagesView({ messages, setMessages, members = [] }) {
+export default function MessagesView({ messages, setMessages, members = [], onRefresh }) {
   const { user, role } = useAuth();
   const isOps = canAccessAdmin(role);
   const identity = {
@@ -30,7 +30,21 @@ export default function MessagesView({ messages, setMessages, members = [] }) {
   });
   const [memberQuery, setMemberQuery] = useState('');
   const [sentOk, setSentOk] = useState(false);
+  const [sendError, setSendError] = useState('');
   const [recipientError, setRecipientError] = useState('');
+
+  // Refetch al entrar / foco / cada 20s para conversación real entre sesiones
+  useEffect(() => {
+    if (typeof onRefresh !== 'function') return undefined;
+    void onRefresh();
+    const onFocus = () => { void onRefresh(); };
+    window.addEventListener('focus', onFocus);
+    const timer = window.setInterval(() => { void onRefresh(); }, 20000);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      window.clearInterval(timer);
+    };
+  }, [onRefresh]);
 
   const filteredMembers = useMemo(() => {
     const q = memberQuery.trim().toLowerCase();
@@ -50,7 +64,10 @@ export default function MessagesView({ messages, setMessages, members = [] }) {
   }, [compose.recipientId, members]);
 
   const inbox = useMemo(() => getInbox(messages, identity), [messages, identity.userId, identity.memberId, identity.role]);
-  const sent = useMemo(() => getSent(messages, identity), [messages, identity.userId, identity.memberId]);
+  const sent = useMemo(
+    () => getSent(messages, identity),
+    [messages, identity.userId, identity.memberId, identity.role]
+  );
   const list = tab === 'inbox' ? inbox : sent;
   const selected = list.find((m) => m.id === selectedId) || null;
 
@@ -69,15 +86,30 @@ export default function MessagesView({ messages, setMessages, members = [] }) {
 
   const handleSend = (e) => {
     e.preventDefault();
+    setSendError('');
     if (!compose.recipientId) {
       setRecipientError('Seleccione un destinatario.');
       return;
     }
-    if (!compose.subject.trim() || !compose.content.trim()) return;
+    if (!compose.subject.trim() || !compose.content.trim()) {
+      setSendError('Completá asunto y mensaje.');
+      return;
+    }
+    if (!user?.id && !user?.memberId) {
+      setSendError('Sesión inválida. Volvé a iniciar sesión.');
+      return;
+    }
+    if (!isOps && !user?.memberId) {
+      setSendError('Tu usuario no está vinculado a una credencial de socio. Pedí a administración que lo asocie.');
+      return;
+    }
+
+    // Convenio: socio = memberId; staff/admin = buzón compartido "ops"
+    const senderId = isOps ? MAILBOX.OPERATIONS : user.memberId;
 
     const msg = createMessage({
-      sender: user?.fullName || 'Usuario',
-      senderId: user?.memberId || user?.id,
+      sender: user?.fullName || (isOps ? 'Administración' : 'Socio'),
+      senderId,
       recipientId: compose.recipientId,
       subject: compose.subject,
       content: compose.content,
@@ -99,12 +131,17 @@ export default function MessagesView({ messages, setMessages, members = [] }) {
 
   const handleReply = () => {
     if (!selected) return;
-    const replyTo =
-      selected.senderId ||
-      (isOps ? selected.recipientId : MAILBOX.OPERATIONS);
+    // Socio siempre responde al buzón ops (no al UUID de un admin puntual)
+    let replyTo = MAILBOX.OPERATIONS;
+    if (isOps) {
+      const fromMember = selected.senderId && selected.senderId !== MAILBOX.OPERATIONS
+        ? selected.senderId
+        : selected.recipientId;
+      replyTo = fromMember === MAILBOX.ALL_MEMBERS ? '' : fromMember;
+    }
     setTab('compose');
     setCompose({
-      recipientId: replyTo === MAILBOX.ALL_MEMBERS ? MAILBOX.OPERATIONS : replyTo,
+      recipientId: replyTo,
       subject: selected.subject.startsWith('Re:') ? selected.subject : `Re: ${selected.subject}`,
       content: '',
     });
@@ -152,15 +189,33 @@ export default function MessagesView({ messages, setMessages, members = [] }) {
       </div>
 
       {sentOk && (
-        <div style={{
-          background: 'rgba(16, 185, 129, 0.1)',
-          border: '1px solid var(--emerald-accent)',
-          color: 'var(--emerald-accent)',
-          padding: '0.65rem 0.9rem',
-          borderRadius: 8,
-          fontSize: '0.85rem',
-        }}>
-          Mensaje enviado correctamente.
+        <div
+          role="status"
+          style={{
+            background: 'rgba(16, 185, 129, 0.1)',
+            border: '1px solid var(--emerald-accent)',
+            color: 'var(--emerald-accent)',
+            padding: '0.65rem 0.9rem',
+            borderRadius: 8,
+            fontSize: '0.85rem',
+          }}
+        >
+          Mensaje enviado. Quedó guardado y visible para el destinatario.
+        </div>
+      )}
+      {sendError && (
+        <div
+          role="alert"
+          style={{
+            background: 'rgba(239, 68, 68, 0.1)',
+            border: '1px solid var(--danger-accent)',
+            color: '#f87171',
+            padding: '0.65rem 0.9rem',
+            borderRadius: 8,
+            fontSize: '0.85rem',
+          }}
+        >
+          {sendError}
         </div>
       )}
 

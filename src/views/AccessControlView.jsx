@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { parseCredentialQRPayload } from '../domain/credentials/qr';
 import { parseGuestPassPayload, isGuestPassValid } from '../domain/credentials/guestPass';
+import { buildAccessLogEntry, tierToGroup } from '../domain/credentials/accessLog';
 import QrLiveScanner from '../components/QrLiveScanner';
 
 const COOLDOWN_MS = 2200;
@@ -100,18 +101,20 @@ export default function AccessControlView({
         memberName: pass?.guestName || null,
       });
       playBeep(valid);
-      if (valid) {
-        setEntryLogs((prev) => [{
-          id: Date.now(),
-          date: new Date().toISOString().split('T')[0],
-          time: new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-          memberName: `${pass.guestName} (invitado)`,
+      setEntryLogs((prev) => [
+        buildAccessLogEntry({
+          memberName: pass?.guestName ? `${pass.guestName} (invitado)` : 'Invitado',
           memberId: host?.memberId || guestParsed.hostMemberId,
           role: 'Invitado del día',
-          status: 'granted',
-          notes: `Pase ${pass.id} · anfitrión ${host?.name || ''}`,
-        }, ...(prev || [])]);
-      }
+          group: 'Invitado',
+          activity: valid ? 'Pase invitado' : 'Acceso denegado',
+          status: valid ? 'granted' : 'denied',
+          notes: valid
+            ? `Pase ${pass.id} · anfitrión ${host?.name || ''}`
+            : 'Pase vencido, revocado o no registrado',
+        }),
+        ...(prev || []),
+      ]);
       beginCooldown();
       return;
     }
@@ -125,6 +128,18 @@ export default function AccessControlView({
         memberName: null,
       });
       playBeep(false);
+      setEntryLogs((prev) => [
+        buildAccessLogEntry({
+          memberName: 'Desconocido',
+          memberId: null,
+          role: '—',
+          group: '—',
+          activity: 'QR inválido',
+          status: 'denied',
+          notes: 'QR no válido / no es credencial Jockey Club',
+        }),
+        ...(prev || []),
+      ]);
       beginCooldown(1600);
       return;
     }
@@ -138,6 +153,18 @@ export default function AccessControlView({
         memberName: null,
       });
       playBeep(false);
+      setEntryLogs((prev) => [
+        buildAccessLogEntry({
+          memberName: 'No empadronado',
+          memberId,
+          role: '—',
+          group: '—',
+          activity: 'No empadronado',
+          status: 'denied',
+          notes: `Credencial ${memberId} no figura en el padrón`,
+        }),
+        ...(prev || []),
+      ]);
       beginCooldown();
       return;
     }
@@ -162,16 +189,22 @@ export default function AccessControlView({
     });
     playBeep(isAllowed);
 
-    setEntryLogs((prev) => [{
-      id: Date.now(),
-      date: new Date().toISOString().split('T')[0],
-      time: new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-      memberName: member.name,
-      memberId: member.memberId,
-      role: member.tier === 'royal' ? 'Socio Royal' : member.tier === 'platinum' ? 'Socio Platinum' : 'Socio Gold',
-      status,
-      notes,
-    }, ...(prev || [])]);
+    setEntryLogs((prev) => [
+      buildAccessLogEntry({
+        memberName: member.name,
+        memberId: member.memberId,
+        role: member.tier === 'royal' ? 'Socio Royal' : member.tier === 'platinum' ? 'Socio Platinum' : 'Socio Gold',
+        group: tierToGroup(member.tier),
+        activity: isSuspended
+          ? 'Acceso denegado'
+          : hasDebt
+            ? 'Ingreso con deuda'
+            : 'Ingreso sede',
+        status,
+        notes,
+      }),
+      ...(prev || []),
+    ]);
 
     beginCooldown();
   }, [members, guestPasses, formatCurrency, setEntryLogs, beginCooldown]);

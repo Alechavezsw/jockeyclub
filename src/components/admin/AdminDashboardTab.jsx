@@ -288,6 +288,11 @@ export default function AdminDashboardTab({
               <button type="button" className="ops-primary-btn" onClick={() => navigate('/acceso')}>
                 Abrir control QR
               </button>
+              {permittedTabs.includes('access') && (
+                <div style={{ marginTop: '0.55rem' }}>
+                  {link('Ver registro de ingresos >', () => goToTab('access'))}
+                </div>
+              )}
             </article>
           )}
 
