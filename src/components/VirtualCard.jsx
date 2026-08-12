@@ -527,7 +527,7 @@ export default function VirtualCard({ member }) {
               />
             </div>
             <p className="vc-secure-foot">
-              Mostrá este QR al molinete. Tocá afuera o ✕ para cerrar.
+              Subí el brillo al máximo y mostrá el QR al molinete (20–35 cm). Tocá afuera o ✕ para cerrar.
             </p>
           </div>
         )}

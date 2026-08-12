@@ -17,6 +17,61 @@ async function decodeWithJsQR(imageData) {
   return code?.data || '';
 }
 
+/** Clamp a capability range to a relative position (0–1). */
+function capAt(range, t) {
+  if (!range || typeof range !== 'object') return undefined;
+  const { min, max } = range;
+  if (!(max > min)) return undefined;
+  return min + (max - min) * Math.min(1, Math.max(0, t));
+}
+
+/**
+ * Mejora contraste/brillo del ROI para QR en pantallas OLED/LCD
+ * (evita blancos quemados y moiré suave).
+ */
+function enhanceScreenQr(imageData, { hardThreshold = false } = {}) {
+  const { data, width, height } = imageData;
+  const out = new ImageData(width, height);
+  const d = out.data;
+  let min = 255;
+  let max = 0;
+  const gray = new Float32Array(width * height);
+
+  for (let i = 0, p = 0; i < data.length; i += 4, p += 1) {
+    const g = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+    gray[p] = g;
+    if (g < min) min = g;
+    if (g > max) max = g;
+  }
+
+  const range = Math.max(18, max - min);
+  // Subexponer un poco el blanco de la pantalla del socio
+  const bias = 12;
+
+  for (let i = 0, p = 0; i < data.length; i += 4, p += 1) {
+    let v = ((gray[p] - min - bias) / range) * 255;
+    // Curva S: más contraste en medios tonos (módulos del QR)
+    const n = Math.min(1, Math.max(0, v / 255));
+    const s = n < 0.5 ? 2 * n * n : 1 - 2 * (1 - n) * (1 - n);
+    v = s * 255;
+    if (hardThreshold) v = v > 140 ? 255 : 0;
+    const c = v < 0 ? 0 : v > 255 ? 255 : v;
+    d[i] = c;
+    d[i + 1] = c;
+    d[i + 2] = c;
+    d[i + 3] = 255;
+  }
+  return out;
+}
+
+async function decodeImageVariants(imageData) {
+  const text = await decodeWithJsQR(imageData);
+  if (text) return text;
+  const enhanced = await decodeWithJsQR(enhanceScreenQr(imageData));
+  if (enhanced) return enhanced;
+  return decodeWithJsQR(enhanceScreenQr(imageData, { hardThreshold: true }));
+}
+
 /**
  * Lector QR (getUserMedia + BarcodeDetector/jsQR).
  * Orientado a celular→celular: sin warm-up frágil, decode secuencial, fallback por foto.
@@ -69,33 +124,88 @@ export default function QrLiveScanner({
     setLive(false);
   }, []);
 
-  const applyBestFocus = useCallback(async (track) => {
+  /**
+   * Ajuste óptico para leer la pantalla de otro celular:
+   * - un poco más oscuro (no quemar el blanco del QR)
+   * - más contraste / nitidez
+   * - foco cercano, sin zoom ni linterna
+   */
+  const applyScreenScanTuning = useCallback(async (track) => {
     if (!track?.applyConstraints) return;
     const caps = track.getCapabilities?.() || {};
 
     try {
-      const ideal = {};
+      const modes = {};
       if (Array.isArray(caps.focusMode)) {
-        if (caps.focusMode.includes('continuous')) ideal.focusMode = 'continuous';
-        else if (caps.focusMode.includes('auto')) ideal.focusMode = 'auto';
-        else if (caps.focusMode.includes('single-shot')) ideal.focusMode = 'single-shot';
+        if (caps.focusMode.includes('continuous')) modes.focusMode = 'continuous';
+        else if (caps.focusMode.includes('auto')) modes.focusMode = 'auto';
+        else if (caps.focusMode.includes('single-shot')) modes.focusMode = 'single-shot';
       }
-      if (Array.isArray(caps.exposureMode) && caps.exposureMode.includes('continuous')) {
-        ideal.exposureMode = 'continuous';
+      // Manual/continuous exposure: mejor control sobre pantallas brillantes
+      if (Array.isArray(caps.exposureMode)) {
+        if (caps.exposureMode.includes('continuous')) modes.exposureMode = 'continuous';
+        else if (caps.exposureMode.includes('manual')) modes.exposureMode = 'manual';
       }
-      if (Object.keys(ideal).length) {
-        await track.applyConstraints({ advanced: [ideal] });
+      if (Array.isArray(caps.whiteBalanceMode) && caps.whiteBalanceMode.includes('continuous')) {
+        modes.whiteBalanceMode = 'continuous';
+      }
+      if (Object.keys(modes).length) {
+        await track.applyConstraints({ advanced: [modes] });
       }
     } catch {
       /* ignore */
     }
 
-    // Distancia cercana sin zoom agresivo (el zoom suele empeorar moiré pantalla→cámara)
+    const photoTune = {};
+    // Subexponer ~1 EV: el celular del socio es una fuente de luz
+    const ev = capAt(caps.exposureCompensation, 0.28);
+    if (ev != null) photoTune.exposureCompensation = ev;
+
+    const bright = capAt(caps.brightness, 0.42);
+    if (bright != null) photoTune.brightness = bright;
+
+    const contrast = capAt(caps.contrast, 0.78);
+    if (contrast != null) photoTune.contrast = contrast;
+
+    const sharp = capAt(caps.sharpness, 0.85);
+    if (sharp != null) photoTune.sharpness = sharp;
+
+    const sat = capAt(caps.saturation, 0.15);
+    if (sat != null) photoTune.saturation = sat;
+
+    // ISO bajo = menos ruido al mirar una pantalla iluminada
+    const iso = capAt(caps.iso, 0.12);
+    if (iso != null) photoTune.iso = iso;
+
+    if (Object.keys(photoTune).length) {
+      try {
+        await track.applyConstraints({ advanced: [photoTune] });
+      } catch {
+        /* algunos browsers rechazan el bloque completo */
+        for (const [key, value] of Object.entries(photoTune)) {
+          try {
+            await track.applyConstraints({ advanced: [{ [key]: value }] });
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    }
+
+    // Foco a ~20–35 cm (pantalla del socio)
     try {
-      if (typeof caps.focusDistance === 'object' && caps.focusDistance.max > caps.focusDistance.min) {
-        const near = caps.focusDistance.min
-          + (caps.focusDistance.max - caps.focusDistance.min) * 0.18;
+      const near = capAt(caps.focusDistance, 0.16);
+      if (near != null) {
         await track.applyConstraints({ advanced: [{ focusDistance: near }] });
+      }
+    } catch {
+      /* ignore */
+    }
+
+    // Apagar linterna si quedó prendida: lava el QR de otra pantalla
+    try {
+      if (caps.torch) {
+        await track.applyConstraints({ advanced: [{ torch: false }] });
       }
     } catch {
       /* ignore */
@@ -167,7 +277,7 @@ export default function QrLiveScanner({
         cctx.drawImage(canvas, cx, cy, cw, ch, 0, 0, cw, ch);
         imageData = cctx.getImageData(0, 0, cw, ch);
       }
-      const text = await decodeWithJsQR(imageData);
+      const text = await decodeImageVariants(imageData);
       if (text) return text;
     }
     return '';
@@ -243,10 +353,10 @@ export default function QrLiveScanner({
         }
       });
 
-      await applyBestFocus(track);
+      await applyScreenScanTuning(track);
       focusTimerRef.current = window.setInterval(() => {
-        if (trackRef.current) applyBestFocus(trackRef.current);
-      }, 3000);
+        if (trackRef.current) applyScreenScanTuning(trackRef.current);
+      }, 2800);
 
       const caps = track.getCapabilities?.() || {};
       setTorchSupported(Boolean(caps.torch));
@@ -268,7 +378,7 @@ export default function QrLiveScanner({
       }
 
       setLive(true);
-      setHint('Acercá el QR (20–40 cm) · tocá para enfocar');
+      setHint('Pantalla del socio a 20–35 cm · brillo alto · tocá para enfocar');
       setStarting(false);
       onError?.('');
     } catch (err) {
@@ -284,7 +394,7 @@ export default function QrLiveScanner({
             : 'No se pudo iniciar la cámara. Usá HTTPS o cargá una foto del QR.'
       );
     }
-  }, [applyBestFocus, onError, stopStream]);
+  }, [applyScreenScanTuning, onError, stopStream]);
 
   const startCamera = useCallback(async () => {
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -331,6 +441,11 @@ export default function QrLiveScanner({
     try {
       await track.applyConstraints({ advanced: [{ torch: next }] });
       setTorchOn(next);
+      setHint(
+        next
+          ? 'Linterna ON · mejor apagarla para leer otra pantalla'
+          : 'Pantalla del socio a 20–35 cm · tocá para enfocar'
+      );
     } catch {
       setHint('Linterna no disponible en esta cámara');
     }
@@ -347,19 +462,18 @@ export default function QrLiveScanner({
     const caps = track.getCapabilities?.() || {};
 
     try {
-      setHint('Enfocando…');
+      setHint('Enfocando pantalla…');
       if (caps.pointsOfInterest) {
         await track.applyConstraints({
           advanced: [{ focusMode: 'continuous', pointsOfInterest: [{ x, y }] }],
         });
-      } else {
-        await applyBestFocus(track);
       }
-      setTimeout(() => setHint('Acercá el QR (20–40 cm) · tocá para enfocar'), 700);
+      await applyScreenScanTuning(track);
+      setTimeout(() => setHint('Pantalla del socio a 20–35 cm · tocá para enfocar'), 700);
     } catch {
-      applyBestFocus(track);
+      applyScreenScanTuning(track);
     }
-  }, [applyBestFocus]);
+  }, [applyScreenScanTuning]);
 
   const decodeFromFile = useCallback(async (file) => {
     if (!file) return;
@@ -387,7 +501,7 @@ export default function QrLiveScanner({
         }
       }
       if (!text) {
-        text = await decodeWithJsQR(ctx.getImageData(0, 0, canvas.width, canvas.height));
+        text = await decodeImageVariants(ctx.getImageData(0, 0, canvas.width, canvas.height));
       }
       if (text) {
         emitDecode(text);
@@ -471,6 +585,8 @@ export default function QrLiveScanner({
           background: #000;
           cursor: crosshair;
           touch-action: manipulation;
+          /* Preview afinado a pantalla de celular (no afecta el decode del canvas) */
+          filter: contrast(1.18) brightness(0.92) saturate(0.85);
         }
         .qr-live-frame {
           position: absolute;
@@ -561,9 +677,13 @@ export default function QrLiveScanner({
         )}
         <button
           type="button"
-          title="Reenfocar"
-          aria-label="Reenfocar"
-          onClick={() => applyBestFocus(trackRef.current)}
+          title="Reajustar brillo y foco para pantalla"
+          aria-label="Reajustar brillo y foco para pantalla"
+          onClick={() => {
+            void applyScreenScanTuning(trackRef.current);
+            setHint('Brillo/foco reajustados para pantalla');
+            setTimeout(() => setHint('Pantalla del socio a 20–35 cm · tocá para enfocar'), 900);
+          }}
         >
           <Aperture size={18} aria-hidden="true" />
         </button>

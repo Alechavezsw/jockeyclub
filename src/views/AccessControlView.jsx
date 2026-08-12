@@ -455,7 +455,7 @@ export default function AccessControlView({
                 Lector de credenciales
               </p>
               <p style={{ margin: 0, fontSize: '0.8rem', maxWidth: 300 }}>
-                Pedile al socio la credencial a pantalla completa. Tocá la imagen para enfocar, o usá el ícono de foto si la cámara falla.
+                Credencial a pantalla completa con brillo al máximo, a 20–35 cm. Tocá para enfocar; linterna mejor apagada.
               </p>
             </div>
           )}
