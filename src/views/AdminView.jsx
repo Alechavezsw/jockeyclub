@@ -50,6 +50,7 @@ export default function AdminView({
   messages = [],
   setMessages,
   refreshMessages,
+  sendMessage,
   entryLogs = [],
   setEntryLogs,
   surveys = [],
@@ -596,6 +597,7 @@ export default function AdminView({
           setMessages={setMessages}
           formatCurrency={formatCurrency}
           onRefresh={refreshMessages}
+          onSendMessage={sendMessage}
         />
       )}
 

@@ -12,7 +12,7 @@ import {
 } from '../domain/messaging/messages';
 import { canAccessAdmin } from '../domain/auth/roles';
 
-export default function MessagesView({ messages, setMessages, members = [], onRefresh }) {
+export default function MessagesView({ messages, setMessages, members = [], onRefresh, onSendMessage }) {
   const { user, role } = useAuth();
   const isOps = canAccessAdmin(role);
   const identity = {
@@ -32,6 +32,7 @@ export default function MessagesView({ messages, setMessages, members = [], onRe
   const [sentOk, setSentOk] = useState(false);
   const [sendError, setSendError] = useState('');
   const [recipientError, setRecipientError] = useState('');
+  const [sending, setSending] = useState(false);
 
   // Refetch al entrar / foco / cada 20s para conversación real entre sesiones
   useEffect(() => {
@@ -84,7 +85,7 @@ export default function MessagesView({ messages, setMessages, members = [], onRe
     setMemberQuery('');
   };
 
-  const handleSend = (e) => {
+  const handleSend = async (e) => {
     e.preventDefault();
     setSendError('');
     if (!compose.recipientId) {
@@ -115,18 +116,30 @@ export default function MessagesView({ messages, setMessages, members = [], onRe
       content: compose.content,
     });
 
-    setMessages((prev) => [msg, ...prev]);
-    setCompose({
-      recipientId: isOps ? '' : MAILBOX.OPERATIONS,
-      subject: '',
-      content: '',
-    });
-    setMemberQuery('');
-    setRecipientError('');
-    setSentOk(true);
-    setTab('sent');
-    setSelectedId(msg.id);
-    setTimeout(() => setSentOk(false), 2500);
+    setSending(true);
+    try {
+      let saved = msg;
+      if (typeof onSendMessage === 'function') {
+        saved = await onSendMessage(msg);
+      } else {
+        setMessages((prev) => [msg, ...prev]);
+      }
+      setCompose({
+        recipientId: isOps ? '' : MAILBOX.OPERATIONS,
+        subject: '',
+        content: '',
+      });
+      setMemberQuery('');
+      setRecipientError('');
+      setSentOk(true);
+      setTab('sent');
+      setSelectedId(saved?.id || msg.id);
+      setTimeout(() => setSentOk(false), 2500);
+    } catch (err) {
+      setSendError(err?.message || 'No se pudo enviar el mensaje. Reintentá.');
+    } finally {
+      setSending(false);
+    }
   };
 
   const handleReply = () => {
@@ -393,8 +406,8 @@ export default function MessagesView({ messages, setMessages, members = [], onRe
             />
           </div>
           <div>
-            <button type="submit" className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-              <Send size={16} /> Enviar mensaje
+            <button type="submit" className="btn btn-primary" disabled={sending} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <Send size={16} /> {sending ? 'Enviando…' : 'Enviar mensaje'}
             </button>
           </div>
         </form>

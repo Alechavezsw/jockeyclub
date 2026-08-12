@@ -191,6 +191,7 @@ export function guestPassFromRow(row) {
 }
 
 export function messageFromRow(row) {
+  const meta = row.meta && typeof row.meta === 'object' ? row.meta : {};
   return {
     id: row.id,
     date: (row.created_at || '').slice(0, 10),
@@ -202,6 +203,8 @@ export function messageFromRow(row) {
     content: row.body,
     isRead: Boolean(row.is_read),
     parentId: row.parent_id,
+    clientId: meta.clientId || null,
+    meta,
   };
 }
 

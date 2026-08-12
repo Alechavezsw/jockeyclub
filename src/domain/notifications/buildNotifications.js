@@ -20,7 +20,9 @@ export function buildNotifications({
 } = {}) {
   const dismissed = new Set((dismissedIds || []).map(String));
   const push = (list, item) => {
-    if (!item?.id || dismissed.has(String(item.id))) return;
+    if (!item?.id) return;
+    // Los mensajes no leídos siempre cuentan: un dismiss no debe ocultarlos para siempre
+    if (item.kind !== 'message' && dismissed.has(String(item.id))) return;
     list.push(item);
   };
 
@@ -133,7 +135,7 @@ export function buildNotifications({
   return out;
 }
 
-const DISMISS_KEY = 'jockey-notif-dismissed';
+const DISMISS_KEY = 'jockey-notif-dismissed-v2';
 
 export function loadDismissedNotificationIds() {
   try {

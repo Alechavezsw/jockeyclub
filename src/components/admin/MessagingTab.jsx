@@ -15,6 +15,7 @@ export default function MessagingTab({
   setMessages,
   formatCurrency,
   onRefresh,
+  onSendMessage,
 }) {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -76,7 +77,7 @@ export default function MessagingTab({
     document.getElementById('ops-compose-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
-  const handleSendMessage = (e) => {
+  const handleSendMessage = async (e) => {
     e.preventDefault();
     setMsgError('');
     if (!msgSubject.trim() || !msgContent.trim()) return;
@@ -90,11 +91,19 @@ export default function MessagingTab({
       parentId: selected && msgSubject.startsWith('Re:') ? selected.id : null,
     });
 
-    setMessages((prev) => [newMsg, ...(prev || [])]);
-    setMsgSubject('');
-    setMsgContent('');
-    setMsgSuccess(true);
-    setTimeout(() => setMsgSuccess(false), 3000);
+    try {
+      if (typeof onSendMessage === 'function') {
+        await onSendMessage(newMsg);
+      } else {
+        setMessages((prev) => [newMsg, ...(prev || [])]);
+      }
+      setMsgSubject('');
+      setMsgContent('');
+      setMsgSuccess(true);
+      setTimeout(() => setMsgSuccess(false), 3000);
+    } catch (err) {
+      setMsgError(err?.message || 'No se pudo enviar el mensaje.');
+    }
   };
 
   const handleSendWhatsAppRedirect = (memberItem) => {

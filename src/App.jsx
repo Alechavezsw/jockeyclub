@@ -17,7 +17,7 @@ import {
 } from './domain/notifications/buildNotifications';
 import { applyAutomaticDues } from './domain/members/dues';
 import { createHrRecord } from './domain/staff/hr';
-import { isSupabaseConfigured } from './lib/supabase';
+import { isSupabaseConfigured, supabase } from './lib/supabase';
 import { notifyNextOnWaitlist } from './domain/reservations/waitlist';
 import { bootstrapFromDb, repos } from './data/bootstrap';
 
@@ -1169,13 +1169,42 @@ export default function App() {
     if (!cloudMode || !isAuthenticated) return;
     try {
       const list = await repos.listMessages();
-      setMessages(list || []);
+      setMessages((prev) => {
+        const fromDb = list || [];
+        const dbIds = new Set(fromDb.map((m) => String(m.id)));
+        const dbClientIds = new Set(fromDb.map((m) => m.clientId).filter(Boolean).map(String));
+        // Conservar envíos locales aún no confirmados (evita que el poll borre el alta)
+        const pending = (prev || []).filter(
+          (m) => !isDbUuid(m.id) && !dbIds.has(String(m.id)) && !dbClientIds.has(String(m.id))
+        );
+        return pending.length ? [...pending, ...fromDb] : fromDb;
+      });
     } catch {
       /* silencioso: no pisar bandeja local ante un fallo puntual */
     }
   }, [cloudMode, isAuthenticated]);
 
-  // Campanita / badge: refrescar mensajes también fuera de /mensajes (p. ej. panel admin)
+  // Envío garantizado a BD (evita “enviado” fantasma si el insert falla)
+  const sendMessage = useCallback(async (msg) => {
+    if (!msg) throw new Error('Mensaje vacío');
+    if (!cloudMode) {
+      setMessages((prev) => [msg, ...(prev || [])]);
+      return msg;
+    }
+    setMessages((prev) => [msg, ...(prev || [])]);
+    try {
+      const saved = await repos.insertMessage(msg);
+      setMessages((cur) => [saved, ...(cur || []).filter((x) => String(x.id) !== String(msg.id))]);
+      return saved;
+    } catch (err) {
+      setMessages((cur) => (cur || []).filter((x) => String(x.id) !== String(msg.id)));
+      const message = err?.message || 'No se pudo enviar el mensaje a la base de datos';
+      setDbError(message);
+      throw new Error(message);
+    }
+  }, [cloudMode]);
+
+  // Campanita / badge: poll + realtime fuera de /mensajes
   useEffect(() => {
     if (!cloudMode || !isAuthenticated || !dbReady) return undefined;
     void refreshMessages();
@@ -1185,11 +1214,25 @@ export default function App() {
     };
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVis);
-    const timer = window.setInterval(() => { void refreshMessages(); }, 20000);
+    const timer = window.setInterval(() => { void refreshMessages(); }, 12000);
+
+    let channel = null;
+    if (supabase) {
+      channel = supabase
+        .channel('messages-live')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'messages' },
+          () => { void refreshMessages(); }
+        )
+        .subscribe();
+    }
+
     return () => {
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVis);
       window.clearInterval(timer);
+      if (channel) supabase?.removeChannel(channel);
     };
   }, [cloudMode, isAuthenticated, dbReady, refreshMessages]);
 
@@ -1199,14 +1242,19 @@ export default function App() {
       if (!cloudMode || !Array.isArray(next)) return next;
 
       // Alta de mensaje nuevo (id local msg-… / numérico → insert en BD)
+      // Preferir sendMessage() desde la UI; este camino queda como fallback.
       if (next.length > prev.length) {
         const newest = next[0];
         if (newest && !isDbUuid(newest.id)) {
-          repos.insertMessage(newest).then((saved) => {
-            setMessages((cur) => [saved, ...cur.filter((x) => String(x.id) !== String(newest.id))]);
-          }).catch((err) => {
-            setDbError(err?.message || 'No se pudo enviar el mensaje a la base de datos');
-          });
+          const alreadyPending = prev.some((p) => String(p.id) === String(newest.id));
+          if (!alreadyPending) {
+            repos.insertMessage(newest).then((saved) => {
+              setMessages((cur) => [saved, ...cur.filter((x) => String(x.id) !== String(newest.id))]);
+            }).catch((err) => {
+              setMessages((cur) => cur.filter((x) => String(x.id) !== String(newest.id)));
+              setDbError(err?.message || 'No se pudo enviar el mensaje a la base de datos');
+            });
+          }
         }
       } else {
         // Marcar leído (broadcasts "all" quedan solo locales: is_read es compartido)
@@ -1468,6 +1516,7 @@ export default function App() {
         messages={messages}
         setMessages={setMessagesDb}
         refreshMessages={refreshMessages}
+        sendMessage={sendMessage}
         entryLogs={entryLogs}
         setEntryLogs={setEntryLogsDb}
         surveys={surveys}
@@ -1667,6 +1716,7 @@ export default function App() {
                 setMessages={setMessagesDb}
                 members={members}
                 onRefresh={refreshMessages}
+                onSendMessage={sendMessage}
               />
             }
           />
