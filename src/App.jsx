@@ -1175,6 +1175,24 @@ export default function App() {
     }
   }, [cloudMode, isAuthenticated]);
 
+  // Campanita / badge: refrescar mensajes también fuera de /mensajes (p. ej. panel admin)
+  useEffect(() => {
+    if (!cloudMode || !isAuthenticated || !dbReady) return undefined;
+    void refreshMessages();
+    const onFocus = () => { void refreshMessages(); };
+    const onVis = () => {
+      if (document.visibilityState === 'visible') void refreshMessages();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVis);
+    const timer = window.setInterval(() => { void refreshMessages(); }, 20000);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVis);
+      window.clearInterval(timer);
+    };
+  }, [cloudMode, isAuthenticated, dbReady, refreshMessages]);
+
   const setMessagesDb = (updater) => {
     setMessages((prev) => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
@@ -1449,6 +1467,7 @@ export default function App() {
         setClaims={setClaimsDb}
         messages={messages}
         setMessages={setMessagesDb}
+        refreshMessages={refreshMessages}
         entryLogs={entryLogs}
         setEntryLogs={setEntryLogsDb}
         surveys={surveys}

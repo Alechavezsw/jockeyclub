@@ -202,13 +202,13 @@ export default function AdminDashboardTab({
                     <span className="ops-status-dot" style={{ background: row.color }} />
                     <span className="ops-status-label">{row.count} {row.label}</span>
                     <span className="ops-status-pct">{row.p}%</span>
-                    <button type="button" className="ops-mini-btn" onClick={() => goToTab('messaging')}>Ver</button>
+                    <button type="button" className="ops-mini-btn" onClick={() => navigate('/mensajes')}>Ver</button>
                   </li>
                 ))}
               </ul>
 
               <div className="ops-card-foot">
-                {link('Ver todas las comunicaciones >', () => goToTab('messaging'))}
+                {link('Ver todas las comunicaciones >', () => navigate('/mensajes'))}
                 <div className="ops-btn-pair">
                   {permittedTabs.includes('surveys') && (
                     <button type="button" className="ops-outline-btn" onClick={() => goToTab('surveys')}>+ Encuesta</button>
