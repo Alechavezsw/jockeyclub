@@ -4,7 +4,7 @@ import { buildPostedEntry } from '../accounting/journal';
 
 export const CONCESSION_TYPES = {
   gastronomia: 'Gastronomía / Cantina',
-  tienda: 'Tienda / Proshop',
+  tienda: 'Tienda / Proveeduría / Proshop',
   estacionamiento: 'Estacionamiento',
   eventos: 'Eventos / Catering',
   deportes: 'Servicios deportivos',

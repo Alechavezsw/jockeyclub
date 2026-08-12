@@ -198,8 +198,10 @@ export default function ConcessionsTab({
       setForm(EMPTY_FORM);
       setContractFile(null);
       setShowForm(false);
+      setSection('contratos');
+      setDetailTab('resumen');
     } catch (err) {
-      setError(err.message || 'No se pudo guardar la concesión.');
+      setError(err?.message || 'No se pudo guardar la concesión.');
     } finally {
       setSaving(false);
     }

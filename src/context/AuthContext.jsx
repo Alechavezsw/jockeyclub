@@ -48,55 +48,72 @@ async function loadUserFromSession(sessionUser) {
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
+  /** Usuario auth de Supabase (sin perfil). El perfil se carga fuera de onAuthStateChange. */
+  const [authUser, setAuthUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState('');
 
+  // Listener sync: NUNCA await supabase.* acá (deadlock → “sesión cerrada” / UI colgada)
   useEffect(() => {
     let mounted = true;
-    let unsubscribe = null;
 
-    async function boot() {
-      setLoading(true);
-      try {
-        if (isSupabaseConfigured && supabase) {
-          const { data } = await supabase.auth.getSession();
-          const session = data?.session;
-          if (session?.user) {
-            const mapped = await loadUserFromSession(session.user);
-            if (mounted) setUser(mapped);
-          } else if (mounted) {
-            setUser(null);
-          }
-
-          const { data: sub } = supabase.auth.onAuthStateChange(async (_event, nextSession) => {
-            if (!nextSession?.user) {
-              if (mounted) setUser(null);
-              return;
-            }
-            try {
-              const mapped = await loadUserFromSession(nextSession.user);
-              if (mounted) setUser(mapped);
-            } catch {
-              if (mounted) setUser(mapProfile(nextSession.user, null));
-            }
-          });
-          unsubscribe = () => sub?.subscription?.unsubscribe?.();
-          return;
-        }
-
-        const local = loadLocalSession();
-        if (mounted) setUser(local);
-      } finally {
-        if (mounted) setLoading(false);
+    if (!isSupabaseConfigured || !supabase) {
+      const local = loadLocalSession();
+      if (mounted) {
+        setUser(local);
+        setLoading(false);
       }
+      return () => { mounted = false; };
     }
 
-    boot();
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!mounted) return;
+
+      if (event === 'SIGNED_OUT') {
+        setAuthUser(null);
+        setUser(null);
+        setLoading(false);
+        return;
+      }
+
+      const next = session?.user ?? null;
+      setAuthUser(next);
+
+      if (!next && event === 'INITIAL_SESSION') {
+        setUser(null);
+        setLoading(false);
+      }
+    });
+
     return () => {
       mounted = false;
-      unsubscribe?.();
+      sub?.subscription?.unsubscribe?.();
     };
   }, []);
+
+  // Perfil en efecto aparte (libera el lock de auth antes de pegarle a PostgREST)
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return undefined;
+    if (!authUser?.id) return undefined;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const mapped = await loadUserFromSession(authUser);
+        if (!cancelled) {
+          setUser(mapped);
+          setLoading(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setUser((prev) => prev || mapProfile(authUser, null));
+          setLoading(false);
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [authUser?.id]);
 
   const login = useCallback(async ({ email, password }) => {
     setAuthError('');
@@ -117,7 +134,9 @@ export function AuthProvider({ children }) {
           throw error;
         }
         const mapped = await loadUserFromSession(data.user);
+        setAuthUser(data.user);
         setUser(mapped);
+        setLoading(false);
         return mapped;
       } catch (err) {
         const msg = String(err?.message || err || '');
@@ -148,6 +167,7 @@ export function AuthProvider({ children }) {
     };
     localStorage.setItem(SESSION_KEY, JSON.stringify(sessionUser));
     setUser(sessionUser);
+    setLoading(false);
     return sessionUser;
   }, []);
 
@@ -158,6 +178,7 @@ export function AuthProvider({ children }) {
     }
     localStorage.removeItem(SESSION_KEY);
     localStorage.removeItem('jockey-role');
+    setAuthUser(null);
     setUser(null);
   }, []);
 
