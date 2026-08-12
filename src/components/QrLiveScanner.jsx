@@ -1,23 +1,29 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Aperture, Flashlight, FlashlightOff, ImagePlus, RefreshCw } from 'lucide-react';
 
-let jsQRModulePromise = null;
+let jsQRPromise = null;
+let zxingReaderPromise = null;
+
 function loadJsQR() {
-  if (!jsQRModulePromise) {
-    jsQRModulePromise = import('jsqr').then((m) => m.default || m);
+  if (!jsQRPromise) {
+    jsQRPromise = import('jsqr').then((m) => m.default || m);
   }
-  return jsQRModulePromise;
+  return jsQRPromise;
 }
 
-async function decodeWithJsQR(imageData) {
-  const jsQR = await loadJsQR();
-  const code = jsQR(imageData.data, imageData.width, imageData.height, {
-    inversionAttempts: 'attemptBoth',
-  });
-  return code?.data || '';
+function loadZxingReader() {
+  if (!zxingReaderPromise) {
+    zxingReaderPromise = import('@zxing/browser').then(({ BrowserQRCodeReader }) => {
+      // TRY_HARDER + pure barcode improves phone-screen reads
+      return new BrowserQRCodeReader(undefined, {
+        delayBetweenScanAttempts: 0,
+        delayBetweenScanSuccess: 0,
+      });
+    });
+  }
+  return zxingReaderPromise;
 }
 
-/** Clamp a capability range to a relative position (0–1). */
 function capAt(range, t) {
   if (!range || typeof range !== 'object') return undefined;
   const { min, max } = range;
@@ -25,56 +31,41 @@ function capAt(range, t) {
   return min + (max - min) * Math.min(1, Math.max(0, t));
 }
 
-/**
- * Mejora contraste/brillo del ROI para QR en pantallas OLED/LCD
- * (evita blancos quemados y moiré suave).
- */
-function enhanceScreenQr(imageData, { hardThreshold = false } = {}) {
-  const { data, width, height } = imageData;
-  const out = new ImageData(width, height);
-  const d = out.data;
-  let min = 255;
-  let max = 0;
-  const gray = new Float32Array(width * height);
-
-  for (let i = 0, p = 0; i < data.length; i += 4, p += 1) {
-    const g = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
-    gray[p] = g;
-    if (g < min) min = g;
-    if (g > max) max = g;
+async function detectNative(detector, source) {
+  if (!detector || !source) return '';
+  try {
+    const codes = await detector.detect(source);
+    return codes?.[0]?.rawValue || '';
+  } catch {
+    return '';
   }
-
-  const range = Math.max(18, max - min);
-  // Subexponer un poco el blanco de la pantalla del socio
-  const bias = 12;
-
-  for (let i = 0, p = 0; i < data.length; i += 4, p += 1) {
-    let v = ((gray[p] - min - bias) / range) * 255;
-    // Curva S: más contraste en medios tonos (módulos del QR)
-    const n = Math.min(1, Math.max(0, v / 255));
-    const s = n < 0.5 ? 2 * n * n : 1 - 2 * (1 - n) * (1 - n);
-    v = s * 255;
-    if (hardThreshold) v = v > 140 ? 255 : 0;
-    const c = v < 0 ? 0 : v > 255 ? 255 : v;
-    d[i] = c;
-    d[i + 1] = c;
-    d[i + 2] = c;
-    d[i + 3] = 255;
-  }
-  return out;
 }
 
-async function decodeImageVariants(imageData) {
-  const text = await decodeWithJsQR(imageData);
-  if (text) return text;
-  const enhanced = await decodeWithJsQR(enhanceScreenQr(imageData));
-  if (enhanced) return enhanced;
-  return decodeWithJsQR(enhanceScreenQr(imageData, { hardThreshold: true }));
+async function decodeJsQR(imageData) {
+  try {
+    const jsQR = await loadJsQR();
+    const code = jsQR(imageData.data, imageData.width, imageData.height, {
+      inversionAttempts: 'attemptBoth',
+    });
+    return code?.data || '';
+  } catch {
+    return '';
+  }
+}
+
+async function decodeZxingCanvas(canvas) {
+  try {
+    const reader = await loadZxingReader();
+    const result = await reader.decodeFromCanvas(canvas);
+    return result?.getText?.() || result?.text || '';
+  } catch {
+    return '';
+  }
 }
 
 /**
- * Lector QR (getUserMedia + BarcodeDetector/jsQR).
- * Orientado a celular→celular: sin warm-up frágil, decode secuencial, fallback por foto.
+ * Lector QR optimizado para credencial en pantalla de celular a corta distancia.
+ * Prioridad: BarcodeDetector nativo → ZXing → jsQR (con downscale si el QR está muy cerca).
  */
 export default function QrLiveScanner({
   active = false,
@@ -85,6 +76,7 @@ export default function QrLiveScanner({
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const cropCanvasRef = useRef(null);
+  const scaleCanvasRef = useRef(null);
   const streamRef = useRef(null);
   const trackRef = useRef(null);
   const detectorRef = useRef(null);
@@ -93,18 +85,18 @@ export default function QrLiveScanner({
   const devicesRef = useRef([]);
   const deviceIndexRef = useRef(0);
   const focusTimerRef = useRef(0);
-  const decodeBusyRef = useRef(false);
-  const loopAliveRef = useRef(false);
+  const loopTokenRef = useRef(0);
   const fileInputRef = useRef(null);
+  const tickRef = useRef(0);
 
   const [torchOn, setTorchOn] = useState(false);
   const [torchSupported, setTorchSupported] = useState(false);
-  const [hint, setHint] = useState('Acercá el QR · tocá la imagen para enfocar');
+  const [hint, setHint] = useState('Acercá el QR al marco');
   const [starting, setStarting] = useState(false);
   const [live, setLive] = useState(false);
 
   const stopStream = useCallback(() => {
-    loopAliveRef.current = false;
+    loopTokenRef.current += 1;
     if (focusTimerRef.current) {
       clearInterval(focusTimerRef.current);
       focusTimerRef.current = 0;
@@ -112,25 +104,16 @@ export default function QrLiveScanner({
     const stream = streamRef.current;
     streamRef.current = null;
     trackRef.current = null;
-    if (stream) {
-      stream.getTracks().forEach((t) => t.stop());
-    }
+    if (stream) stream.getTracks().forEach((t) => t.stop());
     const video = videoRef.current;
-    if (video) {
-      video.srcObject = null;
-    }
+    if (video) video.srcObject = null;
     setTorchOn(false);
     setTorchSupported(false);
     setLive(false);
   }, []);
 
-  /**
-   * Ajuste óptico para leer la pantalla de otro celular:
-   * - un poco más oscuro (no quemar el blanco del QR)
-   * - más contraste / nitidez
-   * - foco cercano, sin zoom ni linterna
-   */
-  const applyScreenScanTuning = useCallback(async (track) => {
+  /** Solo foco continuo cercano — sin subexponer (eso impedía leer). */
+  const applyCloseFocus = useCallback(async (track) => {
     if (!track?.applyConstraints) return;
     const caps = track.getCapabilities?.() || {};
 
@@ -139,12 +122,9 @@ export default function QrLiveScanner({
       if (Array.isArray(caps.focusMode)) {
         if (caps.focusMode.includes('continuous')) modes.focusMode = 'continuous';
         else if (caps.focusMode.includes('auto')) modes.focusMode = 'auto';
-        else if (caps.focusMode.includes('single-shot')) modes.focusMode = 'single-shot';
       }
-      // Manual/continuous exposure: mejor control sobre pantallas brillantes
-      if (Array.isArray(caps.exposureMode)) {
-        if (caps.exposureMode.includes('continuous')) modes.exposureMode = 'continuous';
-        else if (caps.exposureMode.includes('manual')) modes.exposureMode = 'manual';
+      if (Array.isArray(caps.exposureMode) && caps.exposureMode.includes('continuous')) {
+        modes.exposureMode = 'continuous';
       }
       if (Array.isArray(caps.whiteBalanceMode) && caps.whiteBalanceMode.includes('continuous')) {
         modes.whiteBalanceMode = 'continuous';
@@ -156,45 +136,24 @@ export default function QrLiveScanner({
       /* ignore */
     }
 
-    const photoTune = {};
-    // Subexponer ~1 EV: el celular del socio es una fuente de luz
-    const ev = capAt(caps.exposureCompensation, 0.28);
-    if (ev != null) photoTune.exposureCompensation = ev;
-
-    const bright = capAt(caps.brightness, 0.42);
-    if (bright != null) photoTune.brightness = bright;
-
-    const contrast = capAt(caps.contrast, 0.78);
-    if (contrast != null) photoTune.contrast = contrast;
-
-    const sharp = capAt(caps.sharpness, 0.85);
-    if (sharp != null) photoTune.sharpness = sharp;
-
-    const sat = capAt(caps.saturation, 0.15);
-    if (sat != null) photoTune.saturation = sat;
-
-    // ISO bajo = menos ruido al mirar una pantalla iluminada
-    const iso = capAt(caps.iso, 0.12);
-    if (iso != null) photoTune.iso = iso;
-
-    if (Object.keys(photoTune).length) {
+    // Ligera compensación (casi neutra) + nitidez
+    const tune = {};
+    const ev = capAt(caps.exposureCompensation, 0.45);
+    if (ev != null) tune.exposureCompensation = ev;
+    const sharp = capAt(caps.sharpness, 0.9);
+    if (sharp != null) tune.sharpness = sharp;
+    const contrast = capAt(caps.contrast, 0.65);
+    if (contrast != null) tune.contrast = contrast;
+    if (Object.keys(tune).length) {
       try {
-        await track.applyConstraints({ advanced: [photoTune] });
+        await track.applyConstraints({ advanced: [tune] });
       } catch {
-        /* algunos browsers rechazan el bloque completo */
-        for (const [key, value] of Object.entries(photoTune)) {
-          try {
-            await track.applyConstraints({ advanced: [{ [key]: value }] });
-          } catch {
-            /* ignore */
-          }
-        }
+        /* ignore */
       }
     }
 
-    // Foco a ~20–35 cm (pantalla del socio)
     try {
-      const near = capAt(caps.focusDistance, 0.16);
+      const near = capAt(caps.focusDistance, 0.12);
       if (near != null) {
         await track.applyConstraints({ advanced: [{ focusDistance: near }] });
       }
@@ -202,11 +161,8 @@ export default function QrLiveScanner({
       /* ignore */
     }
 
-    // Apagar linterna si quedó prendida: lava el QR de otra pantalla
     try {
-      if (caps.torch) {
-        await track.applyConstraints({ advanced: [{ torch: false }] });
-      }
+      if (caps.torch) await track.applyConstraints({ advanced: [{ torch: false }] });
     } catch {
       /* ignore */
     }
@@ -215,28 +171,15 @@ export default function QrLiveScanner({
   const emitDecode = useCallback((text) => {
     if (!text) return false;
     const now = Date.now();
-    if (text === lastDecodeRef.current && now - lastDecodeAtRef.current < 1600) return false;
+    if (text === lastDecodeRef.current && now - lastDecodeAtRef.current < 1200) return false;
     lastDecodeRef.current = text;
     lastDecodeAtRef.current = now;
     onDecode?.(text);
+    setHint('¡QR leído!');
     return true;
   }, [onDecode]);
 
-  const tryDecodeFrame = useCallback(async (video, canvas, ctx) => {
-    // 1) BarcodeDetector nativo sobre el video
-    try {
-      if (detectorRef.current) {
-        const codes = await detectorRef.current.detect(video);
-        if (codes?.[0]?.rawValue) return codes[0].rawValue;
-      }
-    } catch {
-      /* canvas fallback */
-    }
-
-    if (!video.videoWidth || !video.videoHeight) return '';
-
-    // Resolución alta: pantallas necesitan detalle de módulos del QR
-    const maxW = 1280;
+  const drawVideo = useCallback((video, canvas, ctx, maxW) => {
     const scale = Math.min(1, maxW / video.videoWidth);
     const w = Math.max(1, Math.floor(video.videoWidth * scale));
     const h = Math.max(1, Math.floor(video.videoHeight * scale));
@@ -245,50 +188,91 @@ export default function QrLiveScanner({
       canvas.height = h;
     }
     ctx.drawImage(video, 0, 0, w, h);
+    return { w, h };
+  }, []);
 
-    // 2) BarcodeDetector sobre canvas
-    try {
-      if (detectorRef.current) {
-        const codes = await detectorRef.current.detect(canvas);
-        if (codes?.[0]?.rawValue) return codes[0].rawValue;
-      }
-    } catch {
-      detectorRef.current = null;
+  const cropCenter = useCallback((sourceCanvas, ratio) => {
+    if (!cropCanvasRef.current) cropCanvasRef.current = document.createElement('canvas');
+    const crop = cropCanvasRef.current;
+    const sw = sourceCanvas.width;
+    const sh = sourceCanvas.height;
+    const cw = Math.max(32, Math.floor(sw * ratio));
+    const ch = Math.max(32, Math.floor(sh * ratio));
+    const cx = Math.floor((sw - cw) / 2);
+    const cy = Math.floor((sh - ch) / 2);
+    if (crop.width !== cw || crop.height !== ch) {
+      crop.width = cw;
+      crop.height = ch;
     }
+    const cctx = crop.getContext('2d', { willReadFrequently: true });
+    cctx.drawImage(sourceCanvas, cx, cy, cw, ch, 0, 0, cw, ch);
+    return crop;
+  }, []);
 
-    // 3) jsQR en ROI centrado + frame completo
-    const ratios = [0.62, 0.78, 1];
-    for (const cropRatio of ratios) {
-      let imageData;
-      if (cropRatio >= 0.999) {
-        imageData = ctx.getImageData(0, 0, w, h);
-      } else {
-        const cw = Math.floor(w * cropRatio);
-        const ch = Math.floor(h * cropRatio);
-        const cx = Math.floor((w - cw) / 2);
-        const cy = Math.floor((h - ch) / 2);
-        if (!cropCanvasRef.current) cropCanvasRef.current = document.createElement('canvas');
-        const cropCanvas = cropCanvasRef.current;
-        if (cropCanvas.width !== cw || cropCanvas.height !== ch) {
-          cropCanvas.width = cw;
-          cropCanvas.height = ch;
-        }
-        const cctx = cropCanvas.getContext('2d', { willReadFrequently: true });
-        cctx.drawImage(canvas, cx, cy, cw, ch, 0, 0, cw, ch);
-        imageData = cctx.getImageData(0, 0, cw, ch);
+  const downscaleCanvas = useCallback((source, maxSide) => {
+    const longest = Math.max(source.width, source.height);
+    if (longest <= maxSide) return source;
+    if (!scaleCanvasRef.current) scaleCanvasRef.current = document.createElement('canvas');
+    const out = scaleCanvasRef.current;
+    const scale = maxSide / longest;
+    out.width = Math.max(32, Math.floor(source.width * scale));
+    out.height = Math.max(32, Math.floor(source.height * scale));
+    const ctx = out.getContext('2d', { willReadFrequently: true });
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(source, 0, 0, out.width, out.height);
+    return out;
+  }, []);
+
+  const tryDecodeFrame = useCallback(async (video, canvas, ctx) => {
+    if (!video.videoWidth) return '';
+
+    // Frame a 960px + nativo (el caller ya probó detect sobre el <video>)
+    drawVideo(video, canvas, ctx, 960);
+    let text = await detectNative(detectorRef.current, canvas);
+    if (text) return text;
+
+    tickRef.current += 1;
+    // En cercanía el QR llena el marco: probar ROI chicos primero
+    const ratios = tickRef.current % 2 === 0
+      ? [0.48, 0.62, 0.8]
+      : [0.55, 0.72, 1];
+
+    for (const ratio of ratios) {
+      const roi = ratio >= 0.999 ? canvas : cropCenter(canvas, ratio);
+
+      text = await detectNative(detectorRef.current, roi);
+      if (text) return text;
+
+      // ZXing sobre ROI (muy bueno con pantallas)
+      text = await decodeZxingCanvas(roi);
+      if (text) return text;
+
+      // Si el QR está muy cerca, downscale ayuda a jsQR/ZXing
+      const small = downscaleCanvas(roi, 420);
+      if (small !== roi) {
+        text = await detectNative(detectorRef.current, small);
+        if (text) return text;
+        text = await decodeZxingCanvas(small);
+        if (text) return text;
       }
-      const text = await decodeImageVariants(imageData);
+
+      // jsQR solo en ROI reducido (caro)
+      const target = small !== roi ? small : downscaleCanvas(roi, 480);
+      const tctx = target.getContext('2d', { willReadFrequently: true });
+      text = await decodeJsQR(tctx.getImageData(0, 0, target.width, target.height));
       if (text) return text;
     }
+
     return '';
-  }, []);
+  }, [cropCenter, downscaleCanvas, drawVideo]);
 
   const startWithDevice = useCallback(async (deviceId) => {
     stopStream();
     setStarting(true);
     setHint('Iniciando cámara…');
-    // Precargar jsQR mientras pide la cámara
     void loadJsQR();
+    void loadZxingReader();
 
     const attempts = [
       {
@@ -296,14 +280,14 @@ export default function QrLiveScanner({
         video: deviceId
           ? {
               deviceId: { exact: deviceId },
-              width: { ideal: 1920 },
-              height: { ideal: 1080 },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
               facingMode: { ideal: 'environment' },
             }
           : {
               facingMode: { ideal: 'environment' },
-              width: { ideal: 1920 },
-              height: { ideal: 1080 },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
             },
       },
       {
@@ -341,22 +325,27 @@ export default function QrLiveScanner({
       try {
         await video.play();
       } catch {
-        /* autoplay policies: muted + playsinline suele bastar */
+        /* ignore */
       }
 
       await new Promise((resolve) => {
         if (video.readyState >= 2) resolve();
         else {
-          const done = () => resolve();
-          video.onloadeddata = done;
-          setTimeout(done, 1200);
+          video.onloadeddata = () => resolve();
+          setTimeout(resolve, 1000);
         }
       });
 
-      await applyScreenScanTuning(track);
+      await applyCloseFocus(track);
+      // Re-pedir foco cercano sin tocar brillo cada tanto
       focusTimerRef.current = window.setInterval(() => {
-        if (trackRef.current) applyScreenScanTuning(trackRef.current);
-      }, 2800);
+        const t = trackRef.current;
+        if (!t?.applyConstraints) return;
+        const caps = t.getCapabilities?.() || {};
+        const near = capAt(caps.focusDistance, 0.12);
+        if (near == null) return;
+        t.applyConstraints({ advanced: [{ focusDistance: near }] }).catch(() => {});
+      }, 3500);
 
       const caps = track.getCapabilities?.() || {};
       setTorchSupported(Boolean(caps.torch));
@@ -378,7 +367,7 @@ export default function QrLiveScanner({
       }
 
       setLive(true);
-      setHint('Pantalla del socio a 20–35 cm · brillo alto · tocá para enfocar');
+      setHint('Acercá el QR al marco · lectura al instante');
       setStarting(false);
       onError?.('');
     } catch (err) {
@@ -394,7 +383,7 @@ export default function QrLiveScanner({
             : 'No se pudo iniciar la cámara. Usá HTTPS o cargá una foto del QR.'
       );
     }
-  }, [applyScreenScanTuning, onError, stopStream]);
+  }, [applyCloseFocus, onError, stopStream]);
 
   const startCamera = useCallback(async () => {
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -405,14 +394,11 @@ export default function QrLiveScanner({
       const devices = await navigator.mediaDevices.enumerateDevices();
       const videos = devices.filter((d) => d.kind === 'videoinput');
       devicesRef.current = videos;
-      // Sin permiso previo los labels vienen vacíos: preferir última (suele ser trasera en móvil)
       const backIdx = videos.findIndex((d) =>
         /back|rear|environment|trasera|atrás|atras|world/i.test(d.label || '')
       );
       deviceIndexRef.current = backIdx >= 0 ? backIdx : Math.max(0, videos.length - 1);
-      const chosen = videos[deviceIndexRef.current];
-      await startWithDevice(chosen?.deviceId || null);
-      // Releer labels tras permiso
+      await startWithDevice(videos[deviceIndexRef.current]?.deviceId || null);
       try {
         const after = await navigator.mediaDevices.enumerateDevices();
         devicesRef.current = after.filter((d) => d.kind === 'videoinput');
@@ -441,13 +427,9 @@ export default function QrLiveScanner({
     try {
       await track.applyConstraints({ advanced: [{ torch: next }] });
       setTorchOn(next);
-      setHint(
-        next
-          ? 'Linterna ON · mejor apagarla para leer otra pantalla'
-          : 'Pantalla del socio a 20–35 cm · tocá para enfocar'
-      );
+      setHint(next ? 'Linterna ON (mejor apagada con pantallas)' : 'Acercá el QR al marco');
     } catch {
-      setHint('Linterna no disponible en esta cámara');
+      setHint('Linterna no disponible');
     }
   }, [torchOn, torchSupported]);
 
@@ -455,25 +437,23 @@ export default function QrLiveScanner({
     const track = trackRef.current;
     const video = videoRef.current;
     if (!track?.applyConstraints || !video) return;
-
     const rect = video.getBoundingClientRect();
     const x = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
     const y = Math.min(1, Math.max(0, (clientY - rect.top) / rect.height));
     const caps = track.getCapabilities?.() || {};
-
     try {
-      setHint('Enfocando pantalla…');
+      setHint('Enfocando…');
       if (caps.pointsOfInterest) {
         await track.applyConstraints({
           advanced: [{ focusMode: 'continuous', pointsOfInterest: [{ x, y }] }],
         });
       }
-      await applyScreenScanTuning(track);
-      setTimeout(() => setHint('Pantalla del socio a 20–35 cm · tocá para enfocar'), 700);
+      await applyCloseFocus(track);
+      setTimeout(() => setHint('Acercá el QR al marco · lectura al instante'), 600);
     } catch {
-      applyScreenScanTuning(track);
+      applyCloseFocus(track);
     }
-  }, [applyScreenScanTuning]);
+  }, [applyCloseFocus]);
 
   const decodeFromFile = useCallback(async (file) => {
     if (!file) return;
@@ -481,7 +461,7 @@ export default function QrLiveScanner({
     try {
       const bmp = await createImageBitmap(file);
       const canvas = canvasRef.current || document.createElement('canvas');
-      const maxW = 1600;
+      const maxW = 1400;
       const scale = Math.min(1, maxW / bmp.width);
       canvas.width = Math.max(1, Math.floor(bmp.width * scale));
       canvas.height = Math.max(1, Math.floor(bmp.height * scale));
@@ -489,23 +469,21 @@ export default function QrLiveScanner({
       ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
       bmp.close?.();
 
-      let text = '';
-      if ('BarcodeDetector' in window) {
-        try {
-          const det = detectorRef.current
-            || new window.BarcodeDetector({ formats: ['qr_code'] });
-          const codes = await det.detect(canvas);
-          text = codes?.[0]?.rawValue || '';
-        } catch {
-          /* jsQR */
-        }
-      }
+      let text = await detectNative(
+        detectorRef.current || ('BarcodeDetector' in window
+          ? new window.BarcodeDetector({ formats: ['qr_code'] })
+          : null),
+        canvas,
+      );
+      if (!text) text = await decodeZxingCanvas(canvas);
       if (!text) {
-        text = await decodeImageVariants(ctx.getImageData(0, 0, canvas.width, canvas.height));
+        const small = downscaleCanvas(canvas, 480);
+        const sctx = small.getContext('2d', { willReadFrequently: true });
+        text = await decodeJsQR(sctx.getImageData(0, 0, small.width, small.height));
       }
+
       if (text) {
         emitDecode(text);
-        setHint('QR leído');
       } else {
         setHint('No se leyó un QR en esa imagen');
         onError?.('No se detectó un QR válido en la imagen.');
@@ -513,60 +491,63 @@ export default function QrLiveScanner({
     } catch {
       onError?.('No se pudo leer la imagen del QR.');
     }
-  }, [emitDecode, onError]);
+  }, [downscaleCanvas, emitDecode, onError]);
 
-  // Loop de decodificación secuencial (evita saturar CPU con awaits apilados)
+  // Loop rápido: BarcodeDetector casi cada frame; ZXing/jsQR intercalados
   useEffect(() => {
-    if (!active || paused || starting || !live) {
-      loopAliveRef.current = false;
-      return undefined;
-    }
+    if (!active || paused || starting || !live) return undefined;
 
-    let alive = true;
-    loopAliveRef.current = true;
+    const token = ++loopTokenRef.current;
     const canvas = canvasRef.current;
     const video = videoRef.current;
     if (!canvas || !video) return undefined;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    let cancelled = false;
 
-    const loop = async () => {
-      while (alive && loopAliveRef.current) {
-        if (paused || !video.videoWidth || video.readyState < 2) {
-          await new Promise((r) => setTimeout(r, 120));
-          continue;
-        }
-        if (decodeBusyRef.current) {
-          await new Promise((r) => setTimeout(r, 40));
-          continue;
-        }
-        decodeBusyRef.current = true;
-        try {
-          const text = await tryDecodeFrame(video, canvas, ctx);
-          if (text) emitDecode(text);
-        } catch {
-          /* frame fallido */
-        } finally {
-          decodeBusyRef.current = false;
-        }
-        await new Promise((r) => setTimeout(r, 90));
+    const schedule = (fn, ms) => {
+      if (cancelled || loopTokenRef.current !== token) return;
+      if (typeof video.requestVideoFrameCallback === 'function' && ms < 20) {
+        video.requestVideoFrameCallback(() => { void fn(); });
+      } else {
+        setTimeout(() => { void fn(); }, ms);
       }
     };
 
-    void loop();
+    const tick = async () => {
+      if (cancelled || loopTokenRef.current !== token) return;
+      if (paused || !video.videoWidth || video.readyState < 2) {
+        schedule(tick, 80);
+        return;
+      }
+
+      const t0 = performance.now();
+      try {
+        // Camino ultrarrápido: solo nativo sobre el video
+        let text = await detectNative(detectorRef.current, video);
+        if (!text) text = await tryDecodeFrame(video, canvas, ctx);
+        if (text) emitDecode(text);
+      } catch {
+        /* frame fallido */
+      }
+
+      const spent = performance.now() - t0;
+      // ~15–25 intentos/seg cuando el nativo responde rápido
+      const wait = spent < 40 ? 24 : Math.max(36, 100 - spent);
+      schedule(tick, wait);
+    };
+
+    void tick();
     return () => {
-      alive = false;
-      loopAliveRef.current = false;
+      cancelled = true;
+      loopTokenRef.current += 1;
     };
   }, [active, paused, starting, live, emitDecode, tryDecodeFrame]);
 
   useEffect(() => {
-    if (active) {
-      void startCamera();
-    } else {
-      stopStream();
-    }
+    if (active) void startCamera();
+    else stopStream();
     return () => stopStream();
-  }, [active]); // eslint-disable-line react-hooks/exhaustive-deps -- solo al activar/desactivar
+  }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="qr-live">
@@ -585,30 +566,28 @@ export default function QrLiveScanner({
           background: #000;
           cursor: crosshair;
           touch-action: manipulation;
-          /* Preview afinado a pantalla de celular (no afecta el decode del canvas) */
-          filter: contrast(1.18) brightness(0.92) saturate(0.85);
         }
         .qr-live-frame {
           position: absolute;
-          inset: 14%;
-          border: 2px solid rgba(207,161,58,0.9);
-          border-radius: 18px;
-          box-shadow: 0 0 0 9999px rgba(0,0,0,0.32);
+          inset: 10%;
+          border: 2.5px solid rgba(207,161,58,0.95);
+          border-radius: 20px;
+          box-shadow: 0 0 0 9999px rgba(0,0,0,0.28);
           pointer-events: none;
         }
         .qr-live-frame::after {
           content: '';
           position: absolute;
-          left: 8%;
-          right: 8%;
+          left: 6%;
+          right: 6%;
           height: 2px;
           top: 50%;
           background: linear-gradient(90deg, transparent, rgba(207,161,58,0.95), transparent);
-          animation: qr-scan-line 1.8s ease-in-out infinite;
+          animation: qr-scan-line 1.4s ease-in-out infinite;
         }
         @keyframes qr-scan-line {
-          0%, 100% { transform: translateY(-40px); opacity: 0.35; }
-          50% { transform: translateY(40px); opacity: 1; }
+          0%, 100% { transform: translateY(-48px); opacity: 0.35; }
+          50% { transform: translateY(48px); opacity: 1; }
         }
         @media (prefers-reduced-motion: reduce) {
           .qr-live-frame::after { animation: none; }
@@ -619,13 +598,14 @@ export default function QrLiveScanner({
           bottom: 0.85rem;
           transform: translateX(-50%);
           z-index: 3;
-          background: rgba(0,0,0,0.62);
+          background: rgba(0,0,0,0.66);
           color: #fff;
           font-size: 0.78rem;
-          padding: 0.4rem 0.75rem;
+          font-weight: 600;
+          padding: 0.45rem 0.85rem;
           border-radius: 999px;
           white-space: nowrap;
-          max-width: 92%;
+          max-width: 94%;
           overflow: hidden;
           text-overflow: ellipsis;
           pointer-events: none;
@@ -677,12 +657,12 @@ export default function QrLiveScanner({
         )}
         <button
           type="button"
-          title="Reajustar brillo y foco para pantalla"
-          aria-label="Reajustar brillo y foco para pantalla"
+          title="Reenfocar de cerca"
+          aria-label="Reenfocar de cerca"
           onClick={() => {
-            void applyScreenScanTuning(trackRef.current);
-            setHint('Brillo/foco reajustados para pantalla');
-            setTimeout(() => setHint('Pantalla del socio a 20–35 cm · tocá para enfocar'), 900);
+            void applyCloseFocus(trackRef.current);
+            setHint('Foco cercano reaplicado');
+            setTimeout(() => setHint('Acercá el QR al marco · lectura al instante'), 800);
           }}
         >
           <Aperture size={18} aria-hidden="true" />

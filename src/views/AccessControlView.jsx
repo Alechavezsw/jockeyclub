@@ -7,7 +7,7 @@ import { parseCredentialQRPayload } from '../domain/credentials/qr';
 import { parseGuestPassPayload, isGuestPassValid } from '../domain/credentials/guestPass';
 import QrLiveScanner from '../components/QrLiveScanner';
 
-const COOLDOWN_MS = 2800;
+const COOLDOWN_MS = 2200;
 
 function playBeep(success) {
   try {
@@ -455,7 +455,7 @@ export default function AccessControlView({
                 Lector de credenciales
               </p>
               <p style={{ margin: 0, fontSize: '0.8rem', maxWidth: 300 }}>
-                Credencial a pantalla completa con brillo al máximo, a 20–35 cm. Tocá para enfocar; linterna mejor apagada.
+                Credencial a pantalla completa, brillo al máximo. Acercá el QR al marco: debería leer al instante.
               </p>
             </div>
           )}

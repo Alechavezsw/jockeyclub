@@ -519,7 +519,7 @@ export default function VirtualCard({ member }) {
             >
               <QRCodeSVG
                 value={buildCredentialQRPayload(member)}
-                size={280}
+                size={320}
                 level="H"
                 includeMargin
                 bgColor="#ffffff"
@@ -527,7 +527,7 @@ export default function VirtualCard({ member }) {
               />
             </div>
             <p className="vc-secure-foot">
-              Subí el brillo al máximo y mostrá el QR al molinete (20–35 cm). Tocá afuera o ✕ para cerrar.
+              Brillo al máximo · acercá el QR al marco del molinete. Tocá afuera o ✕ para cerrar.
             </p>
           </div>
         )}
