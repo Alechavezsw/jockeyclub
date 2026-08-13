@@ -8,7 +8,7 @@ import {
   CONCESSION_SPACES,
   CHECKLIST_ITEMS,
   DOC_TYPES,
-  createConcession,
+  REQUIRED_DOC_TYPES,
   summarizeConcessions,
   findSpaceOverlap,
   getCanonDebt,
@@ -21,6 +21,7 @@ import {
 import { downloadCanonReceiptPdf } from '../../domain/concessions/exportCanonReceiptPdf';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { uploadConcessionDocument, validateConcessionDocFile } from '../../data/storage';
+import ConcessionWizard from './ConcessionWizard';
 
 function formatCurrency(amount) {
   return new Intl.NumberFormat('es-AR', {
@@ -42,27 +43,6 @@ function formatDate(iso) {
 function spaceLabel(spaceId) {
   return CONCESSION_SPACES.find((s) => s.id === spaceId)?.name || 'Sin espacio';
 }
-
-const EMPTY_FORM = {
-  name: '',
-  type: 'gastronomia',
-  concessionaire: '',
-  cuit: '',
-  contactName: '',
-  contactPhone: '',
-  contactEmail: '',
-  location: '',
-  spaceId: 'space-pavilion',
-  startDate: new Date().toISOString().slice(0, 10),
-  endDate: '',
-  noticeDays: '30',
-  monthlyFee: '',
-  revenueSharePct: '0',
-  deposit: '',
-  autoRenew: false,
-  notes: '',
-  statusManual: 'active',
-};
 
 const STATUS_CLASS = {
   active: 'is-ok',
@@ -88,14 +68,11 @@ export default function ConcessionsTab({
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState(EMPTY_FORM);
   const [error, setError] = useState('');
   const [selectedId, setSelectedId] = useState(null);
   const [detailTab, setDetailTab] = useState('resumen');
   const [payForm, setPayForm] = useState({ period: '', amount: '', method: 'transfer', note: '' });
-  const [docForm, setDocForm] = useState({ type: 'contrato', name: '', note: '', file: null });
-  const [contractFile, setContractFile] = useState(null);
-  const [saving, setSaving] = useState(false);
+  const [uploadingDocType, setUploadingDocType] = useState(null);
   const [calCursor, setCalCursor] = useState(() => {
     const d = new Date();
     return { year: d.getFullYear(), month: d.getMonth() };
@@ -133,80 +110,6 @@ export default function ConcessionsTab({
   const progress = selected ? checklistProgress(selected) : null;
   const missingDocs = selected ? missingRequiredDocuments(selected) : [];
 
-  const submit = async (e) => {
-    e.preventDefault();
-    setError('');
-    setSaving(true);
-    try {
-      const overlap = findSpaceOverlap(concessions, {
-        spaceId: form.spaceId,
-        startDate: form.startDate,
-        endDate: form.endDate,
-      });
-      if (overlap) {
-        throw new Error(`El espacio ya está ocupado por «${overlap.name}» en ese período.`);
-      }
-      if (contractFile) validateConcessionDocFile(contractFile);
-
-      const created = createConcession({
-        ...form,
-        noticeDays: Number(form.noticeDays) || 30,
-        monthlyFee: Number(form.monthlyFee) || 0,
-        revenueSharePct: Number(form.revenueSharePct) || 0,
-        deposit: Number(form.deposit) || 0,
-      });
-      if (!saveConcession) throw new Error('Guardado no disponible.');
-
-      const saved = await saveConcession(created);
-      const concessionId = saved?.id || created.id;
-
-      if (contractFile) {
-        if (!isSupabaseConfigured) {
-          throw new Error('Para subir el contrato necesitás Supabase configurado.');
-        }
-        const uploaded = await uploadConcessionDocument(contractFile, {
-          concessionId,
-          type: 'contrato',
-        });
-        const withDoc = {
-          ...saved,
-          documents: [
-            ...(saved.documents || []),
-            {
-              id: `doc-${Date.now()}`,
-              type: 'contrato',
-              name: uploaded.name,
-              url: uploaded.url,
-              path: uploaded.path,
-              mimeType: uploaded.mimeType,
-              size: uploaded.size,
-              uploadedAt: new Date().toISOString(),
-              note: 'Contrato adjunto en el alta',
-            },
-          ],
-          checklist: {
-            ...(saved.checklist || {}),
-            contrato: true,
-          },
-        };
-        const finalSaved = await saveConcession(withDoc);
-        setSelectedId(finalSaved?.id || concessionId);
-      } else {
-        setSelectedId(concessionId);
-      }
-
-      setForm(EMPTY_FORM);
-      setContractFile(null);
-      setShowForm(false);
-      setSection('contratos');
-      setDetailTab('resumen');
-    } catch (err) {
-      setError(err?.message || 'No se pudo guardar la concesión.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const registerPayment = (e) => {
     e.preventDefault();
     if (!selected || !recordCanonPayment) return;
@@ -225,44 +128,34 @@ export default function ConcessionsTab({
     }
   };
 
-  const addDoc = async (e) => {
-    e.preventDefault();
+  const uploadDetailDoc = async (type, file) => {
     if (!selected || !addDocToConcession) return;
     setError('');
-    setSaving(true);
+    setUploadingDocType(type);
     try {
-      let payload = {
-        type: docForm.type,
-        name: docForm.name || DOC_TYPES[docForm.type] || 'Documento',
-        note: docForm.note,
-      };
-      if (docForm.file) {
-        validateConcessionDocFile(docForm.file);
-        if (!isSupabaseConfigured) {
-          throw new Error('Para subir archivos necesitás Supabase configurado.');
-        }
-        const uploaded = await uploadConcessionDocument(docForm.file, {
-          concessionId: selected.id,
-          type: docForm.type,
-        });
-        payload = {
-          ...payload,
-          name: docForm.name || uploaded.name,
-          url: uploaded.url,
-          path: uploaded.path,
-          mimeType: uploaded.mimeType,
-          size: uploaded.size,
-        };
+      validateConcessionDocFile(file);
+      if (!isSupabaseConfigured) {
+        throw new Error('Para subir archivos necesitás Supabase configurado.');
       }
-      await addDocToConcession(selected.id, payload);
-      if (docForm.type === 'contrato' && toggleConcessionChecklist) {
-        toggleConcessionChecklist(selected.id, 'contrato', true);
+      const uploaded = await uploadConcessionDocument(file, {
+        concessionId: selected.id,
+        type,
+      });
+      await addDocToConcession(selected.id, {
+        type,
+        name: uploaded.name,
+        url: uploaded.url,
+        path: uploaded.path,
+        mimeType: uploaded.mimeType,
+        size: uploaded.size,
+      });
+      if (CHECKLIST_ITEMS.some((i) => i.id === type) && toggleConcessionChecklist) {
+        toggleConcessionChecklist(selected.id, type, true);
       }
-      setDocForm({ type: 'contrato', name: '', note: '', file: null });
     } catch (err) {
-      setError(err.message || 'No se pudo adjuntar el documento.');
+      setError(err?.message || 'No se pudo adjuntar el documento.');
     } finally {
-      setSaving(false);
+      setUploadingDocType(null);
     }
   };
 
@@ -292,11 +185,23 @@ export default function ConcessionsTab({
           <button type="button" className="btn btn-secondary btn-sm" onClick={exportCsv}>
             <Download size={14} /> Exportar CSV
           </button>
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowForm((v) => !v)}>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => {
+              setShowForm(true);
+              setSection('contratos');
+              setError('');
+            }}
+          >
             <Plus size={14} /> Nueva concesión
           </button>
         </div>
       </header>
+
+      {error && !showForm && (
+        <p className="conc-error" role="alert">{error}</p>
+      )}
 
       <div className="conc-section-tabs">
         {[
@@ -342,90 +247,20 @@ export default function ConcessionsTab({
       )}
 
       {showForm && (
-        <form className="glass-card conc-form" onSubmit={submit}>
-          <h3>Alta de concesión</h3>
-          <div className="conc-form-grid">
-            <div>
-              <label className="form-label">Nombre *</label>
-              <input className="form-input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-            </div>
-            <div>
-              <label className="form-label">Tipo</label>
-              <select className="form-input" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
-                {Object.entries(CONCESSION_TYPES).map(([k, v]) => (
-                  <option key={k} value={k}>{v}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="form-label">Espacio del club *</label>
-              <select className="form-input" value={form.spaceId} onChange={(e) => setForm({ ...form, spaceId: e.target.value })}>
-                {CONCESSION_SPACES.map((s) => (
-                  <option key={s.id} value={s.id}>{s.area} · {s.name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="form-label">Concesionario *</label>
-              <input className="form-input" value={form.concessionaire} onChange={(e) => setForm({ ...form, concessionaire: e.target.value })} required />
-            </div>
-            <div>
-              <label className="form-label">CUIT</label>
-              <input className="form-input" value={form.cuit} onChange={(e) => setForm({ ...form, cuit: e.target.value })} />
-            </div>
-            <div>
-              <label className="form-label">Inicio</label>
-              <input type="date" className="form-input" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} />
-            </div>
-            <div>
-              <label className="form-label">Vencimiento *</label>
-              <input type="date" className="form-input" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} required />
-            </div>
-            <div>
-              <label className="form-label">Aviso (días)</label>
-              <input type="number" min="1" className="form-input" value={form.noticeDays} onChange={(e) => setForm({ ...form, noticeDays: e.target.value })} />
-            </div>
-            <div>
-              <label className="form-label">Canon mensual</label>
-              <input type="number" min="0" className="form-input" value={form.monthlyFee} onChange={(e) => setForm({ ...form, monthlyFee: e.target.value })} />
-            </div>
-            <div>
-              <label className="form-label">% participación</label>
-              <input type="number" min="0" max="100" className="form-input" value={form.revenueSharePct} onChange={(e) => setForm({ ...form, revenueSharePct: e.target.value })} />
-            </div>
-            <div>
-              <label className="form-label">Ubicación / nota física</label>
-              <input className="form-input" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
-            </div>
-            <div style={{ gridColumn: '1 / -1' }}>
-              <label className="form-label">Contrato (PDF o foto)</label>
-              <input
-                type="file"
-                className="form-input"
-                accept="application/pdf,image/*"
-                onChange={(e) => setContractFile(e.target.files?.[0] || null)}
-              />
-              <p style={{ margin: '0.35rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                Opcional al alta. Máx. 10 MB · PDF, JPG, PNG o WEBP.
-                {contractFile ? ` · Seleccionado: ${contractFile.name}` : ''}
-              </p>
-            </div>
-          </div>
-          {error && <p className="conc-error">{error}</p>}
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button type="submit" className="btn btn-primary btn-sm" disabled={saving}>
-              <Upload size={14} /> {saving ? 'Guardando…' : 'Guardar'}
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              disabled={saving}
-              onClick={() => { setShowForm(false); setContractFile(null); }}
-            >
-              Cancelar
-            </button>
-          </div>
-        </form>
+        <ConcessionWizard
+          concessions={concessions}
+          saveConcession={saveConcession}
+          addDocToConcession={addDocToConcession}
+          toggleConcessionChecklist={toggleConcessionChecklist}
+          findSpaceOverlap={findSpaceOverlap}
+          onCancel={() => setShowForm(false)}
+          onDone={(saved) => {
+            setShowForm(false);
+            setSelectedId(saved?.id || null);
+            setSection('contratos');
+            setDetailTab(missingRequiredDocuments(saved || {}).length ? 'docs' : 'resumen');
+          }}
+        />
       )}
 
       {section === 'calendario' && (
@@ -689,72 +524,120 @@ export default function ConcessionsTab({
 
                 {detailTab === 'docs' && (
                   <div className="conc-panel">
+                    {error && <p className="conc-error" role="alert">{error}</p>}
                     {missingDocs.length > 0 && (
                       <div className="conc-alert-strip">
                         <FileText size={14} />
-                        Faltan: {missingDocs.map((d) => DOC_TYPES[d] || d).join(', ')}
+                        Completá por pasos. Faltan: {missingDocs.map((d) => DOC_TYPES[d] || d).join(', ')}
                       </div>
                     )}
-                    <form className="conc-inline-form" onSubmit={addDoc}>
-                      <div>
-                        <label className="form-label">Tipo</label>
-                        <select className="form-input" value={docForm.type} onChange={(e) => setDocForm({ ...docForm, type: e.target.value })}>
-                          {Object.entries(DOC_TYPES).map(([k, v]) => (
-                            <option key={k} value={k}>{v}</option>
-                          ))}
-                        </select>
+                    <div className="conc-doc-steps">
+                      {REQUIRED_DOC_TYPES.map((type, idx) => {
+                        const files = (selected.documents || []).filter((d) => d.type === type);
+                        const done = files.length > 0;
+                        return (
+                          <article key={type} className={`conc-doc-card${done ? ' is-done' : ''}`}>
+                            <header>
+                              <span className="conc-doc-card-step">Paso {idx + 1}</span>
+                              <h4>{DOC_TYPES[type]}</h4>
+                              <span className={`conc-badge ${done ? 'is-ok' : 'is-warn'}`}>
+                                {done ? 'Cargado' : 'Pendiente'}
+                              </span>
+                            </header>
+                            <p>PDF o foto · máx. 10 MB</p>
+                            <label className="conc-doc-upload">
+                              <Upload size={14} />
+                              {uploadingDocType === type ? 'Subiendo…' : done ? 'Agregar otro archivo' : 'Elegir archivo y subir'}
+                              <input
+                                type="file"
+                                accept="application/pdf,image/*"
+                                disabled={Boolean(uploadingDocType)}
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  e.target.value = '';
+                                  if (file) void uploadDetailDoc(type, file);
+                                }}
+                              />
+                            </label>
+                            {files.length > 0 ? (
+                              <ul className="conc-doc-file-list">
+                                {files.map((d) => (
+                                  <li key={d.id}>
+                                    <FileText size={14} />
+                                    <div className="conc-doc-file-meta">
+                                      <strong>{d.name || DOC_TYPES[type]}</strong>
+                                      <em>{formatDate((d.uploadedAt || '').slice(0, 10))}</em>
+                                    </div>
+                                    {d.url ? (
+                                      <a className="btn btn-secondary btn-sm" href={d.url} target="_blank" rel="noreferrer">
+                                        Ver
+                                      </a>
+                                    ) : null}
+                                    <button
+                                      type="button"
+                                      className="btn btn-secondary btn-sm"
+                                      onClick={() => removeDocFromConcession?.(selected.id, d.id)}
+                                    >
+                                      Quitar
+                                    </button>
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <p className="conc-empty">Todavía no hay archivo para este paso.</p>
+                            )}
+                          </article>
+                        );
+                      })}
+                    </div>
+
+                    <details className="conc-doc-extra">
+                      <summary>Otros documentos (anexo / otro)</summary>
+                      <div className="conc-doc-steps" style={{ marginTop: '0.75rem' }}>
+                        {['anexo', 'otro'].map((type) => {
+                          const files = (selected.documents || []).filter((d) => d.type === type);
+                          return (
+                            <article key={type} className="conc-doc-card">
+                              <header>
+                                <h4>{DOC_TYPES[type]}</h4>
+                              </header>
+                              <label className="conc-doc-upload">
+                                <Upload size={14} />
+                                {uploadingDocType === type ? 'Subiendo…' : 'Subir'}
+                                <input
+                                  type="file"
+                                  accept="application/pdf,image/*"
+                                  disabled={Boolean(uploadingDocType)}
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    e.target.value = '';
+                                    if (file) void uploadDetailDoc(type, file);
+                                  }}
+                                />
+                              </label>
+                              {files.length > 0 && (
+                                <ul className="conc-doc-file-list">
+                                  {files.map((d) => (
+                                    <li key={d.id}>
+                                      <FileText size={14} />
+                                      <strong>{d.name}</strong>
+                                      {d.url ? <a href={d.url} target="_blank" rel="noreferrer">Ver</a> : null}
+                                      <button
+                                        type="button"
+                                        className="btn btn-secondary btn-sm"
+                                        onClick={() => removeDocFromConcession?.(selected.id, d.id)}
+                                      >
+                                        Quitar
+                                      </button>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </article>
+                          );
+                        })}
                       </div>
-                      <div>
-                        <label className="form-label">Archivo (PDF / foto)</label>
-                        <input
-                          type="file"
-                          className="form-input"
-                          accept="application/pdf,image/*"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0] || null;
-                            setDocForm((prev) => ({
-                              ...prev,
-                              file,
-                              name: prev.name || file?.name || '',
-                            }));
-                          }}
-                        />
-                      </div>
-                      <div>
-                        <label className="form-label">Nombre (opcional)</label>
-                        <input className="form-input" value={docForm.name} onChange={(e) => setDocForm({ ...docForm, name: e.target.value })} placeholder="contrato.pdf" />
-                      </div>
-                      <button type="submit" className="btn btn-primary btn-sm" disabled={saving || !docForm.file}>
-                        <Upload size={14} /> {saving ? 'Subiendo…' : 'Subir'}
-                      </button>
-                    </form>
-                    <ul className="conc-pay-list">
-                      {(selected.documents || []).length === 0 && <li className="conc-empty">Sin documentos.</li>}
-                      {(selected.documents || []).map((d) => (
-                        <li key={d.id}>
-                          <span>{DOC_TYPES[d.type] || d.type}</span>
-                          <strong>{d.name}</strong>
-                          <em>{formatDate((d.uploadedAt || '').slice(0, 10))}</em>
-                          {d.url ? (
-                            <a
-                              className="btn btn-secondary btn-sm"
-                              href={d.url}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              Ver
-                            </a>
-                          ) : null}
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            onClick={() => removeDocFromConcession?.(selected.id, d.id)}
-                          >
-                            Quitar
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
+                    </details>
                   </div>
                 )}
 

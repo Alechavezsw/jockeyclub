@@ -484,13 +484,27 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
     });
   }, []);
 
-  const addDocToConcession = useCallback(async (concessionId, doc) => {
-    const current = concessions.find((c) => c.id === concessionId);
+  const addDocToConcession = useCallback(async (concessionId, doc, baseConcession = null) => {
+    // baseConcession evita carrera tras el alta (el state aún no hidrató el id nuevo)
+    let current =
+      (baseConcession && String(baseConcession.id) === String(concessionId) ? baseConcession : null)
+      || concessions.find((c) => String(c.id) === String(concessionId));
+
+    if (!current && cloud()) {
+      const list = await repos.listConcessions();
+      current = (list || []).find((c) => String(c.id) === String(concessionId)) || null;
+      if (list) setConcessions(list);
+    }
     if (!current) throw new Error('Concesión no encontrada.');
+
     const updated = addConcessionDocument(current, doc);
     if (cloud()) {
       const saved = await repos.upsertConcession(updated);
-      setConcessions((prev) => prev.map((c) => (c.id === concessionId || c.id === saved.id ? saved : c)));
+      setConcessions((prev) => {
+        const exists = prev.some((c) => c.id === concessionId || c.id === saved.id);
+        if (!exists) return [saved, ...prev];
+        return prev.map((c) => (c.id === concessionId || c.id === saved.id ? saved : c));
+      });
       return saved;
     }
     setConcessions((prev) => prev.map((c) => (c.id === concessionId ? updated : c)));

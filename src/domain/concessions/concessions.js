@@ -48,7 +48,15 @@ export const DOC_TYPES = {
   otro: 'Otro',
 };
 
-const REQUIRED_DOC_TYPES = ['contrato', 'seguro', 'habilitacion'];
+/** Documentos obligatorios del alta (se suben por pasos). */
+export const REQUIRED_DOC_TYPES = ['contrato', 'seguro', 'habilitacion'];
+
+export const ONBOARDING_STEPS = [
+  { id: 'datos', label: 'Datos', description: 'Nombre, tipo, espacio y concesionario' },
+  { id: 'vigencia', label: 'Vigencia y canon', description: 'Fechas, canon y depósito' },
+  { id: 'documentos', label: 'Documentos', description: 'Contrato, seguro y habilitación' },
+  { id: 'cierre', label: 'Cierre', description: 'Checklist operativo y portal' },
+];
 
 const SPACE_PORTAL_PREFIX = {
   'space-pavilion': 'PAV',
