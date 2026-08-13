@@ -40,7 +40,7 @@ describe('buildNotifications', () => {
     expect(list[0].title).toBe('Consulta');
   });
 
-  it('mensajes no leídos ignoran dismissedIds (no se ocultan para siempre)', () => {
+  it('notificaciones leídas en BD (dismissedIds) no vuelven a aparecer', () => {
     const list = buildNotifications({
       role: 'admin',
       messages: [
@@ -48,7 +48,7 @@ describe('buildNotifications', () => {
       ],
       dismissedIds: ['inbox-x'],
     });
-    expect(list).toHaveLength(1);
+    expect(list).toHaveLength(0);
   });
 
   it('no mete alertas informativas (sin acuse) en la campanita', () => {

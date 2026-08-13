@@ -13,6 +13,7 @@ export default function Navbar({
   unreadMessages = 0,
   onOpenNotification,
   onDismissNotification,
+  onMarkAllNotificationsRead,
 }) {
   const { user, role, logout, roleLabel } = useAuth();
   const navigate = useNavigate();
@@ -298,9 +299,21 @@ export default function Navbar({
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.25rem 0.5rem 0.6rem', borderBottom: '1px solid var(--border-glass)', gap: 8 }}>
                   <strong style={{ fontSize: '0.9rem' }}>Notificaciones</strong>
-                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                    {notifications.length === 0 ? 'Al día' : `${notifications.length} pendientes`}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                      {notifications.length === 0 ? 'Al día' : `${notifications.length} pendientes`}
+                    </span>
+                    {notifications.length > 0 && typeof onMarkAllNotificationsRead === 'function' && (
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        style={{ fontSize: '0.68rem', padding: '0.2rem 0.45rem' }}
+                        onClick={() => onMarkAllNotificationsRead()}
+                      >
+                        Marcar leídas
+                      </button>
+                    )}
+                  </div>
                 </div>
                 {notifications.length === 0 ? (
                   <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', textAlign: 'center', padding: '1.25rem 0.5rem' }}>

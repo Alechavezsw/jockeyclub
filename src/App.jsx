@@ -1402,6 +1402,22 @@ export default function App() {
 
   const [dismissedNotifIds, setDismissedNotifIds] = useState(() => loadDismissedNotificationIds());
 
+  // Lecturas de campanita desde BD
+  useEffect(() => {
+    if (!cloudMode || !isAuthenticated || !dbReady || !user?.id) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const keys = await repos.listNotificationReads();
+        if (cancelled) return;
+        setDismissedNotifIds((prev) => saveDismissedNotificationIds([...prev, ...(keys || [])]));
+      } catch {
+        /* local sigue como fallback */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [cloudMode, isAuthenticated, dbReady, user?.id]);
+
   const sessionMember = user?.memberId
     ? members.find((m) => m.memberId === user.memberId) || null
     : null;
@@ -1422,19 +1438,37 @@ export default function App() {
       dismissedIds: dismissedNotifIds,
     });
 
-  const dismissNotification = useCallback((notifId) => {
+  const dismissNotification = useCallback((notifId, notif = null) => {
+    if (!notifId) return;
     setDismissedNotifIds((prev) => saveDismissedNotificationIds([...prev, notifId]));
-  }, []);
+    if (cloudMode && user?.id) {
+      repos.markNotificationRead(notifId, user.id).catch(() => {});
+    }
+    if (notif?.kind === 'message' && notif.messageId) {
+      setMessagesDb((prev) => markMessageRead(prev, notif.messageId));
+    }
+  }, [cloudMode, user?.id]);
 
   const handleNotificationOpen = useCallback((notif) => {
     if (!notif) return;
-    dismissNotification(notif.id);
-    if (notif.kind === 'message' && notif.messageId) {
-      setMessagesDb((prev) => markMessageRead(prev, notif.messageId));
-    }
+    dismissNotification(notif.id, notif);
     if (notif.path) navigate(notif.path);
     else if (notif.view) setCurrentView(notif.view);
   }, [dismissNotification, navigate, setCurrentView]);
+
+  const handleMarkAllNotificationsRead = useCallback(() => {
+    const ids = notifications.map((n) => n.id);
+    if (!ids.length) return;
+    setDismissedNotifIds((prev) => saveDismissedNotificationIds([...prev, ...ids]));
+    notifications.forEach((n) => {
+      if (n.kind === 'message' && n.messageId) {
+        setMessagesDb((prev) => markMessageRead(prev, n.messageId));
+      }
+    });
+    if (cloudMode && user?.id) {
+      repos.markNotificationsRead(ids, user.id).catch(() => {});
+    }
+  }, [notifications, cloudMode, user?.id]);
 
   // Agregar un anuncio/noticia (Admin)
   const addNewsArticle = (newArticle) => {
@@ -1671,7 +1705,11 @@ export default function App() {
           notifications={notifications}
           unreadMessages={unreadMessages}
           onOpenNotification={handleNotificationOpen}
-          onDismissNotification={dismissNotification}
+          onDismissNotification={(id) => {
+            const n = notifications.find((x) => String(x.id) === String(id));
+            dismissNotification(id, n || null);
+          }}
+          onMarkAllNotificationsRead={handleMarkAllNotificationsRead}
         />
       )}
 

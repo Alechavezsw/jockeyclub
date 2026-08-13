@@ -728,6 +728,40 @@ export async function ackAlert(alertId, profileId) {
   };
 }
 
+/** Lecturas de campanita (por usuario). */
+export async function listNotificationReads() {
+  const rows = await unwrap(
+    sb().from('notification_reads').select('notif_key, read_at').order('read_at', { ascending: false }),
+    'No se pudieron cargar lecturas de notificaciones'
+  );
+  return (rows || []).map((r) => String(r.notif_key));
+}
+
+export async function markNotificationRead(notifKey, profileId) {
+  if (!notifKey || !profileId) return null;
+  const saved = await unwrap(
+    sb().from('notification_reads').upsert(
+      { profile_id: profileId, notif_key: String(notifKey) },
+      { onConflict: 'profile_id,notif_key' }
+    ).select('notif_key').single(),
+    'No se pudo marcar la notificación como leída'
+  );
+  return saved?.notif_key ? String(saved.notif_key) : String(notifKey);
+}
+
+export async function markNotificationsRead(notifKeys, profileId) {
+  if (!profileId || !Array.isArray(notifKeys) || notifKeys.length === 0) return [];
+  const rows = notifKeys.map((k) => ({
+    profile_id: profileId,
+    notif_key: String(k),
+  }));
+  const saved = await unwrap(
+    sb().from('notification_reads').upsert(rows, { onConflict: 'profile_id,notif_key' }).select('notif_key'),
+    'No se pudieron marcar las notificaciones como leídas'
+  );
+  return (saved || []).map((r) => String(r.notif_key));
+}
+
 // ---- Concessions / Treasury ----
 export async function listConcessions() {
   const rows = await unwrap(sb().from('concessions').select('*').order('name'));

@@ -21,8 +21,8 @@ export function buildNotifications({
   const dismissed = new Set((dismissedIds || []).map(String));
   const push = (list, item) => {
     if (!item?.id) return;
-    // Los mensajes no leídos siempre cuentan: un dismiss no debe ocultarlos para siempre
-    if (item.kind !== 'message' && dismissed.has(String(item.id))) return;
+    // Leídas en BD (notification_reads) / descartadas: no vuelven a la campanita
+    if (dismissed.has(String(item.id))) return;
     list.push(item);
   };
 
@@ -48,8 +48,9 @@ export function buildNotifications({
     // Solo el socio de la sesión (nunca un fallback de padrón)
     if (member && member.memberId === memberId) {
       if (member.notifyDues !== false && (Number(member.outstandingBalance) || 0) > 0) {
+        const bal = Number(member.outstandingBalance) || 0;
         push(out, {
-          id: `dues-debt-${member.memberId}`,
+          id: `dues-debt-${member.memberId}-${bal}`,
           kind: 'dues',
           title: 'Cuota pendiente',
           detail: 'Tenés saldo por abonar. Tocá para ver Mi Cuenta.',
