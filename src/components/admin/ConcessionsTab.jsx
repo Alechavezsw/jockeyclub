@@ -85,7 +85,7 @@ export default function ConcessionsTab({
     return rows.filter((r) => {
       if (filter !== 'all' && r.expiry.status !== filter) return false;
       if (!q) return true;
-      const hay = `${r.name} ${r.concessionaire} ${r.location} ${r.cuit} ${r.portalCode}`.toLowerCase();
+      const hay = `${r.name} ${r.concessionaire} ${r.concessionaireNumber || ''} ${r.location} ${r.cuit} ${r.portalCode}`.toLowerCase();
       return hay.includes(q);
     });
   }, [rows, filter, query]);
@@ -428,8 +428,10 @@ export default function ConcessionsTab({
                   <>
                     <div className="conc-fields">
                       <div><span>Concesionario</span><strong>{selected.concessionaire}</strong></div>
+                      <div><span>Nº concesionario</span><strong>{selected.concessionaireNumber || '—'}</strong></div>
+                      <div><span>Teléfono</span><strong>{selected.contactPhone || '—'}</strong></div>
                       <div><span>CUIT</span><strong>{selected.cuit || '—'}</strong></div>
-                      <div><span>Contacto</span><strong>{selected.contactName || '—'} · {selected.contactPhone || '—'}</strong></div>
+                      <div><span>Contacto</span><strong>{selected.contactName || '—'}</strong></div>
                       <div><span>Email</span><strong>{selected.contactEmail || '—'}</strong></div>
                       <div><span>Espacio</span><strong>{spaceLabel(selected.spaceId)}</strong></div>
                       <div><span>Vigencia</span><strong>{formatDate(selected.startDate)} → {formatDate(selected.endDate)}</strong></div>

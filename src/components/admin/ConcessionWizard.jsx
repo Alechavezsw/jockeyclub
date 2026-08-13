@@ -19,6 +19,7 @@ const EMPTY_FORM = {
   name: '',
   type: 'tienda',
   concessionaire: '',
+  concessionaireNumber: '',
   cuit: '',
   contactName: '',
   contactPhone: '',
@@ -64,7 +65,8 @@ export default function ConcessionWizard({
 
   const validateDatos = () => {
     if (!form.name.trim()) throw new Error('Indicá el nombre de la concesión.');
-    if (!form.concessionaire.trim()) throw new Error('Indicá el concesionario.');
+    if (!form.concessionaire.trim()) throw new Error('Indicá el nombre del concesionario.');
+    if (!form.concessionaireNumber.trim()) throw new Error('Indicá el número del concesionario.');
     if (!form.spaceId) throw new Error('Elegí el espacio del club.');
   };
 
@@ -205,8 +207,8 @@ export default function ConcessionWizard({
     <div className="glass-card conc-wizard">
       <div className="conc-wizard-head">
         <div>
-          <h3>Nueva concesión</h3>
-          <p>Completá el alta por pasos. Los documentos se suben en el momento.</p>
+          <h3>Alta de concesión (por pasos)</h3>
+          <p>Paso a paso: datos del concesionario (con número), vigencia, documentos y cierre.</p>
         </div>
         <ol className="conc-wizard-steps" aria-label="Pasos del alta">
           {ONBOARDING_STEPS.map((s, idx) => (
@@ -231,7 +233,7 @@ export default function ConcessionWizard({
       {step === 0 && (
         <div className="conc-form-grid">
           <div>
-            <label className="form-label">Nombre *</label>
+            <label className="form-label">Nombre del local / concesión *</label>
             <input className="form-input" value={form.name} onChange={(e) => setField('name', e.target.value)} placeholder="Ej: Proveeduría" />
           </div>
           <div>
@@ -251,20 +253,41 @@ export default function ConcessionWizard({
             </select>
           </div>
           <div>
-            <label className="form-label">Concesionario *</label>
-            <input className="form-input" value={form.concessionaire} onChange={(e) => setField('concessionaire', e.target.value)} />
+            <label className="form-label">Nombre del concesionario *</label>
+            <input
+              className="form-input"
+              value={form.concessionaire}
+              onChange={(e) => setField('concessionaire', e.target.value)}
+              placeholder="Razón social o titular"
+            />
+          </div>
+          <div>
+            <label className="form-label">Nº del concesionario *</label>
+            <input
+              className="form-input"
+              value={form.concessionaireNumber}
+              onChange={(e) => setField('concessionaireNumber', e.target.value)}
+              placeholder="Legajo / código interno"
+              required
+            />
+          </div>
+          <div>
+            <label className="form-label">Teléfono del concesionario</label>
+            <input
+              className="form-input"
+              value={form.contactPhone}
+              onChange={(e) => setField('contactPhone', e.target.value)}
+              placeholder="+54 9 264…"
+              inputMode="tel"
+            />
           </div>
           <div>
             <label className="form-label">CUIT</label>
             <input className="form-input" value={form.cuit} onChange={(e) => setField('cuit', e.target.value)} />
           </div>
           <div>
-            <label className="form-label">Contacto</label>
+            <label className="form-label">Persona de contacto</label>
             <input className="form-input" value={form.contactName} onChange={(e) => setField('contactName', e.target.value)} placeholder="Nombre" />
-          </div>
-          <div>
-            <label className="form-label">Teléfono</label>
-            <input className="form-input" value={form.contactPhone} onChange={(e) => setField('contactPhone', e.target.value)} />
           </div>
           <div>
             <label className="form-label">Email</label>

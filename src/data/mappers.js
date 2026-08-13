@@ -454,6 +454,7 @@ export function concessionFromRow(row) {
     statusManual: row.status || meta.statusManual || 'active',
     // Shape UI (dominio)
     concessionaire: row.holder_name || meta.concessionaire || '',
+    concessionaireNumber: meta.concessionaireNumber || '',
     cuit: row.holder_cuit || meta.cuit || '',
     contactEmail: row.holder_email || meta.contactEmail || '',
     contactPhone: row.holder_phone || meta.contactPhone || '',
@@ -464,6 +465,7 @@ export function concessionFromRow(row) {
     deposit: meta.deposit ?? 0,
     autoRenew: Boolean(meta.autoRenew),
     incomeAccountId: meta.incomeAccountId || 'coa-4.1.04',
+    meta,
     // Compat aliases
     holderName: row.holder_name || '',
     holderCuit: row.holder_cuit || '',

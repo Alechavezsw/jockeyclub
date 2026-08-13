@@ -762,6 +762,7 @@ export async function upsertConcession(c) {
       autoRenew: Boolean(c.autoRenew),
       incomeAccountId: c.incomeAccountId || 'coa-4.1.04',
       concessionaire: c.concessionaire || c.holderName || '',
+      concessionaireNumber: c.concessionaireNumber || '',
       cuit: c.cuit || c.holderCuit || '',
     },
   };

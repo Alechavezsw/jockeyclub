@@ -460,6 +460,7 @@ export function createConcession(input = {}) {
     name,
     type: CONCESSION_TYPES[input.type] ? input.type : 'otro',
     concessionaire: String(input.concessionaire || '').trim(),
+    concessionaireNumber: String(input.concessionaireNumber || '').trim(),
     cuit: String(input.cuit || '').trim(),
     contactName: String(input.contactName || '').trim(),
     contactPhone: String(input.contactPhone || '').trim(),
