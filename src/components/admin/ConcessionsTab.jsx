@@ -382,7 +382,9 @@ export default function ConcessionsTab({
                     <span className={`conc-badge ${STATUS_CLASS[c.expiry.status]}`}>{c.expiry.label}</span>
                   </div>
                   <div className="conc-row-meta">
-                    {c.concessionaire} · vence {formatDate(c.endDate)}
+                    {c.concessionaire}
+                    {c.concessionaireNumber ? ` · Nº ${c.concessionaireNumber}` : ''}
+                    {' · vence '}{formatDate(c.endDate)}
                   </div>
                   <div className="conc-row-fee">{formatCurrency(c.monthlyFee)} / mes</div>
                 </button>
