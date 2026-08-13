@@ -1,24 +1,58 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Users, Calendar, DollarSign, Activity, MessageSquare, ClipboardList,
-  CheckCircle2, UserPlus, BookOpen, Shield, ShieldAlert, BellRing,
-  PartyPopper, Copy, Share2, Clock, UserCircle2,
+  Radio, BookOpen, Shield, ShieldAlert, BellRing, CheckCircle2,
+  PartyPopper, Clock, UserCircle2, FileSpreadsheet,
 } from 'lucide-react';
-import { canAccessQrGate } from '../../domain/auth/roles';
+import { canAccessQrGate, ROLE_LABELS } from '../../domain/auth/roles';
 import { isAlertVisible } from '../../domain/alerts/alerts';
+import { buildOpsFinanceSnapshot } from '../../domain/accounting/opsFinanceSnapshot';
 import { AlertsBanner } from '../erp/AlertsPanel';
 
-const CLUB_CODE = 'JCSJ2026';
+function reservationDay(res) {
+  return String(res?.date || res?.reservation_date || '').slice(0, 10);
+}
+
+function buildBookingsSnapshot(reservations = [], today = new Date()) {
+  const todayKey = today.toISOString().slice(0, 10);
+  const list = Array.isArray(reservations) ? reservations : [];
+  const upcoming = list.filter((r) => {
+    const day = reservationDay(r);
+    return day && day >= todayKey && r.status !== 'cancelled';
+  });
+  const confirmedUpcoming = upcoming.filter((r) => r.status === 'confirmed');
+  const pendingUpcoming = upcoming.filter((r) => r.status === 'pending');
+  const todayCount = upcoming.filter((r) => reservationDay(r) === todayKey).length;
+  const next = [...upcoming]
+    .sort((a, b) => {
+      const da = `${reservationDay(a)} ${a.time || a.time_slot || ''}`;
+      const db = `${reservationDay(b)} ${b.time || b.time_slot || ''}`;
+      return da.localeCompare(db);
+    })
+    .slice(0, 3);
+  return {
+    confirmedUpcoming: confirmedUpcoming.length,
+    pendingUpcoming: pendingUpcoming.length,
+    todayCount,
+    next,
+    pastConfirmed: list.filter((r) => r.status === 'confirmed' && reservationDay(r) < todayKey).length,
+  };
+}
 
 function pct(part, total) {
   if (!total) return '0.00';
   return ((part / total) * 100).toFixed(2);
 }
 
-function firstName(fullName = '') {
-  const part = String(fullName).trim().split(/\s+/)[0];
-  return part || 'equipo';
+/** Nombre para saludo: evita cargos institucionales (“Comisión”, “Tesorería”…). */
+function greetLabel(fullName = '', role = '') {
+  const name = String(fullName).trim();
+  const first = name.split(/\s+/)[0] || '';
+  if (!first || /^(comisi[oó]n|tesorer[ií]a|secretar[ií]a|administraci[oó]n|jockey|personal|caja)/i.test(first)) {
+    return ROLE_LABELS[role] || 'equipo';
+  }
+  return first;
 }
 
 function formatLongDate(d = new Date()) {
@@ -60,14 +94,17 @@ export default function AdminDashboardTab({
   pendingBookingsCount = 0,
   formatCurrency,
   getAccountBalance,
+  journalEntries = [],
+  chartOfAccounts = [],
 }) {
   const navigate = useNavigate();
-  const [codeCopied, setCodeCopied] = useState(false);
   const showGate = canAccessQrGate(userRole);
   const todayKey = new Date().toISOString().slice(0, 10);
   const hasAccounting = permittedTabs.includes('accounting');
   const hasMessaging = permittedTabs.includes('messaging');
   const hasMembers = permittedTabs.includes('members');
+
+  const bookings = useMemo(() => buildBookingsSnapshot(reservations), [reservations]);
 
   const msgStats = useMemo(() => {
     const total = messages.length;
@@ -114,39 +151,122 @@ export default function AdminDashboardTab({
 
   const activeStaff = staffMembers.filter((s) => s.status === 'active').length;
   const adherentsCount = members.reduce((n, m) => n + (m.adherents?.length || 0), 0);
-  const membersWithApp = members.filter((m) => m.hasApp || m.appInstalled).length
-    || Math.min(members.length, Math.round(members.length * 0.35));
+  const membersWithApp = members.filter((m) => m.hasApp || m.appInstalled).length;
+  const tierCounts = useMemo(() => ({
+    royal: members.filter((m) => m.tier === 'royal').length,
+    platinum: members.filter((m) => m.tier === 'platinum').length,
+    gold: members.filter((m) => m.tier === 'gold').length,
+  }), [members]);
 
   const monthLabel = new Date().toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
   const monthLabelCap = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1);
-  const cashToday = getAccountBalance('Caja General') + getAccountBalance('Caja Cantina') + getAccountBalance('Banco Nación');
-  const collected = getAccountBalance('Cuotas Sociales') + getAccountBalance('Caja General') + getAccountBalance('Banco Nación');
+
+  const finance = useMemo(
+    () => buildOpsFinanceSnapshot({
+      members,
+      journalEntries,
+      chartOfAccounts,
+      getAccountBalance,
+    }),
+    [members, journalEntries, chartOfAccounts, getAccountBalance]
+  );
+
+  const cashToday = finance.cashToday;
+  const collectedMonth = finance.collectedMonth;
+  const liveCollectionRate = finance.collectionRate || paymentCollectionRate || 0;
+  const debtTotal = finance.debtTotal || totalOutstanding || 0;
+
+  const activeSurveys = (surveys || []).filter((s) => s.active !== false && (s.status === 'open' || s.status === 'published' || s.active)).length;
 
   const quickActions = [
-    { tab: 'messaging', icon: <MessageSquare size={22} color="var(--primary-gold)" />, label: 'Nuevo Mensaje' },
-    { tab: 'surveys', icon: <CheckCircle2 size={22} color="var(--primary-gold)" />, label: 'Nueva Encuesta' },
-    { tab: 'reports', icon: <Activity size={22} color="var(--primary-gold)" />, label: 'Nuevo Reporte' },
-    { tab: 'dues', icon: <ShieldAlert size={22} color="var(--primary-gold)" />, label: 'Control Cuotas' },
-    { tab: 'members', icon: <UserPlus size={22} color="var(--primary-gold)" />, label: 'Socios' },
-    { tab: 'accounting', focus: 'cash', icon: <DollarSign size={22} color="var(--primary-gold)" />, label: 'Arqueo de Caja', roles: ['cashier'] },
-    { tab: 'bookings', icon: <Calendar size={22} color="var(--primary-gold)" />, label: 'Reservas' },
-    { tab: 'claims', icon: <ClipboardList size={22} color="var(--primary-gold)" />, label: 'Reclamos' },
+    {
+      tab: 'dues',
+      tone: overdueMembersCount > 0 ? 'danger' : 'gold',
+      icon: ShieldAlert,
+      title: 'Cobranza',
+      hint: overdueMembersCount > 0
+        ? `${overdueMembersCount} en mora · ${formatCurrency(totalOutstanding)}`
+        : upcomingDuesCount > 0
+          ? `${upcomingDuesCount} a vencer en 15 días`
+          : 'Padrón al día',
+      badge: overdueMembersCount > 0 ? String(overdueMembersCount) : null,
+    },
+    {
+      tab: 'messaging',
+      tone: msgStats.unanswered > 0 || msgStats.unread > 0 ? 'warn' : 'gold',
+      icon: MessageSquare,
+      title: 'Mensajería',
+      hint: msgStats.unanswered > 0
+        ? `${msgStats.unanswered} sin responder`
+        : msgStats.unread > 0
+          ? `${msgStats.unread} sin leer`
+          : 'Escribir a socios',
+      badge: (msgStats.unanswered || msgStats.unread) || null,
+    },
+    {
+      tab: 'bookings',
+      tone: 'emerald',
+      icon: Calendar,
+      title: 'Reservas',
+      hint: bookings.pendingUpcoming > 0
+        ? `${bookings.pendingUpcoming} por confirmar`
+        : bookings.confirmedUpcoming > 0
+          ? `${bookings.confirmedUpcoming} próximas confirmadas`
+          : bookings.todayCount > 0
+            ? `${bookings.todayCount} para hoy`
+            : 'Sin turnos próximos',
+      badge: bookings.pendingUpcoming > 0 ? String(bookings.pendingUpcoming) : null,
+    },
+    {
+      tab: 'reports',
+      tone: 'gold',
+      icon: FileSpreadsheet,
+      title: 'Informes',
+      hint: 'Estadísticas, PDF y exportaciones',
+    },
+    {
+      tab: 'members',
+      tone: 'gold',
+      icon: Users,
+      title: 'Padrón',
+      hint: `${totalMembers || members.length} socios titulares`,
+    },
+    {
+      tab: 'surveys',
+      tone: 'gold',
+      icon: Radio,
+      title: 'Encuestas',
+      hint: activeSurveys > 0 ? `${activeSurveys} consulta${activeSurveys === 1 ? '' : 's'} abierta${activeSurveys === 1 ? '' : 's'}` : 'Crear consulta colectiva',
+      badge: activeSurveys > 0 ? String(activeSurveys) : null,
+    },
+    {
+      tab: 'claims',
+      tone: pendingClaimsCount > 0 ? 'warn' : 'gold',
+      icon: ClipboardList,
+      title: 'Reclamos',
+      hint: pendingClaimsCount > 0 ? `${pendingClaimsCount} abiertos` : 'Sin pendientes',
+      badge: pendingClaimsCount > 0 ? String(pendingClaimsCount) : null,
+    },
+    {
+      tab: 'accounting',
+      focus: 'cash',
+      tone: 'emerald',
+      icon: DollarSign,
+      title: 'Arqueo',
+      hint: 'Cajas y movimientos del día',
+      roles: ['cashier'],
+    },
+    {
+      tab: 'accounting',
+      tone: 'gold',
+      icon: BookOpen,
+      title: 'Contabilidad',
+      hint: 'Libro diario y balances',
+      roles: ['accountant'],
+    },
   ]
     .filter((a) => permittedTabs.includes(a.tab) && (!a.roles || a.roles.includes(userRole)))
     .slice(0, 4);
-
-  const copyClubCode = async () => {
-    try {
-      await navigator.clipboard.writeText(CLUB_CODE);
-      setCodeCopied(true);
-      setTimeout(() => setCodeCopied(false), 1800);
-    } catch { /* ignore */ }
-  };
-
-  const shareWhatsApp = () => {
-    const text = encodeURIComponent(`Unite al Jockey Club San Juan con el código ${CLUB_CODE}`);
-    window.open(`https://wa.me/?text=${text}`, '_blank', 'noopener,noreferrer');
-  };
 
   const link = (label, onClick) => (
     <button type="button" className="ops-dash-link" onClick={onClick}>{label}</button>
@@ -156,20 +276,32 @@ export default function AdminDashboardTab({
     <div className="fade-in ops-dash">
       <section className="ops-dash-hero ops-dash-hero--solo">
         <div className="ops-dash-hero-main">
-          <p className="ops-dash-greet">¡Hola nuevamente {firstName(userName)}!</p>
-          <h2 className="ops-dash-brand">Jockey Club San Juan</h2>
-          <div className="ops-dash-actions">
-            {quickActions.map((action) => (
-              <button
-                type="button"
-                key={`${action.tab}-${action.label}`}
-                className="ops-dash-action"
-                onClick={() => goToTab(action.tab, action.focus || null)}
-              >
-                {action.icon}
-                <span>{action.label}</span>
-              </button>
-            ))}
+          <p className="ops-dash-kicker">{formatLongDate()}</p>
+          <h2 className="ops-dash-title">Panel de administración</h2>
+          <p className="ops-dash-greet">
+            Hola, {greetLabel(userName, userRole)}
+          </p>
+          <div className="ops-dash-actions" aria-label="Accesos rápidos">
+            {quickActions.map((action) => {
+              const Icon = action.icon;
+              return (
+                <button
+                  type="button"
+                  key={`${action.tab}-${action.title}`}
+                  className={`ops-dash-action tone-${action.tone || 'gold'}`}
+                  onClick={() => goToTab(action.tab, action.focus || null)}
+                >
+                  <span className="ops-dash-action-icon" aria-hidden="true">
+                    <Icon size={20} strokeWidth={1.75} />
+                    {action.badge ? <em>{action.badge}</em> : null}
+                  </span>
+                  <span className="ops-dash-action-copy">
+                    <strong>{action.title}</strong>
+                    <small>{action.hint}</small>
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
       </section>
@@ -246,14 +378,18 @@ export default function AdminDashboardTab({
               {permittedTabs.includes('bookings') && (
                 <div className="ops-block">
                   <div className="ops-block-title">
-                    Reservas · {activeBookingsCount} ok · {pendingBookingsCount} pend.
+                    Reservas · {bookings.confirmedUpcoming} próximas · {bookings.pendingUpcoming} pend.
                   </div>
-                  {reservations.filter((r) => r.status === 'confirmed' || r.status === 'pending').slice(0, 3).map((res) => (
-                    <div key={res.id} className="ops-row ops-row--stack">
-                      <strong>{res.facilityName}</strong>
-                      <span className="ops-muted">{res.date} · {res.time} hs · {res.memberName}</span>
-                    </div>
-                  ))}
+                  {bookings.next.length === 0 ? (
+                    <p className="ops-muted">Sin turnos próximos.</p>
+                  ) : (
+                    bookings.next.map((res) => (
+                      <div key={res.id || `${reservationDay(res)}-${res.time}`} className="ops-row ops-row--stack">
+                        <strong>{res.facilityName || res.facilityId}</strong>
+                        <span className="ops-muted">{reservationDay(res)} · {res.time || res.time_slot || '—'} hs · {res.memberName}</span>
+                      </div>
+                    ))
+                  )}
                   {link('Ver agenda >', () => goToTab('bookings'))}
                 </div>
               )}
@@ -318,14 +454,36 @@ export default function AdminDashboardTab({
               </header>
               <div className="ops-floor-nums">
                 <div>
-                  <b style={{ color: 'var(--emerald-accent)' }}>{activeBookingsCount}</b>
-                  <span>confirmadas</span>
+                  <b style={{ color: 'var(--emerald-accent)' }}>{bookings.confirmedUpcoming}</b>
+                  <span>próximas OK</span>
                 </div>
                 <div>
-                  <b style={{ color: '#f59e0b' }}>{pendingBookingsCount}</b>
-                  <span>pendientes</span>
+                  <b style={{ color: '#f59e0b' }}>{bookings.pendingUpcoming}</b>
+                  <span>por confirmar</span>
+                </div>
+                <div>
+                  <b style={{ color: 'var(--primary-gold)' }}>{bookings.todayCount}</b>
+                  <span>hoy</span>
                 </div>
               </div>
+              {bookings.next.length === 0 ? (
+                <p className="ops-muted" style={{ margin: '0.55rem 0 0' }}>
+                  No hay turnos desde hoy en adelante
+                  {bookings.pastConfirmed > 0 ? ` · ${bookings.pastConfirmed} históricas` : ''}.
+                </p>
+              ) : (
+                <div style={{ marginTop: '0.55rem', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                  {bookings.next.map((res) => (
+                    <div key={res.id || `${reservationDay(res)}-${res.time}`} className="ops-row ops-row--stack">
+                      <strong>{res.facilityName || res.facilityId}</strong>
+                      <span className="ops-muted">
+                        {reservationDay(res)} · {res.time || res.time_slot || '—'} hs · {res.memberName || 'Socio'}
+                        {res.status === 'pending' ? ' · pend.' : ''}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
               {link('Abrir agenda >', () => goToTab('bookings'))}
             </article>
           )}
@@ -349,12 +507,22 @@ export default function AdminDashboardTab({
                 </header>
 
                 <div className="ops-money-hero">
-                  <div className="ops-ring">{paymentCollectionRate}%</div>
+                  <div className="ops-ring" title={`${finance.alDia} de ${finance.activeMembers} socios al día`}>
+                    {liveCollectionRate}%
+                  </div>
                   <div>
-                    <div className="ops-money-big">{formatCurrency(totalActivos)}</div>
-                    <div className="ops-muted">Liquidado en {monthLabelCap}</div>
-                    <div className="ops-money-green">{formatCurrency(collected)}</div>
-                    <div className="ops-muted" style={{ color: 'var(--emerald-accent)' }}>Recaudado en {monthLabelCap}</div>
+                    <div className="ops-money-big" style={{ color: debtTotal > 0 ? '#ef4444' : 'var(--text-strong)' }}>
+                      {formatCurrency(debtTotal)}
+                    </div>
+                    <div className="ops-muted">Deuda de cuotas pendiente</div>
+                    <div className="ops-money-green">{formatCurrency(collectedMonth)}</div>
+                    <div className="ops-muted" style={{ color: 'var(--emerald-accent)' }}>
+                      Recaudado en {monthLabelCap}
+                    </div>
+                    <div className="ops-muted" style={{ marginTop: '0.35rem', fontSize: '0.72rem' }}>
+                      {finance.alDia}/{finance.activeMembers} socios al día
+                      {finance.expectedMonth > 0 ? ` · cuota mes ref. ${formatCurrency(finance.expectedMonth)}` : ''}
+                    </div>
                   </div>
                 </div>
 
@@ -362,23 +530,43 @@ export default function AdminDashboardTab({
                   <span className="ops-cash-ico"><DollarSign size={20} /></span>
                   <span>
                     <strong>{formatCurrency(cashToday)}</strong>
-                    <small>Total en caja al día de hoy</small>
+                    <small>Saldo Caja + Cantina + Banco (asientos)</small>
                   </span>
                   <span className="ops-cash-go">Ver</span>
                 </button>
 
                 <div className="ops-block" style={{ marginTop: '1rem' }}>
-                  <div className="ops-block-title">Últimos ingresos</div>
-                  <div className="ops-row">
-                    <span className="ops-muted">Movimientos del período</span>
-                    <strong>{formatCurrency(totalIngresos)}</strong>
-                  </div>
+                  <div className="ops-block-title">Últimos ingresos · {monthLabelCap}</div>
+                  {finance.recentIncomes.length === 0 ? (
+                    <p className="ops-muted" style={{ margin: '0.35rem 0 0' }}>
+                      Sin cobros ni asientos de ingreso registrados este mes.
+                    </p>
+                  ) : (
+                    finance.recentIncomes.map((row) => (
+                      <div key={row.id} className="ops-row">
+                        <span className="ops-ellipsis">
+                          <span className="ops-muted" style={{ marginRight: 6 }}>{row.date.slice(8, 10)}/{row.date.slice(5, 7)}</span>
+                          {row.label}
+                        </span>
+                        <strong style={{ color: 'var(--emerald-accent)' }}>{formatCurrency(row.amount)}</strong>
+                      </div>
+                    ))
+                  )}
+                  {(finance.journalExpenseMonth > 0 || totalActivos > 0) && (
+                    <div className="ops-row" style={{ marginTop: '0.35rem' }}>
+                      <span className="ops-muted">Activos contables / gastos del mes</span>
+                      <strong>
+                        {formatCurrency(totalActivos)}
+                        {finance.journalExpenseMonth > 0 ? ` · −${formatCurrency(finance.journalExpenseMonth)}` : ''}
+                      </strong>
+                    </div>
+                  )}
                 </div>
 
                 {permittedTabs.includes('dues') && (
                   <div className="ops-dues-strip">
                     <div>
-                      <strong style={{ color: '#ef4444' }}>{overdueMembersCount}</strong>
+                      <strong style={{ color: '#ef4444' }}>{overdueMembersCount || finance.debtors}</strong>
                       <span>con deuda</span>
                     </div>
                     <div>
@@ -386,7 +574,7 @@ export default function AdminDashboardTab({
                       <span>a vencer</span>
                     </div>
                     <div className="ops-dues-total">
-                      <strong>{formatCurrency(totalOutstanding)}</strong>
+                      <strong>{formatCurrency(debtTotal)}</strong>
                       <span>pendiente</span>
                     </div>
                     {link('Cobranzas >', () => goToTab('dues'))}
@@ -451,30 +639,38 @@ export default function AdminDashboardTab({
               <article className="glass-card ops-card">
                 <header className="ops-card-head">
                   <Users size={16} color="var(--primary-gold)" />
-                  <h3>Socios</h3>
+                  <h3>Padrón</h3>
                 </header>
-                <p className="ops-muted" style={{ marginBottom: '0.75rem' }}>¡Comparte el código de tu club!</p>
-                <div className="ops-code-box">
-                  <span>{codeCopied ? '¡Copiado!' : CLUB_CODE}</span>
-                  <div>
-                    <Share2 size={15} onClick={shareWhatsApp} title="WhatsApp" />
-                    <Copy size={15} onClick={copyClubCode} title="Copiar" />
-                  </div>
+                <p className="ops-muted" style={{ marginBottom: '0.65rem' }}>
+                  Composición real del padrón social.
+                </p>
+                <div className="ops-tier-mini">
+                  <div><b>{tierCounts.royal}</b><span>Royal</span></div>
+                  <div><b>{tierCounts.platinum}</b><span>Platinum</span></div>
+                  <div><b>{tierCounts.gold}</b><span>Gold</span></div>
                 </div>
+                {overdueMembersCount > 0 && (
+                  <p className="ops-muted" style={{ marginTop: '0.65rem', color: '#fca5a5' }}>
+                    {overdueMembersCount} con cuota en mora
+                  </p>
+                )}
+                {link('Ver padrón >', () => goToTab('members'))}
               </article>
 
               <button type="button" className="ops-stat ops-stat--a" onClick={() => goToTab('members')}>
                 <Users size={18} />
-                <span><b>{totalMembers}</b> Socios activos</span>
+                <span><b>{totalMembers}</b> Socios titulares</span>
               </button>
               <button type="button" className="ops-stat ops-stat--b" onClick={() => goToTab('members')}>
-                <UserCircle2 size={18} />
-                <span><b>{membersWithApp}</b> Socios con la app</span>
-              </button>
-              <button type="button" className="ops-stat ops-stat--c" onClick={() => goToTab('members')}>
                 <Users size={18} />
                 <span><b>{adherentsCount}</b> Adherentes</span>
               </button>
+              {membersWithApp > 0 && (
+                <button type="button" className="ops-stat ops-stat--c" onClick={() => goToTab('members')}>
+                  <UserCircle2 size={18} />
+                  <span><b>{membersWithApp}</b> Con app instalada</span>
+                </button>
+              )}
             </>
           ) : (
             <article className="glass-card ops-card">

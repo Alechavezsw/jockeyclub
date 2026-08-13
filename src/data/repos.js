@@ -345,20 +345,74 @@ export async function listSurveys() {
   return (rows || []).map(M.surveyFromRow);
 }
 
-export async function upsertSurvey(survey) {
-  const row = {
-    title: survey.title,
+function surveyToRow(survey) {
+  const options = Array.isArray(survey.options)
+    ? survey.options
+    : Array.isArray(survey.questions)
+      ? survey.questions
+      : [];
+  const question = survey.question || survey.title || 'Encuesta';
+  const active = survey.active !== false;
+  const status =
+    survey.status ||
+    (active ? 'open' : 'closed');
+  return {
+    title: question,
     description: survey.description || null,
-    status: survey.status || 'draft',
-    questions: survey.questions || survey.options || [],
-    meta: { options: survey.options || survey.questions || [] },
+    status,
+    questions: options,
+    meta: {
+      question,
+      category: survey.category || '',
+      active,
+      votedBy: Array.isArray(survey.votedBy) ? survey.votedBy : [],
+      options,
+    },
   };
+}
+
+export async function upsertSurvey(survey) {
+  const row = surveyToRow(survey);
   if (survey.id && String(survey.id).includes('-')) {
-    const saved = await unwrap(sb().from('surveys').update(row).eq('id', survey.id).select().single());
+    const saved = await unwrap(
+      sb().from('surveys').update(row).eq('id', survey.id).select().single()
+    );
+    await audit('survey.upsert', 'survey', saved.id, { title: saved.title, status: saved.status });
     return M.surveyFromRow(saved);
   }
   const saved = await unwrap(sb().from('surveys').insert(row).select().single());
+  await audit('survey.upsert', 'survey', saved.id, { title: saved.title, status: saved.status });
   return M.surveyFromRow(saved);
+}
+
+export async function deleteSurvey(surveyId) {
+  if (!surveyId || !String(surveyId).includes('-')) return;
+  await unwrap(sb().from('surveys').delete().eq('id', surveyId));
+  await audit('survey.delete', 'survey', surveyId, {});
+}
+
+export async function castSurveyVote({ survey, memberId, memberNumber, optionId }) {
+  if (!survey?.id || !optionId) throw new Error('Voto incompleto');
+  const options = (survey.options || []).map((opt) =>
+    String(opt.id) === String(optionId) ? { ...opt, votes: (Number(opt.votes) || 0) + 1 } : opt
+  );
+  const votedBy = Array.from(new Set([...(survey.votedBy || []), memberId].filter(Boolean)));
+  const saved = await upsertSurvey({ ...survey, options, votedBy, active: survey.active !== false });
+  try {
+    await unwrap(
+      sb().from('survey_responses').upsert(
+        {
+          survey_id: survey.id,
+          member_number: memberNumber || null,
+          answers: { optionId },
+        },
+        { onConflict: 'survey_id,member_number' }
+      )
+    );
+  } catch {
+    /* response log best-effort */
+  }
+  return saved;
 }
 
 export async function listNews() {

@@ -106,23 +106,23 @@ export function navItemsForRole(role) {
 /** Cabecera del panel operativo según rol. */
 export const ROLE_PANEL_META = {
   admin: {
-    title: 'Mesa Directiva & Operaciones',
-    subtitle: 'Sistema Integrado de Control General, Contabilidad ERP y Trazabilidad Operativa',
+    title: 'Administración',
+    subtitle: 'Operaciones, socios, contabilidad y control del club',
   },
   superadmin: {
-    title: 'Mesa Directiva & Operaciones',
-    subtitle: 'Sistema Integrado de Control General, Contabilidad ERP y Trazabilidad Operativa',
+    title: 'Administración',
+    subtitle: 'Operaciones, socios, contabilidad y control del club',
   },
   accountant: {
-    title: 'Tesorería & Contabilidad',
-    subtitle: 'Libro Diario, Mayores, Balances y Reportes Financieros del Club',
+    title: 'Contabilidad',
+    subtitle: 'Libro diario, mayores, balances y reportes',
   },
   cashier: {
-    title: 'Caja & Cobranzas',
-    subtitle: 'Cobro de Cuotas, Padrón de Socios, Arqueo de Caja y Control de Acceso',
+    title: 'Caja',
+    subtitle: 'Cuotas, padrón, arqueo y acceso',
   },
   staff: {
-    title: 'Panel Operativo de Personal',
-    subtitle: 'Reservas de Canchas, Reclamos de Socios, Bitácora de Tareas y Eventos',
+    title: 'Operaciones',
+    subtitle: 'Reservas, reclamos, personal y eventos',
   },
 };

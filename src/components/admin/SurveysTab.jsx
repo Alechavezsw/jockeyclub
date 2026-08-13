@@ -60,19 +60,20 @@ export default function SurveysTab({ surveys, setSurveys }) {
     }
 
     const newSurvey = {
-      id: surveys.length > 0 ? Math.max(...surveys.map(s => s.id)) + 1 : 1,
+      id: `tmp-${Date.now()}`,
       question: newSurveyQuestion.trim(),
       category: newSurveyCategory,
       active: true,
+      status: 'open',
       votedBy: [],
       options: validOpts.map((optText, idx) => ({
-        id: idx + 1,
+        id: `opt-${idx + 1}`,
         text: optText.trim(),
         votes: 0
       }))
     };
 
-    setSurveys([...surveys, newSurvey]);
+    setSurveys([newSurvey, ...surveys]);
 
     setNewSurveyQuestion('');
     setNewSurveyCategory('Infraestructura');
@@ -80,81 +81,93 @@ export default function SurveysTab({ surveys, setSurveys }) {
   };
 
   const SEGMENT_COLORS = ['var(--primary-gold)', 'var(--emerald-accent)', '#3b82f6', '#ec4899', '#f59e0b', '#a855f7'];
+  const SURVEY_CATEGORIES = ['Infraestructura', 'Deportes', 'Social', 'Eventos'];
+  const filledOpts = newSurveyOpts.filter((o) => o.trim()).length;
+  const canPublish = Boolean(newSurveyQuestion.trim()) && filledOpts >= 2;
 
   return (
-    <div className="glass-card fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-      <div>
-        <h3 className="serif-font" style={{ fontSize: '1.35rem', color: 'var(--text-gold)', margin: 0, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-          <Radio size={20} style={{ color: 'var(--primary-gold)' }} /> Encuestas & Consultas Colectivas
-        </h3>
-        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
-          Gestione las encuestas populares de la Sede Rivadavia, visualice estadísticas avanzadas con gráficos interactivos y simule participación masiva.
-        </p>
-      </div>
+    <div className="glass-card fade-in survey-tab">
+      <header className="survey-tab-head">
+        <div>
+          <h3 className="serif-font survey-tab-title">
+            <Radio size={20} aria-hidden="true" /> Encuestas
+          </h3>
+          <p>Creá consultas para socios y seguí los resultados en vivo.</p>
+        </div>
+      </header>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.5rem' }}>
-        {/* Formulario de Alta de Encuesta */}
-        <div className="glass-panel" style={{ padding: '1.25rem' }}>
-          <h4 className="serif-font" style={{ fontSize: '1.1rem', color: 'var(--text-strong)', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-            <Plus size={16} style={{ color: 'var(--primary-gold)' }} /> Crear Nueva Consulta Popular
-          </h4>
+        <section className="survey-compose">
+          <div className="survey-compose-head">
+            <span className="survey-compose-badge"><Plus size={14} /> Nueva encuesta</span>
+            <p>Definí la pregunta, elegí categoría y cargá al menos dos opciones.</p>
+          </div>
 
-          <form onSubmit={handleCreateSurvey} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-              <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: '600' }}>Pregunta de la Encuesta</label>
-              <input
-                type="text"
+          <form className="survey-compose-form" onSubmit={handleCreateSurvey}>
+            <div className="survey-field survey-field--wide">
+              <label htmlFor="survey-question">Pregunta</label>
+              <textarea
+                id="survey-question"
                 required
-                placeholder="Ej. ¿Qué mejora de infraestructura edilicia prefiere para esta temporada?"
+                rows={2}
+                placeholder="Ej. ¿Qué mejora de infraestructura preferís para esta temporada?"
                 value={newSurveyQuestion}
                 onChange={(e) => setNewSurveyQuestion(e.target.value)}
-                className="glass-input"
-                style={{ fontSize: '0.85rem' }}
+                className="form-input survey-question-input"
               />
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-              <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: '600' }}>Categoría</label>
-              <select
-                value={newSurveyCategory}
-                onChange={(e) => setNewSurveyCategory(e.target.value)}
-                className="glass-input"
-                style={{ fontSize: '0.85rem' }}
-              >
-                <option value="Infraestructura">Infraestructura</option>
-                <option value="Deportes">Deportes</option>
-                <option value="Social">Social</option>
-                <option value="Eventos">Eventos</option>
-              </select>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: '600' }}>Opciones de Respuesta (Mínimo 2)</label>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.50rem' }}>
-                {newSurveyOpts.map((opt, idx) => (
-                  <input
-                    key={idx}
-                    type="text"
-                    placeholder={`Opción ${idx + 1} ${idx < 2 ? '(Requerida)' : '(Opcional)'}`}
-                    required={idx < 2}
-                    value={opt}
-                    onChange={(e) => {
-                      const updated = [...newSurveyOpts];
-                      updated[idx] = e.target.value;
-                      setNewSurveyOpts(updated);
-                    }}
-                    className="glass-input"
-                    style={{ fontSize: '0.85rem' }}
-                  />
+            <div className="survey-field survey-field--wide">
+              <span className="survey-field-label">Categoría</span>
+              <div className="survey-cat-pills" role="group" aria-label="Categoría de la encuesta">
+                {SURVEY_CATEGORIES.map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    className={`survey-cat-pill${newSurveyCategory === cat ? ' is-active' : ''}`}
+                    onClick={() => setNewSurveyCategory(cat)}
+                  >
+                    {cat}
+                  </button>
                 ))}
               </div>
             </div>
 
-            <button type="submit" className="btn btn-primary" style={{ alignSelf: 'flex-start', padding: '0.5rem 1.25rem', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <Sparkles size={14} /> Publicar Encuesta
-            </button>
+            <div className="survey-field survey-field--wide">
+              <div className="survey-options-head">
+                <span className="survey-field-label">Opciones de respuesta</span>
+                <em>{filledOpts}/4 · mínimo 2</em>
+              </div>
+              <div className="survey-options-grid">
+                {newSurveyOpts.map((opt, idx) => (
+                  <label key={idx} className={`survey-option-card${opt.trim() ? ' has-value' : ''}${idx < 2 ? ' is-required' : ''}`}>
+                    <span className="survey-option-num">{idx + 1}</span>
+                    <input
+                      type="text"
+                      placeholder={idx < 2 ? 'Opción requerida' : 'Opción opcional'}
+                      required={idx < 2}
+                      value={opt}
+                      onChange={(e) => {
+                        const updated = [...newSurveyOpts];
+                        updated[idx] = e.target.value;
+                        setNewSurveyOpts(updated);
+                      }}
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="survey-compose-actions">
+              <button type="submit" className="btn btn-primary" disabled={!canPublish}>
+                <Sparkles size={14} /> Publicar encuesta
+              </button>
+              {!canPublish && (
+                <span className="survey-compose-hint">Completá pregunta y 2 opciones para publicar.</span>
+              )}
+            </div>
           </form>
-        </div>
+        </section>
 
         {/* Listado y Visualización de Resultados */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -167,12 +180,13 @@ export default function SurveysTab({ surveys, setSurveys }) {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
               {surveys.map((survey) => {
-                const totalVotes = survey.options.reduce((sum, o) => sum + o.votes, 0);
-                const maxVotes = Math.max(...survey.options.map(o => o.votes), 1);
+                const options = Array.isArray(survey.options) ? survey.options : [];
+                const totalVotes = options.reduce((sum, o) => sum + (Number(o.votes) || 0), 0);
+                const maxVotes = Math.max(...options.map((o) => Number(o.votes) || 0), 1);
                 let accumulatedFraction = 0;
 
                 const activeHoverOptionId = hoveredAdminSegments[survey.id];
-                const activeHoverOption = survey.options.find(o => o.id === activeHoverOptionId);
+                const activeHoverOption = options.find(o => o.id === activeHoverOptionId);
                 const hoverPct = activeHoverOption && totalVotes > 0
                   ? Math.round((activeHoverOption.votes / totalVotes) * 100)
                   : 0;
@@ -219,7 +233,7 @@ export default function SurveysTab({ surveys, setSurveys }) {
                         <div style={{ position: 'relative', width: '130px', height: '130px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                           <svg viewBox="0 0 100 100" width="130" height="130">
                             <circle cx="50" cy="50" r="38" stroke="rgba(255,255,255,0.015)" strokeWidth="12" fill="transparent" />
-                            {survey.options.map((opt, optIdx) => {
+                            {options.map((opt, optIdx) => {
                               const votes = opt.votes;
                               const fraction = totalVotes > 0 ? votes / totalVotes : 0;
                               if (fraction === 0) return null;
@@ -277,7 +291,7 @@ export default function SurveysTab({ surveys, setSurveys }) {
                         <div style={{ width: '100%', height: '140px', position: 'relative' }}>
                           <svg viewBox="0 0 240 140" width="100%" height="140" style={{ overflow: 'visible' }}>
                             <defs>
-                              {survey.options.map((opt, optIdx) => {
+                              {options.map((opt, optIdx) => {
                                 const segmentColor = SEGMENT_COLORS[optIdx % SEGMENT_COLORS.length];
                                 return (
                                   <linearGradient key={opt.id} id={`grad-bar-${survey.id}-${opt.id}`} x1="0" y1="0" x2="0" y2="1">
@@ -290,13 +304,13 @@ export default function SurveysTab({ surveys, setSurveys }) {
 
                             <line x1="30" y1="115" x2="235" y2="115" stroke="var(--border-glass)" strokeWidth="1" />
 
-                            {survey.options.map((opt, optIdx) => {
+                            {options.map((opt, optIdx) => {
                               const chartWidth = 190;
                               const chartHeight = 90;
                               const paddingLeft = 35;
                               const paddingTop = 15;
 
-                              const barGap = (chartWidth - (survey.options.length * 24)) / (survey.options.length + 1);
+                              const barGap = (chartWidth - (options.length * 24)) / (options.length + 1);
                               const x = paddingLeft + barGap + optIdx * (24 + barGap);
                               const barHeight = totalVotes > 0 ? (opt.votes / maxVotes) * chartHeight : 0;
                               const y = paddingTop + chartHeight - barHeight;
@@ -352,7 +366,7 @@ export default function SurveysTab({ surveys, setSurveys }) {
                     {/* Leyenda interactiva & Botones de simulación */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.25rem' }}>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.5rem' }}>
-                        {survey.options.map((opt, optIdx) => {
+                        {options.map((opt, optIdx) => {
                           const fraction = totalVotes > 0 ? opt.votes / totalVotes : 0;
                           const pct = Math.round(fraction * 100);
                           const segmentColor = SEGMENT_COLORS[optIdx % SEGMENT_COLORS.length];

@@ -1,16 +1,79 @@
-import { useState } from 'react';
-import { FileSpreadsheet, Download, Database, CheckCircle2, AlertCircle } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  FileSpreadsheet, Download, Database, CheckCircle2, AlertCircle, FileText,
+  TrendingUp, Users, Calendar, Wallet, Store, ClipboardList, Shield, Radio,
+  BellRing, PartyPopper, DoorOpen, Briefcase, BarChart3, Trash2, RefreshCw,
+} from 'lucide-react';
+import { exportMembersPdf } from '../../domain/members/exportMembersPdf';
+import { exportJournalPdf } from '../../domain/accounting/exportJournalPdf';
+import { exportExecutiveReportPdf } from '../../domain/reports/exportExecutiveReportPdf';
+import { buildClubReportStats } from '../../domain/reports/buildClubReportStats';
+import { downloadCsv, stampDate } from '../../domain/reports/downloadCsv';
+import {
+  buildBackupPayload,
+  downloadBackupJson,
+  validateBackupPayload,
+} from '../../domain/reports/backupPayload';
+import {
+  deleteDailyBackup,
+  formatBytes,
+  getDailyBackup,
+  isDailyBackupEnabled,
+  listDailyBackups,
+  saveDailyBackup,
+  setDailyBackupEnabled,
+} from '../../domain/reports/dailyBackupStore';
 
-/** Consola de reportes estadísticos, exportadores CSV y backups del ERP local. */
+const SECTIONS = [
+  { id: 'resumen', label: 'Resumen' },
+  { id: 'economico', label: 'Económico' },
+  { id: 'operativo', label: 'Operativo' },
+  { id: 'exportar', label: 'Todos los reportes' },
+  { id: 'backup', label: 'Backup' },
+];
+
+function Kpi({ icon: Icon, label, value, tone = 'default' }) {
+  const color =
+    tone === 'good' ? 'var(--emerald-accent)'
+      : tone === 'bad' ? 'var(--danger-accent)'
+        : tone === 'gold' ? 'var(--primary-gold)'
+          : 'var(--text-strong)';
+  return (
+    <div className="reports-kpi">
+      <div className="reports-kpi-icon"><Icon size={16} /></div>
+      <div>
+        <div className="reports-kpi-label">{label}</div>
+        <div className="reports-kpi-value" style={{ color }}>{value}</div>
+      </div>
+    </div>
+  );
+}
+
+function ReportCard({ icon: Icon, title, description, actions }) {
+  return (
+    <div className="reports-export-card">
+      <div className="reports-export-card-head">
+        <div className="reports-export-card-icon"><Icon size={18} /></div>
+        <div>
+          <h5>{title}</h5>
+          <p>{description}</p>
+        </div>
+      </div>
+      <div className="reports-export-card-actions">{actions}</div>
+    </div>
+  );
+}
+
+/** Consola integral de estadísticas, reportes económicos y exportaciones. */
 export default function ReportsTab({
-  members,
-  reservations,
-  journalEntries,
-  staffMembers,
-  claims,
-  messages,
-  entryLogs,
-  surveys,
+  members = [],
+  reservations = [],
+  journalEntries = [],
+  staffMembers = [],
+  claims = [],
+  messages = [],
+  entryLogs = [],
+  surveys = [],
   setMembers,
   setReservations,
   setJournalEntries,
@@ -21,350 +84,877 @@ export default function ReportsTab({
   setSurveys,
   formatCurrency,
   getAccountBalance,
-  totalActivos,
-  totalPasivos,
-  totalPatrimonioNetoTotal,
+  totalActivos = 0,
+  totalPasivos = 0,
+  totalPatrimonioNetoTotal = 0,
+  totalIngresos = 0,
+  totalGastos = 0,
+  utilidadNeta = 0,
+  expenses = [],
+  concessions = [],
+  clubEvents = [],
+  alerts = [],
+  cashRegisters = [],
+  cashSessions = [],
+  canonPayments = [],
+  newsList = [],
+  suppliers = [],
 }) {
+  const [section, setSection] = useState('resumen');
   const [backupSuccessMessage, setBackupSuccessMessage] = useState('');
   const [backupErrorMessage, setBackupErrorMessage] = useState('');
+  const [dailyEnabled, setDailyEnabled] = useState(() => isDailyBackupEnabled());
+  const [dailyList, setDailyList] = useState([]);
+  const [dailyLoading, setDailyLoading] = useState(false);
 
-  // Distribución de socios por categoría
-  const countRoyal = members.filter(m => m.tier === 'royal').length;
-  const countPlatinum = members.filter(m => m.tier === 'platinum').length;
-  const countGold = members.filter(m => m.tier === 'gold').length;
-  const totalS = countRoyal + countPlatinum + countGold;
-  const pctRoyal = totalS > 0 ? Math.round((countRoyal / totalS) * 100) : 0;
-  const pctPlatinum = totalS > 0 ? Math.round((countPlatinum / totalS) * 100) : 0;
-  const pctGold = totalS > 0 ? Math.round((countGold / totalS) * 100) : 0;
+  const backupSnapshot = useMemo(() => ({
+    members,
+    reservations,
+    journalEntries,
+    staffMembers,
+    claims,
+    messages,
+    entryLogs,
+    surveys,
+    expenses,
+    concessions,
+    clubEvents,
+    alerts,
+    cashRegisters,
+    suppliers,
+    newsList,
+    canonPayments,
+  }), [
+    members, reservations, journalEntries, staffMembers, claims, messages,
+    entryLogs, surveys, expenses, concessions, clubEvents, alerts,
+    cashRegisters, suppliers, newsList, canonPayments,
+  ]);
 
-  // Flujos contables por cuenta para el gráfico de barras
-  const revCuotas = getAccountBalance('Cuotas Sociales');
-  const revGourmet = getAccountBalance('Reservas e Instalaciones');
-  const revGolf = getAccountBalance('Concesión Gastronómica');
-  const expSueldos = getAccountBalance('Sueldos y Jornales');
-  const expMaint = getAccountBalance('Mantenimiento de Canchas');
-  const expEquine = getAccountBalance('Alimento Equino');
-  const maxVal = Math.max(revCuotas, revGourmet, revGolf, expSueldos, expMaint, expEquine, 10000);
-
-  const handleExportJournalCSV = () => {
-    let csv = 'Asiento ID;Fecha;Glosa;Cuenta;Debe;Haber\n';
-
-    journalEntries.forEach(entry => {
-      entry.lines.forEach(line => {
-        const debe = line.type === 'debit' ? line.amount : 0;
-        const haber = line.type === 'credit' ? line.amount : 0;
-        csv += `${entry.id};"${entry.date}";"${entry.description}";"${line.account}";${debe};${haber}\n`;
-      });
-    });
-
-    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `jockey_club_libro_diario_${new Date().toISOString().split('T')[0]}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const handleExportMembersCSV = () => {
-    let csv = 'Nombre;Credencial ID;Celular;Categoria;Antigüedad;Estado Cuenta;Saldo Deuda;Adherentes Cantidad\n';
-
-    members.forEach(m => {
-      csv += `"${m.name}";"${m.memberId}";"${m.phone || ''}";"${m.tier.toUpperCase()}";${m.yearsActive};"${m.status === 'active' ? 'HABILITADO' : 'SUSPENDIDO'}";${m.outstandingBalance};${m.adherents?.length || 0}\n`;
-    });
-
-    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `jockey_club_padron_socios_${new Date().toISOString().split('T')[0]}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const handleExportBackup = () => {
+  const refreshDailyList = async () => {
+    setDailyLoading(true);
     try {
-      const backupData = {
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        club: 'Jockey Club San Juan - Sede Rivadavia',
-        data: {
-          members,
-          reservations,
-          journalEntries,
-          staffMembers,
-          claims,
-          messages,
-          entryLogs,
-          surveys
-        }
-      };
-
-      const jsonStr = JSON.stringify(backupData, null, 2);
-      const blob = new Blob([jsonStr], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      const filename = `JCSJ-ERP-Backup-${new Date().toISOString().split('T')[0]}.json`;
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-
-      setBackupSuccessMessage(`Copia de seguridad "${filename}" exportada con éxito.`);
-      setBackupErrorMessage('');
-      setTimeout(() => setBackupSuccessMessage(''), 4000);
+      setDailyList(await listDailyBackups());
     } catch (err) {
-      setBackupErrorMessage('Error al exportar la copia de seguridad: ' + err.message);
-      setBackupSuccessMessage('');
+      setBackupErrorMessage(err.message || 'No se pudo leer el historial de backups.');
+    } finally {
+      setDailyLoading(false);
     }
   };
 
-  const handleImportBackup = (e) => {
-    const file = e.target.files[0];
+  useEffect(() => {
+    if (section !== 'backup') return undefined;
+    void refreshDailyList();
+    return undefined;
+  }, [section]);
+
+  const applyBackupData = (data) => {
+    setMembers(data.members);
+    setReservations(data.reservations);
+    setJournalEntries(data.journalEntries);
+    setStaffMembers(data.staffMembers);
+    setClaims(data.claims);
+    setMessages(data.messages);
+    setEntryLogs(data.entryLogs);
+    if (data.surveys && setSurveys) {
+      setSurveys(data.surveys);
+      localStorage.setItem('jockey-surveys', JSON.stringify(data.surveys));
+    }
+    localStorage.setItem('jockey-members', JSON.stringify(data.members));
+    localStorage.setItem('jockey-reservations', JSON.stringify(data.reservations));
+    localStorage.setItem('jockey-journal-entries', JSON.stringify(data.journalEntries));
+    localStorage.setItem('jockey-staff-members', JSON.stringify(data.staffMembers));
+    localStorage.setItem('jockey-claims', JSON.stringify(data.claims));
+    localStorage.setItem('jockey-messages', JSON.stringify(data.messages));
+    localStorage.setItem('jockey-access-logs', JSON.stringify(data.entryLogs));
+  };
+
+  const stats = useMemo(
+    () => buildClubReportStats({
+      members,
+      reservations,
+      journalEntries,
+      staffMembers,
+      claims,
+      messages,
+      entryLogs,
+      surveys,
+      expenses,
+      concessions,
+      clubEvents,
+      alerts,
+      cashRegisters,
+      cashSessions,
+      canonPayments,
+      newsList,
+      totalIngresos,
+      totalGastos,
+      utilidadNeta,
+      totalActivos,
+      totalPasivos,
+      totalPatrimonioNetoTotal,
+    }),
+    [
+      members, reservations, journalEntries, staffMembers, claims, messages,
+      entryLogs, surveys, expenses, concessions, clubEvents, alerts,
+      cashRegisters, cashSessions, canonPayments, newsList,
+      totalIngresos, totalGastos, utilidadNeta, totalActivos, totalPasivos,
+      totalPatrimonioNetoTotal,
+    ]
+  );
+
+  const { members: m, economic: e, operations: o } = stats;
+  const totalS = m.total || 1;
+  const pctRoyal = Math.round((m.byTier.royal / totalS) * 100);
+  const pctPlatinum = Math.round((m.byTier.platinum / totalS) * 100);
+  const pctGold = Math.round((m.byTier.gold / totalS) * 100);
+
+  const revCuotas = getAccountBalance('Cuotas Sociales');
+  const revGourmet = getAccountBalance('Reservas e Instalaciones');
+  const revGolf = getAccountBalance('Concesión Gastronómica');
+  const revEventos = getAccountBalance('Eventos y Fiestas');
+  const expSueldos = getAccountBalance('Sueldos y Jornales');
+  const expMaint = getAccountBalance('Mantenimiento de Canchas');
+  const expEquine = getAccountBalance('Alimento Equino');
+  const expServicios = getAccountBalance('Servicios e Insumos');
+  const maxVal = Math.max(
+    revCuotas, revGourmet, revGolf, revEventos,
+    expSueldos, expMaint, expEquine, expServicios, 10000
+  );
+
+  const fail = (err, fallback) => {
+    setBackupErrorMessage(err?.message || fallback);
+    setBackupSuccessMessage('');
+  };
+
+  const lineAmounts = (line) => {
+    if (line.debit != null || line.credit != null) {
+      return { debe: Number(line.debit) || 0, haber: Number(line.credit) || 0 };
+    }
+    const amount = Number(line.amount) || 0;
+    return {
+      debe: line.type === 'debit' ? amount : 0,
+      haber: line.type === 'credit' ? amount : 0,
+    };
+  };
+
+  const handleExportJournalCSV = () => {
+    downloadCsv(
+      `jockey_club_libro_diario_${stampDate()}.csv`,
+      ['Asiento ID', 'Fecha', 'Glosa', 'Cuenta', 'Debe', 'Haber'],
+      journalEntries.flatMap((entry) =>
+        (entry.lines || []).map((line) => {
+          const { debe, haber } = lineAmounts(line);
+          return [
+            entry.id,
+            entry.date,
+            entry.description,
+            line.account || line.accountId || '',
+            debe,
+            haber,
+          ];
+        })
+      )
+    );
+  };
+
+  const handleExportMembersCSV = () => {
+    downloadCsv(
+      `jockey_club_padron_socios_${stampDate()}.csv`,
+      ['Nombre', 'Credencial ID', 'Celular', 'Email', 'Categoria', 'Antigüedad', 'Estado', 'Saldo Deuda', 'Adherentes'],
+      members.map((mem) => [
+        mem.name,
+        mem.memberId,
+        mem.phone || '',
+        mem.email || '',
+        String(mem.tier || '').toUpperCase(),
+        mem.yearsActive ?? '',
+        mem.status === 'active' ? 'HABILITADO' : 'SUSPENDIDO',
+        mem.outstandingBalance ?? 0,
+        mem.adherents?.length || 0,
+      ])
+    );
+  };
+
+  const handleExportDebtorsCSV = () => {
+    const debtors = members.filter((mem) => (Number(mem.outstandingBalance) || 0) > 0);
+    downloadCsv(
+      `jockey_club_deudores_${stampDate()}.csv`,
+      ['Nombre', 'Credencial', 'Categoria', 'Telefono', 'Saldo', 'Estado'],
+      debtors.map((mem) => [
+        mem.name,
+        mem.memberId,
+        String(mem.tier || '').toUpperCase(),
+        mem.phone || '',
+        mem.outstandingBalance,
+        mem.status === 'active' ? 'HABILITADO' : 'SUSPENDIDO',
+      ])
+    );
+  };
+
+  const handleExportReservationsCSV = () => {
+    downloadCsv(
+      `jockey_club_reservas_${stampDate()}.csv`,
+      ['ID', 'Socio', 'Credencial', 'Instalacion', 'Fecha', 'Hora', 'Estado'],
+      reservations.map((r) => [
+        r.id,
+        r.memberName || r.name || '',
+        r.memberId || '',
+        r.facilityName || r.facilityId || '',
+        r.date || '',
+        r.time || r.slot || '',
+        r.status || '',
+      ])
+    );
+  };
+
+  const handleExportStaffCSV = () => {
+    downloadCsv(
+      `jockey_club_personal_${stampDate()}.csv`,
+      ['Nombre', 'Area', 'Cargo', 'Estado', 'Telefono', 'Email'],
+      staffMembers.map((s) => [
+        s.name || s.fullName || '',
+        s.area || s.department || '',
+        s.role || s.position || s.cargo || '',
+        s.status || (s.active === false ? 'Inactivo' : 'Activo'),
+        s.phone || '',
+        s.email || '',
+      ])
+    );
+  };
+
+  const handleExportClaimsCSV = () => {
+    downloadCsv(
+      `jockey_club_reclamos_${stampDate()}.csv`,
+      ['ID', 'Socio', 'Asunto', 'Categoria', 'Estado', 'Fecha'],
+      claims.map((c) => [
+        c.id,
+        c.memberName || c.memberId || '',
+        c.subject || c.title || '',
+        c.category || '',
+        c.status || '',
+        c.createdAt || c.date || '',
+      ])
+    );
+  };
+
+  const handleExportAccessCSV = () => {
+    downloadCsv(
+      `jockey_club_accesos_${stampDate()}.csv`,
+      ['Fecha/Hora', 'Socio', 'Credencial', 'Tipo', 'Resultado', 'Puerta'],
+      entryLogs.map((l) => [
+        l.timestamp || l.createdAt || l.date || '',
+        l.memberName || l.name || '',
+        l.memberId || '',
+        l.type || l.direction || '',
+        l.result || l.status || '',
+        l.gate || l.door || l.location || '',
+      ])
+    );
+  };
+
+  const handleExportSurveysCSV = () => {
+    downloadCsv(
+      `jockey_club_encuestas_${stampDate()}.csv`,
+      ['Pregunta', 'Categoria', 'Estado', 'Opciones', 'Votos totales', 'Participantes'],
+      surveys.map((s) => {
+        const opts = s.options || [];
+        const votes = opts.reduce((sum, opt) => sum + (Number(opt.votes) || 0), 0);
+        return [
+          s.question || s.title || '',
+          s.category || '',
+          s.active ? 'Activa' : 'Cerrada',
+          opts.map((opt) => opt.text).join(' | '),
+          votes,
+          (s.votedBy || []).length,
+        ];
+      })
+    );
+  };
+
+  const handleExportExpensesCSV = () => {
+    downloadCsv(
+      `jockey_club_gastos_${stampDate()}.csv`,
+      ['Nro', 'Fecha', 'Proveedor', 'Concepto', 'Importe', 'Estado', 'Factura'],
+      expenses.map((exp) => [
+        exp.expenseNumber || exp.id,
+        exp.expenseDate || '',
+        exp.vendorName || '',
+        exp.concept || '',
+        exp.amount ?? 0,
+        exp.status || '',
+        exp.invoiceNumber || '',
+      ])
+    );
+  };
+
+  const handleExportConcessionsCSV = () => {
+    downloadCsv(
+      `jockey_club_concesiones_${stampDate()}.csv`,
+      ['Nombre', 'Concesionario', 'Tipo', 'Estado', 'Canon', 'Vencimiento', 'Nro'],
+      concessions.map((c) => [
+        c.name || '',
+        c.concessionaire || '',
+        c.type || '',
+        c.status || '',
+        c.canonAmount ?? c.monthlyCanon ?? '',
+        c.endsAt || c.endDate || '',
+        c.concessionaireNumber || c.portalCode || '',
+      ])
+    );
+  };
+
+  const handleExportEventsCSV = () => {
+    downloadCsv(
+      `jockey_club_eventos_${stampDate()}.csv`,
+      ['Titulo', 'Fecha', 'Lugar', 'Estado', 'Capacidad', 'Precio'],
+      clubEvents.map((ev) => [
+        ev.title || ev.name || '',
+        ev.date || ev.startsAt || '',
+        ev.location || ev.venue || '',
+        ev.status || '',
+        ev.capacity ?? '',
+        ev.price ?? ev.ticketPrice ?? '',
+      ])
+    );
+  };
+
+  const handleExportMessagesCSV = () => {
+    downloadCsv(
+      `jockey_club_mensajes_${stampDate()}.csv`,
+      ['Fecha', 'De', 'Para', 'Asunto', 'Leido'],
+      messages.map((msg) => [
+        msg.createdAt || msg.date || '',
+        msg.senderName || msg.senderId || '',
+        msg.recipientName || msg.recipientId || '',
+        msg.subject || msg.title || (msg.body || '').slice(0, 80),
+        msg.isRead ? 'Si' : 'No',
+      ])
+    );
+  };
+
+  const handleExportAlertsCSV = () => {
+    downloadCsv(
+      `jockey_club_alertas_${stampDate()}.csv`,
+      ['Titulo', 'Severidad', 'Estado', 'Fecha', 'Modulo'],
+      alerts.map((a) => [
+        a.title || a.message || '',
+        a.severity || a.level || '',
+        a.active === false ? 'Inactiva' : (a.status || 'Activa'),
+        a.createdAt || a.date || '',
+        a.module || a.source || '',
+      ])
+    );
+  };
+
+  const handleExportCashCSV = () => {
+    downloadCsv(
+      `jockey_club_cajas_${stampDate()}.csv`,
+      ['Caja', 'Codigo', 'Saldo', 'Estado', 'Cuenta contable'],
+      cashRegisters.map((r) => [
+        r.name || '',
+        r.code || r.id || '',
+        r.currentBalance ?? r.balance ?? 0,
+        r.status || (r.active === false ? 'Inactiva' : 'Activa'),
+        r.accountId || r.accountName || '',
+      ])
+    );
+  };
+
+  const handleExportSuppliersCSV = () => {
+    downloadCsv(
+      `jockey_club_proveedores_${stampDate()}.csv`,
+      ['Nombre', 'CUIT', 'Rubro', 'Estado', 'Telefono', 'Email'],
+      suppliers.map((s) => [
+        s.name || '',
+        s.cuit || '',
+        s.category || s.rubro || '',
+        s.active === false ? 'Inactivo' : 'Activo',
+        s.phone || '',
+        s.email || '',
+      ])
+    );
+  };
+
+  const handleExportBalanceCSV = () => {
+    downloadCsv(
+      `jockey_club_balance_${stampDate()}.csv`,
+      ['Concepto', 'Importe'],
+      [
+        ['Ingresos operativos', totalIngresos],
+        ['Gastos operativos', totalGastos],
+        ['Utilidad neta', utilidadNeta],
+        ['Activos totales', totalActivos],
+        ['Pasivos totales', totalPasivos],
+        ['Patrimonio neto', totalPatrimonioNetoTotal],
+        ['Deuda de socios', m.debtTotal],
+        ['Gastos ERP pagados', e.expensePaidTotal],
+        ['Gastos ERP pendientes', e.expensePendingTotal],
+        ['Canon cobrado', e.canonCollected],
+        ['Saldo en cajas', e.cashBalance],
+      ]
+    );
+  };
+
+  const handleExportCanonCSV = () => {
+    downloadCsv(
+      `jockey_club_canon_${stampDate()}.csv`,
+      ['Recibo', 'Concesion', 'Periodo', 'Fecha', 'Importe', 'Medio'],
+      canonPayments.map((p) => [
+        p.receipt || p.id || '',
+        p.concessionName || p.concessionId || '',
+        p.period || '',
+        p.date || '',
+        p.amount ?? 0,
+        p.method || '',
+      ])
+    );
+  };
+
+  const handleExportNewsCSV = () => {
+    downloadCsv(
+      `jockey_club_noticias_${stampDate()}.csv`,
+      ['Titulo', 'Categoria', 'Fecha', 'Resumen'],
+      newsList.map((n) => [
+        n.title || '',
+        n.category || '',
+        n.date || n.eventDate || '',
+        n.excerpt || n.summary || '',
+      ])
+    );
+  };
+
+  const handleExportMembersPDF = () => {
+    void exportMembersPdf(members, { formatCurrency }).catch((err) => fail(err, 'No se pudo generar el PDF del padrón.'));
+  };
+
+  const handleExportDebtorsPDF = () => {
+    const debtors = members.filter((mem) => (Number(mem.outstandingBalance) || 0) > 0);
+    void exportMembersPdf(debtors, {
+      formatCurrency,
+      filterLabel: 'Deudores',
+      fileName: `jockey_club_deudores_${stampDate()}.pdf`,
+    }).catch((err) => fail(err, 'No se pudo generar el PDF de deudores.'));
+  };
+
+  const handleExportJournalPDF = () => {
+    void exportJournalPdf(journalEntries, { formatCurrency }).catch((err) => fail(err, 'No se pudo generar el PDF del libro diario.'));
+  };
+
+  const handleExportExecutivePDF = () => {
+    void exportExecutiveReportPdf(stats, { formatCurrency }).catch((err) => fail(err, 'No se pudo generar el informe ejecutivo.'));
+  };
+
+  const handleExportBackup = async () => {
+    try {
+      const backupData = buildBackupPayload(backupSnapshot, { source: 'manual' });
+      await saveDailyBackup(backupData, { source: 'manual' });
+      const filename = downloadBackupJson(backupData);
+      await refreshDailyList();
+      setBackupSuccessMessage(`Backup del día guardado y descargado: ${filename}`);
+      setBackupErrorMessage('');
+      setTimeout(() => setBackupSuccessMessage(''), 4000);
+    } catch (err) {
+      fail(err, 'Error al exportar la copia de seguridad.');
+    }
+  };
+
+  const handleToggleDaily = (checked) => {
+    setDailyEnabled(setDailyBackupEnabled(checked));
+    setBackupSuccessMessage(
+      checked
+        ? 'Backups diarios activados. Se guardará uno automáticamente al ingresar al panel.'
+        : 'Backups diarios desactivados.'
+    );
+    setBackupErrorMessage('');
+    setTimeout(() => setBackupSuccessMessage(''), 4000);
+  };
+
+  const handleSaveTodayNow = async () => {
+    try {
+      const payload = buildBackupPayload(backupSnapshot, { source: 'manual' });
+      await saveDailyBackup(payload, { source: 'manual' });
+      await refreshDailyList();
+      setBackupSuccessMessage(`Backup de hoy (${stampDate()}) actualizado en el historial.`);
+      setBackupErrorMessage('');
+      setTimeout(() => setBackupSuccessMessage(''), 4000);
+    } catch (err) {
+      fail(err, 'No se pudo guardar el backup del día.');
+    }
+  };
+
+  const handleDownloadDaily = async (id) => {
+    try {
+      const row = await getDailyBackup(id);
+      if (!row?.payload) throw new Error('Backup no encontrado.');
+      downloadBackupJson(row.payload, `JCSJ-ERP-Backup-${id}.json`);
+    } catch (err) {
+      fail(err, 'No se pudo descargar el backup.');
+    }
+  };
+
+  const handleRestoreDaily = async (id) => {
+    if (!window.confirm(`¿Restaurar el backup del ${id}? Se reemplazarán los datos actuales del navegador.`)) return;
+    try {
+      const row = await getDailyBackup(id);
+      const parsed = validateBackupPayload(row?.payload);
+      applyBackupData(parsed.data);
+      setBackupSuccessMessage(
+        `Restaurado ${id}: ${parsed.data.members.length} socios, ${parsed.data.reservations.length} reservas, ${parsed.data.journalEntries.length} asientos.`
+      );
+      setBackupErrorMessage('');
+      setTimeout(() => setBackupSuccessMessage(''), 8000);
+    } catch (err) {
+      fail(err, 'No se pudo restaurar el backup.');
+    }
+  };
+
+  const handleDeleteDaily = async (id) => {
+    if (!window.confirm(`¿Eliminar el backup del ${id}?`)) return;
+    try {
+      await deleteDailyBackup(id);
+      await refreshDailyList();
+      setBackupSuccessMessage(`Backup ${id} eliminado.`);
+      setBackupErrorMessage('');
+      setTimeout(() => setBackupSuccessMessage(''), 3000);
+    } catch (err) {
+      fail(err, 'No se pudo eliminar el backup.');
+    }
+  };
+
+  const handleImportBackup = (ev) => {
+    const file = ev.target.files?.[0];
     if (!file) return;
-
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
-        const parsed = JSON.parse(event.target.result);
-
-        // Validación estructural rigurosa
-        if (!parsed || parsed.club !== 'Jockey Club San Juan - Sede Rivadavia' || !parsed.data) {
-          throw new Error('El archivo no es una copia de seguridad válida para el Jockey Club San Juan o pertenece a otra aplicación.');
-        }
-
-        const { data } = parsed;
-
-        if (
-          !Array.isArray(data.members) ||
-          !Array.isArray(data.reservations) ||
-          !Array.isArray(data.journalEntries) ||
-          !Array.isArray(data.staffMembers) ||
-          !Array.isArray(data.claims) ||
-          !Array.isArray(data.messages) ||
-          !Array.isArray(data.entryLogs)
-        ) {
-          throw new Error('La estructura interna de datos de la copia de seguridad es incorrecta o está incompleta.');
-        }
-
-        // Sobreescribir estados en caliente
-        setMembers(data.members);
-        setReservations(data.reservations);
-        setJournalEntries(data.journalEntries);
-        setStaffMembers(data.staffMembers);
-        setClaims(data.claims);
-        setMessages(data.messages);
-        setEntryLogs(data.entryLogs);
-
-        if (data.surveys && setSurveys) {
-          setSurveys(data.surveys);
-          localStorage.setItem('jockey-surveys', JSON.stringify(data.surveys));
-        }
-
-        // Forzar actualización inmediata en LocalStorage para garantizar la persistencia física
-        localStorage.setItem('jockey-members', JSON.stringify(data.members));
-        localStorage.setItem('jockey-reservations', JSON.stringify(data.reservations));
-        localStorage.setItem('jockey-journal-entries', JSON.stringify(data.journalEntries));
-        localStorage.setItem('jockey-staff-members', JSON.stringify(data.staffMembers));
-        localStorage.setItem('jockey-claims', JSON.stringify(data.claims));
-        localStorage.setItem('jockey-messages', JSON.stringify(data.messages));
-        localStorage.setItem('jockey-access-logs', JSON.stringify(data.entryLogs));
-
-        const surveysCount = data.surveys ? data.surveys.length : 0;
-        setBackupSuccessMessage(`¡Base de datos restaurada con éxito! Se cargaron: ${data.members.length} socios, ${data.reservations.length} reservas, ${data.journalEntries.length} asientos contables y ${surveysCount} encuestas.`);
+        const parsed = validateBackupPayload(JSON.parse(event.target.result));
+        applyBackupData(parsed.data);
+        await saveDailyBackup(parsed, { source: 'manual' });
+        await refreshDailyList();
+        setBackupSuccessMessage(
+          `Base restaurada: ${parsed.data.members.length} socios, ${parsed.data.reservations.length} reservas, ${parsed.data.journalEntries.length} asientos.`
+        );
         setBackupErrorMessage('');
-
-        e.target.value = '';
+        ev.target.value = '';
         setTimeout(() => setBackupSuccessMessage(''), 8000);
       } catch (err) {
-        setBackupErrorMessage('Error al importar la copia de seguridad: ' + err.message);
-        setBackupSuccessMessage('');
-        e.target.value = '';
+        fail(err, 'Error al importar la copia de seguridad.');
+        ev.target.value = '';
       }
     };
-    reader.onerror = () => {
-      setBackupErrorMessage('Error al leer el archivo de copia de seguridad.');
-      setBackupSuccessMessage('');
-    };
+    reader.onerror = () => fail(null, 'Error al leer el archivo de copia de seguridad.');
     reader.readAsText(file);
   };
 
+  const exportCatalog = [
+    {
+      icon: BarChart3,
+      title: 'Informe ejecutivo',
+      description: 'Resumen económico y operativo completo del club.',
+      actions: (
+        <button type="button" className="btn btn-primary" onClick={handleExportExecutivePDF}>
+          <FileText size={14} /> PDF
+        </button>
+      ),
+    },
+    {
+      icon: Wallet,
+      title: 'Balance económico',
+      description: 'Ingresos, gastos, utilidad, activos, pasivos y cajas.',
+      actions: (
+        <>
+          <button type="button" className="btn btn-primary" onClick={handleExportBalanceCSV}><Download size={14} /> CSV</button>
+          <button type="button" className="btn btn-secondary" onClick={handleExportExecutivePDF}><FileText size={14} /> PDF</button>
+        </>
+      ),
+    },
+    {
+      icon: FileSpreadsheet,
+      title: 'Libro Diario Legal',
+      description: 'Asientos contables con debe/haber.',
+      actions: (
+        <>
+          <button type="button" className="btn btn-primary" onClick={handleExportJournalCSV}><Download size={14} /> CSV</button>
+          <button type="button" className="btn btn-secondary" onClick={handleExportJournalPDF}><FileText size={14} /> PDF</button>
+        </>
+      ),
+    },
+    {
+      icon: Users,
+      title: 'Padrón de socios',
+      description: 'Titulares, categoría, estado y saldos.',
+      actions: (
+        <>
+          <button type="button" className="btn btn-primary" onClick={handleExportMembersCSV}><Download size={14} /> CSV</button>
+          <button type="button" className="btn btn-secondary" onClick={handleExportMembersPDF}><FileText size={14} /> PDF</button>
+        </>
+      ),
+    },
+    {
+      icon: TrendingUp,
+      title: 'Socios deudores',
+      description: 'Morosos con saldo pendiente de cuotas.',
+      actions: (
+        <>
+          <button type="button" className="btn btn-primary" onClick={handleExportDebtorsCSV}><Download size={14} /> CSV</button>
+          <button type="button" className="btn btn-secondary" onClick={handleExportDebtorsPDF}><FileText size={14} /> PDF</button>
+        </>
+      ),
+    },
+    {
+      icon: ClipboardList,
+      title: 'Gastos ERP',
+      description: 'Comprobantes, proveedores e importes.',
+      actions: <button type="button" className="btn btn-primary" onClick={handleExportExpensesCSV}><Download size={14} /> CSV</button>,
+    },
+    {
+      icon: Wallet,
+      title: 'Cajas',
+      description: 'Saldos y estado de cajas registradoras.',
+      actions: <button type="button" className="btn btn-primary" onClick={handleExportCashCSV}><Download size={14} /> CSV</button>,
+    },
+    {
+      icon: Store,
+      title: 'Concesiones',
+      description: 'Contratos, concesionarios y vigencia.',
+      actions: <button type="button" className="btn btn-primary" onClick={handleExportConcessionsCSV}><Download size={14} /> CSV</button>,
+    },
+    {
+      icon: Store,
+      title: 'Cobros de canon',
+      description: 'Pagos registrados de concesiones.',
+      actions: <button type="button" className="btn btn-primary" onClick={handleExportCanonCSV}><Download size={14} /> CSV</button>,
+    },
+    {
+      icon: Briefcase,
+      title: 'Proveedores',
+      description: 'Padron de proveedores del ERP.',
+      actions: <button type="button" className="btn btn-primary" onClick={handleExportSuppliersCSV}><Download size={14} /> CSV</button>,
+    },
+    {
+      icon: Calendar,
+      title: 'Reservas',
+      description: 'Turnos por instalación y estado.',
+      actions: <button type="button" className="btn btn-primary" onClick={handleExportReservationsCSV}><Download size={14} /> CSV</button>,
+    },
+    {
+      icon: Briefcase,
+      title: 'Personal',
+      description: 'Plantel, áreas y contactos.',
+      actions: <button type="button" className="btn btn-primary" onClick={handleExportStaffCSV}><Download size={14} /> CSV</button>,
+    },
+    {
+      icon: Shield,
+      title: 'Reclamos',
+      description: 'Tickets de socios y estado.',
+      actions: <button type="button" className="btn btn-primary" onClick={handleExportClaimsCSV}><Download size={14} /> CSV</button>,
+    },
+    {
+      icon: DoorOpen,
+      title: 'Bitácora de accesos',
+      description: 'Ingresos por credencial QR.',
+      actions: <button type="button" className="btn btn-primary" onClick={handleExportAccessCSV}><Download size={14} /> CSV</button>,
+    },
+    {
+      icon: Radio,
+      title: 'Encuestas',
+      description: 'Consultas colectivas y participación.',
+      actions: <button type="button" className="btn btn-primary" onClick={handleExportSurveysCSV}><Download size={14} /> CSV</button>,
+    },
+    {
+      icon: PartyPopper,
+      title: 'Eventos del club',
+      description: 'Agenda social y deportiva.',
+      actions: <button type="button" className="btn btn-primary" onClick={handleExportEventsCSV}><Download size={14} /> CSV</button>,
+    },
+    {
+      icon: BellRing,
+      title: 'Alertas operativas',
+      description: 'Avisos activos del ERP.',
+      actions: <button type="button" className="btn btn-primary" onClick={handleExportAlertsCSV}><Download size={14} /> CSV</button>,
+    },
+    {
+      icon: ClipboardList,
+      title: 'Mensajería',
+      description: 'Bandeja de mensajes admin ↔ socios.',
+      actions: <button type="button" className="btn btn-primary" onClick={handleExportMessagesCSV}><Download size={14} /> CSV</button>,
+    },
+    {
+      icon: FileText,
+      title: 'Noticias / mural',
+      description: 'Publicaciones del club.',
+      actions: <button type="button" className="btn btn-primary" onClick={handleExportNewsCSV}><Download size={14} /> CSV</button>,
+    },
+  ];
+
   return (
-    <div className="glass-card fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-      <div>
-        <h3 className="serif-font" style={{ fontSize: '1.4rem', margin: 0 }}>Consola de Reportes Estadísticos y Exportadores CSV</h3>
-        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
-          Analice el rendimiento operativo de las instalaciones y genere archivos contables reales.
-        </p>
+    <div className="glass-card fade-in reports-console">
+      <div className="reports-console-head">
+        <div>
+          <h3 className="serif-font">Estadísticas y reportes</h3>
+          <p>
+            Tablero económico, indicadores operativos y exportación de todos los módulos del club.
+          </p>
+        </div>
+        <button type="button" className="btn btn-primary" onClick={handleExportExecutivePDF}>
+          <FileText size={14} /> Informe ejecutivo PDF
+        </button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '2rem' }} className="responsive-form-grid">
-        {/* Gráficos / Indicadores visuales */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-          {/* Ocupación deportiva */}
-          <div className="glass-panel" style={{ padding: '1rem', background: 'rgba(255,255,255,0.01)' }}>
-            <h4 className="serif-font" style={{ fontSize: '1.05rem', color: 'var(--text-gold)', marginBottom: '0.80rem' }}>Ocupación de Turnos por Disciplina</h4>
+      <div className="reports-section-nav" role="tablist">
+        {SECTIONS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            role="tab"
+            aria-selected={section === item.id}
+            className={`reports-section-pill${section === item.id ? ' is-active' : ''}`}
+            onClick={() => setSection(item.id)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-              {[
-                { label: 'Rugby Cuyano (Masc/Fem)', codes: ['rugby_masc', 'rugby_fem'], color: 'var(--primary-gold)' },
-                { label: 'Hockey sobre Césped', codes: ['hockey_cesped'], color: '#10b981' },
-                { label: 'Deportes Hípicos & Turf', codes: ['equitacion_pistas', 'hipismo_saltos', 'turf_vareo'], color: '#d97706' },
-                { label: 'Tenis, Pádel & Fútbol', codes: ['tenis_trad', 'padel_vidrio', 'futbol_fusion'], color: '#f97316' },
-                { label: 'Salón Saludable, Boxeo & Yoga', codes: ['gimnasio_musc', 'circuito_saludable', 'boxeo_salon', 'yoga_salon', 'tenis_mesa', 'voleibol_trad'], color: '#a855f7' },
-                { label: 'Temporada & Vóley Playa', codes: ['piscina_verano', 'volei_playa'], color: '#3b82f6' },
-                { label: 'Gastronomía (The Pavilion)', codes: ['restaurant'], color: '#ec4899' }
-              ].map(facility => {
-                const count = reservations.filter(r => facility.codes.includes(r.facilityId) && r.status === 'confirmed').length;
-                const maxSimulated = 15;
-                const pct = Math.min(Math.round((count / maxSimulated) * 100), 100);
+      {(backupSuccessMessage || backupErrorMessage) && section !== 'backup' && (
+        <div className={`reports-toast ${backupErrorMessage ? 'is-error' : 'is-ok'}`}>
+          {backupErrorMessage || backupSuccessMessage}
+        </div>
+      )}
 
-                return (
-                  <div key={facility.label} style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
-                      <span style={{ color: 'var(--text-strong)' }}>{facility.label}</span>
-                      <strong style={{ color: 'var(--text-secondary)' }}>{count} turnos confirmados</strong>
-                    </div>
-                    <div className="progress-bar-container">
-                      <div
-                        className="progress-bar-fill"
-                        style={{ width: `${Math.max(pct, 5)}%`, backgroundColor: facility.color }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+      {section === 'resumen' && (
+        <>
+          <div className="reports-kpi-grid">
+            <Kpi icon={TrendingUp} label="Utilidad neta" value={formatCurrency(e.utilidadNeta)} tone={e.utilidadNeta >= 0 ? 'good' : 'bad'} />
+            <Kpi icon={Wallet} label="Ingresos" value={formatCurrency(e.totalIngresos)} tone="good" />
+            <Kpi icon={Wallet} label="Gastos" value={formatCurrency(e.totalGastos)} tone="bad" />
+            <Kpi icon={Users} label="Socios / deudores" value={`${m.total} · ${m.debtors}`} tone="gold" />
+            <Kpi icon={Calendar} label="Reservas confirmadas" value={o.confirmed} />
+            <Kpi icon={Store} label="Concesiones vigentes" value={o.concessionsActive} />
+            <Kpi icon={DoorOpen} label="Accesos hoy" value={o.accessToday} />
+            <Kpi icon={Shield} label="Reclamos abiertos" value={o.openClaims} tone={o.openClaims ? 'bad' : 'good'} />
           </div>
 
-          {/* Stacked Balance General */}
-          <div className="glass-panel" style={{ padding: '1rem', background: 'rgba(255,255,255,0.01)' }}>
-            <h4 className="serif-font" style={{ fontSize: '1.05rem', color: 'var(--text-gold)', marginBottom: '0.8rem' }}>Ecuación Patrimonial ERP</h4>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.82rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Activos Totales (Caja + Bancos + Equinos + Maquinaria)</span>
-                <strong style={{ color: 'var(--emerald-accent)' }}>{formatCurrency(totalActivos)}</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Pasivo + Patrimonio Neto (Estructura de Capital)</span>
-                <strong style={{ color: 'var(--primary-gold)' }}>{formatCurrency(totalPasivos + totalPatrimonioNetoTotal)}</strong>
-              </div>
-
-              <div className="progress-bar-container" style={{ height: '16px', background: 'rgba(255,255,255,0.03)' }}>
-                <div style={{ display: 'flex', width: '100%', height: '100%' }}>
-                  <div style={{ width: '60%', background: 'var(--emerald-accent)', height: '100%', opacity: 0.8 }} title="Banco / Caja" />
-                  <div style={{ width: '30%', background: 'var(--primary-gold)', height: '100%', opacity: 0.8 }} title="Bienes de Uso" />
-                  <div style={{ width: '10%', background: '#6b7280', height: '100%' }} title="Pasivos" />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Distribución de Socios por Categoría (Donut) */}
-          <div className="glass-panel" style={{ padding: '1rem', background: 'rgba(255,255,255,0.01)' }}>
-            <h4 className="serif-font" style={{ fontSize: '1.05rem', color: 'var(--text-gold)', marginBottom: '0.8rem' }}>Padrón de Socios por Categoría</h4>
-
-            <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center' }} className="responsive-form-grid">
-              {/* SVG Donut */}
-              <div style={{ position: 'relative', width: '100px', height: '100px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, margin: 'auto' }}>
-                <svg viewBox="0 0 100 100" width="100" height="100">
-                  <circle cx="50" cy="50" r="38" stroke="rgba(255,255,255,0.02)" strokeWidth="12" fill="transparent" />
-
-                  {pctRoyal > 0 && (
-                    <circle
-                      cx="50"
-                      cy="50"
-                      r="38"
-                      stroke="var(--primary-gold)"
-                      strokeWidth="12"
-                      fill="transparent"
-                      strokeDasharray={`${(pctRoyal / 100) * 238.76} 238.76`}
-                      strokeLinecap="round"
-                      transform="rotate(-90 50 50)"
-                      style={{ transition: 'stroke-dashoffset 0.5s ease' }}
-                    />
-                  )}
-
-                  {pctPlatinum > 0 && (
-                    <circle
-                      cx="50"
-                      cy="50"
-                      r="38"
-                      stroke="#94a3b8"
-                      strokeWidth="12"
-                      fill="transparent"
-                      strokeDasharray={`${(pctPlatinum / 100) * 238.76} 238.76`}
-                      strokeLinecap="round"
-                      transform={`rotate(${-90 + (pctRoyal / 100) * 360} 50 50)`}
-                      style={{ transition: 'stroke-dashoffset 0.5s ease' }}
-                    />
-                  )}
-
-                  {pctGold > 0 && (
-                    <circle
-                      cx="50"
-                      cy="50"
-                      r="38"
-                      stroke="#b45309"
-                      strokeWidth="12"
-                      fill="transparent"
-                      strokeDasharray={`${(pctGold / 100) * 238.76} 238.76`}
-                      strokeLinecap="round"
-                      transform={`rotate(${-90 + ((pctRoyal + pctPlatinum) / 100) * 360} 50 50)`}
-                      style={{ transition: 'stroke-dashoffset 0.5s ease' }}
-                    />
-                  )}
-                </svg>
-
-                <div style={{ position: 'absolute', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                  <span style={{ fontSize: '1.1rem', fontWeight: '800', color: 'var(--text-strong)', lineHeight: 1 }}>{totalS}</span>
-                  <span style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Socios</span>
-                </div>
-              </div>
-
-              {/* Legend */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', flexGrow: 1, width: '100%' }}>
+          <div className="reports-two-col">
+            <div className="glass-panel reports-panel">
+              <h4 className="serif-font">Ocupación de turnos por disciplina</h4>
+              <div className="reports-bars">
                 {[
-                  { label: 'Categoría Royal (VIP)', count: countRoyal, pct: pctRoyal, color: 'var(--primary-gold)' },
-                  { label: 'Categoría Platinum', count: countPlatinum, pct: pctPlatinum, color: '#94a3b8' },
-                  { label: 'Categoría Gold (Familiar)', count: countGold, pct: pctGold, color: '#b45309' }
-                ].map(item => (
-                  <div key={item.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.8rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: item.color, display: 'inline-block' }} />
-                      <span style={{ color: 'var(--text-secondary)' }}>{item.label}</span>
+                  { label: 'Rugby Cuyano (Masc/Fem)', codes: ['rugby_masc', 'rugby_fem'], color: 'var(--primary-gold)' },
+                  { label: 'Hockey sobre Césped', codes: ['hockey_cesped'], color: '#10b981' },
+                  { label: 'Deportes Hípicos & Turf', codes: ['equitacion_pistas', 'hipismo_saltos', 'turf_vareo'], color: '#d97706' },
+                  { label: 'Tenis, Pádel & Fútbol', codes: ['tenis_trad', 'padel_vidrio', 'futbol_fusion'], color: '#f97316' },
+                  { label: 'Salón Saludable, Boxeo & Yoga', codes: ['gimnasio_musc', 'circuito_saludable', 'boxeo_salon', 'yoga_salon', 'tenis_mesa', 'voleibol_trad'], color: '#a855f7' },
+                  { label: 'Temporada & Vóley Playa', codes: ['piscina_verano', 'volei_playa'], color: '#3b82f6' },
+                  { label: 'Gastronomía (The Pavilion)', codes: ['restaurant'], color: '#ec4899' },
+                ].map((facility) => {
+                  const count = reservations.filter((r) => facility.codes.includes(r.facilityId) && r.status === 'confirmed').length;
+                  const pct = Math.min(Math.round((count / 15) * 100), 100);
+                  return (
+                    <div key={facility.label} className="reports-bar-row">
+                      <div className="reports-bar-meta">
+                        <span>{facility.label}</span>
+                        <strong>{count} turnos</strong>
+                      </div>
+                      <div className="progress-bar-container">
+                        <div className="progress-bar-fill" style={{ width: `${Math.max(pct, 5)}%`, backgroundColor: facility.color }} />
+                      </div>
                     </div>
-                    <strong style={{ color: 'var(--text-strong)' }}>{item.count} ({item.pct}%)</strong>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="glass-panel reports-panel">
+              <h4 className="serif-font">Padrón por categoría</h4>
+              <div className="reports-donut-wrap">
+                <div className="reports-donut">
+                  <svg viewBox="0 0 100 100" width="110" height="110">
+                    <circle cx="50" cy="50" r="38" stroke="rgba(255,255,255,0.02)" strokeWidth="12" fill="transparent" />
+                    {pctRoyal > 0 && (
+                      <circle cx="50" cy="50" r="38" stroke="var(--primary-gold)" strokeWidth="12" fill="transparent"
+                        strokeDasharray={`${(pctRoyal / 100) * 238.76} 238.76`} transform="rotate(-90 50 50)" />
+                    )}
+                    {pctPlatinum > 0 && (
+                      <circle cx="50" cy="50" r="38" stroke="#94a3b8" strokeWidth="12" fill="transparent"
+                        strokeDasharray={`${(pctPlatinum / 100) * 238.76} 238.76`}
+                        transform={`rotate(${-90 + (pctRoyal / 100) * 360} 50 50)`} />
+                    )}
+                    {pctGold > 0 && (
+                      <circle cx="50" cy="50" r="38" stroke="#b45309" strokeWidth="12" fill="transparent"
+                        strokeDasharray={`${(pctGold / 100) * 238.76} 238.76`}
+                        transform={`rotate(${-90 + ((pctRoyal + pctPlatinum) / 100) * 360} 50 50)`} />
+                    )}
+                  </svg>
+                  <div className="reports-donut-center">
+                    <strong>{m.total}</strong>
+                    <span>Socios</span>
                   </div>
-                ))}
+                </div>
+                <div className="reports-legend">
+                  {[
+                    { label: 'Royal', count: m.byTier.royal, pct: pctRoyal, color: 'var(--primary-gold)' },
+                    { label: 'Platinum', count: m.byTier.platinum, pct: pctPlatinum, color: '#94a3b8' },
+                    { label: 'Gold', count: m.byTier.gold, pct: pctGold, color: '#b45309' },
+                  ].map((item) => (
+                    <div key={item.label}>
+                      <span style={{ background: item.color }} />
+                      {item.label}
+                      <strong>{item.count} ({item.pct}%)</strong>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="reports-mini-stats">
+                <div><span>Al día</span><strong>{m.alDia}</strong></div>
+                <div><span>Deudores</span><strong>{m.debtors}</strong></div>
+                <div><span>Deuda total</span><strong>{formatCurrency(m.debtTotal)}</strong></div>
+                <div><span>Adherentes</span><strong>{m.adherents}</strong></div>
               </div>
             </div>
           </div>
+        </>
+      )}
 
-          {/* Desglose de Ingresos y Gastos (Barras) */}
-          <div className="glass-panel" style={{ padding: '1rem', background: 'rgba(255,255,255,0.01)' }}>
-            <h4 className="serif-font" style={{ fontSize: '1.05rem', color: 'var(--text-gold)', marginBottom: '0.8rem' }}>Evolución de Flujos Contables por Cuenta</h4>
+      {section === 'economico' && (
+        <div className="reports-stack">
+          <div className="reports-kpi-grid">
+            <Kpi icon={TrendingUp} label="Utilidad neta" value={formatCurrency(e.utilidadNeta)} tone={e.utilidadNeta >= 0 ? 'good' : 'bad'} />
+            <Kpi icon={Wallet} label="Activos" value={formatCurrency(e.totalActivos)} tone="good" />
+            <Kpi icon={Wallet} label="Pasivos" value={formatCurrency(e.totalPasivos)} />
+            <Kpi icon={Wallet} label="Patrimonio neto" value={formatCurrency(e.totalPatrimonioNetoTotal)} tone="gold" />
+            <Kpi icon={Users} label="Deuda socios" value={formatCurrency(m.debtTotal)} tone="bad" />
+            <Kpi icon={Store} label="Canon cobrado" value={formatCurrency(e.canonCollected)} tone="good" />
+            <Kpi icon={Wallet} label="Saldo en cajas" value={formatCurrency(e.cashBalance)} />
+            <Kpi icon={ClipboardList} label="Gastos ERP pendientes" value={formatCurrency(e.expensePendingTotal)} tone="bad" />
+          </div>
 
-            <div style={{ width: '100%', overflowX: 'auto', padding: '0.5rem 0' }}>
-              <svg viewBox="0 0 340 160" width="100%" height="100%" style={{ minWidth: '320px', overflow: 'visible' }}>
-                <line x1="10" y1="20" x2="330" y2="20" stroke="rgba(255,255,255,0.03)" strokeWidth="1" strokeDasharray="3 3" />
-                <line x1="10" y1="70" x2="330" y2="70" stroke="rgba(255,255,255,0.03)" strokeWidth="1" strokeDasharray="3 3" />
-                <line x1="10" y1="120" x2="330" y2="120" stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
+          <div className="glass-panel reports-panel">
+            <h4 className="serif-font">Ecuación patrimonial</h4>
+            <div className="reports-balance-lines">
+              <div><span>Activos totales</span><strong style={{ color: 'var(--emerald-accent)' }}>{formatCurrency(totalActivos)}</strong></div>
+              <div><span>Pasivo + Patrimonio neto</span><strong style={{ color: 'var(--primary-gold)' }}>{formatCurrency(totalPasivos + totalPatrimonioNetoTotal)}</strong></div>
+              <div><span>Ingresos − Gastos</span><strong>{formatCurrency(totalIngresos)} − {formatCurrency(totalGastos)}</strong></div>
+            </div>
+          </div>
 
+          <div className="glass-panel reports-panel">
+            <h4 className="serif-font">Flujos contables por cuenta</h4>
+            <div className="reports-chart-scroll">
+              <svg viewBox="0 0 400 170" width="100%" style={{ minWidth: 360 }}>
+                <line x1="10" y1="20" x2="390" y2="20" stroke="rgba(255,255,255,0.03)" strokeWidth="1" strokeDasharray="3 3" />
+                <line x1="10" y1="70" x2="390" y2="70" stroke="rgba(255,255,255,0.03)" strokeWidth="1" strokeDasharray="3 3" />
+                <line x1="10" y1="120" x2="390" y2="120" stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
                 {[
                   { x: 20, value: revCuotas, label: 'Cuotas', kind: 'ingreso' },
-                  { x: 55, value: revGourmet, label: 'Gourmet', kind: 'ingreso' },
-                  { x: 90, value: revGolf, label: 'Golf', kind: 'ingreso' },
-                  { x: 190, value: expSueldos, label: 'Sueldos', kind: 'gasto' },
-                  { x: 225, value: expMaint, label: 'Canchas', kind: 'gasto' },
-                  { x: 260, value: expEquine, label: 'Alimento', kind: 'gasto' },
+                  { x: 55, value: revGourmet, label: 'Reservas', kind: 'ingreso' },
+                  { x: 90, value: revGolf, label: 'Canon', kind: 'ingreso' },
+                  { x: 125, value: revEventos, label: 'Eventos', kind: 'ingreso' },
+                  { x: 220, value: expSueldos, label: 'Sueldos', kind: 'gasto' },
+                  { x: 255, value: expMaint, label: 'Canchas', kind: 'gasto' },
+                  { x: 290, value: expEquine, label: 'Equinos', kind: 'gasto' },
+                  { x: 325, value: expServicios, label: 'Servicios', kind: 'gasto' },
                 ].map((bar) => (
                   <g key={bar.label}>
                     <rect
@@ -372,7 +962,7 @@ export default function ReportsTab({
                       y={120 - (bar.value / maxVal) * 90}
                       width="24"
                       height={(bar.value / maxVal) * 90}
-                      fill={bar.kind === 'ingreso' ? 'url(#gradIngresos)' : 'url(#gradEgresos)'}
+                      fill={bar.kind === 'ingreso' ? 'url(#gradIngresosR)' : 'url(#gradEgresosR)'}
                       rx="4"
                     />
                     <text x={bar.x + 12} y={115 - (bar.value / maxVal) * 90} fill={bar.kind === 'ingreso' ? 'var(--emerald-accent)' : 'var(--danger-accent)'} fontSize="8" fontWeight="700" textAnchor="middle">
@@ -381,19 +971,12 @@ export default function ReportsTab({
                     <text x={bar.x + 12} y="132" fill="var(--text-secondary)" fontSize="7.5" fontWeight="600" textAnchor="middle">{bar.label}</text>
                   </g>
                 ))}
-
-                <rect x="20" y="142" width="94" height="14" rx="7" fill="rgba(16, 185, 129, 0.05)" stroke="rgba(16, 185, 129, 0.15)" strokeWidth="1" />
-                <text x="67" y="152" fill="var(--emerald-accent)" fontSize="8" fontWeight="700" textAnchor="middle">INGRESOS</text>
-
-                <rect x="190" y="142" width="94" height="14" rx="7" fill="rgba(239, 68, 68, 0.05)" stroke="rgba(239, 68, 68, 0.15)" strokeWidth="1" />
-                <text x="237" y="152" fill="var(--danger-accent)" fontSize="8" fontWeight="700" textAnchor="middle">GASTOS</text>
-
                 <defs>
-                  <linearGradient id="gradIngresos" x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient id="gradIngresosR" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="var(--emerald-accent)" stopOpacity="0.85" />
                     <stop offset="100%" stopColor="var(--emerald-accent)" stopOpacity="0.2" />
                   </linearGradient>
-                  <linearGradient id="gradEgresos" x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient id="gradEgresosR" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="var(--danger-accent)" stopOpacity="0.85" />
                     <stop offset="100%" stopColor="var(--danger-accent)" stopOpacity="0.2" />
                   </linearGradient>
@@ -402,123 +985,122 @@ export default function ReportsTab({
             </div>
           </div>
         </div>
+      )}
 
-        {/* Columna Derecha: Exportadores y Backups */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-          {/* Exportadores CSV Reales */}
-          <div className="glass-panel" style={{ padding: '1.25rem', background: 'rgba(255,255,255,0.01)', display: 'flex', flexDirection: 'column', justifyItems: 'center', justifyContent: 'center', gap: '1.5rem', border: '1px dashed var(--primary-gold)', borderRadius: '12px' }}>
-            <div style={{ textAlign: 'center' }}>
-              <FileSpreadsheet size={48} style={{ color: 'var(--primary-gold)', margin: 'auto', marginBottom: '0.5rem' }} />
-              <h4 className="serif-font" style={{ fontSize: '1.15rem', color: 'var(--text-strong)', margin: 0 }}>Generación de Datos en CSV</h4>
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-                Descargue los registros del sistema local en un formato compatible con Excel o Google Sheets.
-              </p>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              <button
-                onClick={handleExportMembersCSV}
-                className="btn btn-primary"
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', padding: '0.65rem' }}
-              >
-                <Download size={14} /> Exportar Padrón de Socios (CSV)
-              </button>
-
-              <button
-                onClick={handleExportJournalCSV}
-                className="btn btn-secondary"
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', padding: '0.65rem', borderColor: 'var(--primary-gold)', color: 'var(--primary-gold)' }}
-              >
-                <Download size={14} /> Exportar Libro Diario Legal (CSV)
-              </button>
-            </div>
+      {section === 'operativo' && (
+        <div className="reports-stack">
+          <div className="reports-kpi-grid">
+            <Kpi icon={Calendar} label="Reservas totales" value={o.reservations} />
+            <Kpi icon={Calendar} label="Confirmadas / Pendientes" value={`${o.confirmed} / ${o.pending}`} tone="gold" />
+            <Kpi icon={Shield} label="Reclamos abiertos" value={`${o.openClaims}/${o.claimsTotal}`} tone={o.openClaims ? 'bad' : 'good'} />
+            <Kpi icon={Briefcase} label="Personal" value={o.staff} />
+            <Kpi icon={Store} label="Concesiones" value={`${o.concessionsActive}/${o.concessionsTotal}`} />
+            <Kpi icon={PartyPopper} label="Eventos próximos" value={o.eventsUpcoming} />
+            <Kpi icon={Radio} label="Encuestas activas" value={o.activeSurveys} />
+            <Kpi icon={DoorOpen} label="Accesos (hoy/total)" value={`${o.accessToday}/${o.accessTotal}`} />
+            <Kpi icon={BellRing} label="Alertas abiertas" value={o.alertsOpen} tone={o.alertsOpen ? 'bad' : 'good'} />
+            <Kpi icon={ClipboardList} label="Mensajes sin leer" value={o.unreadMessages} />
+            <Kpi icon={FileText} label="Noticias" value={o.news} />
+            <Kpi icon={Users} label="Adherentes" value={m.adherents} />
           </div>
+        </div>
+      )}
 
-          {/* Consola de Backups de Base de Datos */}
-          <div className="glass-panel" style={{ padding: '1.25rem', background: 'rgba(255,255,255,0.01)', display: 'flex', flexDirection: 'column', gap: '1rem', border: '1px solid var(--border-glass)', borderRadius: '12px' }}>
+      {section === 'exportar' && (
+        <div className="reports-export-grid">
+          {exportCatalog.map((item) => (
+            <ReportCard key={item.title} icon={item.icon} title={item.title} description={item.description} actions={item.actions} />
+          ))}
+        </div>
+      )}
+
+      {section === 'backup' && (
+        <div className="reports-backup-layout">
+          <div className="glass-panel reports-panel reports-backup">
             <div style={{ textAlign: 'center' }}>
               <Database size={40} style={{ color: 'var(--primary-gold)', margin: 'auto', marginBottom: '0.5rem' }} />
-              <h4 className="serif-font" style={{ fontSize: '1.15rem', color: 'var(--text-strong)', margin: 0 }}>Copias de Seguridad (Backup ERP)</h4>
+              <h4 className="serif-font" style={{ margin: 0 }}>Backups diarios</h4>
               <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-                Resguarde la contabilidad, socios y bitácoras locales en su computadora o restáurelos al instante.
+                Se guarda automáticamente un respaldo por día en este navegador (últimos 30 días).
+                También puede descargar o restaurar un archivo .json.
               </p>
             </div>
 
+            <label className="reports-daily-toggle">
+              <input
+                type="checkbox"
+                checked={dailyEnabled}
+                onChange={(ev) => handleToggleDaily(ev.target.checked)}
+              />
+              <span>Generar backup automático diario al ingresar al panel</span>
+            </label>
+
             {backupSuccessMessage && (
-              <div style={{
-                display: 'flex',
-                gap: '0.5rem',
-                alignItems: 'center',
-                background: 'rgba(16, 185, 129, 0.1)',
-                color: 'var(--emerald-accent)',
-                padding: '0.75rem',
-                borderRadius: '8px',
-                border: '1px solid rgba(16,185,129,0.2)',
-                fontSize: '0.8rem'
-              }}>
-                <CheckCircle2 size={16} style={{ flexShrink: 0 }} />
-                <span>{backupSuccessMessage}</span>
-              </div>
+              <div className="reports-toast is-ok"><CheckCircle2 size={16} /> {backupSuccessMessage}</div>
             )}
-
             {backupErrorMessage && (
-              <div style={{
-                display: 'flex',
-                gap: '0.5rem',
-                alignItems: 'center',
-                background: 'rgba(239, 68, 68, 0.1)',
-                color: 'var(--danger-accent)',
-                padding: '0.75rem',
-                borderRadius: '8px',
-                border: '1px solid rgba(239,68,68,0.2)',
-                fontSize: '0.8rem'
-              }}>
-                <AlertCircle size={16} style={{ flexShrink: 0 }} />
-                <span>{backupErrorMessage}</span>
-              </div>
+              <div className="reports-toast is-error"><AlertCircle size={16} /> {backupErrorMessage}</div>
             )}
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginTop: '0.5rem' }}>
-              <button
-                onClick={handleExportBackup}
-                className="btn btn-secondary"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '0.4rem',
-                  padding: '0.65rem',
-                  fontSize: '0.85rem'
-                }}
-              >
-                <Download size={14} /> Respaldar (.json)
+            <div className="reports-backup-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => { void handleExportBackup(); }}>
+                <Download size={14} /> Descargar hoy (.json)
               </button>
-
-              <label
-                className="btn btn-primary"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '0.4rem',
-                  padding: '0.65rem',
-                  fontSize: '0.85rem',
-                  cursor: 'pointer',
-                  margin: 0
-                }}
-              >
-                <Database size={14} /> Restaurar
-                <input
-                  type="file"
-                  accept=".json"
-                  onChange={handleImportBackup}
-                  style={{ display: 'none' }}
-                />
+              <button type="button" className="btn btn-secondary" onClick={() => { void handleSaveTodayNow(); }}>
+                <RefreshCw size={14} /> Guardar hoy
+              </button>
+              <label className="btn btn-primary" style={{ margin: 0, cursor: 'pointer' }}>
+                <Database size={14} /> Restaurar archivo
+                <input type="file" accept=".json" onChange={handleImportBackup} style={{ display: 'none' }} />
               </label>
             </div>
           </div>
+
+          <div className="glass-panel reports-panel">
+            <div className="reports-backup-list-head">
+              <h4 className="serif-font">Historial (30 días)</h4>
+              <button type="button" className="btn btn-outline" onClick={() => { void refreshDailyList(); }} disabled={dailyLoading}>
+                <RefreshCw size={14} /> Actualizar
+              </button>
+            </div>
+
+            {dailyLoading && dailyList.length === 0 ? (
+              <p className="reports-backup-empty">Cargando historial…</p>
+            ) : dailyList.length === 0 ? (
+              <p className="reports-backup-empty">
+                Todavía no hay backups diarios. Active la opción automática o pulse “Guardar hoy”.
+              </p>
+            ) : (
+              <div className="reports-backup-list">
+                {dailyList.map((row) => (
+                  <div key={row.id} className="reports-backup-row">
+                    <div>
+                      <strong>{row.id}</strong>
+                      <span>
+                        {row.source === 'auto' ? 'Automático' : 'Manual'}
+                        {' · '}
+                        {formatBytes(row.bytes)}
+                        {row.createdAt ? ` · ${new Date(row.createdAt).toLocaleString('es-AR')}` : ''}
+                      </span>
+                    </div>
+                    <div className="reports-backup-row-actions">
+                      <button type="button" className="btn btn-secondary" onClick={() => { void handleDownloadDaily(row.id); }}>
+                        <Download size={12} /> JSON
+                      </button>
+                      <button type="button" className="btn btn-primary" onClick={() => { void handleRestoreDaily(row.id); }}>
+                        Restaurar
+                      </button>
+                      <button type="button" className="btn btn-outline" onClick={() => { void handleDeleteDaily(row.id); }} aria-label={`Eliminar backup ${row.id}`}>
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

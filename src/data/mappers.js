@@ -248,14 +248,33 @@ export function claimFromRow(row) {
 
 export function surveyFromRow(row) {
   const meta = row.meta || {};
+  const options = Array.isArray(meta.options)
+    ? meta.options
+    : Array.isArray(row.questions)
+      ? row.questions
+      : [];
+  const status = row.status || 'draft';
+  const active =
+    typeof meta.active === 'boolean'
+      ? meta.active
+      : status === 'open' || status === 'published';
   return {
     id: row.id,
     title: row.title,
-    description: row.description || '',
-    status: row.status,
-    questions: row.questions || [],
-    options: meta.options || row.questions || [],
-    ...meta,
+    question: meta.question || row.title || '',
+    description: row.description || meta.description || '',
+    category: meta.category || '',
+    status,
+    active,
+    votedBy: Array.isArray(meta.votedBy) ? meta.votedBy : [],
+    options: options.map((opt, idx) => ({
+      id: opt.id ?? idx + 1,
+      text: opt.text || opt.label || String(opt),
+      votes: Number(opt.votes) || 0,
+    })),
+    questions: row.questions || options,
+    startsAt: row.starts_at || null,
+    endsAt: row.ends_at || null,
   };
 }
 

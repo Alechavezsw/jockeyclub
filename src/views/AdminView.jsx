@@ -26,7 +26,7 @@ import ClubFacilitiesPanel from '../components/admin/ClubFacilitiesPanel';
 import { DEFAULT_CHART_OF_ACCOUNTS, resolveAccountId } from '../domain/accounting/chartOfAccounts';
 import { getAccountBalance as domainAccountBalance } from '../domain/accounting/journal';
 import { allowedAdminTabs, canAccessConcessions, ROLE_LABELS, ROLE_PANEL_META } from '../domain/auth/roles';
-import { getUpcomingDuesMembers } from '../domain/members/dues';
+import { getOverdueMembers, getUpcomingDuesMembers } from '../domain/members/dues';
 import { useAuth } from '../context/AuthContext';
 
 /**
@@ -56,6 +56,7 @@ export default function AdminView({
   surveys = [],
   setSurveys,
   erp = {},
+  latestNews = [],
   userRole = 'admin',
   isZondaActive = false,
 }) {
@@ -115,12 +116,12 @@ export default function AdminView({
   const activeBookingsCount = reservations.filter(res => res.status === 'confirmed').length;
   const pendingBookingsCount = reservations.filter(res => res.status === 'pending').length;
 
-  const paidMembers = members.filter(m => m.outstandingBalance === 0).length;
-  const overdueMembers = members.filter(m => (m.outstandingBalance || 0) > 0);
+  const paidMembers = members.filter(m => (Number(m.outstandingBalance) || 0) === 0).length;
+  const overdueMembers = getOverdueMembers(members);
   const overdueMembersCount = overdueMembers.length;
   const upcomingDuesCount = getUpcomingDuesMembers(members, { withinDays: 15 }).length;
   const paymentCollectionRate = totalMembers > 0 ? Math.round((paidMembers / totalMembers) * 100) : 0;
-  const totalOutstanding = members.reduce((sum, m) => sum + m.outstandingBalance, 0);
+  const totalOutstanding = members.reduce((sum, m) => sum + (Number(m.outstandingBalance) || 0), 0);
 
   // Indicadores operativos para dashboards por rol
   const totalCashOnHand = getCategoryTotal(['Caja General', 'Caja Cantina', 'Banco Nación']);
@@ -231,35 +232,6 @@ export default function AdminView({
           to { opacity: 1; transform: translateY(0); }
         }
 
-        /* Pestañas horizontales — scroll en móvil/tablet */
-        .tab-button-grid {
-          display: flex;
-          flex-wrap: nowrap;
-          gap: 0.4rem;
-          margin-bottom: 1.5rem;
-          overflow-x: auto;
-          -webkit-overflow-scrolling: touch;
-          padding-bottom: 0.35rem;
-          scrollbar-width: thin;
-        }
-        .tab-button-grid .btn {
-          flex: 0 0 auto;
-          white-space: nowrap;
-          min-width: max-content;
-        }
-        @media (min-width: 1100px) {
-          .tab-button-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-            overflow: visible;
-            padding-bottom: 0;
-          }
-          .tab-button-grid .btn {
-            min-width: 0;
-            white-space: normal;
-          }
-        }
-
         .donut-chart {
           width: 140px;
           height: 140px;
@@ -283,16 +255,15 @@ export default function AdminView({
         }
       `}</style>
 
-      {/* Cabecera del Panel (personalizada por rol) */}
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">{panelMeta.title}</h1>
-          <p className="page-subtitle">
-            {panelMeta.subtitle}
-            <span style={{ marginLeft: 8, color: 'var(--text-gold)' }}>· Acceso: {ROLE_LABELS[userRole] || userRole}</span>
-          </p>
+      {/* Cabecera solo fuera del Inicio (el dashboard ya trae su propia intro) */}
+      {activeTab !== 'dashboard' && (
+        <div className="page-header">
+          <div>
+            <h1 className="page-title">{panelMeta.title}</h1>
+            <p className="page-subtitle">{panelMeta.subtitle}</p>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Tarjetas de Métricas según el rol (ocultas en Inicio: el dashboard ya las resume) */}
       {activeTab !== 'dashboard' && (
@@ -372,53 +343,56 @@ export default function AdminView({
       </div>
       )}
 
-      {/* Control de Pestañas Integrado */}
-      <div className="glass-panel" style={{ padding: '0.5rem', borderRadius: '12px', marginBottom: '1.5rem' }}>
-        <div className="tab-button-grid">
+      {/* Botonera operativa */}
+      <nav className="admin-nav" aria-label="Secciones del panel">
+        <div className="admin-nav-track">
           {[
-            { key: 'dashboard', icon: <LayoutDashboard size={14} />, label: 'Inicio' },
-            { key: 'members', icon: <Users size={14} />, label: 'Socios' },
-            { key: 'dues', icon: <ShieldAlert size={14} />, label: 'Cuotas' },
-            { key: 'bookings', icon: <Calendar size={14} />, label: 'Reservas' },
-            { key: 'disciplines', icon: <Trophy size={14} />, label: 'Disciplinas' },
-            { key: 'access', icon: <DoorOpen size={14} />, label: 'Ingresos' },
-            { key: 'concessions', icon: <Store size={14} />, label: 'Concesiones', external: true },
+            { key: 'dashboard', icon: LayoutDashboard, label: 'Inicio' },
+            { key: 'members', icon: Users, label: 'Socios' },
+            { key: 'dues', icon: ShieldAlert, label: 'Cuotas' },
+            { key: 'bookings', icon: Calendar, label: 'Reservas' },
+            { key: 'disciplines', icon: Trophy, label: 'Disciplinas' },
+            { key: 'access', icon: DoorOpen, label: 'Ingresos' },
+            { key: 'concessions', icon: Store, label: 'Concesiones' },
             {
               key: 'accounting',
-              icon: userRole === 'cashier' ? <DollarSign size={14} /> : <BookOpen size={14} />,
+              icon: userRole === 'cashier' ? DollarSign : BookOpen,
               label: userRole === 'cashier' ? 'Caja' : 'Contabilidad',
             },
-            { key: 'staff', icon: <ClipboardList size={14} />, label: 'Personal' },
-            { key: 'events', icon: <PartyPopper size={14} />, label: 'Fiestas' },
-            { key: 'alerts', icon: <BellRing size={14} />, label: 'Alertas' },
-            { key: 'claims', icon: <MessageSquare size={14} />, label: 'Reclamos' },
-            { key: 'messaging', icon: <Phone size={14} />, label: 'Mensajería' },
-            { key: 'reports', icon: <FileSpreadsheet size={14} />, label: 'Reportes' },
-            { key: 'surveys', icon: <Radio size={14} />, label: 'Encuestas' },
-            { key: 'migration', icon: <Database size={14} />, label: 'Migración' },
+            { key: 'staff', icon: ClipboardList, label: 'Personal' },
+            { key: 'events', icon: PartyPopper, label: 'Fiestas' },
+            { key: 'alerts', icon: BellRing, label: 'Alertas' },
+            { key: 'claims', icon: MessageSquare, label: 'Reclamos' },
+            { key: 'messaging', icon: Phone, label: 'Mensajería' },
+            { key: 'reports', icon: FileSpreadsheet, label: 'Reportes' },
+            { key: 'surveys', icon: Radio, label: 'Encuestas' },
+            { key: 'migration', icon: Database, label: 'Migración' },
           ]
             .filter((tab) => (
               tab.key === 'concessions'
                 ? showConcessionsTab
                 : permittedTabs.includes(tab.key)
             ))
-            .map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className="btn"
-              style={{
-                background: activeTab === tab.key ? 'var(--primary-gold)' : 'transparent',
-                color: activeTab === tab.key ? '#060e0a' : 'var(--text-primary)',
-                fontSize: '0.82rem', padding: '0.5rem 0.25rem', borderRadius: '6px',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem'
-              }}
-            >
-              {tab.icon} {tab.label}
-            </button>
-          ))}
+            .map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setActiveTab(tab.key)}
+                  className={`admin-nav-item${isActive ? ' is-active' : ''}`}
+                  aria-current={isActive ? 'page' : undefined}
+                >
+                  <span className="admin-nav-icon" aria-hidden="true">
+                    <Icon size={16} strokeWidth={isActive ? 2.4 : 2} />
+                  </span>
+                  <span className="admin-nav-label">{tab.label}</span>
+                </button>
+              );
+            })}
         </div>
-      </div>
+      </nav>
 
       {/* --- CONTENIDO DE CADA TAB --- */}
 
@@ -452,11 +426,18 @@ export default function AdminView({
           pendingBookingsCount={pendingBookingsCount}
           formatCurrency={formatCurrency}
           getAccountBalance={getAccountBalance}
+          journalEntries={journalEntries}
+          chartOfAccounts={chartOfAccounts}
         />
       )}
 
       {activeTab === 'dues' && (
-        <DuesControlTab members={members} formatCurrency={formatCurrency} />
+        <DuesControlTab
+          members={members}
+          setMembers={setMembers}
+          addJournalEntry={addJournalEntry}
+          formatCurrency={formatCurrency}
+        />
       )}
 
       {activeTab === 'members' && (
@@ -624,6 +605,18 @@ export default function AdminView({
           totalActivos={totalActivos}
           totalPasivos={totalPasivos}
           totalPatrimonioNetoTotal={totalPatrimonioNetoTotal}
+          totalIngresos={totalIngresos}
+          totalGastos={totalGastos}
+          utilidadNeta={utilidadNeta}
+          expenses={erp.expenses || []}
+          concessions={erp.concessions || []}
+          clubEvents={erp.clubEvents || []}
+          alerts={erp.alerts || []}
+          cashRegisters={erp.cashRegisters || []}
+          cashSessions={erp.cashSessions || []}
+          canonPayments={erp.canonPayments || []}
+          suppliers={erp.suppliers || []}
+          newsList={latestNews || []}
         />
       )}
 

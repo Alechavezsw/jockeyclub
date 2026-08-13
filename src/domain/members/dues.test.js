@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   applyAutomaticDues,
   afterCollectDues,
+  diffAutomaticDues,
   duesAmountForHousehold,
   duesAmountForMember,
   getOverdueMembers,
   getUpcomingDuesMembers,
+  toWhatsAppPhone,
 } from './dues';
 
 const members = [
@@ -55,5 +57,23 @@ describe('dues classification', () => {
         { tier: 'gold', status: 'inactive' },
       ],
     })).toBe(45000 + 45000);
+  });
+
+  it('detecta diffs de cuotas automáticas para persistir', () => {
+    const updated = applyAutomaticDues(members, today);
+    const changed = diffAutomaticDues(members, updated);
+    expect(changed.map((m) => m.memberId)).toEqual(['4']);
+  });
+
+  it('normaliza teléfonos AR para WhatsApp', () => {
+    expect(toWhatsAppPhone('+54 9 264 555-1234')).toBe('5492645551234');
+    expect(toWhatsAppPhone('2645551234')).toBe('5492645551234');
+  });
+
+  it('no marca “vence hoy” si hay saldo pero la fecha ancla no está vencida', () => {
+    const overdue = getOverdueMembers([
+      { memberId: 'x', name: 'X', tier: 'gold', outstandingBalance: 1000, status: 'active', nextDueDate: '2026-09-01' },
+    ], today);
+    expect(overdue[0].daysOverdue).toBeNull();
   });
 });

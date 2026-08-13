@@ -45,18 +45,19 @@ export default function DashboardView({
   const handleCastVote = (surveyId) => {
     const selectedOptId = selectedOptions[surveyId];
     if (!selectedOptId) return;
-    const updatedSurveys = surveys.map(s => {
-      if (s.id === surveyId) {
-        return {
-          ...s,
-          votedBy: [...s.votedBy, member.memberId],
-          options: s.options.map(opt => {
-            if (opt.id === selectedOptId) return { ...opt, votes: opt.votes + 1 };
-            return opt;
-          })
-        };
-      }
-      return s;
+    const updatedSurveys = surveys.map((s) => {
+      if (s.id !== surveyId) return s;
+      const votedBy = Array.isArray(s.votedBy) ? s.votedBy : [];
+      if (votedBy.includes(member.memberId)) return s;
+      return {
+        ...s,
+        votedBy: [...votedBy, member.memberId],
+        options: (s.options || []).map((opt) =>
+          String(opt.id) === String(selectedOptId)
+            ? { ...opt, votes: (Number(opt.votes) || 0) + 1 }
+            : opt
+        ),
+      };
     });
     setSurveys(updatedSurveys);
   };
@@ -1031,24 +1032,26 @@ export default function DashboardView({
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                 {surveys.map(survey => {
-                  const hasVoted = survey.votedBy.includes(member.memberId);
-                  const totalVotes = survey.options.reduce((s, o) => s + o.votes, 0);
+                  const options = Array.isArray(survey.options) ? survey.options : [];
+                  const votedBy = Array.isArray(survey.votedBy) ? survey.votedBy : [];
+                  const hasVoted = votedBy.includes(member.memberId);
+                  const totalVotes = options.reduce((s, o) => s + (Number(o.votes) || 0), 0);
                   let accFrac = 0;
-                  const activeHoverOpt = survey.options.find(o => o.id === hoveredSegments[survey.id]);
+                  const activeHoverOpt = options.find(o => o.id === hoveredSegments[survey.id]);
                   const hoverPct = activeHoverOpt && totalVotes > 0 ? Math.round((activeHoverOpt.votes / totalVotes) * 100) : 0;
                   const colors = ['var(--primary-gold)', 'var(--emerald-accent)', '#818cf8', '#ec4899', '#f59e0b', '#a855f7'];
 
                   return (
                     <div key={survey.id} style={{ background: 'var(--surface-softer)', border: '1px solid var(--border-glass)', borderRadius: '14px', padding: '1.1rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.4rem' }}>
-                        <span style={{ fontSize: '0.68rem', background: 'rgba(255,255,255,0.05)', padding: '0.15rem 0.5rem', borderRadius: '6px', color: 'var(--text-secondary)', fontWeight: '600' }}>{survey.category}</span>
+                        <span style={{ fontSize: '0.68rem', background: 'rgba(255,255,255,0.05)', padding: '0.15rem 0.5rem', borderRadius: '6px', color: 'var(--text-secondary)', fontWeight: '600' }}>{survey.category || 'Consulta'}</span>
                         <span style={{ fontSize: '0.68rem', color: survey.active ? 'var(--emerald-accent)' : '#ef4444', fontWeight: '600' }}>{survey.active ? '🟢 Abierta' : '🔴 Cerrada'}</span>
                       </div>
-                      <p style={{ fontSize: '0.9rem', fontWeight: '600', color: 'var(--text-strong)', lineHeight: 1.4 }}>{survey.question}</p>
+                      <p style={{ fontSize: '0.9rem', fontWeight: '600', color: 'var(--text-strong)', lineHeight: 1.4 }}>{survey.question || survey.title}</p>
 
                       {!hasVoted && survey.active ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                          {survey.options.map(opt => (
+                          {options.map(opt => (
                             <label key={opt.id} style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', padding: '0.6rem 0.75rem', borderRadius: '10px', border: '1px solid', borderColor: selectedOptions[survey.id] === opt.id ? 'var(--primary-gold)' : 'var(--border-glass)', background: selectedOptions[survey.id] === opt.id ? 'rgba(207,161,58,0.05)' : 'var(--surface-softer)', cursor: 'pointer', transition: 'all 0.15s ease', fontSize: '0.82rem', color: 'var(--text-primary)' }}>
                               <input type="radio" name={`survey-${survey.id}`} value={opt.id} checked={selectedOptions[survey.id] === opt.id} onChange={() => setSelectedOptions(prev => ({ ...prev, [survey.id]: opt.id }))} style={{ accentColor: 'var(--primary-gold)', cursor: 'pointer' }} />
                               {opt.text}
@@ -1063,7 +1066,7 @@ export default function DashboardView({
                           <div style={{ position: 'relative', width: 100, height: 100, flexShrink: 0 }}>
                             <svg viewBox="0 0 100 100" width="100" height="100">
                               <circle cx="50" cy="50" r="38" stroke="rgba(255,255,255,0.04)" strokeWidth="12" fill="transparent" />
-                              {survey.options.map((opt, i) => {
+                              {options.map((opt, i) => {
                                 const frac = totalVotes > 0 ? opt.votes / totalVotes : 0;
                                 if (!frac) return null;
                                 const cur = accFrac;
@@ -1078,7 +1081,7 @@ export default function DashboardView({
                             </div>
                           </div>
                           <div style={{ flex: 1, minWidth: 150, display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                            {survey.options.map((opt, i) => {
+                            {options.map((opt, i) => {
                               const pct = totalVotes > 0 ? Math.round((opt.votes / totalVotes) * 100) : 0;
                               const isHov = hoveredSegments[survey.id] === opt.id;
                               return (

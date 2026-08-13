@@ -75,14 +75,32 @@ export function getAccountByCode(chart, code) {
 
 export function resolveAccountId(chart, accountRef) {
   if (!accountRef) return null;
-  const byId = getAccountById(chart, accountRef);
+  const list = Array.isArray(chart) ? chart : [];
+  const byId = getAccountById(list, accountRef);
   if (byId) return byId.id;
-  const byCode = getAccountByCode(chart, accountRef);
+  const byCode = getAccountByCode(list, accountRef);
   if (byCode) return byCode.id;
+  const byName = list.find(
+    (a) => a.name === accountRef
+      || String(a.name || '').toLowerCase() === String(accountRef).toLowerCase()
+  );
+  if (byName) return byName.id;
+
+  // Legacy demo ids (coa-*) → resolver por código/nombre en el plan actual (UUID en nube)
   const legacy = LEGACY_ACCOUNT_NAME_MAP[accountRef];
-  if (legacy) return legacy;
-  const byName = chart.find((a) => a.name === accountRef);
-  return byName?.id ?? null;
+  if (legacy) {
+    const legacyAcc = getAccountById(DEFAULT_CHART_OF_ACCOUNTS, legacy);
+    if (legacyAcc) {
+      const match = list.find(
+        (a) => a.id === legacy
+          || a.code === legacyAcc.code
+          || a.name === legacyAcc.name
+      );
+      if (match) return match.id;
+    }
+    if (getAccountById(list, legacy)) return legacy;
+  }
+  return null;
 }
 
 export function accountLabel(account) {

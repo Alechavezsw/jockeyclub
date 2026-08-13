@@ -15,11 +15,12 @@ import {
   loadDismissedNotificationIds,
   saveDismissedNotificationIds,
 } from './domain/notifications/buildNotifications';
-import { applyAutomaticDues } from './domain/members/dues';
+import { applyAutomaticDues, diffAutomaticDues } from './domain/members/dues';
 import { createHrRecord } from './domain/staff/hr';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
 import { notifyNextOnWaitlist } from './domain/reservations/waitlist';
 import { bootstrapFromDb, repos } from './data/bootstrap';
+import { useDailyBackup } from './hooks/useDailyBackup';
 
 // Lazy load de vistas pesadas (bundle-dynamic-imports)
 const ReservationsView = lazy(() => import('./views/ReservationsView'));
@@ -1088,6 +1089,31 @@ export default function App() {
 
   const erp = useErpStore({ setJournalEntries, isZondaActive, userId: user?.id });
 
+  useDailyBackup({
+    enabled: true,
+    role: userRole,
+    isAuthenticated,
+    dbReady,
+    snapshot: {
+      members,
+      reservations,
+      journalEntries,
+      staffMembers,
+      claims,
+      messages,
+      entryLogs,
+      surveys,
+      expenses: erp.expenses,
+      concessions: erp.concessions,
+      clubEvents: erp.clubEvents,
+      alerts: erp.alerts,
+      cashRegisters: erp.cashRegisters,
+      suppliers: erp.suppliers,
+      newsList,
+      canonPayments: erp.canonPayments,
+    },
+  });
+
   useEffect(() => {
     if (!isAuthenticated) hydratedRef.current = false;
   }, [isAuthenticated]);
@@ -1104,7 +1130,16 @@ export default function App() {
         const data = await bootstrapFromDb();
         if (cancelled || !data) return;
         const { app, erp: erpData, health, memberDbIds: ids } = data;
-        setMembers(applyAutomaticDues(app.members || []));
+        const rawMembers = app.members || [];
+        const withDues = applyAutomaticDues(rawMembers);
+        setMembers(withDues);
+        // Persistir cuotas generadas automáticamente (vencidas sin saldo en BD)
+        const duesToPersist = diffAutomaticDues(rawMembers, withDues);
+        if (duesToPersist.length) {
+          Promise.all(
+            duesToPersist.map((m) => repos.upsertMember(m).catch(() => null))
+          ).catch(() => {});
+        }
         setReservations(app.reservations || []);
         setWaitlist(app.waitlist || []);
         setNewsList(app.newsList || []);
@@ -1347,11 +1382,34 @@ export default function App() {
   const setSurveysDb = (updater) => {
     setSurveys((prev) => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
-      if (cloudMode && Array.isArray(next) && next.length > prev.length) {
-        const newest = next[0];
-        repos.upsertSurvey(newest).then((saved) => {
-          setSurveys((cur) => [saved, ...cur.filter((x) => x.id !== newest.id)]);
-        }).catch(() => {});
+      if (cloudMode && Array.isArray(next)) {
+        const prevById = new Map(prev.map((s) => [String(s.id), s]));
+        const nextIds = new Set(next.map((s) => String(s.id)));
+
+        next.forEach((survey) => {
+          const old = prevById.get(String(survey.id));
+          if (!old) {
+            repos.upsertSurvey(survey).then((saved) => {
+              setSurveys((cur) =>
+                cur.map((x) => (String(x.id) === String(survey.id) ? saved : x))
+              );
+            }).catch((err) => setDbError(err.message || 'No se pudo guardar la encuesta'));
+            return;
+          }
+          if (JSON.stringify(old) !== JSON.stringify(survey)) {
+            repos.upsertSurvey(survey).then((saved) => {
+              setSurveys((cur) =>
+                cur.map((x) => (String(x.id) === String(saved.id) ? saved : x))
+              );
+            }).catch((err) => setDbError(err.message || 'No se pudo actualizar la encuesta'));
+          }
+        });
+
+        prev.forEach((survey) => {
+          if (!nextIds.has(String(survey.id))) {
+            repos.deleteSurvey(survey.id).catch(() => {});
+          }
+        });
       }
       return next;
     });
@@ -1378,12 +1436,24 @@ export default function App() {
         next.forEach((m) => {
           const old = prev.find((p) => p.memberId === m.memberId);
           if (!old || JSON.stringify(old) !== JSON.stringify(m)) {
-            repos.upsertMember(m).then((saved) => {
+            repos.upsertMember(m).then(async (saved) => {
               setMemberDbIds((ids) => ({ ...ids, [saved.memberId]: saved.id }));
               if (!prevIds.has(m.memberId)) {
                 setMembers((cur) =>
                   cur.map((x) => (x.memberId === saved.memberId ? { ...x, ...saved } : x))
                 );
+              }
+              // Persistir cobros nuevos (Control de Cuotas / padrón)
+              const prevHist = old?.paymentHistory || [];
+              const nextHist = m.paymentHistory || [];
+              if (nextHist.length > prevHist.length && saved.id) {
+                const newest = nextHist[0];
+                const looksLocal = newest && !/^[0-9a-f-]{36}$/i.test(String(newest.id || ''));
+                if (looksLocal) {
+                  try {
+                    await repos.insertMemberPayment(saved.id, newest);
+                  } catch { /* best-effort */ }
+                }
               }
             }).catch(() => {});
           }

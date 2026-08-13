@@ -1,3 +1,10 @@
+import {
+  BRAND,
+  drawReportFooter,
+  drawReportHeader,
+  loadClubLogoDataUrl,
+} from '../reports/pdfBrand';
+
 const TIER_LABEL = {
   royal: 'Royal',
   platinum: 'Platinum',
@@ -26,9 +33,10 @@ export async function exportMembersPdf(members = [], {
   filterLabel = 'Todos',
   fileName,
 } = {}) {
-  const [{ jsPDF }, autoTableMod] = await Promise.all([
+  const [{ jsPDF }, autoTableMod, logoDataUrl] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
+    loadClubLogoDataUrl(),
   ]);
   const autoTable = autoTableMod.default;
   const list = Array.isArray(members) ? members : [];
@@ -37,17 +45,12 @@ export async function exportMembersPdf(members = [], {
   const stamp = new Date().toISOString().slice(0, 10);
   const downloadName = fileName || `jockey_club_padron_socios_${stamp}.pdf`;
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(16);
-  doc.text('Jockey Club San Juan', 14, 16);
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  doc.text('Padrón de socios / clientes', 14, 22);
-  doc.setFontSize(9);
-  doc.setTextColor(90);
-  doc.text(`Filtro: ${filterLabel}  ·  ${list.length} registro${list.length === 1 ? '' : 's'}  ·  Generado: ${generatedAt}`, 14, 28);
-  doc.setTextColor(0);
+  const startY = drawReportHeader(doc, {
+    title: 'Padrón de socios',
+    subtitle: 'Listado institucional de titulares y adherentes',
+    metaLine: `Filtro: ${filterLabel}  ·  ${list.length} registro${list.length === 1 ? '' : 's'}  ·  Generado: ${generatedAt}`,
+    logoDataUrl,
+  });
 
   const body = list.map((m, index) => [
     String(index + 1),
@@ -63,7 +66,7 @@ export async function exportMembersPdf(members = [], {
   ]);
 
   autoTable(doc, {
-    startY: 32,
+    startY,
     head: [[
       '#',
       'Socio titular',
@@ -86,8 +89,8 @@ export async function exportMembersPdf(members = [], {
       valign: 'middle',
     },
     headStyles: {
-      fillColor: [30, 58, 40],
-      textColor: [245, 230, 180],
+      fillColor: BRAND.green,
+      textColor: BRAND.cream,
       fontStyle: 'bold',
     },
     alternateRowStyles: {
@@ -105,21 +108,10 @@ export async function exportMembersPdf(members = [], {
       8: { cellWidth: 24 },
       9: { cellWidth: 14 },
     },
-    margin: { left: 14, right: 14 },
+    margin: { left: 14, right: 14, bottom: 16 },
   });
 
-  const pageCount = doc.getNumberOfPages();
-  for (let i = 1; i <= pageCount; i += 1) {
-    doc.setPage(i);
-    doc.setFontSize(8);
-    doc.setTextColor(120);
-    doc.text(
-      `Sede Rivadavia · Página ${i} de ${pageCount}`,
-      14,
-      doc.internal.pageSize.getHeight() - 8,
-    );
-  }
-
+  drawReportFooter(doc);
   doc.save(downloadName);
   return downloadName;
 }
