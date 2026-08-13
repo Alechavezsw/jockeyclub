@@ -3756,15 +3756,32 @@ select.form-input,
   padding: 1rem 1.1rem 1.2rem;
 }
 
-.conc-detail {
-  min-height: 420px;
-  overflow: visible;
+/* glass-card trae overflow:hidden y ::before z-index:1 → cortaba Documentos */
+.glass-card.conc-detail {
+  overflow: visible !important;
+  min-height: 520px;
+  height: auto;
+  transform: none;
+}
+
+.glass-card.conc-detail:hover {
+  transform: none;
+}
+
+.glass-card.conc-detail::before {
+  z-index: 0;
+}
+
+.conc-detail > * {
+  position: relative;
+  z-index: 1;
 }
 
 .conc-panel {
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
+  min-height: 280px;
 }
 
 .conc-wizard {
@@ -4147,6 +4164,12 @@ select.form-input,
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
+  margin-bottom: 0.85rem;
+}
+
+.conc-detail-tabs .filter-btn.is-warn-tab {
+  border-color: rgba(245, 158, 11, 0.55);
+  color: #f59e0b;
 }
 
 .conc-fields strong.ok { color: var(--emerald-accent); }

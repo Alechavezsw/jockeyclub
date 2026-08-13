@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Store, AlertTriangle, CheckCircle2, Clock, Plus, RefreshCw, Ban, Search,
   CalendarDays, FileText, Download, Receipt, ClipboardList, KeyRound, Link2, Upload,
@@ -109,6 +109,14 @@ export default function ConcessionsTab({
 
   const progress = selected ? checklistProgress(selected) : null;
   const missingDocs = selected ? missingRequiredDocuments(selected) : [];
+
+  // Si faltan docs obligatorios, abrir esa pestaña al elegir la concesión
+  useEffect(() => {
+    if (!selected?.id) return;
+    if (missingRequiredDocuments(selected).length > 0) {
+      setDetailTab('docs');
+    }
+  }, [selected?.id]);
 
   const registerPayment = (e) => {
     e.preventDefault();
@@ -400,7 +408,7 @@ export default function ConcessionsTab({
                   {[
                     ['resumen', 'Resumen'],
                     ['canon', 'Canon'],
-                    ['docs', 'Documentos'],
+                    ['docs', missingDocs.length ? `Documentos (${missingDocs.length})` : 'Documentos'],
                     ['checklist', 'Checklist'],
                     ['historial', 'Renovaciones'],
                     ['portal', 'Portal'],
@@ -408,7 +416,7 @@ export default function ConcessionsTab({
                     <button
                       key={id}
                       type="button"
-                      className={`filter-btn${detailTab === id ? ' active' : ''}`}
+                      className={`filter-btn${detailTab === id ? ' active' : ''}${id === 'docs' && missingDocs.length ? ' is-warn-tab' : ''}`}
                       onClick={() => setDetailTab(id)}
                     >
                       {label}
