@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Calendar, Tag, Check, Award, Plus, X, Globe, Eye, Bookmark } from 'lucide-react';
+import ModalDialog from '../components/ModalDialog';
 
 export default function NewsBoardView({ newsList, addNewsArticle, userRole, toggleEventRSVP, rsvpList }) {
   const [activeCategory, setActiveCategory] = useState('todos');
@@ -257,18 +258,24 @@ export default function NewsBoardView({ newsList, addNewsArticle, userRole, togg
 
       {/* Modal de Publicar Anuncio (Admin) */}
       {showPublishModal && (
-        <div className="modal-overlay">
-          <div className="modal-content glass-panel" style={{ width: '90%', maxWidth: '580px', background: 'var(--bg-secondary)' }}>
+        <ModalDialog
+          onClose={() => setShowPublishModal(false)}
+          labelledBy="publish-news-title"
+          contentClassName="modal-content glass-panel"
+          contentStyle={{ width: '90%', maxWidth: '580px', background: 'var(--bg-secondary)' }}
+        >
             <div className="modal-header">
               <div>
-                <h3 className="serif-font" style={{ fontSize: '1.4rem', color: 'var(--text-primary)' }}>Redactar Nuevo Anuncio</h3>
+                <h3 id="publish-news-title" className="serif-font" style={{ fontSize: '1.4rem', color: 'var(--text-primary)' }}>Redactar Nuevo Anuncio</h3>
                 <p style={{ fontSize: '0.85rem', color: 'var(--text-gold)', marginTop: '0.1rem' }}>Panel de Comunicaciones del Jockey Club</p>
               </div>
               <button 
+                type="button"
                 onClick={() => setShowPublishModal(false)} 
+                aria-label="Cerrar"
                 style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '0.25rem' }}
               >
-                <X size={20} />
+                <X size={20} aria-hidden="true" />
               </button>
             </div>
 
@@ -360,8 +367,7 @@ export default function NewsBoardView({ newsList, addNewsArticle, userRole, togg
                 </div>
               </form>
             </div>
-          </div>
-        </div>
+        </ModalDialog>
       )}
     </div>
   );

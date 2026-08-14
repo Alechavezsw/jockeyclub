@@ -1,8 +1,17 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Sun, Moon, Shield, User, Menu, X, Bell, LogOut, Mail, QrCode, Store } from 'lucide-react';
+import { Sun, Moon, Shield, User, Menu, X, Bell, LogOut, Mail } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { navItemsForRole, ROLE_LABELS, canAccessQrGate, canAccessConcessions } from '../domain/auth/roles';
+import { navItemsForRole, ROLE_LABELS, sessionGreetLabel } from '../domain/auth/roles';
+
+function formatHeaderDate(d = new Date()) {
+  const raw = d.toLocaleDateString('es-AR', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
+}
 
 export default function Navbar({
   currentView,
@@ -16,17 +25,17 @@ export default function Navbar({
   onMarkAllNotificationsRead,
 }) {
   const { user, role, logout, roleLabel } = useAuth();
-  const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [showNotifs, setShowNotifs] = useState(false);
 
   const visibleItems = navItemsForRole(role || 'member');
-  const showAccessGate = canAccessQrGate(role);
-  const showConcessions = canAccessConcessions(role);
+  const headerDate = formatHeaderDate();
+  const greetName = sessionGreetLabel(user?.fullName || '', role);
 
   const handleNavClick = (viewId) => {
     setCurrentView(viewId);
     setIsOpen(false);
+    setShowNotifs(false);
   };
 
   const handleLogout = async () => {
@@ -58,49 +67,29 @@ export default function Navbar({
         boxSizing: 'border-box',
         gap: '0.5rem',
       }}>
-        <button
-          type="button"
-          onClick={() => handleNavClick('dashboard')}
-          aria-label="Ir al inicio · Jockey Club San Juan"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.75rem',
-            cursor: 'pointer',
-            minWidth: 0,
-            background: 'transparent',
-            border: 'none',
-            padding: 0,
-            font: 'inherit',
-            color: 'inherit',
-          }}
-        >
-          <img
-            src="/logo-jockey-club.png"
-            alt=""
-            width={42}
-            height={42}
-            fetchPriority="high"
-            style={{
-              width: '42px',
-              height: '42px',
-              borderRadius: '50%',
-              objectFit: 'cover',
-              border: '2px solid var(--primary-gold)',
-              boxShadow: '0 0 10px rgba(207, 161, 58, 0.4)',
-              flexShrink: 0,
-            }}
-          />
-          <span className="serif-font nav-brand-text" style={{
-            fontSize: 'clamp(1rem, 2.5vw, 1.35rem)',
-            fontWeight: '700',
-            letterSpacing: '0.12em',
-            color: 'var(--text-primary)',
-            textTransform: 'uppercase'
-          }}>
-            Jockey Club
-          </span>
-        </button>
+        <div className="nav-brand-block">
+          <button
+            type="button"
+            onClick={() => handleNavClick('dashboard')}
+            aria-label="Ir al inicio · Jockey Club San Juan"
+            className="nav-brand-btn"
+          >
+            <img
+              src="/logo-jockey-club.png"
+              alt=""
+              width={42}
+              height={42}
+              fetchPriority="high"
+              className="nav-brand-logo"
+            />
+            <span className="serif-font nav-brand-text">
+              Jockey Club
+            </span>
+          </button>
+          <time className="nav-header-date" dateTime={new Date().toISOString().slice(0, 10)}>
+            {headerDate}
+          </time>
+        </div>
 
         <div style={{ display: 'none', gap: '1.5rem', alignItems: 'center' }} className="desktop-menu-container">
           <style>{`
@@ -117,7 +106,9 @@ export default function Navbar({
           {visibleItems.map(item => (
             <button
               key={item.id}
+              type="button"
               onClick={() => handleNavClick(item.id)}
+              aria-current={currentView === item.id ? 'page' : undefined}
               style={{
                 background: 'transparent',
                 border: 'none',
@@ -128,7 +119,7 @@ export default function Navbar({
                 cursor: 'pointer',
                 padding: '0.5rem 0.75rem',
                 position: 'relative',
-                transition: 'var(--transition-fast)'
+                transition: 'color 0.15s ease, background-color 0.15s ease'
               }}
             >
               {item.label}
@@ -148,54 +139,6 @@ export default function Navbar({
         </div>
 
         <div className="desktop-menu-container" style={{ display: 'none', alignItems: 'center', gap: '0.75rem' }}>
-          {showConcessions && (
-            <button
-              onClick={() => { navigate('/concesiones'); setIsOpen(false); }}
-              title="Concesiones · contratos y vencimientos"
-              style={{
-                background: currentView === 'concessions' ? 'rgba(207,161,58,0.22)' : 'rgba(207,161,58,0.12)',
-                border: '1px solid rgba(207,161,58,0.4)',
-                borderRadius: 20,
-                height: 40,
-                padding: '0 0.85rem',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 6,
-                cursor: 'pointer',
-                color: 'var(--text-gold)',
-                fontFamily: 'inherit',
-                fontSize: '0.8rem',
-                fontWeight: 700,
-              }}
-            >
-              <Store size={15} /> Concesiones
-            </button>
-          )}
-          {showAccessGate && (
-            <button
-              onClick={() => { navigate('/acceso'); setIsOpen(false); }}
-              title="Control QR · portería"
-              style={{
-                background: 'rgba(207,161,58,0.12)',
-                border: '1px solid rgba(207,161,58,0.4)',
-                borderRadius: 20,
-                height: 40,
-                padding: '0 0.85rem',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 6,
-                cursor: 'pointer',
-                color: 'var(--text-gold)',
-                fontFamily: 'inherit',
-                fontSize: '0.8rem',
-                fontWeight: 700,
-              }}
-            >
-              <QrCode size={16} /> Acceso QR
-            </button>
-          )}
           <button
             type="button"
             onClick={() => handleNavClick('messages')}
@@ -424,15 +367,17 @@ export default function Navbar({
           >
             {role === 'member' ? <User size={14} /> : <Shield size={14} />}
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {user?.fullName?.split(' ')[0] || 'Usuario'} · {roleLabel || ROLE_LABELS[role]}
+              Hola, {greetName}
             </span>
           </button>
 
           <button
+            type="button"
             onClick={handleLogout}
             className="btn btn-secondary btn-sm"
             style={{ display: 'flex', alignItems: 'center', gap: 6, borderRadius: 20 }}
             title="Cerrar sesión"
+            aria-label="Cerrar sesión"
           >
             <LogOut size={14} /> Salir
           </button>
@@ -474,6 +419,10 @@ export default function Navbar({
           background: 'var(--bg-secondary)',
           boxShadow: '0 18px 40px rgba(0,0,0,0.55)',
         }}>
+          <time className="nav-header-date nav-header-date--mobile" dateTime={new Date().toISOString().slice(0, 10)}>
+            {headerDate}
+          </time>
+
           {visibleItems.map(item => (
             <button
               key={item.id}
@@ -495,56 +444,6 @@ export default function Navbar({
               {item.label}
             </button>
           ))}
-
-          {showConcessions && (
-            <button
-              type="button"
-              onClick={() => { navigate('/concesiones'); setIsOpen(false); }}
-              style={{
-                background: currentView === 'concessions' ? 'rgba(207, 161, 58, 0.05)' : 'transparent',
-                border: 'none',
-                borderLeft: currentView === 'concessions' ? '3px solid var(--primary-gold)' : '3px solid transparent',
-                color: currentView === 'concessions' ? 'var(--primary-gold)' : 'var(--text-secondary)',
-                fontFamily: 'inherit',
-                fontSize: '1rem',
-                fontWeight: '600',
-                cursor: 'pointer',
-                padding: '0.75rem 1rem',
-                textAlign: 'left',
-                width: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-              }}
-            >
-              <Store size={16} /> Concesiones
-            </button>
-          )}
-
-          {showAccessGate && (
-            <button
-              type="button"
-              onClick={() => { navigate('/acceso'); setIsOpen(false); }}
-              style={{
-                background: 'rgba(207, 161, 58, 0.05)',
-                border: 'none',
-                borderLeft: '3px solid var(--primary-gold)',
-                color: 'var(--primary-gold)',
-                fontFamily: 'inherit',
-                fontSize: '1rem',
-                fontWeight: '600',
-                cursor: 'pointer',
-                padding: '0.75rem 1rem',
-                textAlign: 'left',
-                width: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-              }}
-            >
-              <QrCode size={16} /> Acceso QR
-            </button>
-          )}
 
           <button
             type="button"
@@ -600,10 +499,15 @@ export default function Navbar({
               fontFamily: 'inherit',
             }}
           >
-            {user?.fullName} · <span style={{ color: 'var(--text-gold)' }}>{roleLabel}</span>
+            Hola, {greetName}
             {role === 'member' && (
               <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-gold)', marginTop: 2 }}>
                 Ver mis datos →
+              </span>
+            )}
+            {role !== 'member' && (
+              <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                {roleLabel || ROLE_LABELS[role]}
               </span>
             )}
           </button>

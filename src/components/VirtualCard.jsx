@@ -70,10 +70,10 @@ function CardFace({
     background: t.bg,
     border: `1px solid ${t.accentDim}`,
     boxShadow: isHovered || isFull
-      ? `0 30px 60px rgba(0,0,0,0.7), 0 0 40px ${t.glow}, inset 0 1px 0 rgba(255,255,255,0.07)`
-      : `0 16px 40px rgba(0,0,0,0.5), 0 0 20px ${t.glow}55, inset 0 1px 0 rgba(255,255,255,0.05)`,
+      ? `0 18px 36px rgba(0,0,0,0.45), 0 0 18px ${t.glow}66, inset 0 1px 0 rgba(255,255,255,0.06)`
+      : `0 12px 28px rgba(0,0,0,0.4), 0 0 12px ${t.glow}44, inset 0 1px 0 rgba(255,255,255,0.05)`,
     transform: transform || 'perspective(900px)',
-    transition: isHovered ? 'box-shadow 0.15s ease' : 'transform 0.5s ease, box-shadow 0.5s ease',
+    transition: isHovered ? 'box-shadow 0.15s ease' : 'transform 0.35s ease, box-shadow 0.35s ease',
     cursor: 'pointer',
     overflow: 'hidden',
     display: 'flex',
@@ -324,9 +324,9 @@ export default function VirtualCard({ member }) {
     const y = e.clientY - rect.top;
     const cx = rect.width / 2;
     const cy = rect.height / 2;
-    const rotX = ((y - cy) / cy) * -14;
-    const rotY = ((x - cx) / cx) * 14;
-    setTransform(`perspective(900px) rotateX(${rotX}deg) rotateY(${rotY}deg) scale(1.03)`);
+    const rotX = ((y - cy) / cy) * -4;
+    const rotY = ((x - cx) / cx) * 4;
+    setTransform(`perspective(900px) rotateX(${rotX}deg) rotateY(${rotY}deg)`);
     setGlowPos({ x: (x / rect.width) * 100, y: (y / rect.height) * 100 });
   };
 

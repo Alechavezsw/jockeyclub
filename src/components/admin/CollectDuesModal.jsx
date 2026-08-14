@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { X, Banknote, Landmark, QrCode, Upload, Copy, Check } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
+import ModalDialog from '../ModalDialog';
 import {
   CLUB_BANK_ACCOUNTS,
   MERCADO_PAGO,
@@ -31,8 +32,9 @@ function CopyBtn({ value }) {
       }}
       style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '0.2rem 0.45rem' }}
       title="Copiar"
+      aria-label="Copiar al portapapeles"
     >
-      {ok ? <Check size={12} /> : <Copy size={12} />}
+      {ok ? <Check size={12} aria-hidden="true" /> : <Copy size={12} aria-hidden="true" />}
       {ok ? 'OK' : 'Copiar'}
     </button>
   );
@@ -104,23 +106,23 @@ export default function CollectDuesModal({
   if (!member) return null;
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div
-        className="modal-content glass-panel"
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          width: '92%',
-          maxWidth: 520,
-          background: 'var(--bg-secondary)',
-          border: '1px solid var(--border-glass)',
-          padding: '1.25rem',
-          maxHeight: '90vh',
-          overflowY: 'auto',
-        }}
-      >
+    <ModalDialog
+      onClose={onClose}
+      labelledBy="collect-dues-title"
+      contentClassName="modal-content glass-panel"
+      contentStyle={{
+        width: '92%',
+        maxWidth: 520,
+        background: 'var(--bg-secondary)',
+        border: '1px solid var(--border-glass)',
+        padding: '1.25rem',
+        maxHeight: '90vh',
+        overflowY: 'auto',
+      }}
+    >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', marginBottom: '1rem' }}>
           <div>
-            <h4 className="serif-font" style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-gold)' }}>
+            <h4 id="collect-dues-title" className="serif-font" style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-gold)' }}>
               Cobrar cuota
             </h4>
             <p style={{ margin: '0.3rem 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
@@ -131,9 +133,10 @@ export default function CollectDuesModal({
             type="button"
             className="btn btn-secondary btn-sm"
             onClick={onClose}
+            aria-label="Cerrar"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
           >
-            <X size={14} /> Cerrar
+            <X size={14} aria-hidden="true" /> Cerrar
           </button>
         </div>
 
@@ -285,7 +288,6 @@ export default function CollectDuesModal({
             Confirmar cobro
           </button>
         </div>
-      </div>
-    </div>
+    </ModalDialog>
   );
 }

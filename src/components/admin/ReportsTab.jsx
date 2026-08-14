@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   FileSpreadsheet, Download, Database, CheckCircle2, AlertCircle, FileText,
   TrendingUp, Users, Calendar, Wallet, Store, ClipboardList, Shield, Radio,
@@ -100,7 +101,24 @@ export default function ReportsTab({
   newsList = [],
   suppliers = [],
 }) {
-  const [section, setSection] = useState('resumen');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const sectionFromUrl = searchParams.get('section');
+  const [section, setSectionState] = useState(() =>
+    SECTIONS.some((s) => s.id === sectionFromUrl) ? sectionFromUrl : 'resumen'
+  );
+  const setSection = (id) => {
+    setSectionState(id);
+    const next = new URLSearchParams(searchParams);
+    if (id === 'resumen') next.delete('section');
+    else next.set('section', id);
+    setSearchParams(next, { replace: true });
+  };
+
+  useEffect(() => {
+    if (sectionFromUrl && SECTIONS.some((s) => s.id === sectionFromUrl) && sectionFromUrl !== section) {
+      setSectionState(sectionFromUrl);
+    }
+  }, [sectionFromUrl, section]);
   const [backupSuccessMessage, setBackupSuccessMessage] = useState('');
   const [backupErrorMessage, setBackupErrorMessage] = useState('');
   const [dailyEnabled, setDailyEnabled] = useState(() => isDailyBackupEnabled());

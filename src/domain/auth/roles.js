@@ -126,3 +126,16 @@ export const ROLE_PANEL_META = {
     subtitle: 'Reservas, reclamos, personal y eventos',
   },
 };
+
+/**
+ * Nombre corto para saludos en UI.
+ * Evita cargos institucionales (“Comisión”, “Tesorería”…) y usa el rol.
+ */
+export function sessionGreetLabel(fullName = '', role = '') {
+  const name = String(fullName).trim();
+  const first = name.split(/\s+/)[0] || '';
+  if (!first || /^(comisi[oó]n|tesorer[ií]a|secretar[ií]a|administraci[oó]n|jockey|personal|caja)/i.test(first)) {
+    return ROLE_LABELS[role] || 'equipo';
+  }
+  return first;
+}

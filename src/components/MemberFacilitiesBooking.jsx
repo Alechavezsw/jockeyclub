@@ -21,6 +21,7 @@ import { FACILITIES, FACILITY_GROUPS, facilitiesByGroup } from '../domain/reserv
 import { getFacilityLiveStatus, isSeasonOpen } from '../domain/reservations/availability';
 import { hasReservationConflict } from '../domain/reservations/conflicts';
 import { joinWaitlist, leaveWaitlist, waitingForSlot } from '../domain/reservations/waitlist';
+import ModalDialog from './ModalDialog';
 
 const WEEKDAYS = ['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sá', 'Do'];
 
@@ -500,18 +501,21 @@ export default function MemberFacilitiesBooking({
       </div>
 
       {selectedFacility && (
-        <div className="modal-overlay" role="dialog" aria-modal="true">
-          <div className="modal-content glass-panel mfb-modal">
+        <ModalDialog
+          onClose={closeBooking}
+          labelledBy="mfb-book-title"
+          contentClassName="modal-content glass-panel mfb-modal"
+        >
             <div className="modal-header" style={{ borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.75rem', marginBottom: '1rem' }}>
               <div>
-                <h3 className="serif-font" style={{ fontSize: '1.3rem' }}>Reservar turno</h3>
+                <h3 id="mfb-book-title" className="serif-font" style={{ fontSize: '1.3rem' }}>Reservar turno</h3>
                 <p style={{ fontSize: '0.85rem', color: 'var(--text-gold)' }}>{selectedFacility.name}</p>
                 <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 4 }}>
                   {selectedDateLabel}
                 </p>
               </div>
               <button type="button" onClick={closeBooking} className="mfb-icon-btn" aria-label="Cerrar">
-                <X size={20} />
+                <X size={20} aria-hidden="true" />
               </button>
             </div>
 
@@ -625,8 +629,7 @@ export default function MemberFacilitiesBooking({
                 </div>
               </form>
             )}
-          </div>
-        </div>
+        </ModalDialog>
       )}
     </section>
   );

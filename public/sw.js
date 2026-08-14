@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jockey-club-sj-cache-v15';
+const CACHE_NAME = 'jockey-club-sj-cache-v22';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',

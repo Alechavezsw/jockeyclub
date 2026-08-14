@@ -5,6 +5,7 @@ import { exportMembersPdf } from '../../domain/members/exportMembersPdf';
 import { DISCIPLINE_OPTIONS } from '../../domain/sports/disciplines';
 import VirtualCard from '../VirtualCard';
 import CollectDuesModal from './CollectDuesModal';
+import ModalDialog from '../ModalDialog';
 
 const EMPTY_MEMBER_FORM = {
   name: '',
@@ -1314,21 +1315,21 @@ export default function MembersTab({ members, setMembers, addJournalEntry, forma
       )}
 
       {cardMember && (
-        <div className="modal-overlay" onClick={() => setCardMember(null)}>
-          <div
-            className="modal-content glass-panel"
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              width: '90%',
-              maxWidth: 420,
-              background: 'var(--bg-secondary)',
-              border: '1px solid var(--border-glass)',
-              padding: '1.25rem',
-            }}
-          >
+        <ModalDialog
+          onClose={() => setCardMember(null)}
+          labelledBy="card-member-title"
+          contentClassName="modal-content glass-panel"
+          contentStyle={{
+            width: '90%',
+            maxWidth: 420,
+            background: 'var(--bg-secondary)',
+            border: '1px solid var(--border-glass)',
+            padding: '1.25rem',
+          }}
+        >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <div>
-                <h4 className="serif-font" style={{ margin: 0, fontSize: '1.15rem', color: 'var(--text-gold)' }}>
+                <h4 id="card-member-title" className="serif-font" style={{ margin: 0, fontSize: '1.15rem', color: 'var(--text-gold)' }}>
                   Tarjeta virtual
                 </h4>
                 <p style={{ margin: '0.25rem 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
@@ -1339,16 +1340,16 @@ export default function MembersTab({ members, setMembers, addJournalEntry, forma
                 type="button"
                 className="btn btn-secondary btn-sm"
                 onClick={() => setCardMember(null)}
+                aria-label="Cerrar"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
               >
-                <X size={14} /> Cerrar
+                <X size={14} aria-hidden="true" /> Cerrar
               </button>
             </div>
             <div style={{ display: 'flex', justifyContent: 'center' }}>
               <VirtualCard member={cardMember} />
             </div>
-          </div>
-        </div>
+        </ModalDialog>
       )}
     </div>
   );

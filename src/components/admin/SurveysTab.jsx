@@ -328,7 +328,7 @@ export default function SurveysTab({ surveys, setSurveys }) {
                                     fill={`url(#grad-bar-${survey.id}-${opt.id})`}
                                     stroke={isHovered ? 'var(--text-strong)' : 'transparent'}
                                     strokeWidth="1"
-                                    style={{ transition: 'all 0.5s ease', cursor: 'pointer' }}
+                                    style={{ transition: 'height 0.35s ease, stroke 0.2s ease', cursor: 'pointer' }}
                                     onMouseEnter={() => setHoveredAdminSegments(prev => ({ ...prev, [survey.id]: opt.id }))}
                                     onMouseLeave={() => setHoveredAdminSegments(prev => ({ ...prev, [survey.id]: null }))}
                                   />
@@ -339,7 +339,7 @@ export default function SurveysTab({ surveys, setSurveys }) {
                                     fill={isHovered ? 'var(--primary-gold)' : 'var(--text-strong)'}
                                     fontSize="8"
                                     fontWeight="700"
-                                    style={{ transition: 'all 0.5s ease', pointerEvents: 'none' }}
+                                    style={{ transition: 'fill 0.2s ease', pointerEvents: 'none' }}
                                   >
                                     {opt.votes}
                                   </text>
@@ -385,7 +385,7 @@ export default function SurveysTab({ surveys, setSurveys }) {
                                 background: isHovered ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.005)',
                                 border: '1px solid',
                                 borderColor: isHovered ? segmentColor : 'transparent',
-                                transition: 'all 0.2s ease',
+                                transition: 'background-color 0.15s ease, border-color 0.15s ease',
                                 cursor: 'pointer'
                               }}
                               onMouseEnter={() => setHoveredAdminSegments(prev => ({ ...prev, [survey.id]: opt.id }))}

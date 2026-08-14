@@ -277,13 +277,13 @@ export default function StaffTab({ staffMembers, setStaffMembers, onOpenProfile,
             flex-direction: column;
             gap: 0.75rem;
             position: relative;
-            transition: all 0.3s ease;
+            transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
           }
           .staff-card:hover {
             border-color: var(--primary-gold);
-            transform: translateY(-2px);
+            transform: none;
             background: rgba(255, 255, 255, 0.02);
-            box-shadow: var(--shadow-premium);
+            box-shadow: none;
           }
           .staff-card.active {
             border-left: 3px solid var(--emerald-accent);

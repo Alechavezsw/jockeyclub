@@ -5,7 +5,7 @@ import {
   Radio, BookOpen, Shield, ShieldAlert, BellRing, CheckCircle2,
   PartyPopper, Clock, UserCircle2, FileSpreadsheet,
 } from 'lucide-react';
-import { canAccessQrGate, ROLE_LABELS } from '../../domain/auth/roles';
+import { canAccessQrGate } from '../../domain/auth/roles';
 import { isAlertVisible } from '../../domain/alerts/alerts';
 import { buildOpsFinanceSnapshot } from '../../domain/accounting/opsFinanceSnapshot';
 import { AlertsBanner } from '../erp/AlertsPanel';
@@ -43,16 +43,6 @@ function buildBookingsSnapshot(reservations = [], today = new Date()) {
 function pct(part, total) {
   if (!total) return '0.00';
   return ((part / total) * 100).toFixed(2);
-}
-
-/** Nombre para saludo: evita cargos institucionales (“Comisión”, “Tesorería”…). */
-function greetLabel(fullName = '', role = '') {
-  const name = String(fullName).trim();
-  const first = name.split(/\s+/)[0] || '';
-  if (!first || /^(comisi[oó]n|tesorer[ií]a|secretar[ií]a|administraci[oó]n|jockey|personal|caja)/i.test(first)) {
-    return ROLE_LABELS[role] || 'equipo';
-  }
-  return first;
 }
 
 function formatLongDate(d = new Date()) {
@@ -276,11 +266,7 @@ export default function AdminDashboardTab({
     <div className="fade-in ops-dash">
       <section className="ops-dash-hero ops-dash-hero--solo">
         <div className="ops-dash-hero-main">
-          <p className="ops-dash-kicker">{formatLongDate()}</p>
           <h2 className="ops-dash-title">Panel de administración</h2>
-          <p className="ops-dash-greet">
-            Hola, {greetLabel(userName, userRole)}
-          </p>
           <div className="ops-dash-actions" aria-label="Accesos rápidos">
             {quickActions.map((action) => {
               const Icon = action.icon;

@@ -1,9 +1,8 @@
-import { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Users, Calendar, DollarSign, Activity, CreditCard, Check, ShieldAlert,
   Clock, BookOpen, ClipboardList, MessageSquare, Phone,
-  FileSpreadsheet, Radio, Database, BellRing, PartyPopper, LayoutDashboard, Trophy, Store, DoorOpen
+  FileSpreadsheet, Radio, Database, BellRing, PartyPopper, LayoutDashboard, Trophy, Store, DoorOpen, QrCode
 } from 'lucide-react';
 import AccountingTab from '../components/AccountingTab';
 import StaffTab from '../components/StaffTab';
@@ -25,7 +24,7 @@ import AccessLogsTab from '../components/admin/AccessLogsTab';
 import ClubFacilitiesPanel from '../components/admin/ClubFacilitiesPanel';
 import { DEFAULT_CHART_OF_ACCOUNTS, resolveAccountId } from '../domain/accounting/chartOfAccounts';
 import { getAccountBalance as domainAccountBalance } from '../domain/accounting/journal';
-import { allowedAdminTabs, canAccessConcessions, ROLE_LABELS, ROLE_PANEL_META } from '../domain/auth/roles';
+import { allowedAdminTabs, canAccessConcessions, canAccessQrGate, ROLE_LABELS, ROLE_PANEL_META } from '../domain/auth/roles';
 import { getOverdueMembers, getUpcomingDuesMembers } from '../domain/members/dues';
 import { useAuth } from '../context/AuthContext';
 
@@ -66,25 +65,37 @@ export default function AdminView({
   const panelMeta = ROLE_PANEL_META[userRole] || ROLE_PANEL_META.admin;
 
   // La pestaña activa vive en la URL (/panel/:tab); perfiles en /panel/members|:staff/:id
+  // Subtabs de contabilidad: /panel/accounting?sub=cash
   const { tab: routeTab, memberId: routeEntityId } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const activeTab = routeTab && permittedTabs.includes(routeTab) ? routeTab : permittedTabs[0] || 'dashboard';
-  // Subtab de contabilidad a enfocar al entrar (ej. acceso directo "Arqueo de Caja")
-  const [accountingSubTabFocus, setAccountingSubTabFocus] = useState(null);
+  const accountingSubTabFocus = activeTab === 'accounting'
+    ? (searchParams.get('sub') || (userRole === 'cashier' ? 'cash' : null))
+    : null;
   const goToTab = (tabKey, focus = null) => {
     if (tabKey === 'concessions') {
       navigate('/concesiones');
       return;
     }
+    if (tabKey === 'qr_gate') {
+      navigate('/acceso');
+      return;
+    }
     if (tabKey === 'accounting') {
-      // Cajero: si no hay foco, abrir directo en Cajas.
       const nextFocus = focus || (userRole === 'cashier' ? 'cash' : null);
-      setAccountingSubTabFocus(nextFocus);
+      if (nextFocus) {
+        navigate(`/panel/accounting?sub=${encodeURIComponent(nextFocus)}`);
+      } else {
+        navigate('/panel/accounting');
+      }
+      return;
     }
     navigate(`/panel/${tabKey}`);
   };
   const setActiveTab = (tabKey) => goToTab(tabKey);
   const showConcessionsTab = canAccessConcessions(userRole);
+  const showQrGateTab = canAccessQrGate(userRole);
   const profileMember = activeTab === 'members' && routeEntityId
     ? members.find((m) => m.memberId === routeEntityId) || null
     : null;
@@ -228,7 +239,7 @@ export default function AdminView({
           animation: slideDownFast 0.25s ease-out;
         }
         @keyframes slideDownFast {
-          from { opacity: 0; transform: translateY(-8px); }
+          from { opacity: 0; transform: translateY(-3px); }
           to { opacity: 1; transform: translateY(0); }
         }
 
@@ -353,6 +364,7 @@ export default function AdminView({
             { key: 'bookings', icon: Calendar, label: 'Reservas' },
             { key: 'disciplines', icon: Trophy, label: 'Disciplinas' },
             { key: 'access', icon: DoorOpen, label: 'Ingresos' },
+            { key: 'qr_gate', icon: QrCode, label: 'Acceso QR' },
             { key: 'concessions', icon: Store, label: 'Concesiones' },
             {
               key: 'accounting',
@@ -368,11 +380,11 @@ export default function AdminView({
             { key: 'surveys', icon: Radio, label: 'Encuestas' },
             { key: 'migration', icon: Database, label: 'Migración' },
           ]
-            .filter((tab) => (
-              tab.key === 'concessions'
-                ? showConcessionsTab
-                : permittedTabs.includes(tab.key)
-            ))
+            .filter((tab) => {
+              if (tab.key === 'concessions') return showConcessionsTab;
+              if (tab.key === 'qr_gate') return showQrGateTab;
+              return permittedTabs.includes(tab.key);
+            })
             .map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.key;

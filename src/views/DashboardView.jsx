@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import VirtualCard from '../components/VirtualCard';
 import MemberFacilitiesBooking from '../components/MemberFacilitiesBooking';
 import GuestPassPanel from '../components/GuestPassPanel';
+import ModalDialog from '../components/ModalDialog';
 import { FACILITIES } from '../domain/reservations/facilities';
 import { getFacilityLiveStatus } from '../domain/reservations/availability';
 import {
@@ -248,14 +249,14 @@ export default function DashboardView({
           background: var(--surface-soft);
           border: 1px solid var(--border-glass);
           cursor: pointer;
-          transition: all 0.25s ease;
+          transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
           text-align: center;
         }
         .db-quick-btn:hover {
           background: rgba(255,255,255,0.05);
           border-color: var(--primary-gold);
-          transform: translateY(-3px);
-          box-shadow: 0 8px 25px rgba(207,161,58,0.12);
+          transform: none;
+          box-shadow: none;
         }
         .db-quick-btn-icon {
           width: 48px;
@@ -380,10 +381,8 @@ export default function DashboardView({
           display: flex;
           flex-direction: column;
           gap: 0.6rem;
-          transition: all 0.2s ease;
-        }
-        .db-sport-card:hover {
-          transform: translateY(-2px);
+          transition: background-color 0.2s ease, border-color 0.2s ease;
+          transform: none;
           border-color: rgba(255,255,255,0.1);
         }
         .db-sport-name { font-size: 0.95rem; font-weight: 700; color: var(--text-strong); }
@@ -414,7 +413,7 @@ export default function DashboardView({
           border-radius: 12px;
           border: 1px solid var(--border-glass);
           cursor: pointer;
-          transition: all 0.2s ease;
+          transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
           background: var(--surface-softer);
         }
         .db-msg-item.unread {
@@ -432,7 +431,7 @@ export default function DashboardView({
           border-radius: 12px;
           background: var(--surface-soft);
           border: 1px solid var(--border-glass);
-          transition: all 0.2s ease;
+          transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
           gap: 1rem;
           flex-wrap: wrap;
         }
@@ -457,12 +456,12 @@ export default function DashboardView({
           overflow: hidden;
           border: 1px solid var(--border-glass);
           cursor: pointer;
-          transition: all 0.2s ease;
+          transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
           background: var(--surface-softer);
           display: grid;
           grid-template-columns: 80px 1fr;
         }
-        .db-news-item:hover { border-color: var(--primary-gold); transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,0.3); }
+        .db-news-item:hover { border-color: var(--primary-gold); transform: none; box-shadow: none; }
         .db-news-thumb { background: rgba(255,255,255,0.03); display: flex; align-items: center; justify-content: center; }
 
         /* Facility status pills */
@@ -486,6 +485,7 @@ export default function DashboardView({
           justify-content: center;
           align-items: center;
           z-index: 1000;
+          overscroll-behavior: contain;
         }
         .db-modal-content {
           animation: modalIn 0.3s cubic-bezier(0.34,1.56,0.64,1);
@@ -525,7 +525,7 @@ export default function DashboardView({
           border-radius: 12px;
           border: 1px solid var(--border-glass);
           background: var(--surface-softer);
-          transition: all 0.2s ease;
+          transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
         }
         .db-adherent-row:hover { border-color: var(--primary-gold); background: rgba(207,161,58,0.03); }
       `}</style>
@@ -1052,7 +1052,7 @@ export default function DashboardView({
                       {!hasVoted && survey.active ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
                           {options.map(opt => (
-                            <label key={opt.id} style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', padding: '0.6rem 0.75rem', borderRadius: '10px', border: '1px solid', borderColor: selectedOptions[survey.id] === opt.id ? 'var(--primary-gold)' : 'var(--border-glass)', background: selectedOptions[survey.id] === opt.id ? 'rgba(207,161,58,0.05)' : 'var(--surface-softer)', cursor: 'pointer', transition: 'all 0.15s ease', fontSize: '0.82rem', color: 'var(--text-primary)' }}>
+                            <label key={opt.id} style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', padding: '0.6rem 0.75rem', borderRadius: '10px', border: '1px solid', borderColor: selectedOptions[survey.id] === opt.id ? 'var(--primary-gold)' : 'var(--border-glass)', background: selectedOptions[survey.id] === opt.id ? 'rgba(207,161,58,0.05)' : 'var(--surface-softer)', cursor: 'pointer', transition: 'background-color 0.15s ease, border-color 0.15s ease', fontSize: '0.82rem', color: 'var(--text-primary)' }}>
                               <input type="radio" name={`survey-${survey.id}`} value={opt.id} checked={selectedOptions[survey.id] === opt.id} onChange={() => setSelectedOptions(prev => ({ ...prev, [survey.id]: opt.id }))} style={{ accentColor: 'var(--primary-gold)', cursor: 'pointer' }} />
                               {opt.text}
                             </label>
@@ -1106,20 +1106,28 @@ export default function DashboardView({
 
       {/* MODAL CREDENCIAL ADHERENTE */}
       {selectedAdherent && (
-        <div className="db-modal-overlay" onClick={() => setSelectedAdherent(null)}>
-          <div className="db-modal-content" onClick={e => e.stopPropagation()}>
+        <ModalDialog
+          onClose={() => setSelectedAdherent(null)}
+          labelledBy="adherent-card-title"
+          overlayClassName="db-modal-overlay"
+          contentClassName="db-modal-content"
+        >
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.5rem' }}>
-              <button onClick={() => setSelectedAdherent(null)} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.85rem' }}>
-                Cerrar <X size={16} />
+              <button
+                type="button"
+                onClick={() => setSelectedAdherent(null)}
+                aria-label="Cerrar"
+                style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.85rem' }}
+              >
+                Cerrar <X size={16} aria-hidden="true" />
               </button>
             </div>
             <VirtualCard member={{ name: selectedAdherent.name, memberId: `2026${String(Math.abs([...selectedAdherent.id].reduce((h, c) => h * 31 + c.charCodeAt(0), 7))).padEnd(12, '0').slice(0, 12)}`, tier: selectedAdherent.tier, outstandingBalance: selectedAdherent.outstandingBalance, yearsActive: 1, status: selectedAdherent.status }} />
-            <div style={{ marginTop: '1rem', background: 'rgba(6,14,10,0.9)', border: '1px solid var(--primary-gold)', padding: '0.85rem 1.25rem', borderRadius: '10px', color: 'var(--text-gold)', fontSize: '0.82rem', textAlign: 'center', maxWidth: '350px' }}>
+            <div id="adherent-card-title" style={{ marginTop: '1rem', background: 'rgba(6,14,10,0.9)', border: '1px solid var(--primary-gold)', padding: '0.85rem 1.25rem', borderRadius: '10px', color: 'var(--text-gold)', fontSize: '0.82rem', textAlign: 'center', maxWidth: '350px' }}>
               <strong style={{ display: 'block', color: '#fff', marginBottom: '0.25rem' }}>Credencial de Adherente Familiar</strong>
               Vinculada a {member.name}. Autorizado para reservas y acceso a sedes deportivas.
             </div>
-          </div>
-        </div>
+        </ModalDialog>
       )}
     </div>
   );

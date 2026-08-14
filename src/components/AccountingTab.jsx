@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   BookOpen, Plus, DollarSign, PieChart, ShieldAlert, CheckCircle2, Trash2, Printer, Search,
   TrendingUp, Book, ListTree, Wallet, Receipt, Truck, HelpCircle, Building2, Repeat, Percent,
@@ -96,17 +97,41 @@ export default function AccountingTab({
 }) {
   const { role } = useAuth();
   const accountingTabs = allowedAccountingSubtabs(role || 'admin');
-  const [subTab, setSubTab] = useState(() =>
-    initialSubTab && accountingTabs.includes(initialSubTab) ? initialSubTab : accountingTabs[0] || 'diary'
+  const [searchParams, setSearchParams] = useSearchParams();
+  const subFromUrl = searchParams.get('sub');
+  const [subTab, setSubTabState] = useState(() =>
+    (initialSubTab && accountingTabs.includes(initialSubTab)
+      ? initialSubTab
+      : subFromUrl && accountingTabs.includes(subFromUrl)
+        ? subFromUrl
+        : accountingTabs[0] || 'diary')
   );
+
+  const setSubTab = (key) => {
+    setSubTabState(key);
+    const next = new URLSearchParams(searchParams);
+    if (key && key !== (accountingTabs[0] || 'diary')) {
+      next.set('sub', key);
+    } else {
+      next.delete('sub');
+    }
+    setSearchParams(next, { replace: true });
+  };
+
   const postableAccounts = useMemo(() => getPostableAccounts(chartOfAccounts), [chartOfAccounts]);
   const ALL_ACCOUNTS = useMemo(() => postableAccounts.map((a) => a.name), [postableAccounts]);
 
   useEffect(() => {
     const tabs = allowedAccountingSubtabs(role || 'admin');
-    if (!tabs.includes(subTab)) setSubTab(tabs[0] || 'diary');
+    if (!tabs.includes(subTab)) setSubTabState(tabs[0] || 'diary');
   }, [role, subTab]);
-  
+
+  useEffect(() => {
+    const tabs = allowedAccountingSubtabs(role || 'admin');
+    if (subFromUrl && tabs.includes(subFromUrl) && subFromUrl !== subTab) {
+      setSubTabState(subFromUrl);
+    }
+  }, [subFromUrl, role, subTab]);
   // Estado para el formulario de nuevo asiento contable
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [description, setDescription] = useState('');
@@ -321,8 +346,10 @@ export default function AccountingTab({
           })().map((tab) => (
             <button
               key={tab.key}
+              type="button"
               onClick={() => setSubTab(tab.key)}
               className={`filter-btn ${subTab === tab.key ? 'active' : ''}`}
+              aria-current={subTab === tab.key ? 'page' : undefined}
               style={{
                 display: 'flex',
                 alignItems: 'center',
