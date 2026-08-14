@@ -2,7 +2,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Users, Calendar, DollarSign, Activity, CreditCard, Check, ShieldAlert,
   Clock, BookOpen, ClipboardList, MessageSquare, Phone,
-  FileSpreadsheet, Radio, Database, BellRing, PartyPopper, LayoutDashboard, Trophy, Store, DoorOpen, QrCode
+  FileSpreadsheet, Radio, Database, BellRing, PartyPopper, LayoutDashboard, Trophy, Store, DoorOpen, QrCode, Newspaper
 } from 'lucide-react';
 import AccountingTab from '../components/AccountingTab';
 import StaffTab from '../components/StaffTab';
@@ -22,6 +22,7 @@ import DuesControlTab from '../components/admin/DuesControlTab';
 import DisciplinesTab from '../components/admin/DisciplinesTab';
 import AccessLogsTab from '../components/admin/AccessLogsTab';
 import ClubFacilitiesPanel from '../components/admin/ClubFacilitiesPanel';
+import NewsCmsTab from '../components/admin/NewsCmsTab';
 import { DEFAULT_CHART_OF_ACCOUNTS, resolveAccountId } from '../domain/accounting/chartOfAccounts';
 import { getAccountBalance as domainAccountBalance } from '../domain/accounting/journal';
 import { allowedAdminTabs, canAccessConcessions, canAccessQrGate, ROLE_LABELS, ROLE_PANEL_META } from '../domain/auth/roles';
@@ -56,6 +57,7 @@ export default function AdminView({
   setSurveys,
   erp = {},
   latestNews = [],
+  setNewsList,
   userRole = 'admin',
   isZondaActive = false,
 }) {
@@ -376,6 +378,7 @@ export default function AdminView({
             { key: 'alerts', icon: BellRing, label: 'Alertas' },
             { key: 'claims', icon: MessageSquare, label: 'Reclamos' },
             { key: 'messaging', icon: Phone, label: 'Mensajería' },
+            { key: 'news', icon: Newspaper, label: 'Revista' },
             { key: 'reports', icon: FileSpreadsheet, label: 'Reportes' },
             { key: 'surveys', icon: Radio, label: 'Encuestas' },
             { key: 'migration', icon: Database, label: 'Migración' },
@@ -592,6 +595,10 @@ export default function AdminView({
           onRefresh={refreshMessages}
           onSendMessage={sendMessage}
         />
+      )}
+
+      {activeTab === 'news' && (
+        <NewsCmsTab newsList={latestNews} setNewsList={setNewsList} />
       )}
 
       {activeTab === 'reports' && (

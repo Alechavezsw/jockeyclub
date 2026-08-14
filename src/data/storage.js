@@ -70,3 +70,37 @@ export async function removeConcessionDocumentFile(path) {
     'No se pudo borrar el archivo'
   );
 }
+
+/**
+ * Sube imagen de portada/galería de la revista a Storage (misma bucket, carpeta news/).
+ * @returns {{ path, url, name, mimeType, size }}
+ */
+export async function uploadNewsImage(file, { articleId = 'draft' } = {}) {
+  if (!isSupabaseConfigured || !supabase) {
+    throw new Error('Supabase no configurado: no se puede subir la imagen.');
+  }
+  if (!file) throw new Error('Seleccioná una imagen.');
+  if (file.size > MAX_BYTES) throw new Error('La imagen supera 10 MB.');
+  if (file.type && !String(file.type).startsWith('image/')) {
+    throw new Error('Solo se permiten imágenes.');
+  }
+
+  const folder = String(articleId || 'draft').replace(/[^a-z0-9_-]/gi, '') || 'draft';
+  const path = `news/${folder}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${extFromFile(file)}`;
+
+  const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
+    cacheControl: '3600',
+    upsert: false,
+    contentType: file.type || undefined,
+  });
+  if (error) throw new Error(error.message || 'No se pudo subir la imagen.');
+
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+  return {
+    path,
+    url: data?.publicUrl || '',
+    name: file.name || path.split('/').pop(),
+    mimeType: file.type || '',
+    size: file.size || 0,
+  };
+}

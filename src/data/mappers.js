@@ -288,7 +288,10 @@ export function newsFromRow(row) {
     excerpt: row.summary || '',
     content: row.body || '',
     image: row.image_url || meta.image || '',
-    ...meta,
+    gallery: Array.isArray(meta.gallery) ? meta.gallery : [],
+    isEvent: Boolean(meta.isEvent),
+    isPublished: row.is_published !== false,
+    eventDate: row.event_date || null,
   };
 }
 

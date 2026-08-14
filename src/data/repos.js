@@ -431,7 +431,12 @@ export async function upsertNews(item) {
     category: item.category || null,
     is_published: item.isPublished !== false,
     event_date: item.eventDate || null,
-    meta: { dateLabel: item.date, image: item.image },
+    meta: {
+      dateLabel: item.date || null,
+      image: item.image || null,
+      gallery: Array.isArray(item.gallery) ? item.gallery : [],
+      isEvent: Boolean(item.isEvent),
+    },
   };
   if (item.id && String(item.id).includes('-')) {
     const saved = await unwrap(sb().from('news_posts').update(row).eq('id', item.id).select().single());
@@ -439,6 +444,10 @@ export async function upsertNews(item) {
   }
   const saved = await unwrap(sb().from('news_posts').insert(row).select().single());
   return M.newsFromRow(saved);
+}
+
+export async function deleteNews(newsId) {
+  await unwrap(sb().from('news_posts').delete().eq('id', newsId), 'No se pudo eliminar la noticia');
 }
 
 export async function listRsvps() {

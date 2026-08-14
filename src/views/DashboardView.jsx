@@ -746,7 +746,7 @@ export default function DashboardView({
                 </button>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                {latestNews.slice(0, 3).map(item => (
+                {latestNews.filter((n) => n.isPublished !== false).slice(0, 3).map(item => (
                   <div key={item.id} className="db-news-item" onClick={() => setCurrentView('news')}>
                     <div className="db-news-thumb" style={{ padding: '0.75rem' }}>
                       <div style={{ fontSize: '1.5rem' }}>{item.category === 'deportes' ? '🏉' : item.category === 'eventos' ? '🎪' : '🏗️'}</div>

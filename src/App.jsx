@@ -1418,11 +1418,37 @@ export default function App() {
   const setNewsDb = (updater) => {
     setNewsList((prev) => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
-      if (cloudMode && Array.isArray(next) && next.length > prev.length) {
-        const newest = next[0];
-        repos.upsertNews(newest).then((saved) => {
-          setNewsList((cur) => [saved, ...cur.filter((x) => x.id !== newest.id)]);
-        }).catch(() => {});
+      if (cloudMode && Array.isArray(next)) {
+        const prevById = new Map(prev.map((n) => [String(n.id), n]));
+        const nextIds = new Set(next.map((n) => String(n.id)));
+
+        next.forEach((article) => {
+          const old = prevById.get(String(article.id));
+          if (!old) {
+            repos.upsertNews(article).then((saved) => {
+              setNewsList((cur) =>
+                cur.map((x) => (String(x.id) === String(article.id) ? saved : x))
+              );
+            }).catch((err) => setDbError(err.message || 'No se pudo guardar la noticia'));
+            return;
+          }
+          if (JSON.stringify(old) !== JSON.stringify(article)) {
+            repos.upsertNews(article).then((saved) => {
+              setNewsList((cur) =>
+                cur.map((x) => (String(x.id) === String(saved.id) ? saved : x))
+              );
+            }).catch((err) => setDbError(err.message || 'No se pudo actualizar la noticia'));
+          }
+        });
+
+        prev.forEach((article) => {
+          if (!nextIds.has(String(article.id))) {
+            const id = article.id;
+            if (id && String(id).includes('-')) {
+              repos.deleteNews(id).catch(() => {});
+            }
+          }
+        });
       }
       return next;
     });
@@ -1540,11 +1566,6 @@ export default function App() {
     }
   }, [notifications, cloudMode, user?.id]);
 
-  // Agregar un anuncio/noticia (Admin)
-  const addNewsArticle = (newArticle) => {
-    setNewsDb((prev) => [newArticle, ...prev]);
-  };
-
   // Confirmar/Desconfirmar asistencia a evento (Socio)
   const toggleEventRSVP = async (eventId) => {
     const memberNumber = activeMember?.memberId;
@@ -1608,6 +1629,7 @@ export default function App() {
         setMembers={setMembersDb}
         setReservations={setReservations}
         latestNews={newsList}
+        setNewsList={setNewsDb}
         journalEntries={journalEntries}
         setJournalEntries={setJournalEntries}
         addJournalEntry={erp.addPostedEntry}
@@ -1650,9 +1672,7 @@ export default function App() {
   const newsView = (
     <NewsBoardView
       newsList={newsList}
-      addNewsArticle={addNewsArticle}
       userRole={canAccessAdmin(userRole) ? 'admin' : 'member'}
-      member={activeMember}
       toggleEventRSVP={toggleEventRSVP}
       rsvpList={rsvpList}
     />
@@ -1794,7 +1814,7 @@ export default function App() {
       >
         {!isAccessGate && (
           <>
-            <SessionStatusBar />
+            <SessionStatusBar members={members} staffMembers={staffMembers} />
             {dbError ? (
               <p className="conc-error" role="alert" aria-live="assertive" style={{ margin: '0 0 0.75rem' }}>
                 {dbError}

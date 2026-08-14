@@ -49,6 +49,7 @@ export function allowedAdminTabs(role) {
       'alerts',
       'claims',
       'messaging',
+      'news',
       'reports',
       'surveys',
       'migration',
@@ -61,7 +62,7 @@ export function allowedAdminTabs(role) {
     return ['dashboard', 'members', 'dues', 'access', 'accounting', 'events'];
   }
   if (role === 'staff') {
-    return ['dashboard', 'bookings', 'disciplines', 'access', 'staff', 'events', 'alerts', 'claims'];
+    return ['dashboard', 'bookings', 'disciplines', 'access', 'staff', 'events', 'alerts', 'claims', 'news'];
   }
   return [];
 }
