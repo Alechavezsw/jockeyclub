@@ -46,12 +46,18 @@ function statusBadgeClass(status) {
 }
 
 /** CMS completo de la Revista Digital. */
-export default function NewsCmsTab({ newsList = [], setNewsList }) {
+export default function NewsCmsTab({ newsList = [], setNewsList, authorName = '' }) {
+  const defaultAuthor = String(authorName || '').trim();
+  const makeEmptyDraft = () => ({
+    ...emptyNewsDraft(),
+    author: defaultAuthor,
+  });
+
   const [filter, setFilter] = useState('todos');
   const [query, setQuery] = useState('');
   const [sortBy, setSortBy] = useState('updated');
   const [editingId, setEditingId] = useState(null);
-  const [draft, setDraft] = useState(emptyNewsDraft);
+  const [draft, setDraft] = useState(makeEmptyDraft);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -90,15 +96,19 @@ export default function NewsCmsTab({ newsList = [], setNewsList }) {
 
   const startCreate = () => {
     setEditingId('new');
-    setDraft(emptyNewsDraft());
+    setDraft(makeEmptyDraft());
     setError('');
     setPreview(false);
     setEditorTab('contenido');
   };
 
   const startEdit = (article) => {
+    const normalized = normalizeNewsArticle(article);
     setEditingId(article.id);
-    setDraft(normalizeNewsArticle(article));
+    setDraft({
+      ...normalized,
+      author: normalized.author || defaultAuthor,
+    });
     setError('');
     setPreview(false);
     setEditorTab('contenido');
@@ -106,7 +116,7 @@ export default function NewsCmsTab({ newsList = [], setNewsList }) {
 
   const cancelEdit = () => {
     setEditingId(null);
-    setDraft(emptyNewsDraft());
+    setDraft(makeEmptyDraft());
     setError('');
     setPreview(false);
     setEditorTab('contenido');
@@ -214,7 +224,7 @@ export default function NewsCmsTab({ newsList = [], setNewsList }) {
     e?.preventDefault?.();
     if (!setNewsList) return;
     const merged = { ...draft, ...overrides };
-    if (!merged.title.trim() || !merged.excerpt.trim() || !merged.content.trim()) {
+    if (!String(merged.title || '').trim() || !String(merged.excerpt || '').trim() || !String(merged.content || '').trim()) {
       setError('Completá título, bajada y cuerpo de la noticia.');
       setEditorTab('contenido');
       return;
@@ -228,9 +238,11 @@ export default function NewsCmsTab({ newsList = [], setNewsList }) {
     setSaving(true);
     setError('');
     try {
+      const existingId = editingId && editingId !== 'new' ? editingId : null;
       const article = normalizeNewsArticle({
         ...merged,
-        id: editingId && editingId !== 'new' ? editingId : `tmp-news-${Date.now()}`,
+        id: existingId || undefined,
+        author: merged.author || defaultAuthor,
         date: merged.date || formatNewsDateLabel(),
         slug: merged.slug || slugifyNewsTitle(merged.title),
         tags: merged.tagsText,
@@ -238,13 +250,17 @@ export default function NewsCmsTab({ newsList = [], setNewsList }) {
         updatedAt: new Date().toISOString(),
         createdAt: merged.createdAt || new Date().toISOString(),
         isEvent: merged.allowRsvp || merged.isEvent,
-        isPublished: merged.status === 'published',
+        status: merged.status || 'draft',
+        isPublished: (merged.status || 'draft') === 'published',
       });
 
       setNewsList((prev) => {
-        const exists = prev.some((n) => String(n.id) === String(article.id));
+        const exists = existingId
+          ? prev.some((n) => String(n.id) === String(existingId))
+          : prev.some((n) => String(n.id) === String(article.id));
         if (exists) {
-          return prev.map((n) => (String(n.id) === String(article.id) ? { ...n, ...article } : n));
+          const matchId = existingId || article.id;
+          return prev.map((n) => (String(n.id) === String(matchId) ? { ...n, ...article, id: n.id } : n));
         }
         return [article, ...prev];
       });
@@ -600,8 +616,11 @@ export default function NewsCmsTab({ newsList = [], setNewsList }) {
                           className="form-input"
                           value={draft.author}
                           onChange={(e) => patch({ author: e.target.value })}
-                          placeholder="Redacción Jockey Club"
+                          placeholder={defaultAuthor || 'Redacción Jockey Club'}
                         />
+                        {defaultAuthor ? (
+                          <small className="news-cms-char">Por defecto: usuario de sesión</small>
+                        ) : null}
                       </div>
                     </div>
 
@@ -890,28 +909,36 @@ export default function NewsCmsTab({ newsList = [], setNewsList }) {
 
             <div className="news-cms-save-row">
               <button type="button" className="btn btn-secondary" onClick={cancelEdit}>Cancelar</button>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                disabled={saving || uploading}
-                onClick={() => void handleSave(null, { status: 'draft', isPublished: false })}
-              >
-                Guardar borrador
-              </button>
+              {draft.status !== 'published' && (
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  disabled={saving || uploading}
+                  onClick={() => void handleSave(null, { status: 'published', isPublished: true })}
+                >
+                  <Eye size={16} aria-hidden="true" /> Publicar ahora
+                </button>
+              )}
               <button
                 type="button"
                 className="btn btn-primary"
                 disabled={saving || uploading}
                 onClick={(e) => {
-                  if (draft.status === 'scheduled') {
-                    void handleSave(e, { status: 'scheduled', isPublished: false });
-                    return;
-                  }
-                  void handleSave(e, { status: 'published', isPublished: true });
+                  const status = draft.status || 'draft';
+                  void handleSave(e, {
+                    status,
+                    isPublished: status === 'published',
+                  });
                 }}
               >
                 <Save size={16} aria-hidden="true" />
-                {saving ? 'Guardando…' : (draft.status === 'scheduled' ? 'Programar' : 'Publicar')}
+                {saving
+                  ? 'Guardando…'
+                  : draft.status === 'scheduled'
+                    ? 'Guardar programación'
+                    : draft.status === 'published'
+                      ? 'Guardar publicada'
+                      : 'Guardar borrador'}
               </button>
             </div>
           </form>

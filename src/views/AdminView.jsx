@@ -612,7 +612,11 @@ export default function AdminView({
       )}
 
       {activeTab === 'news' && (
-        <NewsCmsTab newsList={latestNews} setNewsList={setNewsList} />
+        <NewsCmsTab
+          newsList={latestNews}
+          setNewsList={setNewsList}
+          authorName={user?.fullName || ROLE_LABELS[userRole] || ''}
+        />
       )}
 
       {activeTab === 'reports' && (

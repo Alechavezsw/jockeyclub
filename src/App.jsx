@@ -1437,11 +1437,14 @@ export default function App() {
       if (cloudMode && Array.isArray(next)) {
         const prevById = new Map(prev.map((n) => [String(n.id), n]));
         const nextIds = new Set(next.map((n) => String(n.id)));
+        const isUuid = (id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+          .test(String(id || ''));
 
         next.forEach((article) => {
           const old = prevById.get(String(article.id));
           if (!old) {
             repos.upsertNews(article).then((saved) => {
+              setDbError('');
               setNewsList((cur) =>
                 cur.map((x) => (String(x.id) === String(article.id) ? saved : x))
               );
@@ -1450,8 +1453,9 @@ export default function App() {
           }
           if (JSON.stringify(old) !== JSON.stringify(article)) {
             repos.upsertNews(article).then((saved) => {
+              setDbError('');
               setNewsList((cur) =>
-                cur.map((x) => (String(x.id) === String(saved.id) ? saved : x))
+                cur.map((x) => (String(x.id) === String(article.id) ? saved : x))
               );
             }).catch((err) => setDbError(err.message || 'No se pudo actualizar la noticia'));
           }
@@ -1460,7 +1464,7 @@ export default function App() {
         prev.forEach((article) => {
           if (!nextIds.has(String(article.id))) {
             const id = article.id;
-            if (id && String(id).includes('-')) {
+            if (isUuid(id)) {
               repos.deleteNews(id).catch(() => {});
             }
           }

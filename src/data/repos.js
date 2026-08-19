@@ -425,6 +425,9 @@ export async function listNews() {
 export async function upsertNews(item) {
   const status = item.status
     || (item.isPublished === false ? 'draft' : 'published');
+  const eventDate = item.eventDate && String(item.eventDate).trim()
+    ? String(item.eventDate).slice(0, 10)
+    : null;
   const row = {
     title: item.title,
     summary: item.excerpt || item.summary || null,
@@ -432,7 +435,7 @@ export async function upsertNews(item) {
     image_url: item.image || null,
     category: item.category || null,
     is_published: status === 'published',
-    event_date: item.eventDate || null,
+    event_date: eventDate,
     meta: {
       dateLabel: item.date || null,
       image: item.image || null,
@@ -453,10 +456,13 @@ export async function upsertNews(item) {
       createdAt: item.createdAt || null,
     },
   };
-  if (item.id && String(item.id).includes('-')) {
+  const isPersistedUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    .test(String(item.id || ''));
+  if (isPersistedUuid) {
     const saved = await unwrap(sb().from('news_posts').update(row).eq('id', item.id).select().single());
     return M.newsFromRow(saved);
   }
+  // Nunca mandar ids temporales (tmp-news-…) a columnas uuid
   const saved = await unwrap(sb().from('news_posts').insert(row).select().single());
   return M.newsFromRow(saved);
 }
