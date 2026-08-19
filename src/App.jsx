@@ -17,6 +17,8 @@ import {
 } from './domain/notifications/buildNotifications';
 import { applyAutomaticDues, diffAutomaticDues } from './domain/members/dues';
 import { createHrRecord } from './domain/staff/hr';
+import { loadDisciplineCatalog } from './domain/sports/disciplines';
+import { loadTierCatalog, setRuntimeTierCatalog } from './domain/members/tiers';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
 import { notifyNextOnWaitlist } from './domain/reservations/waitlist';
 import { bootstrapFromDb, repos } from './data/bootstrap';
@@ -810,6 +812,13 @@ export default function App() {
     return local ? JSON.parse(local) : DEFAULT_NEWS;
   });
 
+  const [disciplineCatalog, setDisciplineCatalog] = useState(() => loadDisciplineCatalog());
+  const [tierCatalog, setTierCatalog] = useState(() => {
+    const cat = loadTierCatalog();
+    setRuntimeTierCatalog(cat);
+    return cat;
+  });
+
   const [rsvpList, setRsvpList] = useState(() => {
     const local = localStorage.getItem('jockey-rsvps');
     return local ? JSON.parse(local) : [];
@@ -940,6 +949,13 @@ export default function App() {
   useEffect(() => {
     if (!cloudMode) localStorage.setItem('jockey-news', JSON.stringify(newsList));
   }, [newsList, cloudMode]);
+  useEffect(() => {
+    if (!cloudMode) localStorage.setItem('jockey-disciplines-catalog', JSON.stringify(disciplineCatalog));
+  }, [disciplineCatalog, cloudMode]);
+  useEffect(() => {
+    setRuntimeTierCatalog(tierCatalog);
+    if (!cloudMode) localStorage.setItem('jockey-member-tiers', JSON.stringify(tierCatalog));
+  }, [tierCatalog, cloudMode]);
   useEffect(() => {
     if (!cloudMode) localStorage.setItem('jockey-rsvps', JSON.stringify(rsvpList));
   }, [rsvpList, cloudMode]);
@@ -1630,6 +1646,10 @@ export default function App() {
         setReservations={setReservations}
         latestNews={newsList}
         setNewsList={setNewsDb}
+        disciplineCatalog={disciplineCatalog}
+        setDisciplineCatalog={setDisciplineCatalog}
+        tierCatalog={tierCatalog}
+        setTierCatalog={setTierCatalog}
         journalEntries={journalEntries}
         setJournalEntries={setJournalEntries}
         addJournalEntry={erp.addPostedEntry}

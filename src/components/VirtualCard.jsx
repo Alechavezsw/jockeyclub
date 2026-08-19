@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Shield, X, Lock } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { buildCredentialQRPayload } from '../domain/credentials/qr';
+import { findTier } from '../domain/members/tiers';
 
 const TIER_CONFIG = {
   royal: {
@@ -313,7 +314,17 @@ export default function VirtualCard({ member }) {
   const [expanded, setExpanded] = useState(false);
   const [secureHide, setSecureHide] = useState(false);
 
-  const t = TIER_CONFIG[member?.tier?.toLowerCase()] || TIER_CONFIG.gold;
+  const catalogTier = findTier(member?.tier);
+  const base = TIER_CONFIG[member?.tier?.toLowerCase()] || TIER_CONFIG.gold;
+  const t = catalogTier
+    ? {
+      ...base,
+      accent: catalogTier.color || base.accent,
+      chipColor: catalogTier.color || base.chipColor,
+      label: (catalogTier.name || base.label).toUpperCase(),
+      glow: `${catalogTier.color || base.chipColor}59`,
+    }
+    : base;
 
   const handleMouseMove = (e) => {
     if (expanded || isCoarsePointer()) return;

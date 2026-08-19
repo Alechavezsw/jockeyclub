@@ -4,12 +4,7 @@ import {
   drawReportHeader,
   loadClubLogoDataUrl,
 } from '../reports/pdfBrand';
-
-const TIER_LABEL = {
-  royal: 'Royal',
-  platinum: 'Platinum',
-  gold: 'Gold',
-};
+import { getTierDisplayName } from './tiers';
 
 function formatMoney(amount) {
   return new Intl.NumberFormat('es-AR', {
@@ -32,6 +27,7 @@ export async function exportMembersPdf(members = [], {
   formatCurrency = formatMoney,
   filterLabel = 'Todos',
   fileName,
+  tierCatalog,
 } = {}) {
   const [{ jsPDF }, autoTableMod, logoDataUrl] = await Promise.all([
     import('jspdf'),
@@ -57,7 +53,7 @@ export async function exportMembersPdf(members = [], {
     m.name || '—',
     formatCredential(m.memberId),
     (m.documentType || 'DNI') + (m.documentNumber ? ` ${m.documentNumber}` : ''),
-    TIER_LABEL[m.tier] || String(m.tier || '').toUpperCase(),
+    getTierDisplayName(m.tier, tierCatalog),
     m.phone || '—',
     m.email || '—',
     m.status === 'active' ? 'Habilitado' : 'Suspendido',

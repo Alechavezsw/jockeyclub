@@ -1,5 +1,10 @@
 /** Catálogo y estadísticas de disciplinas deportivas del club. */
 
+export const DISCIPLINE_COLORS = [
+  '#10b981', '#3b82f6', '#cfa13a', '#a855f7', '#22c55e',
+  '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#84cc16',
+];
+
 export const DISCIPLINE_CATALOG = [
   {
     id: 'rugby',
@@ -83,9 +88,7 @@ export const DISCIPLINE_CATALOG = [
   },
 ];
 
-export const DISCIPLINE_OPTIONS = DISCIPLINE_CATALOG.map((d) => d.name);
-
-function normalizeLabel(value = '') {
+export function normalizeLabel(value = '') {
   return String(value)
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -93,12 +96,81 @@ function normalizeLabel(value = '') {
     .trim();
 }
 
-export function resolveDiscipline(label) {
+export function slugifyDisciplineId(name = '') {
+  const base = normalizeLabel(name).replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+  return base || `disc_${Date.now()}`;
+}
+
+export function normalizeDiscipline(input = {}) {
+  const name = String(input.name || '').trim();
+  const id = String(input.id || slugifyDisciplineId(name) || `disc_${Date.now()}`);
+  const fromArray = Array.isArray(input.aliases)
+    ? input.aliases.map((a) => String(a).trim()).filter(Boolean)
+    : [];
+  const fromText = String(input.aliasesText || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const aliases = [...new Set([name, ...fromArray, ...fromText].filter(Boolean))];
+  return {
+    id,
+    name,
+    aliases: aliases.length ? aliases : [name || id],
+    facilityIds: Array.isArray(input.facilityIds)
+      ? [...new Set(input.facilityIds.filter(Boolean))]
+      : [],
+    coachRole: String(input.coachRole || '').trim() || (name ? `Profesor ${name}` : ''),
+    color: input.color || DISCIPLINE_COLORS[0],
+    isActive: input.isActive !== false,
+  };
+}
+
+export function getDisciplineOptions(catalog = DISCIPLINE_CATALOG) {
+  return (catalog || [])
+    .filter((d) => d.isActive !== false)
+    .map((d) => d.name);
+}
+
+/** Compat: opciones del catálogo por defecto. */
+export const DISCIPLINE_OPTIONS = getDisciplineOptions(DISCIPLINE_CATALOG);
+
+export function loadDisciplineCatalog(fallback = DISCIPLINE_CATALOG) {
+  try {
+    const raw = localStorage.getItem('jockey-disciplines-catalog');
+    if (!raw) return fallback.map((d) => normalizeDiscipline(d));
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || !parsed.length) {
+      return fallback.map((d) => normalizeDiscipline(d));
+    }
+    return parsed.map((d) => normalizeDiscipline(d));
+  } catch {
+    return fallback.map((d) => normalizeDiscipline(d));
+  }
+}
+
+export function upsertDiscipline(catalog, draft) {
+  const next = normalizeDiscipline(draft);
+  if (!next.name) return catalog;
+  const list = Array.isArray(catalog) ? catalog : [];
+  const idx = list.findIndex((d) => d.id === next.id);
+  if (idx >= 0) {
+    const copy = [...list];
+    copy[idx] = { ...copy[idx], ...next };
+    return copy;
+  }
+  return [...list, next];
+}
+
+export function removeDiscipline(catalog, id) {
+  return (catalog || []).filter((d) => d.id !== id);
+}
+
+export function resolveDiscipline(label, catalog = DISCIPLINE_CATALOG) {
   const key = normalizeLabel(label);
   if (!key) return null;
   return (
-    DISCIPLINE_CATALOG.find(
-      (d) => normalizeLabel(d.name) === key || d.aliases.some((a) => normalizeLabel(a) === key)
+    (catalog || []).find(
+      (d) => normalizeLabel(d.name) === key || (d.aliases || []).some((a) => normalizeLabel(a) === key)
     ) || null
   );
 }
@@ -112,15 +184,64 @@ function memberDisciplineLabels(member) {
 
 function memberPracticesDiscipline(member, discipline) {
   const labels = memberDisciplineLabels(member).map(normalizeLabel);
-  return discipline.aliases.some((a) => labels.includes(normalizeLabel(a)))
+  return (discipline.aliases || []).some((a) => labels.includes(normalizeLabel(a)))
     || labels.includes(normalizeLabel(discipline.name));
 }
 
 function reservationMatchesDiscipline(res, discipline) {
-  if (discipline.facilityIds.includes(res.facilityId)) return true;
+  if ((discipline.facilityIds || []).includes(res.facilityId)) return true;
   const name = normalizeLabel(res.facilityName || '');
-  return discipline.aliases.some((a) => name.includes(normalizeLabel(a)))
+  return (discipline.aliases || []).some((a) => name.includes(normalizeLabel(a)))
     || name.includes(normalizeLabel(discipline.name));
+}
+
+/**
+ * Reescribe etiquetas de disciplina en el padrón (p. ej. tras renombrar).
+ */
+export function remapMemberDisciplines(members, { fromLabels = [], toLabel } = {}) {
+  if (!toLabel || !fromLabels.length) return members;
+  const fromKeys = fromLabels.map(normalizeLabel).filter(Boolean);
+
+  const mapList = (list) => {
+    if (!Array.isArray(list) || !list.length) return list;
+    let changed = false;
+    const next = list.map((label) => {
+      if (fromKeys.includes(normalizeLabel(label))) {
+        changed = true;
+        return toLabel;
+      }
+      return label;
+    });
+    return changed ? [...new Set(next)] : list;
+  };
+
+  return (members || []).map((m) => ({
+    ...m,
+    disciplines: mapList(m.disciplines) || m.disciplines,
+    preferredSports: mapList(m.preferredSports) || m.preferredSports,
+    adherents: (m.adherents || []).map((a) => ({
+      ...a,
+      disciplines: mapList(a.disciplines) || a.disciplines,
+    })),
+  }));
+}
+
+/**
+ * Inscribe o da de baja a un socio titular en una disciplina.
+ */
+export function toggleMemberDiscipline(members, memberId, disciplineName, enroll = true) {
+  const key = normalizeLabel(disciplineName);
+  if (!key) return members;
+  return (members || []).map((m) => {
+    if (String(m.memberId) !== String(memberId) && String(m.id) !== String(memberId)) return m;
+    const current = Array.isArray(m.disciplines) ? m.disciplines : [];
+    const has = current.some((d) => normalizeLabel(d) === key);
+    if (enroll && !has) return { ...m, disciplines: [...current, disciplineName] };
+    if (!enroll && has) {
+      return { ...m, disciplines: current.filter((d) => normalizeLabel(d) !== key) };
+    }
+    return m;
+  });
 }
 
 /**
@@ -130,17 +251,21 @@ export function buildDisciplineStats({
   members = [],
   reservations = [],
   staffMembers = [],
+  catalog = DISCIPLINE_CATALOG,
   today = new Date(),
 } = {}) {
   const todayIso = today.toISOString().slice(0, 10);
   const activeMembers = members.filter((m) => m.status !== 'inactive');
+  const activeCatalog = (catalog || [])
+    .map((d) => normalizeDiscipline(d))
+    .filter((d) => d.isActive !== false);
 
-  const rows = DISCIPLINE_CATALOG.map((discipline) => {
+  const rows = activeCatalog.map((discipline) => {
     const enrolled = activeMembers.filter((m) => memberPracticesDiscipline(m, discipline));
     const adherentCount = enrolled.reduce(
       (n, m) => n + (m.adherents || []).filter((a) => {
         const labels = (a.disciplines || []).map(normalizeLabel);
-        return discipline.aliases.some((al) => labels.includes(normalizeLabel(al)))
+        return (discipline.aliases || []).some((al) => labels.includes(normalizeLabel(al)))
           || labels.includes(normalizeLabel(discipline.name));
       }).length,
       0
@@ -169,7 +294,7 @@ export function buildDisciplineStats({
         || normalizeLabel(discipline.coachRole).split(' ').some((w) => w.length > 3 && role.includes(w));
     });
 
-    const capacityHint = Math.max(discipline.facilityIds.length * 40, 20);
+    const capacityHint = Math.max((discipline.facilityIds || []).length * 40, 20);
     const occupancyPct = Math.min(100, Math.round((enrolled.length / capacityHint) * 100));
 
     return {

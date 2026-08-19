@@ -280,18 +280,33 @@ export function surveyFromRow(row) {
 
 export function newsFromRow(row) {
   const meta = row.meta || {};
+  const status = meta.status
+    || (row.is_published === false ? 'draft' : 'published');
   return {
     id: row.id,
     title: row.title,
+    slug: meta.slug || '',
     category: row.category || '',
     date: meta.dateLabel || row.event_date || (row.created_at || '').slice(0, 10),
     excerpt: row.summary || '',
     content: row.body || '',
     image: row.image_url || meta.image || '',
     gallery: Array.isArray(meta.gallery) ? meta.gallery : [],
-    isEvent: Boolean(meta.isEvent),
-    isPublished: row.is_published !== false,
-    eventDate: row.event_date || null,
+    isEvent: Boolean(meta.isEvent ?? meta.allowRsvp),
+    allowRsvp: Boolean(meta.allowRsvp ?? meta.isEvent),
+    isPublished: row.is_published !== false && status === 'published',
+    status,
+    author: meta.author || '',
+    tags: Array.isArray(meta.tags) ? meta.tags : [],
+    featured: Boolean(meta.featured),
+    pinned: Boolean(meta.pinned),
+    scheduledAt: meta.scheduledAt || '',
+    eventDate: row.event_date || meta.eventDate || null,
+    seoTitle: meta.seoTitle || '',
+    seoDescription: meta.seoDescription || '',
+    coverCredit: meta.coverCredit || '',
+    updatedAt: row.updated_at || meta.updatedAt || null,
+    createdAt: row.created_at || meta.createdAt || null,
   };
 }
 

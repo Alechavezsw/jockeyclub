@@ -11,6 +11,7 @@ import {
 } from '../../domain/members/dues';
 import { payMemberDues, payUpcomingDues } from '../../domain/members/memberPayments';
 import { downloadCsv, stampDate } from '../../domain/reports/downloadCsv';
+import { getActiveTiers, getTierDisplayName } from '../../domain/members/tiers';
 
 function matchesSearch(member, query) {
   const q = query.trim().toLowerCase();
@@ -86,7 +87,7 @@ function MemberDuesRow({
           <ExternalLink size={12} />
         </button>
         <div className="dues-meta">
-          {(member.tier || '').toUpperCase()}
+          {getTierDisplayName(member.tier)}
           {member.memberId ? ` · ${member.memberId}` : ''}
         </div>
       </div>
@@ -142,6 +143,7 @@ export default function DuesControlTab({
   setMembers,
   addJournalEntry,
   formatCurrency,
+  tierCatalog = [],
 }) {
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
@@ -149,6 +151,7 @@ export default function DuesControlTab({
   const [tierFilter, setTierFilter] = useState('all');
   const [sortBy, setSortBy] = useState('amount');
   const [flash, setFlash] = useState('');
+  const tiers = useMemo(() => getActiveTiers(tierCatalog), [tierCatalog]);
 
   const overdueAll = useMemo(() => getOverdueMembers(members), [members]);
   const upcomingAll = useMemo(() => getUpcomingDuesMembers(members, { withinDays: 15 }), [members]);
@@ -236,7 +239,7 @@ export default function DuesControlTab({
           'Vencida',
           m.name,
           m.memberId,
-          (m.tier || '').toUpperCase(),
+          getTierDisplayName(m.tier),
           plazoLabel(m, true),
           m.dueDate || m.nextDueDate || '',
           m.amountDue,
@@ -250,7 +253,7 @@ export default function DuesControlTab({
           'A vencer',
           m.name,
           m.memberId,
-          (m.tier || '').toUpperCase(),
+          getTierDisplayName(m.tier),
           plazoLabel(m, false),
           m.dueDate || m.nextDueDate || '',
           m.amountDue,
@@ -342,9 +345,9 @@ export default function DuesControlTab({
                 onChange={(e) => setTierFilter(e.target.value)}
               >
                 <option value="all">Todas</option>
-                <option value="royal">Royal</option>
-                <option value="platinum">Platinum</option>
-                <option value="gold">Gold</option>
+                {tiers.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
               </select>
             </div>
             <div>

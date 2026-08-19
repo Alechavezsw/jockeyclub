@@ -58,6 +58,10 @@ export default function AdminView({
   erp = {},
   latestNews = [],
   setNewsList,
+  disciplineCatalog = [],
+  setDisciplineCatalog,
+  tierCatalog = [],
+  setTierCatalog,
   userRole = 'admin',
   isZondaActive = false,
 }) {
@@ -429,6 +433,9 @@ export default function AdminView({
           alerts={erp.alerts || []}
           alertAcks={erp.alertAcks || []}
           onAckAlert={erp.ackAlert}
+          latestNews={latestNews}
+          isZondaActive={isZondaActive}
+          tierCatalog={tierCatalog}
           totalMembers={totalMembers}
           paymentCollectionRate={paymentCollectionRate}
           totalActivos={totalActivos}
@@ -452,6 +459,7 @@ export default function AdminView({
           setMembers={setMembers}
           addJournalEntry={addJournalEntry}
           formatCurrency={formatCurrency}
+          tierCatalog={tierCatalog}
         />
       )}
 
@@ -474,6 +482,9 @@ export default function AdminView({
             addJournalEntry={addJournalEntry}
             formatCurrency={formatCurrency}
             onOpenProfile={(id) => navigate(`/panel/members/${id}`)}
+            disciplineOptions={(disciplineCatalog || []).filter((d) => d.isActive !== false).map((d) => d.name)}
+            tierCatalog={tierCatalog}
+            setTierCatalog={setTierCatalog}
           />
         )
       )}
@@ -485,8 +496,11 @@ export default function AdminView({
       {activeTab === 'disciplines' && (
         <DisciplinesTab
           members={members}
+          setMembers={setMembers}
           reservations={reservations}
           staffMembers={staffMembers}
+          catalog={disciplineCatalog}
+          setCatalog={setDisciplineCatalog}
           onOpenMember={(id) => navigate(`/panel/members/${id}`)}
         />
       )}

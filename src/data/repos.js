@@ -423,19 +423,34 @@ export async function listNews() {
 }
 
 export async function upsertNews(item) {
+  const status = item.status
+    || (item.isPublished === false ? 'draft' : 'published');
   const row = {
     title: item.title,
     summary: item.excerpt || item.summary || null,
     body: item.content || item.body || null,
     image_url: item.image || null,
     category: item.category || null,
-    is_published: item.isPublished !== false,
+    is_published: status === 'published',
     event_date: item.eventDate || null,
     meta: {
       dateLabel: item.date || null,
       image: item.image || null,
       gallery: Array.isArray(item.gallery) ? item.gallery : [],
-      isEvent: Boolean(item.isEvent),
+      isEvent: Boolean(item.isEvent || item.allowRsvp),
+      allowRsvp: Boolean(item.allowRsvp || item.isEvent),
+      slug: item.slug || null,
+      author: item.author || null,
+      tags: Array.isArray(item.tags) ? item.tags : [],
+      featured: Boolean(item.featured),
+      pinned: Boolean(item.pinned),
+      status,
+      scheduledAt: item.scheduledAt || null,
+      seoTitle: item.seoTitle || null,
+      seoDescription: item.seoDescription || null,
+      coverCredit: item.coverCredit || null,
+      updatedAt: item.updatedAt || new Date().toISOString(),
+      createdAt: item.createdAt || null,
     },
   };
   if (item.id && String(item.id).includes('-')) {

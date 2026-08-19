@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Calendar, Tag, Check, Eye, Bookmark, Globe } from 'lucide-react';
 import ModalDialog from '../components/ModalDialog';
-import { isNewsPublished, newsCategoryLabel } from '../domain/news/news';
+import { isNewsPublished, newsCategoryLabel, isNewsFeatured, sortNewsForCms } from '../domain/news/news';
 
 function renderNewsBody(text) {
   const parts = String(text || '').split(/(\n\n\[imagen\]\([^)]+\)\n\n)/g);
@@ -49,10 +49,12 @@ export default function NewsBoardView({ newsList, userRole, toggleEventRSVP, rsv
     { id: 'eventos', label: 'Eventos Sociales' },
     { id: 'gourmet', label: 'Gourmet' },
     { id: 'institucional', label: 'Institucional' },
+    { id: 'cultura', label: 'Cultura' },
+    { id: 'socios', label: 'Vida social' },
   ];
 
   const publishedNews = useMemo(
-    () => (newsList || []).filter(isNewsPublished),
+    () => sortNewsForCms((newsList || []).filter(isNewsPublished), 'updated'),
     [newsList],
   );
 
@@ -105,7 +107,8 @@ export default function NewsBoardView({ newsList, userRole, toggleEventRSVP, rsv
           </div>
         ) : (
           filteredNews.map((article, index) => {
-            const isFeatured = index === 0 && activeCategory === 'todos';
+            const isFeatured = (isNewsFeatured(article) && activeCategory === 'todos')
+              || (index === 0 && activeCategory === 'todos' && !filteredNews.some(isNewsFeatured));
             return (
               <div
                 key={article.id}

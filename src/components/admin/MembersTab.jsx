@@ -3,9 +3,11 @@ import { Search, Filter, Plus, Check, ChevronDown, ChevronUp, Trash2, Users, Use
 import { afterCollectDues, duesAmountForHousehold, duesAmountForTier } from '../../domain/members/dues';
 import { exportMembersPdf } from '../../domain/members/exportMembersPdf';
 import { DISCIPLINE_OPTIONS } from '../../domain/sports/disciplines';
+import { getActiveTiers, getTierOptionLabel, tierBadgeStyle, getTierDisplayName } from '../../domain/members/tiers';
 import VirtualCard from '../VirtualCard';
 import CollectDuesModal from './CollectDuesModal';
 import ModalDialog from '../ModalDialog';
+import MemberTiersPanel from './MemberTiersPanel';
 
 const EMPTY_MEMBER_FORM = {
   name: '',
@@ -142,7 +144,18 @@ const RELATIONSHIP_OPTIONS = [
 ];
 
 /** Gestión de socios titulares y adherentes familiares. */
-export default function MembersTab({ members, setMembers, addJournalEntry, formatCurrency, onOpenProfile }) {
+export default function MembersTab({
+  members,
+  setMembers,
+  addJournalEntry,
+  formatCurrency,
+  onOpenProfile,
+  disciplineOptions = DISCIPLINE_OPTIONS,
+  tierCatalog = [],
+  setTierCatalog,
+}) {
+  const tiers = getActiveTiers(tierCatalog);
+  const defaultTierId = tiers[0]?.id || 'gold';
   const [tierFilter, setTierFilter] = useState('todos');
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
@@ -156,7 +169,7 @@ export default function MembersTab({ members, setMembers, addJournalEntry, forma
   const [adhName, setAdhName] = useState('');
   const [adhPhoto, setAdhPhoto] = useState('');
   const [adhRelationship, setAdhRelationship] = useState('Hijo/a');
-  const [adhTier, setAdhTier] = useState('gold');
+  const [adhTier, setAdhTier] = useState(defaultTierId);
   const [adhDisciplines, setAdhDisciplines] = useState([]);
 
   const duesPreview = useMemo(
@@ -436,6 +449,14 @@ export default function MembersTab({ members, setMembers, addJournalEntry, forma
 
   return (
     <div className="glass-card fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+      <MemberTiersPanel
+        catalog={tierCatalog}
+        setCatalog={setTierCatalog}
+        setMembers={setMembers}
+        members={members}
+        formatCurrency={formatCurrency}
+      />
+
       <div className="admin-filters" style={{ width: '100%' }}>
         {/* Buscador */}
         <div style={{ position: 'relative', minWidth: 0, flex: '1 1 220px' }}>
@@ -454,14 +475,21 @@ export default function MembersTab({ members, setMembers, addJournalEntry, forma
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
           <Filter size={16} style={{ color: 'var(--text-muted)' }} />
           <div className="filter-group">
-            {['todos', 'royal', 'platinum', 'gold'].map(tier => (
+            <button
+              type="button"
+              onClick={() => setTierFilter('todos')}
+              className={`filter-btn ${tierFilter === 'todos' ? 'active' : ''}`}
+            >
+              Todos
+            </button>
+            {tiers.map((tier) => (
               <button
-                key={tier}
-                onClick={() => setTierFilter(tier)}
-                className={`filter-btn ${tierFilter === tier ? 'active' : ''}`}
-                style={{ textTransform: 'capitalize' }}
+                key={tier.id}
+                type="button"
+                onClick={() => setTierFilter(tier.id)}
+                className={`filter-btn ${tierFilter === tier.id ? 'active' : ''}`}
               >
-                {tier}
+                {tier.name}
               </button>
             ))}
           </div>
@@ -471,7 +499,8 @@ export default function MembersTab({ members, setMembers, addJournalEntry, forma
           type="button"
           onClick={() => { void exportMembersPdf(filteredMembers, {
             formatCurrency,
-            filterLabel: tierFilter === 'todos' ? 'Todos' : tierFilter,
+            filterLabel: tierFilter === 'todos' ? 'Todos' : getTierDisplayName(tierFilter, tierCatalog),
+            tierCatalog,
           }); }}
           className="btn btn-secondary"
           style={{ padding: '0.5rem 1.1rem', fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: 6 }}
@@ -638,9 +667,9 @@ export default function MembersTab({ members, setMembers, addJournalEntry, forma
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label">Categoría club *</label>
                 <select className="form-input" value={form.tier} onChange={(e) => updateForm('tier', e.target.value)}>
-                  <option value="gold">Gold (Estándar)</option>
-                  <option value="platinum">Platinum (VIP)</option>
-                  <option value="royal">Royal (Exclusivo)</option>
+                  {tiers.map((t) => (
+                    <option key={t.id} value={t.id}>{getTierOptionLabel(t)}</option>
+                  ))}
                 </select>
               </div>
               <div className="form-group" style={{ marginBottom: 0 }}>
@@ -666,7 +695,7 @@ export default function MembersTab({ members, setMembers, addJournalEntry, forma
                 Requisito de alta: indique al menos una disciplina en la que participará el titular.
               </p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.45rem', marginTop: 4 }}>
-                {DISCIPLINE_OPTIONS.map((d) => {
+                {disciplineOptions.map((d) => {
                   const active = form.disciplines.includes(d);
                   return (
                     <button
@@ -878,15 +907,15 @@ export default function MembersTab({ members, setMembers, addJournalEntry, forma
                         value={row.tier}
                         onChange={(e) => updateFamilyMember(index, 'tier', e.target.value)}
                       >
-                        <option value="gold">Gold</option>
-                        <option value="platinum">Platinum</option>
-                        <option value="royal">Royal</option>
+                        {tiers.map((t) => (
+                          <option key={t.id} value={t.id}>{t.name}</option>
+                        ))}
                       </select>
                     </div>
                     <div className="form-group" style={{ marginBottom: 0, gridColumn: '1 / -1' }}>
                       <label className="form-label">Disciplinas *</label>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginTop: 4 }}>
-                        {DISCIPLINE_OPTIONS.map((d) => {
+                        {disciplineOptions.map((d) => {
                           const active = (row.disciplines || []).includes(d);
                           return (
                             <button
@@ -1028,8 +1057,11 @@ export default function MembersTab({ members, setMembers, addJournalEntry, forma
                     {m.memberId.replace(/(\d{4})/g, '$1 ').trim()}
                   </td>
                   <td>
-                    <span className={`badge-tier ${m.tier.toLowerCase()}`}>
-                      {m.tier}
+                    <span
+                      className={`badge-tier ${String(m.tier || '').toLowerCase()}`}
+                      style={tierBadgeStyle(m.tier, tierCatalog)}
+                    >
+                      {getTierDisplayName(m.tier, tierCatalog)}
                     </span>
                   </td>
                   <td style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
@@ -1163,9 +1195,9 @@ export default function MembersTab({ members, setMembers, addJournalEntry, forma
                                   value={adhTier}
                                   onChange={(e) => setAdhTier(e.target.value)}
                                 >
-                                  <option value="gold">Gold</option>
-                                  <option value="platinum">Platinum</option>
-                                  <option value="royal">Royal</option>
+                                  {tiers.map((t) => (
+                                    <option key={t.id} value={t.id}>{t.name}</option>
+                                  ))}
                                 </select>
                               </div>
                               <button
@@ -1180,7 +1212,7 @@ export default function MembersTab({ members, setMembers, addJournalEntry, forma
                             <div>
                               <label className="form-label" style={{ fontSize: '0.7rem' }}>Disciplinas *</label>
                               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginTop: 4 }}>
-                                {DISCIPLINE_OPTIONS.map((d) => {
+                                {disciplineOptions.map((d) => {
                                   const active = adhDisciplines.includes(d);
                                   return (
                                     <button
@@ -1262,8 +1294,11 @@ export default function MembersTab({ members, setMembers, addJournalEntry, forma
                                     {(adh.disciplines || []).length ? adh.disciplines.join(', ') : '—'}
                                   </td>
                                   <td style={{ fontSize: '0.8rem', padding: '0.4rem' }}>
-                                    <span className={`badge-tier ${adh.tier}`} style={{ fontSize: '0.65rem', padding: '0.1rem 0.3rem' }}>
-                                      {adh.tier}
+                                    <span
+                                      className={`badge-tier ${adh.tier}`}
+                                      style={{ fontSize: '0.65rem', padding: '0.1rem 0.3rem', ...tierBadgeStyle(adh.tier, tierCatalog) }}
+                                    >
+                                      {getTierDisplayName(adh.tier, tierCatalog)}
                                     </span>
                                   </td>
                                   <td style={{ fontSize: '0.8rem', padding: '0.4rem' }}>

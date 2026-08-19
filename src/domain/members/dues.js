@@ -1,5 +1,7 @@
 /** Clasificación de cuotas sociales: vencidas vs próximas a vencer. */
 
+import { getTierMonthlyDues } from './tiers';
+
 const DAY_MS = 86400000;
 
 function parseDate(value) {
@@ -23,11 +25,9 @@ function startOfDay(date) {
   return d;
 }
 
-/** Monto de cuota según categoría (referencia operativa). */
-export function duesAmountForTier(tier) {
-  if (tier === 'royal') return 45000;
-  if (tier === 'platinum') return 38000;
-  return 32000;
+/** Monto de cuota según categoría (catálogo editable / referencia operativa). */
+export function duesAmountForTier(tier, catalog) {
+  return getTierMonthlyDues(tier, catalog);
 }
 
 /**

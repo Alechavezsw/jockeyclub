@@ -2,16 +2,41 @@ import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Users, Calendar, DollarSign, Activity, MessageSquare, ClipboardList,
-  Radio, BookOpen, Shield, ShieldAlert, BellRing, CheckCircle2,
-  PartyPopper, Clock, UserCircle2, FileSpreadsheet,
+  Radio, BookOpen, ShieldAlert, BellRing, CheckCircle2,
+  PartyPopper, Clock, UserCircle2, FileSpreadsheet, Wind, Newspaper,
+  DoorOpen, ExternalLink,
 } from 'lucide-react';
 import { canAccessQrGate } from '../../domain/auth/roles';
 import { isAlertVisible } from '../../domain/alerts/alerts';
 import { buildOpsFinanceSnapshot } from '../../domain/accounting/opsFinanceSnapshot';
+import { getOverdueMembers, toWhatsAppPhone, formatShortDate } from '../../domain/members/dues';
+import { FACILITIES } from '../../domain/reservations/facilities';
+import { isNewsPublished, newsCategoryLabel } from '../../domain/news/news';
+import { getActiveTiers } from '../../domain/members/tiers';
 import { AlertsBanner } from '../erp/AlertsPanel';
 
 function reservationDay(res) {
   return String(res?.date || res?.reservation_date || '').slice(0, 10);
+}
+
+function parseLogInstant(log) {
+  if (log?.at) {
+    const d = new Date(log.at);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  const day = String(log?.date || '').slice(0, 10);
+  const time = String(log?.time || '00:00').slice(0, 5);
+  if (!day) return null;
+  const d = new Date(`${day}T${time}:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function buildWhatsAppDuesUrl(member, formatCurrency) {
+  const cleanPhone = toWhatsAppPhone(member.phone);
+  if (!cleanPhone) return null;
+  const dueLabel = formatShortDate(member.dueDate || member.nextDueDate);
+  const msg = `Estimado/a ${member.name}, le saludamos del Jockey Club San Juan. Le recordamos que posee una cuota vencida de ${formatCurrency(member.amountDue)} (vencimiento ${dueLabel}). Puede regularizarla en administración o por transferencia. ¡Gracias!`;
+  return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`;
 }
 
 function buildBookingsSnapshot(reservations = [], today = new Date()) {
@@ -23,7 +48,9 @@ function buildBookingsSnapshot(reservations = [], today = new Date()) {
   });
   const confirmedUpcoming = upcoming.filter((r) => r.status === 'confirmed');
   const pendingUpcoming = upcoming.filter((r) => r.status === 'pending');
-  const todayCount = upcoming.filter((r) => reservationDay(r) === todayKey).length;
+  const todayList = upcoming
+    .filter((r) => reservationDay(r) === todayKey)
+    .sort((a, b) => String(a.time || a.time_slot || '').localeCompare(String(b.time || b.time_slot || '')));
   const next = [...upcoming]
     .sort((a, b) => {
       const da = `${reservationDay(a)} ${a.time || a.time_slot || ''}`;
@@ -34,7 +61,8 @@ function buildBookingsSnapshot(reservations = [], today = new Date()) {
   return {
     confirmedUpcoming: confirmedUpcoming.length,
     pendingUpcoming: pendingUpcoming.length,
-    todayCount,
+    todayCount: todayList.length,
+    todayList: todayList.slice(0, 5),
     next,
     pastConfirmed: list.filter((r) => r.status === 'confirmed' && reservationDay(r) < todayKey).length,
   };
@@ -51,9 +79,9 @@ function formatLongDate(d = new Date()) {
 
 /**
  * Mesa de control asimétrica:
- * 1) saludo + atajos | promo
- * 2) comunicaciones | caja+cuotas+portería | padrón
- * 3) franja operativa (reservas / personal / alertas-eventos)
+ * 1) atajos
+ * 2) Hoy en la sede (agenda / clima / revista)
+ * 3) comunicaciones | caja+cuotas+portería | padrón
  */
 export default function AdminDashboardTab({
   userRole,
@@ -72,16 +100,17 @@ export default function AdminDashboardTab({
   alerts = [],
   alertAcks = [],
   onAckAlert,
+  latestNews = [],
+  isZondaActive = false,
+  tierCatalog = [],
   totalMembers,
   paymentCollectionRate,
   totalActivos,
-  totalIngresos,
   overdueMembersCount = 0,
   upcomingDuesCount = 0,
   totalOutstanding = 0,
   pendingClaimsCount = 0,
   activeBookingsCount = 0,
-  pendingBookingsCount = 0,
   formatCurrency,
   getAccountBalance,
   journalEntries = [],
@@ -113,12 +142,25 @@ export default function AdminDashboardTab({
   }, [msgStats]);
 
   const todayEntries = useMemo(() => {
+    const now = Date.now();
+    const twoHoursAgo = now - 2 * 60 * 60 * 1000;
     const todays = entryLogs.filter((l) => (l.date || '').startsWith(todayKey) || l.date === todayKey);
+    const recent = entryLogs
+      .map((log) => ({ log, at: parseLogInstant(log) }))
+      .filter(({ at }) => at && at.getTime() >= twoHoursAgo)
+      .sort((a, b) => b.at - a.at)
+      .slice(0, 6)
+      .map(({ log, at }) => ({
+        ...log,
+        timeLabel: at.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
+      }));
     const list = todays.length ? todays : entryLogs.slice(0, 4);
     return {
       list: list.slice(0, 3),
+      recent,
       granted: list.filter((l) => l.status === 'granted' || l.status === 'ok').length,
       denied: list.filter((l) => l.status === 'denied' || l.status === 'blocked').length,
+      todayTotal: todays.length,
     };
   }, [entryLogs, todayKey]);
 
@@ -134,6 +176,25 @@ export default function AdminDashboardTab({
       .sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt))[0] || null;
   }, [clubEvents]);
 
+  const overdueQueue = useMemo(
+    () => getOverdueMembers(members).slice(0, 5),
+    [members],
+  );
+
+  const featuredNews = useMemo(() => {
+    const list = Array.isArray(latestNews) ? latestNews : [];
+    const published = list.filter(isNewsPublished);
+    const pool = published.length ? published : list;
+    return pool[0] || null;
+  }, [latestNews]);
+
+  const outdoorFacilities = useMemo(
+    () => FACILITIES.filter((f) => f.isOutdoor),
+    [],
+  );
+
+  const liveAlert = activeAlerts[0] || null;
+
   const hrPending = useMemo(
     () => (staffHrRecords || []).filter((r) => r.status === 'pending').length,
     [staffHrRecords],
@@ -142,11 +203,15 @@ export default function AdminDashboardTab({
   const activeStaff = staffMembers.filter((s) => s.status === 'active').length;
   const adherentsCount = members.reduce((n, m) => n + (m.adherents?.length || 0), 0);
   const membersWithApp = members.filter((m) => m.hasApp || m.appInstalled).length;
-  const tierCounts = useMemo(() => ({
-    royal: members.filter((m) => m.tier === 'royal').length,
-    platinum: members.filter((m) => m.tier === 'platinum').length,
-    gold: members.filter((m) => m.tier === 'gold').length,
-  }), [members]);
+  const tierCounts = useMemo(() => {
+    const active = getActiveTiers(tierCatalog);
+    return active.map((t) => ({
+      id: t.id,
+      name: t.name,
+      color: t.color,
+      count: members.filter((m) => String(m.tier || '').toLowerCase() === t.id).length,
+    }));
+  }, [members, tierCatalog]);
 
   const monthLabel = new Date().toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
   const monthLabelCap = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1);
@@ -208,6 +273,13 @@ export default function AdminDashboardTab({
       badge: bookings.pendingUpcoming > 0 ? String(bookings.pendingUpcoming) : null,
     },
     {
+      tab: 'news',
+      tone: 'gold',
+      icon: Newspaper,
+      title: 'Revista',
+      hint: featuredNews ? featuredNews.title : 'Publicar nota',
+    },
+    {
       tab: 'reports',
       tone: 'gold',
       icon: FileSpreadsheet,
@@ -262,11 +334,71 @@ export default function AdminDashboardTab({
     <button type="button" className="ops-dash-link" onClick={onClick}>{label}</button>
   );
 
+  const renderDuesQueue = () => {
+    if (!permittedTabs.includes('dues')) return null;
+    return (
+      <article className="glass-card ops-card ops-dues-queue">
+        <header className="ops-card-head ops-card-head--split">
+          <div>
+            <ShieldAlert size={16} color="#ef4444" />
+            <h3>Cola de cobro</h3>
+          </div>
+          <span className="ops-muted" style={{ fontSize: '0.75rem' }}>
+            {overdueQueue.length > 0 ? `${overdueMembersCount || overdueQueue.length} en mora` : 'Al día'}
+          </span>
+        </header>
+        {overdueQueue.length === 0 ? (
+          <p className="ops-muted" style={{ margin: 0 }}>Ningún socio con cuota vencida en el padrón.</p>
+        ) : (
+          <ul className="ops-dues-queue-list">
+            {overdueQueue.map((m) => {
+              const wa = buildWhatsAppDuesUrl(m, formatCurrency);
+              return (
+                <li key={m.id}>
+                  <div className="ops-dues-queue-main">
+                    <strong className="ops-ellipsis">{m.name}</strong>
+                    <span className="ops-muted">
+                      {formatCurrency(m.amountDue)}
+                      {m.daysOverdue != null ? ` · ${m.daysOverdue}d` : ''}
+                    </span>
+                  </div>
+                  <div className="ops-dues-queue-actions">
+                    <button type="button" className="ops-mini-btn" onClick={() => goToTab('dues')}>
+                      Cobrar
+                    </button>
+                    {wa ? (
+                      <a
+                        className="ops-mini-btn ops-mini-btn--wa"
+                        href={wa}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        WA
+                      </a>
+                    ) : null}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        <div className="ops-card-foot" style={{ marginTop: '0.75rem' }}>
+          {link('Abrir cobranza >', () => goToTab('dues'))}
+        </div>
+      </article>
+    );
+  };
+
   return (
     <div className="fade-in ops-dash">
       <section className="ops-dash-hero ops-dash-hero--solo">
         <div className="ops-dash-hero-main">
           <h2 className="ops-dash-title">Panel de administración</h2>
+          {userName ? (
+            <p className="ops-dash-kicker" style={{ marginTop: '-0.55rem', marginBottom: '0.85rem' }}>
+              {userName} · {formatLongDate()}
+            </p>
+          ) : null}
           <div className="ops-dash-actions" aria-label="Accesos rápidos">
             {quickActions.map((action) => {
               const Icon = action.icon;
@@ -289,6 +421,137 @@ export default function AdminDashboardTab({
               );
             })}
           </div>
+        </div>
+      </section>
+
+      {/* Hoy en la sede — agenda / clima / revista */}
+      <section className="ops-today" aria-label="Hoy en la sede">
+        <header className="ops-today-head">
+          <p className="ops-today-kicker">Hoy en la sede</p>
+          <time className="ops-today-date" dateTime={todayKey}>{formatLongDate()}</time>
+        </header>
+        <div className="ops-today-grid">
+          <article className="ops-today-pane ops-today-pane--agenda">
+            <header className="ops-today-pane-head">
+              <Calendar size={15} aria-hidden="true" />
+              <h3>Agenda del día</h3>
+              {bookings.todayCount > 0 ? (
+                <span className="ops-today-badge">{bookings.todayCount}</span>
+              ) : null}
+            </header>
+            {bookings.todayList.length === 0 ? (
+              <p className="ops-muted ops-today-empty">Sin turnos confirmados o pendientes para hoy.</p>
+            ) : (
+              <ul className="ops-today-list">
+                {bookings.todayList.map((res) => (
+                  <li key={res.id || `${reservationDay(res)}-${res.time || res.time_slot}`}>
+                    <span className="ops-today-time tabular-nums">
+                      {String(res.time || res.time_slot || '—').slice(0, 5)}
+                    </span>
+                    <span className="ops-today-copy">
+                      <strong>{res.facilityName || res.facilityId}</strong>
+                      <small>
+                        {res.memberName || 'Socio'}
+                        {res.status === 'pending' ? ' · por confirmar' : ''}
+                      </small>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {nextEvent ? (
+              <div className="ops-today-event">
+                <PartyPopper size={14} aria-hidden="true" />
+                <div>
+                  <strong>{nextEvent.title}</strong>
+                  <small>
+                    {new Date(nextEvent.startsAt).toLocaleDateString('es-AR', {
+                      day: 'numeric',
+                      month: 'short',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                    {nextEvent.location ? ` · ${nextEvent.location}` : ''}
+                  </small>
+                </div>
+              </div>
+            ) : null}
+            {liveAlert ? (
+              <div className={`ops-today-alert sev-${liveAlert.severity || 'info'}`}>
+                <BellRing size={14} aria-hidden="true" />
+                <span>{liveAlert.title}</span>
+              </div>
+            ) : null}
+            {permittedTabs.includes('bookings') && (
+              <button type="button" className="ops-dash-link" onClick={() => goToTab('bookings')}>
+                Ver agenda completa {'>'}
+              </button>
+            )}
+          </article>
+
+          <article className={`ops-today-pane ops-today-pane--weather ${isZondaActive ? 'is-zonda' : ''}`}>
+            <header className="ops-today-pane-head">
+              <Wind size={15} aria-hidden="true" />
+              <h3>Clima operativo</h3>
+            </header>
+            <div className="ops-weather-status">
+              <span className={`ops-weather-pill ${isZondaActive ? 'danger' : 'ok'}`}>
+                {isZondaActive ? 'Zonda activo' : 'Condiciones normales'}
+              </span>
+              <p>
+                {isZondaActive
+                  ? `${outdoorFacilities.length} instalaciones exteriores suspendidas.`
+                  : `${outdoorFacilities.length} canchas y pistas outdoor disponibles.`}
+              </p>
+            </div>
+            <ul className="ops-weather-facilities">
+              {outdoorFacilities.slice(0, 4).map((f) => (
+                <li key={f.id} className={isZondaActive ? 'closed' : ''}>
+                  <span className="ops-ellipsis">{f.name.replace(/ - .*$/, '')}</span>
+                  <em>{isZondaActive ? 'Cerrado' : 'Abierto'}</em>
+                </li>
+              ))}
+            </ul>
+            {permittedTabs.includes('alerts') && (
+              <button type="button" className="ops-dash-link" onClick={() => goToTab('alerts')}>
+                Ver alertas {'>'}
+              </button>
+            )}
+          </article>
+
+          <article className="ops-today-pane ops-today-pane--news">
+            <header className="ops-today-pane-head">
+              <Newspaper size={15} aria-hidden="true" />
+              <h3>Revista</h3>
+            </header>
+            {featuredNews ? (
+              <button
+                type="button"
+                className="ops-news-teaser"
+                onClick={() => goToTab(permittedTabs.includes('news') ? 'news' : 'dashboard')}
+                disabled={!permittedTabs.includes('news')}
+              >
+                {featuredNews.image ? (
+                  <img src={featuredNews.image} alt="" className="ops-news-thumb" />
+                ) : (
+                  <span className="ops-news-thumb ops-news-thumb--empty" aria-hidden="true" />
+                )}
+                <span className="ops-news-meta">
+                  <em>{newsCategoryLabel(featuredNews.category)}</em>
+                  <strong>{featuredNews.title}</strong>
+                  <small>{featuredNews.excerpt || featuredNews.date || 'Última publicación'}</small>
+                </span>
+                {permittedTabs.includes('news') ? <ExternalLink size={14} aria-hidden="true" /> : null}
+              </button>
+            ) : (
+              <p className="ops-muted ops-today-empty">Todavía no hay notas en la revista digital.</p>
+            )}
+            {permittedTabs.includes('news') && (
+              <button type="button" className="ops-dash-link" onClick={() => goToTab('news')}>
+                Abrir CMS {'>'}
+              </button>
+            )}
+          </article>
         </div>
       </section>
 
@@ -386,10 +649,12 @@ export default function AdminDashboardTab({
             <article className="glass-card ops-card ops-card--gate">
               <header className="ops-card-head ops-card-head--split">
                 <div>
-                  <Shield size={16} color="var(--primary-gold)" />
+                  <DoorOpen size={16} color="var(--primary-gold)" />
                   <h3>Portería</h3>
                 </div>
-                <span className="ops-muted" style={{ fontSize: '0.75rem' }}>{formatLongDate()}</span>
+                <span className="ops-muted" style={{ fontSize: '0.75rem' }}>
+                  {todayEntries.todayTotal} hoy · últimas 2 h
+                </span>
               </header>
               <div className="ops-gate-stats">
                 <div>
@@ -401,12 +666,17 @@ export default function AdminDashboardTab({
                   <span>Denegados</span>
                 </div>
               </div>
-              {todayEntries.list.map((log) => (
-                <div key={log.id} className="ops-row">
-                  <span className="ops-ellipsis">{log.memberName}</span>
-                  <span className="ops-muted">{log.time || '—'}</span>
+              {(todayEntries.recent.length ? todayEntries.recent : todayEntries.list).map((log) => (
+                <div key={log.id || `${log.memberName}-${log.time || log.timeLabel}`} className="ops-row">
+                  <span className="ops-ellipsis">{log.memberName || 'Visitante'}</span>
+                  <span className={`ops-gate-tag ${(log.status === 'denied' || log.status === 'blocked') ? 'denied' : 'ok'}`}>
+                    {log.timeLabel || log.time || '—'}
+                  </span>
                 </div>
               ))}
+              {todayEntries.recent.length === 0 && todayEntries.list.length === 0 && (
+                <p className="ops-muted" style={{ margin: '0.25rem 0 0.5rem' }}>Sin ingresos recientes.</p>
+              )}
               <button type="button" className="ops-primary-btn" onClick={() => navigate('/acceso')}>
                 Abrir control QR
               </button>
@@ -567,6 +837,8 @@ export default function AdminDashboardTab({
                   </div>
                 )}
 
+                {renderDuesQueue()}
+
                 <div className="ops-btn-pair" style={{ marginTop: '1rem' }}>
                   {hasMembers && (
                     <button type="button" className="ops-outline-btn" onClick={() => goToTab('members')}>+ Socios</button>
@@ -600,6 +872,7 @@ export default function AdminDashboardTab({
             </>
           ) : (
             <>
+              {renderDuesQueue()}
               {permittedTabs.includes('events') && nextEvent && (
                 <article className="glass-card ops-card">
                   <header className="ops-card-head">
@@ -631,9 +904,12 @@ export default function AdminDashboardTab({
                   Composición real del padrón social.
                 </p>
                 <div className="ops-tier-mini">
-                  <div><b>{tierCounts.royal}</b><span>Royal</span></div>
-                  <div><b>{tierCounts.platinum}</b><span>Platinum</span></div>
-                  <div><b>{tierCounts.gold}</b><span>Gold</span></div>
+                  {tierCounts.map((t) => (
+                    <div key={t.id}>
+                      <b style={{ color: t.color }}>{t.count}</b>
+                      <span>{t.name}</span>
+                    </div>
+                  ))}
                 </div>
                 {overdueMembersCount > 0 && (
                   <p className="ops-muted" style={{ marginTop: '0.65rem', color: '#fca5a5' }}>
