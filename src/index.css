@@ -5068,6 +5068,7 @@ select.form-input,
     bottom: 0;
     width: 2.75rem;
     pointer-events: none;
+    z-index: 1;
     background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--bg-secondary) 90%, transparent));
   }
 
@@ -5076,19 +5077,107 @@ select.form-input,
   }
 }
 
-@media (max-width: 640px) {
-  .admin-nav-group-label {
+/* Mobile: rail tipo app — chips compactos, scroll horizontal fluido */
+@media (max-width: 768px) {
+  .admin-nav {
+    margin-bottom: 1rem;
+    border-radius: 14px;
+  }
+
+  .admin-nav::before {
+    inset: 0 auto 0 0;
+    width: 1.75rem;
+    height: auto;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--bg-secondary) 92%, transparent), transparent);
+    opacity: 1;
+    z-index: 1;
+  }
+
+  .admin-nav-track {
+    gap: 0;
+    padding: 0.5rem 0.55rem;
+    scrollbar-width: none;
+    scroll-padding-inline: 1.25rem;
+    overscroll-behavior-x: contain;
+  }
+
+  .admin-nav-track::-webkit-scrollbar {
     display: none;
   }
 
   .admin-nav-group {
-    padding: 0.05rem 0.35rem 0.05rem 0.2rem;
+    border-right: none;
+    padding: 0;
+    gap: 0;
+  }
+
+  .admin-nav-group + .admin-nav-group {
+    margin-left: 0.2rem;
+    padding-left: 0.35rem;
+    border-left: 1px solid color-mix(in srgb, var(--border-glass) 70%, transparent);
+  }
+
+  .admin-nav-group-label {
+    display: none;
+  }
+
+  .admin-nav-group-items {
+    gap: 0.3rem;
   }
 
   .admin-nav-item {
-    min-height: 36px;
-    padding: 0.35rem 0.65rem;
-    font-size: 0.74rem;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.22rem;
+    min-width: 4.35rem;
+    max-width: 5.1rem;
+    min-height: 3.55rem;
+    padding: 0.4rem 0.35rem;
+    border-radius: 12px;
+    font-size: 0.64rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    white-space: normal;
+    text-align: center;
+    transform: none;
+  }
+
+  .admin-nav-item:hover {
+    transform: none;
+  }
+
+  .admin-nav-icon {
+    width: 1.55rem;
+    height: 1.55rem;
+  }
+
+  .admin-nav-label {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    max-width: 100%;
+    line-height: 1.15;
+    word-break: break-word;
+  }
+
+  .admin-nav-item.is-active {
+    box-shadow: 0 4px 12px rgba(207, 161, 58, 0.28);
+  }
+}
+
+@media (max-width: 420px) {
+  .admin-nav-item {
+    min-width: 3.85rem;
+    max-width: 4.4rem;
+    min-height: 3.35rem;
+    padding: 0.35rem 0.25rem;
+    font-size: 0.6rem;
+  }
+
+  .admin-nav-icon {
+    width: 1.4rem;
+    height: 1.4rem;
   }
 }
 

@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Users, Calendar, DollarSign, Activity, CreditCard, Check, ShieldAlert,
@@ -69,6 +70,7 @@ export default function AdminView({
   const chartOfAccounts = erp.chartOfAccounts || DEFAULT_CHART_OF_ACCOUNTS;
   const permittedTabs = allowedAdminTabs(userRole);
   const panelMeta = ROLE_PANEL_META[userRole] || ROLE_PANEL_META.admin;
+  const adminNavTrackRef = useRef(null);
 
   // La pestaña activa vive en la URL (/panel/:tab); perfiles en /panel/members|:staff/:id
   // Subtabs de contabilidad: /panel/accounting?sub=cash
@@ -79,6 +81,12 @@ export default function AdminView({
   const accountingSubTabFocus = activeTab === 'accounting'
     ? (searchParams.get('sub') || (userRole === 'cashier' ? 'cash' : null))
     : null;
+
+  useEffect(() => {
+    const active = adminNavTrackRef.current?.querySelector('.admin-nav-item.is-active');
+    if (!active) return;
+    active.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+  }, [activeTab]);
   const goToTab = (tabKey, focus = null) => {
     if (tabKey === 'concessions') {
       navigate('/concesiones');
@@ -362,7 +370,7 @@ export default function AdminView({
 
       {/* Botonera operativa — rail agrupado */}
       <nav className="admin-nav" aria-label="Secciones del panel">
-        <div className="admin-nav-track">
+        <div className="admin-nav-track" ref={adminNavTrackRef}>
           {[
             {
               id: 'ops',

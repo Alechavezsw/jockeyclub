@@ -229,10 +229,6 @@ function toSqlTime(value) {
   return d.toTimeString().slice(0, 8);
 }
 
-function isUuid(id) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(id || ''));
-}
-
 export async function insertAccessLog(log, memberDbId = null) {
   const row = {
     member_id: isUuid(memberDbId) ? memberDbId : null,
