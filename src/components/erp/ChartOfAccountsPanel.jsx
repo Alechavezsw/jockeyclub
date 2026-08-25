@@ -3,10 +3,16 @@ import { ListTree, Plus, Search } from 'lucide-react';
 import { ACCOUNT_TYPES, accountLabel } from '../../domain/accounting/chartOfAccounts';
 import { formatCurrency, getAccountBalance } from '../../domain/accounting/journal';
 
-export default function ChartOfAccountsPanel({ chartOfAccounts, setChartOfAccounts, journalEntries }) {
+export default function ChartOfAccountsPanel({
+  chartOfAccounts,
+  setChartOfAccounts,
+  upsertChartAccount,
+  journalEntries,
+}) {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     code: '',
     name: '',
@@ -24,7 +30,7 @@ export default function ChartOfAccountsPanel({ chartOfAccounts, setChartOfAccoun
     return matchesSearch && matchesType;
   });
 
-  const handleCreate = (e) => {
+  const handleCreate = async (e) => {
     e.preventDefault();
     setError('');
     if (!form.code.trim() || !form.name.trim()) {
@@ -47,9 +53,20 @@ export default function ChartOfAccountsPanel({ chartOfAccounts, setChartOfAccoun
       isCashAccount: form.isCashAccount,
       isActive: true,
     };
-    setChartOfAccounts((prev) => [...prev, account].sort((x, y) => x.code.localeCompare(y.code, 'es')));
-    setShowForm(false);
-    setForm({ code: '', name: '', accountType: 'expense', parentId: '', isCashAccount: false });
+    setSaving(true);
+    try {
+      if (typeof upsertChartAccount === 'function') {
+        await upsertChartAccount(account);
+      } else if (typeof setChartOfAccounts === 'function') {
+        setChartOfAccounts((prev) => [...prev, account].sort((x, y) => x.code.localeCompare(y.code, 'es')));
+      }
+      setShowForm(false);
+      setForm({ code: '', name: '', accountType: 'expense', parentId: '', isCashAccount: false });
+    } catch (err) {
+      setError(err?.message || 'No se pudo guardar la cuenta.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -103,7 +120,9 @@ export default function ChartOfAccountsPanel({ chartOfAccounts, setChartOfAccoun
           </div>
           {error && <p style={{ color: '#ef4444', gridColumn: '1 / -1', fontSize: '0.85rem' }}>{error}</p>}
           <div style={{ gridColumn: '1 / -1' }}>
-            <button type="submit" className="btn btn-primary btn-sm">Guardar cuenta</button>
+            <button type="submit" className="btn btn-primary btn-sm" disabled={saving}>
+              {saving ? 'Guardando…' : 'Guardar cuenta'}
+            </button>
           </div>
         </form>
       )}

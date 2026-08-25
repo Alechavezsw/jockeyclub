@@ -92,7 +92,13 @@ export function UnidentifiedCollectionsPanel({ items = [], members = [], onAdd, 
             <tr><th>Fecha</th><th>Origen</th><th>Ref.</th><th>Importe</th><th>Estado</th><th>Identificar</th></tr>
           </thead>
           <tbody>
-            {items.length === 0 && <tr><td colSpan={6} style={{ color: 'var(--text-muted)' }}>Sin cobranzas NN.</td></tr>}
+            {items.length === 0 && (
+              <tr>
+                <td colSpan={6} style={{ color: 'var(--text-muted)' }}>
+                  No hay cobranzas guardadas. Las altas se sincronizan con la base (no se pierden al refrescar).
+                </td>
+              </tr>
+            )}
             {items.map((item) => (
               <tr key={item.id}>
                 <td>{item.date}</td>

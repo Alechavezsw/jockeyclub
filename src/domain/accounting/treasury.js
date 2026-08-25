@@ -1,5 +1,7 @@
 /** Módulos de tesorería: cobranzas NN, débitos Galicia, fijos, órdenes de pago. */
 
+import { buildPostedEntry } from './journal';
+
 export const UNIDENTIFIED_STATUS = {
   pending: 'Pendiente',
   matched: 'Identificada',
@@ -230,4 +232,52 @@ export function createPaymentOrder({ date, payee, concept, amount, paymentMethod
 export function setPaymentOrderStatus(order, status) {
   if (!PAYMENT_ORDER_STATUS[status]) throw new Error('Estado inválido.');
   return { ...order, status, updatedAt: new Date().toISOString() };
+}
+
+/** Asiento al identificar una cobranza NN: Debe Banco / Haber Cuotas. */
+export function buildUnidentifiedMatchEntry(item, chart) {
+  const amount = Number(item.amount) || 0;
+  if (amount <= 0) return null;
+  return buildPostedEntry({
+    date: item.date || new Date().toISOString().slice(0, 10),
+    description: `Cobranza identificada ${item.bankRef || item.originLabel || ''}`.trim(),
+    lines: [
+      { account: 'Banco Nación', type: 'debit', amount },
+      { account: 'Cuotas Sociales', type: 'credit', amount },
+    ],
+    sourceModule: 'tesoreria',
+    chart,
+  });
+}
+
+/** Asiento al acreditar débito Galicia: Debe Banco / Haber Cuotas. */
+export function buildGaliciaSettledEntry(item, chart) {
+  const amount = Number(item.amount) || 0;
+  if (amount <= 0) return null;
+  return buildPostedEntry({
+    date: item.scheduledDate || new Date().toISOString().slice(0, 10),
+    description: `Débito Galicia acreditado — ${item.memberName || item.memberId || ''}`.trim(),
+    lines: [
+      { account: 'Banco Nación', type: 'debit', amount },
+      { account: 'Cuotas Sociales', type: 'credit', amount },
+    ],
+    sourceModule: 'tesoreria',
+    chart,
+  });
+}
+
+/** Asiento al pagar una orden: Debe gasto/servicios / Haber Banco. */
+export function buildPaymentOrderPaidEntry(order, chart) {
+  const amount = Number(order.amount) || 0;
+  if (amount <= 0) return null;
+  return buildPostedEntry({
+    date: order.date || new Date().toISOString().slice(0, 10),
+    description: `Orden de pago ${order.number || ''} — ${order.payee || order.beneficiary || ''}`.trim(),
+    lines: [
+      { account: 'Servicios e Insumos', type: 'debit', amount },
+      { account: 'Banco Nación', type: 'credit', amount },
+    ],
+    sourceModule: 'tesoreria',
+    chart,
+  });
 }

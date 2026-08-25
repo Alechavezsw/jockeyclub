@@ -37,13 +37,17 @@ const TREASURY_TABS = new Set([
   'unidentified', 'galicia', 'fixed_expenses', 'fixed_discounts', 'balances', 'payment_orders',
 ]);
 
-const ACCOUNT_PLAN = {
-  activos: ['Caja General', 'Caja Cantina', 'Banco Nación', 'Equipamiento Canchas', 'Caballos Criollos'],
-  pasivos: ['Proveedores Hípicos', 'Sueldos a Pagar', 'Impuestos Pendientes'],
-  patrimonioNeto: ['Capital Social', 'Resultados Acumulados'],
-  ingresos: ['Cuotas Sociales', 'Reservas e Instalaciones', 'Concesión Gastronómica', 'Eventos y Fiestas'],
-  gastos: ['Sueldos y Jornales', 'Mantenimiento de Canchas', 'Alimento Equino', 'Servicios e Insumos', 'Gastos de Eventos']
-};
+const TREASURY_HUB_TABS = [
+  { key: 'cash', icon: Wallet, label: 'Cajas' },
+  { key: 'expenses', icon: Receipt, label: 'Gastos' },
+  { key: 'suppliers', icon: Truck, label: 'Proveedores' },
+  { key: 'unidentified', icon: HelpCircle, label: 'Sin identificar' },
+  { key: 'galicia', icon: Building2, label: 'Galicia' },
+  { key: 'fixed_expenses', icon: Repeat, label: 'Gastos fijos' },
+  { key: 'fixed_discounts', icon: Percent, label: 'Descuentos' },
+  { key: 'balances', icon: Scale, label: 'Saldos' },
+  { key: 'payment_orders', icon: FileSpreadsheet, label: 'Órdenes' },
+];
 
 function lineAccountName(line, chart) {
   if (line.account) return line.account;
@@ -60,11 +64,24 @@ function lineAmount(line) {
   return Number(line.debit) || Number(line.credit) || 0;
 }
 
+function accountsByTypeFromChart(chart) {
+  const postable = getPostableAccounts(chart);
+  const names = (type) => postable.filter((a) => a.accountType === type).map((a) => a.name);
+  return {
+    activos: names('asset'),
+    pasivos: names('liability'),
+    patrimonioNeto: names('equity'),
+    ingresos: names('income'),
+    gastos: names('expense'),
+  };
+}
+
 export default function AccountingTab({
   journalEntries,
   addJournalEntry,
   chartOfAccounts = DEFAULT_CHART_OF_ACCOUNTS,
   setChartOfAccounts,
+  upsertChartAccount,
   cashRegisters = [],
   cashSessions = [],
   cashMovements = [],
@@ -120,6 +137,7 @@ export default function AccountingTab({
 
   const postableAccounts = useMemo(() => getPostableAccounts(chartOfAccounts), [chartOfAccounts]);
   const ALL_ACCOUNTS = useMemo(() => postableAccounts.map((a) => a.name), [postableAccounts]);
+  const ACCOUNT_PLAN = useMemo(() => accountsByTypeFromChart(chartOfAccounts), [chartOfAccounts]);
 
   useEffect(() => {
     const tabs = allowedAccountingSubtabs(role || 'admin');
@@ -231,7 +249,7 @@ export default function AccountingTab({
     return accountsArray.reduce((sum, acc) => sum + getAccountBalance(acc), 0);
   };
 
-  // Sumas contables
+  // Sumas contables desde el plan de cuentas vivo
   const totalActivos = getCategoryTotal(ACCOUNT_PLAN.activos);
   const totalPasivos = getCategoryTotal(ACCOUNT_PLAN.pasivos);
   const totalPatrimonioNetoBase = getCategoryTotal(ACCOUNT_PLAN.patrimonioNeto);
@@ -243,6 +261,11 @@ export default function AccountingTab({
   // El Patrimonio Neto Total incluye el capital social inicial más la utilidad del período actual
   const totalPatrimonioNetoTotal = totalPatrimonioNetoBase + utilidadNeta;
   const pasivoMasPatrimonio = totalPasivos + totalPatrimonioNetoTotal;
+  const balanceDiff = Math.abs(totalActivos - pasivoMasPatrimonio);
+  const isBalanceSquared = balanceDiff < 0.5;
+  const equationDenom = Math.max(totalActivos, pasivoMasPatrimonio, 1);
+  const activoBarPct = Math.min(100, (totalActivos / equationDenom) * 100);
+  const pasivoBarPct = Math.min(100, (pasivoMasPatrimonio / equationDenom) * 100);
 
   // --- FILTRO DE LIBRO DIARIO ---
   const filteredJournalEntries = journalEntries.filter(entry => {
@@ -298,7 +321,12 @@ export default function AccountingTab({
 
   // --- EJECUTAR IMPRESIÓN ---
   const handlePrint = () => {
-    window.print();
+    void import('../domain/accounting/exportJournalPdf')
+      .then(({ exportJournalPdf }) => exportJournalPdf(journalEntries, {
+        formatCurrency,
+        chart: chartOfAccounts,
+      }))
+      .catch(() => window.print());
   };
 
   return (
@@ -315,66 +343,127 @@ export default function AccountingTab({
         </div>
       </div>
 
-      {/* Subpestañas: ocultas si el rol solo tiene una (ej. cajero → solo Caja) */}
+      {/* Subnav contable — distinta del rail del panel (segmentada, no chips dorados) */}
       {accountingTabs.length > 1 && (
-        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-          {(() => {
-            const tabDefs = {
-              diary: { key: 'diary', icon: <BookOpen size={14} />, label: 'Libro Diario' },
-              mayor: { key: 'mayor', icon: <Book size={14} />, label: 'Libro Mayor' },
-              create: { key: 'create', icon: <Plus size={14} />, label: 'Crear Asiento Legal' },
-              balance: { key: 'balance', icon: <PieChart size={14} />, label: 'Balance General' },
-              results: { key: 'results', icon: <DollarSign size={14} />, label: 'Estado de Resultados' },
-              charts: {
-                key: 'charts',
-                icon: <TrendingUp size={14} style={{ color: 'var(--emerald-accent)' }} />,
-                label: 'Reportes & Gráficos',
-                accent: true,
+        <nav className="acct-subnav" aria-label="Secciones de contabilidad">
+          <div className="acct-subnav-track">
+            {[
+              {
+                id: 'books',
+                label: 'Libros',
+                tabs: [
+                  { key: 'diary', icon: BookOpen, label: 'Libro Diario', short: 'Diario' },
+                  { key: 'mayor', icon: Book, label: 'Libro Mayor', short: 'Mayor' },
+                  { key: 'create', icon: Plus, label: 'Crear Asiento Legal', short: 'Nuevo asiento', accent: 'create' },
+                ],
               },
-              plan: { key: 'plan', icon: <ListTree size={14} />, label: 'Plan de Cuentas' },
-              cash: { key: 'cash', icon: <Wallet size={14} />, label: 'Cajas' },
-              expenses: { key: 'expenses', icon: <Receipt size={14} />, label: 'Gastos' },
-              suppliers: { key: 'suppliers', icon: <Truck size={14} />, label: 'Proveedores' },
-              unidentified: { key: 'unidentified', icon: <HelpCircle size={14} />, label: 'Cobranzas sin identificar' },
-              galicia: { key: 'galicia', icon: <Building2 size={14} />, label: 'Débitos Aut. Galicia' },
-              fixed_expenses: { key: 'fixed_expenses', icon: <Repeat size={14} />, label: 'Gastos Fijos' },
-              fixed_discounts: { key: 'fixed_discounts', icon: <Percent size={14} />, label: 'Descuentos Fijos' },
-              balances: { key: 'balances', icon: <Scale size={14} />, label: 'Saldos' },
-              payment_orders: { key: 'payment_orders', icon: <FileSpreadsheet size={14} />, label: 'Órdenes de pago' },
-            };
-            return accountingTabs.map((key) => tabDefs[key]).filter(Boolean);
-          })().map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              onClick={() => setSubTab(tab.key)}
-              className={`filter-btn ${subTab === tab.key ? 'active' : ''}`}
-              aria-current={subTab === tab.key ? 'page' : undefined}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.4rem',
-                padding: '0.5rem 1rem',
-                ...(tab.accent
-                  ? { background: 'rgba(16, 185, 129, 0.05)', borderColor: 'rgba(16, 185, 129, 0.2)' }
-                  : {}),
-              }}
-            >
-              {tab.icon} {tab.label}
-            </button>
-          ))}
+              {
+                id: 'reports',
+                label: 'Informes',
+                tabs: [
+                  { key: 'balance', icon: PieChart, label: 'Balance General', short: 'Balance' },
+                  { key: 'results', icon: DollarSign, label: 'Estado de Resultados', short: 'Resultados' },
+                  { key: 'charts', icon: TrendingUp, label: 'Reportes y gráficos', short: 'Gráficos', accent: 'charts' },
+                ],
+              },
+              {
+                id: 'treasury',
+                label: 'Operación',
+                tabs: accountingTabs.some((k) => TREASURY_TABS.has(k))
+                  ? [{ key: 'cash', icon: Wallet, label: 'Tesorería', short: 'Tesorería', hub: true }]
+                  : [],
+              },
+              {
+                id: 'catalog',
+                label: 'Catálogo',
+                tabs: [
+                  { key: 'plan', icon: ListTree, label: 'Plan de Cuentas', short: 'Plan' },
+                ],
+              },
+            ]
+              .map((group) => ({
+                ...group,
+                tabs: group.tabs.filter((t) => t.hub || accountingTabs.includes(t.key)),
+              }))
+              .filter((group) => group.tabs.length > 0)
+              .map((group) => (
+                <div key={group.id} className="acct-subnav-group" role="group" aria-label={group.label}>
+                  <span className="acct-subnav-group-label">{group.label}</span>
+                  <div className="acct-subnav-segment" role="tablist" aria-label={group.label}>
+                    {group.tabs.map((tab) => {
+                      const Icon = tab.icon;
+                      const isActive = tab.hub ? TREASURY_TABS.has(subTab) : subTab === tab.key;
+                      return (
+                        <button
+                          key={tab.key + (tab.hub ? '-hub' : '')}
+                          type="button"
+                          role="tab"
+                          aria-selected={isActive}
+                          aria-current={isActive ? 'page' : undefined}
+                          title={tab.label}
+                          onClick={() => setSubTab(tab.hub ? (TREASURY_TABS.has(subTab) ? subTab : 'cash') : tab.key)}
+                          className={[
+                            'acct-subnav-item',
+                            isActive ? 'is-active' : '',
+                            tab.accent === 'create' ? 'is-create' : '',
+                            tab.accent === 'charts' ? 'is-charts' : '',
+                            tab.hub ? 'is-hub' : '',
+                          ].filter(Boolean).join(' ')}
+                        >
+                          <Icon size={14} strokeWidth={isActive ? 2.4 : 2} aria-hidden="true" />
+                          <span className="acct-subnav-item-full">{tab.label}</span>
+                          <span className="acct-subnav-item-short">{tab.short}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+          </div>
 
           {subTab !== 'create' && subTab !== 'plan' && !TREASURY_TABS.has(subTab) && (
             <button
+              type="button"
               onClick={handlePrint}
-              className="btn btn-secondary btn-sm"
-              style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.4rem 0.85rem' }}
+              className="acct-subnav-print"
               title="Imprimir reporte en formato oficial"
             >
-              <Printer size={14} /> Exportar / Imprimir
+              <Printer size={14} aria-hidden="true" />
+              <span>Exportar</span>
             </button>
           )}
+        </nav>
+      )}
+
+      {accountingTabs.length === 1 && (
+        <div className="acct-cashier-bar" role="status">
+          <Wallet size={16} aria-hidden="true" />
+          <div>
+            <strong>Caja</strong>
+            <span>Operación de tesorería del turno</span>
+          </div>
         </div>
+      )}
+
+      {TREASURY_TABS.has(subTab) && accountingTabs.length > 1 && (
+        <nav className="acct-treasury-hub" aria-label="Módulos de tesorería">
+          {TREASURY_HUB_TABS.filter((t) => accountingTabs.includes(t.key)).map((tab) => {
+            const Icon = tab.icon;
+            const isActive = subTab === tab.key;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                className={`acct-treasury-hub-item${isActive ? ' is-active' : ''}`}
+                aria-current={isActive ? 'page' : undefined}
+                onClick={() => setSubTab(tab.key)}
+              >
+                <Icon size={14} aria-hidden="true" />
+                {tab.label}
+              </button>
+            );
+          })}
+        </nav>
       )}
 
       {/* SUB-TAB 1: LIBRO DIARIO CON BUSCADOR Y FILTROS */}
@@ -858,10 +947,28 @@ export default function AccountingTab({
           </div>
 
           {/* Banner de Verificación de Cuadre Contable */}
-          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', background: 'rgba(16, 185, 129, 0.05)', color: 'var(--emerald-accent)', padding: '1rem', borderRadius: '8px', border: '1px solid rgba(16,185,129,0.2)', fontSize: '0.9rem', marginTop: '1.5rem', fontWeight: '600' }}>
-            <CheckCircle2 size={18} style={{ flexShrink: 0 }} />
+          <div style={{
+            display: 'flex',
+            gap: '0.75rem',
+            alignItems: 'center',
+            background: isBalanceSquared ? 'rgba(16, 185, 129, 0.05)' : 'rgba(239, 68, 68, 0.08)',
+            color: isBalanceSquared ? 'var(--emerald-accent)' : 'var(--danger-accent)',
+            padding: '1rem',
+            borderRadius: '8px',
+            border: `1px solid ${isBalanceSquared ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.35)'}`,
+            fontSize: '0.9rem',
+            marginTop: '1.5rem',
+            fontWeight: '600',
+          }}>
+            {isBalanceSquared ? <CheckCircle2 size={18} style={{ flexShrink: 0 }} /> : <ShieldAlert size={18} style={{ flexShrink: 0 }} />}
             <div>
-              <span>El Balance se encuentra Cuadrado según el método de partida doble. Activos = Pasivos + PN ({formatCurrency(totalActivos)}).</span>
+              {isBalanceSquared ? (
+                <span>El Balance se encuentra cuadrado. Activos = Pasivos + PN ({formatCurrency(totalActivos)}).</span>
+              ) : (
+                <span>
+                  Descuadre de {formatCurrency(balanceDiff)}: Activos {formatCurrency(totalActivos)} ≠ Pasivo+PN {formatCurrency(pasivoMasPatrimonio)}.
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -976,8 +1083,8 @@ export default function AccountingTab({
           <div className="glass-card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h5 className="serif-font" style={{ fontSize: '1.05rem', margin: 0 }}>Ecuación Patrimonial de Gestión</h5>
-              <span style={{ fontSize: '0.75rem', color: 'var(--emerald-accent)', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-                <CheckCircle2 size={12} /> Balance Consolidado
+              <span style={{ fontSize: '0.75rem', color: isBalanceSquared ? 'var(--emerald-accent)' : 'var(--danger-accent)', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                {isBalanceSquared ? <><CheckCircle2 size={12} /> Balance consolidado</> : <><ShieldAlert size={12} /> Descuadre {formatCurrency(balanceDiff)}</>}
               </span>
             </div>
             <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: 0 }}>
@@ -985,10 +1092,11 @@ export default function AccountingTab({
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.5rem' }}>
-              {/* Barra de progreso */}
+              {/* Barra de progreso proporcional */}
               <div style={{ height: '24px', width: '100%', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid var(--border-glass)', display: 'flex', overflow: 'hidden' }}>
                 <div style={{ 
-                  width: '50%', 
+                  width: `${activoBarPct}%`, 
+                  minWidth: totalActivos > 0 ? '12%' : 0,
                   background: 'linear-gradient(90deg, var(--emerald-accent) 0%, #0d9488 100%)', 
                   display: 'flex', 
                   alignItems: 'center', 
@@ -1001,7 +1109,8 @@ export default function AccountingTab({
                   ACTIVO: {formatCurrency(totalActivos)}
                 </div>
                 <div style={{ 
-                  width: '50%', 
+                  width: `${pasivoBarPct}%`, 
+                  minWidth: pasivoMasPatrimonio > 0 ? '12%' : 0,
                   background: 'linear-gradient(90deg, #b45309 0%, var(--primary-gold) 100%)', 
                   display: 'flex', 
                   alignItems: 'center', 
@@ -1195,10 +1304,11 @@ export default function AccountingTab({
         </div>
       )}
 
-      {subTab === 'plan' && setChartOfAccounts && (
+      {subTab === 'plan' && (setChartOfAccounts || upsertChartAccount) && (
         <ChartOfAccountsPanel
           chartOfAccounts={chartOfAccounts}
           setChartOfAccounts={setChartOfAccounts}
+          upsertChartAccount={upsertChartAccount}
           journalEntries={journalEntries}
         />
       )}

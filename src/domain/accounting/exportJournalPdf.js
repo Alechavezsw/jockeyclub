@@ -4,6 +4,7 @@ import {
   drawReportHeader,
   loadClubLogoDataUrl,
 } from '../reports/pdfBrand';
+import { accountLabel, getAccountById } from './chartOfAccounts';
 
 function formatMoney(amount) {
   return new Intl.NumberFormat('es-AR', {
@@ -27,16 +28,24 @@ function lineAmounts(line) {
   };
 }
 
-function lineAccount(line) {
-  return line.account || line.accountName || line.accountId || '—';
+function resolveLineAccount(line, chart) {
+  if (line.account) return line.account;
+  if (line.accountName) return line.accountName;
+  if (chart && line.accountId) {
+    const acc = getAccountById(chart, line.accountId);
+    if (acc) return accountLabel(acc);
+  }
+  return line.accountId || '—';
 }
 
 /**
  * Genera y descarga el Libro Diario Legal en PDF con logo institucional.
+ * Solo incluye asientos posted (o legacy sin status).
  */
 export async function exportJournalPdf(journalEntries = [], {
   formatCurrency = formatMoney,
   fileName,
+  chart = null,
 } = {}) {
   const [{ jsPDF }, autoTableMod, logoDataUrl] = await Promise.all([
     import('jspdf'),
@@ -44,7 +53,8 @@ export async function exportJournalPdf(journalEntries = [], {
     loadClubLogoDataUrl(),
   ]);
   const autoTable = autoTableMod.default;
-  const entries = Array.isArray(journalEntries) ? journalEntries : [];
+  const raw = Array.isArray(journalEntries) ? journalEntries : [];
+  const entries = raw.filter((e) => !e.status || e.status === 'posted');
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
   const generatedAt = new Date().toLocaleString('es-AR');
   const stamp = new Date().toISOString().slice(0, 10);
@@ -63,8 +73,8 @@ export async function exportJournalPdf(journalEntries = [], {
       body.push([
         idx === 0 ? String(entry.id ?? '—') : '',
         idx === 0 ? (entry.date || '—') : '',
-        idx === 0 ? (entry.description || '—') : '',
-        lineAccount(line),
+        idx === 0 ? (entry.description || entry.concept || '—') : '',
+        resolveLineAccount(line, chart),
         debe > 0 ? formatCurrency(debe) : '',
         haber > 0 ? formatCurrency(haber) : '',
       ]);

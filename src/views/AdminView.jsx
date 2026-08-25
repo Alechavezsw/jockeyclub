@@ -2,7 +2,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Users, Calendar, DollarSign, Activity, CreditCard, Check, ShieldAlert,
   Clock, BookOpen, ClipboardList, MessageSquare, Phone,
-  FileSpreadsheet, Radio, Database, BellRing, PartyPopper, LayoutDashboard, Trophy, Store, DoorOpen, QrCode, Newspaper
+  FileSpreadsheet, Radio, Database, BellRing, PartyPopper, Trophy, Store, DoorOpen, QrCode, Newspaper
 } from 'lucide-react';
 import AccountingTab from '../components/AccountingTab';
 import StaffTab from '../components/StaffTab';
@@ -360,56 +360,96 @@ export default function AdminView({
       </div>
       )}
 
-      {/* Botonera operativa */}
+      {/* Botonera operativa — rail agrupado */}
       <nav className="admin-nav" aria-label="Secciones del panel">
         <div className="admin-nav-track">
           {[
-            { key: 'dashboard', icon: LayoutDashboard, label: 'Inicio' },
-            { key: 'members', icon: Users, label: 'Socios' },
-            { key: 'dues', icon: ShieldAlert, label: 'Cuotas' },
-            { key: 'bookings', icon: Calendar, label: 'Reservas' },
-            { key: 'disciplines', icon: Trophy, label: 'Disciplinas' },
-            { key: 'access', icon: DoorOpen, label: 'Ingresos' },
-            { key: 'qr_gate', icon: QrCode, label: 'Acceso QR' },
-            { key: 'concessions', icon: Store, label: 'Concesiones' },
             {
-              key: 'accounting',
-              icon: userRole === 'cashier' ? DollarSign : BookOpen,
-              label: userRole === 'cashier' ? 'Caja' : 'Contabilidad',
+              id: 'ops',
+              label: 'Operación',
+              tabs: [
+                { key: 'members', icon: Users, label: 'Socios' },
+                { key: 'dues', icon: ShieldAlert, label: 'Cuotas' },
+                { key: 'bookings', icon: Calendar, label: 'Reservas' },
+                { key: 'access', icon: DoorOpen, label: 'Ingresos' },
+                { key: 'qr_gate', icon: QrCode, label: 'Acceso QR' },
+              ],
             },
-            { key: 'staff', icon: ClipboardList, label: 'Personal' },
-            { key: 'events', icon: PartyPopper, label: 'Fiestas' },
-            { key: 'alerts', icon: BellRing, label: 'Alertas' },
-            { key: 'claims', icon: MessageSquare, label: 'Reclamos' },
-            { key: 'messaging', icon: Phone, label: 'Mensajería' },
-            { key: 'news', icon: Newspaper, label: 'Revista' },
-            { key: 'reports', icon: FileSpreadsheet, label: 'Reportes' },
-            { key: 'surveys', icon: Radio, label: 'Encuestas' },
-            { key: 'migration', icon: Database, label: 'Migración' },
+            {
+              id: 'club',
+              label: 'Club',
+              tabs: [
+                { key: 'disciplines', icon: Trophy, label: 'Disciplinas' },
+                { key: 'events', icon: PartyPopper, label: 'Fiestas' },
+                { key: 'news', icon: Newspaper, label: 'Revista' },
+                { key: 'surveys', icon: Radio, label: 'Encuestas' },
+              ],
+            },
+            {
+              id: 'mgmt',
+              label: 'Gestión',
+              tabs: [
+                { key: 'concessions', icon: Store, label: 'Concesiones' },
+                {
+                  key: 'accounting',
+                  icon: userRole === 'cashier' ? DollarSign : BookOpen,
+                  label: userRole === 'cashier' ? 'Caja' : 'Contabilidad',
+                },
+                { key: 'staff', icon: ClipboardList, label: 'Personal' },
+                { key: 'reports', icon: FileSpreadsheet, label: 'Reportes' },
+              ],
+            },
+            {
+              id: 'care',
+              label: 'Atención',
+              tabs: [
+                { key: 'alerts', icon: BellRing, label: 'Alertas' },
+                { key: 'claims', icon: MessageSquare, label: 'Reclamos' },
+                { key: 'messaging', icon: Phone, label: 'Mensajería' },
+              ],
+            },
+            {
+              id: 'sys',
+              label: 'Sistema',
+              tabs: [
+                { key: 'migration', icon: Database, label: 'Migración' },
+              ],
+            },
           ]
-            .filter((tab) => {
-              if (tab.key === 'concessions') return showConcessionsTab;
-              if (tab.key === 'qr_gate') return showQrGateTab;
-              return permittedTabs.includes(tab.key);
-            })
-            .map((tab) => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.key;
-              return (
-                <button
-                  key={tab.key}
-                  type="button"
-                  onClick={() => setActiveTab(tab.key)}
-                  className={`admin-nav-item${isActive ? ' is-active' : ''}`}
-                  aria-current={isActive ? 'page' : undefined}
-                >
-                  <span className="admin-nav-icon" aria-hidden="true">
-                    <Icon size={16} strokeWidth={isActive ? 2.4 : 2} />
-                  </span>
-                  <span className="admin-nav-label">{tab.label}</span>
-                </button>
-              );
-            })}
+            .map((group) => ({
+              ...group,
+              tabs: group.tabs.filter((tab) => {
+                if (tab.key === 'concessions') return showConcessionsTab;
+                if (tab.key === 'qr_gate') return showQrGateTab;
+                return permittedTabs.includes(tab.key);
+              }),
+            }))
+            .filter((group) => group.tabs.length > 0)
+            .map((group) => (
+              <div key={group.id} className="admin-nav-group" role="group" aria-label={group.label}>
+                <span className="admin-nav-group-label">{group.label}</span>
+                <div className="admin-nav-group-items">
+                  {group.tabs.map((tab) => {
+                    const Icon = tab.icon;
+                    const isActive = activeTab === tab.key;
+                    return (
+                      <button
+                        key={tab.key}
+                        type="button"
+                        onClick={() => setActiveTab(tab.key)}
+                        className={`admin-nav-item${isActive ? ' is-active' : ''}`}
+                        aria-current={isActive ? 'page' : undefined}
+                      >
+                        <span className="admin-nav-icon" aria-hidden="true">
+                          <Icon size={15} strokeWidth={isActive ? 2.4 : 2} />
+                        </span>
+                        <span className="admin-nav-label">{tab.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
         </div>
       </nav>
 
@@ -514,12 +554,12 @@ export default function AdminView({
 
       {activeTab === 'accounting' && (
         <AccountingTab
-          key={accountingSubTabFocus || 'default'}
           initialSubTab={accountingSubTabFocus}
           journalEntries={journalEntries}
           addJournalEntry={addJournalEntry}
           chartOfAccounts={chartOfAccounts}
           setChartOfAccounts={erp.setChartOfAccounts}
+          upsertChartAccount={erp.upsertChartAccount}
           cashRegisters={erp.cashRegisters}
           cashSessions={erp.cashSessions}
           cashMovements={erp.cashMovements}
@@ -624,6 +664,7 @@ export default function AdminView({
           members={members}
           reservations={reservations}
           journalEntries={journalEntries}
+          chartOfAccounts={chartOfAccounts}
           staffMembers={staffMembers}
           claims={claims}
           messages={messages}

@@ -26,6 +26,9 @@ import {
   DEFAULT_FIXED_EXPENSES,
   DEFAULT_FIXED_DISCOUNTS,
   DEFAULT_PAYMENT_ORDERS,
+  buildUnidentifiedMatchEntry,
+  buildGaliciaSettledEntry,
+  buildPaymentOrderPaidEntry,
 } from '../domain/accounting/treasury';
 import {
   DEFAULT_ALERTS,
@@ -596,49 +599,160 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
   }, []);
 
   const upsertUnidentifiedCollection = useCallback((item) => {
-    setUnidentifiedCollections((prev) => {
-      const idx = prev.findIndex((x) => x.id === item.id);
-      if (idx === -1) return [item, ...prev];
-      const next = [...prev];
-      next[idx] = item;
-      return next;
-    });
-  }, []);
+    const run = async () => {
+      let nextItem = item;
+      if (item.status === 'matched' && !item.journalEntryId) {
+        try {
+          const entry = buildUnidentifiedMatchEntry(item, chartOfAccounts);
+          if (entry) {
+            const savedEntry = await addPostedEntry(entry);
+            nextItem = { ...item, journalEntryId: savedEntry?.id || entry.id };
+          }
+        } catch {
+          /* no bloquear la identificación si el asiento falla */
+        }
+      }
+      setUnidentifiedCollections((prev) => {
+        const idx = prev.findIndex((x) => x.id === nextItem.id || x.id === item.id);
+        if (idx === -1) return [nextItem, ...prev];
+        const next = [...prev];
+        next[idx] = nextItem;
+        return next;
+      });
+      if (cloud()) {
+        repos.upsertUnidentifiedCollection(nextItem).then((saved) => {
+          setUnidentifiedCollections((prev) => {
+            const withoutTemp = prev.filter((x) => x.id !== item.id && x.id !== nextItem.id && x.id !== saved.id);
+            return [saved, ...withoutTemp];
+          });
+        }).catch(() => {});
+      }
+    };
+    void run();
+  }, [chartOfAccounts, addPostedEntry]);
 
   const upsertGaliciaDebit = useCallback((item) => {
-    setGaliciaDebits((prev) => {
-      const idx = prev.findIndex((x) => x.id === item.id);
-      if (idx === -1) return [item, ...prev];
-      const next = [...prev];
-      next[idx] = item;
-      return next;
-    });
-  }, []);
+    const run = async () => {
+      let nextItem = item;
+      if (item.status === 'settled' && !item.journalEntryId) {
+        try {
+          const entry = buildGaliciaSettledEntry(item, chartOfAccounts);
+          if (entry) {
+            const savedEntry = await addPostedEntry(entry);
+            nextItem = { ...item, journalEntryId: savedEntry?.id || entry.id };
+          }
+        } catch {
+          /* best-effort */
+        }
+      }
+      setGaliciaDebits((prev) => {
+        const idx = prev.findIndex((x) => x.id === nextItem.id || x.id === item.id);
+        if (idx === -1) return [nextItem, ...prev];
+        const next = [...prev];
+        next[idx] = nextItem;
+        return next;
+      });
+      if (cloud()) {
+        repos.upsertGaliciaDebit(nextItem).then((saved) => {
+          setGaliciaDebits((prev) => {
+            const withoutTemp = prev.filter((x) => x.id !== item.id && x.id !== nextItem.id && x.id !== saved.id);
+            return [saved, ...withoutTemp];
+          });
+        }).catch(() => {});
+      }
+    };
+    void run();
+  }, [chartOfAccounts, addPostedEntry]);
 
   const addFixedExpense = useCallback((item) => {
     setFixedExpenses((prev) => [item, ...prev]);
+    if (cloud()) {
+      repos.upsertFixedExpense(item).then((saved) => {
+        setFixedExpenses((prev) => {
+          const withoutTemp = prev.filter((x) => x.id !== item.id && x.id !== saved.id);
+          return [saved, ...withoutTemp];
+        });
+      }).catch(() => {});
+    }
   }, []);
 
   const toggleFixedExpense = useCallback((id) => {
-    setFixedExpenses((prev) => prev.map((x) => (x.id === id ? { ...x, active: !x.active } : x)));
+    setFixedExpenses((prev) => {
+      const next = prev.map((x) => (x.id === id ? { ...x, active: !x.active } : x));
+      const target = next.find((x) => x.id === id);
+      if (cloud() && target) repos.upsertFixedExpense(target).catch(() => {});
+      return next;
+    });
   }, []);
 
   const addFixedDiscount = useCallback((item) => {
     setFixedDiscounts((prev) => [item, ...prev]);
+    if (cloud()) {
+      repos.upsertFixedDiscount(item).then((saved) => {
+        setFixedDiscounts((prev) => {
+          const withoutTemp = prev.filter((x) => x.id !== item.id && x.id !== saved.id);
+          return [saved, ...withoutTemp];
+        });
+      }).catch(() => {});
+    }
   }, []);
 
   const toggleFixedDiscount = useCallback((id) => {
-    setFixedDiscounts((prev) => prev.map((x) => (x.id === id ? { ...x, active: !x.active } : x)));
+    setFixedDiscounts((prev) => {
+      const next = prev.map((x) => (x.id === id ? { ...x, active: !x.active } : x));
+      const target = next.find((x) => x.id === id);
+      if (cloud() && target) repos.upsertFixedDiscount(target).catch(() => {});
+      return next;
+    });
   }, []);
 
   const upsertPaymentOrder = useCallback((item) => {
-    setPaymentOrders((prev) => {
-      const idx = prev.findIndex((x) => x.id === item.id);
-      if (idx === -1) return [item, ...prev];
-      const next = [...prev];
-      next[idx] = item;
-      return next;
+    const run = async () => {
+      let nextItem = item;
+      if (item.status === 'paid' && !item.journalEntryId) {
+        try {
+          const entry = buildPaymentOrderPaidEntry(item, chartOfAccounts);
+          if (entry) {
+            const savedEntry = await addPostedEntry(entry);
+            nextItem = { ...item, journalEntryId: savedEntry?.id || entry.id };
+          }
+        } catch {
+          /* best-effort */
+        }
+      }
+      setPaymentOrders((prev) => {
+        const idx = prev.findIndex((x) => x.id === nextItem.id || x.id === item.id);
+        if (idx === -1) return [nextItem, ...prev];
+        const next = [...prev];
+        next[idx] = nextItem;
+        return next;
+      });
+      if (cloud()) {
+        repos.upsertPaymentOrder(nextItem).then((saved) => {
+          setPaymentOrders((prev) => {
+            const withoutTemp = prev.filter((x) => x.id !== item.id && x.id !== nextItem.id && x.id !== saved.id);
+            return [saved, ...withoutTemp];
+          });
+        }).catch(() => {});
+      }
+    };
+    void run();
+  }, [chartOfAccounts, addPostedEntry]);
+
+  const upsertChartAccount = useCallback(async (account) => {
+    if (cloud()) {
+      const saved = await repos.upsertChartAccount(account);
+      setChartOfAccounts((prev) => {
+        const without = prev.filter((a) => a.id !== account.id && a.id !== saved.id && a.code !== saved.code);
+        return [...without, saved].sort((x, y) => String(x.code).localeCompare(String(y.code), 'es'));
+      });
+      return saved;
+    }
+    setChartOfAccounts((prev) => {
+      const without = prev.filter((a) => a.id !== account.id && a.code !== account.code);
+      return [...without, account].sort((x, y) => String(x.code).localeCompare(String(y.code), 'es'));
     });
+    return account;
   }, []);
 
   const registerMemberToEvent = useCallback(
@@ -675,6 +789,7 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
   return {
     chartOfAccounts,
     setChartOfAccounts,
+    upsertChartAccount,
     cashRegisters,
     cashSessions,
     cashMovements,

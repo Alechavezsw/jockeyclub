@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Sun, Moon, Shield, User, Menu, X, Bell, LogOut, Mail } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { Sun, Moon, Shield, User, Menu, X, Bell, LogOut, Mail, LayoutDashboard } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { navItemsForRole, ROLE_LABELS, sessionGreetLabel } from '../domain/auth/roles';
+import { canAccessAdmin, navItemsForRole, ROLE_LABELS, sessionGreetLabel } from '../domain/auth/roles';
 
 function formatHeaderDate(d = new Date()) {
   const raw = d.toLocaleDateString('es-AR', {
@@ -25,15 +26,28 @@ export default function Navbar({
   onMarkAllNotificationsRead,
 }) {
   const { user, role, logout, roleLabel } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [showNotifs, setShowNotifs] = useState(false);
 
+  const isOperative = canAccessAdmin(role || 'member');
   const visibleItems = navItemsForRole(role || 'member');
   const headerDate = formatHeaderDate();
   const greetName = sessionGreetLabel(user?.fullName || '', role);
+  const isPanelHome = isOperative && (
+    /^\/panel\/?$/.test(location.pathname)
+    || location.pathname === '/panel/dashboard'
+  );
 
   const handleNavClick = (viewId) => {
     setCurrentView(viewId);
+    setIsOpen(false);
+    setShowNotifs(false);
+  };
+
+  const goPanelHome = () => {
+    navigate('/panel/dashboard');
     setIsOpen(false);
     setShowNotifs(false);
   };
@@ -70,7 +84,7 @@ export default function Navbar({
         <div className="nav-brand-block">
           <button
             type="button"
-            onClick={() => handleNavClick('dashboard')}
+            onClick={() => (isOperative ? goPanelHome() : handleNavClick('dashboard'))}
             aria-label="Ir al inicio · Jockey Club San Juan"
             className="nav-brand-btn"
           >
@@ -89,6 +103,17 @@ export default function Navbar({
           <time className="nav-header-date" dateTime={new Date().toISOString().slice(0, 10)}>
             {headerDate}
           </time>
+          {isOperative && (
+            <button
+              type="button"
+              onClick={goPanelHome}
+              aria-current={isPanelHome ? 'page' : undefined}
+              className={`nav-panel-home-btn${isPanelHome ? ' is-active' : ''}`}
+            >
+              <LayoutDashboard size={16} strokeWidth={isPanelHome ? 2.4 : 2} aria-hidden="true" />
+              Inicio
+            </button>
+          )}
         </div>
 
         <div style={{ display: 'none', gap: '1.5rem', alignItems: 'center' }} className="desktop-menu-container">
@@ -422,6 +447,32 @@ export default function Navbar({
           <time className="nav-header-date nav-header-date--mobile" dateTime={new Date().toISOString().slice(0, 10)}>
             {headerDate}
           </time>
+
+          {isOperative && (
+            <button
+              type="button"
+              onClick={goPanelHome}
+              aria-current={isPanelHome ? 'page' : undefined}
+              style={{
+                background: isPanelHome ? 'rgba(207, 161, 58, 0.05)' : 'transparent',
+                border: 'none',
+                borderLeft: isPanelHome ? '3px solid var(--primary-gold)' : '3px solid transparent',
+                color: isPanelHome ? 'var(--primary-gold)' : 'var(--text-secondary)',
+                fontFamily: 'inherit',
+                fontSize: '1rem',
+                fontWeight: '600',
+                cursor: 'pointer',
+                padding: '0.75rem 1rem',
+                textAlign: 'left',
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <LayoutDashboard size={16} aria-hidden="true" /> Inicio
+            </button>
+          )}
 
           {visibleItems.map(item => (
             <button

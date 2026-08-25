@@ -70,6 +70,7 @@ export default function ReportsTab({
   members = [],
   reservations = [],
   journalEntries = [],
+  chartOfAccounts = null,
   staffMembers = [],
   claims = [],
   messages = [],
@@ -555,7 +556,7 @@ export default function ReportsTab({
   };
 
   const handleExportJournalPDF = () => {
-    void exportJournalPdf(journalEntries, { formatCurrency }).catch((err) => fail(err, 'No se pudo generar el PDF del libro diario.'));
+    void exportJournalPdf(journalEntries, { formatCurrency, chart: chartOfAccounts }).catch((err) => fail(err, 'No se pudo generar el PDF del libro diario.'));
   };
 
   const handleExportExecutivePDF = () => {

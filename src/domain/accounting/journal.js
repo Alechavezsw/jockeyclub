@@ -56,8 +56,21 @@ export function validateJournalEntry({ date, description, lines }, chart) {
   const normalized = normalizeLines(lines, chart);
   if (normalized.length < 2) errors.push('Se requieren al menos dos líneas (partida doble).');
   if (normalized.some((l) => !l.accountId)) errors.push('Todas las líneas deben tener una cuenta válida.');
-  if (normalized.some((l) => l.debit <= 0 && l.credit <= 0)) {
-    errors.push('Cada línea debe tener importe en debe o haber.');
+  for (const line of normalized) {
+    const debit = Number(line.debit) || 0;
+    const credit = Number(line.credit) || 0;
+    if (debit > 0 && credit > 0) {
+      errors.push('Una línea no puede tener debe y haber a la vez.');
+      break;
+    }
+    if (debit <= 0 && credit <= 0) {
+      errors.push('Cada línea debe tener un importe mayor a cero en debe o haber.');
+      break;
+    }
+    if (!Number.isFinite(debit) || !Number.isFinite(credit) || debit < 0 || credit < 0) {
+      errors.push('Los importes deben ser números válidos mayores o iguales a cero.');
+      break;
+    }
   }
   if (!isBalanced(normalized)) {
     errors.push(

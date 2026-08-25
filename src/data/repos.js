@@ -3,6 +3,11 @@ import { unwrap } from './errors';
 import * as M from './mappers';
 
 const FISCAL_2026 = '11111111-1111-1111-1111-111111111111';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isUuid(id) {
+  return UUID_RE.test(String(id || ''));
+}
 
 function sb() {
   if (!supabase) throw new Error('Supabase no configurado');
@@ -951,63 +956,275 @@ async function listJsonTable(table, mapFn) {
   return (rows || []).map(mapFn);
 }
 
+function metaOf(row) {
+  return row?.meta && typeof row.meta === 'object' ? row.meta : {};
+}
+
 export async function listUnidentifiedCollections() {
-  return listJsonTable('unidentified_collections', (r) => ({
-    id: r.id,
-    amount: Number(r.amount) || 0,
-    date: r.received_on,
-    reference: r.reference || '',
-    status: r.status,
-    notes: r.notes || '',
-    memberId: r.member_id,
-  }));
+  return listJsonTable('unidentified_collections', (r) => {
+    const meta = metaOf(r);
+    return {
+      id: r.id,
+      amount: Number(r.amount) || 0,
+      date: r.received_on || meta.date || null,
+      bankRef: meta.bankRef || r.reference || '',
+      originLabel: meta.originLabel || 'Cobranza bancaria',
+      note: r.notes || meta.note || '',
+      status: r.status || 'pending',
+      matchedMemberId: meta.matchedMemberId || r.member_id || null,
+      matchedAt: meta.matchedAt || null,
+      rejectedAt: meta.rejectedAt || null,
+      createdAt: r.created_at || meta.createdAt || null,
+      journalEntryId: meta.journalEntryId || null,
+    };
+  });
+}
+
+export async function upsertUnidentifiedCollection(item) {
+  const meta = {
+    bankRef: item.bankRef || null,
+    originLabel: item.originLabel || null,
+    note: item.note || null,
+    matchedMemberId: item.matchedMemberId || null,
+    matchedAt: item.matchedAt || null,
+    rejectedAt: item.rejectedAt || null,
+    createdAt: item.createdAt || null,
+    journalEntryId: item.journalEntryId || null,
+  };
+  const row = {
+    amount: Number(item.amount) || 0,
+    received_on: item.date || new Date().toISOString().slice(0, 10),
+    reference: item.bankRef || item.reference || null,
+    status: item.status || 'pending',
+    notes: item.note || null,
+    member_id: isUuid(item.matchedMemberId) ? item.matchedMemberId : null,
+    meta,
+  };
+  if (isUuid(item.id)) {
+    const saved = await unwrap(
+      sb().from('unidentified_collections').update(row).eq('id', item.id).select().single()
+    );
+    return (await listUnidentifiedCollections()).find((x) => x.id === saved.id)
+      || { ...item, id: saved.id };
+  }
+  const saved = await unwrap(sb().from('unidentified_collections').insert(row).select().single());
+  const mapped = (await listUnidentifiedCollections()).find((x) => x.id === saved.id);
+  await audit('upsert', 'unidentified_collection', saved.id, { amount: row.amount, status: row.status });
+  return mapped || { ...item, id: saved.id };
 }
 
 export async function listGaliciaDebits() {
-  return listJsonTable('galicia_debits', (r) => ({
-    id: r.id,
-    memberId: r.member_number,
-    memberName: r.member_name,
-    amount: Number(r.amount) || 0,
-    date: r.debit_date,
-    status: r.status,
-    reference: r.reference || '',
-  }));
+  return listJsonTable('galicia_debits', (r) => {
+    const meta = metaOf(r);
+    return {
+      id: r.id,
+      period: meta.period || (r.debit_date ? String(r.debit_date).slice(0, 7) : null),
+      memberId: r.member_number || meta.memberId || '',
+      memberName: r.member_name || meta.memberName || '',
+      cbuMask: meta.cbuMask || '****0000',
+      amount: Number(r.amount) || 0,
+      status: r.status || 'scheduled',
+      scheduledDate: r.debit_date || meta.scheduledDate || null,
+      reference: r.reference || meta.reference || '',
+      createdAt: r.created_at || meta.createdAt || null,
+      updatedAt: meta.updatedAt || null,
+      journalEntryId: meta.journalEntryId || null,
+    };
+  });
+}
+
+export async function upsertGaliciaDebit(item) {
+  const meta = {
+    period: item.period || null,
+    memberId: item.memberId || null,
+    memberName: item.memberName || null,
+    cbuMask: item.cbuMask || null,
+    scheduledDate: item.scheduledDate || null,
+    reference: item.reference || null,
+    createdAt: item.createdAt || null,
+    updatedAt: item.updatedAt || null,
+    journalEntryId: item.journalEntryId || null,
+  };
+  const row = {
+    member_number: item.memberId || null,
+    member_name: item.memberName || null,
+    amount: Number(item.amount) || 0,
+    debit_date: item.scheduledDate || null,
+    status: item.status || 'scheduled',
+    reference: item.reference || null,
+    meta,
+  };
+  if (isUuid(item.id)) {
+    const saved = await unwrap(sb().from('galicia_debits').update(row).eq('id', item.id).select().single());
+    return (await listGaliciaDebits()).find((x) => x.id === saved.id) || { ...item, id: saved.id };
+  }
+  const saved = await unwrap(sb().from('galicia_debits').insert(row).select().single());
+  await audit('upsert', 'galicia_debit', saved.id, { amount: row.amount, status: row.status });
+  return (await listGaliciaDebits()).find((x) => x.id === saved.id) || { ...item, id: saved.id };
 }
 
 export async function listFixedExpenses() {
-  return listJsonTable('fixed_expenses', (r) => ({
-    id: r.id,
-    name: r.name,
-    amount: Number(r.amount) || 0,
-    cadence: r.cadence,
-    nextDue: r.next_due,
-    accountCode: r.account_code,
-    status: r.status,
-  }));
+  return listJsonTable('fixed_expenses', (r) => {
+    const meta = metaOf(r);
+    const active = r.status === 'active' || (r.status !== 'inactive' && meta.active !== false);
+    return {
+      id: r.id,
+      name: r.name,
+      vendorName: meta.vendorName || '',
+      amount: Number(r.amount) || 0,
+      dayOfMonth: meta.dayOfMonth || (r.next_due ? Number(String(r.next_due).slice(8, 10)) : 1),
+      accountHint: meta.accountHint || r.account_code || 'Servicios e Insumos',
+      cadence: r.cadence || 'monthly',
+      nextDue: r.next_due || null,
+      accountCode: r.account_code || null,
+      status: active ? 'active' : 'inactive',
+      active,
+    };
+  });
+}
+
+export async function upsertFixedExpense(item) {
+  const active = item.active !== false && item.status !== 'inactive';
+  const meta = {
+    vendorName: item.vendorName || null,
+    dayOfMonth: item.dayOfMonth || null,
+    accountHint: item.accountHint || null,
+    active,
+  };
+  const row = {
+    name: item.name || 'Gasto fijo',
+    amount: Number(item.amount) || 0,
+    cadence: item.cadence || 'monthly',
+    next_due: item.nextDue || null,
+    account_code: item.accountCode || item.accountHint || null,
+    status: active ? 'active' : 'inactive',
+    meta,
+  };
+  if (isUuid(item.id)) {
+    const saved = await unwrap(sb().from('fixed_expenses').update(row).eq('id', item.id).select().single());
+    return (await listFixedExpenses()).find((x) => x.id === saved.id) || { ...item, id: saved.id, active };
+  }
+  const saved = await unwrap(sb().from('fixed_expenses').insert(row).select().single());
+  await audit('upsert', 'fixed_expense', saved.id, { name: row.name });
+  return (await listFixedExpenses()).find((x) => x.id === saved.id) || { ...item, id: saved.id, active };
 }
 
 export async function listFixedDiscounts() {
-  return listJsonTable('fixed_discounts', (r) => ({
-    id: r.id,
-    name: r.name,
-    amount: Number(r.amount) || 0,
-    memberId: r.member_number,
-    cadence: r.cadence,
-    status: r.status,
-  }));
+  return listJsonTable('fixed_discounts', (r) => {
+    const meta = metaOf(r);
+    const active = r.status === 'active' || (r.status !== 'inactive' && meta.active !== false);
+    return {
+      id: r.id,
+      name: r.name,
+      percent: meta.percent != null ? Number(meta.percent) : Number(r.amount) || 0,
+      appliesTo: meta.appliesTo || r.member_number || 'general',
+      amount: Number(r.amount) || 0,
+      memberId: r.member_number || null,
+      cadence: r.cadence || 'monthly',
+      status: active ? 'active' : 'inactive',
+      active,
+    };
+  });
+}
+
+export async function upsertFixedDiscount(item) {
+  const active = item.active !== false && item.status !== 'inactive';
+  const percent = item.percent != null ? Number(item.percent) : Number(item.amount) || 0;
+  const meta = {
+    percent,
+    appliesTo: item.appliesTo || null,
+    active,
+  };
+  const row = {
+    name: item.name || 'Descuento',
+    amount: percent,
+    member_number: item.memberId || (item.appliesTo && item.appliesTo !== 'general' ? item.appliesTo : null),
+    cadence: item.cadence || 'monthly',
+    status: active ? 'active' : 'inactive',
+    meta,
+  };
+  if (isUuid(item.id)) {
+    const saved = await unwrap(sb().from('fixed_discounts').update(row).eq('id', item.id).select().single());
+    return (await listFixedDiscounts()).find((x) => x.id === saved.id) || { ...item, id: saved.id, active, percent };
+  }
+  const saved = await unwrap(sb().from('fixed_discounts').insert(row).select().single());
+  await audit('upsert', 'fixed_discount', saved.id, { name: row.name });
+  return (await listFixedDiscounts()).find((x) => x.id === saved.id) || { ...item, id: saved.id, active, percent };
 }
 
 export async function listPaymentOrders() {
-  return listJsonTable('payment_orders', (r) => ({
-    id: r.id,
-    beneficiary: r.beneficiary,
-    amount: Number(r.amount) || 0,
-    dueDate: r.due_date,
-    status: r.status,
-    concept: r.concept || '',
-    supplierId: r.supplier_id,
-  }));
+  return listJsonTable('payment_orders', (r) => {
+    const meta = metaOf(r);
+    return {
+      id: r.id,
+      number: meta.number || null,
+      date: meta.date || r.created_at?.slice?.(0, 10) || null,
+      payee: r.beneficiary || meta.payee || '',
+      beneficiary: r.beneficiary || meta.payee || '',
+      concept: r.concept || meta.concept || '',
+      amount: Number(r.amount) || 0,
+      dueDate: r.due_date || meta.dueDate || null,
+      status: r.status || 'draft',
+      paymentMethod: meta.paymentMethod || 'transferencia',
+      supplierId: r.supplier_id || null,
+      createdAt: r.created_at || meta.createdAt || null,
+      updatedAt: meta.updatedAt || null,
+      journalEntryId: meta.journalEntryId || null,
+    };
+  });
+}
+
+export async function upsertPaymentOrder(item) {
+  const meta = {
+    number: item.number || null,
+    date: item.date || null,
+    payee: item.payee || item.beneficiary || null,
+    concept: item.concept || null,
+    paymentMethod: item.paymentMethod || null,
+    dueDate: item.dueDate || null,
+    createdAt: item.createdAt || null,
+    updatedAt: item.updatedAt || null,
+    journalEntryId: item.journalEntryId || null,
+  };
+  const row = {
+    beneficiary: item.payee || item.beneficiary || 'Beneficiario',
+    amount: Number(item.amount) || 0,
+    due_date: item.dueDate || item.date || null,
+    status: item.status || 'draft',
+    concept: item.concept || null,
+    supplier_id: isUuid(item.supplierId) ? item.supplierId : null,
+    meta,
+  };
+  if (isUuid(item.id)) {
+    const saved = await unwrap(sb().from('payment_orders').update(row).eq('id', item.id).select().single());
+    return (await listPaymentOrders()).find((x) => x.id === saved.id) || { ...item, id: saved.id };
+  }
+  const saved = await unwrap(sb().from('payment_orders').insert(row).select().single());
+  await audit('upsert', 'payment_order', saved.id, { amount: row.amount, status: row.status });
+  return (await listPaymentOrders()).find((x) => x.id === saved.id) || { ...item, id: saved.id };
+}
+
+export async function upsertChartAccount(account) {
+  const row = {
+    code: account.code,
+    name: account.name,
+    account_type: account.accountType,
+    parent_id: isUuid(account.parentId) ? account.parentId : null,
+    level: Number(account.level) || 1,
+    is_postable: account.isPostable !== false,
+    is_cash_account: Boolean(account.isCashAccount),
+    is_active: account.isActive !== false,
+    description: account.description || null,
+  };
+  if (isUuid(account.id)) {
+    const saved = await unwrap(
+      sb().from('chart_of_accounts').update(row).eq('id', account.id).select().single()
+    );
+    return M.accountFromRow(saved);
+  }
+  const saved = await unwrap(sb().from('chart_of_accounts').insert(row).select().single());
+  await audit('upsert', 'chart_of_accounts', saved.id, { code: row.code });
+  return M.accountFromRow(saved);
 }
 
 export async function replaceTableRows(table, rows) {
