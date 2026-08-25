@@ -522,6 +522,7 @@ export default function AdminView({
             reservations={reservations}
             claims={claims}
             messages={messages}
+            tierCatalog={tierCatalog}
           />
         ) : (
           <MembersTab

@@ -213,9 +213,9 @@ function CardFace({
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: '0.65rem', minWidth: 0 }}>
           {member?.photo && (
             <div style={{
-              width: isFull ? 56 : 44,
-              height: isFull ? 56 : 44,
-              borderRadius: 10,
+              width: isFull ? 96 : 72,
+              height: isFull ? 96 : 72,
+              borderRadius: 12,
               overflow: 'hidden',
               flexShrink: 0,
               border: `1px solid ${t.accent}55`,
@@ -255,7 +255,7 @@ function CardFace({
               color: '#fff',
               letterSpacing: '0.04em',
               textShadow: '0 1px 4px rgba(0,0,0,0.5)',
-              maxWidth: member?.photo ? (isFull ? 180 : 140) : (isFull ? 220 : 180),
+              maxWidth: member?.photo ? (isFull ? 150 : 120) : (isFull ? 220 : 180),
               whiteSpace: 'nowrap',
               overflow: 'hidden',
               textOverflow: 'ellipsis',

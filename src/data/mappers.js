@@ -88,6 +88,10 @@ export function memberToRow(member) {
     overdue_since: member.overdueSince || null,
     photo_url: member.photo || null,
     card_number: member.cardNumber || null,
+    meta: {
+      ...(member.meta && typeof member.meta === 'object' ? member.meta : {}),
+      ...(member.joinTime ? { joinTime: member.joinTime } : {}),
+    },
   };
 }
 

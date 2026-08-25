@@ -123,7 +123,7 @@ export default function MemberTiersPanel({
             {open ? 'Ocultar' : 'Gestionar'}
           </button>
           <button type="button" className="btn btn-primary btn-sm" onClick={startCreate}>
-            <Plus size={14} /> Nueva
+            <Plus size={14} /> Nueva categoría
           </button>
         </div>
       </header>

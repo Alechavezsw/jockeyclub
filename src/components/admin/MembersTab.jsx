@@ -8,38 +8,43 @@ import VirtualCard from '../VirtualCard';
 import CollectDuesModal from './CollectDuesModal';
 import ModalDialog from '../ModalDialog';
 import MemberTiersPanel from './MemberTiersPanel';
+import { addMonthsISODate, nowTimeAR, todayISODateAR } from '../../lib/arDate';
 
-const EMPTY_MEMBER_FORM = {
-  name: '',
-  photo: '',
-  documentType: 'DNI',
-  documentNumber: '',
-  birthDate: '',
-  gender: '',
-  maritalStatus: '',
-  nationality: 'Argentina',
-  email: '',
-  phone: '+549264',
-  phoneAlt: '',
-  address: '',
-  city: 'San Juan',
-  province: 'San Juan',
-  postalCode: '',
-  tier: 'gold',
-  status: 'active',
-  joinDate: new Date().toISOString().slice(0, 10),
-  nextDueDate: '',
-  paymentMethod: 'transferencia',
-  billingName: '',
-  cuitCuil: '',
-  taxCondition: 'consumidor_final',
-  disciplines: [],
-  emergencyContact: '',
-  emergencyPhone: '',
-  notes: '',
-  chargeFirstDues: true,
-  familyGroup: [],
-};
+function emptyMemberForm() {
+  const joinDate = todayISODateAR();
+  return {
+    name: '',
+    photo: '',
+    documentType: 'DNI',
+    documentNumber: '',
+    birthDate: '',
+    gender: '',
+    maritalStatus: '',
+    nationality: 'Argentina',
+    email: '',
+    phone: '+549264',
+    phoneAlt: '',
+    address: '',
+    city: 'San Juan',
+    province: 'San Juan',
+    postalCode: '',
+    tier: 'gold',
+    status: 'active',
+    joinDate,
+    joinTime: nowTimeAR(),
+    nextDueDate: addMonthsISODate(joinDate, 1),
+    paymentMethod: 'transferencia',
+    billingName: '',
+    cuitCuil: '',
+    taxCondition: 'consumidor_final',
+    disciplines: [],
+    emergencyContact: '',
+    emergencyPhone: '',
+    notes: '',
+    chargeFirstDues: true,
+    familyGroup: [],
+  };
+}
 
 const EMPTY_FAMILY_MEMBER = {
   name: '',
@@ -159,7 +164,7 @@ export default function MembersTab({
   const [tierFilter, setTierFilter] = useState('todos');
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
-  const [form, setForm] = useState(EMPTY_MEMBER_FORM);
+  const [form, setForm] = useState(() => emptyMemberForm());
   const [formError, setFormError] = useState('');
   const [expandedMemberId, setExpandedMemberId] = useState(null);
   const [cardMember, setCardMember] = useState(null);
@@ -251,7 +256,7 @@ export default function MembersTab({
   };
 
   const resetForm = () => {
-    setForm({ ...EMPTY_MEMBER_FORM, familyGroup: [], disciplines: [], photo: '' });
+    setForm(emptyMemberForm());
     setFormError('');
   };
 
@@ -302,12 +307,9 @@ export default function MembersTab({
     const firstDues = form.chargeFirstDues
       ? duesAmountForHousehold(form.tier, form.familyGroup)
       : 0;
-    const joinDate = form.joinDate || new Date().toISOString().slice(0, 10);
-    const nextDue = form.nextDueDate || (() => {
-      const d = new Date(`${joinDate}T12:00:00`);
-      d.setMonth(d.getMonth() + 1);
-      return d.toISOString().slice(0, 10);
-    })();
+    const joinDate = form.joinDate || todayISODateAR();
+    const joinTime = form.joinTime || nowTimeAR();
+    const nextDue = form.nextDueDate || addMonthsISODate(joinDate, 1);
 
     const adherents = form.familyGroup.map((f, idx) => ({
       id: `adh-${Date.now()}-${idx}`,
@@ -342,6 +344,7 @@ export default function MembersTab({
       tier: form.tier,
       status: form.status,
       joinDate,
+      joinTime,
       nextDueDate: nextDue,
       overdueSince: firstDues > 0 ? joinDate : null,
       paymentMethod: form.paymentMethod,
@@ -510,7 +513,10 @@ export default function MembersTab({
         </button>
 
         <button
-          onClick={() => setShowAddForm(!showAddForm)}
+          onClick={() => {
+            if (!showAddForm) resetForm();
+            setShowAddForm(!showAddForm);
+          }}
           className="btn btn-primary"
           style={{ padding: '0.5rem 1.25rem', fontSize: '0.85rem' }}
         >
@@ -682,11 +688,40 @@ export default function MembersTab({
               </div>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label">Fecha de ingreso</label>
-                <input type="date" className="form-input" value={form.joinDate} onChange={(e) => updateForm('joinDate', e.target.value)} />
+                <input
+                  type="date"
+                  className="form-input"
+                  lang="es-AR"
+                  value={form.joinDate}
+                  onChange={(e) => {
+                    const joinDate = e.target.value;
+                    setForm((prev) => ({
+                      ...prev,
+                      joinDate,
+                      nextDueDate: addMonthsISODate(joinDate || todayISODateAR(), 1),
+                    }));
+                  }}
+                />
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Hora (Argentina)</label>
+                <input
+                  type="time"
+                  className="form-input"
+                  lang="es-AR"
+                  value={form.joinTime || ''}
+                  onChange={(e) => updateForm('joinTime', e.target.value)}
+                />
               </div>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label">Próximo vencimiento de cuota</label>
-                <input type="date" className="form-input" value={form.nextDueDate} onChange={(e) => updateForm('nextDueDate', e.target.value)} />
+                <input
+                  type="date"
+                  className="form-input"
+                  lang="es-AR"
+                  value={form.nextDueDate}
+                  onChange={(e) => updateForm('nextDueDate', e.target.value)}
+                />
               </div>
             </div>
             <div style={{ marginTop: '0.85rem' }}>

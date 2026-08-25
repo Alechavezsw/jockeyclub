@@ -2,11 +2,14 @@ import { useMemo, useState } from 'react';
 import {
   ArrowLeft, User, CreditCard, Users, Wallet, DoorOpen, CalendarDays,
   MessageSquare, ClipboardList, Activity, Phone, Mail, MapPin,
-  Pencil, FileText, Ticket, Bell,
+  Pencil, FileText, Ticket, Bell, IdCard, Cake, Heart, Flag, Clock,
+  ShieldCheck, CalendarClock, Banknote, Building2, AlertTriangle,
 } from 'lucide-react';
 import VirtualCard from '../VirtualCard';
 import GuestPassPanel from '../GuestPassPanel';
 import { formatShortDate } from '../../domain/members/dues';
+import { formatDateTimeAR } from '../../lib/arDate';
+import { getTierDisplayName, tierBadgeStyle } from '../../domain/members/tiers';
 import {
   applyMemberProfileUpdate,
   upsertMemberDocument,
@@ -28,43 +31,140 @@ const SECTIONS = [
   { id: 'trazabilidad', label: 'Trazabilidad', icon: Activity },
 ];
 
-function Field({ label, value }) {
-  return (
-    <div style={{ minWidth: 0 }}>
-      <div style={{ fontSize: '0.68rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 3 }}>
-        {label}
+const STATUS_COPY = {
+  active: { label: 'Cuenta habilitada', hint: 'Puede ingresar y usar instalaciones', tone: 'ok' },
+  pending: { label: 'Pendiente de aprobación', hint: 'Alta en revisión de Secretaría', tone: 'warn' },
+  suspended: { label: 'Cuenta suspendida', hint: 'Acceso restringido hasta regularizar', tone: 'danger' },
+};
+
+const PAYMENT_LABELS = {
+  transferencia: 'Transferencia bancaria',
+  efectivo: 'Efectivo',
+  mercadopago: 'Mercado Pago',
+  debito: 'Débito automático',
+  debito_automatico: 'Débito automático',
+};
+
+const TAX_LABELS = {
+  consumidor_final: 'Consumidor final',
+  monotributo: 'Monotributo',
+  responsable_inscripto: 'Responsable inscripto',
+  exento: 'Exento',
+};
+
+function titleCase(value) {
+  if (!value) return null;
+  return String(value)
+    .replace(/_/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatDocument(type, number) {
+  if (!number) return null;
+  const digits = String(number).replace(/\D/g, '');
+  const formatted = digits.length >= 7
+    ? digits.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+    : String(number);
+  return `${type || 'DNI'} ${formatted}`;
+}
+
+function ageFromBirth(iso) {
+  if (!iso) return null;
+  const birth = new Date(`${String(iso).slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(birth.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - birth.getFullYear();
+  const m = now.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) age -= 1;
+  return age >= 0 ? age : null;
+}
+
+function membershipTenure(member) {
+  if (member?.joinDate) {
+    const join = new Date(`${String(member.joinDate).slice(0, 10)}T12:00:00`);
+    if (!Number.isNaN(join.getTime())) {
+      const now = new Date();
+      let years = now.getFullYear() - join.getFullYear();
+      const m = now.getMonth() - join.getMonth();
+      if (m < 0 || (m === 0 && now.getDate() < join.getDate())) years -= 1;
+      if (years <= 0) {
+        let months = (now.getFullYear() - join.getFullYear()) * 12 + (now.getMonth() - join.getMonth());
+        if (now.getDate() < join.getDate()) months -= 1;
+        if (months <= 0) return 'Recién ingresado';
+        return months === 1 ? '1 mes en el club' : `${months} meses en el club`;
+      }
+      return years === 1 ? '1 año de antigüedad' : `${years} años de antigüedad`;
+    }
+  }
+  const y = Number(member?.yearsActive);
+  if (!Number.isFinite(y)) return null;
+  return y === 1 ? '1 año de antigüedad' : `${y} años de antigüedad`;
+}
+
+function Fact({ icon: Icon, label, value, hint }) {
+  if (value == null || value === '') {
+    return (
+      <div className="mp-fact is-empty">
+        {Icon ? <Icon size={14} className="mp-fact-icon" aria-hidden /> : null}
+        <div>
+          <div className="mp-fact-label">{label}</div>
+          <div className="mp-fact-value muted">Sin dato</div>
+        </div>
       </div>
-      <div style={{ fontSize: '0.9rem', color: 'var(--text-primary)', wordBreak: 'break-word' }}>
-        {value || '—'}
+    );
+  }
+  return (
+    <div className="mp-fact">
+      {Icon ? <Icon size={14} className="mp-fact-icon" aria-hidden /> : null}
+      <div>
+        <div className="mp-fact-label">{label}</div>
+        <div className="mp-fact-value">{value}</div>
+        {hint ? <div className="mp-fact-hint">{hint}</div> : null}
+      </div>
+    </div>
+  );
+}
+
+function ContactRow({ icon: Icon, label, value, href }) {
+  if (!value) {
+    return (
+      <div className="mp-contact-row is-empty">
+        <Icon size={15} aria-hidden />
+        <div>
+          <span className="mp-contact-label">{label}</span>
+          <span className="mp-contact-value muted">No cargado</span>
+        </div>
+      </div>
+    );
+  }
+  const content = href ? (
+    <a href={href} className="mp-contact-value link">{value}</a>
+  ) : (
+    <span className="mp-contact-value">{value}</span>
+  );
+  return (
+    <div className="mp-contact-row">
+      <Icon size={15} aria-hidden />
+      <div>
+        <span className="mp-contact-label">{label}</span>
+        {content}
       </div>
     </div>
   );
 }
 
 function Empty({ text }) {
-  return (
-    <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-      {text}
-    </p>
-  );
+  return <p className="mp-empty">{text}</p>;
 }
 
 function TimelineItem({ when, title, detail, tone = 'neutral' }) {
-  const color =
-    tone === 'ok' ? 'var(--emerald-accent)'
-      : tone === 'warn' ? 'var(--warning-accent)'
-        : tone === 'danger' ? 'var(--danger-accent)'
-          : 'var(--text-gold)';
   return (
-    <div className="mp-row" style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '0.75rem', padding: '0.65rem 0', borderBottom: '1px solid var(--border-glass)' }}>
-      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{when}</div>
+    <div className={`mp-timeline-item tone-${tone}`}>
+      <div className="mp-timeline-when">{when}</div>
       <div>
-        <div style={{ fontSize: '0.88rem', fontWeight: 650, color }}>
-          {title}
-        </div>
-        {detail && (
-          <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>{detail}</div>
-        )}
+        <div className="mp-timeline-title">{title}</div>
+        {detail && <div className="mp-timeline-detail">{detail}</div>}
       </div>
     </div>
   );
@@ -85,6 +185,7 @@ export default function MemberProfilePanel({
   guestPasses = [],
   setGuestPasses = null,
   selfService = false,
+  tierCatalog,
 }) {
   const [section, setSection] = useState('ficha');
   const [editForm, setEditForm] = useState(null);
@@ -135,11 +236,12 @@ export default function MemberProfilePanel({
   const timeline = useMemo(() => {
     if (!member) return [];
     const items = [];
+    const tierName = getTierDisplayName(member.tier, tierCatalog);
 
     items.push({
       when: formatShortDate(member.joinDate) || 'Alta',
       title: 'Alta de socio titular',
-      detail: `Categoría ${member.tier?.toUpperCase()} · Credencial ${member.memberId}`,
+      detail: `Categoría ${tierName} · Credencial ${member.memberId}`,
       tone: 'ok',
       sort: member.joinDate || '1970-01-01',
     });
@@ -186,11 +288,11 @@ export default function MemberProfilePanel({
     });
 
     return items.sort((a, b) => String(b.sort).localeCompare(String(a.sort)));
-  }, [member, movements, entries, bookings, memberClaims, formatCurrency]);
+  }, [member, movements, entries, bookings, memberClaims, formatCurrency, tierCatalog]);
 
   if (!member) {
     return (
-      <div className="glass-card fade-in" style={{ padding: '1.5rem' }}>
+      <div className="glass-card fade-in member-profile">
         <Empty text="Socio no encontrado." />
         <button type="button" className="btn btn-secondary" onClick={onBack} style={{ marginTop: '1rem' }}>
           Volver al padrón
@@ -199,76 +301,85 @@ export default function MemberProfilePanel({
     );
   }
 
-  const statusOk = member.status === 'active';
+  const status = STATUS_COPY[member.status] || STATUS_COPY.pending;
+  const balance = Number(member.outstandingBalance) || 0;
+  const hasDebt = balance > 0;
+  const tierName = getTierDisplayName(member.tier, tierCatalog);
+  const age = ageFromBirth(member.birthDate);
+  const tenure = membershipTenure(member);
+  const joinLabel = member.joinDate
+    ? (member.joinTime
+      ? formatDateTimeAR(member.joinDate, member.joinTime)
+      : formatShortDate(member.joinDate))
+    : null;
+  const initials = (member.name || '?')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((n) => n[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+  const phoneHref = member.phone
+    ? `https://wa.me/${String(member.phone).replace(/\D/g, '')}`
+    : null;
+  const mailHref = member.email ? `mailto:${member.email}` : null;
+  const addressLine = [
+    member.address,
+    [member.city, member.province].filter(Boolean).join(', '),
+    member.postalCode ? `CP ${member.postalCode}` : null,
+  ].filter(Boolean).join(' · ');
 
   return (
-    <div className="glass-card fade-in member-profile" style={{ padding: '1.25rem 1.5rem' }}>
-      <style>{`
-        @media (max-width: 640px) {
-          .member-profile .mp-row { grid-template-columns: 1fr !important; }
-          .member-profile { padding: 1rem !important; }
-          .member-profile .section-chips { overflow-x: auto; flex-wrap: nowrap !important; -webkit-overflow-scrolling: touch; }
-          .member-profile .section-chips .btn { flex: 0 0 auto; white-space: nowrap; }
-        }
-      `}</style>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-start', marginBottom: '1.1rem' }}>
-        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', minWidth: 0 }}>
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            onClick={onBack}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}
-          >
+    <div className="glass-card fade-in member-profile">
+      <header className="mp-hero">
+        <div className="mp-hero-main">
+          <button type="button" className="btn btn-secondary btn-sm mp-back" onClick={onBack}>
             <ArrowLeft size={14} /> {backLabel}
           </button>
-          <div style={{
-            width: 64,
-            height: 64,
-            borderRadius: 14,
-            overflow: 'hidden',
-            border: '1px solid var(--border-glass)',
-            background: 'rgba(207,161,58,0.1)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-            fontWeight: 800,
-            color: 'var(--text-gold)',
-          }}>
-            {member.photo ? (
-              <img src={member.photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            ) : (
-              (member.name || '?').split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase()
-            )}
-          </div>
-          <div style={{ minWidth: 0 }}>
-            <h3 className="serif-font" style={{ margin: 0, fontSize: '1.45rem', color: 'var(--text-gold)' }}>
-              {member.name}
-            </h3>
-            <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: 4 }}>
-              Cred. {member.memberId} · <span className={`badge-tier ${member.tier}`}>{member.tier}</span>
-              {' · '}
-              <span style={{ color: statusOk ? 'var(--emerald-accent)' : 'var(--danger-accent)' }}>
-                {statusOk ? '● Cuenta habilitada' : '○ Cuenta suspendida'}
-              </span>
+
+          <div className="mp-identity">
+            <div
+              className="mp-avatar"
+              style={{ '--tier-ring': tierBadgeStyle(member.tier, tierCatalog).borderColor || 'var(--primary-gold)' }}
+            >
+              {member.photo ? <img src={member.photo} alt="" /> : <span>{initials}</span>}
+            </div>
+            <div className="mp-identity-copy">
+              <p className="mp-kicker">Ficha del socio</p>
+              <h3 className="serif-font mp-name">{member.name}</h3>
+              <div className="mp-meta-row">
+                <span className="mp-cred">Credencial {member.memberId}</span>
+                <span className="mp-tier-pill" style={tierBadgeStyle(member.tier, tierCatalog)}>
+                  {tierName}
+                </span>
+                <span className={`mp-status mp-status--${status.tone}`} title={status.hint}>
+                  <span className="mp-status-dot" aria-hidden />
+                  {status.label}
+                </span>
+              </div>
+              {tenure ? <p className="mp-tenure">{tenure}</p> : null}
             </div>
           </div>
         </div>
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-            Saldo cuota
-          </div>
-          <div style={{
-            fontSize: '1.25rem',
-            fontWeight: 800,
-            color: (member.outstandingBalance || 0) > 0 ? 'var(--warning-accent)' : 'var(--emerald-accent)',
-          }}>
-            {(member.outstandingBalance || 0) > 0 ? formatCurrency(member.outstandingBalance) : 'Al día'}
-          </div>
-        </div>
-      </div>
 
-      <div className="section-chips" style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '1.15rem' }}>
+        <aside className={`mp-balance ${hasDebt ? 'has-debt' : 'is-clear'}`} aria-label="Estado de cuota">
+          <div className="mp-balance-label">{hasDebt ? 'Saldo de cuota' : 'Estado de cuota'}</div>
+          <div className="mp-balance-value">
+            {hasDebt ? formatCurrency(balance) : 'Al día'}
+          </div>
+          <div className="mp-balance-hint">
+            {hasDebt
+              ? (member.nextDueDate
+                ? `Venció / vence ${formatShortDate(member.nextDueDate)}`
+                : 'Pendiente de cobro')
+              : (member.nextDueDate
+                ? `Próximo vencimiento ${formatShortDate(member.nextDueDate)}`
+                : 'Sin vencimiento cargado')}
+          </div>
+        </aside>
+      </header>
+
+      <nav className="mp-nav section-chips" aria-label="Secciones del perfil">
         {visibleSections.map((s) => {
           const Icon = s.icon;
           const active = section === s.id;
@@ -298,83 +409,106 @@ export default function MemberProfilePanel({
                   setEditMsg('');
                 }
               }}
-              className="btn btn-secondary btn-sm"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                borderColor: active ? 'var(--primary-gold)' : undefined,
-                color: active ? 'var(--text-gold)' : undefined,
-                background: active ? 'rgba(207,161,58,0.12)' : undefined,
-              }}
+              className={`mp-nav-btn${active ? ' is-active' : ''}`}
             >
               <Icon size={13} /> {s.label}
             </button>
           );
         })}
-      </div>
+      </nav>
 
-      <div className="glass-panel" style={{ padding: '1.15rem', border: '1px solid var(--border-glass)', borderRadius: 12 }}>
+      <div className="mp-panel glass-panel">
         {section === 'ficha' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-            <div>
-              <h5 style={{ margin: '0 0 0.75rem', fontSize: '0.78rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-gold)' }}>
-                Datos personales
-              </h5>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.9rem' }}>
-                <Field label="Documento" value={member.documentNumber ? `${member.documentType || 'DNI'} ${member.documentNumber}` : null} />
-                <Field label="Nacimiento" value={formatShortDate(member.birthDate)} />
-                <Field label="Género" value={member.gender} />
-                <Field label="Estado civil" value={member.maritalStatus} />
-                <Field label="Nacionalidad" value={member.nationality} />
-                <Field label="Ingreso" value={formatShortDate(member.joinDate)} />
-                <Field label="Antigüedad" value={member.yearsActive != null ? `${member.yearsActive} años` : null} />
+          <div className="mp-dossier">
+            <section className="mp-block">
+              <header className="mp-block-head">
+                <h5>Identidad</h5>
+                <p>Documento y datos personales del padrón</p>
+              </header>
+              <div className="mp-facts">
+                <Fact icon={IdCard} label="Documento" value={formatDocument(member.documentType, member.documentNumber)} />
+                <Fact
+                  icon={Cake}
+                  label="Nacimiento"
+                  value={formatShortDate(member.birthDate)}
+                  hint={age != null ? `${age} años` : null}
+                />
+                <Fact icon={User} label="Género" value={titleCase(member.gender)} />
+                <Fact icon={Heart} label="Estado civil" value={titleCase(member.maritalStatus)} />
+                <Fact icon={Flag} label="Nacionalidad" value={member.nationality || 'Argentina'} />
+                <Fact icon={Clock} label="Ingreso al club" value={joinLabel} />
               </div>
-            </div>
-            <div>
-              <h5 style={{ margin: '0 0 0.75rem', fontSize: '0.78rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-gold)' }}>
-                Contacto y domicilio
-              </h5>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.9rem' }}>
-                <Field label="WhatsApp" value={member.phone ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Phone size={13} /> {member.phone}</span> : null} />
-                <Field label="Tel. alternativo" value={member.phoneAlt} />
-                <Field label="Email" value={member.email ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Mail size={13} /> {member.email}</span> : null} />
-                <Field label="Domicilio" value={member.address ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><MapPin size={13} /> {member.address}</span> : null} />
-                <Field label="Localidad" value={[member.city, member.province].filter(Boolean).join(', ')} />
-                <Field label="CP" value={member.postalCode} />
-                <Field label="Emergencia" value={[member.emergencyContact, member.emergencyPhone].filter(Boolean).join(' · ')} />
+            </section>
+
+            <section className="mp-block">
+              <header className="mp-block-head">
+                <h5>Contacto y domicilio</h5>
+                <p>Cómo ubicar al socio y a su emergencia</p>
+              </header>
+              <div className="mp-contact-grid">
+                <ContactRow icon={Phone} label="WhatsApp" value={member.phone} href={phoneHref} />
+                <ContactRow icon={Phone} label="Tel. alternativo" value={member.phoneAlt} />
+                <ContactRow icon={Mail} label="Email" value={member.email} href={mailHref} />
+                <ContactRow icon={MapPin} label="Domicilio" value={addressLine || null} />
+                <ContactRow
+                  icon={AlertTriangle}
+                  label="Emergencia"
+                  value={[member.emergencyContact, member.emergencyPhone].filter(Boolean).join(' · ') || null}
+                />
               </div>
-            </div>
-            <div>
-              <h5 style={{ margin: '0 0 0.75rem', fontSize: '0.78rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-gold)' }}>
-                Membresía y facturación
-              </h5>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.9rem' }}>
-                <Field label="Categoría" value={member.tier?.toUpperCase()} />
-                <Field label="Estado" value={member.status} />
-                <Field label="Próx. vencimiento" value={formatShortDate(member.nextDueDate)} />
-                <Field label="Medio de pago" value={member.paymentMethod} />
-                <Field label="Facturación" value={member.billingName} />
-                <Field label="CUIT/CUIL" value={member.cuitCuil} />
-                <Field label="Condición IVA" value={member.taxCondition} />
-                <Field label="Disciplinas" value={(member.disciplines || []).join(', ')} />
+            </section>
+
+            <section className="mp-block">
+              <header className="mp-block-head">
+                <h5>Membresía y cobranza</h5>
+                <p>Categoría, cuota y datos de facturación</p>
+              </header>
+              <div className="mp-facts">
+                <Fact icon={ShieldCheck} label="Categoría" value={tierName} hint={status.hint} />
+                <Fact icon={ShieldCheck} label="Estado de cuenta" value={status.label} />
+                <Fact icon={CalendarClock} label="Próximo vencimiento" value={formatShortDate(member.nextDueDate)} />
+                <Fact
+                  icon={Banknote}
+                  label="Medio de pago"
+                  value={PAYMENT_LABELS[member.paymentMethod] || titleCase(member.paymentMethod)}
+                />
+                <Fact icon={Building2} label="Facturar a" value={member.billingName || member.name} />
+                <Fact icon={IdCard} label="CUIT / CUIL" value={member.cuitCuil} />
+                <Fact
+                  icon={FileText}
+                  label="Condición IVA"
+                  value={TAX_LABELS[member.taxCondition] || titleCase(member.taxCondition)}
+                />
               </div>
-            </div>
-            {member.notes && (
-              <div>
-                <h5 style={{ margin: '0 0 0.5rem', fontSize: '0.78rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-gold)' }}>
-                  Observaciones
-                </h5>
-                <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{member.notes}</p>
+              <div className="mp-disciplines">
+                <div className="mp-fact-label">Disciplinas</div>
+                {(member.disciplines || []).length ? (
+                  <div className="mp-chips">
+                    {member.disciplines.map((d) => (
+                      <span key={d} className="mp-chip">{d}</span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mp-fact-value muted">Sin disciplinas cargadas</p>
+                )}
               </div>
-            )}
+            </section>
+
+            {member.notes ? (
+              <section className="mp-block mp-notes">
+                <header className="mp-block-head">
+                  <h5>Observaciones</h5>
+                </header>
+                <p>{member.notes}</p>
+              </section>
+            ) : null}
           </div>
         )}
 
         {section === 'tarjeta' && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 0' }}>
+          <div className="mp-card-wrap">
             <VirtualCard member={member} />
-            <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)', textAlign: 'center', maxWidth: 320 }}>
+            <p className="mp-card-hint">
               Credencial disponible offline (PWA). En móvil, tocá para pantalla completa.
             </p>
           </div>
@@ -399,7 +533,7 @@ export default function MemberProfilePanel({
               updateMember(updated);
               setEditMsg('Datos actualizados correctamente.');
             }}
-            style={{ display: 'grid', gap: '0.85rem', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}
+            className="mp-edit-form"
           >
             {[
               ['phone', 'WhatsApp'],
@@ -414,7 +548,11 @@ export default function MemberProfilePanel({
               ['photo', 'URL foto'],
               ['preferredSports', 'Disciplinas (separadas por coma)'],
             ].map(([key, label]) => (
-              <div key={key} style={{ gridColumn: key === 'preferredSports' || key === 'address' || key === 'photo' ? '1 / -1' : undefined }}>
+              <div
+                key={key}
+                className="mp-edit-field"
+                style={{ gridColumn: key === 'preferredSports' || key === 'address' || key === 'photo' ? '1 / -1' : undefined }}
+              >
                 <label className="form-label">{label}</label>
                 <input
                   className="form-input"
@@ -423,13 +561,13 @@ export default function MemberProfilePanel({
                 />
               </div>
             ))}
-            <div style={{ gridColumn: '1 / -1', display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
+            <div className="mp-edit-notices">
               {[
                 ['notifyDues', 'Avisos de cuota'],
                 ['notifyReservations', 'Avisos de reservas'],
                 ['notifyEvents', 'Avisos de eventos'],
               ].map(([key, label]) => (
-                <label key={key} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.85rem' }}>
+                <label key={key} className="mp-edit-check">
                   <input
                     type="checkbox"
                     checked={Boolean(editForm[key])}
@@ -439,9 +577,9 @@ export default function MemberProfilePanel({
                 </label>
               ))}
             </div>
-            <div style={{ gridColumn: '1 / -1' }}>
+            <div className="mp-edit-actions">
               <button type="submit" className="btn btn-primary" disabled={!updateMember}>Guardar cambios</button>
-              {editMsg && <span style={{ marginLeft: 12, color: 'var(--emerald-accent)', fontSize: '0.85rem' }}>{editMsg}</span>}
+              {editMsg && <span className="mp-edit-ok">{editMsg}</span>}
             </div>
           </form>
         )}
@@ -455,29 +593,17 @@ export default function MemberProfilePanel({
         )}
 
         {section === 'docs' && selfService && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-              Subí documentación para revisión de Secretaría (demo local).
+          <div className="mp-docs">
+            <p className="mp-section-lead">
+              Subí documentación para revisión de Secretaría.
             </p>
             {DOCUMENT_TYPES.map((doc) => {
               const existing = (member.documents || []).find((d) => d.type === doc.id);
               return (
-                <div
-                  key={doc.id}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    gap: '0.75rem',
-                    flexWrap: 'wrap',
-                    alignItems: 'center',
-                    padding: '0.75rem 0.9rem',
-                    borderRadius: 10,
-                    border: '1px solid var(--border-glass)',
-                  }}
-                >
+                <div key={doc.id} className="mp-doc-row">
                   <div>
-                    <strong style={{ fontSize: '0.9rem' }}>{doc.label}</strong>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    <strong>{doc.label}</strong>
+                    <div className="mp-doc-meta">
                       {existing
                         ? `${existing.fileName} · ${existing.status === 'pending_review' ? 'En revisión' : existing.status}`
                         : 'Sin archivo'}
@@ -509,38 +635,25 @@ export default function MemberProfilePanel({
             {!(member.adherents || []).length ? (
               <Empty text="Sin adherentes en el grupo familiar." />
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+              <div className="mp-family">
                 {member.adherents.map((adh) => (
-                  <div
-                    key={adh.id}
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'auto 1fr auto',
-                      gap: '0.75rem',
-                      alignItems: 'center',
-                      padding: '0.75rem',
-                      borderRadius: 10,
-                      border: '1px solid var(--border-glass)',
-                    }}
-                  >
-                    <div style={{
-                      width: 40, height: 40, borderRadius: 10, overflow: 'hidden',
-                      background: 'rgba(207,161,58,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-gold)',
-                    }}>
+                  <div key={adh.id} className="mp-family-row">
+                    <div className="mp-family-avatar">
                       {adh.photo ? (
-                        <img src={adh.photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <img src={adh.photo} alt="" />
                       ) : (
                         (adh.name || '?').split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase()
                       )}
                     </div>
                     <div>
-                      <strong style={{ color: 'var(--text-primary)' }}>{adh.name}</strong>
-                      <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                      <strong>{adh.name}</strong>
+                      <div className="mp-family-meta">
                         {adh.relationship} · {(adh.disciplines || []).join(', ') || 'Sin disciplina'}
                       </div>
                     </div>
-                    <span className={`badge-tier ${adh.tier}`} style={{ fontSize: '0.7rem' }}>{adh.tier}</span>
+                    <span className="mp-tier-pill" style={tierBadgeStyle(adh.tier, tierCatalog)}>
+                      {getTierDisplayName(adh.tier, tierCatalog)}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -556,10 +669,10 @@ export default function MemberProfilePanel({
               movements.map((e) => {
                 const amount = (e.lines || []).find((l) => l.type === 'debit')?.amount;
                 return (
-                  <div key={e.id} className="mp-row" style={{ display: 'grid', gridTemplateColumns: '110px 1fr auto', gap: '0.75rem', padding: '0.7rem 0', borderBottom: '1px solid var(--border-glass)', fontSize: '0.85rem' }}>
-                    <span style={{ color: 'var(--text-muted)' }}>{formatShortDate(e.date)}</span>
-                    <span style={{ color: 'var(--text-primary)' }}>{e.description}</span>
-                    <strong style={{ color: 'var(--text-gold)', whiteSpace: 'nowrap' }}>
+                  <div key={e.id} className="mp-list-row">
+                    <span className="mp-list-when">{formatShortDate(e.date)}</span>
+                    <span className="mp-list-main">{e.description}</span>
+                    <strong className="mp-list-amount">
                       {amount != null ? formatCurrency(amount) : '—'}
                     </strong>
                   </div>
@@ -575,10 +688,10 @@ export default function MemberProfilePanel({
               <Empty text="Sin registros de ingreso por QR / portería." />
             ) : (
               entries.map((e) => (
-                <div key={e.id} className="mp-row" style={{ display: 'grid', gridTemplateColumns: '150px 1fr auto', gap: '0.75rem', padding: '0.7rem 0', borderBottom: '1px solid var(--border-glass)', fontSize: '0.85rem' }}>
-                  <span style={{ color: 'var(--text-muted)' }}>{formatShortDate(e.date)} {e.time}</span>
-                  <span style={{ color: 'var(--text-secondary)' }}>{e.notes || e.role}</span>
-                  <strong style={{ color: e.status === 'granted' ? 'var(--emerald-accent)' : 'var(--danger-accent)' }}>
+                <div key={e.id} className="mp-list-row">
+                  <span className="mp-list-when">{formatShortDate(e.date)} {e.time}</span>
+                  <span className="mp-list-main muted">{e.notes || e.role}</span>
+                  <strong className={e.status === 'granted' ? 'tone-ok' : 'tone-danger'}>
                     {e.status === 'granted' ? 'Ingreso OK' : 'Denegado'}
                   </strong>
                 </div>
@@ -589,23 +702,23 @@ export default function MemberProfilePanel({
 
         {section === 'asistencia' && (
           <div>
-            <p style={{ margin: '0 0 0.85rem', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-              Reservas e instalaciones usadas por el socio (asistencia deportiva / turnos).
+            <p className="mp-section-lead">
+              Reservas e instalaciones usadas por el socio.
             </p>
             {bookings.length === 0 ? (
               <Empty text="Sin reservas registradas." />
             ) : (
               bookings.map((r) => (
-                <div key={r.id} className="mp-row" style={{ display: 'grid', gridTemplateColumns: '110px 1fr auto', gap: '0.75rem', padding: '0.7rem 0', borderBottom: '1px solid var(--border-glass)', fontSize: '0.85rem' }}>
-                  <span style={{ color: 'var(--text-muted)' }}>{formatShortDate(r.date)} {r.time}</span>
-                  <span>
-                    <strong style={{ color: 'var(--text-primary)' }}>{r.facilityName}</strong>
+                <div key={r.id} className="mp-list-row">
+                  <span className="mp-list-when">{formatShortDate(r.date)} {r.time}</span>
+                  <span className="mp-list-main">
+                    <strong>{r.facilityName}</strong>
                     {r.guestNames && (
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Invitados: {r.guestNames}</div>
+                      <div className="mp-list-sub">Invitados: {r.guestNames}</div>
                     )}
                   </span>
-                  <span style={{ color: r.status === 'confirmed' ? 'var(--emerald-accent)' : 'var(--warning-accent)' }}>
-                    {r.status}
+                  <span className={r.status === 'confirmed' ? 'tone-ok' : 'tone-warn'}>
+                    {r.status === 'confirmed' ? 'Confirmada' : titleCase(r.status)}
                   </span>
                 </div>
               ))
@@ -619,13 +732,13 @@ export default function MemberProfilePanel({
               <Empty text="Sin reclamos asociados." />
             ) : (
               memberClaims.map((c) => (
-                <div key={c.id} style={{ padding: '0.75rem 0', borderBottom: '1px solid var(--border-glass)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-                    <strong style={{ color: 'var(--text-primary)' }}>{c.title}</strong>
-                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{formatShortDate(c.date)}</span>
+                <div key={c.id} className="mp-claim-row">
+                  <div className="mp-claim-top">
+                    <strong>{c.title}</strong>
+                    <span>{formatShortDate(c.date)}</span>
                   </div>
-                  <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: 4 }}>{c.description || c.detail}</div>
-                  <div style={{ fontSize: '0.75rem', marginTop: 4, color: 'var(--text-gold)' }}>Estado: {c.status}</div>
+                  <div className="mp-claim-body">{c.description || c.detail}</div>
+                  <div className="mp-claim-status">Estado: {titleCase(c.status)}</div>
                 </div>
               ))
             )}
@@ -638,15 +751,15 @@ export default function MemberProfilePanel({
               <Empty text="Sin mensajes vinculados a este socio." />
             ) : (
               memberMessages.map((m) => (
-                <div key={m.id} style={{ padding: '0.75rem 0', borderBottom: '1px solid var(--border-glass)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-                    <strong style={{ color: 'var(--text-primary)' }}>{m.subject}</strong>
-                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{formatShortDate(m.date)}</span>
+                <div key={m.id} className="mp-claim-row">
+                  <div className="mp-claim-top">
+                    <strong>{m.subject}</strong>
+                    <span>{formatShortDate(m.date)}</span>
                   </div>
-                  <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>
+                  <div className="mp-list-sub">
                     De: {m.sender} → {m.recipientId === member.memberId ? 'Este socio' : m.recipientId}
                   </div>
-                  <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: 6 }}>{m.content}</div>
+                  <div className="mp-claim-body">{m.content}</div>
                 </div>
               ))
             )}
@@ -655,8 +768,8 @@ export default function MemberProfilePanel({
 
         {section === 'trazabilidad' && (
           <div>
-            <p style={{ margin: '0 0 0.75rem', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-              Línea de tiempo unificada: alta, cobros, ingresos, reservas y reclamos.
+            <p className="mp-section-lead">
+              Línea de tiempo: alta, cobros, ingresos, reservas y reclamos.
             </p>
             {timeline.length === 0 ? (
               <Empty text="Sin eventos de trazabilidad." />

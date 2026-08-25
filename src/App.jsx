@@ -951,11 +951,17 @@ export default function App() {
   }, [newsList, cloudMode]);
   useEffect(() => {
     if (!cloudMode) localStorage.setItem('jockey-disciplines-catalog', JSON.stringify(disciplineCatalog));
-  }, [disciplineCatalog, cloudMode]);
+    else if (hydratedRef.current && dbReady) {
+      repos.setSetting('disciplines_catalog', disciplineCatalog, user?.id).catch(() => {});
+    }
+  }, [disciplineCatalog, cloudMode, dbReady, user?.id]);
   useEffect(() => {
     setRuntimeTierCatalog(tierCatalog);
     if (!cloudMode) localStorage.setItem('jockey-member-tiers', JSON.stringify(tierCatalog));
-  }, [tierCatalog, cloudMode]);
+    else if (hydratedRef.current && dbReady) {
+      repos.setSetting('member_tiers', tierCatalog, user?.id).catch(() => {});
+    }
+  }, [tierCatalog, cloudMode, dbReady, user?.id]);
   useEffect(() => {
     if (!cloudMode) localStorage.setItem('jockey-rsvps', JSON.stringify(rsvpList));
   }, [rsvpList, cloudMode]);
@@ -1170,6 +1176,13 @@ export default function App() {
         setGuestPasses(app.guestPasses || []);
         setIsZondaActive(Boolean(app.isZondaActive));
         setMemberDbIds(ids || {});
+        if (Array.isArray(app.tierCatalog) && app.tierCatalog.length) {
+          setTierCatalog(app.tierCatalog);
+          setRuntimeTierCatalog(app.tierCatalog);
+        }
+        if (Array.isArray(app.disciplineCatalog) && app.disciplineCatalog.length) {
+          setDisciplineCatalog(app.disciplineCatalog);
+        }
         erp.applyErpHydration({
           ...erpData,
           chartOfAccounts: erpData.chartOfAccounts || [],
@@ -1719,6 +1732,7 @@ export default function App() {
       updateMember={updateMember}
       guestPasses={guestPasses}
       setGuestPasses={setGuestPassesDb}
+      tierCatalog={tierCatalog}
       formatCurrency={(amount) =>
         new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 }).format(amount || 0)
       }
