@@ -35,23 +35,14 @@ export function AlertsBanner({
           <div
             key={alert.id}
             role="alert"
-            style={{
-              border: `1px solid ${sev.color}`,
-              background: 'rgba(0,0,0,0.25)',
-              borderRadius: 12,
-              padding: '0.85rem 1rem',
-              display: 'flex',
-              gap: '0.75rem',
-              alignItems: 'flex-start',
-              justifyContent: 'space-between',
-              flexWrap: 'wrap',
-            }}
+            className="alerts-banner-item"
+            style={{ borderColor: sev.color }}
           >
-            <div style={{ display: 'flex', gap: '0.65rem' }}>
+            <div className="alerts-banner-copy">
               <ShieldAlert size={18} style={{ color: sev.color, marginTop: 2, flexShrink: 0 }} />
               <div>
-                <div style={{ fontWeight: 700, color: sev.color }}>{alert.title}</div>
-                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{alert.body}</div>
+                <div className="alerts-banner-title" style={{ color: sev.color }}>{alert.title}</div>
+                <div className="alerts-banner-body">{alert.body}</div>
               </div>
             </div>
             {alert.requiresAck && (

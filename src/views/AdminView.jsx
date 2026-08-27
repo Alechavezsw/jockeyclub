@@ -1,9 +1,10 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Users, Calendar, DollarSign, Activity, CreditCard, Check, ShieldAlert,
   Clock, BookOpen, ClipboardList, MessageSquare, Phone,
-  FileSpreadsheet, Radio, Database, BellRing, PartyPopper, Trophy, Store, DoorOpen, QrCode, Newspaper
+  FileSpreadsheet, Radio, Database, BellRing, PartyPopper, Trophy, Store, DoorOpen, QrCode, Newspaper,
+  LayoutDashboard, ChevronRight, Briefcase, Headset, Settings,
 } from 'lucide-react';
 import AccountingTab from '../components/AccountingTab';
 import StaffTab from '../components/StaffTab';
@@ -29,6 +30,14 @@ import { getAccountBalance as domainAccountBalance } from '../domain/accounting/
 import { allowedAdminTabs, canAccessConcessions, canAccessQrGate, ROLE_LABELS, ROLE_PANEL_META } from '../domain/auth/roles';
 import { getOverdueMembers, getUpcomingDuesMembers } from '../domain/members/dues';
 import { useAuth } from '../context/AuthContext';
+
+const GROUP_ICONS = {
+  ops: Activity,
+  club: Trophy,
+  mgmt: Briefcase,
+  care: Headset,
+  sys: Settings,
+};
 
 /**
  * Panel operativo del club. Orquesta la cabecera, las métricas por rol y las
@@ -70,7 +79,7 @@ export default function AdminView({
   const chartOfAccounts = erp.chartOfAccounts || DEFAULT_CHART_OF_ACCOUNTS;
   const permittedTabs = allowedAdminTabs(userRole);
   const panelMeta = ROLE_PANEL_META[userRole] || ROLE_PANEL_META.admin;
-  const adminNavTrackRef = useRef(null);
+  const [openGroups, setOpenGroups] = useState(() => new Set());
 
   // La pestaña activa vive en la URL (/panel/:tab); perfiles en /panel/members|:staff/:id
   // Subtabs de contabilidad: /panel/accounting?sub=cash
@@ -82,11 +91,6 @@ export default function AdminView({
     ? (searchParams.get('sub') || (userRole === 'cashier' ? 'cash' : null))
     : null;
 
-  useEffect(() => {
-    const active = adminNavTrackRef.current?.querySelector('.admin-nav-item.is-active');
-    if (!active) return;
-    active.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
-  }, [activeTab]);
   const goToTab = (tabKey, focus = null) => {
     if (tabKey === 'concessions') {
       navigate('/concesiones');
@@ -110,6 +114,92 @@ export default function AdminView({
   const setActiveTab = (tabKey) => goToTab(tabKey);
   const showConcessionsTab = canAccessConcessions(userRole);
   const showQrGateTab = canAccessQrGate(userRole);
+
+  const navGroups = useMemo(() => (
+    [
+      {
+        id: 'ops',
+        label: 'Operación',
+        tabs: [
+          { key: 'members', icon: Users, label: 'Socios' },
+          { key: 'dues', icon: ShieldAlert, label: 'Cuotas' },
+          { key: 'bookings', icon: Calendar, label: 'Reservas' },
+          { key: 'access', icon: DoorOpen, label: 'Ingresos' },
+          { key: 'qr_gate', icon: QrCode, label: 'Acceso QR' },
+        ],
+      },
+      {
+        id: 'club',
+        label: 'Club',
+        tabs: [
+          { key: 'disciplines', icon: Trophy, label: 'Disciplinas' },
+          { key: 'events', icon: PartyPopper, label: 'Fiestas' },
+          { key: 'news', icon: Newspaper, label: 'Revista' },
+          { key: 'surveys', icon: Radio, label: 'Encuestas' },
+        ],
+      },
+      {
+        id: 'mgmt',
+        label: 'Gestión',
+        tabs: [
+          { key: 'concessions', icon: Store, label: 'Concesiones' },
+          {
+            key: 'accounting',
+            icon: userRole === 'cashier' ? DollarSign : BookOpen,
+            label: userRole === 'cashier' ? 'Caja' : 'Contabilidad',
+          },
+          { key: 'staff', icon: ClipboardList, label: 'Personal' },
+          { key: 'reports', icon: FileSpreadsheet, label: 'Reportes' },
+        ],
+      },
+      {
+        id: 'care',
+        label: 'Atención',
+        tabs: [
+          { key: 'alerts', icon: BellRing, label: 'Alertas' },
+          { key: 'claims', icon: MessageSquare, label: 'Reclamos' },
+          { key: 'messaging', icon: Phone, label: 'Mensajería' },
+        ],
+      },
+      {
+        id: 'sys',
+        label: 'Sistema',
+        tabs: [
+          { key: 'migration', icon: Database, label: 'Migración' },
+        ],
+      },
+    ]
+      .map((group) => ({
+        ...group,
+        tabs: group.tabs.filter((tab) => {
+          if (tab.key === 'concessions') return showConcessionsTab;
+          if (tab.key === 'qr_gate') return showQrGateTab;
+          return permittedTabs.includes(tab.key);
+        }),
+      }))
+      .filter((group) => group.tabs.length > 0)
+  ), [permittedTabs, showConcessionsTab, showQrGateTab, userRole]);
+
+  useEffect(() => {
+    const parent = navGroups.find((g) => g.tabs.some((t) => t.key === activeTab));
+    if (!parent) return;
+    setOpenGroups((prev) => {
+      if (prev.has(parent.id)) return prev;
+      const next = new Set(prev);
+      next.add(parent.id);
+      return next;
+    });
+  }, [activeTab, navGroups]);
+
+  const toggleGroup = (groupId) => {
+    setOpenGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
+      return next;
+    });
+  };
+
   const profileMember = activeTab === 'members' && routeEntityId
     ? members.find((m) => m.memberId === routeEntityId) || null
     : null;
@@ -158,7 +248,7 @@ export default function AdminView({
   };
 
   return (
-    <div className="fade-in">
+    <div className="fade-in admin-shell">
       <style>{`
         /* Animaciones del Scanner QR */
         .scanner-visualizer {
@@ -280,6 +370,73 @@ export default function AdminView({
         }
       `}</style>
 
+      <aside className="admin-rail" aria-label="Secciones del panel">
+        <nav className="admin-rail-nav">
+          {permittedTabs.includes('dashboard') && (
+            <button
+              type="button"
+              className={`admin-rail-item${activeTab === 'dashboard' ? ' is-active' : ''}`}
+              onClick={() => setActiveTab('dashboard')}
+              aria-current={activeTab === 'dashboard' ? 'page' : undefined}
+              title="Inicio"
+            >
+              <span className="admin-rail-icon" aria-hidden="true">
+                <LayoutDashboard size={18} strokeWidth={activeTab === 'dashboard' ? 2.4 : 2} />
+              </span>
+              <span className="admin-rail-label">Inicio</span>
+            </button>
+          )}
+
+          {navGroups.map((group) => {
+            const GroupIcon = GROUP_ICONS[group.id] || LayoutDashboard;
+            const isOpen = openGroups.has(group.id);
+            const hasActive = group.tabs.some((t) => t.key === activeTab);
+            return (
+              <div
+                key={group.id}
+                className={`admin-rail-group${isOpen ? ' is-open' : ''}${hasActive ? ' has-active' : ''}`}
+              >
+                <button
+                  type="button"
+                  className="admin-rail-group-btn"
+                  onClick={() => toggleGroup(group.id)}
+                  aria-expanded={isOpen}
+                  title={group.label}
+                >
+                  <span className="admin-rail-icon" aria-hidden="true">
+                    <GroupIcon size={18} strokeWidth={hasActive ? 2.4 : 2} />
+                  </span>
+                  <span className="admin-rail-label">{group.label}</span>
+                  <ChevronRight size={14} className="admin-rail-chevron" aria-hidden="true" />
+                </button>
+                <div className="admin-rail-submenu" hidden={!isOpen}>
+                  {group.tabs.map((tab) => {
+                    const Icon = tab.icon;
+                    const isActive = activeTab === tab.key;
+                    return (
+                      <button
+                        key={tab.key}
+                        type="button"
+                        onClick={() => setActiveTab(tab.key)}
+                        className={`admin-rail-item is-sub${isActive ? ' is-active' : ''}`}
+                        aria-current={isActive ? 'page' : undefined}
+                        title={tab.label}
+                      >
+                        <span className="admin-rail-icon" aria-hidden="true">
+                          <Icon size={16} strokeWidth={isActive ? 2.4 : 2} />
+                        </span>
+                        <span className="admin-rail-label">{tab.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </nav>
+      </aside>
+
+      <div className="admin-main">
       {/* Cabecera solo fuera del Inicio (el dashboard ya trae su propia intro) */}
       {activeTab !== 'dashboard' && (
         <div className="page-header">
@@ -367,99 +524,6 @@ export default function AdminView({
         })()}
       </div>
       )}
-
-      {/* Botonera operativa — rail agrupado */}
-      <nav className="admin-nav" aria-label="Secciones del panel">
-        <div className="admin-nav-track" ref={adminNavTrackRef}>
-          {[
-            {
-              id: 'ops',
-              label: 'Operación',
-              tabs: [
-                { key: 'members', icon: Users, label: 'Socios' },
-                { key: 'dues', icon: ShieldAlert, label: 'Cuotas' },
-                { key: 'bookings', icon: Calendar, label: 'Reservas' },
-                { key: 'access', icon: DoorOpen, label: 'Ingresos' },
-                { key: 'qr_gate', icon: QrCode, label: 'Acceso QR' },
-              ],
-            },
-            {
-              id: 'club',
-              label: 'Club',
-              tabs: [
-                { key: 'disciplines', icon: Trophy, label: 'Disciplinas' },
-                { key: 'events', icon: PartyPopper, label: 'Fiestas' },
-                { key: 'news', icon: Newspaper, label: 'Revista' },
-                { key: 'surveys', icon: Radio, label: 'Encuestas' },
-              ],
-            },
-            {
-              id: 'mgmt',
-              label: 'Gestión',
-              tabs: [
-                { key: 'concessions', icon: Store, label: 'Concesiones' },
-                {
-                  key: 'accounting',
-                  icon: userRole === 'cashier' ? DollarSign : BookOpen,
-                  label: userRole === 'cashier' ? 'Caja' : 'Contabilidad',
-                },
-                { key: 'staff', icon: ClipboardList, label: 'Personal' },
-                { key: 'reports', icon: FileSpreadsheet, label: 'Reportes' },
-              ],
-            },
-            {
-              id: 'care',
-              label: 'Atención',
-              tabs: [
-                { key: 'alerts', icon: BellRing, label: 'Alertas' },
-                { key: 'claims', icon: MessageSquare, label: 'Reclamos' },
-                { key: 'messaging', icon: Phone, label: 'Mensajería' },
-              ],
-            },
-            {
-              id: 'sys',
-              label: 'Sistema',
-              tabs: [
-                { key: 'migration', icon: Database, label: 'Migración' },
-              ],
-            },
-          ]
-            .map((group) => ({
-              ...group,
-              tabs: group.tabs.filter((tab) => {
-                if (tab.key === 'concessions') return showConcessionsTab;
-                if (tab.key === 'qr_gate') return showQrGateTab;
-                return permittedTabs.includes(tab.key);
-              }),
-            }))
-            .filter((group) => group.tabs.length > 0)
-            .map((group) => (
-              <div key={group.id} className="admin-nav-group" role="group" aria-label={group.label}>
-                <span className="admin-nav-group-label">{group.label}</span>
-                <div className="admin-nav-group-items">
-                  {group.tabs.map((tab) => {
-                    const Icon = tab.icon;
-                    const isActive = activeTab === tab.key;
-                    return (
-                      <button
-                        key={tab.key}
-                        type="button"
-                        onClick={() => setActiveTab(tab.key)}
-                        className={`admin-nav-item${isActive ? ' is-active' : ''}`}
-                        aria-current={isActive ? 'page' : undefined}
-                      >
-                        <span className="admin-nav-icon" aria-hidden="true">
-                          <Icon size={15} strokeWidth={isActive ? 2.4 : 2} />
-                        </span>
-                        <span className="admin-nav-label">{tab.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-        </div>
-      </nav>
 
       {/* --- CONTENIDO DE CADA TAB --- */}
 
@@ -718,6 +782,7 @@ export default function AdminView({
       {activeTab === 'bookings' && (
         <ClubFacilitiesPanel reservations={reservations} isZondaActive={isZondaActive} />
       )}
+      </div>
     </div>
   );
 }
