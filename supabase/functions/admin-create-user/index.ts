@@ -200,7 +200,7 @@ Deno.serve(async (req) => {
 
     const { data: profile } = await admin
       .from("profiles")
-      .select("*, profile_authorizations(*), profile_identifiers(*), profile_roles(*)")
+      .select("*, profile_authorizations(*), profile_identifiers(*)")
       .eq("id", userId)
       .single();
 

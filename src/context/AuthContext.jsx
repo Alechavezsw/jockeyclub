@@ -48,9 +48,15 @@ function mapProfile(sessionUser, profileRow) {
 async function loadUserFromSession(sessionUser) {
   const { data: profile } = await supabase
     .from('profiles')
-    .select('full_name, role, profile_roles(*)')
+    .select('full_name, role')
     .eq('id', sessionUser.id)
     .maybeSingle();
+
+  const { data: roleRows } = await supabase
+    .from('profile_roles')
+    .select('role_key, label, kind, revoked_at')
+    .eq('profile_id', sessionUser.id)
+    .is('revoked_at', null);
 
   // Siempre resolver credencial vinculada (no solo si role === member)
   const { data: member } = await supabase
@@ -61,6 +67,7 @@ async function loadUserFromSession(sessionUser) {
 
   return mapProfile(sessionUser, {
     ...profile,
+    profile_roles: roleRows || [],
     member_number: member?.member_number || null,
   });
 }

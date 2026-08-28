@@ -1269,11 +1269,39 @@ export async function listProfiles() {
   const rows = await unwrap(
     sb()
       .from('profiles')
-      .select('*, profile_authorizations(*), profile_identifiers(*), profile_roles(*)')
+      .select('*, profile_authorizations(*), profile_identifiers(*)')
       .order('created_at', { ascending: false }),
     'No se pudieron cargar usuarios registrados'
   );
-  return (rows || []).map(M.profileFromRow);
+  const withRoles = await attachProfileRoles(rows || []);
+  return withRoles.map(M.profileFromRow);
+}
+
+async function attachProfileRoles(rows = []) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (!list.length) return list;
+  const ids = list.map((r) => r.id).filter(Boolean);
+  if (!ids.length) return list.map((r) => ({ ...r, profile_roles: r.profile_roles || [] }));
+
+  const roleRows = await unwrap(
+    sb()
+      .from('profile_roles')
+      .select('*')
+      .in('profile_id', ids)
+      .is('revoked_at', null)
+      .order('created_at', { ascending: true }),
+    'No se pudieron cargar roles de usuarios'
+  );
+
+  const byProfile = {};
+  (roleRows || []).forEach((r) => {
+    (byProfile[r.profile_id] ||= []).push(r);
+  });
+
+  return list.map((r) => ({
+    ...r,
+    profile_roles: byProfile[r.id] || [],
+  }));
 }
 
 export async function updateProfile(profileId, patch = {}) {
@@ -1309,11 +1337,12 @@ export async function updateProfile(profileId, patch = {}) {
   }
 
   const saved = await unwrap(
-    sb().from('profiles').update(row).eq('id', profileId).select('*, profile_authorizations(*), profile_identifiers(*), profile_roles(*)').single(),
+    sb().from('profiles').update(row).eq('id', profileId).select('*, profile_authorizations(*), profile_identifiers(*)').single(),
     'No se pudo actualizar el usuario'
   );
+  const [withRoles] = await attachProfileRoles([saved]);
   await audit('profile.update', 'profile', saved.id, patch);
-  return M.profileFromRow(saved);
+  return M.profileFromRow(withRoles);
 }
 
 /** Alta de usuario Auth + ficha (vía edge function admin). */
@@ -1500,10 +1529,11 @@ export async function replaceProfileRoles(profileId, roles = []) {
   }
 
   const refreshed = await unwrap(
-    sb().from('profiles').select('*, profile_authorizations(*), profile_identifiers(*), profile_roles(*)').eq('id', profileId).single(),
+    sb().from('profiles').select('*, profile_authorizations(*), profile_identifiers(*)').eq('id', profileId).single(),
     'No se pudo recargar el perfil'
   );
-  return M.profileFromRow(refreshed);
+  const [withRoles] = await attachProfileRoles([refreshed]);
+  return M.profileFromRow(withRoles);
 }
 
 export async function listProfileAudit(profileId, { limit = 50 } = {}) {
