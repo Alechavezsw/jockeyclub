@@ -104,3 +104,36 @@ export async function uploadNewsImage(file, { articleId = 'draft' } = {}) {
     size: file.size || 0,
   };
 }
+
+/**
+ * Sube foto de perfil de usuario del portal (bucket concession-docs / profiles/).
+ */
+export async function uploadProfilePhoto(file, { profileId = 'new' } = {}) {
+  if (!isSupabaseConfigured || !supabase) {
+    throw new Error('Supabase no configurado: no se puede subir la foto.');
+  }
+  if (!file) throw new Error('Seleccioná una imagen.');
+  if (file.size > MAX_BYTES) throw new Error('La imagen supera 10 MB.');
+  if (file.type && !String(file.type).startsWith('image/')) {
+    throw new Error('Solo se permiten imágenes.');
+  }
+
+  const folder = String(profileId || 'new').replace(/[^a-z0-9_-]/gi, '') || 'new';
+  const path = `profiles/${folder}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${extFromFile(file)}`;
+
+  const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
+    cacheControl: '3600',
+    upsert: false,
+    contentType: file.type || undefined,
+  });
+  if (error) throw new Error(error.message || 'No se pudo subir la foto.');
+
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+  return {
+    path,
+    url: data?.publicUrl || '',
+    name: file.name || path.split('/').pop(),
+    mimeType: file.type || '',
+    size: file.size || 0,
+  };
+}

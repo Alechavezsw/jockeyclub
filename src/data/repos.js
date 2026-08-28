@@ -1269,7 +1269,7 @@ export async function listProfiles() {
   const rows = await unwrap(
     sb()
       .from('profiles')
-      .select('id, email, full_name, phone, role, is_active, created_at, updated_at')
+      .select('*, profile_authorizations(*), profile_identifiers(*), profile_roles(*)')
       .order('created_at', { ascending: false }),
     'No se pudieron cargar usuarios registrados'
   );
@@ -1280,15 +1280,251 @@ export async function updateProfile(profileId, patch = {}) {
   if (!isUuid(profileId)) throw new Error('Perfil inválido');
   const row = {};
   if (patch.fullName !== undefined) row.full_name = patch.fullName;
+  if (patch.firstName !== undefined) row.first_name = patch.firstName || null;
+  if (patch.lastName !== undefined) row.last_name = patch.lastName || null;
   if (patch.phone !== undefined) row.phone = patch.phone || null;
+  if (patch.avatarUrl !== undefined) row.avatar_url = patch.avatarUrl || null;
+  if (patch.documentType !== undefined) row.document_type = patch.documentType || null;
+  if (patch.documentNumber !== undefined) row.document_number = patch.documentNumber || null;
+  if (patch.gender !== undefined) row.gender = patch.gender || null;
+  if (patch.birthDate !== undefined) row.birth_date = patch.birthDate || null;
+  if (patch.bloodType !== undefined) row.blood_type = patch.bloodType || null;
+  if (patch.healthInsurance !== undefined) row.health_insurance = patch.healthInsurance || null;
+  if (patch.emergencyPhone !== undefined) row.emergency_phone = patch.emergencyPhone || null;
+  if (patch.emergencyClinic !== undefined) row.emergency_clinic = patch.emergencyClinic || null;
+  if (patch.address !== undefined) row.address = patch.address || null;
+  if (patch.prismaId !== undefined) row.prisma_id = patch.prismaId || null;
   if (patch.role !== undefined) row.role = patch.role;
   if (patch.isActive !== undefined) row.is_active = Boolean(patch.isActive);
+
+  if (patch.firstName !== undefined || patch.lastName !== undefined) {
+    const first = patch.firstName !== undefined ? patch.firstName : undefined;
+    const last = patch.lastName !== undefined ? patch.lastName : undefined;
+    if (first !== undefined || last !== undefined) {
+      // full_name se recalcula si vienen ambos o uno + el otro ya en DB vía cliente
+      if (patch.fullName === undefined && first !== undefined && last !== undefined) {
+        row.full_name = [first, last].filter(Boolean).join(' ').trim() || null;
+      }
+    }
+  }
+
   const saved = await unwrap(
-    sb().from('profiles').update(row).eq('id', profileId).select().single(),
+    sb().from('profiles').update(row).eq('id', profileId).select('*, profile_authorizations(*), profile_identifiers(*), profile_roles(*)').single(),
     'No se pudo actualizar el usuario'
   );
   await audit('profile.update', 'profile', saved.id, patch);
   return M.profileFromRow(saved);
+}
+
+/** Alta de usuario Auth + ficha (vía edge function admin). */
+export async function createPortalUser(payload) {
+  const { data: sessionData } = await sb().auth.getSession();
+  const token = sessionData?.session?.access_token;
+  if (!token) throw new Error('Sesión no válida. Volvé a iniciar sesión.');
+
+  const { data, error } = await sb().functions.invoke('admin-create-user', {
+    body: { ...payload, action: 'create' },
+  });
+
+  if (error) {
+    let detail = error.message || 'No se pudo crear el usuario';
+    try {
+      const ctx = error.context;
+      if (ctx && typeof ctx.json === 'function') {
+        const body = await ctx.json();
+        if (body?.error) detail = body.error;
+      }
+    } catch {
+      /* ignore */
+    }
+    throw new Error(data?.error || detail);
+  }
+  if (data?.error) throw new Error(data.error);
+  if (!data?.profile) throw new Error('Respuesta inválida al crear usuario');
+
+  let profile = M.profileFromRow(data.profile);
+  if (Array.isArray(payload.roles) && payload.roles.length) {
+    profile = await replaceProfileRoles(profile.id, payload.roles);
+  }
+  await audit('profile.create', 'profile', profile.id, {
+    email: payload.email,
+    username: payload.username,
+    roles: payload.roles || [],
+  });
+  return profile;
+}
+
+/** Regenera la contraseña de un usuario existente (superadmin vía edge). */
+export async function resetPortalUserPassword(profileId, password) {
+  if (!isUuid(profileId)) throw new Error('Perfil inválido');
+  if (!password || String(password).length < 6) {
+    throw new Error('La contraseña debe tener al menos 6 caracteres');
+  }
+
+  const { data: sessionData } = await sb().auth.getSession();
+  const token = sessionData?.session?.access_token;
+  if (!token) throw new Error('Sesión no válida. Volvé a iniciar sesión.');
+
+  const { data, error } = await sb().functions.invoke('admin-create-user', {
+    body: { action: 'reset_password', userId: profileId, password },
+  });
+
+  if (error) {
+    let detail = error.message || 'No se pudo regenerar la contraseña';
+    try {
+      const ctx = error.context;
+      if (ctx && typeof ctx.json === 'function') {
+        const body = await ctx.json();
+        if (body?.error) detail = body.error;
+      }
+    } catch {
+      /* ignore */
+    }
+    throw new Error(data?.error || detail);
+  }
+  if (data?.error) throw new Error(data.error);
+
+  await audit('profile.reset_password', 'profile', profileId, { reset: true });
+  return true;
+}
+
+export async function replaceProfileAuthorizations(profileId, authorizations = []) {
+  if (!isUuid(profileId)) throw new Error('Perfil inválido');
+  await unwrap(
+    sb().from('profile_authorizations').delete().eq('profile_id', profileId),
+    'No se pudieron limpiar autorizaciones'
+  );
+  const rows = (authorizations || [])
+    .filter((a) => a.title || a.kind)
+    .map((a) => ({
+      profile_id: profileId,
+      kind: a.kind || 'custom',
+      title: a.title || a.kind || 'Autorización',
+      role_label: a.roleLabel || null,
+      expires_at: a.expiresAt || null,
+      pin: a.pin || null,
+      meta: {},
+    }));
+  if (!rows.length) return [];
+  const saved = await unwrap(
+    sb().from('profile_authorizations').insert(rows).select(),
+    'No se pudieron guardar autorizaciones'
+  );
+  return saved || [];
+}
+
+export async function replaceProfileIdentifiers(profileId, identifiers = []) {
+  if (!isUuid(profileId)) throw new Error('Perfil inválido');
+  await unwrap(
+    sb().from('profile_identifiers').delete().eq('profile_id', profileId),
+    'No se pudieron limpiar identificadores'
+  );
+  const rows = (identifiers || [])
+    .filter((i) => i.idType && i.identifier)
+    .map((i) => ({
+      profile_id: profileId,
+      id_type: i.idType,
+      identifier: i.identifier,
+      meta: {},
+    }));
+  if (!rows.length) return [];
+  const saved = await unwrap(
+    sb().from('profile_identifiers').insert(rows).select(),
+    'No se pudieron guardar identificadores'
+  );
+  return saved || [];
+}
+
+const SYSTEM_ROLE_LABELS = {
+  member: 'Socio',
+  staff: 'Personal',
+  hr: 'Recursos humanos',
+  admin_employee: 'Empleado de administración',
+  gate_operator: 'Operador de portería',
+  cashier: 'Cajero',
+  accountant: 'Contador',
+  admin: 'Administrador',
+  superadmin: 'Superadministrador',
+};
+
+/** Reemplaza el set activo de roles (sistema + títulos). Todo queda auditado por trigger. */
+export async function replaceProfileRoles(profileId, roles = []) {
+  if (!isUuid(profileId)) throw new Error('Perfil inválido');
+  const { data: { user } } = await sb().auth.getUser();
+
+  const desired = [];
+  const seen = new Set();
+  for (const raw of roles || []) {
+    const roleKey = String(raw.roleKey || raw.key || raw).trim().toLowerCase();
+    if (!roleKey || seen.has(roleKey)) continue;
+    seen.add(roleKey);
+    const kind = raw.kind || (SYSTEM_ROLE_LABELS[roleKey] ? 'system' : 'title');
+    const label = raw.label || SYSTEM_ROLE_LABELS[roleKey] || roleKey;
+    desired.push({ roleKey, kind, label });
+  }
+
+  const existing = await unwrap(
+    sb().from('profile_roles').select('*').eq('profile_id', profileId).is('revoked_at', null),
+    'No se pudieron leer roles del perfil'
+  );
+
+  const existingByKey = new Map((existing || []).map((r) => [String(r.role_key).toLowerCase(), r]));
+  const desiredKeys = new Set(desired.map((d) => d.roleKey));
+
+  // Revocar los que ya no están
+  for (const [key, row] of existingByKey) {
+    if (!desiredKeys.has(key)) {
+      await unwrap(
+        sb().from('profile_roles').update({ revoked_at: new Date().toISOString() }).eq('id', row.id),
+        'No se pudo revocar rol'
+      );
+    }
+  }
+
+  // Alta de nuevos
+  const toInsert = desired
+    .filter((d) => !existingByKey.has(d.roleKey))
+    .map((d) => ({
+      profile_id: profileId,
+      role_key: d.roleKey,
+      label: d.label,
+      kind: d.kind,
+      granted_by: user?.id || null,
+    }));
+
+  if (toInsert.length) {
+    await unwrap(
+      sb().from('profile_roles').insert(toInsert),
+      'No se pudieron asignar roles'
+    );
+  }
+
+  const refreshed = await unwrap(
+    sb().from('profiles').select('*, profile_authorizations(*), profile_identifiers(*), profile_roles(*)').eq('id', profileId).single(),
+    'No se pudo recargar el perfil'
+  );
+  return M.profileFromRow(refreshed);
+}
+
+export async function listProfileAudit(profileId, { limit = 50 } = {}) {
+  if (!isUuid(profileId)) throw new Error('Perfil inválido');
+  const rows = await unwrap(
+    sb()
+      .from('audit_logs')
+      .select('id, actor_id, action, entity_type, entity_id, payload, created_at')
+      .eq('entity_type', 'profile')
+      .eq('entity_id', profileId)
+      .order('created_at', { ascending: false })
+      .limit(limit),
+    'No se pudo cargar el historial del perfil'
+  );
+  return (rows || []).map((r) => ({
+    id: r.id,
+    actorId: r.actor_id,
+    action: r.action,
+    payload: r.payload || {},
+    createdAt: r.created_at,
+  }));
 }
 
 export async function listMembershipApplications() {

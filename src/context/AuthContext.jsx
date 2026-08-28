@@ -16,11 +16,30 @@ function loadLocalSession() {
 }
 
 function mapProfile(sessionUser, profileRow) {
+  const rolesRaw = Array.isArray(profileRow?.profile_roles)
+    ? profileRow.profile_roles.filter((r) => !r.revoked_at)
+    : [];
+  const roles = rolesRaw.map((r) => ({
+    roleKey: r.role_key || r.roleKey,
+    label: r.label,
+    kind: r.kind,
+  }));
+  const primary = profileRow?.role
+    || (roles.length ? roles.map((r) => r.roleKey).sort((a, b) => {
+      const rank = { superadmin: 60, admin: 50, accountant: 40, cashier: 30, staff: 20, member: 10 };
+      return (rank[b] || 0) - (rank[a] || 0);
+    })[0] : null)
+    || sessionUser.user_metadata?.role
+    || 'member';
+
   return {
     id: sessionUser.id,
     email: sessionUser.email,
     fullName: profileRow?.full_name || sessionUser.user_metadata?.full_name || sessionUser.email,
-    role: profileRow?.role || sessionUser.user_metadata?.role || 'member',
+    role: primary,
+    roles: roles.length
+      ? roles
+      : [{ roleKey: primary, label: ROLE_LABELS[primary] || primary, kind: 'system' }],
     memberId: profileRow?.member_number || sessionUser.user_metadata?.memberId || null,
     isLocal: !isSupabaseConfigured,
   };
@@ -29,7 +48,7 @@ function mapProfile(sessionUser, profileRow) {
 async function loadUserFromSession(sessionUser) {
   const { data: profile } = await supabase
     .from('profiles')
-    .select('full_name, role')
+    .select('full_name, role, profile_roles(*)')
     .eq('id', sessionUser.id)
     .maybeSingle();
 
@@ -189,6 +208,7 @@ export function AuthProvider({ children }) {
       authError,
       isAuthenticated: Boolean(user),
       role: user?.role || null,
+      roles: user?.roles || [],
       roleLabel: user ? ROLE_LABELS[user.role] || user.role : null,
       canAccessAdmin: user ? canAccessAdmin(user.role) : false,
       isSupabase: isSupabaseConfigured,

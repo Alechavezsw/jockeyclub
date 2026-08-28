@@ -299,16 +299,80 @@ export function membershipApplicationToRow(app) {
 }
 
 export function profileFromRow(row) {
+  const authorizations = Array.isArray(row.profile_authorizations)
+    ? row.profile_authorizations.map((a) => ({
+      id: a.id,
+      kind: a.kind,
+      title: a.title,
+      roleLabel: a.role_label || '',
+      expiresAt: a.expires_at || '',
+      pin: a.pin || '',
+    }))
+    : [];
+  const identifiers = Array.isArray(row.profile_identifiers)
+    ? row.profile_identifiers.map((i) => ({
+      id: i.id,
+      idType: i.id_type,
+      identifier: i.identifier,
+    }))
+    : [];
+  const roles = Array.isArray(row.profile_roles)
+    ? row.profile_roles
+      .filter((r) => !r.revoked_at)
+      .map((r) => ({
+        id: r.id,
+        publicId: r.public_id || null,
+        roleKey: r.role_key,
+        label: r.label,
+        kind: r.kind || (roleRank(r.role_key) > 0 ? 'system' : 'title'),
+        createdAt: r.created_at,
+      }))
+    : [];
+  const meta = row.meta && typeof row.meta === 'object' ? row.meta : {};
+  const username = meta.username
+    || (row.email ? String(row.email).split('@')[0] : '')
+    || '';
   return {
     id: row.id,
     email: row.email || '',
+    username,
+    contactEmail: meta.contactEmail || '',
     fullName: row.full_name || '',
+    firstName: row.first_name || '',
+    lastName: row.last_name || '',
     phone: row.phone || '',
+    avatarUrl: row.avatar_url || '',
+    documentType: row.document_type || 'Arg-DNI',
+    documentNumber: row.document_number || '',
+    gender: row.gender || '',
+    birthDate: row.birth_date || '',
+    bloodType: row.blood_type || '',
+    healthInsurance: row.health_insurance || '',
+    emergencyPhone: row.emergency_phone || '',
+    emergencyClinic: row.emergency_clinic || '',
+    address: row.address || '',
+    prismaId: row.prisma_id || '',
     role: row.role || 'member',
+    roles,
     isActive: row.is_active !== false,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    authorizations,
+    identifiers,
+    meta,
   };
+}
+
+function roleRank(roleKey) {
+  const map = {
+    superadmin: 60,
+    admin: 50,
+    accountant: 40,
+    cashier: 30,
+    staff: 20,
+    member: 10,
+  };
+  return map[String(roleKey || '').toLowerCase()] || 0;
 }
 
 export function surveyFromRow(row) {

@@ -29,7 +29,7 @@ import {
   BalancesPanel,
   PaymentOrdersPanel,
 } from './erp/TreasuryPanels';
-import { allowedAccountingSubtabs } from '../domain/auth/roles';
+import { allowedAccountingSubtabsForRoles } from '../domain/auth/roles';
 import { useAuth } from '../context/AuthContext';
 
 const TREASURY_TABS = new Set([
@@ -112,8 +112,8 @@ export default function AccountingTab({
   upsertPaymentOrder,
   initialSubTab = null,
 }) {
-  const { role } = useAuth();
-  const accountingTabs = allowedAccountingSubtabs(role || 'admin');
+  const { role, roles } = useAuth();
+  const accountingTabs = allowedAccountingSubtabsForRoles(roles?.length ? roles : (role || 'admin'));
   const [searchParams, setSearchParams] = useSearchParams();
   const subFromUrl = searchParams.get('sub');
   const [subTab, setSubTabState] = useState(() =>
@@ -140,16 +140,16 @@ export default function AccountingTab({
   const ACCOUNT_PLAN = useMemo(() => accountsByTypeFromChart(chartOfAccounts), [chartOfAccounts]);
 
   useEffect(() => {
-    const tabs = allowedAccountingSubtabs(role || 'admin');
+    const tabs = allowedAccountingSubtabsForRoles(roles?.length ? roles : (role || 'admin'));
     if (!tabs.includes(subTab)) setSubTabState(tabs[0] || 'diary');
-  }, [role, subTab]);
+  }, [role, roles, subTab]);
 
   useEffect(() => {
-    const tabs = allowedAccountingSubtabs(role || 'admin');
+    const tabs = allowedAccountingSubtabsForRoles(roles?.length ? roles : (role || 'admin'));
     if (subFromUrl && tabs.includes(subFromUrl) && subFromUrl !== subTab) {
       setSubTabState(subFromUrl);
     }
-  }, [subFromUrl, role, subTab]);
+  }, [subFromUrl, role, roles, subTab]);
   // Estado para el formulario de nuevo asiento contable
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [description, setDescription] = useState('');

@@ -2,16 +2,20 @@ import { describe, it, expect } from 'vitest';
 import {
   canAccessAdmin,
   canAccessConcessions,
+  canManageProfiles,
+  isSuperAdmin,
   allowedAdminTabs,
   allowedAccountingSubtabs,
   navItemsForRole,
+  primaryRoleFromList,
+  hasRoleInList,
   ROLE_PANEL_META,
 } from './roles';
 
 describe('canAccessAdmin', () => {
   it('los roles operativos acceden al panel; el socio no', () => {
     expect(canAccessAdmin('member')).toBe(false);
-    for (const role of ['staff', 'cashier', 'accountant', 'admin', 'superadmin']) {
+    for (const role of ['staff', 'cashier', 'accountant', 'admin', 'superadmin', 'gate_operator', 'admin_employee', 'hr']) {
       expect(canAccessAdmin(role)).toBe(true);
     }
   });
@@ -41,9 +45,10 @@ describe('allowedAdminTabs', () => {
     expect(tabs).not.toContain('members');
   });
 
-  it('el admin inicia en dashboard y no tiene QR ni concesiones como pestaña (secciones aparte)', () => {
+  it('el admin inicia en dashboard, no ve contabilidad, ni QR/concesiones como pestaña', () => {
     const tabs = allowedAdminTabs('admin');
     expect(tabs[0]).toBe('dashboard');
+    expect(tabs).not.toContain('accounting');
     expect(tabs).not.toContain('qr_control');
     expect(tabs).not.toContain('concessions');
     expect(tabs).toContain('disciplines');
@@ -51,8 +56,53 @@ describe('allowedAdminTabs', () => {
     expect(tabs.length).toBeGreaterThanOrEqual(14);
   });
 
+  it('operador de portería ve caja e ingresos', () => {
+    const tabs = allowedAdminTabs('gate_operator');
+    expect(tabs).toContain('accounting');
+    expect(tabs).toContain('access');
+    expect(tabs).not.toContain('migration');
+  });
+
+  it('empleado de administración no ve contabilidad ni sistema', () => {
+    const tabs = allowedAdminTabs('admin_employee');
+    expect(tabs).toContain('members');
+    expect(tabs).not.toContain('accounting');
+    expect(tabs).not.toContain('system');
+  });
+
+  it('recursos humanos ve personal', () => {
+    const tabs = allowedAdminTabs('hr');
+    expect(tabs).toEqual(['dashboard', 'staff', 'alerts']);
+  });
+
   it('un rol desconocido no ve ninguna', () => {
     expect(allowedAdminTabs('member')).toEqual([]);
+  });
+  it('el superadministrador ve todas las pestañas del panel', () => {
+    const tabs = allowedAdminTabs('superadmin');
+    expect(tabs).toContain('system');
+    expect(tabs).toContain('migration');
+    expect(tabs).toContain('accounting');
+    expect(tabs.length).toBeGreaterThan(allowedAdminTabs('admin').length);
+  });
+});
+
+describe('canManageProfiles', () => {
+  it('solo el superadministrador modifica perfiles', () => {
+    expect(isSuperAdmin('superadmin')).toBe(true);
+    expect(canManageProfiles('superadmin')).toBe(true);
+    expect(canManageProfiles('admin')).toBe(false);
+    expect(canManageProfiles('staff')).toBe(false);
+    expect(canManageProfiles([{ roleKey: 'superadmin' }, { roleKey: 'member' }])).toBe(true);
+    expect(canManageProfiles([{ roleKey: 'admin' }, { roleKey: 'presidente' }])).toBe(false);
+  });
+});
+
+describe('multi-role helpers', () => {
+  it('deriva el rol primario y detecta roles acumulados', () => {
+    expect(primaryRoleFromList(['member', 'superadmin', 'presidente'])).toBe('superadmin');
+    expect(hasRoleInList(['superadmin', 'presidente', 'member'], 'presidente')).toBe(true);
+    expect(hasRoleInList(['superadmin'], 'member')).toBe(false);
   });
 });
 
@@ -68,9 +118,13 @@ describe('canAccessConcessions', () => {
 });
 
 describe('allowedAccountingSubtabs', () => {
-  it('el cajero solo ve operación de caja', () => {
-    const tabs = allowedAccountingSubtabs('cashier');
-    expect(tabs).toEqual(['cash']);
+  it('el cajero y el operador de portería solo ven operación de caja', () => {
+    expect(allowedAccountingSubtabs('cashier')).toEqual(['cash']);
+    expect(allowedAccountingSubtabs('gate_operator')).toEqual(['cash']);
+  });
+
+  it('el administrador no ve subtabs de contabilidad', () => {
+    expect(allowedAccountingSubtabs('admin')).toEqual([]);
   });
 });
 
@@ -93,10 +147,10 @@ describe('navItemsForRole', () => {
 
 describe('ROLE_PANEL_META', () => {
   it('cada rol operativo tiene título propio de panel', () => {
-    for (const role of ['staff', 'cashier', 'accountant', 'admin']) {
+    for (const role of ['staff', 'cashier', 'accountant', 'admin', 'superadmin']) {
       expect(ROLE_PANEL_META[role]?.title).toBeTruthy();
     }
-    const titles = ['staff', 'cashier', 'accountant'].map((r) => ROLE_PANEL_META[r].title);
+    const titles = ['staff', 'cashier', 'accountant', 'superadmin'].map((r) => ROLE_PANEL_META[r].title);
     expect(new Set(titles).size).toBe(titles.length);
   });
 });

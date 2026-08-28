@@ -5336,6 +5336,107 @@ select.form-input,
   vertical-align: middle;
 }
 
+.sys-admin-table th {
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.sys-user-id-cell {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.sys-user-name-doc {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.sys-user-name-doc strong {
+  font-size: 0.9rem;
+  font-weight: 650;
+  color: var(--text-primary);
+}
+
+.sys-user-name-doc span {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.sys-user-email-cell {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+.sys-user-email-cell small {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.sys-user-login-cell code {
+  font-size: 0.78rem;
+  color: var(--text-primary);
+}
+
+.sys-authz-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  align-items: center;
+}
+
+.sys-authz-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.18rem 0.42rem;
+  border-radius: 4px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #fff;
+  background: color-mix(in srgb, var(--primary-gold) 72%, #4c1d95);
+  white-space: nowrap;
+}
+
+.sys-authz-more {
+  border: 0;
+  border-radius: 4px;
+  padding: 0.18rem 0.4rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  cursor: pointer;
+  color: #fff;
+  background: color-mix(in srgb, #2563eb 85%, #0f172a);
+}
+
+.sys-user-functions {
+  justify-content: flex-end;
+}
+
+.sys-fn-btn {
+  width: 2rem;
+  height: 2rem;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #fff;
+  background: color-mix(in srgb, #2563eb 88%, #0f172a);
+}
+
+.sys-fn-btn:hover {
+  filter: brightness(1.08);
+}
+
 .sys-admin-pill {
   display: inline-flex;
   align-items: center;
@@ -5415,6 +5516,342 @@ select.form-input,
 .sys-admin-app-actions {
   display: flex;
   gap: 0.35rem;
+}
+
+/* Formulario alta de usuario */
+.sys-user-form {
+  margin-bottom: 1.15rem;
+  padding: 1rem;
+  border: 1px solid var(--border-glass);
+  border-radius: 12px;
+  background: var(--surface-inset-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.sys-user-photo {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.55rem;
+}
+
+.sys-user-photo-frame {
+  width: 112px;
+  height: 112px;
+  border-radius: 10px;
+  border: 1px solid var(--border-glass);
+  background: rgba(255, 255, 255, 0.03);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: var(--text-muted);
+}
+
+.sys-user-photo-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.sys-user-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem 1rem;
+}
+
+.sys-user-field {
+  display: grid;
+  grid-template-columns: minmax(110px, 150px) minmax(0, 1fr);
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.sys-user-field > span {
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.sys-user-span2 {
+  grid-column: 1 / -1;
+}
+
+.sys-user-doc-row {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 0.45rem;
+}
+
+.sys-user-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--border-glass);
+}
+
+.sys-user-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.sys-user-section-head h4 {
+  margin: 0;
+  font-size: 0.78rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.sys-help {
+  margin: -0.25rem 0 0;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.sys-authz-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.sys-authz-card {
+  padding: 0.85rem;
+  border: 1px solid var(--border-glass);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.sys-authz-card > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.sys-authz-card > header strong {
+  font-size: 0.82rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.sys-danger-btn {
+  border: none;
+  background: transparent;
+  color: #f87171;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  padding: 0.2rem 0.35rem;
+}
+
+.sys-id-table {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.sys-id-head,
+.sys-id-row {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr auto;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.sys-id-head {
+  padding: 0.4rem 0.55rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.sys-user-form-actions {
+  display: flex;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.sys-cred-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.sys-cred-row .form-input {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.sys-cred-domain {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.sys-creds-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--primary-gold) 35%, transparent);
+  background: color-mix(in srgb, var(--primary-gold) 10%, transparent);
+}
+
+.sys-creds-banner p {
+  margin: 0.35rem 0 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.sys-creds-banner code {
+  font-size: 0.84rem;
+}
+
+.sys-creds-banner-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.sys-user-row-name {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sys-user-row-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.sys-user-row-avatar.is-empty {
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--primary-gold) 18%, transparent);
+  color: var(--primary-gold);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.sys-role-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.sys-role-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.sys-role-chips.is-compact {
+  margin-bottom: 0.35rem;
+}
+
+.sys-role-chip {
+  border: 1px solid var(--border-glass);
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 999px;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.sys-role-chip.is-static {
+  cursor: default;
+}
+
+.sys-role-chip.is-on {
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--primary-gold) 45%, var(--border-glass));
+  background: color-mix(in srgb, var(--primary-gold) 16%, transparent);
+}
+
+.sys-role-chip.is-title.is-on {
+  border-color: color-mix(in srgb, #60a5fa 45%, var(--border-glass));
+  background: color-mix(in srgb, #60a5fa 14%, transparent);
+}
+
+.sys-role-edit {
+  margin-top: 0.25rem;
+}
+
+.sys-role-edit > summary {
+  cursor: pointer;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.sys-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.sys-history-list li {
+  border: 1px solid var(--border-glass);
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  background: var(--surface-inset-soft);
+}
+
+.sys-history-payload {
+  margin: 0.45rem 0 0;
+  padding: 0.55rem;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  font-size: 0.7rem;
+  overflow: auto;
+  max-height: 160px;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 860px) {
+  .sys-user-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sys-user-field {
+    grid-template-columns: 1fr;
+  }
+
+  .sys-user-field > span {
+    text-align: left;
+  }
 }
 
 [data-theme='light'] .sys-admin-pill.is-on {

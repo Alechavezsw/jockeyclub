@@ -28,7 +28,7 @@ import NewsCmsTab from '../components/admin/NewsCmsTab';
 import SystemAdminTab from '../components/admin/SystemAdminTab';
 import { DEFAULT_CHART_OF_ACCOUNTS, resolveAccountId } from '../domain/accounting/chartOfAccounts';
 import { getAccountBalance as domainAccountBalance } from '../domain/accounting/journal';
-import { allowedAdminTabs, canAccessConcessions, canAccessQrGate, ROLE_LABELS, ROLE_PANEL_META } from '../domain/auth/roles';
+import { allowedAdminTabs, allowedAdminTabsForRoles, canAccessConcessions, canAccessQrGate, ROLE_LABELS, ROLE_PANEL_META } from '../domain/auth/roles';
 import { getOverdueMembers, getUpcomingDuesMembers } from '../domain/members/dues';
 import { useAuth } from '../context/AuthContext';
 
@@ -83,7 +83,7 @@ export default function AdminView({
 }) {
   const { user } = useAuth();
   const chartOfAccounts = erp.chartOfAccounts || DEFAULT_CHART_OF_ACCOUNTS;
-  const permittedTabs = allowedAdminTabs(userRole);
+  const permittedTabs = allowedAdminTabsForRoles(user?.roles?.length ? user.roles : userRole);
   const panelMeta = ROLE_PANEL_META[userRole] || ROLE_PANEL_META.admin;
   const [openGroups, setOpenGroups] = useState(() => new Set());
 
@@ -118,8 +118,8 @@ export default function AdminView({
     navigate(`/panel/${tabKey}`);
   };
   const setActiveTab = (tabKey) => goToTab(tabKey);
-  const showConcessionsTab = canAccessConcessions(userRole);
-  const showQrGateTab = canAccessQrGate(userRole);
+  const showConcessionsTab = canAccessConcessions(userRole) || (user?.roles || []).some((r) => canAccessConcessions(r.roleKey || r));
+  const showQrGateTab = canAccessQrGate(userRole) || (user?.roles || []).some((r) => canAccessQrGate(r.roleKey || r));
 
   const navGroups = useMemo(() => (
     [
@@ -792,6 +792,7 @@ export default function AdminView({
 
       {activeTab === 'system' && (
         <SystemAdminTab
+          userRole={userRole}
           membershipApplications={membershipApplications}
           setMembershipApplications={setMembershipApplications}
           registeredUsersCount={registeredUsersCount}

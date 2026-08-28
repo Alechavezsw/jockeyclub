@@ -43,6 +43,14 @@ export const DEMO_USERS = [
     fullName: 'Comisión Directiva',
     memberId: null,
   },
+  {
+    id: 'local-superadmin-1',
+    email: 'superadmin@jockey.sj',
+    password: 'jockey2026',
+    role: 'superadmin',
+    fullName: 'Superadministrador',
+    memberId: null,
+  },
 ];
 
 export const DEMO_PASSWORD_HINT = 'jockey2026';
