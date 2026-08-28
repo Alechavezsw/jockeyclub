@@ -250,6 +250,67 @@ export function claimFromRow(row) {
   };
 }
 
+export function membershipApplicationFromRow(row) {
+  const meta = row.meta || {};
+  return {
+    id: row.id,
+    fullName: row.full_name,
+    email: row.email || '',
+    phone: row.phone || '',
+    documentType: row.document_type || '',
+    documentNumber: row.document_number || '',
+    birthDate: row.birth_date || '',
+    address: row.address || '',
+    city: row.city || '',
+    province: row.province || '',
+    notes: row.notes || '',
+    requestedTier: row.requested_tier || '',
+    status: row.status || 'pending',
+    profileId: row.profile_id || null,
+    memberId: row.member_id || null,
+    reviewedBy: row.reviewed_by || null,
+    reviewedAt: row.reviewed_at || null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    ...meta,
+  };
+}
+
+export function membershipApplicationToRow(app) {
+  return {
+    full_name: app.fullName,
+    email: app.email || null,
+    phone: app.phone || null,
+    document_type: app.documentType || null,
+    document_number: app.documentNumber || null,
+    birth_date: app.birthDate || null,
+    address: app.address || null,
+    city: app.city || null,
+    province: app.province || null,
+    notes: app.notes || null,
+    requested_tier: app.requestedTier || null,
+    status: app.status || 'pending',
+    profile_id: app.profileId || null,
+    member_id: app.memberId || null,
+    reviewed_by: app.reviewedBy || null,
+    reviewed_at: app.reviewedAt || null,
+    meta: app.meta && typeof app.meta === 'object' ? app.meta : {},
+  };
+}
+
+export function profileFromRow(row) {
+  return {
+    id: row.id,
+    email: row.email || '',
+    fullName: row.full_name || '',
+    phone: row.phone || '',
+    role: row.role || 'member',
+    isActive: row.is_active !== false,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 export function surveyFromRow(row) {
   const meta = row.meta || {};
   const options = Array.isArray(meta.options)

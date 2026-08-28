@@ -884,6 +884,9 @@ export default function App() {
     }
   });
 
+  const [registeredUsersCount, setRegisteredUsersCount] = useState(0);
+  const [membershipApplications, setMembershipApplications] = useState([]);
+
   const [waitlist, setWaitlist] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('jockey-waitlist') || '[]');
@@ -1174,6 +1177,8 @@ export default function App() {
         setEntryLogs(app.entryLogs || []);
         setSurveys(app.surveys || []);
         setGuestPasses(app.guestPasses || []);
+        setRegisteredUsersCount(app.registeredUsersCount || 0);
+        setMembershipApplications(app.membershipApplications || []);
         setIsZondaActive(Boolean(app.isZondaActive));
         setMemberDbIds(ids || {});
         if (Array.isArray(app.tierCatalog) && app.tierCatalog.length) {
@@ -1684,6 +1689,10 @@ export default function App() {
         setEntryLogs={setEntryLogsDb}
         surveys={surveys}
         setSurveys={setSurveysDb}
+        registeredUsersCount={registeredUsersCount}
+        membershipApplications={membershipApplications}
+        setMembershipApplications={setMembershipApplications}
+        setRegisteredUsersCount={setRegisteredUsersCount}
         isOnline={isOnline}
         syncQueue={syncQueue}
         setSyncQueue={setSyncQueue}

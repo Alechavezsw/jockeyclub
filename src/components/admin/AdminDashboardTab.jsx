@@ -4,7 +4,7 @@ import {
   Users, Calendar, DollarSign, Activity, MessageSquare, ClipboardList,
   Radio, BookOpen, ShieldAlert, BellRing, CheckCircle2,
   PartyPopper, Clock, UserCircle2, FileSpreadsheet, Wind, Newspaper,
-  DoorOpen, ExternalLink,
+  DoorOpen, ExternalLink, UserPlus, UserRound,
 } from 'lucide-react';
 import { canAccessQrGate } from '../../domain/auth/roles';
 import { isAlertVisible } from '../../domain/alerts/alerts';
@@ -115,9 +115,15 @@ export default function AdminDashboardTab({
   getAccountBalance,
   journalEntries = [],
   chartOfAccounts = [],
+  registeredUsersCount = 0,
+  membershipApplications = [],
 }) {
   const navigate = useNavigate();
   const showGate = canAccessQrGate(userRole);
+  const pendingMembershipApps = useMemo(
+    () => (membershipApplications || []).filter((a) => a.status === 'pending').length,
+    [membershipApplications]
+  );
   const todayKey = new Date().toISOString().slice(0, 10);
   const hasAccounting = permittedTabs.includes('accounting');
   const hasMessaging = permittedTabs.includes('messaging');
@@ -771,13 +777,29 @@ export default function AdminDashboardTab({
                       {formatCurrency(debtTotal)}
                     </div>
                     <div className="ops-muted">Deuda de cuotas pendiente</div>
+
                     <div className="ops-money-green">{formatCurrency(collectedMonth)}</div>
                     <div className="ops-muted" style={{ color: 'var(--emerald-accent)' }}>
                       Recaudado en {monthLabelCap}
                     </div>
+
+                    <div className="ops-money-liquid">{formatCurrency(finance.expectedMonth || 0)}</div>
+                    <div className="ops-muted">
+                      Liquidado del mes
+                      {finance.expectedMonth > 0 && collectedMonth < finance.expectedMonth ? (
+                        <span>
+                          {' · '}resta {formatCurrency(Math.max(0, finance.expectedMonth - collectedMonth))}
+                        </span>
+                      ) : null}
+                    </div>
+
+                    <div className="ops-muted" style={{ marginTop: '0.25rem', fontSize: '0.78rem' }}>
+                      Hoy: <strong style={{ color: finance.collectedToday > 0 ? 'var(--emerald-accent)' : 'inherit' }}>
+                        {formatCurrency(finance.collectedToday || 0)}
+                      </strong>
+                    </div>
                     <div className="ops-muted" style={{ marginTop: '0.35rem', fontSize: '0.72rem' }}>
                       {finance.alDia}/{finance.activeMembers} socios al día
-                      {finance.expectedMonth > 0 ? ` · cuota mes ref. ${formatCurrency(finance.expectedMonth)}` : ''}
                     </div>
                   </div>
                 </div>
@@ -792,6 +814,29 @@ export default function AdminDashboardTab({
                 </button>
 
                 <div className="ops-block" style={{ marginTop: '1rem' }}>
+                  <div className="ops-block-title ops-block-title--split">
+                    <span>Ingresos de hoy</span>
+                    {finance.collectedToday > 0 ? (
+                      <strong style={{ color: 'var(--emerald-accent)' }}>
+                        {formatCurrency(finance.collectedToday)}
+                      </strong>
+                    ) : null}
+                  </div>
+                  {finance.todayIncomes.length === 0 ? (
+                    <p className="ops-muted" style={{ margin: '0.35rem 0 0' }}>
+                      Todavía no hay cobros registrados hoy.
+                    </p>
+                  ) : (
+                    finance.todayIncomes.map((row) => (
+                      <div key={`today-${row.id}`} className="ops-row">
+                        <span className="ops-ellipsis">{row.label}</span>
+                        <strong style={{ color: 'var(--emerald-accent)' }}>{formatCurrency(row.amount)}</strong>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <div className="ops-block" style={{ marginTop: '0.85rem' }}>
                   <div className="ops-block-title">Últimos ingresos · {monthLabelCap}</div>
                   {finance.recentIncomes.length === 0 ? (
                     <p className="ops-muted" style={{ margin: '0.35rem 0 0' }}>
@@ -922,6 +967,14 @@ export default function AdminDashboardTab({
               <button type="button" className="ops-stat ops-stat--a" onClick={() => goToTab('members')}>
                 <Users size={18} />
                 <span><b>{totalMembers}</b> Socios titulares</span>
+              </button>
+              <button type="button" className="ops-stat ops-stat--d" onClick={() => goToTab('system')}>
+                <UserRound size={18} />
+                <span><b>{registeredUsersCount}</b> Usuarios registrados</span>
+              </button>
+              <button type="button" className="ops-stat ops-stat--e" onClick={() => goToTab('system')}>
+                <UserPlus size={18} />
+                <span><b>{pendingMembershipApps}</b> Solicitudes de socio</span>
               </button>
               <button type="button" className="ops-stat ops-stat--b" onClick={() => goToTab('members')}>
                 <Users size={18} />

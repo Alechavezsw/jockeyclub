@@ -42,6 +42,8 @@ export async function bootstrapFromDb() {
     zondaSetting,
     memberTiersSetting,
     disciplinesSetting,
+    registeredUsersCount,
+    membershipApplications,
     health,
   ] = await Promise.all([
     repos.listMembers(),
@@ -77,6 +79,8 @@ export async function bootstrapFromDb() {
     repos.getSetting('zonda'),
     repos.getSetting('member_tiers'),
     repos.getSetting('disciplines_catalog'),
+    repos.countRegisteredProfiles(),
+    repos.listMembershipApplications(),
     repos.healthCheck(),
   ]);
 
@@ -98,6 +102,8 @@ export async function bootstrapFromDb() {
       isZondaActive: Boolean(zondaSetting?.active),
       tierCatalog: Array.isArray(memberTiersSetting) ? memberTiersSetting : null,
       disciplineCatalog: Array.isArray(disciplinesSetting) ? disciplinesSetting : null,
+      registeredUsersCount: registeredUsersCount || 0,
+      membershipApplications: membershipApplications || [],
     },
     erp: {
       chartOfAccounts,

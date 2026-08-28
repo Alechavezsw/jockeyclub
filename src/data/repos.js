@@ -1256,6 +1256,84 @@ export async function healthCheck() {
   return { ok: true, chartCount: count || 0 };
 }
 
+/** Usuarios con cuenta en el portal (public.profiles). */
+export async function countRegisteredProfiles() {
+  const { count, error } = await sb()
+    .from('profiles')
+    .select('id', { count: 'exact', head: true });
+  if (error) throw new Error(error.message || 'No se pudieron contar usuarios registrados');
+  return count || 0;
+}
+
+export async function listProfiles() {
+  const rows = await unwrap(
+    sb()
+      .from('profiles')
+      .select('id, email, full_name, phone, role, is_active, created_at, updated_at')
+      .order('created_at', { ascending: false }),
+    'No se pudieron cargar usuarios registrados'
+  );
+  return (rows || []).map(M.profileFromRow);
+}
+
+export async function updateProfile(profileId, patch = {}) {
+  if (!isUuid(profileId)) throw new Error('Perfil inválido');
+  const row = {};
+  if (patch.fullName !== undefined) row.full_name = patch.fullName;
+  if (patch.phone !== undefined) row.phone = patch.phone || null;
+  if (patch.role !== undefined) row.role = patch.role;
+  if (patch.isActive !== undefined) row.is_active = Boolean(patch.isActive);
+  const saved = await unwrap(
+    sb().from('profiles').update(row).eq('id', profileId).select().single(),
+    'No se pudo actualizar el usuario'
+  );
+  await audit('profile.update', 'profile', saved.id, patch);
+  return M.profileFromRow(saved);
+}
+
+export async function listMembershipApplications() {
+  const rows = await unwrap(
+    sb()
+      .from('membership_applications')
+      .select('*')
+      .order('created_at', { ascending: false }),
+    'No se pudieron cargar solicitudes de socio'
+  );
+  return (rows || []).map(M.membershipApplicationFromRow);
+}
+
+export async function countPendingMembershipApplications() {
+  const { count, error } = await sb()
+    .from('membership_applications')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'pending');
+  if (error) throw new Error(error.message || 'No se pudieron contar solicitudes de socio');
+  return count || 0;
+}
+
+export async function upsertMembershipApplication(app) {
+  const row = M.membershipApplicationToRow(app);
+  let saved;
+  if (app.id && isUuid(app.id)) {
+    saved = await unwrap(
+      sb().from('membership_applications').update(row).eq('id', app.id).select().single(),
+      'No se pudo actualizar la solicitud de socio'
+    );
+  } else {
+    saved = await unwrap(
+      sb().from('membership_applications').insert(row).select().single(),
+      'No se pudo crear la solicitud de socio'
+    );
+  }
+  await audit(
+    app.id ? 'membership_application.update' : 'membership_application.create',
+    'membership_application',
+    saved.id,
+    { status: saved.status, email: saved.email }
+  );
+  return M.membershipApplicationFromRow(saved);
+}
+
 export async function findMemberDbIdByNumber(memberNumber) {
   if (!memberNumber) return null;
   const row = await unwrap(

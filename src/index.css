@@ -252,6 +252,7 @@ h1, h2, h3, h4, h5, h6, .serif-font {
 .tabular-nums,
 .ops-money-big,
 .ops-money-green,
+.ops-money-liquid,
 .ops-floor-nums b,
 .ops-tier-mini b,
 .ops-stat strong,
@@ -2830,6 +2831,13 @@ select.form-input,
   margin-bottom: 0.45rem;
 }
 
+.ops-block-title--split {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
 .ops-row {
   display: flex;
   justify-content: space-between;
@@ -2883,6 +2891,13 @@ select.form-input,
   font-size: 1rem;
   font-weight: 700;
   color: var(--emerald-accent);
+}
+
+.ops-money-liquid {
+  margin-top: 0.4rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-strong);
 }
 
 .ops-cash-banner {
@@ -3039,6 +3054,8 @@ select.form-input,
 .ops-stat--a { background: rgba(30, 58, 40, 0.88); }
 .ops-stat--b { background: rgba(180, 140, 50, 0.55); }
 .ops-stat--c { background: rgba(16, 185, 129, 0.35); }
+.ops-stat--d { background: rgba(59, 100, 140, 0.72); }
+.ops-stat--e { background: rgba(160, 90, 40, 0.62); }
 
 .ops-tier-mini {
   display: grid;
@@ -5224,6 +5241,188 @@ select.form-input,
   .admin-rail-chevron {
     transition: none;
   }
+}
+
+/* —— Administración del sistema —— */
+.sys-admin {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.sys-admin-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.sys-admin-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-gold);
+}
+
+.sys-admin-kpis {
+  display: flex;
+  gap: 0.65rem;
+}
+
+.sys-admin-kpis > div {
+  min-width: 88px;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--border-glass);
+  border-radius: 10px;
+  background: var(--surface-inset-soft);
+  text-align: center;
+}
+
+.sys-admin-kpis b {
+  display: block;
+  font-size: 1.25rem;
+  line-height: 1.1;
+}
+
+.sys-admin-kpis span {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.sys-admin-flash {
+  margin: 0;
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--primary-gold) 35%, var(--border-glass));
+  background: color-mix(in srgb, var(--primary-gold) 12%, transparent);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+}
+
+.sys-admin-card {
+  padding: 1.1rem 1.15rem 1.2rem;
+}
+
+.sys-admin-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.85rem;
+}
+
+.sys-admin-card-head h3 {
+  margin: 0;
+  font-size: 1rem;
+  flex: 1;
+}
+
+.sys-admin-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.sys-admin-table-wrap {
+  overflow-x: auto;
+}
+
+.sys-admin-table td,
+.sys-admin-table th {
+  vertical-align: middle;
+}
+
+.sys-admin-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  border: 1px solid var(--border-glass);
+  color: var(--text-secondary);
+}
+
+.sys-admin-pill.is-on {
+  color: #86efac;
+  border-color: rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.12);
+}
+
+.sys-admin-pill.is-warn {
+  color: #fcd34d;
+  border-color: rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.12);
+}
+
+.sys-admin-form {
+  margin-bottom: 0.75rem;
+  padding: 0.85rem;
+  border-radius: 10px;
+  border: 1px dashed var(--border-glass);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.sys-admin-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.65rem;
+}
+
+.sys-admin-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.sys-admin-form-span {
+  grid-column: 1 / -1;
+}
+
+.sys-admin-app-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.sys-admin-app-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--border-glass);
+  border-radius: 10px;
+  background: var(--surface-inset-soft);
+}
+
+.sys-admin-app-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sys-admin-app-actions {
+  display: flex;
+  gap: 0.35rem;
+}
+
+[data-theme='light'] .sys-admin-pill.is-on {
+  color: #166534;
+}
+
+[data-theme='light'] .sys-admin-pill.is-warn {
+  color: #92400e;
 }
 
 /* —— Subnav Contabilidad (segmentada; distinta del rail dorado del panel) —— */

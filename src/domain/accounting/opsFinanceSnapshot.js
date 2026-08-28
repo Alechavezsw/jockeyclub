@@ -8,6 +8,13 @@ function monthPrefix(date = new Date()) {
   return `${y}-${m}`;
 }
 
+function dayKey(date = new Date()) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 function entryDate(entry) {
   return String(entry?.date || entry?.entry_date || entry?.postedAt || '').slice(0, 10);
 }
@@ -24,6 +31,7 @@ export function buildOpsFinanceSnapshot({
   today = new Date(),
 } = {}) {
   const ym = monthPrefix(today);
+  const day = dayKey(today);
   const activeMembers = members.filter((m) => m.status !== 'inactive');
   const alDia = activeMembers.filter((m) => (Number(m.outstandingBalance) || 0) <= 0).length;
   const debtors = activeMembers.filter((m) => (Number(m.outstandingBalance) || 0) > 0);
@@ -49,7 +57,9 @@ export function buildOpsFinanceSnapshot({
   });
 
   const paymentsMonth = paymentRows.filter((p) => p.date.startsWith(ym));
+  const paymentsToday = paymentRows.filter((p) => p.date === day);
   const duesCollectedMonth = paymentsMonth.reduce((s, p) => s + p.amount, 0);
+  const duesCollectedToday = paymentsToday.reduce((s, p) => s + p.amount, 0);
 
   let journalIncomeMonth = 0;
   let journalExpenseMonth = 0;
@@ -88,10 +98,17 @@ export function buildOpsFinanceSnapshot({
     });
   });
 
+  const journalIncomeTodayRows = journalIncomeRows.filter((r) => r.date === day);
+  const journalIncomeToday = journalIncomeTodayRows.reduce((s, r) => s + r.amount, 0);
+
   // Evitar doble conteo si el cobro generó pago + asiento de cuotas
   const collectedMonth = duesCollectedMonth > 0
     ? duesCollectedMonth + Math.max(0, journalIncomeMonth - duesCollectedMonth)
     : journalIncomeMonth;
+
+  const collectedToday = duesCollectedToday > 0
+    ? duesCollectedToday + Math.max(0, journalIncomeToday - duesCollectedToday)
+    : journalIncomeToday;
 
   const cashToday = typeof getAccountBalance === 'function'
     ? (Number(getAccountBalance('Caja General')) || 0)
@@ -99,12 +116,19 @@ export function buildOpsFinanceSnapshot({
       + (Number(getAccountBalance('Banco Nación')) || 0)
     : 0;
 
+  const sortByDateDesc = (a, b) => String(b.date).localeCompare(String(a.date));
+
+  const todayIncomes = [...paymentsToday, ...journalIncomeTodayRows]
+    .sort(sortByDateDesc)
+    .slice(0, 8);
+
   const recentIncomes = [...paymentsMonth, ...journalIncomeRows]
-    .sort((a, b) => String(b.date).localeCompare(String(a.date)))
+    .sort(sortByDateDesc)
     .slice(0, 5);
 
   return {
     monthKey: ym,
+    dayKey: day,
     collectionRate,
     alDia,
     activeMembers: activeMembers.length,
@@ -112,10 +136,14 @@ export function buildOpsFinanceSnapshot({
     debtTotal,
     expectedMonth,
     collectedMonth,
+    collectedToday,
     duesCollectedMonth,
+    duesCollectedToday,
     journalIncomeMonth,
+    journalIncomeToday,
     journalExpenseMonth,
     cashToday,
+    todayIncomes,
     recentIncomes,
     hasJournal: (journalEntries || []).length > 0,
     hasPayments: paymentRows.length > 0,

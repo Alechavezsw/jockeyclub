@@ -25,6 +25,7 @@ import DisciplinesTab from '../components/admin/DisciplinesTab';
 import AccessLogsTab from '../components/admin/AccessLogsTab';
 import ClubFacilitiesPanel from '../components/admin/ClubFacilitiesPanel';
 import NewsCmsTab from '../components/admin/NewsCmsTab';
+import SystemAdminTab from '../components/admin/SystemAdminTab';
 import { DEFAULT_CHART_OF_ACCOUNTS, resolveAccountId } from '../domain/accounting/chartOfAccounts';
 import { getAccountBalance as domainAccountBalance } from '../domain/accounting/journal';
 import { allowedAdminTabs, canAccessConcessions, canAccessQrGate, ROLE_LABELS, ROLE_PANEL_META } from '../domain/auth/roles';
@@ -36,7 +37,8 @@ const GROUP_ICONS = {
   club: Trophy,
   mgmt: Briefcase,
   care: Headset,
-  sys: Settings,
+  admin: Settings,
+  sys: Database,
 };
 
 /**
@@ -65,6 +67,10 @@ export default function AdminView({
   setEntryLogs,
   surveys = [],
   setSurveys,
+  registeredUsersCount = 0,
+  setRegisteredUsersCount,
+  membershipApplications = [],
+  setMembershipApplications,
   erp = {},
   latestNews = [],
   setNewsList,
@@ -159,6 +165,13 @@ export default function AdminView({
           { key: 'alerts', icon: BellRing, label: 'Alertas' },
           { key: 'claims', icon: MessageSquare, label: 'Reclamos' },
           { key: 'messaging', icon: Phone, label: 'Mensajería' },
+        ],
+      },
+      {
+        id: 'admin',
+        label: 'Administración',
+        tabs: [
+          { key: 'system', icon: Settings, label: 'Usuarios y altas' },
         ],
       },
       {
@@ -562,6 +575,8 @@ export default function AdminView({
           getAccountBalance={getAccountBalance}
           journalEntries={journalEntries}
           chartOfAccounts={chartOfAccounts}
+          registeredUsersCount={registeredUsersCount}
+          membershipApplications={membershipApplications}
         />
       )}
 
@@ -773,6 +788,15 @@ export default function AdminView({
 
       {activeTab === 'surveys' && (
         <SurveysTab surveys={surveys} setSurveys={setSurveys} />
+      )}
+
+      {activeTab === 'system' && (
+        <SystemAdminTab
+          membershipApplications={membershipApplications}
+          setMembershipApplications={setMembershipApplications}
+          registeredUsersCount={registeredUsersCount}
+          setRegisteredUsersCount={setRegisteredUsersCount}
+        />
       )}
 
       {activeTab === 'migration' && (

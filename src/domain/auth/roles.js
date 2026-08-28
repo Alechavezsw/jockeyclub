@@ -52,6 +52,7 @@ export function allowedAdminTabs(role) {
       'news',
       'reports',
       'surveys',
+      'system',
       'migration',
     ];
   }
