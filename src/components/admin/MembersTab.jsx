@@ -9,6 +9,8 @@ import CollectDuesModal from './CollectDuesModal';
 import ModalDialog from '../ModalDialog';
 import MemberTiersPanel from './MemberTiersPanel';
 import { addMonthsISODate, nowTimeAR, todayISODateAR } from '../../lib/arDate';
+import { isSupabaseConfigured } from '../../lib/supabase';
+import { repos } from '../../data/bootstrap';
 
 function emptyMemberForm() {
   const joinDate = todayISODateAR();
@@ -1045,7 +1047,26 @@ export default function MembersTab({
                   <td>
                     <div className="member-profile-cell">
                       <button
-                        onClick={() => setExpandedMemberId(expandedMemberId === m.memberId ? null : m.memberId)}
+                        onClick={() => {
+                          const nextId = expandedMemberId === m.memberId ? null : m.memberId;
+                          setExpandedMemberId(nextId);
+                          if (
+                            nextId
+                            && isSupabaseConfigured
+                            && m.id
+                            && (!m.adherents || m.adherents.length === 0)
+                            && setMembers
+                          ) {
+                            repos.listMemberAdherents(m.id).then((adherents) => {
+                              if (!adherents?.length) return;
+                              setMembers((prev) => prev.map((item) => (
+                                item.memberId === m.memberId
+                                  ? { ...item, adherents }
+                                  : item
+                              )));
+                            }).catch(() => {});
+                          }
+                        }}
                         style={{ background: 'none', border: 'none', color: 'var(--primary-gold)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '0.2rem' }}
                         title="Grupo familiar"
                         type="button"

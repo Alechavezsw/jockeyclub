@@ -21,7 +21,7 @@ import { loadDisciplineCatalog } from './domain/sports/disciplines';
 import { loadTierCatalog, setRuntimeTierCatalog } from './domain/members/tiers';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
 import { notifyNextOnWaitlist } from './domain/reservations/waitlist';
-import { bootstrapFromDb, repos } from './data/bootstrap';
+import { bootstrapShellFromDb, bootstrapMembersFromDb, repos } from './data/bootstrap';
 import { useDailyBackup } from './hooks/useDailyBackup';
 
 // Lazy load de vistas pesadas (bundle-dynamic-imports)
@@ -886,6 +886,8 @@ export default function App() {
 
   const [registeredUsersCount, setRegisteredUsersCount] = useState(0);
   const [membershipApplications, setMembershipApplications] = useState([]);
+  const [membersCount, setMembersCount] = useState(0);
+  const [membersLoading, setMembersLoading] = useState(false);
 
   const [waitlist, setWaitlist] = useState(() => {
     try {
@@ -1143,7 +1145,7 @@ export default function App() {
     if (!isAuthenticated) hydratedRef.current = false;
   }, [isAuthenticated]);
 
-  // Hidratar desde Supabase tras login
+  // Hidratar desde Supabase tras login (shell rápido → padrón en background)
   useEffect(() => {
     if (!cloudMode || !isAuthenticated || authLoading) return undefined;
     if (hydratedRef.current) return undefined;
@@ -1151,20 +1153,14 @@ export default function App() {
     (async () => {
       setDbReady(false);
       setDbError('');
+      setMembersLoading(true);
       try {
-        const data = await bootstrapFromDb();
+        const data = await bootstrapShellFromDb();
         if (cancelled || !data) return;
-        const { app, erp: erpData, health, memberDbIds: ids } = data;
-        const rawMembers = app.members || [];
-        const withDues = applyAutomaticDues(rawMembers);
-        setMembers(withDues);
-        // Persistir cuotas generadas automáticamente (vencidas sin saldo en BD)
-        const duesToPersist = diffAutomaticDues(rawMembers, withDues);
-        if (duesToPersist.length) {
-          Promise.all(
-            duesToPersist.map((m) => repos.upsertMember(m).catch(() => null))
-          ).catch(() => {});
-        }
+        const { app, erp: erpData, health } = data;
+        // Evitar flash del padrón demo local mientras llega la nube
+        setMembers([]);
+        setMembersCount(app.membersCount || 0);
         setReservations(app.reservations || []);
         setWaitlist(app.waitlist || []);
         setNewsList(app.newsList || []);
@@ -1180,7 +1176,7 @@ export default function App() {
         setRegisteredUsersCount(app.registeredUsersCount || 0);
         setMembershipApplications(app.membershipApplications || []);
         setIsZondaActive(Boolean(app.isZondaActive));
-        setMemberDbIds(ids || {});
+        setMemberDbIds({});
         if (Array.isArray(app.tierCatalog) && app.tierCatalog.length) {
           setTierCatalog(app.tierCatalog);
           setRuntimeTierCatalog(app.tierCatalog);
@@ -1199,8 +1195,34 @@ export default function App() {
         });
         setDbHealthy(Boolean(health?.ok));
         hydratedRef.current = true;
+        if (!cancelled) setDbReady(true);
+
+        // Fase 2: padrón completo sin bloquear el dashboard
+        try {
+          const { members: rawMembers, memberDbIds: ids } = await bootstrapMembersFromDb();
+          if (cancelled) return;
+          const withDues = applyAutomaticDues(rawMembers || []);
+          setMembers(withDues);
+          setMembersCount(withDues.length);
+          setMemberDbIds(ids || {});
+          const duesToPersist = diffAutomaticDues(rawMembers || [], withDues);
+          if (duesToPersist.length) {
+            Promise.all(
+              duesToPersist.map((m) => repos.upsertMember(m).catch(() => null))
+            ).catch(() => {});
+          }
+        } catch (membersErr) {
+          if (!cancelled) {
+            setDbError(membersErr.message || 'No se pudo cargar el padrón completo');
+          }
+        } finally {
+          if (!cancelled) setMembersLoading(false);
+        }
       } catch (err) {
-        if (!cancelled) setDbError(err.message || 'No se pudo cargar la base de datos');
+        if (!cancelled) {
+          setDbError(err.message || 'No se pudo cargar la base de datos');
+          setMembersLoading(false);
+        }
       } finally {
         if (!cancelled) setDbReady(true);
       }
@@ -1663,6 +1685,8 @@ export default function App() {
   const operativePanel = (
       <AdminView
         members={members}
+        membersCount={membersCount}
+        membersLoading={membersLoading}
         reservations={reservations}
         setMembers={setMembersDb}
         setReservations={setReservations}

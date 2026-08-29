@@ -48,6 +48,8 @@ const GROUP_ICONS = {
  */
 export default function AdminView({
   members,
+  membersCount = 0,
+  membersLoading = false,
   reservations,
   setMembers,
   setReservations,
@@ -241,7 +243,7 @@ export default function AdminView({
   const utilidadNeta = totalIngresos - totalGastos;
   const totalPatrimonioNetoTotal = totalPatrimonioNetoBase + utilidadNeta;
 
-  const totalMembers = members.length;
+  const totalMembers = members.length > 0 ? members.length : (membersCount || 0);
   const activeBookingsCount = reservations.filter(res => res.status === 'confirmed').length;
   const pendingBookingsCount = reservations.filter(res => res.status === 'pending').length;
 
@@ -249,7 +251,7 @@ export default function AdminView({
   const overdueMembers = getOverdueMembers(members);
   const overdueMembersCount = overdueMembers.length;
   const upcomingDuesCount = getUpcomingDuesMembers(members, { withinDays: 15 }).length;
-  const paymentCollectionRate = totalMembers > 0 ? Math.round((paidMembers / totalMembers) * 100) : 0;
+  const paymentCollectionRate = members.length > 0 ? Math.round((paidMembers / members.length) * 100) : 0;
   const totalOutstanding = members.reduce((sum, m) => sum + (Number(m.outstandingBalance) || 0), 0);
 
   // Indicadores operativos para dashboards por rol
@@ -476,17 +478,17 @@ export default function AdminView({
               { icon: <DollarSign size={20} />, bg: 'rgba(16, 185, 129, 0.1)', color: 'var(--emerald-accent)', title: 'Total en Caja y Bancos', value: formatCurrency(totalCashOnHand), valueColor: 'var(--emerald-accent)', compact: true, sub: 'Caja General + Cantina + Banco Nación' },
               { icon: <Check size={20} />, bg: 'rgba(16, 185, 129, 0.1)', color: 'var(--emerald-accent)', title: 'Recaudación Cuotas', value: `${paymentCollectionRate}%`, valueColor: 'var(--emerald-accent)', sub: `${paidMembers} de ${totalMembers} socios al día` },
               { icon: <ShieldAlert size={20} />, bg: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', title: 'Deuda Pendiente', value: formatCurrency(totalOutstanding), valueColor: '#f59e0b', compact: true, sub: 'Cuotas sociales a cobrar' },
-              { icon: <Users size={20} />, bg: 'rgba(207, 161, 58, 0.1)', color: 'var(--primary-gold)', title: 'Padrón Social', value: totalMembers, sub: 'Membresías titulares activas' },
+              { icon: <Users size={20} />, bg: 'rgba(207, 161, 58, 0.1)', color: 'var(--primary-gold)', title: 'Padrón Social', value: totalMembers, sub: membersLoading && members.length === 0 ? 'Cargando detalle del padrón…' : 'Membresías titulares activas' },
             ],
             accountant: [
               { icon: <CreditCard size={20} />, bg: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', title: 'Activos Totales', value: formatCurrency(totalActivos), compact: true, sub: `Pasivos: ${formatCurrency(totalPasivos)}` },
               { icon: <BookOpen size={20} />, bg: 'rgba(207, 161, 58, 0.1)', color: 'var(--primary-gold)', title: 'Patrimonio Neto', value: formatCurrency(totalPatrimonioNetoTotal), compact: true, sub: 'Incluye resultado del ejercicio' },
               { icon: <Activity size={20} />, bg: utilidadNeta >= 0 ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)', color: utilidadNeta >= 0 ? 'var(--emerald-accent)' : 'var(--danger-accent)', title: 'Resultado del Ejercicio', value: formatCurrency(utilidadNeta), valueColor: utilidadNeta >= 0 ? 'var(--emerald-accent)' : 'var(--danger-accent)', compact: true, sub: `Ingresos ${formatCurrency(totalIngresos)} · Gastos ${formatCurrency(totalGastos)}` },
-              { icon: <DollarSign size={20} />, bg: 'rgba(16, 185, 129, 0.1)', color: 'var(--emerald-accent)', title: 'Recaudación Cuotas', value: `${paymentCollectionRate}%`, valueColor: 'var(--emerald-accent)', sub: `Pendiente: ${formatCurrency(totalOutstanding)}` },
+              { icon: <DollarSign size={20} />, bg: 'rgba(16, 185, 129, 0.1)', color: 'var(--emerald-accent)', title: 'Recaudación Cuotas', value: members.length ? `${paymentCollectionRate}%` : (membersLoading ? '…' : `${paymentCollectionRate}%`), valueColor: 'var(--emerald-accent)', sub: `Pendiente: ${formatCurrency(totalOutstanding)}` },
             ],
             admin: [
-              { icon: <Users size={20} />, bg: 'rgba(207, 161, 58, 0.1)', color: 'var(--primary-gold)', title: 'Padrón Social', value: totalMembers, sub: 'Membresías titulares activas' },
-              { icon: <DollarSign size={20} />, bg: 'rgba(16, 185, 129, 0.1)', color: 'var(--emerald-accent)', title: 'Recaudación Cuotas', value: `${paymentCollectionRate}%`, valueColor: 'var(--emerald-accent)', sub: `Pendiente: ${formatCurrency(totalOutstanding)}` },
+              { icon: <Users size={20} />, bg: 'rgba(207, 161, 58, 0.1)', color: 'var(--primary-gold)', title: 'Padrón Social', value: totalMembers, sub: membersLoading && members.length === 0 ? 'Cargando detalle del padrón…' : 'Membresías titulares activas' },
+              { icon: <DollarSign size={20} />, bg: 'rgba(16, 185, 129, 0.1)', color: 'var(--emerald-accent)', title: 'Recaudación Cuotas', value: members.length ? `${paymentCollectionRate}%` : (membersLoading ? '…' : `${paymentCollectionRate}%`), valueColor: 'var(--emerald-accent)', sub: `Pendiente: ${formatCurrency(totalOutstanding)}` },
               {
                 icon: <ShieldAlert size={20} />,
                 bg: 'rgba(239, 68, 68, 0.15)',

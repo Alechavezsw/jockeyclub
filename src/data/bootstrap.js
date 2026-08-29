@@ -2,14 +2,14 @@ import { isSupabaseConfigured } from '../lib/supabase';
 import * as repos from './repos';
 
 /**
- * Carga inicial de todos los dominios desde Supabase.
- * Devuelve null si no hay Supabase (modo local/demo).
+ * Carga rápida del shell (sin padrón completo).
+ * El dashboard puede pintar con membersCount mientras llega listMembers.
  */
-export async function bootstrapFromDb() {
+export async function bootstrapShellFromDb() {
   if (!isSupabaseConfigured) return null;
 
   const [
-    members,
+    membersCount,
     reservations,
     waitlist,
     newsList,
@@ -46,7 +46,7 @@ export async function bootstrapFromDb() {
     membershipApplications,
     health,
   ] = await Promise.all([
-    repos.listMembers(),
+    repos.countMembers(),
     repos.listReservations(),
     repos.listWaitlist(),
     repos.listNews(),
@@ -86,7 +86,8 @@ export async function bootstrapFromDb() {
 
   return {
     app: {
-      members,
+      members: [],
+      membersCount: membersCount || 0,
       reservations,
       waitlist,
       newsList,
@@ -125,9 +126,29 @@ export async function bootstrapFromDb() {
       canonPayments,
     },
     health,
-    memberDbIds: Object.fromEntries(
-      (members || []).map((m) => [m.memberId, m.id])
-    ),
+    memberDbIds: {},
+  };
+}
+
+/** Padrón completo (fase 2, en background tras el shell). */
+export async function bootstrapMembersFromDb() {
+  if (!isSupabaseConfigured) return { members: [], memberDbIds: {} };
+  const members = await repos.listMembers();
+  return {
+    members,
+    memberDbIds: Object.fromEntries((members || []).map((m) => [m.memberId, m.id])),
+  };
+}
+
+/** @deprecated usar bootstrapShellFromDb + bootstrapMembersFromDb */
+export async function bootstrapFromDb() {
+  const shell = await bootstrapShellFromDb();
+  if (!shell) return null;
+  const { members, memberDbIds } = await bootstrapMembersFromDb();
+  return {
+    ...shell,
+    app: { ...shell.app, members },
+    memberDbIds,
   };
 }
 

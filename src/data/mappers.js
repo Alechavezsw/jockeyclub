@@ -49,6 +49,7 @@ export function memberFromRow(row, payments = []) {
     photo: row.photo_url || null,
     cardNumber: row.card_number || null,
     profileId: row.profile_id || null,
+    notes: row.notes || '',
     adherents: (row.member_adherents || []).map(adherentFromRow),
     paymentHistory: payments.map(paymentFromRow),
     ...(row.meta || {}),
@@ -88,6 +89,7 @@ export function memberToRow(member) {
     overdue_since: member.overdueSince || null,
     photo_url: member.photo || null,
     card_number: member.cardNumber || null,
+    notes: member.notes || null,
     meta: {
       ...(member.meta && typeof member.meta === 'object' ? member.meta : {}),
       ...(member.joinTime ? { joinTime: member.joinTime } : {}),
