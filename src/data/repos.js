@@ -17,6 +17,45 @@ function sb() {
 /** PostgREST pagina de a N filas; fetchAllRows recorre todo el padrón sin tope de socios. */
 const PAGE_SIZE = 1000;
 
+/** Columnas de listado: sin historial de pagos (se carga bajo demanda en ficha). */
+const MEMBERS_LIST_SELECT = [
+  'id',
+  'member_number',
+  'full_name',
+  'phone',
+  'phone_alt',
+  'email',
+  'address',
+  'city',
+  'province',
+  'postal_code',
+  'document_type',
+  'document_number',
+  'birth_date',
+  'gender',
+  'marital_status',
+  'nationality',
+  'joined_at',
+  'emergency_contact',
+  'emergency_phone',
+  'payment_method',
+  'billing_name',
+  'cuit_cuil',
+  'tax_condition',
+  'disciplines',
+  'tier',
+  'status',
+  'outstanding_balance',
+  'years_active',
+  'next_due_date',
+  'overdue_since',
+  'photo_url',
+  'card_number',
+  'profile_id',
+  'meta',
+  'member_adherents(id, full_name, relationship, tier, status, outstanding_balance, disciplines)',
+].join(',');
+
 async function fetchAllRows(queryFactory, fallback, pageSize = PAGE_SIZE) {
   const all = [];
   let from = 0;
@@ -28,6 +67,22 @@ async function fetchAllRows(queryFactory, fallback, pageSize = PAGE_SIZE) {
     from += pageSize;
   }
   return all;
+}
+
+/** Páginas en paralelo (mucho más rápido que encadenar range). */
+async function fetchAllRowsParallel(countQuery, pageQuery, fallback, pageSize = PAGE_SIZE) {
+  const { count, error } = await countQuery;
+  throwOnError(error, fallback);
+  const total = count || 0;
+  if (!total) return [];
+  const pageCount = Math.ceil(total / pageSize);
+  const pages = await Promise.all(
+    Array.from({ length: pageCount }, (_, i) => {
+      const from = i * pageSize;
+      return unwrap(pageQuery(from, from + pageSize - 1), fallback);
+    })
+  );
+  return pages.flatMap((chunk) => chunk || []);
 }
 
 /** Conteo exacto de socios (sin descargar filas). */
@@ -56,29 +111,58 @@ async function audit(action, entityType, entityId, payload = {}) {
 
 // ---- Members ----
 export async function listMembers() {
-  const rows = await fetchAllRows(
+  const rows = await fetchAllRowsParallel(
+    sb().from('members').select('id', { count: 'exact', head: true }),
     (from, to) => sb()
       .from('members')
-      .select('*, member_adherents(*)')
+      .select(MEMBERS_LIST_SELECT)
       .order('full_name')
       .order('id')
       .range(from, to),
     'No se pudieron cargar socios'
   );
-  const payments = await fetchAllRows(
+  // Sin paymentHistory masivo: el listado/dashboard usan outstanding_balance.
+  return rows.map((r) => M.memberFromRow(r, []));
+}
+
+/** Historial de pagos de un socio (ficha / cuenta). */
+export async function listMemberPayments(memberDbId) {
+  if (!memberDbId) return [];
+  return fetchAllRows(
     (from, to) => sb()
       .from('member_payments')
       .select('*')
+      .eq('member_id', memberDbId)
       .order('paid_at', { ascending: false })
       .order('id')
       .range(from, to),
     'No se pudieron cargar pagos'
+  ).then((rows) => rows.map(M.paymentFromRow));
+}
+
+export async function getMemberByNumber(memberNumber, { withPayments = false } = {}) {
+  const row = await unwrap(
+    sb()
+      .from('members')
+      .select(MEMBERS_LIST_SELECT)
+      .eq('member_number', String(memberNumber))
+      .maybeSingle(),
+    'No se pudo cargar el socio'
   );
-  const byMember = {};
-  payments.forEach((p) => {
-    (byMember[p.member_id] ||= []).push(p);
-  });
-  return rows.map((r) => M.memberFromRow(r, byMember[r.id] || []));
+  if (!row) return null;
+  const payments = withPayments
+    ? await fetchAllRows(
+      (from, to) => sb()
+        .from('member_payments')
+        .select('*')
+        .eq('member_id', row.id)
+        .order('paid_at', { ascending: false })
+        .order('id')
+        .range(from, to),
+      'No se pudieron cargar pagos'
+    )
+    : [];
+  return M.memberFromRow(row, payments);
 }
 
 export async function upsertMember(member) {

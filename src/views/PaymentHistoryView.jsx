@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
   CreditCard,
@@ -16,6 +16,8 @@ import {
 } from '../domain/members/paymentHistory';
 import { payMemberDues, payUpcomingDues } from '../domain/members/memberPayments';
 import { downloadPaymentReceiptPdf } from '../domain/members/exportPaymentReceiptPdf';
+import { isSupabaseConfigured } from '../lib/supabase';
+import { repos } from '../data/bootstrap';
 
 function formatCurrency(amount) {
   return new Intl.NumberFormat('es-AR', {
@@ -39,11 +41,33 @@ export default function PaymentHistoryView({ member, setCurrentView, updateMembe
   const [paying, setPaying] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [remoteHistory, setRemoteHistory] = useState(null);
 
-  const history = useMemo(() => getMemberPaymentHistory(member), [member]);
+  useEffect(() => {
+    let cancelled = false;
+    setRemoteHistory(null);
+    if (!isSupabaseConfigured || !member?.id) return undefined;
+    (async () => {
+      try {
+        const rows = await repos.listMemberPayments(member.id);
+        if (!cancelled) setRemoteHistory(rows);
+      } catch {
+        if (!cancelled) setRemoteHistory([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [member?.id]);
+
+  const memberForHistory = useMemo(() => {
+    if (!member) return member;
+    if (remoteHistory == null) return member;
+    return { ...member, paymentHistory: remoteHistory };
+  }, [member, remoteHistory]);
+
+  const history = useMemo(() => getMemberPaymentHistory(memberForHistory), [memberForHistory]);
   const summary = useMemo(
-    () => summarizePaymentHistory(history, member),
-    [history, member]
+    () => summarizePaymentHistory(history, memberForHistory),
+    [history, memberForHistory]
   );
   const alDia = summary.outstanding <= 0;
 

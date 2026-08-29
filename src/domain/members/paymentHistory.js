@@ -22,7 +22,8 @@ function shiftMonths(fromIso, delta) {
 
 /**
  * Historial de pagos del socio.
- * Usa `member.paymentHistory` si existe; si no, genera un historial demo coherente.
+ * Usa `member.paymentHistory` si existe; si no hay filas y el socio viene de BD (`id`),
+ * devuelve vacío (no inventa demos). El historial demo solo aplica a fichas locales.
  */
 export function getMemberPaymentHistory(member, { today = new Date() } = {}) {
   if (Array.isArray(member?.paymentHistory) && member.paymentHistory.length) {
@@ -30,6 +31,9 @@ export function getMemberPaymentHistory(member, { today = new Date() } = {}) {
       .map(normalizePayment)
       .sort((a, b) => String(b.date).localeCompare(String(a.date)));
   }
+
+  // Socio persistido en cloud: sin pagos = historial vacío real
+  if (member?.id) return [];
 
   const todayIso = today.toISOString().slice(0, 10);
   const baseDue = member?.nextDueDate || todayIso;
