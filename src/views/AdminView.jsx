@@ -26,6 +26,7 @@ import AccessLogsTab from '../components/admin/AccessLogsTab';
 import ClubFacilitiesPanel from '../components/admin/ClubFacilitiesPanel';
 import NewsCmsTab from '../components/admin/NewsCmsTab';
 import SystemAdminTab from '../components/admin/SystemAdminTab';
+import PortalUserProfilePanel from '../components/admin/PortalUserProfilePanel';
 import { DEFAULT_CHART_OF_ACCOUNTS, resolveAccountId } from '../domain/accounting/chartOfAccounts';
 import { getAccountBalance as domainAccountBalance } from '../domain/accounting/journal';
 import { allowedAdminTabs, allowedAdminTabsForRoles, canAccessConcessions, canAccessQrGate, ROLE_LABELS, ROLE_PANEL_META } from '../domain/auth/roles';
@@ -791,13 +792,21 @@ export default function AdminView({
       )}
 
       {activeTab === 'system' && (
-        <SystemAdminTab
-          userRole={userRole}
-          membershipApplications={membershipApplications}
-          setMembershipApplications={setMembershipApplications}
-          registeredUsersCount={registeredUsersCount}
-          setRegisteredUsersCount={setRegisteredUsersCount}
-        />
+        routeEntityId ? (
+          <PortalUserProfilePanel
+            profileId={routeEntityId}
+            onBack={() => navigate('/panel/system')}
+            onEdit={(p) => navigate('/panel/system', { state: { editProfileId: p.id } })}
+          />
+        ) : (
+          <SystemAdminTab
+            userRole={userRole}
+            membershipApplications={membershipApplications}
+            setMembershipApplications={setMembershipApplications}
+            registeredUsersCount={registeredUsersCount}
+            setRegisteredUsersCount={setRegisteredUsersCount}
+          />
+        )
       )}
 
       {activeTab === 'migration' && (

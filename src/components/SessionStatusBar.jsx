@@ -83,7 +83,7 @@ export default function SessionStatusBar({ members = [], staffMembers = [] }) {
       });
 
       if (tabs.includes('members')) {
-        members.slice(0, 400).forEach((m) => {
+        members.forEach((m) => {
           const hay = normalize([
             m.name,
             m.memberId,
@@ -103,7 +103,7 @@ export default function SessionStatusBar({ members = [], staffMembers = [] }) {
       }
 
       if (tabs.includes('staff')) {
-        staffMembers.slice(0, 200).forEach((s) => {
+        staffMembers.forEach((s) => {
           const hay = normalize([s.name, s.role, s.area, s.email, s.phone, s.id].join(' '));
           if (!hay.includes(q)) return;
           items.push({

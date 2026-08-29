@@ -72,7 +72,7 @@ export function memberToRow(member) {
     gender: member.gender || null,
     marital_status: member.maritalStatus || null,
     nationality: member.nationality || null,
-    joined_at: member.joinDate || null,
+    joined_at: member.joinDate || '1900-01-01',
     emergency_contact: member.emergencyContact || null,
     emergency_phone: member.emergencyPhone || null,
     payment_method: member.paymentMethod || null,

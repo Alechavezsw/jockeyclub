@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import { unwrap } from './errors';
+import { unwrap, throwOnError } from './errors';
 import * as M from './mappers';
 
 const FISCAL_2026 = '11111111-1111-1111-1111-111111111111';
@@ -12,6 +12,31 @@ function isUuid(id) {
 function sb() {
   if (!supabase) throw new Error('Supabase no configurado');
   return supabase;
+}
+
+/** PostgREST pagina de a N filas; fetchAllRows recorre todo el padrón sin tope de socios. */
+const PAGE_SIZE = 1000;
+
+async function fetchAllRows(queryFactory, fallback, pageSize = PAGE_SIZE) {
+  const all = [];
+  let from = 0;
+  for (;;) {
+    const chunk = await unwrap(queryFactory(from, from + pageSize - 1), fallback);
+    const rows = chunk || [];
+    all.push(...rows);
+    if (rows.length < pageSize) break;
+    from += pageSize;
+  }
+  return all;
+}
+
+/** Conteo exacto de socios (sin descargar filas). */
+export async function countMembers() {
+  const { count, error } = await sb()
+    .from('members')
+    .select('*', { count: 'exact', head: true });
+  throwOnError(error, 'No se pudo contar socios');
+  return count || 0;
 }
 
 async function audit(action, entityType, entityId, payload = {}) {
@@ -31,19 +56,29 @@ async function audit(action, entityType, entityId, payload = {}) {
 
 // ---- Members ----
 export async function listMembers() {
-  const rows = await unwrap(
-    sb().from('members').select('*, member_adherents(*)').order('full_name'),
+  const rows = await fetchAllRows(
+    (from, to) => sb()
+      .from('members')
+      .select('*, member_adherents(*)')
+      .order('full_name')
+      .order('id')
+      .range(from, to),
     'No se pudieron cargar socios'
   );
-  const payments = await unwrap(
-    sb().from('member_payments').select('*').order('paid_at', { ascending: false }),
+  const payments = await fetchAllRows(
+    (from, to) => sb()
+      .from('member_payments')
+      .select('*')
+      .order('paid_at', { ascending: false })
+      .order('id')
+      .range(from, to),
     'No se pudieron cargar pagos'
   );
   const byMember = {};
-  (payments || []).forEach((p) => {
+  payments.forEach((p) => {
     (byMember[p.member_id] ||= []).push(p);
   });
-  return (rows || []).map((r) => M.memberFromRow(r, byMember[r.id] || []));
+  return rows.map((r) => M.memberFromRow(r, byMember[r.id] || []));
 }
 
 export async function upsertMember(member) {
@@ -1277,6 +1312,21 @@ export async function listProfiles() {
   return withRoles.map(M.profileFromRow);
 }
 
+export async function getProfile(profileId) {
+  if (!isUuid(profileId)) throw new Error('Perfil inválido');
+  const row = await unwrap(
+    sb()
+      .from('profiles')
+      .select('*, profile_authorizations(*), profile_identifiers(*)')
+      .eq('id', profileId)
+      .maybeSingle(),
+    'No se pudo cargar el perfil'
+  );
+  if (!row) return null;
+  const [withRoles] = await attachProfileRoles([row]);
+  return M.profileFromRow(withRoles);
+}
+
 async function attachProfileRoles(rows = []) {
   const list = Array.isArray(rows) ? rows : [];
   if (!list.length) return list;
@@ -1333,6 +1383,24 @@ export async function updateProfile(profileId, patch = {}) {
       if (patch.fullName === undefined && first !== undefined && last !== undefined) {
         row.full_name = [first, last].filter(Boolean).join(' ').trim() || null;
       }
+    }
+  }
+
+  if (patch.username !== undefined || patch.contactEmail !== undefined || patch.meta !== undefined) {
+    const current = await unwrap(
+      sb().from('profiles').select('meta').eq('id', profileId).maybeSingle(),
+      'No se pudo leer meta del perfil'
+    );
+    const prevMeta = current?.meta && typeof current.meta === 'object' ? current.meta : {};
+    row.meta = {
+      ...prevMeta,
+      ...(patch.meta && typeof patch.meta === 'object' ? patch.meta : {}),
+    };
+    if (patch.username !== undefined) {
+      row.meta.username = String(patch.username || '').trim() || null;
+    }
+    if (patch.contactEmail !== undefined) {
+      row.meta.contactEmail = String(patch.contactEmail || '').trim() || null;
     }
   }
 
@@ -1536,22 +1604,44 @@ export async function replaceProfileRoles(profileId, roles = []) {
   return M.profileFromRow(withRoles);
 }
 
-export async function listProfileAudit(profileId, { limit = 50 } = {}) {
+export async function listProfileAudit(profileId, { limit = 80 } = {}) {
   if (!isUuid(profileId)) throw new Error('Perfil inválido');
   const rows = await unwrap(
     sb()
       .from('audit_logs')
       .select('id, actor_id, action, entity_type, entity_id, payload, created_at')
-      .eq('entity_type', 'profile')
       .eq('entity_id', profileId)
       .order('created_at', { ascending: false })
       .limit(limit),
     'No se pudo cargar el historial del perfil'
   );
+
+  const actorIds = [...new Set((rows || []).map((r) => r.actor_id).filter(Boolean))];
+  let actorsById = {};
+  if (actorIds.length) {
+    try {
+      const actors = await unwrap(
+        sb().from('profiles').select('id, full_name, email, first_name, last_name').in('id', actorIds),
+        'No se pudieron cargar actores del historial'
+      );
+      actorsById = Object.fromEntries((actors || []).map((a) => {
+        const name = a.full_name
+          || [a.last_name, a.first_name].filter(Boolean).join(' ')
+          || a.email
+          || a.id;
+        return [a.id, name];
+      }));
+    } catch {
+      actorsById = {};
+    }
+  }
+
   return (rows || []).map((r) => ({
     id: r.id,
     actorId: r.actor_id,
+    actorName: r.actor_id ? (actorsById[r.actor_id] || 'Usuario del sistema') : 'Sistema',
     action: r.action,
+    entityType: r.entity_type,
     payload: r.payload || {},
     createdAt: r.created_at,
   }));

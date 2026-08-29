@@ -1,7 +1,12 @@
-import { useState } from 'react';
-import { Database, CloudUpload } from 'lucide-react';
-import { isSupabaseConfigured } from '../../lib/supabase';
+import { useRef, useState } from 'react';
+import { Database, CloudUpload, Users, Play, Eye, RefreshCw } from 'lucide-react';
+import { isSupabaseConfigured, supabase } from '../../lib/supabase';
 import { repos } from '../../data/bootstrap';
+import {
+  parseCsv,
+  sociosRowsToMembers,
+  summarizeMembers,
+} from '../../domain/members/datitaImport';
 
 const LOCAL_KEYS = [
   'jockey-members',
@@ -15,19 +20,36 @@ const LOCAL_KEYS = [
   'jockey-entry-logs',
 ];
 
-/** Consola de migración: localStorage → Supabase (o siembra demo local). */
+const BATCH = 200;
+
+async function readFileText(file) {
+  const buf = await file.arrayBuffer();
+  let text = new TextDecoder('utf-8').decode(buf);
+  const bad = (text.match(/\uFFFD/g) || []).length;
+  if (bad > 20) text = new TextDecoder('latin1').decode(buf);
+  return text.replace(/^\uFEFF/, '');
+}
+
+/** Consola de migración: localStorage → Supabase + padrón datita. */
 export default function MigrationTab({ setMembers }) {
   const [migrationState, setMigrationState] = useState('idle');
   const [migrationLogs, setMigrationLogs] = useState([]);
+  const [datitaLimit, setDatitaLimit] = useState('50');
+  const [datitaSummary, setDatitaSummary] = useState(null);
+  const [datitaStats, setDatitaStats] = useState(null);
+  const sociosFileRef = useRef(null);
+  const cuotasFileRef = useRef(null);
+  const preparedRef = useRef(null);
 
   const pushLog = (text) => setMigrationLogs((prev) => [...prev, text]);
+  const busy = migrationState === 'running';
 
   const handlePushLocalToDb = async () => {
     if (!isSupabaseConfigured) {
       pushLog('Supabase no está configurado. Configurá VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY.');
       return;
     }
-    if (migrationState === 'running') return;
+    if (busy) return;
     setMigrationState('running');
     setMigrationLogs([]);
     pushLog('Iniciando importación localStorage → Supabase…');
@@ -84,7 +106,6 @@ export default function MigrationTab({ setMembers }) {
       }
       pushLog(`Mensajes importados (máx 100): ${Math.min(messages.length, 100)}`);
 
-      // Refrescar padrón en UI
       const fresh = await repos.listMembers();
       if (fresh.length) setMembers(fresh);
 
@@ -97,7 +118,7 @@ export default function MigrationTab({ setMembers }) {
   };
 
   const handleSeedLocalDemo = () => {
-    if (migrationState === 'running') return;
+    if (busy) return;
     setMigrationState('running');
     setMigrationLogs([]);
     pushLog('Sembrando socios demo en estado local (sin BD)…');
@@ -127,6 +148,178 @@ export default function MigrationTab({ setMembers }) {
     setMigrationState('completed');
   };
 
+  const loadDatitaFiles = async () => {
+    const sociosFile = sociosFileRef.current?.files?.[0];
+    const cuotasFile = cuotasFileRef.current?.files?.[0];
+    if (!sociosFile || !cuotasFile) {
+      throw new Error('Seleccioná socios.csv y socio_cuotas.csv (carpeta datita/).');
+    }
+    pushLog(`Leyendo ${sociosFile.name} + ${cuotasFile.name}…`);
+    const [sociosText, cuotasText] = await Promise.all([
+      readFileText(sociosFile),
+      readFileText(cuotasFile),
+    ]);
+    const sociosRows = parseCsv(sociosText);
+    const cuotasRows = parseCsv(cuotasText);
+    const limitRaw = String(datitaLimit || '').trim();
+    const limit = limitRaw === '' || limitRaw === '0' || /^all|full$/i.test(limitRaw)
+      ? null
+      : Number(limitRaw) || 50;
+    const members = sociosRowsToMembers(sociosRows, cuotasRows, { limit });
+    const summary = summarizeMembers(members);
+    preparedRef.current = { members, summary, sociosCount: sociosRows.length, cuotasCount: cuotasRows.length, limit };
+    setDatitaSummary(summary);
+    pushLog(`CSV socios=${sociosRows.length} cuotas=${cuotasRows.length} → a procesar=${members.length}${limit ? ` (límite ${limit})` : ''}`);
+    return preparedRef.current;
+  };
+
+  const handleDatitaDryRun = async () => {
+    if (busy) return;
+    setMigrationState('running');
+    setMigrationLogs([]);
+    try {
+      const prep = await loadDatitaFiles();
+      pushLog(`Tiers: ${JSON.stringify(prep.summary.tiers)}`);
+      pushLog(`Estados: ${JSON.stringify(prep.summary.statuses)}`);
+      pushLog(`Sin cuota: ${prep.summary.cuotaMissing} · alta fallback: ${prep.summary.joinedAtFallback}`);
+      prep.summary.sample.forEach((s) => {
+        pushLog(`  #${s.memberId} ${s.name} · ${s.tier} · ${s.status} · ${s.cuotaCategories.join(' | ') || '—'}`);
+      });
+      pushLog('DRY-RUN listo (sin escribir en BD).');
+      setMigrationState('completed');
+    } catch (err) {
+      pushLog(`FALLO dry-run: ${err.message}`);
+      setMigrationState('idle');
+    }
+  };
+
+  const handleDatitaImport = async () => {
+    if (!isSupabaseConfigured) {
+      pushLog('Supabase no configurado.');
+      return;
+    }
+    if (busy) return;
+    setMigrationState('running');
+    setMigrationLogs([]);
+    try {
+      const prep = await loadDatitaFiles();
+      const { members } = prep;
+      let inserted = 0;
+      let updated = 0;
+      let failed = 0;
+
+      for (let i = 0; i < members.length; i += BATCH) {
+        const chunk = members.slice(i, i + BATCH);
+        for (const m of chunk) {
+          try {
+            const { data: existing, error: findErr } = await supabase
+              .from('members')
+              .select('id')
+              .eq('member_number', m.memberId)
+              .maybeSingle();
+            if (findErr) throw findErr;
+            await repos.upsertMember({
+              ...m,
+              id: existing?.id || undefined,
+              meta: m.meta || {},
+            });
+            if (existing?.id) updated += 1;
+            else inserted += 1;
+          } catch (err) {
+            failed += 1;
+            if (failed <= 15) pushLog(`[ERROR] #${m.memberId}: ${err.message}`);
+          }
+        }
+        pushLog(`Lote ${Math.min(i + BATCH, members.length)}/${members.length} · ok=${inserted + updated} fail=${failed}`);
+      }
+
+      const fresh = await repos.listMembers();
+      if (fresh.length) setMembers(fresh);
+      await refreshDatitaStats();
+      pushLog(`COMPLETADO datita · insertados≈${inserted} actualizados≈${updated} errores=${failed}`);
+      setMigrationState('completed');
+    } catch (err) {
+      pushLog(`FALLO import: ${err.message}`);
+      setMigrationState('idle');
+    }
+  };
+
+  const refreshDatitaStats = async () => {
+    if (!isSupabaseConfigured) return;
+    try {
+      const { count: total, error: tErr } = await supabase
+        .from('members')
+        .select('*', { count: 'exact', head: true });
+      if (tErr) throw tErr;
+
+      const { count: datitaCount, error: dErr } = await supabase
+        .from('members')
+        .select('*', { count: 'exact', head: true })
+        .contains('meta', { source: 'datita' });
+      if (dErr) throw dErr;
+
+      const tiers = {};
+      for (const tier of ['gold', 'platinum', 'royal', 'vitalicio']) {
+        const { count, error } = await supabase
+          .from('members')
+          .select('*', { count: 'exact', head: true })
+          .contains('meta', { source: 'datita' })
+          .eq('tier', tier);
+        if (!error && count) tiers[tier] = count;
+      }
+
+      const pickOne = async (builder) => {
+        const { data, error } = await builder.limit(1).maybeSingle();
+        if (error) return null;
+        return data;
+      };
+
+      const spotBase = () => supabase
+        .from('members')
+        .select('member_number, full_name, tier, status, document_number, meta')
+        .contains('meta', { source: 'datita' });
+
+      const [socio1, vitalicio, familiar, sinCuota] = await Promise.all([
+        pickOne(spotBase().eq('member_number', '1')),
+        pickOne(spotBase().eq('tier', 'vitalicio')),
+        pickOne(spotBase().eq('tier', 'platinum')),
+        pickOne(
+          supabase
+            .from('members')
+            .select('member_number, full_name, tier, status, document_number, meta')
+            .contains('meta', { source: 'datita', cuotaMissing: true })
+        ),
+      ]);
+
+      let stagingSocios = null;
+      let stagingCuotas = null;
+      const st = await supabase.from('socios').select('*', { count: 'exact', head: true });
+      if (!st.error) stagingSocios = st.count;
+      const sc = await supabase.from('socio_cuotas').select('*', { count: 'exact', head: true });
+      if (!sc.error) stagingCuotas = sc.count;
+
+      const spot = [socio1, vitalicio, familiar, sinCuota].filter(Boolean);
+
+      setDatitaStats({
+        membersTotal: total,
+        datitaCount,
+        tiers,
+        stagingSocios,
+        stagingCuotas,
+        spot: spot.map((r) => ({
+          nro: r.member_number,
+          name: r.full_name,
+          tier: r.tier,
+          status: r.status,
+          doc: r.document_number,
+        })),
+      });
+      pushLog(`Estado: members=${total} datita=${datitaCount} staging socios=${stagingSocios ?? 'n/d'} cuotas=${stagingCuotas ?? 'n/d'}`);
+    } catch (err) {
+      pushLog(`No se pudo leer estado: ${err.message}`);
+    }
+  };
+
   return (
     <div className="glass-card fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
       <div>
@@ -134,7 +327,7 @@ export default function MigrationTab({ setMembers }) {
           <Database size={20} /> Migración de datos
         </h3>
         <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
-          Importá datos de prueba desde localStorage hacia Supabase, o sembrá demos locales.
+          Importá datos de prueba desde localStorage hacia Supabase, o el padrón histórico desde datita/.
         </p>
       </div>
 
@@ -142,22 +335,98 @@ export default function MigrationTab({ setMembers }) {
         <button
           type="button"
           className="btn btn-primary"
-          disabled={migrationState === 'running' || !isSupabaseConfigured}
+          disabled={busy || !isSupabaseConfigured}
           onClick={handlePushLocalToDb}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
         >
           <CloudUpload size={16} />
-          {migrationState === 'running' ? 'Importando…' : 'Subir localStorage → BD'}
+          {busy ? 'Importando…' : 'Subir localStorage → BD'}
         </button>
         <button
           type="button"
           className="btn btn-secondary"
-          disabled={migrationState === 'running'}
+          disabled={busy}
           onClick={handleSeedLocalDemo}
         >
           Semilla demo local
         </button>
       </div>
+
+      <section
+        className="glass-panel"
+        style={{ padding: '1rem 1.1rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}
+      >
+        <h4 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-gold)' }}>
+          <Users size={18} /> Importar padrón datita
+        </h4>
+        <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+          Seleccioná los CSV de <code>datita/</code> (no el xlsx). Dry-run no escribe; el lote upserta por n° de socio.
+          También: <code>npm run migrate:datita</code> / <code>npm run verify:datita</code>.
+          Staging SQL: <code>supabase/migrations/20260829110000_datita_socios_staging.sql</code>.
+        </p>
+
+        <div style={{ display: 'grid', gap: '0.65rem', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+          <label style={{ fontSize: '0.78rem', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            socios.csv
+            <input ref={sociosFileRef} type="file" accept=".csv,text/csv" disabled={busy} />
+          </label>
+          <label style={{ fontSize: '0.78rem', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            socio_cuotas.csv
+            <input ref={cuotasFileRef} type="file" accept=".csv,text/csv" disabled={busy} />
+          </label>
+          <label style={{ fontSize: '0.78rem', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            Límite (vacío / all = completo)
+            <input
+              type="text"
+              value={datitaLimit}
+              disabled={busy}
+              onChange={(e) => setDatitaLimit(e.target.value)}
+              placeholder="50"
+              style={{ padding: '0.4rem 0.55rem' }}
+            />
+          </label>
+        </div>
+
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem' }}>
+          <button type="button" className="btn btn-secondary" disabled={busy} onClick={handleDatitaDryRun} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Eye size={15} /> Dry-run
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={busy || !isSupabaseConfigured}
+            onClick={handleDatitaImport}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            <Play size={15} /> Ejecutar lote → members
+          </button>
+          <button type="button" className="btn btn-secondary" disabled={busy || !isSupabaseConfigured} onClick={refreshDatitaStats} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <RefreshCw size={15} /> Estado
+          </button>
+        </div>
+
+        {datitaSummary && (
+          <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+            Último dry-run/prep: {datitaSummary.total} socios · tiers {JSON.stringify(datitaSummary.tiers)} · sin cuota {datitaSummary.cuotaMissing}
+          </p>
+        )}
+
+        {datitaStats && (
+          <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div>
+              BD: members={datitaStats.membersTotal} · origen datita={datitaStats.datitaCount}
+              {' · '}staging socios={datitaStats.stagingSocios ?? '—'} cuotas={datitaStats.stagingCuotas ?? '—'}
+            </div>
+            <div>Tiers datita: {JSON.stringify(datitaStats.tiers)}</div>
+            {datitaStats.spot?.length > 0 && (
+              <div>
+                Spot-check:{' '}
+                {datitaStats.spot.map((s) => `#${s.nro} ${s.name} (${s.tier}/${s.status})`).join(' · ')}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
 
       {!isSupabaseConfigured && (
         <p style={{ fontSize: '0.8rem', color: 'var(--danger-accent)', margin: 0 }}>

@@ -9,7 +9,10 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "migrate:datita": "node scripts/migrate-datita-socios.mjs",
+    "migrate:datita:dry": "node scripts/migrate-datita-socios.mjs --dry-run",
+    "verify:datita": "node scripts/verify-datita-migration.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.8",

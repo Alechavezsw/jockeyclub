@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Settings, UserRound, UserPlus, Plus, Check, X, Loader2, Shield, Camera, Trash2,
-  RefreshCw, Copy, Eye, EyeOff, Pencil,
+  RefreshCw, Copy, Eye, EyeOff, Pencil, History,
 } from 'lucide-react';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { repos } from '../../data/bootstrap';
 import { uploadProfilePhoto } from '../../data/storage';
-import { ROLE_LABELS, PORTAL_ROLE_OPTIONS, TITLE_ROLE_OPTIONS, canManageProfiles, primaryRoleFromList } from '../../domain/auth/roles';
+import { ROLE_LABELS, PORTAL_ROLE_OPTIONS, TITLE_ROLE_OPTIONS, canManageProfiles, primaryRoleFromList, roleRank } from '../../domain/auth/roles';
 import {
   buildCredentials,
   generatePassword,
@@ -16,6 +17,7 @@ import {
   usernameFromEmail,
 } from '../../domain/auth/credentials';
 import { useAuth } from '../../context/AuthContext';
+import ModalDialog from '../ModalDialog';
 const ROLE_OPTIONS = PORTAL_ROLE_OPTIONS;
 
 const DOC_TYPES = ['Arg-DNI', 'Pasaporte', 'CUIL', 'Otro'];
@@ -90,10 +92,55 @@ function formatAuditAction(action) {
     'profile_role.revoke': 'Rol revocado',
     'profile_role.update': 'Rol actualizado',
     'profile_role.delete': 'Rol eliminado',
-    'profile.update': 'Actualización',
+    'profile.update': 'Actualización de ficha',
     'profile.reset_password': 'Contraseña regenerada',
   };
   return map[action] || action;
+}
+
+function formatAuditSummary(row) {
+  const p = row?.payload && typeof row.payload === 'object' ? row.payload : {};
+  if (row.action?.startsWith('profile_role.')) {
+    const label = p.label || ROLE_LABELS[p.role_key] || p.role_key || 'rol';
+    if (row.action === 'profile_role.grant') return `Se asignó «${label}»`;
+    if (row.action === 'profile_role.revoke') return `Se revocó «${label}»`;
+    if (row.action === 'profile_role.delete') return `Se eliminó «${label}»`;
+    return `Se actualizó «${label}»`;
+  }
+  if (row.action === 'profile.reset_password') return 'Se regeneró la contraseña de acceso';
+  if (row.action === 'profile.create') {
+    return p.email ? `Alta con login ${p.email}` : 'Alta de usuario en el portal';
+  }
+  if (row.action === 'profile.update' || row.action === 'profile.change') {
+    const keys = Object.keys(p).filter((k) => !['meta'].includes(k));
+    if (!keys.length) return 'Se modificaron datos de la ficha';
+    const labels = {
+      firstName: 'nombre',
+      lastName: 'apellido',
+      fullName: 'nombre completo',
+      phone: 'teléfono',
+      avatarUrl: 'foto',
+      documentType: 'tipo doc.',
+      documentNumber: 'documento',
+      gender: 'género',
+      birthDate: 'nacimiento',
+      bloodType: 'grupo sanguíneo',
+      healthInsurance: 'obra social',
+      emergencyPhone: 'emergencia',
+      emergencyClinic: 'clínica',
+      address: 'domicilio',
+      prismaId: 'Prisma',
+      role: 'rol primario',
+      isActive: 'estado',
+      username: 'usuario',
+      contactEmail: 'email contacto',
+      email: 'email',
+    };
+    const readable = keys.slice(0, 6).map((k) => labels[k] || k);
+    const more = keys.length > 6 ? ` (+${keys.length - 6})` : '';
+    return `Campos: ${readable.join(', ')}${more}`;
+  }
+  return 'Evento registrado en auditoría';
 }
 
 function displayName(profile) {
@@ -192,6 +239,64 @@ function AuthzBadges({ profile }) {
   );
 }
 
+function sortProfileRoles(roles = [], fallbackRole = 'member') {
+  const list = roles?.length
+    ? [...roles]
+    : [{ roleKey: fallbackRole, label: ROLE_LABELS[fallbackRole] || fallbackRole, kind: 'system' }];
+  return list.sort((a, b) => {
+    const kindA = a.kind === 'title' ? 1 : 0;
+    const kindB = b.kind === 'title' ? 1 : 0;
+    if (kindA !== kindB) return kindA - kindB;
+    return roleRank(b.roleKey) - roleRank(a.roleKey);
+  });
+}
+
+function RolesCell({ profile, canEdit, busy, onEditRoles }) {
+  const roles = sortProfileRoles(profile.roles, profile.role);
+  const primaryKey = primaryRoleFromList(roles);
+  const visible = roles.slice(0, 3);
+  const extra = roles.length - visible.length;
+
+  return (
+    <div className="sys-roles-cell">
+      <ul className="sys-roles-stack">
+        {visible.map((r) => {
+          const isPrimary = String(r.roleKey).toLowerCase() === String(primaryKey).toLowerCase() && r.kind !== 'title';
+          const isTitle = r.kind === 'title';
+          return (
+            <li
+              key={`${profile.id}-${r.roleKey}-${r.publicId || ''}`}
+              className={[
+                'sys-role-row',
+                isPrimary ? 'is-primary' : '',
+                isTitle ? 'is-title' : '',
+              ].filter(Boolean).join(' ')}
+            >
+              {r.publicId ? <span className="sys-role-id">#{r.publicId}</span> : null}
+              <span className="sys-role-label">{r.label || ROLE_LABELS[r.roleKey] || r.roleKey}</span>
+            </li>
+          );
+        })}
+      </ul>
+      {extra > 0 ? (
+        <button type="button" className="sys-roles-more" onClick={() => onEditRoles?.(profile)}>
+          +{extra} más
+        </button>
+      ) : null}
+      {canEdit ? (
+        <button
+          type="button"
+          className="sys-roles-manage"
+          disabled={busy}
+          onClick={() => onEditRoles?.(profile)}
+        >
+          Gestionar
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 /**
  * Administración del sistema: usuarios del portal y solicitudes de alta de socio.
  */
@@ -203,6 +308,8 @@ export default function SystemAdminTab({
   userRole = 'admin',
 }) {
   const { roles: sessionRoles } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const canEditProfiles = canManageProfiles(sessionRoles?.length ? sessionRoles : userRole);
   const [profiles, setProfiles] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
@@ -211,6 +318,7 @@ export default function SystemAdminTab({
   const [flash, setFlash] = useState('');
   const [appFilter, setAppFilter] = useState('pending');
   const [historyProfileId, setHistoryProfileId] = useState(null);
+  const [historyProfileName, setHistoryProfileName] = useState('');
   const [historyRows, setHistoryRows] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [showAppForm, setShowAppForm] = useState(false);
@@ -218,10 +326,12 @@ export default function SystemAdminTab({
   const [savingApp, setSavingApp] = useState(false);
 
   const [showUserForm, setShowUserForm] = useState(false);
+  const [editingUserId, setEditingUserId] = useState(null);
   const [userForm, setUserForm] = useState(emptyUserForm);
   const [savingUser, setSavingUser] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [lastCreatedCreds, setLastCreatedCreds] = useState(null);
+  const [rolesModalProfile, setRolesModalProfile] = useState(null);
   const photoRef = useRef(null);
 
   useEffect(() => {
@@ -323,9 +433,81 @@ export default function SystemAdminTab({
       setFlash('Solo el superadministrador puede crear o modificar perfiles.');
       return;
     }
+    setEditingUserId(null);
     setUserForm(emptyUserForm());
     setShowUserForm(true);
   };
+
+  const openEditUser = (profile) => {
+    if (!canEditProfiles) {
+      setFlash('Solo el superadministrador puede crear o modificar perfiles.');
+      return;
+    }
+    const username = profile.username || usernameFromEmail(profile.email) || '';
+    const roles = profile.roles?.length
+      ? profile.roles.map((r) => ({
+        roleKey: r.roleKey,
+        label: r.label || ROLE_LABELS[r.roleKey] || r.roleKey,
+        kind: r.kind || 'system',
+      }))
+      : [{ roleKey: profile.role || 'member', label: ROLE_LABELS[profile.role] || profile.role || 'Socio', kind: 'system' }];
+
+    setEditingUserId(profile.id);
+    setUserForm({
+      avatarUrl: profile.avatarUrl || '',
+      firstName: profile.firstName || '',
+      lastName: profile.lastName || '',
+      documentType: profile.documentType || 'Arg-DNI',
+      documentNumber: profile.documentNumber || '',
+      gender: profile.gender || '',
+      birthDate: profile.birthDate || '',
+      bloodType: profile.bloodType || '',
+      healthInsurance: profile.healthInsurance || '',
+      emergencyPhone: profile.emergencyPhone || '',
+      emergencyClinic: profile.emergencyClinic || '',
+      address: profile.address || '',
+      phone: profile.phone || '',
+      contactEmail: profile.contactEmail || '',
+      username,
+      email: profile.email || loginEmailFromUsername(username),
+      password: '',
+      passwordVisible: false,
+      credentialsLocked: true,
+      roles,
+      prismaId: profile.prismaId || '',
+      authorizations: (profile.authorizations || []).map((a) => ({
+        kind: a.kind || 'custom',
+        title: a.title || '',
+        roleLabel: a.roleLabel || '',
+        expiresAt: a.expiresAt || '',
+        pin: a.pin || '',
+      })),
+      identifiers: (profile.identifiers || []).map((i) => ({
+        idType: i.idType || '',
+        identifier: i.identifier || '',
+      })),
+    });
+    setShowUserForm(true);
+    setHistoryProfileId(null);
+  };
+
+  const closeUserForm = () => {
+    setShowUserForm(false);
+    setEditingUserId(null);
+    setUserForm(emptyUserForm());
+  };
+
+  useEffect(() => {
+    const editId = location.state?.editProfileId;
+    if (!editId || !profiles.length || !canEditProfiles) return undefined;
+    const target = profiles.find((p) => p.id === editId);
+    if (!target) return undefined;
+    openEditUser(target);
+    navigate(location.pathname, { replace: true, state: {} });
+    return undefined;
+    // Intentionally one-shot when returning from profile "Editar"
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state?.editProfileId, profiles, canEditProfiles]);
 
   const onPickPhoto = async (e) => {
     const file = e.target.files?.[0];
@@ -333,7 +515,7 @@ export default function SystemAdminTab({
     if (!file) return;
     setUploadingPhoto(true);
     try {
-      const uploaded = await uploadProfilePhoto(file, { profileId: 'new' });
+      const uploaded = await uploadProfilePhoto(file, { profileId: editingUserId || 'new' });
       setUF('avatarUrl', uploaded.url);
       setFlash('Foto cargada.');
     } catch (err) {
@@ -423,44 +605,89 @@ export default function SystemAdminTab({
       setFlash('El usuario es obligatorio.');
       return;
     }
-    if (password.length < 6) {
+    const isEdit = Boolean(editingUserId);
+    if (!isEdit && password.length < 6) {
       setFlash('La contraseña debe tener al menos 6 caracteres.');
+      return;
+    }
+    if (isEdit && password && password.length < 6) {
+      setFlash('La nueva contraseña debe tener al menos 6 caracteres.');
       return;
     }
     setSavingUser(true);
     try {
-      const created = await repos.createPortalUser({
-        firstName: userForm.firstName.trim(),
-        lastName: userForm.lastName.trim(),
-        email,
-        username,
-        password,
-        phone: userForm.phone.trim(),
-        contactEmail: userForm.contactEmail.trim() || null,
-        avatarUrl: userForm.avatarUrl || null,
-        documentType: userForm.documentType,
-        documentNumber: userForm.documentNumber.trim(),
-        gender: userForm.gender,
-        birthDate: userForm.birthDate || null,
-        bloodType: userForm.bloodType,
-        healthInsurance: userForm.healthInsurance.trim(),
-        emergencyPhone: userForm.emergencyPhone.trim(),
-        emergencyClinic: userForm.emergencyClinic.trim(),
-        address: userForm.address.trim(),
-        prismaId: userForm.prismaId.trim(),
-        role: primaryRoleFromList(userForm.roles),
-        roles: userForm.roles,
-        authorizations: userForm.authorizations,
-        identifiers: userForm.identifiers.filter((i) => i.idType && i.identifier),
-      });
-      setProfiles((prev) => [created, ...prev.filter((p) => p.id !== created.id)]);
-      setRegisteredUsersCount?.((n) => Number(n || 0) + 1);
-      setLastCreatedCreds({ username, email, password });
-      setUserForm(emptyUserForm());
-      setShowUserForm(false);
-      setFlash(`Usuario creado. Login: ${email}`);
+      const roles = userForm.roles?.length
+        ? userForm.roles
+        : [{ roleKey: 'member', label: 'Socio', kind: 'system' }];
+      const authorizations = userForm.authorizations;
+      const identifiers = userForm.identifiers.filter((i) => i.idType && i.identifier);
+
+      if (isEdit) {
+        let saved = await repos.updateProfile(editingUserId, {
+          firstName: userForm.firstName.trim(),
+          lastName: userForm.lastName.trim(),
+          fullName: [userForm.firstName.trim(), userForm.lastName.trim()].filter(Boolean).join(' '),
+          phone: userForm.phone.trim(),
+          contactEmail: userForm.contactEmail.trim() || null,
+          username,
+          avatarUrl: userForm.avatarUrl || null,
+          documentType: userForm.documentType,
+          documentNumber: userForm.documentNumber.trim(),
+          gender: userForm.gender,
+          birthDate: userForm.birthDate || null,
+          bloodType: userForm.bloodType,
+          healthInsurance: userForm.healthInsurance.trim(),
+          emergencyPhone: userForm.emergencyPhone.trim(),
+          emergencyClinic: userForm.emergencyClinic.trim(),
+          address: userForm.address.trim(),
+          prismaId: userForm.prismaId.trim(),
+          role: primaryRoleFromList(roles),
+        });
+        saved = await repos.replaceProfileRoles(editingUserId, roles);
+        await repos.replaceProfileAuthorizations(editingUserId, authorizations);
+        await repos.replaceProfileIdentifiers(editingUserId, identifiers);
+        if (password) {
+          await repos.resetPortalUserPassword(editingUserId, password);
+          setLastCreatedCreds({ username, email: saved.email || email, password });
+        }
+        // Recargar ficha completa (authz/ids)
+        const refreshed = await repos.listProfiles();
+        setProfiles(refreshed);
+        closeUserForm();
+        setFlash(password ? 'Usuario actualizado y contraseña regenerada.' : 'Usuario actualizado.');
+      } else {
+        const created = await repos.createPortalUser({
+          firstName: userForm.firstName.trim(),
+          lastName: userForm.lastName.trim(),
+          email,
+          username,
+          password,
+          phone: userForm.phone.trim(),
+          contactEmail: userForm.contactEmail.trim() || null,
+          avatarUrl: userForm.avatarUrl || null,
+          documentType: userForm.documentType,
+          documentNumber: userForm.documentNumber.trim(),
+          gender: userForm.gender,
+          birthDate: userForm.birthDate || null,
+          bloodType: userForm.bloodType,
+          healthInsurance: userForm.healthInsurance.trim(),
+          emergencyPhone: userForm.emergencyPhone.trim(),
+          emergencyClinic: userForm.emergencyClinic.trim(),
+          address: userForm.address.trim(),
+          prismaId: userForm.prismaId.trim(),
+          role: primaryRoleFromList(roles),
+          roles,
+          authorizations,
+          identifiers,
+        });
+        setProfiles((prev) => [created, ...prev.filter((p) => p.id !== created.id)]);
+        setRegisteredUsersCount?.((n) => Number(n || 0) + 1);
+        setLastCreatedCreds({ username, email, password });
+        closeUserForm();
+        setFlash(`Usuario creado. Login: ${email}`);
+      }
     } catch (err) {
-      setFlash(err.message || 'No se pudo crear el usuario.');
+      setFlash(err.message || (editingUserId ? 'No se pudo actualizar el usuario.' : 'No se pudo crear el usuario.'));
     } finally {
       setSavingUser(false);
     }
@@ -497,6 +724,7 @@ export default function SystemAdminTab({
     try {
       const saved = await repos.replaceProfileRoles(profileId, roles);
       setProfiles((prev) => prev.map((p) => (p.id === profileId ? { ...p, ...saved } : p)));
+      setRolesModalProfile((prev) => (prev?.id === profileId ? { ...prev, ...saved } : prev));
       setFlash('Roles actualizados (cambio registrado).');
     } catch (err) {
       setFlash(err.message || 'No se pudieron actualizar los roles.');
@@ -505,11 +733,19 @@ export default function SystemAdminTab({
     }
   };
 
-  const openHistory = async (profileId) => {
+  const openHistory = async (profile) => {
+    const profileId = typeof profile === 'string' ? profile : profile?.id;
+    if (!profileId) return;
+    const name = typeof profile === 'string'
+      ? (profiles.find((p) => p.id === profileId)?.fullName
+        || displayName(profiles.find((p) => p.id === profileId) || {})
+        || 'Usuario')
+      : displayName(profile);
     setHistoryProfileId(profileId);
+    setHistoryProfileName(name || 'Usuario');
     setHistoryLoading(true);
     try {
-      const rows = await repos.listProfileAudit(profileId);
+      const rows = await repos.listProfileAudit(profileId, { limit: 100 });
       setHistoryRows(rows);
     } catch (err) {
       setFlash(err.message || 'No se pudo cargar el historial.');
@@ -517,6 +753,12 @@ export default function SystemAdminTab({
     } finally {
       setHistoryLoading(false);
     }
+  };
+
+  const closeHistory = () => {
+    setHistoryProfileId(null);
+    setHistoryProfileName('');
+    setHistoryRows([]);
   };
 
   const toggleActive = async (profile) => {
@@ -657,7 +899,40 @@ export default function SystemAdminTab({
         )}
 
         {showUserForm && (
-          <form className="sys-user-form" onSubmit={submitUser}>
+          <ModalDialog
+            open={showUserForm}
+            onClose={closeUserForm}
+            labelledBy="sys-user-modal-title"
+            contentClassName="modal-content glass-panel sys-user-modal"
+            contentStyle={{
+              width: 'min(960px, 96vw)',
+              maxWidth: 960,
+              maxHeight: 'min(92vh, 100%)',
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--border-glass)',
+              padding: 0,
+            }}
+          >
+            <div className="modal-header sys-user-modal-header">
+              <div>
+                <h4 id="sys-user-modal-title" className="serif-font" style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-gold)' }}>
+                  {editingUserId ? 'Editar usuario' : 'Nuevo usuario'}
+                </h4>
+                <p style={{ margin: '0.25rem 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                  {editingUserId ? 'Actualizá la ficha, roles y autorizaciones.' : 'Completá la ficha; usuario y contraseña se generan solos.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={closeUserForm}
+                aria-label="Cerrar"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+              >
+                <X size={14} aria-hidden="true" /> Cerrar
+              </button>
+            </div>
+            <form className="sys-user-form sys-user-modal-body" onSubmit={submitUser}>
             <div className="sys-user-photo">
               <div className="sys-user-photo-frame">
                 {userForm.avatarUrl ? (
@@ -758,7 +1033,7 @@ export default function SystemAdminTab({
                       setUserForm((f) => ({
                         ...f,
                         username,
-                        email: loginEmailFromUsername(username),
+                        email: editingUserId ? f.email : loginEmailFromUsername(username),
                         credentialsLocked: true,
                       }));
                     }}
@@ -780,12 +1055,13 @@ export default function SystemAdminTab({
                 <div className="sys-cred-row">
                   <input
                     className="form-input"
-                    required
-                    minLength={6}
+                    required={!editingUserId}
+                    minLength={editingUserId ? undefined : 6}
                     autoComplete="new-password"
                     type={userForm.passwordVisible ? 'text' : 'password'}
                     value={userForm.password}
                     onChange={(e) => setUF('password', e.target.value)}
+                    placeholder={editingUserId ? 'Dejar vacío para no cambiar' : ''}
                   />
                   <button
                     type="button"
@@ -798,10 +1074,21 @@ export default function SystemAdminTab({
                   <button type="button" className="btn btn-secondary btn-sm" title="Regenerar contraseña" onClick={regeneratePassword}>
                     <RefreshCw size={14} /> Regenerar
                   </button>
-                  <button type="button" className="btn btn-secondary btn-sm" title="Copiar contraseña" onClick={() => copyText(userForm.password, 'Contraseña')}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    title="Copiar contraseña"
+                    disabled={!userForm.password}
+                    onClick={() => copyText(userForm.password, 'Contraseña')}
+                  >
                     <Copy size={14} />
                   </button>
                 </div>
+                {editingUserId ? (
+                  <p className="sys-help" style={{ margin: '0.35rem 0 0' }}>
+                    Solo se actualiza la clave si escribís una nueva o usás Regenerar.
+                  </p>
+                ) : null}
               </Field>
               <Field label="Roles" className="sys-user-span2">
                 <div className="sys-role-pick">
@@ -968,17 +1255,20 @@ export default function SystemAdminTab({
 
             <div className="sys-user-form-actions">
               <button type="submit" className="btn btn-primary" disabled={savingUser}>
-                {savingUser ? 'Creando…' : 'Crear usuario'}
+                {savingUser
+                  ? (editingUserId ? 'Guardando…' : 'Creando…')
+                  : (editingUserId ? 'Actualizar' : 'Crear usuario')}
               </button>
               <button
                 type="button"
                 className="btn btn-secondary"
-                onClick={() => { setShowUserForm(false); setUserForm(emptyUserForm()); }}
+                onClick={closeUserForm}
               >
                 Cancelar
               </button>
             </div>
-          </form>
+            </form>
+          </ModalDialog>
         )}
 
         {loadingUsers ? (
@@ -1017,14 +1307,21 @@ export default function SystemAdminTab({
                             <UserRound size={14} strokeWidth={1.75} />
                           </span>
                         )}
-                        <div className="sys-user-name-doc">
-                          <strong>{displayName(p)}</strong>
-                          <span>
-                            {p.documentNumber
-                              ? `${p.documentType || 'Arg-DNI'} ${p.documentNumber}`
-                              : 'Sin documento'}
-                          </span>
-                        </div>
+                        <button
+                          type="button"
+                          className="sys-user-name-btn"
+                          onClick={() => navigate(`/panel/system/${p.id}`)}
+                          title="Ver perfil"
+                        >
+                          <div className="sys-user-name-doc">
+                            <strong>{displayName(p)}</strong>
+                            <span>
+                              {p.documentNumber
+                                ? `${p.documentType || 'Arg-DNI'} ${p.documentNumber}`
+                                : 'Sin documento'}
+                            </span>
+                          </div>
+                        </button>
                       </div>
                     </td>
                     <td className="sys-user-email-cell">
@@ -1040,64 +1337,12 @@ export default function SystemAdminTab({
                       <AuthzBadges profile={p} />
                     </td>
                     <td>
-                      <div className="sys-role-chips is-compact">
-                        {(p.roles?.length ? p.roles : [{ roleKey: p.role, label: ROLE_LABELS[p.role] || p.role }]).map((r) => (
-                          <span key={`${p.id}-${r.roleKey}`} className={`sys-role-chip is-static${r.kind === 'title' ? ' is-title' : ''}`}>
-                            {r.publicId ? `#${r.publicId} · ` : ''}{r.label || ROLE_LABELS[r.roleKey] || r.roleKey}
-                          </span>
-                        ))}
-                      </div>
-                      {canEditProfiles && (
-                        <details className="sys-role-edit">
-                          <summary>Editar roles</summary>
-                          <div className="sys-role-chips">
-                            {ROLE_OPTIONS.map((r) => {
-                              const on = roleChipsSelected(p.roles?.length ? p.roles : [{ roleKey: p.role }], r);
-                              return (
-                                <button
-                                  key={r}
-                                  type="button"
-                                  className={`sys-role-chip${on ? ' is-on' : ''}`}
-                                  disabled={busyId === p.id}
-                                  onClick={() => {
-                                    const base = p.roles?.length ? p.roles : [{ roleKey: p.role, label: ROLE_LABELS[p.role] || p.role, kind: 'system' }];
-                                    updateRoles(p.id, toggleRoleInList(base, {
-                                      roleKey: r,
-                                      label: ROLE_LABELS[r] || r,
-                                      kind: 'system',
-                                    }));
-                                  }}
-                                >
-                                  {ROLE_LABELS[r] || r}
-                                </button>
-                              );
-                            })}
-                          </div>
-                          <div className="sys-role-chips" style={{ marginTop: 6 }}>
-                            {TITLE_ROLE_OPTIONS.map((t) => {
-                              const on = roleChipsSelected(p.roles || [], t.key);
-                              return (
-                                <button
-                                  key={t.key}
-                                  type="button"
-                                  className={`sys-role-chip is-title${on ? ' is-on' : ''}`}
-                                  disabled={busyId === p.id}
-                                  onClick={() => {
-                                    const base = p.roles?.length ? p.roles : [{ roleKey: p.role, label: ROLE_LABELS[p.role] || p.role, kind: 'system' }];
-                                    updateRoles(p.id, toggleRoleInList(base, {
-                                      roleKey: t.key,
-                                      label: t.label,
-                                      kind: 'title',
-                                    }));
-                                  }}
-                                >
-                                  {t.label}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </details>
-                      )}
+                      <RolesCell
+                        profile={p}
+                        canEdit={canEditProfiles}
+                        busy={busyId === p.id}
+                        onEditRoles={setRolesModalProfile}
+                      />
                     </td>
                     <td>
                       <span className={`sys-admin-pill${p.isActive ? ' is-on' : ''}`}>
@@ -1109,10 +1354,20 @@ export default function SystemAdminTab({
                         <button
                           type="button"
                           className="sys-fn-btn"
-                          title="Historial"
-                          onClick={() => openHistory(p.id)}
+                          title="Editar usuario"
+                          disabled={!canEditProfiles}
+                          onClick={() => openEditUser(p)}
                         >
                           <Pencil size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          className="sys-fn-btn is-trace"
+                          title="Trazabilidad e historial de cambios"
+                          aria-label="Trazabilidad e historial de cambios"
+                          onClick={() => openHistory(p)}
+                        >
+                          <History size={14} />
                         </button>
                         <button
                           type="button"
@@ -1143,34 +1398,156 @@ export default function SystemAdminTab({
         )}
 
         {historyProfileId && (
-          <div className="sys-history">
-            <header className="sys-admin-card-head" style={{ marginTop: '1rem' }}>
-              <Shield size={16} color="var(--primary-gold)" />
-              <h3>Historial de cambios</h3>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setHistoryProfileId(null); setHistoryRows([]); }}>
-                Cerrar
+          <ModalDialog
+            open={Boolean(historyProfileId)}
+            onClose={closeHistory}
+            labelledBy="sys-trace-modal-title"
+            contentClassName="modal-content glass-panel"
+            contentStyle={{
+              width: 'min(640px, 96vw)',
+              maxWidth: 640,
+              maxHeight: 'min(88vh, 100%)',
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--border-glass)',
+              padding: 0,
+            }}
+          >
+            <div className="modal-header">
+              <div>
+                <h4 id="sys-trace-modal-title" className="serif-font" style={{ margin: 0, fontSize: '1.15rem', color: 'var(--text-gold)' }}>
+                  Trazabilidad
+                </h4>
+                <p style={{ margin: '0.25rem 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                  Historial de cambios · {historyProfileName}
+                </p>
+              </div>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={closeHistory}>
+                <X size={14} /> Cerrar
               </button>
-            </header>
-            {historyLoading ? (
-              <p className="ops-muted">Cargando trazas…</p>
-            ) : historyRows.length === 0 ? (
-              <p className="ops-muted">Sin cambios registrados todavía.</p>
-            ) : (
-              <ul className="sys-history-list">
-                {historyRows.map((row) => (
-                  <li key={row.id}>
-                    <div>
-                      <strong>{formatAuditAction(row.action)}</strong>
-                      <span className="ops-muted" style={{ display: 'block', fontSize: '0.75rem' }}>
-                        {row.createdAt ? new Date(row.createdAt).toLocaleString('es-AR') : '—'}
-                      </span>
-                    </div>
-                    <pre className="sys-history-payload">{JSON.stringify(row.payload, null, 2)}</pre>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+            </div>
+            <div className="sys-trace-modal-body">
+              {historyLoading ? (
+                <p className="ops-muted" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Loader2 size={14} /> Cargando trazas…
+                </p>
+              ) : historyRows.length === 0 ? (
+                <p className="ops-muted">Sin cambios registrados todavía para este usuario.</p>
+              ) : (
+                <ol className="sys-trace-timeline">
+                  {historyRows.map((row) => (
+                    <li key={row.id}>
+                      <div className="sys-trace-dot" aria-hidden="true" />
+                      <div className="sys-trace-card">
+                        <header>
+                          <strong>{formatAuditAction(row.action)}</strong>
+                          <time dateTime={row.createdAt || undefined}>
+                            {row.createdAt ? new Date(row.createdAt).toLocaleString('es-AR') : '—'}
+                          </time>
+                        </header>
+                        <p className="sys-trace-summary">{formatAuditSummary(row)}</p>
+                        <p className="sys-trace-actor">
+                          Por <span>{row.actorName || 'Sistema'}</span>
+                        </p>
+                        <details className="sys-trace-raw">
+                          <summary>Detalle técnico</summary>
+                          <pre>{JSON.stringify(row.payload, null, 2)}</pre>
+                        </details>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </div>
+          </ModalDialog>
+        )}
+
+        {rolesModalProfile && (
+          <ModalDialog
+            open={Boolean(rolesModalProfile)}
+            onClose={() => setRolesModalProfile(null)}
+            labelledBy="sys-roles-modal-title"
+            contentClassName="modal-content glass-panel"
+            contentStyle={{
+              width: 'min(520px, 94vw)',
+              maxWidth: 520,
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--border-glass)',
+              padding: 0,
+            }}
+          >
+            <div className="modal-header">
+              <div>
+                <h4 id="sys-roles-modal-title" className="serif-font" style={{ margin: 0, fontSize: '1.15rem', color: 'var(--text-gold)' }}>
+                  Roles de {displayName(rolesModalProfile)}
+                </h4>
+                <p style={{ margin: '0.25rem 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                  Sistema y cargos del club. Podés marcar varios.
+                </p>
+              </div>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setRolesModalProfile(null)}>
+                <X size={14} /> Cerrar
+              </button>
+            </div>
+            <div className="sys-roles-modal-body">
+              <p className="sys-roles-modal-label">Acceso al sistema</p>
+              <div className="sys-role-pick-grid">
+                {ROLE_OPTIONS.map((r) => {
+                  const on = roleChipsSelected(
+                    rolesModalProfile.roles?.length ? rolesModalProfile.roles : [{ roleKey: rolesModalProfile.role }],
+                    r
+                  );
+                  return (
+                    <button
+                      key={r}
+                      type="button"
+                      className={`sys-role-pick-btn${on ? ' is-on' : ''}`}
+                      disabled={busyId === rolesModalProfile.id}
+                      onClick={() => {
+                        const base = rolesModalProfile.roles?.length
+                          ? rolesModalProfile.roles
+                          : [{ roleKey: rolesModalProfile.role, label: ROLE_LABELS[rolesModalProfile.role] || rolesModalProfile.role, kind: 'system' }];
+                        updateRoles(rolesModalProfile.id, toggleRoleInList(base, {
+                          roleKey: r,
+                          label: ROLE_LABELS[r] || r,
+                          kind: 'system',
+                        }));
+                      }}
+                    >
+                      <span>{ROLE_LABELS[r] || r}</span>
+                      {on ? <Check size={14} /> : null}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="sys-roles-modal-label">Cargos / figuras</p>
+              <div className="sys-role-pick-grid">
+                {TITLE_ROLE_OPTIONS.map((t) => {
+                  const on = roleChipsSelected(rolesModalProfile.roles || [], t.key);
+                  return (
+                    <button
+                      key={t.key}
+                      type="button"
+                      className={`sys-role-pick-btn is-title${on ? ' is-on' : ''}`}
+                      disabled={busyId === rolesModalProfile.id}
+                      onClick={() => {
+                        const base = rolesModalProfile.roles?.length
+                          ? rolesModalProfile.roles
+                          : [{ roleKey: rolesModalProfile.role, label: ROLE_LABELS[rolesModalProfile.role] || rolesModalProfile.role, kind: 'system' }];
+                        updateRoles(rolesModalProfile.id, toggleRoleInList(base, {
+                          roleKey: t.key,
+                          label: t.label,
+                          kind: 'title',
+                        }));
+                      }}
+                    >
+                      <span>{t.label}</span>
+                      {on ? <Check size={14} /> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </ModalDialog>
         )}
       </section>
 
