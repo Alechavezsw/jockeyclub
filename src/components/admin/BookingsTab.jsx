@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, Clock, CalendarDays, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { ChevronDown, ChevronLeft, ChevronRight, Clock, CalendarDays, X } from 'lucide-react';
 
 const WEEKDAYS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
@@ -50,6 +50,12 @@ export default function BookingsTab({ reservations = [], setReservations }) {
     month: today.getMonth(),
   }));
   const [selectedDate, setSelectedDate] = useState(null);
+  const [listOpen, setListOpen] = useState(false);
+
+  useEffect(() => {
+    // Al elegir un día, abrir el panel; al volver a “todas”, colapsar la lista larga
+    setListOpen(Boolean(selectedDate));
+  }, [selectedDate]);
 
   const byDate = useMemo(() => {
     const map = new Map();
@@ -282,7 +288,48 @@ export default function BookingsTab({ reservations = [], setReservations }) {
           justify-content: space-between;
           gap: 0.75rem;
           flex-wrap: wrap;
-          margin-bottom: 0.75rem;
+          margin-bottom: 0;
+        }
+        .bookings-list-panel {
+          border: 1px solid var(--border-glass);
+          border-radius: 12px;
+          overflow: hidden;
+          background: color-mix(in srgb, var(--bg-card, transparent) 88%, transparent);
+        }
+        .bookings-list-toggle {
+          width: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.75rem;
+          flex-wrap: wrap;
+          padding: 0.85rem 1rem;
+          border: 0;
+          background: transparent;
+          color: inherit;
+          cursor: pointer;
+          text-align: left;
+        }
+        .bookings-list-toggle:hover {
+          background: color-mix(in srgb, var(--primary-gold) 6%, transparent);
+        }
+        .bookings-list-chevron {
+          flex-shrink: 0;
+          transition: transform 0.18s ease;
+          color: var(--text-muted);
+        }
+        .bookings-list-chevron.is-open {
+          transform: rotate(180deg);
+        }
+        .bookings-list-body {
+          border-top: 1px solid var(--border-glass);
+          max-height: min(52vh, 420px);
+          overflow: auto;
+        }
+        .bookings-list-actions {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.5rem;
         }
         @media (max-width: 980px) {
           .bookings-layout {
@@ -400,124 +447,137 @@ export default function BookingsTab({ reservations = [], setReservations }) {
           )}
         </aside>
 
-        <div>
-          <div className="bookings-table-head">
-            <div>
-              <h4 style={{ margin: 0, fontSize: '1rem' }}>
-                {selectedDate
-                  ? `Turnos del ${new Date(`${selectedDate}T12:00:00`).toLocaleDateString('es-AR')}`
-                  : 'Todas las reservas'}
-              </h4>
-              <p style={{ margin: '0.25rem 0 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                {filteredReservations.length} registro{filteredReservations.length === 1 ? '' : 's'}
-                {selectedDate ? ' · click de nuevo en el día para ver todas' : ' · elegí un día en el calendario'}
-              </p>
-            </div>
-            {selectedDate && (
+        <div className="bookings-list-panel">
+          <div className="bookings-table-head" style={{ padding: '0.35rem 0.35rem 0.35rem 0.15rem' }}>
+            <button
+              type="button"
+              className="bookings-list-toggle"
+              aria-expanded={listOpen}
+              onClick={() => setListOpen((v) => !v)}
+              style={{ flex: 1, minWidth: 0 }}
+            >
+              <div>
+                <h4 style={{ margin: 0, fontSize: '1rem' }}>
+                  {selectedDate
+                    ? `Turnos del ${new Date(`${selectedDate}T12:00:00`).toLocaleDateString('es-AR')}`
+                    : 'Todas las reservas'}
+                </h4>
+                <p style={{ margin: '0.25rem 0 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                  {filteredReservations.length} registro{filteredReservations.length === 1 ? '' : 's'}
+                  {listOpen
+                    ? (selectedDate ? ' · click de nuevo en el día para ver todas' : ' · elegí un día en el calendario')
+                    : ' · clic para expandir'}
+                </p>
+              </div>
+              <ChevronDown size={18} className={`bookings-list-chevron${listOpen ? ' is-open' : ''}`} aria-hidden />
+            </button>
+            {selectedDate ? (
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
                 onClick={() => setSelectedDate(null)}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginRight: '0.5rem' }}
               >
                 <X size={14} /> Ver todas
               </button>
-            )}
+            ) : null}
           </div>
 
-          <div className="table-responsive">
-            <table className="admin-table">
-              <thead>
-                <tr>
-                  <th>Socio</th>
-                  <th>Instalación</th>
-                  <th>Fecha</th>
-                  <th>Horario</th>
-                  <th>Importe</th>
-                  <th>Estado</th>
-                  <th style={{ textAlign: 'right' }}>Gestión</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredReservations.length === 0 ? (
+          {listOpen ? (
+            <div className="bookings-list-body table-responsive">
+              <table className="admin-table">
+                <thead>
                   <tr>
-                    <td colSpan={7} style={{ color: 'var(--text-muted)', padding: '1.5rem 1rem' }}>
-                      No hay reservas para mostrar.
-                    </td>
+                    <th>Socio</th>
+                    <th>Instalación</th>
+                    <th>Fecha</th>
+                    <th>Horario</th>
+                    <th>Importe</th>
+                    <th>Estado</th>
+                    <th style={{ textAlign: 'right' }}>Gestión</th>
                   </tr>
-                ) : (
-                  filteredReservations.map((res) => (
-                    <tr key={res.id}>
-                      <td>
-                        <strong>{res.memberName}</strong>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                          Nº {res.memberId}
-                        </div>
-                      </td>
-                      <td>
-                        <span style={{ color: 'var(--text-gold)', fontWeight: 600 }}>{res.facilityName}</span>
-                      </td>
-                      <td>{res.date}</td>
-                      <td>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontWeight: 500 }}>
-                          <Clock size={12} /> {formatSlot(res)}
-                        </span>
-                      </td>
-                      <td>
-                        {formatMoney(res.chargedPrice || res.estimatedPrice) || (
-                          <span style={{ color: 'var(--text-muted)' }}>—</span>
-                        )}
-                      </td>
-                      <td>
-                        <span className={`status-tag ${res.status}`}>
-                          {statusLabel(res.status)}
-                        </span>
-                      </td>
-                      <td style={{ textAlign: 'right' }}>
-                        <div style={{ display: 'inline-flex', gap: '0.4rem' }}>
-                          {res.status === 'pending' && (
-                            <button
-                              type="button"
-                              onClick={() => handleUpdateReservationStatus(res.id, 'confirmed')}
-                              className="btn btn-secondary btn-sm"
-                              style={{
-                                borderColor: 'var(--emerald-accent)',
-                                color: 'var(--emerald-accent)',
-                                background: 'rgba(16, 185, 129, 0.05)',
-                                padding: '0.35rem 0.75rem',
-                              }}
-                            >
-                              Aprobar
-                            </button>
-                          )}
-                          {res.status !== 'cancelled' && (
-                            <button
-                              type="button"
-                              onClick={() => handleUpdateReservationStatus(res.id, 'cancelled')}
-                              className="btn btn-danger btn-sm"
-                              style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}
-                            >
-                              Anular
-                            </button>
-                          )}
-                          {res.status === 'cancelled' && (
-                            <button
-                              type="button"
-                              onClick={() => handleUpdateReservationStatus(res.id, 'confirmed')}
-                              className="btn btn-secondary btn-sm"
-                              style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}
-                            >
-                              Reactivar
-                            </button>
-                          )}
-                        </div>
+                </thead>
+                <tbody>
+                  {filteredReservations.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} style={{ color: 'var(--text-muted)', padding: '1.5rem 1rem' }}>
+                        No hay reservas para mostrar.
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                  ) : (
+                    filteredReservations.map((res) => (
+                      <tr key={res.id}>
+                        <td>
+                          <strong>{res.memberName}</strong>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                            Nº {res.memberId}
+                          </div>
+                        </td>
+                        <td>
+                          <span style={{ color: 'var(--text-gold)', fontWeight: 600 }}>{res.facilityName}</span>
+                        </td>
+                        <td>{res.date}</td>
+                        <td>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontWeight: 500 }}>
+                            <Clock size={12} /> {formatSlot(res)}
+                          </span>
+                        </td>
+                        <td>
+                          {formatMoney(res.chargedPrice || res.estimatedPrice) || (
+                            <span style={{ color: 'var(--text-muted)' }}>—</span>
+                          )}
+                        </td>
+                        <td>
+                          <span className={`status-tag ${res.status}`}>
+                            {statusLabel(res.status)}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          <div style={{ display: 'inline-flex', gap: '0.4rem' }}>
+                            {res.status === 'pending' && (
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateReservationStatus(res.id, 'confirmed')}
+                                className="btn btn-secondary btn-sm"
+                                style={{
+                                  borderColor: 'var(--emerald-accent)',
+                                  color: 'var(--emerald-accent)',
+                                  background: 'rgba(16, 185, 129, 0.05)',
+                                  padding: '0.35rem 0.75rem',
+                                }}
+                              >
+                                Aprobar
+                              </button>
+                            )}
+                            {res.status !== 'cancelled' && (
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateReservationStatus(res.id, 'cancelled')}
+                                className="btn btn-danger btn-sm"
+                                style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}
+                              >
+                                Anular
+                              </button>
+                            )}
+                            {res.status === 'cancelled' && (
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateReservationStatus(res.id, 'confirmed')}
+                                className="btn btn-secondary btn-sm"
+                                style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}
+                              >
+                                Reactivar
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
