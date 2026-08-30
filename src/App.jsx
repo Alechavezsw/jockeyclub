@@ -142,41 +142,46 @@ const DEFAULT_MEMBERS = [
 ];
 
 // Datos de semilla predeterminados para reservas (alineados con canchas de San Juan)
-/** Demo mínimo si no hay seed datita (npm run import:reservas). */
-const DEFAULT_DEMO_RESERVATIONS = [
-  {
-    id: 1,
-    facilityId: 'rugby_masc',
-    facilityName: 'Rugby Masculino - Cancha Principal',
-    memberId: '2020445599881122',
-    memberName: 'Victoria Cantoni',
-    date: new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0],
-    time: '09:00',
-    guests: 3,
-    guestNames: 'Mariana Cantoni, Jorge L. Cantoni, Manuel Sarmiento',
-    status: 'confirmed',
-  },
-];
-
+/** Sin demos: las reservas reales vienen del seed datita o de Supabase. */
 const DEFAULT_RESERVATIONS = Array.isArray(SEED_DATITA_RESERVAS) && SEED_DATITA_RESERVAS.length
   ? SEED_DATITA_RESERVAS
-  : DEFAULT_DEMO_RESERVATIONS;
+  : [];
+
+function isDatitaReservation(r) {
+  return r?.source === 'datita' || String(r?.id || '').startsWith('datita-res-');
+}
+
+function isDemoReservation(r) {
+  if (!r) return false;
+  if (isDatitaReservation(r)) return false;
+  const id = r.id;
+  if (typeof id === 'number' && id <= 10) return true;
+  const demoMembers = new Set([
+    '2020445599881122',
+    '2022112233445566',
+    '2026887744320988',
+  ]);
+  const demoFacilities = new Set(['rugby_masc', 'tenis_trad', 'fitness', 'padel_vidrio']);
+  return demoMembers.has(String(r.memberId || '')) && demoFacilities.has(String(r.facilityId || ''));
+}
+
+function pickReservations(preferred, fallbackSeed = SEED_DATITA_RESERVAS) {
+  const list = Array.isArray(preferred) ? preferred.filter((r) => !isDemoReservation(r)) : [];
+  const seed = Array.isArray(fallbackSeed) ? fallbackSeed : [];
+  // Preferir seed datita completo si la nube aún no tiene el lote (o quedó a medias)
+  if (seed.length && seed.length > list.length) return seed;
+  if (list.some(isDatitaReservation) || list.length) return list;
+  return seed;
+}
 
 function loadInitialReservations() {
   try {
     const local = localStorage.getItem('jockey-reservations');
-    if (!local) return DEFAULT_RESERVATIONS;
+    if (!local) return pickReservations([]);
     const parsed = JSON.parse(local);
-    if (!Array.isArray(parsed) || !parsed.length) return DEFAULT_RESERVATIONS;
-    const hasDatita = parsed.some(
-      (r) => r?.source === 'datita' || String(r?.id || '').startsWith('datita-res-'),
-    );
-    if (hasDatita) return parsed;
-    // localStorage viejo con demos → preferir padrón real de salones/parrilla
-    if (SEED_DATITA_RESERVAS?.length) return SEED_DATITA_RESERVAS;
-    return parsed;
+    return pickReservations(parsed);
   } catch {
-    return DEFAULT_RESERVATIONS;
+    return pickReservations([]);
   }
 }
 
@@ -1200,7 +1205,7 @@ export default function App() {
         // Evitar flash del padrón demo local mientras llega la nube
         setMembers([]);
         setMembersCount(app.membersCount || 0);
-        setReservations(app.reservations || []);
+        setReservations(pickReservations(app.reservations || []));
         setWaitlist(app.waitlist || []);
         setNewsList(app.newsList || []);
         setRsvpList(app.rsvpList || []);
