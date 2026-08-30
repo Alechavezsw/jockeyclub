@@ -40,6 +40,24 @@ export default function MemberTiersPanel({
 
   const tiers = useMemo(() => getActiveTiers(catalog), [catalog]);
   const canEdit = typeof setCatalog === 'function';
+  const [tierPage, setTierPage] = useState(1);
+  const TIER_PAGE_SIZE = 8;
+  const tierTotalPages = Math.max(1, Math.ceil(tiers.length / TIER_PAGE_SIZE));
+  const tierPageSafe = Math.min(tierPage, tierTotalPages);
+  const pageTiers = useMemo(() => {
+    const start = (tierPageSafe - 1) * TIER_PAGE_SIZE;
+    return tiers.slice(start, start + TIER_PAGE_SIZE);
+  }, [tiers, tierPageSafe]);
+
+  const membersByTier = useMemo(() => {
+    const map = new Map();
+    for (const m of members || []) {
+      if (m.status === 'inactive') continue;
+      const key = String(m.tier || '').toLowerCase();
+      map.set(key, (map.get(key) || 0) + 1);
+    }
+    return map;
+  }, [members]);
 
   if (!canEdit) return null;
 
@@ -130,7 +148,7 @@ export default function MemberTiersPanel({
 
       {!open && (
         <div className="member-tiers-chips" aria-label="Categorías activas">
-          {tiers.map((tier) => (
+          {tiers.slice(0, 6).map((tier) => (
             <button
               key={tier.id}
               type="button"
@@ -147,14 +165,23 @@ export default function MemberTiersPanel({
               <em>{formatCurrency(tier.monthlyDues)}</em>
             </button>
           ))}
+          {tiers.length > 6 ? (
+            <button
+              type="button"
+              className="member-tiers-chip member-tiers-chip--more"
+              onClick={() => setOpen(true)}
+            >
+              <span>+{tiers.length - 6} más</span>
+            </button>
+          ) : null}
         </div>
       )}
 
       {open && (
         <div className="member-tiers-body">
           <ul className="member-tiers-list">
-            {tiers.map((tier) => {
-              const used = countMembersInTier(members, tier.id);
+            {pageTiers.map((tier) => {
+              const used = membersByTier.get(String(tier.id).toLowerCase()) || 0;
               const isEditing = !isCreating && editingId === tier.id;
               if (isEditing) {
                 return (
@@ -196,6 +223,30 @@ export default function MemberTiersPanel({
               );
             })}
           </ul>
+
+          {tiers.length > TIER_PAGE_SIZE ? (
+            <div className="members-pager members-pager--tiers">
+              <span>Hoja {tierPageSafe} / {tierTotalPages}</span>
+              <div className="members-pager-controls">
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  disabled={tierPageSafe <= 1}
+                  onClick={() => setTierPage((p) => Math.max(1, p - 1))}
+                >
+                  Anterior
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  disabled={tierPageSafe >= tierTotalPages}
+                  onClick={() => setTierPage((p) => Math.min(tierTotalPages, p + 1))}
+                >
+                  Siguiente
+                </button>
+              </div>
+            </div>
+          ) : null}
 
           {isCreating && (
             <div className="member-tiers-row is-editing" style={{ marginTop: '0.65rem' }}>

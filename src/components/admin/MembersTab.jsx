@@ -1,17 +1,25 @@
-import React, { useMemo, useState } from 'react';
-import { Search, Filter, Plus, Check, ChevronDown, ChevronUp, Trash2, Users, UserPlus, X, CreditCard, Camera, FileDown } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Search, Filter, Plus, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Trash2, Users, UserPlus, X, CreditCard, Camera, FileDown, Pencil, KeyRound } from 'lucide-react';
 import { afterCollectDues, duesAmountForHousehold, duesAmountForTier } from '../../domain/members/dues';
 import { exportMembersPdf } from '../../domain/members/exportMembersPdf';
 import { DISCIPLINE_OPTIONS } from '../../domain/sports/disciplines';
 import { getActiveTiers, getTierOptionLabel, tierBadgeStyle, getTierDisplayName } from '../../domain/members/tiers';
+import {
+  buildLifecycleMeta,
+  collectMemberMeta,
+  reasonLabel as lifecycleReasonLabel,
+} from '../../domain/members/memberAdminActions';
 import { resolveFamilyForDisplay } from '../../domain/members/households';
+import { loginEmailFromUsername } from '../../domain/auth/credentials';
 import VirtualCard from '../VirtualCard';
 import CollectDuesModal from './CollectDuesModal';
 import ModalDialog from '../ModalDialog';
 import MemberTiersPanel from './MemberTiersPanel';
+import { MemberLifecycleModal, MemberCredentialsModal } from './MemberAdminModals';
 import { addMonthsISODate, nowTimeAR, todayISODateAR } from '../../lib/arDate';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { repos } from '../../data/bootstrap';
+import { useAuth } from '../../context/AuthContext';
 
 function emptyMemberForm() {
   const joinDate = todayISODateAR();
@@ -43,6 +51,9 @@ function emptyMemberForm() {
     disciplines: [],
     emergencyContact: '',
     emergencyPhone: '',
+    bloodType: '',
+    healthInsurance: '',
+    emergencyClinic: '',
     notes: '',
     chargeFirstDues: true,
     familyGroup: [],
@@ -151,6 +162,8 @@ const RELATIONSHIP_OPTIONS = [
   'Cónyuge', 'Hijo/a', 'Padre/Madre', 'Hermano/a', 'Nieto/a', 'Otro',
 ];
 
+const MEMBERS_PAGE_SIZE = 50;
+
 /** Gestión de socios titulares y adherentes familiares. */
 export default function MembersTab({
   members,
@@ -161,17 +174,29 @@ export default function MembersTab({
   disciplineOptions = DISCIPLINE_OPTIONS,
   tierCatalog = [],
   setTierCatalog,
+  updateMember = null,
 }) {
+  const { user } = useAuth();
+  const actorName = user?.fullName || user?.name || user?.email || '';
   const tiers = getActiveTiers(tierCatalog);
   const defaultTierId = tiers[0]?.id || 'socio_individual';
   const [tierFilter, setTierFilter] = useState('todos');
   const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(1);
   const [showAddForm, setShowAddForm] = useState(false);
   const [form, setForm] = useState(() => emptyMemberForm());
   const [formError, setFormError] = useState('');
   const [expandedMemberId, setExpandedMemberId] = useState(null);
   const [cardMember, setCardMember] = useState(null);
   const [collectMember, setCollectMember] = useState(null);
+  const [lifecycleTarget, setLifecycleTarget] = useState(null); // { member, action }
+  const [lifecycleBusy, setLifecycleBusy] = useState(false);
+  const [lifecycleError, setLifecycleError] = useState('');
+  const [credsTarget, setCredsTarget] = useState(null);
+  const [credsBusy, setCredsBusy] = useState(false);
+  const [credsError, setCredsError] = useState('');
+  const [credsResult, setCredsResult] = useState(null);
+  const [actionFlash, setActionFlash] = useState('');
 
   const [showAddAdherentId, setShowAddAdherentId] = useState(null);
   const [adhName, setAdhName] = useState('');
@@ -263,17 +288,36 @@ export default function MembersTab({
     setFormError('');
   };
 
-  const filteredMembers = members.filter(m => {
-    const q = searchQuery.toLowerCase();
-    const matchesSearch =
-      m.name.toLowerCase().includes(q) ||
-      m.memberId.includes(searchQuery) ||
-      (m.email || '').toLowerCase().includes(q) ||
-      (m.documentNumber || '').includes(searchQuery) ||
-      (m.phone || '').includes(searchQuery);
-    const matchesTier = tierFilter === 'todos' || m.tier.toLowerCase() === tierFilter.toLowerCase();
-    return matchesSearch && matchesTier;
-  });
+  const filteredMembers = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return members.filter((m) => {
+      const matchesSearch = !q
+        || m.name.toLowerCase().includes(q)
+        || String(m.memberId || '').includes(searchQuery.trim())
+        || (m.email || '').toLowerCase().includes(q)
+        || (m.documentNumber || '').includes(searchQuery.trim())
+        || (m.phone || '').includes(searchQuery.trim());
+      const matchesTier = tierFilter === 'todos'
+        || String(m.tier || '').toLowerCase() === String(tierFilter).toLowerCase();
+      return matchesSearch && matchesTier;
+    });
+  }, [members, searchQuery, tierFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredMembers.length / MEMBERS_PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageMembers = useMemo(() => {
+    const start = (safePage - 1) * MEMBERS_PAGE_SIZE;
+    return filteredMembers.slice(start, start + MEMBERS_PAGE_SIZE);
+  }, [filteredMembers, safePage]);
+
+  useEffect(() => {
+    setPage(1);
+    setExpandedMemberId(null);
+  }, [searchQuery, tierFilter]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
 
   const handleAddMember = (e) => {
     e.preventDefault();
@@ -357,10 +401,19 @@ export default function MembersTab({
       disciplines: form.disciplines,
       emergencyContact: form.emergencyContact.trim(),
       emergencyPhone: form.emergencyPhone.trim(),
+      bloodType: form.bloodType.trim(),
+      healthInsurance: form.healthInsurance.trim(),
+      emergencyClinic: form.emergencyClinic.trim(),
       notes: form.notes.trim(),
       outstandingBalance: firstDues,
       yearsActive: 1,
       adherents,
+      meta: collectMemberMeta({
+        bloodType: form.bloodType.trim(),
+        healthInsurance: form.healthInsurance.trim(),
+        emergencyClinic: form.emergencyClinic.trim(),
+        joinTime,
+      }),
     };
 
     setMembers([newMember, ...members]);
@@ -392,6 +445,125 @@ export default function MembersTab({
       m.memberId === member.memberId ? afterCollectDues(m) : m
     )));
     setCollectMember(null);
+  };
+
+  const persistMember = async (next) => {
+    if (typeof updateMember === 'function') {
+      await updateMember(next);
+      return;
+    }
+    setMembers((prev) => prev.map((x) => (x.memberId === next.memberId ? next : x)));
+  };
+
+  const openLifecycle = (member, action) => {
+    setLifecycleError('');
+    setLifecycleTarget({ member, action });
+  };
+
+  const handleLifecycleConfirm = async (payload) => {
+    if (payload?.error) {
+      setLifecycleError(payload.error);
+      return;
+    }
+    if (!lifecycleTarget?.member) return;
+    const { member, action } = lifecycleTarget;
+    setLifecycleBusy(true);
+    setLifecycleError('');
+    try {
+      const nextStatus = action === 'activate' ? 'active' : action === 'suspend' ? 'suspended' : 'inactive';
+      const nextMeta = buildLifecycleMeta(collectMemberMeta(member), {
+        action,
+        reasonId: payload.reasonId,
+        reasonLabel: payload.reasonLabel || lifecycleReasonLabel(action, payload.reasonId),
+        detail: payload.detail,
+        actorName,
+      });
+      const next = {
+        ...member,
+        status: nextStatus,
+        meta: nextMeta,
+        bajaMotivo: nextMeta.bajaMotivo,
+        bajaFecha: nextMeta.bajaFecha,
+        bajaDetail: nextMeta.bajaDetail,
+      };
+
+      if (isSupabaseConfigured) {
+        const saved = await repos.setMemberLifecycle(next, {
+          status: nextStatus,
+          action,
+          reasonId: payload.reasonId,
+          reasonLabel: payload.reasonLabel || lifecycleReasonLabel(action, payload.reasonId),
+          detail: payload.detail,
+          actorName,
+        });
+        await persistMember(saved || next);
+      } else {
+        await persistMember(next);
+      }
+
+      setActionFlash(
+        action === 'delete'
+          ? `Baja registrada: ${member.name}`
+          : action === 'suspend'
+            ? `Suspensión registrada: ${member.name}`
+            : `Reactivación registrada: ${member.name}`,
+      );
+      setTimeout(() => setActionFlash(''), 3200);
+      setLifecycleTarget(null);
+    } catch (err) {
+      setLifecycleError(err?.message || 'No se pudo guardar el cambio de estado.');
+    } finally {
+      setLifecycleBusy(false);
+    }
+  };
+
+  const openCredentials = (member) => {
+    setCredsError('');
+    setCredsResult(null);
+    setCredsTarget(member);
+  };
+
+  const handleCredentialsGenerate = async (creds) => {
+    if (!credsTarget) return;
+    setCredsBusy(true);
+    setCredsError('');
+    try {
+      const username = String(creds.username || '').trim().toLowerCase();
+      const password = String(creds.password || '');
+      const email = String(creds.email || loginEmailFromUsername(username)).trim().toLowerCase();
+      if (!username || password.length < 6) {
+        throw new Error('Usuario y contraseña (mín. 6) son obligatorios.');
+      }
+
+      if (isSupabaseConfigured) {
+        const { member: saved, creds: out } = await repos.provisionMemberPortalAccess(
+          credsTarget,
+          { username, password, email },
+          { actorName },
+        );
+        await persistMember(saved);
+        setCredsResult({ creds: out });
+      } else {
+        const next = {
+          ...credsTarget,
+          email: credsTarget.email || email,
+          meta: {
+            ...collectMemberMeta(credsTarget),
+            portalUsername: username,
+            portalProvisionedAt: new Date().toISOString(),
+            portalProvisionedBy: actorName || null,
+          },
+        };
+        await persistMember(next);
+        setCredsResult({ creds: { username, password, email } });
+      }
+      setActionFlash(`Acceso generado para ${credsTarget.name}`);
+      setTimeout(() => setActionFlash(''), 3200);
+    } catch (err) {
+      setCredsError(err?.message || 'No se pudo crear el acceso.');
+    } finally {
+      setCredsBusy(false);
+    }
   };
 
   const handleAddAdherent = (memberId) => {
@@ -454,51 +626,59 @@ export default function MembersTab({
   };
 
   return (
-    <div className="glass-card fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-      <MemberTiersPanel
-        catalog={tierCatalog}
-        setCatalog={setTierCatalog}
-        setMembers={setMembers}
-        members={members}
-        formatCurrency={formatCurrency}
-      />
-
-      <div className="admin-filters" style={{ width: '100%' }}>
-        {/* Buscador */}
-        <div style={{ position: 'relative', minWidth: 0, flex: '1 1 220px' }}>
-          <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+    <div className="glass-card fade-in members-tab">
+      {actionFlash ? (
+        <p className="member-action-flash" role="status">{actionFlash}</p>
+      ) : null}
+      <div className="members-search-hero">
+        <label className="members-search-label" htmlFor="members-search-input">
+          Buscar en el padrón
+        </label>
+        <div className="members-search-field">
+          <Search size={20} aria-hidden="true" className="members-search-icon" />
           <input
-            type="text"
-            placeholder="Buscar por nombre, credencial, DNI, email o teléfono..."
-            className="form-input"
+            id="members-search-input"
+            type="search"
+            placeholder="Nombre, Nº de socio, DNI, email o teléfono…"
+            className="members-search-input"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            style={{ paddingLeft: '2.5rem', width: '100%' }}
+            autoComplete="off"
           />
-        </div>
-
-        {/* Filtros */}
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          <Filter size={16} style={{ color: 'var(--text-muted)' }} />
-          <div className="filter-group">
+          {searchQuery ? (
             <button
               type="button"
-              onClick={() => setTierFilter('todos')}
-              className={`filter-btn ${tierFilter === 'todos' ? 'active' : ''}`}
+              className="members-search-clear"
+              onClick={() => setSearchQuery('')}
+              aria-label="Limpiar búsqueda"
             >
-              Todos
+              <X size={16} />
             </button>
+          ) : null}
+        </div>
+        {searchQuery.trim() ? (
+          <p className="members-search-hint">
+            {filteredMembers.length.toLocaleString('es-AR')} resultado{filteredMembers.length === 1 ? '' : 's'}
+          </p>
+        ) : (
+          <p className="members-search-hint">Escribí para filtrar titulares e integrantes del grupo familiar.</p>
+        )}
+      </div>
+
+      <div className="admin-filters members-toolbar">
+        <div className="members-toolbar-filter">
+          <Filter size={16} aria-hidden="true" />
+          <select
+            className="form-input"
+            value={tierFilter}
+            onChange={(e) => setTierFilter(e.target.value)}
+            aria-label="Filtrar por categoría"
+          >
+            <option value="todos">Todas las categorías</option>
             {tiers.map((tier) => (
-              <button
-                key={tier.id}
-                type="button"
-                onClick={() => setTierFilter(tier.id)}
-                className={`filter-btn ${tierFilter === tier.id ? 'active' : ''}`}
-              >
-                {tier.name}
-              </button>
+              <option key={tier.id} value={tier.id}>{tier.name}</option>
             ))}
-          </div>
+          </select>
         </div>
 
         <button
@@ -509,23 +689,30 @@ export default function MembersTab({
             tierCatalog,
           }); }}
           className="btn btn-secondary"
-          style={{ padding: '0.5rem 1.1rem', fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: 6 }}
           title="Exportar padrón filtrado a PDF"
         >
           <FileDown size={16} /> Exportar PDF
         </button>
 
         <button
+          type="button"
           onClick={() => {
             if (!showAddForm) resetForm();
             setShowAddForm(!showAddForm);
           }}
           className="btn btn-primary"
-          style={{ padding: '0.5rem 1.25rem', fontSize: '0.85rem' }}
         >
           <Plus size={16} /> Registrar Socio
         </button>
       </div>
+
+      <MemberTiersPanel
+        catalog={tierCatalog}
+        setCatalog={setTierCatalog}
+        setMembers={setMembers}
+        members={members}
+        formatCurrency={formatCurrency}
+      />
 
       {/* Formulario Alta de Socio — ficha completa */}
       {showAddForm && (
@@ -656,21 +843,73 @@ export default function MembersTab({
                 <label className="form-label">Código postal</label>
                 <input className="form-input" value={form.postalCode} onChange={(e) => updateForm('postalCode', e.target.value)} />
               </div>
+            </div>
+          </section>
+
+          {/* 3. Datos de emergencia */}
+          <section>
+            <h5 style={{ margin: '0 0 0.75rem', fontSize: '0.8rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-gold)' }}>
+              3. Datos de emergencia
+            </h5>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.85rem' }}>
               <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Contacto de emergencia</label>
-                <input className="form-input" value={form.emergencyContact} onChange={(e) => updateForm('emergencyContact', e.target.value)} placeholder="Nombre" />
+                <label className="form-label">Grupo sanguíneo</label>
+                <select className="form-input" value={form.bloodType} onChange={(e) => updateForm('bloodType', e.target.value)}>
+                  <option value="">Indique el grupo sanguíneo</option>
+                  <option value="A+">A+</option>
+                  <option value="A-">A−</option>
+                  <option value="B+">B+</option>
+                  <option value="B-">B−</option>
+                  <option value="AB+">AB+</option>
+                  <option value="AB-">AB−</option>
+                  <option value="O+">O+</option>
+                  <option value="O-">O−</option>
+                  <option value="Desconocido">Desconocido</option>
+                </select>
               </div>
               <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Tel. emergencia</label>
-                <input className="form-input" value={form.emergencyPhone} onChange={(e) => updateForm('emergencyPhone', e.target.value)} />
+                <label className="form-label">Obra social</label>
+                <input
+                  className="form-input"
+                  value={form.healthInsurance}
+                  onChange={(e) => updateForm('healthInsurance', e.target.value)}
+                  placeholder="Indique la obra social"
+                />
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Contacto de emergencia</label>
+                <input
+                  className="form-input"
+                  value={form.emergencyContact}
+                  onChange={(e) => updateForm('emergencyContact', e.target.value)}
+                  placeholder="Nombre del contacto"
+                />
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Número de emergencia</label>
+                <input
+                  className="form-input"
+                  value={form.emergencyPhone}
+                  onChange={(e) => updateForm('emergencyPhone', e.target.value)}
+                  placeholder="Indique el número de emergencia"
+                />
+              </div>
+              <div className="form-group" style={{ marginBottom: 0, gridColumn: '1 / -1' }}>
+                <label className="form-label">Clínica de emergencia</label>
+                <input
+                  className="form-input"
+                  value={form.emergencyClinic}
+                  onChange={(e) => updateForm('emergencyClinic', e.target.value)}
+                  placeholder="Indique la clínica de emergencia"
+                />
               </div>
             </div>
           </section>
 
-          {/* 3. Membresía */}
+          {/* 4. Membresía */}
           <section>
             <h5 style={{ margin: '0 0 0.75rem', fontSize: '0.8rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-gold)' }}>
-              3. Membresía y disciplinas
+              4. Membresía y disciplinas
             </h5>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.85rem' }}>
               <div className="form-group" style={{ marginBottom: 0 }}>
@@ -763,7 +1002,7 @@ export default function MembersTab({
           {/* 4. Facturación */}
           <section>
             <h5 style={{ margin: '0 0 0.75rem', fontSize: '0.8rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-gold)' }}>
-              4. Facturación y cobranza
+              5. Facturación y cobranza
             </h5>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.85rem' }}>
               <div className="form-group" style={{ marginBottom: 0 }}>
@@ -853,7 +1092,7 @@ export default function MembersTab({
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
               <div>
                 <h5 style={{ margin: 0, fontSize: '0.8rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-gold)' }}>
-                  5. Grupo familiar
+                  6. Grupo familiar
                 </h5>
                 <p style={{ margin: '0.35rem 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
                   Adherentes del titular (cónyuge, hijos, etc.). Opcional; también se pueden sumar después.
@@ -998,7 +1237,7 @@ export default function MembersTab({
           {/* 6. Notas */}
           <section>
             <h5 style={{ margin: '0 0 0.75rem', fontSize: '0.8rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-gold)' }}>
-              6. Observaciones
+              7. Observaciones
             </h5>
             <textarea
               className="form-input"
@@ -1029,6 +1268,37 @@ export default function MembersTab({
       )}
 
       {/* Tabla de Socios */}
+      <div className="members-pager" aria-live="polite">
+        <span>
+          {filteredMembers.length === 0
+            ? 'Sin resultados'
+            : `${((safePage - 1) * MEMBERS_PAGE_SIZE) + 1}–${Math.min(safePage * MEMBERS_PAGE_SIZE, filteredMembers.length)} de ${filteredMembers.length.toLocaleString('es-AR')}`}
+        </span>
+        <div className="members-pager-controls">
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            disabled={safePage <= 1}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            aria-label="Hoja anterior"
+          >
+            <ChevronLeft size={16} /> Anterior
+          </button>
+          <span className="members-pager-page">
+            Hoja {safePage} / {totalPages}
+          </span>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            disabled={safePage >= totalPages}
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            aria-label="Hoja siguiente"
+          >
+            Siguiente <ChevronRight size={16} />
+          </button>
+        </div>
+      </div>
+
       <div className="table-responsive">
         <table className="admin-table">
           <thead>
@@ -1042,7 +1312,7 @@ export default function MembersTab({
             </tr>
           </thead>
           <tbody>
-            {filteredMembers.map(m => (
+            {pageMembers.map(m => (
               <React.Fragment key={m.memberId}>
                 <tr>
                   <td>
@@ -1143,13 +1413,32 @@ export default function MembersTab({
                     </span>
                   </td>
                   <td style={{ textAlign: 'right' }}>
-                    <div style={{ display: 'inline-flex', gap: '0.4rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    <div className="member-row-actions" style={{ display: 'inline-flex', gap: '0.35rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                       <button
+                        type="button"
+                        onClick={() => onOpenProfile?.(m.memberId)}
+                        className="btn btn-secondary btn-sm"
+                        style={{ padding: '0.35rem 0.55rem', fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                        title="Editar ficha"
+                      >
+                        <Pencil size={12} /> Editar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openCredentials(m)}
+                        className="btn btn-secondary btn-sm"
+                        style={{ padding: '0.35rem 0.55rem', fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                        title="Generar usuario y contraseña"
+                      >
+                        <KeyRound size={12} /> Credenciales
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => setCardMember(m)}
                         className="btn btn-secondary btn-sm"
                         style={{
-                          padding: '0.35rem 0.65rem',
-                          fontSize: '0.75rem',
+                          padding: '0.35rem 0.55rem',
+                          fontSize: '0.72rem',
                           display: 'inline-flex',
                           alignItems: 'center',
                           gap: 4,
@@ -1163,13 +1452,15 @@ export default function MembersTab({
                       </button>
                       {m.outstandingBalance > 0 && (
                         <button
+                          type="button"
                           onClick={() => setCollectMember(m)}
                           className="btn btn-secondary btn-sm"
                           style={{
                             borderColor: 'var(--emerald-accent)',
                             color: 'var(--emerald-accent)',
                             background: 'rgba(16, 185, 129, 0.03)',
-                            padding: '0.35rem 0.65rem'
+                            padding: '0.35rem 0.55rem',
+                            fontSize: '0.72rem',
                           }}
                           title="Cobrar Cuota Pendiente"
                         >
@@ -1177,25 +1468,37 @@ export default function MembersTab({
                         </button>
                       )}
                       <button
-                        onClick={() => {
-                          setMembers(members.map(item => {
-                            if (item.memberId === m.memberId) {
-                                return { ...item, status: item.status === 'active' ? 'suspended' : 'active' };
-                            }
-                            return item;
-                          }));
-                        }}
+                        type="button"
+                        onClick={() => openLifecycle(m, m.status === 'active' ? 'suspend' : 'activate')}
                         className="btn btn-danger btn-sm"
                         style={{
-                          padding: '0.35rem 0.65rem',
-                          fontSize: '0.75rem',
+                          padding: '0.35rem 0.55rem',
+                          fontSize: '0.72rem',
                           background: m.status === 'active' ? 'rgba(239, 68, 68, 0.03)' : 'rgba(16, 185, 129, 0.03)',
                           borderColor: m.status === 'active' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)',
-                          color: m.status === 'active' ? 'var(--danger-accent)' : 'var(--emerald-accent)'
+                          color: m.status === 'active' ? 'var(--danger-accent)' : 'var(--emerald-accent)',
                         }}
+                        title={m.status === 'active' ? 'Suspender con motivo' : 'Reactivar con motivo'}
                       >
                         {m.status === 'active' ? 'Suspender' : 'Activar'}
                       </button>
+                      {m.status !== 'inactive' ? (
+                        <button
+                          type="button"
+                          onClick={() => openLifecycle(m, 'delete')}
+                          className="btn btn-danger btn-sm"
+                          style={{
+                            padding: '0.35rem 0.55rem',
+                            fontSize: '0.72rem',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                          }}
+                          title="Dar de baja con motivo (trazable)"
+                        >
+                          <Trash2 size={12} /> Eliminar
+                        </button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>
@@ -1431,6 +1734,43 @@ export default function MembersTab({
         </table>
       </div>
 
+      {filteredMembers.length > MEMBERS_PAGE_SIZE ? (
+        <div className="members-pager members-pager--bottom" aria-live="polite">
+          <span>
+            {((safePage - 1) * MEMBERS_PAGE_SIZE) + 1}–{Math.min(safePage * MEMBERS_PAGE_SIZE, filteredMembers.length)} de {filteredMembers.length.toLocaleString('es-AR')}
+          </span>
+          <div className="members-pager-controls">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={safePage <= 1}
+              onClick={() => {
+                setPage((p) => Math.max(1, p - 1));
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              aria-label="Hoja anterior"
+            >
+              <ChevronLeft size={16} /> Anterior
+            </button>
+            <span className="members-pager-page">
+              Hoja {safePage} / {totalPages}
+            </span>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={safePage >= totalPages}
+              onClick={() => {
+                setPage((p) => Math.min(totalPages, p + 1));
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              aria-label="Hoja siguiente"
+            >
+              Siguiente <ChevronRight size={16} />
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {collectMember && (
         <CollectDuesModal
           member={collectMember}
@@ -1477,6 +1817,39 @@ export default function MembersTab({
             </div>
         </ModalDialog>
       )}
+
+      <MemberLifecycleModal
+        key={lifecycleTarget ? `${lifecycleTarget.member.memberId}-${lifecycleTarget.action}` : 'closed'}
+        open={Boolean(lifecycleTarget)}
+        member={lifecycleTarget?.member}
+        action={lifecycleTarget?.action}
+        busy={lifecycleBusy}
+        error={lifecycleError}
+        onClose={() => {
+          if (!lifecycleBusy) {
+            setLifecycleTarget(null);
+            setLifecycleError('');
+          }
+        }}
+        onConfirm={handleLifecycleConfirm}
+      />
+
+      <MemberCredentialsModal
+        key={credsTarget ? `creds-${credsTarget.memberId}` : 'creds-closed'}
+        open={Boolean(credsTarget)}
+        member={credsTarget}
+        busy={credsBusy}
+        error={credsError}
+        result={credsResult}
+        onClose={() => {
+          if (!credsBusy) {
+            setCredsTarget(null);
+            setCredsError('');
+            setCredsResult(null);
+          }
+        }}
+        onGenerate={handleCredentialsGenerate}
+      />
     </div>
   );
 }

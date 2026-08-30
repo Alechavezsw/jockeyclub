@@ -1726,6 +1726,7 @@ export default function App() {
         setCurrentView={setCurrentView}
         erp={erp}
         isZondaActive={isZondaActive}
+        updateMember={updateMember}
       />
     );
 

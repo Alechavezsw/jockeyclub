@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { unwrap, throwOnError } from './errors';
 import * as M from './mappers';
+import { collectMemberMeta, buildLifecycleMeta, splitMemberName } from '../domain/members/memberAdminActions';
 
 const FISCAL_2026 = '11111111-1111-1111-1111-111111111111';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -194,6 +195,8 @@ export async function listMemberAdherents(memberDbId) {
 
 export async function upsertMember(member) {
   const row = M.memberToRow(member);
+  if (member.profileId) row.profile_id = member.profileId;
+  row.meta = { ...collectMemberMeta(member), ...(row.meta || {}) };
   let saved;
   if (member.id) {
     saved = await unwrap(
@@ -241,6 +244,90 @@ export async function upsertMember(member) {
     sb().from('members').select('*, member_adherents(*)').eq('id', saved.id).single()
   );
   return M.memberFromRow(full);
+}
+
+/**
+ * Cambia estado del socio (activar / suspender / baja) con motivo auditado.
+ */
+export async function setMemberLifecycle(member, {
+  status,
+  action,
+  reasonId,
+  reasonLabel,
+  detail = '',
+  actorName = '',
+} = {}) {
+  if (!member?.id && !member?.memberId) throw new Error('Socio inválido');
+  const meta = buildLifecycleMeta(collectMemberMeta(member), {
+    action,
+    reasonId,
+    reasonLabel,
+    detail,
+    actorName,
+  });
+  const next = {
+    ...member,
+    status,
+    meta,
+    bajaMotivo: meta.bajaMotivo,
+    bajaFecha: meta.bajaFecha,
+    bajaDetail: meta.bajaDetail,
+  };
+  const saved = await upsertMember(next);
+  await audit(`member.${action}`, 'members', saved.id || member.id, {
+    member_number: saved.memberId || member.memberId,
+    status,
+    reasonId,
+    reason: reasonLabel,
+    detail: String(detail || '').trim() || null,
+  });
+  return saved;
+}
+
+/**
+ * Provisiona acceso portal para un socio (Auth + profile) y lo vincula.
+ */
+export async function provisionMemberPortalAccess(member, creds, { actorName = '' } = {}) {
+  if (!member) throw new Error('Socio inválido');
+  const { firstName, lastName } = splitMemberName(member);
+  const profile = await createPortalUser({
+    firstName: firstName || member.name || 'Socio',
+    lastName: lastName || '',
+    email: member.email || creds.email,
+    username: creds.username,
+    password: creds.password,
+    phone: member.phone || '',
+    contactEmail: member.email || null,
+    documentType: member.documentType || 'DNI',
+    documentNumber: member.documentNumber || '',
+    gender: member.gender || '',
+    birthDate: member.birthDate || null,
+    address: member.address || '',
+    role: 'member',
+    roles: [{ roleKey: 'member', label: 'Socio', kind: 'system' }],
+    identifiers: member.documentNumber
+      ? [{ idType: 'dni', identifier: String(member.documentNumber).replace(/\D/g, '') || member.documentNumber }]
+      : [],
+  });
+
+  const meta = {
+    ...collectMemberMeta(member),
+    portalUsername: creds.username,
+    portalProvisionedAt: new Date().toISOString(),
+    portalProvisionedBy: actorName || null,
+  };
+  const linked = await upsertMember({
+    ...member,
+    profileId: profile.id,
+    email: member.email || creds.email,
+    meta,
+  });
+  await audit('member.provision_access', 'members', linked.id || member.id, {
+    member_number: linked.memberId || member.memberId,
+    username: creds.username,
+    profile_id: profile.id,
+  });
+  return { member: linked, profile, creds };
 }
 
 export async function insertMemberPayment(memberDbId, payment) {

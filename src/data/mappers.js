@@ -90,9 +90,13 @@ export function memberToRow(member) {
     photo_url: member.photo || null,
     card_number: member.cardNumber || null,
     notes: member.notes || null,
+    profile_id: member.profileId || null,
     meta: {
       ...(member.meta && typeof member.meta === 'object' ? member.meta : {}),
       ...(member.joinTime ? { joinTime: member.joinTime } : {}),
+      ...(member.bloodType ? { bloodType: member.bloodType } : {}),
+      ...(member.healthInsurance ? { healthInsurance: member.healthInsurance } : {}),
+      ...(member.emergencyClinic ? { emergencyClinic: member.emergencyClinic } : {}),
     },
   };
 }

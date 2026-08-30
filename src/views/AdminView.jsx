@@ -83,6 +83,7 @@ export default function AdminView({
   setTierCatalog,
   userRole = 'admin',
   isZondaActive = false,
+  updateMember = null,
 }) {
   const { user } = useAuth();
   const chartOfAccounts = erp.chartOfAccounts || DEFAULT_CHART_OF_ACCOUNTS;
@@ -607,6 +608,7 @@ export default function AdminView({
             claims={claims}
             messages={messages}
             tierCatalog={tierCatalog}
+            updateMember={updateMember}
           />
         ) : (
           <MembersTab
@@ -618,6 +620,7 @@ export default function AdminView({
             disciplineOptions={(disciplineCatalog || []).filter((d) => d.isActive !== false).map((d) => d.name)}
             tierCatalog={tierCatalog}
             setTierCatalog={setTierCatalog}
+            updateMember={updateMember}
           />
         )
       )}

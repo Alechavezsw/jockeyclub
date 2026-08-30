@@ -36,6 +36,7 @@ const STATUS_COPY = {
   active: { label: 'Cuenta habilitada', hint: 'Puede ingresar y usar instalaciones', tone: 'ok' },
   pending: { label: 'Pendiente de aprobación', hint: 'Alta en revisión de Secretaría', tone: 'warn' },
   suspended: { label: 'Cuenta suspendida', hint: 'Acceso restringido hasta regularizar', tone: 'danger' },
+  inactive: { label: 'Baja del padrón', hint: 'Registro inactivo con motivo auditado', tone: 'danger' },
 };
 
 const PAYMENT_LABELS = {
@@ -295,6 +296,37 @@ export default function MemberProfilePanel({
       });
     });
 
+    const history = member.meta?.lifecycleHistory || [];
+    history.forEach((h) => {
+      const titles = {
+        suspend: 'Suspensión de cuenta',
+        activate: 'Reactivación de cuenta',
+        delete: 'Baja del padrón',
+      };
+      const at = h.at || '';
+      items.push({
+        when: at ? formatDateTimeAR(at.slice(0, 10), at.slice(11, 16)) || formatShortDate(at.slice(0, 10)) : '—',
+        title: titles[h.action] || `Cambio de estado (${h.action})`,
+        detail: [h.reason, h.detail, h.actorName ? `por ${h.actorName}` : null].filter(Boolean).join(' · '),
+        tone: h.action === 'activate' ? 'ok' : 'danger',
+        sort: at || '1970-01-01',
+      });
+    });
+
+    if (member.meta?.portalProvisionedAt) {
+      const at = member.meta.portalProvisionedAt;
+      items.push({
+        when: formatDateTimeAR(at.slice(0, 10), at.slice(11, 16)) || formatShortDate(at.slice(0, 10)),
+        title: 'Acceso portal generado',
+        detail: [
+          member.meta.portalUsername ? `usuario ${member.meta.portalUsername}` : null,
+          member.meta.portalProvisionedBy ? `por ${member.meta.portalProvisionedBy}` : null,
+        ].filter(Boolean).join(' · ') || null,
+        tone: 'ok',
+        sort: at,
+      });
+    }
+
     return items.sort((a, b) => String(b.sort).localeCompare(String(a.sort)));
   }, [member, movements, entries, bookings, memberClaims, formatCurrency, tierCatalog]);
 
@@ -451,18 +483,30 @@ export default function MemberProfilePanel({
             <section className="mp-block">
               <header className="mp-block-head">
                 <h5>Contacto y domicilio</h5>
-                <p>Cómo ubicar al socio y a su emergencia</p>
+                <p>Cómo ubicar al socio</p>
               </header>
               <div className="mp-contact-grid">
                 <ContactRow icon={Phone} label="WhatsApp" value={member.phone} href={phoneHref} />
                 <ContactRow icon={Phone} label="Tel. alternativo" value={member.phoneAlt} />
                 <ContactRow icon={Mail} label="Email" value={member.email} href={mailHref} />
                 <ContactRow icon={MapPin} label="Domicilio" value={addressLine || null} />
-                <ContactRow
+              </div>
+            </section>
+
+            <section className="mp-block">
+              <header className="mp-block-head">
+                <h5>Datos de emergencia</h5>
+                <p>Grupo sanguíneo, obra social y contactos médicos</p>
+              </header>
+              <div className="mp-facts">
+                <Fact icon={Heart} label="Grupo sanguíneo" value={member.bloodType || member.meta?.bloodType || null} />
+                <Fact icon={ShieldCheck} label="Obra social" value={member.healthInsurance || member.meta?.healthInsurance || null} />
+                <Fact
                   icon={AlertTriangle}
-                  label="Emergencia"
+                  label="Contacto emergencia"
                   value={[member.emergencyContact, member.emergencyPhone].filter(Boolean).join(' · ') || null}
                 />
+                <Fact icon={Building2} label="Clínica de emergencia" value={member.emergencyClinic || member.meta?.emergencyClinic || null} />
               </div>
             </section>
 
@@ -802,7 +846,7 @@ export default function MemberProfilePanel({
         {section === 'trazabilidad' && (
           <div>
             <p className="mp-section-lead">
-              Línea de tiempo: alta, cobros, ingresos, reservas y reclamos.
+              Línea de tiempo: alta, cobros, ingresos, reservas, reclamos, suspensiones, bajas y accesos portal.
             </p>
             {timeline.length === 0 ? (
               <Empty text="Sin eventos de trazabilidad." />

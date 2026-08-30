@@ -521,43 +521,43 @@ export default function AdminDashboardTab({
                 </li>
               ))}
             </ul>
+          </article>
+
+          <article className="ops-today-pane ops-today-pane--alerts">
+            <header className="ops-today-pane-head">
+              <BellRing size={15} aria-hidden="true" />
+              <h3>Alertas</h3>
+              {activeAlerts.length > 0 ? (
+                <span className="ops-today-badge">{activeAlerts.length}</span>
+              ) : null}
+            </header>
+            {activeAlerts.length === 0 ? (
+              <p className="ops-muted ops-today-empty">Sin alertas vigentes.</p>
+            ) : (
+              <ul className="ops-today-list">
+                {activeAlerts.slice(0, 4).map((a) => (
+                  <li key={a.id}>
+                    <span
+                      className="ops-today-copy"
+                      style={{
+                        color: a.severity === 'critical' ? '#ef4444' : a.severity === 'warning' ? '#f59e0b' : undefined,
+                        fontWeight: 600,
+                      }}
+                    >
+                      {a.title}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {permittedTabs.includes('claims') && (
+              <p className="ops-muted" style={{ margin: '0.35rem 0 0' }}>
+                {pendingClaimsCount} reclamos abiertos
+              </p>
+            )}
             {permittedTabs.includes('alerts') && (
               <button type="button" className="ops-dash-link" onClick={() => goToTab('alerts')}>
                 Ver alertas {'>'}
-              </button>
-            )}
-          </article>
-
-          <article className="ops-today-pane ops-today-pane--news">
-            <header className="ops-today-pane-head">
-              <Newspaper size={15} aria-hidden="true" />
-              <h3>Revista</h3>
-            </header>
-            {featuredNews ? (
-              <button
-                type="button"
-                className="ops-news-teaser"
-                onClick={() => goToTab(permittedTabs.includes('news') ? 'news' : 'dashboard')}
-                disabled={!permittedTabs.includes('news')}
-              >
-                {featuredNews.image ? (
-                  <img src={featuredNews.image} alt="" className="ops-news-thumb" />
-                ) : (
-                  <span className="ops-news-thumb ops-news-thumb--empty" aria-hidden="true" />
-                )}
-                <span className="ops-news-meta">
-                  <em>{newsCategoryLabel(featuredNews.category)}</em>
-                  <strong>{featuredNews.title}</strong>
-                  <small>{featuredNews.excerpt || featuredNews.date || 'Última publicación'}</small>
-                </span>
-                {permittedTabs.includes('news') ? <ExternalLink size={14} aria-hidden="true" /> : null}
-              </button>
-            ) : (
-              <p className="ops-muted ops-today-empty">Todavía no hay notas en la revista digital.</p>
-            )}
-            {permittedTabs.includes('news') && (
-              <button type="button" className="ops-dash-link" onClick={() => goToTab('news')}>
-                Abrir CMS {'>'}
               </button>
             )}
           </article>
@@ -1063,31 +1063,36 @@ export default function AdminDashboardTab({
             </button>
           )}
 
-          {(permittedTabs.includes('alerts') || (permittedTabs.includes('events') && nextEvent && hasAccounting) || (permittedTabs.includes('claims') && hasAccounting)) && (
-            <article className="glass-card ops-floor-card ops-floor-card--pulse">
-              {permittedTabs.includes('alerts') && (
+          {(permittedTabs.includes('news') || (permittedTabs.includes('events') && nextEvent && hasAccounting) || (permittedTabs.includes('claims') && hasAccounting)) && (
+            <article className="glass-card ops-floor-card">
+              {permittedTabs.includes('news') && (
                 <div className="ops-floor-section">
                   <header className="ops-card-head">
-                    <BellRing size={16} color="var(--primary-gold)" />
-                    <h3>Alertas</h3>
+                    <Newspaper size={16} color="var(--primary-gold)" />
+                    <h3>Revista</h3>
                   </header>
-                  {activeAlerts.length === 0 ? (
-                    <p className="ops-muted">Sin alertas vigentes.</p>
+                  {featuredNews ? (
+                    <button
+                      type="button"
+                      className="ops-news-teaser ops-news-teaser--compact"
+                      onClick={() => goToTab('news')}
+                    >
+                      {featuredNews.image ? (
+                        <img src={featuredNews.image} alt="" className="ops-news-thumb" />
+                      ) : (
+                        <span className="ops-news-thumb ops-news-thumb--empty" aria-hidden="true" />
+                      )}
+                      <span className="ops-news-meta">
+                        <em>{newsCategoryLabel(featuredNews.category)}</em>
+                        <strong>{featuredNews.title}</strong>
+                        <small>{featuredNews.excerpt || featuredNews.date || 'Última publicación'}</small>
+                      </span>
+                      <ExternalLink size={14} aria-hidden="true" />
+                    </button>
                   ) : (
-                    activeAlerts.map((a) => (
-                      <div key={a.id} className="ops-row">
-                        <span style={{
-                          color: a.severity === 'critical' ? '#ef4444' : a.severity === 'warning' ? '#f59e0b' : 'var(--text-secondary)',
-                          fontWeight: 600,
-                          fontSize: '0.82rem',
-                        }}
-                        >
-                          {a.title}
-                        </span>
-                      </div>
-                    ))
+                    <p className="ops-muted">Todavía no hay notas en la revista digital.</p>
                   )}
-                  {link('Ver alertas >', () => goToTab('alerts'))}
+                  {link('Abrir CMS >', () => goToTab('news'))}
                 </div>
               )}
 
