@@ -44,6 +44,27 @@ export default function DashboardView({
   const [selectedOptions, setSelectedOptions] = useState({});
   const [hoveredSegments, setHoveredSegments] = useState({});
 
+  const liveSnapshot = useMemo(() => {
+    const highlightIds = ['tenis_trad', 'padel_vidrio', 'rugby_masc', 'piscina_verano', 'gimnasio_musc'];
+    return highlightIds
+      .map((id) => FACILITIES.find((f) => f.id === id))
+      .filter(Boolean)
+      .map((fac) => ({
+        fac,
+        live: getFacilityLiveStatus(fac, { reservations, isZondaActive }),
+      }));
+  }, [reservations, isZondaActive]);
+
+  if (!member?.memberId) {
+    return (
+      <div className="fade-in glass-card" style={{ padding: '1.5rem', textAlign: 'center' }}>
+        <p style={{ margin: 0, color: 'var(--text-secondary)' }}>
+          Todavía no pudimos cargar tu ficha de socio. Recargá en unos segundos.
+        </p>
+      </div>
+    );
+  }
+
   const handleCastVote = (surveyId) => {
     const selectedOptId = selectedOptions[surveyId];
     if (!selectedOptId) return;
@@ -73,17 +94,6 @@ export default function DashboardView({
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 }).format(amount);
   };
-
-  const liveSnapshot = useMemo(() => {
-    const highlightIds = ['tenis_trad', 'padel_vidrio', 'rugby_masc', 'piscina_verano', 'gimnasio_musc'];
-    return highlightIds
-      .map((id) => FACILITIES.find((f) => f.id === id))
-      .filter(Boolean)
-      .map((fac) => ({
-        fac,
-        live: getFacilityLiveStatus(fac, { reservations, isZondaActive }),
-      }));
-  }, [reservations, isZondaActive]);
 
   const handleMarkAsRead = (msgId) => {
     setMessages(prev => prev.map(msg => msg.id === msgId ? { ...msg, isRead: true } : msg));

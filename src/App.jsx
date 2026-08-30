@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import DashboardView from './views/DashboardView';
@@ -1055,10 +1055,27 @@ export default function App() {
   }, [waitlist, cloudMode]);
 
   // Socio activo: el vinculado a la sesión, o el primero como fallback operativo
+  const sessionMemberFallback = useMemo(() => {
+    if (!user?.memberId && !user?.name && !user?.email) return null;
+    const fromDefaults = DEFAULT_MEMBERS.find((m) => m.memberId === user?.memberId);
+    if (fromDefaults) return fromDefaults;
+    return {
+      memberId: user?.memberId || 'session',
+      name: user?.name || user?.email || 'Socio',
+      tier: 'gold',
+      outstandingBalance: 0,
+      yearsActive: 0,
+      adherents: [],
+      status: 'active',
+      notifyDues: false,
+    };
+  }, [user?.memberId, user?.name, user?.email]);
+
   const activeMember =
     members.find((m) => m.memberId === user?.memberId) ||
     members.find((m) => m.memberId === '2026887744320988') ||
-    members[0];
+    members[0] ||
+    sessionMemberFallback;
 
   // Alternar Tema Claro / Oscuro
   const toggleTheme = () => {
@@ -1240,11 +1257,14 @@ export default function App() {
           setMemberDbIds({});
         } else {
           const seeded = Array.isArray(app.members) ? app.members : [];
-          const withDues = applyAutomaticDues(seeded);
-          const withFamily = attachHouseholdToMembers(withDues);
-          setMembers(withFamily);
-          setMembersCount(withFamily.length || app.membersCount || 0);
-          setMemberDbIds(shellIds || {});
+          if (seeded.length) {
+            const withDues = applyAutomaticDues(seeded);
+            const withFamily = attachHouseholdToMembers(withDues);
+            setMembers(withFamily);
+            setMembersCount(withFamily.length || app.membersCount || 0);
+            setMemberDbIds(shellIds || {});
+          }
+          // Si la nube no trajo ficha, conservar semilla/local y no tumbar el portal
           setMembersLoading(false);
         }
         setReservations(pickReservations(app.reservations || []));
