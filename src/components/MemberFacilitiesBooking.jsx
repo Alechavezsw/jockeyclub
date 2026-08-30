@@ -17,13 +17,31 @@ import {
   MapPin,
   Sparkles,
 } from 'lucide-react';
-import { FACILITIES, FACILITY_GROUPS, facilitiesByGroup } from '../domain/reservations/facilities';
+import { FACILITIES, FACILITY_GROUPS, facilitiesByGroup, sortFacilitiesForDisplay, isSalonFacility, isParrillaFacility } from '../domain/reservations/facilities';
+import { buildFacilityCatalog } from '../domain/reservations/facilityConfig';
 import { getFacilityLiveStatus, isSeasonOpen } from '../domain/reservations/availability';
 import { hasReservationConflict } from '../domain/reservations/conflicts';
 import { joinWaitlist, leaveWaitlist, waitingForSlot } from '../domain/reservations/waitlist';
 import ModalDialog from './ModalDialog';
 
 const WEEKDAYS = ['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sá', 'Do'];
+const ACTIVE_RES_STATUSES = new Set(['confirmed', 'pending', 'approved']);
+
+/** Espacios del sistema real de reservas (datita): salones + parrilla. */
+function isRealBookableSpace(facility) {
+  return isSalonFacility(facility) || isParrillaFacility(facility);
+}
+
+function isFacilityOpenForDay(facility, { isZondaActive, now }) {
+  if (!facility) return false;
+  if (facility.isOutdoor && isZondaActive) return false;
+  if (!isSeasonOpen(facility, now)) return false;
+  const adminStatus = String(facility.status || 'disponible').toLowerCase();
+  if (adminStatus === 'suspendido' || adminStatus === 'no_disponible' || adminStatus === 'mantenimiento') {
+    return false;
+  }
+  return true;
+}
 
 const STATUS_META = {
   available: { className: 'mfb-live--ok', Icon: CircleDot, label: 'Disponible' },
@@ -59,27 +77,49 @@ function buildMonthCells(viewMonth) {
 }
 
 function freeSlotsForFacility(facility, dateStr, reservations, { isZondaActive, now }) {
-  if (!facility) return [];
-  if (facility.isOutdoor && isZondaActive) return [];
-  if (!isSeasonOpen(facility, now)) return [];
+  if (!isFacilityOpenForDay(facility, { isZondaActive, now })) return [];
   return (facility.slots || []).filter(
     (slot) => !hasReservationConflict(reservations, { facilityId: facility.id, date: dateStr, time: slot })
   );
 }
 
-function dayAvailabilityScore(dateStr, reservations, isZondaActive, now) {
+/**
+ * Disponibilidad del día sobre los espacios reales (o el grupo activo).
+ * Cuenta turnos libres y cuántas reservas confirmadas hay ese día.
+ */
+function dayAvailabilityScore(dateStr, reservations, isZondaActive, now, facilities = []) {
   let free = 0;
   let total = 0;
-  for (const fac of FACILITIES) {
-    if (fac.isOutdoor && isZondaActive) continue;
-    if (!isSeasonOpen(fac, now)) continue;
+  let spacesFree = 0;
+  let spacesOpen = 0;
+
+  for (const fac of facilities) {
+    if (!isFacilityOpenForDay(fac, { isZondaActive, now })) continue;
+    spacesOpen += 1;
     const slots = fac.slots || [];
     total += slots.length;
-    free += slots.filter(
+    const freeSlots = slots.filter(
       (slot) => !hasReservationConflict(reservations, { facilityId: fac.id, date: dateStr, time: slot })
     ).length;
+    free += freeSlots;
+    if (freeSlots > 0) spacesFree += 1;
   }
-  return { free, total };
+
+  const facilityIds = new Set(facilities.map((f) => f.id));
+  const reservationCount = (reservations || []).filter(
+    (r) =>
+      r.date === dateStr
+      && facilityIds.has(r.facilityId)
+      && ACTIVE_RES_STATUSES.has(String(r.status || '').toLowerCase())
+  ).length;
+
+  return {
+    free,
+    total,
+    spacesFree,
+    spacesOpen,
+    reservationCount,
+  };
 }
 
 /**
@@ -94,6 +134,7 @@ export default function MemberFacilitiesBooking({
   onBooked,
   waitlist = [],
   setWaitlist,
+  facilityCatalog = null,
 }) {
   const today = useMemo(() => {
     const d = new Date();
@@ -105,7 +146,7 @@ export default function MemberFacilitiesBooking({
   const [now, setNow] = useState(() => new Date());
   const [viewMonth, setViewMonth] = useState(() => startOfMonth(new Date()));
   const [selectedDate, setSelectedDate] = useState(todayStr);
-  const [activeGroup, setActiveGroup] = useState('canchas');
+  const [activeGroup, setActiveGroup] = useState('espacios');
   const [query, setQuery] = useState('');
   const [onlyAvailable, setOnlyAvailable] = useState(false);
   const [selectedFacility, setSelectedFacility] = useState(null);
@@ -116,7 +157,11 @@ export default function MemberFacilitiesBooking({
   const [bookingSuccess, setBookingSuccess] = useState(false);
   const [waitMsg, setWaitMsg] = useState('');
 
-  const groups = useMemo(() => facilitiesByGroup(FACILITIES), []);
+  const catalog = useMemo(
+    () => buildFacilityCatalog(FACILITIES, Array.isArray(facilityCatalog) ? facilityCatalog : []),
+    [facilityCatalog]
+  );
+  const groups = useMemo(() => facilitiesByGroup(catalog), [catalog]);
   const monthCells = useMemo(() => buildMonthCells(viewMonth), [viewMonth]);
 
   useEffect(() => {
@@ -126,23 +171,34 @@ export default function MemberFacilitiesBooking({
 
   const liveById = useMemo(() => {
     const map = new Map();
-    for (const facility of FACILITIES) {
+    for (const facility of catalog) {
       map.set(facility.id, getFacilityLiveStatus(facility, { reservations, isZondaActive, now }));
     }
     return map;
-  }, [reservations, isZondaActive, now]);
+  }, [catalog, reservations, isZondaActive, now]);
 
   const active = groups.find((g) => g.id === activeGroup) || groups[0];
-  const availableNow = FACILITIES.filter((f) => liveById.get(f.id)?.status === 'available').length;
+  const availableNow = catalog.filter((f) => liveById.get(f.id)?.status === 'available').length;
+
+  /** Calendario = espacios reales (salón/parrilla) o el grupo activo si no es Espacios. */
+  const calendarFacilities = useMemo(() => {
+    if (activeGroup === 'espacios' || !activeGroup) {
+      return sortFacilitiesForDisplay(catalog.filter(isRealBookableSpace));
+    }
+    return active?.items || [];
+  }, [catalog, activeGroup, active]);
+
+  const selectedDayScore = useMemo(
+    () => dayAvailabilityScore(selectedDate, reservations, isZondaActive, now, calendarFacilities),
+    [selectedDate, reservations, isZondaActive, now, calendarFacilities]
+  );
 
   const filteredFacilities = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const base = q
-      ? FACILITIES
-      : (active?.items || []);
-    return base.filter((fac) => {
+    const base = q ? catalog : (active?.items || []);
+    const filtered = base.filter((fac) => {
       if (q) {
-        const hay = `${fac.name} ${fac.description} ${fac.category} ${fac.capacity}`.toLowerCase();
+        const hay = `${fac.name} ${fac.description} ${fac.category} ${fac.spaceType || ''} ${fac.capacity}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       if (onlyAvailable) {
@@ -151,7 +207,8 @@ export default function MemberFacilitiesBooking({
       }
       return true;
     });
-  }, [active, query, onlyAvailable, liveById]);
+    return sortFacilitiesForDisplay(filtered);
+  }, [catalog, active, query, onlyAvailable, liveById]);
 
   const freeForSelected = useMemo(() => {
     if (!selectedFacility) return [];
@@ -316,23 +373,34 @@ export default function MemberFacilitiesBooking({
               const past = iso < todayStr;
               const selected = iso === selectedDate;
               const isToday = iso === todayStr;
-              const score = past ? null : dayAvailabilityScore(iso, reservations, isZondaActive, now);
+              const score = past
+                ? null
+                : dayAvailabilityScore(iso, reservations, isZondaActive, now, calendarFacilities);
               const heat = score && score.total
                 ? score.free / score.total
                 : 0;
+              const hasBookings = (score?.reservationCount || 0) > 0;
+              const fullyBooked = score && score.spacesOpen > 0 && score.spacesFree === 0;
 
               return (
                 <button
                   key={iso}
                   type="button"
                   disabled={past}
+                  title={
+                    score
+                      ? `${score.reservationCount} reserva${score.reservationCount === 1 ? '' : 's'} · ${score.spacesFree}/${score.spacesOpen} espacios libres`
+                      : undefined
+                  }
                   className={[
                     'mfb-cal-day',
                     selected ? 'is-selected' : '',
                     isToday ? 'is-today' : '',
                     past ? 'is-past' : '',
-                    !past && heat > 0.6 ? 'is-free' : '',
-                    !past && heat > 0 && heat <= 0.35 ? 'is-tight' : '',
+                    !past && fullyBooked ? 'is-full' : '',
+                    !past && !fullyBooked && heat > 0.6 ? 'is-free' : '',
+                    !past && !fullyBooked && hasBookings ? 'is-tight' : '',
+                    !past && !fullyBooked && !hasBookings && heat > 0 && heat <= 0.35 ? 'is-tight' : '',
                   ].filter(Boolean).join(' ')}
                   onClick={() => {
                     setSelectedDate(iso);
@@ -341,7 +409,11 @@ export default function MemberFacilitiesBooking({
                 >
                   <span>{day.getDate()}</span>
                   {!past && score && (
-                    <i className="mfb-cal-dot" style={{ opacity: 0.35 + heat * 0.65 }} />
+                    hasBookings ? (
+                      <em className="mfb-cal-count" aria-hidden="true">{score.reservationCount}</em>
+                    ) : (
+                      <i className="mfb-cal-dot" style={{ opacity: 0.35 + heat * 0.65 }} />
+                    )
                   )}
                 </button>
               );
@@ -350,6 +422,11 @@ export default function MemberFacilitiesBooking({
 
           <p className="mfb-cal-caption">
             Día elegido: <strong>{selectedDateLabel}</strong>
+          </p>
+          <p className="mfb-cal-real">
+            {selectedDayScore.reservationCount > 0
+              ? `${selectedDayScore.reservationCount} reserva${selectedDayScore.reservationCount === 1 ? '' : 's'} · ${selectedDayScore.spacesFree}/${selectedDayScore.spacesOpen} espacios libres`
+              : `${selectedDayScore.spacesFree}/${selectedDayScore.spacesOpen} espacios libres`}
           </p>
           <button
             type="button"
@@ -373,7 +450,7 @@ export default function MemberFacilitiesBooking({
                 type="search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Buscar tenis, pádel, pileta, gimnasio…"
+                placeholder="Buscar salón, espacio verde, cancha…"
                 aria-label="Buscar instalaciones"
               />
               {query && (

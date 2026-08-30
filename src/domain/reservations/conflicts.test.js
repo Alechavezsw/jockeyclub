@@ -28,4 +28,21 @@ describe('hasReservationConflict', () => {
     expect(hasReservationConflict([], { facilityId: 'x', date: 'y', time: 'z' })).toBe(false);
     expect(hasReservationConflict(undefined, { facilityId: 'x', date: 'y', time: 'z' })).toBe(false);
   });
+
+  it('bloquea turnos intermedios cuando la reserva tiene endTime (jornada real)', () => {
+    const salonDay = [
+      {
+        id: 9,
+        facilityId: 'salon_anhelo',
+        date: '2026-08-30',
+        time: '11:00',
+        endTime: '23:00',
+        status: 'confirmed',
+      },
+    ];
+    expect(hasReservationConflict(salonDay, { facilityId: 'salon_anhelo', date: '2026-08-30', time: '11:00' })).toBe(true);
+    expect(hasReservationConflict(salonDay, { facilityId: 'salon_anhelo', date: '2026-08-30', time: '14:00' })).toBe(true);
+    expect(hasReservationConflict(salonDay, { facilityId: 'salon_anhelo', date: '2026-08-30', time: '21:00' })).toBe(true);
+    expect(hasReservationConflict(salonDay, { facilityId: 'salon_anhelo', date: '2026-08-30', time: '23:00' })).toBe(false);
+  });
 });

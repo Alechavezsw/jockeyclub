@@ -8,6 +8,7 @@ export default function ReservationsView({
   isZondaActive,
   waitlist = [],
   setWaitlist,
+  facilityCatalog = null,
 }) {
   return (
     <div className="fade-in">
@@ -18,6 +19,7 @@ export default function ReservationsView({
         isZondaActive={isZondaActive}
         waitlist={waitlist}
         setWaitlist={setWaitlist}
+        facilityCatalog={facilityCatalog}
         onBooked={() => {
           setTimeout(() => setCurrentView?.('dashboard'), 1600);
         }}

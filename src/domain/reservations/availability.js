@@ -78,6 +78,17 @@ export function getFacilityLiveStatus(facility, {
     };
   }
 
+  const adminStatus = String(facility.status || 'disponible').toLowerCase();
+  if (adminStatus === 'suspendido' || adminStatus === 'no_disponible' || adminStatus === 'mantenimiento') {
+    return {
+      status: 'suspended',
+      label: adminStatus === 'mantenimiento' ? 'Mantenimiento' : 'Suspendida',
+      detail: adminStatus === 'mantenimiento' ? 'Cerrada por mantenimiento' : 'No disponible para reserva',
+      currentBooking: null,
+      nextSlot: null,
+    };
+  }
+
   if (!isSeasonOpen(facility, now)) {
     return {
       status: 'season_closed',
@@ -111,15 +122,22 @@ export function getFacilityLiveStatus(facility, {
   const currentBooking = todays.find((r) => {
     const start = parseSlotMinutes(r.time);
     if (start == null) return false;
+    const endFromMeta = parseSlotMinutes(r.endTime);
+    if (endFromMeta != null && endFromMeta > start) {
+      return nowMin >= start && nowMin < endFromMeta;
+    }
     const duration = estimateSlotDurationMinutes(facility.slots, r.time);
     return nowMin >= start && nowMin < start + duration;
   }) || null;
 
   if (currentBooking) {
     const start = parseSlotMinutes(currentBooking.time);
-    const duration = estimateSlotDurationMinutes(facility.slots, currentBooking.time);
-    const endH = Math.floor((start + duration) / 60);
-    const endM = String((start + duration) % 60).padStart(2, '0');
+    const endFromMeta = parseSlotMinutes(currentBooking.endTime);
+    const endMin = endFromMeta != null && endFromMeta > start
+      ? endFromMeta
+      : start + estimateSlotDurationMinutes(facility.slots, currentBooking.time);
+    const endH = Math.floor(endMin / 60);
+    const endM = String(endMin % 60).padStart(2, '0');
     return {
       status: 'occupied',
       label: 'Ocupada',
@@ -132,7 +150,13 @@ export function getFacilityLiveStatus(facility, {
   const nextSlot = (facility.slots || [])
     .map((slot) => ({ slot, min: parseSlotMinutes(slot) }))
     .filter((s) => s.min != null && s.min > nowMin)
-    .find((s) => !todays.some((r) => r.time === s.slot));
+    .find((s) => !todays.some((r) => {
+      if (r.time === s.slot) return true;
+      const start = parseSlotMinutes(r.time);
+      const end = parseSlotMinutes(r.endTime);
+      if (start == null || end == null || end <= start) return false;
+      return s.min >= start && s.min < end;
+    }));
 
   return {
     status: 'available',

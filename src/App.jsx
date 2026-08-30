@@ -22,7 +22,7 @@ import { loadDisciplineCatalog } from './domain/sports/disciplines';
 import { loadTierCatalog, setRuntimeTierCatalog } from './domain/members/tiers';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
 import { notifyNextOnWaitlist } from './domain/reservations/waitlist';
-import { bootstrapShellFromDb, bootstrapMembersFromDb, repos } from './data/bootstrap';
+import { bootstrapShellFromDb, bootstrapMembersFromDb, bootstrapErpFromDb, repos } from './data/bootstrap';
 import { useDailyBackup } from './hooks/useDailyBackup';
 
 // Seed opcional (generado por npm run import:reservas; puede faltar en clones limpios)
@@ -172,6 +172,18 @@ function pickReservations(preferred, fallbackSeed = SEED_DATITA_RESERVAS) {
   if (seed.length && seed.length > list.length) return seed;
   if (list.some(isDatitaReservation) || list.length) return list;
   return seed;
+}
+
+/** Mensajes de error de BD legibles (pool / red). */
+function friendlyDbError(err, fallback = 'Error de base de datos') {
+  const msg = err?.message || String(err || '');
+  if (/Timed out acquiring connection from connection pool|connection pool/i.test(msg)) {
+    return 'La base está saturada (pool de conexiones). Recargá en unos segundos; se muestra la app con datos parciales.';
+  }
+  if (/Failed to fetch|NetworkError|network/i.test(msg)) {
+    return 'Sin conexión con la base. Revisá internet y recargá.';
+  }
+  return msg || fallback;
 }
 
 function loadInitialReservations() {
@@ -1189,27 +1201,59 @@ export default function App() {
     if (!isAuthenticated) hydratedRef.current = false;
   }, [isAuthenticated]);
 
-  // Hidratar desde Supabase tras login (shell rápido → padrón en background)
+  // Hidratar desde Supabase tras login (shell rápido → ERP/padrón en background)
   useEffect(() => {
     if (!cloudMode || !isAuthenticated || authLoading) return undefined;
     if (hydratedRef.current) return undefined;
     let cancelled = false;
+    const watchdog = setTimeout(() => {
+      // Nunca dejar al usuario colgado en “Sincronizando…”
+      if (!cancelled) {
+        setDbReady(true);
+        setMembersLoading(false);
+        setDbError((prev) => prev || 'La sincronización está tardando; se muestra la app con datos parciales.');
+      }
+    }, 14_000);
+
     (async () => {
       setDbReady(false);
       setDbError('');
       setMembersLoading(true);
+      const isOps = canAccessAdmin(role) || role === 'gate_operator';
       try {
-        const data = await bootstrapShellFromDb();
-        if (cancelled || !data) return;
-        const { app, erp: erpData, health } = data;
-        // Evitar flash del padrón demo local mientras llega la nube
-        setMembers([]);
-        setMembersCount(app.membersCount || 0);
+        const data = await bootstrapShellFromDb({
+          role,
+          memberNumber: user?.memberId || null,
+        });
+        if (cancelled) return;
+        if (!data) {
+          setDbError('No se pudo iniciar la sincronización con la base.');
+          setMembersLoading(false);
+          setDbReady(true);
+          return;
+        }
+        const { app, erp: erpData, health, memberDbIds: shellIds } = data;
+        if (isOps) {
+          // Evitar flash del padrón demo local mientras llega la nube
+          setMembers([]);
+          setMembersCount(app.membersCount || 0);
+          setMemberDbIds({});
+        } else {
+          const seeded = Array.isArray(app.members) ? app.members : [];
+          const withDues = applyAutomaticDues(seeded);
+          const withFamily = attachHouseholdToMembers(withDues);
+          setMembers(withFamily);
+          setMembersCount(withFamily.length || app.membersCount || 0);
+          setMemberDbIds(shellIds || {});
+          setMembersLoading(false);
+        }
         setReservations(pickReservations(app.reservations || []));
         setWaitlist(app.waitlist || []);
         setNewsList(app.newsList || []);
         setRsvpList(app.rsvpList || []);
-        setJournalEntries(app.journalEntries || []);
+        if (Array.isArray(app.journalEntries) && app.journalEntries.length) {
+          setJournalEntries(app.journalEntries);
+        }
         setStaffMembers(app.staffMembers || []);
         setStaffHrRecords(app.staffHrRecords || []);
         setClaims(app.claims || []);
@@ -1220,7 +1264,6 @@ export default function App() {
         setRegisteredUsersCount(app.registeredUsersCount || 0);
         setMembershipApplications(app.membershipApplications || []);
         setIsZondaActive(Boolean(app.isZondaActive));
-        setMemberDbIds({});
         if (Array.isArray(app.tierCatalog) && app.tierCatalog.length) {
           setTierCatalog(app.tierCatalog);
           setRuntimeTierCatalog(app.tierCatalog);
@@ -1241,40 +1284,77 @@ export default function App() {
         hydratedRef.current = true;
         if (!cancelled) setDbReady(true);
 
-        // Fase 2: padrón completo sin bloquear el dashboard
-        try {
-          const { members: rawMembers, memberDbIds: ids } = await bootstrapMembersFromDb();
-          if (cancelled) return;
-          const withDues = applyAutomaticDues(rawMembers || []);
-          const withFamily = attachHouseholdToMembers(withDues);
-          setMembers(withFamily);
-          setMembersCount(withFamily.length);
-          setMemberDbIds(ids || {});
-          const duesToPersist = diffAutomaticDues(rawMembers || [], withDues);
-          if (duesToPersist.length) {
-            Promise.all(
-              duesToPersist.map((m) => repos.upsertMember(m).catch(() => null))
-            ).catch(() => {});
+        // Secuencial: padrón → ERP. Evita saturar el connection pool de Supabase.
+        if (isOps) {
+          try {
+            const { members: rawMembers, memberDbIds: ids } = await bootstrapMembersFromDb();
+            if (cancelled) return;
+            const withDues = applyAutomaticDues(rawMembers || []);
+            const withFamily = attachHouseholdToMembers(withDues);
+            setMembers(withFamily);
+            setMembersCount(withFamily.length);
+            setMemberDbIds(ids || {});
+            const duesToPersist = diffAutomaticDues(rawMembers || [], withDues);
+            if (duesToPersist.length) {
+              Promise.all(
+                duesToPersist.map((m) => repos.upsertMember(m).catch(() => null))
+              ).catch(() => {});
+            }
+          } catch (membersErr) {
+            if (!cancelled) {
+              setDbError(friendlyDbError(membersErr, 'No se pudo cargar el padrón completo'));
+            }
+          } finally {
+            if (!cancelled) setMembersLoading(false);
           }
-        } catch (membersErr) {
+
           if (!cancelled) {
-            setDbError(membersErr.message || 'No se pudo cargar el padrón completo');
+            try {
+              const heavy = await bootstrapErpFromDb();
+              if (cancelled || !heavy) return;
+              if (Array.isArray(heavy.journalEntries) && heavy.journalEntries.length) {
+                setJournalEntries(heavy.journalEntries);
+              }
+              erp.applyErpHydration({
+                chartOfAccounts: heavy.chartOfAccounts,
+                cashRegisters: heavy.cashRegisters,
+                cashSessions: heavy.cashSessions,
+                cashMovements: heavy.cashMovements,
+                expenses: heavy.expenses,
+                suppliers: heavy.suppliers,
+                unidentifiedCollections: heavy.unidentifiedCollections,
+                galiciaDebits: heavy.galiciaDebits,
+                fixedExpenses: heavy.fixedExpenses,
+                fixedDiscounts: heavy.fixedDiscounts,
+                paymentOrders: heavy.paymentOrders,
+                concessions: heavy.concessions,
+                canonPayments: heavy.canonPayments,
+                alerts: erpData.alerts || [],
+                alertAcks: erpData.alertAcks || [],
+                clubEvents: erpData.clubEvents || [],
+                eventRegistrations: erpData.eventRegistrations || [],
+              });
+            } catch {
+              /* ERP soft: la app ya sirve con shell */
+            }
           }
-        } finally {
-          if (!cancelled) setMembersLoading(false);
         }
       } catch (err) {
         if (!cancelled) {
-          setDbError(err.message || 'No se pudo cargar la base de datos');
+          setDbError(friendlyDbError(err, 'No se pudo cargar la base de datos'));
           setMembersLoading(false);
         }
       } finally {
+        clearTimeout(watchdog);
         if (!cancelled) setDbReady(true);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      clearTimeout(watchdog);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cloudMode, isAuthenticated, authLoading]);
+  }, [cloudMode, isAuthenticated, authLoading, role, user?.memberId]);
 
   // Wrappers de escritura BD para setters usados en vistas
   const setEntryLogsDb = (updater) => {
@@ -1724,6 +1804,7 @@ export default function App() {
         guestPasses={guestPasses}
         setGuestPasses={setGuestPassesDb}
         updateMember={updateMember}
+        facilityCatalog={facilityCatalog}
       />
     );
 
@@ -1788,6 +1869,7 @@ export default function App() {
       isZondaActive={isZondaActive}
       waitlist={waitlist}
       setWaitlist={setWaitlistDb}
+      facilityCatalog={facilityCatalog}
     />
   );
 
@@ -1832,11 +1914,16 @@ export default function App() {
 
   if (authLoading || (cloudMode && isAuthenticated && !dbReady)) {
     return (
-      <div className="app-container" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>
-        <p style={{ color: 'var(--text-secondary)' }}>
-          {authLoading ? 'Cargando sesión…' : 'Sincronizando con la base de datos…'}
+      <div className="app-container" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', gap: '0.75rem', padding: '1.5rem' }}>
+        <p style={{ color: 'var(--text-secondary)', margin: 0 }}>
+          {authLoading ? 'Cargando sesión…' : 'Preparando tu panel…'}
         </p>
-        {dbError && <p style={{ color: 'var(--danger-accent)', fontSize: '0.85rem' }}>{dbError}</p>}
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', margin: 0, maxWidth: 360, textAlign: 'center' }}>
+          {authLoading
+            ? 'Validando credenciales.'
+            : 'Sincronización rápida del portal. Si tarda más de unos segundos, se abre igual con datos parciales.'}
+        </p>
+        {dbError && <p style={{ color: 'var(--danger-accent)', fontSize: '0.85rem', margin: 0 }}>{dbError}</p>}
       </div>
     );
   }
@@ -1940,8 +2027,15 @@ export default function App() {
           <>
             <SessionStatusBar members={members} staffMembers={staffMembers} />
             {dbError ? (
-              <p className="conc-error" role="alert" aria-live="assertive" style={{ margin: '0 0 0.75rem' }}>
-                {dbError}
+              <p className="conc-error" role="alert" aria-live="assertive" style={{ margin: '0 0 0.75rem', display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ flex: '1 1 12rem' }}>{dbError}</span>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setDbError('')}
+                >
+                  Cerrar
+                </button>
               </p>
             ) : null}
             <AlertsBanner

@@ -319,7 +319,7 @@ export const FACILITY_GROUPS = [
   {
     id: 'espacios',
     label: 'Espacios',
-    blurb: 'Salones, gimnasio, hípica y áreas sociales.',
+    blurb: 'Salones, Espacio Verde, gimnasio, hípica y áreas sociales.',
     match: isSpaceFacility,
   },
   {
@@ -336,10 +336,27 @@ export const FACILITY_GROUPS = [
   },
 ];
 
+/** Orden de listado: salones y parrilla (reservas reales) primero. */
+function facilityListRank(facility) {
+  if (isSalonFacility(facility)) return 0;
+  if (isParrillaFacility(facility)) return 1;
+  if (isPoolFacility(facility)) return 2;
+  if (isCourtFacility(facility)) return 3;
+  return 4;
+}
+
+export function sortFacilitiesForDisplay(list = []) {
+  return [...(list || [])].toSorted((a, b) => {
+    const rank = facilityListRank(a) - facilityListRank(b);
+    if (rank !== 0) return rank;
+    return String(a.name || '').localeCompare(String(b.name || ''), 'es');
+  });
+}
+
 export function facilitiesByGroup(list = FACILITIES) {
   return FACILITY_GROUPS.map((group) => ({
     ...group,
-    items: list.filter((f) => group.match(f)),
+    items: sortFacilitiesForDisplay(list.filter((f) => group.match(f))),
   }));
 }
 

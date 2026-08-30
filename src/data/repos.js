@@ -17,9 +17,10 @@ function sb() {
 
 /** PostgREST pagina de a N filas; fetchAllRows recorre todo el padrón sin tope de socios. */
 const PAGE_SIZE = 1000;
-/** Páginas chicas + poca concurrencia evitan statement_timeout en padrones grandes. */
+/** Páginas chicas + poca concurrencia evitan statement_timeout y saturar el pool. */
 const MEMBERS_PAGE_SIZE = 250;
 const MEMBERS_CONCURRENCY = 2;
+const PAYMENTS_CONCURRENCY = 2;
 
 /** Ficha completa; adherentes se cargan aparte y se adjuntan en cliente. */
 const MEMBERS_FULL_SELECT = '*';
@@ -90,19 +91,21 @@ async function audit(action, entityType, entityId, payload = {}) {
 
 // ---- Members ----
 export async function listMembers() {
-  const [rows, adherents, payments] = await Promise.all([
-    fetchAllRowsParallel(
-      sb().from('members').select('id', { count: 'exact', head: true }),
-      (from, to) => sb()
-        .from('members')
-        .select(MEMBERS_FULL_SELECT)
-        .order('full_name')
-        .order('id')
-        .range(from, to),
-      'No se pudieron cargar socios',
-      MEMBERS_PAGE_SIZE,
-      MEMBERS_CONCURRENCY
-    ),
+  // Secuencial: primero socios, luego adherentes+pagos (menos pico en el pool).
+  const rows = await fetchAllRowsParallel(
+    sb().from('members').select('id', { count: 'exact', head: true }),
+    (from, to) => sb()
+      .from('members')
+      .select(MEMBERS_FULL_SELECT)
+      .order('full_name')
+      .order('id')
+      .range(from, to),
+    'No se pudieron cargar socios',
+    MEMBERS_PAGE_SIZE,
+    MEMBERS_CONCURRENCY
+  );
+
+  const [adherents, payments] = await Promise.all([
     fetchAllRows(
       (from, to) => sb()
         .from('member_adherents')
@@ -122,7 +125,7 @@ export async function listMembers() {
         .range(from, to),
       'No se pudieron cargar pagos',
       PAGE_SIZE,
-      4
+      PAYMENTS_CONCURRENCY
     ).catch(() => []),
   ]);
 
@@ -350,11 +353,10 @@ export async function insertMemberPayment(memberDbId, payment) {
 }
 
 // ---- Reservations ----
-export async function listReservations() {
-  const rows = await unwrap(
-    sb().from('reservations').select('*').order('reservation_date', { ascending: false }),
-    'No se pudieron cargar reservas'
-  );
+export async function listReservations({ limit } = {}) {
+  let q = sb().from('reservations').select('*').order('reservation_date', { ascending: false });
+  if (limit && Number(limit) > 0) q = q.limit(Number(limit));
+  const rows = await unwrap(q, 'No se pudieron cargar reservas');
   return (rows || []).map(M.reservationFromRow);
 }
 

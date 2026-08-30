@@ -123,6 +123,13 @@ export function AuthProvider({ children }) {
     if (!authUser?.id) return undefined;
 
     let cancelled = false;
+    const watchdog = setTimeout(() => {
+      if (cancelled) return;
+      // Si el perfil tarda, entra igual con metadata mínima
+      setUser((prev) => prev || mapProfile(authUser, null));
+      setLoading(false);
+    }, 8_000);
+
     (async () => {
       try {
         const mapped = await loadUserFromSession(authUser);
@@ -135,10 +142,15 @@ export function AuthProvider({ children }) {
           setUser((prev) => prev || mapProfile(authUser, null));
           setLoading(false);
         }
+      } finally {
+        clearTimeout(watchdog);
       }
     })();
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      clearTimeout(watchdog);
+    };
   }, [authUser?.id]);
 
   const login = useCallback(async ({ email, password }) => {

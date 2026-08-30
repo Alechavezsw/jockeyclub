@@ -33,6 +33,7 @@ export default function DashboardView({
   guestPasses = [],
   setGuestPasses,
   updateMember,
+  facilityCatalog = null,
 }) {
   const [showNewClaimForm, setShowNewClaimForm] = useState(false);
   const [claimType, setClaimType] = useState('Mantenimiento');
@@ -624,6 +625,7 @@ export default function DashboardView({
             isZondaActive={isZondaActive}
             waitlist={waitlist}
             setWaitlist={setWaitlist}
+            facilityCatalog={facilityCatalog}
             compact
           />
         </div>

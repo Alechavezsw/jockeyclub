@@ -4150,6 +4150,11 @@ select.form-input,
   background: rgba(245, 158, 11, 0.08);
 }
 
+.mfb-cal-day.is-full:not(.is-selected) {
+  background: rgba(239, 68, 68, 0.12);
+  color: #fca5a5;
+}
+
 .mfb-cal-dot {
   width: 4px;
   height: 4px;
@@ -4157,11 +4162,39 @@ select.form-input,
   background: currentColor;
 }
 
+.mfb-cal-count {
+  font-style: normal;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+  min-width: 0.9rem;
+  padding: 0 2px;
+  border-radius: 999px;
+  background: rgba(207, 161, 58, 0.28);
+  color: var(--primary-gold);
+}
+
+.mfb-cal-day.is-selected .mfb-cal-count {
+  background: rgba(6, 14, 10, 0.2);
+  color: #060e0a;
+}
+
+.mfb-cal-day.is-full:not(.is-selected) .mfb-cal-count {
+  background: rgba(239, 68, 68, 0.25);
+  color: #fecaca;
+}
+
 .mfb-cal-caption {
-  margin: 0.85rem 0 0.65rem;
+  margin: 0.85rem 0 0.35rem;
   font-size: 0.78rem;
   color: var(--text-secondary);
   text-transform: capitalize;
+}
+
+.mfb-cal-real {
+  margin: 0 0 0.65rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
 }
 
 .mfb-toolbar {
