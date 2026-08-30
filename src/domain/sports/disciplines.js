@@ -281,11 +281,10 @@ export function buildDisciplineStats({
       return diff >= 0 && diff <= 30;
     });
 
-    const byTier = { royal: 0, platinum: 0, gold: 0, other: 0 };
+    const byTier = {};
     enrolled.forEach((m) => {
-      const t = (m.tier || 'other').toLowerCase();
-      if (byTier[t] != null) byTier[t] += 1;
-      else byTier.other += 1;
+      const t = String(m.tier || 'other').toLowerCase();
+      byTier[t] = (byTier[t] || 0) + 1;
     });
 
     const coaches = (staffMembers || []).filter((s) => {

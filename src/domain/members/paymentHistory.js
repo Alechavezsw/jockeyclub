@@ -61,7 +61,7 @@ export function getMemberPaymentHistory(member, { today = new Date() } = {}) {
   }
 
   // Cobros puntuales (reservas / eventos) para enriquecer el historial
-  if (member?.tier === 'royal' || member?.tier === 'platinum') {
+  if (/vitalicio|fundador/i.test(String(member?.tier || ''))) {
     history.push({
       id: `pay-${member.memberId}-evt`,
       date: shiftMonths(todayIso, -2),

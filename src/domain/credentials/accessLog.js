@@ -1,3 +1,5 @@
+import { getTierDisplayName } from '../members/tiers';
+
 /** Entrada de historial de molinete / Control QR. */
 
 export const ACCESS_ACTIVITIES = [
@@ -9,7 +11,7 @@ export const ACCESS_ACTIVITIES = [
   'No empadronado',
 ];
 
-export const ACCESS_GROUPS = ['Royal', 'Platinum', 'Gold', 'Invitado', '—'];
+export const ACCESS_GROUPS = ['Socio', 'Invitado', '—'];
 
 function clockTime(date = new Date()) {
   return date.toTimeString().slice(0, 8);
@@ -20,20 +22,15 @@ function todayIso(date = new Date()) {
 }
 
 export function tierToGroup(tier) {
-  const t = String(tier || '').toLowerCase();
-  if (t === 'royal') return 'Royal';
-  if (t === 'platinum') return 'Platinum';
-  if (t === 'gold') return 'Gold';
-  return '—';
+  if (!tier) return '—';
+  return getTierDisplayName(tier) || 'Socio';
 }
 
 export function groupFromRoleLabel(role = '') {
   const r = String(role);
   if (/invitado/i.test(r)) return 'Invitado';
-  if (/royal/i.test(r)) return 'Royal';
-  if (/platinum/i.test(r)) return 'Platinum';
-  if (/gold/i.test(r)) return 'Gold';
-  return '—';
+  if (/socio/i.test(r)) return 'Socio';
+  return r.trim() || '—';
 }
 
 export function buildAccessLogEntry({

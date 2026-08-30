@@ -30,7 +30,7 @@ function emptyMemberForm() {
     city: 'San Juan',
     province: 'San Juan',
     postalCode: '',
-    tier: 'gold',
+    tier: 'socio_individual',
     status: 'active',
     joinDate,
     joinTime: nowTimeAR(),
@@ -54,7 +54,7 @@ const EMPTY_FAMILY_MEMBER = {
   relationship: 'Cónyuge',
   documentNumber: '',
   birthDate: '',
-  tier: 'gold',
+  tier: 'socio_individual',
   disciplines: [],
 };
 
@@ -162,7 +162,7 @@ export default function MembersTab({
   setTierCatalog,
 }) {
   const tiers = getActiveTiers(tierCatalog);
-  const defaultTierId = tiers[0]?.id || 'gold';
+  const defaultTierId = tiers[0]?.id || 'socio_individual';
   const [tierFilter, setTierFilter] = useState('todos');
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);

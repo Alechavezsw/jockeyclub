@@ -16,9 +16,12 @@ function sb() {
 
 /** PostgREST pagina de a N filas; fetchAllRows recorre todo el padrón sin tope de socios. */
 const PAGE_SIZE = 1000;
+/** Páginas chicas + poca concurrencia evitan statement_timeout en padrones grandes. */
+const MEMBERS_PAGE_SIZE = 250;
+const MEMBERS_CONCURRENCY = 2;
 
-/** Ficha completa + adherentes (mismo alcance que el select * histórico). */
-const MEMBERS_FULL_SELECT = '*, member_adherents(*)';
+/** Ficha completa; adherentes se cargan aparte y se adjuntan en cliente. */
+const MEMBERS_FULL_SELECT = '*';
 
 async function fetchAllRows(queryFactory, fallback, pageSize = PAGE_SIZE) {
   const all = [];
@@ -34,19 +37,30 @@ async function fetchAllRows(queryFactory, fallback, pageSize = PAGE_SIZE) {
 }
 
 /** Páginas en paralelo (mucho más rápido que encadenar range). */
-async function fetchAllRowsParallel(countQuery, pageQuery, fallback, pageSize = PAGE_SIZE) {
+async function fetchAllRowsParallel(
+  countQuery,
+  pageQuery,
+  fallback,
+  pageSize = PAGE_SIZE,
+  concurrency = 6
+) {
   const { count, error } = await countQuery;
   throwOnError(error, fallback);
   const total = count || 0;
   if (!total) return [];
   const pageCount = Math.ceil(total / pageSize);
-  const pages = await Promise.all(
-    Array.from({ length: pageCount }, (_, i) => {
-      const from = i * pageSize;
-      return unwrap(pageQuery(from, from + pageSize - 1), fallback);
-    })
-  );
-  return pages.flatMap((chunk) => chunk || []);
+  const all = [];
+  for (let start = 0; start < pageCount; start += concurrency) {
+    const batch = await Promise.all(
+      Array.from({ length: Math.min(concurrency, pageCount - start) }, (_, j) => {
+        const i = start + j;
+        const from = i * pageSize;
+        return unwrap(pageQuery(from, from + pageSize - 1), fallback);
+      })
+    );
+    for (const chunk of batch) all.push(...(chunk || []));
+  }
+  return all;
 }
 
 /** Conteo exacto de socios (sin descargar filas). */
@@ -75,7 +89,7 @@ async function audit(action, entityType, entityId, payload = {}) {
 
 // ---- Members ----
 export async function listMembers() {
-  const [rows, payments] = await Promise.all([
+  const [rows, adherents, payments] = await Promise.all([
     fetchAllRowsParallel(
       sb().from('members').select('id', { count: 'exact', head: true }),
       (from, to) => sb()
@@ -84,8 +98,19 @@ export async function listMembers() {
         .order('full_name')
         .order('id')
         .range(from, to),
-      'No se pudieron cargar socios'
+      'No se pudieron cargar socios',
+      MEMBERS_PAGE_SIZE,
+      MEMBERS_CONCURRENCY
     ),
+    fetchAllRows(
+      (from, to) => sb()
+        .from('member_adherents')
+        .select('*')
+        .order('full_name')
+        .order('id')
+        .range(from, to),
+      'No se pudieron cargar adherentes'
+    ).catch(() => []),
     fetchAllRowsParallel(
       sb().from('member_payments').select('id', { count: 'exact', head: true }),
       (from, to) => sb()
@@ -94,15 +119,24 @@ export async function listMembers() {
         .order('paid_at', { ascending: false })
         .order('id')
         .range(from, to),
-      'No se pudieron cargar pagos'
-    ),
+      'No se pudieron cargar pagos',
+      PAGE_SIZE,
+      4
+    ).catch(() => []),
   ]);
 
+  const adherentsByMember = {};
+  for (const a of adherents || []) {
+    (adherentsByMember[a.member_id] ||= []).push(a);
+  }
   const byMember = {};
-  payments.forEach((p) => {
+  for (const p of payments || []) {
     (byMember[p.member_id] ||= []).push(p);
-  });
-  return rows.map((r) => M.memberFromRow(r, byMember[r.id] || []));
+  }
+  return rows.map((r) => M.memberFromRow(
+    { ...r, member_adherents: adherentsByMember[r.id] || [] },
+    byMember[r.id] || []
+  ));
 }
 
 /** Historial de pagos de un socio (ficha / cuenta). */
@@ -124,7 +158,7 @@ export async function getMemberByNumber(memberNumber, { withPayments = false } =
   const row = await unwrap(
     sb()
       .from('members')
-      .select(MEMBERS_FULL_SELECT)
+      .select('*, member_adherents(*)')
       .eq('member_number', String(memberNumber))
       .maybeSingle(),
     'No se pudo cargar el socio'

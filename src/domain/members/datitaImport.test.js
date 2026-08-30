@@ -15,11 +15,15 @@ describe('datitaImport', () => {
   });
 
   it('derives tiers from cuota categories', () => {
-    expect(deriveTier(['SOCIO (Vitalicio)'])).toBe('vitalicio');
-    expect(deriveTier(['GRUPO FAMILIAR (Familiar)'])).toBe('platinum');
-    expect(deriveTier(['SOCIO INDIVIDUAL'])).toBe('gold');
-    expect(deriveTier(['ABONO TENIS'])).toBe('gold');
-    expect(deriveTier([])).toBe('gold');
+    expect(deriveTier(['SOCIO (Vitalicio)'])).toBe('socio_vitalicio');
+    expect(deriveTier(['GRUPO FAMILIAR (Familiar)'])).toBe('grupo_familiar_familiar');
+    expect(deriveTier(['SOCIO INDIVIDUAL'])).toBe('socio_individual');
+    expect(deriveTier(['ABONO TENIS'])).toBe('abono_tenis');
+    expect(deriveTier([])).toBe('socio_individual');
+    expect(deriveTier([
+      'INTERES POR TRANSACCIÓN 2,5% SOCIO INDIVIDUAL (AMET)',
+      'SOCIO INDIVIDUAL',
+    ])).toBe('socio_individual');
   });
 
   it('maps socio row with family meta and joined_at fallback', () => {
@@ -37,7 +41,7 @@ describe('datitaImport', () => {
       ['GRUPO FAMILIAR (Familiar)']
     );
     expect(m.memberId).toBe('1');
-    expect(m.tier).toBe('platinum');
+    expect(m.tier).toBe('grupo_familiar_familiar');
     expect(m.joinDate).toBe('1900-01-01');
     expect(m.meta.joinedAtFallback).toBe(true);
     expect(m.meta.familyPrincipalNumber).toBe(11017);
@@ -54,7 +58,7 @@ describe('datitaImport', () => {
     );
     const s = summarizeMembers(members);
     expect(s.total).toBe(2);
-    expect(s.tiers.vitalicio).toBe(1);
+    expect(s.tiers.socio_vitalicio).toBe(1);
     expect(s.cuotaMissing).toBe(1);
     expect(s.statuses.inactive).toBe(1);
   });

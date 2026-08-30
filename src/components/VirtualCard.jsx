@@ -3,37 +3,7 @@ import { createPortal } from 'react-dom';
 import { Shield, X, Lock } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { buildCredentialQRPayload } from '../domain/credentials/qr';
-import { findTier } from '../domain/members/tiers';
-
-const TIER_CONFIG = {
-  royal: {
-    bg: 'linear-gradient(135deg, #1a0533 0%, #0e0220 40%, #170533 100%)',
-    accent: '#c084fc',
-    accentDim: 'rgba(192,132,252,0.3)',
-    chipColor: '#a855f7',
-    glow: 'rgba(168,85,247,0.35)',
-    label: 'ROYAL',
-    stripe: 'linear-gradient(90deg, transparent, rgba(192,132,252,0.15), transparent)',
-  },
-  platinum: {
-    bg: 'linear-gradient(135deg, #1a1f2e 0%, #0f1320 40%, #1a1f2e 100%)',
-    accent: '#cbd5e1',
-    accentDim: 'rgba(203,213,225,0.25)',
-    chipColor: '#94a3b8',
-    glow: 'rgba(148,163,184,0.3)',
-    label: 'PLATINUM',
-    stripe: 'linear-gradient(90deg, transparent, rgba(203,213,225,0.1), transparent)',
-  },
-  gold: {
-    bg: 'linear-gradient(135deg, #1c1200 0%, #0f0a00 40%, #1c1200 100%)',
-    accent: '#cfa13a',
-    accentDim: 'rgba(207,161,58,0.3)',
-    chipColor: '#d4af37',
-    glow: 'rgba(207,161,58,0.4)',
-    label: 'GOLD',
-    stripe: 'linear-gradient(90deg, transparent, rgba(207,161,58,0.12), transparent)',
-  },
-};
+import { findTier, tierCardStyle } from '../domain/members/tiers';
 
 function formatMemberId(id) {
   if (!id) return '•••• •••• •••• ••••';
@@ -315,16 +285,11 @@ export default function VirtualCard({ member }) {
   const [secureHide, setSecureHide] = useState(false);
 
   const catalogTier = findTier(member?.tier);
-  const base = TIER_CONFIG[member?.tier?.toLowerCase()] || TIER_CONFIG.gold;
-  const t = catalogTier
-    ? {
-      ...base,
-      accent: catalogTier.color || base.accent,
-      chipColor: catalogTier.color || base.chipColor,
-      label: (catalogTier.name || base.label).toUpperCase(),
-      glow: `${catalogTier.color || base.chipColor}59`,
-    }
-    : base;
+  const t = tierCardStyle(member?.tier);
+  if (catalogTier?.color) {
+    t.accent = catalogTier.color;
+    t.chipColor = catalogTier.color;
+  }
 
   const handleMouseMove = (e) => {
     if (expanded || isCoarsePointer()) return;

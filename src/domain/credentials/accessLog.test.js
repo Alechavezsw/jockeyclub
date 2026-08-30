@@ -30,10 +30,10 @@ describe('buildAccessLogEntry', () => {
 });
 
 describe('tierToGroup', () => {
-  it('mapea tiers', () => {
-    expect(tierToGroup('royal')).toBe('Royal');
-    expect(tierToGroup('platinum')).toBe('Platinum');
-    expect(tierToGroup('gold')).toBe('Gold');
+  it('mapea tiers del padrón', () => {
+    expect(tierToGroup('socio_individual')).toBe('SOCIO INDIVIDUAL');
+    expect(tierToGroup('grupo_familiar_familiar')).toBe('GRUPO FAMILIAR (Familiar)');
+    expect(tierToGroup('')).toBe('—');
   });
 });
 

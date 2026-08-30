@@ -3,6 +3,8 @@
  * Usado por scripts/migrate-datita-socios.mjs y MigrationTab (dry-run / lote).
  */
 
+import { DEFAULT_MEMBER_TIER, pickPrimaryCuotaCategory, slugifyTierId } from './tiers.js';
+
 export function emptyToNull(v) {
   const s = String(v ?? '').trim();
   if (!s || /^no definido$/i.test(s) || s === '-' || s === 'None') return null;
@@ -59,19 +61,12 @@ export function looksLikeCardNumber(v) {
 }
 
 /**
- * Deriva tier del enum actual a partir de categorías literales de cuota.
- * Vitalicio/FUNDADOR → vitalicio; familiar → platinum; resto → gold.
+ * Tier = slug de la categoría de cuota principal (padrón real, sin gold/platinum).
  */
 export function deriveTier(categories) {
-  const cats = (categories || []).map((c) => String(c).toUpperCase());
-  if (cats.some((c) => c.includes('VITALICIO') || c.includes('FUNDADOR'))) return 'vitalicio';
-  if (cats.some((c) => c.includes('SOCIO FAMILIAR') || c.includes('GRUPO FAMILIAR') || c.includes('(FAMILIAR)'))) {
-    return 'platinum';
-  }
-  if (cats.some((c) => c.includes('SOCIO INDIVIDUAL') || c === 'SOCIO' || c.startsWith('SOCIO ('))) {
-    return 'gold';
-  }
-  return 'gold';
+  const primary = pickPrimaryCuotaCategory(categories);
+  if (!primary) return DEFAULT_MEMBER_TIER;
+  return slugifyTierId(primary);
 }
 
 export function yearsFromJoin(joinDate) {
@@ -256,7 +251,7 @@ export function memberToDbRow(member) {
     joined_at: member.joinDate || '1900-01-01',
     emergency_contact: member.emergencyContact || null,
     emergency_phone: member.emergencyPhone || null,
-    tier: member.tier || 'gold',
+    tier: member.tier || DEFAULT_MEMBER_TIER,
     status: member.status || 'active',
     outstanding_balance: 0,
     years_active: Number(member.yearsActive) || 0,

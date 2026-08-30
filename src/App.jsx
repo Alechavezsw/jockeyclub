@@ -69,22 +69,22 @@ const DEFAULT_MEMBERS = [
     cuitCuil: '20-28445912-3',
     taxCondition: 'Consumidor Final',
     disciplines: ['Tenis', 'Pádel', 'Equitación'],
-    tier: 'royal',
+    tier: 'socio_familiar',
     outstandingBalance: 32000, // Saldo inicial para demostrar el flujo de cobro
     yearsActive: 5,
     status: 'active',
     nextDueDate: '2026-06-01',
     overdueSince: '2026-06-01',
     adherents: [
-      { id: 'adh-01', name: 'Sofía Chávez', tier: 'royal', relationship: 'Hijo/a', outstandingBalance: 0, status: 'active' },
-      { id: 'adh-02', name: 'María Inés de Chávez', tier: 'royal', relationship: 'Cónyuge', outstandingBalance: 0, status: 'active' }
+      { id: 'adh-01', name: 'Sofía Chávez', tier: 'socio_familiar', relationship: 'Hijo/a', outstandingBalance: 0, status: 'active' },
+      { id: 'adh-02', name: 'María Inés de Chávez', tier: 'socio_familiar', relationship: 'Cónyuge', outstandingBalance: 0, status: 'active' }
     ]
   },
   {
     name: 'Victoria Cantoni',
     memberId: '2020445599881122',
     phone: '+5492644445678',
-    tier: 'platinum',
+    tier: 'grupo_familiar_familiar',
     outstandingBalance: 0,
     yearsActive: 8,
     status: 'active',
@@ -96,21 +96,21 @@ const DEFAULT_MEMBERS = [
     name: 'Adolfo Sarmiento',
     memberId: '2018776655443322',
     phone: '+5492646669876',
-    tier: 'royal',
+    tier: 'socio_vitalicio',
     outstandingBalance: 0,
     yearsActive: 12,
     status: 'active',
     nextDueDate: '2026-08-15',
     disciplines: ['Hípica', 'Golf'],
     adherents: [
-      { id: 'adh-03', name: 'Adolfo Sarmiento (Hijo)', tier: 'platinum', relationship: 'Hijo/a', outstandingBalance: 0, status: 'active', disciplines: ['Hípica'] }
+      { id: 'adh-03', name: 'Adolfo Sarmiento (Hijo)', tier: 'grupo_familiar_vitalicio', relationship: 'Hijo/a', outstandingBalance: 0, status: 'active', disciplines: ['Hípica'] }
     ]
   },
   {
     name: 'Bautista Del Carril',
     memberId: '2022112233445566',
     phone: '+5492642222333',
-    tier: 'gold',
+    tier: 'socio_individual',
     outstandingBalance: 45000,
     yearsActive: 4,
     status: 'active',
@@ -118,14 +118,14 @@ const DEFAULT_MEMBERS = [
     overdueSince: '2026-05-10',
     disciplines: ['Rugby', 'Fútbol'],
     adherents: [
-      { id: 'adh-04', name: 'Delfina Del Carril', tier: 'gold', relationship: 'Hijo/a', outstandingBalance: 12000, status: 'active', disciplines: ['Tenis'] }
+      { id: 'adh-04', name: 'Delfina Del Carril', tier: 'socio_individual', relationship: 'Hijo/a', outstandingBalance: 12000, status: 'active', disciplines: ['Tenis'] }
     ]
   },
   {
     name: 'Isabel Albarracín',
     memberId: '2024990088776655',
     phone: '+5492649999888',
-    tier: 'gold',
+    tier: 'abono_tenis',
     outstandingBalance: 0,
     yearsActive: 2,
     status: 'active',

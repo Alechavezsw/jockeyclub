@@ -24,6 +24,7 @@ import {
   saveDailyBackup,
   setDailyBackupEnabled,
 } from '../../domain/reports/dailyBackupStore';
+import { getTierDisplayName, TIER_COLORS } from '../../domain/members/tiers';
 
 const SECTIONS = [
   { id: 'resumen', label: 'Resumen' },
@@ -223,9 +224,16 @@ export default function ReportsTab({
 
   const { members: m, economic: e, operations: o } = stats;
   const totalS = m.total || 1;
-  const pctRoyal = Math.round((m.byTier.royal / totalS) * 100);
-  const pctPlatinum = Math.round((m.byTier.platinum / totalS) * 100);
-  const pctGold = Math.round((m.byTier.gold / totalS) * 100);
+  const tierBreakdown = Object.entries(m.byTier || {})
+    .map(([id, count], i) => ({
+      id,
+      label: getTierDisplayName(id),
+      count,
+      pct: Math.round((count / totalS) * 100),
+      color: TIER_COLORS[i % TIER_COLORS.length],
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 8);
 
   const revCuotas = getAccountBalance('Cuotas Sociales');
   const revGourmet = getAccountBalance('Reservas e Instalaciones');
@@ -890,20 +898,27 @@ export default function ReportsTab({
                 <div className="reports-donut">
                   <svg viewBox="0 0 100 100" width="110" height="110">
                     <circle cx="50" cy="50" r="38" stroke="rgba(255,255,255,0.02)" strokeWidth="12" fill="transparent" />
-                    {pctRoyal > 0 && (
-                      <circle cx="50" cy="50" r="38" stroke="var(--primary-gold)" strokeWidth="12" fill="transparent"
-                        strokeDasharray={`${(pctRoyal / 100) * 238.76} 238.76`} transform="rotate(-90 50 50)" />
-                    )}
-                    {pctPlatinum > 0 && (
-                      <circle cx="50" cy="50" r="38" stroke="#94a3b8" strokeWidth="12" fill="transparent"
-                        strokeDasharray={`${(pctPlatinum / 100) * 238.76} 238.76`}
-                        transform={`rotate(${-90 + (pctRoyal / 100) * 360} 50 50)`} />
-                    )}
-                    {pctGold > 0 && (
-                      <circle cx="50" cy="50" r="38" stroke="#b45309" strokeWidth="12" fill="transparent"
-                        strokeDasharray={`${(pctGold / 100) * 238.76} 238.76`}
-                        transform={`rotate(${-90 + ((pctRoyal + pctPlatinum) / 100) * 360} 50 50)`} />
-                    )}
+                    {tierBreakdown.reduce((acc, item) => {
+                      const start = acc.angle;
+                      const sweep = (item.pct / 100) * 360;
+                      acc.nodes.push(
+                        item.pct > 0 ? (
+                          <circle
+                            key={item.id}
+                            cx="50"
+                            cy="50"
+                            r="38"
+                            stroke={item.color}
+                            strokeWidth="12"
+                            fill="transparent"
+                            strokeDasharray={`${(item.pct / 100) * 238.76} 238.76`}
+                            transform={`rotate(${-90 + start} 50 50)`}
+                          />
+                        ) : null
+                      );
+                      acc.angle = start + sweep;
+                      return acc;
+                    }, { angle: 0, nodes: [] }).nodes}
                   </svg>
                   <div className="reports-donut-center">
                     <strong>{m.total}</strong>
@@ -911,12 +926,8 @@ export default function ReportsTab({
                   </div>
                 </div>
                 <div className="reports-legend">
-                  {[
-                    { label: 'Royal', count: m.byTier.royal, pct: pctRoyal, color: 'var(--primary-gold)' },
-                    { label: 'Platinum', count: m.byTier.platinum, pct: pctPlatinum, color: '#94a3b8' },
-                    { label: 'Gold', count: m.byTier.gold, pct: pctGold, color: '#b45309' },
-                  ].map((item) => (
-                    <div key={item.label}>
+                  {tierBreakdown.map((item) => (
+                    <div key={item.id}>
                       <span style={{ background: item.color }} />
                       {item.label}
                       <strong>{item.count} ({item.pct}%)</strong>

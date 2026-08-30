@@ -193,7 +193,7 @@ export default function AccessControlView({
       buildAccessLogEntry({
         memberName: member.name,
         memberId: member.memberId,
-        role: member.tier === 'royal' ? 'Socio Royal' : member.tier === 'platinum' ? 'Socio Platinum' : 'Socio Gold',
+        role: tierToGroup(member.tier),
         group: tierToGroup(member.tier),
         activity: isSuspended
           ? 'Acceso denegado'

@@ -80,7 +80,7 @@ export async function exportExecutiveReportPdf(stats, { formatCurrency } = {}) {
       ['Socios totales', String(m.total)],
       ['Habilitados / Suspendidos', `${m.active} / ${m.suspended}`],
       ['Al día / Con deuda', `${m.alDia} / ${m.debtors}`],
-      ['Royal / Platinum / Gold', `${m.byTier.royal} / ${m.byTier.platinum} / ${m.byTier.gold}`],
+      ['Categorías (top)', Object.entries(m.byTier || {}).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, v]) => `${k}:${v}`).join(' · ') || '—'],
       ['Adherentes', String(m.adherents)],
       ['Reservas (conf/pend/canc)', `${o.confirmed} / ${o.pending} / ${o.cancelled}`],
       ['Reclamos abiertos', `${o.openClaims} de ${o.claimsTotal}`],

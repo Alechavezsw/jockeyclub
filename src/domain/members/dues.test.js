@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import {
   applyAutomaticDues,
   afterCollectDues,
@@ -9,12 +9,22 @@ import {
   getUpcomingDuesMembers,
   toWhatsAppPhone,
 } from './dues';
+import { setRuntimeTierCatalog } from './tiers';
+
+const testCatalog = [
+  { id: 'socio_individual', name: 'SOCIO INDIVIDUAL', monthlyDues: 32000, sortOrder: 1 },
+  { id: 'grupo_familiar_familiar', name: 'GRUPO FAMILIAR (Familiar)', monthlyDues: 38000, sortOrder: 2 },
+  { id: 'socio_vitalicio', name: 'SOCIO (Vitalicio)', monthlyDues: 45000, sortOrder: 3 },
+];
+
+beforeEach(() => setRuntimeTierCatalog(testCatalog));
+afterEach(() => setRuntimeTierCatalog(null));
 
 const members = [
-  { memberId: '1', name: 'A', tier: 'gold', outstandingBalance: 32000, status: 'active', nextDueDate: '2026-06-01' },
-  { memberId: '2', name: 'B', tier: 'platinum', outstandingBalance: 0, status: 'active', nextDueDate: '2026-07-28' },
-  { memberId: '3', name: 'C', tier: 'royal', outstandingBalance: 0, status: 'active', nextDueDate: '2026-09-01' },
-  { memberId: '4', name: 'D', tier: 'gold', outstandingBalance: 0, status: 'active', nextDueDate: '2026-07-01' },
+  { memberId: '1', name: 'A', tier: 'socio_individual', outstandingBalance: 32000, status: 'active', nextDueDate: '2026-06-01' },
+  { memberId: '2', name: 'B', tier: 'grupo_familiar_familiar', outstandingBalance: 0, status: 'active', nextDueDate: '2026-07-28' },
+  { memberId: '3', name: 'C', tier: 'socio_vitalicio', outstandingBalance: 0, status: 'active', nextDueDate: '2026-09-01' },
+  { memberId: '4', name: 'D', tier: 'socio_individual', outstandingBalance: 0, status: 'active', nextDueDate: '2026-07-01' },
 ];
 
 describe('dues classification', () => {
@@ -45,16 +55,19 @@ describe('dues classification', () => {
   });
 
   it('suma cuota del titular y adherentes al alta', () => {
-    expect(duesAmountForHousehold('gold', [])).toBe(32000);
-    expect(duesAmountForHousehold('gold', [{ tier: 'gold' }, { tier: 'platinum' }])).toBe(32000 + 32000 + 38000);
+    expect(duesAmountForHousehold('socio_individual', [])).toBe(32000);
+    expect(duesAmountForHousehold('socio_individual', [
+      { tier: 'socio_individual' },
+      { tier: 'grupo_familiar_familiar' },
+    ])).toBe(32000 + 32000 + 38000);
   });
 
   it('calcula cuota del socio con adherentes activos', () => {
     expect(duesAmountForMember({
-      tier: 'royal',
+      tier: 'socio_vitalicio',
       adherents: [
-        { tier: 'royal', status: 'active' },
-        { tier: 'gold', status: 'inactive' },
+        { tier: 'socio_vitalicio', status: 'active' },
+        { tier: 'socio_individual', status: 'inactive' },
       ],
     })).toBe(45000 + 45000);
   });
@@ -72,7 +85,7 @@ describe('dues classification', () => {
 
   it('no marca “vence hoy” si hay saldo pero la fecha ancla no está vencida', () => {
     const overdue = getOverdueMembers([
-      { memberId: 'x', name: 'X', tier: 'gold', outstandingBalance: 1000, status: 'active', nextDueDate: '2026-09-01' },
+      { memberId: 'x', name: 'X', tier: 'socio_individual', outstandingBalance: 1000, status: 'active', nextDueDate: '2026-09-01' },
     ], today);
     expect(overdue[0].daysOverdue).toBeNull();
   });

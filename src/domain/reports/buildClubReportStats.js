@@ -34,11 +34,11 @@ export function buildClubReportStats({
   const debtTotal = sum(debtors, (m) => m.outstandingBalance);
   const alDia = members.filter((m) => (Number(m.outstandingBalance) || 0) <= 0).length;
 
-  const byTier = {
-    royal: members.filter((m) => m.tier === 'royal').length,
-    platinum: members.filter((m) => m.tier === 'platinum').length,
-    gold: members.filter((m) => m.tier === 'gold').length,
-  };
+  const byTier = {};
+  for (const m of members) {
+    const key = String(m.tier || 'sin_categoria').toLowerCase();
+    byTier[key] = (byTier[key] || 0) + 1;
+  }
 
   const confirmed = reservations.filter((r) => r.status === 'confirmed').length;
   const pending = reservations.filter((r) => r.status === 'pending').length;

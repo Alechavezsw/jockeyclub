@@ -13,6 +13,7 @@ import {
   normalizeDiscipline,
 } from '../../domain/sports/disciplines';
 import { FACILITIES } from '../../domain/reservations/facilities';
+import { getTierDisplayName } from '../../domain/members/tiers';
 
 function formatCurrency(amount) {
   return new Intl.NumberFormat('es-AR', {
@@ -421,16 +422,15 @@ export default function DisciplinesTab({
                 </div>
 
                 <div className="disc-tiers">
-                  {[
-                    ['royal', 'Royal', selected.byTier.royal],
-                    ['platinum', 'Platinum', selected.byTier.platinum],
-                    ['gold', 'Gold', selected.byTier.gold],
-                  ].map(([key, label, count]) => (
-                    <div key={key} className={`disc-tier disc-tier--${key}`}>
-                      <span>{label}</span>
-                      <strong>{count}</strong>
-                    </div>
-                  ))}
+                  {Object.entries(selected.byTier || {})
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 6)
+                    .map(([key, count]) => (
+                      <div key={key} className="disc-tier">
+                        <span>{getTierDisplayName(key)}</span>
+                        <strong>{count}</strong>
+                      </div>
+                    ))}
                 </div>
 
                 {setMembers && (

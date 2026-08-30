@@ -81,7 +81,7 @@ export function memberToRow(member) {
     cuit_cuil: member.cuitCuil || null,
     tax_condition: member.taxCondition || null,
     disciplines: member.disciplines || [],
-    tier: member.tier || 'gold',
+    tier: member.tier || 'socio_individual',
     status: member.status || 'active',
     outstanding_balance: Number(member.outstandingBalance) || 0,
     years_active: Number(member.yearsActive) || 0,

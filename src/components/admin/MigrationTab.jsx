@@ -131,7 +131,7 @@ export default function MigrationTab({ setMembers }) {
       name,
       memberId: String(2026000000000000 + i * 111 + Date.now() % 1000),
       phone: `+549264${4000000 + i}`,
-      tier: i % 3 === 0 ? 'royal' : 'gold',
+      tier: i % 3 === 0 ? 'socio_vitalicio' : 'socio_individual',
       outstandingBalance: i % 2 === 0 ? 32000 : 0,
       yearsActive: 5 + i,
       status: 'active',
@@ -258,8 +258,17 @@ export default function MigrationTab({ setMembers }) {
         .contains('meta', { source: 'datita' });
       if (dErr) throw dErr;
 
+      const tierIds = [
+        'grupo_familiar_familiar',
+        'socio_familiar',
+        'socio_vitalicio',
+        'grupo_familiar_vitalicio',
+        'socio_individual',
+        'fundador',
+        'abono_tenis',
+      ];
       const tiers = {};
-      for (const tier of ['gold', 'platinum', 'royal', 'vitalicio']) {
+      for (const tier of tierIds) {
         const { count, error } = await supabase
           .from('members')
           .select('*', { count: 'exact', head: true })
@@ -281,8 +290,8 @@ export default function MigrationTab({ setMembers }) {
 
       const [socio1, vitalicio, familiar, sinCuota] = await Promise.all([
         pickOne(spotBase().eq('member_number', '1')),
-        pickOne(spotBase().eq('tier', 'vitalicio')),
-        pickOne(spotBase().eq('tier', 'platinum')),
+        pickOne(spotBase().eq('tier', 'socio_vitalicio')),
+        pickOne(spotBase().eq('tier', 'grupo_familiar_familiar')),
         pickOne(
           supabase
             .from('members')
