@@ -218,16 +218,97 @@ export const FACILITIES = [
     guestLimit: 6,
     isOutdoor: false,
   },
+  {
+    id: 'salon_anhelo',
+    name: 'Salón Anhelo',
+    category: 'salon',
+    spaceType: 'salon',
+    description: 'Salón de fiestas para eventos sociales y celebraciones institucionales.',
+    image: 'https://images.unsplash.com/photo-1519167758481-83f15083c1f8?q=80&w=600&auto=format&fit=crop',
+    hours: '11:00 - 23:00',
+    capacity: '60',
+    slots: ['11:00', '14:00', '18:00', '21:00'],
+    guestLimit: 60,
+    isOutdoor: false,
+    defaultPrice: 170000,
+  },
+  {
+    id: 'salon_bustos',
+    name: 'Salón Bustos',
+    category: 'salon',
+    spaceType: 'salon',
+    description: 'Salón amplio para fiestas y eventos de hasta 95 personas.',
+    image: 'https://images.unsplash.com/photo-1464366400600-7168b8af9bc3?q=80&w=600&auto=format&fit=crop',
+    hours: '11:00 - 23:00',
+    capacity: '95',
+    slots: ['11:00', '14:00', '18:00', '21:00'],
+    guestLimit: 95,
+    isOutdoor: false,
+    defaultPrice: 170000,
+  },
+  {
+    id: 'salon_maurin',
+    name: 'Salón Maurin',
+    category: 'salon',
+    spaceType: 'salon',
+    description: 'Salón de fiestas con capacidad intermedia para celebraciones del club.',
+    image: 'https://images.unsplash.com/photo-1478144592103-25e218a0807b?q=80&w=600&auto=format&fit=crop',
+    hours: '11:00 - 23:00',
+    capacity: '65',
+    slots: ['11:00', '14:00', '18:00', '21:00'],
+    guestLimit: 65,
+    isOutdoor: false,
+    defaultPrice: 130000,
+  },
+  {
+    id: 'salon_refugio',
+    name: 'Salón Refugio',
+    category: 'salon',
+    spaceType: 'salon',
+    description: 'Salón íntimo para reuniones y eventos reducidos.',
+    image: 'https://images.unsplash.com/photo-1511795409834-ef04bbd61622?q=80&w=600&auto=format&fit=crop',
+    hours: '11:00 - 23:00',
+    capacity: '30',
+    slots: ['11:00', '14:00', '18:00', '21:00'],
+    guestLimit: 30,
+    isOutdoor: false,
+    status: 'suspendido',
+    defaultPrice: 96000,
+  },
+  {
+    id: 'espacio_verde',
+    name: 'Espacio Verde',
+    category: 'parrilla',
+    spaceType: 'parrilla',
+    description: 'Espacio exterior con parrilla para reservas sociales. Capacidad 25 personas.',
+    image: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?q=80&w=600&auto=format&fit=crop',
+    hours: '11:00 - 23:00',
+    capacity: '25',
+    slots: ['11:00', '14:00', '18:00', '21:00'],
+    guestLimit: 25,
+    isOutdoor: true,
+    defaultPrice: 62000,
+  },
 ];
 
 export function isPoolFacility(facility) {
-  return facility?.id === 'piscina_verano'
+  return facility?.spaceType === 'pileta'
+    || facility?.id === 'piscina_verano'
     || /piscin|nataci[oó]n|pileta/i.test(`${facility?.name || ''} ${facility?.id || ''}`);
 }
 
 export function isCourtFacility(facility) {
   if (isPoolFacility(facility)) return false;
+  if (facility?.spaceType === 'cancha') return true;
   return facility?.category === 'cancha' || facility?.id === 'volei_playa';
+}
+
+export function isSalonFacility(facility) {
+  return facility?.spaceType === 'salon' || facility?.category === 'salon';
+}
+
+export function isParrillaFacility(facility) {
+  return facility?.spaceType === 'parrilla' || facility?.category === 'parrilla';
 }
 
 export function isSpaceFacility(facility) {

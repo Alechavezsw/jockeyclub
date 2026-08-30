@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Database, CloudUpload, Users, Play, Eye, RefreshCw } from 'lucide-react';
+import { Database, CloudUpload, Users, Play, Eye, RefreshCw, CalendarDays } from 'lucide-react';
 import { isSupabaseConfigured, supabase } from '../../lib/supabase';
 import { repos } from '../../data/bootstrap';
 import {
@@ -7,6 +7,10 @@ import {
   sociosRowsToMembers,
   summarizeMembers,
 } from '../../domain/members/datitaImport';
+import {
+  rowsToReservations,
+  summarizeReservations,
+} from '../../domain/reservations/datitaReservasImport';
 
 const LOCAL_KEYS = [
   'jockey-members',
@@ -31,15 +35,18 @@ async function readFileText(file) {
 }
 
 /** Consola de migración: localStorage → Supabase + padrón datita. */
-export default function MigrationTab({ setMembers }) {
+export default function MigrationTab({ setMembers, setReservations }) {
   const [migrationState, setMigrationState] = useState('idle');
   const [migrationLogs, setMigrationLogs] = useState([]);
   const [datitaLimit, setDatitaLimit] = useState('50');
   const [datitaSummary, setDatitaSummary] = useState(null);
   const [datitaStats, setDatitaStats] = useState(null);
+  const [reservasSummary, setReservasSummary] = useState(null);
   const sociosFileRef = useRef(null);
   const cuotasFileRef = useRef(null);
+  const reservasFileRef = useRef(null);
   const preparedRef = useRef(null);
+  const preparedReservasRef = useRef(null);
 
   const pushLog = (text) => setMigrationLogs((prev) => [...prev, text]);
   const busy = migrationState === 'running';
@@ -244,6 +251,99 @@ export default function MigrationTab({ setMembers }) {
     }
   };
 
+  const handleReservasDryRun = async () => {
+    if (busy) return;
+    setMigrationState('running');
+    setMigrationLogs([]);
+    try {
+      const file = reservasFileRef.current?.files?.[0];
+      if (!file) throw new Error('Seleccioná reservas.csv (generado con npm run import:reservas).');
+      pushLog(`Leyendo ${file.name}…`);
+      const text = await readFileText(file);
+      const rows = parseCsv(text);
+      const { reservations, skipped } = rowsToReservations(rows);
+      const summary = summarizeReservations(reservations);
+      preparedReservasRef.current = reservations;
+      setReservasSummary({ ...summary, skipped });
+      pushLog(`Dry-run reservas: ${summary.total} · omitidas ${skipped}`);
+      pushLog(`Espacios: ${JSON.stringify(summary.byFacility)}`);
+      pushLog(`Estados: ${JSON.stringify(summary.byStatus)}`);
+      setMigrationState('completed');
+    } catch (err) {
+      pushLog(`FALLO dry-run reservas: ${err.message}`);
+      setMigrationState('idle');
+    }
+  };
+
+  const handleReservasImportLocal = async () => {
+    if (busy) return;
+    setMigrationState('running');
+    setMigrationLogs([]);
+    try {
+      let list = preparedReservasRef.current;
+      if (!list?.length) {
+        const file = reservasFileRef.current?.files?.[0];
+        if (!file) throw new Error('Seleccioná reservas.csv o corré dry-run antes.');
+        const text = await readFileText(file);
+        const { reservations } = rowsToReservations(parseCsv(text));
+        list = reservations;
+        preparedReservasRef.current = list;
+      }
+      localStorage.setItem('jockey-reservations', JSON.stringify(list));
+      if (typeof setReservations === 'function') setReservations(list);
+      const summary = summarizeReservations(list);
+      setReservasSummary(summary);
+      pushLog(`Reservas cargadas en local: ${summary.total}`);
+      pushLog(`Espacios: ${JSON.stringify(summary.byFacility)}`);
+      setMigrationState('completed');
+    } catch (err) {
+      pushLog(`FALLO import reservas: ${err.message}`);
+      setMigrationState('idle');
+    }
+  };
+
+  const handleReservasPushDb = async () => {
+    if (!isSupabaseConfigured) {
+      pushLog('Supabase no está configurado.');
+      return;
+    }
+    if (busy) return;
+    setMigrationState('running');
+    setMigrationLogs([]);
+    try {
+      let list = preparedReservasRef.current;
+      if (!list?.length) {
+        const file = reservasFileRef.current?.files?.[0];
+        if (!file) throw new Error('Seleccioná reservas.csv o corré dry-run / carga local antes.');
+        const text = await readFileText(file);
+        const { reservations } = rowsToReservations(parseCsv(text));
+        list = reservations;
+      }
+      let ok = 0;
+      let skip = 0;
+      let fail = 0;
+      for (const r of list) {
+        if (r.status === 'cancelled') {
+          skip += 1;
+          continue;
+        }
+        try {
+          const dbId = await repos.findMemberDbIdByNumber(r.memberId);
+          await repos.createReservation(r, dbId);
+          ok += 1;
+        } catch (err) {
+          fail += 1;
+          if (fail <= 12) pushLog(`[WARN] ${r.id}: ${err.message}`);
+        }
+      }
+      pushLog(`COMPLETADO reservas → BD · ok=${ok} canceladas omitidas=${skip} fallos=${fail}`);
+      setMigrationState('completed');
+    } catch (err) {
+      pushLog(`FALLO push reservas: ${err.message}`);
+      setMigrationState('idle');
+    }
+  };
+
   const refreshDatitaStats = async () => {
     if (!isSupabaseConfigured) return;
     try {
@@ -434,6 +534,40 @@ export default function MigrationTab({ setMembers }) {
               </div>
             )}
           </div>
+        )}
+      </section>
+
+      <section
+        className="glass-panel"
+        style={{ padding: '1rem 1.1rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}
+      >
+        <h4 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-gold)' }}>
+          <CalendarDays size={18} /> Importar reservas datita
+        </h4>
+        <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+          Export Mi Socio (salones / espacio verde). Generá el CSV con{' '}
+          <code>npm run import:reservas</code> desde <code>datita/reservas/*.xlsx</code>.
+        </p>
+        <label style={{ fontSize: '0.78rem', display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 360 }}>
+          reservas.csv
+          <input ref={reservasFileRef} type="file" accept=".csv,text/csv" disabled={busy} />
+        </label>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem' }}>
+          <button type="button" className="btn btn-secondary" disabled={busy} onClick={handleReservasDryRun} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Eye size={15} /> Dry-run
+          </button>
+          <button type="button" className="btn btn-primary" disabled={busy} onClick={handleReservasImportLocal} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Play size={15} /> Cargar en local
+          </button>
+          <button type="button" className="btn btn-secondary" disabled={busy || !isSupabaseConfigured} onClick={handleReservasPushDb} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <CloudUpload size={15} /> Subir a BD
+          </button>
+        </div>
+        {reservasSummary && (
+          <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+            Último lote: {reservasSummary.total} reservas · {JSON.stringify(reservasSummary.byStatus)}
+            {reservasSummary.skipped != null ? ` · omitidas ${reservasSummary.skipped}` : ''}
+          </p>
         )}
       </section>
 

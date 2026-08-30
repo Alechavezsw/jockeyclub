@@ -21,6 +21,21 @@ function statusLabel(status) {
   return 'Cancelado';
 }
 
+function formatMoney(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v <= 0) return null;
+  return new Intl.NumberFormat('es-AR', {
+    style: 'currency',
+    currency: 'ARS',
+    maximumFractionDigits: 0,
+  }).format(v);
+}
+
+function formatSlot(res) {
+  if (res.endTime) return `${res.time} – ${res.endTime}`;
+  return res.time || '—';
+}
+
 /** Libro de reservas con calendario mensual y tabla de gestión. */
 export default function BookingsTab({ reservations = [], setReservations }) {
   const today = useMemo(() => {
@@ -368,9 +383,14 @@ export default function BookingsTab({ reservations = [], setReservations }) {
                 selectedDayList.map((res) => (
                   <div key={res.id} className="bookings-day-item">
                     <div>
-                      <strong>{res.time}</strong>
+                      <strong>{formatSlot(res)}</strong>
                       <div style={{ color: 'var(--text-muted)' }}>{res.facilityName}</div>
                       <div>{res.memberName}</div>
+                      {formatMoney(res.chargedPrice || res.estimatedPrice) && (
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                          {formatMoney(res.chargedPrice || res.estimatedPrice)}
+                        </div>
+                      )}
                     </div>
                     <span className={`status-tag ${res.status}`}>{statusLabel(res.status)}</span>
                   </div>
@@ -413,7 +433,7 @@ export default function BookingsTab({ reservations = [], setReservations }) {
                   <th>Instalación</th>
                   <th>Fecha</th>
                   <th>Horario</th>
-                  <th>Acompañantes</th>
+                  <th>Importe</th>
                   <th>Estado</th>
                   <th style={{ textAlign: 'right' }}>Gestión</th>
                 </tr>
@@ -431,7 +451,7 @@ export default function BookingsTab({ reservations = [], setReservations }) {
                       <td>
                         <strong>{res.memberName}</strong>
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                          ID: {String(res.memberId || '').slice(0, 8)}...
+                          Nº {res.memberId}
                         </div>
                       </td>
                       <td>
@@ -440,16 +460,12 @@ export default function BookingsTab({ reservations = [], setReservations }) {
                       <td>{res.date}</td>
                       <td>
                         <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontWeight: 500 }}>
-                          <Clock size={12} /> {res.time}
+                          <Clock size={12} /> {formatSlot(res)}
                         </span>
                       </td>
                       <td>
-                        {res.guests > 0 ? (
-                          <span title={res.guestNames} style={{ cursor: 'help', textDecoration: 'underline dotted var(--text-muted)' }}>
-                            {res.guests} ({res.guestNames || 'Sin registrar'})
-                          </span>
-                        ) : (
-                          <span style={{ color: 'var(--text-muted)' }}>Solo</span>
+                        {formatMoney(res.chargedPrice || res.estimatedPrice) || (
+                          <span style={{ color: 'var(--text-muted)' }}>—</span>
                         )}
                       </td>
                       <td>

@@ -25,6 +25,11 @@ import { notifyNextOnWaitlist } from './domain/reservations/waitlist';
 import { bootstrapShellFromDb, bootstrapMembersFromDb, repos } from './data/bootstrap';
 import { useDailyBackup } from './hooks/useDailyBackup';
 
+// Seed opcional (generado por npm run import:reservas; puede faltar en clones limpios)
+const _seedMod = import.meta.glob('./data/seedDatitaReservas.js', { eager: true });
+const SEED_DATITA_RESERVAS =
+  _seedMod['./data/seedDatitaReservas.js']?.SEED_DATITA_RESERVAS || [];
+
 // Lazy load de vistas pesadas (bundle-dynamic-imports)
 const ReservationsView = lazy(() => import('./views/ReservationsView'));
 const NewsBoardView = lazy(() => import('./views/NewsBoardView'));
@@ -137,56 +142,43 @@ const DEFAULT_MEMBERS = [
 ];
 
 // Datos de semilla predeterminados para reservas (alineados con canchas de San Juan)
-const DEFAULT_RESERVATIONS = [
+/** Demo mínimo si no hay seed datita (npm run import:reservas). */
+const DEFAULT_DEMO_RESERVATIONS = [
   {
     id: 1,
     facilityId: 'rugby_masc',
     facilityName: 'Rugby Masculino - Cancha Principal',
     memberId: '2020445599881122',
     memberName: 'Victoria Cantoni',
-    date: new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0], // En 2 días
+    date: new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0],
     time: '09:00',
     guests: 3,
     guestNames: 'Mariana Cantoni, Jorge L. Cantoni, Manuel Sarmiento',
-    status: 'confirmed'
-  },
-  {
-    id: 2,
-    facilityId: 'tenis_trad',
-    facilityName: 'Tenis Tradicional - Polvo de Ladrillo',
-    memberId: '2022112233445566',
-    memberName: 'Bautista Del Carril',
-    date: new Date(Date.now() + 86400000).toISOString().split('T')[0], // Mañana
-    time: '17:00',
-    guests: 1,
-    guestNames: 'Facundo Del Carril',
-    status: 'confirmed'
-  },
-  {
-    id: 3,
-    facilityId: 'rugby_masc',
-    facilityName: 'Rugby Masculino - Cancha Principal',
-    memberId: '2026887744320988',
-    memberName: 'Alejandro Chávez',
-    date: '2026-07-20',
-    time: '08:00',
-    guests: 0,
-    guestNames: '',
-    status: 'confirmed'
-  },
-  {
-    id: 4,
-    facilityId: 'fitness',
-    facilityName: 'Fitness · Gimnasio Cubierto',
-    memberId: '2026887744320988',
-    memberName: 'Alejandro Chávez',
-    date: '2026-07-14',
-    time: '19:00',
-    guests: 1,
-    guestNames: 'Sofía Chávez',
-    status: 'confirmed'
+    status: 'confirmed',
   },
 ];
+
+const DEFAULT_RESERVATIONS = Array.isArray(SEED_DATITA_RESERVAS) && SEED_DATITA_RESERVAS.length
+  ? SEED_DATITA_RESERVAS
+  : DEFAULT_DEMO_RESERVATIONS;
+
+function loadInitialReservations() {
+  try {
+    const local = localStorage.getItem('jockey-reservations');
+    if (!local) return DEFAULT_RESERVATIONS;
+    const parsed = JSON.parse(local);
+    if (!Array.isArray(parsed) || !parsed.length) return DEFAULT_RESERVATIONS;
+    const hasDatita = parsed.some(
+      (r) => r?.source === 'datita' || String(r?.id || '').startsWith('datita-res-'),
+    );
+    if (hasDatita) return parsed;
+    // localStorage viejo con demos → preferir padrón real de salones/parrilla
+    if (SEED_DATITA_RESERVAS?.length) return SEED_DATITA_RESERVAS;
+    return parsed;
+  } catch {
+    return DEFAULT_RESERVATIONS;
+  }
+}
 
 // Datos de semilla predeterminados para noticias del Jockey Club San Juan
 const DEFAULT_NEWS = [
@@ -803,10 +795,7 @@ export default function App() {
     return attachHouseholdToMembers(applyAutomaticDues(base));
   });
 
-  const [reservations, setReservations] = useState(() => {
-    const local = localStorage.getItem('jockey-reservations');
-    return local ? JSON.parse(local) : DEFAULT_RESERVATIONS;
-  });
+  const [reservations, setReservations] = useState(loadInitialReservations);
 
   const [newsList, setNewsList] = useState(() => {
     const local = localStorage.getItem('jockey-news');
@@ -911,6 +900,15 @@ export default function App() {
         maxGuestsPerMember: 3,
         seasonLabel: 'Temporada de pileta',
       };
+    }
+  });
+
+  const [facilityCatalog, setFacilityCatalog] = useState(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem('jockey-facility-catalog') || 'null');
+      return Array.isArray(raw) && raw.length ? raw : null;
+    } catch {
+      return null;
     }
   });
 
@@ -1030,6 +1028,11 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('jockey-pool-settings', JSON.stringify(poolSettings));
   }, [poolSettings]);
+  useEffect(() => {
+    if (facilityCatalog) {
+      localStorage.setItem('jockey-facility-catalog', JSON.stringify(facilityCatalog));
+    }
+  }, [facilityCatalog]);
   useEffect(() => {
     if (!cloudMode) localStorage.setItem('jockey-waitlist', JSON.stringify(waitlist));
   }, [waitlist, cloudMode]);
@@ -1766,6 +1769,8 @@ export default function App() {
         setPoolAccesses={setPoolAccesses}
         poolSettings={poolSettings}
         setPoolSettings={setPoolSettings}
+        facilityCatalog={facilityCatalog}
+        setFacilityCatalog={setFacilityCatalog}
       />
     );
 

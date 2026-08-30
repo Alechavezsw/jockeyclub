@@ -127,10 +127,17 @@ export function reservationFromRow(row) {
     memberName: row.member_name,
     date: row.reservation_date,
     time: row.time_slot,
+    endTime: meta.endTime || null,
     guests: row.guests || 0,
     guestNames: meta.guestNames || '',
     status: row.status || 'confirmed',
     notes: row.notes || '',
+    estimatedPrice: meta.estimatedPrice ?? null,
+    chargedPrice: meta.chargedPrice ?? null,
+    paymentMethod: meta.paymentMethod || null,
+    externalId: meta.externalId || null,
+    source: meta.source || null,
+    createdAt: meta.createdAt || row.created_at || null,
   };
 }
 
@@ -148,6 +155,16 @@ export function reservationToRow(res, memberDbId = null) {
     meta: {
       facilityName: res.facilityName || '',
       guestNames: res.guestNames || '',
+      endTime: res.endTime || null,
+      estimatedPrice: res.estimatedPrice ?? null,
+      chargedPrice: res.chargedPrice ?? null,
+      paymentMethod: res.paymentMethod || null,
+      externalId: res.externalId || null,
+      source: res.source || null,
+      createdAt: res.createdAt || null,
+      document: res.document || null,
+      mpTransactionId: res.mpTransactionId || null,
+      voucher: res.voucher || null,
     },
   };
 }

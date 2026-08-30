@@ -90,6 +90,8 @@ export default function AdminView({
   setPoolAccesses,
   poolSettings = DEFAULT_POOL_SETTINGS,
   setPoolSettings,
+  facilityCatalog = null,
+  setFacilityCatalog = null,
 }) {
   const { user } = useAuth();
   const chartOfAccounts = erp.chartOfAccounts || DEFAULT_CHART_OF_ACCOUNTS;
@@ -734,6 +736,7 @@ export default function AdminView({
             members={members}
             addClubEvent={erp.addClubEvent}
             registerMemberToEvent={erp.registerMemberToEvent}
+            revokeEventRegistration={erp.revokeEventRegistration}
           />
         </div>
       )}
@@ -838,11 +841,16 @@ export default function AdminView({
       )}
 
       {activeTab === 'migration' && (
-        <MigrationTab setMembers={setMembers} />
+        <MigrationTab setMembers={setMembers} setReservations={setReservations} />
       )}
 
       {activeTab === 'bookings' && (
-        <ClubFacilitiesPanel reservations={reservations} isZondaActive={isZondaActive} />
+        <ClubFacilitiesPanel
+          reservations={reservations}
+          isZondaActive={isZondaActive}
+          facilityCatalog={facilityCatalog}
+          setFacilityCatalog={setFacilityCatalog}
+        />
       )}
       </div>
     </div>

@@ -40,6 +40,9 @@ import {
   DEFAULT_CLUB_EVENTS,
   createClubEvent,
   registerForEvent,
+  enableMemberEventAccess,
+  enableGuestEventAccess,
+  revokeEventRegistration as revokeEventRegistrationDomain,
   countRegistrations,
 } from '../domain/events/clubEvents';
 import {
@@ -756,22 +759,52 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
   }, []);
 
   const registerMemberToEvent = useCallback(
-    async ({ eventId, memberId, guestsCount, guestName }) => {
+    async ({ eventId, memberId, guestsCount, guestName, paymentMethod = 'efectivo', kind = 'member', members = [] }) => {
       const event = clubEvents.find((e) => e.id === eventId);
       if (!event) throw new Error('Evento no encontrado.');
-      if (event.capacity) {
-        const used = countRegistrations(eventRegistrations, eventId);
-        if (used + (Number(guestsCount) || 1) > event.capacity) {
-          throw new Error('No hay cupos disponibles para este evento.');
+      const member = (members || []).find((m) => m.memberId === memberId)
+        || { memberId, name: '', status: 'active' };
+
+      let result;
+      if (kind === 'guest') {
+        result = enableGuestEventAccess({
+          event,
+          host: member,
+          guestName,
+          registrations: eventRegistrations,
+          paymentMethod,
+          chart: chartOfAccounts,
+        });
+      } else {
+        if (Number(guestsCount) > 1) {
+          if (event.capacity) {
+            const used = countRegistrations(eventRegistrations, eventId);
+            if (used + (Number(guestsCount) || 1) > event.capacity) {
+              throw new Error('No hay cupos disponibles para este evento.');
+            }
+          }
+          result = registerForEvent({
+            event,
+            memberId: member.memberId,
+            memberName: member.name,
+            guestsCount,
+            guestName,
+            kind: 'member',
+            paymentMethod,
+            chart: chartOfAccounts,
+          });
+        } else {
+          result = enableMemberEventAccess({
+            event,
+            member,
+            registrations: eventRegistrations,
+            paymentMethod,
+            chart: chartOfAccounts,
+          });
         }
       }
-      const { registration, journalEntry } = registerForEvent({
-        event,
-        memberId,
-        guestsCount,
-        guestName,
-        chart: chartOfAccounts,
-      });
+
+      const { registration, journalEntry } = result;
       setEventRegistrations((prev) => [registration, ...prev]);
       if (journalEntry) {
         if (cloud()) {
@@ -785,6 +818,10 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
     },
     [clubEvents, eventRegistrations, chartOfAccounts, setJournalEntries, userId]
   );
+
+  const revokeEventRegistration = useCallback((registrationId) => {
+    setEventRegistrations((prev) => revokeEventRegistrationDomain(prev, registrationId));
+  }, []);
 
   return {
     chartOfAccounts,
@@ -830,6 +867,7 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
     ackAlert,
     addClubEvent,
     registerMemberToEvent,
+    revokeEventRegistration,
     upsertConcession,
     renewConcessionContract,
     setConcessionStatus,
