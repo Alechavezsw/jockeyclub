@@ -88,6 +88,7 @@ export const ALL_ADMIN_TABS = [
   'dues',
   'bookings',
   'disciplines',
+  'pool',
   'access',
   'accounting',
   'staff',
@@ -156,10 +157,10 @@ export function allowedAdminTabs(role) {
   }
   // Operador de portería: caja + portería / ingresos.
   if (role === 'gate_operator') {
-    return ['dashboard', 'members', 'dues', 'access', 'accounting'];
+    return ['dashboard', 'members', 'dues', 'pool', 'access', 'accounting'];
   }
   if (role === 'cashier') {
-    return ['dashboard', 'members', 'dues', 'access', 'accounting', 'events'];
+    return ['dashboard', 'members', 'dues', 'pool', 'access', 'accounting', 'events'];
   }
   // Empleado de administración: padrón, cuotas, atención (sin contabilidad ni sistema).
   if (role === 'admin_employee') {
@@ -168,6 +169,7 @@ export function allowedAdminTabs(role) {
       'members',
       'dues',
       'bookings',
+      'pool',
       'events',
       'alerts',
       'claims',
@@ -181,7 +183,7 @@ export function allowedAdminTabs(role) {
     return ['dashboard', 'staff', 'alerts'];
   }
   if (role === 'staff') {
-    return ['dashboard', 'bookings', 'disciplines', 'access', 'staff', 'events', 'alerts', 'claims', 'news'];
+    return ['dashboard', 'bookings', 'disciplines', 'pool', 'access', 'staff', 'events', 'alerts', 'claims', 'news'];
   }
   return [];
 }

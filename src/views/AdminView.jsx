@@ -4,7 +4,7 @@ import {
   Users, Calendar, DollarSign, Activity, CreditCard, Check, ShieldAlert,
   Clock, BookOpen, ClipboardList, MessageSquare, Phone,
   FileSpreadsheet, Radio, Database, BellRing, PartyPopper, Trophy, Store, DoorOpen, QrCode, Newspaper,
-  LayoutDashboard, ChevronRight, Briefcase, Headset, Settings,
+  LayoutDashboard, ChevronRight, Briefcase, Headset, Settings, Waves,
 } from 'lucide-react';
 import AccountingTab from '../components/AccountingTab';
 import StaffTab from '../components/StaffTab';
@@ -27,6 +27,8 @@ import ClubFacilitiesPanel from '../components/admin/ClubFacilitiesPanel';
 import NewsCmsTab from '../components/admin/NewsCmsTab';
 import SystemAdminTab from '../components/admin/SystemAdminTab';
 import PortalUserProfilePanel from '../components/admin/PortalUserProfilePanel';
+import PoolTab from '../components/admin/PoolTab';
+import { DEFAULT_POOL_SETTINGS } from '../domain/pool/poolAccess';
 import { DEFAULT_CHART_OF_ACCOUNTS, resolveAccountId } from '../domain/accounting/chartOfAccounts';
 import { getAccountBalance as domainAccountBalance } from '../domain/accounting/journal';
 import { allowedAdminTabs, allowedAdminTabsForRoles, canAccessConcessions, canAccessQrGate, ROLE_LABELS, ROLE_PANEL_META } from '../domain/auth/roles';
@@ -84,6 +86,10 @@ export default function AdminView({
   userRole = 'admin',
   isZondaActive = false,
   updateMember = null,
+  poolAccesses = [],
+  setPoolAccesses,
+  poolSettings = DEFAULT_POOL_SETTINGS,
+  setPoolSettings,
 }) {
   const { user } = useAuth();
   const chartOfAccounts = erp.chartOfAccounts || DEFAULT_CHART_OF_ACCOUNTS;
@@ -143,6 +149,7 @@ export default function AdminView({
         label: 'Club',
         tabs: [
           { key: 'disciplines', icon: Trophy, label: 'Disciplinas' },
+          { key: 'pool', icon: Waves, label: 'Pileta' },
           { key: 'events', icon: PartyPopper, label: 'Fiestas' },
           { key: 'news', icon: Newspaper, label: 'Revista' },
           { key: 'surveys', icon: Radio, label: 'Encuestas' },
@@ -638,6 +645,20 @@ export default function AdminView({
           catalog={disciplineCatalog}
           setCatalog={setDisciplineCatalog}
           onOpenMember={(id) => navigate(`/panel/members/${id}`)}
+        />
+      )}
+
+      {activeTab === 'pool' && (
+        <PoolTab
+          members={members}
+          setMembers={setMembers}
+          updateMember={updateMember}
+          formatCurrency={formatCurrency}
+          addJournalEntry={addJournalEntry}
+          poolAccesses={poolAccesses}
+          setPoolAccesses={setPoolAccesses}
+          poolSettings={poolSettings}
+          setPoolSettings={setPoolSettings}
         />
       )}
 

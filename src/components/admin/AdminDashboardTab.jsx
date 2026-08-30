@@ -340,7 +340,9 @@ export default function AdminDashboardTab({
     .slice(0, 4);
 
   const link = (label, onClick) => (
-    <button type="button" className="ops-dash-link" onClick={onClick}>{label}</button>
+    <button type="button" className="ops-dash-link" onClick={onClick}>
+      {String(label).replace(/\s*>+\s*$/, '')}
+    </button>
   );
 
   const renderDuesQueue = () => {
@@ -493,7 +495,7 @@ export default function AdminDashboardTab({
             ) : null}
             {permittedTabs.includes('bookings') && (
               <button type="button" className="ops-dash-link" onClick={() => goToTab('bookings')}>
-                Ver agenda completa {'>'}
+                Ver agenda completa
               </button>
             )}
           </article>
@@ -557,7 +559,7 @@ export default function AdminDashboardTab({
             )}
             {permittedTabs.includes('alerts') && (
               <button type="button" className="ops-dash-link" onClick={() => goToTab('alerts')}>
-                Ver alertas {'>'}
+                Ver alertas
               </button>
             )}
           </article>
@@ -912,9 +914,8 @@ export default function AdminDashboardTab({
                   type="button"
                   className="ops-dash-link"
                   onClick={() => goToTab('concessions')}
-                  style={{ alignSelf: 'flex-start' }}
                 >
-                  Gestionar concesiones {'>'}
+                  Gestionar concesiones
                 </button>
               )}
             </>

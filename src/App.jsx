@@ -885,6 +885,35 @@ export default function App() {
     }
   });
 
+  const [poolAccesses, setPoolAccesses] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('jockey-pool-access') || '[]');
+    } catch {
+      return [];
+    }
+  });
+
+  const [poolSettings, setPoolSettings] = useState(() => {
+    try {
+      return {
+        memberDayFee: 5000,
+        guestDayFee: 8000,
+        medicalValidityDays: 365,
+        maxGuestsPerMember: 3,
+        seasonLabel: 'Temporada de pileta',
+        ...JSON.parse(localStorage.getItem('jockey-pool-settings') || '{}'),
+      };
+    } catch {
+      return {
+        memberDayFee: 5000,
+        guestDayFee: 8000,
+        medicalValidityDays: 365,
+        maxGuestsPerMember: 3,
+        seasonLabel: 'Temporada de pileta',
+      };
+    }
+  });
+
   const [registeredUsersCount, setRegisteredUsersCount] = useState(0);
   const [membershipApplications, setMembershipApplications] = useState([]);
   const [membersCount, setMembersCount] = useState(0);
@@ -995,6 +1024,12 @@ export default function App() {
   useEffect(() => {
     if (!cloudMode) localStorage.setItem('jockey-guest-passes', JSON.stringify(guestPasses));
   }, [guestPasses, cloudMode]);
+  useEffect(() => {
+    localStorage.setItem('jockey-pool-access', JSON.stringify(poolAccesses));
+  }, [poolAccesses]);
+  useEffect(() => {
+    localStorage.setItem('jockey-pool-settings', JSON.stringify(poolSettings));
+  }, [poolSettings]);
   useEffect(() => {
     if (!cloudMode) localStorage.setItem('jockey-waitlist', JSON.stringify(waitlist));
   }, [waitlist, cloudMode]);
@@ -1727,6 +1762,10 @@ export default function App() {
         erp={erp}
         isZondaActive={isZondaActive}
         updateMember={updateMember}
+        poolAccesses={poolAccesses}
+        setPoolAccesses={setPoolAccesses}
+        poolSettings={poolSettings}
+        setPoolSettings={setPoolSettings}
       />
     );
 

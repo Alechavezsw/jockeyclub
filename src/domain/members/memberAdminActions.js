@@ -98,6 +98,9 @@ export function collectMemberMeta(member = {}) {
     'joinedAtFallback', 'fechaAltaRaw', 'joinTime', 'lifecycleHistory', 'lastLifecycle',
     'suspendMotivo', 'suspendAt', 'suspendDetail', 'reactivateMotivo', 'reactivateAt',
     'reactivateDetail', 'portalUsername', 'portalProvisionedAt', 'portalProvisionedBy',
+    'documents',
+    'poolMedicalExpiresAt', 'poolMedicalFileName', 'poolMedicalUploadedAt',
+    'poolMedicalStatus', 'poolMedicalNote',
   ];
   for (const k of keys) {
     if (member[k] != null && member[k] !== '' && base[k] == null) base[k] = member[k];

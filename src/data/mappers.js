@@ -97,6 +97,7 @@ export function memberToRow(member) {
       ...(member.bloodType ? { bloodType: member.bloodType } : {}),
       ...(member.healthInsurance ? { healthInsurance: member.healthInsurance } : {}),
       ...(member.emergencyClinic ? { emergencyClinic: member.emergencyClinic } : {}),
+      ...(Array.isArray(member.documents) ? { documents: member.documents } : {}),
     },
   };
 }
