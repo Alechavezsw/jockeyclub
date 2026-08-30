@@ -4,6 +4,7 @@ import { afterCollectDues, duesAmountForHousehold, duesAmountForTier } from '../
 import { exportMembersPdf } from '../../domain/members/exportMembersPdf';
 import { DISCIPLINE_OPTIONS } from '../../domain/sports/disciplines';
 import { getActiveTiers, getTierOptionLabel, tierBadgeStyle, getTierDisplayName } from '../../domain/members/tiers';
+import { resolveFamilyForDisplay } from '../../domain/members/households';
 import VirtualCard from '../VirtualCard';
 import CollectDuesModal from './CollectDuesModal';
 import ModalDialog from '../ModalDialog';
@@ -1057,14 +1058,24 @@ export default function MembersTab({
                             && (!m.adherents || m.adherents.length === 0)
                             && setMembers
                           ) {
-                            repos.listMemberAdherents(m.id).then((adherents) => {
-                              if (!adherents?.length) return;
+                            const fromPadron = resolveFamilyForDisplay(m, members).members
+                              .filter((a) => a.fromPadron);
+                            if (fromPadron.length) {
                               setMembers((prev) => prev.map((item) => (
                                 item.memberId === m.memberId
-                                  ? { ...item, adherents }
+                                  ? { ...item, adherents: fromPadron }
                                   : item
                               )));
-                            }).catch(() => {});
+                            } else {
+                              repos.listMemberAdherents(m.id).then((adherents) => {
+                                if (!adherents?.length) return;
+                                setMembers((prev) => prev.map((item) => (
+                                  item.memberId === m.memberId
+                                    ? { ...item, adherents }
+                                    : item
+                                )));
+                              }).catch(() => {});
+                            }
                           }
                         }}
                         style={{ background: 'none', border: 'none', color: 'var(--primary-gold)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '0.2rem' }}
@@ -1298,12 +1309,17 @@ export default function MembersTab({
                           </div>
                         )}
 
-                        {/* Listado de adherentes */}
-                        {!m.adherents || m.adherents.length === 0 ? (
-                          <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', margin: '0.5rem 0' }}>
-                            No posee adherentes registrados actualmente.
-                          </p>
-                        ) : (
+                        {/* Listado de adherentes / grupo familiar del padrón */}
+                        {(() => {
+                          const family = resolveFamilyForDisplay(m, members).members;
+                          if (!family.length) {
+                            return (
+                              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', margin: '0.5rem 0' }}>
+                                No posee adherentes registrados actualmente.
+                              </p>
+                            );
+                          }
+                          return (
                           <div className="table-responsive">
                           <table className="admin-table" style={{ background: 'transparent' }}>
                             <thead>
@@ -1317,7 +1333,7 @@ export default function MembersTab({
                               </tr>
                             </thead>
                             <tbody>
-                              {m.adherents.map(adh => (
+                              {family.map(adh => (
                                 <tr key={adh.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
                                   <td style={{ fontSize: '0.8rem', padding: '0.4rem' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1342,7 +1358,12 @@ export default function MembersTab({
                                           (adh.name || '?').split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase()
                                         )}
                                       </div>
-                                      <strong>{adh.name}</strong>
+                                      <div>
+                                        <strong>{adh.name}</strong>
+                                        {adh.memberId ? (
+                                          <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>Nº {adh.memberId}</div>
+                                        ) : null}
+                                      </div>
                                     </div>
                                   </td>
                                   <td style={{ fontSize: '0.8rem', padding: '0.4rem', color: 'var(--text-secondary)' }}>{adh.relationship}</td>
@@ -1364,20 +1385,33 @@ export default function MembersTab({
                                   </td>
                                   <td style={{ fontSize: '0.8rem', padding: '0.4rem', textAlign: 'right' }}>
                                     <div style={{ display: 'inline-flex', gap: '0.25rem' }}>
-                                      <button
-                                        onClick={() => handleToggleAdherentStatus(m.memberId, adh.id)}
-                                        className="btn btn-secondary btn-sm"
-                                        style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem' }}
-                                      >
-                                        {adh.status === 'active' ? 'Suspender' : 'Habilitar'}
-                                      </button>
-                                      <button
-                                        onClick={() => handleDeleteAdherent(m.memberId, adh.id)}
-                                        className="btn btn-danger btn-sm"
-                                        style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem', display: 'flex', alignItems: 'center' }}
-                                      >
-                                        <Trash2 size={10} />
-                                      </button>
+                                      {adh.fromPadron && adh.memberId ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => onOpenProfile?.(adh.memberId)}
+                                          className="btn btn-secondary btn-sm"
+                                          style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem' }}
+                                        >
+                                          Ver ficha
+                                        </button>
+                                      ) : (
+                                        <>
+                                          <button
+                                            onClick={() => handleToggleAdherentStatus(m.memberId, adh.id)}
+                                            className="btn btn-secondary btn-sm"
+                                            style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem' }}
+                                          >
+                                            {adh.status === 'active' ? 'Suspender' : 'Habilitar'}
+                                          </button>
+                                          <button
+                                            onClick={() => handleDeleteAdherent(m.memberId, adh.id)}
+                                            className="btn btn-danger btn-sm"
+                                            style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem', display: 'flex', alignItems: 'center' }}
+                                          >
+                                            <Trash2 size={10} />
+                                          </button>
+                                        </>
+                                      )}
                                     </div>
                                   </td>
                                 </tr>
@@ -1385,7 +1419,8 @@ export default function MembersTab({
                             </tbody>
                           </table>
                           </div>
-                        )}
+                          );
+                        })()}
                       </div>
                     </td>
                   </tr>

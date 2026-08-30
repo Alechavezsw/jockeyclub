@@ -597,7 +597,9 @@ export default function AdminView({
         routeEntityId ? (
           <MemberProfilePanel
             member={profileMember}
+            members={members}
             onBack={() => navigate('/panel/members')}
+            onOpenMember={(id) => navigate(`/panel/members/${id}`)}
             formatCurrency={formatCurrency}
             journalEntries={journalEntries}
             entryLogs={entryLogs}

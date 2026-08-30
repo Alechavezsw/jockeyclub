@@ -10,6 +10,7 @@ import GuestPassPanel from '../GuestPassPanel';
 import { formatShortDate } from '../../domain/members/dues';
 import { formatDateTimeAR } from '../../lib/arDate';
 import { getTierDisplayName, tierBadgeStyle } from '../../domain/members/tiers';
+import { resolveFamilyForDisplay } from '../../domain/members/households';
 import {
   applyMemberProfileUpdate,
   upsertMemberDocument,
@@ -173,7 +174,9 @@ function TimelineItem({ when, title, detail, tone = 'neutral' }) {
 /** Perfil institucional completo del socio titular. */
 export default function MemberProfilePanel({
   member,
+  members = [],
   onBack,
+  onOpenMember = null,
   backLabel = 'Padrón',
   formatCurrency,
   journalEntries = [],
@@ -191,6 +194,11 @@ export default function MemberProfilePanel({
   const [editForm, setEditForm] = useState(null);
   const [editMsg, setEditMsg] = useState('');
   const visibleSections = SECTIONS.filter((s) => !s.memberOnly || selfService);
+
+  const familyGroup = useMemo(
+    () => resolveFamilyForDisplay(member, members.length ? members : [member].filter(Boolean)),
+    [member, members]
+  );
 
   const movements = useMemo(() => {
     if (!member) return [];
@@ -632,30 +640,55 @@ export default function MemberProfilePanel({
 
         {section === 'familia' && (
           <div>
-            {!(member.adherents || []).length ? (
+            {!(familyGroup.members || []).length ? (
               <Empty text="Sin adherentes en el grupo familiar." />
             ) : (
               <div className="mp-family">
-                {member.adherents.map((adh) => (
-                  <div key={adh.id} className="mp-family-row">
-                    <div className="mp-family-avatar">
-                      {adh.photo ? (
-                        <img src={adh.photo} alt="" />
-                      ) : (
-                        (adh.name || '?').split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase()
-                      )}
-                    </div>
-                    <div>
-                      <strong>{adh.name}</strong>
-                      <div className="mp-family-meta">
-                        {adh.relationship} · {(adh.disciplines || []).join(', ') || 'Sin disciplina'}
+                {(member.familyGroupName || familyGroup.titular?.familyGroupName) && (
+                  <p className="mp-section-lead" style={{ marginBottom: '0.75rem' }}>
+                    {member.familyGroupName || familyGroup.titular?.familyGroupName}
+                    {' · '}
+                    {familyGroup.members.length} integrante{familyGroup.members.length === 1 ? '' : 's'}
+                  </p>
+                )}
+                {familyGroup.members.map((adh) => {
+                  const canOpen = Boolean(onOpenMember && adh.memberId && adh.memberId !== String(member.memberId));
+                  return (
+                    <div
+                      key={adh.id}
+                      className={`mp-family-row${canOpen ? ' is-clickable' : ''}`}
+                      role={canOpen ? 'button' : undefined}
+                      tabIndex={canOpen ? 0 : undefined}
+                      onClick={canOpen ? () => onOpenMember(adh.memberId) : undefined}
+                      onKeyDown={canOpen ? (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          onOpenMember(adh.memberId);
+                        }
+                      } : undefined}
+                    >
+                      <div className="mp-family-avatar">
+                        {adh.photo ? (
+                          <img src={adh.photo} alt="" />
+                        ) : (
+                          (adh.name || '?').split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase()
+                        )}
                       </div>
+                      <div>
+                        <strong>{adh.name}</strong>
+                        <div className="mp-family-meta">
+                          {adh.relationship}
+                          {adh.memberId ? ` · Nº ${adh.memberId}` : ''}
+                          {' · '}
+                          {(adh.disciplines || []).join(', ') || 'Sin disciplina'}
+                        </div>
+                      </div>
+                      <span className="mp-tier-pill" style={tierBadgeStyle(adh.tier, tierCatalog)}>
+                        {getTierDisplayName(adh.tier, tierCatalog)}
+                      </span>
                     </div>
-                    <span className="mp-tier-pill" style={tierBadgeStyle(adh.tier, tierCatalog)}>
-                      {getTierDisplayName(adh.tier, tierCatalog)}
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

@@ -16,6 +16,7 @@ import {
   saveDismissedNotificationIds,
 } from './domain/notifications/buildNotifications';
 import { applyAutomaticDues, diffAutomaticDues } from './domain/members/dues';
+import { attachHouseholdToMembers } from './domain/members/households';
 import { createHrRecord } from './domain/staff/hr';
 import { loadDisciplineCatalog } from './domain/sports/disciplines';
 import { loadTierCatalog, setRuntimeTierCatalog } from './domain/members/tiers';
@@ -799,7 +800,7 @@ export default function App() {
           };
         });
     // Cuota vencida → deuda generada sola (sin botón manual)
-    return applyAutomaticDues(base);
+    return attachHouseholdToMembers(applyAutomaticDues(base));
   });
 
   const [reservations, setReservations] = useState(() => {
@@ -1202,8 +1203,9 @@ export default function App() {
           const { members: rawMembers, memberDbIds: ids } = await bootstrapMembersFromDb();
           if (cancelled) return;
           const withDues = applyAutomaticDues(rawMembers || []);
-          setMembers(withDues);
-          setMembersCount(withDues.length);
+          const withFamily = attachHouseholdToMembers(withDues);
+          setMembers(withFamily);
+          setMembersCount(withFamily.length);
           setMemberDbIds(ids || {});
           const duesToPersist = diffAutomaticDues(rawMembers || [], withDues);
           if (duesToPersist.length) {
@@ -1759,6 +1761,7 @@ export default function App() {
   const memberProfileView = (
     <MemberProfilePanel
       member={activeMember}
+      members={members}
       onBack={() => setCurrentView('dashboard')}
       backLabel="Inicio"
       selfService

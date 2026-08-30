@@ -4,7 +4,7 @@ import {
   Users, Calendar, DollarSign, Activity, MessageSquare, ClipboardList,
   Radio, BookOpen, ShieldAlert, BellRing, CheckCircle2,
   PartyPopper, Clock, UserCircle2, FileSpreadsheet, Wind, Newspaper,
-  DoorOpen, ExternalLink, UserPlus, UserRound,
+  DoorOpen, ExternalLink, UserPlus, UserRound, ChevronRight,
 } from 'lucide-react';
 import { canAccessQrGate } from '../../domain/auth/roles';
 import { isAlertVisible } from '../../domain/alerts/alerts';
@@ -12,7 +12,7 @@ import { buildOpsFinanceSnapshot } from '../../domain/accounting/opsFinanceSnaps
 import { getOverdueMembers, toWhatsAppPhone, formatShortDate } from '../../domain/members/dues';
 import { FACILITIES } from '../../domain/reservations/facilities';
 import { isNewsPublished, newsCategoryLabel } from '../../domain/news/news';
-import { getActiveTiers } from '../../domain/members/tiers';
+import { buildPadronHouseholdStats } from '../../domain/members/households';
 import { AlertsBanner } from '../erp/AlertsPanel';
 
 function reservationDay(res) {
@@ -207,17 +207,20 @@ export default function AdminDashboardTab({
   );
 
   const activeStaff = staffMembers.filter((s) => s.status === 'active').length;
-  const adherentsCount = members.reduce((n, m) => n + (m.adherents?.length || 0), 0);
+  const household = useMemo(
+    () => buildPadronHouseholdStats(members, { tierCatalog }),
+    [members, tierCatalog]
+  );
+  const adherentsCount = household.integrantes
+    || members.reduce((n, m) => n + (m.adherents?.length || 0), 0);
   const membersWithApp = members.filter((m) => m.hasApp || m.appInstalled).length;
-  const tierCounts = useMemo(() => {
-    const active = getActiveTiers(tierCatalog);
-    return active.map((t) => ({
-      id: t.id,
-      name: t.name,
-      color: t.color,
-      count: members.filter((m) => String(m.tier || '').toLowerCase() === t.id).length,
-    }));
-  }, [members, tierCatalog]);
+  const padronTop = useMemo(() => {
+    const top = household.byTier.slice(0, 5);
+    const restCount = household.byTier.slice(5).reduce((n, t) => n + t.count, 0);
+    const restCats = Math.max(0, household.byTier.length - 5);
+    const max = top[0]?.count || 1;
+    return { top, restCount, restCats, max };
+  }, [household.byTier]);
 
   const monthLabel = new Date().toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
   const monthLabelCap = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1);
@@ -940,33 +943,73 @@ export default function AdminDashboardTab({
         <div className="ops-dash-col ops-dash-col--right">
           {hasMembers ? (
             <>
-              <article className="glass-card ops-card">
-                <header className="ops-card-head">
-                  <Users size={16} color="var(--primary-gold)" />
-                  <h3>Padrón</h3>
+              <article className="glass-card ops-card ops-padron-card">
+                <header className="ops-card-head ops-card-head--split">
+                  <div>
+                    <Users size={16} color="var(--primary-gold)" />
+                    <h3>Padrón</h3>
+                  </div>
+                  <span className="ops-padron-total">{household.titulares.toLocaleString('es-AR')}</span>
                 </header>
-                <p className="ops-muted" style={{ marginBottom: '0.65rem' }}>
-                  Composición real del padrón social.
-                </p>
-                <div className="ops-tier-mini">
-                  {tierCounts.map((t) => (
-                    <div key={t.id}>
-                      <b style={{ color: t.color }}>{t.count}</b>
-                      <span>{t.name}</span>
-                    </div>
-                  ))}
+                <div className="ops-padron-kpis" aria-label="Resumen de hogares">
+                  <div>
+                    <b>{household.titulares.toLocaleString('es-AR')}</b>
+                    <span>Titulares</span>
+                  </div>
+                  <div>
+                    <b>{household.gruposFamiliares.toLocaleString('es-AR')}</b>
+                    <span>Grupos</span>
+                  </div>
+                  <div>
+                    <b>{household.integrantes.toLocaleString('es-AR')}</b>
+                    <span>Integrantes</span>
+                  </div>
                 </div>
-                {overdueMembersCount > 0 && (
-                  <p className="ops-muted" style={{ marginTop: '0.65rem', color: '#fca5a5' }}>
+                <p className="ops-muted ops-padron-caption">
+                  Categorías de socios titulares (sin contar el grupo familiar debajo).
+                </p>
+                <ul className="ops-padron-bars" aria-label="Titulares por categoría">
+                  {padronTop.top.map((t) => (
+                    <li key={t.id}>
+                      <div className="ops-padron-bar-meta">
+                        <span className="ops-padron-bar-name" title={t.name}>{t.name}</span>
+                        <b style={{ color: t.color }}>{t.count.toLocaleString('es-AR')}</b>
+                      </div>
+                      <div className="ops-padron-bar-track" aria-hidden="true">
+                        <span
+                          className="ops-padron-bar-fill"
+                          style={{
+                            width: `${Math.max(8, Math.round((t.count / padronTop.max) * 100))}%`,
+                            background: t.color,
+                          }}
+                        />
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+                {padronTop.restCats > 0 ? (
+                  <p className="ops-muted ops-padron-more">
+                    +{padronTop.restCats} categorías · {padronTop.restCount.toLocaleString('es-AR')} titulares
+                  </p>
+                ) : null}
+                {overdueMembersCount > 0 ? (
+                  <p className="ops-padron-mora">
                     {overdueMembersCount} con cuota en mora
                   </p>
-                )}
-                {link('Ver padrón >', () => goToTab('members'))}
+                ) : null}
+                <button
+                  type="button"
+                  className="ops-padron-cta"
+                  onClick={() => goToTab('members')}
+                >
+                  <span>Ver padrón</span>
+                  <ChevronRight size={16} strokeWidth={2.25} />
+                </button>
               </article>
 
               <button type="button" className="ops-stat ops-stat--a" onClick={() => goToTab('members')}>
                 <Users size={18} />
-                <span><b>{totalMembers}</b> Socios titulares</span>
+                <span><b>{household.titulares}</b> Socios titulares</span>
               </button>
               <button type="button" className="ops-stat ops-stat--d" onClick={() => goToTab('system')}>
                 <UserRound size={18} />
@@ -978,7 +1021,7 @@ export default function AdminDashboardTab({
               </button>
               <button type="button" className="ops-stat ops-stat--b" onClick={() => goToTab('members')}>
                 <Users size={18} />
-                <span><b>{adherentsCount}</b> Adherentes</span>
+                <span><b>{adherentsCount}</b> Grupo familiar</span>
               </button>
               {membersWithApp > 0 && (
                 <button type="button" className="ops-stat ops-stat--c" onClick={() => goToTab('members')}>
