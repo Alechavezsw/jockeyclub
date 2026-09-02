@@ -1276,13 +1276,13 @@ export default function App() {
       if (typeof app.membersCount === 'number') setMembersCount(app.membersCount);
     };
 
+    // Solo desbloquea UI si el shell crítico no respondió a tiempo.
+    // El padrón/ERP en background no deben disparar alarma roja.
     const watchdog = setTimeout(() => {
-      if (cancelled) return;
+      if (cancelled || hydratedRef.current) return;
       setDbReady(true);
       setDbSyncing(false);
-      setMembersLoading(false);
-      setDbError((prev) => prev || 'La sincronización está tardando; se muestra la app con datos parciales.');
-    }, 12_000);
+    }, 10_000);
 
     (async () => {
       setDbSyncing(true);
@@ -1301,16 +1301,15 @@ export default function App() {
           setDbError('No se pudo iniciar la sincronización con la base.');
           setMembersLoading(false);
           setDbSyncing(false);
+          clearTimeout(watchdog);
           return;
         }
 
         const { app, erp: erpData, health, memberDbIds: shellIds } = data;
 
         if (isOps) {
-          // Evitar flash del padrón demo mientras llega la nube
-          setMembers([]);
+          // Mantener semilla local hasta que llegue el padrón real (evita lista vacía)
           setMembersCount(app.membersCount || 0);
-          setMemberDbIds({});
         } else {
           const seeded = Array.isArray(app.members) ? app.members : [];
           if (seeded.length) {
@@ -1333,7 +1332,10 @@ export default function App() {
         });
         setDbHealthy(Boolean(health?.ok));
         hydratedRef.current = true;
-        if (!cancelled) setDbSyncing(false);
+        if (!cancelled) {
+          setDbSyncing(false);
+          clearTimeout(watchdog);
+        }
 
         // Diferido (todos) — no bloquea la UI
         bootstrapDeferredFromDb({ role })
@@ -1351,31 +1353,32 @@ export default function App() {
           })
           .catch(() => {});
 
-        // Ops: padrón y ERP en background (secuencial para no saturar el pool)
+        // Ops: padrón y ERP en background (no await acá → no dispara alarmas falsas)
         if (isOps) {
-          try {
-            const { members: rawMembers, memberDbIds: ids } = await bootstrapMembersFromDb();
-            if (cancelled) return;
-            const withDues = applyAutomaticDues(rawMembers || []);
-            const withFamily = attachHouseholdToMembers(withDues);
-            setMembers(withFamily);
-            setMembersCount(withFamily.length);
-            setMemberDbIds(ids || {});
-            const duesToPersist = diffAutomaticDues(rawMembers || [], withDues);
-            if (duesToPersist.length) {
-              Promise.all(
-                duesToPersist.map((m) => repos.upsertMember(m).catch(() => null))
-              ).catch(() => {});
+          (async () => {
+            try {
+              const { members: rawMembers, memberDbIds: ids } = await bootstrapMembersFromDb();
+              if (cancelled) return;
+              const withDues = applyAutomaticDues(rawMembers || []);
+              const withFamily = attachHouseholdToMembers(withDues);
+              setMembers(withFamily);
+              setMembersCount(withFamily.length);
+              setMemberDbIds(ids || {});
+              const duesToPersist = diffAutomaticDues(rawMembers || [], withDues);
+              if (duesToPersist.length) {
+                Promise.all(
+                  duesToPersist.map((m) => repos.upsertMember(m).catch(() => null))
+                ).catch(() => {});
+              }
+            } catch (membersErr) {
+              if (!cancelled) {
+                setDbError(friendlyDbError(membersErr, 'No se pudo cargar el padrón completo'));
+              }
+            } finally {
+              if (!cancelled) setMembersLoading(false);
             }
-          } catch (membersErr) {
-            if (!cancelled) {
-              setDbError(friendlyDbError(membersErr, 'No se pudo cargar el padrón completo'));
-            }
-          } finally {
-            if (!cancelled) setMembersLoading(false);
-          }
 
-          if (!cancelled) {
+            if (cancelled) return;
             try {
               const heavy = await bootstrapErpFromDb();
               if (cancelled || !heavy) return;
@@ -1400,7 +1403,7 @@ export default function App() {
             } catch {
               /* ERP soft */
             }
-          }
+          })();
         }
       } catch (err) {
         if (!cancelled) {
@@ -2111,7 +2114,7 @@ export default function App() {
         {!isAccessGate && (
           <>
             <SessionStatusBar members={members} staffMembers={staffMembers} />
-            {dbSyncing ? (
+            {dbSyncing || membersLoading ? (
               <p
                 role="status"
                 aria-live="polite"
@@ -2125,7 +2128,9 @@ export default function App() {
                   fontSize: '0.82rem',
                 }}
               >
-                Actualizando datos del club…
+                {membersLoading && !dbSyncing
+                  ? 'Cargando padrón de socios…'
+                  : 'Actualizando datos del club…'}
               </p>
             ) : null}
             {dbError ? (
