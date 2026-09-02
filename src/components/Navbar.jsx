@@ -32,6 +32,7 @@ export default function Navbar({
   const [showNotifs, setShowNotifs] = useState(false);
 
   const isOperative = canAccessAdmin(role || 'member');
+  const isTeacher = role === 'teacher';
   const visibleItems = navItemsForRole(role || 'member');
   const headerDate = formatHeaderDate();
   const greetName = sessionGreetLabel(user?.fullName || '', role);
@@ -46,8 +47,10 @@ export default function Navbar({
     setShowNotifs(false);
   };
 
-  const goPanelHome = () => {
-    navigate('/panel/dashboard');
+  const goHome = () => {
+    if (isOperative) navigate('/panel/dashboard');
+    else if (isTeacher) navigate('/asistencia');
+    else handleNavClick('dashboard');
     setIsOpen(false);
     setShowNotifs(false);
   };
@@ -84,7 +87,7 @@ export default function Navbar({
         <div className="nav-brand-block">
           <button
             type="button"
-            onClick={() => (isOperative ? goPanelHome() : handleNavClick('dashboard'))}
+            onClick={goHome}
             aria-label="Ir al inicio · Jockey Club San Juan"
             className="nav-brand-btn"
           >
@@ -106,7 +109,7 @@ export default function Navbar({
           {isOperative && (
             <button
               type="button"
-              onClick={goPanelHome}
+              onClick={goHome}
               aria-current={isPanelHome ? 'page' : undefined}
               className={`nav-panel-home-btn${isPanelHome ? ' is-active' : ''}`}
             >
@@ -451,7 +454,7 @@ export default function Navbar({
           {isOperative && (
             <button
               type="button"
-              onClick={goPanelHome}
+              onClick={goHome}
               aria-current={isPanelHome ? 'page' : undefined}
               style={{
                 background: isPanelHome ? 'rgba(207, 161, 58, 0.05)' : 'transparent',

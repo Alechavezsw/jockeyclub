@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   canAccessAdmin,
   canAccessConcessions,
+  canTakeAttendance,
   canManageProfiles,
   isSuperAdmin,
   allowedAdminTabs,
@@ -13,8 +14,9 @@ import {
 } from './roles';
 
 describe('canAccessAdmin', () => {
-  it('los roles operativos acceden al panel; el socio no', () => {
+  it('los roles operativos acceden al panel; el socio y el profesor no', () => {
     expect(canAccessAdmin('member')).toBe(false);
+    expect(canAccessAdmin('teacher')).toBe(false);
     for (const role of ['staff', 'cashier', 'accountant', 'admin', 'superadmin', 'gate_operator', 'admin_employee', 'hr']) {
       expect(canAccessAdmin(role)).toBe(true);
     }
@@ -138,6 +140,10 @@ describe('navItemsForRole', () => {
     ]);
   });
 
+  it('el profesor ve solo asistencia', () => {
+    expect(navItemsForRole('teacher').map((i) => i.id)).toEqual(['attendance']);
+  });
+
   it('los roles operativos ven solo su panel, sin revista de socios', () => {
     for (const role of ['staff', 'cashier', 'accountant', 'admin']) {
       expect(navItemsForRole(role)).toEqual([]);
@@ -145,12 +151,22 @@ describe('navItemsForRole', () => {
   });
 });
 
+describe('canTakeAttendance', () => {
+  it('profesor, personal y admin pueden tomar asistencia', () => {
+    expect(canTakeAttendance('teacher')).toBe(true);
+    expect(canTakeAttendance('staff')).toBe(true);
+    expect(canTakeAttendance('admin')).toBe(true);
+    expect(canTakeAttendance('member')).toBe(false);
+    expect(canTakeAttendance('cashier')).toBe(false);
+  });
+});
+
 describe('ROLE_PANEL_META', () => {
   it('cada rol operativo tiene título propio de panel', () => {
-    for (const role of ['staff', 'cashier', 'accountant', 'admin', 'superadmin']) {
+    for (const role of ['staff', 'cashier', 'accountant', 'admin', 'superadmin', 'teacher']) {
       expect(ROLE_PANEL_META[role]?.title).toBeTruthy();
     }
-    const titles = ['staff', 'cashier', 'accountant', 'superadmin'].map((r) => ROLE_PANEL_META[r].title);
+    const titles = ['staff', 'cashier', 'accountant', 'superadmin', 'teacher'].map((r) => ROLE_PANEL_META[r].title);
     expect(new Set(titles).size).toBe(titles.length);
   });
 });

@@ -188,6 +188,18 @@ function memberPracticesDiscipline(member, discipline) {
     || labels.includes(normalizeLabel(discipline.name));
 }
 
+/** Socios activos inscritos en una disciplina (titulares). */
+export function listMembersForDiscipline(members = [], discipline, { includeInactive = false } = {}) {
+  if (!discipline) return [];
+  const disc = normalizeDiscipline(discipline);
+  return (members || [])
+    .filter((m) => includeInactive || m.status !== 'inactive')
+    .filter((m) => memberPracticesDiscipline(m, disc))
+    .toSorted((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'es'));
+}
+
+export { memberPracticesDiscipline };
+
 function reservationMatchesDiscipline(res, discipline) {
   if ((discipline.facilityIds || []).includes(res.facilityId)) return true;
   const name = normalizeLabel(res.facilityName || '');

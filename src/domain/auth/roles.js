@@ -2,6 +2,7 @@
 
 export const ROLES = {
   member: 'member',
+  teacher: 'teacher',
   staff: 'staff',
   hr: 'hr',
   admin_employee: 'admin_employee',
@@ -14,6 +15,7 @@ export const ROLES = {
 
 export const ROLE_LABELS = {
   member: 'Socio',
+  teacher: 'Profesor',
   staff: 'Personal',
   hr: 'Recursos humanos',
   admin_employee: 'Empleado de administración',
@@ -27,6 +29,7 @@ export const ROLE_LABELS = {
 /** Todos los roles asignables en el portal. */
 export const PORTAL_ROLE_OPTIONS = [
   'member',
+  'teacher',
   'staff',
   'hr',
   'admin_employee',
@@ -57,6 +60,7 @@ const ROLE_RANK = {
   admin_employee: 25,
   hr: 23,
   staff: 20,
+  teacher: 15,
   member: 10,
 };
 
@@ -135,6 +139,11 @@ export function canAccessAdmin(role) {
 /** Quién puede usar la página móvil de Control QR / molinete. */
 export function canAccessQrGate(role) {
   return ['staff', 'cashier', 'gate_operator', 'admin', 'superadmin'].includes(role);
+}
+
+/** Quién puede tomar asistencia de disciplinas. */
+export function canTakeAttendance(role) {
+  return ['teacher', 'staff', 'admin', 'superadmin'].includes(role);
 }
 
 /** Quién puede usar la sección aparte de Concesiones (`/concesiones`). */
@@ -260,6 +269,11 @@ export function navItemsForRole(role) {
       { id: 'news', label: 'Revista Digital' },
     ];
   }
+  if (role === 'teacher') {
+    return [
+      { id: 'attendance', label: 'Asistencia' },
+    ];
+  }
   // Roles operativos: navegan por las pestañas del panel (/panel/:tab), no por este menú.
   return [];
 }
@@ -297,6 +311,10 @@ export const ROLE_PANEL_META = {
   staff: {
     title: 'Operaciones',
     subtitle: 'Reservas, reclamos, personal y eventos',
+  },
+  teacher: {
+    title: 'Profesores',
+    subtitle: 'Asistencia y estado de cuota de alumnos',
   },
 };
 

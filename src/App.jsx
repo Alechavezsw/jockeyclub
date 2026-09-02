@@ -7,7 +7,7 @@ import useErpStore from './hooks/useErpStore';
 import { AlertsBanner } from './components/erp/AlertsPanel';
 import SessionStatusBar from './components/SessionStatusBar';
 import { useAuth } from './context/AuthContext';
-import { canAccessAdmin, canAccessQrGate, canAccessConcessions } from './domain/auth/roles';
+import { canAccessAdmin, canAccessQrGate, canAccessConcessions, canTakeAttendance } from './domain/auth/roles';
 import { hasReservationConflict } from './domain/reservations/conflicts';
 import { countUnread, markMessageRead } from './domain/messaging/messages';
 import {
@@ -22,7 +22,7 @@ import { loadDisciplineCatalog } from './domain/sports/disciplines';
 import { loadTierCatalog, setRuntimeTierCatalog } from './domain/members/tiers';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
 import { notifyNextOnWaitlist } from './domain/reservations/waitlist';
-import { bootstrapShellFromDb, bootstrapMembersFromDb, bootstrapErpFromDb, repos } from './data/bootstrap';
+import { bootstrapShellFromDb, bootstrapDeferredFromDb, bootstrapMembersFromDb, bootstrapErpFromDb, repos } from './data/bootstrap';
 import { useDailyBackup } from './hooks/useDailyBackup';
 
 // Seed opcional (generado por npm run import:reservas; puede faltar en clones limpios)
@@ -32,6 +32,7 @@ const SEED_DATITA_RESERVAS =
 
 // Lazy load de vistas pesadas (bundle-dynamic-imports)
 const ReservationsView = lazy(() => import('./views/ReservationsView'));
+const TeacherAttendanceView = lazy(() => import('./views/TeacherAttendanceView'));
 const NewsBoardView = lazy(() => import('./views/NewsBoardView'));
 const AdminView = lazy(() => import('./views/AdminView'));
 const MessagesView = lazy(() => import('./views/MessagesView'));
@@ -736,7 +737,8 @@ export default function App() {
   const userRole = role || 'member';
   const cloudMode = isSupabaseConfigured;
   const hydratedRef = useRef(false);
-  const [dbReady, setDbReady] = useState(!isSupabaseConfigured);
+  const [dbReady, setDbReady] = useState(true);
+  const [dbSyncing, setDbSyncing] = useState(false);
   const [dbError, setDbError] = useState('');
   const [dbHealthy, setDbHealthy] = useState(false);
   const [memberDbIds, setMemberDbIds] = useState({});
@@ -754,14 +756,15 @@ export default function App() {
   const pathForView = (viewId) => {
     switch (viewId) {
       case 'reservations': return isOperativeRole ? '/panel' : '/reservas';
+      case 'attendance': return '/asistencia';
       case 'news': return '/revista';
       case 'messages': return '/mensajes';
       case 'payments': return '/cuenta';
       case 'profile': return '/perfil';
       case 'concessions': return '/concesiones';
-      case 'admin': return isOperativeRole ? '/panel' : '/';
+      case 'admin': return isOperativeRole ? '/panel' : (userRole === 'teacher' ? '/asistencia' : '/');
       case 'dashboard':
-      default: return isOperativeRole ? '/panel' : '/';
+      default: return isOperativeRole ? '/panel' : (userRole === 'teacher' ? '/asistencia' : '/');
     }
   };
 
@@ -769,7 +772,9 @@ export default function App() {
 
   const currentView = location.pathname.startsWith('/reservas')
     ? 'reservations'
-    : location.pathname.startsWith('/revista')
+    : location.pathname.startsWith('/asistencia')
+      ? 'attendance'
+      : location.pathname.startsWith('/revista')
       ? 'news'
       : location.pathname.startsWith('/mensajes')
         ? 'messages'
@@ -886,6 +891,14 @@ export default function App() {
   const [guestPasses, setGuestPasses] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('jockey-guest-passes') || '[]');
+    } catch {
+      return [];
+    }
+  });
+
+  const [attendanceSessions, setAttendanceSessions] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('jockey-attendance') || '[]');
     } catch {
       return [];
     }
@@ -1039,6 +1052,9 @@ export default function App() {
   useEffect(() => {
     if (!cloudMode) localStorage.setItem('jockey-guest-passes', JSON.stringify(guestPasses));
   }, [guestPasses, cloudMode]);
+  useEffect(() => {
+    localStorage.setItem('jockey-attendance', JSON.stringify(attendanceSessions));
+  }, [attendanceSessions]);
   useEffect(() => {
     localStorage.setItem('jockey-pool-access', JSON.stringify(poolAccesses));
   }, [poolAccesses]);
@@ -1215,43 +1231,83 @@ export default function App() {
   });
 
   useEffect(() => {
-    if (!isAuthenticated) hydratedRef.current = false;
+    if (!isAuthenticated) {
+      hydratedRef.current = false;
+      setDbSyncing(false);
+    }
   }, [isAuthenticated]);
 
-  // Hidratar desde Supabase tras login (shell rápido → ERP/padrón en background)
+  // Hidratar progresivo: abrir UI ya; crítico → diferido → padrón/ERP
   useEffect(() => {
     if (!cloudMode || !isAuthenticated || authLoading) return undefined;
     if (hydratedRef.current) return undefined;
     let cancelled = false;
-    const watchdog = setTimeout(() => {
-      // Nunca dejar al usuario colgado en “Sincronizando…”
-      if (!cancelled) {
-        setDbReady(true);
-        setMembersLoading(false);
-        setDbError((prev) => prev || 'La sincronización está tardando; se muestra la app con datos parciales.');
+    const isOps = canAccessAdmin(role) || role === 'gate_operator';
+
+    const applyAppPatch = (app = {}) => {
+      if (Array.isArray(app.reservations)) setReservations(pickReservations(app.reservations));
+      if (Array.isArray(app.waitlist)) setWaitlist(app.waitlist);
+      if (Array.isArray(app.newsList)) setNewsList(app.newsList);
+      if (Array.isArray(app.rsvpList)) setRsvpList(app.rsvpList);
+      if (Array.isArray(app.journalEntries) && app.journalEntries.length) {
+        setJournalEntries(app.journalEntries);
       }
-    }, 14_000);
+      if (Array.isArray(app.staffMembers)) setStaffMembers(app.staffMembers);
+      if (Array.isArray(app.staffHrRecords)) setStaffHrRecords(app.staffHrRecords);
+      if (Array.isArray(app.claims)) setClaims(app.claims);
+      if (Array.isArray(app.messages)) setMessages(app.messages);
+      if (Array.isArray(app.entryLogs)) setEntryLogs(app.entryLogs);
+      if (Array.isArray(app.surveys)) setSurveys(app.surveys);
+      if (Array.isArray(app.guestPasses)) setGuestPasses(app.guestPasses);
+      if (typeof app.registeredUsersCount === 'number') {
+        setRegisteredUsersCount(app.registeredUsersCount);
+      }
+      if (Array.isArray(app.membershipApplications)) {
+        setMembershipApplications(app.membershipApplications);
+      }
+      if (typeof app.isZondaActive === 'boolean') setIsZondaActive(app.isZondaActive);
+      if (Array.isArray(app.tierCatalog) && app.tierCatalog.length) {
+        setTierCatalog(app.tierCatalog);
+        setRuntimeTierCatalog(app.tierCatalog);
+      }
+      if (Array.isArray(app.disciplineCatalog) && app.disciplineCatalog.length) {
+        setDisciplineCatalog(app.disciplineCatalog);
+      }
+      if (typeof app.membersCount === 'number') setMembersCount(app.membersCount);
+    };
+
+    const watchdog = setTimeout(() => {
+      if (cancelled) return;
+      setDbReady(true);
+      setDbSyncing(false);
+      setMembersLoading(false);
+      setDbError((prev) => prev || 'La sincronización está tardando; se muestra la app con datos parciales.');
+    }, 12_000);
 
     (async () => {
-      setDbReady(false);
+      setDbSyncing(true);
+      setDbReady(true); // pintar de inmediato con datos locales/semilla
       setDbError('');
-      setMembersLoading(true);
-      const isOps = canAccessAdmin(role) || role === 'gate_operator';
+      setMembersLoading(isOps);
+
       try {
         const data = await bootstrapShellFromDb({
           role,
           memberNumber: user?.memberId || null,
         });
         if (cancelled) return;
+
         if (!data) {
           setDbError('No se pudo iniciar la sincronización con la base.');
           setMembersLoading(false);
-          setDbReady(true);
+          setDbSyncing(false);
           return;
         }
+
         const { app, erp: erpData, health, memberDbIds: shellIds } = data;
+
         if (isOps) {
-          // Evitar flash del padrón demo local mientras llega la nube
+          // Evitar flash del padrón demo mientras llega la nube
           setMembers([]);
           setMembersCount(app.membersCount || 0);
           setMemberDbIds({});
@@ -1264,47 +1320,38 @@ export default function App() {
             setMembersCount(withFamily.length || app.membersCount || 0);
             setMemberDbIds(shellIds || {});
           }
-          // Si la nube no trajo ficha, conservar semilla/local y no tumbar el portal
           setMembersLoading(false);
         }
-        setReservations(pickReservations(app.reservations || []));
-        setWaitlist(app.waitlist || []);
-        setNewsList(app.newsList || []);
-        setRsvpList(app.rsvpList || []);
-        if (Array.isArray(app.journalEntries) && app.journalEntries.length) {
-          setJournalEntries(app.journalEntries);
-        }
-        setStaffMembers(app.staffMembers || []);
-        setStaffHrRecords(app.staffHrRecords || []);
-        setClaims(app.claims || []);
-        setMessages(app.messages || []);
-        setEntryLogs(app.entryLogs || []);
-        setSurveys(app.surveys || []);
-        setGuestPasses(app.guestPasses || []);
-        setRegisteredUsersCount(app.registeredUsersCount || 0);
-        setMembershipApplications(app.membershipApplications || []);
-        setIsZondaActive(Boolean(app.isZondaActive));
-        if (Array.isArray(app.tierCatalog) && app.tierCatalog.length) {
-          setTierCatalog(app.tierCatalog);
-          setRuntimeTierCatalog(app.tierCatalog);
-        }
-        if (Array.isArray(app.disciplineCatalog) && app.disciplineCatalog.length) {
-          setDisciplineCatalog(app.disciplineCatalog);
-        }
+
+        applyAppPatch(app);
         erp.applyErpHydration({
-          ...erpData,
-          chartOfAccounts: erpData.chartOfAccounts || [],
-          cashRegisters: erpData.cashRegisters || [],
-          suppliers: erpData.suppliers || [],
           alerts: erpData.alerts || [],
+          alertAcks: erpData.alertAcks || [],
           clubEvents: erpData.clubEvents || [],
+          eventRegistrations: erpData.eventRegistrations || [],
           concessions: erpData.concessions || [],
         });
         setDbHealthy(Boolean(health?.ok));
         hydratedRef.current = true;
-        if (!cancelled) setDbReady(true);
+        if (!cancelled) setDbSyncing(false);
 
-        // Secuencial: padrón → ERP. Evita saturar el connection pool de Supabase.
+        // Diferido (todos) — no bloquea la UI
+        bootstrapDeferredFromDb({ role })
+          .then((deferred) => {
+            if (cancelled || !deferred) return;
+            applyAppPatch(deferred.app || {});
+            if (deferred.erp) {
+              erp.applyErpHydration({
+                alerts: deferred.erp.alerts,
+                alertAcks: deferred.erp.alertAcks,
+                clubEvents: deferred.erp.clubEvents,
+                eventRegistrations: deferred.erp.eventRegistrations,
+              });
+            }
+          })
+          .catch(() => {});
+
+        // Ops: padrón y ERP en background (secuencial para no saturar el pool)
         if (isOps) {
           try {
             const { members: rawMembers, memberDbIds: ids } = await bootstrapMembersFromDb();
@@ -1349,13 +1396,9 @@ export default function App() {
                 paymentOrders: heavy.paymentOrders,
                 concessions: heavy.concessions,
                 canonPayments: heavy.canonPayments,
-                alerts: erpData.alerts || [],
-                alertAcks: erpData.alertAcks || [],
-                clubEvents: erpData.clubEvents || [],
-                eventRegistrations: erpData.eventRegistrations || [],
               });
             } catch {
-              /* ERP soft: la app ya sirve con shell */
+              /* ERP soft */
             }
           }
         }
@@ -1363,12 +1406,17 @@ export default function App() {
         if (!cancelled) {
           setDbError(friendlyDbError(err, 'No se pudo cargar la base de datos'));
           setMembersLoading(false);
+          setDbSyncing(false);
         }
       } finally {
         clearTimeout(watchdog);
-        if (!cancelled) setDbReady(true);
+        if (!cancelled) {
+          setDbReady(true);
+          setDbSyncing(false);
+        }
       }
     })();
+
     return () => {
       cancelled = true;
       clearTimeout(watchdog);
@@ -1724,7 +1772,7 @@ export default function App() {
     : null;
 
   // Campanita: solo datos reales de la sesión (sin semillas / sin socio fallback)
-  const notifications = (!isAuthenticated || (cloudMode && !dbReady))
+  const notifications = (!isAuthenticated || (cloudMode && dbSyncing && !hydratedRef.current))
     ? []
     : buildNotifications({
       role: userRole,
@@ -1932,16 +1980,12 @@ export default function App() {
     />
   );
 
-  if (authLoading || (cloudMode && isAuthenticated && !dbReady)) {
+  if (authLoading) {
     return (
       <div className="app-container" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', gap: '0.75rem', padding: '1.5rem' }}>
-        <p style={{ color: 'var(--text-secondary)', margin: 0 }}>
-          {authLoading ? 'Cargando sesión…' : 'Preparando tu panel…'}
-        </p>
+        <p style={{ color: 'var(--text-secondary)', margin: 0 }}>Cargando sesión…</p>
         <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', margin: 0, maxWidth: 360, textAlign: 'center' }}>
-          {authLoading
-            ? 'Validando credenciales.'
-            : 'Sincronización rápida del portal. Si tarda más de unos segundos, se abre igual con datos parciales.'}
+          Validando credenciales.
         </p>
         {dbError && <p style={{ color: 'var(--danger-accent)', fontSize: '0.85rem', margin: 0 }}>{dbError}</p>}
       </div>
@@ -2011,6 +2055,27 @@ export default function App() {
     <Navigate to="/panel" replace />
   );
 
+  const attendanceView = canTakeAttendance(userRole) ? (
+    <div className="fade-in">
+      <TeacherAttendanceView
+        members={members}
+        disciplineCatalog={disciplineCatalog}
+        attendanceSessions={attendanceSessions}
+        setAttendanceSessions={setAttendanceSessions}
+        teacher={user}
+        teacherDisciplineIds={userRole === 'teacher' ? (user?.disciplineIds || null) : null}
+      />
+    </div>
+  ) : (
+    <Navigate to={isOperativeRole ? '/panel' : '/'} replace />
+  );
+
+  const homeElement = isOperativeRole
+    ? <Navigate to="/panel" replace />
+    : userRole === 'teacher'
+      ? attendanceView
+      : memberDashboard;
+
   return (
     <div className="app-container">
       {/* Luces de Fondo Decorativas Ambientales */}
@@ -2046,6 +2111,23 @@ export default function App() {
         {!isAccessGate && (
           <>
             <SessionStatusBar members={members} staffMembers={staffMembers} />
+            {dbSyncing ? (
+              <p
+                role="status"
+                aria-live="polite"
+                style={{
+                  margin: '0 0 0.75rem',
+                  padding: '0.55rem 0.85rem',
+                  borderRadius: 8,
+                  border: '1px solid var(--border-glass)',
+                  background: 'rgba(207, 161, 58, 0.08)',
+                  color: 'var(--text-secondary)',
+                  fontSize: '0.82rem',
+                }}
+              >
+                Actualizando datos del club…
+              </p>
+            ) : null}
             {dbError ? (
               <p className="conc-error" role="alert" aria-live="assertive" style={{ margin: '0 0 0.75rem', display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
                 <span style={{ flex: '1 1 12rem' }}>{dbError}</span>
@@ -2069,11 +2151,12 @@ export default function App() {
         )}
         <Suspense fallback={<RouteFallback />}>
         <Routes>
-          <Route path="/" element={isOperativeRole ? <Navigate to="/panel" replace /> : memberDashboard} />
-          <Route path="/reservas" element={userRole === 'member' ? reservationsView : <Navigate to="/panel" replace />} />
-          <Route path="/revista" element={userRole === 'member' ? newsView : <Navigate to="/panel" replace />} />
-          <Route path="/cuenta" element={userRole === 'member' ? paymentHistoryView : <Navigate to="/panel" replace />} />
-          <Route path="/perfil" element={userRole === 'member' ? memberProfileView : <Navigate to="/panel" replace />} />
+          <Route path="/" element={homeElement} />
+          <Route path="/asistencia" element={attendanceView} />
+          <Route path="/reservas" element={userRole === 'member' ? reservationsView : <Navigate to={pathForView('dashboard')} replace />} />
+          <Route path="/revista" element={userRole === 'member' ? newsView : <Navigate to={pathForView('dashboard')} replace />} />
+          <Route path="/cuenta" element={userRole === 'member' ? paymentHistoryView : <Navigate to={pathForView('dashboard')} replace />} />
+          <Route path="/perfil" element={userRole === 'member' ? memberProfileView : <Navigate to={pathForView('dashboard')} replace />} />
           <Route
             path="/mensajes"
             element={
@@ -2099,9 +2182,9 @@ export default function App() {
           />
           <Route path="/panel/qr_control" element={<Navigate to="/acceso" replace />} />
           <Route path="/panel/concessions" element={<Navigate to="/concesiones" replace />} />
-          <Route path="/panel" element={isOperativeRole ? operativePanel : <Navigate to="/" replace />} />
-          <Route path="/panel/:tab/:memberId?" element={isOperativeRole ? operativePanel : <Navigate to="/" replace />} />
-          <Route path="*" element={<Navigate to={isOperativeRole ? '/panel' : '/'} replace />} />
+          <Route path="/panel" element={isOperativeRole ? operativePanel : <Navigate to={pathForView('dashboard')} replace />} />
+          <Route path="/panel/:tab/:memberId?" element={isOperativeRole ? operativePanel : <Navigate to={pathForView('dashboard')} replace />} />
+          <Route path="*" element={<Navigate to={pathForView('dashboard')} replace />} />
         </Routes>
         </Suspense>
       </main>

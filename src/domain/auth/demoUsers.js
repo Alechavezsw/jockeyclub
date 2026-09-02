@@ -36,6 +36,16 @@ export const DEMO_USERS = [
     memberId: null,
   },
   {
+    id: 'local-teacher-1',
+    email: 'profesor@jockey.sj',
+    password: 'jockey2026',
+    role: 'teacher',
+    fullName: 'Laura Méndez',
+    memberId: null,
+    /** Disciplinas que dicta (ids del catálogo). Vacío = todas. */
+    disciplineIds: ['tenis', 'padel'],
+  },
+  {
     id: 'local-admin-1',
     email: 'admin@jockey.sj',
     password: 'jockey2026',

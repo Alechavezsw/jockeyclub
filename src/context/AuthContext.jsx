@@ -26,7 +26,7 @@ function mapProfile(sessionUser, profileRow) {
   }));
   const primary = profileRow?.role
     || (roles.length ? roles.map((r) => r.roleKey).sort((a, b) => {
-      const rank = { superadmin: 60, admin: 50, accountant: 40, cashier: 30, staff: 20, member: 10 };
+      const rank = { superadmin: 60, admin: 50, accountant: 40, cashier: 30, staff: 20, teacher: 15, member: 10 };
       return (rank[b] || 0) - (rank[a] || 0);
     })[0] : null)
     || sessionUser.user_metadata?.role
@@ -41,34 +41,39 @@ function mapProfile(sessionUser, profileRow) {
       ? roles
       : [{ roleKey: primary, label: ROLE_LABELS[primary] || primary, kind: 'system' }],
     memberId: profileRow?.member_number || sessionUser.user_metadata?.memberId || null,
+    disciplineIds: Array.isArray(profileRow?.discipline_ids)
+      ? profileRow.discipline_ids
+      : (Array.isArray(sessionUser.user_metadata?.disciplineIds)
+        ? sessionUser.user_metadata.disciplineIds
+        : null),
     isLocal: !isSupabaseConfigured,
   };
 }
 
 async function loadUserFromSession(sessionUser) {
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('full_name, role')
-    .eq('id', sessionUser.id)
-    .maybeSingle();
-
-  const { data: roleRows } = await supabase
-    .from('profile_roles')
-    .select('role_key, label, kind, revoked_at')
-    .eq('profile_id', sessionUser.id)
-    .is('revoked_at', null);
-
-  // Siempre resolver credencial vinculada (no solo si role === member)
-  const { data: member } = await supabase
-    .from('members')
-    .select('member_number')
-    .eq('profile_id', sessionUser.id)
-    .maybeSingle();
+  // Paralelo: perfil + roles + vínculo socio (antes eran 3 round-trips en serie).
+  const [profileRes, roleRes, memberRes] = await Promise.all([
+    supabase
+      .from('profiles')
+      .select('full_name, role')
+      .eq('id', sessionUser.id)
+      .maybeSingle(),
+    supabase
+      .from('profile_roles')
+      .select('role_key, label, kind, revoked_at')
+      .eq('profile_id', sessionUser.id)
+      .is('revoked_at', null),
+    supabase
+      .from('members')
+      .select('member_number')
+      .eq('profile_id', sessionUser.id)
+      .maybeSingle(),
+  ]);
 
   return mapProfile(sessionUser, {
-    ...profile,
-    profile_roles: roleRows || [],
-    member_number: member?.member_number || null,
+    ...profileRes.data,
+    profile_roles: roleRes.data || [],
+    member_number: memberRes.data?.member_number || null,
   });
 }
 
@@ -123,12 +128,15 @@ export function AuthProvider({ children }) {
     if (!authUser?.id) return undefined;
 
     let cancelled = false;
+    // Pintar de inmediato con metadata; el perfil completo llega enseguida
+    setUser((prev) => prev || mapProfile(authUser, null));
+    setLoading(false);
+
     const watchdog = setTimeout(() => {
       if (cancelled) return;
-      // Si el perfil tarda, entra igual con metadata mínima
       setUser((prev) => prev || mapProfile(authUser, null));
       setLoading(false);
-    }, 8_000);
+    }, 4_000);
 
     (async () => {
       try {
@@ -201,6 +209,7 @@ export function AuthProvider({ children }) {
       fullName: demo.fullName,
       role: demo.role,
       memberId: demo.memberId,
+      disciplineIds: Array.isArray(demo.disciplineIds) ? demo.disciplineIds : null,
       isLocal: true,
     };
     localStorage.setItem(SESSION_KEY, JSON.stringify(sessionUser));

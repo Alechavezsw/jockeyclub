@@ -22,10 +22,11 @@ const EMPTY_ERP = {
   canonPayments: [],
 };
 
-const SHELL_TIMEOUT_MS = 12_000;
+const CRITICAL_TIMEOUT_MS = 8_000;
+const DEFERRED_TIMEOUT_MS = 15_000;
 const ERP_TIMEOUT_MS = 20_000;
-/** Evita saturar el pool de Supabase (free/small) con Promise.all masivos. */
-const QUERY_CONCURRENCY = 3;
+/** Evita saturar el pool de Supabase (free/small). */
+const QUERY_CONCURRENCY = 4;
 
 function withTimeout(promise, ms, label = 'operación') {
   let timer;
@@ -36,7 +37,7 @@ function withTimeout(promise, ms, label = 'operación') {
 }
 
 /** Nunca rompe el flujo: falla → fallback. */
-async function soft(promise, fallback, label = 'query', timeoutMs = SHELL_TIMEOUT_MS) {
+async function soft(promise, fallback, label = 'query', timeoutMs = CRITICAL_TIMEOUT_MS) {
   try {
     return await withTimeout(Promise.resolve(promise), timeoutMs, label);
   } catch {
@@ -89,148 +90,182 @@ function emptyAppShell() {
   };
 }
 
-/**
- * Shell mínimo para socio: sin ERP ni padrón completo.
- * Debe resolver en pocos segundos para no dejar la UI en “Sincronizando…”.
- */
-export async function bootstrapMemberShellFromDb({ memberNumber } = {}) {
-  if (!isSupabaseConfigured) return null;
-
-  const [
-    member,
-    newsList,
-    messages,
-    reservations,
-    waitlist,
-    rsvpList,
-    guestPasses,
-    zondaSetting,
-    memberTiersSetting,
-    disciplinesSetting,
-    health,
-  ] = await mapLimit([
-    () => (memberNumber
-      ? soft(repos.getMemberByNumber(memberNumber, { withPayments: true }), null, 'member')
-      : Promise.resolve(null)),
-    () => soft(repos.listNews(), [], 'news'),
-    () => soft(repos.listMessages(), [], 'messages'),
-    () => soft(repos.listReservations({ limit: 200 }), [], 'reservations'),
-    () => soft(repos.listWaitlist(), [], 'waitlist'),
-    () => soft(repos.listRsvps(), [], 'rsvps'),
-    () => soft(repos.listGuestPasses(), [], 'guestPasses'),
-    () => soft(repos.getSetting('zonda'), null, 'zonda'),
-    () => soft(repos.getSetting('member_tiers'), null, 'tiers'),
-    () => soft(repos.getSetting('disciplines_catalog'), null, 'disciplines'),
-    () => soft(repos.healthCheck(), { ok: false }, 'health'),
-  ]);
-
-  const members = member ? [member] : [];
+function packShell({ app = {}, erp = {}, health = { ok: false }, memberDbIds = {} } = {}) {
   return {
-    app: {
-      ...emptyAppShell(),
-      members,
-      membersCount: members.length,
-      reservations: reservations || [],
-      waitlist: waitlist || [],
-      newsList: newsList || [],
-      rsvpList: rsvpList || [],
-      messages: messages || [],
-      guestPasses: guestPasses || [],
-      isZondaActive: Boolean(zondaSetting?.active),
-      tierCatalog: Array.isArray(memberTiersSetting) ? memberTiersSetting : null,
-      disciplineCatalog: Array.isArray(disciplinesSetting) ? disciplinesSetting : null,
-    },
-    erp: { ...EMPTY_ERP },
-    health: health || { ok: false },
-    memberDbIds: member?.id ? { [member.memberId]: member.id } : {},
+    app: { ...emptyAppShell(), ...app },
+    erp: { ...EMPTY_ERP, ...erp },
+    health,
+    memberDbIds,
   };
 }
 
 /**
- * Shell operativo (admin/staff): datos de portal sin contabilidad pesada.
- * ERP se hidrata aparte con bootstrapErpFromDb().
+ * Socio — crítico: ficha, reservas, noticias, mensajes, zonda.
+ * Suficiente para pintar el portal en pocos segundos.
  */
-export async function bootstrapOpsShellFromDb() {
+export async function bootstrapMemberCriticalFromDb({ memberNumber } = {}) {
+  if (!isSupabaseConfigured) return null;
+
+  const [member, newsList, messages, reservations, zondaSetting] = await mapLimit([
+    () => (memberNumber
+      ? soft(repos.getMemberByNumber(memberNumber, { withPayments: true }), null, 'member')
+      : Promise.resolve(null)),
+    () => soft(repos.listNews({ limit: 30 }), [], 'news'),
+    () => soft(repos.listMessages({ limit: 80 }), [], 'messages'),
+    () => soft(repos.listReservations({ limit: 120 }), [], 'reservations'),
+    () => soft(repos.getSetting('zonda'), null, 'zonda'),
+  ], QUERY_CONCURRENCY);
+
+  const members = member ? [member] : [];
+  return packShell({
+    app: {
+      members,
+      membersCount: members.length,
+      reservations: reservations || [],
+      newsList: newsList || [],
+      messages: messages || [],
+      isZondaActive: Boolean(zondaSetting?.active),
+    },
+    health: { ok: true },
+    memberDbIds: member?.id ? { [member.memberId]: member.id } : {},
+  });
+}
+
+/** Socio — diferido: waitlist, RSVP, pases, catálogos. */
+export async function bootstrapMemberDeferredFromDb() {
+  if (!isSupabaseConfigured) {
+    return {
+      waitlist: [],
+      rsvpList: [],
+      guestPasses: [],
+      tierCatalog: null,
+      disciplineCatalog: null,
+    };
+  }
+
+  const [
+    waitlist,
+    rsvpList,
+    guestPasses,
+    memberTiersSetting,
+    disciplinesSetting,
+  ] = await mapLimit([
+    () => soft(repos.listWaitlist(), [], 'waitlist', DEFERRED_TIMEOUT_MS),
+    () => soft(repos.listRsvps(), [], 'rsvps', DEFERRED_TIMEOUT_MS),
+    () => soft(repos.listGuestPasses(), [], 'guestPasses', DEFERRED_TIMEOUT_MS),
+    () => soft(repos.getSetting('member_tiers'), null, 'tiers', DEFERRED_TIMEOUT_MS),
+    () => soft(repos.getSetting('disciplines_catalog'), null, 'disciplines', DEFERRED_TIMEOUT_MS),
+  ], QUERY_CONCURRENCY);
+
+  return {
+    waitlist: waitlist || [],
+    rsvpList: rsvpList || [],
+    guestPasses: guestPasses || [],
+    tierCatalog: Array.isArray(memberTiersSetting) ? memberTiersSetting : null,
+    disciplineCatalog: Array.isArray(disciplinesSetting) ? disciplinesSetting : null,
+  };
+}
+
+/**
+ * Ops — crítico: conteo, reservas, noticias, mensajes, alertas, reclamos.
+ * Abre el panel sin esperar padrón/ERP/staff completo.
+ */
+export async function bootstrapOpsCriticalFromDb() {
   if (!isSupabaseConfigured) return null;
 
   const [
     membersCount,
     reservations,
-    waitlist,
     newsList,
+    messages,
+    claims,
+    alerts,
+    alertAcks,
+    zondaSetting,
+  ] = await mapLimit([
+    () => soft(repos.countMembers(), 0, 'countMembers'),
+    () => soft(repos.listReservations({ limit: 150 }), [], 'reservations'),
+    () => soft(repos.listNews({ limit: 40 }), [], 'news'),
+    () => soft(repos.listMessages({ limit: 100 }), [], 'messages'),
+    () => soft(repos.listClaims({ limit: 80 }), [], 'claims'),
+    () => soft(repos.listAlerts({ limit: 40 }), [], 'alerts'),
+    () => soft(repos.listAlertAcks(), [], 'alertAcks'),
+    () => soft(repos.getSetting('zonda'), null, 'zonda'),
+  ], QUERY_CONCURRENCY);
+
+  return packShell({
+    app: {
+      membersCount: membersCount || 0,
+      reservations: reservations || [],
+      newsList: newsList || [],
+      messages: messages || [],
+      claims: claims || [],
+      isZondaActive: Boolean(zondaSetting?.active),
+    },
+    erp: {
+      alerts: alerts || [],
+      alertAcks: alertAcks || [],
+    },
+    health: { ok: true },
+  });
+}
+
+/** Ops — diferido: staff, logs, encuestas, eventos, catálogos, altas. */
+export async function bootstrapOpsDeferredFromDb() {
+  if (!isSupabaseConfigured) {
+    return { app: {}, erp: {} };
+  }
+
+  const softD = (p, fb, label) => soft(p, fb, label, DEFERRED_TIMEOUT_MS);
+
+  const [
+    waitlist,
     rsvpList,
     staffMembers,
     staffHrRecords,
-    claims,
-    messages,
     entryLogs,
     surveys,
     guestPasses,
-    alerts,
-    alertAcks,
     clubEvents,
     eventRegistrations,
-    zondaSetting,
     memberTiersSetting,
     disciplinesSetting,
     registeredUsersCount,
     membershipApplications,
-    health,
   ] = await mapLimit([
-    () => soft(repos.countMembers(), 0, 'countMembers'),
-    () => soft(repos.listReservations({ limit: 300 }), [], 'reservations'),
-    () => soft(repos.listWaitlist(), [], 'waitlist'),
-    () => soft(repos.listNews(), [], 'news'),
-    () => soft(repos.listRsvps(), [], 'rsvps'),
-    () => soft(repos.listEmployees(), [], 'employees'),
-    () => soft(repos.listHrRecords(), [], 'hr'),
-    () => soft(repos.listClaims(), [], 'claims'),
-    () => soft(repos.listMessages(), [], 'messages'),
-    () => soft(repos.listAccessLogs(), [], 'accessLogs'),
-    () => soft(repos.listSurveys(), [], 'surveys'),
-    () => soft(repos.listGuestPasses(), [], 'guestPasses'),
-    () => soft(repos.listAlerts(), [], 'alerts'),
-    () => soft(repos.listAlertAcks(), [], 'alertAcks'),
-    () => soft(repos.listClubEvents(), [], 'clubEvents'),
-    () => soft(repos.listEventRegistrations(), [], 'eventRegs'),
-    () => soft(repos.getSetting('zonda'), null, 'zonda'),
-    () => soft(repos.getSetting('member_tiers'), null, 'tiers'),
-    () => soft(repos.getSetting('disciplines_catalog'), null, 'disciplines'),
-    () => soft(repos.countRegisteredProfiles(), 0, 'profilesCount'),
-    () => soft(repos.listMembershipApplications(), [], 'applications'),
-    () => soft(repos.healthCheck(), { ok: false }, 'health'),
-  ]);
+    () => softD(repos.listWaitlist(), [], 'waitlist'),
+    () => softD(repos.listRsvps(), [], 'rsvps'),
+    () => softD(repos.listEmployees(), [], 'employees'),
+    () => softD(repos.listHrRecords(), [], 'hr'),
+    () => softD(repos.listAccessLogs({ limit: 200 }), [], 'accessLogs'),
+    () => softD(repos.listSurveys(), [], 'surveys'),
+    () => softD(repos.listGuestPasses(), [], 'guestPasses'),
+    () => softD(repos.listClubEvents(), [], 'clubEvents'),
+    () => softD(repos.listEventRegistrations(), [], 'eventRegs'),
+    () => softD(repos.getSetting('member_tiers'), null, 'tiers'),
+    () => softD(repos.getSetting('disciplines_catalog'), null, 'disciplines'),
+    () => softD(repos.countRegisteredProfiles(), 0, 'profilesCount'),
+    () => softD(repos.listMembershipApplications(), [], 'applications'),
+  ], QUERY_CONCURRENCY);
 
   return {
     app: {
-      ...emptyAppShell(),
-      membersCount: membersCount || 0,
-      reservations: reservations || [],
       waitlist: waitlist || [],
-      newsList: newsList || [],
       rsvpList: rsvpList || [],
       staffMembers: staffMembers || [],
       staffHrRecords: staffHrRecords || [],
-      claims: claims || [],
-      messages: messages || [],
       entryLogs: entryLogs || [],
       surveys: surveys || [],
       guestPasses: guestPasses || [],
-      isZondaActive: Boolean(zondaSetting?.active),
       tierCatalog: Array.isArray(memberTiersSetting) ? memberTiersSetting : null,
       disciplineCatalog: Array.isArray(disciplinesSetting) ? disciplinesSetting : null,
       registeredUsersCount: registeredUsersCount || 0,
       membershipApplications: membershipApplications || [],
     },
     erp: {
-      ...EMPTY_ERP,
-      alerts: alerts || [],
-      alertAcks: alertAcks || [],
       clubEvents: clubEvents || [],
       eventRegistrations: eventRegistrations || [],
     },
-    health: health || { ok: false },
-    memberDbIds: {},
   };
 }
 
@@ -291,14 +326,24 @@ export async function bootstrapErpFromDb() {
 }
 
 /**
- * Entrada unificada: socio → shell liviano; ops → shell sin ERP pesado.
+ * Entrada crítica unificada: socio → shell liviano; ops → panel sin ERP/padrón.
  */
 export async function bootstrapShellFromDb({ role, memberNumber } = {}) {
   if (!isSupabaseConfigured) return null;
   if (!canAccessAdmin(role) && role !== 'gate_operator') {
-    return bootstrapMemberShellFromDb({ memberNumber });
+    return bootstrapMemberCriticalFromDb({ memberNumber });
   }
-  return bootstrapOpsShellFromDb();
+  return bootstrapOpsCriticalFromDb();
+}
+
+/** Datos diferidos post-pintura (todos los roles). */
+export async function bootstrapDeferredFromDb({ role } = {}) {
+  if (!isSupabaseConfigured) return { app: {}, erp: {} };
+  if (!canAccessAdmin(role) && role !== 'gate_operator') {
+    const deferred = await bootstrapMemberDeferredFromDb();
+    return { app: deferred, erp: {} };
+  }
+  return bootstrapOpsDeferredFromDb();
 }
 
 /** Padrón completo (fase 2, en background tras el shell). Solo ops. */
@@ -328,4 +373,4 @@ export async function bootstrapFromDb() {
   };
 }
 
-export { repos, mapLimit, QUERY_CONCURRENCY };
+export { repos, mapLimit, QUERY_CONCURRENCY, EMPTY_ERP };

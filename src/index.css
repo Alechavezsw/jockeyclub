@@ -1,4 +1,4 @@
-/* System de Diseño Premium - Jockey Club */
+/* System de DiseÃ±o Premium - Jockey Club */
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&display=swap');
 
 :root {
@@ -22,10 +22,10 @@
   --text-secondary: #a1aba6;
   --text-muted: #62726b;
   --text-gold: #ead39c;
-  /* Texto de máximo contraste sobre superficies temáticas (blanco en oscuro, tinta en claro) */
+  /* Texto de mÃ¡ximo contraste sobre superficies temÃ¡ticas (blanco en oscuro, tinta en claro) */
   --text-strong: #ffffff;
 
-  /* Superficies temáticas reutilizadas por los dashboards */
+  /* Superficies temÃ¡ticas reutilizadas por los dashboards */
   --surface-bg: #0c1813;
   --surface-card: rgba(10, 20, 15, 0.6);
   --surface-soft: rgba(255, 255, 255, 0.02);
@@ -56,7 +56,7 @@
 }
 
 [data-theme='light'] {
-  /* Modo día: fondo blanco, tipografía negra */
+  /* Modo dÃ­a: fondo blanco, tipografÃ­a negra */
   --bg-primary: #ffffff;
   --bg-secondary: #ffffff;
   --bg-tertiary: #f2f2f2;
@@ -270,7 +270,7 @@ textarea {
   }
 }
 
-/* Tipografía */
+/* TipografÃ­a */
 h1, h2, h3, h4, h5, h6, .serif-font {
   font-family: 'Playfair Display', serif;
   font-weight: 600;
@@ -295,7 +295,7 @@ a {
   color: inherit;
 }
 
-/* Fondo decorativo premium con partículas/luces */
+/* Fondo decorativo premium con partÃ­culas/luces */
 .app-container {
   min-height: 100vh;
   position: relative;
@@ -338,7 +338,7 @@ a {
   transition: var(--transition-smooth);
 }
 
-/* Nav + menú hamburguesa: fondo sólido (evita ver el hero a través) */
+/* Nav + menÃº hamburguesa: fondo sÃ³lido (evita ver el hero a travÃ©s) */
 .nav-bar-shell {
   background: var(--bg-secondary) !important;
 }
@@ -575,7 +575,7 @@ a {
   }
 }
 
-/* Títulos y Secciones */
+/* TÃ­tulos y Secciones */
 .page-header {
   margin-bottom: 2rem;
   display: flex;
@@ -726,7 +726,7 @@ a {
   letter-spacing: 0.05em;
 }
 
-/* Cuadrículas e Interfaces del Dashboard */
+/* CuadrÃ­culas e Interfaces del Dashboard */
 .dashboard-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -1060,7 +1060,7 @@ select.form-input,
   outline-offset: 1px;
 }
 
-/* Grilla de Selección de Horarios */
+/* Grilla de SelecciÃ³n de Horarios */
 .time-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
@@ -1195,7 +1195,7 @@ select.form-input,
   overflow: hidden;
 }
 
-/* Vista de Administración */
+/* Vista de AdministraciÃ³n */
 .admin-metrics {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
@@ -1297,7 +1297,7 @@ select.form-input,
   border-color: rgba(251, 191, 36, 0.3);
 }
 
-/* —— Categorías de socios (editor) —— */
+/* ââ CategorÃ­as de socios (editor) ââ */
 .member-tiers-panel {
   padding: 1rem 1.15rem 1.1rem;
   border: 1px solid var(--border-glass);
@@ -1551,7 +1551,7 @@ select.form-input,
   }
 }
 
-/* Controles de filtro de administración */
+/* Controles de filtro de administraciÃ³n */
 .members-tab {
   display: flex;
   flex-direction: column;
@@ -1840,7 +1840,7 @@ select.form-input,
   font-weight: 700;
   color: var(--primary-gold);
   border-top: 2px solid var(--border-glass-hover) !important;
-  border-bottom: 4px double var(--primary-gold) !important; /* Tradición contable: doble subrayado */
+  border-bottom: 4px double var(--primary-gold) !important; /* TradiciÃ³n contable: doble subrayado */
   background: rgba(207, 161, 58, 0.03);
 }
 
@@ -1869,7 +1869,7 @@ select.form-input,
   border-color: var(--border-glass-hover);
 }
 
-/* Fila del Formulario Dinámico de Asientos */
+/* Fila del Formulario DinÃ¡mico de Asientos */
 .entry-form-row {
   display: grid;
   grid-template-columns: 1.5fr 1fr 1fr 40px;
@@ -1885,7 +1885,7 @@ select.form-input,
   }
 }
 
-/* Bitácora de Trazabilidad - Consola de Operaciones */
+/* BitÃ¡cora de Trazabilidad - Consola de Operaciones */
 .traceability-log {
   background: #040806;
   border: 1px solid var(--border-glass);
@@ -2193,7 +2193,7 @@ select.form-input,
   background-color: var(--bg-color);
 }
 
-/* Legacy unused layout shell — keep selectors inert so they don't fight the rail */
+/* Legacy unused layout shell â keep selectors inert so they don't fight the rail */
 .admin-sidebar-legacy {
   width: 260px;
   flex-shrink: 0;
@@ -2320,7 +2320,7 @@ select.form-input,
   padding: 2rem;
 }
 
-/* Dashboard Masonry Layout (panel admin) — no pisar .dashboard-grid del socio */
+/* Dashboard Masonry Layout (panel admin) â no pisar .dashboard-grid del socio */
 .admin-dashboard-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -2340,7 +2340,7 @@ select.form-input,
   }
 }
 
-/* —— Mesa de control asimétrica (Inicio) —— */
+/* ââ Mesa de control asimÃ©trica (Inicio) ââ */
 .ops-dash {
   display: flex;
   flex-direction: column;
@@ -3107,7 +3107,7 @@ select.form-input,
 }
 
 .ops-dash-link::after {
-  content: '→';
+  content: 'â';
   flex-shrink: 0;
   font-size: 0.95em;
   font-weight: 500;
@@ -3769,7 +3769,7 @@ select.form-input,
   }
 }
 
-/* Grillas de formularios admin (2 columnas → 1 en móvil) */
+/* Grillas de formularios admin (2 columnas â 1 en mÃ³vil) */
 .responsive-form-grid {
   display: grid;
   gap: 1.5rem;
@@ -3849,7 +3849,7 @@ select.form-input,
   color: var(--danger-accent);
 }
 
-/* —— Cajas / arqueos —— */
+/* ââ Cajas / arqueos ââ */
 .cash-register-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -3973,7 +3973,7 @@ select.form-input,
   font-weight: 650;
 }
 
-/* —— Portal socio: instalaciones + calendario —— */
+/* ââ Portal socio: instalaciones + calendario ââ */
 .mfb {
   display: flex;
   flex-direction: column;
@@ -4514,7 +4514,7 @@ select.form-input,
   padding-right: 0.2rem;
 }
 
-/* —— Historial de pagos (socio) —— */
+/* ââ Historial de pagos (socio) ââ */
 .pay-hist {
   display: flex;
   flex-direction: column;
@@ -4840,7 +4840,7 @@ select.form-input,
   font-size: 0.88rem;
 }
 
-/* —— Disciplinas (admin) —— */
+/* ââ Disciplinas (admin) ââ */
 .disc-tab {
   display: flex;
   flex-direction: column;
@@ -5375,7 +5375,7 @@ select.form-input,
   }
 }
 
-/* —— Encuestas (alta) —— */
+/* ââ Encuestas (alta) ââ */
 .survey-tab {
   display: flex;
   flex-direction: column;
@@ -5581,7 +5581,7 @@ select.form-input,
   color: var(--text-muted);
 }
 
-/* —— Rail lateral del panel operativo (misma botonera: Operación/Club/Gestión/…) —— */
+/* ââ Rail lateral del panel operativo (misma botonera: OperaciÃ³n/Club/GestiÃ³n/â¦) ââ */
 .admin-shell {
   --admin-rail: 4.35rem;
   --admin-rail-open: 15.75rem;
@@ -5824,7 +5824,7 @@ select.form-input,
   }
 }
 
-/* —— Administración del sistema —— */
+/* ââ AdministraciÃ³n del sistema ââ */
 .sys-admin {
   display: flex;
   flex-direction: column;
@@ -6956,7 +6956,7 @@ select.form-input,
   color: #92400e;
 }
 
-/* —— Subnav Contabilidad (segmentada; distinta del rail dorado del panel) —— */
+/* ââ Subnav Contabilidad (segmentada; distinta del rail dorado del panel) ââ */
 .acct-subnav {
   --acct-accent: #3d8f78;
   --acct-accent-soft: rgba(61, 143, 120, 0.16);
@@ -7214,7 +7214,7 @@ select.form-input,
   }
 }
 
-/* —— Concesiones (sección aparte) —— */
+/* ââ Concesiones (secciÃ³n aparte) ââ */
 .concessions-view {
   display: flex;
   flex-direction: column;
@@ -7384,7 +7384,7 @@ select.form-input,
   padding: 1rem 1.1rem 1.2rem;
 }
 
-/* glass-card trae overflow:hidden y ::before z-index:1 → cortaba Documentos */
+/* glass-card trae overflow:hidden y ::before z-index:1 â cortaba Documentos */
 .glass-card.conc-detail {
   overflow: visible !important;
   min-height: 520px;
@@ -9092,7 +9092,7 @@ select.form-input,
   }
 }
 
-/* Barra de sesión + buscador global */
+/* Barra de sesiÃ³n + buscador global */
 .session-status-bar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(180px, 340px) minmax(0, 1fr);
@@ -9692,7 +9692,7 @@ select.form-input,
   display: block;
 }
 
-/* —— Perfil de socio —— */
+/* ââ Perfil de socio ââ */
 .member-profile {
   padding: 1.25rem 1.5rem;
 }
@@ -10342,7 +10342,7 @@ select.form-input,
   }
 }
 
-/* ——— Pileta ——— */
+/* âââ Pileta âââ */
 .pool-tab {
   display: flex;
   flex-direction: column;
@@ -10722,7 +10722,7 @@ select.form-input,
   border-color: rgba(0, 0, 0, 0.12);
 }
 
-/* ——— Fiestas / eventos (reutiliza base pileta) ——— */
+/* âââ Fiestas / eventos (reutiliza base pileta) âââ */
 .events-tab {
   display: flex;
   flex-direction: column;
@@ -10804,7 +10804,7 @@ select.form-input,
     #fff;
 }
 
-/* ——— Espacios del club (gestión + en vivo) ——— */
+/* âââ Espacios del club (gestiÃ³n + en vivo) âââ */
 .club-facilities {
   padding: 1.25rem 1.35rem 1.4rem;
 }
@@ -11141,7 +11141,7 @@ select.form-input,
   font-weight: 500;
 }
 
-/* ——— Editor de espacios ——— */
+/* âââ Editor de espacios âââ */
 .fac-edit-top {
   display: flex;
   justify-content: space-between;
@@ -11368,3 +11368,234 @@ select.form-input,
   }
 }
 
+
+/* ===== Profesor · Asistencia ===== */
+.teach-att {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.teach-att-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-end;
+}
+
+.teach-att-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.teach-att-sub {
+  margin: 0.25rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.teach-att-kpis {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+.teach-att-kpis strong {
+  color: var(--text-primary);
+}
+
+.teach-att-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: flex-end;
+  padding: 0.85rem 1rem;
+}
+
+.teach-att-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.teach-att-field select,
+.teach-att-field input[type='date'] {
+  min-width: 10rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-glass);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-primary);
+}
+
+.teach-att-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 1 1 12rem;
+  min-width: 10rem;
+  padding: 0.45rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-glass);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.teach-att-search input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  outline: none;
+  font-size: 0.9rem;
+}
+
+.teach-att-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-glass);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.teach-att-chip.is-active {
+  border-color: rgba(245, 158, 11, 0.55);
+  background: rgba(245, 158, 11, 0.12);
+  color: #fbbf24;
+}
+
+.teach-att-day {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  text-transform: capitalize;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.teach-att-empty {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: var(--text-secondary);
+  display: grid;
+  gap: 0.5rem;
+  justify-items: center;
+}
+
+.teach-att-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.teach-att-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  align-items: center;
+}
+
+.teach-att-who {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 12rem;
+}
+
+.teach-att-who strong {
+  font-size: 1rem;
+}
+
+.teach-att-meta {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.teach-att-dues {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  margin-top: 0.15rem;
+}
+
+.teach-att-dues.is-ok {
+  color: var(--emerald-accent, #10b981);
+}
+
+.teach-att-dues.is-debt {
+  color: #f59e0b;
+}
+
+.teach-att-marks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.teach-att-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.4rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-glass);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.78rem;
+}
+
+.teach-att-mark--present.is-active {
+  border-color: rgba(16, 185, 129, 0.55);
+  background: rgba(16, 185, 129, 0.14);
+  color: #34d399;
+}
+
+.teach-att-mark--absent.is-active {
+  border-color: rgba(239, 68, 68, 0.5);
+  background: rgba(239, 68, 68, 0.12);
+  color: #fca5a5;
+}
+
+.teach-att-mark--late.is-active {
+  border-color: rgba(245, 158, 11, 0.5);
+  background: rgba(245, 158, 11, 0.12);
+  color: #fbbf24;
+}
+
+@media (max-width: 720px) {
+  .teach-att-row {
+    align-items: stretch;
+  }
+
+  .teach-att-marks {
+    width: 100%;
+  }
+
+  .teach-att-mark {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}

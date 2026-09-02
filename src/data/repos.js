@@ -441,9 +441,13 @@ export async function replaceWaitlist(entries, memberLookup) {
 }
 
 // ---- Access ----
-export async function listAccessLogs() {
+export async function listAccessLogs({ limit = 500 } = {}) {
   const rows = await unwrap(
-    sb().from('access_logs').select('*').order('created_at', { ascending: false }).limit(500),
+    sb()
+      .from('access_logs')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(Math.max(1, Number(limit) || 500)),
     'No se pudieron cargar accesos'
   );
   return (rows || []).map(M.accessLogFromRow);
@@ -516,11 +520,10 @@ export async function upsertGuestPass(pass, hostDbId = null) {
 }
 
 // ---- Messages / Claims / Surveys / News ----
-export async function listMessages() {
-  const rows = await unwrap(
-    sb().from('messages').select('*').order('created_at', { ascending: false }),
-    'No se pudieron cargar mensajes'
-  );
+export async function listMessages({ limit } = {}) {
+  let q = sb().from('messages').select('*').order('created_at', { ascending: false });
+  if (limit && Number(limit) > 0) q = q.limit(Number(limit));
+  const rows = await unwrap(q, 'No se pudieron cargar mensajes');
   return (rows || []).map(M.messageFromRow);
 }
 
@@ -542,11 +545,10 @@ export async function updateMessage(id, patch) {
   return M.messageFromRow(saved);
 }
 
-export async function listClaims() {
-  const rows = await unwrap(
-    sb().from('claims').select('*').order('created_at', { ascending: false }),
-    'No se pudieron cargar reclamos'
-  );
+export async function listClaims({ limit } = {}) {
+  let q = sb().from('claims').select('*').order('created_at', { ascending: false });
+  if (limit && Number(limit) > 0) q = q.limit(Number(limit));
+  const rows = await unwrap(q, 'No se pudieron cargar reclamos');
   return (rows || []).map(M.claimFromRow);
 }
 
@@ -651,10 +653,10 @@ export async function castSurveyVote({ survey, memberId, memberNumber, optionId 
   return saved;
 }
 
-export async function listNews() {
-  const rows = await unwrap(
-    sb().from('news_posts').select('*').order('created_at', { ascending: false })
-  );
+export async function listNews({ limit } = {}) {
+  let q = sb().from('news_posts').select('*').order('created_at', { ascending: false });
+  if (limit && Number(limit) > 0) q = q.limit(Number(limit));
+  const rows = await unwrap(q);
   return (rows || []).map(M.newsFromRow);
 }
 
@@ -996,8 +998,10 @@ export async function listEventRegistrations() {
   }));
 }
 
-export async function listAlerts() {
-  const rows = await unwrap(sb().from('alerts').select('*').order('created_at', { ascending: false }));
+export async function listAlerts({ limit } = {}) {
+  let q = sb().from('alerts').select('*').order('created_at', { ascending: false });
+  if (limit && Number(limit) > 0) q = q.limit(Number(limit));
+  const rows = await unwrap(q);
   return (rows || []).map(M.alertFromRow);
 }
 
