@@ -90,20 +90,47 @@ async function audit(action, entityType, entityId, payload = {}) {
 }
 
 // ---- Members ----
-export async function listMembers() {
-  // Secuencial: primero socios, luego adherentes+pagos (menos pico en el pool).
-  const rows = await fetchAllRowsParallel(
-    sb().from('members').select('id', { count: 'exact', head: true }),
-    (from, to) => sb()
-      .from('members')
-      .select(MEMBERS_FULL_SELECT)
-      .order('full_name')
-      .order('id')
-      .range(from, to),
-    'No se pudieron cargar socios',
-    MEMBERS_PAGE_SIZE,
-    MEMBERS_CONCURRENCY
-  );
+/**
+ * Padrón por páginas. onBatch se llama tras cada lote para pintar la UI
+ * sin esperar los ~5k socios ni pagos/adherentes.
+ */
+export async function listMembers({ onBatch } = {}) {
+  const { count, error } = await sb()
+    .from('members')
+    .select('id', { count: 'exact', head: true });
+  throwOnError(error, 'No se pudieron cargar socios');
+  const total = count || 0;
+  if (!total) {
+    onBatch?.([], { loaded: 0, total: 0, done: true });
+    return [];
+  }
+
+  const pageCount = Math.ceil(total / MEMBERS_PAGE_SIZE);
+  const rows = [];
+
+  for (let start = 0; start < pageCount; start += MEMBERS_CONCURRENCY) {
+    const batch = await Promise.all(
+      Array.from({ length: Math.min(MEMBERS_CONCURRENCY, pageCount - start) }, (_, j) => {
+        const i = start + j;
+        const from = i * MEMBERS_PAGE_SIZE;
+        return unwrap(
+          sb()
+            .from('members')
+            .select(MEMBERS_FULL_SELECT)
+            .order('full_name')
+            .order('id')
+            .range(from, from + MEMBERS_PAGE_SIZE - 1),
+          'No se pudieron cargar socios'
+        );
+      })
+    );
+    for (const chunk of batch) rows.push(...(chunk || []));
+
+    if (typeof onBatch === 'function') {
+      const partial = rows.map((r) => M.memberFromRow(r, []));
+      onBatch(partial, { loaded: rows.length, total, done: false });
+    }
+  }
 
   const [adherents, payments] = await Promise.all([
     fetchAllRows(
@@ -137,10 +164,12 @@ export async function listMembers() {
   for (const p of payments || []) {
     (byMember[p.member_id] ||= []).push(p);
   }
-  return rows.map((r) => M.memberFromRow(
+  const full = rows.map((r) => M.memberFromRow(
     { ...r, member_adherents: adherentsByMember[r.id] || [] },
     byMember[r.id] || []
   ));
+  onBatch?.(full, { loaded: full.length, total, done: true });
+  return full;
 }
 
 /** Historial de pagos de un socio (ficha / cuenta). */

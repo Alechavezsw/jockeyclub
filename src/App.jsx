@@ -1308,7 +1308,9 @@ export default function App() {
         const { app, erp: erpData, health, memberDbIds: shellIds } = data;
 
         if (isOps) {
-          // Mantener semilla local hasta que llegue el padrón real (evita lista vacía)
+          // Quitar semilla demo: el padrón real llega por páginas
+          setMembers([]);
+          setMemberDbIds({});
           setMembersCount(app.membersCount || 0);
         } else {
           const seeded = Array.isArray(app.members) ? app.members : [];
@@ -1337,45 +1339,77 @@ export default function App() {
           clearTimeout(watchdog);
         }
 
-        // Diferido (todos) — no bloquea la UI
-        bootstrapDeferredFromDb({ role })
-          .then((deferred) => {
-            if (cancelled || !deferred) return;
-            applyAppPatch(deferred.app || {});
-            if (deferred.erp) {
-              erp.applyErpHydration({
-                alerts: deferred.erp.alerts,
-                alertAcks: deferred.erp.alertAcks,
-                clubEvents: deferred.erp.clubEvents,
-                eventRegistrations: deferred.erp.eventRegistrations,
-              });
-            }
-          })
-          .catch(() => {});
+        const runDeferred = () => {
+          bootstrapDeferredFromDb({ role })
+            .then((deferred) => {
+              if (cancelled || !deferred) return;
+              applyAppPatch(deferred.app || {});
+              if (deferred.erp) {
+                erp.applyErpHydration({
+                  alerts: deferred.erp.alerts,
+                  alertAcks: deferred.erp.alertAcks,
+                  clubEvents: deferred.erp.clubEvents,
+                  eventRegistrations: deferred.erp.eventRegistrations,
+                });
+              }
+            })
+            .catch(() => {});
+        };
 
-        // Ops: padrón y ERP en background (no await acá → no dispara alarmas falsas)
+        // Ops: padrón primero (prioridad pool); diferido tras el 1er lote
         if (isOps) {
           (async () => {
-            try {
-              const { members: rawMembers, memberDbIds: ids } = await bootstrapMembersFromDb();
-              if (cancelled) return;
+            let deferredStarted = false;
+            const paintMembers = (rawMembers, { keepCount = true } = {}) => {
               const withDues = applyAutomaticDues(rawMembers || []);
               const withFamily = attachHouseholdToMembers(withDues);
               setMembers(withFamily);
-              setMembersCount(withFamily.length);
-              setMemberDbIds(ids || {});
-              const duesToPersist = diffAutomaticDues(rawMembers || [], withDues);
-              if (duesToPersist.length) {
-                Promise.all(
-                  duesToPersist.map((m) => repos.upsertMember(m).catch(() => null))
-                ).catch(() => {});
+              if (keepCount) {
+                setMembersCount((prev) => Math.max(prev, withFamily.length, app.membersCount || 0));
+              } else {
+                setMembersCount(withFamily.length);
+              }
+              setMemberDbIds(
+                Object.fromEntries(withFamily.map((m) => [m.memberId, m.id]).filter(([, id]) => id))
+              );
+              return { withDues, withFamily, rawMembers: rawMembers || [] };
+            };
+
+            try {
+              const { members: rawMembers } = await bootstrapMembersFromDb({
+                onProgress: (partial, meta) => {
+                  if (cancelled || !partial?.length) return;
+                  paintMembers(partial, { keepCount: !meta?.done });
+                  if (!deferredStarted) {
+                    deferredStarted = true;
+                    setMembersLoading(false);
+                    runDeferred();
+                  }
+                  if (meta?.done) setMembersLoading(false);
+                },
+              });
+              if (cancelled) return;
+
+              if (rawMembers?.length) {
+                const { withDues, rawMembers: raw } = paintMembers(rawMembers, { keepCount: false });
+                const duesToPersist = diffAutomaticDues(raw, withDues);
+                if (duesToPersist.length) {
+                  Promise.all(
+                    duesToPersist.map((m) => repos.upsertMember(m).catch(() => null))
+                  ).catch(() => {});
+                }
+              } else if ((app.membersCount || 0) > 0) {
+                setDbError('No se pudo descargar el padrón de socios. Probá recargar.');
               }
             } catch (membersErr) {
               if (!cancelled) {
                 setDbError(friendlyDbError(membersErr, 'No se pudo cargar el padrón completo'));
               }
             } finally {
-              if (!cancelled) setMembersLoading(false);
+              if (!cancelled) {
+                setMembersLoading(false);
+                if (!deferredStarted) runDeferred();
+              }
             }
 
             if (cancelled) return;
@@ -1404,6 +1438,8 @@ export default function App() {
               /* ERP soft */
             }
           })();
+        } else {
+          runDeferred();
         }
       } catch (err) {
         if (!cancelled) {

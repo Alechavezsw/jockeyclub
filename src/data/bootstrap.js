@@ -346,18 +346,25 @@ export async function bootstrapDeferredFromDb({ role } = {}) {
   return bootstrapOpsDeferredFromDb();
 }
 
-/** Padrón completo (fase 2, en background tras el shell). Solo ops. */
-export async function bootstrapMembersFromDb() {
+/**
+ * Padrón completo (fase 2). Sin soft-timeout a []: un corte a vacío
+ * tapaba ~5k socios reales. onProgress pinta lotes apenas llegan.
+ */
+export async function bootstrapMembersFromDb({ onProgress } = {}) {
   if (!isSupabaseConfigured) return { members: [], memberDbIds: {} };
-  const members = await soft(
-    repos.listMembers(),
-    [],
-    'listMembers',
-    45_000
-  );
+
+  let latest = [];
+  const members = await repos.listMembers({
+    onBatch: (partial, meta) => {
+      latest = partial || [];
+      if (typeof onProgress === 'function') onProgress(latest, meta);
+    },
+  });
+
+  const finalMembers = (members && members.length ? members : latest) || [];
   return {
-    members: members || [],
-    memberDbIds: Object.fromEntries((members || []).map((m) => [m.memberId, m.id])),
+    members: finalMembers,
+    memberDbIds: Object.fromEntries(finalMembers.map((m) => [m.memberId, m.id])),
   };
 }
 
