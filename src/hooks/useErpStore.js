@@ -21,6 +21,9 @@ import {
   setSupplierStatus,
 } from '../domain/accounting/suppliers';
 import {
+  DEFAULT_RETENCIONES,
+} from '../domain/accounting/retenciones';
+import {
   DEFAULT_UNIDENTIFIED_COLLECTIONS,
   DEFAULT_GALICIA_DEBITS,
   DEFAULT_FIXED_EXPENSES,
@@ -101,7 +104,18 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
   const [cashSessions, setCashSessions] = useState(() => load('jockey-cash-sessions', []));
   const [cashMovements, setCashMovements] = useState(() => load('jockey-cash-movements', []));
   const [expenses, setExpenses] = useState(() => load('jockey-expenses', []));
-  const [suppliers, setSuppliers] = useState(() => load('jockey-suppliers', DEFAULT_SUPPLIERS));
+  const [suppliers, setSuppliers] = useState(() => {
+    const loaded = load('jockey-suppliers-v3', null);
+    if (Array.isArray(loaded) && loaded.length >= 50) return loaded;
+    return DEFAULT_SUPPLIERS;
+  });
+  const [retenciones, setRetenciones] = useState(() => load('jockey-retenciones-v1', DEFAULT_RETENCIONES));
+  const [supplierPaymentImports, setSupplierPaymentImports] = useState(() =>
+    load('jockey-supplier-payment-imports-v1', [])
+  );
+  const [expenseImports, setExpenseImports] = useState(() => load('jockey-expense-imports-v1', []));
+  const [supplierEntries, setSupplierEntries] = useState(() => load('jockey-supplier-entries-v1', []));
+  const [otherIncomes, setOtherIncomes] = useState(() => load('jockey-other-incomes-v1', []));
   const [unidentifiedCollections, setUnidentifiedCollections] = useState(() =>
     load('jockey-unidentified-collections', DEFAULT_UNIDENTIFIED_COLLECTIONS)
   );
@@ -150,7 +164,16 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
     if (Array.isArray(erp.cashSessions)) setCashSessions(erp.cashSessions);
     if (Array.isArray(erp.cashMovements)) setCashMovements(erp.cashMovements);
     if (Array.isArray(erp.expenses)) setExpenses(erp.expenses);
-    if (Array.isArray(erp.suppliers)) setSuppliers(erp.suppliers);
+    if (Array.isArray(erp.suppliers)) {
+      // Preferir nube cuando ya tiene el padrón Accessin; si no, seed local.
+      if (erp.suppliers.length >= 200) setSuppliers(erp.suppliers);
+      else if (DEFAULT_SUPPLIERS.length) setSuppliers(DEFAULT_SUPPLIERS);
+    }
+    if (Array.isArray(erp.retenciones)) setRetenciones(erp.retenciones);
+    if (Array.isArray(erp.supplierPaymentImports)) setSupplierPaymentImports(erp.supplierPaymentImports);
+    if (Array.isArray(erp.expenseImports)) setExpenseImports(erp.expenseImports);
+    if (Array.isArray(erp.supplierEntries)) setSupplierEntries(erp.supplierEntries);
+    if (Array.isArray(erp.otherIncomes)) setOtherIncomes(erp.otherIncomes);
     if (Array.isArray(erp.unidentifiedCollections)) setUnidentifiedCollections(erp.unidentifiedCollections);
     if (Array.isArray(erp.galiciaDebits)) setGaliciaDebits(erp.galiciaDebits);
     if (Array.isArray(erp.fixedExpenses)) setFixedExpenses(erp.fixedExpenses);
@@ -179,7 +202,12 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
   useEffect(() => persist('jockey-cash-sessions', cashSessions), [cashSessions]);
   useEffect(() => persist('jockey-cash-movements', cashMovements), [cashMovements]);
   useEffect(() => persist('jockey-expenses', expenses), [expenses]);
-  useEffect(() => persist('jockey-suppliers', suppliers), [suppliers]);
+  useEffect(() => persist('jockey-suppliers-v3', suppliers), [suppliers]);
+  useEffect(() => persist('jockey-retenciones-v1', retenciones), [retenciones]);
+  useEffect(() => persist('jockey-supplier-payment-imports-v1', supplierPaymentImports), [supplierPaymentImports]);
+  useEffect(() => persist('jockey-expense-imports-v1', expenseImports), [expenseImports]);
+  useEffect(() => persist('jockey-supplier-entries-v1', supplierEntries), [supplierEntries]);
+  useEffect(() => persist('jockey-other-incomes-v1', otherIncomes), [otherIncomes]);
   useEffect(() => persist('jockey-unidentified-collections', unidentifiedCollections), [unidentifiedCollections]);
   useEffect(() => persist('jockey-galicia-debits', galiciaDebits), [galiciaDebits]);
   useEffect(() => persist('jockey-fixed-expenses', fixedExpenses), [fixedExpenses]);
@@ -601,6 +629,179 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
     });
   }, []);
 
+  const upsertRetencion = useCallback(async (item) => {
+    if (cloud()) {
+      const saved = await repos.upsertRetencion(item);
+      setRetenciones((prev) => {
+        const idx = prev.findIndex((r) => r.id === saved.id);
+        if (idx === -1) return [saved, ...prev];
+        const next = [...prev];
+        next[idx] = saved;
+        return next;
+      });
+      return saved;
+    }
+    setRetenciones((prev) => {
+      const idx = prev.findIndex((r) => r.id === item.id);
+      if (idx === -1) return [item, ...prev];
+      const next = [...prev];
+      next[idx] = item;
+      return next;
+    });
+    return item;
+  }, []);
+
+  const importSupplierPayments = useCallback(async ({ batch, payments }) => {
+    const savedPayments = [];
+    for (const payment of payments || []) {
+      if (cloud()) {
+        try {
+          const saved = await repos.upsertPaymentOrder(payment);
+          savedPayments.push(saved);
+        } catch {
+          savedPayments.push(payment);
+        }
+      } else {
+        savedPayments.push(payment);
+      }
+    }
+
+    setPaymentOrders((prev) => [...savedPayments, ...prev]);
+
+    // Aplicar pagos al saldo Accessin de proveedores emparejados.
+    setSuppliers((prev) => {
+      const next = prev.map((s) => {
+        const paid = savedPayments
+          .filter((p) => p.supplierId === s.id || String(p.payee || '').toLowerCase() === String(s.legalName || s.name || '').toLowerCase())
+          .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+        if (!paid) return s;
+        const opening = (Number(s.openingBalance) || 0) - paid;
+        const updated = { ...s, openingBalance: opening, updatedAt: new Date().toISOString() };
+        if (cloud()) repos.upsertSupplier(updated).catch(() => {});
+        return updated;
+      });
+      return next;
+    });
+
+    let savedBatch = {
+      ...batch,
+      paymentIds: savedPayments.map((p) => p.id),
+    };
+    if (cloud()) {
+      try {
+        savedBatch = await repos.upsertSupplierPaymentImport(savedBatch);
+      } catch {
+        /* historial local si falla nube */
+      }
+    }
+    setSupplierPaymentImports((prev) => [savedBatch, ...prev]);
+    return savedBatch;
+  }, []);
+
+  const importExpenses = useCallback(async ({ batch, expenses: imported }) => {
+    const savedExpenses = [];
+    for (const expense of imported || []) {
+      if (cloud()) {
+        try {
+          const saved = await repos.upsertExpense(expense);
+          savedExpenses.push(saved);
+        } catch {
+          savedExpenses.push(expense);
+        }
+      } else {
+        savedExpenses.push(expense);
+      }
+    }
+    setExpenses((prev) => [...savedExpenses, ...prev]);
+
+    let savedBatch = {
+      ...batch,
+      expenseIds: savedExpenses.map((e) => e.id),
+    };
+    if (cloud()) {
+      try {
+        savedBatch = await repos.upsertExpenseImport(savedBatch);
+      } catch {
+        /* historial local */
+      }
+    }
+    setExpenseImports((prev) => [savedBatch, ...prev]);
+    return savedBatch;
+  }, []);
+
+  const createSupplierEntry = useCallback(async (entry) => {
+    let savedEntry = entry;
+    let payment = null;
+
+    if (entry.type === 'pago') {
+      const stamp = new Date();
+      payment = {
+        id: `po-ent-${stamp.getTime()}`,
+        number: `OP-ENT-${stamp.getFullYear()}${String(stamp.getMonth() + 1).padStart(2, '0')}${String(stamp.getDate()).padStart(2, '0')}-${String(stamp.getHours()).padStart(2, '0')}${String(stamp.getMinutes()).padStart(2, '0')}`,
+        date: entry.date || stamp.toISOString().slice(0, 10),
+        payee: entry.supplierName,
+        concept: entry.concept || entry.typeLabel || 'Pago',
+        amount: Number(entry.amount) || 0,
+        status: 'paid',
+        paymentMethod: 'transferencia',
+        supplierId: entry.supplierId || null,
+        accessinCode: entry.accessinCode || '',
+        invoiceNumber: entry.invoiceNumber || '',
+        entryId: entry.id,
+        createdAt: stamp.toISOString(),
+      };
+      savedEntry = { ...entry, paymentOrderId: payment.id };
+    }
+
+    if (cloud()) {
+      try {
+        savedEntry = await repos.upsertSupplierEntry(savedEntry);
+      } catch {
+        /* local fallback */
+      }
+      if (payment) {
+        try {
+          payment = await repos.upsertPaymentOrder(payment);
+          savedEntry = { ...savedEntry, paymentOrderId: payment.id };
+        } catch {
+          /* keep local payment */
+        }
+      }
+    }
+
+    if (payment) {
+      setPaymentOrders((prev) => [payment, ...prev]);
+    }
+
+    setSuppliers((prev) => {
+      const delta = Number(savedEntry.balanceDelta) || 0;
+      if (!delta || !savedEntry.supplierId) return prev;
+      return prev.map((s) => {
+        if (s.id !== savedEntry.supplierId) return s;
+        const opening = (Number(s.openingBalance) || 0) + delta;
+        const updated = { ...s, openingBalance: opening, updatedAt: new Date().toISOString() };
+        if (cloud()) repos.upsertSupplier(updated).catch(() => {});
+        return updated;
+      });
+    });
+
+    setSupplierEntries((prev) => [savedEntry, ...prev]);
+    return savedEntry;
+  }, []);
+
+  const createOtherIncomeRecord = useCallback(async (item) => {
+    let saved = item;
+    if (cloud()) {
+      try {
+        saved = await repos.upsertOtherIncome(item);
+      } catch {
+        /* local fallback */
+      }
+    }
+    setOtherIncomes((prev) => [saved, ...prev]);
+    return saved;
+  }, []);
+
   const upsertUnidentifiedCollection = useCallback((item) => {
     const run = async () => {
       let nextItem = item;
@@ -832,6 +1033,11 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
     cashMovements,
     expenses,
     suppliers,
+    retenciones,
+    supplierPaymentImports,
+    expenseImports,
+    supplierEntries,
+    otherIncomes,
     unidentifiedCollections,
     galiciaDebits,
     fixedExpenses,
@@ -855,6 +1061,11 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
     setExpensePaid,
     upsertSupplier,
     toggleSupplierStatus,
+    upsertRetencion,
+    importSupplierPayments,
+    importExpenses,
+    createSupplierEntry,
+    createOtherIncomeRecord,
     upsertUnidentifiedCollection,
     upsertGaliciaDebit,
     addFixedExpense,

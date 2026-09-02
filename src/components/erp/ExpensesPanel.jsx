@@ -1,22 +1,28 @@
-import { useState } from 'react';
-import { Receipt, Check, X, Banknote } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Receipt, Check, X, Banknote, Upload } from 'lucide-react';
 import { getPostableAccounts, accountLabel } from '../../domain/accounting/chartOfAccounts';
 import { EXPENSE_STATUS_LABELS } from '../../domain/accounting/expenses';
 import { formatCurrency } from '../../domain/accounting/journal';
+import ExpenseImportPanel from './ExpenseImportPanel';
 
 export default function ExpensesPanel({
   expenses,
   chartOfAccounts,
+  suppliers = [],
   submitExpense,
   setExpenseApproved,
   setExpenseRejected,
   setExpensePaid,
+  expenseImports = [],
+  onImportExpenses,
+  initialView = 'list',
 }) {
   const expenseAccounts = getPostableAccounts(chartOfAccounts).filter((a) => a.accountType === 'expense');
   const paymentAccounts = getPostableAccounts(chartOfAccounts).filter(
     (a) => a.accountType === 'asset' && (a.isCashAccount || a.code.startsWith('1.1'))
   );
 
+  const [view, setView] = useState(initialView === 'import' ? 'import' : 'list');
   const [form, setForm] = useState({
     expenseDate: new Date().toISOString().slice(0, 10),
     vendorName: '',
@@ -28,6 +34,10 @@ export default function ExpensesPanel({
   });
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
+
+  useEffect(() => {
+    if (initialView === 'import') setView('import');
+  }, [initialView]);
 
   const onSubmit = (e) => {
     e.preventDefault();
@@ -43,15 +53,39 @@ export default function ExpensesPanel({
     }
   };
 
+  if (view === 'import') {
+    return (
+      <ExpenseImportPanel
+        suppliers={suppliers}
+        expenseAccounts={expenseAccounts}
+        paymentAccountId={paymentAccounts[0]?.id || ''}
+        defaultCategoryAccountId={expenseAccounts[0]?.id || ''}
+        imports={expenseImports}
+        onBack={() => setView('list')}
+        onImportBatch={onImportExpenses}
+      />
+    );
+  }
+
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-      <div>
-        <h4 className="serif-font" style={{ fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <Receipt size={18} /> Gastos y Aprobaciones
-        </h4>
-        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-          Flujo: solicitud → aprobación → pago con asiento automático.
-        </p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+        <div>
+          <h4 className="serif-font" style={{ fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
+            <Receipt size={18} /> Gastos y Aprobaciones
+          </h4>
+          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0.35rem 0 0' }}>
+            Flujo: solicitud → aprobación → pago con asiento automático.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          onClick={() => setView('import')}
+        >
+          <Upload size={14} /> Importar gastos
+        </button>
       </div>
 
       <form onSubmit={onSubmit} style={{ border: '1px solid var(--border-glass)', borderRadius: 12, padding: '1rem', display: 'grid', gap: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))' }}>
@@ -61,7 +95,22 @@ export default function ExpensesPanel({
         </div>
         <div>
           <label className="form-label">Proveedor</label>
-          <input className="form-input" value={form.vendorName} onChange={(e) => setForm({ ...form, vendorName: e.target.value })} placeholder="Razón social" />
+          <input
+            className="form-input"
+            list="expense-suppliers"
+            value={form.vendorName}
+            onChange={(e) => setForm({ ...form, vendorName: e.target.value })}
+            placeholder="Accessin / razón social"
+          />
+          <datalist id="expense-suppliers">
+            {suppliers
+              .filter((s) => s.status !== 'inactive')
+              .map((s) => {
+                const name = s.legalName || s.name || '';
+                const code = s.accessinCode ? `#${s.accessinCode} · ` : '';
+                return <option key={s.id} value={name} label={`${code}${name}`} />;
+              })}
+          </datalist>
         </div>
         <div>
           <label className="form-label">N° comprobante</label>
@@ -107,6 +156,7 @@ export default function ExpensesPanel({
                   <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                     {exp.expenseDate} · {cat ? accountLabel(cat) : '—'}
                     {exp.vendorName ? ` · ${exp.vendorName}` : ''}
+                    {exp.invoiceNumber ? ` · Comp. ${exp.invoiceNumber}` : ''}
                   </div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
@@ -128,17 +178,11 @@ export default function ExpensesPanel({
                 {exp.status === 'approved' && (
                   <button
                     type="button"
-                    className="btn btn-primary btn-sm"
-                    style={{ display: 'flex', alignItems: 'center', gap: 4 }}
-                    onClick={() => {
-                      try {
-                        setExpensePaid(exp.id);
-                      } catch (err) {
-                        setError(err.message);
-                      }
-                    }}
+                    className="btn btn-sm"
+                    style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(207,161,58,0.15)', border: '1px solid var(--primary-gold)' }}
+                    onClick={() => setExpensePaid(exp.id)}
                   >
-                    <Banknote size={14} /> Registrar pago + asiento
+                    <Banknote size={14} /> Registrar pago
                   </button>
                 )}
               </div>

@@ -409,9 +409,11 @@ export function PaymentOrdersPanel({ items = [], suppliers = [], onAdd, onSetSta
           <label className="form-label">Beneficiario</label>
           <input className="form-input" list="suppliers-payee" required value={form.payee} onChange={(e) => setForm({ ...form, payee: e.target.value })} />
           <datalist id="suppliers-payee">
-            {suppliers.filter((s) => s.status === 'active').map((s) => (
-              <option key={s.id} value={s.legalName} />
-            ))}
+            {suppliers.filter((s) => s.status === 'active').map((s) => {
+              const name = s.legalName || s.name || '';
+              const code = s.accessinCode ? `#${s.accessinCode} · ` : '';
+              return <option key={s.id} value={name} label={`${code}${name}`} />;
+            })}
           </datalist>
         </div>
         <div><label className="form-label">Importe</label><input type="number" min="1" required className="form-input" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></div>

@@ -140,7 +140,7 @@ export default function MemberTiersPanel({
           <button type="button" className="btn btn-secondary btn-sm" onClick={() => setOpen((v) => !v)}>
             {open ? 'Ocultar' : 'Gestionar'}
           </button>
-          <button type="button" className="btn btn-primary btn-sm" onClick={startCreate}>
+          <button type="button" className="btn btn-ink btn-sm" onClick={startCreate}>
             <Plus size={14} /> Nueva categoría
           </button>
         </div>

@@ -13,6 +13,19 @@ function json(status: number, body: Record<string, unknown>) {
   });
 }
 
+function normalizeDisciplineIds(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of raw) {
+    const id = String(item || "").trim().toLowerCase();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -43,8 +56,11 @@ Deno.serve(async (req) => {
       .eq("id", authData.user.id)
       .maybeSingle();
 
-    if (!caller || caller.role !== "superadmin") {
-      return json(403, { error: "Solo el superadministrador puede crear o modificar perfiles" });
+    const callerRole = String(caller?.role || "");
+    const isSuper = callerRole === "superadmin";
+    const isAdmin = callerRole === "admin";
+    if (!isSuper && !isAdmin) {
+      return json(403, { error: "Solo administración puede crear o modificar perfiles" });
     }
 
     const body = await req.json();
@@ -56,6 +72,17 @@ Deno.serve(async (req) => {
       if (!userId) return json(400, { error: "userId es obligatorio" });
       if (password.length < 6) {
         return json(400, { error: "La contraseña debe tener al menos 6 caracteres" });
+      }
+
+      if (!isSuper) {
+        const { data: target } = await admin
+          .from("profiles")
+          .select("role")
+          .eq("id", userId)
+          .maybeSingle();
+        if (String(target?.role || "") !== "teacher") {
+          return json(403, { error: "El administrador solo puede regenerar contraseñas de profesores" });
+        }
       }
 
       const { error: updateErr } = await admin.auth.admin.updateUserById(userId, {
@@ -80,6 +107,11 @@ Deno.serve(async (req) => {
     const fullName = [firstName, lastName].filter(Boolean).join(" ") || String(body.fullName || "").trim();
     const role = String(body.role || "member");
     const contactEmail = body.contactEmail ? String(body.contactEmail).trim() : "";
+    const disciplineIds = normalizeDisciplineIds(body.disciplineIds);
+
+    if (!isSuper && role !== "teacher") {
+      return json(403, { error: "El administrador solo puede dar de alta profesores" });
+    }
 
     if (!email || !password) {
       return json(400, { error: "Email y contraseña son obligatorios" });
@@ -109,6 +141,7 @@ Deno.serve(async (req) => {
       emergency_clinic: body.emergencyClinic || null,
       address: body.address || null,
       prisma_id: body.prismaId || null,
+      discipline_ids: disciplineIds,
     };
 
     const { data: created, error: createErr } = await admin.auth.admin.createUser({
@@ -152,6 +185,7 @@ Deno.serve(async (req) => {
       emergency_clinic: body.emergencyClinic || null,
       address: body.address || null,
       prisma_id: body.prismaId || null,
+      discipline_ids: disciplineIds,
       is_active: body.isActive !== false,
       meta: {
         ...prevMeta,

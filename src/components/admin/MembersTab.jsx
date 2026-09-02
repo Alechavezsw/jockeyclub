@@ -700,7 +700,7 @@ export default function MembersTab({
             if (!showAddForm) resetForm();
             setShowAddForm(!showAddForm);
           }}
-          className="btn btn-primary"
+          className="btn btn-emerald"
         >
           <Plus size={16} /> Registrar Socio
         </button>

@@ -102,6 +102,7 @@ export default function ReportsTab({
   canonPayments = [],
   newsList = [],
   suppliers = [],
+  retenciones = [],
 }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const sectionFromUrl = searchParams.get('section');
@@ -142,12 +143,13 @@ export default function ReportsTab({
     alerts,
     cashRegisters,
     suppliers,
+    retenciones,
     newsList,
     canonPayments,
   }), [
     members, reservations, journalEntries, staffMembers, claims, messages,
     entryLogs, surveys, expenses, concessions, clubEvents, alerts,
-    cashRegisters, suppliers, newsList, canonPayments,
+    cashRegisters, suppliers, retenciones, newsList, canonPayments,
   ]);
 
   const refreshDailyList = async () => {
@@ -490,14 +492,35 @@ export default function ReportsTab({
   const handleExportSuppliersCSV = () => {
     downloadCsv(
       `jockey_club_proveedores_${stampDate()}.csv`,
-      ['Nombre', 'CUIT', 'Rubro', 'Estado', 'Telefono', 'Email'],
+      ['Codigo Accessin', 'Nombre', 'Contacto', 'CUIT', 'Rubro', 'Saldo Accessin', 'Estado', 'Telefono', 'Email'],
       suppliers.map((s) => [
-        s.name || '',
+        s.accessinCode || '',
+        s.legalName || s.name || '',
+        s.tradeName || '',
         s.cuit || '',
         s.category || s.rubro || '',
-        s.active === false ? 'Inactivo' : 'Activo',
+        Number(s.openingBalance) || 0,
+        s.status === 'inactive' || s.active === false ? 'Inactivo' : 'Activo',
         s.phone || '',
         s.email || '',
+      ])
+    );
+  };
+
+  const handleExportRetencionesCSV = () => {
+    downloadCsv(
+      `jockey_club_retenciones_${stampDate()}.csv`,
+      ['#', 'Cliente', 'Proveedor', 'OP', 'Monto OP', 'Tipo', 'Fecha', 'Monto Retencion', 'Estado'],
+      retenciones.map((r) => [
+        r.lineNumber || '',
+        r.clientName || '',
+        r.supplierName || '',
+        r.paymentOrderNumber || '',
+        Number(r.paymentOrderAmount) || 0,
+        r.retentionType || '',
+        r.retentionDate || '',
+        Number(r.retentionAmount) || 0,
+        r.status || 'recorded',
       ])
     );
   };
@@ -757,6 +780,12 @@ export default function ReportsTab({
       title: 'Proveedores',
       description: 'Padron de proveedores del ERP.',
       actions: <button type="button" className="btn btn-primary" onClick={handleExportSuppliersCSV}><Download size={14} /> CSV</button>,
+    },
+    {
+      icon: Briefcase,
+      title: 'Retenciones',
+      description: 'Resumen Accessin de retenciones sobre OP.',
+      actions: <button type="button" className="btn btn-primary" onClick={handleExportRetencionesCSV}><Download size={14} /> CSV</button>,
     },
     {
       icon: Calendar,

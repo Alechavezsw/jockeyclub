@@ -32,4 +32,13 @@ describe('suppliers', () => {
     expect(expensesForSupplier(expenses, updated)).toHaveLength(3);
     expect(supplierOpenBalance(expenses, updated)).toBe(15000);
   });
+
+  it('usa saldo Accessin cuando no hay gastos ERP', () => {
+    const s = createSupplier({
+      legalName: 'QUIROGA C Rodrigo Osvaldo',
+      accessinCode: '1348',
+      openingBalance: 500000,
+    });
+    expect(supplierOpenBalance([], s)).toBe(500000);
+  });
 });

@@ -4,10 +4,10 @@ import {
   Users, Calendar, DollarSign, Activity, MessageSquare, ClipboardList,
   Radio, BookOpen, ShieldAlert, BellRing, CheckCircle2,
   PartyPopper, Clock, UserCircle2, FileSpreadsheet, Wind, Newspaper,
-  DoorOpen, ExternalLink, UserPlus, UserRound, ChevronRight,
+  DoorOpen, ExternalLink, UserPlus, UserRound, ChevronRight, AlertTriangle,
 } from 'lucide-react';
 import { canAccessQrGate } from '../../domain/auth/roles';
-import { isAlertVisible } from '../../domain/alerts/alerts';
+import { isAlertVisible, ALERT_SEVERITY } from '../../domain/alerts/alerts';
 import { buildOpsFinanceSnapshot } from '../../domain/accounting/opsFinanceSnapshot';
 import { getOverdueMembers, toWhatsAppPhone, formatShortDate } from '../../domain/members/dues';
 import { FACILITIES } from '../../domain/reservations/facilities';
@@ -171,7 +171,7 @@ export default function AdminDashboardTab({
   }, [entryLogs, todayKey]);
 
   const activeAlerts = useMemo(
-    () => (alerts || []).filter((a) => isAlertVisible(a)).slice(0, 2),
+    () => (alerts || []).filter((a) => isAlertVisible(a)).slice(0, 4),
     [alerts],
   );
 
@@ -536,20 +536,29 @@ export default function AdminDashboardTab({
             {activeAlerts.length === 0 ? (
               <p className="ops-muted ops-today-empty">Sin alertas vigentes.</p>
             ) : (
-              <ul className="ops-today-list">
-                {activeAlerts.slice(0, 4).map((a) => (
-                  <li key={a.id}>
-                    <span
-                      className="ops-today-copy"
-                      style={{
-                        color: a.severity === 'critical' ? '#ef4444' : a.severity === 'warning' ? '#f59e0b' : undefined,
-                        fontWeight: 600,
-                      }}
-                    >
-                      {a.title}
-                    </span>
-                  </li>
-                ))}
+              <ul className="ops-today-alerts">
+                {activeAlerts.slice(0, 4).map((a) => {
+                  const sev = a.severity || 'info';
+                  const Icon = sev === 'critical'
+                    ? ShieldAlert
+                    : sev === 'warning'
+                      ? AlertTriangle
+                      : BellRing;
+                  return (
+                    <li key={a.id} className={`ops-today-alert-item sev-${sev}`}>
+                      <span className="ops-today-alert-icon" aria-hidden="true">
+                        <Icon size={16} strokeWidth={2.2} />
+                      </span>
+                      <span className="ops-today-alert-body">
+                        <em className="ops-today-alert-sev">
+                          {ALERT_SEVERITY[sev]?.label || 'Alerta'}
+                        </em>
+                        <strong>{a.title}</strong>
+                        {a.body ? <small>{a.body}</small> : null}
+                      </span>
+                    </li>
+                  );
+                })}
               </ul>
             )}
             {permittedTabs.includes('claims') && (

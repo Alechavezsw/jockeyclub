@@ -378,6 +378,9 @@ export function profileFromRow(row) {
     prismaId: row.prisma_id || '',
     role: row.role || 'member',
     roles,
+    disciplineIds: Array.isArray(row.discipline_ids)
+      ? row.discipline_ids.map(String)
+      : (Array.isArray(meta.disciplineIds) ? meta.disciplineIds.map(String) : []),
     isActive: row.is_active !== false,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -394,6 +397,7 @@ function roleRank(roleKey) {
     accountant: 40,
     cashier: 30,
     staff: 20,
+    teacher: 15,
     member: 10,
   };
   return map[String(roleKey || '').toLowerCase()] || 0;
@@ -687,15 +691,137 @@ export function canonPaymentFromRow(row) {
 }
 
 export function supplierFromRow(row) {
+  const meta = row?.meta && typeof row.meta === 'object' ? row.meta : {};
+  const legalName = row.name || meta.legalName || '';
   return {
     id: row.id,
-    name: row.name,
+    name: legalName,
+    legalName,
+    tradeName: meta.tradeName || '',
     cuit: row.cuit || '',
-    category: row.category || '',
+    category: row.category || meta.category || 'general',
     email: row.email || '',
     phone: row.phone || '',
-    status: row.status,
+    address: meta.address || '',
+    payableAccountId: meta.payableAccountId || 'coa-2.1.01',
+    status: row.status || 'active',
     notes: row.notes || '',
+    accessinCode: meta.accessinCode || '',
+    openingBalance: Number(meta.openingBalance) || 0,
+    createdAt: row.created_at || meta.createdAt || null,
+    updatedAt: row.updated_at || null,
+    meta,
+  };
+}
+
+export function retencionFromRow(row) {
+  const meta = row?.meta && typeof row.meta === 'object' ? row.meta : {};
+  return {
+    id: row.id,
+    lineNumber: row.line_number != null ? Number(row.line_number) : (meta.lineNumber || null),
+    clientName: row.client_name || meta.clientName || '',
+    supplierName: row.supplier_name || meta.supplierName || '',
+    paymentOrderNumber: row.payment_order_number || meta.paymentOrderNumber || '',
+    paymentOrderAmount: Number(row.payment_order_amount) || 0,
+    retentionType: row.retention_type || meta.retentionType || '',
+    retentionDate: row.retention_date || meta.retentionDate || '',
+    retentionAmount: Number(row.retention_amount) || 0,
+    status: row.status || 'recorded',
+    notes: row.notes || meta.notes || '',
+    source: meta.source || 'accessin',
+    asOf: meta.asOf || '',
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
+    meta,
+  };
+}
+
+export function supplierPaymentImportFromRow(row) {
+  const meta = row?.meta && typeof row.meta === 'object' ? row.meta : {};
+  return {
+    id: row.id,
+    importedAt: row.imported_at || meta.importedAt || row.created_at || null,
+    module: row.module || meta.module || 'excel_manual',
+    moduleLabel: meta.moduleLabel || '',
+    status: row.status || 'completed',
+    importedCount: Number(row.imported_count) || 0,
+    totalAmount: Number(row.total_amount) || 0,
+    fileName: row.file_name || meta.fileName || '',
+    errorCount: Number(row.error_count) || 0,
+    errors: Array.isArray(meta.errors) ? meta.errors : [],
+    paymentIds: Array.isArray(meta.paymentIds) ? meta.paymentIds : [],
+    createdAt: row.created_at || null,
+    meta,
+  };
+}
+
+export function expenseImportFromRow(row) {
+  const meta = row?.meta && typeof row.meta === 'object' ? row.meta : {};
+  return {
+    id: row.id,
+    importedAt: row.imported_at || meta.importedAt || row.created_at || null,
+    module: row.module || meta.module || 'excel_manual_invoice',
+    moduleLabel: meta.moduleLabel || '',
+    status: row.status || 'completed',
+    importedCount: Number(row.imported_count) || 0,
+    totalAmount: Number(row.total_amount) || 0,
+    fileName: row.file_name || meta.fileName || '',
+    errorCount: Number(row.error_count) || 0,
+    errors: Array.isArray(meta.errors) ? meta.errors : [],
+    expenseIds: Array.isArray(meta.expenseIds) ? meta.expenseIds : [],
+    createdAt: row.created_at || null,
+    meta,
+  };
+}
+
+export function supplierEntryFromRow(row) {
+  const meta = row?.meta && typeof row.meta === 'object' ? row.meta : {};
+  return {
+    id: row.id,
+    type: row.entry_type || meta.type || 'otros',
+    typeLabel: meta.typeLabel || row.entry_type || 'Otros',
+    effect: meta.effect || 'debit',
+    supplierId: row.supplier_id || meta.supplierId || null,
+    supplierName: row.supplier_name || meta.supplierName || '',
+    accessinCode: meta.accessinCode || '',
+    date: row.entry_date || meta.date || null,
+    amount: Number(row.amount) || 0,
+    balanceDelta: Number(meta.balanceDelta) || 0,
+    concept: row.concept || meta.concept || '',
+    invoiceNumber: row.invoice_number || meta.invoiceNumber || '',
+    notes: row.notes || meta.notes || '',
+    status: row.status || meta.status || 'posted',
+    paymentOrderId: meta.paymentOrderId || null,
+    createdAt: row.created_at || meta.createdAt || null,
+    meta,
+  };
+}
+
+export function otherIncomeFromRow(row) {
+  const meta = row?.meta && typeof row.meta === 'object' ? row.meta : {};
+  return {
+    id: row.id,
+    date: row.income_date || meta.date || null,
+    payerType: row.payer_type || meta.payerType || 'manual',
+    payerTypeLabel: meta.payerTypeLabel || '',
+    payerName: row.payer_name || meta.payerName || '',
+    concept: row.concept || meta.concept || '',
+    group: row.income_group || meta.group || 'uncategorized',
+    groupLabel: meta.groupLabel || '',
+    paymentMethod: row.payment_method || meta.paymentMethod || 'efectivo',
+    paymentMethodLabel: meta.paymentMethodLabel || '',
+    amount: Number(row.amount) || 0,
+    lines: Array.isArray(meta.lines) ? meta.lines : [],
+    documentId: meta.documentId || '',
+    address: meta.address || '',
+    contact: meta.contact || '',
+    operationRef: meta.operationRef || '',
+    notes: row.notes || meta.notes || '',
+    signatureLegend: meta.signatureLegend || '',
+    attachments: Array.isArray(meta.attachments) ? meta.attachments : [],
+    status: row.status || meta.status || 'posted',
+    createdAt: row.created_at || meta.createdAt || null,
+    meta,
   };
 }
 

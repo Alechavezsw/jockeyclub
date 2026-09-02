@@ -23,6 +23,7 @@ export function buildBackupPayload(snapshot = {}, { source = 'manual' } = {}) {
       alerts: snapshot.alerts || [],
       cashRegisters: snapshot.cashRegisters || [],
       suppliers: snapshot.suppliers || [],
+      retenciones: snapshot.retenciones || [],
       newsList: snapshot.newsList || [],
       canonPayments: snapshot.canonPayments || [],
     },

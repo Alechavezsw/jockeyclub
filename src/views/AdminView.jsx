@@ -4,7 +4,7 @@ import {
   Users, Calendar, DollarSign, Activity, CreditCard, Check, ShieldAlert,
   Clock, BookOpen, ClipboardList, MessageSquare, Phone,
   FileSpreadsheet, Radio, Database, BellRing, PartyPopper, Trophy, Store, DoorOpen, QrCode, Newspaper,
-  LayoutDashboard, ChevronRight, Briefcase, Headset, Settings, Waves,
+  LayoutDashboard, ChevronRight, Briefcase, Headset, Settings, Waves, GraduationCap,
 } from 'lucide-react';
 import AccountingTab from '../components/AccountingTab';
 import StaffTab from '../components/StaffTab';
@@ -27,6 +27,7 @@ import ClubFacilitiesPanel from '../components/admin/ClubFacilitiesPanel';
 import NewsCmsTab from '../components/admin/NewsCmsTab';
 import SystemAdminTab from '../components/admin/SystemAdminTab';
 import PortalUserProfilePanel from '../components/admin/PortalUserProfilePanel';
+import TeachersTab from '../components/admin/TeachersTab';
 import PoolTab from '../components/admin/PoolTab';
 import { DEFAULT_POOL_SETTINGS } from '../domain/pool/poolAccess';
 import { DEFAULT_CHART_OF_ACCOUNTS, resolveAccountId } from '../domain/accounting/chartOfAccounts';
@@ -184,6 +185,7 @@ export default function AdminView({
         id: 'admin',
         label: 'Administración',
         tabs: [
+          { key: 'teachers', icon: GraduationCap, label: 'Profesores' },
           { key: 'system', icon: Settings, label: 'Usuarios y altas' },
         ],
       },
@@ -694,6 +696,15 @@ export default function AdminView({
           suppliers={erp.suppliers}
           upsertSupplier={erp.upsertSupplier}
           toggleSupplierStatus={erp.toggleSupplierStatus}
+          paymentImports={erp.supplierPaymentImports}
+          onImportSupplierPayments={erp.importSupplierPayments}
+          onCreateSupplierEntry={erp.createSupplierEntry}
+          otherIncomes={erp.otherIncomes}
+          onCreateOtherIncome={erp.createOtherIncomeRecord}
+          expenseImports={erp.expenseImports}
+          onImportExpenses={erp.importExpenses}
+          retenciones={erp.retenciones}
+          upsertRetencion={erp.upsertRetencion}
           members={members}
           unidentifiedCollections={erp.unidentifiedCollections}
           upsertUnidentifiedCollection={erp.upsertUnidentifiedCollection}
@@ -726,6 +737,13 @@ export default function AdminView({
             setHrRecords={setStaffHrRecords}
           />
         )
+      )}
+
+      {activeTab === 'teachers' && (
+        <TeachersTab
+          userRole={userRole}
+          disciplineCatalog={disciplineCatalog}
+        />
       )}
 
       {activeTab === 'events' && (
@@ -814,6 +832,7 @@ export default function AdminView({
           cashSessions={erp.cashSessions || []}
           canonPayments={erp.canonPayments || []}
           suppliers={erp.suppliers || []}
+          retenciones={erp.retenciones || []}
           newsList={latestNews || []}
         />
       )}

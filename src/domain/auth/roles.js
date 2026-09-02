@@ -96,6 +96,7 @@ export const ALL_ADMIN_TABS = [
   'access',
   'accounting',
   'staff',
+  'teachers',
   'events',
   'alerts',
   'claims',
@@ -118,6 +119,14 @@ export function isSuperAdmin(roleOrRoles) {
 /** Solo el superadministrador puede crear/editar perfiles de usuarios del portal. */
 export function canManageProfiles(roleOrRoles) {
   return isSuperAdmin(roleOrRoles);
+}
+
+/** Admin y superadmin pueden gestionar profesores (alta, disciplinas, claves). */
+export function canManageTeachers(roleOrRoles) {
+  if (Array.isArray(roleOrRoles)) {
+    return hasRoleInList(roleOrRoles, 'superadmin') || hasRoleInList(roleOrRoles, 'admin');
+  }
+  return roleOrRoles === 'superadmin' || roleOrRoles === 'admin';
 }
 
 const OPS_ROLES = [
@@ -179,6 +188,7 @@ export function allowedAdminTabs(role) {
       'dues',
       'bookings',
       'pool',
+      'teachers',
       'events',
       'alerts',
       'claims',
@@ -237,7 +247,7 @@ export function allowedAccountingSubtabs(role) {
   if (role === 'superadmin' || role === 'accountant') {
     return [
       'diary', 'mayor', 'create', 'balance', 'results', 'charts', 'plan',
-      'cash', 'expenses', 'suppliers',
+      'cash', 'expenses', 'suppliers', 'retenciones', 'other_incomes',
       'unidentified', 'galicia', 'fixed_expenses', 'fixed_discounts', 'balances', 'payment_orders',
     ];
   }
@@ -247,7 +257,7 @@ export function allowedAccountingSubtabs(role) {
   }
   if (role === 'cashier' || role === 'gate_operator') {
     // Solo operación de caja; gastos/proveedores/diario viven en Contabilidad (contador/superadmin).
-    return ['cash'];
+    return ['cash', 'other_incomes'];
   }
   return [];
 }

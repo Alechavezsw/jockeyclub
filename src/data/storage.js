@@ -137,3 +137,44 @@ export async function uploadProfilePhoto(file, { profileId = 'new' } = {}) {
     size: file.size || 0,
   };
 }
+
+const OTHER_INCOME_MAX = 5 * 1024 * 1024;
+const OTHER_INCOME_ALLOWED = new Set(['application/pdf', 'image/jpeg', 'image/png']);
+
+export function validateOtherIncomeFile(file) {
+  if (!file) throw new Error('Seleccioná un archivo.');
+  if (file.size > OTHER_INCOME_MAX) throw new Error('El archivo supera 5 MB.');
+  const type = file.type || '';
+  const name = String(file.name || '').toLowerCase();
+  const ok = OTHER_INCOME_ALLOWED.has(type)
+    || name.endsWith('.pdf')
+    || name.endsWith('.jpg')
+    || name.endsWith('.jpeg')
+    || name.endsWith('.png');
+  if (!ok) throw new Error('Solo PDF, JPG o PNG.');
+  return true;
+}
+
+/** Adjunto de otro ingreso (recibo / comprobante). */
+export async function uploadOtherIncomeAttachment(file, { incomeId = 'draft' } = {}) {
+  if (!isSupabaseConfigured || !supabase) {
+    throw new Error('Supabase no configurado: no se puede subir el archivo.');
+  }
+  validateOtherIncomeFile(file);
+  const folder = String(incomeId || 'draft').replace(/[^a-z0-9_-]/gi, '') || 'draft';
+  const path = `other-incomes/${folder}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${extFromFile(file)}`;
+  const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
+    cacheControl: '3600',
+    upsert: false,
+    contentType: file.type || undefined,
+  });
+  if (error) throw new Error(error.message || 'No se pudo subir el archivo.');
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+  return {
+    path,
+    url: data?.publicUrl || '',
+    name: file.name || path.split('/').pop(),
+    mimeType: file.type || '',
+    size: file.size || 0,
+  };
+}

@@ -4,6 +4,7 @@ import {
   canAccessConcessions,
   canTakeAttendance,
   canManageProfiles,
+  canManageTeachers,
   isSuperAdmin,
   allowedAdminTabs,
   allowedAccountingSubtabs,
@@ -120,9 +121,9 @@ describe('canAccessConcessions', () => {
 });
 
 describe('allowedAccountingSubtabs', () => {
-  it('el cajero y el operador de portería solo ven operación de caja', () => {
-    expect(allowedAccountingSubtabs('cashier')).toEqual(['cash']);
-    expect(allowedAccountingSubtabs('gate_operator')).toEqual(['cash']);
+  it('el cajero y el operador de portería ven caja y otros ingresos', () => {
+    expect(allowedAccountingSubtabs('cashier')).toEqual(['cash', 'other_incomes']);
+    expect(allowedAccountingSubtabs('gate_operator')).toEqual(['cash', 'other_incomes']);
   });
 
   it('el administrador no ve subtabs de contabilidad', () => {
@@ -158,6 +159,22 @@ describe('canTakeAttendance', () => {
     expect(canTakeAttendance('admin')).toBe(true);
     expect(canTakeAttendance('member')).toBe(false);
     expect(canTakeAttendance('cashier')).toBe(false);
+  });
+});
+
+describe('canManageTeachers', () => {
+  it('admin y superadmin gestionan profesores', () => {
+    expect(canManageTeachers('admin')).toBe(true);
+    expect(canManageTeachers('superadmin')).toBe(true);
+    expect(canManageTeachers('staff')).toBe(false);
+    expect(canManageTeachers('teacher')).toBe(false);
+  });
+});
+
+describe('allowedAdminTabs teachers', () => {
+  it('admin y superadmin ven la pestaña profesores', () => {
+    expect(allowedAdminTabs('admin')).toContain('teachers');
+    expect(allowedAdminTabs('superadmin')).toContain('teachers');
   });
 });
 

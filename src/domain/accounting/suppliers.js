@@ -1,4 +1,11 @@
-/** Proveedores del club y movimientos de cuenta corriente. */
+/** Proveedores del club y movimientos de cuenta corriente (Accessin). */
+
+import {
+  ACCESSIN_SUPPLIERS,
+  ACCESSIN_SUPPLIERS_AS_OF,
+} from '../../data/seed/accessinSuppliers';
+
+export { ACCESSIN_SUPPLIERS_AS_OF };
 
 export const SUPPLIER_CATEGORIES = {
   hipica: 'Hípica / Equinos',
@@ -9,50 +16,51 @@ export const SUPPLIER_CATEGORIES = {
   general: 'General',
 };
 
-export const DEFAULT_SUPPLIERS = [
-  {
-    id: 'sup-1',
-    legalName: 'Forrajes Cuyo SA',
-    tradeName: 'Forrajes Cuyo',
-    cuit: '30-71234567-8',
-    category: 'hipica',
-    email: 'ventas@forrajescuyo.ar',
-    phone: '+54 264 420-1100',
-    address: 'Av. Libertador 2450, Rivadavia',
-    payableAccountId: 'coa-2.1.01',
-    notes: 'Alimento equino y fardos.',
-    status: 'active',
-    createdAt: '2026-01-10T12:00:00.000Z',
-  },
-  {
-    id: 'sup-2',
-    legalName: 'San Juan Mantenimientos SRL',
-    tradeName: 'SJ Mantenimientos',
-    cuit: '30-69887766-1',
-    category: 'mantenimiento',
-    email: 'admin@sjmantenimientos.ar',
-    phone: '+54 264 431-2200',
-    address: 'Calle Mendoza 890, Capital',
-    payableAccountId: 'coa-2.1.01',
-    notes: 'Riego, césped y obras menores.',
-    status: 'active',
-    createdAt: '2026-02-05T12:00:00.000Z',
-  },
-  {
-    id: 'sup-3',
-    legalName: 'Bodega & Catering Rivadavia',
-    tradeName: 'Catering Rivadavia',
-    cuit: '30-55443322-9',
-    category: 'gastronomia',
-    email: 'eventos@cateringrivadavia.ar',
-    phone: '+54 264 415-7788',
-    address: 'República del Líbano 1200 Oeste',
-    payableAccountId: 'coa-2.1.01',
-    notes: 'Eventos y cantina.',
-    status: 'active',
-    createdAt: '2026-03-12T12:00:00.000Z',
-  },
-];
+/** Padrón real Accessin (CC proveedores). */
+export const DEFAULT_SUPPLIERS = ACCESSIN_SUPPLIERS;
+
+export function supplierDisplayName(supplier) {
+  return String(supplier?.legalName || supplier?.name || '').trim();
+}
+
+export function supplierAccessinCode(supplier) {
+  return String(supplier?.accessinCode || '').trim();
+}
+
+/** Saldo de apertura Accessin (positivo = deuda del club; negativo = a favor). */
+export function supplierAccessinBalance(supplier) {
+  return Number(supplier?.openingBalance) || 0;
+}
+
+export function supplierLabel(supplier) {
+  const name = supplierDisplayName(supplier);
+  const code = supplierAccessinCode(supplier);
+  return code ? `#${code} · ${name}` : name;
+}
+
+export function compareSuppliersByAccessin(a, b) {
+  const ca = Number(supplierAccessinCode(a)) || 0;
+  const cb = Number(supplierAccessinCode(b)) || 0;
+  if (ca !== cb) return ca - cb;
+  return supplierDisplayName(a).localeCompare(supplierDisplayName(b), 'es');
+}
+
+export function accessinBalanceTotals(suppliers = []) {
+  let debt = 0;
+  let credit = 0;
+  let withBalance = 0;
+  for (const s of suppliers) {
+    const bal = supplierAccessinBalance(s);
+    if (bal > 0) {
+      debt += bal;
+      withBalance += 1;
+    } else if (bal < 0) {
+      credit += Math.abs(bal);
+      withBalance += 1;
+    }
+  }
+  return { debt, credit, net: debt - credit, withBalance };
+}
 
 export function createSupplier({
   legalName,
@@ -64,6 +72,8 @@ export function createSupplier({
   address = '',
   payableAccountId = 'coa-2.1.01',
   notes = '',
+  accessinCode = '',
+  openingBalance = 0,
 }) {
   const name = String(legalName || '').trim();
   if (!name) throw new Error('La razón social es obligatoria.');
@@ -80,6 +90,8 @@ export function createSupplier({
     payableAccountId: payableAccountId || 'coa-2.1.01',
     notes: String(notes || '').trim(),
     status: 'active',
+    accessinCode: String(accessinCode || '').trim(),
+    openingBalance: Number(openingBalance) || 0,
     createdAt: new Date().toISOString(),
   };
 }
@@ -100,6 +112,12 @@ export function updateSupplier(supplier, patch = {}) {
     phone: patch.phone != null ? String(patch.phone).trim() : supplier.phone,
     address: patch.address != null ? String(patch.address).trim() : supplier.address,
     notes: patch.notes != null ? String(patch.notes).trim() : supplier.notes,
+    accessinCode: patch.accessinCode != null
+      ? String(patch.accessinCode).trim()
+      : (supplier.accessinCode || ''),
+    openingBalance: patch.openingBalance != null
+      ? Number(patch.openingBalance) || 0
+      : (Number(supplier.openingBalance) || 0),
     updatedAt: new Date().toISOString(),
   };
 }
@@ -114,7 +132,7 @@ export function setSupplierStatus(supplier, status) {
 /** Gastos vinculados a un proveedor por nombre (match flexible). */
 export function expensesForSupplier(expenses = [], supplier) {
   if (!supplier) return [];
-  const keys = [supplier.legalName, supplier.tradeName]
+  const keys = [supplier.legalName, supplier.name, supplier.tradeName]
     .filter(Boolean)
     .map((s) => s.toLowerCase());
   return expenses.filter((exp) => {
@@ -123,10 +141,16 @@ export function expensesForSupplier(expenses = [], supplier) {
   });
 }
 
+/**
+ * Deuda operativa: gastos ERP pendientes/aprobados;
+ * si no hay, cae al saldo Accessin de apertura.
+ */
 export function supplierOpenBalance(expenses = [], supplier) {
-  return expensesForSupplier(expenses, supplier)
+  const fromExpenses = expensesForSupplier(expenses, supplier)
     .filter((e) => ['pending_approval', 'approved'].includes(e.status))
     .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+  if (fromExpenses) return fromExpenses;
+  return supplierAccessinBalance(supplier);
 }
 
 export function supplierPaidYtd(expenses = [], supplier, year = new Date().getFullYear()) {

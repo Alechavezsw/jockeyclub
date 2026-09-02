@@ -17,6 +17,7 @@ const SECTION_LABELS = {
   access: 'Ingresos',
   accounting: 'Contabilidad',
   staff: 'Personal',
+  teachers: 'Profesores',
   events: 'Fiestas',
   alerts: 'Alertas',
   claims: 'Reclamos',

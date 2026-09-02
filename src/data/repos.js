@@ -1194,25 +1194,244 @@ export async function insertCanonPayment(p) {
 
 export async function listSuppliers() {
   const rows = await unwrap(sb().from('suppliers').select('*').order('name'));
-  return (rows || []).map(M.supplierFromRow);
+  return (rows || [])
+    .map(M.supplierFromRow)
+    .toSorted((a, b) => {
+      const ca = Number(a.accessinCode) || 0;
+      const cb = Number(b.accessinCode) || 0;
+      if (ca !== cb) return ca - cb;
+      return String(a.legalName || a.name || '').localeCompare(String(b.legalName || b.name || ''), 'es');
+    });
 }
 
 export async function upsertSupplier(s) {
+  const legalName = String(s.legalName || s.name || '').trim();
+  if (!legalName) throw new Error('La razón social es obligatoria.');
+  const prevMeta = s.meta && typeof s.meta === 'object' ? s.meta : {};
   const row = {
-    name: s.name,
+    name: legalName,
     cuit: s.cuit || null,
     category: s.category || null,
     email: s.email || null,
     phone: s.phone || null,
     status: s.status || 'active',
     notes: s.notes || null,
+    meta: {
+      ...prevMeta,
+      legalName,
+      tradeName: s.tradeName || prevMeta.tradeName || '',
+      address: s.address || prevMeta.address || '',
+      payableAccountId: s.payableAccountId || prevMeta.payableAccountId || 'coa-2.1.01',
+      accessinCode: s.accessinCode || prevMeta.accessinCode || '',
+      openingBalance: s.openingBalance != null ? Number(s.openingBalance) || 0 : (prevMeta.openingBalance || 0),
+      asOf: prevMeta.asOf || '2026-09-02',
+      source: prevMeta.source || (s.accessinCode ? 'accessin' : undefined),
+    },
   };
-  if (s.id && String(s.id).includes('-')) {
+  if (isUuid(s.id)) {
     const saved = await unwrap(sb().from('suppliers').update(row).eq('id', s.id).select().single());
     return M.supplierFromRow(saved);
   }
   const saved = await unwrap(sb().from('suppliers').insert(row).select().single());
   return M.supplierFromRow(saved);
+}
+
+export async function listRetenciones() {
+  const rows = await unwrap(
+    sb().from('retenciones').select('*').order('retention_date', { ascending: false })
+  );
+  return (rows || []).map(M.retencionFromRow);
+}
+
+export async function upsertRetencion(item) {
+  const prevMeta = item.meta && typeof item.meta === 'object' ? item.meta : {};
+  const row = {
+    line_number: item.lineNumber != null ? Number(item.lineNumber) || null : null,
+    client_name: item.clientName || null,
+    supplier_name: item.supplierName || null,
+    payment_order_number: item.paymentOrderNumber || null,
+    payment_order_amount: Number(item.paymentOrderAmount) || 0,
+    retention_type: item.retentionType || null,
+    retention_date: item.retentionDate || null,
+    retention_amount: Number(item.retentionAmount) || 0,
+    status: item.status || 'recorded',
+    notes: item.notes || null,
+    meta: {
+      ...prevMeta,
+      source: item.source || prevMeta.source || 'manual',
+      asOf: item.asOf || prevMeta.asOf || '',
+      notes: item.notes || prevMeta.notes || '',
+    },
+  };
+  if (isUuid(item.id)) {
+    const saved = await unwrap(sb().from('retenciones').update(row).eq('id', item.id).select().single());
+    return M.retencionFromRow(saved);
+  }
+  const saved = await unwrap(sb().from('retenciones').insert(row).select().single());
+  return M.retencionFromRow(saved);
+}
+
+export async function listSupplierPaymentImports() {
+  const rows = await unwrap(
+    sb().from('supplier_payment_imports').select('*').order('imported_at', { ascending: false })
+  );
+  return (rows || []).map(M.supplierPaymentImportFromRow);
+}
+
+export async function upsertSupplierPaymentImport(batch) {
+  const prevMeta = batch.meta && typeof batch.meta === 'object' ? batch.meta : {};
+  const row = {
+    imported_at: batch.importedAt || new Date().toISOString(),
+    module: batch.module || 'excel_manual',
+    status: batch.status || 'completed',
+    imported_count: Number(batch.importedCount) || 0,
+    total_amount: Number(batch.totalAmount) || 0,
+    file_name: batch.fileName || null,
+    error_count: Number(batch.errorCount) || 0,
+    meta: {
+      ...prevMeta,
+      moduleLabel: batch.moduleLabel || prevMeta.moduleLabel || '',
+      errors: batch.errors || prevMeta.errors || [],
+      paymentIds: batch.paymentIds || prevMeta.paymentIds || [],
+      fileName: batch.fileName || prevMeta.fileName || '',
+    },
+  };
+  if (isUuid(batch.id)) {
+    const saved = await unwrap(
+      sb().from('supplier_payment_imports').update(row).eq('id', batch.id).select().single()
+    );
+    return M.supplierPaymentImportFromRow(saved);
+  }
+  const saved = await unwrap(sb().from('supplier_payment_imports').insert(row).select().single());
+  return M.supplierPaymentImportFromRow(saved);
+}
+
+export async function listExpenseImports() {
+  const rows = await unwrap(
+    sb().from('expense_imports').select('*').order('imported_at', { ascending: false })
+  );
+  return (rows || []).map(M.expenseImportFromRow);
+}
+
+export async function upsertExpenseImport(batch) {
+  const prevMeta = batch.meta && typeof batch.meta === 'object' ? batch.meta : {};
+  const row = {
+    imported_at: batch.importedAt || new Date().toISOString(),
+    module: batch.module || 'excel_manual_invoice',
+    status: batch.status || 'completed',
+    imported_count: Number(batch.importedCount) || 0,
+    total_amount: Number(batch.totalAmount) || 0,
+    file_name: batch.fileName || null,
+    error_count: Number(batch.errorCount) || 0,
+    meta: {
+      ...prevMeta,
+      moduleLabel: batch.moduleLabel || prevMeta.moduleLabel || '',
+      errors: batch.errors || prevMeta.errors || [],
+      expenseIds: batch.expenseIds || prevMeta.expenseIds || [],
+      fileName: batch.fileName || prevMeta.fileName || '',
+    },
+  };
+  if (isUuid(batch.id)) {
+    const saved = await unwrap(
+      sb().from('expense_imports').update(row).eq('id', batch.id).select().single()
+    );
+    return M.expenseImportFromRow(saved);
+  }
+  const saved = await unwrap(sb().from('expense_imports').insert(row).select().single());
+  return M.expenseImportFromRow(saved);
+}
+
+export async function listSupplierEntries() {
+  const rows = await unwrap(
+    sb().from('supplier_entries').select('*').order('entry_date', { ascending: false }).order('created_at', { ascending: false })
+  );
+  return (rows || []).map(M.supplierEntryFromRow);
+}
+
+export async function upsertSupplierEntry(entry) {
+  const prevMeta = entry.meta && typeof entry.meta === 'object' ? entry.meta : {};
+  const row = {
+    entry_type: entry.type || 'otros',
+    supplier_id: isUuid(entry.supplierId) ? entry.supplierId : null,
+    supplier_name: entry.supplierName || '',
+    entry_date: entry.date || new Date().toISOString().slice(0, 10),
+    amount: Number(entry.amount) || 0,
+    concept: entry.concept || '',
+    invoice_number: entry.invoiceNumber || null,
+    notes: entry.notes || null,
+    status: entry.status || 'posted',
+    meta: {
+      ...prevMeta,
+      type: entry.type,
+      typeLabel: entry.typeLabel,
+      effect: entry.effect,
+      supplierId: entry.supplierId,
+      supplierName: entry.supplierName,
+      accessinCode: entry.accessinCode || '',
+      balanceDelta: entry.balanceDelta,
+      invoiceNumber: entry.invoiceNumber || '',
+      notes: entry.notes || '',
+      paymentOrderId: entry.paymentOrderId || null,
+      createdAt: entry.createdAt || null,
+    },
+  };
+  if (isUuid(entry.id)) {
+    const saved = await unwrap(
+      sb().from('supplier_entries').update(row).eq('id', entry.id).select().single()
+    );
+    return M.supplierEntryFromRow(saved);
+  }
+  const saved = await unwrap(sb().from('supplier_entries').insert(row).select().single());
+  return M.supplierEntryFromRow(saved);
+}
+
+export async function listOtherIncomes() {
+  const rows = await unwrap(
+    sb().from('other_incomes').select('*').order('income_date', { ascending: false }).order('created_at', { ascending: false })
+  );
+  return (rows || []).map(M.otherIncomeFromRow);
+}
+
+export async function upsertOtherIncome(item) {
+  const prevMeta = item.meta && typeof item.meta === 'object' ? item.meta : {};
+  const row = {
+    income_date: item.date || new Date().toISOString().slice(0, 10),
+    payer_type: item.payerType || 'manual',
+    payer_name: item.payerName || '',
+    concept: item.concept || '',
+    income_group: item.group || 'uncategorized',
+    payment_method: item.paymentMethod || 'efectivo',
+    amount: Number(item.amount) || 0,
+    notes: item.notes || null,
+    status: item.status || 'posted',
+    meta: {
+      ...prevMeta,
+      payerType: item.payerType,
+      payerTypeLabel: item.payerTypeLabel,
+      payerName: item.payerName,
+      group: item.group,
+      groupLabel: item.groupLabel,
+      paymentMethod: item.paymentMethod,
+      paymentMethodLabel: item.paymentMethodLabel,
+      lines: item.lines || [],
+      documentId: item.documentId || '',
+      address: item.address || '',
+      contact: item.contact || '',
+      operationRef: item.operationRef || '',
+      notes: item.notes || '',
+      signatureLegend: item.signatureLegend || '',
+      attachments: item.attachments || [],
+      createdAt: item.createdAt || null,
+    },
+  };
+  if (isUuid(item.id)) {
+    const saved = await unwrap(
+      sb().from('other_incomes').update(row).eq('id', item.id).select().single()
+    );
+    return M.otherIncomeFromRow(saved);
+  }
+  const saved = await unwrap(sb().from('other_incomes').insert(row).select().single());
+  return M.otherIncomeFromRow(saved);
 }
 
 async function listJsonTable(table, mapFn) {
@@ -1445,10 +1664,17 @@ export async function upsertPaymentOrder(item) {
     payee: item.payee || item.beneficiary || null,
     concept: item.concept || null,
     paymentMethod: item.paymentMethod || null,
+    paymentMethodLabel: item.paymentMethodLabel || null,
     dueDate: item.dueDate || null,
     createdAt: item.createdAt || null,
     updatedAt: item.updatedAt || null,
     journalEntryId: item.journalEntryId || null,
+    invoiceNumber: item.invoiceNumber || null,
+    preparedBy: item.preparedBy || null,
+    authorizedBy: item.authorizedBy || null,
+    withdrawnBy: item.withdrawnBy || null,
+    accessinCode: item.accessinCode || null,
+    importSource: item.importSource || null,
   };
   const row = {
     beneficiary: item.payee || item.beneficiary || 'Beneficiario',
@@ -1607,6 +1833,11 @@ export async function updateProfile(profileId, patch = {}) {
   if (patch.prismaId !== undefined) row.prisma_id = patch.prismaId || null;
   if (patch.role !== undefined) row.role = patch.role;
   if (patch.isActive !== undefined) row.is_active = Boolean(patch.isActive);
+  if (patch.disciplineIds !== undefined) {
+    row.discipline_ids = Array.isArray(patch.disciplineIds)
+      ? patch.disciplineIds.map((id) => String(id).trim().toLowerCase()).filter(Boolean)
+      : [];
+  }
 
   if (patch.firstName !== undefined || patch.lastName !== undefined) {
     const first = patch.firstName !== undefined ? patch.firstName : undefined;
@@ -1767,6 +1998,7 @@ export async function replaceProfileIdentifiers(profileId, identifiers = []) {
 
 const SYSTEM_ROLE_LABELS = {
   member: 'Socio',
+  teacher: 'Profesor',
   staff: 'Personal',
   hr: 'Recursos humanos',
   admin_employee: 'Empleado de administración',

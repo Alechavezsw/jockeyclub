@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import {
   BookOpen, Plus, DollarSign, PieChart, ShieldAlert, CheckCircle2, Trash2, Printer, Search,
   TrendingUp, Book, ListTree, Wallet, Receipt, Truck, HelpCircle, Building2, Repeat, Percent,
-  Scale, FileSpreadsheet,
+  Scale, FileSpreadsheet, Banknote,
 } from 'lucide-react';
 import {
   DEFAULT_CHART_OF_ACCOUNTS,
@@ -21,6 +21,8 @@ import ChartOfAccountsPanel from './erp/ChartOfAccountsPanel';
 import CashRegistersPanel from './erp/CashRegistersPanel';
 import ExpensesPanel from './erp/ExpensesPanel';
 import SuppliersPanel from './erp/SuppliersPanel';
+import RetencionesPanel from './erp/RetencionesPanel';
+import OtherIncomePanel from './erp/OtherIncomePanel';
 import {
   UnidentifiedCollectionsPanel,
   GaliciaDebitsPanel,
@@ -33,7 +35,7 @@ import { allowedAccountingSubtabsForRoles } from '../domain/auth/roles';
 import { useAuth } from '../context/AuthContext';
 
 const TREASURY_TABS = new Set([
-  'cash', 'expenses', 'suppliers',
+  'cash', 'expenses', 'suppliers', 'retenciones', 'other_incomes',
   'unidentified', 'galicia', 'fixed_expenses', 'fixed_discounts', 'balances', 'payment_orders',
 ]);
 
@@ -41,6 +43,8 @@ const TREASURY_HUB_TABS = [
   { key: 'cash', icon: Wallet, label: 'Cajas' },
   { key: 'expenses', icon: Receipt, label: 'Gastos' },
   { key: 'suppliers', icon: Truck, label: 'Proveedores' },
+  { key: 'retenciones', icon: Percent, label: 'Retenciones' },
+  { key: 'other_incomes', icon: Banknote, label: 'Otros ingresos' },
   { key: 'unidentified', icon: HelpCircle, label: 'Sin identificar' },
   { key: 'galicia', icon: Building2, label: 'Galicia' },
   { key: 'fixed_expenses', icon: Repeat, label: 'Gastos fijos' },
@@ -97,6 +101,15 @@ export default function AccountingTab({
   suppliers = [],
   upsertSupplier,
   toggleSupplierStatus,
+  paymentImports = [],
+  onImportSupplierPayments,
+  expenseImports = [],
+  onImportExpenses,
+  onCreateSupplierEntry,
+  otherIncomes = [],
+  onCreateOtherIncome,
+  retenciones = [],
+  upsertRetencion,
   members = [],
   unidentifiedCollections = [],
   upsertUnidentifiedCollection,
@@ -116,6 +129,7 @@ export default function AccountingTab({
   const accountingTabs = allowedAccountingSubtabsForRoles(roles?.length ? roles : (role || 'admin'));
   const [searchParams, setSearchParams] = useSearchParams();
   const subFromUrl = searchParams.get('sub');
+  const importFromUrl = searchParams.get('import');
   const [subTab, setSubTabState] = useState(() =>
     (initialSubTab && accountingTabs.includes(initialSubTab)
       ? initialSubTab
@@ -124,7 +138,7 @@ export default function AccountingTab({
         : accountingTabs[0] || 'diary')
   );
 
-  const setSubTab = (key) => {
+  const setSubTab = (key, opts = {}) => {
     setSubTabState(key);
     const next = new URLSearchParams(searchParams);
     if (key && key !== (accountingTabs[0] || 'diary')) {
@@ -132,6 +146,8 @@ export default function AccountingTab({
     } else {
       next.delete('sub');
     }
+    if (opts.import) next.set('import', String(opts.import));
+    else next.delete('import');
     setSearchParams(next, { replace: true });
   };
 
@@ -1330,10 +1346,14 @@ export default function AccountingTab({
         <ExpensesPanel
           expenses={expenses}
           chartOfAccounts={chartOfAccounts}
+          suppliers={suppliers}
           submitExpense={submitExpense}
           setExpenseApproved={setExpenseApproved}
           setExpenseRejected={setExpenseRejected}
           setExpensePaid={setExpensePaid}
+          expenseImports={expenseImports}
+          onImportExpenses={onImportExpenses}
+          initialView={importFromUrl === 'gastos' ? 'import' : 'list'}
         />
       )}
 
@@ -1343,6 +1363,25 @@ export default function AccountingTab({
           upsertSupplier={upsertSupplier}
           toggleSupplierStatus={toggleSupplierStatus}
           expenses={expenses}
+          paymentImports={paymentImports}
+          onImportSupplierPayments={onImportSupplierPayments}
+          onCreateSupplierEntry={onCreateSupplierEntry}
+          onNavigate={setSubTab}
+        />
+      )}
+
+      {subTab === 'retenciones' && upsertRetencion && (
+        <RetencionesPanel
+          retenciones={retenciones}
+          upsertRetencion={upsertRetencion}
+          suppliers={suppliers}
+        />
+      )}
+
+      {subTab === 'other_incomes' && onCreateOtherIncome && (
+        <OtherIncomePanel
+          items={otherIncomes}
+          onCreate={onCreateOtherIncome}
         />
       )}
 
