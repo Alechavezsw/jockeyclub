@@ -16,6 +16,7 @@ const SECTION_LABELS = {
   disciplines: 'Disciplinas',
   access: 'Ingresos',
   accounting: 'Contabilidad',
+  interest_generators: 'Intereses',
   staff: 'Personal',
   teachers: 'Profesores',
   events: 'Fiestas',

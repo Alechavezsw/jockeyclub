@@ -20,7 +20,7 @@ import MessagingTab from '../components/admin/MessagingTab';
 import ReportsTab from '../components/admin/ReportsTab';
 import SurveysTab from '../components/admin/SurveysTab';
 import MigrationTab from '../components/admin/MigrationTab';
-import DuesControlTab from '../components/admin/DuesControlTab';
+import CuotasPanel from '../components/erp/CuotasPanel';
 import DisciplinesTab from '../components/admin/DisciplinesTab';
 import AccessLogsTab from '../components/admin/AccessLogsTab';
 import ClubFacilitiesPanel from '../components/admin/ClubFacilitiesPanel';
@@ -596,9 +596,21 @@ export default function AdminView({
       )}
 
       {activeTab === 'dues' && (
-        <DuesControlTab
+        <CuotasPanel
           members={members}
           setMembers={setMembers}
+          feePeriods={erp.feePeriods}
+          onUpsertFeePeriods={erp.setFeePeriodsList}
+          collectionImports={erp.memberCollectionImports}
+          onImportCollections={erp.importMemberCollections}
+          onDeleteCollectionImport={erp.deleteMemberCollectionImport}
+          reservations={reservations}
+          onImputeReservation={(r) => {
+            if (!setReservations || !r?.id) return;
+            setReservations((prev) => (prev || []).map((row) => (
+              row.id === r.id ? { ...row, imputed: true, feeImputed: true, imputedAt: new Date().toISOString() } : row
+            )));
+          }}
           addJournalEntry={addJournalEntry}
           formatCurrency={formatCurrency}
           tierCatalog={tierCatalog}
@@ -709,6 +721,13 @@ export default function AdminView({
           onCreateSupplierEntry={erp.createSupplierEntry}
           otherIncomes={erp.otherIncomes}
           onCreateOtherIncome={erp.createOtherIncomeRecord}
+          interestGenerators={erp.interestGenerators}
+          interestRuns={erp.interestRuns}
+          onUpsertInterestGenerator={erp.upsertInterestGeneratorRecord}
+          onDeleteInterestGenerator={erp.deleteInterestGeneratorRecord}
+          onRecordInterestRun={erp.recordInterestRun}
+          onCancelInterestRun={erp.cancelInterestRunRecord}
+          setMembers={setMembers}
           expenseImports={erp.expenseImports}
           onImportExpenses={erp.importExpenses}
           retenciones={erp.retenciones}
@@ -724,6 +743,12 @@ export default function AdminView({
           fixedDiscounts={erp.fixedDiscounts}
           addFixedDiscount={erp.addFixedDiscount}
           toggleFixedDiscount={erp.toggleFixedDiscount}
+          discounts={erp.discounts}
+          onUpsertDiscount={erp.upsertDiscountRecord}
+          onDeleteDiscount={erp.deleteDiscountRecord}
+          feeExpenses={erp.feeExpenses}
+          onUpsertFeeExpense={erp.upsertFeeExpenseRecord}
+          onDeleteFeeExpense={erp.deleteFeeExpenseRecord}
           paymentOrders={erp.paymentOrders}
           upsertPaymentOrder={erp.upsertPaymentOrder}
         />

@@ -23,6 +23,8 @@ import ExpensesPanel from './erp/ExpensesPanel';
 import SuppliersPanel from './erp/SuppliersPanel';
 import RetencionesPanel from './erp/RetencionesPanel';
 import OtherIncomePanel from './erp/OtherIncomePanel';
+import InterestGeneratorPanel from './erp/InterestGeneratorPanel';
+import DiscountsBonusesPanel from './erp/DiscountsBonusesPanel';
 import {
   UnidentifiedCollectionsPanel,
   GaliciaDebitsPanel,
@@ -35,7 +37,7 @@ import { allowedAccountingSubtabsForRoles } from '../domain/auth/roles';
 import { useAuth } from '../context/AuthContext';
 
 const TREASURY_TABS = new Set([
-  'cash', 'expenses', 'suppliers', 'retenciones', 'other_incomes',
+  'cash', 'expenses', 'suppliers', 'retenciones', 'other_incomes', 'interest_generators',
   'unidentified', 'galicia', 'fixed_expenses', 'fixed_discounts', 'balances', 'payment_orders',
 ]);
 
@@ -45,10 +47,11 @@ const TREASURY_HUB_TABS = [
   { key: 'suppliers', icon: Truck, label: 'Proveedores' },
   { key: 'retenciones', icon: Percent, label: 'Retenciones' },
   { key: 'other_incomes', icon: Banknote, label: 'Otros ingresos' },
+  { key: 'interest_generators', icon: Percent, label: 'Intereses' },
   { key: 'unidentified', icon: HelpCircle, label: 'Sin identificar' },
   { key: 'galicia', icon: Building2, label: 'Galicia' },
-  { key: 'fixed_expenses', icon: Repeat, label: 'Gastos fijos' },
   { key: 'fixed_discounts', icon: Percent, label: 'Descuentos' },
+  { key: 'fixed_expenses', icon: Repeat, label: 'Gastos fijos' },
   { key: 'balances', icon: Scale, label: 'Saldos' },
   { key: 'payment_orders', icon: FileSpreadsheet, label: 'Órdenes' },
 ];
@@ -116,6 +119,13 @@ export default function AccountingTab({
   onCreateSupplierEntry,
   otherIncomes = [],
   onCreateOtherIncome,
+  interestGenerators = [],
+  interestRuns = [],
+  onUpsertInterestGenerator,
+  onDeleteInterestGenerator,
+  onRecordInterestRun,
+  onCancelInterestRun,
+  setMembers,
   retenciones = [],
   upsertRetencion,
   members = [],
@@ -129,6 +139,12 @@ export default function AccountingTab({
   fixedDiscounts = [],
   addFixedDiscount,
   toggleFixedDiscount,
+  discounts = [],
+  onUpsertDiscount,
+  onDeleteDiscount,
+  feeExpenses = [],
+  onUpsertFeeExpense,
+  onDeleteFeeExpense,
   paymentOrders = [],
   upsertPaymentOrder,
   initialSubTab = null,
@@ -1403,6 +1419,60 @@ export default function AccountingTab({
         />
       )}
 
+      {subTab === 'interest_generators' && onUpsertInterestGenerator && (
+        <InterestGeneratorPanel
+          generators={interestGenerators}
+          runs={interestRuns}
+          members={members}
+          onUpsertGenerator={onUpsertInterestGenerator}
+          onDeleteGenerator={onDeleteInterestGenerator}
+          onRunGenerator={(result) => {
+            onRecordInterestRun?.(result);
+            if (typeof setMembers === 'function' && result?.memberBalancePatches?.length) {
+              const deltaById = new Map();
+              result.memberBalancePatches.forEach((p) => {
+                deltaById.set(
+                  String(p.memberId),
+                  (deltaById.get(String(p.memberId)) || 0) + (Number(p.delta) || 0)
+                );
+              });
+              setMembers((prev) => (prev || []).map((m) => {
+                const delta = deltaById.get(String(m.memberId));
+                if (!delta) return m;
+                return {
+                  ...m,
+                  outstandingBalance: Math.round(((Number(m.outstandingBalance) || 0) + delta) * 100) / 100,
+                };
+              }));
+            }
+          }}
+          onCancelRun={(runId) => {
+            const run = (interestRuns || []).find((r) => r.id === runId);
+            onCancelInterestRun?.(runId);
+            if (typeof setMembers === 'function' && run?.status === 'completed' && run?.entries?.length) {
+              const deltaById = new Map();
+              run.entries.forEach((e) => {
+                deltaById.set(
+                  String(e.memberId),
+                  (deltaById.get(String(e.memberId)) || 0) - (Number(e.amount) || 0)
+                );
+              });
+              setMembers((prev) => (prev || []).map((m) => {
+                const delta = deltaById.get(String(m.memberId));
+                if (!delta) return m;
+                return {
+                  ...m,
+                  outstandingBalance: Math.max(
+                    0,
+                    Math.round(((Number(m.outstandingBalance) || 0) + delta) * 100) / 100
+                  ),
+                };
+              }));
+            }
+          }}
+        />
+      )}
+
       {subTab === 'unidentified' && upsertUnidentifiedCollection && (
         <UnidentifiedCollectionsPanel
           items={unidentifiedCollections}
@@ -1430,7 +1500,21 @@ export default function AccountingTab({
         />
       )}
 
-      {subTab === 'fixed_discounts' && addFixedDiscount && (
+      {subTab === 'fixed_discounts' && onUpsertDiscount && (
+        <DiscountsBonusesPanel
+          items={discounts}
+          feeExpenses={feeExpenses}
+          fixedExpenses={fixedExpenses}
+          members={members}
+          onUpsert={onUpsertDiscount}
+          onDelete={onDeleteDiscount}
+          onUpsertFeeExpense={onUpsertFeeExpense}
+          onDeleteFeeExpense={onDeleteFeeExpense}
+          onGoExpenses={() => setSubTab('fixed_expenses')}
+        />
+      )}
+
+      {subTab === 'fixed_discounts' && !onUpsertDiscount && addFixedDiscount && (
         <FixedDiscountsPanel
           items={fixedDiscounts}
           onAdd={addFixedDiscount}

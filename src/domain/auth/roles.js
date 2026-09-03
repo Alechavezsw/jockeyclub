@@ -247,7 +247,7 @@ export function allowedAccountingSubtabs(role) {
   if (role === 'superadmin' || role === 'accountant') {
     return [
       'diary', 'mayor', 'create', 'balance', 'results', 'charts', 'plan',
-      'cash', 'expenses', 'suppliers', 'retenciones', 'other_incomes',
+      'cash', 'expenses', 'suppliers', 'retenciones', 'other_incomes', 'interest_generators',
       'unidentified', 'galicia', 'fixed_expenses', 'fixed_discounts', 'balances', 'payment_orders',
     ];
   }

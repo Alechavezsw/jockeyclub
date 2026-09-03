@@ -25,6 +25,22 @@ import {
   upsertBankAccount,
 } from '../domain/accounting/bankAccounts';
 import {
+  cancelInterestRun as cancelInterestRunDomain,
+  softDeleteInterestGenerator,
+  upsertInterestGenerator,
+} from '../domain/accounting/interestGenerators';
+import {
+  resolveDiscounts,
+  softDeleteDiscount,
+  upsertDiscount,
+} from '../domain/accounting/discounts';
+import {
+  resolveFeeExpenses,
+  softDeleteFeeExpense,
+  upsertFeeExpense,
+} from '../domain/accounting/feeExpenses';
+import { resolveFeePeriods } from '../domain/accounting/feeBilling';
+import {
   createExpenseDraft,
   approveExpense,
   rejectExpense,
@@ -142,6 +158,24 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
   const [accessinBankAccounts, setAccessinBankAccounts] = useState(() =>
     resolveBankAccounts(load('jockey-accessin-bank-accounts-v1', null))
   );
+  const [interestGenerators, setInterestGenerators] = useState(() =>
+    load('jockey-interest-generators-v1', [])
+  );
+  const [interestRuns, setInterestRuns] = useState(() =>
+    load('jockey-interest-runs-v1', [])
+  );
+  const [discounts, setDiscounts] = useState(() =>
+    resolveDiscounts(load('jockey-discounts-v1', null))
+  );
+  const [feeExpenses, setFeeExpenses] = useState(() =>
+    resolveFeeExpenses(load('jockey-fee-expenses-v1', null))
+  );
+  const [feePeriods, setFeePeriods] = useState(() =>
+    resolveFeePeriods(load('jockey-fee-periods-v1', null))
+  );
+  const [memberCollectionImports, setMemberCollectionImports] = useState(() =>
+    load('jockey-member-collection-imports-v1', [])
+  );
   const [expenses, setExpenses] = useState(() => load('jockey-expenses', []));
   const [suppliers, setSuppliers] = useState(() => {
     const loaded = load('jockey-suppliers-v3', null);
@@ -227,6 +261,26 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
     } else {
       setAccessinBankAccounts(ACCESSIN_BANK_ACCOUNTS);
     }
+    if (Array.isArray(erp.interestGenerators)) setInterestGenerators(erp.interestGenerators);
+    if (Array.isArray(erp.interestRuns)) setInterestRuns(erp.interestRuns);
+    if (Array.isArray(erp.discounts) && erp.discounts.length) {
+      setDiscounts(resolveDiscounts(erp.discounts));
+    } else {
+      setDiscounts(resolveDiscounts(null));
+    }
+    if (Array.isArray(erp.feeExpenses) && erp.feeExpenses.length) {
+      setFeeExpenses(resolveFeeExpenses(erp.feeExpenses));
+    } else {
+      setFeeExpenses(resolveFeeExpenses(null));
+    }
+    if (Array.isArray(erp.feePeriods) && erp.feePeriods.length) {
+      setFeePeriods(resolveFeePeriods(erp.feePeriods));
+    } else {
+      setFeePeriods(resolveFeePeriods(null));
+    }
+    if (Array.isArray(erp.memberCollectionImports)) {
+      setMemberCollectionImports(erp.memberCollectionImports);
+    }
     if (Array.isArray(erp.expenses)) setExpenses(erp.expenses);
     if (Array.isArray(erp.suppliers)) {
       // Preferir nube cuando ya tiene el padrón Accessin; si no, seed local.
@@ -270,6 +324,12 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
   useEffect(() => persist('jockey-accessin-cobranzas-v1', accessinCobranzas), [accessinCobranzas]);
   useEffect(() => persist('jockey-accessin-supplier-payments-v1', accessinSupplierPayments), [accessinSupplierPayments]);
   useEffect(() => persist('jockey-accessin-bank-accounts-v1', accessinBankAccounts), [accessinBankAccounts]);
+  useEffect(() => persist('jockey-interest-generators-v1', interestGenerators), [interestGenerators]);
+  useEffect(() => persist('jockey-interest-runs-v1', interestRuns), [interestRuns]);
+  useEffect(() => persist('jockey-discounts-v1', discounts), [discounts]);
+  useEffect(() => persist('jockey-fee-expenses-v1', feeExpenses), [feeExpenses]);
+  useEffect(() => persist('jockey-fee-periods-v1', feePeriods), [feePeriods]);
+  useEffect(() => persist('jockey-member-collection-imports-v1', memberCollectionImports), [memberCollectionImports]);
   useEffect(() => persist('jockey-expenses', expenses), [expenses]);
   useEffect(() => persist('jockey-suppliers-v3', suppliers), [suppliers]);
   useEffect(() => persist('jockey-retenciones-v1', retenciones), [retenciones]);
@@ -891,6 +951,63 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
     return result?.movement;
   }, []);
 
+  const upsertInterestGeneratorRecord = useCallback((input) => {
+    setInterestGenerators((prev) => upsertInterestGenerator(prev, input));
+  }, []);
+
+  const deleteInterestGeneratorRecord = useCallback((id) => {
+    setInterestGenerators((prev) => softDeleteInterestGenerator(prev, id));
+  }, []);
+
+  const recordInterestRun = useCallback((result) => {
+    if (!result?.run) return null;
+    setInterestRuns((prev) => [result.run, ...(prev || [])]);
+    return result;
+  }, []);
+
+  const cancelInterestRunRecord = useCallback((runId) => {
+    let cancelled = null;
+    setInterestRuns((prev) => {
+      const current = (prev || []).find((r) => r.id === runId) || null;
+      cancelled = current;
+      return cancelInterestRunDomain(prev, runId);
+    });
+    return cancelled;
+  }, []);
+
+  const upsertDiscountRecord = useCallback((input) => {
+    setDiscounts((prev) => upsertDiscount(prev, input));
+  }, []);
+
+  const deleteDiscountRecord = useCallback((id) => {
+    setDiscounts((prev) => softDeleteDiscount(prev, id));
+  }, []);
+
+  const upsertFeeExpenseRecord = useCallback((input) => {
+    setFeeExpenses((prev) => upsertFeeExpense(prev, input));
+  }, []);
+
+  const deleteFeeExpenseRecord = useCallback((id) => {
+    setFeeExpenses((prev) => softDeleteFeeExpense(prev, id));
+  }, []);
+
+  const setFeePeriodsList = useCallback((next) => {
+    setFeePeriods(Array.isArray(next) ? next : []);
+  }, []);
+
+  const importMemberCollections = useCallback(async (built) => {
+    const batch = built?.batch;
+    if (!batch) return null;
+    setMemberCollectionImports((prev) => [batch, ...(prev || [])]);
+    return batch;
+  }, []);
+
+  const deleteMemberCollectionImport = useCallback((id) => {
+    setMemberCollectionImports((prev) => (prev || []).map((b) => (
+      b.id === id ? { ...b, status: 'deleted' } : b
+    )));
+  }, []);
+
   const upsertUnidentifiedCollection = useCallback((item) => {
     const run = async () => {
       let nextItem = item;
@@ -1125,6 +1242,12 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
     accessinCobranzas,
     accessinSupplierPayments,
     accessinBankAccounts,
+    interestGenerators,
+    interestRuns,
+    discounts,
+    feeExpenses,
+    feePeriods,
+    memberCollectionImports,
     expenses,
     suppliers,
     retenciones,
@@ -1163,6 +1286,17 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
     upsertAccessinBankAccount,
     deleteAccessinBankAccount,
     addAccessinBankAccountEntry,
+    upsertInterestGeneratorRecord,
+    deleteInterestGeneratorRecord,
+    recordInterestRun,
+    cancelInterestRunRecord,
+    upsertDiscountRecord,
+    deleteDiscountRecord,
+    upsertFeeExpenseRecord,
+    deleteFeeExpenseRecord,
+    setFeePeriodsList,
+    importMemberCollections,
+    deleteMemberCollectionImport,
     upsertUnidentifiedCollection,
     upsertGaliciaDebit,
     addFixedExpense,

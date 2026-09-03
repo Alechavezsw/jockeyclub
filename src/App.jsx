@@ -50,10 +50,21 @@ function RouteFallback() {
   );
 }
 
-// Datos de semilla predeterminados para socios de Jockey Club San Juan (con teléfonos 264 y adherentes)
+// Semilla mínima para modo local (login demo socio). El padrón real viene de Supabase/datita.
+const DEMO_MEMBER_IDS = new Set([
+  '2020445599881122', // Victoria Cantoni
+  '2018776655443322', // Adolfo Sarmiento
+  '2022112233445566', // Bautista Del Carril
+  '2024990088776655', // Isabel Albarracín
+]);
+
+function isDemoMember(m) {
+  return DEMO_MEMBER_IDS.has(String(m?.memberId || ''));
+}
+
 const DEFAULT_MEMBERS = [
   {
-    name: 'Alejandro Chávez', // El socio activo predeterminado
+    name: 'Alejandro Chávez',
     memberId: '2026887744320988',
     phone: '+5492645551234',
     phoneAlt: '+5492645551299',
@@ -77,69 +88,15 @@ const DEFAULT_MEMBERS = [
     taxCondition: 'Consumidor Final',
     disciplines: ['Tenis', 'Pádel', 'Equitación'],
     tier: 'socio_familiar',
-    outstandingBalance: 32000, // Saldo inicial para demostrar el flujo de cobro
+    outstandingBalance: 0,
     yearsActive: 5,
     status: 'active',
-    nextDueDate: '2026-06-01',
-    overdueSince: '2026-06-01',
+    nextDueDate: '2026-10-01',
     adherents: [
       { id: 'adh-01', name: 'Sofía Chávez', tier: 'socio_familiar', relationship: 'Hijo/a', outstandingBalance: 0, status: 'active' },
-      { id: 'adh-02', name: 'María Inés de Chávez', tier: 'socio_familiar', relationship: 'Cónyuge', outstandingBalance: 0, status: 'active' }
-    ]
+      { id: 'adh-02', name: 'María Inés de Chávez', tier: 'socio_familiar', relationship: 'Cónyuge', outstandingBalance: 0, status: 'active' },
+    ],
   },
-  {
-    name: 'Victoria Cantoni',
-    memberId: '2020445599881122',
-    phone: '+5492644445678',
-    tier: 'grupo_familiar_familiar',
-    outstandingBalance: 0,
-    yearsActive: 8,
-    status: 'active',
-    nextDueDate: '2026-07-28', // próxima a vencer
-    disciplines: ['Hockey', 'Fitness'],
-    adherents: []
-  },
-  {
-    name: 'Adolfo Sarmiento',
-    memberId: '2018776655443322',
-    phone: '+5492646669876',
-    tier: 'socio_vitalicio',
-    outstandingBalance: 0,
-    yearsActive: 12,
-    status: 'active',
-    nextDueDate: '2026-08-15',
-    disciplines: ['Hípica', 'Golf'],
-    adherents: [
-      { id: 'adh-03', name: 'Adolfo Sarmiento (Hijo)', tier: 'grupo_familiar_vitalicio', relationship: 'Hijo/a', outstandingBalance: 0, status: 'active', disciplines: ['Hípica'] }
-    ]
-  },
-  {
-    name: 'Bautista Del Carril',
-    memberId: '2022112233445566',
-    phone: '+5492642222333',
-    tier: 'socio_individual',
-    outstandingBalance: 45000,
-    yearsActive: 4,
-    status: 'active',
-    nextDueDate: '2026-05-10',
-    overdueSince: '2026-05-10',
-    disciplines: ['Rugby', 'Fútbol'],
-    adherents: [
-      { id: 'adh-04', name: 'Delfina Del Carril', tier: 'socio_individual', relationship: 'Hijo/a', outstandingBalance: 12000, status: 'active', disciplines: ['Tenis'] }
-    ]
-  },
-  {
-    name: 'Isabel Albarracín',
-    memberId: '2024990088776655',
-    phone: '+5492649999888',
-    tier: 'abono_tenis',
-    outstandingBalance: 0,
-    yearsActive: 2,
-    status: 'active',
-    nextDueDate: '2026-07-30', // próxima a vencer
-    disciplines: ['Natación', 'Voleibol', 'Fitness'],
-    adherents: []
-  }
 ];
 
 // Datos de semilla predeterminados para reservas (alineados con canchas de San Juan)
@@ -157,13 +114,8 @@ function isDemoReservation(r) {
   if (isDatitaReservation(r)) return false;
   const id = r.id;
   if (typeof id === 'number' && id <= 10) return true;
-  const demoMembers = new Set([
-    '2020445599881122',
-    '2022112233445566',
-    '2026887744320988',
-  ]);
   const demoFacilities = new Set(['rugby_masc', 'tenis_trad', 'fitness', 'padel_vidrio']);
-  return demoMembers.has(String(r.memberId || '')) && demoFacilities.has(String(r.facilityId || ''));
+  return isDemoMember({ memberId: r.memberId }) && demoFacilities.has(String(r.facilityId || ''));
 }
 
 function pickReservations(preferred, fallbackSeed = SEED_DATITA_RESERVAS) {
@@ -790,12 +742,15 @@ export default function App() {
     const local = localStorage.getItem('jockey-members');
     const stored = local ? JSON.parse(local) : null;
     const defaultsById = Object.fromEntries(DEFAULT_MEMBERS.map((m) => [m.memberId, m]));
-    const base = !stored
+    const cleanedStored = Array.isArray(stored)
+      ? stored.filter((m) => !isDemoMember(m))
+      : null;
+    const base = !cleanedStored?.length
       ? DEFAULT_MEMBERS
-      : stored.map((m) => {
+      : cleanedStored.map((m) => {
           const seed = defaultsById[m.memberId];
           if (!seed) return m;
-          return {
+          const merged = {
             ...seed,
             ...m,
             // Completar ficha con datos de semilla si faltan en localStorage
@@ -812,6 +767,16 @@ export default function App() {
             disciplines: m.disciplines?.length ? m.disciplines : seed.disciplines,
             adherents: m.adherents?.length ? m.adherents : seed.adherents,
           };
+          // Limpiar deuda demo del socio de login local
+          if (m.memberId === '2026887744320988') {
+            return {
+              ...merged,
+              outstandingBalance: 0,
+              nextDueDate: seed.nextDueDate,
+              overdueSince: undefined,
+            };
+          }
+          return merged;
         });
     // Cuota vencida → deuda generada sola (sin botón manual)
     return attachHouseholdToMembers(applyAutomaticDues(base));
@@ -1362,7 +1327,8 @@ export default function App() {
           (async () => {
             let deferredStarted = false;
             const paintMembers = (rawMembers, { keepCount = true } = {}) => {
-              const withDues = applyAutomaticDues(rawMembers || []);
+              const cleaned = (rawMembers || []).filter((m) => !isDemoMember(m));
+              const withDues = applyAutomaticDues(cleaned);
               const withFamily = attachHouseholdToMembers(withDues);
               setMembers(withFamily);
               if (keepCount) {
