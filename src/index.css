@@ -12856,7 +12856,7 @@ select.form-input,
   color: #93c5fd;
 }
 
-/* —— Cuotas LILA —— */
+/* -- Cuotas LILA -- */
 .cuotas-panel { display: flex; flex-direction: column; gap: 1rem; }
 .cuotas-toolbar {
   display: flex;
