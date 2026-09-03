@@ -11997,3 +11997,348 @@ select.form-input,
   .oi-field-row { grid-template-columns: 1fr; }
   .oi-field-label { padding-top: 0; }
 }
+
+/* Cajas Accessin / LILA */
+.cash-lila-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: center;
+}
+.cash-lila-section-title {
+  margin: 0 0 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-gold, #b08d57);
+}
+.cash-lila-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.75rem;
+}
+.cash-lila-card {
+  border: 1px solid var(--border-glass);
+  border-radius: 12px;
+  padding: 0.95rem 1rem;
+  background: rgba(0, 0, 0, 0.16);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.cash-lila-card.is-total {
+  border-color: color-mix(in srgb, var(--emerald-accent) 35%, var(--border-glass));
+}
+.cash-lila-card-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 650;
+}
+.cash-lila-card-value {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: var(--emerald-accent);
+  line-height: 1.2;
+}
+.cash-lila-card-ccy {
+  margin-left: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.cash-lila-card-caption {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.cash-lila-card-btn {
+  margin-top: 0.35rem;
+  appearance: none;
+  border: none;
+  cursor: pointer;
+  align-self: flex-start;
+  background: color-mix(in srgb, var(--text-gold, #b08d57) 22%, transparent);
+  color: var(--text-primary);
+  border: 1px solid color-mix(in srgb, var(--text-gold, #b08d57) 45%, transparent);
+  border-radius: 8px;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.cash-lila-card-btn:hover {
+  background: color-mix(in srgb, var(--text-gold, #b08d57) 35%, transparent);
+}
+.cash-lila-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--text-muted);
+}
+.cash-lila-search .form-input {
+  min-width: 180px;
+}
+.cash-lila-row-actions {
+  display: inline-flex;
+  gap: 0.3rem;
+}
+.cash-lila-icon-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  border: 1px solid var(--border-glass);
+  background: rgba(255,255,255,0.04);
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.cash-lila-icon-btn.is-view { color: #c4b5fd; }
+.cash-lila-icon-btn.is-print { color: var(--text-gold, #b08d57); }
+.cash-lila-icon-btn.is-del { color: #fca5a5; }
+.cash-lila-icon-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.cash-lila-see-all {
+  margin-top: 0.75rem;
+  width: 100%;
+  appearance: none;
+  cursor: pointer;
+  border: none;
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #060e0a;
+  background: var(--primary-gold, #d4af37);
+}
+.cash-lila-see-all:hover { filter: brightness(1.05); }
+
+.cash-lila-balance-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+.cash-lila-cards--lila {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.cash-lila-card--icon {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.85rem;
+  padding: 1.05rem 1.1rem;
+  background: rgba(255, 255, 255, 0.03);
+}
+.cash-lila-card-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: color-mix(in srgb, var(--emerald-accent) 22%, transparent);
+  color: var(--emerald-accent);
+  border: 1px solid color-mix(in srgb, var(--emerald-accent) 35%, transparent);
+}
+.cash-lila-card-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+.cash-lila-card-value.is-muted {
+  color: var(--text-muted);
+}
+.cash-lila-card-value.is-total {
+  font-size: 1.55rem;
+  color: color-mix(in srgb, var(--emerald-accent) 85%, white);
+}
+.cash-lila-card--total {
+  max-width: 360px;
+  border-color: color-mix(in srgb, var(--emerald-accent) 40%, var(--border-glass));
+  background: color-mix(in srgb, var(--emerald-accent) 8%, transparent);
+}
+.cash-lila-card--icon .cash-lila-card-btn {
+  margin-top: 0.25rem;
+  background: color-mix(in srgb, #7c3aed 55%, transparent);
+  border-color: color-mix(in srgb, #7c3aed 70%, transparent);
+  color: #f5f3ff;
+}
+.cash-lila-card--icon .cash-lila-card-btn:hover {
+  background: color-mix(in srgb, #7c3aed 75%, transparent);
+}
+@media (max-width: 980px) {
+  .cash-lila-cards--lila {
+    grid-template-columns: 1fr;
+  }
+  .cash-lila-card--total {
+    max-width: none;
+  }
+}
+
+.cash-efectivo-registro {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+.cash-efectivo-registro-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+.cash-efectivo-registro-meta {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+.cash-efectivo-registro-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.cash-efectivo-registro-toolbar .form-input {
+  min-width: min(280px, 100%);
+  flex: 1;
+}
+.cash-efectivo-pager {
+  display: inline-flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.cash-efectivo-page-btn {
+  appearance: none;
+  border: 1px solid var(--border-glass);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  border-radius: 8px;
+  min-width: 2rem;
+  height: 2rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+.cash-efectivo-page-btn.is-active {
+  background: color-mix(in srgb, #7c3aed 55%, transparent);
+  border-color: color-mix(in srgb, #7c3aed 70%, transparent);
+  color: #f5f3ff;
+  font-weight: 700;
+}
+.cash-efectivo-ellipsis {
+  color: var(--text-muted);
+  padding: 0 0.15rem;
+}
+.cash-efectivo-saldo-row td {
+  border-top: 1px solid var(--border-glass);
+  padding-top: 0.85rem;
+}
+.cash-efectivo-registro-foot {
+  display: flex;
+  justify-content: flex-end;
+}
+.cash-payment-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.cash-payment-detail-section h4 {
+  margin: 0 0 0.55rem;
+  font-size: 0.92rem;
+}
+.cash-payment-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+.cash-payment-detail-label {
+  display: block;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 0.2rem;
+}
+.cash-payment-methods {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+.cash-payment-method-card {
+  border: 1px solid var(--border-glass);
+  border-radius: 12px;
+  padding: 0.85rem;
+  background: rgba(255, 255, 255, 0.03);
+}
+.cash-payment-method-title {
+  font-weight: 700;
+  margin-bottom: 0.55rem;
+  text-transform: uppercase;
+  font-size: 0.85rem;
+}
+.cash-payment-detail-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+@media (max-width: 720px) {
+  .cash-payment-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.cash-bank-accounts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+.cash-bank-accounts-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.cash-bank-accounts-actions {
+  display: inline-flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.cash-lila-purple-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: color-mix(in srgb, #7c3aed 70%, transparent);
+  border: 1px solid color-mix(in srgb, #7c3aed 80%, transparent);
+  color: #f5f3ff;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-size: 0.78rem;
+}
+.cash-lila-purple-btn:hover {
+  background: color-mix(in srgb, #7c3aed 85%, transparent);
+}
+.cash-lila-purple-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.cash-lila-icon-btn.is-cc {
+  color: #ddd6fe;
+  gap: 0.2rem;
+  min-width: 2.1rem;
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+.cash-lila-icon-btn.is-edit {
+  color: #93c5fd;
+}

@@ -7,6 +7,16 @@ import {
   ArrowUpRight,
   ArrowLeftRight,
   ClipboardCheck,
+  Plus,
+  RefreshCw,
+  Eye,
+  Printer,
+  Trash2,
+  Search,
+  Landmark,
+  Banknote,
+  FolderOpen,
+  CircleDollarSign,
 } from 'lucide-react';
 import { accountLabel } from '../../domain/accounting/chartOfAccounts';
 import {
@@ -16,10 +26,32 @@ import {
   closedSessions,
   isLiquidAccount,
 } from '../../domain/accounting/cash';
+import {
+  ACCESSIN_CASH_AS_OF,
+  ACCESSIN_CASH_SNAPSHOT,
+  ACCESSIN_CHEQUES,
+  ACCESSIN_CHEQUES_AS_OF,
+  accessinCashBalanceCards,
+  enrichCashMovementsWithMembers,
+  filterAccessinCashMovements,
+  filterAccessinCheques,
+  formatAccessinCashDate,
+  recalculateAccessinCashTotal,
+} from '../../domain/accounting/cashLedger';
 import { formatCurrency } from '../../domain/accounting/journal';
+import CashCobranzasSection from './CashCobranzasSection';
+import CashBankAccountsSection from './CashBankAccountsSection';
+import CashEfectivoRegistroSection from './CashEfectivoRegistroSection';
+import CashSupplierPaymentsSection from './CashSupplierPaymentsSection';
+import { ACCESSIN_COBRANZAS } from '../../domain/accounting/cobranzas';
+import { ACCESSIN_SUPPLIER_PAYMENTS } from '../../domain/accounting/supplierPaymentsReport';
+import { ACCESSIN_BANK_ACCOUNTS } from '../../domain/accounting/bankAccounts';
 
 const PANEL_TABS = [
-  { id: 'moves', label: 'Movimientos' },
+  { id: 'ledger', label: 'Saldo y movimientos' },
+  { id: 'cobranzas', label: 'Cobranzas' },
+  { id: 'supplier_payments', label: 'Pago a proveedores' },
+  { id: 'moves', label: 'Operación' },
   { id: 'transfers', label: 'Traspasos' },
   { id: 'closures', label: 'Cierres' },
 ];
@@ -43,18 +75,40 @@ function moveTypeColor(type) {
   return 'var(--text-secondary)';
 }
 
+function CashBalanceIcon({ kind }) {
+  if (kind === 'cash') return <Banknote size={22} />;
+  if (kind === 'checks') return <FolderOpen size={22} />;
+  if (kind === 'bank') return <Landmark size={22} />;
+  return <CircleDollarSign size={22} />;
+}
+
+function formatCashAmount(value, { withArs = false } = {}) {
+  const base = formatCurrency(value);
+  return withArs ? `${base} (ARS)` : base;
+}
+
 export default function CashRegistersPanel({
   cashRegisters,
   cashSessions,
   cashMovements,
+  accessinCashMovements = [],
+  accessinCheques = ACCESSIN_CHEQUES,
+  accessinCobranzas = ACCESSIN_COBRANZAS,
+  accessinSupplierPayments = ACCESSIN_SUPPLIER_PAYMENTS,
+  accessinBankAccounts = ACCESSIN_BANK_ACCOUNTS,
+  upsertBankAccount,
+  deleteBankAccount,
+  addBankAccountEntry,
   chartOfAccounts,
+  members = [],
   openRegister,
   closeRegister,
   addCashMovement,
   transferCash,
+  onNavigate,
 }) {
   const [selectedRegisterId, setSelectedRegisterId] = useState(cashRegisters[0]?.id || '');
-  const [panelTab, setPanelTab] = useState('moves');
+  const [panelTab, setPanelTab] = useState('ledger');
   const [openingBalance, setOpeningBalance] = useState('50000');
   const [countedBalance, setCountedBalance] = useState('');
   const [moveForm, setMoveForm] = useState({
@@ -70,6 +124,13 @@ export default function CashRegistersPanel({
   });
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [ledgerFilter, setLedgerFilter] = useState({
+    view: 'movements', // movements | cheques | efectivo_registro | bank_accounts
+    walletKind: null,
+    query: '',
+    showAll: false,
+  });
+  const [recalcTotal, setRecalcTotal] = useState(null);
 
   const selectedRegister = cashRegisters.find((r) => r.id === selectedRegisterId);
   const openSession = useMemo(
@@ -79,6 +140,39 @@ export default function CashRegistersPanel({
 
   const expected = openSession ? sessionExpectedBalance(openSession, cashMovements) : 0;
   const sessionMoves = cashMovements.filter((m) => openSession && m.cashSessionId === openSession.id);
+
+  const enrichedLedger = useMemo(
+    () => enrichCashMovementsWithMembers(accessinCashMovements, members),
+    [accessinCashMovements, members]
+  );
+
+  const balanceCards = useMemo(() => {
+    const cards = accessinCashBalanceCards(
+      ACCESSIN_CASH_SNAPSHOT,
+      enrichedLedger,
+      accessinCheques,
+      accessinBankAccounts
+    );
+    if (recalcTotal == null) return cards;
+    return cards.map((c) => (c.id === 'total' ? { ...c, value: recalcTotal } : c));
+  }, [enrichedLedger, accessinCheques, accessinBankAccounts, recalcTotal]);
+
+  const chequeRows = useMemo(
+    () => filterAccessinCheques(accessinCheques, {
+      status: 'in_portfolio',
+      query: ledgerFilter.query,
+    }),
+    [accessinCheques, ledgerFilter.query]
+  );
+
+  const ledgerRows = useMemo(() => {
+    const limit = ledgerFilter.showAll ? null : 25;
+    return filterAccessinCashMovements(enrichedLedger, {
+      walletKind: ledgerFilter.walletKind,
+      query: ledgerFilter.query,
+      limit,
+    });
+  }, [enrichedLedger, ledgerFilter]);
 
   const relatedAccounts = useMemo(
     () =>
@@ -130,54 +224,50 @@ export default function CashRegistersPanel({
     try {
       fn();
     } catch (err) {
-      setError(err.message || 'Error operativo de caja');
+      setError(err.message || 'Error en caja');
     }
   };
 
   const fieldGrid = {
     display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
     gap: '0.75rem',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
     alignItems: 'end',
   };
 
   return (
-    <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-      <div>
-        <h4 className="serif-font" style={{ fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <Wallet size={18} /> Cajas y Arqueos
-        </h4>
-        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-          Apertura, movimientos, traspasos y cierres con impacto en asientos contables.
-        </p>
-      </div>
-
-      <div className="cash-register-grid">
-        {cashRegisters.map((reg) => {
-          const open = getOpenSession(cashSessions, reg.id);
-          const bal = open ? sessionExpectedBalance(open, cashMovements) : null;
-          const selected = selectedRegisterId === reg.id;
-          return (
-            <button
-              key={reg.id}
-              type="button"
-              className={`cash-register-card${selected ? ' is-selected' : ''}${open ? ' is-open' : ''}`}
-              onClick={() => setSelectedRegisterId(reg.id)}
-            >
-              <div className="cash-register-card__top">
-                <span className="cash-register-card__code">{reg.code}</span>
-                <span className={`cash-register-card__badge${open ? ' is-open' : ''}`}>
-                  {open ? 'Abierta' : 'Cerrada'}
-                </span>
-              </div>
-              <strong className="cash-register-card__name">{reg.name}</strong>
-              <span className="cash-register-card__meta">{reg.location || 'Sede Rivadavia'}</span>
-              <span className="cash-register-card__balance">
-                {open ? formatCurrency(bal) : 'Sin sesión'}
-              </span>
-            </button>
-          );
-        })}
+    <div className="fade-in cash-lila-panel" style={{ display: 'flex', flexDirection: 'column', gap: '1.15rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+        <div>
+          <h4 className="serif-font" style={{ margin: 0, fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Wallet size={18} /> Cajas
+            <span className="suppliers-accessin-badge">Accessin · {formatAccessinCashDate(ACCESSIN_CASH_AS_OF)}</span>
+          </h4>
+          <p style={{ margin: '0.35rem 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+            Movimientos reales ({enrichedLedger.length}) · período {formatAccessinCashDate(ACCESSIN_CASH_SNAPSHOT.periodFrom)} → {formatAccessinCashDate(ACCESSIN_CASH_SNAPSHOT.periodTo)}.
+          </p>
+        </div>
+        <div className="cash-lila-actions">
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => {
+              const total = recalculateAccessinCashTotal(ACCESSIN_CASH_SNAPSHOT, enrichedLedger);
+              setRecalcTotal(total);
+              setMessage(`Balances recalculados · Total ${formatCurrency(total)}`);
+              setPanelTab('ledger');
+            }}
+          >
+            <RefreshCw size={14} /> Recalcular balances
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => (typeof onNavigate === 'function' ? onNavigate('other_incomes') : null)}
+          >
+            <Plus size={14} /> Entradas
+          </button>
+        </div>
       </div>
 
       <div className="cash-panel-tabs">
@@ -196,7 +286,296 @@ export default function CashRegistersPanel({
       {error && <div style={{ color: '#ef4444', fontSize: '0.9rem' }}>{error}</div>}
       {message && <div style={{ color: 'var(--emerald-accent)', fontSize: '0.9rem' }}>{message}</div>}
 
-      {!openSession && panelTab !== 'closures' ? (
+      {panelTab === 'ledger' && ledgerFilter.view === 'efectivo_registro' ? (
+        <CashEfectivoRegistroSection
+          movements={accessinCashMovements}
+          cobranzas={accessinCobranzas}
+          members={members}
+          onBack={() => setLedgerFilter((f) => ({
+            ...f,
+            view: 'movements',
+            walletKind: null,
+            showAll: false,
+            query: '',
+          }))}
+        />
+      ) : null}
+
+      {panelTab === 'ledger' && ledgerFilter.view === 'bank_accounts' ? (
+        <CashBankAccountsSection
+          accounts={accessinBankAccounts}
+          movements={accessinCashMovements}
+          members={members}
+          onUpsert={(input) => {
+            if (!upsertBankAccount) throw new Error('No se puede guardar la cuenta.');
+            upsertBankAccount(input);
+          }}
+          onDelete={(id) => {
+            if (!deleteBankAccount) throw new Error('No se puede eliminar la cuenta.');
+            deleteBankAccount(id);
+          }}
+          onAddEntry={(accountId, entry) => {
+            if (!addBankAccountEntry) throw new Error('No se puede registrar la entrada.');
+            addBankAccountEntry(accountId, entry);
+          }}
+          onBack={() => setLedgerFilter((f) => ({
+            ...f,
+            view: 'movements',
+            walletKind: null,
+            showAll: false,
+            query: '',
+          }))}
+        />
+      ) : null}
+
+      {panelTab === 'ledger' && ledgerFilter.view !== 'efectivo_registro' && ledgerFilter.view !== 'bank_accounts' && (
+        <>
+          <div className="cash-lila-balance-block">
+            <div className="cash-lila-cards cash-lila-cards--lila">
+              {balanceCards.filter((c) => c.id !== 'total').map((card) => (
+                <div
+                  key={card.id}
+                  className={`cash-lila-card cash-lila-card--icon${card.muted ? ' is-muted' : ''}`}
+                >
+                  <div className="cash-lila-card-icon" aria-hidden>
+                    <CashBalanceIcon kind={card.icon} />
+                  </div>
+                  <div className="cash-lila-card-main">
+                    <div className={`cash-lila-card-value${card.muted ? ' is-muted' : ''}`}>
+                      {formatCashAmount(card.value, { withArs: Boolean(card.currencyHint) })}
+                    </div>
+                    <div className="cash-lila-card-label">{card.label}</div>
+                    {card.caption ? (
+                      <div className="cash-lila-card-caption">{card.caption}</div>
+                    ) : null}
+                    {card.actionLabel ? (
+                      <button
+                        type="button"
+                        className="cash-lila-card-btn"
+                        onClick={() => setLedgerFilter((f) => ({
+                          ...f,
+                          view: card.filter?.view || 'movements',
+                          walletKind: card.filter?.walletKind || null,
+                          showAll: false,
+                          query: '',
+                        }))}
+                      >
+                        {card.actionLabel}
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {balanceCards.filter((c) => c.id === 'total').map((card) => (
+              <div key={card.id} className="cash-lila-card cash-lila-card--icon cash-lila-card--total">
+                <div className="cash-lila-card-icon" aria-hidden>
+                  <CashBalanceIcon kind="total" />
+                </div>
+                <div className="cash-lila-card-main">
+                  <div className="cash-lila-card-value is-total">
+                    {formatCashAmount(card.value)}
+                  </div>
+                  <div className="cash-lila-card-label">{card.label}</div>
+                  {card.caption ? (
+                    <div className="cash-lila-card-caption">{card.caption}</div>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '0.65rem' }}>
+              <h5 className="cash-lila-section-title" style={{ margin: 0 }}>
+                {ledgerFilter.view === 'cheques'
+                  ? `Cheques en cartera · ${formatAccessinCashDate(ACCESSIN_CHEQUES_AS_OF)}`
+                  : ledgerFilter.showAll
+                    ? 'Movimientos de caja'
+                    : 'Últimos movimientos de caja'}
+              </h5>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                {(ledgerFilter.walletKind || ledgerFilter.view === 'cheques') ? (
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setLedgerFilter((f) => ({
+                      ...f,
+                      view: 'movements',
+                      walletKind: null,
+                      showAll: false,
+                    }))}
+                  >
+                    Volver a movimientos
+                  </button>
+                ) : null}
+                <label className="cash-lila-search">
+                  <Search size={14} />
+                  <input
+                    className="form-input"
+                    placeholder={ledgerFilter.view === 'cheques' ? 'Buscar n°, banco, librador…' : 'Buscar socio, tipo, #'}
+                    value={ledgerFilter.query}
+                    onChange={(e) => setLedgerFilter((f) => ({ ...f, query: e.target.value }))}
+                  />
+                </label>
+              </div>
+            </div>
+
+            {ledgerFilter.view === 'cheques' ? (
+              <div className="table-responsive">
+                <table className="admin-table cash-lila-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>N° cheque</th>
+                      <th>Banco</th>
+                      <th>Sucursal</th>
+                      <th>Librador</th>
+                      <th>Quién entrega</th>
+                      <th>Entrada</th>
+                      <th>Vencimiento</th>
+                      <th>Monto</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {chequeRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} style={{ color: 'var(--text-muted)' }}>
+                          Sin cheques en cartera al {formatAccessinCashDate(ACCESSIN_CHEQUES_AS_OF)} (Accessin/LILA).
+                        </td>
+                      </tr>
+                    ) : (
+                      chequeRows.map((row) => (
+                        <tr key={row.id}>
+                          <td>{row.accessinId}</td>
+                          <td>{row.checkNumber || '—'}</td>
+                          <td>{row.bankName || '—'}</td>
+                          <td>{row.bankBranch || '—'}</td>
+                          <td>{row.drawer || '—'}</td>
+                          <td>{row.deliveredBy || '—'}</td>
+                          <td>{formatAccessinCashDate(row.enteredAt)}</td>
+                          <td>{formatAccessinCashDate(row.dueAt)}</td>
+                          <td style={{ fontWeight: 700, color: 'var(--emerald-accent)' }}>
+                            {formatCurrency(row.amount)}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <>
+                <div className="table-responsive">
+                  <table className="admin-table cash-lila-table">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Fecha</th>
+                        <th>Tipo</th>
+                        <th>Descripción</th>
+                        <th>Socio</th>
+                        <th>Grupo familiar</th>
+                        <th>Monto</th>
+                        <th>Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ledgerRows.length === 0 ? (
+                        <tr>
+                          <td colSpan={8} style={{ color: 'var(--text-muted)' }}>
+                            No hay movimientos con este filtro.
+                          </td>
+                        </tr>
+                      ) : (
+                        ledgerRows.map((row) => (
+                          <tr key={row.id}>
+                            <td>{row.accessinId}</td>
+                            <td>{formatAccessinCashDate(row.date)}</td>
+                            <td>{row.typeLabel}</td>
+                            <td>{row.description || '—'}</td>
+                            <td>{row.memberName || '—'}</td>
+                            <td>{row.familyGroup || '—'}</td>
+                            <td style={{ fontWeight: 700, color: 'var(--emerald-accent)' }}>
+                              {formatCashAmount(row.amount, { withArs: true })}
+                            </td>
+                            <td>
+                              <div className="cash-lila-row-actions">
+                                <button type="button" className="cash-lila-icon-btn is-print" title="Recibo" aria-label="Recibo">
+                                  <Printer size={13} />
+                                </button>
+                                <button type="button" className="cash-lila-icon-btn is-view" title="Ver" aria-label="Ver">
+                                  <Eye size={13} />
+                                </button>
+                                <button type="button" className="cash-lila-icon-btn is-del" title="Eliminar" aria-label="Eliminar" disabled>
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {!ledgerFilter.showAll ? (
+                  <button
+                    type="button"
+                    className="cash-lila-see-all"
+                    onClick={() => setLedgerFilter((f) => ({ ...f, showAll: true }))}
+                  >
+                    Ver todos los movimientos de caja
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    style={{ marginTop: '0.65rem' }}
+                    onClick={() => setLedgerFilter((f) => ({ ...f, showAll: false }))}
+                  >
+                    Ver solo últimos 25
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        </>
+      )}
+
+      {panelTab === 'cobranzas' && (
+        <CashCobranzasSection items={accessinCobranzas} />
+      )}
+
+      {panelTab === 'supplier_payments' && (
+        <CashSupplierPaymentsSection items={accessinSupplierPayments} />
+      )}
+
+      {panelTab !== 'ledger' && panelTab !== 'cobranzas' && panelTab !== 'supplier_payments' && (
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          {cashRegisters.map((reg) => {
+            const open = getOpenSession(cashSessions, reg.id);
+            const bal = open ? sessionExpectedBalance(open, cashMovements) : null;
+            return (
+              <button
+                key={reg.id}
+                type="button"
+                className="btn btn-sm"
+                style={{
+                  border: selectedRegisterId === reg.id ? '1px solid var(--text-gold)' : '1px solid var(--border-glass)',
+                  background: selectedRegisterId === reg.id ? 'rgba(212,175,55,0.12)' : 'transparent',
+                }}
+                onClick={() => setSelectedRegisterId(reg.id)}
+              >
+                {reg.name}
+                {open ? ` · ${formatCurrency(bal)}` : ' · cerrada'}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {!openSession && panelTab !== 'closures' && panelTab !== 'ledger' && panelTab !== 'cobranzas' && panelTab !== 'supplier_payments' ? (
         <div
           style={{
             border: '1px solid var(--border-glass)',
@@ -234,7 +613,7 @@ export default function CashRegistersPanel({
         </div>
       ) : null}
 
-      {openSession && (
+      {openSession && panelTab !== 'ledger' && panelTab !== 'cobranzas' && panelTab !== 'supplier_payments' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.75rem' }}>
           <div className="glass-card" style={{ padding: '1rem' }}>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Apertura</div>
@@ -245,7 +624,7 @@ export default function CashRegistersPanel({
             <div style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--text-gold)' }}>{formatCurrency(expected)}</div>
           </div>
           <div className="glass-card" style={{ padding: '1rem' }}>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Movimientos</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Movimientos sesión</div>
             <div style={{ fontSize: '1.2rem', fontWeight: 700 }}>{sessionMoves.length}</div>
           </div>
         </div>
@@ -278,19 +657,7 @@ export default function CashRegistersPanel({
               <select
                 className="form-input"
                 value={moveForm.movementType}
-                onChange={(e) => {
-                  const movementType = e.target.value;
-                  const nextAccounts = counterpartAccountsForMovement(
-                    chartOfAccounts,
-                    movementType,
-                    selectedRegister?.accountId
-                  );
-                  const nextRelated =
-                    nextAccounts.find((a) => a.id === DEFAULT_RELATED[movementType])?.id ||
-                    nextAccounts[0]?.id ||
-                    '';
-                  setMoveForm({ ...moveForm, movementType, relatedAccountId: nextRelated });
-                }}
+                onChange={(e) => setMoveForm({ ...moveForm, movementType: e.target.value })}
               >
                 <option value="income">Ingreso</option>
                 <option value="expense">Egreso</option>
@@ -308,81 +675,97 @@ export default function CashRegistersPanel({
               />
             </div>
             <div>
-              <label className="form-label">Cuenta contrapartida</label>
+              <label className="form-label">
+                {moveForm.movementType === 'income'
+                  ? 'Ingresos y pasivos (cobros / débitos).'
+                  : 'Cuenta contrapartida'}
+              </label>
               <select
                 className="form-input"
                 value={moveForm.relatedAccountId}
                 onChange={(e) => setMoveForm({ ...moveForm, relatedAccountId: e.target.value })}
-                required
               >
                 {relatedAccounts.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {accountLabel(a)}
-                  </option>
+                  <option key={a.id} value={a.id}>{accountLabel(a)}</option>
                 ))}
               </select>
-              <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>
-                {moveForm.movementType === 'income'
-                  ? 'Ingresos y pasivos (cobros / débitos).'
-                  : 'Gastos y pasivos (pagos).'}
-              </p>
             </div>
-            <div style={{ gridColumn: '1 / -1' }}>
+            <div>
               <label className="form-label">Concepto</label>
               <input
                 className="form-input"
                 required
                 value={moveForm.concept}
                 onChange={(e) => setMoveForm({ ...moveForm, concept: e.target.value })}
-                placeholder="Cobro cuota / pago proveedor..."
               />
             </div>
             <div>
-              <button type="submit" className="btn btn-primary btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <button type="submit" className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 {moveForm.movementType === 'income' ? <ArrowDownLeft size={14} /> : <ArrowUpRight size={14} />}
-                Registrar movimiento
+                Registrar
               </button>
             </div>
           </form>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            <h5 style={{ color: 'var(--text-gold)' }}>Movimientos de la sesión</h5>
-            {sessionMoves.length === 0 && (
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Sin movimientos aún.</p>
-            )}
-            {sessionMoves.map((m) => (
-              <div
-                key={m.id}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1fr auto',
-                  gap: '0.75rem',
-                  padding: '0.65rem 0.85rem',
-                  border: '1px solid var(--border-glass)',
-                  borderRadius: 10,
-                  fontSize: '0.85rem',
-                  alignItems: 'center',
-                }}
-              >
-                <div>
-                  <strong style={{ color: moveTypeColor(m.movementType) }}>{moveTypeLabel(m.movementType)}</strong>
-                  <div>{m.concept}</div>
-                </div>
-                <strong style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{formatCurrency(m.amount)}</strong>
-              </div>
-            ))}
+          <div className="table-responsive">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>Tipo</th>
+                  <th>Concepto</th>
+                  <th>Importe</th>
+                  <th>Hora</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sessionMoves.length === 0 ? (
+                  <tr><td colSpan={4} style={{ color: 'var(--text-muted)' }}>Sin movimientos en esta sesión.</td></tr>
+                ) : (
+                  sessionMoves.map((m) => (
+                    <tr key={m.id}>
+                      <td style={{ color: moveTypeColor(m.movementType) }}>{moveTypeLabel(m.movementType)}</td>
+                      <td>{m.concept}</td>
+                      <td>{formatCurrency(m.amount)}</td>
+                      <td>{m.createdAt ? new Date(m.createdAt).toLocaleTimeString('es-AR') : '—'}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap', alignItems: 'end' }}>
+            <div>
+              <label className="form-label">Saldo contado</label>
+              <input
+                className="form-input"
+                type="number"
+                value={countedBalance}
+                onChange={(e) => setCountedBalance(e.target.value)}
+              />
+            </div>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+              onClick={() =>
+                run(() => {
+                  closeRegister(selectedRegisterId, countedBalance);
+                  setCountedBalance('');
+                  setMessage('Caja cerrada.');
+                })
+              }
+            >
+              <Lock size={16} /> Cerrar caja
+            </button>
           </div>
         </>
       )}
 
-      {panelTab === 'transfers' && openSession && (
+      {panelTab === 'transfers' && (
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            if (!transferCash) {
-              setError('Traspasos no disponibles.');
-              return;
-            }
             run(() => {
               transferCash({
                 fromRegisterId: selectedRegisterId,
@@ -391,32 +774,20 @@ export default function CashRegistersPanel({
                 concept: transferForm.concept,
               });
               setTransferForm((f) => ({ ...f, amount: '', concept: '' }));
-              setMessage('Traspaso registrado. Asiento y movimientos actualizados.');
+              setMessage('Traspaso registrado.');
             });
           }}
-          style={{
-            border: '1px solid var(--border-glass)',
-            borderRadius: 12,
-            padding: '1rem',
-            ...fieldGrid,
-          }}
+          style={{ border: '1px solid var(--border-glass)', borderRadius: 12, padding: '1rem', ...fieldGrid }}
         >
-          <div style={{ gridColumn: '1 / -1', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-            Mueve fondos desde <strong>{selectedRegister?.name}</strong> hacia otra caja o banco.
-            Si la caja destino está abierta, el ingreso queda en su sesión.
-          </div>
           <div>
             <label className="form-label">Destino</label>
             <select
               className="form-input"
               value={transferForm.toAccountId}
               onChange={(e) => setTransferForm({ ...transferForm, toAccountId: e.target.value })}
-              required
             >
               {transferDestinations.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {accountLabel(a)}
-                </option>
+                <option key={a.id} value={a.id}>{accountLabel(a)}</option>
               ))}
             </select>
           </div>
@@ -431,121 +802,62 @@ export default function CashRegistersPanel({
               onChange={(e) => setTransferForm({ ...transferForm, amount: e.target.value })}
             />
           </div>
-          <div style={{ gridColumn: '1 / -1' }}>
+          <div>
             <label className="form-label">Concepto</label>
             <input
               className="form-input"
               value={transferForm.concept}
               onChange={(e) => setTransferForm({ ...transferForm, concept: e.target.value })}
-              placeholder="Depósito a banco / remesa a cantina..."
             />
           </div>
           <div>
-            <button type="submit" className="btn btn-primary btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <ArrowLeftRight size={14} /> Registrar traspaso
+            <button type="submit" className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <ArrowLeftRight size={14} /> Traspasar
             </button>
           </div>
         </form>
       )}
 
       {panelTab === 'closures' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          {openSession && (
-            <div
-              style={{
-                border: '1px solid var(--border-glass)',
-                borderRadius: 12,
-                padding: '1rem',
-                ...fieldGrid,
-              }}
-            >
-              <div>
-                <label className="form-label">Arqueo — efectivo contado</label>
-                <input
-                  className="form-input"
-                  type="number"
-                  value={countedBalance}
-                  onChange={(e) => setCountedBalance(e.target.value)}
-                  placeholder={String(expected)}
-                />
-                <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>
-                  Esperado: {formatCurrency(expected)}. Vacío = cierra con ese saldo.
-                </p>
-              </div>
-              <div>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                  onClick={() =>
-                    run(() => {
-                      const counted = countedBalance === '' ? expected : countedBalance;
-                      closeRegister(openSession.id, counted);
-                      setCountedBalance('');
-                      setMessage('Caja cerrada. Revise el historial si hubo diferencia.');
-                    })
-                  }
-                >
-                  <Lock size={16} /> Cerrar / Arquear
-                </button>
-              </div>
-            </div>
-          )}
-
-          <div>
-            <h5 style={{ marginBottom: '0.5rem', color: 'var(--text-gold)', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <ClipboardCheck size={16} /> Historial de cierres
-            </h5>
-            {historyClosed.length === 0 && (
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-                Aún no hay cierres para esta caja.
-              </p>
-            )}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
-              {historyClosed.map((s) => {
-                const reg = cashRegisters.find((r) => r.id === s.cashRegisterId);
-                const ok = s.status === 'closed';
-                return (
-                  <div
-                    key={s.id}
-                    style={{
-                      fontSize: '0.82rem',
-                      padding: '0.7rem 0.85rem',
-                      borderRadius: 10,
-                      background: 'rgba(255,255,255,0.02)',
-                      border: '1px solid var(--border-glass)',
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
-                      gap: '0.5rem',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <div>
-                      <strong>{reg?.name}</strong>
-                      <div style={{ color: 'var(--text-muted)' }}>
-                        {s.closedAt
-                          ? new Date(s.closedAt).toLocaleString('es-AR')
-                          : new Date(s.openedAt).toLocaleString('es-AR')}
-                      </div>
-                    </div>
-                    <div>
-                      <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>Esperado</div>
-                      {formatCurrency(s.expectedBalance ?? 0)}
-                    </div>
-                    <div>
-                      <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>Contado</div>
-                      {formatCurrency(s.countedBalance ?? 0)}
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <span style={{ color: ok ? 'var(--emerald-accent)' : '#ef4444', fontWeight: 600 }}>
-                        {ok ? 'OK' : `Diff ${formatCurrency(s.difference ?? 0)}`}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+        <div className="table-responsive">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>Caja</th>
+                <th>Cierre</th>
+                <th>Esperado</th>
+                <th>Contado</th>
+                <th>Dif.</th>
+                <th>Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {historyClosed.length === 0 ? (
+                <tr>
+                  <td colSpan={6} style={{ color: 'var(--text-muted)' }}>
+                    <ClipboardCheck size={14} style={{ marginRight: 6 }} />
+                    Sin cierres registrados.
+                  </td>
+                </tr>
+              ) : (
+                historyClosed.map((s) => {
+                  const reg = cashRegisters.find((r) => r.id === s.cashRegisterId);
+                  return (
+                    <tr key={s.id}>
+                      <td>{reg?.name || s.cashRegisterId}</td>
+                      <td>{s.closedAt ? new Date(s.closedAt).toLocaleString('es-AR') : '—'}</td>
+                      <td>{formatCurrency(s.expectedBalance)}</td>
+                      <td>{formatCurrency(s.countedBalance)}</td>
+                      <td style={{ color: Math.abs(s.difference || 0) > 0.01 ? '#f59e0b' : 'var(--emerald-accent)' }}>
+                        {formatCurrency(s.difference)}
+                      </td>
+                      <td>{s.status}</td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

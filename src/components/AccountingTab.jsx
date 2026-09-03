@@ -89,6 +89,14 @@ export default function AccountingTab({
   cashRegisters = [],
   cashSessions = [],
   cashMovements = [],
+  accessinCashMovements = [],
+  accessinCheques = [],
+  accessinCobranzas = [],
+  accessinSupplierPayments = [],
+  accessinBankAccounts = [],
+  upsertBankAccount,
+  deleteBankAccount,
+  addBankAccountEntry,
   openRegister,
   closeRegister,
   addCashMovement,
@@ -1334,11 +1342,21 @@ export default function AccountingTab({
           cashRegisters={cashRegisters}
           cashSessions={cashSessions}
           cashMovements={cashMovements}
+          accessinCashMovements={accessinCashMovements}
+          accessinCheques={accessinCheques}
+          accessinCobranzas={accessinCobranzas}
+          accessinSupplierPayments={accessinSupplierPayments}
+          accessinBankAccounts={accessinBankAccounts}
+          upsertBankAccount={upsertBankAccount}
+          deleteBankAccount={deleteBankAccount}
+          addBankAccountEntry={addBankAccountEntry}
           chartOfAccounts={chartOfAccounts}
+          members={members}
           openRegister={openRegister}
           closeRegister={closeRegister}
           addCashMovement={addCashMovement}
           transferCash={transferCash}
+          onNavigate={setSubTab}
         />
       )}
 

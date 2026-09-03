@@ -11,6 +11,20 @@ import {
   getOpenSession,
 } from '../domain/accounting/cash';
 import {
+  ACCESSIN_CASH_MOVEMENTS,
+  ACCESSIN_CASH_REGISTERS,
+  ACCESSIN_CHEQUES,
+} from '../domain/accounting/cashLedger';
+import { ACCESSIN_COBRANZAS } from '../domain/accounting/cobranzas';
+import { ACCESSIN_SUPPLIER_PAYMENTS } from '../domain/accounting/supplierPaymentsReport';
+import {
+  ACCESSIN_BANK_ACCOUNTS,
+  applyBankAccountEntry,
+  resolveBankAccounts,
+  softDeleteBankAccount,
+  upsertBankAccount,
+} from '../domain/accounting/bankAccounts';
+import {
   createExpenseDraft,
   approveExpense,
   rejectExpense,
@@ -98,11 +112,36 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
   const [chartOfAccounts, setChartOfAccounts] = useState(() =>
     load('jockey-chart-of-accounts', DEFAULT_CHART_OF_ACCOUNTS)
   );
-  const [cashRegisters, setCashRegisters] = useState(() =>
-    load('jockey-cash-registers', DEFAULT_CASH_REGISTERS)
-  );
+  const [cashRegisters, setCashRegisters] = useState(() => {
+    const loaded = load('jockey-cash-registers-v2', null);
+    if (Array.isArray(loaded) && loaded.length >= 3) return loaded;
+    return ACCESSIN_CASH_REGISTERS.length ? ACCESSIN_CASH_REGISTERS : DEFAULT_CASH_REGISTERS;
+  });
   const [cashSessions, setCashSessions] = useState(() => load('jockey-cash-sessions', []));
   const [cashMovements, setCashMovements] = useState(() => load('jockey-cash-movements', []));
+  const [accessinCashMovements, setAccessinCashMovements] = useState(() => {
+    const loaded = load('jockey-accessin-cash-movements-v1', null);
+    if (Array.isArray(loaded) && loaded.length >= 500) return loaded;
+    return ACCESSIN_CASH_MOVEMENTS;
+  });
+  const [accessinCheques, setAccessinCheques] = useState(() => {
+    const loaded = load('jockey-accessin-cheques-v1', null);
+    if (Array.isArray(loaded)) return loaded;
+    return ACCESSIN_CHEQUES;
+  });
+  const [accessinCobranzas, setAccessinCobranzas] = useState(() => {
+    const loaded = load('jockey-accessin-cobranzas-v1', null);
+    if (Array.isArray(loaded) && loaded.length >= 200) return loaded;
+    return ACCESSIN_COBRANZAS;
+  });
+  const [accessinSupplierPayments, setAccessinSupplierPayments] = useState(() => {
+    const loaded = load('jockey-accessin-supplier-payments-v1', null);
+    if (Array.isArray(loaded)) return loaded;
+    return ACCESSIN_SUPPLIER_PAYMENTS;
+  });
+  const [accessinBankAccounts, setAccessinBankAccounts] = useState(() =>
+    resolveBankAccounts(load('jockey-accessin-bank-accounts-v1', null))
+  );
   const [expenses, setExpenses] = useState(() => load('jockey-expenses', []));
   const [suppliers, setSuppliers] = useState(() => {
     const loaded = load('jockey-suppliers-v3', null);
@@ -160,9 +199,34 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
   const applyErpHydration = useCallback((erp) => {
     if (!erp) return;
     if (Array.isArray(erp.chartOfAccounts)) setChartOfAccounts(erp.chartOfAccounts);
-    if (Array.isArray(erp.cashRegisters)) setCashRegisters(erp.cashRegisters);
+    if (Array.isArray(erp.cashRegisters)) {
+      if (erp.cashRegisters.length >= 3) setCashRegisters(erp.cashRegisters);
+      else if (ACCESSIN_CASH_REGISTERS.length) setCashRegisters(ACCESSIN_CASH_REGISTERS);
+    }
     if (Array.isArray(erp.cashSessions)) setCashSessions(erp.cashSessions);
     if (Array.isArray(erp.cashMovements)) setCashMovements(erp.cashMovements);
+    if (Array.isArray(erp.accessinCashMovements) && erp.accessinCashMovements.length >= 500) {
+      setAccessinCashMovements(erp.accessinCashMovements);
+    } else if (ACCESSIN_CASH_MOVEMENTS.length) {
+      setAccessinCashMovements(ACCESSIN_CASH_MOVEMENTS);
+    }
+    if (Array.isArray(erp.accessinCheques)) setAccessinCheques(erp.accessinCheques);
+    else setAccessinCheques(ACCESSIN_CHEQUES);
+    if (Array.isArray(erp.accessinCobranzas) && erp.accessinCobranzas.length >= 200) {
+      setAccessinCobranzas(erp.accessinCobranzas);
+    } else if (ACCESSIN_COBRANZAS.length) {
+      setAccessinCobranzas(ACCESSIN_COBRANZAS);
+    }
+    if (Array.isArray(erp.accessinSupplierPayments)) {
+      setAccessinSupplierPayments(erp.accessinSupplierPayments);
+    } else {
+      setAccessinSupplierPayments(ACCESSIN_SUPPLIER_PAYMENTS);
+    }
+    if (Array.isArray(erp.accessinBankAccounts) && erp.accessinBankAccounts.length) {
+      setAccessinBankAccounts(erp.accessinBankAccounts);
+    } else {
+      setAccessinBankAccounts(ACCESSIN_BANK_ACCOUNTS);
+    }
     if (Array.isArray(erp.expenses)) setExpenses(erp.expenses);
     if (Array.isArray(erp.suppliers)) {
       // Preferir nube cuando ya tiene el padrón Accessin; si no, seed local.
@@ -198,9 +262,14 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
   }, []);
 
   useEffect(() => persist('jockey-chart-of-accounts', chartOfAccounts), [chartOfAccounts]);
-  useEffect(() => persist('jockey-cash-registers', cashRegisters), [cashRegisters]);
+  useEffect(() => persist('jockey-cash-registers-v2', cashRegisters), [cashRegisters]);
   useEffect(() => persist('jockey-cash-sessions', cashSessions), [cashSessions]);
   useEffect(() => persist('jockey-cash-movements', cashMovements), [cashMovements]);
+  useEffect(() => persist('jockey-accessin-cash-movements-v1', accessinCashMovements), [accessinCashMovements]);
+  useEffect(() => persist('jockey-accessin-cheques-v1', accessinCheques), [accessinCheques]);
+  useEffect(() => persist('jockey-accessin-cobranzas-v1', accessinCobranzas), [accessinCobranzas]);
+  useEffect(() => persist('jockey-accessin-supplier-payments-v1', accessinSupplierPayments), [accessinSupplierPayments]);
+  useEffect(() => persist('jockey-accessin-bank-accounts-v1', accessinBankAccounts), [accessinBankAccounts]);
   useEffect(() => persist('jockey-expenses', expenses), [expenses]);
   useEffect(() => persist('jockey-suppliers-v3', suppliers), [suppliers]);
   useEffect(() => persist('jockey-retenciones-v1', retenciones), [retenciones]);
@@ -802,6 +871,26 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
     return saved;
   }, []);
 
+  const upsertAccessinBankAccount = useCallback((input) => {
+    setAccessinBankAccounts((prev) => upsertBankAccount(prev, input));
+  }, []);
+
+  const deleteAccessinBankAccount = useCallback((id) => {
+    setAccessinBankAccounts((prev) => softDeleteBankAccount(prev, id));
+  }, []);
+
+  const addAccessinBankAccountEntry = useCallback((accountId, entry) => {
+    let result;
+    setAccessinBankAccounts((prev) => {
+      result = applyBankAccountEntry(prev, accountId, entry);
+      return result.accounts;
+    });
+    if (result?.movement) {
+      setAccessinCashMovements((prev) => [result.movement, ...prev]);
+    }
+    return result?.movement;
+  }, []);
+
   const upsertUnidentifiedCollection = useCallback((item) => {
     const run = async () => {
       let nextItem = item;
@@ -1031,6 +1120,11 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
     cashRegisters,
     cashSessions,
     cashMovements,
+    accessinCashMovements,
+    accessinCheques,
+    accessinCobranzas,
+    accessinSupplierPayments,
+    accessinBankAccounts,
     expenses,
     suppliers,
     retenciones,
@@ -1066,6 +1160,9 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
     importExpenses,
     createSupplierEntry,
     createOtherIncomeRecord,
+    upsertAccessinBankAccount,
+    deleteAccessinBankAccount,
+    addAccessinBankAccountEntry,
     upsertUnidentifiedCollection,
     upsertGaliciaDebit,
     addFixedExpense,

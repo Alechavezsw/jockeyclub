@@ -684,6 +684,14 @@ export default function AdminView({
           cashRegisters={erp.cashRegisters}
           cashSessions={erp.cashSessions}
           cashMovements={erp.cashMovements}
+          accessinCashMovements={erp.accessinCashMovements}
+          accessinCheques={erp.accessinCheques}
+          accessinCobranzas={erp.accessinCobranzas}
+          accessinSupplierPayments={erp.accessinSupplierPayments}
+          accessinBankAccounts={erp.accessinBankAccounts}
+          upsertBankAccount={erp.upsertAccessinBankAccount}
+          deleteBankAccount={erp.deleteAccessinBankAccount}
+          addBankAccountEntry={erp.addAccessinBankAccountEntry}
           openRegister={erp.openRegister}
           closeRegister={erp.closeRegister}
           addCashMovement={erp.addCashMovement}
