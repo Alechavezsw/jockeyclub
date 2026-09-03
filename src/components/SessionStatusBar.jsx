@@ -137,23 +137,47 @@ export default function SessionStatusBar({ members = [], staffMembers = [] }) {
     setActiveIndex(0);
   }, [query]);
 
+  const focusSearch = () => {
+    inputRef.current?.focus();
+    inputRef.current?.select?.();
+    setOpen(true);
+  };
+
+  const isEditableTarget = (target) => {
+    if (!target || !(target instanceof Element)) return false;
+    const tag = target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+    if (target.isContentEditable) return true;
+    return Boolean(target.closest?.('input, textarea, select, [contenteditable="true"]'));
+  };
+
   useEffect(() => {
     const onDoc = (e) => {
       if (!rootRef.current?.contains(e.target)) setOpen(false);
     };
     const onKey = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        inputRef.current?.focus();
-        setOpen(true);
-      }
+      // Chrome/Edge se quedan con Ctrl+K (omnibox). Usamos Ctrl+/ y ⌘K; `/` si no estás escribiendo.
+      const modK = (e.metaKey || e.ctrlKey) && e.code === 'KeyK';
+      const ctrlSlash = e.ctrlKey && (e.key === '/' || e.code === 'Slash');
+      const plainSlash = e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && !isEditableTarget(e.target);
+      if (!modK && !ctrlSlash && !plainSlash) return;
+      e.preventDefault();
+      e.stopPropagation();
+      focusSearch();
     };
     document.addEventListener('mousedown', onDoc);
-    document.addEventListener('keydown', onKey);
+    document.addEventListener('keydown', onKey, true);
     return () => {
       document.removeEventListener('mousedown', onDoc);
-      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('keydown', onKey, true);
     };
+  }, []);
+
+  const shortcutHint = useMemo(() => {
+    if (typeof navigator !== 'undefined' && /mac/i.test(navigator.platform || navigator.userAgent || '')) {
+      return '⌘K';
+    }
+    return 'Ctrl /';
   }, []);
 
   const go = (item) => {
@@ -236,7 +260,15 @@ export default function SessionStatusBar({ members = [], staffMembers = [] }) {
             <X size={13} aria-hidden="true" />
           </button>
         ) : (
-          <kbd className="session-status-bar__kbd" aria-hidden="true">Ctrl K</kbd>
+          <button
+            type="button"
+            className="session-status-bar__kbd"
+            title={`Atajo: ${shortcutHint} (también /)`}
+            aria-label={`Enfocar buscador (${shortcutHint})`}
+            onClick={focusSearch}
+          >
+            {shortcutHint}
+          </button>
         )}
 
         {open && query.trim().length >= 2 && (

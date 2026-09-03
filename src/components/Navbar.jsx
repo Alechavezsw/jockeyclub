@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Sun, Moon, Shield, User, Menu, X, Bell, LogOut, Mail, LayoutDashboard } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -30,6 +30,8 @@ export default function Navbar({
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [showNotifs, setShowNotifs] = useState(false);
+  // Snapshot al abrir: se puede leer el listado aunque ya se marquen leídas (badge a 0).
+  const [notifSnapshot, setNotifSnapshot] = useState([]);
 
   const isOperative = canAccessAdmin(role || 'member');
   const isTeacher = role === 'teacher';
@@ -41,10 +43,49 @@ export default function Navbar({
     || location.pathname === '/panel/dashboard'
   );
 
+  const visibleNotifs = showNotifs ? notifSnapshot : notifications;
+  const pendingCount = notifications.length;
+
+  const closeNotifs = () => {
+    setShowNotifs(false);
+    setNotifSnapshot([]);
+  };
+
+  const openNotifs = () => {
+    const snapshot = [...notifications];
+    setNotifSnapshot(snapshot);
+    setShowNotifs(true);
+    if (snapshot.length > 0 && typeof onMarkAllNotificationsRead === 'function') {
+      onMarkAllNotificationsRead();
+    }
+  };
+
+  const toggleNotifs = () => {
+    if (showNotifs) closeNotifs();
+    else openNotifs();
+  };
+
+  useEffect(() => {
+    if (!showNotifs) return undefined;
+    const onDocClick = (e) => {
+      const root = e.target?.closest?.('[data-notif-panel-root]');
+      if (!root) closeNotifs();
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') closeNotifs();
+    };
+    document.addEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [showNotifs]);
+
   const handleNavClick = (viewId) => {
     setCurrentView(viewId);
     setIsOpen(false);
-    setShowNotifs(false);
+    closeNotifs();
   };
 
   const goHome = () => {
@@ -52,13 +93,14 @@ export default function Navbar({
     else if (isTeacher) navigate('/asistencia');
     else handleNavClick('dashboard');
     setIsOpen(false);
-    setShowNotifs(false);
+    closeNotifs();
   };
 
   const handleLogout = async () => {
     await logout();
     setCurrentView('dashboard');
     setIsOpen(false);
+    closeNotifs();
   };
 
   return (
@@ -210,12 +252,12 @@ export default function Navbar({
             )}
           </button>
 
-          <div style={{ position: 'relative' }}>
+          <div style={{ position: 'relative' }} data-notif-panel-root>
             <button
               type="button"
-              onClick={() => setShowNotifs((v) => !v)}
+              onClick={toggleNotifs}
               title="Notificaciones"
-              aria-label={notifications.length > 0 ? `Notificaciones, ${notifications.length} pendientes` : 'Notificaciones'}
+              aria-label={pendingCount > 0 ? `Notificaciones, ${pendingCount} pendientes` : 'Notificaciones'}
               aria-expanded={showNotifs}
               style={{
                 background: 'rgba(255,255,255,0.03)',
@@ -232,7 +274,7 @@ export default function Navbar({
               }}
             >
               <Bell size={18} aria-hidden="true" />
-              {notifications.length > 0 && (
+              {pendingCount > 0 && (
                 <span style={{
                   position: 'absolute',
                   top: '-4px',
@@ -250,7 +292,7 @@ export default function Navbar({
                   padding: '0 4px',
                   border: '2px solid var(--bg-primary, #060e0a)'
                 }}>
-                  {notifications.length > 9 ? '9+' : notifications.length}
+                  {pendingCount > 9 ? '9+' : pendingCount}
                 </span>
               )}
             </button>
@@ -272,27 +314,17 @@ export default function Navbar({
                   <strong style={{ fontSize: '0.9rem' }}>Notificaciones</strong>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                      {notifications.length === 0 ? 'Al día' : `${notifications.length} pendientes`}
+                      {visibleNotifs.length === 0 ? 'Al día' : `${visibleNotifs.length} leídas`}
                     </span>
-                    {notifications.length > 0 && typeof onMarkAllNotificationsRead === 'function' && (
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        style={{ fontSize: '0.68rem', padding: '0.2rem 0.45rem' }}
-                        onClick={() => onMarkAllNotificationsRead()}
-                      >
-                        Marcar leídas
-                      </button>
-                    )}
                   </div>
                 </div>
-                {notifications.length === 0 ? (
+                {visibleNotifs.length === 0 ? (
                   <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', textAlign: 'center', padding: '1.25rem 0.5rem' }}>
                     Sin novedades por ahora.
                   </p>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginTop: '0.5rem' }}>
-                    {notifications.map((n) => (
+                    {visibleNotifs.map((n) => (
                       <div
                         key={n.id}
                         style={{
@@ -306,7 +338,7 @@ export default function Navbar({
                           onClick={() => {
                             if (typeof onOpenNotification === 'function') onOpenNotification(n);
                             else handleNavClick(n.view || 'dashboard');
-                            setShowNotifs(false);
+                            closeNotifs();
                           }}
                           style={{
                             flex: 1,
@@ -328,7 +360,10 @@ export default function Navbar({
                             type="button"
                             title="Descartar"
                             aria-label={`Descartar ${n.title}`}
-                            onClick={() => onDismissNotification(n.id)}
+                            onClick={() => {
+                              onDismissNotification(n.id);
+                              setNotifSnapshot((prev) => prev.filter((x) => String(x.id) !== String(n.id)));
+                            }}
                             style={{
                               width: 34,
                               borderRadius: 10,

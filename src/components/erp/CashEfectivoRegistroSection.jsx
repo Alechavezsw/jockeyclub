@@ -199,12 +199,13 @@ export default function CashEfectivoRegistroSection({
         open={Boolean(detail)}
         onClose={() => setDetail(null)}
         labelledBy="cash-payment-detail-title"
-        contentStyle={{ maxWidth: 720, width: '100%' }}
+        contentClassName="modal-content glass-panel cash-payment-detail-modal"
+        contentStyle={{ maxWidth: 780, width: '100%' }}
       >
         {detail ? (
           <div className="cash-payment-detail">
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'flex-start' }}>
-              <h3 id="cash-payment-detail-title" style={{ margin: 0, fontSize: '1rem', textTransform: 'uppercase' }}>
+            <div className="cash-payment-detail-head">
+              <h3 id="cash-payment-detail-title" className="cash-payment-detail-title">
                 {detail.title}
               </h3>
               <button type="button" className="btn btn-secondary btn-sm" onClick={() => setDetail(null)} aria-label="Cerrar">
@@ -215,25 +216,25 @@ export default function CashEfectivoRegistroSection({
             <section className="cash-payment-detail-section">
               <h4>Información del pago</h4>
               <div className="cash-payment-detail-grid">
-                <div>
+                <div className="cash-payment-detail-field">
                   <span className="cash-payment-detail-label">Fecha</span>
-                  <div>{detail.dateLabel}</div>
+                  <div className="cash-payment-detail-value">{detail.dateLabel}</div>
                 </div>
-                <div>
+                <div className="cash-payment-detail-field">
                   <span className="cash-payment-detail-label">Descripción</span>
-                  <div>{detail.description}</div>
+                  <div className="cash-payment-detail-value">{detail.description}</div>
                 </div>
-                <div>
+                <div className="cash-payment-detail-field">
                   <span className="cash-payment-detail-label">Comprobante</span>
-                  <div>{detail.voucher || '—'}</div>
+                  <div className="cash-payment-detail-value">{detail.voucher || '—'}</div>
                 </div>
               </div>
             </section>
 
             <section className="cash-payment-detail-section">
               <h4>Entradas imputadas</h4>
-              <div className="table-responsive">
-                <table className="admin-table">
+              <div className="table-responsive cash-payment-detail-table-wrap">
+                <table className="admin-table cash-payment-detail-table">
                   <thead>
                     <tr>
                       <th>Fecha</th>
@@ -261,17 +262,17 @@ export default function CashEfectivoRegistroSection({
                         </tr>
                       ))
                     )}
-                    <tr>
-                      <td colSpan={4} style={{ textAlign: 'right' }}>Saldo a favor imputado</td>
+                    <tr className="cash-payment-detail-sum">
+                      <td colSpan={4}>Saldo a favor imputado</td>
                       <td>{formatCurrency(detail.creditApplied)}</td>
                     </tr>
-                    <tr>
-                      <td colSpan={4} style={{ textAlign: 'right' }}>Excedente</td>
+                    <tr className="cash-payment-detail-sum">
+                      <td colSpan={4}>Excedente</td>
                       <td>{formatCurrency(detail.surplus)}</td>
                     </tr>
-                    <tr>
-                      <td colSpan={4} style={{ textAlign: 'right', fontWeight: 700 }}>Total pago</td>
-                      <td style={{ fontWeight: 800 }}>{formatCurrency(detail.paymentTotal)}</td>
+                    <tr className="cash-payment-detail-sum is-total">
+                      <td colSpan={4}>Total pago</td>
+                      <td>{formatCurrency(detail.paymentTotal)}</td>
                     </tr>
                   </tbody>
                 </table>
