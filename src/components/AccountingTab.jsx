@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import {
   BookOpen, Plus, DollarSign, PieChart, ShieldAlert, CheckCircle2, Trash2, Printer, Search,
   TrendingUp, Book, ListTree, Wallet, Receipt, Truck, HelpCircle, Building2, Repeat, Percent,
-  Scale, FileSpreadsheet, Banknote,
+  Scale, FileSpreadsheet, Banknote, FileText,
 } from 'lucide-react';
 import {
   DEFAULT_CHART_OF_ACCOUNTS,
@@ -33,6 +33,7 @@ import {
   BalancesPanel,
   PaymentOrdersPanel,
 } from './erp/TreasuryPanels';
+import AccountingReportsPanel from './erp/AccountingReportsPanel';
 import { allowedAccountingSubtabsForRoles } from '../domain/auth/roles';
 import { useAuth } from '../context/AuthContext';
 
@@ -147,6 +148,8 @@ export default function AccountingTab({
   onDeleteFeeExpense,
   paymentOrders = [],
   upsertPaymentOrder,
+  accountingReports = [],
+  onRecordAccountingReport,
   initialSubTab = null,
 }) {
   const { role, roles } = useAuth();
@@ -404,6 +407,7 @@ export default function AccountingTab({
                   { key: 'balance', icon: PieChart, label: 'Balance General', short: 'Balance' },
                   { key: 'results', icon: DollarSign, label: 'Estado de Resultados', short: 'Resultados' },
                   { key: 'charts', icon: TrendingUp, label: 'Reportes y gráficos', short: 'Gráficos', accent: 'charts' },
+                  { key: 'acct_reports', icon: FileText, label: 'Reportes', short: 'Reportes' },
                 ],
               },
               {
@@ -1093,6 +1097,14 @@ export default function AccountingTab({
             </table>
           </div>
         </div>
+      )}
+
+      {subTab === 'acct_reports' && (
+        <AccountingReportsPanel
+          members={members}
+          reports={accountingReports}
+          onRecordReport={onRecordAccountingReport}
+        />
       )}
 
       {/* SUB-TAB 6: REPORTES Y GRÁFICOS CONTABLES DE GESTIÓN */}

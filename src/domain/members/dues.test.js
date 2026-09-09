@@ -8,6 +8,7 @@ import {
   getOverdueMembers,
   getUpcomingDuesMembers,
   toWhatsAppPhone,
+  buildWhatsAppDuesUrl,
 } from './dues';
 import { setRuntimeTierCatalog } from './tiers';
 
@@ -72,6 +73,18 @@ describe('dues classification', () => {
     })).toBe(45000 + 45000);
   });
 
+  it('excluye suspended y pending de mora y cuota automática', () => {
+    const extra = [
+      { memberId: 's', name: 'S', tier: 'socio_individual', outstandingBalance: 8000, status: 'suspended', nextDueDate: '2026-06-01' },
+      { memberId: 'p', name: 'P', tier: 'socio_individual', outstandingBalance: 0, status: 'pending', nextDueDate: '2026-06-01' },
+    ];
+    const overdue = getOverdueMembers([...members, ...extra], today);
+    expect(overdue.map((m) => m.memberId)).not.toContain('s');
+    expect(overdue.map((m) => m.memberId)).not.toContain('p');
+    const updated = applyAutomaticDues(extra, today);
+    expect(updated.find((m) => m.memberId === 'p').outstandingBalance).toBe(0);
+  });
+
   it('detecta diffs de cuotas automáticas para persistir', () => {
     const updated = applyAutomaticDues(members, today);
     const changed = diffAutomaticDues(members, updated);
@@ -88,5 +101,19 @@ describe('dues classification', () => {
       { memberId: 'x', name: 'X', tier: 'socio_individual', outstandingBalance: 1000, status: 'active', nextDueDate: '2026-09-01' },
     ], today);
     expect(overdue[0].daysOverdue).toBeNull();
+  });
+});
+
+describe('buildWhatsAppDuesUrl', () => {
+  it('arma wa.me si hay teléfono y omite si no', () => {
+    const formatCurrency = (n) => `$${n}`;
+    const url = buildWhatsAppDuesUrl({
+      name: 'Ana',
+      phone: '2644123456',
+      amountDue: 12000,
+      nextDueDate: '2026-08-01',
+    }, formatCurrency);
+    expect(url).toMatch(/^https:\/\/wa\.me\/5492644123456\?text=/);
+    expect(buildWhatsAppDuesUrl({ name: 'Ana', phone: '' }, formatCurrency)).toBeNull();
   });
 });

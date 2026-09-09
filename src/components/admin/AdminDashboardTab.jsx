@@ -1,16 +1,16 @@
 import { useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   Users, Calendar, DollarSign, Activity, MessageSquare, ClipboardList,
   Radio, BookOpen, ShieldAlert, BellRing, CheckCircle2,
   PartyPopper, Clock, UserCircle2, FileSpreadsheet, Wind, Newspaper,
   DoorOpen, ExternalLink, UserPlus, UserRound, ChevronRight, AlertTriangle,
 } from 'lucide-react';
+import { useSedeWeather } from '../../hooks/useSedeWeather';
+import { formatObservedClock } from '../../domain/weather/sedeWeather';
 import { canAccessQrGate } from '../../domain/auth/roles';
 import { isAlertVisible, ALERT_SEVERITY } from '../../domain/alerts/alerts';
 import { buildOpsFinanceSnapshot } from '../../domain/accounting/opsFinanceSnapshot';
-import { getOverdueMembers, toWhatsAppPhone, formatShortDate } from '../../domain/members/dues';
-import { FACILITIES } from '../../domain/reservations/facilities';
 import { isNewsPublished, newsCategoryLabel } from '../../domain/news/news';
 import { buildPadronHouseholdStats } from '../../domain/members/households';
 import { AlertsBanner } from '../erp/AlertsPanel';
@@ -29,14 +29,6 @@ function parseLogInstant(log) {
   if (!day) return null;
   const d = new Date(`${day}T${time}:00`);
   return Number.isNaN(d.getTime()) ? null : d;
-}
-
-function buildWhatsAppDuesUrl(member, formatCurrency) {
-  const cleanPhone = toWhatsAppPhone(member.phone);
-  if (!cleanPhone) return null;
-  const dueLabel = formatShortDate(member.dueDate || member.nextDueDate);
-  const msg = `Estimado/a ${member.name}, le saludamos del Jockey Club San Juan. Le recordamos que posee una cuota vencida de ${formatCurrency(member.amountDue)} (vencimiento ${dueLabel}). Puede regularizarla en administración o por transferencia. ¡Gracias!`;
-  return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`;
 }
 
 function buildBookingsSnapshot(reservations = [], today = new Date()) {
@@ -182,11 +174,6 @@ export default function AdminDashboardTab({
       .sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt))[0] || null;
   }, [clubEvents]);
 
-  const overdueQueue = useMemo(
-    () => getOverdueMembers(members).slice(0, 5),
-    [members],
-  );
-
   const featuredNews = useMemo(() => {
     const list = Array.isArray(latestNews) ? latestNews : [];
     const published = list.filter(isNewsPublished);
@@ -194,12 +181,9 @@ export default function AdminDashboardTab({
     return pool[0] || null;
   }, [latestNews]);
 
-  const outdoorFacilities = useMemo(
-    () => FACILITIES.filter((f) => f.isOutdoor),
-    [],
-  );
-
-  const liveAlert = activeAlerts[0] || null;
+  const { weather, status: weatherStatus } = useSedeWeather({ isZondaActive });
+  const weatherClosed = weather?.outdoor === 'closed';
+  const weatherCaution = weather?.outdoor === 'caution';
 
   const hrPending = useMemo(
     () => (staffHrRecords || []).filter((r) => r.status === 'pending').length,
@@ -345,61 +329,6 @@ export default function AdminDashboardTab({
     </button>
   );
 
-  const renderDuesQueue = () => {
-    if (!permittedTabs.includes('dues')) return null;
-    return (
-      <article className="glass-card ops-card ops-dues-queue">
-        <header className="ops-card-head ops-card-head--split">
-          <div>
-            <ShieldAlert size={16} color="#ef4444" />
-            <h3>Cola de cobro</h3>
-          </div>
-          <span className="ops-muted" style={{ fontSize: '0.75rem' }}>
-            {overdueQueue.length > 0 ? `${overdueMembersCount || overdueQueue.length} en mora` : 'Al día'}
-          </span>
-        </header>
-        {overdueQueue.length === 0 ? (
-          <p className="ops-muted" style={{ margin: 0 }}>Ningún socio con cuota vencida en el padrón.</p>
-        ) : (
-          <ul className="ops-dues-queue-list">
-            {overdueQueue.map((m) => {
-              const wa = buildWhatsAppDuesUrl(m, formatCurrency);
-              return (
-                <li key={m.id}>
-                  <div className="ops-dues-queue-main">
-                    <strong className="ops-ellipsis">{m.name}</strong>
-                    <span className="ops-muted">
-                      {formatCurrency(m.amountDue)}
-                      {m.daysOverdue != null ? ` · ${m.daysOverdue}d` : ''}
-                    </span>
-                  </div>
-                  <div className="ops-dues-queue-actions">
-                    <button type="button" className="ops-mini-btn" onClick={() => goToTab('dues')}>
-                      Cobrar
-                    </button>
-                    {wa ? (
-                      <a
-                        className="ops-mini-btn ops-mini-btn--wa"
-                        href={wa}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        WA
-                      </a>
-                    ) : null}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-        <div className="ops-card-foot" style={{ marginTop: '0.75rem' }}>
-          {link('Abrir cobranza >', () => goToTab('dues'))}
-        </div>
-      </article>
-    );
-  };
-
   return (
     <div className="fade-in ops-dash">
       <section className="ops-dash-hero ops-dash-hero--solo">
@@ -451,7 +380,31 @@ export default function AdminDashboardTab({
               ) : null}
             </header>
             {bookings.todayList.length === 0 ? (
-              <p className="ops-muted ops-today-empty">Sin turnos confirmados o pendientes para hoy.</p>
+              <>
+                <p className="ops-muted ops-today-empty">Sin turnos para hoy.</p>
+                {bookings.next.length > 0 ? (
+                  <>
+                    <p className="ops-today-next-label">Próximos</p>
+                    <ul className="ops-today-list ops-today-list--next">
+                      {bookings.next.slice(0, 3).map((res) => (
+                        <li key={res.id || `${reservationDay(res)}-${res.time || res.time_slot}`}>
+                          <span className="ops-today-time tabular-nums">
+                            {String(res.time || res.time_slot || '—').slice(0, 5)}
+                          </span>
+                          <span className="ops-today-copy">
+                            <strong>{res.facilityName || res.facilityId}</strong>
+                            <small>
+                              {reservationDay(res).slice(8, 10)}/{reservationDay(res).slice(5, 7)}
+                              {res.memberName ? ` · ${res.memberName}` : ''}
+                              {res.status === 'pending' ? ' · por confirmar' : ''}
+                            </small>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : null}
+              </>
             ) : (
               <ul className="ops-today-list">
                 {bookings.todayList.map((res) => (
@@ -487,42 +440,57 @@ export default function AdminDashboardTab({
                 </div>
               </div>
             ) : null}
-            {liveAlert ? (
-              <div className={`ops-today-alert sev-${liveAlert.severity || 'info'}`}>
-                <BellRing size={14} aria-hidden="true" />
-                <span>{liveAlert.title}</span>
-              </div>
-            ) : null}
             {permittedTabs.includes('bookings') && (
-              <button type="button" className="ops-dash-link" onClick={() => goToTab('bookings')}>
-                Ver agenda completa
-              </button>
+              <div className="ops-today-pane-foot">
+                <Link to="/panel/bookings" className="ops-dash-link">
+                  Ver agenda completa
+                </Link>
+              </div>
             )}
           </article>
 
-          <article className={`ops-today-pane ops-today-pane--weather ${isZondaActive ? 'is-zonda' : ''}`}>
+          <article className={`ops-today-pane ops-today-pane--weather ${weatherClosed ? 'is-zonda' : weatherCaution ? 'is-caution' : ''}`}>
             <header className="ops-today-pane-head">
               <Wind size={15} aria-hidden="true" />
               <h3>Clima operativo</h3>
             </header>
-            <div className="ops-weather-status">
-              <span className={`ops-weather-pill ${isZondaActive ? 'danger' : 'ok'}`}>
-                {isZondaActive ? 'Zonda activo' : 'Condiciones normales'}
-              </span>
-              <p>
-                {isZondaActive
-                  ? `${outdoorFacilities.length} instalaciones exteriores suspendidas.`
-                  : `${outdoorFacilities.length} canchas y pistas outdoor disponibles.`}
-              </p>
-            </div>
-            <ul className="ops-weather-facilities">
-              {outdoorFacilities.slice(0, 4).map((f) => (
-                <li key={f.id} className={isZondaActive ? 'closed' : ''}>
-                  <span className="ops-ellipsis">{f.name.replace(/ - .*$/, '')}</span>
-                  <em>{isZondaActive ? 'Cerrado' : 'Abierto'}</em>
-                </li>
-              ))}
-            </ul>
+            {weatherStatus === 'error' && !weather ? (
+              <p className="ops-muted ops-today-empty">No se pudo leer el clima de Rivadavia.</p>
+            ) : !weather ? (
+              <p className="ops-muted ops-today-empty">Leyendo estación de Rivadavia…</p>
+            ) : (
+              <>
+                <div className="ops-weather-now">
+                  <strong className="ops-weather-temp">
+                    {Math.round(weather.temperature)}°
+                  </strong>
+                  <div className="ops-weather-now-copy">
+                    <span className="ops-weather-condition">{weather.condition}</span>
+                    <span className="ops-weather-meta">
+                      Rivadavia
+                      {formatObservedClock(weather.observedAt) ? ` · ${formatObservedClock(weather.observedAt)}` : ''}
+                    </span>
+                    <span className="ops-weather-meta">
+                      Humedad {Math.round(weather.humidity)}% · {weather.windLabel}
+                      {weather.gustsKmh ? ` · ráfagas ${Math.round(weather.gustsKmh)}` : ''}
+                    </span>
+                  </div>
+                </div>
+                <div className="ops-weather-status">
+                  <span className={`ops-weather-pill ${weather.pill.tone}`}>
+                    {weather.pill.label}
+                  </span>
+                  <p>{weather.summary}</p>
+                </div>
+                <p
+                  className={`ops-weather-outdoor ${weatherClosed ? 'closed' : weatherCaution ? 'caution' : ''}`}
+                  aria-label={`Canchas outdoor: ${weather.outdoorLabel}`}
+                >
+                  <span>Canchas outdoor</span>
+                  <em>{weather.outdoorLabel}</em>
+                </p>
+              </>
+            )}
           </article>
 
           <article className="ops-today-pane ops-today-pane--alerts">
@@ -561,16 +529,18 @@ export default function AdminDashboardTab({
                 })}
               </ul>
             )}
-            {permittedTabs.includes('claims') && (
-              <p className="ops-muted" style={{ margin: '0.35rem 0 0' }}>
-                {pendingClaimsCount} reclamos abiertos
-              </p>
-            )}
-            {permittedTabs.includes('alerts') && (
-              <button type="button" className="ops-dash-link" onClick={() => goToTab('alerts')}>
-                Ver alertas
-              </button>
-            )}
+            <div className="ops-today-pane-foot">
+              {permittedTabs.includes('claims') && pendingClaimsCount > 0 ? (
+                <p className="ops-muted" style={{ margin: 0 }}>
+                  {pendingClaimsCount} reclamos abiertos
+                </p>
+              ) : null}
+              {permittedTabs.includes('alerts') && (
+                <Link to="/panel/alerts" className="ops-dash-link">
+                  Ver alertas
+                </Link>
+              )}
+            </div>
           </article>
         </div>
       </section>
@@ -580,7 +550,7 @@ export default function AdminDashboardTab({
         {/* IZQUIERDA — Comunicar / trabajo del día */}
         <div className="ops-dash-col ops-dash-col--left">
           {hasMessaging ? (
-            <article className="glass-card ops-card ops-card--tall">
+            <article className="glass-card ops-card ops-card--tall ops-tile ops-tile--comms">
               <header className="ops-card-head">
                 <MessageSquare size={16} color="var(--primary-gold)" />
                 <h3>Comunicaciones</h3>
@@ -619,7 +589,7 @@ export default function AdminDashboardTab({
               </div>
             </article>
           ) : (
-            <article className="glass-card ops-card ops-card--tall">
+            <article className="glass-card ops-card ops-card--tall ops-tile ops-tile--comms">
               <header className="ops-card-head">
                 <ClipboardList size={16} color="var(--primary-gold)" />
                 <h3>Trabajo del día</h3>
@@ -666,7 +636,7 @@ export default function AdminDashboardTab({
           )}
 
           {showGate && (
-            <article className="glass-card ops-card ops-card--gate">
+            <article className="glass-card ops-card ops-card--gate ops-tile ops-tile--gate">
               <header className="ops-card-head ops-card-head--split">
                 <div>
                   <DoorOpen size={16} color="var(--primary-gold)" />
@@ -709,7 +679,7 @@ export default function AdminDashboardTab({
           )}
 
           {permittedTabs.includes('staff') && (
-            <article className="glass-card ops-floor-card">
+            <article className="glass-card ops-floor-card ops-tile ops-tile--staff">
               <header className="ops-card-head">
                 <ClipboardList size={16} color="var(--primary-gold)" />
                 <h3>Personal</h3>
@@ -723,7 +693,7 @@ export default function AdminDashboardTab({
           )}
 
           {permittedTabs.includes('bookings') && (hasMessaging || hasAccounting) && (
-            <article className="glass-card ops-floor-card">
+            <article className="glass-card ops-floor-card ops-tile ops-tile--book">
               <header className="ops-card-head">
                 <Calendar size={16} color="var(--primary-gold)" />
                 <h3>Reservas de canchas</h3>
@@ -769,7 +739,7 @@ export default function AdminDashboardTab({
         <div className="ops-dash-col ops-dash-col--center">
           {hasAccounting ? (
             <>
-              <article className="glass-card ops-card">
+              <article className="glass-card ops-card ops-tile ops-tile--money">
                 <header className="ops-card-head ops-card-head--split">
                   <div>
                     {userRole === 'cashier' ? (
@@ -896,8 +866,6 @@ export default function AdminDashboardTab({
                   </div>
                 )}
 
-                {renderDuesQueue()}
-
                 <div className="ops-btn-pair" style={{ marginTop: '1rem' }}>
                   {hasMembers && (
                     <button type="button" className="ops-outline-btn" onClick={() => goToTab('members')}>+ Socios</button>
@@ -906,33 +874,30 @@ export default function AdminDashboardTab({
                 </div>
               </article>
 
-              <AlertsBanner
-                alerts={alerts}
-                alertAcks={alertAcks}
-                userRole={userRole}
-                onAck={onAckAlert}
-                onlySources={['concession_expiry', 'concession_docs']}
-                maxItems={5}
-                style={{ marginBottom: 0, marginTop: 0 }}
-              />
               {(alerts || []).some((a) => (
                 (a.source === 'concession_expiry' || a.source === 'concession_docs')
                 && a.isActive !== false
-              )) && (
-                <button
-                  type="button"
-                  className="ops-dash-link"
-                  onClick={() => goToTab('concessions')}
-                >
-                  Gestionar concesiones
-                </button>
-              )}
+              )) ? (
+                <div className="ops-tile ops-tile--concessions">
+                  <AlertsBanner
+                    alerts={alerts}
+                    alertAcks={alertAcks}
+                    userRole={userRole}
+                    onAck={onAckAlert}
+                    onlySources={['concession_expiry', 'concession_docs']}
+                    maxItems={5}
+                    style={{ marginBottom: 0, marginTop: 0 }}
+                  />
+                  <Link to="/concesiones" className="ops-dash-link">
+                    Gestionar concesiones
+                  </Link>
+                </div>
+              ) : null}
             </>
           ) : (
             <>
-              {renderDuesQueue()}
               {permittedTabs.includes('events') && nextEvent && (
-                <article className="glass-card ops-card">
+                <article className="glass-card ops-card ops-tile ops-tile--money">
                   <header className="ops-card-head">
                     <PartyPopper size={16} color="var(--primary-gold)" />
                     <h3>Próximo evento</h3>
@@ -953,7 +918,7 @@ export default function AdminDashboardTab({
         <div className="ops-dash-col ops-dash-col--right">
           {hasMembers ? (
             <>
-              <article className="glass-card ops-card ops-padron-card">
+              <article className="glass-card ops-card ops-padron-card ops-tile ops-tile--padron">
                 <header className="ops-card-head ops-card-head--split">
                   <div>
                     <Users size={16} color="var(--primary-gold)" />
@@ -1017,31 +982,33 @@ export default function AdminDashboardTab({
                 </button>
               </article>
 
-              <button type="button" className="ops-stat ops-stat--a" onClick={() => goToTab('members')}>
-                <Users size={18} />
-                <span><b>{household.titulares}</b> Socios titulares</span>
-              </button>
-              <button type="button" className="ops-stat ops-stat--d" onClick={() => goToTab('system')}>
-                <UserRound size={18} />
-                <span><b>{registeredUsersCount}</b> Usuarios registrados</span>
-              </button>
-              <button type="button" className="ops-stat ops-stat--e" onClick={() => goToTab('system')}>
-                <UserPlus size={18} />
-                <span><b>{pendingMembershipApps}</b> Solicitudes de socio</span>
-              </button>
-              <button type="button" className="ops-stat ops-stat--b" onClick={() => goToTab('members')}>
-                <Users size={18} />
-                <span><b>{adherentsCount}</b> Grupo familiar</span>
-              </button>
-              {membersWithApp > 0 && (
-                <button type="button" className="ops-stat ops-stat--c" onClick={() => goToTab('members')}>
-                  <UserCircle2 size={18} />
-                  <span><b>{membersWithApp}</b> Con app instalada</span>
+              <div className="ops-tile ops-tile--stats" aria-label="Atajos de padrón">
+                <button type="button" className="ops-stat ops-stat--a" onClick={() => goToTab('members')}>
+                  <Users size={18} />
+                  <span><b>{household.titulares}</b> Socios titulares</span>
                 </button>
-              )}
+                <button type="button" className="ops-stat ops-stat--d" onClick={() => goToTab('system')}>
+                  <UserRound size={18} />
+                  <span><b>{registeredUsersCount}</b> Usuarios registrados</span>
+                </button>
+                <button type="button" className="ops-stat ops-stat--e" onClick={() => goToTab('system')}>
+                  <UserPlus size={18} />
+                  <span><b>{pendingMembershipApps}</b> Solicitudes de socio</span>
+                </button>
+                <button type="button" className="ops-stat ops-stat--b" onClick={() => goToTab('members')}>
+                  <Users size={18} />
+                  <span><b>{adherentsCount}</b> Grupo familiar</span>
+                </button>
+                {membersWithApp > 0 && (
+                  <button type="button" className="ops-stat ops-stat--c" onClick={() => goToTab('members')}>
+                    <UserCircle2 size={18} />
+                    <span><b>{membersWithApp}</b> Con app instalada</span>
+                  </button>
+                )}
+              </div>
             </>
           ) : (
-            <article className="glass-card ops-card">
+            <article className="glass-card ops-card ops-tile ops-tile--padron">
               <header className="ops-card-head">
                 <Activity size={16} color="var(--primary-gold)" />
                 <h3>Resumen</h3>
@@ -1068,13 +1035,13 @@ export default function AdminDashboardTab({
           )}
 
           {permittedTabs.includes('surveys') && surveys.length > 0 && (
-            <button type="button" className="ops-chip" onClick={() => goToTab('surveys')}>
+            <button type="button" className="ops-chip ops-tile ops-tile--revista" onClick={() => goToTab('surveys')}>
               <CheckCircle2 size={15} /> {surveys.length} encuestas
             </button>
           )}
 
           {(permittedTabs.includes('news') || (permittedTabs.includes('events') && nextEvent && hasAccounting) || (permittedTabs.includes('claims') && hasAccounting)) && (
-            <article className="glass-card ops-floor-card">
+            <article className="glass-card ops-floor-card ops-tile ops-tile--revista">
               {permittedTabs.includes('news') && (
                 <div className="ops-floor-section">
                   <header className="ops-card-head">

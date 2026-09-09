@@ -1,25 +1,39 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, User, CreditCard, Users, Wallet, DoorOpen, CalendarDays,
   MessageSquare, ClipboardList, Activity, Phone, Mail, MapPin,
   Pencil, FileText, Ticket, Bell, IdCard, Cake, Heart, Flag, Clock,
   ShieldCheck, CalendarClock, Banknote, Building2, AlertTriangle,
+  Camera, X, Plus,
 } from 'lucide-react';
 import VirtualCard from '../VirtualCard';
 import GuestPassPanel from '../GuestPassPanel';
+import CollectDuesModal from './CollectDuesModal';
+import ModalDialog from '../ModalDialog';
 import { formatShortDate } from '../../domain/members/dues';
-import { formatDateTimeAR } from '../../lib/arDate';
-import { getTierDisplayName, tierBadgeStyle } from '../../domain/members/tiers';
-import { resolveFamilyForDisplay } from '../../domain/members/households';
+import { formatDateTimeAR, todayISODateAR } from '../../lib/arDate';
+import { collectMemberMeta } from '../../domain/members/memberAdminActions';
+import { getActiveTiers, getTierDisplayName, tierBadgeStyle } from '../../domain/members/tiers';
+import { DISCIPLINE_OPTIONS, getDisciplineOptions, normalizeLabel } from '../../domain/sports/disciplines';
+import {
+  allocateNextMemberNumber,
+  familyPrincipalOf,
+  householdMemberAsAdherent,
+  isFamilyDependent,
+  memberNumberOf,
+  resolveFamilyForDisplay,
+} from '../../domain/members/households';
 import {
   applyMemberProfileUpdate,
   upsertMemberDocument,
   DOCUMENT_TYPES,
 } from '../../domain/members/profileEdit';
+import { duesMethodLabel, persistDuesCollection, recordDuesCollection } from '../../domain/members/memberPayments';
 
 const SECTIONS = [
   { id: 'ficha', label: 'Ficha', icon: User },
-  { id: 'editar', label: 'Editar', icon: Pencil, memberOnly: true },
+  { id: 'editar', label: 'Editar', icon: Pencil },
   { id: 'tarjeta', label: 'Tarjeta', icon: CreditCard },
   { id: 'invitados', label: 'Invitados', icon: Ticket, memberOnly: true },
   { id: 'docs', label: 'Documentos', icon: FileText, memberOnly: true },
@@ -160,6 +174,82 @@ function Empty({ text }) {
   return <p className="mp-empty">{text}</p>;
 }
 
+const FAMILY_RELATIONSHIPS = ['Titular', 'Cónyuge', 'Hijo/a', 'Padre/Madre', 'Hermano/a', 'Nieto/a', 'Grupo familiar', 'Otro'];
+
+function findMemberByNumber(members, id) {
+  const digits = String(id || '').replace(/\D/g, '');
+  if (!digits) return null;
+  return (members || []).find((m) => {
+    const mid = String(m.memberId || '');
+    return mid === String(id) || mid.replace(/\D/g, '') === digits || memberNumberOf(m) === digits;
+  }) || null;
+}
+
+function familyCardMember(adh, fallbackHost) {
+  return {
+    memberId: adh.memberId || adh.id || fallbackHost?.memberId,
+    name: adh.name,
+    photo: adh.photo,
+    tier: adh.tier,
+    status: adh.status || 'active',
+    familyPrincipalNumber: fallbackHost ? (isFamilyDependent(fallbackHost) ? fallbackHost.familyPrincipalNumber : memberNumberOf(fallbackHost)) : adh.memberId,
+  };
+}
+
+function canonDisciplineList(labels = [], catalogNames = []) {
+  const byKey = new Map((catalogNames || []).map((name) => [normalizeLabel(name), name]));
+  const seen = new Set();
+  const next = [];
+  for (const label of labels || []) {
+    const canon = byKey.get(normalizeLabel(label)) || String(label || '').trim();
+    const key = normalizeLabel(canon);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    next.push(canon);
+  }
+  return next;
+}
+
+function isDisciplineSelected(current, name) {
+  const key = normalizeLabel(name);
+  return (current || []).some((d) => normalizeLabel(d) === key);
+}
+
+function toggleDiscipline(current, name) {
+  const key = normalizeLabel(name);
+  const list = current || [];
+  if (list.some((d) => normalizeLabel(d) === key)) {
+    return list.filter((d) => normalizeLabel(d) !== key);
+  }
+  return [...list, name];
+}
+
+function readMemberPhoto(file) {
+  return new Promise((resolve, reject) => {
+    if (!file || !file.type.startsWith('image/')) {
+      reject(new Error('Seleccione una imagen válida.'));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('No se pudo leer la imagen.'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Imagen inválida.'));
+      img.onload = () => {
+        const max = 360;
+        const scale = Math.min(1, max / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.82));
+      };
+      img.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 function TimelineItem({ when, title, detail, tone = 'neutral' }) {
   return (
     <div className={`mp-timeline-item tone-${tone}`}>
@@ -186,20 +276,164 @@ export default function MemberProfilePanel({
   claims = [],
   messages = [],
   updateMember = null,
+  setMembers = null,
+  addJournalEntry = null,
+  onAccountEntry = null,
   guestPasses = [],
   setGuestPasses = null,
   selfService = false,
   tierCatalog,
+  disciplineCatalog = [],
 }) {
   const [section, setSection] = useState('ficha');
   const [editForm, setEditForm] = useState(null);
   const [editMsg, setEditMsg] = useState('');
+  const [collectOpen, setCollectOpen] = useState(false);
+  const [collectFlash, setCollectFlash] = useState('');
+  const [cardMember, setCardMember] = useState(null);
+  const [familyEdit, setFamilyEdit] = useState(null);
+  const [familyEditMsg, setFamilyEditMsg] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
   const visibleSections = SECTIONS.filter((s) => !s.memberOnly || selfService);
+  const canCollect = !selfService && Boolean(setMembers || updateMember);
+  const disciplineOptions = useMemo(() => {
+    const fromCatalog = getDisciplineOptions(disciplineCatalog);
+    return fromCatalog.length ? fromCatalog : DISCIPLINE_OPTIONS;
+  }, [disciplineCatalog]);
+
+  useEffect(() => {
+    if (selfService || !member || searchParams.get('cobrar') !== '1') return undefined;
+    setCollectOpen(true);
+    setSearchParams((prev) => {
+      if (prev.get('cobrar') !== '1') return prev;
+      const next = new URLSearchParams(prev);
+      next.delete('cobrar');
+      return next;
+    }, { replace: true });
+    return undefined;
+  }, [member?.memberId, selfService, searchParams, setSearchParams]);
 
   const familyGroup = useMemo(
     () => resolveFamilyForDisplay(member, members.length ? members : [member].filter(Boolean)),
     [member, members]
   );
+  const familyRows = useMemo(() => {
+    const list = [...(familyGroup.members || [])];
+    const selfId = memberNumberOf(member);
+    const already = list.some((row) => String(row.memberId || '').replace(/\D/g, '') === selfId);
+    if (member && selfId && !already) {
+      list.unshift(householdMemberAsAdherent(
+        member,
+        isFamilyDependent(member) ? 'Grupo familiar' : 'Titular',
+      ));
+    }
+    return list;
+  }, [familyGroup.members, member]);
+  const canEditFamily = !selfService && Boolean(updateMember || setMembers);
+  const tiers = useMemo(() => getActiveTiers(tierCatalog), [tierCatalog]);
+  const defaultFamilyTier = useMemo(() => {
+    const fromGroup = familyRows.find((row) => row.relationship !== 'Titular')?.tier;
+    if (fromGroup) return fromGroup;
+    const fam = tiers.find((t) => /grupo.?familiar/i.test(`${t.id} ${t.name}`));
+    return fam?.id || member?.tier || tiers[0]?.id || '';
+  }, [familyRows, tiers, member?.tier]);
+
+  const openAddFamily = () => {
+    setFamilyEditMsg('');
+    setFamilyEdit({
+      isNew: true,
+      source: null,
+      adherentId: null,
+      form: {
+        name: '',
+        documentNumber: '',
+        birthDate: '',
+        phone: '',
+        email: '',
+        tier: defaultFamilyTier,
+        disciplines: [],
+        photo: '',
+        relationship: 'Grupo familiar',
+        memberId: allocateNextMemberNumber(members),
+      },
+    });
+  };
+
+  const persistNewFamilyMember = (form) => {
+    const host = familyGroup.titular || member;
+    const principalId = familyPrincipalOf(host) || memberNumberOf(host);
+    const requested = String(form.memberId || '').replace(/\D/g, '');
+    const memberId = requested || allocateNextMemberNumber(members);
+    if (findMemberByNumber(members, memberId)) {
+      return 'Ya existe un socio con esa credencial.';
+    }
+    const groupName = host?.familyGroupName || member?.familyGroupName || `Grupo ${principalId}`;
+    const principalNum = Number.parseInt(principalId, 10);
+    const familyPrincipalNumber = Number.isFinite(principalNum) ? principalNum : principalId;
+    const newMember = {
+      name: String(form.name || '').trim(),
+      memberId,
+      documentType: 'DNI',
+      documentNumber: form.documentNumber || '',
+      birthDate: form.birthDate || '',
+      phone: form.phone || '',
+      email: form.email || '',
+      address: host?.address || member?.address || '',
+      city: host?.city || member?.city || '',
+      province: host?.province || member?.province || '',
+      postalCode: host?.postalCode || member?.postalCode || '',
+      tier: form.tier || defaultFamilyTier,
+      disciplines: form.disciplines || [],
+      photo: form.photo || '',
+      relationship: form.relationship || 'Grupo familiar',
+      status: 'active',
+      joinDate: todayISODateAR(),
+      outstandingBalance: 0,
+      yearsActive: 0,
+      paymentMethod: host?.paymentMethod || member?.paymentMethod || '',
+      familyPrincipalNumber,
+      familyGroupName: groupName,
+      adherents: [],
+      meta: collectMemberMeta({
+        familyPrincipalNumber,
+        familyGroupName: groupName,
+      }),
+    };
+    if (setMembers) {
+      setMembers((prev) => [newMember, ...(prev || [])]);
+    } else if (updateMember) {
+      updateMember({
+        ...host,
+        adherents: [
+          ...(host.adherents || []),
+          {
+            id: `adh-${Date.now()}`,
+            name: newMember.name,
+            relationship: newMember.relationship,
+            documentNumber: newMember.documentNumber,
+            birthDate: newMember.birthDate,
+            phone: newMember.phone,
+            email: newMember.email,
+            tier: newMember.tier,
+            disciplines: newMember.disciplines,
+            photo: newMember.photo,
+            status: 'active',
+            outstandingBalance: 0,
+          },
+        ],
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    if (host && !familyPrincipalOf(host) && updateMember) {
+      updateMember({
+        ...host,
+        familyPrincipalNumber,
+        familyGroupName: groupName,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    return null;
+  };
 
   const movements = useMemo(() => {
     if (!member) return [];
@@ -208,7 +442,10 @@ export default function MemberProfilePanel({
     return (journalEntries || [])
       .filter((e) => {
         const d = e.description || '';
-        return d.includes(nameHint) || d.includes(idHint) || d.includes(member.memberId);
+        return e.memberId === member.memberId
+          || d.includes(nameHint)
+          || d.includes(idHint)
+          || d.includes(member.memberId);
       })
       .slice()
       .sort((a, b) => String(b.date).localeCompare(String(a.date)));
@@ -263,6 +500,21 @@ export default function MemberProfilePanel({
         detail: amount != null ? formatCurrency(amount) : null,
         tone: 'neutral',
         sort: e.date,
+      });
+    });
+
+    (member.paymentHistory || []).forEach((p) => {
+      items.push({
+        when: formatShortDate(p.date),
+        title: p.concept || `Cobro · ${duesMethodLabel(p.method, p.bankName)}`,
+        detail: [
+          formatCurrency(p.amount),
+          duesMethodLabel(p.method, p.bankName),
+          p.receiptNumber || p.receipt,
+          p.receiptName ? `Comp. ${p.receiptName}` : null,
+        ].filter(Boolean).join(' · '),
+        tone: 'ok',
+        sort: p.date || '',
       });
     });
 
@@ -341,6 +593,27 @@ export default function MemberProfilePanel({
     );
   }
 
+  const handleConfirmCollect = (payload) => {
+    try {
+      const result = recordDuesCollection(member, payload);
+      persistDuesCollection(result, {
+        setMembers,
+        updateMember,
+        addJournalEntry,
+        onAccountEntry,
+      });
+      setCollectOpen(false);
+      setSection('movimientos');
+      setCollectFlash(
+        `Cobro registrado · ${duesMethodLabel(payload.method, payload.bankName)} · ${formatCurrency(result.payment.amount)}`
+      );
+      window.setTimeout(() => setCollectFlash(''), 5000);
+    } catch (err) {
+      setCollectFlash(err.message || 'No se pudo registrar el cobro.');
+      window.setTimeout(() => setCollectFlash(''), 5000);
+    }
+  };
+
   const status = STATUS_COPY[member.status] || STATUS_COPY.pending;
   const balance = Number(member.outstandingBalance) || 0;
   const hasDebt = balance > 0;
@@ -382,7 +655,11 @@ export default function MemberProfilePanel({
               className="mp-avatar"
               style={{ '--tier-ring': tierBadgeStyle(member.tier, tierCatalog).borderColor || 'var(--primary-gold)' }}
             >
-              {member.photo ? <img src={member.photo} alt="" /> : <span>{initials}</span>}
+              {(section === 'editar' && editForm?.photo) || member.photo ? (
+                <img src={(section === 'editar' && editForm?.photo) || member.photo} alt="" />
+              ) : (
+                <span>{initials}</span>
+              )}
             </div>
             <div className="mp-identity-copy">
               <p className="mp-kicker">Ficha del socio</p>
@@ -416,6 +693,16 @@ export default function MemberProfilePanel({
                 ? `Próximo vencimiento ${formatShortDate(member.nextDueDate)}`
                 : 'Sin vencimiento cargado')}
           </div>
+          {canCollect ? (
+            <button
+              type="button"
+              className="btn btn-primary btn-sm mp-collect-btn"
+              onClick={() => setCollectOpen(true)}
+            >
+              <Banknote size={14} aria-hidden /> Cobrar
+            </button>
+          ) : null}
+          {collectFlash ? <p className="mp-collect-flash">{collectFlash}</p> : null}
         </aside>
       </header>
 
@@ -431,6 +718,10 @@ export default function MemberProfilePanel({
                 setSection(s.id);
                 if (s.id === 'editar' && member) {
                   setEditForm({
+                    name: member.name || '',
+                    documentNumber: member.documentNumber || '',
+                    birthDate: member.birthDate || '',
+                    tier: member.tier || '',
                     phone: member.phone || '',
                     phoneAlt: member.phoneAlt || '',
                     email: member.email || '',
@@ -441,7 +732,10 @@ export default function MemberProfilePanel({
                     emergencyContact: member.emergencyContact || '',
                     emergencyPhone: member.emergencyPhone || '',
                     photo: member.photo || '',
-                    preferredSports: (member.preferredSports || member.disciplines || []).join(', '),
+                    disciplines: canonDisciplineList(
+                      member.disciplines?.length ? member.disciplines : (member.preferredSports || []),
+                      disciplineOptions
+                    ),
                     notifyDues: member.notifyDues !== false,
                     notifyReservations: member.notifyReservations !== false,
                     notifyEvents: member.notifyEvents !== false,
@@ -561,33 +855,38 @@ export default function MemberProfilePanel({
           <div className="mp-card-wrap">
             <VirtualCard member={member} />
             <p className="mp-card-hint">
-              Credencial disponible offline (PWA). En móvil, tocá para pantalla completa.
+              Tocá la credencial para agrandarla o descargala en PDF.
             </p>
           </div>
         )}
 
-        {section === 'editar' && selfService && editForm && (
+        {section === 'editar' && editForm && (
           <form
             onSubmit={(e) => {
               e.preventDefault();
               if (!updateMember) return;
+              const sports = canonDisciplineList(editForm.disciplines || [], disciplineOptions);
               const updated = applyMemberProfileUpdate(member, {
                 ...editForm,
-                preferredSports: editForm.preferredSports
-                  .split(',')
-                  .map((s) => s.trim())
-                  .filter(Boolean),
-                disciplines: editForm.preferredSports
-                  .split(',')
-                  .map((s) => s.trim())
-                  .filter(Boolean),
+                preferredSports: sports,
+                disciplines: sports,
               });
+              if (!selfService) {
+                if (editForm.name?.trim()) updated.name = editForm.name.trim();
+                updated.documentNumber = editForm.documentNumber || '';
+                updated.birthDate = editForm.birthDate || '';
+                if (editForm.tier) updated.tier = editForm.tier;
+              }
               updateMember(updated);
               setEditMsg('Datos actualizados correctamente.');
             }}
             className="mp-edit-form"
           >
-            {[
+            {(!selfService ? [
+              ['name', 'Nombre completo'],
+              ['documentNumber', 'Documento'],
+              ['birthDate', 'Nacimiento'],
+            ] : []).concat([
               ['phone', 'WhatsApp'],
               ['phoneAlt', 'Tel. alternativo'],
               ['email', 'Email'],
@@ -597,22 +896,100 @@ export default function MemberProfilePanel({
               ['postalCode', 'CP'],
               ['emergencyContact', 'Contacto emergencia'],
               ['emergencyPhone', 'Tel. emergencia'],
-              ['photo', 'URL foto'],
-              ['preferredSports', 'Disciplinas (separadas por coma)'],
-            ].map(([key, label]) => (
+            ]).map(([key, label]) => (
               <div
                 key={key}
                 className="mp-edit-field"
-                style={{ gridColumn: key === 'preferredSports' || key === 'address' || key === 'photo' ? '1 / -1' : undefined }}
+                style={{ gridColumn: key === 'address' ? '1 / -1' : undefined }}
               >
                 <label className="form-label">{label}</label>
                 <input
                   className="form-input"
+                  type={key === 'birthDate' ? 'date' : key === 'email' ? 'email' : 'text'}
                   value={editForm[key] || ''}
-                  onChange={(ev) => setEditForm({ ...editForm, [key]: ev.target.value })}
+                  onChange={(ev) => setEditForm((curr) => ({ ...curr, [key]: ev.target.value }))}
                 />
               </div>
             ))}
+            <div className="mp-edit-field" style={{ gridColumn: '1 / -1' }}>
+              <span className="form-label">Disciplinas</span>
+              <div className="mp-family-chips">
+                {[
+                  ...disciplineOptions,
+                  ...(editForm.disciplines || []).filter(
+                    (d) => !disciplineOptions.some((opt) => normalizeLabel(opt) === normalizeLabel(d))
+                  ),
+                ].map((d) => {
+                  const active = isDisciplineSelected(editForm.disciplines, d);
+                  return (
+                    <button
+                      key={d}
+                      type="button"
+                      className={`mp-family-chip${active ? ' is-on' : ''}`}
+                      onClick={() => setEditForm((curr) => ({
+                        ...curr,
+                        disciplines: toggleDiscipline(curr.disciplines, d),
+                      }))}
+                    >
+                      {d}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="mp-edit-field" style={{ gridColumn: '1 / -1' }}>
+              <span className="form-label">Foto</span>
+              <div className="mp-family-photo">
+                <div className="mp-family-avatar" style={{ width: 76, height: 76, borderRadius: 14 }}>
+                  {editForm.photo ? <img src={editForm.photo} alt="" /> : <Camera size={20} />}
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.45rem' }}>
+                  <label className="btn btn-secondary btn-sm" style={{ cursor: 'pointer' }}>
+                    {editForm.photo ? 'Cambiar foto' : 'Subir del ordenador'}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      hidden
+                      onChange={async (ev) => {
+                        const file = ev.target.files?.[0];
+                        ev.target.value = '';
+                        if (!file) return;
+                        try {
+                          const photo = await readMemberPhoto(file);
+                          setEditForm((curr) => ({ ...curr, photo }));
+                          setEditMsg('');
+                        } catch {
+                          setEditMsg('No se pudo leer la imagen.');
+                        }
+                      }}
+                    />
+                  </label>
+                  {editForm.photo ? (
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => setEditForm((curr) => ({ ...curr, photo: '' }))}
+                    >
+                      Quitar
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+            {!selfService ? (
+              <div className="mp-edit-field">
+                <label className="form-label">Categoría</label>
+                <select
+                  className="form-input"
+                  value={editForm.tier || ''}
+                  onChange={(ev) => setEditForm((curr) => ({ ...curr, tier: ev.target.value }))}
+                >
+                  {tiers.map((t) => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
             <div className="mp-edit-notices">
               {[
                 ['notifyDues', 'Avisos de cuota'],
@@ -684,22 +1061,32 @@ export default function MemberProfilePanel({
 
         {section === 'familia' && (
           <div>
-            {!(familyGroup.members || []).length ? (
-              <Empty text="Sin adherentes en el grupo familiar." />
+            <div className="mp-family-toolbar">
+              <p className="mp-section-lead">
+                {member.familyGroupName || familyGroup.titular?.familyGroupName
+                  ? `${member.familyGroupName || familyGroup.titular?.familyGroupName} · `
+                  : ''}
+                {familyRows.length} integrante{familyRows.length === 1 ? '' : 's'}
+              </p>
+              {canEditFamily ? (
+                <button type="button" className="btn btn-primary btn-sm" onClick={openAddFamily}>
+                  <Plus size={14} /> Agregar integrante
+                </button>
+              ) : null}
+            </div>
+            {!familyRows.length ? (
+              <Empty text="Sin integrantes en el grupo familiar." />
             ) : (
               <div className="mp-family">
-                {(member.familyGroupName || familyGroup.titular?.familyGroupName) && (
-                  <p className="mp-section-lead" style={{ marginBottom: '0.75rem' }}>
-                    {member.familyGroupName || familyGroup.titular?.familyGroupName}
-                    {' · '}
-                    {familyGroup.members.length} integrante{familyGroup.members.length === 1 ? '' : 's'}
-                  </p>
-                )}
-                {familyGroup.members.map((adh) => {
-                  const canOpen = Boolean(onOpenMember && adh.memberId && adh.memberId !== String(member.memberId));
+                {familyRows.map((adh) => {
+                  const selfId = memberNumberOf(member);
+                  const rowId = String(adh.memberId || '').replace(/\D/g, '');
+                  const isSelf = rowId && rowId === selfId;
+                  const canOpen = Boolean(onOpenMember && adh.memberId && !isSelf);
+                  const source = findMemberByNumber(members, adh.memberId);
                   return (
                     <div
-                      key={adh.id}
+                      key={adh.id || adh.memberId}
                       className={`mp-family-row${canOpen ? ' is-clickable' : ''}`}
                       role={canOpen ? 'button' : undefined}
                       tabIndex={canOpen ? 0 : undefined}
@@ -730,6 +1117,49 @@ export default function MemberProfilePanel({
                       <span className="mp-tier-pill" style={tierBadgeStyle(adh.tier, tierCatalog)}>
                         {getTierDisplayName(adh.tier, tierCatalog)}
                       </span>
+                      <div className="mp-family-actions">
+                        {canEditFamily ? (
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const person = source || adh;
+                              setFamilyEditMsg('');
+                              setFamilyEdit({
+                                source,
+                                adherentId: adh.id || adh.memberId,
+                                form: {
+                                  name: person.name || '',
+                                  documentNumber: source?.documentNumber || '',
+                                  birthDate: source?.birthDate || '',
+                                  phone: source?.phone || '',
+                                  email: source?.email || '',
+                                  tier: source?.tier || adh.tier || '',
+                                  disciplines: canonDisciplineList(
+                                    source?.disciplines || adh.disciplines || [],
+                                    disciplineOptions
+                                  ),
+                                  photo: source?.photo || adh.photo || '',
+                                  relationship: adh.relationship || source?.relationship || 'Grupo familiar',
+                                },
+                              });
+                            }}
+                          >
+                            <Pencil size={13} /> Editar
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setCardMember(source || familyCardMember(adh, member));
+                          }}
+                        >
+                          <CreditCard size={13} /> Tarjeta
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
@@ -740,21 +1170,37 @@ export default function MemberProfilePanel({
 
         {section === 'movimientos' && (
           <div>
-            {movements.length === 0 ? (
+            {(member.paymentHistory || []).length === 0 && movements.length === 0 ? (
               <Empty text="Sin movimientos contables vinculados a este socio." />
             ) : (
-              movements.map((e) => {
-                const amount = (e.lines || []).find((l) => l.type === 'debit')?.amount;
-                return (
-                  <div key={e.id} className="mp-list-row">
-                    <span className="mp-list-when">{formatShortDate(e.date)}</span>
-                    <span className="mp-list-main">{e.description}</span>
+              <>
+                {(member.paymentHistory || []).map((p) => (
+                  <div key={p.id || `${p.date}-${p.amount}`} className="mp-list-row">
+                    <span className="mp-list-when">{formatShortDate(p.date)}</span>
+                    <span className="mp-list-main">
+                      {p.concept || `Cobro · ${duesMethodLabel(p.method, p.bankName)}`}
+                      {p.receiptName ? (
+                        <div className="mp-list-sub">Comprobante: {p.receiptName}</div>
+                      ) : null}
+                    </span>
                     <strong className="mp-list-amount">
-                      {amount != null ? formatCurrency(amount) : '—'}
+                      {formatCurrency(p.amount)}
                     </strong>
                   </div>
-                );
-              })
+                ))}
+                {movements.map((e) => {
+                  const amount = (e.lines || []).find((l) => l.type === 'debit')?.amount;
+                  return (
+                    <div key={e.id} className="mp-list-row">
+                      <span className="mp-list-when">{formatShortDate(e.date)}</span>
+                      <span className="mp-list-main">{e.description}</span>
+                      <strong className="mp-list-amount">
+                        {amount != null ? formatCurrency(amount) : '—'}
+                      </strong>
+                    </div>
+                  );
+                })}
+              </>
             )}
           </div>
         )}
@@ -846,7 +1292,7 @@ export default function MemberProfilePanel({
         {section === 'trazabilidad' && (
           <div>
             <p className="mp-section-lead">
-              Línea de tiempo: alta, cobros, ingresos, reservas, reclamos, suspensiones, bajas y accesos portal.
+              Línea de tiempo: alta, cobros, comprobantes, ingresos, reservas, reclamos, suspensiones, bajas y accesos portal.
             </p>
             {timeline.length === 0 ? (
               <Empty text="Sin eventos de trazabilidad." />
@@ -858,6 +1304,272 @@ export default function MemberProfilePanel({
           </div>
         )}
       </div>
+
+      {collectOpen ? (
+        <CollectDuesModal
+          member={member}
+          formatCurrency={formatCurrency}
+          onClose={() => setCollectOpen(false)}
+          onConfirm={handleConfirmCollect}
+        />
+      ) : null}
+
+      {cardMember ? (
+        <ModalDialog
+          onClose={() => setCardMember(null)}
+          labelledBy="family-card-title"
+          contentClassName="modal-content glass-panel"
+          contentStyle={{
+            width: '90%',
+            maxWidth: 460,
+            background: 'var(--bg-secondary)',
+            border: '1px solid var(--border-glass)',
+            padding: '1.25rem',
+          }}
+        >
+          <div className="mp-family-modal-head">
+            <div>
+              <h4 id="family-card-title" className="serif-font" style={{ margin: 0, fontSize: '1.15rem', color: 'var(--text-gold)' }}>
+                Tarjeta virtual
+              </h4>
+              <p style={{ margin: '0.25rem 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                {cardMember.name}
+              </p>
+            </div>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setCardMember(null)}>
+              <X size={14} /> Cerrar
+            </button>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'center' }}>
+            <VirtualCard member={cardMember} />
+          </div>
+        </ModalDialog>
+      ) : null}
+
+      {familyEdit ? (
+        <ModalDialog
+          onClose={() => setFamilyEdit(null)}
+          labelledBy="family-edit-title"
+          contentClassName="modal-content glass-panel"
+          contentStyle={{
+            width: '92%',
+            maxWidth: 560,
+            background: 'var(--bg-secondary)',
+            border: '1px solid var(--border-glass)',
+            padding: '1.25rem',
+          }}
+        >
+          <div className="mp-family-modal-head">
+            <h4 id="family-edit-title" className="serif-font" style={{ margin: 0, fontSize: '1.15rem', color: 'var(--text-gold)' }}>
+              {familyEdit.isNew ? 'Agregar integrante' : 'Editar integrante'}
+            </h4>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setFamilyEdit(null)}>
+              <X size={14} /> Cerrar
+            </button>
+          </div>
+          <form
+            className="mp-edit-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!updateMember) return;
+              const form = familyEdit.form;
+              const name = String(form.name || '').trim();
+              if (!name) {
+                setFamilyEditMsg('El nombre es obligatorio.');
+                return;
+              }
+              if (familyEdit.isNew) {
+                const error = persistNewFamilyMember({ ...form, name });
+                if (error) {
+                  setFamilyEditMsg(error);
+                  return;
+                }
+                setFamilyEdit(null);
+                return;
+              }
+              if (familyEdit.source) {
+                updateMember({
+                  ...familyEdit.source,
+                  name,
+                  documentNumber: form.documentNumber || '',
+                  birthDate: form.birthDate || '',
+                  phone: form.phone || '',
+                  email: form.email || '',
+                  tier: form.tier || familyEdit.source.tier,
+                  disciplines: form.disciplines || [],
+                  photo: form.photo || '',
+                  relationship: form.relationship || familyEdit.source.relationship,
+                  updatedAt: new Date().toISOString(),
+                });
+              } else {
+                const host = familyGroup.titular && memberNumberOf(familyGroup.titular) === memberNumberOf(member)
+                  ? member
+                  : (familyGroup.titular || member);
+                const nextAdherents = (host.adherents || []).map((row) => (
+                  String(row.id) === String(familyEdit.adherentId) || String(row.memberId) === String(familyEdit.adherentId)
+                    ? {
+                      ...row,
+                      name,
+                      relationship: form.relationship,
+                      documentNumber: form.documentNumber,
+                      birthDate: form.birthDate,
+                      phone: form.phone,
+                      email: form.email,
+                      tier: form.tier,
+                      disciplines: form.disciplines || [],
+                      photo: form.photo,
+                    }
+                    : row
+                ));
+                updateMember({ ...host, adherents: nextAdherents, updatedAt: new Date().toISOString() });
+              }
+              setFamilyEdit(null);
+            }}
+          >
+            <div className="mp-edit-field" style={{ gridColumn: '1 / -1' }}>
+              <span className="form-label">Foto</span>
+              <div className="mp-family-photo">
+                <div className="mp-family-avatar" style={{ width: 64, height: 64, borderRadius: 12 }}>
+                  {familyEdit.form.photo ? <img src={familyEdit.form.photo} alt="" /> : <Camera size={18} />}
+                </div>
+                <label className="btn btn-secondary btn-sm" style={{ cursor: 'pointer' }}>
+                  {familyEdit.form.photo ? 'Cambiar foto' : 'Subir foto'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    hidden
+                    onChange={async (ev) => {
+                      const file = ev.target.files?.[0];
+                      ev.target.value = '';
+                      if (!file) return;
+                      try {
+                        const photo = await readMemberPhoto(file);
+                        setFamilyEdit((curr) => curr ? { ...curr, form: { ...curr.form, photo } } : curr);
+                      } catch {
+                        setFamilyEditMsg('No se pudo leer la imagen.');
+                      }
+                    }}
+                  />
+                </label>
+              </div>
+            </div>
+            {familyEdit.isNew ? (
+              <div className="mp-edit-field">
+                <label className="form-label">Credencial</label>
+                <input
+                  className="form-input"
+                  value={familyEdit.form.memberId || ''}
+                  onChange={(ev) => setFamilyEdit((curr) => curr ? { ...curr, form: { ...curr.form, memberId: ev.target.value } } : curr)}
+                />
+              </div>
+            ) : null}
+            <div className="mp-edit-field" style={{ gridColumn: familyEdit.isNew ? undefined : '1 / -1' }}>
+              <label className="form-label">Nombre completo</label>
+              <input
+                className="form-input"
+                value={familyEdit.form.name}
+                onChange={(ev) => setFamilyEdit((curr) => curr ? { ...curr, form: { ...curr.form, name: ev.target.value } } : curr)}
+              />
+            </div>
+            <div className="mp-edit-field">
+              <label className="form-label">Vínculo</label>
+              <select
+                className="form-input"
+                value={familyEdit.form.relationship}
+                onChange={(ev) => setFamilyEdit((curr) => curr ? { ...curr, form: { ...curr.form, relationship: ev.target.value } } : curr)}
+              >
+                {FAMILY_RELATIONSHIPS.map((opt) => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
+              </select>
+            </div>
+            <div className="mp-edit-field">
+              <label className="form-label">Documento</label>
+              <input
+                className="form-input"
+                value={familyEdit.form.documentNumber}
+                onChange={(ev) => setFamilyEdit((curr) => curr ? { ...curr, form: { ...curr.form, documentNumber: ev.target.value } } : curr)}
+              />
+            </div>
+            <div className="mp-edit-field">
+              <label className="form-label">Nacimiento</label>
+              <input
+                type="date"
+                className="form-input"
+                value={familyEdit.form.birthDate}
+                onChange={(ev) => setFamilyEdit((curr) => curr ? { ...curr, form: { ...curr.form, birthDate: ev.target.value } } : curr)}
+              />
+            </div>
+            <div className="mp-edit-field">
+              <label className="form-label">WhatsApp</label>
+              <input
+                className="form-input"
+                value={familyEdit.form.phone}
+                onChange={(ev) => setFamilyEdit((curr) => curr ? { ...curr, form: { ...curr.form, phone: ev.target.value } } : curr)}
+              />
+            </div>
+            <div className="mp-edit-field">
+              <label className="form-label">Email</label>
+              <input
+                type="email"
+                className="form-input"
+                value={familyEdit.form.email}
+                onChange={(ev) => setFamilyEdit((curr) => curr ? { ...curr, form: { ...curr.form, email: ev.target.value } } : curr)}
+              />
+            </div>
+            <div className="mp-edit-field">
+              <label className="form-label">Categoría</label>
+              <select
+                className="form-input"
+                value={familyEdit.form.tier}
+                onChange={(ev) => setFamilyEdit((curr) => curr ? { ...curr, form: { ...curr.form, tier: ev.target.value } } : curr)}
+              >
+                {tiers.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="mp-edit-field" style={{ gridColumn: '1 / -1' }}>
+              <span className="form-label">Disciplinas</span>
+              <div className="mp-family-chips">
+                {[
+                  ...disciplineOptions,
+                  ...(familyEdit.form.disciplines || []).filter(
+                    (d) => !disciplineOptions.some((opt) => normalizeLabel(opt) === normalizeLabel(d))
+                  ),
+                ].map((d) => {
+                  const active = isDisciplineSelected(familyEdit.form.disciplines, d);
+                  return (
+                    <button
+                      key={d}
+                      type="button"
+                      className={`mp-family-chip${active ? ' is-on' : ''}`}
+                      onClick={() => setFamilyEdit((curr) => {
+                        if (!curr) return curr;
+                        return {
+                          ...curr,
+                          form: {
+                            ...curr.form,
+                            disciplines: toggleDiscipline(curr.form.disciplines, d),
+                          },
+                        };
+                      })}
+                    >
+                      {d}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="mp-edit-actions">
+              <button type="submit" className="btn btn-primary" disabled={!updateMember && !setMembers}>
+                {familyEdit.isNew ? 'Agregar al grupo' : 'Guardar'}
+              </button>
+              {familyEditMsg ? <span className="mp-edit-ok" style={{ color: '#f87171' }}>{familyEditMsg}</span> : null}
+            </div>
+          </form>
+        </ModalDialog>
+      ) : null}
     </div>
   );
 }

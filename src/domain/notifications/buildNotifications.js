@@ -1,4 +1,4 @@
-import { filterAlertsForRole } from '../alerts/alerts';
+import { filterAlertsForRole, isAlertAcknowledged } from '../alerts/alerts';
 import { MAILBOX } from '../messaging/messages';
 
 /**
@@ -106,7 +106,7 @@ export function buildNotifications({
 
   // Solo alertas que exigen acuse (las informativas van al banner, no a la campanita)
   filterAlertsForRole(alerts || [], role)
-    .filter((a) => a.requiresAck && !(alertAcks || []).some((ack) => ack.alertId === a.id))
+    .filter((a) => a.requiresAck && !isAlertAcknowledged(a, alertAcks))
     .forEach((a) => {
       push(out, {
         id: `alert-${a.id}`,

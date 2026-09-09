@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import {
-  ArrowLeft, CalendarRange, Download, Eye, FileSpreadsheet, Plus, Printer, RotateCcw, Search, Trash2, Upload,
+  ArrowLeft, BookOpen, CalendarRange, Download, Eye, FileSpreadsheet, ListTree, Plus, Printer, RotateCcw, Search, Trash2, Upload, Wallet,
 } from 'lucide-react';
 import { formatCurrency } from '../../domain/accounting/journal';
 import {
@@ -24,9 +24,21 @@ import {
   MEMBER_COLLECTION_IMPORT_STATUS,
   applyMemberCollectionPayments,
   buildMemberCollectionImport,
+  collectionPaymentsToEntries,
   parseCobranzasSociosSheetRows,
 } from '../../domain/accounting/memberCollectionImport';
+import {
+  applyAccountEntryToMember,
+  applyEntryToMembers,
+  createAccountEntry,
+} from '../../domain/accounting/memberBalances';
+import { getOverdueMembers } from '../../domain/members/dues';
 import DuesControlTab from '../admin/DuesControlTab';
+import OverdueDuesStrip from '../admin/OverdueDuesStrip';
+import FeeChartAccountsPanel from './FeeChartAccountsPanel';
+import MemberBalancesPanel from './MemberBalancesPanel';
+import MonthlyDebtsPanel from './MonthlyDebtsPanel';
+import DetailedCurrentAccountsPanel from './DetailedCurrentAccountsPanel';
 
 const PAGE_SIZE = 25;
 
@@ -65,6 +77,12 @@ export default function CuotasPanel({
   collectionImports = [],
   onImportCollections,
   onDeleteCollectionImport,
+  feeChartAccounts = [],
+  onUpsertFeeChartAccount,
+  onDeleteFeeChartAccount,
+  memberAccountEntries = [],
+  onUpsertMemberAccountEntry,
+  onDeleteMemberAccountEntry,
   reservations = [],
   onImputeReservation,
   addJournalEntry,
@@ -72,7 +90,7 @@ export default function CuotasPanel({
   tierCatalog = [],
 }) {
   const fmt = formatCurrencyProp || formatCurrency;
-  const [view, setView] = useState('hub'); // hub | import_collections | import_debts | impute_events | mora | period_detail
+  const [view, setView] = useState('hub'); // hub | import_collections | import_debts | impute_events | mora | period_detail | accounts | balances | monthly_debts | detailed_cc
   const [year, setYear] = useState(2026);
   const [yearDraft, setYearDraft] = useState('2026');
   const [ccEnabled, setCcEnabled] = useState(true);
@@ -98,6 +116,7 @@ export default function CuotasPanel({
   const [detailEvent, setDetailEvent] = useState(null);
 
   const periods = useMemo(() => feePeriodsForYear(feePeriods, year), [feePeriods, year]);
+  const overdueMembers = useMemo(() => getOverdueMembers(members), [members]);
 
   const periodAccounts = useMemo(
     () => (selectedPeriod ? feeAccountDetailsForPeriod(selectedPeriod) : []),
@@ -186,6 +205,26 @@ export default function CuotasPanel({
     try {
       const result = liquidateFeePeriod(feePeriods, periodId, members);
       onUpsertFeePeriods?.(result.periods);
+      const charges = (result.memberUpdates || []).filter((u) => (Number(u.addAmount) || 0) > 0);
+      if (charges.length && typeof setMembers === 'function') {
+        const chargeDate = result.period.generatedAt || new Date().toISOString().slice(0, 10);
+        const byId = new Map(charges.map((u) => [String(u.memberId), u]));
+        setMembers((prev) => prev.map((m) => {
+          const u = byId.get(String(m.memberId));
+          if (!u) return m;
+          const entry = createAccountEntry({
+            type: 'cuota',
+            memberNumber: m.memberId,
+            memberName: m.name,
+            value: u.addAmount,
+            date: chargeDate,
+            source: 'fee_liquidation',
+            description: periodLabel(result.period),
+          });
+          onUpsertMemberAccountEntry?.(entry);
+          return applyAccountEntryToMember(m, entry);
+        }));
+      }
       setFlash(`Liquidado ${periodLabel(result.period)}.`);
     } catch (err) {
       setError(err.message || 'No se pudo liquidar.');
@@ -225,6 +264,9 @@ export default function CuotasPanel({
       if (typeof setMembers === 'function') {
         setMembers((prev) => applyMemberCollectionPayments(prev, built.payments));
       }
+      collectionPaymentsToEntries(built.payments).forEach((entry) => {
+        onUpsertMemberAccountEntry?.(entry);
+      });
       if (typeof addJournalEntry === 'function' && built.batch.totalAmount > 0) {
         addJournalEntry({
           date: forceDate || new Date().toISOString().slice(0, 10),
@@ -248,6 +290,58 @@ export default function CuotasPanel({
       setBusy(false);
     }
   };
+
+  if (view === 'accounts') {
+    return (
+      <FeeChartAccountsPanel
+        accounts={feeChartAccounts}
+        onUpsert={onUpsertFeeChartAccount}
+        onDelete={onDeleteFeeChartAccount}
+        onBack={() => setView('hub')}
+        formatCurrency={fmt}
+      />
+    );
+  }
+
+  if (view === 'balances') {
+    return (
+      <MemberBalancesPanel
+        members={members}
+        accountEntries={memberAccountEntries}
+        onUpsertEntry={(entry) => {
+          onUpsertMemberAccountEntry?.(entry);
+          if (typeof setMembers === 'function') {
+            setMembers((prev) => applyEntryToMembers(prev, entry));
+          }
+        }}
+        onDeleteEntry={onDeleteMemberAccountEntry}
+        onBack={() => setView('hub')}
+        onGoImportCollections={() => { setView('import_collections'); setError(''); setOk(''); }}
+        onGoImportDebts={() => setView('monthly_debts')}
+        onGoImputeEvents={() => setView('impute_events')}
+        formatCurrency={fmt}
+        tierCatalog={tierCatalog}
+      />
+    );
+  }
+
+  if (view === 'monthly_debts' || view === 'import_debts') {
+    return (
+      <MonthlyDebtsPanel
+        onBack={() => setView('hub')}
+        onOpenMemberBalance={() => setView('balances')}
+      />
+    );
+  }
+
+  if (view === 'detailed_cc') {
+    return (
+      <DetailedCurrentAccountsPanel
+        onBack={() => setView('hub')}
+        onOpenMemberBalance={() => setView('balances')}
+      />
+    );
+  }
 
   if (view === 'period_detail' && selectedPeriod) {
     return (
@@ -383,6 +477,7 @@ export default function CuotasPanel({
           members={members}
           setMembers={setMembers}
           addJournalEntry={addJournalEntry}
+          onAccountEntry={onUpsertMemberAccountEntry}
           formatCurrency={fmt}
           tierCatalog={tierCatalog}
         />
@@ -535,31 +630,6 @@ export default function CuotasPanel({
     );
   }
 
-  if (view === 'import_debts') {
-    return (
-      <div className="fade-in cuotas-panel">
-        <div className="cuotas-toolbar">
-          <h3 className="cuotas-title">Importar deudas socios</h3>
-        </div>
-        <section className="supplier-pay-import-block">
-          <p style={{ color: 'var(--text-secondary)', marginTop: 0 }}>
-            Cargá saldos iniciales o deudas pendientes por socio (misma plantilla de lista base: UNIDAD + MONTO).
-          </p>
-          <p className="disc-field-hint">
-            Por ahora usá <strong>Importar cobranzas</strong> con montos positivos como cobros.
-            La importación de deudas (incremento de saldo) se habilita en la siguiente iteración con la plantilla Accessin de deudas.
-          </p>
-          <div className="supplier-pay-import-actions">
-            <button type="button" className="btn btn-secondary" onClick={() => setView('hub')}>Volver</button>
-            <a className="btn cash-lila-purple-btn" href={LISTA_BASE_COBRANZAS_URL} download={LISTA_BASE_COBRANZAS_FILENAME}>
-              <Download size={14} /> Descargar lista base
-            </a>
-          </div>
-        </section>
-      </div>
-    );
-  }
-
   if (view === 'impute_events') {
     return (
       <div className="fade-in cuotas-panel">
@@ -694,13 +764,27 @@ export default function CuotasPanel({
   // HUB
   return (
     <div className="fade-in cuotas-panel">
+      <OverdueDuesStrip
+        members={overdueMembers}
+        formatCurrency={fmt}
+        onOpenAll={() => setView('mora')}
+      />
       <div className="cuotas-toolbar">
         <h2 className="cuotas-title">
           <CalendarRange size={18} /> Cuotas
         </h2>
         <div className="cuotas-actions">
-          <button type="button" className="btn cash-lila-purple-btn" onClick={() => setView('import_debts')}>
-            <FileSpreadsheet size={14} /> Importar deudas socios
+          <button type="button" className="btn cash-lila-purple-btn" onClick={() => setView('balances')}>
+            <Wallet size={14} /> Saldos / Socios
+          </button>
+          <button type="button" className="btn cash-lila-purple-btn" onClick={() => setView('detailed_cc')}>
+            <ListTree size={14} /> CC detalladas
+          </button>
+          <button type="button" className="btn cash-lila-purple-btn" onClick={() => setView('monthly_debts')}>
+            <FileSpreadsheet size={14} /> Deudas mes a mes
+          </button>
+          <button type="button" className="btn cash-lila-purple-btn" onClick={() => setView('accounts')}>
+            <BookOpen size={14} /> Cuentas contables
           </button>
           <button type="button" className="btn cash-lila-purple-btn" onClick={() => { setView('import_collections'); setError(''); setOk(''); }}>
             <Upload size={14} /> Importar cobranzas socios

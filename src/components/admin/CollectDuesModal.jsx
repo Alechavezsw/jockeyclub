@@ -47,7 +47,9 @@ export default function CollectDuesModal({
   onClose,
   onConfirm,
 }) {
-  const amount = member?.outstandingBalance || 0;
+  const amount = (Number(member?.outstandingBalance) || 0) > 0
+    ? Number(member.outstandingBalance)
+    : (Number(member?.amountDue) || 0);
   const [method, setMethod] = useState('efectivo');
   const [bankId, setBankId] = useState(CLUB_BANK_ACCOUNTS[0]?.id || '');
   const [receiptName, setReceiptName] = useState('');
@@ -285,7 +287,11 @@ export default function CollectDuesModal({
             disabled={submitting}
             style={{ minWidth: 160 }}
           >
-            Confirmar cobro
+            {method === 'efectivo'
+              ? 'Acreditar efectivo'
+              : method === 'mercadopago'
+                ? 'Confirmar cobro MP'
+                : 'Registrar con comprobante'}
           </button>
         </div>
     </ModalDialog>

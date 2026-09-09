@@ -18,6 +18,7 @@ describe('tiers catalog', () => {
     expect(ids).toContain('socio_vitalicio');
     expect(ids).not.toContain('gold');
     expect(ids).not.toContain('platinum');
+    expect(ids).not.toContain('royal');
   });
 
   it('slugify de nombres del padrón', () => {

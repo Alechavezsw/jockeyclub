@@ -1,3 +1,5 @@
+import { duesAmountForMember, isMemberBillingActive } from '../members/dues';
+
 /** Liquidación mensual de cuotas (Accessin / LILA). */
 
 const MONTHS_ES = [
@@ -75,11 +77,10 @@ export function liquidateFeePeriod(list = [], periodId, members = [], today = ne
   if (!period) throw new Error('Período no encontrado.');
   if (period.status === 'processed') throw new Error('El período ya está liquidado.');
 
-  const active = (members || []).filter((m) => m && m.status !== 'inactive');
+  const active = (members || []).filter((m) => m && isMemberBillingActive(m));
   let total = 0;
   const memberUpdates = active.map((m) => {
-    const dues = Number(m.monthlyDues) || Number(m.duesAmount) || 0;
-    // fallback: usar outstanding balance generator amount if present in tier fields
+    const dues = Number(m.monthlyDues) || Number(m.duesAmount) || duesAmountForMember(m) || 0;
     const amount = dues > 0 ? dues : 0;
     total += amount;
     return {

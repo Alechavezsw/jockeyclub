@@ -13,7 +13,11 @@
     "migrate:datita": "node scripts/migrate-datita-socios.mjs",
     "migrate:datita:dry": "node scripts/migrate-datita-socios.mjs --dry-run",
     "verify:datita": "node scripts/verify-datita-migration.mjs",
-    "import:reservas": "node scripts/import-datita-reservas.mjs"
+    "import:reservas": "node scripts/import-datita-reservas.mjs",
+    "import:saldos": "node scripts/generate-accessin-current-account-balances.cjs",
+    "import:deudas-mes": "node scripts/generate-accessin-monthly-debts.cjs",
+    "import:cc-detalladas": "node scripts/generate-accessin-detailed-current-accounts.cjs",
+    "import:saldos-gf": "node scripts/generate-accessin-family-group-balances.cjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.8",

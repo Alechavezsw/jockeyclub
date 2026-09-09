@@ -209,7 +209,6 @@ export default function PortalUserProfilePanel({ profileId, onBack, onEdit }) {
             <Field label="Documento" value={profile.documentNumber ? `${profile.documentType || 'Arg-DNI'} ${profile.documentNumber}` : null} icon={IdCard} />
             <Field label="Género" value={profile.gender} />
             <Field label="Fecha de nacimiento" value={profile.birthDate} />
-            <Field label="Prisma" value={profile.prismaId} />
             <Field
               label="Grupo familiar"
               value={profile.meta?.familyGroupLabel || (profile.meta?.familyGroup === false ? 'No' : null)}

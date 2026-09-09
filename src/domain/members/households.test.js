@@ -5,6 +5,7 @@ import {
   buildPadronHouseholdStats,
   attachHouseholdToMembers,
   resolveFamilyForDisplay,
+  allocateNextMemberNumber,
 } from './households';
 
 const catalog = [
@@ -52,9 +53,29 @@ describe('households', () => {
     const stats = buildPadronHouseholdStats([titular, hijo, individual], { tierCatalog: catalog });
     expect(stats.total).toBe(3);
     expect(stats.titulares).toBe(2);
+    expect(stats.titularesActivos).toBe(2);
     expect(stats.integrantes).toBe(1);
     expect(stats.gruposFamiliares).toBe(1);
     expect(stats.byTier.map((t) => t.id)).toEqual(['socio_familiar', 'socio_individual']);
+  });
+
+  it('omite categorías de ejemplo y pinta cada card de un color', () => {
+    const stats = buildPadronHouseholdStats([
+      titular,
+      individual,
+      { memberId: '9', name: 'Demo Gold', tier: 'gold', status: 'active' },
+      { memberId: '8', name: 'Demo Royal', tier: 'royal', status: 'active' },
+    ], { tierCatalog: catalog });
+    const ids = stats.byTier.map((t) => t.id);
+    expect(ids).not.toContain('gold');
+    expect(ids).not.toContain('royal');
+    const colors = stats.byTier.map((t) => t.color.toLowerCase());
+    expect(new Set(colors).size).toBe(colors.length);
+    const withReserved = buildPadronHouseholdStats([titular, individual], {
+      tierCatalog: catalog,
+      reservedColors: ['#cfa13a', '#b8956a'],
+    });
+    expect(withReserved.byTier.find((t) => t.id === 'socio_familiar')?.color.toLowerCase()).not.toBe('#cfa13a');
   });
 
   it('asocia integrantes como adherentes del titular', () => {
@@ -63,6 +84,11 @@ describe('households', () => {
     expect(t.adherents).toHaveLength(2);
     expect(t.adherents.map((a) => a.memberId).sort()).toEqual(['3501', '4928']);
     expect(t.adherents[0].fromPadron).toBe(true);
+  });
+
+  it('asigna credencial siguiente sin usar números random largos', () => {
+    expect(allocateNextMemberNumber([titular, hijo, { memberId: '2026887744320988' }])).toBe('10010');
+    expect(allocateNextMemberNumber([])).toBe('10001');
   });
 
   it('en ficha de integrante muestra titular y hermanos', () => {

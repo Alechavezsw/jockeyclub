@@ -36,7 +36,7 @@ function formatDate(iso) {
   });
 }
 
-export default function PaymentHistoryView({ member, setCurrentView, updateMember }) {
+export default function PaymentHistoryView({ member, setCurrentView, updateMember, onAccountEntry }) {
   const [method, setMethod] = useState('mercadopago');
   const [paying, setPaying] = useState(false);
   const [message, setMessage] = useState('');
@@ -84,6 +84,7 @@ export default function PaymentHistoryView({ member, setCurrentView, updateMembe
         ? payUpcomingDues(member, { method })
         : payMemberDues(member, { method });
       updateMember(result.member);
+      if (result.ledgerEntry) onAccountEntry?.(result.ledgerEntry);
       setMessage(
         alDia
           ? `Anticipaste la cuota (${formatCurrency(result.payment.amount)}). Comprobante ${result.payment.receipt}.`

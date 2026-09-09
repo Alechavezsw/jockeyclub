@@ -9,7 +9,6 @@ import {
   getUpcomingDuesMembers,
   toWhatsAppPhone,
 } from '../../domain/members/dues';
-import { payMemberDues, payUpcomingDues } from '../../domain/members/memberPayments';
 import { downloadCsv, stampDate } from '../../domain/reports/downloadCsv';
 import { getActiveTiers, getTierDisplayName } from '../../domain/members/tiers';
 
@@ -140,8 +139,6 @@ function DuesTableHead({ labels }) {
 
 export default function DuesControlTab({
   members = [],
-  setMembers,
-  addJournalEntry,
   formatCurrency,
   tierCatalog = [],
 }) {
@@ -150,7 +147,6 @@ export default function DuesControlTab({
   const [statusFilter, setStatusFilter] = useState('all');
   const [tierFilter, setTierFilter] = useState('all');
   const [sortBy, setSortBy] = useState('amount');
-  const [flash, setFlash] = useState('');
   const tiers = useMemo(() => getActiveTiers(tierCatalog), [tierCatalog]);
 
   const overdueAll = useMemo(() => getOverdueMembers(members), [members]);
@@ -191,44 +187,11 @@ export default function DuesControlTab({
     navigate(`/panel/members/${member.memberId}`);
   };
 
-  const handleCollect = (member, tone) => {
-    if (!setMembers) return;
-    const isOverdue = tone === 'overdue';
-    const label = isOverdue ? 'cobro de cuota vencida' : 'cobro anticipado de cuota';
-    if (!window.confirm(`¿Registrar ${label} de ${member.name} por ${formatCurrency(member.amountDue)}?`)) {
-      return;
-    }
-    try {
-      // Si figura vencido pero el saldo aún no estaba en el objeto (caso raro), usamos amountDue
-      const source = (Number(member.outstandingBalance) || 0) > 0
-        ? member
-        : { ...member, outstandingBalance: member.amountDue };
-      const result = isOverdue
-        ? payMemberDues(source, { method: 'caja' })
-        : payUpcomingDues(member, { method: 'caja' });
-
-      setMembers((prev) => prev.map((m) => (
-        m.memberId === member.memberId ? result.member : m
-      )));
-
-      if (typeof addJournalEntry === 'function') {
-        addJournalEntry({
-          date: new Date().toISOString().slice(0, 10),
-          description: `Cobro cuota social (Caja) - Socio: ${member.name} (Cred. ${String(member.memberId).slice(0, 6)}…)`,
-          lines: [
-            { account: 'Caja General', type: 'debit', amount: result.payment.amount },
-            { account: 'Cuotas Sociales', type: 'credit', amount: result.payment.amount },
-          ],
-          sourceModule: 'cuotas',
-        });
-      }
-
-      setFlash(`Cobro registrado: ${member.name} · ${formatCurrency(result.payment.amount)}`);
-      setTimeout(() => setFlash(''), 4000);
-    } catch (err) {
-      setFlash(err.message || 'No se pudo registrar el cobro.');
-      setTimeout(() => setFlash(''), 5000);
-    }
+  const handleCollect = (member) => {
+    if (!member?.memberId) return;
+    navigate(`/panel/members/${encodeURIComponent(member.memberId)}?cobrar=1`, {
+      state: { cobrar: true, memberId: member.memberId },
+    });
   };
 
   const handleExport = () => {
@@ -272,8 +235,8 @@ export default function DuesControlTab({
     padding: '0.45rem 0.85rem',
     borderRadius: 20,
     border: active ? '1px solid transparent' : '1px solid var(--border-glass)',
-    background: active ? (activeStyles.background || 'var(--primary-gold)') : 'var(--bg-secondary)',
-    color: active ? (activeStyles.color || '#060e0a') : 'var(--text-secondary)',
+    background: active ? (activeStyles.background || '#16a34a') : 'var(--bg-secondary)',
+    color: active ? (activeStyles.color || '#fff') : 'var(--text-secondary)',
     fontSize: '0.8rem',
     fontWeight: 600,
     cursor: 'pointer',
@@ -293,8 +256,6 @@ export default function DuesControlTab({
           <Download size={14} /> Exportar vista CSV
         </button>
       </div>
-
-      {flash && <div className="dues-flash">{flash}</div>}
 
       <div className="glass-card dues-filters">
         <div>

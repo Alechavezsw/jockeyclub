@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useSedeWeather } from '../hooks/useSedeWeather';
 import VirtualCard from '../components/VirtualCard';
 import MemberFacilitiesBooking from '../components/MemberFacilitiesBooking';
 import GuestPassPanel from '../components/GuestPassPanel';
@@ -54,6 +55,7 @@ export default function DashboardView({
         live: getFacilityLiveStatus(fac, { reservations, isZondaActive }),
       }));
   }, [reservations, isZondaActive]);
+  const { weather } = useSedeWeather({ isZondaActive });
 
   if (!member?.memberId) {
     return (
@@ -246,8 +248,8 @@ export default function DashboardView({
         /* Quick Actions Bar */
         .db-quick-bar {
           display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          gap: 1rem;
+          grid-template-columns: 1.35fr 1fr 0.95fr 0.85fr;
+          gap: 0.85rem;
           margin-bottom: 2rem;
         }
         .db-quick-btn {
@@ -256,13 +258,16 @@ export default function DashboardView({
           align-items: center;
           gap: 0.6rem;
           padding: 1.25rem 1rem;
-          border-radius: 16px;
+          border-radius: 18px 8px 14px 10px;
           background: var(--surface-soft);
           border: 1px solid var(--border-glass);
           cursor: pointer;
           transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
           text-align: center;
         }
+        .db-quick-btn:nth-child(2) { border-radius: 8px 18px 10px 12px; }
+        .db-quick-btn:nth-child(3) { border-radius: 14px 8px 16px 8px; }
+        .db-quick-btn:nth-child(4) { border-radius: 8px 16px 12px 14px; }
         .db-quick-btn:hover {
           background: rgba(255,255,255,0.05);
           border-color: var(--primary-gold);
@@ -292,8 +297,8 @@ export default function DashboardView({
         /* Content Grid */
         .db-grid {
           display: grid;
-          grid-template-columns: 340px 1fr;
-          gap: 1.5rem;
+          grid-template-columns: minmax(280px, 0.95fr) minmax(0, 1.45fr);
+          gap: 1.15rem;
           align-items: start;
         }
         @media (max-width: 1100px) {
@@ -308,8 +313,8 @@ export default function DashboardView({
         .db-card {
           background: var(--surface-card);
           border: 1px solid var(--border-glass);
-          border-radius: 18px;
-          padding: 1.5rem;
+          border-radius: 18px 8px 16px 10px;
+          padding: 1.25rem 1.3rem 1.15rem;
           display: flex;
           flex-direction: column;
           gap: 1.25rem;
@@ -339,8 +344,8 @@ export default function DashboardView({
         /* Stat widgets premium */
         .db-stat-row {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 1rem;
+          grid-template-columns: 1.25fr 1fr 0.85fr;
+          gap: 0.85rem;
           margin-bottom: 1.5rem;
         }
         @media (max-width: 900px) {
@@ -376,7 +381,7 @@ export default function DashboardView({
         /* Sport cards */
         .db-sport-grid {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
+          grid-template-columns: 1.2fr 1fr 0.9fr;
           gap: 0.75rem;
         }
         @media (max-width: 900px) {
@@ -695,22 +700,28 @@ export default function DashboardView({
           </div>
 
           {/* Clima & Instalaciones */}
-          <div className={`db-weather ${isZondaActive ? 'zonda' : ''}`}>
+          <div className={`db-weather ${weather?.zonda ? 'zonda' : ''}`}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div>
                 <p style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-muted)', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                   <MapPin size={10} /> Rivadavia, San Juan
                 </p>
-                <div className="db-temp" style={{ color: isZondaActive ? '#f87171' : 'var(--text-strong)' }}>
-                  {isZondaActive ? '38°' : '22°'}
+                <div className="db-temp" style={{ color: weather?.zonda ? '#f87171' : 'var(--text-strong)' }}>
+                  {weather ? `${Math.round(weather.temperature)}°` : '—'}
                 </div>
-                <p style={{ fontSize: '0.9rem', fontWeight: '600', marginTop: '0.25rem' }}>{isZondaActive ? 'Viento Zonda Fuerte' : 'Soleado y Templado'}</p>
-                <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>{isZondaActive ? 'Humedad: 12% · Ráfagas: 78 km/h' : 'Humedad: 48% · Viento: 8 km/h Sur'}</p>
+                <p style={{ fontSize: '0.9rem', fontWeight: '600', marginTop: '0.25rem' }}>
+                  {weather?.condition || 'Leyendo clima…'}
+                </p>
+                <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>
+                  {weather
+                    ? `Humedad: ${Math.round(weather.humidity)}% · ${weather.windLabel}${weather.gustsKmh ? ` · Ráfagas ${Math.round(weather.gustsKmh)}` : ''}`
+                    : 'Estación Rivadavia'}
+                </p>
               </div>
-              <div style={{ fontSize: '3.5rem', opacity: 0.7 }}>{isZondaActive ? '🌬️' : '☀️'}</div>
+              <div style={{ fontSize: '3.5rem', opacity: 0.7 }}>{weather?.zonda ? '🌬️' : weather?.raining ? '🌧️' : '☀️'}</div>
             </div>
 
-            {isZondaActive && (
+            {weather?.zonda && (
               <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '10px', padding: '0.75rem', fontSize: '0.8rem', color: '#f87171', display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }} className="fade-in">
                 <ShieldAlert size={14} style={{ flexShrink: 0, marginTop: '1px' }} />
                 <span>Reservas de canchas y actividades al aire libre suspendidas por razones de seguridad.</span>

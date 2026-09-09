@@ -31,6 +31,7 @@ export default function MemberTiersPanel({
   setMembers,
   members = [],
   formatCurrency,
+  tierAccentById = null,
 }) {
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -148,32 +149,24 @@ export default function MemberTiersPanel({
 
       {!open && (
         <div className="member-tiers-chips" aria-label="Categorías activas">
-          {tiers.slice(0, 6).map((tier) => (
-            <button
-              key={tier.id}
-              type="button"
-              className="member-tiers-chip"
-              style={{ '--tier-color': tier.color }}
-              onClick={() => {
-                setOpen(true);
-                startEdit(tier);
-              }}
-              title={`${tier.name}: ${formatCurrency(tier.monthlyDues)}/mes`}
-            >
-              <i style={{ background: tier.color }} />
-              <span>{tier.name}</span>
-              <em>{formatCurrency(tier.monthlyDues)}</em>
-            </button>
-          ))}
-          {tiers.length > 6 ? (
-            <button
-              type="button"
-              className="member-tiers-chip member-tiers-chip--more"
-              onClick={() => setOpen(true)}
-            >
-              <span>+{tiers.length - 6} más</span>
-            </button>
-          ) : null}
+          {tiers.map((tier) => {
+            const accent = tierAccentById?.get?.(String(tier.id).toLowerCase()) || tier.color;
+            return (
+              <button
+                key={tier.id}
+                type="button"
+                className="member-tiers-chip"
+                style={{ '--tier-color': accent }}
+                onClick={() => {
+                  setOpen(true);
+                  startEdit(tier);
+                }}
+                title={tier.name}
+              >
+                <span>{tier.name}</span>
+              </button>
+            );
+          })}
         </div>
       )}
 

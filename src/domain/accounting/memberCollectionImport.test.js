@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyMemberCollectionPayments,
   buildMemberCollectionImport,
+  collectionPaymentsToEntries,
   matchMemberByUnidad,
   parseCobranzasSociosSheetRows,
 } from './memberCollectionImport';
@@ -31,6 +32,11 @@ describe('memberCollectionImport', () => {
     expect(matchMemberByUnidad(members, '3008')?.name).toContain('Nuñez');
     const next = applyMemberCollectionPayments(members, built.payments);
     expect(next[0].outstandingBalance).toBe(25000);
+    expect(next[0].lastPaymentDate).toBe('2026-08-30');
+    const entries = collectionPaymentsToEntries(built.payments);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].type).toBe('pago');
+    expect(entries[0].value).toBe(-25000);
   });
 });
 

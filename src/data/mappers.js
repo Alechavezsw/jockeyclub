@@ -1,12 +1,20 @@
 /** Mapeo fila Postgres ↔ shape de UI. */
 
+import { DEFAULT_MEMBER_TIER, isExampleMemberTier } from '../domain/members/tiers';
+
+function canonicalMemberTier(tier) {
+  const value = String(tier || '').trim();
+  if (!value || isExampleMemberTier(value)) return DEFAULT_MEMBER_TIER;
+  return value;
+}
+
 export function adherentFromRow(row) {
   if (!row) return null;
   return {
     id: row.id,
     name: row.full_name,
     relationship: row.relationship,
-    tier: row.tier,
+    tier: canonicalMemberTier(row.tier),
     status: row.status,
     outstandingBalance: Number(row.outstanding_balance) || 0,
     disciplines: row.disciplines || [],
@@ -40,7 +48,7 @@ export function memberFromRow(row, payments = []) {
     cuitCuil: row.cuit_cuil || '',
     taxCondition: row.tax_condition || '',
     disciplines: row.disciplines || [],
-    tier: row.tier,
+    tier: canonicalMemberTier(row.tier),
     status: row.status,
     outstandingBalance: Number(row.outstanding_balance) || 0,
     yearsActive: row.years_active || 0,
@@ -81,7 +89,7 @@ export function memberToRow(member) {
     cuit_cuil: member.cuitCuil || null,
     tax_condition: member.taxCondition || null,
     disciplines: member.disciplines || [],
-    tier: member.tier || 'socio_individual',
+    tier: canonicalMemberTier(member.tier),
     status: member.status || 'active',
     outstanding_balance: Number(member.outstandingBalance) || 0,
     years_active: Number(member.yearsActive) || 0,
@@ -98,6 +106,11 @@ export function memberToRow(member) {
       ...(member.healthInsurance ? { healthInsurance: member.healthInsurance } : {}),
       ...(member.emergencyClinic ? { emergencyClinic: member.emergencyClinic } : {}),
       ...(Array.isArray(member.documents) ? { documents: member.documents } : {}),
+      ...(member.currentAccountAsOf ? { currentAccountAsOf: member.currentAccountAsOf } : {}),
+      ...(member.lastPaymentDate ? { lastPaymentDate: member.lastPaymentDate } : {}),
+      ...(member.unpaidCapital != null ? { unpaidCapital: member.unpaidCapital } : {}),
+      ...(member.unpaidSurcharges != null ? { unpaidSurcharges: member.unpaidSurcharges } : {}),
+      ...(member.unpaidInterest != null ? { unpaidInterest: member.unpaidInterest } : {}),
     },
   };
 }

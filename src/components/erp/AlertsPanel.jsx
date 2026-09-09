@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { BellRing, Megaphone, ShieldAlert } from 'lucide-react';
-import { ALERT_SEVERITY, filterAlertsForRole, isAlertVisible } from '../../domain/alerts/alerts';
+import { ALERT_SEVERITY, filterAlertsForRole, isAlertAcknowledged, isAlertVisible } from '../../domain/alerts/alerts';
 
 export function AlertsBanner({
   alerts,
@@ -18,8 +18,7 @@ export function AlertsBanner({
   const visible = filterAlertsForRole(alerts, userRole).filter((a) => {
     if (onlySources?.length && !onlySources.includes(a.source)) return false;
     if (excludeSources?.length && excludeSources.includes(a.source)) return false;
-    if (!a.requiresAck) return true;
-    return !(alertAcks || []).some((ack) => ack.alertId === a.id);
+    return !isAlertAcknowledged(a, alertAcks);
   });
 
   if (visible.length === 0) return null;
@@ -45,11 +44,9 @@ export function AlertsBanner({
                 <div className="alerts-banner-body">{alert.body}</div>
               </div>
             </div>
-            {alert.requiresAck && (
-              <button type="button" className="btn btn-sm btn-secondary" onClick={() => onAck?.(alert.id)}>
-                Entendido
-              </button>
-            )}
+            <button type="button" className="btn btn-sm btn-secondary" onClick={() => onAck?.(alert)}>
+              Entendido
+            </button>
           </div>
         );
       })}

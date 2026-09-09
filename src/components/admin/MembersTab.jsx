@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Search, Filter, Plus, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Trash2, Users, UserPlus, X, CreditCard, Camera, FileDown, Pencil, KeyRound } from 'lucide-react';
-import { afterCollectDues, duesAmountForHousehold, duesAmountForTier } from '../../domain/members/dues';
+import { duesAmountForHousehold, duesAmountForTier } from '../../domain/members/dues';
+import { persistDuesCollection, recordDuesCollection } from '../../domain/members/memberPayments';
 import { exportMembersPdf } from '../../domain/members/exportMembersPdf';
 import { DISCIPLINE_OPTIONS } from '../../domain/sports/disciplines';
 import { getActiveTiers, getTierOptionLabel, tierBadgeStyle, getTierDisplayName } from '../../domain/members/tiers';
@@ -9,7 +10,7 @@ import {
   collectMemberMeta,
   reasonLabel as lifecycleReasonLabel,
 } from '../../domain/members/memberAdminActions';
-import { resolveFamilyForDisplay } from '../../domain/members/households';
+import { attachHouseholdToMembers, assignDistinctStatColors, buildPadronHouseholdStats, isFamilyDependent, isTitularMember, resolveFamilyForDisplay } from '../../domain/members/households';
 import { loginEmailFromUsername } from '../../domain/auth/credentials';
 import VirtualCard from '../VirtualCard';
 import CollectDuesModal from './CollectDuesModal';
@@ -163,6 +164,27 @@ const RELATIONSHIP_OPTIONS = [
 ];
 
 const MEMBERS_PAGE_SIZE = 50;
+const PADRON_FIXED_CARD_COLORS = {
+  activos: '#8a6a14',
+  familia: '#b8956a',
+};
+const PADRON_RESERVED_COLORS = [PADRON_FIXED_CARD_COLORS.activos, PADRON_FIXED_CARD_COLORS.familia];
+
+function PadronStatCard({ label, value, color, active, onClick }) {
+  return (
+    <button
+      type="button"
+      className={`members-stat-card${active ? ' is-on' : ''}`}
+      onClick={onClick}
+      style={color ? { '--stat-accent': color } : undefined}
+      aria-pressed={active}
+      title={label}
+    >
+      <b>{Number(value || 0).toLocaleString('es-AR')}</b>
+      <span>{label}</span>
+    </button>
+  );
+}
 
 /** Gestión de socios titulares y adherentes familiares. */
 export default function MembersTab({
@@ -175,12 +197,16 @@ export default function MembersTab({
   tierCatalog = [],
   setTierCatalog,
   updateMember = null,
+  onAccountEntry = null,
+  membersCount = 0,
+  membersLoading = false,
 }) {
   const { user } = useAuth();
   const actorName = user?.fullName || user?.name || user?.email || '';
   const tiers = getActiveTiers(tierCatalog);
   const defaultTierId = tiers[0]?.id || 'socio_individual';
   const [tierFilter, setTierFilter] = useState('todos');
+  const [quickFilter, setQuickFilter] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -193,6 +219,7 @@ export default function MembersTab({
   const [lifecycleBusy, setLifecycleBusy] = useState(false);
   const [lifecycleError, setLifecycleError] = useState('');
   const [credsTarget, setCredsTarget] = useState(null);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const [credsBusy, setCredsBusy] = useState(false);
   const [credsError, setCredsError] = useState('');
   const [credsResult, setCredsResult] = useState(null);
@@ -288,6 +315,27 @@ export default function MembersTab({
     setFormError('');
   };
 
+  const tierAccentById = useMemo(() => {
+    const painted = assignDistinctStatColors(
+      getActiveTiers(tierCatalog).map((t) => ({ id: t.id, color: t.color })),
+      PADRON_RESERVED_COLORS,
+    );
+    return new Map(painted.map((t) => [String(t.id).toLowerCase(), t.color]));
+  }, [tierCatalog]);
+  const household = useMemo(() => {
+    const stats = buildPadronHouseholdStats(members, {
+      tierCatalog,
+      reservedColors: PADRON_RESERVED_COLORS,
+    });
+    return {
+      ...stats,
+      byTier: stats.byTier.map((t) => ({
+        ...t,
+        color: tierAccentById.get(String(t.id).toLowerCase()) || t.color,
+      })),
+    };
+  }, [members, tierCatalog, tierAccentById]);
+
   const filteredMembers = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return members.filter((m) => {
@@ -297,11 +345,18 @@ export default function MembersTab({
         || (m.email || '').toLowerCase().includes(q)
         || (m.documentNumber || '').includes(searchQuery.trim())
         || (m.phone || '').includes(searchQuery.trim());
+      if (!matchesSearch) return false;
+      if (quickFilter === 'activos') {
+        return isTitularMember(m) && (m.status || 'active') === 'active';
+      }
+      if (quickFilter === 'familia') {
+        return isFamilyDependent(m);
+      }
       const matchesTier = tierFilter === 'todos'
         || String(m.tier || '').toLowerCase() === String(tierFilter).toLowerCase();
-      return matchesSearch && matchesTier;
+      return matchesTier;
     });
-  }, [members, searchQuery, tierFilter]);
+  }, [members, searchQuery, tierFilter, quickFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredMembers.length / MEMBERS_PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -313,11 +368,35 @@ export default function MembersTab({
   useEffect(() => {
     setPage(1);
     setExpandedMemberId(null);
-  }, [searchQuery, tierFilter]);
+  }, [searchQuery, tierFilter, quickFilter]);
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
+
+  const handleExportPadronPdf = async () => {
+    if (exportingPdf) return;
+    setExportingPdf(true);
+    try {
+      let list = members;
+      const expected = Math.max(Number(membersCount) || 0, members.length);
+      const incomplete = membersLoading || members.length === 0 || members.length < expected;
+      if (isSupabaseConfigured && incomplete) {
+        const fresh = await repos.listMembers();
+        const withFamily = attachHouseholdToMembers(fresh || []);
+        if (withFamily.length) list = withFamily;
+      }
+      await exportMembersPdf(list, {
+        formatCurrency,
+        filterLabel: 'Padrón completo',
+        tierCatalog,
+      });
+    } catch (err) {
+      window.alert(err?.message || 'No se pudo generar el PDF del padrón.');
+    } finally {
+      setExportingPdf(false);
+    }
+  };
 
   const handleAddMember = (e) => {
     e.preventDefault();
@@ -421,30 +500,20 @@ export default function MembersTab({
     setShowAddForm(false);
   };
 
-  const handleConfirmCollect = ({ method, bankName, journalAccount, receiptName, amount }) => {
+  const handleConfirmCollect = (payload) => {
     const member = collectMember;
-    if (!member || amount <= 0) return;
-
-    const methodLabel =
-      method === 'efectivo' ? 'Efectivo'
-        : method === 'mercadopago' ? 'Mercado Pago'
-          : `Transferencia ${bankName || ''}`.trim();
-    const receiptNote = receiptName ? ` · Comp: ${receiptName}` : '';
-
-    addJournalEntry({
-      date: new Date().toISOString().split('T')[0],
-      description: `Cobro cuota social (${methodLabel}) - Socio: ${member.name} (Cred. ${member.memberId.slice(0, 6)}...)${receiptNote}`,
-      lines: [
-        { account: journalAccount, type: 'debit', amount },
-        { account: 'Cuotas Sociales', type: 'credit', amount },
-      ],
-      sourceModule: 'cuotas',
-    });
-
-    setMembers(members.map((m) => (
-      m.memberId === member.memberId ? afterCollectDues(m) : m
-    )));
-    setCollectMember(null);
+    if (!member) return;
+    try {
+      persistDuesCollection(recordDuesCollection(member, payload), {
+        setMembers,
+        updateMember,
+        addJournalEntry,
+        onAccountEntry,
+      });
+      setCollectMember(null);
+    } catch {
+      /* el modal ya valida comprobante / importe */
+    }
   };
 
   const persistMember = async (next) => {
@@ -665,13 +734,53 @@ export default function MembersTab({
         )}
       </div>
 
+      <div className="members-stat-cards" aria-label="Resumen del padrón">
+        <PadronStatCard
+          label="Socios activos"
+          value={household.titularesActivos}
+          color={PADRON_FIXED_CARD_COLORS.activos}
+          active={quickFilter === 'activos'}
+          onClick={() => {
+            setQuickFilter((cur) => (cur === 'activos' ? null : 'activos'));
+            setTierFilter('todos');
+          }}
+        />
+        <PadronStatCard
+          label="Grupo familiar"
+          value={household.integrantes}
+          color={PADRON_FIXED_CARD_COLORS.familia}
+          active={quickFilter === 'familia'}
+          onClick={() => {
+            setQuickFilter((cur) => (cur === 'familia' ? null : 'familia'));
+            setTierFilter('todos');
+          }}
+        />
+        {household.byTier.map((tier) => (
+          <PadronStatCard
+            key={tier.id}
+            label={tier.name}
+            value={tier.count}
+            color={tier.color}
+            active={!quickFilter && String(tierFilter).toLowerCase() === String(tier.id).toLowerCase()}
+            onClick={() => {
+              const id = String(tier.id);
+              setQuickFilter(null);
+              setTierFilter((cur) => (String(cur).toLowerCase() === id.toLowerCase() ? 'todos' : id));
+            }}
+          />
+        ))}
+      </div>
+
       <div className="admin-filters members-toolbar">
         <div className="members-toolbar-filter">
           <Filter size={16} aria-hidden="true" />
           <select
             className="form-input"
             value={tierFilter}
-            onChange={(e) => setTierFilter(e.target.value)}
+            onChange={(e) => {
+              setQuickFilter(null);
+              setTierFilter(e.target.value);
+            }}
             aria-label="Filtrar por categoría"
           >
             <option value="todos">Todas las categorías</option>
@@ -683,15 +792,12 @@ export default function MembersTab({
 
         <button
           type="button"
-          onClick={() => { void exportMembersPdf(filteredMembers, {
-            formatCurrency,
-            filterLabel: tierFilter === 'todos' ? 'Todos' : getTierDisplayName(tierFilter, tierCatalog),
-            tierCatalog,
-          }); }}
+          onClick={() => { void handleExportPadronPdf(); }}
           className="btn btn-secondary"
-          title="Exportar padrón filtrado a PDF"
+          disabled={exportingPdf}
+          title="Exportar padrón completo del sistema a PDF"
         >
-          <FileDown size={16} /> Exportar PDF
+          <FileDown size={16} /> {exportingPdf ? 'Generando…' : 'Exportar PDF'}
         </button>
 
         <button
@@ -712,6 +818,7 @@ export default function MembersTab({
         setMembers={setMembers}
         members={members}
         formatCurrency={formatCurrency}
+        tierAccentById={tierAccentById}
       />
 
       {/* Formulario Alta de Socio — ficha completa */}
@@ -1453,7 +1560,11 @@ export default function MembersTab({
                       {m.outstandingBalance > 0 && (
                         <button
                           type="button"
-                          onClick={() => setCollectMember(m)}
+                          onClick={() => (
+                            onOpenProfile
+                              ? onOpenProfile(`${m.memberId}?cobrar=1`)
+                              : setCollectMember(m)
+                          )}
                           className="btn btn-secondary btn-sm"
                           style={{
                             borderColor: 'var(--emerald-accent)',
@@ -1787,7 +1898,7 @@ export default function MembersTab({
           contentClassName="modal-content glass-panel"
           contentStyle={{
             width: '90%',
-            maxWidth: 420,
+            maxWidth: 460,
             background: 'var(--bg-secondary)',
             border: '1px solid var(--border-glass)',
             padding: '1.25rem',

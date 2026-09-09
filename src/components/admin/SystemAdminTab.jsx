@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
-  Settings, UserRound, UserPlus, Plus, Check, X, Loader2, Shield, Camera, Trash2,
-  RefreshCw, Copy, Eye, EyeOff, Pencil, History,
+  Settings, UserRound, Plus, Check, X, Loader2, Camera, Trash2,
+  RefreshCw, Copy, Eye, EyeOff, Pencil, History, Search,
 } from 'lucide-react';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { repos } from '../../data/bootstrap';
@@ -24,22 +24,6 @@ const DOC_TYPES = ['Arg-DNI', 'Pasaporte', 'CUIL', 'Otro'];
 const GENDERS = ['Masculino', 'Femenino', 'Otro', 'Prefiero no decir'];
 const BLOOD_TYPES = ['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-'];
 const AUTHZ_BADGE_LIMIT = 3;
-
-const STATUS_LABEL = {
-  pending: 'Pendiente',
-  approved: 'Aprobada',
-  rejected: 'Rechazada',
-  withdrawn: 'Retirada',
-};
-
-const emptyAppForm = () => ({
-  fullName: '',
-  email: '',
-  phone: '',
-  documentNumber: '',
-  notes: '',
-  requestedTier: '',
-});
 
 const emptyUserForm = () => {
   const creds = buildCredentials();
@@ -64,7 +48,6 @@ const emptyUserForm = () => {
     passwordVisible: true,
     credentialsLocked: false,
     roles: [{ roleKey: 'member', label: 'Socio', kind: 'system' }],
-    prismaId: '',
     authorizations: [],
     identifiers: [],
   };
@@ -159,6 +142,44 @@ function profileListId(profile) {
 
 function profileUsername(profile) {
   return profile.username || usernameFromEmail(profile.email) || '—';
+}
+
+function normalizeSearch(value = '') {
+  return String(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+function profileSearchHaystack(profile) {
+  const roles = (profile.roles || []).map((r) => [r.label, r.roleKey, r.publicId].filter(Boolean).join(' '));
+  const authz = profileAuthzBadges(profile).map((b) => `${b.code} ${b.title}`);
+  const ids = (profile.identifiers || []).map((i) => `${i.idType || ''} ${i.identifier || ''}`);
+  return normalizeSearch([
+    displayName(profile),
+    profile.fullName,
+    profile.firstName,
+    profile.lastName,
+    profile.documentType,
+    profile.documentNumber,
+    profile.email,
+    profile.contactEmail,
+    profileUsername(profile),
+    profileListId(profile),
+    profile.prismaId,
+    profile.role,
+    ROLE_LABELS[profile.role],
+    ...roles,
+    ...authz,
+    ...ids,
+  ].filter(Boolean).join(' '));
+}
+
+function profileMatchesQuery(profile, query) {
+  const q = normalizeSearch(query);
+  if (!q) return true;
+  return profileSearchHaystack(profile).includes(q);
 }
 
 function authzCode(auth) {
@@ -298,11 +319,9 @@ function RolesCell({ profile, canEdit, busy, onEditRoles }) {
 }
 
 /**
- * Administración del sistema: usuarios del portal y solicitudes de alta de socio.
+ * Administración del sistema: usuarios del portal.
  */
 export default function SystemAdminTab({
-  membershipApplications = [],
-  setMembershipApplications,
   registeredUsersCount = 0,
   setRegisteredUsersCount,
   userRole = 'admin',
@@ -314,17 +333,13 @@ export default function SystemAdminTab({
   const [profiles, setProfiles] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [usersError, setUsersError] = useState('');
+  const [userQuery, setUserQuery] = useState('');
   const [busyId, setBusyId] = useState(null);
   const [flash, setFlash] = useState('');
-  const [appFilter, setAppFilter] = useState('pending');
   const [historyProfileId, setHistoryProfileId] = useState(null);
   const [historyProfileName, setHistoryProfileName] = useState('');
   const [historyRows, setHistoryRows] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [showAppForm, setShowAppForm] = useState(false);
-  const [appForm, setAppForm] = useState(emptyAppForm);
-  const [savingApp, setSavingApp] = useState(false);
-
   const [showUserForm, setShowUserForm] = useState(false);
   const [editingUserId, setEditingUserId] = useState(null);
   const [userForm, setUserForm] = useState(emptyUserForm);
@@ -365,16 +380,10 @@ export default function SystemAdminTab({
     return () => clearTimeout(t);
   }, [flash]);
 
-  const pendingCount = useMemo(
-    () => (membershipApplications || []).filter((a) => a.status === 'pending').length,
-    [membershipApplications]
+  const filteredProfiles = useMemo(
+    () => (profiles || []).filter((p) => profileMatchesQuery(p, userQuery)),
+    [profiles, userQuery],
   );
-
-  const filteredApps = useMemo(() => {
-    const list = membershipApplications || [];
-    if (appFilter === 'all') return list;
-    return list.filter((a) => a.status === appFilter);
-  }, [membershipApplications, appFilter]);
 
   const setUF = (key, value) => setUserForm((f) => ({ ...f, [key]: value }));
 
@@ -474,7 +483,6 @@ export default function SystemAdminTab({
       passwordVisible: false,
       credentialsLocked: true,
       roles,
-      prismaId: profile.prismaId || '',
       authorizations: (profile.authorizations || []).map((a) => ({
         kind: a.kind || 'custom',
         title: a.title || '',
@@ -640,7 +648,6 @@ export default function SystemAdminTab({
           emergencyPhone: userForm.emergencyPhone.trim(),
           emergencyClinic: userForm.emergencyClinic.trim(),
           address: userForm.address.trim(),
-          prismaId: userForm.prismaId.trim(),
           role: primaryRoleFromList(roles),
         });
         saved = await repos.replaceProfileRoles(editingUserId, roles);
@@ -674,7 +681,6 @@ export default function SystemAdminTab({
           emergencyPhone: userForm.emergencyPhone.trim(),
           emergencyClinic: userForm.emergencyClinic.trim(),
           address: userForm.address.trim(),
-          prismaId: userForm.prismaId.trim(),
           role: primaryRoleFromList(roles),
           roles,
           authorizations,
@@ -778,56 +784,6 @@ export default function SystemAdminTab({
     }
   };
 
-  const reviewApp = async (app, status) => {
-    setBusyId(app.id);
-    try {
-      const saved = await repos.upsertMembershipApplication({
-        ...app,
-        status,
-        reviewedAt: new Date().toISOString(),
-      });
-      setMembershipApplications?.((prev) => {
-        const list = Array.isArray(prev) ? prev : [];
-        const idx = list.findIndex((x) => x.id === saved.id);
-        if (idx < 0) return [saved, ...list];
-        const next = [...list];
-        next[idx] = saved;
-        return next;
-      });
-      setFlash(status === 'approved' ? 'Solicitud aprobada.' : 'Solicitud rechazada.');
-    } catch (err) {
-      setFlash(err.message || 'No se pudo actualizar la solicitud.');
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const createApp = async (e) => {
-    e.preventDefault();
-    if (!appForm.fullName.trim()) return;
-    setSavingApp(true);
-    try {
-      const saved = await repos.upsertMembershipApplication({
-        fullName: appForm.fullName.trim(),
-        email: appForm.email.trim(),
-        phone: appForm.phone.trim(),
-        documentNumber: appForm.documentNumber.trim(),
-        notes: appForm.notes.trim(),
-        requestedTier: appForm.requestedTier.trim(),
-        status: 'pending',
-      });
-      setMembershipApplications?.((prev) => [saved, ...(Array.isArray(prev) ? prev : [])]);
-      setAppForm(emptyAppForm());
-      setShowAppForm(false);
-      setAppFilter('pending');
-      setFlash('Solicitud registrada en la base de datos.');
-    } catch (err) {
-      setFlash(err.message || 'No se pudo crear la solicitud.');
-    } finally {
-      setSavingApp(false);
-    }
-  };
-
   return (
     <div className="fade-in sys-admin">
       <header className="sys-admin-head">
@@ -847,10 +803,6 @@ export default function SystemAdminTab({
             <b>{registeredUsersCount || profiles.length}</b>
             <span>Usuarios</span>
           </div>
-          <div>
-            <b>{pendingCount}</b>
-            <span>Solicitudes</span>
-          </div>
         </div>
       </header>
 
@@ -862,6 +814,23 @@ export default function SystemAdminTab({
         <header className="sys-admin-card-head">
           <UserRound size={16} color="var(--primary-gold)" />
           <h3>Usuarios registrados</h3>
+          <div className="sys-user-search">
+            <Search size={15} aria-hidden="true" />
+            <input
+              id="sys-user-search"
+              type="search"
+              value={userQuery}
+              onChange={(e) => setUserQuery(e.target.value)}
+              placeholder="Buscar por nombre, DNI, email, usuario o #"
+              aria-label="Buscar usuarios"
+              autoComplete="off"
+            />
+            {userQuery ? (
+              <button type="button" className="sys-user-search-clear" onClick={() => setUserQuery('')} aria-label="Limpiar búsqueda">
+                <X size={13} />
+              </button>
+            ) : null}
+          </div>
           <div className="sys-admin-card-actions">
             {canEditProfiles ? (
               <button type="button" className="btn btn-primary btn-sm" onClick={openNewUser}>
@@ -1202,20 +1171,6 @@ export default function SystemAdminTab({
 
             <div className="sys-user-section">
               <div className="sys-user-section-head">
-                <h4>Débitos automáticos</h4>
-              </div>
-              <Field label="Prisma">
-                <input
-                  className="form-input"
-                  value={userForm.prismaId}
-                  onChange={(e) => setUF('prismaId', e.target.value)}
-                  placeholder="Identificador PRISMA"
-                />
-              </Field>
-            </div>
-
-            <div className="sys-user-section">
-              <div className="sys-user-section-head">
                 <h4>Números de identificación</h4>
                 <button type="button" className="btn btn-secondary btn-sm" onClick={addIdentifier}>
                   <Plus size={14} /> Agregar
@@ -1279,8 +1234,17 @@ export default function SystemAdminTab({
           <p className="ops-muted" style={{ color: '#fca5a5' }}>{usersError}</p>
         ) : profiles.length === 0 ? (
           <p className="ops-muted">Todavía no hay usuarios en profiles.</p>
+        ) : filteredProfiles.length === 0 ? (
+          <p className="ops-muted">
+            Ningún usuario coincide con «{userQuery.trim()}».
+          </p>
         ) : (
           <div className="sys-admin-table-wrap">
+            {userQuery.trim() ? (
+              <p className="sys-user-search-count">
+                Encontrados {filteredProfiles.length} de {profiles.length}
+              </p>
+            ) : null}
             <table className="admin-table sys-admin-table">
               <thead>
                 <tr>
@@ -1295,7 +1259,7 @@ export default function SystemAdminTab({
                 </tr>
               </thead>
               <tbody>
-                {profiles.map((p) => (
+                {filteredProfiles.map((p) => (
                   <tr key={p.id}>
                     <td className="sys-user-id-cell">{profileListId(p)}</td>
                     <td>
@@ -1548,147 +1512,6 @@ export default function SystemAdminTab({
               </div>
             </div>
           </ModalDialog>
-        )}
-      </section>
-
-      <section className="glass-card sys-admin-card">
-        <header className="sys-admin-card-head">
-          <UserPlus size={16} color="var(--primary-gold)" />
-          <h3>Solicitudes de socio</h3>
-          <div className="sys-admin-card-actions">
-            <select
-              className="form-input"
-              style={{ width: 'auto', padding: '0.35rem 0.55rem', fontSize: '0.8rem' }}
-              value={appFilter}
-              onChange={(e) => setAppFilter(e.target.value)}
-            >
-              <option value="pending">Pendientes</option>
-              <option value="approved">Aprobadas</option>
-              <option value="rejected">Rechazadas</option>
-              <option value="all">Todas</option>
-            </select>
-            <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowAppForm((v) => !v)}>
-              <Plus size={14} /> Nueva
-            </button>
-          </div>
-        </header>
-
-        {showAppForm && (
-          <form className="sys-admin-form" onSubmit={createApp}>
-            <div className="sys-admin-form-grid">
-              <label>
-                Nombre completo
-                <input
-                  className="form-input"
-                  required
-                  value={appForm.fullName}
-                  onChange={(e) => setAppForm((f) => ({ ...f, fullName: e.target.value }))}
-                />
-              </label>
-              <label>
-                Email
-                <input
-                  className="form-input"
-                  type="email"
-                  value={appForm.email}
-                  onChange={(e) => setAppForm((f) => ({ ...f, email: e.target.value }))}
-                />
-              </label>
-              <label>
-                Teléfono
-                <input
-                  className="form-input"
-                  value={appForm.phone}
-                  onChange={(e) => setAppForm((f) => ({ ...f, phone: e.target.value }))}
-                />
-              </label>
-              <label>
-                Documento
-                <input
-                  className="form-input"
-                  value={appForm.documentNumber}
-                  onChange={(e) => setAppForm((f) => ({ ...f, documentNumber: e.target.value }))}
-                />
-              </label>
-              <label>
-                Categoría solicitada
-                <input
-                  className="form-input"
-                  placeholder="Gold, Platinum…"
-                  value={appForm.requestedTier}
-                  onChange={(e) => setAppForm((f) => ({ ...f, requestedTier: e.target.value }))}
-                />
-              </label>
-              <label className="sys-admin-form-span">
-                Notas
-                <input
-                  className="form-input"
-                  value={appForm.notes}
-                  onChange={(e) => setAppForm((f) => ({ ...f, notes: e.target.value }))}
-                />
-              </label>
-            </div>
-            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem' }}>
-              <button type="submit" className="btn btn-primary btn-sm" disabled={savingApp}>
-                {savingApp ? 'Guardando…' : 'Registrar solicitud'}
-              </button>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowAppForm(false)}>
-                Cancelar
-              </button>
-            </div>
-          </form>
-        )}
-
-        {filteredApps.length === 0 ? (
-          <p className="ops-muted" style={{ marginTop: showAppForm ? '1rem' : 0 }}>
-            No hay solicitudes {appFilter === 'all' ? '' : STATUS_LABEL[appFilter]?.toLowerCase() || ''} en la base.
-          </p>
-        ) : (
-          <ul className="sys-admin-app-list">
-            {filteredApps.map((app) => (
-              <li key={app.id}>
-                <div>
-                  <strong>{app.fullName}</strong>
-                  <span className="ops-muted" style={{ display: 'block', fontSize: '0.8rem' }}>
-                    {[app.email, app.phone, app.documentNumber].filter(Boolean).join(' · ') || 'Sin contacto'}
-                    {app.requestedTier ? ` · ${app.requestedTier}` : ''}
-                  </span>
-                  {app.notes && (
-                    <span style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>
-                      {app.notes}
-                    </span>
-                  )}
-                </div>
-                <div className="sys-admin-app-meta">
-                  <span className={`sys-admin-pill${app.status === 'pending' ? ' is-warn' : app.status === 'approved' ? ' is-on' : ''}`}>
-                    <Shield size={11} /> {STATUS_LABEL[app.status] || app.status}
-                  </span>
-                  {app.status === 'pending' && (
-                    <div className="sys-admin-app-actions">
-                      <button
-                        type="button"
-                        className="btn btn-primary btn-sm"
-                        disabled={busyId === app.id}
-                        onClick={() => reviewApp(app, 'approved')}
-                        title="Aprobar"
-                      >
-                        <Check size={14} />
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        disabled={busyId === app.id}
-                        onClick={() => reviewApp(app, 'rejected')}
-                        title="Rechazar"
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
         )}
       </section>
     </div>

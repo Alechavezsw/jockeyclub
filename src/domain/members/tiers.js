@@ -2,6 +2,17 @@
 
 export const DEFAULT_MEMBER_TIER = 'socio_individual';
 
+/** Categorías de demo (Gold / Platinum / Royal). No forman parte del padrón. */
+export const EXAMPLE_MEMBER_TIER_IDS = new Set(['gold', 'platinum', 'royal']);
+
+export function isExampleMemberTier(idOrName = '') {
+  return EXAMPLE_MEMBER_TIER_IDS.has(String(idOrName || '').trim().toLowerCase());
+}
+
+export function stripExampleTiers(catalog = []) {
+  return (catalog || []).filter((t) => !isExampleMemberTier(t?.id) && !isExampleMemberTier(t?.name));
+}
+
 /** Nombres literales de categoría_cuota en socio_cuotas / padrón. */
 export const DATITA_CUOTA_CATEGORY_NAMES = [
   'ABONO TENIS',
@@ -34,7 +45,7 @@ const TIER_SEED = [
   { name: 'SOCIO INDIVIDUAL (AMET)', label: '6149', color: '#34d399', sortOrder: 10 },
   { name: 'TURF', label: '3523', color: '#3b82f6', sortOrder: 11 },
   { name: 'ABONO TENIS', label: '2394', color: '#06b6d4', sortOrder: 12 },
-  { name: 'COMISION', label: '—', color: '#94a3b8', sortOrder: 90 },
+  { name: 'COMISION', label: '—', color: '#e11d48', sortOrder: 90 },
   {
     name: 'INTERES POR TRANSACCIÓN 2,5% GRUPO FAMILIAR (AMET)',
     label: '6148',
@@ -44,7 +55,7 @@ const TIER_SEED = [
   {
     name: 'INTERES POR TRANSACCIÓN 2,5% SOCIO INDIVIDUAL (AMET)',
     label: '6150',
-    color: '#64748b',
+    color: '#0ea5e9',
     sortOrder: 92,
   },
 ];
@@ -81,11 +92,12 @@ export const MEMBER_TIER_CATALOG = TIER_SEED.map((t) => ({
 let runtimeCatalog = null;
 
 export function setRuntimeTierCatalog(catalog) {
-  if (!Array.isArray(catalog) || !catalog.length) {
+  const cleaned = stripExampleTiers(catalog);
+  if (!Array.isArray(cleaned) || !cleaned.length) {
     runtimeCatalog = null;
     return;
   }
-  runtimeCatalog = catalog.map((t) => normalizeTier(t));
+  runtimeCatalog = cleaned.map((t) => normalizeTier(t));
 }
 
 export function getTierCatalog() {
@@ -115,14 +127,16 @@ export function loadTierCatalog(fallback = MEMBER_TIER_CATALOG) {
     if (!Array.isArray(parsed) || !parsed.length) {
       return fallback.map((t) => normalizeTier(t));
     }
-    return parsed.map((t) => normalizeTier(t)).sort((a, b) => a.sortOrder - b.sortOrder);
+    return stripExampleTiers(parsed)
+      .map((t) => normalizeTier(t))
+      .sort((a, b) => a.sortOrder - b.sortOrder);
   } catch {
     return fallback.map((t) => normalizeTier(t));
   }
 }
 
 export function getActiveTiers(catalog = getTierCatalog()) {
-  return (catalog || [])
+  return stripExampleTiers(catalog)
     .map((t) => normalizeTier(t))
     .filter((t) => t.isActive !== false)
     .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, 'es'));

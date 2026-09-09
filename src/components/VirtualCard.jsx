@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Shield, X, Lock } from 'lucide-react';
+import { Download, Shield, X, Lock } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { buildCredentialQRPayload } from '../domain/credentials/qr';
-import { findTier, tierCardStyle } from '../domain/members/tiers';
+import { exportCredentialPdf } from '../domain/credentials/exportCredentialPdf';
+import { findTier, getTierDisplayName, tierCardStyle } from '../domain/members/tiers';
 
 function formatMemberId(id) {
   if (!id) return '•••• •••• •••• ••••';
@@ -27,14 +28,14 @@ function CardFace({
   onMouseEnter,
   onMouseLeave,
   onClick,
-  size = 'normal', // normal | full
+  size = 'normal',
   dimmed = false,
 }) {
   const isFull = size === 'full';
   const style = {
     position: 'relative',
     width: '100%',
-    maxWidth: isFull ? 'min(92vw, 420px)' : '100%',
+    maxWidth: '100%',
     aspectRatio: '1.586 / 1',
     height: 'auto',
     borderRadius: isFull ? 22 : 18,
@@ -45,7 +46,7 @@ function CardFace({
       : `0 12px 28px rgba(0,0,0,0.4), 0 0 12px ${t.glow}44, inset 0 1px 0 rgba(255,255,255,0.05)`,
     transform: transform || 'perspective(900px)',
     transition: isHovered ? 'box-shadow 0.15s ease' : 'transform 0.35s ease, box-shadow 0.35s ease',
-    cursor: 'pointer',
+    cursor: onClick ? 'pointer' : 'default',
     overflow: 'hidden',
     display: 'flex',
     flexDirection: 'column',
@@ -181,7 +182,7 @@ function CardFace({
         gap: '0.65rem',
       }}>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: '0.65rem', minWidth: 0 }}>
-          {member?.photo && (
+          {member?.photo ? (
             <div style={{
               width: isFull ? 96 : 72,
               height: isFull ? 96 : 72,
@@ -207,7 +208,7 @@ function CardFace({
                 }}
               />
             </div>
-          )}
+          ) : null}
           <div style={{ minWidth: 0 }}>
             <div style={{
               fontSize: '0.55rem',
@@ -276,13 +277,19 @@ function CardFace({
   );
 }
 
+const CARD_BASE_W = 360;
+const CARD_BASE_H = CARD_BASE_W / 1.586;
+
 export default function VirtualCard({ member }) {
   const cardRef = useRef(null);
+  const fitRef = useRef(null);
   const [transform, setTransform] = useState('');
   const [glowPos, setGlowPos] = useState({ x: 50, y: 50 });
   const [isHovered, setIsHovered] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [secureHide, setSecureHide] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [zoom, setZoom] = useState(1);
 
   const catalogTier = findTier(member?.tier);
   const t = tierCardStyle(member?.tier);
@@ -290,6 +297,7 @@ export default function VirtualCard({ member }) {
     t.accent = catalogTier.color;
     t.chipColor = catalogTier.color;
   }
+  t.label = getTierDisplayName(member?.tier);
 
   const handleMouseMove = (e) => {
     if (expanded || isCoarsePointer()) return;
@@ -300,9 +308,7 @@ export default function VirtualCard({ member }) {
     const y = e.clientY - rect.top;
     const cx = rect.width / 2;
     const cy = rect.height / 2;
-    const rotX = ((y - cy) / cy) * -4;
-    const rotY = ((x - cx) / cx) * 4;
-    setTransform(`perspective(900px) rotateX(${rotX}deg) rotateY(${rotY}deg)`);
+    setTransform(`perspective(900px) rotateX(${((y - cy) / cy) * -4}deg) rotateY(${((x - cx) / cx) * 4}deg)`);
     setGlowPos({ x: (x / rect.width) * 100, y: (y / rect.height) * 100 });
   };
 
@@ -311,46 +317,58 @@ export default function VirtualCard({ member }) {
     setTransform('perspective(900px) rotateX(0deg) rotateY(0deg) scale(1)');
   };
 
-  const openExpanded = useCallback(() => {
-    setExpanded(true);
-  }, []);
-
+  const openExpanded = useCallback(() => setExpanded(true), []);
   const closeExpanded = useCallback(() => setExpanded(false), []);
 
-  // Ocultar contenido sensible al ir a segundo plano / captura (mitigación).
+  const downloadPdf = useCallback(async (e) => {
+    e?.stopPropagation?.();
+    if (downloading) return;
+    setDownloading(true);
+    try {
+      await exportCredentialPdf(member);
+    } catch (err) {
+      window.alert(err?.message || 'No se pudo generar el PDF de la credencial.');
+    } finally {
+      setDownloading(false);
+    }
+  }, [downloading, member]);
+
   useEffect(() => {
     if (!expanded) {
       setSecureHide(false);
       return undefined;
     }
 
-    // Solo ocultar al pasar a segundo plano. No usar blur/hasFocus:
-    // en móviles dispara falsos positivos y deja la credencial en negro al mostrar el QR al molinete.
-    const sync = () => {
-      setSecureHide(Boolean(document.hidden));
-    };
-
+    const sync = () => setSecureHide(Boolean(document.hidden));
     const onKey = (e) => {
       if (e.key === 'Escape') closeExpanded();
-      // Bloquear atajos típicos de captura/impresión en desktop embebido.
-      if ((e.ctrlKey || e.metaKey) && ['p', 's', 'P', 'S'].includes(e.key)) {
-        e.preventDefault();
-      }
-      if (e.key === 'PrintScreen') e.preventDefault();
     };
 
-    const onContext = (e) => e.preventDefault();
+    const fit = () => {
+      const box = fitRef.current;
+      if (!box) return;
+      const next = Math.min(box.clientWidth / CARD_BASE_W, box.clientHeight / CARD_BASE_H);
+      setZoom(Number.isFinite(next) && next > 0 ? next : 1);
+    };
 
     document.addEventListener('visibilitychange', sync);
     window.addEventListener('keydown', onKey, true);
-    document.addEventListener('contextmenu', onContext, true);
+    window.addEventListener('resize', fit);
     document.body.style.overflow = 'hidden';
     sync();
 
+    const ro = new ResizeObserver(fit);
+    const id = window.requestAnimationFrame(() => {
+      if (fitRef.current) ro.observe(fitRef.current);
+      fit();
+    });
+
     return () => {
+      window.cancelAnimationFrame(id);
+      ro.disconnect();
       document.removeEventListener('visibilitychange', sync);
       window.removeEventListener('keydown', onKey, true);
-      document.removeEventListener('contextmenu', onContext, true);
+      window.removeEventListener('resize', fit);
       document.body.style.overflow = '';
     };
   }, [expanded, closeExpanded]);
@@ -374,16 +392,10 @@ export default function VirtualCard({ member }) {
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
-            padding: max(1rem, env(safe-area-inset-top)) 1.1rem max(1.25rem, env(safe-area-inset-bottom));
+            padding: max(4.4rem, env(safe-area-inset-top)) 1rem max(1.1rem, env(safe-area-inset-bottom));
             -webkit-user-select: none;
             user-select: none;
             -webkit-touch-callout: none;
-          }
-          .vc-secure-overlay * {
-            -webkit-user-select: none !important;
-            user-select: none !important;
-            -webkit-touch-callout: none !important;
           }
           .vc-secure-top {
             position: absolute;
@@ -396,33 +408,53 @@ export default function VirtualCard({ member }) {
             gap: 0.75rem;
             z-index: 3;
           }
-          .vc-secure-hint {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.4rem;
-            font-size: 0.72rem;
-            color: rgba(255,255,255,0.45);
-            letter-spacing: 0.04em;
-          }
-          .vc-secure-close {
+          .vc-secure-download, .vc-secure-close {
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            width: 42px;
-            height: 42px;
+            gap: 0.4rem;
+            min-height: 42px;
             border-radius: 12px;
             border: 1px solid rgba(255,255,255,0.12);
             background: rgba(255,255,255,0.06);
             color: #fff;
             cursor: pointer;
+            font: inherit;
           }
+          .vc-secure-download {
+            padding: 0 0.9rem;
+            font-size: 0.82rem;
+            font-weight: 650;
+          }
+          .vc-secure-download:disabled { opacity: 0.65; cursor: wait; }
+          .vc-secure-close { width: 42px; }
           .vc-secure-stage {
             position: relative;
             z-index: 2;
+            flex: 1;
             width: 100%;
+            min-height: 0;
             display: flex;
             flex-direction: column;
             align-items: center;
+            justify-content: center;
+            gap: 0.85rem;
+          }
+          .vc-secure-fit {
+            flex: 1;
+            width: 100%;
+            min-height: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }
+          .vc-secure-zoom {
+            position: relative;
+            flex-shrink: 0;
+          }
+          .vc-secure-zoom .vc-card-face {
+            width: ${CARD_BASE_W}px !important;
+            max-width: ${CARD_BASE_W}px !important;
           }
           .vc-secure-shield {
             position: absolute;
@@ -442,13 +474,20 @@ export default function VirtualCard({ member }) {
             color: var(--primary-gold, #cfa13a);
             font-size: 1rem;
           }
+          .vc-secure-scan {
+            background: #fff;
+            border-radius: 16px;
+            padding: 12px;
+            box-shadow: 0 8px 28px rgba(0,0,0,0.35);
+          }
           .vc-secure-foot {
-            margin-top: 1.25rem;
+            margin: 0;
             font-size: 0.75rem;
             color: rgba(255,255,255,0.4);
             text-align: center;
             max-width: 280px;
             line-height: 1.4;
+            flex-shrink: 0;
           }
           @media print {
             .vc-secure-overlay, .vc-card-face { display: none !important; }
@@ -456,9 +495,15 @@ export default function VirtualCard({ member }) {
         `}</style>
 
         <div className="vc-secure-top" onClick={(e) => e.stopPropagation()}>
-          <span className="vc-secure-hint">
-            <Lock size={13} /> Solo presentación · no descargable
-          </span>
+          <button
+            type="button"
+            className="vc-secure-download"
+            onClick={downloadPdf}
+            disabled={downloading}
+          >
+            <Download size={15} />
+            {downloading ? 'Generando…' : 'Descargar PDF'}
+          </button>
           <button type="button" className="vc-secure-close" onClick={closeExpanded} aria-label="Cerrar">
             <X size={20} />
           </button>
@@ -469,41 +514,50 @@ export default function VirtualCard({ member }) {
             <Lock size={36} color="var(--primary-gold, #cfa13a)" />
             <strong>Credencial oculta</strong>
             <p style={{ margin: 0, fontSize: '0.85rem', lineHeight: 1.45 }}>
-              Volvé a la app para mostrar tu credencial. No se permite captura ni descarga.
+              Volvé a la app para mostrar tu credencial.
             </p>
           </div>
         ) : (
           <div className="vc-secure-stage" onClick={(e) => e.stopPropagation()}>
-            <CardFace
-              member={member}
-              t={t}
-              size="full"
-              transform="perspective(900px)"
-              isHovered
-              glowPos={{ x: 50, y: 40 }}
-              dimmed={false}
-            />
-            <div
-              style={{
-                marginTop: '1.1rem',
-                background: '#fff',
-                borderRadius: 18,
-                padding: 18,
-                boxShadow: '0 8px 28px rgba(0,0,0,0.35)',
-              }}
-              aria-label="Código QR para acceso"
-            >
-              <QRCodeSVG
-                value={buildCredentialQRPayload(member)}
-                size={320}
-                level="H"
-                includeMargin
-                bgColor="#ffffff"
-                fgColor="#000000"
-              />
+            <div className="vc-secure-fit" ref={fitRef}>
+              <div
+                className="vc-secure-zoom"
+                style={{
+                  width: CARD_BASE_W * zoom,
+                  height: CARD_BASE_H * zoom,
+                }}
+              >
+                <div style={{
+                  width: CARD_BASE_W,
+                  height: CARD_BASE_H,
+                  transform: `scale(${zoom})`,
+                  transformOrigin: 'top left',
+                }}>
+                  <CardFace
+                    member={member}
+                    t={t}
+                    transform="none"
+                    isHovered
+                    glowPos={{ x: 50, y: 40 }}
+                    dimmed={false}
+                  />
+                </div>
+              </div>
             </div>
+            {zoom < 1.25 ? (
+              <div className="vc-secure-scan" aria-label="Código QR para acceso">
+                <QRCodeSVG
+                  value={buildCredentialQRPayload(member)}
+                  size={168}
+                  level="H"
+                  includeMargin
+                  bgColor="#ffffff"
+                  fgColor="#000000"
+                />
+              </div>
+            ) : null}
             <p className="vc-secure-foot">
-              Brillo al máximo · acercá el QR al marco del molinete. Tocá afuera o ✕ para cerrar.
+              Tocá afuera o ✕ para cerrar.
             </p>
           </div>
         )}
@@ -531,6 +585,11 @@ export default function VirtualCard({ member }) {
           user-select: none;
           -webkit-touch-callout: none;
         }
+        .vc-actions {
+          display: flex;
+          justify-content: center;
+          margin-top: 0.65rem;
+        }
         .vc-mobile-hint {
           display: block;
           margin-top: 0.45rem;
@@ -541,7 +600,7 @@ export default function VirtualCard({ member }) {
         .vc-wrap {
           max-width: 100%;
         }
-        .vc-card-face {
+        .vc-wrap .vc-card-face {
           width: 100% !important;
           max-width: 100% !important;
           height: auto !important;
@@ -564,6 +623,17 @@ export default function VirtualCard({ member }) {
         onMouseLeave={handleMouseLeave}
         onClick={openExpanded}
       />
+      <div className="vc-actions">
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={downloadPdf}
+          disabled={downloading}
+        >
+          <Download size={14} />
+          {downloading ? 'Generando…' : 'Descargar PDF'}
+        </button>
+      </div>
       <p className="vc-mobile-hint">Tocá la credencial para verla a pantalla completa</p>
       {overlay}
     </div>

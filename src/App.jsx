@@ -15,11 +15,12 @@ import {
   loadDismissedNotificationIds,
   saveDismissedNotificationIds,
 } from './domain/notifications/buildNotifications';
-import { applyAutomaticDues, diffAutomaticDues } from './domain/members/dues';
+import { applyAutomaticDues } from './domain/members/dues';
 import { attachHouseholdToMembers } from './domain/members/households';
+import { applyCurrentAccountBalances, diffMemberBalances } from './domain/accounting/currentAccountBalances';
 import { createHrRecord } from './domain/staff/hr';
 import { loadDisciplineCatalog } from './domain/sports/disciplines';
-import { loadTierCatalog, setRuntimeTierCatalog } from './domain/members/tiers';
+import { loadTierCatalog, setRuntimeTierCatalog, stripExampleTiers } from './domain/members/tiers';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
 import { notifyNextOnWaitlist } from './domain/reservations/waitlist';
 import { bootstrapShellFromDb, bootstrapDeferredFromDb, bootstrapMembersFromDb, bootstrapErpFromDb, repos } from './data/bootstrap';
@@ -779,7 +780,8 @@ export default function App() {
           return merged;
         });
     // Cuota vencida → deuda generada sola (sin botón manual)
-    return attachHouseholdToMembers(applyAutomaticDues(base));
+    // Luego saldos CC LILA (fuente de verdad) pisan el outstandingBalance.
+    return attachHouseholdToMembers(applyCurrentAccountBalances(applyAutomaticDues(base)));
   });
 
   const [reservations, setReservations] = useState(loadInitialReservations);
@@ -1043,7 +1045,7 @@ export default function App() {
     return {
       memberId: user?.memberId || 'session',
       name: user?.name || user?.email || 'Socio',
-      tier: 'gold',
+      tier: 'socio_individual',
       outstandingBalance: 0,
       yearsActive: 0,
       adherents: [],
@@ -1154,7 +1156,8 @@ export default function App() {
         const nextHist = nextMember.paymentHistory || saved.paymentHistory || [];
         if (nextHist.length > prevHist.length && saved.id) {
           const newest = nextHist[0];
-          if (newest && !String(newest.id || '').includes('-')) {
+          const looksLocal = newest && !/^[0-9a-f-]{36}$/i.test(String(newest.id || ''));
+          if (looksLocal) {
             await repos.insertMemberPayment(saved.id, newest);
           }
         }
@@ -1233,8 +1236,9 @@ export default function App() {
       }
       if (typeof app.isZondaActive === 'boolean') setIsZondaActive(app.isZondaActive);
       if (Array.isArray(app.tierCatalog) && app.tierCatalog.length) {
-        setTierCatalog(app.tierCatalog);
-        setRuntimeTierCatalog(app.tierCatalog);
+        const cleaned = stripExampleTiers(app.tierCatalog);
+        setTierCatalog(cleaned.length ? cleaned : app.tierCatalog);
+        setRuntimeTierCatalog(cleaned.length ? cleaned : app.tierCatalog);
       }
       if (Array.isArray(app.disciplineCatalog) && app.disciplineCatalog.length) {
         setDisciplineCatalog(app.disciplineCatalog);
@@ -1282,7 +1286,8 @@ export default function App() {
           const seeded = Array.isArray(app.members) ? app.members : [];
           if (seeded.length) {
             const withDues = applyAutomaticDues(seeded);
-            const withFamily = attachHouseholdToMembers(withDues);
+            const withBalances = applyCurrentAccountBalances(withDues);
+            const withFamily = attachHouseholdToMembers(withBalances);
             setMembers(withFamily);
             setMembersCount(withFamily.length || app.membersCount || 0);
             setMemberDbIds(shellIds || {});
@@ -1329,7 +1334,8 @@ export default function App() {
             const paintMembers = (rawMembers, { keepCount = true } = {}) => {
               const cleaned = (rawMembers || []).filter((m) => !isDemoMember(m));
               const withDues = applyAutomaticDues(cleaned);
-              const withFamily = attachHouseholdToMembers(withDues);
+              const withBalances = applyCurrentAccountBalances(withDues);
+              const withFamily = attachHouseholdToMembers(withBalances);
               setMembers(withFamily);
               if (keepCount) {
                 setMembersCount((prev) => Math.max(prev, withFamily.length, app.membersCount || 0));
@@ -1358,8 +1364,8 @@ export default function App() {
               if (cancelled) return;
 
               if (rawMembers?.length) {
-                const { withDues, rawMembers: raw } = paintMembers(rawMembers, { keepCount: false });
-                const duesToPersist = diffAutomaticDues(raw, withDues);
+                const { withFamily, rawMembers: raw } = paintMembers(rawMembers, { keepCount: false });
+                const duesToPersist = diffMemberBalances(raw, withFamily);
                 if (duesToPersist.length) {
                   Promise.all(
                     duesToPersist.map((m) => repos.upsertMember(m).catch(() => null))
@@ -1966,6 +1972,7 @@ export default function App() {
       member={activeMember}
       setCurrentView={setCurrentView}
       updateMember={updateMember}
+      onAccountEntry={erp.upsertMemberAccountEntryRecord}
     />
   );
 
@@ -1980,6 +1987,7 @@ export default function App() {
       guestPasses={guestPasses}
       setGuestPasses={setGuestPassesDb}
       tierCatalog={tierCatalog}
+      disciplineCatalog={disciplineCatalog}
       formatCurrency={(amount) =>
         new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 }).format(amount || 0)
       }
@@ -2157,7 +2165,7 @@ export default function App() {
               alerts={erp.alerts}
               alertAcks={erp.alertAcks}
               userRole={userRole}
-              onAck={(alertId) => erp.ackAlert(alertId, user?.id || 'local-user')}
+              onAck={(alert) => erp.ackAlert(alert, user?.id || 'local-user')}
               excludeSources={['concession_expiry', 'concession_docs']}
             />
           </>

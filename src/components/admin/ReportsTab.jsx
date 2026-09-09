@@ -574,7 +574,7 @@ export default function ReportsTab({
   };
 
   const handleExportMembersPDF = () => {
-    void exportMembersPdf(members, { formatCurrency }).catch((err) => fail(err, 'No se pudo generar el PDF del padrón.'));
+    void exportMembersPdf(members, { formatCurrency, filterLabel: 'Padrón completo' }).catch((err) => fail(err, 'No se pudo generar el PDF del padrón.'));
   };
 
   const handleExportDebtorsPDF = () => {

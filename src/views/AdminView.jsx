@@ -35,6 +35,21 @@ import { getAccountBalance as domainAccountBalance } from '../domain/accounting/
 import { allowedAdminTabs, allowedAdminTabsForRoles, canAccessConcessions, canAccessQrGate, ROLE_LABELS, ROLE_PANEL_META } from '../domain/auth/roles';
 import { getOverdueMembers, getUpcomingDuesMembers } from '../domain/members/dues';
 import { useAuth } from '../context/AuthContext';
+import { repos } from '../data/bootstrap';
+
+function findMemberForProfile(members = [], routeId) {
+  if (!routeId) return null;
+  const raw = decodeURIComponent(String(routeId));
+  const digits = raw.replace(/\D/g, '');
+  return (members || []).find((m) => {
+    const id = String(m.memberId || '');
+    const idDigits = id.replace(/\D/g, '');
+    return id === raw
+      || idDigits === digits
+      || String(m.id || '') === raw
+      || String(m.memberNumber || '') === raw;
+  }) || null;
+}
 
 const GROUP_ICONS = {
   ops: Activity,
@@ -228,8 +243,44 @@ export default function AdminView({
     });
   };
 
+  const [fetchedProfile, setFetchedProfile] = useState(null);
+  const [profileLookupDone, setProfileLookupDone] = useState(false);
+
+  useEffect(() => {
+    if (activeTab !== 'members' || !routeEntityId) {
+      setFetchedProfile(null);
+      setProfileLookupDone(true);
+      return undefined;
+    }
+    setProfileLookupDone(false);
+    const local = findMemberForProfile(members, routeEntityId);
+    if (local) {
+      setFetchedProfile(local);
+      setProfileLookupDone(true);
+      return undefined;
+    }
+    let cancelled = false;
+    repos.getMemberByNumber(routeEntityId, { withPayments: true })
+      .then((row) => {
+        if (cancelled) return;
+        if (row) {
+          setFetchedProfile(row);
+          setMembers?.((prev) => {
+            const list = prev || [];
+            if (findMemberForProfile(list, row.memberId)) return list;
+            return [row, ...list];
+          });
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setProfileLookupDone(true);
+      });
+    return () => { cancelled = true; };
+  }, [activeTab, routeEntityId]);
+
   const profileMember = activeTab === 'members' && routeEntityId
-    ? members.find((m) => m.memberId === routeEntityId) || null
+    ? findMemberForProfile(members, routeEntityId) || fetchedProfile
     : null;
   const profileStaff = activeTab === 'staff' && routeEntityId
     ? staffMembers.find((e) => e.id === routeEntityId) || null
@@ -475,8 +526,8 @@ export default function AdminView({
         </div>
       )}
 
-      {/* Tarjetas de Métricas según el rol (ocultas en Inicio: el dashboard ya las resume) */}
-      {activeTab !== 'dashboard' && (
+      {/* Tarjetas de métricas solo en Inicio */}
+      {activeTab === 'dashboard' && (
       <div className="admin-metrics">
         {(() => {
           const metricsByRole = {
@@ -572,7 +623,7 @@ export default function AdminView({
           clubEvents={erp.clubEvents || []}
           alerts={erp.alerts || []}
           alertAcks={erp.alertAcks || []}
-          onAckAlert={erp.ackAlert}
+          onAckAlert={(alert) => erp.ackAlert(alert, user?.id || 'local-user')}
           latestNews={latestNews}
           isZondaActive={isZondaActive}
           tierCatalog={tierCatalog}
@@ -604,6 +655,12 @@ export default function AdminView({
           collectionImports={erp.memberCollectionImports}
           onImportCollections={erp.importMemberCollections}
           onDeleteCollectionImport={erp.deleteMemberCollectionImport}
+          feeChartAccounts={erp.feeChartAccounts}
+          onUpsertFeeChartAccount={erp.upsertFeeChartAccountRecord}
+          onDeleteFeeChartAccount={erp.deleteFeeChartAccountRecord}
+          memberAccountEntries={erp.memberAccountEntries}
+          onUpsertMemberAccountEntry={erp.upsertMemberAccountEntryRecord}
+          onDeleteMemberAccountEntry={erp.deleteMemberAccountEntryRecord}
           reservations={reservations}
           onImputeReservation={(r) => {
             if (!setReservations || !r?.id) return;
@@ -618,7 +675,11 @@ export default function AdminView({
       )}
 
       {activeTab === 'members' && (
-        routeEntityId ? (
+        routeEntityId && !profileMember && (membersLoading || !profileLookupDone) ? (
+          <article className="glass-card fade-in">
+            <p className="ops-muted" style={{ margin: 0 }}>Cargando ficha del socio…</p>
+          </article>
+        ) : routeEntityId ? (
           <MemberProfilePanel
             member={profileMember}
             members={members}
@@ -631,13 +692,20 @@ export default function AdminView({
             claims={claims}
             messages={messages}
             tierCatalog={tierCatalog}
+            disciplineCatalog={disciplineCatalog}
             updateMember={updateMember}
+            setMembers={setMembers}
+            addJournalEntry={addJournalEntry}
+            onAccountEntry={erp.upsertMemberAccountEntryRecord}
           />
         ) : (
           <MembersTab
             members={members}
+            membersCount={membersCount}
+            membersLoading={membersLoading}
             setMembers={setMembers}
             addJournalEntry={addJournalEntry}
+            onAccountEntry={erp.upsertMemberAccountEntryRecord}
             formatCurrency={formatCurrency}
             onOpenProfile={(id) => navigate(`/panel/members/${id}`)}
             disciplineOptions={(disciplineCatalog || []).filter((d) => d.isActive !== false).map((d) => d.name)}
@@ -751,6 +819,8 @@ export default function AdminView({
           onDeleteFeeExpense={erp.deleteFeeExpenseRecord}
           paymentOrders={erp.paymentOrders}
           upsertPaymentOrder={erp.upsertPaymentOrder}
+          accountingReports={erp.accountingReports}
+          onRecordAccountingReport={erp.recordAccountingReport}
         />
       )}
 
@@ -884,8 +954,6 @@ export default function AdminView({
         ) : (
           <SystemAdminTab
             userRole={userRole}
-            membershipApplications={membershipApplications}
-            setMembershipApplications={setMembershipApplications}
             registeredUsersCount={registeredUsersCount}
             setRegisteredUsersCount={setRegisteredUsersCount}
           />

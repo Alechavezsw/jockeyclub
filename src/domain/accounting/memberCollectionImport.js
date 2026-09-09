@@ -1,3 +1,5 @@
+import { createAccountEntry } from './memberBalances';
+
 /** Importación de cobranzas de socios (Excel Manual / lista base LILA). */
 
 export const MEMBER_COLLECTION_ENTITIES = {
@@ -45,10 +47,9 @@ function excelDateToIso(v) {
 }
 
 function padUnidad(v) {
-  const s = String(v ?? '').trim();
-  if (!s) return '';
-  if (/^\d+$/.test(s)) return String(Number(s));
-  return s;
+  const digits = String(v ?? '').replace(/\D/g, '');
+  if (digits) return String(Number(digits));
+  return String(v ?? '').trim();
 }
 
 export function matchMemberByUnidad(members = [], unidad) {
@@ -205,4 +206,24 @@ export function applyMemberCollectionPayments(members = [], payments = []) {
   });
 
   return next;
+}
+
+export function collectionPaymentsToEntries(payments = []) {
+  return (payments || []).flatMap((p) => {
+    if (!p?.matched || !(Number(p.amount) > 0)) return [];
+    try {
+      return [createAccountEntry({
+        type: 'pago',
+        memberNumber: p.memberId,
+        memberName: p.nombre || p.memberName || '',
+        value: p.amount,
+        date: p.date || new Date().toISOString().slice(0, 10),
+        voucher: p.comprobante || p.voucher || '',
+        source: 'collection_import',
+        description: 'Importación cobranzas socios',
+      })];
+    } catch {
+      return [];
+    }
+  });
 }

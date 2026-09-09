@@ -25,6 +25,12 @@ function startOfDay(date) {
   return d;
 }
 
+/** Solo activos operan cuota / mora. Baja, suspensión y pendiente no generan ni figuran. */
+export function isMemberBillingActive(member) {
+  const s = String(member?.status || 'active').toLowerCase();
+  return s === 'active';
+}
+
 /** Monto de cuota según categoría (catálogo editable / referencia operativa). */
 export function duesAmountForTier(tier, catalog) {
   return getTierMonthlyDues(tier, catalog);
@@ -69,7 +75,7 @@ export function getOverdueMembers(members, today = new Date()) {
   const todayStart = startOfDay(today);
 
   return members
-    .filter((m) => m.status !== 'inactive')
+    .filter((m) => isMemberBillingActive(m))
     .filter((m) => {
       if ((Number(m.outstandingBalance) || 0) > 0) return true;
       const due = parseDate(m.nextDueDate);
@@ -103,7 +109,7 @@ export function getUpcomingDuesMembers(members, { withinDays = 15, today = new D
   const horizon = new Date(todayStart.getTime() + withinDays * DAY_MS);
 
   return members
-    .filter((m) => m.status !== 'inactive')
+    .filter((m) => isMemberBillingActive(m))
     .filter((m) => (Number(m.outstandingBalance) || 0) === 0)
     .map((m) => {
       const due = parseDate(m.nextDueDate);
@@ -130,6 +136,19 @@ export function formatShortDate(iso) {
   return d.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
+/** Link de recordatorio de cuota por WhatsApp. Null si no hay teléfono válido. */
+export function buildWhatsAppDuesUrl(member, formatCurrency) {
+  const cleanPhone = toWhatsAppPhone(member?.phone);
+  if (!cleanPhone) return null;
+  const dueLabel = formatShortDate(member.dueDate || member.nextDueDate);
+  const amount = typeof formatCurrency === 'function'
+    ? formatCurrency(member.amountDue)
+    : (member.amountDue ?? '');
+  const name = member.name || 'socio/a';
+  const msg = `Estimado/a ${name}, le saludamos del Jockey Club San Juan. Le recordamos que posee una cuota vencida de ${amount} (vencimiento ${dueLabel}). Puede regularizarla en administración o por transferencia. ¡Gracias!`;
+  return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`;
+}
+
 /**
  * Genera la deuda de cuota automáticamente al vencer.
  * Si nextDueDate ya pasó y el socio no tiene saldo, carga el monto de su categoría.
@@ -139,7 +158,7 @@ export function applyAutomaticDues(members, today = new Date()) {
   const todayStart = startOfDay(today);
 
   return members.map((m) => {
-    if (m.status === 'inactive' || m.status === 'suspended') return m;
+    if (!isMemberBillingActive(m)) return m;
     if ((Number(m.outstandingBalance) || 0) > 0) return m;
 
     const due = parseDate(m.nextDueDate);

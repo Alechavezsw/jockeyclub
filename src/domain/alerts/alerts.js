@@ -57,19 +57,42 @@ export function filterAlertsForRole(alerts, role = 'member') {
   });
 }
 
-export function acknowledgeAlert(acknowledgements, alertId, profileId = 'local-user') {
-  if (acknowledgements.some((a) => a.alertId === alertId && a.profileId === profileId)) {
+export function isAlertAcknowledged(alert, acknowledgements = []) {
+  if (!alert) return false;
+  return (acknowledgements || []).some((ack) => {
+    if (ack.alertId && ack.alertId === alert.id) return true;
+    if (alert.code && ack.alertCode && ack.alertCode === alert.code) return true;
+    return false;
+  });
+}
+
+export function acknowledgeAlert(acknowledgements, alertId, profileId = 'local-user', alertCode = null) {
+  if ((acknowledgements || []).some((a) => a.alertId === alertId && a.profileId === profileId)) {
     return acknowledgements;
   }
   return [
-    ...acknowledgements,
+    ...(acknowledgements || []),
     {
       id: `ack-${Date.now()}`,
       alertId,
       profileId,
+      alertCode: alertCode || null,
       acknowledgedAt: new Date().toISOString(),
     },
   ];
+}
+
+export function mergeAlertAcknowledgements(local = [], remote = []) {
+  const seen = new Set();
+  const out = [];
+  for (const ack of [...(local || []), ...(remote || [])]) {
+    if (!ack) continue;
+    const key = `${ack.alertId || ''}::${ack.profileId || ''}::${ack.alertCode || ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(ack);
+  }
+  return out;
 }
 
 /** Genera / actualiza alerta Zonda automática. */

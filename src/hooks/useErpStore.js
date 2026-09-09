@@ -41,6 +41,16 @@ import {
 } from '../domain/accounting/feeExpenses';
 import { resolveFeePeriods } from '../domain/accounting/feeBilling';
 import {
+  resolveFeeChartAccounts,
+  softDeleteFeeChartAccount,
+  upsertFeeChartAccount,
+} from '../domain/accounting/feeChartAccounts';
+import {
+  softDeleteAccountEntry,
+  upsertAccountEntry,
+} from '../domain/accounting/memberBalances';
+import { prependAccountingReport } from '../domain/accounting/accountingReports';
+import {
   createExpenseDraft,
   approveExpense,
   rejectExpense,
@@ -68,6 +78,7 @@ import {
   createAlert,
   syncZondaAlert,
   acknowledgeAlert,
+  mergeAlertAcknowledgements,
 } from '../domain/alerts/alerts';
 import {
   DEFAULT_CLUB_EVENTS,
@@ -108,6 +119,27 @@ function load(key, fallback) {
 function persist(key, value) {
   if (cloud()) return;
   localStorage.setItem(key, JSON.stringify(value));
+}
+
+const ALERT_ACKS_KEY = 'jockey-alert-acks';
+const PROFILE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function loadAlertAcks() {
+  try {
+    const raw = localStorage.getItem(ALERT_ACKS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistAlertAcks(value) {
+  try {
+    localStorage.setItem(ALERT_ACKS_KEY, JSON.stringify(value));
+  } catch {
+    /* quota / private mode */
+  }
 }
 
 function migrateJournalEntries(entries, chart) {
@@ -176,6 +208,15 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
   const [memberCollectionImports, setMemberCollectionImports] = useState(() =>
     load('jockey-member-collection-imports-v1', [])
   );
+  const [feeChartAccounts, setFeeChartAccounts] = useState(() =>
+    resolveFeeChartAccounts(load('jockey-fee-chart-accounts-v1', null))
+  );
+  const [memberAccountEntries, setMemberAccountEntries] = useState(() =>
+    load('jockey-member-account-entries-v1', [])
+  );
+  const [accountingReports, setAccountingReports] = useState(() =>
+    load('jockey-accounting-reports-v1', [])
+  );
   const [expenses, setExpenses] = useState(() => load('jockey-expenses', []));
   const [suppliers, setSuppliers] = useState(() => {
     const loaded = load('jockey-suppliers-v3', null);
@@ -205,7 +246,7 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
     load('jockey-payment-orders', DEFAULT_PAYMENT_ORDERS)
   );
   const [alerts, setAlerts] = useState(() => load('jockey-alerts', DEFAULT_ALERTS));
-  const [alertAcks, setAlertAcks] = useState(() => load('jockey-alert-acks', []));
+  const [alertAcks, setAlertAcks] = useState(() => loadAlertAcks());
   const [clubEvents, setClubEvents] = useState(() => load('jockey-club-events', DEFAULT_CLUB_EVENTS));
   const [eventRegistrations, setEventRegistrations] = useState(() =>
     load('jockey-event-registrations', [])
@@ -281,6 +322,17 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
     if (Array.isArray(erp.memberCollectionImports)) {
       setMemberCollectionImports(erp.memberCollectionImports);
     }
+    if (Array.isArray(erp.feeChartAccounts) && erp.feeChartAccounts.length) {
+      setFeeChartAccounts(resolveFeeChartAccounts(erp.feeChartAccounts));
+    } else {
+      setFeeChartAccounts(resolveFeeChartAccounts(null));
+    }
+    if (Array.isArray(erp.memberAccountEntries)) {
+      setMemberAccountEntries(erp.memberAccountEntries);
+    }
+    if (Array.isArray(erp.accountingReports)) {
+      setAccountingReports(erp.accountingReports);
+    }
     if (Array.isArray(erp.expenses)) setExpenses(erp.expenses);
     if (Array.isArray(erp.suppliers)) {
       // Preferir nube cuando ya tiene el padrón Accessin; si no, seed local.
@@ -298,7 +350,9 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
     if (Array.isArray(erp.fixedDiscounts)) setFixedDiscounts(erp.fixedDiscounts);
     if (Array.isArray(erp.paymentOrders)) setPaymentOrders(erp.paymentOrders);
     if (Array.isArray(erp.alerts)) setAlerts(erp.alerts);
-    if (Array.isArray(erp.alertAcks)) setAlertAcks(erp.alertAcks);
+    if (Array.isArray(erp.alertAcks)) {
+      setAlertAcks((prev) => mergeAlertAcknowledgements(prev, erp.alertAcks));
+    }
     if (Array.isArray(erp.clubEvents)) setClubEvents(erp.clubEvents);
     if (Array.isArray(erp.eventRegistrations)) setEventRegistrations(erp.eventRegistrations);
     if (Array.isArray(erp.concessions)) setConcessions(erp.concessions);
@@ -330,6 +384,9 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
   useEffect(() => persist('jockey-fee-expenses-v1', feeExpenses), [feeExpenses]);
   useEffect(() => persist('jockey-fee-periods-v1', feePeriods), [feePeriods]);
   useEffect(() => persist('jockey-member-collection-imports-v1', memberCollectionImports), [memberCollectionImports]);
+  useEffect(() => persist('jockey-fee-chart-accounts-v1', feeChartAccounts), [feeChartAccounts]);
+  useEffect(() => persist('jockey-member-account-entries-v1', memberAccountEntries), [memberAccountEntries]);
+  useEffect(() => persist('jockey-accounting-reports-v1', accountingReports), [accountingReports]);
   useEffect(() => persist('jockey-expenses', expenses), [expenses]);
   useEffect(() => persist('jockey-suppliers-v3', suppliers), [suppliers]);
   useEffect(() => persist('jockey-retenciones-v1', retenciones), [retenciones]);
@@ -343,7 +400,7 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
   useEffect(() => persist('jockey-fixed-discounts', fixedDiscounts), [fixedDiscounts]);
   useEffect(() => persist('jockey-payment-orders', paymentOrders), [paymentOrders]);
   useEffect(() => persist('jockey-alerts', alerts), [alerts]);
-  useEffect(() => persist('jockey-alert-acks', alertAcks), [alertAcks]);
+  useEffect(() => persistAlertAcks(alertAcks), [alertAcks]);
   useEffect(() => persist('jockey-club-events', clubEvents), [clubEvents]);
   useEffect(() => persist('jockey-event-registrations', eventRegistrations), [eventRegistrations]);
   useEffect(() => persist('jockey-concessions', concessions), [concessions]);
@@ -592,10 +649,17 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
     }
   }, [alerts]);
 
-  const ackAlert = useCallback(async (alertId, profileId = 'local-user') => {
-    setAlertAcks((prev) => acknowledgeAlert(prev, alertId, profileId));
-    if (cloud() && profileId && String(profileId).includes('-')) {
-      await repos.ackAlert(alertId, profileId);
+  const ackAlert = useCallback(async (alertOrId, profileId = 'local-user') => {
+    const alertId = typeof alertOrId === 'object' && alertOrId ? alertOrId.id : alertOrId;
+    const alertCode = typeof alertOrId === 'object' && alertOrId ? alertOrId.code : null;
+    if (!alertId) return;
+    setAlertAcks((prev) => acknowledgeAlert(prev, alertId, profileId, alertCode));
+    if (cloud() && PROFILE_UUID_RE.test(String(profileId))) {
+      try {
+        await repos.ackAlert(alertId, profileId);
+      } catch {
+        /* local ack already persisted */
+      }
     }
   }, []);
 
@@ -1008,6 +1072,26 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
     )));
   }, []);
 
+  const upsertFeeChartAccountRecord = useCallback((input) => {
+    setFeeChartAccounts((prev) => upsertFeeChartAccount(prev, input));
+  }, []);
+
+  const deleteFeeChartAccountRecord = useCallback((id) => {
+    setFeeChartAccounts((prev) => softDeleteFeeChartAccount(prev, id));
+  }, []);
+
+  const upsertMemberAccountEntryRecord = useCallback((input) => {
+    setMemberAccountEntries((prev) => upsertAccountEntry(prev, input));
+  }, []);
+
+  const deleteMemberAccountEntryRecord = useCallback((id) => {
+    setMemberAccountEntries((prev) => softDeleteAccountEntry(prev, id));
+  }, []);
+
+  const recordAccountingReport = useCallback((record) => {
+    setAccountingReports((prev) => prependAccountingReport(prev, record));
+  }, []);
+
   const upsertUnidentifiedCollection = useCallback((item) => {
     const run = async () => {
       let nextItem = item;
@@ -1248,6 +1332,9 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
     feeExpenses,
     feePeriods,
     memberCollectionImports,
+    feeChartAccounts,
+    memberAccountEntries,
+    accountingReports,
     expenses,
     suppliers,
     retenciones,
@@ -1297,6 +1384,11 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
     setFeePeriodsList,
     importMemberCollections,
     deleteMemberCollectionImport,
+    upsertFeeChartAccountRecord,
+    deleteFeeChartAccountRecord,
+    upsertMemberAccountEntryRecord,
+    deleteMemberAccountEntryRecord,
+    recordAccountingReport,
     upsertUnidentifiedCollection,
     upsertGaliciaDebit,
     addFixedExpense,

@@ -370,7 +370,7 @@ export async function insertMemberPayment(memberDbId, payment) {
     method: payment.method || null,
     concept: payment.concept || null,
     period_label: payment.period || null,
-    receipt_number: payment.receiptNumber || null,
+    receipt_number: payment.receiptNumber || payment.receipt || null,
     journal_entry_id: payment.journalEntryId || null,
   };
   const saved = await unwrap(
