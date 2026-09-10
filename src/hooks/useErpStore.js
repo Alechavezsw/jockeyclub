@@ -107,7 +107,7 @@ import { buildPostedEntry, normalizeLines } from '../domain/accounting/journal';
 const cloud = () => isSupabaseConfigured;
 
 function load(key, fallback) {
-  if (cloud()) return fallback;
+  if (cloud()) return Array.isArray(fallback) ? [] : (fallback ?? null);
   try {
     const raw = localStorage.getItem(key);
     return raw ? JSON.parse(raw) : fallback;
@@ -219,6 +219,7 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
   );
   const [expenses, setExpenses] = useState(() => load('jockey-expenses', []));
   const [suppliers, setSuppliers] = useState(() => {
+    if (cloud()) return [];
     const loaded = load('jockey-suppliers-v3', null);
     if (Array.isArray(loaded) && loaded.length >= 50) return loaded;
     return DEFAULT_SUPPLIERS;
@@ -252,6 +253,7 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
     load('jockey-event-registrations', [])
   );
   const [concessions, setConcessions] = useState(() => {
+    if (cloud()) return [];
     const loaded = load('jockey-concessions', null);
     if (!loaded) return DEFAULT_CONCESSIONS;
     return loaded.map((c) => {

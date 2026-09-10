@@ -8,6 +8,7 @@ import { getActiveTiers, getTierOptionLabel, tierBadgeStyle, getTierDisplayName 
 import {
   buildLifecycleMeta,
   collectMemberMeta,
+  memberHasSocietasApp,
   reasonLabel as lifecycleReasonLabel,
 } from '../../domain/members/memberAdminActions';
 import { attachHouseholdToMembers, assignDistinctStatColors, buildPadronHouseholdStats, isFamilyDependent, isTitularMember, resolveFamilyForDisplay } from '../../domain/members/households';
@@ -1491,7 +1492,9 @@ export default function MembersTab({
                           </strong>
                           <div style={{ fontSize: '0.75rem', color: m.status === 'active' ? 'var(--emerald-accent)' : 'var(--text-muted)' }}>
                             {m.status === 'active' ? '● Cuenta Habilitada' : '○ Cuenta Suspendida'}
-                            <span style={{ color: 'var(--text-muted)', marginLeft: 6 }}>· Ver perfil</span>
+                            <span style={{ color: 'var(--text-muted)', marginLeft: 6 }}>
+                              · {memberHasSocietasApp(m) ? 'App Societas' : 'Sin app'} · Ver perfil
+                            </span>
                           </div>
                         </div>
                       </button>

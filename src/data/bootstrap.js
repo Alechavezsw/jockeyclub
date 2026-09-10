@@ -71,6 +71,21 @@ async function mapLimit(tasks, limit = QUERY_CONCURRENCY) {
   return results;
 }
 
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function mergeReservationOccupancy(detailed = [], occupancy = []) {
+  const byId = new Map();
+  for (const row of occupancy || []) {
+    if (row?.id) byId.set(String(row.id), row);
+  }
+  for (const row of detailed || []) {
+    if (row?.id) byId.set(String(row.id), row);
+  }
+  return [...byId.values()];
+}
+
 function emptyAppShell() {
   return {
     members: [],
@@ -111,13 +126,14 @@ function packShell({ app = {}, erp = {}, health = { ok: false }, memberDbIds = {
 export async function bootstrapMemberCriticalFromDb({ memberNumber } = {}) {
   if (!isSupabaseConfigured) return null;
 
-  const [member, newsList, messages, reservations, zondaSetting] = await mapLimit([
+  const [member, newsList, messages, ownReservations, occupancy, zondaSetting] = await mapLimit([
     () => (memberNumber
       ? soft(repos.getMemberByNumber(memberNumber, { withPayments: true }), null, 'member')
       : Promise.resolve(null)),
     () => soft(repos.listNews({ limit: 30 }), [], 'news'),
     () => soft(repos.listMessages({ limit: 80 }), [], 'messages'),
-    () => soft(repos.listReservations({ limit: 120 }), [], 'reservations'),
+    () => soft(repos.listReservations({ limit: 80 }), [], 'reservations'),
+    () => soft(repos.listReservationOccupancy({ fromDate: todayISO(), limit: 400 }), [], 'occupancy'),
     () => soft(repos.getSetting('zonda'), null, 'zonda'),
   ], QUERY_CONCURRENCY);
 
@@ -126,7 +142,7 @@ export async function bootstrapMemberCriticalFromDb({ memberNumber } = {}) {
     app: {
       members,
       membersCount: members.length,
-      reservations: reservations || [],
+      reservations: mergeReservationOccupancy(ownReservations, occupancy),
       newsList: newsList || [],
       messages: messages || [],
       isZondaActive: Boolean(zondaSetting?.active),

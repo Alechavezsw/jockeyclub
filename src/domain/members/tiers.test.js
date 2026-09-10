@@ -8,6 +8,11 @@ import {
   normalizeTier,
   slugifyTierId,
   pickPrimaryCuotaCategory,
+  parseCuotaCategories,
+  deriveMemberTier,
+  resolveStoredMemberTier,
+  mergeOfficialTiers,
+  SIN_CATEGORIA_TIER,
 } from './tiers';
 
 describe('tiers catalog', () => {
@@ -25,6 +30,39 @@ describe('tiers catalog', () => {
     expect(slugifyTierId('SOCIO (Vitalicio)')).toBe('socio_vitalicio');
     expect(slugifyTierId('GRUPO FAMILIAR (Familiar)')).toBe('grupo_familiar_familiar');
     expect(slugifyTierId('SOCIO INDIVIDUAL')).toBe('socio_individual');
+    expect(slugifyTierId('–')).toBe(SIN_CATEGORIA_TIER);
+  });
+
+  it('parte cuotas combinadas y elige la membresía', () => {
+    expect(parseCuotaCategories(['SOCIO INDIVIDUAL, ABONO TENIS', '–'])).toEqual([
+      'SOCIO INDIVIDUAL',
+      'ABONO TENIS',
+    ]);
+    expect(parseCuotaCategories('SOCIO FAMILIAR (AMET), INTERES POR TRANSACCIÓN 2,5% GRUPO FAMILIAR (AMET)'))
+      .toEqual([
+        'SOCIO FAMILIAR (AMET)',
+        'INTERES POR TRANSACCIÓN 2,5% GRUPO FAMILIAR (AMET)',
+      ]);
+    expect(deriveMemberTier([
+      'GRUPO FAMILIAR (AMET)',
+      'GRUPO FAMILIAR (AMET), INTERES POR TRANSACCIÓN 2,5% GRUPO FAMILIAR (AMET)',
+    ])).toBe('grupo_familiar_amet');
+    expect(deriveMemberTier('SOCIO FAMILIAR, ABONO TENIS')).toBe('socio_familiar');
+    expect(deriveMemberTier(['–'])).toBe(SIN_CATEGORIA_TIER);
+    expect(resolveStoredMemberTier('tier_1788997270799', ['–'])).toBe(SIN_CATEGORIA_TIER);
+    expect(resolveStoredMemberTier('socio_individual_abono_tenis', ['SOCIO INDIVIDUAL, ABONO TENIS']))
+      .toBe('socio_individual');
+    expect(resolveStoredMemberTier('socio_familiar', ['SOCIO FAMILIAR, ABONO TENIS']))
+      .toBe('socio_familiar');
+  });
+
+  it('completa el catálogo oficial sin pisar cuotas editadas', () => {
+    const merged = mergeOfficialTiers([
+      { id: 'socio_individual', name: 'SOCIO INDIVIDUAL', monthlyDues: 55000, sortOrder: 9 },
+    ]);
+    expect(merged.find((t) => t.id === 'socio_individual')?.monthlyDues).toBe(55000);
+    expect(merged.some((t) => t.id === 'liga_no_socio')).toBe(true);
+    expect(merged.some((t) => t.id === 'sin_categoria')).toBe(true);
   });
 
   it('elige categoría principal ignorando interés', () => {

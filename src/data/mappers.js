@@ -1,11 +1,9 @@
 /** Mapeo fila Postgres ↔ shape de UI. */
 
-import { DEFAULT_MEMBER_TIER, isExampleMemberTier } from '../domain/members/tiers';
+import { DEFAULT_MEMBER_TIER, resolveStoredMemberTier } from '../domain/members/tiers';
 
-function canonicalMemberTier(tier) {
-  const value = String(tier || '').trim();
-  if (!value || isExampleMemberTier(value)) return DEFAULT_MEMBER_TIER;
-  return value;
+function canonicalMemberTier(tier, meta) {
+  return resolveStoredMemberTier(tier, meta?.cuotaCategories);
 }
 
 export function adherentFromRow(row) {
@@ -14,7 +12,7 @@ export function adherentFromRow(row) {
     id: row.id,
     name: row.full_name,
     relationship: row.relationship,
-    tier: canonicalMemberTier(row.tier),
+    tier: canonicalMemberTier(row.tier, row.meta),
     status: row.status,
     outstandingBalance: Number(row.outstanding_balance) || 0,
     disciplines: row.disciplines || [],
@@ -48,7 +46,7 @@ export function memberFromRow(row, payments = []) {
     cuitCuil: row.cuit_cuil || '',
     taxCondition: row.tax_condition || '',
     disciplines: row.disciplines || [],
-    tier: canonicalMemberTier(row.tier),
+    tier: canonicalMemberTier(row.tier, row.meta),
     status: row.status,
     outstandingBalance: Number(row.outstanding_balance) || 0,
     yearsActive: row.years_active || 0,
@@ -61,6 +59,8 @@ export function memberFromRow(row, payments = []) {
     adherents: (row.member_adherents || []).map(adherentFromRow),
     paymentHistory: payments.map(paymentFromRow),
     ...(row.meta || {}),
+    credentialToken: row.credential_token || null,
+    recordScope: row.address === undefined && row.birth_date === undefined ? 'list' : 'full',
   };
 }
 
@@ -99,6 +99,7 @@ export function memberToRow(member) {
     card_number: member.cardNumber || null,
     notes: member.notes || null,
     profile_id: member.profileId || null,
+    ...(member.credentialToken ? { credential_token: member.credentialToken } : {}),
     meta: {
       ...(member.meta && typeof member.meta === 'object' ? member.meta : {}),
       ...(member.joinTime ? { joinTime: member.joinTime } : {}),
@@ -126,6 +127,26 @@ export function paymentFromRow(row) {
     period: row.period_label || '',
     receiptNumber: row.receipt_number || '',
     journalEntryId: row.journal_entry_id || null,
+  };
+}
+
+export function reservationOccupancyFromRow(row) {
+  return {
+    id: row.id,
+    facilityId: row.facility_id,
+    facilityName: row.facility_id,
+    memberId: null,
+    memberDbId: null,
+    memberName: null,
+    date: row.reservation_date,
+    time: row.time_slot,
+    endTime: null,
+    guests: row.guests || 0,
+    guestNames: '',
+    status: row.status || 'confirmed',
+    notes: '',
+    occupancyOnly: true,
+    createdAt: row.created_at || null,
   };
 }
 
@@ -219,6 +240,11 @@ export function accessLogFromRow(row) {
 }
 
 export function guestPassFromRow(row) {
+  const meta = row.meta && typeof row.meta === 'object' ? row.meta : {};
+  const payload = String(row.payload || '');
+  const tokenFromPayload = payload.startsWith('JCSJ-GUEST:')
+    ? payload.split(':')[4] || null
+    : null;
   return {
     id: row.id,
     hostMemberId: row.host_member_number,
@@ -227,6 +253,7 @@ export function guestPassFromRow(row) {
     date: row.pass_date,
     createdAt: row.created_at,
     status: row.status,
+    token: meta.token || tokenFromPayload || null,
     payload: row.payload,
   };
 }

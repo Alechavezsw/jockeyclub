@@ -17,11 +17,12 @@ import {
 } from './domain/notifications/buildNotifications';
 import { applyAutomaticDues } from './domain/members/dues';
 import { attachHouseholdToMembers } from './domain/members/households';
-import { applyCurrentAccountBalances, diffMemberBalances } from './domain/accounting/currentAccountBalances';
+import { applyCurrentAccountBalances } from './domain/accounting/currentAccountBalances';
 import { createHrRecord } from './domain/staff/hr';
 import { loadDisciplineCatalog } from './domain/sports/disciplines';
-import { loadTierCatalog, setRuntimeTierCatalog, stripExampleTiers } from './domain/members/tiers';
-import { isSupabaseConfigured, supabase } from './lib/supabase';
+import { loadTierCatalog, mergeOfficialTiers, setRuntimeTierCatalog, stripExampleTiers } from './domain/members/tiers';
+import { isProductionWithoutBackend, isSupabaseConfigured, supabase } from './lib/supabase';
+import ConfigError from './components/ConfigError';
 import { notifyNextOnWaitlist } from './domain/reservations/waitlist';
 import { bootstrapShellFromDb, bootstrapDeferredFromDb, bootstrapMembersFromDb, bootstrapErpFromDb, repos } from './data/bootstrap';
 import { useDailyBackup } from './hooks/useDailyBackup';
@@ -93,6 +94,7 @@ const DEFAULT_MEMBERS = [
     yearsActive: 5,
     status: 'active',
     nextDueDate: '2026-10-01',
+    credentialToken: 'a1b2c3d4e5f6789012345678abcdef01',
     adherents: [
       { id: 'adh-01', name: 'Sofía Chávez', tier: 'socio_familiar', relationship: 'Hijo/a', outstandingBalance: 0, status: 'active' },
       { id: 'adh-02', name: 'María Inés de Chávez', tier: 'socio_familiar', relationship: 'Cónyuge', outstandingBalance: 0, status: 'active' },
@@ -686,9 +688,12 @@ const DEFAULT_SURVEYS = [
 ];
 
 export default function App() {
-  const { user, loading: authLoading, isAuthenticated, role } = useAuth();
+  const { user, loading: authLoading, isAuthenticated, role, canAccessAdmin: sessionCanAccessAdmin } = useAuth();
   const userRole = role || 'member';
   const cloudMode = isSupabaseConfigured;
+  if (isProductionWithoutBackend) {
+    return <ConfigError />;
+  }
   const hydratedRef = useRef(false);
   const [dbReady, setDbReady] = useState(true);
   const [dbSyncing, setDbSyncing] = useState(false);
@@ -704,7 +709,7 @@ export default function App() {
   // Navegación por URL: el "view id" histórico se traduce a rutas reales.
   const navigate = useNavigate();
   const location = useLocation();
-  const isOperativeRole = canAccessAdmin(userRole);
+  const isOperativeRole = Boolean(sessionCanAccessAdmin) || canAccessAdmin(userRole);
 
   const pathForView = (viewId) => {
     switch (viewId) {
@@ -740,6 +745,7 @@ export default function App() {
               : 'dashboard';
 
   const [members, setMembers] = useState(() => {
+    if (isSupabaseConfigured) return [];
     const local = localStorage.getItem('jockey-members');
     const stored = local ? JSON.parse(local) : null;
     const defaultsById = Object.fromEntries(DEFAULT_MEMBERS.map((m) => [m.memberId, m]));
@@ -779,21 +785,23 @@ export default function App() {
           }
           return merged;
         });
-    // Cuota vencida → deuda generada sola (sin botón manual)
-    // Luego saldos CC LILA (fuente de verdad) pisan el outstandingBalance.
+    // Local: cuota vencida genera deuda. LILA solo completa si no hay saldo.
     return attachHouseholdToMembers(applyCurrentAccountBalances(applyAutomaticDues(base)));
   });
 
-  const [reservations, setReservations] = useState(loadInitialReservations);
+  const [reservations, setReservations] = useState(() => (
+    isSupabaseConfigured ? [] : loadInitialReservations()
+  ));
 
   const [newsList, setNewsList] = useState(() => {
+    if (isSupabaseConfigured) return [];
     const local = localStorage.getItem('jockey-news');
     return local ? JSON.parse(local) : DEFAULT_NEWS;
   });
 
   const [disciplineCatalog, setDisciplineCatalog] = useState(() => loadDisciplineCatalog());
   const [tierCatalog, setTierCatalog] = useState(() => {
-    const cat = loadTierCatalog();
+    const cat = mergeOfficialTiers(stripExampleTiers(loadTierCatalog()));
     setRuntimeTierCatalog(cat);
     return cat;
   });
@@ -804,11 +812,13 @@ export default function App() {
   });
 
   const [journalEntries, setJournalEntries] = useState(() => {
+    if (isSupabaseConfigured) return [];
     const local = localStorage.getItem('jockey-journal-entries');
     return local ? JSON.parse(local) : DEFAULT_JOURNAL_ENTRIES;
   });
 
   const [staffMembers, setStaffMembers] = useState(() => {
+    if (isSupabaseConfigured) return [];
     const local = localStorage.getItem('jockey-staff-members');
     const stored = local ? JSON.parse(local) : null;
     if (!stored) return DEFAULT_STAFF;
@@ -830,27 +840,32 @@ export default function App() {
   });
 
   const [staffHrRecords, setStaffHrRecords] = useState(() => {
+    if (isSupabaseConfigured) return [];
     const local = localStorage.getItem('jockey-staff-hr');
     return local ? JSON.parse(local) : DEFAULT_STAFF_HR;
   });
 
   // NUEVOS ESTADOS FASE 3
   const [claims, setClaims] = useState(() => {
+    if (isSupabaseConfigured) return [];
     const local = localStorage.getItem('jockey-claims');
     return local ? JSON.parse(local) : DEFAULT_CLAIMS;
   });
 
   const [messages, setMessages] = useState(() => {
+    if (isSupabaseConfigured) return [];
     const local = localStorage.getItem('jockey-messages');
     return local ? JSON.parse(local) : DEFAULT_MESSAGES;
   });
 
   const [entryLogs, setEntryLogs] = useState(() => {
+    if (isSupabaseConfigured) return [];
     const local = localStorage.getItem('jockey-entry-logs');
     return local ? JSON.parse(local) : DEFAULT_ENTRY_LOGS;
   });
 
   const [surveys, setSurveys] = useState(() => {
+    if (isSupabaseConfigured) return [];
     const local = localStorage.getItem('jockey-surveys');
     return local ? JSON.parse(local) : DEFAULT_SURVEYS;
   });
@@ -1040,7 +1055,9 @@ export default function App() {
   // Socio activo: el vinculado a la sesión, o el primero como fallback operativo
   const sessionMemberFallback = useMemo(() => {
     if (!user?.memberId && !user?.name && !user?.email) return null;
-    const fromDefaults = DEFAULT_MEMBERS.find((m) => m.memberId === user?.memberId);
+    const fromDefaults = !isSupabaseConfigured
+      ? DEFAULT_MEMBERS.find((m) => m.memberId === user?.memberId)
+      : null;
     if (fromDefaults) return fromDefaults;
     return {
       memberId: user?.memberId || 'session',
@@ -1054,11 +1071,9 @@ export default function App() {
     };
   }, [user?.memberId, user?.name, user?.email]);
 
-  const activeMember =
-    members.find((m) => m.memberId === user?.memberId) ||
-    members.find((m) => m.memberId === '2026887744320988') ||
-    members[0] ||
-    sessionMemberFallback;
+  const activeMember = user?.memberId
+    ? (members.find((m) => m.memberId === user.memberId) || sessionMemberFallback)
+    : sessionMemberFallback;
 
   // Alternar Tema Claro / Oscuro
   const toggleTheme = () => {
@@ -1236,7 +1251,7 @@ export default function App() {
       }
       if (typeof app.isZondaActive === 'boolean') setIsZondaActive(app.isZondaActive);
       if (Array.isArray(app.tierCatalog) && app.tierCatalog.length) {
-        const cleaned = stripExampleTiers(app.tierCatalog);
+        const cleaned = mergeOfficialTiers(stripExampleTiers(app.tierCatalog));
         setTierCatalog(cleaned.length ? cleaned : app.tierCatalog);
         setRuntimeTierCatalog(cleaned.length ? cleaned : app.tierCatalog);
       }
@@ -1285,8 +1300,7 @@ export default function App() {
         } else {
           const seeded = Array.isArray(app.members) ? app.members : [];
           if (seeded.length) {
-            const withDues = applyAutomaticDues(seeded);
-            const withBalances = applyCurrentAccountBalances(withDues);
+            const withBalances = applyCurrentAccountBalances(seeded);
             const withFamily = attachHouseholdToMembers(withBalances);
             setMembers(withFamily);
             setMembersCount(withFamily.length || app.membersCount || 0);
@@ -1333,8 +1347,7 @@ export default function App() {
             let deferredStarted = false;
             const paintMembers = (rawMembers, { keepCount = true } = {}) => {
               const cleaned = (rawMembers || []).filter((m) => !isDemoMember(m));
-              const withDues = applyAutomaticDues(cleaned);
-              const withBalances = applyCurrentAccountBalances(withDues);
+              const withBalances = applyCurrentAccountBalances(cleaned);
               const withFamily = attachHouseholdToMembers(withBalances);
               setMembers(withFamily);
               if (keepCount) {
@@ -1345,7 +1358,7 @@ export default function App() {
               setMemberDbIds(
                 Object.fromEntries(withFamily.map((m) => [m.memberId, m.id]).filter(([, id]) => id))
               );
-              return { withDues, withFamily, rawMembers: rawMembers || [] };
+              return { withFamily, rawMembers: rawMembers || [] };
             };
 
             try {
@@ -1364,13 +1377,7 @@ export default function App() {
               if (cancelled) return;
 
               if (rawMembers?.length) {
-                const { withFamily, rawMembers: raw } = paintMembers(rawMembers, { keepCount: false });
-                const duesToPersist = diffMemberBalances(raw, withFamily);
-                if (duesToPersist.length) {
-                  Promise.all(
-                    duesToPersist.map((m) => repos.upsertMember(m).catch(() => null))
-                  ).catch(() => {});
-                }
+                paintMembers(rawMembers, { keepCount: false });
               } else if ((app.membersCount || 0) > 0) {
                 setDbError('No se pudo descargar el padrón de socios. Probá recargar.');
               }

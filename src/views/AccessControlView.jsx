@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, CheckCircle2, AlertCircle, Camera, CameraOff, History, QrCode,
 } from 'lucide-react';
-import { parseCredentialQRPayload } from '../domain/credentials/qr';
+import { credentialTokenMatches, parseCredentialQRPayload } from '../domain/credentials/qr';
 import { parseGuestPassPayload, isGuestPassValid } from '../domain/credentials/guestPass';
 import { buildAccessLogEntry, tierToGroup } from '../domain/credentials/accessLog';
 import QrLiveScanner from '../components/QrLiveScanner';
@@ -84,14 +84,14 @@ export default function AccessControlView({
     setCameraOn(false);
   }, []);
 
-  const processPayload = useCallback((raw) => {
+  const processPayload = useCallback((raw, { allowUnsignedNumber = false } = {}) => {
     if (processingRef.current) return;
 
     const guestParsed = parseGuestPassPayload(raw);
     if (guestParsed) {
       const pass = (guestPasses || []).find((p) => p.id === guestParsed.id);
       const host = members.find((m) => m.memberId === guestParsed.hostMemberId);
-      const valid = pass && isGuestPassValid(pass) && host?.status === 'active';
+      const valid = pass && isGuestPassValid(pass, { parsed: guestParsed }) && host?.status === 'active';
       setResult({
         status: valid ? 'granted' : 'denied',
         title: valid ? 'INVITADO AUTORIZADO' : 'PASE INVÁLIDO',
@@ -119,12 +119,17 @@ export default function AccessControlView({
       return;
     }
 
-    const memberId = parseCredentialQRPayload(raw);
-    if (!memberId) {
+    const parsed = parseCredentialQRPayload(raw);
+    const memberId = parsed?.memberId || null;
+    const unsignedNumber = allowUnsignedNumber && parsed && !parsed.signed
+      && /^\d{6,20}$/.test(String(raw).replace(/\s+/g, ''));
+    if (!memberId || (!parsed.signed && !unsignedNumber)) {
       setResult({
         status: 'denied',
         title: 'QR no válido',
-        detail: 'Acercá la credencial digital del Jockey Club (pantalla completa).',
+        detail: parsed && !parsed.signed
+          ? 'Esta credencial no está firmada. Pedí al socio que abra la app o ingresá el número a mano.'
+          : 'Acercá la credencial digital del Jockey Club (pantalla completa).',
         memberName: null,
       });
       playBeep(false);
@@ -145,6 +150,29 @@ export default function AccessControlView({
     }
 
     const member = members.find((m) => m.memberId === memberId);
+    if (parsed.signed && member && !credentialTokenMatches(member, parsed)) {
+      setResult({
+        status: 'denied',
+        title: 'QR adulterado',
+        detail: 'La firma de la credencial no coincide con el padrón.',
+        memberName: null,
+      });
+      playBeep(false);
+      setEntryLogs((prev) => [
+        buildAccessLogEntry({
+          memberName: 'Firma inválida',
+          memberId,
+          role: '—',
+          group: '—',
+          activity: 'QR adulterado',
+          status: 'denied',
+          notes: 'Token de credencial no coincide',
+        }),
+        ...(prev || []),
+      ]);
+      beginCooldown();
+      return;
+    }
     if (!member) {
       setResult({
         status: 'denied',
@@ -476,7 +504,7 @@ export default function AccessControlView({
             <QrLiveScanner
               active={cameraOn}
               paused={Boolean(result)}
-              onDecode={processPayload}
+              onDecode={(raw) => processPayload(raw)}
               onError={setCameraError}
             />
           )}
@@ -541,7 +569,7 @@ export default function AccessControlView({
             onSubmit={(e) => {
               e.preventDefault();
               if (!manualCode.trim()) return;
-              processPayload(manualCode.trim());
+              processPayload(manualCode.trim(), { allowUnsignedNumber: true });
               setManualCode('');
             }}
           >

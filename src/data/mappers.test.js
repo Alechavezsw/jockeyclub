@@ -3,6 +3,7 @@ import {
   memberFromRow,
   memberToRow,
   reservationFromRow,
+  reservationOccupancyFromRow,
   reservationToRow,
   messageFromRow,
   accountFromRow,
@@ -44,6 +45,50 @@ describe('mappers', () => {
     expect(back.member_number).toBe('2026887744320988');
     expect(back.outstanding_balance).toBe(32000);
     expect(back.full_name).toBe('Alejandro Chávez');
+  });
+
+  it('reescribe tiers inventados usando cuotaCategories', () => {
+    const ui = memberFromRow({
+      id: '11111111-1111-1111-1111-111111111112',
+      member_number: '100547',
+      full_name: 'Abel Test',
+      tier: 'socio_individual_abono_tenis',
+      status: 'active',
+      outstanding_balance: 0,
+      years_active: 1,
+      joined_at: '2020-01-01',
+      meta: { cuotaCategories: ['SOCIO INDIVIDUAL, ABONO TENIS'] },
+    }, []);
+    expect(ui.tier).toBe('socio_individual');
+  });
+
+  it('marca padrón slim si no vinieron domicilio ni fecha de nacimiento', () => {
+    const ui = memberFromRow({
+      member_number: '100001',
+      full_name: 'Lista Slim',
+      tier: 'socio_individual',
+      status: 'active',
+      outstanding_balance: 0,
+      credential_token: 'aabbccddeeff00112233445566778899',
+    }, []);
+    expect(ui.recordScope).toBe('list');
+    expect(ui.credentialToken).toBe('aabbccddeeff00112233445566778899');
+    expect(ui.address).toBe('');
+  });
+
+  it('mapea ocupación de cancha sin nombre', () => {
+    const ui = reservationOccupancyFromRow({
+      id: 'occ-1',
+      facility_id: 'tenis_trad',
+      reservation_date: '2026-09-09',
+      time_slot: '17:00',
+      status: 'confirmed',
+      guests: 1,
+      created_at: '2026-09-09T12:00:00Z',
+    });
+    expect(ui.occupancyOnly).toBe(true);
+    expect(ui.memberName).toBeNull();
+    expect(ui.memberId).toBeNull();
   });
 
   it('maps reservation facility and time slot', () => {

@@ -24,6 +24,30 @@ const PAYMENTS_CONCURRENCY = 2;
 
 /** Ficha completa; adherentes se cargan aparte y se adjuntan en cliente. */
 const MEMBERS_FULL_SELECT = '*';
+/** Padrón operativo: sin domicilio, salud, fiscal ni historial de pagos. */
+const MEMBERS_LIST_SELECT = [
+  'id',
+  'profile_id',
+  'member_number',
+  'card_number',
+  'full_name',
+  'phone',
+  'email',
+  'tier',
+  'status',
+  'outstanding_balance',
+  'years_active',
+  'joined_at',
+  'next_due_date',
+  'overdue_since',
+  'disciplines',
+  'document_number',
+  'document_type',
+  'photo_url',
+  'payment_method',
+  'credential_token',
+  'meta',
+].join(', ');
 
 async function fetchAllRows(queryFactory, fallback, pageSize = PAGE_SIZE) {
   const all = [];
@@ -116,7 +140,7 @@ export async function listMembers({ onBatch } = {}) {
         return unwrap(
           sb()
             .from('members')
-            .select(MEMBERS_FULL_SELECT)
+            .select(MEMBERS_LIST_SELECT)
             .order('full_name')
             .order('id')
             .range(from, from + MEMBERS_PAGE_SIZE - 1),
@@ -132,41 +156,23 @@ export async function listMembers({ onBatch } = {}) {
     }
   }
 
-  const [adherents, payments] = await Promise.all([
-    fetchAllRows(
-      (from, to) => sb()
-        .from('member_adherents')
-        .select('*')
-        .order('full_name')
-        .order('id')
-        .range(from, to),
-      'No se pudieron cargar adherentes'
-    ).catch(() => []),
-    fetchAllRowsParallel(
-      sb().from('member_payments').select('id', { count: 'exact', head: true }),
-      (from, to) => sb()
-        .from('member_payments')
-        .select('*')
-        .order('paid_at', { ascending: false })
-        .order('id')
-        .range(from, to),
-      'No se pudieron cargar pagos',
-      PAGE_SIZE,
-      PAYMENTS_CONCURRENCY
-    ).catch(() => []),
-  ]);
+  const adherents = await fetchAllRows(
+    (from, to) => sb()
+      .from('member_adherents')
+      .select('id, member_id, full_name, relationship, tier, status, outstanding_balance, disciplines')
+      .order('full_name')
+      .order('id')
+      .range(from, to),
+    'No se pudieron cargar adherentes'
+  ).catch(() => []);
 
   const adherentsByMember = {};
   for (const a of adherents || []) {
     (adherentsByMember[a.member_id] ||= []).push(a);
   }
-  const byMember = {};
-  for (const p of payments || []) {
-    (byMember[p.member_id] ||= []).push(p);
-  }
   const full = rows.map((r) => M.memberFromRow(
     { ...r, member_adherents: adherentsByMember[r.id] || [] },
-    byMember[r.id] || []
+    []
   ));
   onBatch?.(full, { loaded: full.length, total, done: true });
   return full;
@@ -227,6 +233,23 @@ export async function listMemberAdherents(memberDbId) {
 
 export async function upsertMember(member) {
   const row = M.memberToRow(member);
+  if (member.recordScope === 'list') {
+    delete row.address;
+    delete row.city;
+    delete row.province;
+    delete row.postal_code;
+    delete row.birth_date;
+    delete row.gender;
+    delete row.marital_status;
+    delete row.nationality;
+    delete row.emergency_contact;
+    delete row.emergency_phone;
+    delete row.billing_name;
+    delete row.cuit_cuil;
+    delete row.tax_condition;
+    delete row.notes;
+    delete row.phone_alt;
+  }
   if (member.profileId) row.profile_id = member.profileId;
   row.meta = { ...collectMemberMeta(member), ...(row.meta || {}) };
   let saved;
@@ -389,6 +412,18 @@ export async function listReservations({ limit } = {}) {
   return (rows || []).map(M.reservationFromRow);
 }
 
+/** Turnos ocupados sin nombre de socio (para el portal). */
+export async function listReservationOccupancy({ limit, fromDate } = {}) {
+  let q = sb()
+    .from('reservation_occupancy')
+    .select('id, facility_id, reservation_date, time_slot, status, guests, created_at')
+    .order('reservation_date', { ascending: false });
+  if (fromDate) q = q.gte('reservation_date', fromDate);
+  if (limit && Number(limit) > 0) q = q.limit(Number(limit));
+  const rows = await unwrap(q, 'No se pudo cargar la ocupación de canchas');
+  return (rows || []).map(M.reservationOccupancyFromRow);
+}
+
 export async function createReservation(res, memberDbId) {
   const saved = await unwrap(
     sb().from('reservations').insert(M.reservationToRow(res, memberDbId)).select().single(),
@@ -540,6 +575,10 @@ export async function upsertGuestPass(pass, hostDbId = null) {
     pass_date: pass.date,
     status: pass.status || 'active',
     payload: pass.payload,
+    meta: {
+      ...(pass.meta && typeof pass.meta === 'object' ? pass.meta : {}),
+      ...(pass.token ? { token: pass.token } : {}),
+    },
   };
   const saved = await unwrap(
     sb().from('guest_passes').upsert(row).select().single(),
@@ -1119,6 +1158,21 @@ export async function markNotificationsRead(notifKeys, profileId) {
 export async function listConcessions() {
   const rows = await unwrap(sb().from('concessions').select('*').order('name'));
   return (rows || []).map(M.concessionFromRow);
+}
+
+/** Portal público: una concesión por código, sin listar el resto. */
+export async function getConcessionPortalByCode(code) {
+  const raw = String(code || '').trim();
+  if (raw.length < 6) return null;
+  const data = await unwrap(
+    sb().rpc('concession_portal_by_code', { p_code: raw }),
+    'No se pudo abrir el portal del concesionario'
+  );
+  if (!data?.concession) return null;
+  return {
+    concession: M.concessionFromRow(data.concession),
+    payments: (data.payments || []).map(M.canonPaymentFromRow),
+  };
 }
 
 export async function upsertConcession(c) {
@@ -1831,7 +1885,7 @@ export async function updateProfile(profileId, patch = {}) {
   if (patch.emergencyClinic !== undefined) row.emergency_clinic = patch.emergencyClinic || null;
   if (patch.address !== undefined) row.address = patch.address || null;
   if (patch.prismaId !== undefined) row.prisma_id = patch.prismaId || null;
-  if (patch.role !== undefined) row.role = patch.role;
+  // El rol primario no se cambia por acá: solo replaceProfileRoles (superadmin).
   if (patch.isActive !== undefined) row.is_active = Boolean(patch.isActive);
   if (patch.disciplineIds !== undefined) {
     row.discipline_ids = Array.isArray(patch.disciplineIds)

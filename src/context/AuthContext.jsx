@@ -1,6 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { isSupabaseConfigured, supabase } from '../lib/supabase';
-import { DEMO_USERS } from '../domain/auth/demoUsers';
+import { allowLocalDemoAuth, isSupabaseConfigured, supabase } from '../lib/supabase';
 import { ROLE_LABELS, canAccessAdmin } from '../domain/auth/roles';
 
 const AuthContext = createContext(null);
@@ -29,7 +28,6 @@ function mapProfile(sessionUser, profileRow) {
       const rank = { superadmin: 60, admin: 50, accountant: 40, cashier: 30, staff: 20, teacher: 15, member: 10 };
       return (rank[b] || 0) - (rank[a] || 0);
     })[0] : null)
-    || sessionUser.user_metadata?.role
     || 'member';
 
   return {
@@ -89,7 +87,7 @@ export function AuthProvider({ children }) {
     let mounted = true;
 
     if (!isSupabaseConfigured || !supabase) {
-      const local = loadLocalSession();
+      const local = allowLocalDemoAuth ? loadLocalSession() : null;
       if (mounted) {
         setUser(local);
         setLoading(false);
@@ -128,13 +126,10 @@ export function AuthProvider({ children }) {
     if (!authUser?.id) return undefined;
 
     let cancelled = false;
-    // Pintar de inmediato con metadata; el perfil completo llega enseguida
-    setUser((prev) => prev || mapProfile(authUser, null));
-    setLoading(false);
+    setUser((prev) => (prev?.id === authUser.id ? prev : null));
 
     const watchdog = setTimeout(() => {
       if (cancelled) return;
-      setUser((prev) => prev || mapProfile(authUser, null));
       setLoading(false);
     }, 4_000);
 
@@ -147,7 +142,7 @@ export function AuthProvider({ children }) {
         }
       } catch {
         if (!cancelled) {
-          setUser((prev) => prev || mapProfile(authUser, null));
+          setUser((prev) => (prev?.id === authUser.id ? prev : null));
           setLoading(false);
         }
       } finally {
@@ -195,6 +190,13 @@ export function AuthProvider({ children }) {
       }
     }
 
+    if (!allowLocalDemoAuth) {
+      const err = new Error('El club no está conectado a la base. No se puede iniciar sesión local.');
+      setAuthError(err.message);
+      throw err;
+    }
+
+    const { DEMO_USERS } = await import('../domain/auth/demoUsers');
     const demo = DEMO_USERS.find(
       (u) => u.email === normalized && u.password === password
     );
@@ -238,7 +240,9 @@ export function AuthProvider({ children }) {
       role: user?.role || null,
       roles: user?.roles || [],
       roleLabel: user ? ROLE_LABELS[user.role] || user.role : null,
-      canAccessAdmin: user ? canAccessAdmin(user.role) : false,
+      canAccessAdmin: user
+        ? (canAccessAdmin(user.role) || (user.roles || []).some((r) => canAccessAdmin(r.roleKey)))
+        : false,
       isSupabase: isSupabaseConfigured,
       login,
       logout,

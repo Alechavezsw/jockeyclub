@@ -13,7 +13,7 @@ import CollectDuesModal from './CollectDuesModal';
 import ModalDialog from '../ModalDialog';
 import { formatShortDate } from '../../domain/members/dues';
 import { formatDateTimeAR, todayISODateAR } from '../../lib/arDate';
-import { collectMemberMeta } from '../../domain/members/memberAdminActions';
+import { collectMemberMeta, memberHasSocietasApp } from '../../domain/members/memberAdminActions';
 import { getActiveTiers, getTierDisplayName, tierBadgeStyle } from '../../domain/members/tiers';
 import { DISCIPLINE_OPTIONS, getDisciplineOptions, normalizeLabel } from '../../domain/sports/disciplines';
 import {
@@ -672,6 +672,15 @@ export default function MemberProfilePanel({
                 <span className={`mp-status mp-status--${status.tone}`} title={status.hint}>
                   <span className="mp-status-dot" aria-hidden />
                   {status.label}
+                </span>
+                <span
+                  className={`mp-status mp-status--${memberHasSocietasApp(member) ? 'ok' : 'warn'}`}
+                  title={memberHasSocietasApp(member)
+                    ? 'Ya tiene acceso a la app Societas'
+                    : 'Todavía no tiene acceso a la app Societas'}
+                >
+                  <span className="mp-status-dot" aria-hidden />
+                  {memberHasSocietasApp(member) ? 'App Societas' : 'Sin app'}
                 </span>
               </div>
               {tenure ? <p className="mp-tenure">{tenure}</p> : null}

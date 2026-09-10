@@ -1,4 +1,4 @@
-import { isExampleMemberTier } from './tiers';
+import { isExampleMemberTier, isGeneratedTierId, SIN_CATEGORIA_TIER } from './tiers';
 
 /**
  * Relación titular ↔ grupo familiar del padrón datita.
@@ -213,12 +213,14 @@ export function buildPadronHouseholdStats(members = [], { tierCatalog = [], rese
 
   const byTierMap = new Map();
   for (const m of titulares) {
-    const id = String(m.tier || 'sin_categoria').toLowerCase();
+    let id = String(m.tier || SIN_CATEGORIA_TIER).toLowerCase();
     if (isExampleMemberTier(id)) continue;
+    if (isGeneratedTierId(id) || !catalogById.has(id)) id = SIN_CATEGORIA_TIER;
+    const catalogTier = catalogById.get(id);
     const prev = byTierMap.get(id) || {
       id,
-      name: catalogById.get(id)?.name || String(m.tier || 'Sin categoría'),
-      color: catalogById.get(id)?.color || '',
+      name: catalogTier?.name || (id === SIN_CATEGORIA_TIER ? 'Sin categoría' : String(m.tier || 'Sin categoría')),
+      color: catalogTier?.color || '',
       count: 0,
     };
     prev.count += 1;

@@ -1,7 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Lock, Mail, Shield } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { DEMO_USERS, DEMO_PASSWORD_HINT } from '../domain/auth/demoUsers';
 import { ROLE_LABELS } from '../domain/auth/roles';
 
 export default function LoginView() {
@@ -10,12 +9,25 @@ export default function LoginView() {
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [showDemo, setShowDemo] = useState(false);
+  const [demoUsers, setDemoUsers] = useState([]);
+  const [demoPasswordHint, setDemoPasswordHint] = useState('');
 
   const allowDemoPanel = useMemo(() => {
-    if (isSupabase) return false;
+    if (isSupabase || import.meta.env.PROD) return false;
     if (import.meta.env.VITE_SHOW_DEMO_LOGINS === 'false') return false;
     return import.meta.env.DEV || import.meta.env.VITE_SHOW_DEMO_LOGINS === 'true';
   }, [isSupabase]);
+
+  useEffect(() => {
+    if (!allowDemoPanel || !showDemo) return undefined;
+    let cancelled = false;
+    import('../domain/auth/demoUsers').then((mod) => {
+      if (cancelled) return;
+      setDemoUsers(mod.DEMO_USERS);
+      setDemoPasswordHint(mod.DEMO_PASSWORD_HINT);
+    });
+    return () => { cancelled = true; };
+  }, [allowDemoPanel, showDemo]);
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -204,9 +216,9 @@ export default function LoginView() {
             {showDemo && (
               <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
                 <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: 0 }}>
-                  Clave de prueba: <code>{DEMO_PASSWORD_HINT}</code>
+                  Clave de prueba: <code>{demoPasswordHint}</code>
                 </p>
-                {DEMO_USERS.map((demo) => (
+                {demoUsers.map((demo) => (
                   <button
                     key={demo.id}
                     type="button"

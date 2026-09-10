@@ -29,6 +29,7 @@ describe('availability', () => {
     const now = new Date('2026-07-24T17:20:00');
     const status = getFacilityLiveStatus(facility, {
       now,
+      revealOccupant: true,
       reservations: [{
         facilityId: 'tenis_trad',
         date: '2026-07-24',
@@ -39,6 +40,21 @@ describe('availability', () => {
     });
     expect(status.status).toBe('occupied');
     expect(status.detail).toContain('Victoria Cantoni');
+  });
+
+  it('no revela el nombre del socio en el portal', () => {
+    const now = new Date('2026-07-24T17:20:00');
+    const status = getFacilityLiveStatus(facility, {
+      now,
+      reservations: [{
+        facilityId: 'tenis_trad',
+        date: '2026-07-24',
+        time: '17:00',
+        status: 'confirmed',
+        memberName: 'Victoria Cantoni',
+      }],
+    });
+    expect(status.detail).not.toContain('Victoria Cantoni');
   });
 
   it('suspende exteriores con Zonda', () => {

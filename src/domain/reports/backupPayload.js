@@ -1,5 +1,41 @@
 export const BACKUP_CLUB = 'Jockey Club San Juan - Sede Rivadavia';
-export const BACKUP_VERSION = '1.1.0';
+export const BACKUP_VERSION = '1.2.0';
+
+function slimMemberForBackup(member) {
+  if (!member) return member;
+  const {
+    address,
+    city,
+    province,
+    postalCode,
+    birthDate,
+    gender,
+    maritalStatus,
+    nationality,
+    emergencyContact,
+    emergencyPhone,
+    billingName,
+    cuitCuil,
+    taxCondition,
+    notes,
+    paymentHistory,
+    bloodType,
+    healthInsurance,
+    emergencyClinic,
+    documents,
+    ...rest
+  } = member;
+  return { ...rest, paymentHistory: [] };
+}
+
+function slimReservationForBackup(row) {
+  if (!row || row.occupancyOnly) return row;
+  return {
+    ...row,
+    notes: '',
+    guestNames: '',
+  };
+}
 
 /** Arma el payload de respaldo ERP. */
 export function buildBackupPayload(snapshot = {}, { source = 'manual' } = {}) {
@@ -9,8 +45,8 @@ export function buildBackupPayload(snapshot = {}, { source = 'manual' } = {}) {
     club: BACKUP_CLUB,
     source,
     data: {
-      members: snapshot.members || [],
-      reservations: snapshot.reservations || [],
+      members: (snapshot.members || []).map(slimMemberForBackup),
+      reservations: (snapshot.reservations || []).map(slimReservationForBackup),
       journalEntries: snapshot.journalEntries || [],
       staffMembers: snapshot.staffMembers || [],
       claims: snapshot.claims || [],

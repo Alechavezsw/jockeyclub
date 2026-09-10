@@ -88,6 +88,10 @@ export function buildLifecycleMeta(prevMeta = {}, {
   return next;
 }
 
+export function memberHasSocietasApp(member) {
+  return member?.hasSocietasApp === true || member?.meta?.hasSocietasApp === true;
+}
+
 export function collectMemberMeta(member = {}) {
   const base = member.meta && typeof member.meta === 'object' ? { ...member.meta } : {};
   const keys = [
@@ -98,6 +102,7 @@ export function collectMemberMeta(member = {}) {
     'joinedAtFallback', 'fechaAltaRaw', 'joinTime', 'lifecycleHistory', 'lastLifecycle',
     'suspendMotivo', 'suspendAt', 'suspendDetail', 'reactivateMotivo', 'reactivateAt',
     'reactivateDetail', 'portalUsername', 'portalProvisionedAt', 'portalProvisionedBy',
+    'hasSocietasApp', 'societasAppAsOf', 'societasEmail',
     'documents',
     'poolMedicalExpiresAt', 'poolMedicalFileName', 'poolMedicalUploadedAt',
     'poolMedicalStatus', 'poolMedicalNote',

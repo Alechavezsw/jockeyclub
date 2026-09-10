@@ -20,6 +20,12 @@ const keyLooksValid =
 
 export const isSupabaseConfigured = Boolean(urlLooksValid && keyLooksValid);
 
+/** Producción sin backend: no caer a demo/localStorage con datos del club. */
+export const isProductionWithoutBackend = Boolean(import.meta.env.PROD && !isSupabaseConfigured);
+
+/** Login demo solo en desarrollo local, nunca en un build de producción. */
+export const allowLocalDemoAuth = Boolean(import.meta.env.DEV && !isSupabaseConfigured);
+
 if (import.meta.env.DEV && (supabaseUrl || supabaseAnonKey) && !isSupabaseConfigured) {
   console.warn(
     '[supabase] VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY inválidos o incompletos. Se usa modo local.'

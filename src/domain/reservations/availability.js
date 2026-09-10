@@ -63,6 +63,7 @@ export function getFacilityLiveStatus(facility, {
   reservations = [],
   isZondaActive = false,
   now = new Date(),
+  revealOccupant = false,
 } = {}) {
   if (!facility) {
     return { status: 'closed', label: 'Sin datos', detail: '', currentBooking: null, nextSlot: null };
@@ -141,7 +142,9 @@ export function getFacilityLiveStatus(facility, {
     return {
       status: 'occupied',
       label: 'Ocupada',
-      detail: `${currentBooking.memberName || 'Socio'} · hasta ${endH}:${endM}`,
+      detail: revealOccupant && currentBooking.memberName
+        ? `${currentBooking.memberName} · hasta ${endH}:${endM}`
+        : `Hasta ${endH}:${endM}`,
       currentBooking,
       nextSlot: null,
     };

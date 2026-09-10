@@ -1,6 +1,7 @@
 /** Categorías de socios del club (padrón / cuotas datita). Sin Gold/Platinum. */
 
 export const DEFAULT_MEMBER_TIER = 'socio_individual';
+export const SIN_CATEGORIA_TIER = 'sin_categoria';
 
 /** Categorías de demo (Gold / Platinum / Royal). No forman parte del padrón. */
 export const EXAMPLE_MEMBER_TIER_IDS = new Set(['gold', 'platinum', 'royal']);
@@ -58,6 +59,10 @@ const TIER_SEED = [
     color: '#0ea5e9',
     sortOrder: 92,
   },
+  { name: 'LIGA (No socio)', label: '—', color: '#64748b', sortOrder: 80 },
+  { name: 'KARATE (No socio)', label: '—', color: '#f59e0b', sortOrder: 81 },
+  { name: 'COLONIA (No socio)', label: '—', color: '#14b8a6', sortOrder: 82 },
+  { name: 'Sin categoría', label: '—', color: '#94a3b8', sortOrder: 99 },
 ];
 
 export const TIER_COLORS = [
@@ -75,7 +80,66 @@ function normalizeLabel(value = '') {
 
 export function slugifyTierId(name = '') {
   const base = normalizeLabel(name).replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-  return base || `tier_${Date.now()}`;
+  return base || SIN_CATEGORIA_TIER;
+}
+
+const EMPTY_CUOTA_RE = /^(–|—|-|−|\.|s\/d|sd|n\/a|na|sin\s*categor[ií]a)$/i;
+
+/** Parte "SOCIO INDIVIDUAL, ABONO TENIS" o ["–"] en categorías reales. */
+export function parseCuotaCategories(input) {
+  const values = Array.isArray(input) ? input : [input];
+  const out = [];
+  for (const raw of values) {
+    for (const part of String(raw ?? '').split(/\s*[;/|]\s*|,(?!\s*\d)/)) {
+      const text = part.replace(/\s+/g, ' ').trim();
+      if (!text || EMPTY_CUOTA_RE.test(text)) continue;
+      out.push(text);
+    }
+  }
+  return [...new Set(out)];
+}
+
+export function deriveMemberTier(input, fallback = SIN_CATEGORIA_TIER) {
+  const primary = pickPrimaryCuotaCategory(parseCuotaCategories(input));
+  if (!primary) return fallback;
+  return slugifyTierId(primary);
+}
+
+export function officialPadronTierIds(catalog = MEMBER_TIER_CATALOG) {
+  return new Set((catalog || []).map((t) => String(t.id || '').toLowerCase()));
+}
+
+export function isOfficialPadronTier(id, catalog = MEMBER_TIER_CATALOG) {
+  return officialPadronTierIds(catalog).has(String(id || '').trim().toLowerCase());
+}
+
+export function isGeneratedTierId(id = '') {
+  return /^tier_\d+$/i.test(String(id || '').trim());
+}
+
+/** Completa el catálogo guardado con categorías oficiales que falten. */
+export function mergeOfficialTiers(catalog = []) {
+  const byId = new Map(
+    (Array.isArray(catalog) ? catalog : []).map((t) => [String(t.id || '').toLowerCase(), normalizeTier(t)])
+  );
+  for (const official of MEMBER_TIER_CATALOG) {
+    if (!byId.has(official.id)) byId.set(official.id, { ...official });
+  }
+  return [...byId.values()].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, 'es'));
+}
+
+/** Reescribe slugs inventados (TIER_… o "SOCIO + ABONO") a la categoría de cuota principal. */
+export function resolveStoredMemberTier(tier, cuotaCategories, catalog = MEMBER_TIER_CATALOG) {
+  const current = String(tier || '').trim().toLowerCase();
+  if (isExampleMemberTier(current)) return DEFAULT_MEMBER_TIER;
+  if (current && isOfficialPadronTier(current, catalog) && current !== SIN_CATEGORIA_TIER) {
+    return current;
+  }
+  const derived = deriveMemberTier(cuotaCategories, SIN_CATEGORIA_TIER);
+  if (derived && derived !== SIN_CATEGORIA_TIER) return derived;
+  if (isGeneratedTierId(current) || !current) return SIN_CATEGORIA_TIER;
+  if (isOfficialPadronTier(current, catalog)) return current;
+  return current || SIN_CATEGORIA_TIER;
 }
 
 /** Catálogo por defecto = categorías del padrón. */
@@ -122,16 +186,14 @@ export function normalizeTier(input = {}) {
 export function loadTierCatalog(fallback = MEMBER_TIER_CATALOG) {
   try {
     const raw = localStorage.getItem('jockey-member-tiers');
-    if (!raw) return fallback.map((t) => normalizeTier(t));
+    if (!raw) return mergeOfficialTiers(fallback);
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed) || !parsed.length) {
-      return fallback.map((t) => normalizeTier(t));
+      return mergeOfficialTiers(fallback);
     }
-    return stripExampleTiers(parsed)
-      .map((t) => normalizeTier(t))
-      .sort((a, b) => a.sortOrder - b.sortOrder);
+    return mergeOfficialTiers(stripExampleTiers(parsed));
   } catch {
-    return fallback.map((t) => normalizeTier(t));
+    return mergeOfficialTiers(fallback);
   }
 }
 

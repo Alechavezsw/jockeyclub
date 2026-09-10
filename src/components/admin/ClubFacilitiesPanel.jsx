@@ -119,7 +119,7 @@ export default function ClubFacilitiesPanel({
       }
       map.set(
         facility.id,
-        getFacilityLiveStatus(facility, { reservations, isZondaActive, now }),
+        getFacilityLiveStatus(facility, { reservations, isZondaActive, now, revealOccupant: true }),
       );
     }
     return map;

@@ -60,6 +60,13 @@ export function applyCurrentAccountBalances(members = [], {
     if (!hit) return m;
     if (m.currentAccountAsOf === asOf) return m;
 
+    const hasOperational = m.outstandingBalance != null
+      && m.outstandingBalance !== ''
+      && Number.isFinite(Number(m.outstandingBalance));
+    if (hasOperational) {
+      return { ...m, currentAccountAsOf: asOf };
+    }
+
     const latestPay = latestMemberPaymentDate(m);
     if (latestPay && latestPay > asOf) {
       return { ...m, currentAccountAsOf: asOf };

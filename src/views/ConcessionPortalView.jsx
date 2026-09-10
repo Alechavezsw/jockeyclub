@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Store, CalendarDays, FileText, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import {
@@ -9,6 +9,8 @@ import {
   missingRequiredDocuments,
   checklistProgress,
 } from '../domain/concessions/concessions';
+import { isSupabaseConfigured } from '../lib/supabase';
+import { getConcessionPortalByCode } from '../data/repos';
 
 function formatCurrency(amount) {
   return new Intl.NumberFormat('es-AR', {
@@ -33,10 +35,45 @@ function formatDate(iso) {
 export default function ConcessionPortalView({ code: codeProp, concessions = [], canonPayments = [] }) {
   const { code: codeParam } = useParams();
   const code = codeProp || codeParam || '';
-  const concession = useMemo(
+  const fromList = useMemo(
     () => findConcessionByPortalCode(concessions, code),
     [concessions, code]
   );
+  const [remote, setRemote] = useState(null);
+  const [remoteLoading, setRemoteLoading] = useState(false);
+
+  useEffect(() => {
+    if (fromList || !code || !isSupabaseConfigured) {
+      setRemote(null);
+      setRemoteLoading(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setRemoteLoading(true);
+    getConcessionPortalByCode(code)
+      .then((payload) => {
+        if (!cancelled) setRemote(payload);
+      })
+      .catch(() => {
+        if (!cancelled) setRemote(null);
+      })
+      .finally(() => {
+        if (!cancelled) setRemoteLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [fromList, code]);
+
+  const concession = fromList || remote?.concession || null;
+
+  if (!concession && remoteLoading) {
+    return (
+      <div className="fade-in conc-portal-page">
+        <div className="glass-card conc-portal-card">
+          <p>Abriendo portal…</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!concession) {
     return (
@@ -53,7 +90,7 @@ export default function ConcessionPortalView({ code: codeProp, concessions = [],
   const expiry = getConcessionExpiryStatus(concession);
   const missing = missingRequiredDocuments(concession);
   const progress = checklistProgress(concession);
-  const payments = canonPayments
+  const payments = (remote?.payments?.length ? remote.payments : canonPayments)
     .filter((p) => p.concessionId === concession.id)
     .slice(0, 12);
 

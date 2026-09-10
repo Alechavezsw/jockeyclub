@@ -4,6 +4,7 @@ import {
   reasonLabel,
   buildLifecycleMeta,
   collectMemberMeta,
+  memberHasSocietasApp,
   splitMemberName,
 } from './memberAdminActions.js';
 
@@ -41,5 +42,14 @@ describe('memberAdminActions', () => {
     expect(meta.source).toBe('datita');
     expect(meta.portalUsername).toBe('ana.perez');
     expect(meta.bajaMotivo).toBe('x');
+  });
+
+  it('reconoce acceso Societas en meta o en el socio', () => {
+    expect(memberHasSocietasApp({ meta: { hasSocietasApp: true } })).toBe(true);
+    expect(memberHasSocietasApp({ hasSocietasApp: true })).toBe(true);
+    expect(memberHasSocietasApp({ meta: { hasSocietasApp: false } })).toBe(false);
+    const meta = collectMemberMeta({ hasSocietasApp: true, societasAppAsOf: '2026-09-09' });
+    expect(meta.hasSocietasApp).toBe(true);
+    expect(meta.societasAppAsOf).toBe('2026-09-09');
   });
 });

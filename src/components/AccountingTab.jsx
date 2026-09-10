@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import {
   BookOpen, Plus, DollarSign, PieChart, ShieldAlert, CheckCircle2, Trash2, Printer, Search,
   TrendingUp, Book, ListTree, Wallet, Receipt, Truck, HelpCircle, Building2, Repeat, Percent,
-  Scale, FileSpreadsheet, Banknote, FileText,
+  Scale, FileSpreadsheet, Banknote, FileText, Ticket, CalendarDays,
 } from 'lucide-react';
 import {
   DEFAULT_CHART_OF_ACCOUNTS,
@@ -34,13 +34,30 @@ import {
   PaymentOrdersPanel,
 } from './erp/TreasuryPanels';
 import AccountingReportsPanel from './erp/AccountingReportsPanel';
+import MemberCreditPurchasesPanel from './erp/MemberCreditPurchasesPanel';
+import MonthlyBalancePanel from './erp/MonthlyBalancePanel';
+import LiquidationCcPanel from './erp/LiquidationCcPanel';
 import { allowedAccountingSubtabsForRoles } from '../domain/auth/roles';
 import { useAuth } from '../context/AuthContext';
 
 const TREASURY_TABS = new Set([
   'cash', 'expenses', 'suppliers', 'retenciones', 'other_incomes', 'interest_generators',
   'unidentified', 'galicia', 'fixed_expenses', 'fixed_discounts', 'balances', 'payment_orders',
+  'credit_purchases',
 ]);
+
+const BALANCE_TABS = new Set(['balance', 'balance_monthly', 'balance_liquidation', 'balance_patrimonial']);
+
+const BALANCE_HUB_TABS = [
+  { key: 'balance', icon: CalendarDays, label: 'Mensual LILA' },
+  { key: 'balance_liquidation', icon: FileSpreadsheet, label: 'Cta. cte.' },
+  { key: 'balance_patrimonial', icon: Scale, label: 'Patrimonial' },
+];
+
+const ACCOUNTING_HUBS = {
+  treasury: { tabs: TREASURY_TABS, fallback: 'cash' },
+  balance: { tabs: BALANCE_TABS, fallback: 'balance' },
+};
 
 const TREASURY_HUB_TABS = [
   { key: 'cash', icon: Wallet, label: 'Cajas' },
@@ -55,6 +72,7 @@ const TREASURY_HUB_TABS = [
   { key: 'fixed_expenses', icon: Repeat, label: 'Gastos fijos' },
   { key: 'balances', icon: Scale, label: 'Saldos' },
   { key: 'payment_orders', icon: FileSpreadsheet, label: 'Órdenes' },
+  { key: 'credit_purchases', icon: Ticket, label: 'Créditos socios' },
 ];
 
 function lineAccountName(line, chart) {
@@ -404,7 +422,9 @@ export default function AccountingTab({
                 id: 'reports',
                 label: 'Informes',
                 tabs: [
-                  { key: 'balance', icon: PieChart, label: 'Balance General', short: 'Balance' },
+                  ...(accountingTabs.some((k) => BALANCE_TABS.has(k))
+                    ? [{ key: 'balance', icon: PieChart, label: 'Balance', short: 'Balance', hub: 'balance' }]
+                    : []),
                   { key: 'results', icon: DollarSign, label: 'Estado de Resultados', short: 'Resultados' },
                   { key: 'charts', icon: TrendingUp, label: 'Reportes y gráficos', short: 'Gráficos', accent: 'charts' },
                   { key: 'acct_reports', icon: FileText, label: 'Reportes', short: 'Reportes' },
@@ -414,7 +434,7 @@ export default function AccountingTab({
                 id: 'treasury',
                 label: 'Operación',
                 tabs: accountingTabs.some((k) => TREASURY_TABS.has(k))
-                  ? [{ key: 'cash', icon: Wallet, label: 'Tesorería', short: 'Tesorería', hub: true }]
+                  ? [{ key: 'cash', icon: Wallet, label: 'Tesorería', short: 'Tesorería', hub: 'treasury' }]
                   : [],
               },
               {
@@ -436,7 +456,9 @@ export default function AccountingTab({
                   <div className="acct-subnav-segment" role="tablist" aria-label={group.label}>
                     {group.tabs.map((tab) => {
                       const Icon = tab.icon;
-                      const isActive = tab.hub ? TREASURY_TABS.has(subTab) : subTab === tab.key;
+                      const isActive = tab.hub
+                        ? ACCOUNTING_HUBS[tab.hub].tabs.has(subTab)
+                        : subTab === tab.key;
                       return (
                         <button
                           key={tab.key + (tab.hub ? '-hub' : '')}
@@ -445,7 +467,13 @@ export default function AccountingTab({
                           aria-selected={isActive}
                           aria-current={isActive ? 'page' : undefined}
                           title={tab.label}
-                          onClick={() => setSubTab(tab.hub ? (TREASURY_TABS.has(subTab) ? subTab : 'cash') : tab.key)}
+                          onClick={() => setSubTab(
+                            tab.hub
+                              ? (ACCOUNTING_HUBS[tab.hub].tabs.has(subTab)
+                                ? subTab
+                                : ACCOUNTING_HUBS[tab.hub].fallback)
+                              : tab.key
+                          )}
                           className={[
                             'acct-subnav-item',
                             isActive ? 'is-active' : '',
@@ -465,7 +493,7 @@ export default function AccountingTab({
               ))}
           </div>
 
-          {subTab !== 'create' && subTab !== 'plan' && !TREASURY_TABS.has(subTab) && (
+          {subTab !== 'create' && subTab !== 'plan' && !TREASURY_TABS.has(subTab) && subTab !== 'balance' && subTab !== 'balance_monthly' && subTab !== 'balance_liquidation' && (
             <button
               type="button"
               onClick={handlePrint}
@@ -494,6 +522,29 @@ export default function AccountingTab({
           {TREASURY_HUB_TABS.filter((t) => accountingTabs.includes(t.key)).map((tab) => {
             const Icon = tab.icon;
             const isActive = subTab === tab.key;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                className={`acct-treasury-hub-item${isActive ? ' is-active' : ''}`}
+                aria-current={isActive ? 'page' : undefined}
+                onClick={() => setSubTab(tab.key)}
+              >
+                <Icon size={14} aria-hidden="true" />
+                {tab.label}
+              </button>
+            );
+          })}
+        </nav>
+      )}
+
+      {BALANCE_TABS.has(subTab) && accountingTabs.length > 1 && (
+        <nav className="acct-treasury-hub" aria-label="Informes de balance">
+          {BALANCE_HUB_TABS.filter((t) => accountingTabs.includes(t.key)).map((tab) => {
+            const Icon = tab.icon;
+            const isActive = tab.key === 'balance'
+              ? (subTab === 'balance' || subTab === 'balance_monthly')
+              : subTab === tab.key;
             return (
               <button
                 key={tab.key}
@@ -887,8 +938,12 @@ export default function AccountingTab({
         </div>
       )}
 
-      {/* SUB-TAB 4: BALANCE GENERAL */}
       {subTab === 'balance' && (
+        <MonthlyBalancePanel />
+      )}
+
+      {/* SUB-TAB 4: BALANCE PATRIMONIAL (diario) */}
+      {subTab === 'balance_patrimonial' && (
         <div className="glass-card fade-in" style={{ padding: '1.5rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '0.5rem' }}>
             <div>
@@ -1545,6 +1600,18 @@ export default function AccountingTab({
           onAdd={upsertPaymentOrder}
           onSetStatus={upsertPaymentOrder}
         />
+      )}
+
+      {subTab === 'credit_purchases' && (
+        <MemberCreditPurchasesPanel />
+      )}
+
+      {subTab === 'balance_monthly' && (
+        <MonthlyBalancePanel />
+      )}
+
+      {subTab === 'balance_liquidation' && (
+        <LiquidationCcPanel />
       )}
     </div>
   );

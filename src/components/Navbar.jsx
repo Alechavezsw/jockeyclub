@@ -25,7 +25,7 @@ export default function Navbar({
   onDismissNotification,
   onMarkAllNotificationsRead,
 }) {
-  const { user, role, logout, roleLabel } = useAuth();
+  const { user, role, logout, roleLabel, canAccessAdmin: sessionCanAccessAdmin, roles } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
@@ -33,8 +33,8 @@ export default function Navbar({
   // Snapshot al abrir: se puede leer el listado aunque ya se marquen leídas (badge a 0).
   const [notifSnapshot, setNotifSnapshot] = useState([]);
 
-  const isOperative = canAccessAdmin(role || 'member');
-  const isTeacher = role === 'teacher';
+  const isOperative = Boolean(sessionCanAccessAdmin) || canAccessAdmin(role || 'member');
+  const isTeacher = role === 'teacher' || (roles || []).some((r) => r.roleKey === 'teacher');
   const visibleItems = navItemsForRole(role || 'member');
   const headerDate = formatHeaderDate();
   const greetName = sessionGreetLabel(user?.fullName || '', role);

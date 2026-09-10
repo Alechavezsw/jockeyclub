@@ -17,7 +17,14 @@
     "import:saldos": "node scripts/generate-accessin-current-account-balances.cjs",
     "import:deudas-mes": "node scripts/generate-accessin-monthly-debts.cjs",
     "import:cc-detalladas": "node scripts/generate-accessin-detailed-current-accounts.cjs",
-    "import:saldos-gf": "node scripts/generate-accessin-family-group-balances.cjs"
+    "import:saldos-gf": "node scripts/generate-accessin-family-group-balances.cjs",
+    "import:creditos-socios": "node scripts/generate-accessin-member-credit-purchases.cjs",
+    "import:balance-mensual": "node scripts/generate-accessin-monthly-balance.cjs",
+    "import:liquidacion-cc": "node scripts/generate-accessin-liquidation-cc.cjs",
+    "sync:societas": "node scripts/sync-societas-app.mjs",
+    "sync:societas:dry": "node scripts/sync-societas-app.mjs --dry-run",
+    "remap:tiers": "node scripts/remap-member-tiers.mjs",
+    "remap:tiers:dry": "node scripts/remap-member-tiers.mjs --dry-run"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.8",

@@ -22,18 +22,20 @@ describe('currentAccountBalances', () => {
     expect(hit.unpaidSurcharges).toBe(2000);
   });
 
-  it('aplica saldos al padrón y pisa deuda automática', () => {
-    const members = [
+  it('completa saldo LILA solo si el padrón no tiene saldo operativo', () => {
+    const seeded = applyCurrentAccountBalances([
+      { memberId: '1004', name: 'Cristina Mugas' },
+      { memberId: '99999999', name: 'Sin seed' },
+    ]);
+    expect(seeded[0].outstandingBalance).toBe(56000);
+    expect(seeded[0].currentAccountAsOf).toBe('2026-09-03');
+    expect(seeded[1].outstandingBalance).toBeUndefined();
+
+    const kept = applyCurrentAccountBalances([
       { memberId: '1004', name: 'Cristina Mugas', outstandingBalance: 999999 },
-      { memberId: '1', name: 'Jonas', outstandingBalance: 5000 },
-      { memberId: '99999999', name: 'Sin seed', outstandingBalance: 123 },
-    ];
-    const next = applyCurrentAccountBalances(members);
-    expect(next[0].outstandingBalance).toBe(56000);
-    expect(next[0].currentAccountAsOf).toBe('2026-09-03');
-    expect(next[1].outstandingBalance).toBe(0);
-    expect(next[2].outstandingBalance).toBe(123);
-    expect(currentAccountBalanceOf(next[0])).toBe(56000);
+    ]);
+    expect(kept[0].outstandingBalance).toBe(999999);
+    expect(currentAccountBalanceOf(kept[0])).toBe(999999);
   });
 
   it('no pisa un cobro posterior al corte LILA', () => {

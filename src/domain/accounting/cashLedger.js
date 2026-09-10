@@ -117,7 +117,7 @@ export function accessinCashBalanceCards(
       id: 'efectivo',
       label: 'Efectivo',
       value: efectivoValue,
-      caption: periodCaption,
+      caption: `${periodCaption} · no es el saldo en caja`,
       actionLabel: 'Ver registro de efectivo',
       filter: { view: 'efectivo_registro', walletKind: 'cash' },
       icon: 'cash',

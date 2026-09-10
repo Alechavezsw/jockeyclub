@@ -38,6 +38,7 @@ import {
   formatAccessinCashDate,
   recalculateAccessinCashTotal,
 } from '../../domain/accounting/cashLedger';
+import LilaSourceNote from './LilaSourceNote';
 import { formatCurrency } from '../../domain/accounting/journal';
 import CashCobranzasSection from './CashCobranzasSection';
 import CashBankAccountsSection from './CashBankAccountsSection';
@@ -331,6 +332,11 @@ export default function CashRegistersPanel({
       {panelTab === 'ledger' && ledgerFilter.view !== 'efectivo_registro' && ledgerFilter.view !== 'bank_accounts' && (
         <>
           <div className="cash-lila-balance-block">
+            <LilaSourceNote
+              asOf={formatAccessinCashDate(ACCESSIN_CASH_SNAPSHOT.asOf || ACCESSIN_CASH_AS_OF)}
+              period={`${formatAccessinCashDate(ACCESSIN_CASH_SNAPSHOT.periodFrom)} — ${formatAccessinCashDate(ACCESSIN_CASH_SNAPSHOT.periodTo)}`}
+              extra="Efectivo es ingreso del período, no el efectivo en caja. El total no es la suma de las tarjetas."
+            />
             <div className="cash-lila-cards cash-lila-cards--lila">
               {balanceCards.filter((c) => c.id !== 'total').map((card) => (
                 <div

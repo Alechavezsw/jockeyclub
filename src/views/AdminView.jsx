@@ -254,7 +254,7 @@ export default function AdminView({
     }
     setProfileLookupDone(false);
     const local = findMemberForProfile(members, routeEntityId);
-    if (local) {
+    if (local && local.recordScope !== 'list') {
       setFetchedProfile(local);
       setProfileLookupDone(true);
       return undefined;
@@ -267,8 +267,11 @@ export default function AdminView({
           setFetchedProfile(row);
           setMembers?.((prev) => {
             const list = prev || [];
-            if (findMemberForProfile(list, row.memberId)) return list;
-            return [row, ...list];
+            const idx = list.findIndex((m) => findMemberForProfile([m], row.memberId));
+            if (idx < 0) return [row, ...list];
+            const next = list.slice();
+            next[idx] = { ...list[idx], ...row, recordScope: 'full' };
+            return next;
           });
         }
       })

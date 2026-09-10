@@ -3,7 +3,7 @@
  * Usado por scripts/migrate-datita-socios.mjs y MigrationTab (dry-run / lote).
  */
 
-import { DEFAULT_MEMBER_TIER, pickPrimaryCuotaCategory, slugifyTierId } from './tiers.js';
+import { DEFAULT_MEMBER_TIER, deriveMemberTier } from './tiers.js';
 
 export function emptyToNull(v) {
   const s = String(v ?? '').trim();
@@ -64,9 +64,7 @@ export function looksLikeCardNumber(v) {
  * Tier = slug de la categoría de cuota principal (padrón real, sin gold/platinum).
  */
 export function deriveTier(categories) {
-  const primary = pickPrimaryCuotaCategory(categories);
-  if (!primary) return DEFAULT_MEMBER_TIER;
-  return slugifyTierId(primary);
+  return deriveMemberTier(categories, DEFAULT_MEMBER_TIER);
 }
 
 export function yearsFromJoin(joinDate) {

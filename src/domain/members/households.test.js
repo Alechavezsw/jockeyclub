@@ -69,6 +69,12 @@ describe('households', () => {
     const ids = stats.byTier.map((t) => t.id);
     expect(ids).not.toContain('gold');
     expect(ids).not.toContain('royal');
+    const junk = buildPadronHouseholdStats([
+      titular,
+      { memberId: '11', name: 'Sin cuota', tier: 'tier_1788997270799', status: 'active' },
+      { memberId: '12', name: 'Combo', tier: 'socio_individual_abono_tenis', status: 'active' },
+    ], { tierCatalog: catalog });
+    expect(junk.byTier.map((t) => t.id)).toEqual(['sin_categoria', 'socio_familiar']);
     const colors = stats.byTier.map((t) => t.color.toLowerCase());
     expect(new Set(colors).size).toBe(colors.length);
     const withReserved = buildPadronHouseholdStats([titular, individual], {

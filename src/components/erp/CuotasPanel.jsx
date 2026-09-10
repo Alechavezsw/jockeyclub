@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import {
-  ArrowLeft, BookOpen, CalendarRange, Download, Eye, FileSpreadsheet, ListTree, Plus, Printer, RotateCcw, Search, Trash2, Upload, Wallet,
+  ArrowLeft, BookOpen, CalendarRange, Download, Eye, FileSpreadsheet, ListTree, Plus, Printer, RotateCcw, Search, Ticket, Trash2, Upload, Wallet,
 } from 'lucide-react';
 import { formatCurrency } from '../../domain/accounting/journal';
 import {
@@ -39,6 +39,7 @@ import FeeChartAccountsPanel from './FeeChartAccountsPanel';
 import MemberBalancesPanel from './MemberBalancesPanel';
 import MonthlyDebtsPanel from './MonthlyDebtsPanel';
 import DetailedCurrentAccountsPanel from './DetailedCurrentAccountsPanel';
+import MemberCreditPurchasesPanel from './MemberCreditPurchasesPanel';
 
 const PAGE_SIZE = 25;
 
@@ -90,7 +91,7 @@ export default function CuotasPanel({
   tierCatalog = [],
 }) {
   const fmt = formatCurrencyProp || formatCurrency;
-  const [view, setView] = useState('hub'); // hub | import_collections | import_debts | impute_events | mora | period_detail | accounts | balances | monthly_debts | detailed_cc
+  const [view, setView] = useState('hub'); // hub | import_collections | import_debts | impute_events | mora | period_detail | accounts | balances | monthly_debts | detailed_cc | credit_purchases
   const [year, setYear] = useState(2026);
   const [yearDraft, setYearDraft] = useState('2026');
   const [ccEnabled, setCcEnabled] = useState(true);
@@ -339,6 +340,15 @@ export default function CuotasPanel({
       <DetailedCurrentAccountsPanel
         onBack={() => setView('hub')}
         onOpenMemberBalance={() => setView('balances')}
+      />
+    );
+  }
+
+  if (view === 'credit_purchases') {
+    return (
+      <MemberCreditPurchasesPanel
+        onBack={() => setView('hub')}
+        onOpenMember={() => setView('balances')}
       />
     );
   }
@@ -779,6 +789,9 @@ export default function CuotasPanel({
           </button>
           <button type="button" className="btn cash-lila-purple-btn" onClick={() => setView('detailed_cc')}>
             <ListTree size={14} /> CC detalladas
+          </button>
+          <button type="button" className="btn cash-lila-purple-btn" onClick={() => setView('credit_purchases')}>
+            <Ticket size={14} /> Créditos comprados
           </button>
           <button type="button" className="btn cash-lila-purple-btn" onClick={() => setView('monthly_debts')}>
             <FileSpreadsheet size={14} /> Deudas mes a mes

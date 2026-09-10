@@ -1,3 +1,5 @@
+import { randomCredentialToken } from './qr';
+
 /** Pases de invitado del día (QR temporal). */
 
 function todayISO(d = new Date()) {
@@ -5,14 +7,19 @@ function todayISO(d = new Date()) {
 }
 
 export function buildGuestPassPayload(pass) {
-  return `JCSJ-GUEST:${pass?.id || ''}:${pass?.hostMemberId || ''}:${pass?.date || ''}`;
+  const token = pass?.token ? `:${pass.token}` : '';
+  return `JCSJ-GUEST:${pass?.id || ''}:${pass?.hostMemberId || ''}:${pass?.date || ''}${token}`;
 }
 
 export function parseGuestPassPayload(raw) {
   if (!raw || !String(raw).startsWith('JCSJ-GUEST:')) return null;
-  const [, id, hostMemberId, date] = String(raw).split(':');
+  const parts = String(raw).split(':');
+  const id = parts[1];
+  const hostMemberId = parts[2];
+  const date = parts[3];
+  const token = parts[4] || null;
   if (!id || !hostMemberId || !date) return null;
-  return { id, hostMemberId, date };
+  return { id, hostMemberId, date, token, signed: Boolean(token) };
 }
 
 export function createGuestPass({
@@ -35,21 +42,27 @@ export function createGuestPass({
   }
 
   const id = `gp-${Date.now().toString(36)}`;
+  const token = randomCredentialToken();
   return {
     id,
     hostMemberId,
     hostName: hostName || '',
     guestName: name,
     date,
+    token,
     createdAt: new Date().toISOString(),
     status: 'active',
-    payload: buildGuestPassPayload({ id, hostMemberId, date }),
+    payload: buildGuestPassPayload({ id, hostMemberId, date, token }),
   };
 }
 
-export function isGuestPassValid(pass, { today = todayISO() } = {}) {
+export function isGuestPassValid(pass, { today = todayISO(), parsed } = {}) {
   if (!pass || pass.status === 'revoked') return false;
-  return pass.date === today;
+  if (pass.date !== today) return false;
+  if (pass.token) {
+    if (!parsed?.token || parsed.token !== pass.token) return false;
+  }
+  return true;
 }
 
 export function revokeGuestPass(passes, passId) {
