@@ -132,7 +132,7 @@ export default function StaffHrPanel({ staffMembers = [], hrRecords = [], setHrR
                 gap: 6,
                 borderColor: active ? 'var(--primary-gold)' : undefined,
                 color: active ? 'var(--text-gold)' : undefined,
-                background: active ? 'rgba(207,161,58,0.12)' : undefined,
+                background: active ? 'rgba(var(--primary-gold-rgb),0.12)' : undefined,
               }}
             >
               <Icon size={13} /> {t.label}

@@ -114,6 +114,137 @@ export function getBalancesByType(journalEntries, chart) {
   return result;
 }
 
+export function isPostedJournalEntry(entry) {
+  return Boolean(entry) && entry.status !== 'draft' && entry.status !== 'void';
+}
+
+export function journalDateKey(entry) {
+  const raw = String(entry?.date || entry?.entryDate || '').slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : '';
+}
+
+export function compareJournalOldestFirst(a, b) {
+  const da = journalDateKey(a);
+  const db = journalDateKey(b);
+  if (da !== db) return da.localeCompare(db);
+  const ca = String(a.createdAt || a.postedAt || '');
+  const cb = String(b.createdAt || b.postedAt || '');
+  if (ca !== cb) return ca.localeCompare(cb);
+  return String(a.id || '').localeCompare(String(b.id || ''));
+}
+
+export function postedJournalEntries(entries = []) {
+  return (entries || []).filter(isPostedJournalEntry);
+}
+
+/** Número de asiento oficial: el más antiguo es 1. */
+export function journalOrdinalMap(entries = []) {
+  const posted = postedJournalEntries(entries).toSorted(compareJournalOldestFirst);
+  return new Map(posted.map((entry, index) => [entry.id, index + 1]));
+}
+
+export function journalEntryOrdinal(entries, entryId) {
+  return journalOrdinalMap(entries).get(entryId) ?? null;
+}
+
+function lineSearchText(line, chart) {
+  const name = line.account
+    || getAccountById(chart, line.accountId)?.name
+    || line.accountId
+    || '';
+  return `${name} ${line.accountId || ''} ${line.debit || ''} ${line.credit || ''} ${line.amount || ''}`.toLowerCase();
+}
+
+export function filterJournalEntries(entries = [], {
+  search = '',
+  from = '',
+  to = '',
+  chart = [],
+} = {}) {
+  const q = String(search || '').trim().toLowerCase();
+  const qCompact = q.replace(/\s+/g, '');
+  const qDigits = q.replace(/\D/g, '');
+  const wantsNumber = /^\d+$/.test(qCompact) || /^n[°º.]?\d+$/i.test(qCompact);
+  const fromKey = String(from || '').slice(0, 10);
+  const toKey = String(to || '').slice(0, 10);
+  const ordinals = journalOrdinalMap(entries);
+  return postedJournalEntries(entries)
+    .filter((entry) => {
+      const date = journalDateKey(entry);
+      if (fromKey || toKey) {
+        if (!date) return false;
+        if (fromKey && date < fromKey) return false;
+        if (toKey && date > toKey) return false;
+      }
+      if (!q) return true;
+      if (wantsNumber && String(ordinals.get(entry.id) || '') === qDigits) return true;
+      const concept = `${entry.description || ''} ${entry.concept || ''} ${entry.sourceModule || ''} ${date} ${entry.id || ''}`.toLowerCase();
+      if (concept.includes(q)) return true;
+      return (entry.lines || []).some((line) => {
+        const hay = lineSearchText(line, chart);
+        if (hay.includes(q)) return true;
+        if (qDigits.length >= 3) {
+          const amtDigits = String(line.debit || line.credit || line.amount || '').replace(/\D/g, '');
+          if (amtDigits.includes(qDigits)) return true;
+        }
+        return false;
+      });
+    })
+    .toSorted((a, b) => compareJournalOldestFirst(b, a));
+}
+
+export function summarizeJournalBook(entries = [], chart = []) {
+  let debit = 0;
+  let credit = 0;
+  let unbalanced = 0;
+  for (const entry of entries) {
+    const lines = normalizeLines(entry.lines || [], chart);
+    const entryDebit = sumDebits(lines);
+    const entryCredit = sumCredits(lines);
+    debit += entryDebit;
+    credit += entryCredit;
+    if (!isBalanced(lines)) unbalanced += 1;
+  }
+  return {
+    count: entries.length,
+    debit,
+    credit,
+    unbalanced,
+    squared: unbalanced === 0 && entries.length > 0,
+  };
+}
+
+/**
+ * Libro mayor de una cuenta: movimientos en orden cronológico (antiguo → nuevo)
+ * y saldo según la naturaleza (activo/gasto débito, pasivo/PN/ingreso crédito).
+ */
+export function buildMayorLedger(accountId, entries, chart) {
+  const account = getAccountById(chart, accountId);
+  if (!account) return { lines: [], finalBalance: 0, account: null };
+  const nature = ACCOUNT_TYPES[account.accountType]?.nature ?? 'debit';
+  let running = 0;
+  const chronological = postedJournalEntries(entries).toSorted(compareJournalOldestFirst);
+  const lines = [];
+  chronological.forEach((entry) => {
+    normalizeLines(entry.lines || [], chart).forEach((line) => {
+      if (line.accountId !== accountId) return;
+      running += nature === 'debit'
+        ? line.debit - line.credit
+        : line.credit - line.debit;
+      lines.push({
+        id: `${entry.id}-${line.lineOrder}`,
+        entryId: entry.id,
+        date: journalDateKey(entry),
+        description: entry.description || entry.concept || '',
+        debit: line.debit,
+        credit: line.credit,
+        balance: running,
+      });
+    });
+  });
+  return { lines, finalBalance: running, account };
+}
+
 export function buildPostedEntry({ date, description, lines, sourceModule = 'manual', sourceId = null, chart }) {
   const validation = validateJournalEntry({ date, description, lines }, chart);
   if (!validation.ok) {

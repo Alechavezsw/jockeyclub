@@ -1,11 +1,8 @@
 /** Proveedores del club y movimientos de cuenta corriente (Accessin). */
 
-import {
-  ACCESSIN_SUPPLIERS,
-  ACCESSIN_SUPPLIERS_AS_OF,
-} from '../../data/seed/accessinSuppliers';
-
-export { ACCESSIN_SUPPLIERS_AS_OF };
+// El padrón de proveedores vive en ./suppliersSeed. No importarlo acá: este módulo
+// lo carga el store del ERP al arrancar y arrastraría CUIT y razón social al chunk
+// de entrada del build.
 
 export const SUPPLIER_CATEGORIES = {
   hipica: 'Hípica / Equinos',
@@ -15,9 +12,6 @@ export const SUPPLIER_CATEGORIES = {
   deportes: 'Deportes / Canchas',
   general: 'General',
 };
-
-/** Padrón real Accessin (CC proveedores). */
-export const DEFAULT_SUPPLIERS = ACCESSIN_SUPPLIERS;
 
 export function supplierDisplayName(supplier) {
   return String(supplier?.legalName || supplier?.name || '').trim();

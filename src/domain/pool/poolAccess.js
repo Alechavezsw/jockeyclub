@@ -141,8 +141,10 @@ export function evaluatePoolAccess(member, {
   if (!medical.ok) blockers.push(medical.label);
 
   const alreadyIn = Boolean(memberDayAccess(accesses, member.memberId, today));
-  const paidToday = alreadyIn || listDayAccesses(accesses, today).some(
-    (a) => a.kind === 'member' && a.memberId === member.memberId && a.payment?.amount >= 0 && a.payment?.paidAt
+  const paidToday = listDayAccesses(accesses, today).some(
+    (a) => a.kind === 'member'
+      && String(a.memberId) === String(member.memberId)
+      && Number(a.payment?.amount) > 0
   );
 
   return {
@@ -210,6 +212,42 @@ export function enableMemberPoolAccess({
   return { entry, accesses: [entry, ...(accesses || [])] };
 }
 
+/** Marca asistencia en puerta: cuenta en ingresos del día, sin exigir apto ni cobro. */
+export function recordPoolAttendance({
+  member,
+  accesses = [],
+  actorName = '',
+  today = todayISO(),
+} = {}) {
+  if (!member?.memberId) throw new Error('Seleccioná un socio.');
+  if (memberDayAccess(accesses, member.memberId, today)) {
+    throw new Error('El socio ya está anotado hoy.');
+  }
+  const medical = getMedicalStatus(member, { today });
+  const entry = {
+    id: `pool-a-${Date.now().toString(36)}`,
+    date: today,
+    kind: 'member',
+    memberId: member.memberId,
+    memberName: member.name,
+    guestName: null,
+    hostMemberId: null,
+    payment: {
+      amount: 0,
+      method: 'asistencia',
+      paidAt: new Date().toISOString(),
+      ref: null,
+      concept: 'Asistencia pileta',
+    },
+    medicalExpiresAt: medical.expiresAt || null,
+    enabledAt: new Date().toISOString(),
+    enabledBy: actorName || null,
+    status: 'active',
+    source: 'attendance',
+  };
+  return { entry, accesses: [entry, ...(accesses || [])] };
+}
+
 export function enableGuestPoolAccess({
   host,
   guestName,
@@ -265,6 +303,85 @@ export function revokePoolAccess(accesses, entryId) {
       ? { ...a, status: 'revoked', revokedAt: new Date().toISOString() }
       : a
   );
+}
+
+export function memberPoolHistory(accesses = [], memberId) {
+  const id = String(memberId || '');
+  if (!id) return [];
+  return (accesses || [])
+    .filter((a) => String(a.memberId) === id)
+    .toSorted((a, b) => String(b.date || '').localeCompare(String(a.date || ''))
+      || String(b.enabledAt || '').localeCompare(String(a.enabledAt || '')));
+}
+
+export function poolEntranceVerdict(member, eval_ = {}, dues = 0) {
+  if (!member) {
+    return { status: 'idle', title: 'Buscá un socio', detail: 'Nombre, DNI o número de socio.' };
+  }
+  if (eval_.alreadyIn) {
+    return { status: 'granted', title: 'ASISTIÓ', detail: 'Anotado en ingresos de hoy' };
+  }
+  if (member.status === 'active' && eval_.medical?.ok && eval_.paidToday) {
+    return { status: 'granted', title: 'PUEDE INGRESAR', detail: 'Canon pago · apto médico vigente' };
+  }
+  const blockers = eval_.blockers || [];
+  const first = blockers[0] || (!eval_.paidToday ? 'No pagó el canon de pileta.' : 'No puede ingresar.');
+  return {
+    status: 'denied',
+    title: 'NO INGRESA',
+    detail: first,
+    duesOwed: Number(dues) || 0,
+  };
+}
+
+function foldSearch(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+export function searchPoolMembers(members = [], query, { limit = 40 } = {}) {
+  const raw = String(query || '').trim();
+  if (!raw) return [];
+  const q = foldSearch(raw);
+  const digits = raw.replace(/\D/g, '');
+  const scored = [];
+  for (const member of members) {
+    const name = foldSearch(member.name);
+    const parts = name.split(/\s+/).filter(Boolean);
+    const last = foldSearch(member.lastName) || parts.slice(1).join(' ');
+    const first = foldSearch(member.firstName) || parts[0] || '';
+    const nro = String(member.memberId || '').replace(/\D/g, '');
+    const dni = String(member.documentNumber || '').replace(/\D/g, '');
+    let score = 0;
+    if (digits && dni === digits) score = 100;
+    else if (digits && nro === digits) score = 90;
+    else if (digits && digits.length >= 3 && (dni.includes(digits) || nro.includes(digits))) score = 70;
+    if (q) {
+      if (last.startsWith(q)) score = Math.max(score, 80);
+      else if (last.includes(q) || name.includes(q)) score = Math.max(score, 60);
+      else if (first.startsWith(q)) score = Math.max(score, 45);
+    }
+    if (score > 0) scored.push({ member, score });
+  }
+  return scored
+    .toSorted((a, b) => b.score - a.score || String(a.member.name || '').localeCompare(String(b.member.name || ''), 'es'))
+    .slice(0, limit)
+    .map((row) => row.member);
+}
+
+export function mergePoolSearchHits(local = [], remote = [], { limit = 30 } = {}) {
+  const seen = new Set();
+  const out = [];
+  for (const member of [...local, ...remote]) {
+    const id = String(member?.memberId || '');
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(member);
+    if (out.length >= limit) break;
+  }
+  return out;
 }
 
 export function poolDayStats(accesses = [], date = todayISO()) {

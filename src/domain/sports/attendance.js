@@ -16,8 +16,15 @@ export function toISODate(date = new Date()) {
 
 export function duesStatus(member) {
   const balance = Number(member?.outstandingBalance) || 0;
-  if (member?.status === 'suspended') {
+  const status = String(member?.status || 'active').toLowerCase();
+  if (status === 'suspended') {
     return { id: 'suspended', label: 'Suspendido', ok: false };
+  }
+  if (status === 'inactive') {
+    return { id: 'inactive', label: 'Baja', ok: false };
+  }
+  if (status === 'pending') {
+    return { id: 'pending', label: 'Pendiente', ok: false };
   }
   if (balance > 0) {
     return { id: 'debt', label: 'Con deuda', ok: false, balance };

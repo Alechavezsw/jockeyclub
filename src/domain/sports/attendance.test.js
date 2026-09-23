@@ -13,6 +13,8 @@ describe('duesStatus', () => {
     expect(duesStatus({ outstandingBalance: 0 }).ok).toBe(true);
     expect(duesStatus({ outstandingBalance: 12000 }).id).toBe('debt');
     expect(duesStatus({ status: 'suspended' }).id).toBe('suspended');
+    expect(duesStatus({ status: 'inactive', outstandingBalance: 0 }).id).toBe('inactive');
+    expect(duesStatus({ status: 'inactive', outstandingBalance: 0 }).ok).toBe(false);
   });
 });
 

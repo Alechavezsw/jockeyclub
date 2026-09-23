@@ -1,12 +1,20 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { loadSnapshots } from '../../data/snapshots';
 import {
-  ACCESSIN_CREDIT_PURCHASES,
-  ACCESSIN_CREDIT_PURCHASES_AS_OF,
+  creditPurchasesSeed,
   creditPurchaseSummary,
   filterCreditPurchases,
   parseAccessinDate,
   parseCreditPurchaseRows,
 } from './memberCreditPurchases';
+
+let ACCESSIN_CREDIT_PURCHASES;
+let ACCESSIN_CREDIT_PURCHASES_AS_OF;
+
+beforeAll(async () => {
+  await loadSnapshots(['accessinMemberCreditPurchases']);
+  ({ ACCESSIN_CREDIT_PURCHASES, ACCESSIN_CREDIT_PURCHASES_AS_OF } = creditPurchasesSeed());
+});
 
 describe('créditos comprados por socios', () => {
   it('carga el snapshot LILA aunque no haya compras', () => {

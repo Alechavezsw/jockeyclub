@@ -2,7 +2,6 @@ import { Fragment, useMemo, useState } from 'react';
 import {
   ArrowLeft, Eye, FileText, Lock, Plus, Printer, Search, Share2, Trash2, Wallet,
 } from 'lucide-react';
-import { formatCurrency } from '../../domain/accounting/journal';
 import { getActiveTiers } from '../../domain/members/tiers';
 import { memberNumberOf, resolveFamilyForDisplay } from '../../domain/members/households';
 import {
@@ -16,16 +15,19 @@ import {
   filterMembersForBalances,
   formatSpanishLongDate,
   groupEntriesByMonth,
+  MEMBER_BALANCES_SNAPSHOTS,
   memberStatusLabel,
   mergeAccountEntries,
 } from '../../domain/accounting/memberBalances';
 import {
-  ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF,
-  ACCESSIN_CURRENT_ACCOUNT_BALANCES_SNAPSHOT,
   currentAccountBalanceOf,
+  currentAccountBalancesSeed,
 } from '../../domain/accounting/currentAccountBalances';
 import { lookupMonthlyDebt } from '../../domain/accounting/monthlyDebts';
-import { ACCESSIN_FAMILY_GROUP_BALANCES_SNAPSHOT } from '../../domain/accounting/familyGroupBalances';
+import { useSnapshotSeed } from '../../hooks/useSnapshots';
+import SnapshotGate from '../SnapshotGate';
+
+const SNAPSHOTS = [...MEMBER_BALANCES_SNAPSHOTS, 'accessinMonthlyDebts'];
 
 const PAGE_SIZE = 50;
 
@@ -38,16 +40,20 @@ function formatLilaMoney(n, { signed = false } = {}) {
 }
 
 const EMPTY_FILTERS = {
-  firstName: '',
-  lastName: '',
-  dni: '',
-  memberNumber: '',
-  familyId: '',
+  query: '',
   status: 'habilitado',
   tier: 'all',
 };
 
-export default function MemberBalancesPanel({
+export default function MemberBalancesPanel(props) {
+  return (
+    <SnapshotGate names={SNAPSHOTS}>
+      <MemberBalancesContent {...props} />
+    </SnapshotGate>
+  );
+}
+
+function MemberBalancesContent({
   members = [],
   accountEntries = [],
   onUpsertEntry,
@@ -56,10 +62,12 @@ export default function MemberBalancesPanel({
   onGoImportCollections,
   onGoImportDebts,
   onGoImputeEvents,
-  formatCurrency: formatCurrencyProp,
   tierCatalog = [],
 }) {
-  const fmt = formatCurrencyProp || formatCurrency;
+  const {
+    ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF,
+    ACCESSIN_CURRENT_ACCOUNT_BALANCES_SNAPSHOT,
+  } = useSnapshotSeed(SNAPSHOTS, currentAccountBalancesSeed);
   const tiers = useMemo(() => getActiveTiers(tierCatalog), [tierCatalog]);
 
   const [view, setView] = useState('list'); // list | summary | payment | boleto | entry
@@ -80,7 +88,24 @@ export default function MemberBalancesPanel({
     date: new Date().toISOString().slice(0, 10),
     description: '',
   });
+  const [entryQuery, setEntryQuery] = useState('');
   const [error, setError] = useState('');
+
+  const entrySuggestions = useMemo(() => {
+    const q = entryQuery.trim();
+    if (q.length < 2) return [];
+    const selected = entryForm.memberNumber
+      ? `${entryForm.memberNumber} — ${entryForm.memberName}`.trim()
+      : '';
+    if (selected && q === selected) return [];
+    return filterMembersForBalances(members, { query: q, status: 'all' }).slice(0, 12);
+  }, [members, entryQuery, entryForm.memberNumber, entryForm.memberName]);
+
+  const applyFilters = (next) => {
+    setFilters(next);
+    setApplied(next);
+    setPage(0);
+  };
 
   const filtered = useMemo(
     () => filterMembersForBalances(members, applied),
@@ -152,17 +177,25 @@ export default function MemberBalancesPanel({
     setView('boleto');
   };
 
+  const pickEntryMember = (member) => {
+    const nro = memberNumberOf(member);
+    setEntryForm((f) => ({ ...f, memberNumber: nro, memberName: member?.name || '' }));
+    setEntryQuery(nro ? `${nro} — ${member?.name || ''}`.trim() : '');
+  };
+
   const openEntry = (member = null) => {
     setError('');
+    const nro = member ? memberNumberOf(member) : '';
     setEntryForm({
       type: 'pago',
       target: 'socio',
-      memberNumber: member ? memberNumberOf(member) : '',
+      memberNumber: nro,
       memberName: member?.name || '',
       value: '',
       date: new Date().toISOString().slice(0, 10),
       description: '',
     });
+    setEntryQuery(member ? `${nro} — ${member.name || ''}`.trim() : '');
     setView('entry');
   };
 
@@ -215,29 +248,50 @@ export default function MemberBalancesPanel({
                 </select>
               </div>
               <div className="disc-field">
-                <label className="disc-field-label">Socio</label>
-                <input
-                  className="form-input"
-                  list="sal-members"
-                  value={entryForm.memberNumber ? `${entryForm.memberNumber}${entryForm.memberName ? ` - ${entryForm.memberName}` : ''}` : ''}
-                  onChange={(e) => {
-                    const raw = e.target.value;
-                    const nro = raw.split('-')[0].trim().replace(/\D/g, '');
-                    const hit = (members || []).find((m) => memberNumberOf(m) === nro);
-                    setEntryForm((f) => ({
-                      ...f,
-                      memberNumber: nro,
-                      memberName: hit?.name || raw.split('-').slice(1).join('-').trim(),
-                    }));
-                  }}
-                  placeholder="Nro. o nombre"
-                  required
-                />
-                <datalist id="sal-members">
-                  {(members || []).slice(0, 800).map((m) => (
-                    <option key={m.memberId} value={`${memberNumberOf(m)} - ${m.name}`} />
-                  ))}
-                </datalist>
+                <label className="disc-field-label" htmlFor="member-entry-search">Socio</label>
+                <div className="member-entry-pick">
+                  <div className="member-entry-pick-field">
+                    <Search size={16} aria-hidden className="member-entry-pick-icon" />
+                    <input
+                      id="member-entry-search"
+                      className="form-input"
+                      type="search"
+                      value={entryQuery}
+                      onChange={(e) => {
+                        const q = e.target.value;
+                        setEntryQuery(q);
+                        setEntryForm((f) => ({ ...f, memberNumber: '', memberName: '' }));
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && entrySuggestions[0]) {
+                          e.preventDefault();
+                          pickEntryMember(entrySuggestions[0]);
+                        }
+                      }}
+                      placeholder="Nombre, DNI o Nº de socio"
+                      autoComplete="off"
+                      required={!entryForm.memberNumber}
+                    />
+                  </div>
+                  {entrySuggestions.length > 0 ? (
+                    <ul className="member-entry-suggest" role="listbox">
+                      {entrySuggestions.map((m) => (
+                        <li key={m.memberId || memberNumberOf(m)}>
+                          <button
+                            type="button"
+                            role="option"
+                            onClick={() => pickEntryMember(m)}
+                          >
+                            <strong>{m.name}</strong>
+                            <span>Nº {memberNumberOf(m) || m.memberId}{m.documentNumber ? ` · DNI ${m.documentNumber}` : ''}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : entryQuery.trim().length >= 2 && !entryForm.memberNumber ? (
+                    <p className="member-entry-empty">No se encontraron socios</p>
+                  ) : null}
+                </div>
               </div>
               <div className="disc-field">
                 <label className="disc-field-label">Fecha</label>
@@ -254,7 +308,7 @@ export default function MemberBalancesPanel({
               {error ? <p className="ig-error">{error}</p> : null}
               <div className="ig-form-actions">
                 <button type="button" className="btn btn-secondary" onClick={() => setView(selectedMember ? 'summary' : 'list')}>Cancelar</button>
-                <button type="submit" className="btn cash-lila-purple-btn">Continuar</button>
+                <button type="submit" className="btn btn-tan">Continuar</button>
               </div>
             </form>
           </div>
@@ -371,7 +425,7 @@ export default function MemberBalancesPanel({
           <div className="ig-form-actions">
             <button type="button" className="btn btn-secondary" onClick={() => setView('summary')}>Volver</button>
             <button type="button" className="btn disc-bulk-btn" onClick={() => window.print()}><Printer size={14} /> Imprimir</button>
-            <button type="button" className="btn cash-lila-purple-btn"><Share2 size={14} /> Compartir</button>
+            <button type="button" className="btn btn-tan"><Share2 size={14} /> Compartir</button>
           </div>
         </section>
       </div>
@@ -392,10 +446,10 @@ export default function MemberBalancesPanel({
             <ArrowLeft size={14} /> Volver
           </button>
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <button type="button" className="btn cash-lila-purple-btn" onClick={() => openEntry(selectedMember)}>
+            <button type="button" className="btn btn-tan" onClick={() => openEntry(selectedMember)}>
               <Plus size={14} /> Entradas
             </button>
-            <button type="button" className="btn cash-lila-purple-btn" onClick={openBoleto}>
+            <button type="button" className="btn btn-tan" onClick={openBoleto}>
               <Lock size={14} /> Boleto de pago
             </button>
           </div>
@@ -484,7 +538,7 @@ export default function MemberBalancesPanel({
                 <td colSpan={summaryMode === 'family' ? 7 : 6}>
                   <button
                     type="button"
-                    className="btn cash-lila-purple-btn"
+                    className="btn btn-tan"
                     style={{ width: '100%' }}
                     onClick={() => setMonthsBack((n) => n + 3)}
                   >
@@ -501,10 +555,17 @@ export default function MemberBalancesPanel({
               ) : monthGroups.map((g) => (
                 <Fragment key={g.key}>
                   <tr>
-                    <td colSpan={summaryMode === 'family' ? 7 : 6} style={{ background: 'color-mix(in srgb, var(--lilac-accent, #7c3aed) 12%, transparent)', fontWeight: 700 }}>
+                    <td colSpan={summaryMode === 'family' ? 7 : 6} className="member-balances-month-head">
                       {g.openingLabel}: {formatLilaMoney(g.openingBalance)}
                     </td>
                   </tr>
+                  {g.entries.length === 0 ? (
+                    <tr>
+                      <td colSpan={summaryMode === 'family' ? 7 : 6} style={{ color: 'var(--text-muted)' }}>
+                        Sin movimientos en {g.title}.
+                      </td>
+                    </tr>
+                  ) : null}
                   {g.entries.map((row) => (
                     <tr key={row.id}>
                       <td>{row.accessinId || row.id.slice(-6)}</td>
@@ -568,79 +629,58 @@ export default function MemberBalancesPanel({
           </h3>
         </div>
         <div className="cuotas-actions">
-          <button type="button" className="btn cash-lila-mint-btn" onClick={() => onGoImportDebts?.()}>
+          <button type="button" className="btn btn-tan" onClick={() => onGoImportDebts?.()}>
             Deudas mes a mes
           </button>
-          <button type="button" className="btn cash-lila-mint-btn" onClick={() => onGoImportCollections?.()}>
+          <button type="button" className="btn btn-tan" onClick={() => onGoImportCollections?.()}>
             Importar cobranzas socios
           </button>
-          <button type="button" className="btn cash-lila-mint-btn" onClick={() => onGoImputeEvents?.()}>
+          <button type="button" className="btn btn-tan" onClick={() => onGoImputeEvents?.()}>
             Imputar eventos
           </button>
-          <button type="button" className="btn cash-lila-mint-btn" onClick={() => openEntry()}>
+          <button type="button" className="btn btn-tan" onClick={() => openEntry()}>
             <Plus size={14} /> Entradas
           </button>
         </div>
       </div>
 
       <section className="supplier-pay-import-block">
-        <h4 className="supplier-pay-import-title">Buscar por</h4>
+        <h4 className="supplier-pay-import-title">Buscar socio</h4>
         <p className="disc-field-hint" style={{ marginTop: 0 }}>
+          Nombre, DNI, Nº de socio o grupo familiar
+          {' · '}
           Saldos CC LILA al {ACCESSIN_CURRENT_ACCOUNT_BALANCES_SNAPSHOT.asOfLabel || ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF}
           {' · '}
           {ACCESSIN_CURRENT_ACCOUNT_BALANCES_SNAPSHOT.withBalance?.toLocaleString('es-AR')} con saldo
-          {' · '}
-          total {formatLilaMoney(ACCESSIN_CURRENT_ACCOUNT_BALANCES_SNAPSHOT.totalBalance)}
-          {' · '}
-          GF {ACCESSIN_FAMILY_GROUP_BALANCES_SNAPSHOT.groupCount?.toLocaleString('es-AR')}
-          {' · '}
-          {ACCESSIN_FAMILY_GROUP_BALANCES_SNAPSHOT.withBalance?.toLocaleString('es-AR')} con saldo familiar
         </p>
-        <div className="cuotas-event-filters">
-          <label>
-            <span className="form-label">Nombre del socio</span>
-            <input className="form-input" value={filters.firstName} onChange={(e) => setFilters((f) => ({ ...f, firstName: e.target.value }))} />
-          </label>
-          <label>
-            <span className="form-label">Apellido del socio</span>
-            <input className="form-input" value={filters.lastName} onChange={(e) => setFilters((f) => ({ ...f, lastName: e.target.value }))} />
-          </label>
-          <label>
-            <span className="form-label">DNI del socio</span>
-            <input className="form-input" value={filters.dni} onChange={(e) => setFilters((f) => ({ ...f, dni: e.target.value }))} />
-          </label>
-          <label>
-            <span className="form-label">Número de socio</span>
-            <input className="form-input" value={filters.memberNumber} onChange={(e) => setFilters((f) => ({ ...f, memberNumber: e.target.value }))} />
-          </label>
-          <label>
-            <span className="form-label">Identificador grupo familiar</span>
-            <input className="form-input" value={filters.familyId} onChange={(e) => setFilters((f) => ({ ...f, familyId: e.target.value }))} />
-          </label>
+        <div className="member-balances-search">
+          <div className="members-search-field">
+            <Search size={20} aria-hidden className="members-search-icon" />
+            <input
+              id="member-balances-search"
+              type="search"
+              className="members-search-input"
+              placeholder="Nombre, DNI, Nº de socio o grupo familiar…"
+              value={filters.query}
+              onChange={(e) => applyFilters({ ...filters, query: e.target.value })}
+              autoComplete="off"
+            />
+          </div>
           <label>
             <span className="form-label">Estado</span>
-            <select className="form-input" value={filters.status} onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}>
+            <select className="form-input" value={filters.status} onChange={(e) => applyFilters({ ...filters, status: e.target.value })}>
               <option value="all">Todos</option>
               <option value="habilitado">Habilitado</option>
               <option value="inhabilitado">Inhabilitado</option>
             </select>
           </label>
           <label>
-            <span className="form-label">Categoría de cuota</span>
-            <select className="form-input" value={filters.tier} onChange={(e) => setFilters((f) => ({ ...f, tier: e.target.value }))}>
+            <span className="form-label">Categoría</span>
+            <select className="form-input" value={filters.tier} onChange={(e) => applyFilters({ ...filters, tier: e.target.value })}>
               <option value="all">Todas</option>
               {tiers.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
           </label>
-          <div style={{ display: 'flex', alignItems: 'end' }}>
-            <button
-              type="button"
-              className="btn cash-lila-mint-btn"
-              onClick={() => { setApplied(filters); setPage(0); }}
-            >
-              <Search size={14} /> Buscar
-            </button>
-          </div>
         </div>
       </section>
 

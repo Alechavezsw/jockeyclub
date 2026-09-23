@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Lock, Mail, Shield } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { ROLE_LABELS } from '../domain/auth/roles';
@@ -19,7 +20,8 @@ export default function LoginView() {
   }, [isSupabase]);
 
   useEffect(() => {
-    if (!allowDemoPanel || !showDemo) return undefined;
+    // import.meta.env.DEV explícito: sin él, el build publica el chunk de demoUsers.
+    if (!import.meta.env.DEV || !allowDemoPanel || !showDemo) return undefined;
     let cancelled = false;
     import('../domain/auth/demoUsers').then((mod) => {
       if (cancelled) return;
@@ -124,14 +126,12 @@ export default function LoginView() {
       >
         <div style={{ textAlign: 'center' }}>
           <img
-            src="/logo-jockey-club.png"
+            src="/logo-jockey-club.png?v=clavos-blancos"
             alt="Escudo Jockey Club San Juan"
+            className="club-mark"
             style={{
-              width: 68,
-              height: 68,
-              borderRadius: '50%',
-              objectFit: 'cover',
-              border: '2px solid var(--primary-gold)',
+              width: 120,
+              height: 120,
               marginBottom: '0.65rem',
             }}
           />
@@ -190,6 +190,11 @@ export default function LoginView() {
             {submitting ? 'Validando…' : 'Ingresar al portal'}
           </button>
         </form>
+
+        <nav className="login-self-service" aria-label="Trámites sin usuario">
+          <Link to="/registro?tramite=acceso">Ya soy socio y no tengo usuario / olvidé la contraseña</Link>
+          <Link to="/registro?tramite=alta">Quiero asociarme al club</Link>
+        </nav>
 
         <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textAlign: 'center', margin: 0, lineHeight: 1.45 }}>
           Uso exclusivo de socios, personal y autoridades del club.

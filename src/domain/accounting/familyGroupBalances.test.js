@@ -1,10 +1,15 @@
-import { describe, expect, it } from 'vitest';
-import {
-  ACCESSIN_FAMILY_GROUP_BALANCES_AS_OF,
-  ACCESSIN_FAMILY_GROUP_BALANCES_SNAPSHOT,
-  lookupFamilyGroupBalance,
-} from './familyGroupBalances';
-import { familyBalanceForMember } from './memberBalances';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { loadSnapshots } from '../../data/snapshots';
+import { familyGroupBalancesSeed, lookupFamilyGroupBalance } from './familyGroupBalances';
+import { familyBalanceForMember, MEMBER_BALANCES_SNAPSHOTS } from './memberBalances';
+
+let ACCESSIN_FAMILY_GROUP_BALANCES_AS_OF;
+let ACCESSIN_FAMILY_GROUP_BALANCES_SNAPSHOT;
+
+beforeAll(async () => {
+  await loadSnapshots(MEMBER_BALANCES_SNAPSHOTS);
+  ({ ACCESSIN_FAMILY_GROUP_BALANCES_AS_OF, ACCESSIN_FAMILY_GROUP_BALANCES_SNAPSHOT } = familyGroupBalancesSeed());
+});
 
 describe('familyGroupBalances', () => {
   it('carga snapshot LILA de grupos familiares', () => {

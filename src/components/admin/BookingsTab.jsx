@@ -209,8 +209,8 @@ export default function BookingsTab({ reservations = [], setReservations }) {
           transition: border-color 0.15s ease, background 0.15s ease;
         }
         .bookings-cal-cell:hover:not(:disabled) {
-          border-color: rgba(207,161,58,0.45);
-          background: rgba(207,161,58,0.06);
+          border-color: rgba(var(--primary-gold-rgb),0.45);
+          background: rgba(var(--primary-gold-rgb),0.06);
         }
         .bookings-cal-cell:disabled {
           cursor: default;
@@ -221,8 +221,8 @@ export default function BookingsTab({ reservations = [], setReservations }) {
         }
         .bookings-cal-cell.is-selected {
           border-color: var(--primary-gold);
-          background: rgba(207,161,58,0.12);
-          box-shadow: inset 0 0 0 1px rgba(207,161,58,0.25);
+          background: rgba(var(--primary-gold-rgb),0.12);
+          box-shadow: inset 0 0 0 1px rgba(var(--primary-gold-rgb),0.25);
         }
         .bookings-cal-cell.has-bookings {
           background: rgba(255,255,255,0.04);

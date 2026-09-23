@@ -18,7 +18,7 @@ export function credentialPdfFileName(member) {
   return `credencial-jockey-${id}.pdf`;
 }
 
-export function hexToRgb(hex, fallback = [207, 161, 58]) {
+export function hexToRgb(hex, fallback = [202, 57, 12]) {
   const raw = String(hex || '').trim().replace('#', '');
   const full = raw.length === 3 ? raw.split('').map((c) => c + c).join('') : raw;
   if (!/^[0-9a-fA-F]{6}$/.test(full)) return fallback;

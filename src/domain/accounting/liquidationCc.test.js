@@ -1,11 +1,19 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { loadSnapshots } from '../../data/snapshots';
 import {
-  ACCESSIN_LIQUIDATION_CC,
-  ACCESSIN_LIQUIDATION_CC_AS_OF,
   filterLiquidationCc,
+  liquidationCcSeed,
   liquidationCcSummary,
   parseLiquidationCcRows,
 } from './liquidationCc';
+
+let ACCESSIN_LIQUIDATION_CC;
+let ACCESSIN_LIQUIDATION_CC_AS_OF;
+
+beforeAll(async () => {
+  await loadSnapshots(['accessinLiquidationCc']);
+  ({ ACCESSIN_LIQUIDATION_CC, ACCESSIN_LIQUIDATION_CC_AS_OF } = liquidationCcSeed());
+});
 
 describe('detalle cta cte liquidación', () => {
   it('carga el snapshot LILA de agosto 2026', () => {
@@ -21,7 +29,7 @@ describe('detalle cta cte liquidación', () => {
   it('parsea y filtra filas del export LILA', () => {
     const rows = parseLiquidationCcRows([
       ['NRO DE SOCIO', 'NOMBRE', 'APELLIDO', 'DNI', 'SALDO ANTERIOR', 'LIQUIDACIÓN', 'OTROS', 'INTERESES', 'SIN RECARGOS', 'RECARGO', 'RECARGO'],
-      ['1205', 'Marcelo', 'Flores', '20111222', 0, 60000, 0, 0, 60000, 62000, 62000],
+      ['1205', 'Marcelo', 'Flores', '20000777', 0, 60000, 0, 0, 60000, 62000, 62000],
       ['Alquiler Padel', 'Alameda', 'Padel', '96969696', 659087.83, 0, 817783.96, 0, 659087.83, 0, 0],
       ['TOTALES', '', '', '', 321966649.55, 56991000, 0, 0, 0, 0, 0],
     ]);

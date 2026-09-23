@@ -28,6 +28,33 @@ export function arParts(date = new Date()) {
   };
 }
 
+const MONTHS_LONG_AR = [
+  'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
+];
+
+/** Fecha larga del día en Argentina, sin title-case en “de”. */
+export function formatLongDateAR(date = new Date()) {
+  const raw = date.toLocaleDateString('es-AR', {
+    timeZone: AR_TZ,
+    weekday: 'short',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
+}
+
+/** YYYY-MM-DD → “30 de agosto de 2026” (calendario, no UTC). */
+export function formatISODateLongAR(iso) {
+  const key = String(iso || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return key || '—';
+  const [year, month, day] = key.split('-').map(Number);
+  const monthLabel = MONTHS_LONG_AR[month - 1];
+  if (!monthLabel) return key;
+  return `${day} de ${monthLabel} de ${year}`;
+}
+
 /** YYYY-MM-DD en Argentina. */
 export function todayISODateAR(date = new Date()) {
   const { year, month, day } = arParts(date);

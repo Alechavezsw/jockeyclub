@@ -274,7 +274,7 @@ export default function InterestGeneratorPanel({
             <button type="button" className="btn btn-secondary" onClick={() => setView('list')}>
               Volver
             </button>
-            <button type="submit" className="btn cash-lila-purple-btn">
+            <button type="submit" className="btn btn-tan">
               Crear
             </button>
           </div>
@@ -289,7 +289,7 @@ export default function InterestGeneratorPanel({
         <h4 className="ig-panel-title">
           <Percent size={18} /> Generador de intereses
         </h4>
-        <button type="button" className="btn cash-lila-purple-btn" onClick={openCreate}>
+        <button type="button" className="btn btn-tan" onClick={openCreate}>
           <Plus size={14} /> Intereses
         </button>
       </div>
@@ -377,7 +377,7 @@ export default function InterestGeneratorPanel({
             />
             <button
               type="button"
-              className="btn cash-lila-purple-btn"
+              className="btn btn-tan"
               onClick={() => {
                 const gen = activeGens.find((g) => g.id === runningId);
                 if (gen) handleRun(gen);

@@ -1,41 +1,32 @@
 import { buildPostedEntry } from '../accounting/journal';
 
-export const DEFAULT_CLUB_EVENTS = [
-  {
-    id: 'evt-1',
-    title: 'Cena de Gala Socios Royal & Platinum',
-    category: 'fiesta',
-    description: 'Cena formal con música en vivo en The Pavilion. Dress code: etiqueta.',
-    location: 'The Pavilion — Sede Rivadavia',
-    startsAt: new Date(Date.now() + 86400000 * 14).toISOString(),
-    endsAt: new Date(Date.now() + 86400000 * 14 + 14400000).toISOString(),
-    capacity: 180,
-    ticketPrice: 45000,
-    incomeAccountId: 'coa-4.1.03',
-    status: 'published',
-    coverImageUrl: 'https://images.unsplash.com/photo-1511795409834-ef04bbd61622?q=80&w=800&auto=format&fit=crop',
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'evt-2',
-    title: 'After Match — Tercer Tiempo Regional Cuyano',
-    category: 'deportes',
-    description: 'Brindis y gastronomía post partido para socios e invitados.',
-    location: 'Cantina Principal',
-    startsAt: new Date(Date.now() + 86400000 * 2).toISOString(),
-    endsAt: new Date(Date.now() + 86400000 * 2 + 10800000).toISOString(),
-    capacity: 250,
-    ticketPrice: 0,
-    incomeAccountId: 'coa-4.1.03',
-    status: 'published',
-    coverImageUrl: 'https://images.unsplash.com/photo-1553284965-83fd3e82fa5a?q=80&w=800&auto=format&fit=crop',
-    createdAt: new Date().toISOString(),
-  },
-];
+export const DEFAULT_CLUB_EVENTS = [];
 
 export const DEFAULT_EVENT_SETTINGS = {
   maxGuestsPerMember: 4,
 };
+
+const DEMO_EVENT_IDS = new Set(['evt-1', 'evt-2']);
+
+export function isDemoClubEvent(ev) {
+  const id = String(ev?.id || '');
+  if (DEMO_EVENT_IDS.has(id)) return true;
+  const title = String(ev?.title || '');
+  return title === 'Cena de Gala Socios Royal & Platinum'
+    || title.startsWith('After Match — Tercer Tiempo Regional Cuyano');
+}
+
+export function isDemoEventRegistration(r) {
+  const id = String(r?.id || '');
+  return id.startsWith('ereg-d') || DEMO_EVENT_IDS.has(String(r?.eventId || ''));
+}
+
+export function withoutDemoEventData(events = [], registrations = []) {
+  return {
+    events: (events || []).filter((ev) => !isDemoClubEvent(ev)),
+    registrations: (registrations || []).filter((r) => !isDemoEventRegistration(r)),
+  };
+}
 
 export function createClubEvent(payload) {
   return {
@@ -282,5 +273,76 @@ export function eventOpsStats(events = [], registrations = []) {
     guests,
     totalPeople: members + guests,
     collected,
+  };
+}
+
+export const EVENT_CATEGORY_LABELS = {
+  fiesta: 'Fiesta',
+  deportes: 'Deportes',
+  institucional: 'Institucional',
+  hipica: 'Hípica',
+};
+
+function isActiveRegistration(r) {
+  return r && r.status !== 'revoked';
+}
+
+/**
+ * Series para los gráficos de Fiestas: cupo, mix socio/invitado y cobros.
+ */
+export function buildEventDashboard(events = [], registrations = []) {
+  const activeRegs = (registrations || []).filter(isActiveRegistration);
+  const ops = eventOpsStats(events, registrations);
+
+  const byEvent = (events || []).map((ev) => {
+    const regs = activeRegs.filter((r) => r.eventId === ev.id);
+    const members = regs.filter((r) => r.kind !== 'guest').length;
+    const guests = regs.filter((r) => r.kind === 'guest').length;
+    const used = countRegistrations(registrations, ev.id);
+    const capacity = ev.capacity != null && ev.capacity !== '' ? Number(ev.capacity) : null;
+    const collected = regs.reduce((s, r) => s + (Number(r.amountPaid) || 0), 0);
+    const occupancyPct = capacity && capacity > 0
+      ? Math.min(100, Math.round((used / capacity) * 100))
+      : null;
+    return {
+      id: ev.id,
+      title: ev.title,
+      category: ev.category || 'fiesta',
+      startsAt: ev.startsAt,
+      members,
+      guests,
+      used,
+      capacity,
+      occupancyPct,
+      collected,
+      ticketPrice: Number(ev.ticketPrice) || 0,
+    };
+  });
+
+  const payments = { efectivo: 0, mercadopago: 0, complimentary: 0 };
+  for (const r of activeRegs) {
+    const amt = Number(r.amountPaid) || 0;
+    if (amt <= 0) payments.complimentary += 1;
+    else if (r.paymentMethod === 'mercadopago') payments.mercadopago += amt;
+    else payments.efectivo += amt;
+  }
+
+  const paidTotal = payments.efectivo + payments.mercadopago;
+  const mixTotal = ops.members + ops.guests;
+
+  return {
+    ops,
+    byEvent,
+    payments,
+    paidTotal,
+    mix: {
+      members: ops.members,
+      guests: ops.guests,
+      total: mixTotal,
+      memberPct: mixTotal ? Math.round((ops.members / mixTotal) * 100) : 0,
+      guestPct: mixTotal ? Math.round((ops.guests / mixTotal) * 100) : 0,
+    },
+    maxCollected: byEvent.reduce((m, row) => Math.max(m, row.collected), 0),
+    maxCapacity: byEvent.reduce((m, row) => Math.max(m, row.capacity || row.used || 0), 0),
   };
 }

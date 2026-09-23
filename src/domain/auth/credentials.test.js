@@ -9,10 +9,10 @@ import {
 describe('credentials', () => {
   it('genera usuario a partir de nombre y documento', () => {
     expect(generateUsername({
-      firstName: 'Cristian Sergio',
-      lastName: 'Bonilla',
-      documentNumber: '31098538',
-    })).toBe('cristian.bonilla.8538');
+      firstName: 'Martin Ezequiel',
+      lastName: 'Robledo',
+      documentNumber: '31004538',
+    })).toBe('martin.robledo.4538');
   });
 
   it('genera contraseña editable y de longitud útil', () => {
@@ -24,7 +24,7 @@ describe('credentials', () => {
   });
 
   it('arma email de login institucional', () => {
-    expect(loginEmailFromUsername('cristian.bonilla.8538')).toBe('cristian.bonilla.8538@jockey.sj');
+    expect(loginEmailFromUsername('martin.robledo.4538')).toBe('martin.robledo.4538@jockey.sj');
   });
 
   it('buildCredentials incluye usuario, clave y email', () => {

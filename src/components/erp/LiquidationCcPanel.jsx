@@ -2,18 +2,24 @@ import { useMemo, useState } from 'react';
 import { FileSpreadsheet, Search } from 'lucide-react';
 import { formatCurrency } from '../../domain/accounting/journal';
 import {
-  ACCESSIN_LIQUIDATION_CC,
-  ACCESSIN_LIQUIDATION_CC_SNAPSHOT,
   filterLiquidationCc,
+  liquidationCcSeed,
   liquidationCcSummary,
 } from '../../domain/accounting/liquidationCc';
-import LilaSourceNote from './LilaSourceNote';
-
+import SnapshotGate from '../SnapshotGate';
 const PAGE_SIZE = 40;
 
-export default function LiquidationCcPanel({
-  items = ACCESSIN_LIQUIDATION_CC,
-  snapshot = ACCESSIN_LIQUIDATION_CC_SNAPSHOT,
+export default function LiquidationCcPanel(props) {
+  return (
+    <SnapshotGate names={['accessinLiquidationCc']}>
+      <LiquidationCcContent {...props} />
+    </SnapshotGate>
+  );
+}
+
+function LiquidationCcContent({
+  items = liquidationCcSeed().ACCESSIN_LIQUIDATION_CC,
+  snapshot = liquidationCcSeed().ACCESSIN_LIQUIDATION_CC_SNAPSHOT,
   onOpenMember,
 }) {
   const [query, setQuery] = useState('');
@@ -38,14 +44,9 @@ export default function LiquidationCcPanel({
       </div>
 
       <p style={{ margin: '0 0 0.85rem', color: 'var(--text-secondary)', fontSize: '0.86rem' }}>
-        Export LILA · {summary.fileName || 'Detalle Cta Cte Liquidación'} · {summary.periodLabel}
+        {summary.periodLabel}
         {summary.generatedAt ? ` · Generado el ${summary.generatedAt}.` : '.'}
       </p>
-      <LilaSourceNote
-        asOf={summary.asOf}
-        period={summary.periodLabel}
-        extra="No es el mismo total que el Balance mensual ni el saldo operativo."
-      />
 
       <div className="cash-lila-cards">
         <div className="cash-lila-card is-total">
@@ -90,7 +91,7 @@ export default function LiquidationCcPanel({
         </label>
         <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>
           {rows.length.toLocaleString('es-AR')} de {summary.listedCount.toLocaleString('es-AR')} con movimiento
-          {' · '}padrón LILA {summary.sourceCount.toLocaleString('es-AR')}
+          {' · '}padrón {summary.sourceCount.toLocaleString('es-AR')}
         </span>
       </div>
 

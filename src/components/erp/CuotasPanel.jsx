@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import {
-  ArrowLeft, BookOpen, CalendarRange, Download, Eye, FileSpreadsheet, ListTree, Plus, Printer, RotateCcw, Search, Ticket, Trash2, Upload, Wallet,
+  ArrowLeft, BookOpen, CalendarRange, Download, Eye, FileDown, FileSpreadsheet, ListTree, Plus, RotateCcw, Search, Ticket, Trash2, Upload, Wallet,
 } from 'lucide-react';
 import { formatCurrency } from '../../domain/accounting/journal';
 import {
@@ -11,11 +11,15 @@ import {
   periodStatusLabel,
 } from '../../domain/accounting/feeBilling';
 import {
-  ACCESSIN_FEE_ACCOUNT_DETAILS_SNAPSHOT,
   feeAccountDetailsForPeriod,
+  feeAccountDetailsSeed,
   feeAccountDetailsSummary,
   filterFeeAccountLines,
 } from '../../domain/accounting/feeAccountDetails';
+import { requireSnapshots } from '../../data/snapshots';
+import { useSnapshotSeed } from '../../hooks/useSnapshots';
+import SnapshotGate from '../SnapshotGate';
+import { exportFeePeriodExcel, exportFeePeriodPdf } from '../../domain/accounting/exportFeePeriodDetails';
 import {
   LISTA_BASE_COBRANZAS_FILENAME,
   LISTA_BASE_COBRANZAS_URL,
@@ -32,6 +36,7 @@ import {
   applyEntryToMembers,
   createAccountEntry,
 } from '../../domain/accounting/memberBalances';
+import { buildEventImputationEntry, reservationChargeAmount } from '../../domain/accounting/eventImputation';
 import { getOverdueMembers } from '../../domain/members/dues';
 import DuesControlTab from '../admin/DuesControlTab';
 import OverdueDuesStrip from '../admin/OverdueDuesStrip';
@@ -42,6 +47,9 @@ import DetailedCurrentAccountsPanel from './DetailedCurrentAccountsPanel';
 import MemberCreditPurchasesPanel from './MemberCreditPurchasesPanel';
 
 const PAGE_SIZE = 25;
+
+const FEE_DETAILS_SNAPSHOTS = ['accessinFeeAccountDetails'];
+const NO_SNAPSHOTS = [];
 
 const MONTHS_ES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -115,13 +123,22 @@ export default function CuotasPanel({
   const [evStatus, setEvStatus] = useState('all');
   const [evPay, setEvPay] = useState('all');
   const [detailEvent, setDetailEvent] = useState(null);
+  const [exportBusy, setExportBusy] = useState(null);
 
   const periods = useMemo(() => feePeriodsForYear(feePeriods, year), [feePeriods, year]);
   const overdueMembers = useMemo(() => getOverdueMembers(members), [members]);
 
+  // El detalle de cuotas (665 kB con DNI) se baja recién al abrir un período.
+  const {
+    ACCESSIN_FEE_ACCOUNT_DETAILS,
+    ACCESSIN_FEE_ACCOUNT_DETAILS_SNAPSHOT,
+  } = useSnapshotSeed(
+    view === 'period_detail' ? FEE_DETAILS_SNAPSHOTS : NO_SNAPSHOTS,
+    feeAccountDetailsSeed,
+  );
   const periodAccounts = useMemo(
-    () => (selectedPeriod ? feeAccountDetailsForPeriod(selectedPeriod) : []),
-    [selectedPeriod]
+    () => (selectedPeriod ? feeAccountDetailsForPeriod(selectedPeriod, ACCESSIN_FEE_ACCOUNT_DETAILS) : []),
+    [selectedPeriod, ACCESSIN_FEE_ACCOUNT_DETAILS]
   );
   const periodAccountsSummary = useMemo(
     () => feeAccountDetailsSummary(periodAccounts),
@@ -137,17 +154,28 @@ export default function CuotasPanel({
   const pageLines = filteredLines.slice(safeDetailPage * PAGE_SIZE, (safeDetailPage + 1) * PAGE_SIZE);
 
   const openPeriodDetail = (period) => {
-    const accounts = feeAccountDetailsForPeriod(period);
-    if (!accounts.length) {
-      setFlash(`Sin detalle de cuentas contables para ${periodLabel(period)}.`);
-      return;
-    }
     setSelectedPeriod(period);
     setAccountTab(0);
     setDetailQuery('');
     setDetailPage(0);
     setFlash('');
     setView('period_detail');
+  };
+
+  const downloadPeriod = async (period, kind) => {
+    if (!period || exportBusy) return;
+    setExportBusy({ id: period.id, kind });
+    setError('');
+    try {
+      await requireSnapshots(FEE_DETAILS_SNAPSHOTS);
+      const accounts = feeAccountDetailsForPeriod(period);
+      if (kind === 'xlsx') await exportFeePeriodExcel(period, accounts);
+      else await exportFeePeriodPdf(period, accounts, { formatCurrency: fmt });
+    } catch (err) {
+      setError(err?.message || 'No se pudo generar el archivo.');
+    } finally {
+      setExportBusy(null);
+    }
   };
 
   const pendingEvents = useMemo(() => {
@@ -200,6 +228,32 @@ export default function CuotasPanel({
     }
     setYear(y);
     setError('');
+  };
+
+  const reservationStatusLabel = (status) => {
+    const s = String(status || '').toLowerCase();
+    if (s === 'confirmed' || s === 'confirmada') return 'Confirmada';
+    if (s === 'approved' || s === 'aprobado' || s === 'aprobada') return 'Aprobada';
+    if (s === 'pending' || s === 'pendiente') return 'Pendiente';
+    if (s === 'cancelled' || s === 'canceled' || s === 'cancelada') return 'Cancelada';
+    return status || 'Aprobada';
+  };
+
+  const imputeEvent = (reservation) => {
+    setError('');
+    setOk('');
+    try {
+      const entry = buildEventImputationEntry(reservation);
+      onUpsertMemberAccountEntry?.(entry);
+      if (typeof setMembers === 'function') {
+        setMembers((prev) => applyEntryToMembers(prev, entry));
+      }
+      onImputeReservation?.(reservation);
+      setDetailEvent(null);
+      setOk(`Imputado ${reservation.memberName || reservation.memberId}: ${fmt(entry.value)}.`);
+    } catch (err) {
+      setError(err?.message || 'No se pudo imputar el evento.');
+    }
   };
 
   const liquidate = (periodId) => {
@@ -347,6 +401,7 @@ export default function CuotasPanel({
   if (view === 'credit_purchases') {
     return (
       <MemberCreditPurchasesPanel
+        members={members}
         onBack={() => setView('hub')}
         onOpenMember={() => setView('balances')}
       />
@@ -355,123 +410,151 @@ export default function CuotasPanel({
 
   if (view === 'period_detail' && selectedPeriod) {
     return (
-      <div className="fade-in cuotas-panel">
-        <div className="cuotas-toolbar">
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            onClick={() => { setView('hub'); setSelectedPeriod(null); }}
-          >
-            <ArrowLeft size={14} /> Volver
-          </button>
-          <h3 className="cuotas-title" style={{ margin: 0 }}>
-            Detalle cuentas contables · {periodLabel(selectedPeriod)}
-          </h3>
-        </div>
-
-        <div className="cuotas-cc-banner">
-          <span>
-            {periodAccountsSummary.accountCount} cuentas · {periodAccountsSummary.lineCount} movimientos · total{' '}
-            {fmt(periodAccountsSummary.totalAmount)}
-            {ACCESSIN_FEE_ACCOUNT_DETAILS_SNAPSHOT?.asOf
-              ? ` · export ${ACCESSIN_FEE_ACCOUNT_DETAILS_SNAPSHOT.asOf}`
-              : ''}
-          </span>
-        </div>
-
-        {activeAccount?.collectionPeriodLabel ? (
-          <p className="disc-field-hint" style={{ margin: 0 }}>
-            Período de cobro: {activeAccount.collectionPeriodLabel}
-          </p>
-        ) : null}
-
-        <div className="disc-hub-tabs">
-          {periodAccounts.map((acc, idx) => (
+      <SnapshotGate names={FEE_DETAILS_SNAPSHOTS}>
+        <div className="fade-in cuotas-panel">
+          <div className="cuotas-toolbar">
             <button
-              key={acc.id}
               type="button"
-              className={`disc-hub-tab${accountTab === idx ? ' is-active' : ''}`}
-              onClick={() => { setAccountTab(idx); setDetailPage(0); }}
+              className="btn btn-secondary btn-sm"
+              onClick={() => { setView('hub'); setSelectedPeriod(null); }}
             >
-              {acc.accountLabel}
-              <span className="disc-badge" style={{ marginLeft: 8 }}>{acc.lineCount}</span>
+              <ArrowLeft size={14} /> Volver
             </button>
-          ))}
-        </div>
+            <h3 className="cuotas-title" style={{ margin: 0 }}>
+              Detalle cuentas contables · {periodLabel(selectedPeriod)}
+            </h3>
+            <div className="cuotas-actions">
+              <button
+                type="button"
+                className="btn btn-tan btn-sm"
+                disabled={Boolean(exportBusy)}
+                onClick={() => downloadPeriod(selectedPeriod, 'xlsx')}
+              >
+                <FileSpreadsheet size={14} /> {exportBusy?.kind === 'xlsx' ? 'Generando…' : 'Excel'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={Boolean(exportBusy)}
+                onClick={() => downloadPeriod(selectedPeriod, 'pdf')}
+              >
+                <FileDown size={14} /> {exportBusy?.kind === 'pdf' ? 'Generando…' : 'PDF'}
+              </button>
+            </div>
+          </div>
 
-        {activeAccount ? (
-          <section className="supplier-pay-import-block">
-            <div className="cuotas-toolbar" style={{ marginBottom: '0.75rem' }}>
-              <div>
-                <strong>CUENTA CONTABLE: {activeAccount.accountLabel}</strong>
-                <div className="disc-field-hint" style={{ margin: 0 }}>
-                  Total {fmt(activeAccount.total)} · {activeAccount.lineCount} líneas
+          <div className="cuotas-cc-banner">
+            <span>
+              {periodAccountsSummary.accountCount} cuentas · {periodAccountsSummary.lineCount} movimientos · total{' '}
+              {fmt(periodAccountsSummary.totalAmount || selectedPeriod.amount)}
+              {periodAccounts[0]?.slicedFromExport
+                ? ` · cuotas de ${periodLabel(selectedPeriod)} en el export LILA`
+                : ACCESSIN_FEE_ACCOUNT_DETAILS_SNAPSHOT?.asOf
+                  ? ` · export ${ACCESSIN_FEE_ACCOUNT_DETAILS_SNAPSHOT.asOf}`
+                  : ''}
+            </span>
+          </div>
+
+          {periodAccounts.length === 0 ? (
+            <p className="disc-field-hint" style={{ margin: 0 }}>
+              Este período está liquidado por {fmt(selectedPeriod.amount || 0)}, pero no hay líneas de cuenta para mostrar.
+            </p>
+          ) : null}
+
+          {activeAccount?.collectionPeriodLabel ? (
+            <p className="disc-field-hint" style={{ margin: 0 }}>
+              Período de cobro: {activeAccount.collectionPeriodLabel}
+            </p>
+          ) : null}
+
+          <div className="disc-hub-tabs">
+            {periodAccounts.map((acc, idx) => (
+              <button
+                key={acc.id}
+                type="button"
+                className={`disc-hub-tab${accountTab === idx ? ' is-active' : ''}`}
+                onClick={() => { setAccountTab(idx); setDetailPage(0); }}
+              >
+                {acc.accountLabel}
+                <span className="disc-badge" style={{ marginLeft: 8 }}>{acc.lineCount}</span>
+              </button>
+            ))}
+          </div>
+
+          {activeAccount ? (
+            <section className="supplier-pay-import-block">
+              <div className="cuotas-toolbar" style={{ marginBottom: '0.75rem' }}>
+                <div>
+                  <strong>CUENTA CONTABLE: {activeAccount.accountLabel}</strong>
+                  <div className="disc-field-hint" style={{ margin: 0 }}>
+                    Total {fmt(activeAccount.total)} · {activeAccount.lineCount} líneas
+                  </div>
                 </div>
+                <label className="disc-search-input" style={{ minWidth: 220 }}>
+                  <Search size={14} />
+                  <input
+                    className="form-input"
+                    value={detailQuery}
+                    onChange={(e) => { setDetailQuery(e.target.value); setDetailPage(0); }}
+                    placeholder="Socio, DNI, descripción…"
+                  />
+                </label>
               </div>
-              <label className="disc-search-input" style={{ minWidth: 220 }}>
-                <Search size={14} />
-                <input
-                  className="form-input"
-                  value={detailQuery}
-                  onChange={(e) => { setDetailQuery(e.target.value); setDetailPage(0); }}
-                  placeholder="Socio, DNI, descripción…"
-                />
-              </label>
-            </div>
 
-            <div className="disc-pager">
-              <span>
-                {filteredLines.length === 0
-                  ? 'No se encontraron resultados'
-                  : `Mostrando ${safeDetailPage * PAGE_SIZE + 1} - ${Math.min(filteredLines.length, (safeDetailPage + 1) * PAGE_SIZE)} de ${filteredLines.length}`}
-              </span>
-              {filteredLines.length > PAGE_SIZE ? (
-                <div className="cash-efectivo-pager">
-                  <button type="button" className="btn btn-secondary btn-sm" disabled={safeDetailPage <= 0} onClick={() => setDetailPage((p) => Math.max(0, p - 1))}>Anterior</button>
-                  <button type="button" className="btn btn-secondary btn-sm" disabled={safeDetailPage >= detailPages - 1} onClick={() => setDetailPage((p) => Math.min(detailPages - 1, p + 1))}>Siguiente</button>
-                </div>
-              ) : null}
-            </div>
+              <div className="disc-pager">
+                <span>
+                  {filteredLines.length === 0
+                    ? 'No se encontraron resultados'
+                    : `Mostrando ${safeDetailPage * PAGE_SIZE + 1} - ${Math.min(filteredLines.length, (safeDetailPage + 1) * PAGE_SIZE)} de ${filteredLines.length}`}
+                </span>
+                {filteredLines.length > PAGE_SIZE ? (
+                  <div className="cash-efectivo-pager">
+                    <button type="button" className="btn btn-secondary btn-sm" disabled={safeDetailPage <= 0} onClick={() => setDetailPage((p) => Math.max(0, p - 1))}>Anterior</button>
+                    <button type="button" className="btn btn-secondary btn-sm" disabled={safeDetailPage >= detailPages - 1} onClick={() => setDetailPage((p) => Math.min(detailPages - 1, p + 1))}>Siguiente</button>
+                  </div>
+                ) : null}
+              </div>
 
-            <div className="table-responsive">
-              <table className="admin-table">
-                <thead>
-                  <tr>
-                    <th>DNI</th>
-                    <th>N° socio</th>
-                    <th>Nombre</th>
-                    <th>Fecha de cobro</th>
-                    <th>Fecha cuota</th>
-                    <th>Tipo</th>
-                    <th>Descripción</th>
-                    <th>Cobrado</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pageLines.length === 0 ? (
+              <div className="table-responsive">
+                <table className="admin-table">
+                  <thead>
                     <tr>
-                      <td colSpan={8} style={{ color: 'var(--text-muted)' }}>Sin líneas.</td>
+                      <th>DNI</th>
+                      <th>N° socio</th>
+                      <th>Nombre</th>
+                      <th>Fecha de cobro</th>
+                      <th>Fecha cuota</th>
+                      <th>Tipo</th>
+                      <th>Descripción</th>
+                      <th>Cobrado</th>
                     </tr>
-                  ) : (
-                    pageLines.map((line, i) => (
-                      <tr key={`${line.memberNumber}-${line.feeDate}-${line.amount}-${i}`}>
-                        <td>{line.dni || '—'}</td>
-                        <td>{line.memberNumber}</td>
-                        <td style={{ fontWeight: 600 }}>{line.memberName}</td>
-                        <td>{line.collectedAtLabel || line.collectedAt || '—'}</td>
-                        <td>{line.feeDateLabel || line.feeDate || '—'}</td>
-                        <td>{line.type}</td>
-                        <td>{line.description}</td>
-                        <td style={{ fontWeight: 700 }}>{fmt(line.amount)}</td>
+                  </thead>
+                  <tbody>
+                    {pageLines.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} style={{ color: 'var(--text-muted)' }}>Sin líneas.</td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        ) : null}
-      </div>
+                    ) : (
+                      pageLines.map((line, i) => (
+                        <tr key={`${line.memberNumber}-${line.feeDate}-${line.amount}-${i}`}>
+                          <td>{line.dni || '—'}</td>
+                          <td>{line.memberNumber}</td>
+                          <td style={{ fontWeight: 600 }}>{line.memberName}</td>
+                          <td>{line.collectedAtLabel || line.collectedAt || '—'}</td>
+                          <td>{line.feeDateLabel || line.feeDate || '—'}</td>
+                          <td>{line.type}</td>
+                          <td>{line.description}</td>
+                          <td style={{ fontWeight: 700 }}>{fmt(line.amount)}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          ) : null}
+        </div>
+      </SnapshotGate>
     );
   }
 
@@ -556,7 +639,7 @@ export default function CuotasPanel({
               />
             </div>
             <div>
-              <a className="btn cash-lila-purple-btn" href={LISTA_BASE_COBRANZAS_URL} download={LISTA_BASE_COBRANZAS_FILENAME}>
+              <a className="btn btn-tan" href={LISTA_BASE_COBRANZAS_URL} download={LISTA_BASE_COBRANZAS_FILENAME}>
                 <Download size={14} /> Descargar lista base
               </a>
             </div>
@@ -569,7 +652,7 @@ export default function CuotasPanel({
             <button type="button" className="btn btn-secondary" onClick={() => { setView('hub'); setError(''); setOk(''); }}>
               Volver
             </button>
-            <button type="button" className="btn cash-lila-purple-btn" disabled={busy} onClick={processCollections}>
+            <button type="button" className="btn btn-tan" disabled={busy} onClick={processCollections}>
               <Upload size={14} /> {busy ? 'Procesando…' : 'Procesar archivo'}
             </button>
           </div>
@@ -683,9 +766,13 @@ export default function CuotasPanel({
           </div>
 
           <p className="disc-field-hint">
-            Mostrando {Math.min(10, filteredEvents.length)} de {filteredEvents.length}
+            {filteredEvents.length} reservas
             {pendingEvents.length ? ` · ${pendingEvents.length} sin imputar` : ''}
+            {' · '}
+            Imputar carga el alquiler en la cuenta corriente del socio
           </p>
+          {ok ? <p className="ig-ok">{ok}</p> : null}
+          {error ? <p className="ig-error">{error}</p> : null}
 
           <div className="table-responsive">
             <table className="admin-table">
@@ -708,38 +795,43 @@ export default function CuotasPanel({
                     </td>
                   </tr>
                 ) : (
-                  filteredEvents.slice(0, 50).map((r) => (
-                    <tr key={r.id}>
-                      <td>{r.accessinId || r.id}</td>
-                      <td>
-                        <div style={{ fontWeight: 600 }}>{r.memberName || '—'}</div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{r.memberId}</div>
-                      </td>
-                      <td>{formatLilaDateTime(r.createdAt || r.created_at)}</td>
-                      <td>{r.date || r.start || '—'}{r.startTime ? ` ${r.startTime}` : ''}{r.endTime ? ` - ${r.endTime}` : ''}</td>
-                      <td>
-                        <div>{r.facilityName || r.facilityId || r.space || '—'}</div>
-                        <span className="status-badge confirmed">{r.status || 'Aprobado'}</span>
-                      </td>
-                      <td>
-                        <button
-                          type="button"
-                          className="btn cash-lila-purple-btn btn-sm"
-                          onClick={() => {
-                            onImputeReservation?.(r);
-                            setFlash(`Evento ${r.id} marcado para imputación.`);
-                          }}
-                        >
-                          Imputar
-                        </button>
-                      </td>
-                      <td>
-                        <button type="button" className="cash-lila-icon-btn is-edit" title="Ver" onClick={() => setDetailEvent(r)}>
-                          <Eye size={13} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))
+                  filteredEvents.map((r) => {
+                    const amount = reservationChargeAmount(r);
+                    return (
+                      <tr key={r.id || r.accessinId}>
+                        <td>{r.accessinId || String(r.id || '—').slice(0, 8)}</td>
+                        <td>
+                          <div style={{ fontWeight: 600 }}>{r.memberName || '—'}</div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{r.memberId}</div>
+                        </td>
+                        <td>{formatLilaDateTime(r.createdAt || r.created_at)}</td>
+                        <td>{r.date || r.start || '—'}{r.startTime ? ` ${r.startTime}` : ''}{r.endTime ? ` - ${r.endTime}` : ''}</td>
+                        <td>
+                          <div>{r.facilityName || r.facilityId || r.space || '—'}</div>
+                          <span className="status-badge confirmed">{reservationStatusLabel(r.status)}</span>
+                        </td>
+                        <td style={{ fontWeight: 700 }}>{amount > 0 ? fmt(amount) : '—'}</td>
+                        <td>
+                          <div className="cash-lila-row-actions">
+                            <button
+                              type="button"
+                              className="btn btn-tan btn-sm"
+                              onClick={() => imputeEvent(r)}
+                            >
+                              Imputar
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => setDetailEvent(r)}
+                            >
+                              Ver
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -748,21 +840,46 @@ export default function CuotasPanel({
 
         {detailEvent ? (
           <div className="modal-overlay" onClick={() => setDetailEvent(null)} role="presentation">
-            <div className="modal-card" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+            <div className="modal-card glass-panel cuotas-event-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="cuotas-event-modal-title">
               <div className="modal-header">
-                <h3>Evento #{detailEvent.accessinId || detailEvent.id}</h3>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setDetailEvent(null)}>×</button>
+                <h3 id="cuotas-event-modal-title">
+                  {detailEvent.facilityName || detailEvent.facilityId || detailEvent.space || 'Evento'}
+                </h3>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setDetailEvent(null)} aria-label="Cerrar">×</button>
               </div>
-              <div className="modal-body" style={{ display: 'grid', gap: '0.65rem' }}>
-                <div><strong>Socio:</strong> {detailEvent.memberName}</div>
-                <div><strong>Socio (ID):</strong> {detailEvent.memberId}</div>
-                <div><strong>Espacio:</strong> {detailEvent.facilityName || detailEvent.facilityId || detailEvent.space}</div>
-                <div><strong>Estado:</strong> {detailEvent.status || 'Aprobado'}</div>
-                <div><strong>Fecha:</strong> {detailEvent.date || detailEvent.start}</div>
-                <div><strong>Invitados:</strong> {detailEvent.guests ?? 0}</div>
+              <div className="modal-body">
+                <dl className="cuotas-event-facts">
+                  <div>
+                    <dt>Socio</dt>
+                    <dd>{detailEvent.memberName || '—'}</dd>
+                  </div>
+                  <div>
+                    <dt>Nº socio</dt>
+                    <dd>{detailEvent.memberId || '—'}</dd>
+                  </div>
+                  <div>
+                    <dt>Estado</dt>
+                    <dd>{reservationStatusLabel(detailEvent.status)}</dd>
+                  </div>
+                  <div>
+                    <dt>Fecha</dt>
+                    <dd>{detailEvent.date || detailEvent.start || '—'}</dd>
+                  </div>
+                  <div>
+                    <dt>Invitados</dt>
+                    <dd>{detailEvent.guests ?? 0}</dd>
+                  </div>
+                </dl>
+                <div className="cuotas-event-amount">
+                  <span>A imputar en cuenta</span>
+                  <strong>{fmt(reservationChargeAmount(detailEvent))}</strong>
+                </div>
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setDetailEvent(null)}>Cerrar</button>
+                <button type="button" className="btn btn-emerald" onClick={() => imputeEvent(detailEvent)}>
+                  <Wallet size={16} /> Imputar a la cuenta
+                </button>
               </div>
             </div>
           </div>
@@ -784,25 +901,25 @@ export default function CuotasPanel({
           <CalendarRange size={18} /> Cuotas
         </h2>
         <div className="cuotas-actions">
-          <button type="button" className="btn cash-lila-purple-btn" onClick={() => setView('balances')}>
+          <button type="button" className="btn btn-tan" onClick={() => setView('balances')}>
             <Wallet size={14} /> Saldos / Socios
           </button>
-          <button type="button" className="btn cash-lila-purple-btn" onClick={() => setView('detailed_cc')}>
+          <button type="button" className="btn btn-tan" onClick={() => setView('detailed_cc')}>
             <ListTree size={14} /> CC detalladas
           </button>
-          <button type="button" className="btn cash-lila-purple-btn" onClick={() => setView('credit_purchases')}>
+          <button type="button" className="btn btn-tan" onClick={() => setView('credit_purchases')}>
             <Ticket size={14} /> Créditos comprados
           </button>
-          <button type="button" className="btn cash-lila-purple-btn" onClick={() => setView('monthly_debts')}>
+          <button type="button" className="btn btn-tan" onClick={() => setView('monthly_debts')}>
             <FileSpreadsheet size={14} /> Deudas mes a mes
           </button>
-          <button type="button" className="btn cash-lila-purple-btn" onClick={() => setView('accounts')}>
+          <button type="button" className="btn btn-tan" onClick={() => setView('accounts')}>
             <BookOpen size={14} /> Cuentas contables
           </button>
-          <button type="button" className="btn cash-lila-purple-btn" onClick={() => { setView('import_collections'); setError(''); setOk(''); }}>
+          <button type="button" className="btn btn-tan" onClick={() => { setView('import_collections'); setError(''); setOk(''); }}>
             <Upload size={14} /> Importar cobranzas socios
           </button>
-          <button type="button" className="btn cash-lila-purple-btn" onClick={() => setView('impute_events')}>
+          <button type="button" className="btn btn-tan" onClick={() => setView('impute_events')}>
             <Plus size={14} /> Imputar eventos
           </button>
           <button type="button" className="btn btn-secondary" onClick={() => setView('mora')}>
@@ -819,7 +936,7 @@ export default function CuotasPanel({
         </span>
         <button
           type="button"
-          className="btn btn-sm cuotas-cc-toggle"
+          className={`btn btn-sm cuotas-cc-toggle${ccEnabled ? ' btn-secondary' : ' btn-emerald'}`}
           onClick={() => setCcEnabled((v) => !v)}
         >
           {ccEnabled ? 'Desactivar cuentas corrientes' : 'Activar cuentas corrientes'}
@@ -838,7 +955,7 @@ export default function CuotasPanel({
           onChange={(e) => setYearDraft(e.target.value)}
           style={{ maxWidth: 120 }}
         />
-        <button type="button" className="btn cash-lila-purple-btn" onClick={applyYear}>
+        <button type="button" className="btn btn-emerald" onClick={applyYear}>
           Ver año seleccionado
         </button>
       </div>
@@ -876,16 +993,34 @@ export default function CuotasPanel({
                     <div className="cash-lila-row-actions">
                       {p.status === 'processed' ? (
                         <>
-                          <button type="button" className="cash-lila-icon-btn is-edit" title="Imprimir" onClick={() => window.print()}>
-                            <Printer size={13} />
-                          </button>
                           <button
                             type="button"
                             className="cash-lila-icon-btn is-edit"
                             title="Ver detalle de cuentas"
+                            aria-label="Ver detalle de cuentas"
                             onClick={() => openPeriodDetail(p)}
                           >
-                            <Eye size={13} />
+                            <Eye size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            className="cash-lila-icon-btn is-edit"
+                            title="Descargar Excel"
+                            aria-label="Descargar Excel"
+                            disabled={exportBusy?.id === p.id}
+                            onClick={() => downloadPeriod(p, 'xlsx')}
+                          >
+                            <FileSpreadsheet size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            className="cash-lila-icon-btn is-edit"
+                            title="Descargar PDF"
+                            aria-label="Descargar PDF"
+                            disabled={exportBusy?.id === p.id}
+                            onClick={() => downloadPeriod(p, 'pdf')}
+                          >
+                            <FileDown size={14} />
                           </button>
                           {p.month === 9 && p.year === 2026 ? (
                             <>

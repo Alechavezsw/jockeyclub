@@ -265,7 +265,7 @@ export default function MessagesView({ messages, setMessages, members = [], onRe
                       gap: '0.75rem',
                       padding: '0.7rem 0.9rem',
                       borderRadius: 8,
-                      border: '1px solid rgba(207,161,58,0.35)',
+                      border: '1px solid rgba(var(--primary-gold-rgb),0.35)',
                       background: 'var(--bg-secondary)',
                       color: 'var(--text-primary)',
                     }}
@@ -441,7 +441,7 @@ export default function MessagesView({ messages, setMessages, members = [], onRe
                     type="button"
                     onClick={() => openMessage(msg)}
                     style={{
-                      background: selectedId === msg.id ? 'rgba(207,161,58,0.08)' : 'transparent',
+                      background: selectedId === msg.id ? 'rgba(var(--primary-gold-rgb),0.08)' : 'transparent',
                       border: 'none',
                       borderBottom: '1px solid var(--border-glass)',
                       borderLeft: selectedId === msg.id ? '3px solid var(--primary-gold)' : '3px solid transparent',

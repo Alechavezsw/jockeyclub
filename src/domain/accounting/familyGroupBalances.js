@@ -1,19 +1,19 @@
 /** Saldos oficiales de grupo familiar Accessin/LILA. */
 
-import {
-  ACCESSIN_FAMILY_GROUP_BALANCES_AS_OF,
-  ACCESSIN_FAMILY_GROUP_BALANCES_BY_NAME,
-  ACCESSIN_FAMILY_GROUP_BALANCES_BY_NUMBER,
-  ACCESSIN_FAMILY_GROUP_BALANCES_SNAPSHOT,
-} from '../../data/seed/accessinFamilyGroupBalances';
+import { readSnapshot } from '../../data/snapshots';
 import { memberNumberOf } from '../members/households';
 
-export {
-  ACCESSIN_FAMILY_GROUP_BALANCES_AS_OF,
-  ACCESSIN_FAMILY_GROUP_BALANCES_BY_NAME,
-  ACCESSIN_FAMILY_GROUP_BALANCES_BY_NUMBER,
-  ACCESSIN_FAMILY_GROUP_BALANCES_SNAPSHOT,
-};
+const EMPTY_FAMILY_GROUP_BALANCES_SEED = Object.freeze({
+  ACCESSIN_FAMILY_GROUP_BALANCES_AS_OF: '',
+  ACCESSIN_FAMILY_GROUP_BALANCES_BY_NAME: {},
+  ACCESSIN_FAMILY_GROUP_BALANCES_BY_NUMBER: {},
+  ACCESSIN_FAMILY_GROUP_BALANCES_SNAPSHOT: {},
+});
+
+/** Snapshot `accessinFamilyGroupBalances`; vacío hasta que carga (ver data/snapshots). */
+export function familyGroupBalancesSeed() {
+  return readSnapshot('accessinFamilyGroupBalances', EMPTY_FAMILY_GROUP_BALANCES_SEED);
+}
 
 function padMember(n) {
   return String(n || '').replace(/\D/g, '') || '';
@@ -24,7 +24,7 @@ export function normalizeFamilyGroupKey(name) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-    .replace(/^gf[\s.\-]*/i, '')
+    .replace(/^gf[\s.-]*/i, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -33,8 +33,8 @@ export function lookupFamilyGroupBalance({
   name = '',
   memberNumber = '',
   memberName = '',
-  byName = ACCESSIN_FAMILY_GROUP_BALANCES_BY_NAME,
-  byNumber = ACCESSIN_FAMILY_GROUP_BALANCES_BY_NUMBER,
+  byName = familyGroupBalancesSeed().ACCESSIN_FAMILY_GROUP_BALANCES_BY_NAME,
+  byNumber = familyGroupBalancesSeed().ACCESSIN_FAMILY_GROUP_BALANCES_BY_NUMBER,
 } = {}) {
   const nro = padMember(memberNumber);
   if (nro && byNumber[nro]) return byNumber[nro];

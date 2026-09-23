@@ -1,9 +1,15 @@
-/** Catálogo y historial de reportes LILA de Contabilidad. */
+/** Catálogo e historial de reportes de Contabilidad. */
 
 export const ACCOUNTING_REPORT_MODULE = 'contabilidad';
 
 export const ACCOUNTING_REPORT_TYPES = [
-  { id: 'recargos', label: 'Reporte composición recargos' },
+  { id: 'diary', label: 'Libro diario' },
+  { id: 'mayor', label: 'Libro mayor' },
+  { id: 'results', label: 'Estado de resultados' },
+  { id: 'balance_sheet', label: 'Balance patrimonial' },
+  { id: 'trial', label: 'Balance de comprobación' },
+  { id: 'gestion', label: 'Gestión del ejercicio' },
+  { id: 'recargos', label: 'Composición de recargos' },
   { id: 'libre_deuda', label: 'Libre deuda' },
   { id: 'detailed_cc', label: 'Cuentas corrientes detalladas' },
   { id: 'family_balances', label: 'Saldo de grupo familiar' },

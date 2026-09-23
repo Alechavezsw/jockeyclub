@@ -471,7 +471,7 @@ export default function VirtualCard({ member }) {
             text-align: center;
           }
           .vc-secure-shield strong {
-            color: var(--primary-gold, #cfa13a);
+            color: var(--primary-gold, #CA390C);
             font-size: 1rem;
           }
           .vc-secure-scan {
@@ -511,7 +511,7 @@ export default function VirtualCard({ member }) {
 
         {secureHide ? (
           <div className="vc-secure-shield">
-            <Lock size={36} color="var(--primary-gold, #cfa13a)" />
+            <Lock size={36} color="var(--primary-gold, #CA390C)" />
             <strong>Credencial oculta</strong>
             <p style={{ margin: 0, fontSize: '0.85rem', lineHeight: 1.45 }}>
               Volvé a la app para mostrar tu credencial.

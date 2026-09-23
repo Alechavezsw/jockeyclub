@@ -1,25 +1,28 @@
 /** Helpers de cobranzas Accessin/LILA. */
 
-import {
-  ACCESSIN_COBRANZAS,
-  ACCESSIN_COBRANZAS_AS_OF,
-  ACCESSIN_COBRANZAS_METHOD_LABELS,
-  ACCESSIN_COBRANZAS_SNAPSHOT,
-} from '../../data/seed/accessinCobranzas';
+import { readSnapshot } from '../../data/snapshots';
 import { formatAccessinCashDate } from './cashLedger';
 
-export {
-  ACCESSIN_COBRANZAS,
-  ACCESSIN_COBRANZAS_AS_OF,
-  ACCESSIN_COBRANZAS_METHOD_LABELS,
-  ACCESSIN_COBRANZAS_SNAPSHOT,
-};
+const EMPTY_COBRANZAS_SEED = Object.freeze({
+  ACCESSIN_COBRANZAS: [],
+  ACCESSIN_COBRANZAS_AS_OF: '',
+  ACCESSIN_COBRANZAS_METHOD_LABELS: {},
+  ACCESSIN_COBRANZAS_SNAPSHOT: {},
+});
 
-export function cobranzasTotal(items = ACCESSIN_COBRANZAS) {
+/** Snapshot `accessinCobranzas`; vacío hasta que carga (ver data/snapshots). */
+export function cobranzasSeed() {
+  return readSnapshot('accessinCobranzas', EMPTY_COBRANZAS_SEED);
+}
+
+export function cobranzasTotal(items = cobranzasSeed().ACCESSIN_COBRANZAS) {
   return Math.round((items || []).reduce((s, r) => s + (Number(r.amount) || 0), 0) * 100) / 100;
 }
 
-export function cobranzasSummary(items = ACCESSIN_COBRANZAS, snapshot = ACCESSIN_COBRANZAS_SNAPSHOT) {
+export function cobranzasSummary(
+  items = cobranzasSeed().ACCESSIN_COBRANZAS,
+  snapshot = cobranzasSeed().ACCESSIN_COBRANZAS_SNAPSHOT,
+) {
   const list = items || [];
   const byType = {};
   const byMethod = {};
@@ -30,7 +33,7 @@ export function cobranzasSummary(items = ACCESSIN_COBRANZAS, snapshot = ACCESSIN
     byMethod[m] = (byMethod[m] || 0) + (Number(row.amount) || 0);
   });
   return {
-    asOf: snapshot?.asOf || ACCESSIN_COBRANZAS_AS_OF,
+    asOf: snapshot?.asOf || cobranzasSeed().ACCESSIN_COBRANZAS_AS_OF,
     periodFrom: snapshot?.periodFrom,
     periodTo: snapshot?.periodTo,
     count: list.length,
@@ -44,7 +47,10 @@ export function cobranzasSummary(items = ACCESSIN_COBRANZAS, snapshot = ACCESSIN
   };
 }
 
-export function cobranzasBalanceCards(items = ACCESSIN_COBRANZAS, snapshot = ACCESSIN_COBRANZAS_SNAPSHOT) {
+export function cobranzasBalanceCards(
+  items = cobranzasSeed().ACCESSIN_COBRANZAS,
+  snapshot = cobranzasSeed().ACCESSIN_COBRANZAS_SNAPSHOT,
+) {
   const summary = cobranzasSummary(items, snapshot);
   const typeCards = Object.entries(summary.byType)
     .sort((a, b) => b[1] - a[1])

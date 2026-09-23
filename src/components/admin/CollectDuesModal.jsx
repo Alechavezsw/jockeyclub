@@ -163,7 +163,7 @@ export default function CollectDuesModal({
                   padding: '0.75rem 0.5rem',
                   borderRadius: 10,
                   border: active ? '1px solid var(--primary-gold)' : '1px solid var(--border-glass)',
-                  background: active ? 'rgba(207,161,58,0.12)' : 'rgba(255,255,255,0.02)',
+                  background: active ? 'rgba(var(--primary-gold-rgb),0.12)' : 'rgba(255,255,255,0.02)',
                   color: active ? 'var(--text-gold)' : 'var(--text-secondary)',
                   cursor: 'pointer',
                   fontFamily: 'inherit',

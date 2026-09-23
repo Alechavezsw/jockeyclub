@@ -1,16 +1,29 @@
 import { useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import {
-  ACCESSIN_SUPPLIER_PAYMENTS_AS_OF,
-  ACCESSIN_SUPPLIER_PAYMENTS_METHOD_LABELS,
-  ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT,
   filterAccessinSupplierPayments,
   supplierPaymentsBalanceCards,
+  supplierPaymentsSeed,
 } from '../../domain/accounting/supplierPaymentsReport';
 import { formatAccessinCashDate } from '../../domain/accounting/cashLedger';
 import { formatCurrency } from '../../domain/accounting/journal';
+import { useSnapshotSeed } from '../../hooks/useSnapshots';
+import SnapshotGate from '../SnapshotGate';
 
-export default function CashSupplierPaymentsSection({ items = [] }) {
+export default function CashSupplierPaymentsSection(props) {
+  return (
+    <SnapshotGate names={['accessinSupplierPayments']}>
+      <CashSupplierPaymentsContent {...props} />
+    </SnapshotGate>
+  );
+}
+
+function CashSupplierPaymentsContent({ items = [] }) {
+  const {
+    ACCESSIN_SUPPLIER_PAYMENTS_AS_OF,
+    ACCESSIN_SUPPLIER_PAYMENTS_METHOD_LABELS,
+    ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT,
+  } = useSnapshotSeed(['accessinSupplierPayments'], supplierPaymentsSeed);
   const [filter, setFilter] = useState({
     paymentMethod: null,
     query: '',
@@ -19,7 +32,7 @@ export default function CashSupplierPaymentsSection({ items = [] }) {
 
   const cards = useMemo(
     () => supplierPaymentsBalanceCards(items, ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT),
-    [items]
+    [items, ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT]
   );
 
   const rows = useMemo(

@@ -1,17 +1,18 @@
 /** Saldos de cuentas corrientes Accessin/LILA aplicados al padrón. */
 
-import {
-  ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF,
-  ACCESSIN_CURRENT_ACCOUNT_BALANCES_BY_NUMBER,
-  ACCESSIN_CURRENT_ACCOUNT_BALANCES_SNAPSHOT,
-} from '../../data/seed/accessinCurrentAccountBalances';
+import { readSnapshot } from '../../data/snapshots';
 import { memberNumberOf } from '../members/households';
 
-export {
-  ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF,
-  ACCESSIN_CURRENT_ACCOUNT_BALANCES_BY_NUMBER,
-  ACCESSIN_CURRENT_ACCOUNT_BALANCES_SNAPSHOT,
-};
+const EMPTY_CURRENT_ACCOUNT_BALANCES_SEED = Object.freeze({
+  ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF: '',
+  ACCESSIN_CURRENT_ACCOUNT_BALANCES_BY_NUMBER: {},
+  ACCESSIN_CURRENT_ACCOUNT_BALANCES_SNAPSHOT: {},
+});
+
+/** Snapshot `accessinCurrentAccountBalances`; vacío hasta que carga (ver data/snapshots). */
+export function currentAccountBalancesSeed() {
+  return readSnapshot('accessinCurrentAccountBalances', EMPTY_CURRENT_ACCOUNT_BALANCES_SEED);
+}
 
 function padMember(n) {
   return String(n || '').replace(/\D/g, '') || '';
@@ -20,7 +21,7 @@ function padMember(n) {
 export function lookupCurrentAccountBalance(memberNumber) {
   const key = padMember(memberNumber);
   if (!key) return null;
-  return ACCESSIN_CURRENT_ACCOUNT_BALANCES_BY_NUMBER[key] || null;
+  return currentAccountBalancesSeed().ACCESSIN_CURRENT_ACCOUNT_BALANCES_BY_NUMBER[key] || null;
 }
 
 export function latestMemberPaymentDate(member) {
@@ -49,8 +50,8 @@ export function currentAccountBalanceOf(member) {
  * No pisa cobros posteriores (lastPaymentDate / paymentHistory).
  */
 export function applyCurrentAccountBalances(members = [], {
-  byNumber = ACCESSIN_CURRENT_ACCOUNT_BALANCES_BY_NUMBER,
-  asOf = ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF,
+  byNumber = currentAccountBalancesSeed().ACCESSIN_CURRENT_ACCOUNT_BALANCES_BY_NUMBER,
+  asOf = currentAccountBalancesSeed().ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF,
 } = {}) {
   if (!members?.length || !byNumber || !Object.keys(byNumber).length) return members || [];
 

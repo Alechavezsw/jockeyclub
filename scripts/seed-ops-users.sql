@@ -1,5 +1,5 @@
 -- Seed operativo JC: 4 usuarios (admin, contabilidad, caja, socio)
--- Password: jockey2026
+-- Password: la define quien aplica el seed; no va en el repo.
 -- Aplicado en remoto vía MCP execute_sql.
 
 create extension if not exists pgcrypto;

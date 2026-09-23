@@ -3,20 +3,35 @@ import { ArrowLeft, Search, Ticket } from 'lucide-react';
 import { formatCurrency } from '../../domain/accounting/journal';
 import { formatAccessinCashDate } from '../../domain/accounting/cashLedger';
 import {
-  ACCESSIN_CREDIT_PURCHASES,
-  ACCESSIN_CREDIT_PURCHASES_SNAPSHOT,
   creditPurchaseSummary,
+  creditPurchasesSeed,
   filterCreditPurchases,
 } from '../../domain/accounting/memberCreditPurchases';
-import LilaSourceNote from './LilaSourceNote';
+import { filterMembersForBalances } from '../../domain/accounting/memberBalances';
+import { memberNumberOf } from '../../domain/members/households';
+import { useSnapshotSeed } from '../../hooks/useSnapshots';
+import SnapshotGate from '../SnapshotGate';
 
 const PAGE_SIZE = 40;
 
-export default function MemberCreditPurchasesPanel({
-  items = ACCESSIN_CREDIT_PURCHASES,
+export default function MemberCreditPurchasesPanel(props) {
+  return (
+    <SnapshotGate names={['accessinMemberCreditPurchases']}>
+      <MemberCreditPurchasesContent {...props} />
+    </SnapshotGate>
+  );
+}
+
+function MemberCreditPurchasesContent({
+  items = creditPurchasesSeed().ACCESSIN_CREDIT_PURCHASES,
+  members = [],
   onBack,
   onOpenMember,
 }) {
+  const { ACCESSIN_CREDIT_PURCHASES_SNAPSHOT } = useSnapshotSeed(
+    ['accessinMemberCreditPurchases'],
+    creditPurchasesSeed,
+  );
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
@@ -31,10 +46,16 @@ export default function MemberCreditPurchasesPanel({
     () => [...new Set((items || []).map((row) => row.paymentMethod).filter(Boolean))].sort(),
     [items]
   );
-  const rows = useMemo(
-    () => filterCreditPurchases(items, { query, status, paymentMethod }),
-    [items, query, status, paymentMethod]
-  );
+  const rows = useMemo(() => {
+    const purchases = filterCreditPurchases(items, { query, status, paymentMethod });
+    if (purchases.length || !query.trim()) return purchases;
+    return filterMembersForBalances(members, { query, status: 'all' }).slice(0, PAGE_SIZE).map((m) => ({
+      id: `sin-compra-${memberNumberOf(m) || m.memberId}`,
+      memberNumber: memberNumberOf(m) || m.memberId,
+      memberName: m.name || '',
+      withoutPurchase: true,
+    }));
+  }, [items, members, query, status, paymentMethod]);
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages - 1);
   const pageRows = rows.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
@@ -53,14 +74,9 @@ export default function MemberCreditPurchasesPanel({
       </div>
 
       <p style={{ margin: '0 0 0.85rem', color: 'var(--text-secondary)', fontSize: '0.86rem' }}>
-        Export LILA · {ACCESSIN_CREDIT_PURCHASES_SNAPSHOT.fileName || 'Créditos comprados'} · al{' '}
+        Export · {(ACCESSIN_CREDIT_PURCHASES_SNAPSHOT.fileName || 'Créditos comprados').replace(/^LILA\s*[-–]\s*/i, '')} · al{' '}
         {formatAccessinCashDate(summary.asOf)}.
       </p>
-      <LilaSourceNote
-        asOf={formatAccessinCashDate(summary.asOf)}
-        extra="Snapshot de compras, no el saldo operativo."
-      />
-
       <div className="cash-lila-cards">
         <div className="cash-lila-card is-total">
           <div className="cash-lila-card-label">Compras</div>
@@ -85,13 +101,15 @@ export default function MemberCreditPurchasesPanel({
       </div>
 
       <div style={{ display: 'flex', gap: '0.55rem', flexWrap: 'wrap', alignItems: 'center', margin: '1rem 0' }}>
-        <label className="cash-lila-search">
-          <Search size={14} />
+        <label className="cash-lila-search member-credit-search">
+          <Search size={16} aria-hidden />
           <input
             className="form-input"
-            placeholder="Socio, DNI, combo o medio…"
+            type="search"
+            placeholder="Nombre, DNI, Nº de socio, combo o medio…"
             value={query}
             onChange={(e) => { setQuery(e.target.value); setPage(0); }}
+            autoComplete="off"
           />
         </label>
         {statuses.length > 0 ? (
@@ -142,9 +160,11 @@ export default function MemberCreditPurchasesPanel({
             {pageRows.length === 0 ? (
               <tr>
                 <td colSpan={10} style={{ color: 'var(--text-muted)' }}>
-                  {items.length === 0
-                    ? 'El export de LILA del 9 de septiembre no tiene compras cargadas.'
-                    : 'No hay compras con este filtro.'}
+                  {query.trim()
+                    ? 'No se encontraron socios ni compras con esa búsqueda.'
+                    : items.length === 0
+                      ? 'El export del 9 de septiembre no tiene compras cargadas. Buscá un socio para consultar.'
+                      : 'No hay compras con este filtro.'}
                 </td>
               </tr>
             ) : (
@@ -158,16 +178,22 @@ export default function MemberCreditPurchasesPanel({
                     ) : row.memberNumber}
                   </td>
                   <td>{row.memberName || '—'}</td>
-                  <td>{formatAccessinCashDate(row.purchasedAt)}</td>
-                  <td>{row.combo || '—'}</td>
-                  <td>{row.credits || '—'}</td>
-                  <td>{row.paymentMethod || '—'}</td>
-                  <td style={{ fontWeight: 700 }}>{formatCurrency(row.totalAmount)}</td>
-                  <td>{row.status || '—'}</td>
-                  <td>{formatCurrency(row.collectedAmount)}</td>
-                  <td style={{ color: Number(row.difference) > 0 ? 'var(--danger, #ef4444)' : undefined }}>
-                    {formatCurrency(row.difference)}
-                  </td>
+                  {row.withoutPurchase ? (
+                    <td colSpan={8} style={{ color: 'var(--text-muted)' }}>Sin compras en el export</td>
+                  ) : (
+                    <>
+                      <td>{formatAccessinCashDate(row.purchasedAt)}</td>
+                      <td>{row.combo || '—'}</td>
+                      <td>{row.credits || '—'}</td>
+                      <td>{row.paymentMethod || '—'}</td>
+                      <td style={{ fontWeight: 700 }}>{formatCurrency(row.totalAmount)}</td>
+                      <td>{row.status || '—'}</td>
+                      <td>{formatCurrency(row.collectedAmount)}</td>
+                      <td style={{ color: Number(row.difference) > 0 ? 'var(--danger, #ef4444)' : undefined }}>
+                        {formatCurrency(row.difference)}
+                      </td>
+                    </>
+                  )}
                 </tr>
               ))
             )}

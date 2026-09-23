@@ -1,16 +1,17 @@
 /** Balance Mensual Accessin / LILA. */
 
-import {
-  ACCESSIN_MONTHLY_BALANCE_AS_OF,
-  ACCESSIN_MONTHLY_BALANCE_SECTIONS,
-  ACCESSIN_MONTHLY_BALANCE_SNAPSHOT,
-} from '../../data/seed/accessinMonthlyBalance';
+import { readSnapshot, requireSnapshots } from '../../data/snapshots';
 
-export {
-  ACCESSIN_MONTHLY_BALANCE_AS_OF,
-  ACCESSIN_MONTHLY_BALANCE_SECTIONS,
-  ACCESSIN_MONTHLY_BALANCE_SNAPSHOT,
-};
+const EMPTY_MONTHLY_BALANCE_SEED = Object.freeze({
+  ACCESSIN_MONTHLY_BALANCE_AS_OF: '',
+  ACCESSIN_MONTHLY_BALANCE_SECTIONS: [],
+  ACCESSIN_MONTHLY_BALANCE_SNAPSHOT: {},
+});
+
+/** Snapshot `accessinMonthlyBalance`; vacío hasta que carga (ver data/snapshots). */
+export function monthlyBalanceSeed() {
+  return readSnapshot('accessinMonthlyBalance', EMPTY_MONTHLY_BALANCE_SEED);
+}
 
 const COLUMN_LABELS = {
   nro_de_socio: 'Socio',
@@ -28,8 +29,6 @@ const COLUMN_LABELS = {
 
 const MONEY_COLUMNS = new Set(['monto', 'imputado']);
 
-let detailsPromise = null;
-
 function slugHeader(value) {
   return String(value || '')
     .normalize('NFD')
@@ -39,10 +38,10 @@ function slugHeader(value) {
     .replace(/^_|_$/g, '');
 }
 
-export function monthlyBalanceCards(snapshot = ACCESSIN_MONTHLY_BALANCE_SNAPSHOT) {
+export function monthlyBalanceCards(snapshot = monthlyBalanceSeed().ACCESSIN_MONTHLY_BALANCE_SNAPSHOT) {
   const data = snapshot || {};
   return {
-    asOf: data.asOf || ACCESSIN_MONTHLY_BALANCE_AS_OF,
+    asOf: data.asOf || monthlyBalanceSeed().ACCESSIN_MONTHLY_BALANCE_AS_OF,
     periodFrom: data.periodFrom || '',
     periodTo: data.periodTo || '',
     periodLabel: data.periodLabel || '',
@@ -60,7 +59,7 @@ export function monthlyBalanceCards(snapshot = ACCESSIN_MONTHLY_BALANCE_SNAPSHOT
   };
 }
 
-export function findMonthlyBalanceSection(sections = ACCESSIN_MONTHLY_BALANCE_SECTIONS, id) {
+export function findMonthlyBalanceSection(sections = monthlyBalanceSeed().ACCESSIN_MONTHLY_BALANCE_SECTIONS, id) {
   if (!id) return null;
   return (sections || []).find((section) => section.id === id) || null;
 }
@@ -102,10 +101,11 @@ export function isMonthlyBalanceMoneyColumn(key) {
   return MONEY_COLUMNS.has(key);
 }
 
-export function loadMonthlyBalanceDetails() {
-  if (!detailsPromise) {
-    detailsPromise = import('../../data/seed/accessinMonthlyBalanceDetails.js')
-      .then((mod) => mod.ACCESSIN_MONTHLY_BALANCE_DETAILS);
-  }
-  return detailsPromise;
+/**
+ * Detalle por hoja del balance (`accessinMonthlyBalanceDetails`, 1,5 MB). Se baja aparte,
+ * solo cuando se abre una línea. Rechaza si no se pudo cargar.
+ */
+export async function loadMonthlyBalanceDetails() {
+  const [data] = await requireSnapshots(['accessinMonthlyBalanceDetails']);
+  return data.ACCESSIN_MONTHLY_BALANCE_DETAILS || {};
 }

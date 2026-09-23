@@ -2,6 +2,22 @@ import { describe, expect, it } from 'vitest';
 import { payMemberDues, persistDuesCollection, recordDuesCollection } from './memberPayments';
 
 describe('payMemberDues', () => {
+  it('cobra con importe explícito aunque el saldo guardado sea 0', () => {
+    const member = {
+      memberId: '2026887744320988',
+      name: 'Test',
+      outstandingBalance: 0,
+      paymentHistory: [],
+    };
+    const { payment, fullyPaid } = payMemberDues(member, {
+      method: 'caja',
+      amount: 32000,
+      today: new Date('2026-09-21T12:00:00'),
+    });
+    expect(fullyPaid).toBe(true);
+    expect(payment.amount).toBe(32000);
+  });
+
   it('clears debt and appends payment history', () => {
     const member = {
       memberId: '2026887744320988',

@@ -1,26 +1,43 @@
-/** Helpers de ledger Accessin para saldos y listados de caja. */
+/**
+ * Helpers de ledger Accessin para saldos y listados de caja.
+ *
+ * Los snapshots de caja (`accessinCashSnapshot`, `accessinCheques`) se leen del registro
+ * de data/snapshots. Los movimientos (`accessinCashMovements`, ~600 kB) los carga el
+ * store del ERP y las funciones los reciben por parámetro.
+ */
 
-import {
-  ACCESSIN_CASH_AS_OF,
-  ACCESSIN_CASH_MOVEMENTS,
-  ACCESSIN_CASH_REGISTERS,
-  ACCESSIN_CASH_SNAPSHOT,
-} from '../../data/seed/accessinCashMovements';
-import {
-  ACCESSIN_CHEQUES,
-  ACCESSIN_CHEQUES_AS_OF,
-  ACCESSIN_CHEQUES_SNAPSHOT,
-} from '../../data/seed/accessinCheques';
+import { readSnapshot } from '../../data/snapshots';
 
-export {
-  ACCESSIN_CASH_AS_OF,
-  ACCESSIN_CASH_MOVEMENTS,
-  ACCESSIN_CASH_REGISTERS,
-  ACCESSIN_CASH_SNAPSHOT,
-  ACCESSIN_CHEQUES,
-  ACCESSIN_CHEQUES_AS_OF,
-  ACCESSIN_CHEQUES_SNAPSHOT,
-};
+const EMPTY_CASH_SEED = Object.freeze({
+  ACCESSIN_CASH_AS_OF: '',
+  ACCESSIN_CASH_REGISTERS: [],
+  ACCESSIN_CASH_SNAPSHOT: {},
+});
+
+const EMPTY_CHEQUES_SEED = Object.freeze({
+  ACCESSIN_CHEQUES: [],
+  ACCESSIN_CHEQUES_AS_OF: '',
+  ACCESSIN_CHEQUES_SNAPSHOT: {},
+});
+
+const EMPTY_CASH_MOVEMENTS_SEED = Object.freeze({
+  ACCESSIN_CASH_MOVEMENTS: [],
+});
+
+/** Snapshot `accessinCashSnapshot` (corte y cajas); vacío hasta que carga. */
+export function cashSeed() {
+  return readSnapshot('accessinCashSnapshot', EMPTY_CASH_SEED);
+}
+
+/** Snapshot `accessinCheques`; vacío hasta que carga. */
+export function chequesSeed() {
+  return readSnapshot('accessinCheques', EMPTY_CHEQUES_SEED);
+}
+
+/** Snapshot `accessinCashMovements`; vacío hasta que carga. */
+export function cashMovementsSeed() {
+  return readSnapshot('accessinCashMovements', EMPTY_CASH_MOVEMENTS_SEED);
+}
 
 export function formatAccessinCashDate(isoDate) {
   if (!isoDate) return '—';
@@ -34,7 +51,7 @@ export function formatAccessinCashDate(isoDate) {
   return `${Number(d)} de ${months[mi] || m} del ${y}`;
 }
 
-export function recalculateAccessinCashTotal(snapshot = ACCESSIN_CASH_SNAPSHOT, movements = ACCESSIN_CASH_MOVEMENTS) {
+export function recalculateAccessinCashTotal(snapshot = cashSeed().ACCESSIN_CASH_SNAPSHOT, movements = []) {
   const opening = Number(snapshot?.openingBalance) || 0;
   const inflow = (movements || []).reduce((sum, m) => {
     const amt = Number(m.amount) || 0;
@@ -44,7 +61,7 @@ export function recalculateAccessinCashTotal(snapshot = ACCESSIN_CASH_SNAPSHOT, 
   return Math.round((opening + inflow) * 100) / 100;
 }
 
-export function accessinChequesTotal(cheques = ACCESSIN_CHEQUES) {
+export function accessinChequesTotal(cheques = chequesSeed().ACCESSIN_CHEQUES) {
   return Math.round(
     (cheques || [])
       .filter((c) => c.status === 'in_portfolio')
@@ -76,9 +93,9 @@ export function filterAccessinCheques(cheques = [], filter = {}) {
 }
 
 export function accessinCashBalanceCards(
-  snapshot = ACCESSIN_CASH_SNAPSHOT,
-  movements = ACCESSIN_CASH_MOVEMENTS,
-  cheques = ACCESSIN_CHEQUES,
+  snapshot = cashSeed().ACCESSIN_CASH_SNAPSHOT,
+  movements = [],
+  cheques = chequesSeed().ACCESSIN_CHEQUES,
   bankAccounts = null,
 ) {
   const periodFrom = snapshot?.periodFrom;
@@ -103,7 +120,7 @@ export function accessinCashBalanceCards(
       ? bankInflow
       : (movements || []).filter((m) => m.walletKind === 'bank').reduce((s, m) => s + (Number(m.amount) || 0), 0));
   const bancosCaption = banksBalanceSum != null
-    ? `Saldo cuentas al ${formatAccessinCashDate(snapshot?.asOf || ACCESSIN_CASH_AS_OF)}`
+    ? `Saldo cuentas al ${formatAccessinCashDate(snapshot?.asOf || cashSeed().ACCESSIN_CASH_AS_OF)}`
     : periodCaption;
 
   // Preferir saldo explícito del Excel; si no, recalcular apertura + movimientos.
@@ -126,7 +143,7 @@ export function accessinCashBalanceCards(
       id: 'cheques',
       label: 'Cheques en Cartera',
       value: chequesValue,
-      caption: `Cartera al ${formatAccessinCashDate(ACCESSIN_CHEQUES_AS_OF)}`,
+      caption: `Cartera al ${formatAccessinCashDate(chequesSeed().ACCESSIN_CHEQUES_AS_OF)}`,
       actionLabel: 'Ver cheques',
       filter: { view: 'cheques' },
       icon: 'checks',
@@ -146,7 +163,7 @@ export function accessinCashBalanceCards(
       id: 'total',
       label: 'Total Caja',
       value: totalValue,
-      caption: `Saldo Accessin al ${formatAccessinCashDate(snapshot?.asOf || ACCESSIN_CASH_AS_OF)}`,
+      caption: `Saldo al ${formatAccessinCashDate(snapshot?.asOf || cashSeed().ACCESSIN_CASH_AS_OF)}`,
       actionLabel: null,
       filter: null,
       emphasize: true,

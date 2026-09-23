@@ -50,6 +50,27 @@ describe('acknowledgeAlert', () => {
     expect(isAlertAcknowledged({ id: 'otra', code: 'OTRA' }, acks)).toBe(false);
   });
 
+  it('sigue oculta si la concesión vuelve con otro id de alerta', () => {
+    const alert = {
+      id: 'alert-conc-9',
+      code: 'CONC-9',
+      source: 'concession_expiry',
+      metadata: { concessionId: '9' },
+    };
+    const acks = acknowledgeAlert([], alert.id, 'user-a', alert.code, { alert });
+    expect(isAlertAcknowledged({
+      id: 'uuid-nuevo',
+      code: 'CONC-9',
+      source: 'concession_expiry',
+      metadata: { concessionId: '9' },
+    }, acks)).toBe(true);
+    expect(isAlertAcknowledged({
+      id: 'uuid-docs',
+      source: 'concession_docs',
+      metadata: { concessionId: '9' },
+    }, acks)).toBe(false);
+  });
+
   it('fusiona acuses locales y de nube sin perder los locales', () => {
     const local = acknowledgeAlert([], 'alert-local', 'local-user');
     const remote = acknowledgeAlert([], 'alert-cloud', 'user-a');

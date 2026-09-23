@@ -1,4 +1,5 @@
 import { useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useModalA11y } from '../hooks/useModalA11y';
 
 /**
@@ -19,7 +20,7 @@ export default function ModalDialog({
 
   if (!open) return null;
 
-  return (
+  return createPortal(
     <div
       className={overlayClassName}
       onClick={onClose}
@@ -38,6 +39,7 @@ export default function ModalDialog({
       >
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

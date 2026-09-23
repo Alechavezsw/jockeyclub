@@ -6,6 +6,7 @@ import {
   drawReportHeader,
   loadClubLogoDataUrl,
 } from '../reports/pdfBrand';
+import { requireSnapshots } from '../../data/snapshots';
 import { lookupDetailedCc, periodLabelFromKey } from './detailedCurrentAccounts';
 
 function money(n) {
@@ -13,6 +14,7 @@ function money(n) {
 }
 
 export async function exportDetailedCcPdf(memberNumber) {
+  await requireSnapshots(['accessinDetailedCurrentAccounts']);
   const detail = lookupDetailedCc(memberNumber);
   if (!detail) throw new Error('Socio. Es obligatorio');
   const [{ jsPDF }, autoTableMod, logoDataUrl] = await Promise.all([

@@ -19,6 +19,11 @@ dist-ssr
 # Datos reales / PII (no commitear)
 datita/
 src/data/seedDatitaReservas.js
+# Snapshots de LILA/Societas: la app los baja de Supabase Storage (npm run upload:snapshots)
+src/data/seed/
+# Scripts de una sola vez con DNI, emails o nombres de personas
+scripts/seed-accessin-system-users.sql
+scripts/chunk-supplier-sql.cjs
 
 # Editor directories and files
 .vscode/*

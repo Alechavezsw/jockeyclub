@@ -1,7 +1,7 @@
 /** Saldos / resumen de cuenta de socios (Accessin / LILA). */
 
-import { ACCESSIN_COBRANZAS } from '../../data/seed/accessinCobranzas';
-import { ACCESSIN_FEE_ACCOUNT_DETAILS } from '../../data/seed/accessinFeeAccountDetails';
+import { cobranzasSeed } from './cobranzas';
+import { feeAccountDetailsSeed } from './feeAccountDetails';
 import {
   familyPrincipalOf,
   isTitularMember,
@@ -12,28 +12,40 @@ import { getTierDisplayName } from '../members/tiers';
 import { currentAccountBalanceOf } from './currentAccountBalances';
 import { familyGroupBalanceOf } from './familyGroupBalances';
 import { buildDetailedCcAccountEntries } from './detailedCurrentAccounts';
+import {
+  ACCOUNT_ENTRY_TYPES,
+  createAccountEntry,
+  padMember,
+  softDeleteAccountEntry,
+  upsertAccountEntry,
+} from './accountEntries';
+
+// Reexportados para no romper a quien ya los importaba desde acá. Los consumidores
+// que solo necesitan el CRUD deben importar de ./accountEntries.
+export {
+  ACCOUNT_ENTRY_TYPES,
+  createAccountEntry,
+  softDeleteAccountEntry,
+  upsertAccountEntry,
+};
+
+/**
+ * Snapshots que usan los saldos y resúmenes de cuenta de este módulo
+ * (buildAccessinAccountEntries, familyBalanceForMember, currentAccountBalanceOf).
+ * Tienen que estar cargados antes de calcular.
+ */
+export const MEMBER_BALANCES_SNAPSHOTS = [
+  'accessinCobranzas',
+  'accessinFeeAccountDetails',
+  'accessinDetailedCurrentAccounts',
+  'accessinCurrentAccountBalances',
+  'accessinFamilyGroupBalances',
+];
 
 const MONTHS_ES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
 ];
-
-export const ACCOUNT_ENTRY_TYPES = [
-  { id: 'pago', label: 'Pago' },
-  { id: 'cuota', label: 'Cuota' },
-  { id: 'recargo', label: 'Recargo de Cuota (FIJO)' },
-  { id: 'descuento', label: 'Descuento' },
-  { id: 'interes', label: 'Interés' },
-  { id: 'otro', label: 'Otros' },
-];
-
-function uid(prefix = 'mae') {
-  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-}
-
-function padMember(n) {
-  return String(n || '').replace(/\D/g, '') || String(n || '');
-}
 
 export function memberStatusLabel(member) {
   const s = String(member?.status || '').toLowerCase();
@@ -130,14 +142,23 @@ export function filterMembersForBalances(members = [], filters = {}) {
       if (!fam.includes(famQ)) return false;
     }
     if (q) {
+      const qDigits = q.replace(/\D/g, '');
+      const nro = padMember(memberNumberOf(m) || m.memberId);
+      const doc = String(m.documentNumber || m.dni || '').replace(/\D/g, '');
       const hay = [
         m.name,
         m.memberId,
         m.documentNumber,
+        m.dni,
         m.familyGroupName,
+        m.familyPrincipalNumber,
+        m.phone,
+        m.email,
         getTierDisplayName(m.tier),
       ].map((x) => String(x || '').toLowerCase()).join(' ');
-      if (!hay.includes(q)) return false;
+      const textHit = hay.includes(q);
+      const digitHit = qDigits.length >= 3 && (nro.includes(qDigits) || doc.includes(qDigits));
+      if (!textHit && !digitHit) return false;
     }
     return true;
   });
@@ -152,6 +173,23 @@ function monthTitle(key) {
   if (!key) return 'Sin fecha';
   const [y, m] = key.split('-').map(Number);
   return `${MONTHS_ES[m - 1] || m} del ${y}`;
+}
+
+function currentMonthKey(today = new Date()) {
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function shiftMonthKey(key, delta) {
+  const [y, m] = String(key).split('-').map(Number);
+  const date = new Date(y, (m - 1) + delta, 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function monthWindowEndingAt(endKey, count) {
+  const size = Math.max(1, Number(count) || 1);
+  const keys = [];
+  for (let i = size - 1; i >= 0; i -= 1) keys.push(shiftMonthKey(endKey, -i));
+  return keys;
 }
 
 export function formatSpanishLongDate(iso) {
@@ -184,8 +222,8 @@ function receiptPaidTotal(rows = []) {
 
 /** Entradas Accessin: CC detalladas + cobranzas + detalle de cuotas. */
 export function buildAccessinAccountEntries(memberNumber, {
-  cobranzas = ACCESSIN_COBRANZAS,
-  feeDetails = ACCESSIN_FEE_ACCOUNT_DETAILS,
+  cobranzas = cobranzasSeed().ACCESSIN_COBRANZAS,
+  feeDetails = feeAccountDetailsSeed().ACCESSIN_FEE_ACCOUNT_DETAILS,
 } = {}) {
   const key = padMember(memberNumber);
   if (!key) return [];
@@ -313,8 +351,8 @@ export function mergeAccountEntries(accessinEntries = [], localEntries = [], mem
   return [...byId.values()].toSorted((a, b) => String(a.date).localeCompare(String(b.date)) || a.id.localeCompare(b.id));
 }
 
-/** Agrupa entradas por mes con saldo inicial del mes. */
-export function groupEntriesByMonth(entries = [], { monthsBack = 3 } = {}) {
+/** Agrupa entradas por mes con saldo inicial. Incluye meses vacíos de la ventana. */
+export function groupEntriesByMonth(entries = [], { monthsBack = 3, asOf } = {}) {
   const sorted = [...(entries || [])].toSorted((a, b) => String(a.date).localeCompare(String(b.date)));
   const byMonth = new Map();
   sorted.forEach((e) => {
@@ -325,13 +363,14 @@ export function groupEntriesByMonth(entries = [], { monthsBack = 3 } = {}) {
   });
 
   const keys = [...byMonth.keys()].toSorted();
-  const recent = monthsBack > 0 ? keys.slice(-monthsBack) : keys;
+  const endKey = asOf || keys[keys.length - 1] || currentMonthKey();
+  const recent = monthsBack > 0 ? monthWindowEndingAt(endKey, monthsBack) : keys;
+  const windowStart = recent[0] || '';
   let running = 0;
-  // compute opening for first shown month
-  for (const key of keys) {
-    if (recent.includes(key)) break;
-    (byMonth.get(key) || []).forEach((e) => { running += Number(e.value) || 0; });
-  }
+  sorted.forEach((e) => {
+    const key = monthKeyFromIso(e.date);
+    if (key && key < windowStart) running += Number(e.value) || 0;
+  });
 
   return recent.map((key) => {
     const opening = running;
@@ -347,53 +386,6 @@ export function groupEntriesByMonth(entries = [], { monthsBack = 3 } = {}) {
       closingBalance: running,
     };
   });
-}
-
-export function createAccountEntry(input = {}) {
-  const type = ACCOUNT_ENTRY_TYPES.some((t) => t.id === input.type) ? input.type : 'pago';
-  const typeLabel = ACCOUNT_ENTRY_TYPES.find((t) => t.id === type)?.label || type;
-  const memberNumber = padMember(input.memberNumber || input.memberId);
-  if (!memberNumber) throw new Error('Indicá el socio.');
-  const rawValue = Number(input.value);
-  if (!Number.isFinite(rawValue)) throw new Error('El valor es obligatorio.');
-  const value = type === 'pago' ? -Math.abs(rawValue) : Math.abs(rawValue);
-  return {
-    id: input.id || uid('mae'),
-    accessinId: input.accessinId || null,
-    memberNumber,
-    memberName: String(input.memberName || '').trim(),
-    date: input.date || new Date().toISOString().slice(0, 10),
-    type,
-    typeLabel,
-    description: String(input.description || '').trim(),
-    value,
-    voucher: String(input.voucher || '').trim(),
-    paymentMethods: input.paymentMethods || [],
-    allocations: input.allocations || [],
-    isActive: input.isActive !== false,
-    source: input.source || 'manual',
-    createdAt: input.createdAt || new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-}
-
-export function upsertAccountEntry(list = [], input = {}) {
-  const existing = (list || []).find((e) => e.id === input.id) || null;
-  const next = createAccountEntry({
-    ...existing,
-    ...input,
-    id: existing?.id || input.id,
-    createdAt: existing?.createdAt,
-    source: existing?.source || input.source || 'manual',
-  });
-  if (existing) return (list || []).map((e) => (e.id === existing.id ? next : e));
-  return [next, ...(list || [])];
-}
-
-export function softDeleteAccountEntry(list = [], id) {
-  return (list || []).map((e) => (
-    e.id === id ? { ...e, isActive: false, updatedAt: new Date().toISOString() } : e
-  ));
 }
 
 export function buildPaymentBoleto(member, {

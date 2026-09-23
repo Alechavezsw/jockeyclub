@@ -91,9 +91,11 @@ async function main() {
   const url = loadEnv('VITE_SUPABASE_URL');
   const anon = loadEnv('VITE_SUPABASE_ANON_KEY');
   const sb = createClient(url, anon, { auth: { persistSession: false, autoRefreshToken: false } });
+  const password = process.env.JC_ADMIN_PASSWORD;
+  if (!password) throw new Error('Falta JC_ADMIN_PASSWORD en el entorno (la contraseña no va en el repo).');
   const { error: authErr } = await sb.auth.signInWithPassword({
     email: process.env.JC_ADMIN_EMAIL || 'admin@jockey.sj',
-    password: process.env.JC_ADMIN_PASSWORD || 'jockey2026',
+    password,
   });
   if (authErr) throw authErr;
 

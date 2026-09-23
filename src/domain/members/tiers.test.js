@@ -9,6 +9,7 @@ import {
   slugifyTierId,
   pickPrimaryCuotaCategory,
   parseCuotaCategories,
+  splitTierDisplayName,
   deriveMemberTier,
   resolveStoredMemberTier,
   mergeOfficialTiers,
@@ -98,6 +99,17 @@ describe('tiers catalog', () => {
     });
     expect(remapped[0].tier).toBe('socio_familiar');
     expect(remapped[0].adherents[0].tier).toBe('socio_familiar');
+  });
+
+  it('separa variante entre paréntesis para el sello', () => {
+    expect(splitTierDisplayName('GRUPO FAMILIAR (Familiar)')).toEqual({
+      main: 'GRUPO FAMILIAR',
+      sub: 'Familiar',
+    });
+    expect(splitTierDisplayName('SOCIO FAMILIAR')).toEqual({
+      main: 'SOCIO FAMILIAR',
+      sub: null,
+    });
   });
 
   it('normaliza id en minúsculas', () => {

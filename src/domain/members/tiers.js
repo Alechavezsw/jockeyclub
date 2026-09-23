@@ -271,10 +271,28 @@ export function tierBadgeStyle(tier, catalog = getTierCatalog()) {
   const t = findTier(tier, catalog);
   const color = t?.color || '#10b981';
   return {
+    '--tier-color': color,
     background: `${color}26`,
     color,
     borderColor: `${color}55`,
   };
+}
+
+/** Variables CSS para el sello de categoría del padrón. */
+export function tierChipVars(tier, catalog = getTierCatalog()) {
+  const t = findTier(tier, catalog);
+  return { '--tier-color': t?.color || '#cfa13a' };
+}
+
+/** Separa «GRUPO FAMILIAR (Familiar)» en cuerpo + variante. */
+export function splitTierDisplayName(name = '') {
+  const raw = String(name || '').trim();
+  if (!raw) return { main: '—', sub: null };
+  const match = raw.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+  if (match?.[1]?.trim()) {
+    return { main: match[1].trim(), sub: match[2].trim() };
+  }
+  return { main: raw, sub: null };
 }
 
 /** Estilo de tarjeta virtual según categoría del catálogo. */

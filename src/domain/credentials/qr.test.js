@@ -25,6 +25,11 @@ describe('credential QR payload', () => {
       token: null,
       signed: false,
     });
+    expect(parseCredentialQRPayload('123456')).toEqual({
+      memberId: '123456',
+      token: null,
+      signed: false,
+    });
   });
 
   it('rechaza basura', () => {

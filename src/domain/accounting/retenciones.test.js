@@ -1,10 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { loadSnapshots } from '../../data/snapshots';
 import {
-  ACCESSIN_RETENCIONES_PERIOD_FROM,
-  ACCESSIN_RETENCIONES_PERIOD_TO,
   createRetencion,
+  retencionesSeed,
   retencionTotals,
 } from './retenciones';
+
+let ACCESSIN_RETENCIONES_PERIOD_FROM;
+let ACCESSIN_RETENCIONES_PERIOD_TO;
+
+beforeAll(async () => {
+  await loadSnapshots(['accessinRetenciones']);
+  ({ ACCESSIN_RETENCIONES_PERIOD_FROM, ACCESSIN_RETENCIONES_PERIOD_TO } = retencionesSeed());
+});
 
 describe('retenciones', () => {
   it('expone el período Accessin del resumen', () => {

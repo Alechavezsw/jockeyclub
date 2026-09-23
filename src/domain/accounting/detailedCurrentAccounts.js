@@ -1,17 +1,18 @@
 /** Cuentas corrientes detalladas Accessin/LILA (cargos y pagos por línea). */
 
-import {
-  ACCESSIN_DETAILED_CC_AS_OF,
-  ACCESSIN_DETAILED_CC_BY_NUMBER,
-  ACCESSIN_DETAILED_CC_SNAPSHOT,
-} from '../../data/seed/accessinDetailedCurrentAccounts';
+import { readSnapshot } from '../../data/snapshots';
 import { memberNumberOf } from '../members/households';
 
-export {
-  ACCESSIN_DETAILED_CC_AS_OF,
-  ACCESSIN_DETAILED_CC_BY_NUMBER,
-  ACCESSIN_DETAILED_CC_SNAPSHOT,
-};
+const EMPTY_DETAILED_CC_SEED = Object.freeze({
+  ACCESSIN_DETAILED_CC_AS_OF: '',
+  ACCESSIN_DETAILED_CC_BY_NUMBER: {},
+  ACCESSIN_DETAILED_CC_SNAPSHOT: {},
+});
+
+/** Snapshot `accessinDetailedCurrentAccounts`; vacío hasta que carga (ver data/snapshots). */
+export function detailedCcSeed() {
+  return readSnapshot('accessinDetailedCurrentAccounts', EMPTY_DETAILED_CC_SEED);
+}
 
 const MONTHS_ES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -32,7 +33,7 @@ export function periodLabelFromKey(periodKey) {
 export function lookupDetailedCc(memberNumber) {
   const key = padMember(memberNumber);
   if (!key) return null;
-  return ACCESSIN_DETAILED_CC_BY_NUMBER[key] || null;
+  return detailedCcSeed().ACCESSIN_DETAILED_CC_BY_NUMBER[key] || null;
 }
 
 export function detailedCcForMember(member) {
@@ -40,7 +41,7 @@ export function detailedCcForMember(member) {
 }
 
 export function listDetailedCcMembers({
-  byNumber = ACCESSIN_DETAILED_CC_BY_NUMBER,
+  byNumber = detailedCcSeed().ACCESSIN_DETAILED_CC_BY_NUMBER,
   query = '',
   onlyUnpaid = false,
   periodKey = 'all',
@@ -66,7 +67,7 @@ export function listDetailedCcMembers({
       || String(a.memberNumber).localeCompare(String(b.memberNumber)));
 }
 
-export function listDetailedCcPeriods(byNumber = ACCESSIN_DETAILED_CC_BY_NUMBER) {
+export function listDetailedCcPeriods(byNumber = detailedCcSeed().ACCESSIN_DETAILED_CC_BY_NUMBER) {
   const set = new Set();
   Object.values(byNumber || {}).forEach((m) => {
     (m.lines || []).forEach((l) => { if (l.periodKey) set.add(l.periodKey); });
@@ -82,7 +83,7 @@ export function listDetailedCcPeriods(byNumber = ACCESSIN_DETAILED_CC_BY_NUMBER)
  * (cuota positiva + pago negativo cuando hubo cancelación).
  */
 export function buildDetailedCcAccountEntries(memberNumber, {
-  byNumber = ACCESSIN_DETAILED_CC_BY_NUMBER,
+  byNumber = detailedCcSeed().ACCESSIN_DETAILED_CC_BY_NUMBER,
 } = {}) {
   const key = padMember(memberNumber);
   const bucket = key ? byNumber[key] : null;

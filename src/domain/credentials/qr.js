@@ -29,13 +29,13 @@ export function parseCredentialQRPayload(raw) {
     .replace(/^["']|["']$/g, '')
     .replace(/\s+/g, '');
 
-  let body = text;
+  let body;
   if (/^JCSJ:/i.test(text)) {
     body = text.slice(5);
   } else {
     const embedded = text.match(/JCSJ:([0-9]{6,20}(?:\.[a-f0-9]{16,64})?)/i);
     if (embedded) body = embedded[1];
-    else if (/^\d{10,20}$/.test(text)) body = text;
+    else if (/^\d{6,20}$/.test(text)) body = text;
     else return null;
   }
 

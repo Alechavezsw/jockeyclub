@@ -27,26 +27,28 @@ import {
   isLiquidAccount,
 } from '../../domain/accounting/cash';
 import {
-  ACCESSIN_CASH_AS_OF,
-  ACCESSIN_CASH_SNAPSHOT,
-  ACCESSIN_CHEQUES,
-  ACCESSIN_CHEQUES_AS_OF,
   accessinCashBalanceCards,
+  cashSeed,
+  chequesSeed,
   enrichCashMovementsWithMembers,
   filterAccessinCashMovements,
   filterAccessinCheques,
   formatAccessinCashDate,
   recalculateAccessinCashTotal,
 } from '../../domain/accounting/cashLedger';
-import LilaSourceNote from './LilaSourceNote';
 import { formatCurrency } from '../../domain/accounting/journal';
 import CashCobranzasSection from './CashCobranzasSection';
 import CashBankAccountsSection from './CashBankAccountsSection';
 import CashEfectivoRegistroSection from './CashEfectivoRegistroSection';
 import CashSupplierPaymentsSection from './CashSupplierPaymentsSection';
-import { ACCESSIN_COBRANZAS } from '../../domain/accounting/cobranzas';
-import { ACCESSIN_SUPPLIER_PAYMENTS } from '../../domain/accounting/supplierPaymentsReport';
-import { ACCESSIN_BANK_ACCOUNTS } from '../../domain/accounting/bankAccounts';
+import { cobranzasSeed } from '../../domain/accounting/cobranzas';
+import { supplierPaymentsSeed } from '../../domain/accounting/supplierPaymentsReport';
+import { bankAccountsSeed } from '../../domain/accounting/bankAccounts';
+import { useSnapshotSeed } from '../../hooks/useSnapshots';
+import SnapshotGate from '../SnapshotGate';
+
+// Cobranzas, pagos, cuentas y movimientos llegan por props desde el store del ERP.
+const CASH_SNAPSHOTS = ['accessinCashSnapshot', 'accessinCheques'];
 
 const PANEL_TABS = [
   { id: 'ledger', label: 'Saldo y movimientos' },
@@ -88,15 +90,23 @@ function formatCashAmount(value, { withArs = false } = {}) {
   return withArs ? `${base} (ARS)` : base;
 }
 
-export default function CashRegistersPanel({
+export default function CashRegistersPanel(props) {
+  return (
+    <SnapshotGate names={CASH_SNAPSHOTS}>
+      <CashRegistersContent {...props} />
+    </SnapshotGate>
+  );
+}
+
+function CashRegistersContent({
   cashRegisters,
   cashSessions,
   cashMovements,
   accessinCashMovements = [],
-  accessinCheques = ACCESSIN_CHEQUES,
-  accessinCobranzas = ACCESSIN_COBRANZAS,
-  accessinSupplierPayments = ACCESSIN_SUPPLIER_PAYMENTS,
-  accessinBankAccounts = ACCESSIN_BANK_ACCOUNTS,
+  accessinCheques = chequesSeed().ACCESSIN_CHEQUES,
+  accessinCobranzas = cobranzasSeed().ACCESSIN_COBRANZAS,
+  accessinSupplierPayments = supplierPaymentsSeed().ACCESSIN_SUPPLIER_PAYMENTS,
+  accessinBankAccounts = bankAccountsSeed().ACCESSIN_BANK_ACCOUNTS,
   upsertBankAccount,
   deleteBankAccount,
   addBankAccountEntry,
@@ -108,7 +118,14 @@ export default function CashRegistersPanel({
   transferCash,
   onNavigate,
 }) {
-  const [selectedRegisterId, setSelectedRegisterId] = useState(cashRegisters[0]?.id || '');
+  const { ACCESSIN_CASH_AS_OF, ACCESSIN_CASH_SNAPSHOT } = useSnapshotSeed(CASH_SNAPSHOTS, cashSeed);
+  const { ACCESSIN_CHEQUES_AS_OF } = useSnapshotSeed(CASH_SNAPSHOTS, chequesSeed);
+  const [pickedRegisterId, setSelectedRegisterId] = useState(cashRegisters[0]?.id || '');
+  // Las cajas reales pueden llegar después de montar (base o snapshot): si la elegida ya
+  // no está en la lista, se toma la primera.
+  const selectedRegisterId = cashRegisters.some((r) => r.id === pickedRegisterId)
+    ? pickedRegisterId
+    : (cashRegisters[0]?.id || '');
   const [panelTab, setPanelTab] = useState('ledger');
   const [openingBalance, setOpeningBalance] = useState('50000');
   const [countedBalance, setCountedBalance] = useState('');
@@ -156,7 +173,7 @@ export default function CashRegistersPanel({
     );
     if (recalcTotal == null) return cards;
     return cards.map((c) => (c.id === 'total' ? { ...c, value: recalcTotal } : c));
-  }, [enrichedLedger, accessinCheques, accessinBankAccounts, recalcTotal]);
+  }, [ACCESSIN_CASH_SNAPSHOT, enrichedLedger, accessinCheques, accessinBankAccounts, recalcTotal]);
 
   const chequeRows = useMemo(
     () => filterAccessinCheques(accessinCheques, {
@@ -242,7 +259,7 @@ export default function CashRegistersPanel({
         <div>
           <h4 className="serif-font" style={{ margin: 0, fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: 8 }}>
             <Wallet size={18} /> Cajas
-            <span className="suppliers-accessin-badge">Accessin · {formatAccessinCashDate(ACCESSIN_CASH_AS_OF)}</span>
+            <span className="suppliers-accessin-badge">{formatAccessinCashDate(ACCESSIN_CASH_AS_OF)}</span>
           </h4>
           <p style={{ margin: '0.35rem 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
             Movimientos reales ({enrichedLedger.length}) · período {formatAccessinCashDate(ACCESSIN_CASH_SNAPSHOT.periodFrom)} → {formatAccessinCashDate(ACCESSIN_CASH_SNAPSHOT.periodTo)}.
@@ -263,7 +280,7 @@ export default function CashRegistersPanel({
           </button>
           <button
             type="button"
-            className="btn btn-primary btn-sm"
+            className="btn btn-tan btn-sm"
             onClick={() => (typeof onNavigate === 'function' ? onNavigate('other_incomes') : null)}
           >
             <Plus size={14} /> Entradas
@@ -332,11 +349,6 @@ export default function CashRegistersPanel({
       {panelTab === 'ledger' && ledgerFilter.view !== 'efectivo_registro' && ledgerFilter.view !== 'bank_accounts' && (
         <>
           <div className="cash-lila-balance-block">
-            <LilaSourceNote
-              asOf={formatAccessinCashDate(ACCESSIN_CASH_SNAPSHOT.asOf || ACCESSIN_CASH_AS_OF)}
-              period={`${formatAccessinCashDate(ACCESSIN_CASH_SNAPSHOT.periodFrom)} — ${formatAccessinCashDate(ACCESSIN_CASH_SNAPSHOT.periodTo)}`}
-              extra="Efectivo es ingreso del período, no el efectivo en caja. El total no es la suma de las tarjetas."
-            />
             <div className="cash-lila-cards cash-lila-cards--lila">
               {balanceCards.filter((c) => c.id !== 'total').map((card) => (
                 <div
@@ -447,7 +459,7 @@ export default function CashRegistersPanel({
                     {chequeRows.length === 0 ? (
                       <tr>
                         <td colSpan={9} style={{ color: 'var(--text-muted)' }}>
-                          Sin cheques en cartera al {formatAccessinCashDate(ACCESSIN_CHEQUES_AS_OF)} (Accessin/LILA).
+                          Sin cheques en cartera al {formatAccessinCashDate(ACCESSIN_CHEQUES_AS_OF)}.
                         </td>
                       </tr>
                     ) : (
@@ -603,7 +615,7 @@ export default function CashRegistersPanel({
           <div>
             <button
               type="button"
-              className="btn btn-primary"
+              className="btn btn-tan"
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
               onClick={() =>
                 run(() => {
@@ -706,7 +718,7 @@ export default function CashRegistersPanel({
               />
             </div>
             <div>
-              <button type="submit" className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <button type="submit" className="btn btn-tan" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 {moveForm.movementType === 'income' ? <ArrowDownLeft size={14} /> : <ArrowUpRight size={14} />}
                 Registrar
               </button>
@@ -817,7 +829,7 @@ export default function CashRegistersPanel({
             />
           </div>
           <div>
-            <button type="submit" className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <button type="submit" className="btn btn-tan" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <ArrowLeftRight size={14} /> Traspasar
             </button>
           </div>

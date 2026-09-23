@@ -33,7 +33,7 @@ npm test
 
 ## Acceso
 
-El portal exige login. En desarrollo, los accesos de prueba están **ocultos** detrás de un enlace discreto en la pantalla de ingreso (clave `jockey2026`):
+El portal exige login. En desarrollo, los accesos de prueba están **ocultos** detrás de un enlace discreto en la pantalla de ingreso (la clave de desarrollo está en `src/domain/auth/demoUsers.js`, que no entra en el build):
 
 | Email | Rol |
 |-------|-----|
@@ -51,6 +51,28 @@ Para ocultarlos del todo: `VITE_SHOW_DEMO_LOGINS=false` en `.env`.
 2. Copiar `.env.example` → `.env` y completar URL + anon key.
 3. Aplicar migraciones: `npx supabase db push`
 4. Crear usuarios reales en Auth y perfiles con rol (`member`, `cashier`, `accountant`, `staff`, `admin`).
+5. Subir los datos exportados de LILA: `npm run upload:snapshots` (ver abajo).
+
+## Datos exportados de LILA / Societas
+
+Los exports de LILA/Accessin y Societas (padrón con DNI, cuentas corrientes, caja,
+proveedores) **no van en el build ni en el repo**. Los `npm run import:*` los generan en
+`src/data/seed/*.js`, y desde ahí:
+
+- **Desarrollo y tests** leen esos archivos directamente.
+- **Producción** los baja del bucket privado `club-snapshots` de Supabase Storage con la
+  sesión del usuario. Solo pueden leerlos los roles que ven Cuotas o Contabilidad
+  (migración `20260916090000_club_snapshots_storage.sql`).
+
+Después de regenerar un export, subilo:
+
+```bash
+npm run upload:snapshots:dry
+npm run upload:snapshots
+```
+
+El script toma `SUPABASE_SERVICE_ROLE_KEY` del entorno, o `JC_ADMIN_EMAIL` y
+`JC_ADMIN_PASSWORD` de un superadmin. Ninguna credencial tiene valor por defecto.
 
 ## Seguridad operativa
 

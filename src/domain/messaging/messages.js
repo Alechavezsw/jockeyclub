@@ -72,7 +72,7 @@ export function markInboxRead(messages, identity) {
 }
 
 /** Destinatarios disponibles según rol. */
-export function composeRecipients({ role, members = [], user }) {
+export function composeRecipients({ role, members = [] }) {
   if (canAccessAdmin(role)) {
     return [
       { id: MAILBOX.ALL_MEMBERS, label: 'Todos los socios' },

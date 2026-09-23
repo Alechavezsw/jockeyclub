@@ -1,16 +1,29 @@
 import { useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import {
-  ACCESSIN_COBRANZAS_AS_OF,
-  ACCESSIN_COBRANZAS_METHOD_LABELS,
-  ACCESSIN_COBRANZAS_SNAPSHOT,
   cobranzasBalanceCards,
+  cobranzasSeed,
   filterAccessinCobranzas,
 } from '../../domain/accounting/cobranzas';
 import { formatAccessinCashDate } from '../../domain/accounting/cashLedger';
 import { formatCurrency } from '../../domain/accounting/journal';
+import { useSnapshotSeed } from '../../hooks/useSnapshots';
+import SnapshotGate from '../SnapshotGate';
 
-export default function CashCobranzasSection({ items = [] }) {
+export default function CashCobranzasSection(props) {
+  return (
+    <SnapshotGate names={['accessinCobranzas']}>
+      <CashCobranzasContent {...props} />
+    </SnapshotGate>
+  );
+}
+
+function CashCobranzasContent({ items = [] }) {
+  const {
+    ACCESSIN_COBRANZAS_AS_OF,
+    ACCESSIN_COBRANZAS_METHOD_LABELS,
+    ACCESSIN_COBRANZAS_SNAPSHOT,
+  } = useSnapshotSeed(['accessinCobranzas'], cobranzasSeed);
   const [filter, setFilter] = useState({
     type: null,
     paymentMethod: null,
@@ -18,7 +31,10 @@ export default function CashCobranzasSection({ items = [] }) {
     showAll: false,
   });
 
-  const cards = useMemo(() => cobranzasBalanceCards(items, ACCESSIN_COBRANZAS_SNAPSHOT), [items]);
+  const cards = useMemo(
+    () => cobranzasBalanceCards(items, ACCESSIN_COBRANZAS_SNAPSHOT),
+    [items, ACCESSIN_COBRANZAS_SNAPSHOT]
+  );
 
   const rows = useMemo(
     () => filterAccessinCobranzas(items, {
@@ -39,10 +55,10 @@ export default function CashCobranzasSection({ items = [] }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div>
         <h5 className="cash-lila-section-title">
-          Cobranzas Accessin · {formatAccessinCashDate(ACCESSIN_COBRANZAS_AS_OF)}
+          Cobranzas · {formatAccessinCashDate(ACCESSIN_COBRANZAS_AS_OF)}
         </h5>
         <p style={{ margin: '0 0 0.75rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-          Período {formatAccessinCashDate(ACCESSIN_COBRANZAS_SNAPSHOT.periodFrom)} → {formatAccessinCashDate(ACCESSIN_COBRANZAS_SNAPSHOT.periodTo)} · {items.length} líneas del reporte LILA.
+          Período {formatAccessinCashDate(ACCESSIN_COBRANZAS_SNAPSHOT.periodFrom)} → {formatAccessinCashDate(ACCESSIN_COBRANZAS_SNAPSHOT.periodTo)} · {items.length} líneas.
         </p>
         <div className="cash-lila-cards">
           {cards.map((card) => (

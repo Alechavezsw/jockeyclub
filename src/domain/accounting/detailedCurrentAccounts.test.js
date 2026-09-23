@@ -1,12 +1,20 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { loadSnapshots } from '../../data/snapshots';
 import {
-  ACCESSIN_DETAILED_CC_AS_OF,
-  ACCESSIN_DETAILED_CC_SNAPSHOT,
   buildDetailedCcAccountEntries,
+  detailedCcSeed,
   listDetailedCcMembers,
   lookupDetailedCc,
 } from './detailedCurrentAccounts';
-import { buildAccessinAccountEntries } from './memberBalances';
+import { buildAccessinAccountEntries, MEMBER_BALANCES_SNAPSHOTS } from './memberBalances';
+
+let ACCESSIN_DETAILED_CC_AS_OF;
+let ACCESSIN_DETAILED_CC_SNAPSHOT;
+
+beforeAll(async () => {
+  await loadSnapshots(MEMBER_BALANCES_SNAPSHOTS);
+  ({ ACCESSIN_DETAILED_CC_AS_OF, ACCESSIN_DETAILED_CC_SNAPSHOT } = detailedCcSeed());
+});
 
 describe('detailedCurrentAccounts', () => {
   it('carga snapshot LILA de CC detalladas', () => {

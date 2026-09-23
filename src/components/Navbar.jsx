@@ -3,16 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Sun, Moon, Shield, User, Menu, X, Bell, LogOut, Mail, LayoutDashboard } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { canAccessAdmin, navItemsForRole, ROLE_LABELS, sessionGreetLabel } from '../domain/auth/roles';
-
-function formatHeaderDate(d = new Date()) {
-  const raw = d.toLocaleDateString('es-AR', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  });
-  return raw.charAt(0).toUpperCase() + raw.slice(1);
-}
+import { formatLongDateAR, todayISODateAR } from '../lib/arDate';
 
 export default function Navbar({
   currentView,
@@ -36,7 +27,8 @@ export default function Navbar({
   const isOperative = Boolean(sessionCanAccessAdmin) || canAccessAdmin(role || 'member');
   const isTeacher = role === 'teacher' || (roles || []).some((r) => r.roleKey === 'teacher');
   const visibleItems = navItemsForRole(role || 'member');
-  const headerDate = formatHeaderDate();
+  const headerDate = formatLongDateAR();
+  const headerDateISO = todayISODateAR();
   const greetName = sessionGreetLabel(user?.fullName || '', role);
   const isPanelHome = isOperative && (
     /^\/panel\/?$/.test(location.pathname)
@@ -134,18 +126,18 @@ export default function Navbar({
             className="nav-brand-btn"
           >
             <img
-              src="/logo-jockey-club.png"
+              src="/logo-jockey-club.png?v=clavos-blancos"
               alt=""
-              width={42}
-              height={42}
+              width={64}
+              height={64}
               fetchPriority="high"
-              className="nav-brand-logo"
+              className="club-mark nav-brand-logo"
             />
             <span className="serif-font nav-brand-text">
               Jockey Club
             </span>
           </button>
-          <time className="nav-header-date" dateTime={new Date().toISOString().slice(0, 10)}>
+          <time className="nav-header-date" dateTime={headerDateISO}>
             {headerDate}
           </time>
           {isOperative && (
@@ -215,8 +207,8 @@ export default function Navbar({
             title="Mensajería interna"
             aria-label={unreadMessages > 0 ? `Mensajes, ${unreadMessages} sin leer` : 'Mensajes'}
             style={{
-              background: currentView === 'messages' ? 'rgba(207,161,58,0.12)' : 'rgba(255,255,255,0.03)',
-              border: `1px solid ${currentView === 'messages' ? 'rgba(207,161,58,0.4)' : 'var(--border-glass)'}`,
+              background: currentView === 'messages' ? 'rgba(var(--primary-gold-rgb),0.12)' : 'rgba(255,255,255,0.03)',
+              border: `1px solid ${currentView === 'messages' ? 'rgba(var(--primary-gold-rgb),0.4)' : 'var(--border-glass)'}`,
               borderRadius: '50%',
               width: '40px',
               height: '40px',
@@ -416,9 +408,9 @@ export default function Navbar({
               fontSize: '0.8rem',
               borderRadius: '20px',
               background: role === 'member'
-                ? (currentView === 'profile' ? 'rgba(207, 161, 58, 0.22)' : 'rgba(207, 161, 58, 0.1)')
-                : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-              border: `1px solid ${role === 'member' ? 'rgba(207, 161, 58, 0.3)' : 'transparent'}`,
+                ? (currentView === 'profile' ? 'rgba(var(--primary-gold-rgb), 0.22)' : 'rgba(var(--primary-gold-rgb), 0.1)')
+                : 'linear-gradient(135deg, var(--emerald-accent) 0%, #064d3f 100%)',
+              border: `1px solid ${role === 'member' ? 'rgba(var(--primary-gold-rgb), 0.3)' : 'transparent'}`,
               color: role === 'member' ? 'var(--primary-gold)' : '#fff',
               display: 'flex',
               alignItems: 'center',
@@ -482,7 +474,7 @@ export default function Navbar({
           background: 'var(--bg-secondary)',
           boxShadow: '0 18px 40px rgba(0,0,0,0.55)',
         }}>
-          <time className="nav-header-date nav-header-date--mobile" dateTime={new Date().toISOString().slice(0, 10)}>
+          <time className="nav-header-date nav-header-date--mobile" dateTime={headerDateISO}>
             {headerDate}
           </time>
 
@@ -492,7 +484,7 @@ export default function Navbar({
               onClick={goHome}
               aria-current={isPanelHome ? 'page' : undefined}
               style={{
-                background: isPanelHome ? 'rgba(207, 161, 58, 0.05)' : 'transparent',
+                background: isPanelHome ? 'rgba(var(--primary-gold-rgb), 0.05)' : 'transparent',
                 border: 'none',
                 borderLeft: isPanelHome ? '3px solid var(--primary-gold)' : '3px solid transparent',
                 color: isPanelHome ? 'var(--primary-gold)' : 'var(--text-secondary)',
@@ -517,7 +509,7 @@ export default function Navbar({
               key={item.id}
               onClick={() => handleNavClick(item.id)}
               style={{
-                background: currentView === item.id ? 'rgba(207, 161, 58, 0.05)' : 'transparent',
+                background: currentView === item.id ? 'rgba(var(--primary-gold-rgb), 0.05)' : 'transparent',
                 border: 'none',
                 borderLeft: currentView === item.id ? '3px solid var(--primary-gold)' : '3px solid transparent',
                 color: currentView === item.id ? 'var(--primary-gold)' : 'var(--text-secondary)',
@@ -538,7 +530,7 @@ export default function Navbar({
             type="button"
             onClick={() => handleNavClick('messages')}
             style={{
-              background: currentView === 'messages' ? 'rgba(207, 161, 58, 0.05)' : 'transparent',
+              background: currentView === 'messages' ? 'rgba(var(--primary-gold-rgb), 0.05)' : 'transparent',
               border: 'none',
               borderLeft: currentView === 'messages' ? '3px solid var(--primary-gold)' : '3px solid transparent',
               color: currentView === 'messages' ? 'var(--primary-gold)' : 'var(--text-secondary)',

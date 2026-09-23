@@ -71,6 +71,7 @@ export default function QrLiveScanner({
   active = false,
   onDecode,
   onError,
+  onLiveChange,
   paused = false,
 }) {
   const videoRef = useRef(null);
@@ -178,6 +179,11 @@ export default function QrLiveScanner({
     setHint('¡QR leído!');
     return true;
   }, [onDecode]);
+
+  useEffect(() => {
+    onLiveChange?.(live);
+    return () => onLiveChange?.(false);
+  }, [live, onLiveChange]);
 
   const drawVideo = useCallback((video, canvas, ctx, maxW) => {
     const scale = Math.min(1, maxW / video.videoWidth);
@@ -373,6 +379,7 @@ export default function QrLiveScanner({
     } catch (err) {
       setStarting(false);
       setLive(false);
+      setHint('Cámara no disponible');
       stopStream();
       const msg = String(err?.name || err?.message || err || '');
       onError?.(
@@ -380,7 +387,7 @@ export default function QrLiveScanner({
           ? 'Permití el acceso a la cámara para leer credenciales.'
           : /NotFound|DevicesNotFound/i.test(msg)
             ? 'No se encontró cámara en este dispositivo.'
-            : 'No se pudo iniciar la cámara. Usá HTTPS o cargá una foto del QR.'
+            : 'No se pudo iniciar la cámara en este navegador.'
       );
     }
   }, [applyCloseFocus, onError, stopStream]);
@@ -570,7 +577,7 @@ export default function QrLiveScanner({
         .qr-live-frame {
           position: absolute;
           inset: 12%;
-          border: 1.5px solid rgba(207,161,58,0.55);
+          border: 1.5px solid rgba(var(--primary-gold-rgb),0.55);
           border-radius: 18px;
           box-shadow: 0 0 0 9999px rgba(0,0,0,0.22);
           pointer-events: none;
@@ -582,7 +589,7 @@ export default function QrLiveScanner({
           position: absolute;
           width: 22px;
           height: 22px;
-          border-color: rgba(207,161,58,0.85);
+          border-color: rgba(var(--primary-gold-rgb),0.85);
           border-style: solid;
           pointer-events: none;
         }
@@ -614,7 +621,7 @@ export default function QrLiveScanner({
           position: absolute;
           width: 22px;
           height: 22px;
-          border-color: rgba(207,161,58,0.85);
+          border-color: rgba(var(--primary-gold-rgb),0.85);
           border-style: solid;
         }
         .qr-live-corners span:nth-child(1) {
@@ -635,7 +642,7 @@ export default function QrLiveScanner({
           right: 8%;
           top: 18%;
           height: 1px;
-          background: linear-gradient(90deg, transparent, rgba(207,161,58,0.35), transparent);
+          background: linear-gradient(90deg, transparent, rgba(var(--primary-gold-rgb),0.35), transparent);
           opacity: 0.55;
           animation: qr-sweep 3.2s ease-in-out infinite;
           pointer-events: none;
@@ -685,6 +692,33 @@ export default function QrLiveScanner({
           place-items: center;
           cursor: pointer;
         }
+        .qr-live-tools button:focus-visible {
+          outline: 2px solid var(--primary-gold);
+          outline-offset: 2px;
+        }
+        .qr-live-empty {
+          position: absolute;
+          inset: 0;
+          display: grid;
+          place-content: center;
+          gap: 0.4rem;
+          padding: 1.25rem 1.5rem;
+          text-align: center;
+          color: rgba(255,255,255,0.78);
+          background:
+            radial-gradient(ellipse at 50% 40%, rgba(var(--primary-gold-rgb),0.16), transparent 58%),
+            #0a100d;
+        }
+        .qr-live-empty strong {
+          font-size: 0.95rem;
+          color: #ead39c;
+        }
+        .qr-live-empty p {
+          margin: 0;
+          font-size: 0.8rem;
+          line-height: 1.4;
+          max-width: 22rem;
+        }
       `}</style>
 
       <video
@@ -692,16 +726,29 @@ export default function QrLiveScanner({
         playsInline
         muted
         autoPlay
+        hidden={!live}
         onClick={(e) => focusAt(e.clientX, e.clientY)}
         aria-label="Vista de cámara del lector QR"
       />
+      {!live ? (
+        <div className="qr-live-empty" aria-live="polite">
+          <strong>{starting ? 'Iniciando cámara…' : 'Cámara no disponible'}</strong>
+          {!starting ? (
+            <p>Cargá una foto del QR o ingresá el número de socio a mano.</p>
+          ) : null}
+        </div>
+      ) : null}
       <canvas ref={canvasRef} style={{ display: 'none' }} />
-      <div className="qr-live-frame" aria-hidden="true" />
-      <div className="qr-live-corners" aria-hidden="true">
-        <span />
-        <span />
-      </div>
-      <div className="qr-live-sweep" aria-hidden="true" />
+      {live ? (
+        <>
+          <div className="qr-live-frame" aria-hidden="true" />
+          <div className="qr-live-corners" aria-hidden="true">
+            <span />
+            <span />
+          </div>
+          <div className="qr-live-sweep" aria-hidden="true" />
+        </>
+      ) : null}
       <div className="qr-live-tools">
         <button type="button" title="Cambiar cámara" aria-label="Cambiar cámara" onClick={switchCamera}>
           <RefreshCw size={18} aria-hidden="true" />
@@ -749,9 +796,11 @@ export default function QrLiveScanner({
           void decodeFromFile(file);
         }}
       />
-      <div className="qr-live-hint" aria-live="polite">
-        {starting ? 'Iniciando cámara…' : hint}
-      </div>
+      {live ? (
+        <div className="qr-live-hint" aria-live="polite">
+          {hint}
+        </div>
+      ) : null}
     </div>
   );
 }

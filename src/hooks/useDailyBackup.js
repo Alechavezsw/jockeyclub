@@ -14,8 +14,12 @@ export function useDailyBackup({
   snapshot,
 }) {
   const snapshotRef = useRef(snapshot);
-  snapshotRef.current = snapshot;
   const ranDayRef = useRef('');
+
+  // Se actualiza después de cada render (no durante): el efecto de abajo lee el último.
+  useEffect(() => {
+    snapshotRef.current = snapshot;
+  });
 
   useEffect(() => {
     if (!enabled || !isAuthenticated || !dbReady) return undefined;

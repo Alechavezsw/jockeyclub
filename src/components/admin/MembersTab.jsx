@@ -1,24 +1,40 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Search, Filter, Plus, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Trash2, Users, UserPlus, X, CreditCard, Camera, FileDown, Pencil, KeyRound } from 'lucide-react';
-import { duesAmountForHousehold, duesAmountForTier } from '../../domain/members/dues';
+import { Search, Filter, Plus, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Trash2, Users, UserPlus, X, CreditCard, Camera, FileDown, FileSpreadsheet, Pencil, KeyRound } from 'lucide-react';
+import { duesAmountForHousehold, duesAmountForTier, nextDuesDueDate, pinDuesDueDate, quotaHeadline, toWhatsAppPhone } from '../../domain/members/dues';
 import { persistDuesCollection, recordDuesCollection } from '../../domain/members/memberPayments';
+import { exportMembersExcel } from '../../domain/members/exportMembersExcel';
 import { exportMembersPdf } from '../../domain/members/exportMembersPdf';
 import { DISCIPLINE_OPTIONS } from '../../domain/sports/disciplines';
-import { getActiveTiers, getTierOptionLabel, tierBadgeStyle, getTierDisplayName } from '../../domain/members/tiers';
+import { getActiveTiers, getTierOptionLabel, getTierDisplayName, splitTierDisplayName, tierChipVars } from '../../domain/members/tiers';
 import {
   buildLifecycleMeta,
   collectMemberMeta,
   memberHasSocietasApp,
   reasonLabel as lifecycleReasonLabel,
+  splitMemberName,
 } from '../../domain/members/memberAdminActions';
-import { attachHouseholdToMembers, assignDistinctStatColors, buildPadronHouseholdStats, isFamilyDependent, isTitularMember, resolveFamilyForDisplay } from '../../domain/members/households';
-import { loginEmailFromUsername } from '../../domain/auth/credentials';
+import { attachHouseholdToMembers, assignDistinctStatColors, buildPadronHouseholdStats, familyGroupMatchesQuery, isFamilyDependent, isTitularMember, listFamilyGroups, mergeMembersById, rankMemberSearchHit, resolveFamilyForDisplay } from '../../domain/members/households';
+import { buildCredentials, loginEmailFromUsername } from '../../domain/auth/credentials';
+import {
+  buildAccessInvite,
+  markAccessApproved,
+  markApplicationApproved,
+  matchMemberForAccessRequest,
+  memberDraftFromApplication,
+  portalLoginUrl,
+} from '../../domain/members/selfService';
+import { memberMoveKey, membershipMovesSeed, uniqueBajas } from '../../domain/members/membershipMoves';
+import { useSnapshotSeed } from '../../hooks/useSnapshots';
 import VirtualCard from '../VirtualCard';
 import CollectDuesModal from './CollectDuesModal';
 import ModalDialog from '../ModalDialog';
+import FoldableSection from './FoldableSection';
+import FamilyGroupsPadron from './FamilyGroupsPadron';
 import MemberTiersPanel from './MemberTiersPanel';
+import MembershipMovesSection from './MembershipMovesSection';
+import MemberRequestsSection from './MemberRequestsSection';
 import { MemberLifecycleModal, MemberCredentialsModal } from './MemberAdminModals';
-import { addMonthsISODate, nowTimeAR, todayISODateAR } from '../../lib/arDate';
+import { nowTimeAR, todayISODateAR } from '../../lib/arDate';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { repos } from '../../data/bootstrap';
 import { useAuth } from '../../context/AuthContext';
@@ -45,7 +61,7 @@ function emptyMemberForm() {
     status: 'active',
     joinDate,
     joinTime: nowTimeAR(),
-    nextDueDate: addMonthsISODate(joinDate, 1),
+    nextDueDate: nextDuesDueDate(joinDate),
     paymentMethod: 'transferencia',
     billingName: '',
     cuitCuil: '',
@@ -166,10 +182,77 @@ const RELATIONSHIP_OPTIONS = [
 
 const MEMBERS_PAGE_SIZE = 50;
 const PADRON_FIXED_CARD_COLORS = {
-  activos: '#8a6a14',
-  familia: '#b8956a',
+  activos: '#CA390C',
+  familia: '#096755',
+  altas: '#0b7a55',
+  bajas: '#c23b3b',
 };
-const PADRON_RESERVED_COLORS = [PADRON_FIXED_CARD_COLORS.activos, PADRON_FIXED_CARD_COLORS.familia];
+const PADRON_RESERVED_COLORS = [
+  PADRON_FIXED_CARD_COLORS.activos,
+  PADRON_FIXED_CARD_COLORS.familia,
+  PADRON_FIXED_CARD_COLORS.altas,
+  PADRON_FIXED_CARD_COLORS.bajas,
+];
+
+function memberStatusTone(status) {
+  if (status === 'inactive') return { text: '● Baja', color: '#c23b3b' };
+  if (status === 'suspended') return { text: '○ Cuenta Suspendida', color: '#c9a227' };
+  return { text: '● Cuenta Habilitada', color: 'var(--emerald-accent)' };
+}
+
+function memberInitials(name = '') {
+  const parts = String(name).trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+}
+
+function WhatsAppIcon({ size = 13 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path
+        fill="currentColor"
+        d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.435 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"
+      />
+    </svg>
+  );
+}
+
+function MemberWhatsAppLink({ phone, name }) {
+  const digits = toWhatsAppPhone(phone);
+  if (!digits) return <span>Sin registrar</span>;
+  return (
+    <span className="members-padron-contact">
+      <span className="members-padron-phone-n">{phone}</span>
+      <a
+        className="members-wa-btn"
+        href={`https://wa.me/${digits}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={`WhatsApp ${name || phone}`}
+        aria-label={`Abrir WhatsApp de ${name || phone}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <WhatsAppIcon size={13} />
+      </a>
+    </span>
+  );
+}
+
+function TierChip({ tier, catalog, compact = false }) {
+  const name = getTierDisplayName(tier, catalog);
+  const { main, sub } = splitTierDisplayName(name);
+  return (
+    <span
+      className={`tier-chip${compact ? ' is-compact' : ''}`}
+      style={tierChipVars(tier, catalog)}
+      title={name}
+    >
+      <span className="tier-chip-main">{main}</span>
+      {sub ? <span className="tier-chip-sub">{sub}</span> : null}
+    </span>
+  );
+}
 
 function PadronStatCard({ label, value, color, active, onClick }) {
   return (
@@ -201,14 +284,25 @@ export default function MembersTab({
   onAccountEntry = null,
   membersCount = 0,
   membersLoading = false,
+  membersProgress = { loaded: 0, total: 0 },
+  membershipApplications = [],
+  setMembershipApplications,
+  portalAccessRequests = [],
+  setPortalAccessRequests,
 }) {
   const { user } = useAuth();
   const actorName = user?.fullName || user?.name || user?.email || '';
+  const {
+    SOCIETAS_MEMBERSHIP_ALTAS,
+    SOCIETAS_MEMBERSHIP_BAJAS,
+  } = useSnapshotSeed(['societasMembershipMoves'], membershipMovesSeed);
   const tiers = getActiveTiers(tierCatalog);
   const defaultTierId = tiers[0]?.id || 'socio_individual';
   const [tierFilter, setTierFilter] = useState('todos');
   const [quickFilter, setQuickFilter] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [remoteHits, setRemoteHits] = useState([]);
+  const [remoteSearching, setRemoteSearching] = useState(false);
   const [page, setPage] = useState(1);
   const [showAddForm, setShowAddForm] = useState(false);
   const [form, setForm] = useState(() => emptyMemberForm());
@@ -221,10 +315,13 @@ export default function MembersTab({
   const [lifecycleError, setLifecycleError] = useState('');
   const [credsTarget, setCredsTarget] = useState(null);
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportingExcel, setExportingExcel] = useState(false);
   const [credsBusy, setCredsBusy] = useState(false);
   const [credsError, setCredsError] = useState('');
   const [credsResult, setCredsResult] = useState(null);
   const [actionFlash, setActionFlash] = useState('');
+  const [pendingApplicationId, setPendingApplicationId] = useState(null);
+  const [credsFromRequest, setCredsFromRequest] = useState(null);
 
   const [showAddAdherentId, setShowAddAdherentId] = useState(null);
   const [adhName, setAdhName] = useState('');
@@ -314,6 +411,27 @@ export default function MembersTab({
   const resetForm = () => {
     setForm(emptyMemberForm());
     setFormError('');
+    setPendingApplicationId(null);
+  };
+
+  const persistApplication = async (next) => {
+    if (typeof setMembershipApplications !== 'function') return;
+    if (isSupabaseConfigured) {
+      const saved = await repos.upsertMembershipApplication(next);
+      setMembershipApplications((prev) => prev.map((a) => (a.id === saved.id ? saved : a)));
+      return;
+    }
+    setMembershipApplications((prev) => prev.map((a) => (a.id === next.id ? next : a)));
+  };
+
+  const persistAccessRequest = async (next) => {
+    if (typeof setPortalAccessRequests !== 'function') return;
+    if (isSupabaseConfigured) {
+      const saved = await repos.upsertPortalAccessRequest(next);
+      setPortalAccessRequests((prev) => prev.map((r) => (r.id === saved.id ? saved : r)));
+      return;
+    }
+    setPortalAccessRequests((prev) => prev.map((r) => (r.id === next.id ? next : r)));
   };
 
   const tierAccentById = useMemo(() => {
@@ -337,15 +455,83 @@ export default function MembersTab({
     };
   }, [members, tierCatalog, tierAccentById]);
 
+  const moveIds = useMemo(() => ({
+    altas: new Set(SOCIETAS_MEMBERSHIP_ALTAS.map((row) => memberMoveKey(row.memberId))),
+    bajas: new Set(uniqueBajas(SOCIETAS_MEMBERSHIP_BAJAS).map((row) => memberMoveKey(row.memberId))),
+  }), [SOCIETAS_MEMBERSHIP_ALTAS, SOCIETAS_MEMBERSHIP_BAJAS]);
+
+  const searchDirectory = useMemo(
+    () => mergeMembersById(members, remoteHits),
+    [members, remoteHits],
+  );
+
+  useEffect(() => {
+    const raw = searchQuery.trim();
+    const digits = raw.replace(/\D/g, '');
+    const enough = raw.length >= 2 || digits.length >= 3;
+    if (!enough || !isSupabaseConfigured) {
+      setRemoteHits([]);
+      setRemoteSearching(false);
+      return undefined;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      setRemoteSearching(true);
+      repos.searchMembersDirectory(raw, { limit: 40 })
+        .then((rows) => {
+          if (!cancelled) setRemoteHits(rows || []);
+        })
+        .catch(() => {
+          if (!cancelled) setRemoteHits([]);
+        })
+        .finally(() => {
+          if (!cancelled) setRemoteSearching(false);
+        });
+    }, 280);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (!expandedMemberId || !isSupabaseConfigured || typeof setMembers !== 'function') return undefined;
+    let cancelled = false;
+    repos.getMemberByNumber(expandedMemberId, { withPayments: true })
+      .then((full) => {
+        if (cancelled || !full) return;
+        setMembers((prev) => {
+          const idx = (prev || []).findIndex((m) => String(m.memberId) === String(full.memberId));
+          const current = idx >= 0 ? prev[idx] : null;
+          if (current?.recordScope === 'full' && current.address) return prev;
+          const hydrated = {
+            ...current,
+            ...full,
+            adherents: (full.adherents && full.adherents.length)
+              ? full.adherents
+              : current?.adherents,
+            recordScope: 'full',
+          };
+          if (idx < 0) return mergeMembersById(prev, [hydrated]);
+          return prev.map((m, i) => (i === idx ? hydrated : m));
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [expandedMemberId, setMembers]);
+
   const filteredMembers = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    return members.filter((m) => {
+    const raw = searchQuery.trim();
+    const q = raw.toLowerCase();
+    const hits = searchDirectory.filter((m) => {
       const matchesSearch = !q
-        || m.name.toLowerCase().includes(q)
-        || String(m.memberId || '').includes(searchQuery.trim())
+        || (m.name || '').toLowerCase().includes(q)
+        || String(m.memberId || '').includes(raw)
         || (m.email || '').toLowerCase().includes(q)
-        || (m.documentNumber || '').includes(searchQuery.trim())
-        || (m.phone || '').includes(searchQuery.trim());
+        || (m.documentNumber || '').includes(raw)
+        || (m.phone || '').includes(raw);
       if (!matchesSearch) return false;
       if (quickFilter === 'activos') {
         return isTitularMember(m) && (m.status || 'active') === 'active';
@@ -353,11 +539,45 @@ export default function MembersTab({
       if (quickFilter === 'familia') {
         return isFamilyDependent(m);
       }
+      if (quickFilter === 'altas') {
+        return moveIds.altas.has(memberMoveKey(m.memberId));
+      }
+      if (quickFilter === 'bajas') {
+        return moveIds.bajas.has(memberMoveKey(m.memberId)) || (m.status || '') === 'inactive';
+      }
       const matchesTier = tierFilter === 'todos'
         || String(m.tier || '').toLowerCase() === String(tierFilter).toLowerCase();
       return matchesTier;
     });
-  }, [members, searchQuery, tierFilter, quickFilter]);
+    if (!q) return hits;
+    return hits.toSorted((a, b) => {
+      const rank = rankMemberSearchHit(a, raw) - rankMemberSearchHit(b, raw);
+      if (rank !== 0) return rank;
+      return String(a.name || '').localeCompare(String(b.name || ''), 'es');
+    });
+  }, [searchDirectory, searchQuery, tierFilter, quickFilter, moveIds]);
+
+  const familyGroups = useMemo(() => listFamilyGroups(searchDirectory), [searchDirectory]);
+
+  const filteredFamilies = useMemo(() => {
+    const q = searchQuery.trim();
+    return familyGroups.filter((group) => {
+      if (q && !familyGroupMatchesQuery(group, q)) return false;
+      if (quickFilter === 'activos') return (group.status || 'active') === 'active';
+      if (quickFilter === 'familia') return true;
+      if (quickFilter === 'altas') {
+        return group.members.some((m) => moveIds.altas.has(memberMoveKey(m.memberId)));
+      }
+      if (quickFilter === 'bajas') {
+        return group.members.some((m) => (
+          moveIds.bajas.has(memberMoveKey(m.memberId)) || (m.status || '') === 'inactive'
+        ));
+      }
+      if (tierFilter === 'todos') return true;
+      const wanted = String(tierFilter).toLowerCase();
+      return group.members.some((m) => String(m.tier || '').toLowerCase() === wanted);
+    });
+  }, [familyGroups, searchQuery, quickFilter, tierFilter, moveIds]);
 
   const totalPages = Math.max(1, Math.ceil(filteredMembers.length / MEMBERS_PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -375,19 +595,23 @@ export default function MembersTab({
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
 
+  const loadPadronForExport = async () => {
+    let list = members;
+    const expected = Math.max(Number(membersCount) || 0, members.length);
+    const incomplete = membersLoading || members.length === 0 || members.length < expected;
+    if (isSupabaseConfigured && incomplete) {
+      const fresh = await repos.listMembers();
+      const withFamily = attachHouseholdToMembers(fresh || []);
+      if (withFamily.length) list = withFamily;
+    }
+    return list;
+  };
+
   const handleExportPadronPdf = async () => {
-    if (exportingPdf) return;
+    if (exportingPdf || exportingExcel) return;
     setExportingPdf(true);
     try {
-      let list = members;
-      const expected = Math.max(Number(membersCount) || 0, members.length);
-      const incomplete = membersLoading || members.length === 0 || members.length < expected;
-      if (isSupabaseConfigured && incomplete) {
-        const fresh = await repos.listMembers();
-        const withFamily = attachHouseholdToMembers(fresh || []);
-        if (withFamily.length) list = withFamily;
-      }
-      await exportMembersPdf(list, {
+      await exportMembersPdf(await loadPadronForExport(), {
         formatCurrency,
         filterLabel: 'Padrón completo',
         tierCatalog,
@@ -399,7 +623,22 @@ export default function MembersTab({
     }
   };
 
-  const handleAddMember = (e) => {
+  const handleExportPadronExcel = async () => {
+    if (exportingPdf || exportingExcel) return;
+    setExportingExcel(true);
+    try {
+      await exportMembersExcel(await loadPadronForExport(), {
+        filterLabel: 'Padrón completo',
+        tierCatalog,
+      });
+    } catch (err) {
+      window.alert(err?.message || 'No se pudo generar el Excel del padrón.');
+    } finally {
+      setExportingExcel(false);
+    }
+  };
+
+  const handleAddMember = async (e) => {
     e.preventDefault();
     setFormError('');
     if (!form.name.trim()) {
@@ -436,7 +675,7 @@ export default function MembersTab({
       : 0;
     const joinDate = form.joinDate || todayISODateAR();
     const joinTime = form.joinTime || nowTimeAR();
-    const nextDue = form.nextDueDate || addMonthsISODate(joinDate, 1);
+    const nextDue = pinDuesDueDate(form.nextDueDate || nextDuesDueDate(joinDate));
 
     const adherents = form.familyGroup.map((f, idx) => ({
       id: `adh-${Date.now()}-${idx}`,
@@ -497,8 +736,44 @@ export default function MembersTab({
     };
 
     setMembers([newMember, ...members]);
+    if (pendingApplicationId) {
+      const app = membershipApplications.find((a) => a.id === pendingApplicationId);
+      if (app) {
+        try {
+          await deliverAccessFromRequest('alta', {
+            ...app,
+            fullName: newMember.name,
+            email: newMember.email || app.email,
+            phone: newMember.phone || app.phone,
+            documentNumber: newMember.documentNumber || app.documentNumber,
+          }, newMember);
+        } catch {
+          void persistApplication(markApplicationApproved(app, newMember));
+        }
+      }
+    }
     resetForm();
     setShowAddForm(false);
+  };
+
+  const prefillFromApplication = (app) => {
+    setForm({
+      ...emptyMemberForm(),
+      name: app.fullName || '',
+      email: app.email || '',
+      phone: app.phone || '+549264',
+      documentType: app.documentType || 'DNI',
+      documentNumber: app.documentNumber || '',
+      birthDate: app.birthDate || '',
+      address: app.address || '',
+      city: app.city || 'San Juan',
+      province: app.province || 'San Juan',
+      tier: app.requestedTier || defaultTierId,
+      notes: app.notes || '',
+    });
+    setPendingApplicationId(app.id);
+    setFormError('');
+    setShowAddForm(true);
   };
 
   const handleConfirmCollect = (payload) => {
@@ -627,6 +902,10 @@ export default function MembersTab({
         await persistMember(next);
         setCredsResult({ creds: { username, password, email } });
       }
+      if (credsFromRequest) {
+        await persistAccessRequest(markAccessApproved(credsFromRequest, credsTarget));
+        setCredsFromRequest(null);
+      }
       setActionFlash(`Acceso generado para ${credsTarget.name}`);
       setTimeout(() => setActionFlash(''), 3200);
     } catch (err) {
@@ -634,6 +913,105 @@ export default function MembersTab({
     } finally {
       setCredsBusy(false);
     }
+  };
+
+  const putMemberInList = (next) => {
+    setMembers((prev) => {
+      const same = (x) => x.memberId === next.memberId || (next.id && x.id === next.id);
+      if (prev.some(same)) return prev.map((x) => (same(x) ? { ...x, ...next } : x));
+      return [next, ...prev];
+    });
+  };
+
+  const deliverAccessFromRequest = async (kind, item, existingMember = null) => {
+    let member = existingMember || matchMemberForAccessRequest(members, {
+      memberNumber: item.memberNumber,
+      documentNumber: item.documentNumber,
+    });
+    if (!member && kind === 'alta') {
+      member = memberDraftFromApplication(item);
+    }
+    if (!member) {
+      throw new Error('No hay ficha para vincular. Revisá DNI o Nº de socio.');
+    }
+
+    const names = splitMemberName({ name: member.name || item.fullName });
+    const creds = buildCredentials({
+      firstName: names.firstName,
+      lastName: names.lastName,
+      documentNumber: member.documentNumber || item.documentNumber,
+    });
+
+    if (member.profileId && isSupabaseConfigured) {
+      const username = collectMemberMeta(member).portalUsername || creds.username;
+      creds.username = username;
+      creds.email = loginEmailFromUsername(username);
+      await repos.resetPortalUserPassword(member.profileId, creds.password);
+      member = {
+        ...member,
+        meta: {
+          ...collectMemberMeta(member),
+          portalUsername: username,
+          portalProvisionedAt: new Date().toISOString(),
+          portalProvisionedBy: actorName || null,
+        },
+      };
+      await persistMember(member);
+    } else if (isSupabaseConfigured) {
+      const { member: saved } = await repos.provisionMemberPortalAccess(member, creds, { actorName });
+      member = saved;
+      putMemberInList(member);
+    } else {
+      member = {
+        ...member,
+        meta: {
+          ...collectMemberMeta(member),
+          portalUsername: creds.username,
+          portalProvisionedAt: new Date().toISOString(),
+          portalProvisionedBy: actorName || null,
+        },
+      };
+      putMemberInList(member);
+    }
+
+    if (kind === 'alta') {
+      await persistApplication(markApplicationApproved(item, member));
+    } else {
+      await persistAccessRequest(markAccessApproved(item, member));
+    }
+
+    const invite = buildAccessInvite({
+      name: member.name || item.fullName,
+      phone: item.phone || member.phone,
+      contactEmail: item.email || member.email,
+      creds,
+      portalUrl: portalLoginUrl(),
+    });
+    const to = invite.contactEmail;
+    if (to && isSupabaseConfigured) {
+      try {
+        await repos.sendAccessInviteEmail({
+          to,
+          name: member.name || item.fullName,
+          username: creds.username,
+          loginEmail: creds.email,
+          password: creds.password,
+          portalUrl: invite.portalUrl,
+          logoUrl: typeof window !== 'undefined' && window.location.protocol === 'https:'
+            ? `${window.location.origin}/logo-jockey-club.png`
+            : '',
+        });
+        invite.emailSent = true;
+        invite.emailTo = to;
+      } catch (err) {
+        invite.emailSent = false;
+        invite.emailError = err?.message || 'No se pudo enviar el mail.';
+      }
+    } else if (!to) {
+      invite.emailSent = false;
+      invite.emailError = 'Falta el email de contacto para enviar el acceso.';
+    }
+    return invite;
   };
 
   const handleAddAdherent = (memberId) => {
@@ -695,8 +1073,10 @@ export default function MembersTab({
     }));
   };
 
+  const isSearching = Boolean(searchQuery.trim());
+
   return (
-    <div className="glass-card fade-in members-tab">
+    <div className={`glass-card fade-in members-tab${isSearching ? ' is-searching' : ''}`}>
       {actionFlash ? (
         <p className="member-action-flash" role="status">{actionFlash}</p>
       ) : null}
@@ -728,10 +1108,18 @@ export default function MembersTab({
         </div>
         {searchQuery.trim() ? (
           <p className="members-search-hint">
-            {filteredMembers.length.toLocaleString('es-AR')} resultado{filteredMembers.length === 1 ? '' : 's'}
+            {remoteSearching ? 'Buscando en el padrón… · ' : ''}
+            {filteredMembers.length.toLocaleString('es-AR')} socio{filteredMembers.length === 1 ? '' : 's'}
+            {filteredFamilies.length > 0
+              ? ` · ${filteredFamilies.length.toLocaleString('es-AR')} familia${filteredFamilies.length === 1 ? '' : 's'}`
+              : ''}
           </p>
         ) : (
-          <p className="members-search-hint">Escribí para filtrar titulares e integrantes del grupo familiar.</p>
+          <p className="members-search-hint">
+            {membersLoading && membersProgress?.total
+              ? `Cargando padrón… ${membersProgress.loaded.toLocaleString('es-AR')} de ${membersProgress.total.toLocaleString('es-AR')}. Podés buscar igual.`
+              : 'Escribí un nombre, DNI o Nº de socio. Primero aparecen los socios.'}
+          </p>
         )}
       </div>
 
@@ -756,6 +1144,26 @@ export default function MembersTab({
             setTierFilter('todos');
           }}
         />
+        <PadronStatCard
+          label="Altas"
+          value={SOCIETAS_MEMBERSHIP_ALTAS.length}
+          color={PADRON_FIXED_CARD_COLORS.altas}
+          active={quickFilter === 'altas'}
+          onClick={() => {
+            setQuickFilter((cur) => (cur === 'altas' ? null : 'altas'));
+            setTierFilter('todos');
+          }}
+        />
+        <PadronStatCard
+          label="Bajas"
+          value={uniqueBajas(SOCIETAS_MEMBERSHIP_BAJAS).length}
+          color={PADRON_FIXED_CARD_COLORS.bajas}
+          active={quickFilter === 'bajas'}
+          onClick={() => {
+            setQuickFilter((cur) => (cur === 'bajas' ? null : 'bajas'));
+            setTierFilter('todos');
+          }}
+        />
         {household.byTier.map((tier) => (
           <PadronStatCard
             key={tier.id}
@@ -771,6 +1179,22 @@ export default function MembersTab({
           />
         ))}
       </div>
+
+      <MemberRequestsSection
+        members={members}
+        membershipApplications={membershipApplications}
+        setMembershipApplications={setMembershipApplications}
+        portalAccessRequests={portalAccessRequests}
+        setPortalAccessRequests={setPortalAccessRequests}
+        onOpenAccessCredentials={(member, request) => {
+          setCredsFromRequest(request);
+          openCredentials(member);
+        }}
+        onPrefillAlta={prefillFromApplication}
+        onDeliverAccess={deliverAccessFromRequest}
+      />
+
+      <MembershipMovesSection />
 
       <div className="admin-filters members-toolbar">
         <div className="members-toolbar-filter">
@@ -795,7 +1219,7 @@ export default function MembersTab({
           type="button"
           onClick={() => { void handleExportPadronPdf(); }}
           className="btn btn-secondary"
-          disabled={exportingPdf}
+          disabled={exportingPdf || exportingExcel}
           title="Exportar padrón completo del sistema a PDF"
         >
           <FileDown size={16} /> {exportingPdf ? 'Generando…' : 'Exportar PDF'}
@@ -803,9 +1227,23 @@ export default function MembersTab({
 
         <button
           type="button"
+          onClick={() => { void handleExportPadronExcel(); }}
+          className="btn btn-secondary"
+          disabled={exportingPdf || exportingExcel}
+          title="Exportar padrón completo del sistema a Excel"
+        >
+          <FileSpreadsheet size={16} /> {exportingExcel ? 'Generando…' : 'Exportar Excel'}
+        </button>
+
+        <button
+          type="button"
           onClick={() => {
-            if (!showAddForm) resetForm();
-            setShowAddForm(!showAddForm);
+            if (showAddForm) {
+              setShowAddForm(false);
+              return;
+            }
+            resetForm();
+            setShowAddForm(true);
           }}
           className="btn btn-emerald"
         >
@@ -1048,7 +1486,7 @@ export default function MembersTab({
                     setForm((prev) => ({
                       ...prev,
                       joinDate,
-                      nextDueDate: addMonthsISODate(joinDate || todayISODateAR(), 1),
+                      nextDueDate: nextDuesDueDate(joinDate || todayISODateAR()),
                     }));
                   }}
                 />
@@ -1070,8 +1508,9 @@ export default function MembersTab({
                   className="form-input"
                   lang="es-AR"
                   value={form.nextDueDate}
-                  onChange={(e) => updateForm('nextDueDate', e.target.value)}
+                  onChange={(e) => updateForm('nextDueDate', pinDuesDueDate(e.target.value))}
                 />
+                <p className="form-hint">Todas las cuotas vencen el día 10 de cada mes.</p>
               </div>
             </div>
             <div style={{ marginTop: '0.85rem' }}>
@@ -1091,7 +1530,7 @@ export default function MembersTab({
                         padding: '0.35rem 0.75rem',
                         borderRadius: 20,
                         border: active ? '1px solid var(--primary-gold)' : '1px solid var(--border-glass)',
-                        background: active ? 'rgba(207,161,58,0.15)' : 'var(--bg-tertiary)',
+                        background: active ? 'rgba(var(--primary-gold-rgb),0.15)' : 'var(--bg-tertiary)',
                         color: active ? 'var(--text-gold)' : 'var(--text-secondary)',
                         fontSize: '0.78rem',
                         fontWeight: 600,
@@ -1311,7 +1750,7 @@ export default function MembersTab({
                                 padding: '0.3rem 0.65rem',
                                 borderRadius: 20,
                                 border: active ? '1px solid var(--primary-gold)' : '1px solid var(--border-glass)',
-                                background: active ? 'rgba(207,161,58,0.15)' : 'var(--bg-tertiary)',
+                                background: active ? 'rgba(var(--primary-gold-rgb),0.15)' : 'var(--bg-tertiary)',
                                 color: active ? 'var(--text-gold)' : 'var(--text-secondary)',
                                 fontSize: '0.75rem',
                                 fontWeight: 600,
@@ -1365,7 +1804,7 @@ export default function MembersTab({
             <button type="button" className="btn btn-secondary" onClick={() => { resetForm(); setShowAddForm(false); }}>
               Cancelar
             </button>
-            <button type="submit" className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 180, justifyContent: 'center' }}>
+            <button type="submit" className="btn btn-tan" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 180, justifyContent: 'center' }}>
               <UserPlus size={16} />
               {form.familyGroup.length > 0
                 ? `Registrar socio + ${form.familyGroup.length} familiar${form.familyGroup.length > 1 ? 'es' : ''}`
@@ -1376,6 +1815,20 @@ export default function MembersTab({
       )}
 
       {/* Tabla de Socios */}
+      <FoldableSection
+        as="div"
+        className="members-padron-results"
+        id="members-padron-title"
+        title="Padrón"
+        subtitle={
+          filteredMembers.length === 0
+            ? 'Sin resultados'
+            : `${((safePage - 1) * MEMBERS_PAGE_SIZE) + 1}–${Math.min(safePage * MEMBERS_PAGE_SIZE, filteredMembers.length)} de ${filteredMembers.length.toLocaleString('es-AR')}`
+        }
+        defaultOpen
+        storageKey="padron"
+        forceOpen={isSearching}
+      >
       <div className="members-pager" aria-live="polite">
         <span>
           {filteredMembers.length === 0
@@ -1407,8 +1860,8 @@ export default function MembersTab({
         </div>
       </div>
 
-      <div className="table-responsive">
-        <table className="admin-table">
+      <div className="table-responsive members-padron-wrap">
+        <table className="admin-table members-padron-table">
           <thead>
             <tr>
               <th>Socio Titular</th>
@@ -1416,16 +1869,17 @@ export default function MembersTab({
               <th>Categoría</th>
               <th>Contacto</th>
               <th>Cuota / Saldo</th>
-              <th style={{ textAlign: 'right' }}>Acciones Administrativas</th>
+              <th className="members-padron-actions-h">Acciones</th>
             </tr>
           </thead>
           <tbody>
             {pageMembers.map(m => (
               <React.Fragment key={m.memberId}>
-                <tr>
-                  <td>
+                <tr className="members-padron-row">
+                  <td data-label="Socio">
                     <div className="member-profile-cell">
                       <button
+                        className="member-expand-btn"
                         onClick={() => {
                           const nextId = expandedMemberId === m.memberId ? null : m.memberId;
                           setExpandedMemberId(nextId);
@@ -1456,7 +1910,6 @@ export default function MembersTab({
                             }
                           }
                         }}
-                        style={{ background: 'none', border: 'none', color: 'var(--primary-gold)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '0.2rem' }}
                         title="Grupo familiar"
                         type="button"
                       >
@@ -1464,66 +1917,54 @@ export default function MembersTab({
                       </button>
                       <button
                         type="button"
+                        className="member-identity-btn"
                         onClick={() => onOpenProfile?.(m.memberId)}
                         title="Ver perfil del socio"
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '0.75rem',
-                          background: 'none',
-                          border: 'none',
-                          padding: 0,
-                          cursor: 'pointer',
-                          textAlign: 'left',
-                          fontFamily: 'inherit',
-                          color: 'inherit',
-                        }}
                       >
-                        <div className="member-avatar" style={{ overflow: 'hidden', padding: 0 }}>
+                        <div className="member-avatar" aria-hidden="true">
                           {m.photo ? (
-                            <img src={m.photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            <img src={m.photo} alt="" />
                           ) : (
-                            m.name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
+                            <span>{memberInitials(m.name)}</span>
                           )}
                         </div>
-                        <div>
-                          <strong style={{ color: 'var(--text-primary)', fontSize: '0.95rem', textDecoration: 'underline', textDecorationColor: 'rgba(207,161,58,0.35)', textUnderlineOffset: 3 }}>
-                            {m.name}
-                          </strong>
-                          <div style={{ fontSize: '0.75rem', color: m.status === 'active' ? 'var(--emerald-accent)' : 'var(--text-muted)' }}>
-                            {m.status === 'active' ? '● Cuenta Habilitada' : '○ Cuenta Suspendida'}
-                            <span style={{ color: 'var(--text-muted)', marginLeft: 6 }}>
+                        <div className="member-identity-copy">
+                          <strong>{m.name}</strong>
+                          <span className="member-identity-meta" style={{ color: memberStatusTone(m.status).color }}>
+                            {memberStatusTone(m.status).text}
+                            <span>
                               · {memberHasSocietasApp(m) ? 'App Societas' : 'Sin app'} · Ver perfil
                             </span>
-                          </div>
+                          </span>
                         </div>
                       </button>
                     </div>
                   </td>
-                  <td style={{ fontFamily: 'monospace', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                  <td data-label="Credencial" className="members-padron-id">
                     {m.memberId.replace(/(\d{4})/g, '$1 ').trim()}
                   </td>
-                  <td>
-                    <span
-                      className={`badge-tier ${String(m.tier || '').toLowerCase()}`}
-                      style={tierBadgeStyle(m.tier, tierCatalog)}
-                    >
-                      {getTierDisplayName(m.tier, tierCatalog)}
-                    </span>
+                  <td data-label="Categoría">
+                    <TierChip tier={m.tier} catalog={tierCatalog} />
                   </td>
-                  <td style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                    {m.phone || 'Sin registrar'}
+                  <td data-label="Contacto" className="members-padron-phone">
+                    <MemberWhatsAppLink phone={m.phone} name={m.name} />
                   </td>
-                  <td>
+                  <td data-label="Cuota">
                     <span style={{
                       fontWeight: '600',
-                      color: m.outstandingBalance > 0 ? 'var(--warning-accent)' : 'var(--emerald-accent)'
+                      color: (Number(m.outstandingBalance) || 0) > 0
+                        ? 'var(--warning-accent)'
+                        : quotaHeadline(m).kind === 'clear'
+                          ? 'var(--emerald-accent)'
+                          : 'var(--text-secondary)'
                      }}>
-                      {m.outstandingBalance > 0 ? formatCurrency(m.outstandingBalance) : 'Al Día'}
+                      {(Number(m.outstandingBalance) || 0) > 0
+                        ? formatCurrency(m.outstandingBalance)
+                        : quotaHeadline(m).title}
                     </span>
                   </td>
-                  <td style={{ textAlign: 'right' }}>
-                    <div className="member-row-actions" style={{ display: 'inline-flex', gap: '0.35rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  <td data-label="Acciones" className="members-padron-actions">
+                    <div className="member-row-actions">
                       <button
                         type="button"
                         onClick={() => onOpenProfile?.(m.memberId)}
@@ -1554,7 +1995,7 @@ export default function MembersTab({
                           gap: 4,
                           borderColor: 'var(--primary-gold)',
                           color: 'var(--text-gold)',
-                          background: 'rgba(207,161,58,0.06)',
+                          background: 'rgba(var(--primary-gold-rgb),0.06)',
                         }}
                         title="Ver tarjeta virtual"
                       >
@@ -1619,8 +2060,8 @@ export default function MembersTab({
 
                 {/* Fila Expandida de Adherentes Familiares */}
                 {expandedMemberId === m.memberId && (
-                  <tr>
-                    <td colSpan="6" style={{ padding: '0 0.5rem 1rem 0.5rem' }}>
+                  <tr className="members-padron-family">
+                    <td colSpan="6">
                       <div className="adherents-subtable-box">
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.4rem' }}>
                           <h5 className="serif-font" style={{ fontSize: '1rem', color: 'var(--text-gold)', display: 'flex', alignItems: 'center', gap: '0.35rem', margin: 0 }}>
@@ -1709,7 +2150,7 @@ export default function MembersTab({
                                         padding: '0.25rem 0.55rem',
                                         borderRadius: 16,
                                         border: active ? '1px solid var(--primary-gold)' : '1px solid var(--border-glass)',
-                                        background: active ? 'rgba(207,161,58,0.15)' : 'var(--bg-tertiary)',
+                                        background: active ? 'rgba(var(--primary-gold-rgb),0.15)' : 'var(--bg-tertiary)',
                                         color: active ? 'var(--text-gold)' : 'var(--text-secondary)',
                                         fontSize: '0.72rem',
                                         fontWeight: 600,
@@ -1760,7 +2201,7 @@ export default function MembersTab({
                                         borderRadius: '50%',
                                         overflow: 'hidden',
                                         flexShrink: 0,
-                                        background: 'rgba(207,161,58,0.12)',
+                                        background: 'rgba(var(--primary-gold-rgb),0.12)',
                                         border: '1px solid var(--border-glass)',
                                         display: 'flex',
                                         alignItems: 'center',
@@ -1788,12 +2229,7 @@ export default function MembersTab({
                                     {(adh.disciplines || []).length ? adh.disciplines.join(', ') : '—'}
                                   </td>
                                   <td style={{ fontSize: '0.8rem', padding: '0.4rem' }}>
-                                    <span
-                                      className={`badge-tier ${adh.tier}`}
-                                      style={{ fontSize: '0.65rem', padding: '0.1rem 0.3rem', ...tierBadgeStyle(adh.tier, tierCatalog) }}
-                                    >
-                                      {getTierDisplayName(adh.tier, tierCatalog)}
-                                    </span>
+                                    <TierChip tier={adh.tier} catalog={tierCatalog} compact />
                                   </td>
                                   <td style={{ fontSize: '0.8rem', padding: '0.4rem' }}>
                                     <span style={{ color: adh.status === 'active' ? 'var(--emerald-accent)' : 'var(--danger-accent)' }}>
@@ -1884,6 +2320,13 @@ export default function MembersTab({
           </div>
         </div>
       ) : null}
+      </FoldableSection>
+
+      <FamilyGroupsPadron
+        groups={filteredFamilies}
+        tierCatalog={tierCatalog}
+        onOpenProfile={onOpenProfile}
+      />
 
       {collectMember && (
         <CollectDuesModal
@@ -1960,6 +2403,7 @@ export default function MembersTab({
             setCredsTarget(null);
             setCredsError('');
             setCredsResult(null);
+            setCredsFromRequest(null);
           }
         }}
         onGenerate={handleCredentialsGenerate}

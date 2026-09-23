@@ -1,16 +1,17 @@
 /** Detalle de Cta. Cte. Liquidación Accessin / LILA. */
 
-import {
-  ACCESSIN_LIQUIDATION_CC,
-  ACCESSIN_LIQUIDATION_CC_AS_OF,
-  ACCESSIN_LIQUIDATION_CC_SNAPSHOT,
-} from '../../data/seed/accessinLiquidationCc';
+import { readSnapshot } from '../../data/snapshots';
 
-export {
-  ACCESSIN_LIQUIDATION_CC,
-  ACCESSIN_LIQUIDATION_CC_AS_OF,
-  ACCESSIN_LIQUIDATION_CC_SNAPSHOT,
-};
+const EMPTY_LIQUIDATION_CC_SEED = Object.freeze({
+  ACCESSIN_LIQUIDATION_CC: [],
+  ACCESSIN_LIQUIDATION_CC_AS_OF: '',
+  ACCESSIN_LIQUIDATION_CC_SNAPSHOT: {},
+});
+
+/** Snapshot `accessinLiquidationCc`; vacío hasta que carga (ver data/snapshots). */
+export function liquidationCcSeed() {
+  return readSnapshot('accessinLiquidationCc', EMPTY_LIQUIDATION_CC_SEED);
+}
 
 function cell(value) {
   if (value == null || value === '') return '';
@@ -68,10 +69,13 @@ export function parseLiquidationCcRows(rows = []) {
   return items;
 }
 
-export function liquidationCcSummary(items = ACCESSIN_LIQUIDATION_CC, snapshot = ACCESSIN_LIQUIDATION_CC_SNAPSHOT) {
+export function liquidationCcSummary(
+  items = liquidationCcSeed().ACCESSIN_LIQUIDATION_CC,
+  snapshot = liquidationCcSeed().ACCESSIN_LIQUIDATION_CC_SNAPSHOT,
+) {
   const list = items || [];
   return {
-    asOf: snapshot?.asOf || ACCESSIN_LIQUIDATION_CC_AS_OF,
+    asOf: snapshot?.asOf || liquidationCcSeed().ACCESSIN_LIQUIDATION_CC_AS_OF,
     fileName: snapshot?.fileName || '',
     generatedAt: snapshot?.generatedAt || '',
     periodLabel: snapshot?.periodLabel || '',
@@ -89,7 +93,7 @@ export function liquidationCcSummary(items = ACCESSIN_LIQUIDATION_CC, snapshot =
   };
 }
 
-export function filterLiquidationCc(items = ACCESSIN_LIQUIDATION_CC, {
+export function filterLiquidationCc(items = liquidationCcSeed().ACCESSIN_LIQUIDATION_CC, {
   query = '',
   onlyLiquidation = false,
 } = {}) {

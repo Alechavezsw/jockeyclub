@@ -6,9 +6,9 @@ import {
   drawReportHeader,
   loadClubLogoDataUrl,
 } from '../reports/pdfBrand';
+import { requireSnapshots } from '../../data/snapshots';
 import {
-  ACCESSIN_FAMILY_GROUP_BALANCES_BY_NAME,
-  ACCESSIN_FAMILY_GROUP_BALANCES_SNAPSHOT,
+  familyGroupBalancesSeed,
   normalizeFamilyGroupKey,
 } from './familyGroupBalances';
 
@@ -20,7 +20,7 @@ export function listFamilyGroupBalancesForReport({ query = '' } = {}) {
   const q = normalizeFamilyGroupKey(query);
   const seen = new Set();
   const groups = [];
-  Object.values(ACCESSIN_FAMILY_GROUP_BALANCES_BY_NAME || {}).forEach((g) => {
+  Object.values(familyGroupBalancesSeed().ACCESSIN_FAMILY_GROUP_BALANCES_BY_NAME || {}).forEach((g) => {
     if (!g || seen.has(g.key)) return;
     seen.add(g.key);
     if (q && !g.key.includes(q) && !String(g.name || '').toLowerCase().includes(query.toLowerCase())) return;
@@ -30,6 +30,8 @@ export function listFamilyGroupBalancesForReport({ query = '' } = {}) {
 }
 
 export async function exportFamilyGroupBalancesPdf({ query = '' } = {}) {
+  await requireSnapshots(['accessinFamilyGroupBalances']);
+  const snapshot = familyGroupBalancesSeed().ACCESSIN_FAMILY_GROUP_BALANCES_SNAPSHOT;
   const groups = listFamilyGroupBalancesForReport({ query });
   const [{ jsPDF }, autoTableMod, logoDataUrl] = await Promise.all([
     import('jspdf'),
@@ -38,13 +40,13 @@ export async function exportFamilyGroupBalancesPdf({ query = '' } = {}) {
   ]);
   const autoTable = autoTableMod.default;
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  const stamp = ACCESSIN_FAMILY_GROUP_BALANCES_SNAPSHOT.asOf || new Date().toISOString().slice(0, 10);
+  const stamp = snapshot.asOf || new Date().toISOString().slice(0, 10);
 
   autoTable(doc, {
     startY: drawReportHeader(doc, {
       title: 'Saldos de grupo familiar',
       subtitle: `${CLUB_NAME} · ${CLUB_SEDE}`,
-      metaLine: `Al ${ACCESSIN_FAMILY_GROUP_BALANCES_SNAPSHOT.asOfLabel || stamp}  ·  ${groups.length} grupos`,
+      metaLine: `Al ${snapshot.asOfLabel || stamp}  ·  ${groups.length} grupos`,
       logoDataUrl,
     }),
     head: [['Grupo', 'Meses', 'Total']],

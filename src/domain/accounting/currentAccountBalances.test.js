@@ -1,11 +1,19 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { loadSnapshots } from '../../data/snapshots';
 import {
-  ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF,
-  ACCESSIN_CURRENT_ACCOUNT_BALANCES_SNAPSHOT,
   applyCurrentAccountBalances,
   currentAccountBalanceOf,
+  currentAccountBalancesSeed,
   lookupCurrentAccountBalance,
 } from './currentAccountBalances';
+
+let ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF;
+let ACCESSIN_CURRENT_ACCOUNT_BALANCES_SNAPSHOT;
+
+beforeAll(async () => {
+  await loadSnapshots(['accessinCurrentAccountBalances']);
+  ({ ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF, ACCESSIN_CURRENT_ACCOUNT_BALANCES_SNAPSHOT } = currentAccountBalancesSeed());
+});
 
 describe('currentAccountBalances', () => {
   it('carga snapshot LILA al 2026-09-03', () => {

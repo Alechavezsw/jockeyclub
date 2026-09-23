@@ -57,17 +57,46 @@ export function filterAlertsForRole(alerts, role = 'member') {
   });
 }
 
+export function alertDismissKey(alert) {
+  if (!alert) return '';
+  if (alert.code) return String(alert.code);
+  const concessionId = alert.metadata?.concessionId;
+  if (alert.source && concessionId != null && concessionId !== '') {
+    return `${alert.source}:${concessionId}`;
+  }
+  return alert.id ? String(alert.id) : '';
+}
+
 export function isAlertAcknowledged(alert, acknowledgements = []) {
   if (!alert) return false;
+  const key = alertDismissKey(alert);
+  const concessionId = alert.metadata?.concessionId ?? null;
   return (acknowledgements || []).some((ack) => {
     if (ack.alertId && ack.alertId === alert.id) return true;
     if (alert.code && ack.alertCode && ack.alertCode === alert.code) return true;
+    if (key && ack.dismissKey && ack.dismissKey === key) return true;
+    if (
+      concessionId != null
+      && ack.concessionId != null
+      && String(ack.concessionId) === String(concessionId)
+      && ack.source === alert.source
+    ) {
+      return true;
+    }
     return false;
   });
 }
 
-export function acknowledgeAlert(acknowledgements, alertId, profileId = 'local-user', alertCode = null) {
-  if ((acknowledgements || []).some((a) => a.alertId === alertId && a.profileId === profileId)) {
+export function acknowledgeAlert(acknowledgements, alertId, profileId = 'local-user', alertCode = null, extra = {}) {
+  const alert = extra.alert || null;
+  const dismissKey = extra.dismissKey || alertCode || (alert ? alertDismissKey(alert) : alertId);
+  const source = extra.source || alert?.source || null;
+  const concessionId = extra.concessionId ?? alert?.metadata?.concessionId ?? null;
+  if ((acknowledgements || []).some((a) => {
+    if (a.alertId === alertId && a.profileId === profileId) return true;
+    if (dismissKey && a.dismissKey === dismissKey && a.profileId === profileId) return true;
+    return false;
+  })) {
     return acknowledgements;
   }
   return [
@@ -76,7 +105,10 @@ export function acknowledgeAlert(acknowledgements, alertId, profileId = 'local-u
       id: `ack-${Date.now()}`,
       alertId,
       profileId,
-      alertCode: alertCode || null,
+      alertCode: alertCode || alert?.code || null,
+      dismissKey: dismissKey || null,
+      source,
+      concessionId,
       acknowledgedAt: new Date().toISOString(),
     },
   ];

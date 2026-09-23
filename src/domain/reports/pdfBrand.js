@@ -3,8 +3,8 @@ export const CLUB_SEDE = 'Sede Rivadavia';
 export const LOGO_URL = '/logo-jockey-club.png';
 
 export const BRAND = {
-  green: [30, 58, 40],
-  gold: [180, 140, 50],
+  green: [9, 103, 85],
+  gold: [202, 57, 12],
   cream: [245, 230, 180],
   muted: [100, 100, 100],
 };

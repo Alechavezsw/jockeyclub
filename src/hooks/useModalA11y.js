@@ -23,6 +23,7 @@ export function useModalA11y({ open, onClose, containerRef }) {
 
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+    document.body.classList.add('has-modal');
 
     const onKeyDown = (e) => {
       if (e.key === 'Escape') {
@@ -55,6 +56,7 @@ export function useModalA11y({ open, onClose, containerRef }) {
     return () => {
       document.removeEventListener('keydown', onKeyDown, true);
       document.body.style.overflow = prevOverflow;
+      document.body.classList.remove('has-modal');
       if (previouslyFocused && typeof previouslyFocused.focus === 'function') {
         previouslyFocused.focus();
       }

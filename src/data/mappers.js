@@ -1,6 +1,7 @@
 /** Mapeo fila Postgres ↔ shape de UI. */
 
-import { DEFAULT_MEMBER_TIER, resolveStoredMemberTier } from '../domain/members/tiers';
+import { resolveStoredMemberTier } from '../domain/members/tiers';
+import { pinDuesDueDate } from '../domain/members/dues';
 
 function canonicalMemberTier(tier, meta) {
   return resolveStoredMemberTier(tier, meta?.cuotaCategories);
@@ -21,7 +22,9 @@ export function adherentFromRow(row) {
 
 export function memberFromRow(row, payments = []) {
   if (!row) return null;
+  const meta = row.meta && typeof row.meta === 'object' ? row.meta : {};
   return {
+    ...meta,
     id: row.id,
     memberId: row.member_number,
     name: row.full_name,
@@ -50,7 +53,7 @@ export function memberFromRow(row, payments = []) {
     status: row.status,
     outstandingBalance: Number(row.outstanding_balance) || 0,
     yearsActive: row.years_active || 0,
-    nextDueDate: row.next_due_date || null,
+    nextDueDate: pinDuesDueDate(row.next_due_date) || null,
     overdueSince: row.overdue_since || null,
     photo: row.photo_url || null,
     cardNumber: row.card_number || null,
@@ -58,7 +61,7 @@ export function memberFromRow(row, payments = []) {
     notes: row.notes || '',
     adherents: (row.member_adherents || []).map(adherentFromRow),
     paymentHistory: payments.map(paymentFromRow),
-    ...(row.meta || {}),
+    lastPaymentDate: meta.lastPaymentDate || null,
     credentialToken: row.credential_token || null,
     recordScope: row.address === undefined && row.birth_date === undefined ? 'list' : 'full',
   };
@@ -93,7 +96,7 @@ export function memberToRow(member) {
     status: member.status || 'active',
     outstanding_balance: Number(member.outstandingBalance) || 0,
     years_active: Number(member.yearsActive) || 0,
-    next_due_date: member.nextDueDate || null,
+    next_due_date: pinDuesDueDate(member.nextDueDate) || null,
     overdue_since: member.overdueSince || null,
     photo_url: member.photo || null,
     card_number: member.cardNumber || null,
@@ -117,15 +120,19 @@ export function memberToRow(member) {
 }
 
 export function paymentFromRow(row) {
+  const amount = Number(row.amount ?? row.value ?? row.monto) || 0;
+  const receipt = row.receipt_number || row.receipt || '';
   return {
     id: row.id,
     memberDbId: row.member_id,
-    amount: Number(row.amount) || 0,
-    date: row.paid_at,
+    amount,
+    date: row.paid_at || row.date || null,
     method: row.method || '',
     concept: row.concept || '',
-    period: row.period_label || '',
-    receiptNumber: row.receipt_number || '',
+    period: row.period_label || row.period || '',
+    receipt,
+    receiptNumber: receipt,
+    status: 'paid',
     journalEntryId: row.journal_entry_id || null,
   };
 }
@@ -359,6 +366,46 @@ export function membershipApplicationToRow(app) {
     reviewed_by: app.reviewedBy || null,
     reviewed_at: app.reviewedAt || null,
     meta: app.meta && typeof app.meta === 'object' ? app.meta : {},
+  };
+}
+
+export function portalAccessRequestFromRow(row) {
+  const meta = row.meta || {};
+  return {
+    id: row.id,
+    fullName: row.full_name,
+    documentNumber: row.document_number || '',
+    memberNumber: row.member_number || '',
+    phone: row.phone || '',
+    email: row.email || '',
+    reason: row.reason || 'first_access',
+    status: row.status || 'pending',
+    notes: row.notes || '',
+    memberId: row.member_id || null,
+    profileId: row.profile_id || null,
+    reviewedBy: row.reviewed_by || null,
+    reviewedAt: row.reviewed_at || null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    ...meta,
+  };
+}
+
+export function portalAccessRequestToRow(req) {
+  return {
+    full_name: req.fullName,
+    document_number: req.documentNumber || null,
+    member_number: req.memberNumber || null,
+    phone: req.phone || null,
+    email: req.email || null,
+    reason: req.reason || 'first_access',
+    status: req.status || 'pending',
+    notes: req.notes || null,
+    member_id: req.memberDbId || req.memberRowId || req.memberId || null,
+    profile_id: req.profileId || null,
+    reviewed_by: req.reviewedBy || null,
+    reviewed_at: req.reviewedAt || null,
+    meta: req.meta && typeof req.meta === 'object' ? req.meta : {},
   };
 }
 

@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { Truck, Search, Ban, CheckCircle2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { suppliersSeed } from '../../domain/accounting/suppliersSeed';
+import { useSnapshotSeed } from '../../hooks/useSnapshots';
 import {
-  ACCESSIN_SUPPLIERS_AS_OF,
   SUPPLIER_CATEGORIES,
   accessinBalanceTotals,
   compareSuppliersByAccessin,
@@ -57,6 +58,7 @@ export default function SuppliersPanel({
   onCreateSupplierEntry,
   onNavigate,
 }) {
+  const { ACCESSIN_SUPPLIERS_AS_OF } = useSnapshotSeed(['accessinSuppliers'], suppliersSeed);
   const [view, setView] = useState('padron'); // padron | import
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');

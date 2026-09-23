@@ -1,17 +1,23 @@
 import { useMemo, useState } from 'react';
 import {
-  ArrowLeft, BookOpen, Pencil, Plus, Search, Trash2,
+  ArrowLeft, BookOpen, Pencil, Plus, Search, Trash2, X,
 } from 'lucide-react';
 import { formatCurrency } from '../../domain/accounting/journal';
 import { DATITA_CUOTA_CATEGORY_NAMES } from '../../domain/members/tiers';
 import {
-  buildFeeAccountLedgerLines,
   createFeeChartAccount,
   filterFeeAccountLedger,
   formatFeeLedgerDate,
 } from '../../domain/accounting/feeChartAccounts';
+import { buildFeeAccountLedgerLines } from '../../domain/accounting/feeAccountLedger';
+import { feeAccountDetailsSeed } from '../../domain/accounting/feeAccountDetails';
+import { useSnapshotSeed } from '../../hooks/useSnapshots';
+import SnapshotGate from '../SnapshotGate';
 
 const PAGE_SIZE = 20;
+
+const FEE_DETAILS_SNAPSHOTS = ['accessinFeeAccountDetails'];
+const NO_SNAPSHOTS = [];
 
 const EMPTY_FORM = {
   name: '',
@@ -19,6 +25,38 @@ const EMPTY_FORM = {
   feeCategories: '',
   balance: '',
 };
+
+function foldCategory(value = '') {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+function parseFeeCategories(value) {
+  if (Array.isArray(value)) {
+    return value.map((c) => String(c || '').trim()).filter(Boolean);
+  }
+  return String(value || '')
+    .split(/[,;]+/)
+    .map((c) => c.trim())
+    .filter(Boolean);
+}
+
+function joinFeeCategories(list) {
+  return (list || []).join(', ');
+}
+
+function filterFeeCategoryOptions(query, selected) {
+  const q = foldCategory(query);
+  const taken = new Set((selected || []).map(foldCategory));
+  return DATITA_CUOTA_CATEGORY_NAMES.filter((name) => {
+    if (taken.has(foldCategory(name))) return false;
+    if (!q) return true;
+    return foldCategory(name).includes(q);
+  });
+}
 
 function formatLilaMoney(n) {
   const v = Number(n) || 0;
@@ -43,15 +81,22 @@ export default function FeeChartAccountsPanel({
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(0);
   const [filtersOpen, setFiltersOpen] = useState(true);
+  const [catQuery, setCatQuery] = useState('');
+  const [catOpen, setCatOpen] = useState(false);
 
   const activeAccounts = useMemo(
     () => (accounts || []).filter((a) => a && a.isActive !== false),
     [accounts]
   );
 
+  // El libro de cada cuenta sale del detalle de cuotas (665 kB con DNI): se baja al abrirlo.
+  const { ACCESSIN_FEE_ACCOUNT_DETAILS } = useSnapshotSeed(
+    view === 'ledger' ? FEE_DETAILS_SNAPSHOTS : NO_SNAPSHOTS,
+    feeAccountDetailsSeed,
+  );
   const ledgerAll = useMemo(
-    () => (selected ? buildFeeAccountLedgerLines(selected) : []),
-    [selected]
+    () => (selected ? buildFeeAccountLedgerLines(selected, ACCESSIN_FEE_ACCOUNT_DETAILS) : []),
+    [selected, ACCESSIN_FEE_ACCOUNT_DETAILS]
   );
 
   const ledgerRows = useMemo(
@@ -65,9 +110,41 @@ export default function FeeChartAccountsPanel({
   const fromIdx = ledgerRows.length ? safePage * PAGE_SIZE + 1 : 0;
   const toIdx = Math.min(ledgerRows.length, (safePage + 1) * PAGE_SIZE);
 
+  const selectedCategories = useMemo(
+    () => parseFeeCategories(form.feeCategories),
+    [form.feeCategories]
+  );
+  const categorySuggestions = useMemo(
+    () => filterFeeCategoryOptions(catQuery, selectedCategories),
+    [catQuery, selectedCategories]
+  );
+
+  const setCategories = (list) => {
+    setForm((f) => ({ ...f, feeCategories: joinFeeCategories(list) }));
+  };
+
+  const addCategory = (name) => {
+    const next = String(name || '').trim();
+    if (!next) return;
+    if (selectedCategories.some((c) => foldCategory(c) === foldCategory(next))) {
+      setCatQuery('');
+      setCatOpen(false);
+      return;
+    }
+    setCategories([...selectedCategories, next]);
+    setCatQuery('');
+    setCatOpen(false);
+  };
+
+  const removeCategory = (name) => {
+    setCategories(selectedCategories.filter((c) => foldCategory(c) !== foldCategory(name)));
+  };
+
   const openCreate = () => {
     setEditingId(null);
     setForm(EMPTY_FORM);
+    setCatQuery('');
+    setCatOpen(false);
     setError('');
     setView('form');
   };
@@ -77,9 +154,11 @@ export default function FeeChartAccountsPanel({
     setForm({
       name: account.name || '',
       description: account.description || '',
-      feeCategories: (account.feeCategories || []).join(', '),
+      feeCategories: joinFeeCategories(account.feeCategories || []),
       balance: String(account.balance ?? ''),
     });
+    setCatQuery('');
+    setCatOpen(false);
     setError('');
     setView('form');
   };
@@ -165,19 +244,72 @@ export default function FeeChartAccountsPanel({
             <input className="form-input" value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
           </div>
           <div className="disc-field">
-            <label className="disc-field-label">Categorías de cuotas</label>
-            <input
-              className="form-input"
-              list="fca-categories"
-              value={form.feeCategories}
-              onChange={(e) => setForm((f) => ({ ...f, feeCategories: e.target.value }))}
-              placeholder="Ej. SOCIO FAMILIAR"
-            />
-            <datalist id="fca-categories">
-              {DATITA_CUOTA_CATEGORY_NAMES.map((name) => (
-                <option key={name} value={name} />
-              ))}
-            </datalist>
+            <label className="disc-field-label" htmlFor="fca-category-search">Categorías de cuotas</label>
+            {selectedCategories.length > 0 ? (
+              <div className="fee-cat-chips">
+                {selectedCategories.map((cat) => (
+                  <span key={cat} className="fee-cat-chip">
+                    {cat}
+                    <button
+                      type="button"
+                      aria-label={`Quitar ${cat}`}
+                      onClick={() => removeCategory(cat)}
+                    >
+                      <X size={12} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            <div className="fee-cat-pick">
+              <div className="fee-cat-pick-field">
+                <Search size={16} aria-hidden className="fee-cat-pick-icon" />
+                <input
+                  id="fca-category-search"
+                  className="form-input"
+                  type="search"
+                  value={catQuery}
+                  onChange={(e) => {
+                    setCatQuery(e.target.value);
+                    setCatOpen(true);
+                  }}
+                  onFocus={() => setCatOpen(true)}
+                  onBlur={() => {
+                    window.setTimeout(() => setCatOpen(false), 120);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && categorySuggestions[0]) {
+                      e.preventDefault();
+                      addCategory(categorySuggestions[0]);
+                    }
+                    if (e.key === 'Escape') setCatOpen(false);
+                  }}
+                  placeholder={selectedCategories.length ? 'Agregar otra categoría…' : 'Ej. SOCIO FAMILIAR'}
+                  autoComplete="off"
+                />
+              </div>
+              {catOpen && categorySuggestions.length > 0 ? (
+                <ul className="member-entry-suggest" role="listbox">
+                  {categorySuggestions.map((name) => (
+                    <li key={name}>
+                      <button
+                        type="button"
+                        role="option"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => addCategory(name)}
+                      >
+                        <strong>{name}</strong>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : catOpen && catQuery.trim() ? (
+                <p className="member-entry-empty">No hay categorías que coincidan</p>
+              ) : null}
+            </div>
+            <p className="disc-field-hint">
+              Escribí para buscar. Podés asociar varias categorías a la misma cuenta.
+            </p>
           </div>
           <div className="disc-field">
             <label className="disc-field-label">Balance</label>
@@ -192,7 +324,7 @@ export default function FeeChartAccountsPanel({
           {error ? <p className="ig-error">{error}</p> : null}
           <div className="ig-form-actions">
             <button type="button" className="btn btn-secondary" onClick={() => setView('list')}>Volver</button>
-            <button type="submit" className="btn cash-lila-purple-btn">{editingId ? 'Guardar' : 'Crear'}</button>
+            <button type="submit" className="btn btn-tan">{editingId ? 'Guardar' : 'Crear'}</button>
           </div>
         </form>
       </div>
@@ -201,116 +333,118 @@ export default function FeeChartAccountsPanel({
 
   if (view === 'ledger' && selected) {
     return (
-      <div className="fade-in cuotas-panel">
-        <div className="cuotas-toolbar">
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setView('list'); setSelected(null); }}>
-            <ArrowLeft size={14} /> Volver
-          </button>
-        </div>
+      <SnapshotGate names={FEE_DETAILS_SNAPSHOTS}>
+        <div className="fade-in cuotas-panel">
+          <div className="cuotas-toolbar">
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setView('list'); setSelected(null); }}>
+              <ArrowLeft size={14} /> Volver
+            </button>
+          </div>
 
-        {filtersOpen ? (
-          <section className="supplier-pay-import-block">
-            <div className="cuotas-toolbar">
-              <h4 className="supplier-pay-import-title" style={{ margin: 0 }}>Buscar por</h4>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setFiltersOpen(false)} title="Minimizar">−</button>
-            </div>
-            <div className="cuotas-event-filters">
-              <label>
-                <span className="form-label">Desde</span>
-                <div style={{ display: 'flex', gap: '0.35rem' }}>
-                  <input type="date" className="form-input" value={from} onChange={(e) => { setFrom(e.target.value); setPage(0); }} />
-                  {from ? <button type="button" className="btn btn-secondary btn-sm" onClick={() => setFrom('')}>×</button> : null}
-                </div>
-              </label>
-              <label>
-                <span className="form-label">Hasta</span>
-                <div style={{ display: 'flex', gap: '0.35rem' }}>
-                  <input type="date" className="form-input" value={to} onChange={(e) => { setTo(e.target.value); setPage(0); }} />
-                  {to ? <button type="button" className="btn btn-secondary btn-sm" onClick={() => setTo('')}>×</button> : null}
-                </div>
-              </label>
-              <label>
-                <span className="form-label">Texto</span>
-                <input
-                  className="form-input"
-                  value={query}
-                  onChange={(e) => { setQuery(e.target.value); setPage(0); }}
-                  placeholder="Socio, nro., descripción…"
-                />
-              </label>
-              <div style={{ display: 'flex', alignItems: 'end' }}>
-                <button type="button" className="btn cash-lila-purple-btn" onClick={() => setPage(0)}>
-                  <Search size={14} /> Buscar
-                </button>
+          {filtersOpen ? (
+            <section className="supplier-pay-import-block">
+              <div className="cuotas-toolbar">
+                <h4 className="supplier-pay-import-title" style={{ margin: 0 }}>Buscar por</h4>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setFiltersOpen(false)} title="Minimizar">−</button>
               </div>
-            </div>
-          </section>
-        ) : (
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => setFiltersOpen(true)}>Mostrar filtros</button>
-        )}
+              <div className="cuotas-event-filters">
+                <label>
+                  <span className="form-label">Desde</span>
+                  <div style={{ display: 'flex', gap: '0.35rem' }}>
+                    <input type="date" className="form-input" value={from} onChange={(e) => { setFrom(e.target.value); setPage(0); }} />
+                    {from ? <button type="button" className="btn btn-secondary btn-sm" onClick={() => setFrom('')}>×</button> : null}
+                  </div>
+                </label>
+                <label>
+                  <span className="form-label">Hasta</span>
+                  <div style={{ display: 'flex', gap: '0.35rem' }}>
+                    <input type="date" className="form-input" value={to} onChange={(e) => { setTo(e.target.value); setPage(0); }} />
+                    {to ? <button type="button" className="btn btn-secondary btn-sm" onClick={() => setTo('')}>×</button> : null}
+                  </div>
+                </label>
+                <label>
+                  <span className="form-label">Texto</span>
+                  <input
+                    className="form-input"
+                    value={query}
+                    onChange={(e) => { setQuery(e.target.value); setPage(0); }}
+                    placeholder="Socio, nro., descripción…"
+                  />
+                </label>
+                <div style={{ display: 'flex', alignItems: 'end' }}>
+                  <button type="button" className="btn btn-tan" onClick={() => setPage(0)}>
+                    <Search size={14} /> Buscar
+                  </button>
+                </div>
+              </div>
+            </section>
+          ) : (
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setFiltersOpen(true)}>Mostrar filtros</button>
+          )}
 
-        <div className="cuotas-toolbar">
-          <h3 className="cuotas-title">Cuentas contables: {selected.name}</h3>
-        </div>
+          <div className="cuotas-toolbar">
+            <h3 className="cuotas-title">Cuentas contables: {selected.name}</h3>
+          </div>
 
-        <div className="disc-pager">
-          <span>
-            {ledgerRows.length === 0
-              ? 'No se encontraron resultados'
-              : `Mostrando ${fromIdx} - ${toIdx} de ${ledgerRows.length}`}
-          </span>
-          {pageButtons()}
-        </div>
+          <div className="disc-pager">
+            <span>
+              {ledgerRows.length === 0
+                ? 'No se encontraron resultados'
+                : `Mostrando ${fromIdx} - ${toIdx} de ${ledgerRows.length}`}
+            </span>
+            {pageButtons()}
+          </div>
 
-        <div className="table-responsive">
-          <table className="admin-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Número de socio</th>
-                <th>Socio</th>
-                <th>Fecha</th>
-                <th>Tipo</th>
-                <th>Descripción</th>
-                <th>Importe</th>
-                <th>Cobrado</th>
-                <th>Pendiente</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pageRows.length === 0 ? (
+          <div className="table-responsive">
+            <table className="admin-table">
+              <thead>
                 <tr>
-                  <td colSpan={9} style={{ color: 'var(--text-muted)' }}>
-                    Sin movimientos para esta cuenta / filtro.
-                  </td>
+                  <th>#</th>
+                  <th>Número de socio</th>
+                  <th>Socio</th>
+                  <th>Fecha</th>
+                  <th>Tipo</th>
+                  <th>Descripción</th>
+                  <th>Importe</th>
+                  <th>Cobrado</th>
+                  <th>Pendiente</th>
                 </tr>
-              ) : (
-                pageRows.map((row) => (
-                  <tr key={row.id}>
-                    <td>{row.accessinId}</td>
-                    <td>{row.memberNumber}</td>
-                    <td style={{ fontWeight: 600 }}>{row.memberName}</td>
-                    <td>{formatFeeLedgerDate(row)}</td>
-                    <td>{row.type}</td>
-                    <td>{row.description}</td>
-                    <td style={{ fontWeight: 700, color: 'var(--emerald-accent)' }}>{formatLilaMoney(row.amount)}</td>
-                    <td style={{ fontWeight: 700, color: row.collected > 0 ? 'var(--emerald-accent)' : undefined }}>
-                      {formatLilaMoney(row.collected)}
-                    </td>
-                    <td style={{
-                      fontWeight: 700,
-                      color: row.pending > 0 ? 'var(--warning-accent)' : 'var(--emerald-accent)',
-                    }}
-                    >
-                      {formatLilaMoney(row.pending)}
+              </thead>
+              <tbody>
+                {pageRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} style={{ color: 'var(--text-muted)' }}>
+                      Sin movimientos para esta cuenta / filtro.
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : (
+                  pageRows.map((row) => (
+                    <tr key={row.id}>
+                      <td>{row.accessinId}</td>
+                      <td>{row.memberNumber}</td>
+                      <td style={{ fontWeight: 600 }}>{row.memberName}</td>
+                      <td>{formatFeeLedgerDate(row)}</td>
+                      <td>{row.type}</td>
+                      <td>{row.description}</td>
+                      <td style={{ fontWeight: 700, color: 'var(--emerald-accent)' }}>{formatLilaMoney(row.amount)}</td>
+                      <td style={{ fontWeight: 700, color: row.collected > 0 ? 'var(--emerald-accent)' : undefined }}>
+                        {formatLilaMoney(row.collected)}
+                      </td>
+                      <td style={{
+                        fontWeight: 700,
+                        color: row.pending > 0 ? 'var(--warning-accent)' : 'var(--emerald-accent)',
+                      }}
+                      >
+                        {formatLilaMoney(row.pending)}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      </SnapshotGate>
     );
   }
 
@@ -327,7 +461,7 @@ export default function FeeChartAccountsPanel({
             <BookOpen size={18} /> Cuentas contables
           </h3>
         </div>
-        <button type="button" className="btn cash-lila-purple-btn" onClick={openCreate}>
+        <button type="button" className="btn btn-tan" onClick={openCreate}>
           <Plus size={14} /> Cuenta contable
         </button>
       </div>
@@ -369,7 +503,7 @@ export default function FeeChartAccountsPanel({
                   <td style={{ fontWeight: 700, color: 'var(--emerald-accent)' }}>{fmt(row.balance)}</td>
                   <td>
                     <div className="cash-lila-row-actions">
-                      <button type="button" className="btn cash-lila-purple-btn btn-sm" onClick={() => openLedger(row)}>
+                      <button type="button" className="btn btn-tan btn-sm" onClick={() => openLedger(row)}>
                         C.C.
                       </button>
                       <button type="button" className="cash-lila-icon-btn is-edit" title="Editar" onClick={() => openEdit(row)}>

@@ -1,10 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { loadSnapshots } from '../../data/snapshots';
 import {
-  ACCESSIN_SUPPLIER_PAYMENTS,
-  ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT,
   filterAccessinSupplierPayments,
+  supplierPaymentsSeed,
   supplierPaymentsSummary,
 } from './supplierPaymentsReport';
+
+let ACCESSIN_SUPPLIER_PAYMENTS;
+let ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT;
+
+beforeAll(async () => {
+  await loadSnapshots(['accessinSupplierPayments']);
+  ({ ACCESSIN_SUPPLIER_PAYMENTS, ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT } = supplierPaymentsSeed());
+});
 
 describe('supplierPaymentsReport Accessin', () => {
   it('refleja el reporte LILA (hoy vacío)', () => {

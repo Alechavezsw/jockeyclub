@@ -17,7 +17,7 @@ import {
   MapPin,
   Sparkles,
 } from 'lucide-react';
-import { FACILITIES, FACILITY_GROUPS, facilitiesByGroup, sortFacilitiesForDisplay, isSalonFacility, isParrillaFacility } from '../domain/reservations/facilities';
+import { FACILITIES, facilitiesByGroup, sortFacilitiesForDisplay, isRealBookableSpace } from '../domain/reservations/facilities';
 import { buildFacilityCatalog } from '../domain/reservations/facilityConfig';
 import { getFacilityLiveStatus, isSeasonOpen } from '../domain/reservations/availability';
 import { hasReservationConflict } from '../domain/reservations/conflicts';
@@ -26,11 +26,6 @@ import ModalDialog from './ModalDialog';
 
 const WEEKDAYS = ['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sá', 'Do'];
 const ACTIVE_RES_STATUSES = new Set(['confirmed', 'pending', 'approved']);
-
-/** Espacios del sistema real de reservas (datita): salones + parrilla. */
-function isRealBookableSpace(facility) {
-  return isSalonFacility(facility) || isParrillaFacility(facility);
-}
 
 function isFacilityOpenForDay(facility, { isZondaActive, now }) {
   if (!facility) return false;
@@ -158,7 +153,8 @@ export default function MemberFacilitiesBooking({
   const [waitMsg, setWaitMsg] = useState('');
 
   const catalog = useMemo(
-    () => buildFacilityCatalog(FACILITIES, Array.isArray(facilityCatalog) ? facilityCatalog : []),
+    () => buildFacilityCatalog(FACILITIES, Array.isArray(facilityCatalog) ? facilityCatalog : [])
+      .filter(isRealBookableSpace),
     [facilityCatalog]
   );
   const groups = useMemo(() => facilitiesByGroup(catalog), [catalog]);
@@ -209,11 +205,6 @@ export default function MemberFacilitiesBooking({
     });
     return sortFacilitiesForDisplay(filtered);
   }, [catalog, active, query, onlyAvailable, liveById]);
-
-  const freeForSelected = useMemo(() => {
-    if (!selectedFacility) return [];
-    return freeSlotsForFacility(selectedFacility, selectedDate, reservations, { isZondaActive, now });
-  }, [selectedFacility, selectedDate, reservations, isZondaActive, now]);
 
   const openBooking = (facility) => {
     const live = liveById.get(facility.id);
@@ -475,9 +466,9 @@ export default function MemberFacilitiesBooking({
           </div>
 
           <div className="mfb-tabs">
-            {FACILITY_GROUPS.map((group) => {
-              const count = groups.find((g) => g.id === group.id)?.items.length || 0;
-              const free = (groups.find((g) => g.id === group.id)?.items || []).filter(
+            {groups.filter((group) => group.items.length > 0).map((group) => {
+              const count = group.items.length;
+              const free = group.items.filter(
                 (f) => liveById.get(f.id)?.status === 'available'
               ).length;
               return (

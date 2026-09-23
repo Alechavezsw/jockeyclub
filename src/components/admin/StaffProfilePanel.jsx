@@ -148,7 +148,7 @@ export default function StaffProfilePanel({ employee, onBack, hrRecords = [] }) 
             borderRadius: 14,
             overflow: 'hidden',
             border: '1px solid var(--border-glass)',
-            background: 'rgba(207,161,58,0.1)',
+            background: 'rgba(var(--primary-gold-rgb),0.1)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -202,7 +202,7 @@ export default function StaffProfilePanel({ employee, onBack, hrRecords = [] }) 
                 gap: 6,
                 borderColor: active ? 'var(--primary-gold)' : undefined,
                 color: active ? 'var(--text-gold)' : undefined,
-                background: active ? 'rgba(207,161,58,0.12)' : undefined,
+                background: active ? 'rgba(var(--primary-gold-rgb),0.12)' : undefined,
               }}
             >
               <Icon size={13} /> {s.label}

@@ -196,7 +196,12 @@ export function AuthProvider({ children }) {
       throw err;
     }
 
-    const { DEMO_USERS } = await import('../domain/auth/demoUsers');
+    // El chequeo de import.meta.env.DEV va pegado al import() para que el build de
+    // producción elimine el chunk: allowLocalDemoAuth ya es false ahí, pero el bundler
+    // no lo puede deducir y publicaba demoUsers (con contraseñas) como asset.
+    const { DEMO_USERS } = import.meta.env.DEV
+      ? await import('../domain/auth/demoUsers')
+      : { DEMO_USERS: [] };
     const demo = DEMO_USERS.find(
       (u) => u.email === normalized && u.password === password
     );

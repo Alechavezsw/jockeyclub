@@ -11,9 +11,173 @@ import {
   buildEventMpPayload,
   listEventRegistrations,
   guestEventRegistrationsForHost,
-  eventOpsStats,
+  buildEventDashboard,
+  EVENT_CATEGORY_LABELS,
   DEFAULT_EVENT_SETTINGS,
 } from '../../domain/events/clubEvents';
+
+const CATEGORY_TONE = {
+  fiesta: 'var(--primary-gold)',
+  deportes: 'var(--emerald-accent)',
+  institucional: '#3b82f6',
+  hipica: '#d97706',
+};
+
+function compactArs(amount) {
+  const n = Number(amount) || 0;
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1).replace('.', ',')} M`;
+  if (n >= 1000) return `$${Math.round(n / 1000)} mil`;
+  return formatCurrency(n);
+}
+
+function EventOccupancyChart({ rows, selectedId, onSelect }) {
+  return (
+    <article className="events-chart-card">
+      <h3>Cupo por evento</h3>
+      <p className="events-chart-hint">Tocá una barra para operar ese evento.</p>
+      {rows.length === 0 ? (
+        <p className="ops-muted">Todavía no hay eventos publicados.</p>
+      ) : (
+        <ul className="events-occ-list">
+          {rows.map((row) => {
+            const pct = row.occupancyPct ?? 0;
+            const tone = CATEGORY_TONE[row.category] || 'var(--primary-gold)';
+            const label = EVENT_CATEGORY_LABELS[row.category] || row.category;
+            return (
+              <li key={row.id}>
+                <button
+                  type="button"
+                  className={`events-occ-row${selectedId === row.id ? ' is-active' : ''}`}
+                  onClick={() => onSelect(row.id)}
+                >
+                  <span className="events-occ-meta">
+                    <strong>{row.title}</strong>
+                    <span>
+                      {label}
+                      {' · '}
+                      {row.used}
+                      {row.capacity != null ? ` / ${row.capacity}` : ' sin tope'}
+                      {row.occupancyPct != null ? ` · ${row.occupancyPct}%` : ''}
+                    </span>
+                  </span>
+                  <span
+                    className="events-occ-track"
+                    role="meter"
+                    aria-label={`Cupo de ${row.title}`}
+                    aria-valuemin={0}
+                    aria-valuemax={row.capacity || row.used || 0}
+                    aria-valuenow={row.used}
+                  >
+                    <span
+                      className="events-occ-fill"
+                      style={{
+                        width: `${row.capacity != null ? Math.max(pct, row.used > 0 ? 6 : 0) : Math.min(100, row.used * 8)}%`,
+                        background: tone,
+                      }}
+                    />
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </article>
+  );
+}
+
+function EventMixChart({ mix }) {
+  const empty = mix.total === 0;
+  const memberDeg = empty ? 0 : (mix.members / mix.total) * 360;
+  return (
+    <article className="events-chart-card">
+      <h3>Quién entra</h3>
+      <p className="events-chart-hint">Socios titulares e invitados habilitados.</p>
+      <div className="events-mix">
+        <div
+          className="events-mix-donut"
+          style={{
+            background: empty
+              ? 'conic-gradient(var(--border-glass) 0deg 360deg)'
+              : `conic-gradient(var(--primary-gold) 0deg ${memberDeg}deg, var(--emerald-accent) ${memberDeg}deg 360deg)`,
+          }}
+          aria-hidden="true"
+        >
+          <div className="events-mix-hole">
+            <b>{mix.total}</b>
+            <span>personas</span>
+          </div>
+        </div>
+        <ul className="events-mix-legend">
+          <li>
+            <i style={{ background: 'var(--primary-gold)' }} />
+            Socios
+            <strong>{mix.members}{mix.total ? ` · ${mix.memberPct}%` : ''}</strong>
+          </li>
+          <li>
+            <i style={{ background: 'var(--emerald-accent)' }} />
+            Invitados
+            <strong>{mix.guests}{mix.total ? ` · ${mix.guestPct}%` : ''}</strong>
+          </li>
+        </ul>
+      </div>
+    </article>
+  );
+}
+
+function EventMoneyChart({ rows, payments, paidTotal, maxCollected }) {
+  const max = Math.max(maxCollected, 1);
+  const cashPct = paidTotal ? (payments.efectivo / paidTotal) * 100 : 0;
+  const mpPct = paidTotal ? (payments.mercadopago / paidTotal) * 100 : 0;
+  return (
+    <article className="events-chart-card">
+      <h3>Recaudación</h3>
+      <p className="events-chart-hint">Entradas cobradas por evento y medio de pago.</p>
+      <div className="events-money-cols" role="img" aria-label="Recaudación por evento">
+        {rows.map((row) => {
+          const h = Math.round((row.collected / max) * 92);
+          const tone = CATEGORY_TONE[row.category] || 'var(--primary-gold)';
+          return (
+            <div key={row.id} className="events-money-col">
+              <span className="events-money-val">{row.collected > 0 ? compactArs(row.collected) : '—'}</span>
+              <span className="events-money-bar-wrap">
+                <span
+                  className="events-money-bar"
+                  style={{ height: `${Math.max(h, row.collected > 0 ? 8 : 2)}px`, background: row.collected > 0 ? tone : 'var(--border-glass)' }}
+                />
+              </span>
+              <span className="events-money-label">{row.title}</span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="events-pay-split">
+        <div className="events-pay-track" aria-hidden="true">
+          {paidTotal > 0 ? (
+            <>
+              <span style={{ width: `${cashPct}%`, background: 'var(--primary-gold)' }} />
+              <span style={{ width: `${mpPct}%`, background: 'var(--emerald-accent)' }} />
+            </>
+          ) : (
+            <span style={{ width: '100%', background: 'var(--border-glass)' }} />
+          )}
+        </div>
+        <ul className="events-mix-legend">
+          <li>
+            <i style={{ background: 'var(--primary-gold)' }} />
+            Efectivo
+            <strong>{paidTotal ? compactArs(payments.efectivo) : '—'}</strong>
+          </li>
+          <li>
+            <i style={{ background: 'var(--emerald-accent)' }} />
+            Mercado Pago
+            <strong>{paidTotal ? compactArs(payments.mercadopago) : '—'}</strong>
+          </li>
+        </ul>
+      </div>
+    </article>
+  );
+}
 
 /**
  * Fiestas / eventos: misma lógica operativa que pileta
@@ -57,9 +221,14 @@ export default function ClubEventsPanel({
     [members, selectedId]
   );
 
-  const stats = useMemo(
-    () => eventOpsStats(clubEvents, eventRegistrations),
+  const dash = useMemo(
+    () => buildEventDashboard(clubEvents, eventRegistrations),
     [clubEvents, eventRegistrations]
+  );
+  const stats = dash.ops;
+  const selectedRow = useMemo(
+    () => dash.byEvent.find((row) => row.id === selectedEvent?.id) || null,
+    [dash.byEvent, selectedEvent]
   );
 
   const searchHits = useMemo(() => {
@@ -164,19 +333,37 @@ export default function ClubEventsPanel({
       <header className="events-hero glass-card">
         <div className="pool-hero-copy">
           <p className="events-kicker"><PartyPopper size={14} aria-hidden="true" /> Fiestas y eventos</p>
-          <h2 className="serif-font">Inscripción operativa</h2>
+          <h2 className="serif-font">Cupo, cobro e invitados</h2>
           <p>
-            Misma lógica que pileta: buscá el socio, cobrá la entrada (efectivo o QR Mercado Pago)
-            y sumá invitados. Sin revisación médica.
+            Buscá el socio, cobrá la entrada (efectivo o QR Mercado Pago) y sumá invitados.
+            El cupo y la recaudación se actualizan en los gráficos.
           </p>
         </div>
         <div className="pool-hero-kpis">
           <div><strong>{stats.events}</strong><span>Eventos</span></div>
-          <div><strong>{stats.members}</strong><span>Socios</span></div>
+          <div><strong>{stats.totalPeople}</strong><span>Inscriptos</span></div>
           <div><strong>{stats.guests}</strong><span>Invitados</span></div>
           <div><strong>{formatCurrency(stats.collected)}</strong><span>Recaudado</span></div>
         </div>
       </header>
+
+      <section className="events-charts" aria-label="Indicadores de fiestas y eventos">
+        <EventOccupancyChart
+          rows={dash.byEvent}
+          selectedId={selectedEvent?.id}
+          onSelect={(id) => {
+            setSelectedEventId(id);
+            setError('');
+          }}
+        />
+        <EventMixChart mix={dash.mix} />
+        <EventMoneyChart
+          rows={dash.byEvent}
+          payments={dash.payments}
+          paidTotal={dash.paidTotal}
+          maxCollected={dash.maxCollected}
+        />
+      </section>
 
       {flash ? <p className="member-action-flash" role="status">{flash}</p> : null}
       {error ? <p className="conc-error" role="alert">{error}</p> : null}
@@ -259,12 +446,34 @@ export default function ClubEventsPanel({
           </label>
 
           {selectedEvent ? (
-            <p className="ops-muted" style={{ margin: '0.55rem 0 0' }}>
-              {new Date(selectedEvent.startsAt).toLocaleString('es-AR')}
-              {selectedEvent.location ? ` · ${selectedEvent.location}` : ''}
-              {' · '}
-              Entrada {ticket > 0 ? formatCurrency(ticket) : 'libre'}
-            </p>
+            <div className="events-selected-meter">
+              <p className="ops-muted" style={{ margin: 0 }}>
+                {new Date(selectedEvent.startsAt).toLocaleString('es-AR')}
+                {selectedEvent.location ? ` · ${selectedEvent.location}` : ''}
+                {' · '}
+                Entrada {ticket > 0 ? formatCurrency(ticket) : 'libre'}
+              </p>
+              {selectedRow ? (
+                <div
+                  className="events-occ-track events-occ-track--inline"
+                  role="meter"
+                  aria-label="Cupo del evento seleccionado"
+                  aria-valuemin={0}
+                  aria-valuemax={selectedRow.capacity || selectedRow.used || 0}
+                  aria-valuenow={selectedRow.used}
+                >
+                  <span
+                    className="events-occ-fill"
+                    style={{
+                      width: `${selectedRow.occupancyPct != null
+                        ? Math.max(selectedRow.occupancyPct, selectedRow.used > 0 ? 6 : 0)
+                        : Math.min(100, selectedRow.used * 8)}%`,
+                      background: CATEGORY_TONE[selectedRow.category] || 'var(--primary-gold)',
+                    }}
+                  />
+                </div>
+              ) : null}
+            </div>
           ) : null}
 
           <h3 style={{ marginTop: '1.15rem' }}><Search size={16} /> Buscar socio</h3>
@@ -497,7 +706,9 @@ export default function ClubEventsPanel({
             <h3>Agenda</h3>
             <ul className="events-agenda">
               {clubEvents.slice(0, 6).map((ev) => {
-                const used = countRegistrations(eventRegistrations, ev.id);
+                const row = dash.byEvent.find((item) => item.id === ev.id);
+                const used = row?.used ?? countRegistrations(eventRegistrations, ev.id);
+                const pct = row?.occupancyPct ?? 0;
                 return (
                   <li key={ev.id}>
                     <button
@@ -509,6 +720,16 @@ export default function ClubEventsPanel({
                       <span>
                         {new Date(ev.startsAt).toLocaleDateString('es-AR')} · {used}
                         {ev.capacity ? `/${ev.capacity}` : ''}
+                        {row?.occupancyPct != null ? ` · ${row.occupancyPct}%` : ''}
+                      </span>
+                      <span className="events-occ-track events-occ-track--agenda" aria-hidden="true">
+                        <span
+                          className="events-occ-fill"
+                          style={{
+                            width: `${ev.capacity ? Math.max(pct, used > 0 ? 6 : 0) : Math.min(100, used * 8)}%`,
+                            background: CATEGORY_TONE[ev.category] || 'var(--primary-gold)',
+                          }}
+                        />
                       </span>
                     </button>
                   </li>

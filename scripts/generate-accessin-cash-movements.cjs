@@ -12,6 +12,9 @@ const excelPath = path.join(
 );
 const outDir = path.join(__dirname, '../src/data/seed');
 const outFile = path.join(outDir, 'accessinCashMovements.js');
+// Corte y cajas van en un archivo aparte: los usa el store del ERP al arrancar, y los
+// movimientos (~600 kB) se cargan con import() diferido fuera del chunk de entrada.
+const snapshotFile = path.join(outDir, 'accessinCashSnapshot.js');
 
 const WALLET_META = {
   Efectivo: { id: 'wallet-efectivo', kind: 'cash', label: 'Efectivo', accountId: 'coa-1.1.01' },
@@ -135,12 +138,16 @@ const snapshot = {
 };
 
 fs.mkdirSync(outDir, { recursive: true });
-const js = `/** Movimientos de caja Accessin (jul–sep 2026). Auto-generado — no editar a mano. */
+const snapshotJs = `/** Corte de caja Accessin (jul–sep 2026): saldos y cajas. Auto-generado — no editar a mano. */
 export const ACCESSIN_CASH_AS_OF = '2026-09-02';
 export const ACCESSIN_CASH_SNAPSHOT = ${JSON.stringify(snapshot, null, 2)};
 export const ACCESSIN_CASH_REGISTERS = ${JSON.stringify(registers, null, 2)};
+`;
+const movementsJs = `/** Movimientos de caja Accessin (jul–sep 2026). Auto-generado — no editar a mano. */
 export const ACCESSIN_CASH_MOVEMENTS = ${JSON.stringify(movements)};
 `;
-fs.writeFileSync(outFile, js);
-console.log(`Wrote ${movements.length} movements, ${registers.length} wallets -> ${outFile}`);
+fs.writeFileSync(snapshotFile, snapshotJs);
+fs.writeFileSync(outFile, movementsJs);
+console.log(`Wrote ${registers.length} wallets -> ${snapshotFile}`);
+console.log(`Wrote ${movements.length} movements -> ${outFile}`);
 console.log('closing', closingBalance, 'opening', openingBalance);

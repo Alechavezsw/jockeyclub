@@ -1,10 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { loadSnapshots } from '../../data/snapshots';
 import {
-  ACCESSIN_COBRANZAS,
-  ACCESSIN_COBRANZAS_SNAPSHOT,
+  cobranzasSeed,
   cobranzasSummary,
   filterAccessinCobranzas,
 } from './cobranzas';
+
+let ACCESSIN_COBRANZAS;
+let ACCESSIN_COBRANZAS_SNAPSHOT;
+
+beforeAll(async () => {
+  await loadSnapshots(['accessinCobranzas']);
+  ({ ACCESSIN_COBRANZAS, ACCESSIN_COBRANZAS_SNAPSHOT } = cobranzasSeed());
+});
 
 describe('cobranzas Accessin', () => {
   it('carga el reporte real', () => {

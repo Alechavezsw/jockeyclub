@@ -6,6 +6,16 @@ import GuestPassPanel from '../components/GuestPassPanel';
 import ModalDialog from '../components/ModalDialog';
 import { FACILITIES } from '../domain/reservations/facilities';
 import { getFacilityLiveStatus } from '../domain/reservations/availability';
+import { useMemberDuesStanding } from '../hooks/useMemberDuesStanding';
+import { findTier } from '../domain/members/tiers';
+import { quotaHeadline } from '../domain/members/dues';
+import {
+  membershipCaption,
+  prettyMembershipName,
+  yearsOnClub,
+} from '../domain/members/membership';
+import { upcomingMemberReservations } from '../domain/reservations/memberBookings';
+import { todayISODateAR } from '../lib/arDate';
 import {
   Calendar, CreditCard, MapPin, ShieldAlert,
   ArrowRight, Mail, Users, Send, MessageSquare, CheckCircle2,
@@ -20,7 +30,6 @@ export default function DashboardView({
   addReservation,
   setCurrentView, 
   latestNews,
-  staffMembers = [],
   claims = [],
   setClaims,
   messages = [],
@@ -33,7 +42,6 @@ export default function DashboardView({
   setWaitlist,
   guestPasses = [],
   setGuestPasses,
-  updateMember,
   facilityCatalog = null,
 }) {
   const [showNewClaimForm, setShowNewClaimForm] = useState(false);
@@ -46,7 +54,7 @@ export default function DashboardView({
   const [hoveredSegments, setHoveredSegments] = useState({});
 
   const liveSnapshot = useMemo(() => {
-    const highlightIds = ['tenis_trad', 'padel_vidrio', 'rugby_masc', 'piscina_verano', 'gimnasio_musc'];
+    const highlightIds = ['salon_anhelo', 'salon_bustos', 'salon_maurin', 'espacio_verde', 'salon_eventos'];
     return highlightIds
       .map((id) => FACILITIES.find((f) => f.id === id))
       .filter(Boolean)
@@ -56,6 +64,14 @@ export default function DashboardView({
       }));
   }, [reservations, isZondaActive]);
   const { weather } = useSedeWeather({ isZondaActive });
+  const {
+    summary: duesStanding,
+    lateLabel: duesLateLabel,
+    behind: duesBehind,
+    pending: duesPending,
+    member: duesMember,
+  } = useMemberDuesStanding(member);
+  const profile = duesMember || member;
 
   if (!member?.memberId) {
     return (
@@ -87,8 +103,12 @@ export default function DashboardView({
     setSurveys(updatedSurveys);
   };
 
-  const memberReservations = reservations.filter(res => res.memberId === member.memberId);
-  const activeReservationsCount = memberReservations.filter(res => res.status !== 'cancelled').length;
+  const upcomingBookings = upcomingMemberReservations(
+    reservations,
+    member.memberId,
+    todayISODateAR(),
+  );
+  const upcomingReservationsCount = upcomingBookings.length;
   const memberMessages = messages.filter(msg => msg.recipientId === member.memberId || msg.recipientId === 'all');
   const unreadMessagesCount = memberMessages.filter(msg => !msg.isRead).length;
   const memberClaims = claims.filter(clm => clm.memberId === member.memberId);
@@ -96,6 +116,27 @@ export default function DashboardView({
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 }).format(amount);
   };
+  const quota = quotaHeadline(profile);
+  const duesValue = duesPending
+    ? 'Consultando…'
+    : !quota.billing && quota.kind !== 'debt'
+      ? quota.title
+      : duesBehind
+        ? (duesLateLabel || formatCurrency(duesStanding.outstanding))
+        : 'Al día';
+  const duesSub = duesPending
+    ? 'Confirmando vencimientos'
+    : duesBehind
+      ? `${formatCurrency(duesStanding.outstanding)} · Ver pagos`
+      : quota.hint || 'Historial de pagos';
+  const tierRow = findTier(profile.tier);
+  const membershipLabel = prettyMembershipName(tierRow?.name || profile.tier);
+  const membershipYears = yearsOnClub(profile);
+  const membershipSub = membershipCaption(profile);
+  const heroNameParts = String(profile.name || member.name || '')
+    .trim()
+    .split(/\s+/)
+    .filter((part) => part && !part.includes('@'));
 
   const handleMarkAsRead = (msgId) => {
     setMessages(prev => prev.map(msg => msg.id === msgId ? { ...msg, isRead: true } : msg));
@@ -123,12 +164,7 @@ export default function DashboardView({
     setTimeout(() => { setClaimSuccess(false); setShowNewClaimForm(false); }, 2000);
   };
 
-  const tierColors = {
-    royal: { primary: '#a855f7', secondary: 'rgba(168,85,247,0.15)', label: '👑 Royal' },
-    platinum: { primary: '#94a3b8', secondary: 'rgba(148,163,184,0.15)', label: '💎 Platinum' },
-    gold: { primary: 'var(--primary-gold)', secondary: 'rgba(207,161,58,0.15)', label: '⭐ Gold' },
-  };
-  const tc = tierColors[member.tier] || tierColors.gold;
+  const membershipHue = tierRow?.color || '#096755';
 
   return (
     <div className="fade-in">
@@ -149,7 +185,7 @@ export default function DashboardView({
           border-radius: inherit;
           overflow: hidden;
           background: 
-            radial-gradient(ellipse 60% 50% at 80% 50%, ${tc.secondary} 0%, transparent 70%),
+            radial-gradient(ellipse 60% 50% at 80% 50%, ${membershipHue}26 0%, transparent 70%),
             radial-gradient(ellipse 40% 60% at 10% 80%, rgba(16,185,129,0.06) 0%, transparent 60%);
           pointer-events: none;
         }
@@ -191,9 +227,9 @@ export default function DashboardView({
           font-weight: 700;
           letter-spacing: 0.05em;
           width: fit-content;
-          border: 1px solid ${tc.primary}40;
-          background: ${tc.secondary};
-          color: ${tc.primary};
+          border: 1px solid ${membershipHue}66;
+          background: ${membershipHue}22;
+          color: ${membershipHue};
         }
         .db-hero-stats {
           display: flex;
@@ -341,42 +377,73 @@ export default function DashboardView({
           flex-shrink: 0;
         }
 
-        /* Stat widgets premium */
+        /* Stat widgets */
         .db-stat-row {
           display: grid;
-          grid-template-columns: 1.25fr 1fr 0.85fr;
-          gap: 0.85rem;
-          margin-bottom: 1.5rem;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 0.75rem;
+          margin-bottom: 1.25rem;
         }
         @media (max-width: 900px) {
           .db-stat-row { grid-template-columns: 1fr 1fr; }
         }
         @media (max-width: 520px) {
           .db-stat-row { grid-template-columns: 1fr; }
-          .db-stat-value { font-size: 1.35rem; }
         }
         .db-stat-card {
-          border-radius: 16px;
-          padding: 1.25rem;
+          background: var(--surface-card);
+          border: 1px solid var(--border-glass);
+          border-radius: 12px;
+          padding: 0.95rem 1rem 1rem;
           display: flex;
           flex-direction: column;
-          gap: 0.6rem;
-          position: relative;
-          overflow: hidden;
-          border: 1px solid rgba(255,255,255,0.04);
+          gap: 0.45rem;
+          min-height: 7.25rem;
+          box-shadow: var(--shadow-premium);
         }
-        .db-stat-card::before {
-          content: '';
-          position: absolute;
-          top: 0; right: 0;
-          width: 80px; height: 80px;
-          border-radius: 50%;
-          opacity: 0.08;
-          transform: translate(20px, -20px);
+        .db-stat-card.is-ok { border-color: rgba(var(--emerald-accent-rgb), 0.32); }
+        .db-stat-card.is-late { border-color: rgba(var(--primary-gold-rgb), 0.38); }
+        .db-stat-head {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
         }
-        .db-stat-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); font-weight: 600; }
-        .db-stat-value { font-size: 1.6rem; font-weight: 800; line-height: 1; }
-        .db-stat-sub { font-size: 0.72rem; color: var(--text-muted); }
+        .db-stat-ico {
+          width: 28px;
+          height: 28px;
+          border-radius: 8px;
+          display: grid;
+          place-items: center;
+          flex-shrink: 0;
+          background: rgba(var(--emerald-accent-rgb), 0.12);
+          color: var(--emerald-accent);
+        }
+        .db-stat-card.is-late .db-stat-ico {
+          background: rgba(var(--primary-gold-rgb), 0.12);
+          color: var(--primary-gold);
+        }
+        .db-stat-card.is-membership .db-stat-ico {
+          background: rgba(var(--emerald-accent-rgb), 0.1);
+          color: var(--emerald-accent);
+        }
+        .db-stat-label {
+          font-size: 0.68rem;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          color: var(--text-muted);
+          font-weight: 650;
+        }
+        .db-stat-value {
+          font-size: 1.2rem;
+          font-weight: 700;
+          line-height: 1.2;
+          letter-spacing: -0.02em;
+          color: var(--text-primary);
+        }
+        .db-stat-card.is-ok .db-stat-value { color: var(--emerald-accent); }
+        .db-stat-card.is-late .db-stat-value { color: var(--primary-gold); }
+        .db-stat-value.is-text { font-size: 1.02rem; font-weight: 650; }
+        .db-stat-sub { font-size: 0.74rem; color: var(--text-secondary); }
 
         /* Sport cards */
         .db-sport-grid {
@@ -434,7 +501,7 @@ export default function DashboardView({
         }
         .db-msg-item.unread {
           border-left: 3px solid var(--primary-gold);
-          background: rgba(207,161,58,0.03);
+          background: rgba(var(--primary-gold-rgb),0.03);
         }
         .db-msg-item:hover { background: rgba(255,255,255,0.025); border-color: var(--border-glass-hover); }
 
@@ -543,7 +610,7 @@ export default function DashboardView({
           background: var(--surface-softer);
           transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
         }
-        .db-adherent-row:hover { border-color: var(--primary-gold); background: rgba(207,161,58,0.03); }
+        .db-adherent-row:hover { border-color: var(--primary-gold); background: rgba(var(--primary-gold-rgb),0.03); }
       `}</style>
 
       {/* ===== HERO BANNER ===== */}
@@ -552,19 +619,22 @@ export default function DashboardView({
         <div className="db-hero-content">
           <div className="db-hero-left">
             <p className="db-hero-greeting">✦ Bienvenido de vuelta</p>
-            <h1 className="db-hero-name">{member.name.split(' ')[0]}<br/>{member.name.split(' ').slice(1).join(' ')}</h1>
+            <h1 className="db-hero-name">
+              {heroNameParts[0] || 'Socio'}
+              {heroNameParts.length > 1 ? <><br />{heroNameParts.slice(1).join(' ')}</> : null}
+            </h1>
             <div className="db-hero-badge">
-              {tc.label} · {member.yearsActive} años como socio
+              {membershipLabel}{membershipYears > 0 ? ` · ${membershipYears} años` : ''}
             </div>
             <div className="db-hero-stats">
               <div className="db-hero-stat">
-                <span className="db-hero-stat-val">{activeReservationsCount}</span>
-                <span className="db-hero-stat-lbl">Reservas activas</span>
+                <span className="db-hero-stat-val">{upcomingReservationsCount}</span>
+                <span className="db-hero-stat-lbl">Próximos turnos</span>
               </div>
               <div style={{ width: 1, background: 'rgba(255,255,255,0.08)' }} />
               <div className="db-hero-stat">
-                <span className="db-hero-stat-val" style={{ color: member.outstandingBalance > 0 ? '#f59e0b' : 'var(--emerald-accent)' }}>
-                  {member.outstandingBalance > 0 ? formatCurrency(member.outstandingBalance) : 'Al día'}
+                <span className="db-hero-stat-val" style={{ color: duesPending ? 'var(--text-muted)' : duesBehind ? 'var(--primary-gold)' : 'var(--emerald-accent)' }}>
+                  {duesValue}
                 </span>
                 <span className="db-hero-stat-lbl">Estado de cuenta</span>
               </div>
@@ -581,16 +651,16 @@ export default function DashboardView({
           </div>
 
           <div className="db-hero-card-wrapper">
-            <VirtualCard member={member} />
+            <VirtualCard member={profile} />
           </div>
         </div>
       </div>
 
-      {(member.outstandingBalance || 0) > 0 && member.notifyDues !== false && (
+      {duesBehind && profile.notifyDues !== false && (
         <div className="dues-banner">
           <span>
             <ShieldAlert size={16} style={{ verticalAlign: -3, marginRight: 6 }} />
-            Cuota pendiente: {formatCurrency(member.outstandingBalance)}. Podés pagar online desde Mi Cuenta.
+            {duesLateLabel ? `${duesLateLabel}. ` : ''}Cuota pendiente: {formatCurrency(duesStanding.outstanding)}. Vence el 10 de cada mes.
           </span>
           <button type="button" className="btn btn-primary btn-sm" onClick={() => setCurrentView('payments')}>
             Pagar ahora
@@ -601,7 +671,7 @@ export default function DashboardView({
       {/* ===== QUICK ACTIONS ===== */}
       <div className="db-quick-bar">
         <div className="db-quick-btn" onClick={() => setCurrentView('reservations')}>
-          <div className="db-quick-btn-icon" style={{ background: 'rgba(207,161,58,0.12)', color: 'var(--primary-gold)' }}>
+          <div className="db-quick-btn-icon" style={{ background: 'rgba(var(--primary-gold-rgb),0.12)', color: 'var(--primary-gold)' }}>
             <Calendar size={22} />
           </div>
           <span className="db-quick-btn-label">Reservar Cancha</span>
@@ -615,7 +685,7 @@ export default function DashboardView({
           <span className="db-quick-btn-sub">Eventos · Anuncios</span>
         </div>
         <div className="db-quick-btn" onClick={() => setShowNewClaimForm(!showNewClaimForm)}>
-          <div className="db-quick-btn-icon" style={{ background: 'rgba(99,102,241,0.12)', color: '#818cf8' }}>
+          <div className="db-quick-btn-icon" style={{ background: 'rgba(var(--primary-gold-rgb), 0.12)', color: 'var(--primary-gold)' }}>
             <MessageSquare size={22} />
           </div>
           <span className="db-quick-btn-label">Enviar Reclamo</span>
@@ -665,24 +735,24 @@ export default function DashboardView({
           {/* Grupo Familiar */}
           <div className="db-card">
             <div className="db-card-title">
-              <div className="db-card-title-icon" style={{ background: 'rgba(207,161,58,0.1)', color: 'var(--primary-gold)' }}>
+              <div className="db-card-title-icon" style={{ background: 'rgba(var(--primary-gold-rgb),0.1)', color: 'var(--primary-gold)' }}>
                 <Users size={16} />
               </div>
               Grupo Familiar
               <span style={{ marginLeft: 'auto', fontSize: '0.75rem', background: 'rgba(255,255,255,0.04)', padding: '0.2rem 0.5rem', borderRadius: '8px', color: 'var(--text-muted)' }}>
-                {member.adherents?.length || 0} adherentes
+                {profile.adherents?.length || 0} adherentes
               </span>
             </div>
-            {!member.adherents || member.adherents.length === 0 ? (
+            {!profile.adherents || profile.adherents.length === 0 ? (
               <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', textAlign: 'center', padding: '0.75rem' }}>
                 Sin adherentes familiares registrados.
               </p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                {member.adherents.map(adh => (
+                {profile.adherents.map(adh => (
                   <div key={adh.id} className="db-adherent-row">
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                      <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(207,161,58,0.1)', border: '1px solid rgba(207,161,58,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: '700', color: 'var(--primary-gold)' }}>
+                      <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(var(--primary-gold-rgb),0.1)', border: '1px solid rgba(var(--primary-gold-rgb),0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: '700', color: 'var(--primary-gold)' }}>
                         {adh.name.split(' ').map(n => n[0]).slice(0,2).join('').toUpperCase()}
                       </div>
                       <div>
@@ -759,7 +829,7 @@ export default function DashboardView({
             <div className="db-card">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div className="db-card-title">
-                  <div className="db-card-title-icon" style={{ background: 'rgba(99,102,241,0.1)', color: '#818cf8' }}>
+                  <div className="db-card-title-icon" style={{ background: 'rgba(var(--primary-gold-rgb), 0.1)', color: 'var(--primary-gold)' }}>
                     <Sparkles size={16} />
                   </div>
                   Novedades
@@ -792,7 +862,7 @@ export default function DashboardView({
           {/* Stats Row */}
           <div className="db-stat-row">
             <div
-              className="db-stat-card is-clickable"
+              className={`db-stat-card is-clickable${duesPending ? '' : duesBehind ? ' is-late' : ' is-ok'}`}
               role="button"
               tabIndex={0}
               onClick={() => setCurrentView('payments')}
@@ -803,36 +873,35 @@ export default function DashboardView({
                 }
               }}
               title="Ver historial de pagos"
-              style={{ background: 'linear-gradient(135deg, rgba(207,161,58,0.12) 0%, rgba(6,14,10,0.8) 100%)', borderColor: 'rgba(207,161,58,0.2)' }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <CreditCard size={16} color="var(--primary-gold)" />
-                <span className="db-stat-label">Estado Contable</span>
+              <div className="db-stat-head">
+                <span className="db-stat-ico"><CreditCard size={15} /></span>
+                <span className="db-stat-label">Estado de cuenta</span>
               </div>
-              <div className="db-stat-value" style={{ color: member.outstandingBalance > 0 ? '#f59e0b' : 'var(--emerald-accent)' }}>
-                {member.outstandingBalance > 0 ? formatCurrency(member.outstandingBalance) : '✓ Al Día'}
+              <div className="db-stat-value">
+                {duesValue}
               </div>
+              <span className="db-stat-sub">{duesSub}</span>
+            </div>
+
+            <div className="db-stat-card is-ok">
+              <div className="db-stat-head">
+                <span className="db-stat-ico"><Calendar size={15} /></span>
+                <span className="db-stat-label">Próximos turnos</span>
+              </div>
+              <div className="db-stat-value">{upcomingReservationsCount}</div>
               <span className="db-stat-sub">
-                {member.outstandingBalance > 0 ? 'Pago pendiente · Ver historial' : 'Ver historial de pagos →'}
+                {upcomingReservationsCount === 1 ? 'Turno confirmado' : 'Turnos desde hoy'}
               </span>
             </div>
 
-            <div className="db-stat-card" style={{ background: 'linear-gradient(135deg, rgba(16,185,129,0.12) 0%, rgba(6,14,10,0.8) 100%)', borderColor: 'rgba(16,185,129,0.2)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Calendar size={16} color="var(--emerald-accent)" />
-                <span className="db-stat-label">Próximos Turnos</span>
-              </div>
-              <div className="db-stat-value" style={{ color: 'var(--emerald-accent)' }}>{activeReservationsCount}</div>
-              <span className="db-stat-sub">Reservas confirmadas</span>
-            </div>
-
-            <div className="db-stat-card" style={{ background: `linear-gradient(135deg, ${tc.secondary} 0%, rgba(6,14,10,0.8) 100%)`, borderColor: `${tc.primary}25` }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Trophy size={16} color={tc.primary} />
+            <div className="db-stat-card is-membership">
+              <div className="db-stat-head">
+                <span className="db-stat-ico"><Trophy size={15} /></span>
                 <span className="db-stat-label">Membresía</span>
               </div>
-              <div className="db-stat-value" style={{ color: tc.primary, textTransform: 'capitalize' }}>{member.tier}</div>
-              <span className="db-stat-sub">{member.yearsActive} años de antigüedad</span>
+              <div className="db-stat-value is-text">{membershipLabel}</div>
+              <span className="db-stat-sub">{membershipSub}</span>
             </div>
           </div>
 
@@ -850,9 +919,9 @@ export default function DashboardView({
 
             <div className="db-sport-grid">
               {[
-                { name: 'Turf', sub: 'Caballeriza', val: 'El Triunfo', detail: '3 ejemplares · Propietario', pct: 70, color: 'var(--primary-gold)', bg: 'rgba(207,161,58,0.08)', pill: 'Propietario', pillBg: 'rgba(207,161,58,0.15)', pillColor: 'var(--primary-gold)', emoji: '🏇' },
+                { name: 'Turf', sub: 'Caballeriza', val: 'El Triunfo', detail: '3 ejemplares · Propietario', pct: 70, color: 'var(--primary-gold)', bg: 'rgba(var(--primary-gold-rgb),0.08)', pill: 'Propietario', pillBg: 'rgba(var(--primary-gold-rgb),0.15)', pillColor: 'var(--primary-gold)', emoji: '🏇' },
                 { name: 'Hockey', sub: 'División', val: '1ra Damas', detail: 'Asistencia: 95%', pct: 85, color: 'var(--emerald-accent)', bg: 'rgba(16,185,129,0.08)', pill: 'Excelente', pillBg: 'rgba(16,185,129,0.15)', pillColor: 'var(--emerald-accent)', emoji: '🏑' },
-                { name: 'Rugby', sub: 'Plantel', val: 'Superior', detail: 'Próx. Sábado · Titular', pct: 90, color: '#818cf8', bg: 'rgba(99,102,241,0.08)', pill: 'Titular', pillBg: 'rgba(99,102,241,0.15)', pillColor: '#818cf8', emoji: '🏉' },
+                { name: 'Rugby', sub: 'Plantel', val: 'Superior', detail: 'Próx. Sábado · Titular', pct: 90, color: 'var(--text-gold)', bg: 'rgba(var(--primary-gold-rgb),0.08)', pill: 'Titular', pillBg: 'rgba(var(--primary-gold-rgb),0.15)', pillColor: 'var(--primary-gold)', emoji: '🏉' },
               ].map((sport, i) => (
                 <div key={i} className="db-sport-card" style={{ background: sport.bg, borderColor: `${sport.color}20` }}>
                   <div style={{ fontSize: '1.5rem', marginBottom: '0.15rem' }}>{sport.emoji}</div>
@@ -877,7 +946,7 @@ export default function DashboardView({
           <div className="db-card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div className="db-card-title">
-                <div className="db-card-title-icon" style={{ background: 'rgba(207,161,58,0.1)', color: 'var(--primary-gold)' }}>
+                <div className="db-card-title-icon" style={{ background: 'rgba(var(--primary-gold-rgb),0.1)', color: 'var(--primary-gold)' }}>
                   <Mail size={16} />
                 </div>
                 Comunicados de Secretaría
@@ -924,7 +993,7 @@ export default function DashboardView({
               </button>
             </div>
 
-            {memberReservations.filter(res => res.status !== 'cancelled').length === 0 ? (
+            {upcomingBookings.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '2rem 1rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem' }}>
                 <Calendar size={40} style={{ color: 'var(--text-muted)', strokeWidth: 1 }} />
                 <div>
@@ -937,7 +1006,7 @@ export default function DashboardView({
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                {memberReservations.filter(res => res.status !== 'cancelled').map(res => (
+                {upcomingBookings.map(res => (
                   <div key={res.id} className="db-res-item">
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                       <div style={{ width: 40, height: 40, borderRadius: '12px', background: 'rgba(16,185,129,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -968,7 +1037,7 @@ export default function DashboardView({
           <div className="db-card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
               <div className="db-card-title">
-                <div className="db-card-title-icon" style={{ background: 'rgba(99,102,241,0.1)', color: '#818cf8' }}>
+                <div className="db-card-title-icon" style={{ background: 'rgba(var(--primary-gold-rgb), 0.1)', color: 'var(--primary-gold)' }}>
                   <MessageSquare size={16} />
                 </div>
                 Pedidos & Reclamos
@@ -1030,7 +1099,7 @@ export default function DashboardView({
                     <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{clm.description}</p>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', paddingTop: '0.25rem', borderTop: '1px solid rgba(255,255,255,0.03)' }}>
                       {clm.status === 'pending' && <span style={{ fontSize: '0.75rem', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '0.25rem' }}><Clock size={11} /> Pendiente</span>}
-                      {clm.status === 'in_progress' && <span style={{ fontSize: '0.75rem', color: '#818cf8', display: 'flex', alignItems: 'center', gap: '0.25rem' }}><Info size={11} /> En proceso</span>}
+                      {clm.status === 'in_progress' && <span style={{ fontSize: '0.75rem', color: 'var(--primary-gold)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}><Info size={11} /> En proceso</span>}
                       {clm.status === 'resolved' && <span style={{ fontSize: '0.75rem', color: 'var(--emerald-accent)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}><CheckCircle2 size={11} /> Resuelto</span>}
                       {clm.response && <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginLeft: 'auto' }}>"{clm.response}"</span>}
                     </div>
@@ -1062,7 +1131,7 @@ export default function DashboardView({
                   let accFrac = 0;
                   const activeHoverOpt = options.find(o => o.id === hoveredSegments[survey.id]);
                   const hoverPct = activeHoverOpt && totalVotes > 0 ? Math.round((activeHoverOpt.votes / totalVotes) * 100) : 0;
-                  const colors = ['var(--primary-gold)', 'var(--emerald-accent)', '#818cf8', '#ec4899', '#f59e0b', '#a855f7'];
+                  const colors = ['var(--primary-gold)', 'var(--emerald-accent)', '#CA390C', '#096755', '#000000', '#e04414'];
 
                   return (
                     <div key={survey.id} style={{ background: 'var(--surface-softer)', border: '1px solid var(--border-glass)', borderRadius: '14px', padding: '1.1rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
@@ -1075,7 +1144,7 @@ export default function DashboardView({
                       {!hasVoted && survey.active ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
                           {options.map(opt => (
-                            <label key={opt.id} style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', padding: '0.6rem 0.75rem', borderRadius: '10px', border: '1px solid', borderColor: selectedOptions[survey.id] === opt.id ? 'var(--primary-gold)' : 'var(--border-glass)', background: selectedOptions[survey.id] === opt.id ? 'rgba(207,161,58,0.05)' : 'var(--surface-softer)', cursor: 'pointer', transition: 'background-color 0.15s ease, border-color 0.15s ease', fontSize: '0.82rem', color: 'var(--text-primary)' }}>
+                            <label key={opt.id} style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', padding: '0.6rem 0.75rem', borderRadius: '10px', border: '1px solid', borderColor: selectedOptions[survey.id] === opt.id ? 'var(--primary-gold)' : 'var(--border-glass)', background: selectedOptions[survey.id] === opt.id ? 'rgba(var(--primary-gold-rgb),0.05)' : 'var(--surface-softer)', cursor: 'pointer', transition: 'background-color 0.15s ease, border-color 0.15s ease', fontSize: '0.82rem', color: 'var(--text-primary)' }}>
                               <input type="radio" name={`survey-${survey.id}`} value={opt.id} checked={selectedOptions[survey.id] === opt.id} onChange={() => setSelectedOptions(prev => ({ ...prev, [survey.id]: opt.id }))} style={{ accentColor: 'var(--primary-gold)', cursor: 'pointer' }} />
                               {opt.text}
                             </label>

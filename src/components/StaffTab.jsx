@@ -313,7 +313,7 @@ export default function StaffTab({ staffMembers, setStaffMembers, onOpenProfile,
             border-radius: 50%;
             background: var(--primary-gold);
             border: 2px solid var(--bg-primary);
-            box-shadow: 0 0 0 2px rgba(207, 161, 58, 0.15);
+            box-shadow: 0 0 0 2px rgba(var(--primary-gold-rgb), 0.15);
           }
           .activity-item.system::before {
             background: var(--text-muted);
@@ -380,7 +380,7 @@ export default function StaffTab({ staffMembers, setStaffMembers, onOpenProfile,
                           width: '40px', 
                           height: '40px', 
                           fontSize: '0.95rem',
-                          background: isActive ? 'rgba(207, 161, 58, 0.1)' : 'rgba(255,255,255,0.03)',
+                          background: isActive ? 'rgba(var(--primary-gold-rgb), 0.1)' : 'rgba(255,255,255,0.03)',
                           border: isActive ? '1px solid var(--primary-gold)' : '1px solid var(--border-glass)',
                           color: isActive ? 'var(--text-gold)' : 'var(--text-muted)'
                         }}>
@@ -405,7 +405,7 @@ export default function StaffTab({ staffMembers, setStaffMembers, onOpenProfile,
                                 color: 'var(--text-primary)',
                                 fontSize: '0.95rem',
                                 textDecoration: 'underline',
-                                textDecorationColor: 'rgba(207,161,58,0.4)',
+                                textDecorationColor: 'rgba(var(--primary-gold-rgb),0.4)',
                                 textUnderlineOffset: 3,
                               }}>
                                 {emp.name}

@@ -1,13 +1,13 @@
 import { Fragment, useMemo, useState } from 'react';
-import { ArrowLeft, Eye, Search, Wallet } from 'lucide-react';
+import { ArrowLeft, Eye, Wallet } from 'lucide-react';
 import {
-  ACCESSIN_MONTHLY_DEBTS_AS_OF,
-  ACCESSIN_MONTHLY_DEBTS_SNAPSHOT,
-  filterDebtorsByPeriod,
   listDebtPeriods,
   listMonthlyDebtors,
   lookupMonthlyDebt,
+  monthlyDebtsSeed,
 } from '../../domain/accounting/monthlyDebts';
+import { useSnapshotSeed } from '../../hooks/useSnapshots';
+import SnapshotGate from '../SnapshotGate';
 
 const PAGE_SIZE = 50;
 
@@ -17,18 +17,34 @@ function formatLilaMoney(n) {
   return v < 0 ? `$ -${abs}` : `$ ${abs}`;
 }
 
-export default function MonthlyDebtsPanel({ onBack, onOpenMemberBalance }) {
+export default function MonthlyDebtsPanel(props) {
+  return (
+    <SnapshotGate names={['accessinMonthlyDebts']}>
+      <MonthlyDebtsContent {...props} />
+    </SnapshotGate>
+  );
+}
+
+function MonthlyDebtsContent({ onBack, onOpenMemberBalance }) {
+  const {
+    ACCESSIN_MONTHLY_DEBTS_AS_OF,
+    ACCESSIN_MONTHLY_DEBTS_SNAPSHOT,
+  } = useSnapshotSeed(['accessinMonthlyDebts'], monthlyDebtsSeed);
   const [query, setQuery] = useState('');
-  const [appliedQuery, setAppliedQuery] = useState('');
   const [period, setPeriod] = useState('all');
   const [page, setPage] = useState(0);
   const [selected, setSelected] = useState(null);
 
   const periods = useMemo(() => listDebtPeriods(), []);
-  const debtors = useMemo(() => {
-    const base = listMonthlyDebtors({ query: appliedQuery });
-    return filterDebtorsByPeriod(base, period);
-  }, [appliedQuery, period]);
+  const debtors = useMemo(
+    () => listMonthlyDebtors({ query, periodKey: period }),
+    [query, period]
+  );
+  const periodLabel = periods.find((p) => p.periodKey === period)?.periodLabel || '';
+  const periodTotal = useMemo(
+    () => debtors.reduce((sum, m) => sum + (Number(m.totalDebt) || 0), 0),
+    [debtors]
+  );
 
   const totalPages = Math.max(1, Math.ceil(debtors.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages - 1);
@@ -45,7 +61,7 @@ export default function MonthlyDebtsPanel({ onBack, onOpenMemberBalance }) {
           {onOpenMemberBalance ? (
             <button
               type="button"
-              className="btn cash-lila-purple-btn"
+              className="btn btn-tan"
               onClick={() => onOpenMemberBalance(detail.memberNumber)}
             >
               <Wallet size={14} /> Ver saldo / resumen
@@ -147,15 +163,19 @@ export default function MonthlyDebtsPanel({ onBack, onOpenMemberBalance }) {
       </div>
 
       <section className="supplier-pay-import-block">
-        <h4 className="supplier-pay-import-title">Morosos LILA</h4>
+        <h4 className="supplier-pay-import-title">Morosos</h4>
         <p className="disc-field-hint" style={{ marginTop: 0 }}>
           Al {ACCESSIN_MONTHLY_DEBTS_SNAPSHOT.asOfLabel || ACCESSIN_MONTHLY_DEBTS_AS_OF}
           {' · '}
-          {ACCESSIN_MONTHLY_DEBTS_SNAPSHOT.memberCount?.toLocaleString('es-AR')} socios
+          {period === 'all'
+            ? `${ACCESSIN_MONTHLY_DEBTS_SNAPSHOT.memberCount?.toLocaleString('es-AR')} morosos`
+            : `${debtors.length.toLocaleString('es-AR')} morosos en ${periodLabel}`}
           {' · '}
-          {ACCESSIN_MONTHLY_DEBTS_SNAPSHOT.monthRowCount?.toLocaleString('es-AR')} períodos
+          {period === 'all'
+            ? `${ACCESSIN_MONTHLY_DEBTS_SNAPSHOT.monthRowCount?.toLocaleString('es-AR')} períodos`
+            : periodLabel}
           {' · '}
-          total {formatLilaMoney(ACCESSIN_MONTHLY_DEBTS_SNAPSHOT.totalDebt)}
+          total {formatLilaMoney(period === 'all' ? ACCESSIN_MONTHLY_DEBTS_SNAPSHOT.totalDebt : periodTotal)}
         </p>
         <div className="cuotas-event-filters">
           <label>
@@ -163,14 +183,9 @@ export default function MonthlyDebtsPanel({ onBack, onOpenMemberBalance }) {
             <input
               className="form-input"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => { setQuery(e.target.value); setPage(0); }}
               placeholder="Nombre, nro. socio o DNI"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  setAppliedQuery(query);
-                  setPage(0);
-                }
-              }}
+              autoComplete="off"
             />
           </label>
           <label>
@@ -182,15 +197,6 @@ export default function MonthlyDebtsPanel({ onBack, onOpenMemberBalance }) {
               ))}
             </select>
           </label>
-          <div style={{ display: 'flex', alignItems: 'end' }}>
-            <button
-              type="button"
-              className="btn cash-lila-purple-btn"
-              onClick={() => { setAppliedQuery(query); setPage(0); }}
-            >
-              <Search size={14} /> Buscar
-            </button>
-          </div>
         </div>
       </section>
 
@@ -222,7 +228,7 @@ export default function MonthlyDebtsPanel({ onBack, onOpenMemberBalance }) {
               <th>Cuota social</th>
               <th>Capital</th>
               <th>Intereses</th>
-              <th>Total deuda</th>
+              <th>{period === 'all' ? 'Total deuda' : 'Acumulada'}</th>
               <th>Meses</th>
               <th>Funciones</th>
             </tr>

@@ -9,9 +9,9 @@ import {
 
 describe('datitaImport', () => {
   it('parses CSV with accents and quotes', () => {
-    const rows = parseCsv('nro_socio,nombre,apellido\n1,"Jonas","Castañeda Rodríguez"\n');
+    const rows = parseCsv('nro_socio,nombre,apellido\n1,"Tomás","Peñaloza Martínez"\n');
     expect(rows).toHaveLength(1);
-    expect(rows[0].apellido).toContain('Castañeda');
+    expect(rows[0].apellido).toContain('Peñaloza');
   });
 
   it('derives tiers from cuota categories', () => {
@@ -30,13 +30,13 @@ describe('datitaImport', () => {
     const m = socioToMember(
       {
         nro_socio: '1',
-        nombre: 'Jonas',
-        apellido: 'Castañeda',
+        nombre: 'Tomás',
+        apellido: 'Peñaloza',
         documento_tipo: 'Arg-DNI',
-        documento_numero: '50573357',
+        documento_numero: '50000444',
         socio_activo: 'Habilitado',
-        nro_socio_principal_grupo_familiar: '11017',
-        nombre_grupo_familiar: 'GF - Rodriguez 11017',
+        nro_socio_principal_grupo_familiar: '90017',
+        nombre_grupo_familiar: 'GF - Martínez 90017',
       },
       ['GRUPO FAMILIAR (Familiar)']
     );
@@ -44,14 +44,14 @@ describe('datitaImport', () => {
     expect(m.tier).toBe('grupo_familiar_familiar');
     expect(m.joinDate).toBe('1900-01-01');
     expect(m.meta.joinedAtFallback).toBe(true);
-    expect(m.meta.familyPrincipalNumber).toBe(11017);
+    expect(m.meta.familyPrincipalNumber).toBe(90017);
     expect(m.meta.source).toBe('datita');
   });
 
   it('summarizes a batch', () => {
     const members = sociosRowsToMembers(
       [
-        { nro_socio: '4', nombre: 'Susana', apellido: 'Imparado', socio_activo: 'Habilitado' },
+        { nro_socio: '4', nombre: 'Marta', apellido: 'Ibáñez', socio_activo: 'Habilitado' },
         { nro_socio: '99', nombre: 'Sin', apellido: 'Cuota', socio_activo: 'Deshabilitado' },
       ],
       [{ nro_socio: '4', categoria_cuota: 'SOCIO (Vitalicio)' }]

@@ -1,13 +1,14 @@
 import { useMemo, useState } from 'react';
 import { ArrowLeft, Eye, Search } from 'lucide-react';
 import {
-  ACCESSIN_DETAILED_CC_AS_OF,
-  ACCESSIN_DETAILED_CC_SNAPSHOT,
+  detailedCcSeed,
   listDetailedCcMembers,
   listDetailedCcPeriods,
   lookupDetailedCc,
   periodLabelFromKey,
 } from '../../domain/accounting/detailedCurrentAccounts';
+import { useSnapshotSeed } from '../../hooks/useSnapshots';
+import SnapshotGate from '../SnapshotGate';
 
 const PAGE_SIZE = 50;
 
@@ -17,7 +18,19 @@ function formatLilaMoney(n) {
   return `$ ${abs}`;
 }
 
-export default function DetailedCurrentAccountsPanel({ onBack, onOpenMemberBalance }) {
+export default function DetailedCurrentAccountsPanel(props) {
+  return (
+    <SnapshotGate names={['accessinDetailedCurrentAccounts']}>
+      <DetailedCurrentAccountsContent {...props} />
+    </SnapshotGate>
+  );
+}
+
+function DetailedCurrentAccountsContent({ onBack, onOpenMemberBalance }) {
+  const {
+    ACCESSIN_DETAILED_CC_AS_OF,
+    ACCESSIN_DETAILED_CC_SNAPSHOT,
+  } = useSnapshotSeed(['accessinDetailedCurrentAccounts'], detailedCcSeed);
   const [query, setQuery] = useState('');
   const [appliedQuery, setAppliedQuery] = useState('');
   const [period, setPeriod] = useState('all');
@@ -45,7 +58,7 @@ export default function DetailedCurrentAccountsPanel({ onBack, onOpenMemberBalan
             <ArrowLeft size={14} /> Volver al listado
           </button>
           {onOpenMemberBalance ? (
-            <button type="button" className="btn cash-lila-purple-btn" onClick={() => onOpenMemberBalance(detail.memberNumber)}>
+            <button type="button" className="btn btn-tan" onClick={() => onOpenMemberBalance(detail.memberNumber)}>
               Ver resumen de cuenta
             </button>
           ) : null}
@@ -153,7 +166,7 @@ export default function DetailedCurrentAccountsPanel({ onBack, onOpenMemberBalan
           <div style={{ display: 'flex', alignItems: 'end' }}>
             <button
               type="button"
-              className="btn cash-lila-purple-btn"
+              className="btn btn-tan"
               onClick={() => { setAppliedQuery(query); setPage(0); }}
             >
               <Search size={14} /> Buscar

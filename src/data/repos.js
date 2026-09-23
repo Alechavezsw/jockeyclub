@@ -2,6 +2,14 @@ import { supabase } from '../lib/supabase';
 import { unwrap, throwOnError } from './errors';
 import * as M from './mappers';
 import { collectMemberMeta, buildLifecycleMeta, splitMemberName } from '../domain/members/memberAdminActions';
+import { SYSTEM_ADMIN_ROLES } from '../domain/auth/roles';
+import {
+  emptyJoinConflicts,
+  hasJoinIdentityConflict,
+  joinConflictsFromFlags,
+  joinIdentityConflicts,
+  JoinIdentityTakenError,
+} from '../domain/members/selfService';
 
 const FISCAL_2026 = '11111111-1111-1111-1111-111111111111';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -17,14 +25,14 @@ function sb() {
 
 /** PostgREST pagina de a N filas; fetchAllRows recorre todo el padrón sin tope de socios. */
 const PAGE_SIZE = 1000;
-/** Páginas chicas + poca concurrencia evitan statement_timeout y saturar el pool. */
-const MEMBERS_PAGE_SIZE = 250;
-const MEMBERS_CONCURRENCY = 2;
-const PAYMENTS_CONCURRENCY = 2;
+/** Sin el JSON completo de meta las páginas pueden ser grandes. */
+const MEMBERS_PAGE_SIZE = 1000;
+const MEMBERS_CONCURRENCY = 4;
 
-/** Ficha completa; adherentes se cargan aparte y se adjuntan en cliente. */
-const MEMBERS_FULL_SELECT = '*';
-/** Padrón operativo: sin domicilio, salud, fiscal ni historial de pagos. */
+/**
+ * Grilla: sin foto, token ni meta completo (hay fichas de más de 1 MB).
+ * Solo se extraen las claves que usa el padrón / grupos familiares.
+ */
 const MEMBERS_LIST_SELECT = [
   'id',
   'profile_id',
@@ -43,11 +51,42 @@ const MEMBERS_LIST_SELECT = [
   'disciplines',
   'document_number',
   'document_type',
-  'photo_url',
   'payment_method',
-  'credential_token',
-  'meta',
+  'last_payment_date:meta->>lastPaymentDate',
+  'family_principal:meta->>familyPrincipalNumber',
+  'family_group_name:meta->>familyGroupName',
+  'cuota_categories:meta->cuotaCategories',
 ].join(', ');
+
+export function metaFromListRow(row = {}) {
+  const principal = row.family_principal ?? row.familyPrincipalNumber ?? row.meta?.familyPrincipalNumber;
+  const group = row.family_group_name ?? row.familyGroupName ?? row.meta?.familyGroupName;
+  const lastPay = row.last_payment_date ?? row.lastPaymentDate ?? row.meta?.lastPaymentDate;
+  const cats = row.cuota_categories ?? row.cuotaCategories ?? row.meta?.cuotaCategories;
+  const meta = row.meta && typeof row.meta === 'object' && !Array.isArray(row.meta) ? { ...row.meta } : {};
+  if (principal != null && principal !== '') meta.familyPrincipalNumber = principal;
+  if (group) meta.familyGroupName = group;
+  if (lastPay) meta.lastPaymentDate = lastPay;
+  if (cats) meta.cuotaCategories = cats;
+  return meta;
+}
+
+function listRowToMember(row) {
+  if (!row) return null;
+  return M.memberFromRow({
+    ...row,
+    meta: metaFromListRow(row),
+    photo_url: undefined,
+    credential_token: undefined,
+  }, []);
+}
+
+let membersListInflight = null;
+let membersListCache = null;
+
+export function invalidateMembersListCache() {
+  membersListCache = null;
+}
 
 async function fetchAllRows(queryFactory, fallback, pageSize = PAGE_SIZE) {
   const all = [];
@@ -119,6 +158,32 @@ async function audit(action, entityType, entityId, payload = {}) {
  * sin esperar los ~5k socios ni pagos/adherentes.
  */
 export async function listMembers({ onBatch } = {}) {
+  if (membersListCache?.length) {
+    onBatch?.(membersListCache, {
+      loaded: membersListCache.length,
+      total: membersListCache.length,
+      done: true,
+    });
+    return membersListCache;
+  }
+  if (membersListInflight) {
+    const shared = await membersListInflight;
+    onBatch?.(shared, { loaded: shared.length, total: shared.length, done: true });
+    return shared;
+  }
+
+  membersListInflight = downloadMembersList({ onBatch })
+    .then((rows) => {
+      membersListCache = rows;
+      return rows;
+    })
+    .finally(() => {
+      membersListInflight = null;
+    });
+  return membersListInflight;
+}
+
+async function downloadMembersList({ onBatch } = {}) {
   const { count, error } = await sb()
     .from('members')
     .select('id', { count: 'exact', head: true });
@@ -129,53 +194,201 @@ export async function listMembers({ onBatch } = {}) {
     return [];
   }
 
-  const pageCount = Math.ceil(total / MEMBERS_PAGE_SIZE);
-  const rows = [];
+  onBatch?.([], { loaded: 0, total, done: false });
 
-  for (let start = 0; start < pageCount; start += MEMBERS_CONCURRENCY) {
-    const batch = await Promise.all(
-      Array.from({ length: Math.min(MEMBERS_CONCURRENCY, pageCount - start) }, (_, j) => {
-        const i = start + j;
-        const from = i * MEMBERS_PAGE_SIZE;
+  const pageCount = Math.ceil(total / MEMBERS_PAGE_SIZE);
+  const mapped = [];
+  let listSelect = MEMBERS_LIST_SELECT;
+
+  const fetchPage = async (from) => {
+    try {
+      return await unwrap(
+        sb()
+          .from('members')
+          .select(listSelect)
+          .order('id')
+          .range(from, from + MEMBERS_PAGE_SIZE - 1),
+        'No se pudieron cargar socios'
+      );
+    } catch (err) {
+      if (listSelect === MEMBERS_LIST_SELECT) {
+        listSelect = MEMBERS_LIST_SELECT
+          .replace(', last_payment_date:meta->>lastPaymentDate', '')
+          .replace(', family_principal:meta->>familyPrincipalNumber', '')
+          .replace(', family_group_name:meta->>familyGroupName', '')
+          .replace(', cuota_categories:meta->cuotaCategories', '');
         return unwrap(
           sb()
             .from('members')
-            .select(MEMBERS_LIST_SELECT)
-            .order('full_name')
+            .select(listSelect)
             .order('id')
             .range(from, from + MEMBERS_PAGE_SIZE - 1),
           'No se pudieron cargar socios'
         );
-      })
-    );
-    for (const chunk of batch) rows.push(...(chunk || []));
-
-    if (typeof onBatch === 'function') {
-      const partial = rows.map((r) => M.memberFromRow(r, []));
-      onBatch(partial, { loaded: rows.length, total, done: false });
+      }
+      throw err;
     }
+  };
+
+  const absorb = (chunk) => {
+    for (const row of chunk || []) {
+      const member = listRowToMember(row);
+      if (member) mapped.push(member);
+    }
+  };
+
+  for (let start = 0; start < pageCount; start += MEMBERS_CONCURRENCY) {
+    const batch = await Promise.all(
+      Array.from({ length: Math.min(MEMBERS_CONCURRENCY, pageCount - start) }, (_, j) => (
+        fetchPage((start + j) * MEMBERS_PAGE_SIZE)
+      ))
+    );
+    for (const chunk of batch) absorb(chunk);
+    onBatch?.(mapped, { loaded: mapped.length, total, done: false });
   }
 
-  const adherents = await fetchAllRows(
+  onBatch?.(mapped, { loaded: mapped.length, total, done: true });
+  return mapped;
+}
+
+function escapeIlike(value) {
+  return String(value || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/[%_(),]/g, (ch) => `\\${ch}`)
+    .slice(0, 80);
+}
+
+/** Columnas mínimas para la puerta: sin meta ni foto (eso se hidrata al elegir). */
+const MEMBERS_GATE_SELECT = [
+  'id',
+  'member_number',
+  'full_name',
+  'document_number',
+  'status',
+  'outstanding_balance',
+  'profile_id',
+].join(', ');
+
+const MEMBER_SEARCH_CACHE = new Map();
+const MEMBER_SEARCH_CACHE_MAX = 48;
+let memberLookupRpcOk = true;
+
+function memberSearchKey(query, cap) {
+  return `${String(query || '').trim().toLowerCase()}|${cap}`;
+}
+
+function rememberMemberSearch(key, rows) {
+  MEMBER_SEARCH_CACHE.set(key, rows);
+  if (MEMBER_SEARCH_CACHE.size <= MEMBER_SEARCH_CACHE_MAX) return;
+  const first = MEMBER_SEARCH_CACHE.keys().next().value;
+  MEMBER_SEARCH_CACHE.delete(first);
+}
+
+function isMissingRpc(error) {
+  const code = String(error?.code || '');
+  const msg = String(error?.message || '');
+  return code === 'PGRST202' || code === '42883' || /search_members_lookup/i.test(msg);
+}
+
+/** Cache síncrono del typeahead (misma tecla / atrás no espera red). */
+export function peekMembersDirectory(query, { limit = 20 } = {}) {
+  const cap = Math.min(50, Math.max(5, Number(limit) || 20));
+  return MEMBER_SEARCH_CACHE.get(memberSearchKey(query, cap)) || null;
+}
+
+/**
+ * Búsqueda puntual para puerta / pileta / registro.
+ * Prefiere RPC (índice trigram, sin RLS por fila).
+ */
+export async function searchMembersDirectory(query, { limit = 20 } = {}) {
+  const raw = String(query || '').trim();
+  if (!raw) return [];
+  const cap = Math.min(50, Math.max(5, Number(limit) || 20));
+  const memoKey = memberSearchKey(raw, cap);
+  const cached = MEMBER_SEARCH_CACHE.get(memoKey);
+  if (cached) return cached;
+
+  if (memberLookupRpcOk) {
+    const { data, error } = await sb().rpc('search_members_lookup', {
+      p_query: raw,
+      p_limit: cap,
+    });
+    if (!error) {
+      const mapped = (data || []).map(listRowToMember);
+      rememberMemberSearch(memoKey, mapped);
+      return mapped;
+    }
+    if (isMissingRpc(error)) memberLookupRpcOk = false;
+    else throwOnError(error, 'No se pudo buscar socios');
+  }
+
+  const q = escapeIlike(raw);
+  const digits = raw.replace(/\D/g, '');
+  const nameLike = /[a-záéíóúüñ]/i.test(raw);
+  const rows = await unwrap(
+    buildMemberSearch(
+      sb().from('members').select(MEMBERS_GATE_SELECT),
+      raw,
+      q,
+      digits,
+      nameLike,
+    ).limit(cap),
+    'No se pudo buscar socios'
+  );
+  const mapped = (rows || []).map(listRowToMember);
+  rememberMemberSearch(memoKey, mapped);
+  return mapped;
+}
+
+function buildMemberSearch(req, _raw, q, digits, nameLike) {
+  if (digits && !nameLike) {
+    return req.or([
+      `member_number.eq.${digits}`,
+      `document_number.eq.${digits}`,
+      `member_number.ilike.%${digits}%`,
+      `document_number.ilike.%${digits}%`,
+    ].join(','));
+  }
+  const clauses = [
+    `full_name.ilike.%${q}%`,
+  ];
+  if (digits) {
+    clauses.push(`member_number.ilike.%${digits}%`, `document_number.ilike.%${digits}%`);
+  }
+  return req.or(clauses.join(','));
+}
+
+let gateIndexCache = null;
+let gateIndexPromise = null;
+
+/** Padrón liviano para la puerta: ~5k filas, 6 columnas. */
+export async function listMembersGateIndex() {
+  if (gateIndexCache?.length) return gateIndexCache;
+  if (gateIndexPromise) return gateIndexPromise;
+  gateIndexPromise = fetchAllRowsParallel(
+    sb().from('members').select('id', { count: 'exact', head: true }),
     (from, to) => sb()
-      .from('member_adherents')
-      .select('id, member_id, full_name, relationship, tier, status, outstanding_balance, disciplines')
-      .order('full_name')
+      .from('members')
+      .select(MEMBERS_GATE_SELECT)
       .order('id')
       .range(from, to),
-    'No se pudieron cargar adherentes'
-  ).catch(() => []);
+    'No se pudieron cargar socios',
+    1000,
+    2,
+  ).then((rows) => {
+    gateIndexCache = (rows || []).map((r) => M.memberFromRow(r, []));
+    return gateIndexCache;
+  }).finally(() => {
+    gateIndexPromise = null;
+  });
+  return gateIndexPromise;
+}
 
-  const adherentsByMember = {};
-  for (const a of adherents || []) {
-    (adherentsByMember[a.member_id] ||= []).push(a);
-  }
-  const full = rows.map((r) => M.memberFromRow(
-    { ...r, member_adherents: adherentsByMember[r.id] || [] },
-    []
-  ));
-  onBatch?.(full, { loaded: full.length, total, done: true });
-  return full;
+/** Recalcula y guarda mora/saldo del socio autenticado desde sus pagos. */
+export async function syncOwnDuesStanding() {
+  const { data, error } = await sb().rpc('sync_own_dues_standing');
+  throwOnError(error, 'No se pudo guardar el estado de cuota');
+  return data;
 }
 
 /** Historial de pagos de un socio (ficha / cuenta). */
@@ -193,15 +406,7 @@ export async function listMemberPayments(memberDbId) {
   ).then((rows) => rows.map(M.paymentFromRow));
 }
 
-export async function getMemberByNumber(memberNumber, { withPayments = false } = {}) {
-  const row = await unwrap(
-    sb()
-      .from('members')
-      .select('*, member_adherents(*)')
-      .eq('member_number', String(memberNumber))
-      .maybeSingle(),
-    'No se pudo cargar el socio'
-  );
+async function hydrateMemberRow(row, { withPayments = false } = {}) {
   if (!row) return null;
   const payments = withPayments
     ? await fetchAllRows(
@@ -218,6 +423,39 @@ export async function getMemberByNumber(memberNumber, { withPayments = false } =
   return M.memberFromRow(row, payments);
 }
 
+export async function getMemberByNumber(memberNumber, { withPayments = false } = {}) {
+  const row = await unwrap(
+    sb()
+      .from('members')
+      .select('*, member_adherents(*)')
+      .eq('member_number', String(memberNumber))
+      .maybeSingle(),
+    'No se pudo cargar el socio'
+  );
+  return hydrateMemberRow(row, { withPayments });
+}
+
+export async function getMember(memberDbId, { withPayments = false } = {}) {
+  if (!isUuid(memberDbId)) return null;
+  const row = await unwrap(
+    sb()
+      .from('members')
+      .select('*, member_adherents(*)')
+      .eq('id', memberDbId)
+      .maybeSingle(),
+    'No se pudo cargar el socio'
+  );
+  return hydrateMemberRow(row, { withPayments });
+}
+
+export async function linkMemberProfile(memberDbId, profileId) {
+  if (!isUuid(memberDbId) || !isUuid(profileId)) return;
+  await unwrap(
+    sb().from('members').update({ profile_id: profileId }).eq('id', memberDbId),
+    'No se pudo vincular el socio al usuario'
+  );
+}
+
 export async function listMemberAdherents(memberDbId) {
   if (!memberDbId) return [];
   const rows = await unwrap(
@@ -232,6 +470,7 @@ export async function listMemberAdherents(memberDbId) {
 }
 
 export async function upsertMember(member) {
+  invalidateMembersListCache();
   const row = M.memberToRow(member);
   if (member.recordScope === 'list') {
     delete row.address;
@@ -276,11 +515,12 @@ export async function upsertMember(member) {
   }
 
   if (Array.isArray(member.adherents)) {
+    const persistable = member.adherents.filter((a) => a && !a.fromPadron);
     await sb().from('member_adherents').delete().eq('member_id', saved.id);
-    if (member.adherents.length) {
+    if (persistable.length) {
       await unwrap(
         sb().from('member_adherents').insert(
-          member.adherents.map((a) => ({
+          persistable.map((a) => ({
             member_id: saved.id,
             full_name: a.name,
             relationship: a.relationship || 'Familiar',
@@ -348,11 +588,11 @@ export async function provisionMemberPortalAccess(member, creds, { actorName = '
   const profile = await createPortalUser({
     firstName: firstName || member.name || 'Socio',
     lastName: lastName || '',
-    email: member.email || creds.email,
+    email: creds.email || member.email,
     username: creds.username,
     password: creds.password,
     phone: member.phone || '',
-    contactEmail: member.email || null,
+    contactEmail: member.email && member.email !== creds.email ? member.email : (member.email || null),
     documentType: member.documentType || 'DNI',
     documentNumber: member.documentNumber || '',
     gender: member.gender || '',
@@ -405,8 +645,10 @@ export async function insertMemberPayment(memberDbId, payment) {
 }
 
 // ---- Reservations ----
-export async function listReservations({ limit } = {}) {
+export async function listReservations({ limit, memberNumber, fromDate } = {}) {
   let q = sb().from('reservations').select('*').order('reservation_date', { ascending: false });
+  if (memberNumber) q = q.eq('member_number', String(memberNumber));
+  if (fromDate) q = q.gte('reservation_date', fromDate);
   if (limit && Number(limit) > 0) q = q.limit(Number(limit));
   const rows = await unwrap(q, 'No se pudieron cargar reservas');
   return (rows || []).map(M.reservationFromRow);
@@ -1825,6 +2067,46 @@ export async function listProfiles() {
   return withRoles.map(M.profileFromRow);
 }
 
+/** Solo administradores del sistema (admin / superadmin), aunque también sean socios. */
+export async function listSystemAdminProfiles() {
+  const [roleRows, columnRows] = await Promise.all([
+    unwrap(
+      sb()
+        .from('profile_roles')
+        .select('profile_id')
+        .in('role_key', SYSTEM_ADMIN_ROLES)
+        .is('revoked_at', null),
+      'No se pudieron cargar administradores del sistema'
+    ),
+    unwrap(
+      sb()
+        .from('profiles')
+        .select('id')
+        .in('role', SYSTEM_ADMIN_ROLES),
+      'No se pudieron cargar administradores del sistema'
+    ),
+  ]);
+  const ids = [...new Set([
+    ...(roleRows || []).map((r) => r.profile_id),
+    ...(columnRows || []).map((r) => r.id),
+  ].filter(Boolean))];
+  if (!ids.length) return [];
+
+  const rows = await unwrap(
+    sb()
+      .from('profiles')
+      .select('*, profile_authorizations(*), profile_identifiers(*)')
+      .in('id', ids)
+      .order('created_at', { ascending: false }),
+    'No se pudieron cargar administradores del sistema'
+  );
+  const withRoles = await attachProfileRoles(rows || []);
+  return withRoles.map(M.profileFromRow).filter((p) => (
+    SYSTEM_ADMIN_ROLES.includes(String(p.role || '').toLowerCase())
+    || (p.roles || []).some((r) => SYSTEM_ADMIN_ROLES.includes(String(r.roleKey || '').toLowerCase()))
+  ));
+}
+
 export async function getProfile(profileId) {
   if (!isUuid(profileId)) throw new Error('Perfil inválido');
   const row = await unwrap(
@@ -2001,6 +2283,75 @@ export async function resetPortalUserPassword(profileId, password) {
 
   await audit('profile.reset_password', 'profile', profileId, { reset: true });
   return true;
+}
+
+/** Envía la plantilla de acceso por Resend (edge function). */
+export async function sendAccessInviteEmail({
+  to,
+  name,
+  username,
+  loginEmail,
+  password,
+  portalUrl,
+  logoUrl,
+} = {}) {
+  const dest = String(to || '').trim();
+  if (!dest || !dest.includes('@')) {
+    throw new Error('Falta el email de contacto para enviar el acceso.');
+  }
+  const { data: sessionData } = await sb().auth.getSession();
+  if (!sessionData?.session?.access_token) {
+    throw new Error('Sesión no válida. Volvé a iniciar sesión.');
+  }
+  const { data, error } = await sb().functions.invoke('send-access-invite', {
+    body: {
+      to: dest,
+      name,
+      username,
+      loginEmail,
+      password,
+      portalUrl,
+      logoUrl,
+    },
+  });
+  if (error) {
+    let detail = error.message || 'No se pudo enviar el mail';
+    try {
+      const ctx = error.context;
+      if (ctx && typeof ctx.json === 'function') {
+        const body = await ctx.json();
+        if (body?.error) detail = body.error;
+      }
+    } catch {
+      /* ignore */
+    }
+    throw new Error(data?.error || detail);
+  }
+  if (data?.error) throw new Error(data.error);
+  return { ok: true, id: data?.id || null, to: dest };
+}
+
+/** Bienvenida al pedir asociarse. No lleva usuario ni contraseña. */
+export async function sendJoinWelcomeEmail(applicationId) {
+  if (!applicationId) return { ok: false };
+  const { data, error } = await sb().functions.invoke('send-join-welcome', {
+    body: { applicationId },
+  });
+  if (error) {
+    let detail = error.message || 'No se pudo enviar la bienvenida';
+    try {
+      const ctx = error.context;
+      if (ctx && typeof ctx.json === 'function') {
+        const body = await ctx.json();
+        if (body?.error) detail = body.error;
+      }
+    } catch {
+      /* ignore */
+    }
+    throw new Error(data?.error || detail);
+  }
+  if (data?.error) throw new Error(data.error);
+  return { ok: true, to: data?.to || null };
 }
 
 export async function replaceProfileAuthorizations(profileId, authorizations = []) {
@@ -2207,6 +2558,219 @@ export async function upsertMembershipApplication(app) {
     { status: saved.status, email: saved.email }
   );
   return M.membershipApplicationFromRow(saved);
+}
+
+const LOCAL_APPS_KEY = 'jockey-membership-applications';
+const LOCAL_ACCESS_KEY = 'jockey-portal-access-requests';
+
+function readLocalList(key) {
+  try {
+    const raw = JSON.parse(localStorage.getItem(key) || '[]');
+    return Array.isArray(raw) ? raw : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalList(key, list) {
+  try {
+    localStorage.setItem(key, JSON.stringify(list));
+  } catch {
+    /* quota / private mode */
+  }
+}
+
+export function loadLocalMembershipApplications() {
+  return readLocalList(LOCAL_APPS_KEY);
+}
+
+export function loadLocalPortalAccessRequests() {
+  return readLocalList(LOCAL_ACCESS_KEY);
+}
+
+function stampLocalRecord(item) {
+  const now = new Date().toISOString();
+  return {
+    ...item,
+    id: item.id || (typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `local-${Date.now()}`),
+    status: item.status || 'pending',
+    createdAt: item.createdAt || now,
+    updatedAt: now,
+  };
+}
+
+export async function listPortalAccessRequests() {
+  const rows = await unwrap(
+    sb()
+      .from('portal_access_requests')
+      .select('*')
+      .order('created_at', { ascending: false }),
+    'No se pudieron cargar pedidos de acceso'
+  );
+  return (rows || []).map(M.portalAccessRequestFromRow);
+}
+
+export async function upsertPortalAccessRequest(req) {
+  const row = M.portalAccessRequestToRow(req);
+  let saved;
+  if (req.id && isUuid(req.id)) {
+    saved = await unwrap(
+      sb().from('portal_access_requests').update(row).eq('id', req.id).select().single(),
+      'No se pudo actualizar el pedido de acceso'
+    );
+  } else {
+    saved = await unwrap(
+      sb().from('portal_access_requests').insert(row).select().single(),
+      'No se pudo registrar el pedido de acceso'
+    );
+  }
+  await audit(
+    req.id ? 'portal_access_request.update' : 'portal_access_request.create',
+    'portal_access_request',
+    saved.id,
+    { status: saved.status, reason: saved.reason }
+  );
+  return M.portalAccessRequestFromRow(saved);
+}
+
+function foldMemberName(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Intenta atar el trámite a una ficha del padrón (id, Nº, DNI o nombre único). */
+export async function resolveMemberForApplication(app = {}) {
+  if (app.memberId && isUuid(app.memberId)) {
+    try {
+      const row = await getMember(app.memberId);
+      if (row) return row;
+    } catch {
+      /* seguir con Nº / DNI / nombre */
+    }
+  }
+  const number = String(app.memberNumber || '').trim();
+  if (number) {
+    try {
+      const row = await getMemberByNumber(number);
+      if (row) return row;
+    } catch {
+      /* seguir */
+    }
+  }
+  const doc = String(app.documentNumber || '').replace(/\D/g, '');
+  const name = String(app.fullName || '').trim();
+  const query = doc.length >= 6 ? doc : name;
+  if (!query || query.length < 2) return null;
+  try {
+    const rows = await searchMembersDirectory(query, { limit: 20 });
+    if (doc.length >= 6) {
+      const exactDoc = (rows || []).filter((m) => String(m.documentNumber || '').replace(/\D/g, '') === doc);
+      if (exactDoc.length === 1) return exactDoc[0];
+    }
+    const q = foldMemberName(name);
+    if (q.length >= 4) {
+      const exactName = (rows || []).filter((m) => foldMemberName(m.name) === q);
+      if (exactName.length === 1) return exactName[0];
+      const tokens = q.split(' ').filter((t) => t.length >= 3);
+      const contains = (rows || []).filter((m) => {
+        const hay = foldMemberName(m.name);
+        return hay.includes(q) || (tokens.length > 0 && tokens.every((t) => hay.includes(t)));
+      });
+      if (contains.length === 1) return contains[0];
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function isMissingJoinIdentityRpc(error) {
+  const code = String(error?.code || '');
+  const msg = String(error?.message || '');
+  return code === 'PGRST202' || code === '42883' || /check_join_identity_taken/i.test(msg);
+}
+
+/** ¿Nombre, DNI o celular ya están en el padrón? No revela la ficha. */
+export async function checkJoinIdentityTaken(app = {}) {
+  const empty = emptyJoinConflicts();
+  const name = String(app.fullName || '').trim();
+  const doc = String(app.documentNumber || '').replace(/\D/g, '');
+  const phone = String(app.phone || '').trim();
+  if (!name && !doc && !phone) return empty;
+
+  if (supabase) {
+    const { data, error } = await sb().rpc('check_join_identity_taken', {
+      p_full_name: name,
+      p_document: doc,
+      p_phone: phone,
+    });
+    if (!error) return joinConflictsFromFlags(data || {});
+    if (!isMissingJoinIdentityRpc(error)) {
+      throwOnError(error, 'No se pudo verificar el padrón');
+    }
+  }
+
+  const queries = [];
+  if (doc.length >= 6) queries.push(searchMembersDirectory(doc, { limit: 20 }));
+  if (name.length >= 5) queries.push(searchMembersDirectory(name, { limit: 20 }));
+  if (!queries.length) return empty;
+  const batches = await Promise.all(queries);
+  return joinIdentityConflicts(app, batches.flat());
+}
+
+/** Alta pública o local: no revela ni ata a un socio existente. */
+export async function submitMembershipApplication(app) {
+  const taken = await checkJoinIdentityTaken(app);
+  if (hasJoinIdentityConflict(taken)) {
+    throw new JoinIdentityTakenError(taken);
+  }
+  const payload = { ...app, status: app.status || 'pending', memberId: null };
+  if (!supabase) {
+    const item = stampLocalRecord(payload);
+    writeLocalList(LOCAL_APPS_KEY, [item, ...loadLocalMembershipApplications().filter((x) => x.id !== item.id)]);
+    return item;
+  }
+  const saved = await upsertMembershipApplication(payload);
+  if (saved?.id && saved.email) {
+    try {
+      await sendJoinWelcomeEmail(saved.id);
+    } catch {
+      /* la solicitud queda igual si Resend no está listo */
+    }
+  }
+  return saved;
+}
+
+export async function submitPortalAccessRequest(req) {
+  let matched = null;
+  try {
+    matched = await resolveMemberForApplication({
+      fullName: req.fullName,
+      documentNumber: req.documentNumber,
+      memberNumber: req.memberNumber,
+      memberId: req.memberDbId || req.memberId,
+    });
+  } catch {
+    matched = null;
+  }
+  const payload = {
+    ...req,
+    status: req.status || 'pending',
+    memberNumber: matched?.memberId || req.memberNumber || null,
+    memberDbId: matched?.id || req.memberDbId || null,
+  };
+  if (!supabase) {
+    const item = stampLocalRecord(payload);
+    writeLocalList(LOCAL_ACCESS_KEY, [item, ...loadLocalPortalAccessRequests().filter((x) => x.id !== item.id)]);
+    return item;
+  }
+  return upsertPortalAccessRequest(payload);
 }
 
 export async function findMemberDbIdByNumber(memberNumber) {

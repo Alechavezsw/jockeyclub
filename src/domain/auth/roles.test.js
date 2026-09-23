@@ -11,6 +11,7 @@ import {
   navItemsForRole,
   primaryRoleFromList,
   hasRoleInList,
+  hasSystemAdminRole,
   ROLE_PANEL_META,
 } from './roles';
 
@@ -106,6 +107,20 @@ describe('multi-role helpers', () => {
     expect(primaryRoleFromList(['member', 'superadmin', 'presidente'])).toBe('superadmin');
     expect(hasRoleInList(['superadmin', 'presidente', 'member'], 'presidente')).toBe(true);
     expect(hasRoleInList(['superadmin'], 'member')).toBe(false);
+  });
+});
+
+describe('hasSystemAdminRole', () => {
+  it('excluye socios y personal; incluye admin, superadmin y ambos roles', () => {
+    expect(hasSystemAdminRole('member')).toBe(false);
+    expect(hasSystemAdminRole('staff')).toBe(false);
+    expect(hasSystemAdminRole('admin')).toBe(true);
+    expect(hasSystemAdminRole('superadmin')).toBe(true);
+    expect(hasSystemAdminRole(['member', 'admin'])).toBe(true);
+    expect(hasSystemAdminRole([{ roleKey: 'member' }, { roleKey: 'socio_titular' }])).toBe(false);
+    expect(hasSystemAdminRole({ role: 'member', roles: [{ roleKey: 'admin' }] })).toBe(true);
+    expect(hasSystemAdminRole({ role: 'admin', roles: [] })).toBe(true);
+    expect(hasSystemAdminRole({ role: 'member', roles: [{ roleKey: 'member' }] })).toBe(false);
   });
 });
 

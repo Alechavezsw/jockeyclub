@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { ShieldAlert } from 'lucide-react';
+import { ShieldAlert, UserRound } from 'lucide-react';
 import { buildWhatsAppDuesUrl } from '../../domain/members/dues';
 
 function WhatsAppLogo({ size = 18 }) {
@@ -52,19 +52,35 @@ export default function OverdueDuesStrip({
           {list.map((m) => {
             const wa = buildWhatsAppDuesUrl(m, formatCurrency);
             const id = m.memberId || m.id;
+            const profileTo = `/panel/members/${encodeURIComponent(id)}`;
             return (
               <li key={m.id || id}>
                 <div className="admin-overdue-strip-who">
-                  <strong className="ops-ellipsis">{m.name}</strong>
+                  <Link
+                    to={profileTo}
+                    className="admin-overdue-strip-name ops-ellipsis"
+                    title={`Abrir ficha de ${m.name}`}
+                  >
+                    {m.name}
+                  </Link>
                   <span className="tabular-nums">
                     {formatCurrency(m.amountDue)}
                     {m.daysOverdue != null ? ` · ${m.daysOverdue}d` : ''}
+                    {id ? ` · Nº ${id}` : ''}
                   </span>
                 </div>
                 <div className="admin-overdue-strip-actions">
                   <Link
                     className="admin-overdue-btn"
-                    to={`/panel/members/${encodeURIComponent(id)}?cobrar=1`}
+                    to={profileTo}
+                    title={`Ver perfil de ${m.name}`}
+                  >
+                    <UserRound size={14} aria-hidden="true" />
+                    Perfil
+                  </Link>
+                  <Link
+                    className="admin-overdue-btn"
+                    to={`${profileTo}?cobrar=1`}
                     state={{ cobrar: true, memberId: id, member: m }}
                   >
                     Cobrar

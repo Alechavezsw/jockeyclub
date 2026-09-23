@@ -1,15 +1,23 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { loadSnapshots } from '../../data/snapshots';
 import {
-  ACCESSIN_BONIFICACIONES,
   ACCESSIN_DISCOUNT_RULES,
   createDiscount,
   discountCategoryCounts,
   resolveDiscounts,
 } from './discounts';
+import { bonificacionesSeed, seedDiscounts } from './discountsSeed';
+
+let ACCESSIN_BONIFICACIONES;
+
+beforeAll(async () => {
+  await loadSnapshots(['accessinBonificaciones']);
+  ({ ACCESSIN_BONIFICACIONES } = bonificacionesSeed());
+});
 
 describe('discounts / bonificaciones', () => {
   it('carga seed Accessin real + regla COMISION', () => {
-    const all = resolveDiscounts(null);
+    const all = resolveDiscounts(null, seedDiscounts());
     expect(ACCESSIN_BONIFICACIONES.length).toBe(27);
     expect(ACCESSIN_DISCOUNT_RULES).toHaveLength(1);
     expect(discountCategoryCounts(all).find((c) => c.id === 'members')?.count).toBe(27);
@@ -50,7 +58,7 @@ describe('discounts / bonificaciones', () => {
       valueType: 'percent',
       value: 10,
     });
-    const merged = resolveDiscounts([...ACCESSIN_BONIFICACIONES, local]);
+    const merged = resolveDiscounts([...ACCESSIN_BONIFICACIONES, local], seedDiscounts());
     expect(merged.length).toBeGreaterThanOrEqual(28);
   });
 });

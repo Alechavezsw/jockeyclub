@@ -1,5 +1,7 @@
 /** Configuración editable de espacios / canchas / pileta. */
 
+import { isDemoFacilityId, isRealBookableSpace } from './facilities';
+
 export const FACILITY_STATUS_OPTIONS = [
   { id: 'disponible', label: 'Disponible' },
   { id: 'suspendido', label: 'Suspendido' },
@@ -20,7 +22,7 @@ export const FACILITY_TYPE_OPTIONS = [
 
 /** Tipos usados en la gestión administrativa (listados reales). */
 export const FACILITY_MANAGE_TYPES = FACILITY_TYPE_OPTIONS.filter((t) =>
-  ['salon', 'parrilla', 'cancha', 'pileta', 'hipica', 'fitness', 'gastronomia'].includes(t.id)
+  ['salon', 'parrilla'].includes(t.id)
 );
 
 export const WEEK_DAYS = [
@@ -75,8 +77,9 @@ function inferSpaceType(facility = {}) {
   if (facility.category === 'cancha') return 'cancha';
   if (facility.category === 'hipica') return 'hipica';
   if (facility.category === 'fitness') return 'fitness';
+  if (facility.category === 'social') return 'salon';
+  if (facility.category === 'natacion' || facility.category === 'temporada') return 'pileta';
   if (facility.category === 'gastronomia') return 'gastronomia';
-  if (facility.category === 'temporada') return 'pileta';
   return facility.category || 'otro';
 }
 
@@ -217,15 +220,26 @@ export function applyFacilityEditorPatch(facility, patch = {}) {
 }
 
 export function buildFacilityCatalog(seedList = [], overrides = []) {
-  const byId = new Map((overrides || []).map((f) => [f.id, f]));
-  const fromSeed = (seedList || []).map((seed) => {
-    const over = byId.get(seed.id);
-    return normalizeFacilityConfig(over ? { ...seed, ...over } : seed);
-  });
+  const byId = new Map(
+    (overrides || [])
+      .filter((f) => f?.id && !isDemoFacilityId(f.id))
+      .map((f) => [f.id, f])
+  );
+  const fromSeed = (seedList || [])
+    .filter((seed) => seed?.id && !isDemoFacilityId(seed.id))
+    .map((seed) => {
+      const over = byId.get(seed.id);
+      if (!over) return normalizeFacilityConfig(seed);
+      const image = /unsplash\.com/i.test(String(over.image || ''))
+        ? seed.image
+        : (over.image || seed.image);
+      return normalizeFacilityConfig({ ...seed, ...over, image });
+    });
   const seedIds = new Set(fromSeed.map((f) => f.id));
   const extras = (overrides || [])
-    .filter((f) => f?.id && !seedIds.has(f.id))
-    .map((f) => normalizeFacilityConfig(f));
+    .filter((f) => f?.id && !seedIds.has(f.id) && !isDemoFacilityId(f.id))
+    .map((f) => normalizeFacilityConfig(f))
+    .filter((f) => isRealBookableSpace(f));
   return [...fromSeed, ...extras];
 }
 
@@ -243,7 +257,6 @@ export function removeFacilityFromCatalog(catalog, facilityId) {
 }
 
 export function createBlankFacility(spaceType = 'salon') {
-  const typeMeta = FACILITY_TYPE_OPTIONS.find((t) => t.id === spaceType) || FACILITY_TYPE_OPTIONS[0];
   const id = `esp-${Date.now().toString(36)}`;
   return normalizeFacilityConfig({
     id,

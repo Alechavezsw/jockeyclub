@@ -1,17 +1,25 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { loadSnapshots } from '../../data/snapshots';
 import {
   ACCOUNTING_REPORT_TYPES,
   createAccountingReportRecord,
   prependAccountingReport,
   reportsForType,
 } from './accountingReports';
-import { buildSurchargeComposition } from './surchargeComposition';
-import { buildLibreDeudaCertificate } from './libreDeuda';
+import { buildSurchargeComposition, SURCHARGE_COMPOSITION_SNAPSHOTS } from './surchargeComposition';
+import { buildLibreDeudaCertificate, LIBRE_DEUDA_SNAPSHOTS } from './libreDeuda';
+
+beforeAll(async () => {
+  await loadSnapshots([...LIBRE_DEUDA_SNAPSHOTS, ...SURCHARGE_COMPOSITION_SNAPSHOTS]);
+});
 
 describe('accountingReports', () => {
-  it('incluye los tipos LILA de contabilidad', () => {
+  it('incluye libros, estados y reportes de socios', () => {
     const ids = ACCOUNTING_REPORT_TYPES.map((t) => t.id);
-    expect(ids).toEqual(['recargos', 'libre_deuda', 'detailed_cc', 'family_balances']);
+    expect(ids).toEqual([
+      'diary', 'mayor', 'results', 'balance_sheet', 'trial', 'gestion',
+      'recargos', 'libre_deuda', 'detailed_cc', 'family_balances',
+    ]);
   });
 
   it('guarda historial por tipo', () => {
@@ -34,7 +42,7 @@ describe('accountingReports', () => {
 
   it('arma certificado de libre deuda con saldo LILA', () => {
     const cert = buildLibreDeudaCertificate(
-      { memberId: '1', name: 'Jonas David Castañeda Rodríguez', documentNumber: '50573357', tier: 'familiar' },
+      { memberId: '1', name: 'Tomás Andrés Peñaloza Martínez', documentNumber: '50000444', tier: 'familiar' },
       { asOf: '2026-09-03', extraInfo: 'póliza vigente' }
     );
     expect(cert.constancia).toMatch(/deja constancia póliza vigente del mismo/);

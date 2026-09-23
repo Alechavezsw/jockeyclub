@@ -1,19 +1,28 @@
 import { filterAlertsForRole, isAlertAcknowledged } from '../alerts/alerts';
 import { MAILBOX } from '../messaging/messages';
+import { allowedAdminTabs } from '../auth/roles';
 
 /**
  * Notificaciones reales de la campanita (sin semillas demo).
  * - Socio: mensajes no leídos a su credencial / all, deuda propia, waitlist
- * - Staff: bandeja ops, alertas, reclamos abiertos
+ * - Staff: bandeja ops, alertas, reclamos abiertos, solicitudes de alta
  */
+
+function requestWhen(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso).slice(0, 16);
+  return d.toLocaleString('es-AR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
 export function buildNotifications({
   role,
-  userId = null,
   memberId = null,
   member = null,
   messages = [],
   waitlist = [],
   claims = [],
+  membershipApplications = [],
   alerts = [],
   alertAcks = [],
   dismissedIds = [],
@@ -129,6 +138,24 @@ export function buildNotifications({
           detail: `${c.memberName || 'Socio'} · ${c.date || ''}`.trim(),
           view: 'claims',
           path: '/panel/claims',
+        });
+      });
+  }
+
+  if (allowedAdminTabs(role).includes('members')) {
+    (membershipApplications || [])
+      .filter((app) => String(app.status || 'pending') === 'pending')
+      .forEach((app) => {
+        const who = String(app.fullName || '').trim() || 'Sin nombre';
+        const doc = String(app.documentNumber || '').replace(/\D/g, '');
+        const when = requestWhen(app.createdAt);
+        push(out, {
+          id: `join-${app.id}`,
+          kind: 'join_request',
+          title: 'Solicitud de nuevo socio',
+          detail: [who, doc ? `DNI ${doc}` : '', when].filter(Boolean).join(' · '),
+          view: 'members',
+          path: '/panel/members?solicitudes=alta',
         });
       });
   }

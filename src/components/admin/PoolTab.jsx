@@ -17,7 +17,10 @@ import {
   poolDayStats,
   buildPoolMpPayload,
   guestDayAccessesForHost,
+  searchPoolMembers,
+  memberPoolHistory,
 } from '../../domain/pool/poolAccess';
+import { poolIngressToAccessLog } from '../../domain/credentials/accessLog';
 import { todayISODateAR } from '../../lib/arDate';
 
 function readFileAsDataUrl(file) {
@@ -45,6 +48,7 @@ export default function PoolTab({
   addJournalEntry,
   poolAccesses = [],
   setPoolAccesses,
+  setEntryLogs,
   poolSettings = DEFAULT_POOL_SETTINGS,
   setPoolSettings,
 }) {
@@ -79,15 +83,12 @@ export default function PoolTab({
   );
 
   const searchHits = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (q.length < 2) return [];
-    return members
-      .filter((m) => {
-        const blob = `${m.name || ''} ${m.memberId || ''} ${m.documentNumber || ''}`.toLowerCase();
-        return blob.includes(q);
-      })
-      .slice(0, 8);
-  }, [members, query]);
+    return searchPoolMembers(members, query, { limit: 50 }).map((member) => ({
+      member,
+      snap: evaluatePoolAccess(member, { accesses: poolAccesses, today, settings }),
+      dues: Number(member.outstandingBalance) || 0,
+    }));
+  }, [members, query, poolAccesses, today, settings]);
 
   const eval_ = useMemo(
     () => evaluatePoolAccess(selected, { accesses: poolAccesses, today, settings }),
@@ -99,6 +100,11 @@ export default function PoolTab({
   const hostGuests = selected
     ? guestDayAccessesForHost(poolAccesses, selected.memberId, today)
     : [];
+  const selectedHistory = useMemo(
+    () => (selected ? memberPoolHistory(poolAccesses, selected.memberId).slice(0, 12) : []),
+    [poolAccesses, selected],
+  );
+  const selectedDues = Number(selected?.outstandingBalance) || 0;
 
   const mpPayload = useMemo(() => {
     if (!selected) return '';
@@ -168,6 +174,10 @@ export default function PoolTab({
         actorName,
       });
       setPoolAccesses(accesses);
+      if (typeof setEntryLogs === 'function') {
+        const log = poolIngressToAccessLog(entry);
+        if (log) setEntryLogs((prev) => [log, ...(prev || [])]);
+      }
       if (typeof addJournalEntry === 'function' && entry.payment.amount > 0) {
         addJournalEntry({
           date: today,
@@ -207,6 +217,10 @@ export default function PoolTab({
       });
       setPoolAccesses(accesses);
       setGuestName('');
+      if (typeof setEntryLogs === 'function') {
+        const log = poolIngressToAccessLog(entry);
+        if (log) setEntryLogs((prev) => [log, ...(prev || [])]);
+      }
       if (typeof addJournalEntry === 'function' && entry.payment.amount > 0) {
         addJournalEntry({
           date: today,
@@ -262,37 +276,63 @@ export default function PoolTab({
 
       <div className="pool-layout">
         <section className="glass-card pool-panel">
-          <h3><Search size={16} /> Buscar socio</h3>
-          <div className="members-search-field" style={{ marginTop: '0.65rem' }}>
-            <Search size={18} className="members-search-icon" aria-hidden="true" />
-            <input
-              className="members-search-input"
-              placeholder="Nombre, Nº de socio o DNI…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              autoComplete="off"
-            />
-            {query ? (
-              <button type="button" className="members-search-clear" onClick={() => setQuery('')} aria-label="Limpiar">
-                <X size={14} />
-              </button>
-            ) : null}
+          <div className="members-search-hero pool-search-hero">
+            <label className="members-search-label" htmlFor="pool-search-input">
+              Buscar socio de pileta
+            </label>
+            <div className="members-search-field">
+              <Search size={22} className="members-search-icon" aria-hidden="true" />
+              <input
+                id="pool-search-input"
+                className="members-search-input"
+                placeholder="Nombre, DNI o Nº de socio…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                autoComplete="off"
+                autoFocus
+              />
+              {query ? (
+                <button type="button" className="members-search-clear" onClick={() => setQuery('')} aria-label="Limpiar">
+                  <X size={16} />
+                </button>
+              ) : null}
+            </div>
+            <p className="members-search-hint">
+              {query.trim()
+                ? `${searchHits.length.toLocaleString('es-AR')} coincidencia${searchHits.length === 1 ? '' : 's'}`
+                : 'Escribí nombre, DNI o número de socio para ver si pagó, el apto médico y el resto de pileta.'}
+            </p>
           </div>
           {searchHits.length > 0 && (
             <ul className="pool-search-hits">
-              {searchHits.map((m) => (
+              {searchHits.map(({ member: m, snap, dues }) => (
                 <li key={m.memberId}>
                   <button
                     type="button"
                     className={selectedId === m.memberId ? 'is-active' : ''}
                     onClick={() => {
                       setSelectedId(m.memberId);
-                      setQuery(m.name);
                       setError('');
                     }}
                   >
                     <strong>{m.name}</strong>
-                    <span>Nº {m.memberId} · {m.status === 'active' ? 'Activo' : m.status}</span>
+                    <span>
+                      Nº {m.memberId}
+                      {m.documentNumber ? ` · DNI ${m.documentNumber}` : ''}
+                      {' · '}
+                      {m.status === 'active' ? 'Activo' : m.status === 'inactive' ? 'Baja' : m.status}
+                    </span>
+                    <span className="pool-hit-flags">
+                      <em className={snap.paidToday ? 'is-ok' : 'is-bad'}>
+                        {snap.paidToday ? 'Canon pago' : 'Canon impago'}
+                      </em>
+                      <em className={snap.medical?.ok ? 'is-ok' : 'is-bad'}>
+                        {snap.medical?.ok ? 'Apto médico' : 'Sin apto'}
+                      </em>
+                      <em className={dues > 0 ? 'is-bad' : 'is-ok'}>
+                        {dues > 0 ? `Debe ${formatCurrency(dues)}` : 'Cuota al día'}
+                      </em>
+                    </span>
                   </button>
                 </li>
               ))}
@@ -317,6 +357,23 @@ export default function PoolTab({
                 <div className={`pool-check ${selected.status === 'active' ? 'is-ok' : 'is-bad'}`}>
                   <strong>Estado del socio</strong>
                   <span>{selected.status === 'active' ? 'Cuenta habilitada' : `Estado: ${selected.status}`}</span>
+                </div>
+                <div className={`pool-check ${selectedDues > 0 ? 'is-bad' : 'is-ok'}`}>
+                  <strong>Cuota social</strong>
+                  <span>
+                    {selectedDues > 0
+                      ? `No pagó · saldo ${formatCurrency(selectedDues)}`
+                      : 'Pagó / al día'}
+                  </span>
+                </div>
+                <div className={`pool-check ${eval_.paidToday ? 'is-ok' : 'is-bad'}`}>
+                  <strong>Canon pileta de hoy</strong>
+                  <span>
+                    {eval_.paidToday
+                      ? `Pagó · ${formatCurrency(settings.memberDayFee)}`
+                      : `No pagó · ${formatCurrency(settings.memberDayFee)}`}
+                    {eval_.alreadyIn ? ' · ya ingresó' : ''}
+                  </span>
                 </div>
                 <div className={`pool-check ${eval_.medical?.ok ? 'is-ok' : 'is-bad'}`}>
                   <strong>Revisación médica</strong>
@@ -345,10 +402,6 @@ export default function PoolTab({
                       <FileHeart size={13} /> {eval_.medical.doc?.fileName || 'Documento cargado'}
                     </span>
                   )}
-                </div>
-                <div className={`pool-check ${eval_.alreadyIn ? 'is-ok' : ''}`}>
-                  <strong>Canon del día</strong>
-                  <span>{formatCurrency(settings.memberDayFee)} · socio</span>
                 </div>
               </div>
 
@@ -459,9 +512,32 @@ export default function PoolTab({
             </div>
           ) : (
             <p className="ops-muted" style={{ marginTop: '1rem' }}>
-              Buscá un socio del padrón para habilitar acceso a pileta.
+              Buscá un socio por nombre, DNI o número para ver si pagó pileta, la cuota y el apto médico.
             </p>
           )}
+
+          {selected && selectedHistory.length > 0 ? (
+            <section className="pool-history">
+              <h4>Historial de pileta</h4>
+              <ul>
+                {selectedHistory.map((row) => (
+                  <li key={row.id}>
+                    <strong>
+                      {row.kind === 'guest' ? `Invitado ${row.guestName}` : 'Socio'}
+                      {row.status === 'revoked' ? ' · revocado' : ''}
+                    </strong>
+                    <span>
+                      {row.date}
+                      {' · '}
+                      {row.payment?.method === 'asistencia'
+                        ? 'Asistió'
+                        : `${row.payment?.amount != null ? formatCurrency(row.payment.amount) : 's/importe'} · ${row.payment?.method === 'mercadopago' ? 'Mercado Pago' : (row.payment?.method || '—')}`}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
         </section>
 
         <aside className="pool-side">
@@ -478,9 +554,9 @@ export default function PoolTab({
                       <span>
                         {a.kind === 'guest' ? `Invitado de ${a.memberName}` : 'Socio'}
                         {' · '}
-                        {formatCurrency(a.payment?.amount || 0)}
-                        {' · '}
-                        {a.payment?.method === 'mercadopago' ? 'MP' : 'Efectivo'}
+                        {a.payment?.method === 'asistencia'
+                          ? 'Asistió'
+                          : `${formatCurrency(a.payment?.amount || 0)} · ${a.payment?.method === 'mercadopago' ? 'MP' : 'Efectivo'}`}
                       </span>
                     </div>
                     <button

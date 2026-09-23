@@ -7,17 +7,20 @@ import useErpStore from './hooks/useErpStore';
 import { AlertsBanner } from './components/erp/AlertsPanel';
 import SessionStatusBar from './components/SessionStatusBar';
 import { useAuth } from './context/AuthContext';
-import { canAccessAdmin, canAccessQrGate, canAccessConcessions, canTakeAttendance } from './domain/auth/roles';
+import { canAccessAdmin, canAccessQrGate, canAccessPool, canAccessConcessions, canTakeAttendance, allowedAdminTabs } from './domain/auth/roles';
 import { hasReservationConflict } from './domain/reservations/conflicts';
+import { isDemoFacilityId, isRealBookableSpace, OFFICIAL_FACILITY_IDS } from './domain/reservations/facilities';
 import { countUnread, markMessageRead } from './domain/messaging/messages';
 import {
   buildNotifications,
   loadDismissedNotificationIds,
   saveDismissedNotificationIds,
 } from './domain/notifications/buildNotifications';
-import { applyAutomaticDues } from './domain/members/dues';
+import { applyAutomaticDues, pinDuesDueDate } from './domain/members/dues';
 import { attachHouseholdToMembers } from './domain/members/households';
-import { applyCurrentAccountBalances } from './domain/accounting/currentAccountBalances';
+// Los saldos de cuenta corriente vienen de la base: public.members.outstanding_balance
+// más el desglose en members.meta (ver scripts/sync-accessin-balances.mjs). El snapshot
+// LILA ya no se aplica del lado del cliente; solo lo usan los reportes de administración.
 import { createHrRecord } from './domain/staff/hr';
 import { loadDisciplineCatalog } from './domain/sports/disciplines';
 import { loadTierCatalog, mergeOfficialTiers, setRuntimeTierCatalog, stripExampleTiers } from './domain/members/tiers';
@@ -27,10 +30,22 @@ import { notifyNextOnWaitlist } from './domain/reservations/waitlist';
 import { bootstrapShellFromDb, bootstrapDeferredFromDb, bootstrapMembersFromDb, bootstrapErpFromDb, repos } from './data/bootstrap';
 import { useDailyBackup } from './hooks/useDailyBackup';
 
-// Seed opcional (generado por npm run import:reservas; puede faltar en clones limpios)
-const _seedMod = import.meta.glob('./data/seedDatitaReservas.js', { eager: true });
-const SEED_DATITA_RESERVAS =
-  _seedMod['./data/seedDatitaReservas.js']?.SEED_DATITA_RESERVAS || [];
+// Seed opcional (generado por npm run import:reservas; puede faltar en clones limpios).
+// Sin `eager`: trae nombre y reservas de socios reales, y con carga ansiosa quedaba
+// embebido en el chunk de entrada. loadDatitaReservas() lo pide solo en modo local, que
+// en producción no existe: sin la guarda de DEV, un build hecho en una máquina que tiene
+// el archivo lo publicaba como chunk descargable.
+const _seedMod = import.meta.env.DEV ? import.meta.glob('./data/seedDatitaReservas.js') : {};
+let datitaReservasPromise = null;
+function loadDatitaReservas() {
+  if (!datitaReservasPromise) {
+    const loader = _seedMod['./data/seedDatitaReservas.js'];
+    datitaReservasPromise = loader
+      ? loader().then((m) => m.SEED_DATITA_RESERVAS || []).catch(() => [])
+      : Promise.resolve([]);
+  }
+  return datitaReservasPromise;
+}
 
 // Lazy load de vistas pesadas (bundle-dynamic-imports)
 const ReservationsView = lazy(() => import('./views/ReservationsView'));
@@ -41,8 +56,11 @@ const MessagesView = lazy(() => import('./views/MessagesView'));
 const PaymentHistoryView = lazy(() => import('./views/PaymentHistoryView'));
 const MemberProfilePanel = lazy(() => import('./components/admin/MemberProfilePanel'));
 const AccessControlView = lazy(() => import('./views/AccessControlView'));
+const PoolControlView = lazy(() => import('./views/PoolControlView'));
+const PoolEntranceView = lazy(() => import('./views/PoolEntranceView'));
 const ConcessionsView = lazy(() => import('./views/ConcessionsView'));
 const ConcessionPortalView = lazy(() => import('./views/ConcessionPortalView'));
+const MemberAccessView = lazy(() => import('./views/MemberAccessView'));
 
 function RouteFallback() {
   return (
@@ -93,7 +111,7 @@ const DEFAULT_MEMBERS = [
     outstandingBalance: 0,
     yearsActive: 5,
     status: 'active',
-    nextDueDate: '2026-10-01',
+    nextDueDate: '2026-10-10',
     credentialToken: 'a1b2c3d4e5f6789012345678abcdef01',
     adherents: [
       { id: 'adh-01', name: 'Sofía Chávez', tier: 'socio_familiar', relationship: 'Hijo/a', outstandingBalance: 0, status: 'active' },
@@ -101,12 +119,6 @@ const DEFAULT_MEMBERS = [
     ],
   },
 ];
-
-// Datos de semilla predeterminados para reservas (alineados con canchas de San Juan)
-/** Sin demos: las reservas reales vienen del seed datita o de Supabase. */
-const DEFAULT_RESERVATIONS = Array.isArray(SEED_DATITA_RESERVAS) && SEED_DATITA_RESERVAS.length
-  ? SEED_DATITA_RESERVAS
-  : [];
 
 function isDatitaReservation(r) {
   return r?.source === 'datita' || String(r?.id || '').startsWith('datita-res-');
@@ -121,7 +133,7 @@ function isDemoReservation(r) {
   return isDemoMember({ memberId: r.memberId }) && demoFacilities.has(String(r.facilityId || ''));
 }
 
-function pickReservations(preferred, fallbackSeed = SEED_DATITA_RESERVAS) {
+function pickReservations(preferred, fallbackSeed = []) {
   const list = Array.isArray(preferred) ? preferred.filter((r) => !isDemoReservation(r)) : [];
   const seed = Array.isArray(fallbackSeed) ? fallbackSeed : [];
   // Preferir seed datita completo si la nube aún no tiene el lote (o quedó a medias)
@@ -688,15 +700,24 @@ const DEFAULT_SURVEYS = [
 ];
 
 export default function App() {
-  const { user, loading: authLoading, isAuthenticated, role, canAccessAdmin: sessionCanAccessAdmin } = useAuth();
-  const userRole = role || 'member';
-  const cloudMode = isSupabaseConfigured;
+  // Constante del build: en producción sin backend no hay portal que montar. Va en un
+  // componente aparte para que los hooks del portal no queden detrás de un return.
   if (isProductionWithoutBackend) {
     return <ConfigError />;
   }
+  return <ClubPortal />;
+}
+
+function ClubPortal() {
+  const { user, loading: authLoading, isAuthenticated, role, canAccessAdmin: sessionCanAccessAdmin } = useAuth();
+  const userRole = role || 'member';
+  const cloudMode = isSupabaseConfigured;
   const hydratedRef = useRef(false);
+  const membersLoadStartedRef = useRef(false);
   const [dbReady, setDbReady] = useState(true);
   const [dbSyncing, setDbSyncing] = useState(false);
+  // Espejo de hydratedRef para lo que se muestra en pantalla (una ref no re-renderiza).
+  const [dbHydrated, setDbHydrated] = useState(false);
   const [dbError, setDbError] = useState('');
   const [dbHealthy, setDbHealthy] = useState(false);
   const [memberDbIds, setMemberDbIds] = useState({});
@@ -711,7 +732,7 @@ export default function App() {
   const location = useLocation();
   const isOperativeRole = Boolean(sessionCanAccessAdmin) || canAccessAdmin(userRole);
 
-  const pathForView = (viewId) => {
+  const pathForView = useCallback((viewId) => {
     switch (viewId) {
       case 'reservations': return isOperativeRole ? '/panel' : '/reservas';
       case 'attendance': return '/asistencia';
@@ -724,9 +745,9 @@ export default function App() {
       case 'dashboard':
       default: return isOperativeRole ? '/panel' : (userRole === 'teacher' ? '/asistencia' : '/');
     }
-  };
+  }, [isOperativeRole, userRole]);
 
-  const setCurrentView = (viewId) => navigate(pathForView(viewId));
+  const setCurrentView = useCallback((viewId) => navigate(pathForView(viewId)), [navigate, pathForView]);
 
   const currentView = location.pathname.startsWith('/reservas')
     ? 'reservations'
@@ -761,7 +782,7 @@ export default function App() {
             ...seed,
             ...m,
             // Completar ficha con datos de semilla si faltan en localStorage
-            nextDueDate: m.nextDueDate || seed.nextDueDate,
+            nextDueDate: pinDuesDueDate(m.nextDueDate || seed.nextDueDate),
             overdueSince: m.overdueSince || seed.overdueSince,
             email: m.email || seed.email,
             address: m.address || seed.address,
@@ -785,13 +806,27 @@ export default function App() {
           }
           return merged;
         });
-    // Local: cuota vencida genera deuda. LILA solo completa si no hay saldo.
-    return attachHouseholdToMembers(applyCurrentAccountBalances(applyAutomaticDues(base)));
+    // Local: cuota vencida genera deuda. Los saldos reales vienen de la base.
+    return attachHouseholdToMembers(applyAutomaticDues(base));
   });
+
+  // Los snapshots Accessin del ERP solo se bajan con sesión operativa abierta.
+  const canLoadErpSeeds = !isSupabaseConfigured || (isAuthenticated && isOperativeRole);
 
   const [reservations, setReservations] = useState(() => (
     isSupabaseConfigured ? [] : loadInitialReservations()
   ));
+
+  // Modo local: completar con el seed datita una vez que llega su chunk.
+  useEffect(() => {
+    if (isSupabaseConfigured) return undefined;
+    let cancelled = false;
+    loadDatitaReservas().then((seed) => {
+      if (cancelled || !seed.length) return;
+      setReservations((cur) => pickReservations(cur, seed));
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   const [newsList, setNewsList] = useState(() => {
     if (isSupabaseConfigured) return [];
@@ -918,16 +953,36 @@ export default function App() {
   const [facilityCatalog, setFacilityCatalog] = useState(() => {
     try {
       const raw = JSON.parse(localStorage.getItem('jockey-facility-catalog') || 'null');
-      return Array.isArray(raw) && raw.length ? raw : null;
+      if (!Array.isArray(raw) || !raw.length) return null;
+      const real = raw.filter((f) => (
+        f?.id
+        && !isDemoFacilityId(f.id)
+        && (OFFICIAL_FACILITY_IDS.has(f.id) || isRealBookableSpace(f))
+      ));
+      return real.length ? real : null;
     } catch {
       return null;
     }
   });
 
   const [registeredUsersCount, setRegisteredUsersCount] = useState(0);
-  const [membershipApplications, setMembershipApplications] = useState([]);
+  const [membershipApplications, setMembershipApplications] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('jockey-membership-applications') || '[]');
+    } catch {
+      return [];
+    }
+  });
+  const [portalAccessRequests, setPortalAccessRequests] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('jockey-portal-access-requests') || '[]');
+    } catch {
+      return [];
+    }
+  });
   const [membersCount, setMembersCount] = useState(0);
   const [membersLoading, setMembersLoading] = useState(false);
+  const [membersProgress, setMembersProgress] = useState({ loaded: 0, total: 0 });
 
   const [waitlist, setWaitlist] = useState(() => {
     try {
@@ -1051,25 +1106,32 @@ export default function App() {
   useEffect(() => {
     if (!cloudMode) localStorage.setItem('jockey-waitlist', JSON.stringify(waitlist));
   }, [waitlist, cloudMode]);
+  useEffect(() => {
+    if (!cloudMode) localStorage.setItem('jockey-membership-applications', JSON.stringify(membershipApplications));
+  }, [membershipApplications, cloudMode]);
+  useEffect(() => {
+    if (!cloudMode) localStorage.setItem('jockey-portal-access-requests', JSON.stringify(portalAccessRequests));
+  }, [portalAccessRequests, cloudMode]);
 
   // Socio activo: el vinculado a la sesión, o el primero como fallback operativo
   const sessionMemberFallback = useMemo(() => {
-    if (!user?.memberId && !user?.name && !user?.email) return null;
+    if (!user?.memberId && !user?.fullName && !user?.name && !user?.email) return null;
     const fromDefaults = !isSupabaseConfigured
       ? DEFAULT_MEMBERS.find((m) => m.memberId === user?.memberId)
       : null;
     if (fromDefaults) return fromDefaults;
+    const profileName = String(user?.fullName || user?.name || '').trim();
+    const looksEmail = profileName.includes('@');
     return {
       memberId: user?.memberId || 'session',
-      name: user?.name || user?.email || 'Socio',
+      name: (!looksEmail && profileName) ? profileName : 'Socio',
       tier: 'socio_individual',
       outstandingBalance: 0,
       yearsActive: 0,
       adherents: [],
       status: 'active',
-      notifyDues: false,
     };
-  }, [user?.memberId, user?.name, user?.email]);
+  }, [user?.memberId, user?.fullName, user?.name, user?.email]);
 
   const activeMember = user?.memberId
     ? (members.find((m) => m.memberId === user.memberId) || sessionMemberFallback)
@@ -1186,7 +1248,14 @@ export default function App() {
     );
   };
 
-  const erp = useErpStore({ setJournalEntries, isZondaActive, userId: user?.id });
+  const erp = useErpStore({
+    setJournalEntries,
+    isZondaActive,
+    userId: user?.id,
+    // Habilita los snapshots Accessin diferidos (cobranzas, proveedores,
+    // bonificaciones). Sin sesión operativa no se bajan.
+    canLoadSeeds: canLoadErpSeeds,
+  });
 
   useDailyBackup({
     enabled: true,
@@ -1217,9 +1286,14 @@ export default function App() {
   useEffect(() => {
     if (!isAuthenticated) {
       hydratedRef.current = false;
+      membersLoadStartedRef.current = false;
       setDbSyncing(false);
     }
-  }, [isAuthenticated]);
+    if (isAuthenticated && !cloudMode) {
+      setMembershipApplications(repos.loadLocalMembershipApplications());
+      setPortalAccessRequests(repos.loadLocalPortalAccessRequests());
+    }
+  }, [isAuthenticated, cloudMode]);
 
   // Hidratar progresivo: abrir UI ya; crítico → diferido → padrón/ERP
   useEffect(() => {
@@ -1249,6 +1323,9 @@ export default function App() {
       if (Array.isArray(app.membershipApplications)) {
         setMembershipApplications(app.membershipApplications);
       }
+      if (Array.isArray(app.portalAccessRequests)) {
+        setPortalAccessRequests(app.portalAccessRequests);
+      }
       if (typeof app.isZondaActive === 'boolean') setIsZondaActive(app.isZondaActive);
       if (Array.isArray(app.tierCatalog) && app.tierCatalog.length) {
         const cleaned = mergeOfficialTiers(stripExampleTiers(app.tierCatalog));
@@ -1271,9 +1348,64 @@ export default function App() {
 
     (async () => {
       setDbSyncing(true);
+      setDbHydrated(false);
       setDbReady(true); // pintar de inmediato con datos locales/semilla
       setDbError('');
       setMembersLoading(isOps);
+
+      const paintMembers = (rawMembers, {
+        keepCount = true,
+        expectedCount = 0,
+        attachFamily = false,
+        loaded = 0,
+        total = 0,
+      } = {}) => {
+        const cleaned = (rawMembers || []).filter((m) => !isDemoMember(m));
+        const next = attachFamily ? attachHouseholdToMembers(cleaned) : cleaned;
+        setMembers(next);
+        if (keepCount) {
+          setMembersCount((prev) => Math.max(prev, next.length, expectedCount));
+        } else {
+          setMembersCount(Math.max(next.length, expectedCount));
+        }
+        setMemberDbIds(
+          Object.fromEntries(next.map((m) => [m.memberId, m.id]).filter(([, id]) => id))
+        );
+        if (loaded || total) {
+          setMembersProgress({ loaded: loaded || next.length, total: total || expectedCount || next.length });
+        }
+      };
+
+      // En la puerta / registro público no bajamos los 5k socios: satura el pool.
+      const path = typeof window !== 'undefined' ? window.location.pathname : '';
+      const skipPadron = path.startsWith('/entrada-pileta') || path.startsWith('/registro');
+      const membersJob = isOps && !skipPadron
+        ? (() => {
+          membersLoadStartedRef.current = true;
+          return bootstrapMembersFromDb({
+            onProgress: (partial, meta) => {
+              if (cancelled) return;
+              if (meta?.total) {
+                setMembersCount((prev) => Math.max(prev, meta.total));
+                setMembersProgress({
+                  loaded: meta.loaded || partial?.length || 0,
+                  total: meta.total,
+                });
+              }
+              if (!partial?.length) return;
+              paintMembers(partial, {
+                keepCount: !meta?.done,
+                attachFamily: Boolean(meta?.done),
+                expectedCount: meta?.total || 0,
+                loaded: meta?.loaded || partial.length,
+                total: meta?.total || 0,
+              });
+              if (meta?.done) setMembersLoading(false);
+            },
+          });
+        })()
+        : null;
+      if (isOps && skipPadron) setMembersLoading(false);
 
       try {
         const data = await bootstrapShellFromDb({
@@ -1293,15 +1425,17 @@ export default function App() {
         const { app, erp: erpData, health, memberDbIds: shellIds } = data;
 
         if (isOps) {
-          // Quitar semilla demo: el padrón real llega por páginas
-          setMembers([]);
-          setMemberDbIds({});
-          setMembersCount(app.membersCount || 0);
+          setMembers((prev) => {
+            const real = (prev || []).filter((m) => !isDemoMember(m));
+            return real.length ? real : [];
+          });
+          if (app.membersCount) {
+            setMembersCount((prev) => Math.max(prev, app.membersCount));
+          }
         } else {
           const seeded = Array.isArray(app.members) ? app.members : [];
           if (seeded.length) {
-            const withBalances = applyCurrentAccountBalances(seeded);
-            const withFamily = attachHouseholdToMembers(withBalances);
+            const withFamily = attachHouseholdToMembers(seeded);
             setMembers(withFamily);
             setMembersCount(withFamily.length || app.membersCount || 0);
             setMemberDbIds(shellIds || {});
@@ -1319,6 +1453,7 @@ export default function App() {
         });
         setDbHealthy(Boolean(health?.ok));
         hydratedRef.current = true;
+        setDbHydrated(true);
         if (!cancelled) {
           setDbSyncing(false);
           clearTimeout(watchdog);
@@ -1341,60 +1476,11 @@ export default function App() {
             .catch(() => {});
         };
 
-        // Ops: padrón primero (prioridad pool); diferido tras el 1er lote
+        // Ops: padrón y ERP en paralelo. El dump no debe tapar cajas ni reportes.
         if (isOps) {
-          (async () => {
-            let deferredStarted = false;
-            const paintMembers = (rawMembers, { keepCount = true } = {}) => {
-              const cleaned = (rawMembers || []).filter((m) => !isDemoMember(m));
-              const withBalances = applyCurrentAccountBalances(cleaned);
-              const withFamily = attachHouseholdToMembers(withBalances);
-              setMembers(withFamily);
-              if (keepCount) {
-                setMembersCount((prev) => Math.max(prev, withFamily.length, app.membersCount || 0));
-              } else {
-                setMembersCount(withFamily.length);
-              }
-              setMemberDbIds(
-                Object.fromEntries(withFamily.map((m) => [m.memberId, m.id]).filter(([, id]) => id))
-              );
-              return { withFamily, rawMembers: rawMembers || [] };
-            };
-
-            try {
-              const { members: rawMembers } = await bootstrapMembersFromDb({
-                onProgress: (partial, meta) => {
-                  if (cancelled || !partial?.length) return;
-                  paintMembers(partial, { keepCount: !meta?.done });
-                  if (!deferredStarted) {
-                    deferredStarted = true;
-                    setMembersLoading(false);
-                    runDeferred();
-                  }
-                  if (meta?.done) setMembersLoading(false);
-                },
-              });
-              if (cancelled) return;
-
-              if (rawMembers?.length) {
-                paintMembers(rawMembers, { keepCount: false });
-              } else if ((app.membersCount || 0) > 0) {
-                setDbError('No se pudo descargar el padrón de socios. Probá recargar.');
-              }
-            } catch (membersErr) {
-              if (!cancelled) {
-                setDbError(friendlyDbError(membersErr, 'No se pudo cargar el padrón completo'));
-              }
-            } finally {
-              if (!cancelled) {
-                setMembersLoading(false);
-                if (!deferredStarted) runDeferred();
-              }
-            }
-
-            if (cancelled) return;
-            try {
-              const heavy = await bootstrapErpFromDb();
+          runDeferred();
+          const erpJob = bootstrapErpFromDb()
+            .then((heavy) => {
               if (cancelled || !heavy) return;
               if (Array.isArray(heavy.journalEntries) && heavy.journalEntries.length) {
                 setJournalEntries(heavy.journalEntries);
@@ -1419,9 +1505,39 @@ export default function App() {
                 concessions: heavy.concessions,
                 canonPayments: heavy.canonPayments,
               });
-            } catch {
-              /* ERP soft */
+            })
+            .catch(() => {});
+
+          (async () => {
+            if (!membersJob) {
+              await erpJob;
+              return;
             }
+
+            try {
+              const { members: rawMembers } = await membersJob;
+              if (cancelled) return;
+
+              if (rawMembers?.length) {
+                paintMembers(rawMembers, {
+                  keepCount: false,
+                  attachFamily: true,
+                  expectedCount: app.membersCount || 0,
+                  loaded: rawMembers.length,
+                  total: app.membersCount || rawMembers.length,
+                });
+              } else if ((app.membersCount || 0) > 0) {
+                setDbError('No se pudo descargar el padrón de socios. Probá recargar.');
+              }
+            } catch (membersErr) {
+              if (!cancelled) {
+                setDbError(friendlyDbError(membersErr, 'No se pudo cargar el padrón completo'));
+              }
+            } finally {
+              if (!cancelled) setMembersLoading(false);
+            }
+
+            await erpJob;
           })();
         } else {
           runDeferred();
@@ -1447,6 +1563,51 @@ export default function App() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cloudMode, isAuthenticated, authLoading, role, user?.memberId]);
+
+  // Si entraron por la puerta, el padrón se baja al ir al panel.
+  useEffect(() => {
+    if (!cloudMode || !isAuthenticated || authLoading) return undefined;
+    if (location.pathname.startsWith('/entrada-pileta')) return undefined;
+    if (location.pathname.startsWith('/registro')) return undefined;
+    const isOps = canAccessAdmin(role) || role === 'gate_operator';
+    if (!isOps || membersLoadStartedRef.current) return undefined;
+    membersLoadStartedRef.current = true;
+    let cancelled = false;
+    setMembersLoading(true);
+    (async () => {
+      try {
+        const { members: rawMembers } = await bootstrapMembersFromDb({
+          onProgress: (partial, meta) => {
+            if (cancelled || !partial?.length) return;
+            const cleaned = partial.filter((m) => !isDemoMember(m));
+            const next = meta?.done ? attachHouseholdToMembers(cleaned) : cleaned;
+            setMembers(next);
+            setMembersCount((prev) => Math.max(prev, next.length, meta?.total || 0));
+            setMembersProgress({
+              loaded: meta?.loaded || next.length,
+              total: meta?.total || next.length,
+            });
+            if (meta?.done) setMembersLoading(false);
+          },
+        });
+        if (cancelled) return;
+        if (rawMembers?.length) {
+          const cleaned = rawMembers.filter((m) => !isDemoMember(m));
+          const withFamily = attachHouseholdToMembers(cleaned);
+          setMembers(withFamily);
+          setMembersCount(withFamily.length);
+          setMembersProgress({ loaded: withFamily.length, total: withFamily.length });
+        }
+      } catch (err) {
+        if (!cancelled) setDbError(friendlyDbError(err, 'No se pudo cargar el padrón completo'));
+      } finally {
+        if (!cancelled) setMembersLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [cloudMode, isAuthenticated, authLoading, role, location.pathname]);
 
   // Wrappers de escritura BD para setters usados en vistas
   const setEntryLogsDb = (updater) => {
@@ -1508,7 +1669,7 @@ export default function App() {
       setMessages((cur) => (cur || []).filter((x) => String(x.id) !== String(msg.id)));
       const message = err?.message || 'No se pudo enviar el mensaje a la base de datos';
       setDbError(message);
-      throw new Error(message);
+      throw new Error(message, { cause: err });
     }
   }, [cloudMode]);
 
@@ -1544,7 +1705,50 @@ export default function App() {
     };
   }, [cloudMode, isAuthenticated, dbReady, refreshMessages]);
 
-  const setMessagesDb = (updater) => {
+  const refreshMembershipApplications = useCallback(async () => {
+    if (!cloudMode || !isAuthenticated) return;
+    if (!allowedAdminTabs(userRole).includes('members')) return;
+    try {
+      const list = await repos.listMembershipApplications();
+      setMembershipApplications(list || []);
+    } catch {
+      /* la campanita sigue con lo último que había */
+    }
+  }, [cloudMode, isAuthenticated, userRole]);
+
+  useEffect(() => {
+    if (!cloudMode || !isAuthenticated || !dbReady) return undefined;
+    if (!allowedAdminTabs(userRole).includes('members')) return undefined;
+    void refreshMembershipApplications();
+    const onFocus = () => { void refreshMembershipApplications(); };
+    const onVis = () => {
+      if (document.visibilityState === 'visible') void refreshMembershipApplications();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVis);
+    const timer = window.setInterval(() => { void refreshMembershipApplications(); }, 12000);
+
+    let channel = null;
+    if (supabase) {
+      channel = supabase
+        .channel('membership-applications-live')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'membership_applications' },
+          () => { void refreshMembershipApplications(); }
+        )
+        .subscribe();
+    }
+
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVis);
+      window.clearInterval(timer);
+      if (channel) supabase?.removeChannel(channel);
+    };
+  }, [cloudMode, isAuthenticated, dbReady, userRole, refreshMembershipApplications]);
+
+  const setMessagesDb = useCallback((updater) => {
     setMessages((prev) => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
       if (!cloudMode || !Array.isArray(next)) return next;
@@ -1577,7 +1781,7 @@ export default function App() {
       }
       return next;
     });
-  };
+  }, [cloudMode]);
 
   const setClaimsDb = (updater) => {
     setClaims((prev) => {
@@ -1796,20 +2000,26 @@ export default function App() {
     : null;
 
   // Campanita: solo datos reales de la sesión (sin semillas / sin socio fallback)
-  const notifications = (!isAuthenticated || (cloudMode && dbSyncing && !hydratedRef.current))
-    ? []
-    : buildNotifications({
-      role: userRole,
-      userId: user?.id,
-      memberId: user?.memberId || null,
-      member: sessionMember,
-      messages,
-      waitlist,
-      claims,
-      alerts: erp.alerts || [],
-      alertAcks: erp.alertAcks || [],
-      dismissedIds: dismissedNotifIds,
-    });
+  const notifications = useMemo(() => (
+    (!isAuthenticated || (cloudMode && dbSyncing && !dbHydrated))
+      ? []
+      : buildNotifications({
+        role: userRole,
+        userId: user?.id,
+        memberId: user?.memberId || null,
+        member: sessionMember,
+        messages,
+        waitlist,
+        claims,
+        membershipApplications,
+        alerts: erp.alerts || [],
+        alertAcks: erp.alertAcks || [],
+        dismissedIds: dismissedNotifIds,
+      })
+  ), [
+    isAuthenticated, cloudMode, dbSyncing, dbHydrated, userRole, user?.id, user?.memberId,
+    sessionMember, messages, waitlist, claims, membershipApplications, erp.alerts, erp.alertAcks, dismissedNotifIds,
+  ]);
 
   const dismissNotification = useCallback((notifId, notif = null) => {
     if (!notifId) return;
@@ -1820,7 +2030,7 @@ export default function App() {
     if (notif?.kind === 'message' && notif.messageId) {
       setMessagesDb((prev) => markMessageRead(prev, notif.messageId));
     }
-  }, [cloudMode, user?.id]);
+  }, [cloudMode, user?.id, setMessagesDb]);
 
   const handleNotificationOpen = useCallback((notif) => {
     if (!notif) return;
@@ -1841,7 +2051,7 @@ export default function App() {
     if (cloudMode && user?.id) {
       repos.markNotificationsRead(ids, user.id).catch(() => {});
     }
-  }, [notifications, cloudMode, user?.id]);
+  }, [notifications, cloudMode, user?.id, setMessagesDb]);
 
   // Confirmar/Desconfirmar asistencia a evento (Socio)
   const toggleEventRSVP = async (eventId) => {
@@ -1905,6 +2115,7 @@ export default function App() {
         members={members}
         membersCount={membersCount}
         membersLoading={membersLoading}
+        membersProgress={membersProgress}
         reservations={reservations}
         setMembers={setMembersDb}
         setReservations={setReservations}
@@ -1934,6 +2145,8 @@ export default function App() {
         registeredUsersCount={registeredUsersCount}
         membershipApplications={membershipApplications}
         setMembershipApplications={setMembershipApplications}
+        portalAccessRequests={portalAccessRequests}
+        setPortalAccessRequests={setPortalAccessRequests}
         setRegisteredUsersCount={setRegisteredUsersCount}
         isOnline={isOnline}
         syncQueue={syncQueue}
@@ -2018,15 +2231,22 @@ export default function App() {
     );
   }
 
-  const isConcessionPortal = location.pathname.startsWith('/concesionario/');
+  const isPublicRegistro = location.pathname.startsWith('/registro');
 
   if (!isAuthenticated) {
     return (
-      <div className="app-container">
-        <div className="ambient-glow ambient-glow-1" />
-        <div className="ambient-glow ambient-glow-2" />
-        <main className="main-content">
-          {isConcessionPortal ? (
+      <div className={`app-container${isPublicRegistro ? ' is-public-join' : ''}`}>
+        {!isPublicRegistro ? (
+          <>
+            <div className="ambient-glow ambient-glow-1" />
+            <div className="ambient-glow ambient-glow-2" />
+          </>
+        ) : null}
+        <main
+          className="main-content"
+          style={isPublicRegistro ? { padding: 0, maxWidth: 'none' } : undefined}
+        >
+          <Suspense fallback={<RouteFallback />}>
             <Routes>
               <Route
                 path="/concesionario/:code"
@@ -2038,17 +2258,18 @@ export default function App() {
                   />
                 }
               />
+              <Route path="/registro" element={<MemberAccessView />} />
               <Route path="*" element={<LoginView />} />
             </Routes>
-          ) : (
-            <LoginView />
-          )}
+          </Suspense>
         </main>
       </div>
     );
   }
 
   const isAccessGate = location.pathname.startsWith('/acceso');
+  const isPoolGate = location.pathname.startsWith('/pileta') || location.pathname.startsWith('/entrada-pileta');
+  const isStandaloneOps = isAccessGate || isPoolGate || isPublicRegistro;
   const formatCurrency = (amount) =>
     new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 }).format(amount || 0);
 
@@ -2059,6 +2280,41 @@ export default function App() {
       setEntryLogs={setEntryLogsDb}
       formatCurrency={formatCurrency}
       guestPasses={guestPasses}
+    />
+  ) : (
+    <Navigate to="/panel" replace />
+  );
+
+  const canOpenPool = canAccessPool(userRole)
+    || (user?.roles || []).some((r) => canAccessPool(r.roleKey || r.key || r));
+  const poolGateView = canOpenPool ? (
+    <PoolControlView
+      members={members}
+      setMembers={setMembersDb}
+      updateMember={updateMember}
+      formatCurrency={formatCurrency}
+      addJournalEntry={erp.addPostedEntry}
+      poolAccesses={poolAccesses}
+      setPoolAccesses={setPoolAccesses}
+      setEntryLogs={setEntryLogsDb}
+      poolSettings={poolSettings}
+      setPoolSettings={setPoolSettings}
+    />
+  ) : (
+    <Navigate to="/panel" replace />
+  );
+
+  const poolEntranceView = canOpenPool ? (
+    <PoolEntranceView
+      members={members}
+      membersLoading={membersLoading}
+      membersCount={membersCount}
+      formatCurrency={formatCurrency}
+      addJournalEntry={erp.addPostedEntry}
+      poolAccesses={poolAccesses}
+      setPoolAccesses={setPoolAccesses}
+      setEntryLogs={setEntryLogsDb}
+      poolSettings={poolSettings}
     />
   ) : (
     <Navigate to="/panel" replace />
@@ -2103,12 +2359,12 @@ export default function App() {
       : memberDashboard;
 
   return (
-    <div className="app-container">
+    <div className={`app-container${isPublicRegistro ? ' is-public-join' : ''}`}>
       {/* Luces de Fondo Decorativas Ambientales */}
       <div className="ambient-glow ambient-glow-1" />
       <div className="ambient-glow ambient-glow-2" />
 
-      {!isAccessGate && (
+      {!isStandaloneOps && (
         <Navbar
           currentView={currentView}
           setCurrentView={setCurrentView}
@@ -2125,16 +2381,18 @@ export default function App() {
         />
       )}
 
-      <a href="#contenido-principal" className="skip-link">Saltar al contenido</a>
+      {!isStandaloneOps && (
+        <a href="#contenido-principal" className="skip-link">Saltar al contenido</a>
+      )}
 
       {/* Contenido Principal */}
       <main
         id="contenido-principal"
         className="main-content"
         tabIndex={-1}
-        style={isAccessGate ? { padding: 0, maxWidth: 'none' } : undefined}
+        style={isStandaloneOps ? { padding: 0, maxWidth: 'none' } : undefined}
       >
-        {!isAccessGate && (
+        {!isStandaloneOps && (
           <>
             <SessionStatusBar members={members} staffMembers={staffMembers} />
             {dbSyncing || membersLoading ? (
@@ -2146,13 +2404,15 @@ export default function App() {
                   padding: '0.55rem 0.85rem',
                   borderRadius: 8,
                   border: '1px solid var(--border-glass)',
-                  background: 'rgba(207, 161, 58, 0.08)',
+                  background: 'rgba(var(--primary-gold-rgb), 0.08)',
                   color: 'var(--text-secondary)',
                   fontSize: '0.82rem',
                 }}
               >
                 {membersLoading && !dbSyncing
-                  ? 'Cargando padrón de socios…'
+                  ? (membersProgress.total
+                    ? `Cargando padrón de socios… ${membersProgress.loaded.toLocaleString('es-AR')} de ${membersProgress.total.toLocaleString('es-AR')}`
+                    : 'Cargando padrón de socios…')
                   : 'Actualizando datos del club…'}
               </p>
             ) : null}
@@ -2198,7 +2458,11 @@ export default function App() {
             }
           />
           <Route path="/acceso" element={accessGateView} />
+          <Route path="/pileta" element={poolGateView} />
+          <Route path="/entrada-pileta" element={poolEntranceView} />
+          <Route path="/panel/pool" element={<Navigate to="/pileta" replace />} />
           <Route path="/concesiones" element={concessionsView} />
+          <Route path="/registro" element={<MemberAccessView />} />
           <Route
             path="/concesionario/:code"
             element={
@@ -2217,18 +2481,8 @@ export default function App() {
         </Suspense>
       </main>
 
-      {!isAccessGate && (
-        <footer style={{
-          textAlign: 'center',
-          padding: '2rem 1.5rem',
-          borderTop: '1px solid var(--border-glass)',
-          color: 'var(--text-muted)',
-          fontSize: '0.85rem',
-          marginTop: 'auto',
-          zIndex: 1,
-          position: 'relative',
-          background: 'rgba(6, 14, 10, 0.2)'
-        }}>
+      {!isStandaloneOps && (
+        <footer className="app-footer">
           <p className="serif-font" style={{ fontSize: '1rem', color: 'var(--text-gold)', letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
             Jockey Club San Juan
           </p>

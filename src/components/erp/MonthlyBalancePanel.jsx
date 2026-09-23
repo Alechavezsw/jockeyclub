@@ -1,19 +1,41 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, CalendarDays, ChevronRight, Search } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronRight, Search } from 'lucide-react';
 import { formatCurrency } from '../../domain/accounting/journal';
 import { formatAccessinCashDate } from '../../domain/accounting/cashLedger';
 import {
-  ACCESSIN_MONTHLY_BALANCE_SECTIONS,
-  ACCESSIN_MONTHLY_BALANCE_SNAPSHOT,
   filterMonthlyBalanceDetailRows,
   loadMonthlyBalanceDetails,
   monthlyBalanceCards,
   monthlyBalanceDetailColumns,
+  monthlyBalanceSeed,
   resolveMonthlyBalanceDetail,
 } from '../../domain/accounting/monthlyBalance';
-import LilaSourceNote from './LilaSourceNote';
-
+import SnapshotGate from '../SnapshotGate';
 const PAGE_SIZE = 40;
+const SMALL_WORDS = new Set(['de', 'del', 'la', 'las', 'los', 'y', 'por', 'en', 'a']);
+
+function monthHeadingAR(isoFrom) {
+  const match = /^(\d{4})-(\d{2})/.exec(String(isoFrom || ''));
+  if (!match) return 'Balance mensual';
+  const [, year, month] = match;
+  const months = [
+    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+  ];
+  const label = months[Number(month) - 1];
+  return label ? `${label} del ${year}` : 'Balance mensual';
+}
+
+function prettySectionTitle(title) {
+  return String(title || '')
+    .toLowerCase()
+    .split(/\s+/)
+    .map((word, index) => {
+      if (index > 0 && SMALL_WORDS.has(word)) return word;
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
+    .join(' ');
+}
 
 function formatCell(row, column) {
   const value = row[column.key];
@@ -38,23 +60,24 @@ function MonthlyBalanceDetailView({ line, detail, loading, error, onBack, onOpen
   const socioKey = columns.some((col) => col.key === 'nro_de_socio');
 
   return (
-    <div className="fade-in cuotas-panel">
-      <div className="cuotas-toolbar">
-        <button type="button" className="btn btn-secondary btn-sm" onClick={onBack}>
-          <ArrowLeft size={14} /> Volver
-        </button>
-        <h3 className="cuotas-title" style={{ margin: 0 }}>
-          <CalendarDays size={18} /> {detail?.title || line.label}
-        </h3>
-      </div>
+    <div className="fade-in mb-folio">
+      <header className="mb-folio-head">
+        <div>
+          <button type="button" className="mb-folio-back" onClick={onBack}>
+            <ArrowLeft size={14} aria-hidden="true" />
+            Volver al balance
+          </button>
+          <p className="mb-folio-kicker">Detalle del mes</p>
+          <h3 className="mb-folio-title">{detail?.title || line.label}</h3>
+          <p className="mb-folio-meta">
+            {line.label}
+            {detail ? ` · ${detail.count.toLocaleString('es-AR')} movimientos · ${formatCurrency(detail.total)}` : ''}
+          </p>
+        </div>
+      </header>
 
-      <p style={{ margin: '0 0 0.85rem', color: 'var(--text-secondary)', fontSize: '0.86rem' }}>
-        {line.label}
-        {detail ? ` · ${detail.count.toLocaleString('es-AR')} movimientos · ${formatCurrency(detail.total)}` : ''}
-      </p>
-
-      <label className="cash-lila-search" style={{ marginBottom: '0.85rem' }}>
-        <Search size={14} />
+      <label className="mb-folio-search">
+        <Search size={14} aria-hidden="true" />
         <input
           className="form-input"
           placeholder="Socio, DNI, concepto…"
@@ -64,17 +87,17 @@ function MonthlyBalanceDetailView({ line, detail, loading, error, onBack, onOpen
       </label>
 
       {loading ? (
-        <p style={{ color: 'var(--text-muted)' }}>Cargando detalle LILA…</p>
+        <p className="mb-folio-status">Cargando detalle…</p>
       ) : null}
 
       {error ? (
-        <p style={{ color: 'var(--danger, #ef4444)' }}>{error}</p>
+        <p className="mb-folio-status is-error">{error}</p>
       ) : null}
 
       {!loading && !error && detail ? (
         <>
           <div className="table-responsive">
-            <table className="admin-table cash-lila-table">
+            <table className="admin-table mb-folio-table">
               <thead>
                 <tr>
                   {columns.map((column) => (
@@ -87,9 +110,9 @@ function MonthlyBalanceDetailView({ line, detail, loading, error, onBack, onOpen
               <tbody>
                 {pageRows.length === 0 ? (
                   <tr>
-                    <td colSpan={Math.max(columns.length, 1)} style={{ color: 'var(--text-muted)' }}>
+                    <td colSpan={Math.max(columns.length, 1)} className="mb-folio-empty">
                       {detail.count === 0
-                        ? 'Esta hoja LILA no tiene movimientos en el período.'
+                        ? 'Esta hoja no tiene movimientos en el período.'
                         : 'No hay movimientos con este filtro.'}
                     </td>
                   </tr>
@@ -101,7 +124,7 @@ function MonthlyBalanceDetailView({ line, detail, loading, error, onBack, onOpen
                           {column.key === 'nro_de_socio' && onOpenMember && row.nro_de_socio ? (
                             <button
                               type="button"
-                              className="cash-lila-card-btn"
+                              className="mb-folio-link"
                               onClick={() => onOpenMember(row.nro_de_socio)}
                             >
                               {row.nro_de_socio}
@@ -117,7 +140,7 @@ function MonthlyBalanceDetailView({ line, detail, loading, error, onBack, onOpen
           </div>
 
           {rows.length > PAGE_SIZE ? (
-            <div className="cuotas-pager" style={{ marginTop: '0.75rem' }}>
+            <div className="mb-folio-pager">
               <button type="button" className="btn btn-secondary btn-sm" disabled={safePage === 0} onClick={() => setPage((p) => p - 1)}>
                 Anterior
               </button>
@@ -129,9 +152,7 @@ function MonthlyBalanceDetailView({ line, detail, loading, error, onBack, onOpen
           ) : null}
 
           {!socioKey && detail.count > 0 ? (
-            <p style={{ marginTop: '0.75rem', color: 'var(--text-muted)', fontSize: '0.78rem' }}>
-              Este detalle no está nominado a un socio.
-            </p>
+            <p className="mb-folio-status">Este detalle no está nominado a un socio.</p>
           ) : null}
         </>
       ) : null}
@@ -139,13 +160,22 @@ function MonthlyBalanceDetailView({ line, detail, loading, error, onBack, onOpen
   );
 }
 
-export default function MonthlyBalancePanel({
-  snapshot = ACCESSIN_MONTHLY_BALANCE_SNAPSHOT,
-  sections = ACCESSIN_MONTHLY_BALANCE_SECTIONS,
+export default function MonthlyBalancePanel(props) {
+  // El detalle por hoja (1,5 MB) se baja aparte, al abrir una línea.
+  return (
+    <SnapshotGate names={['accessinMonthlyBalance']}>
+      <MonthlyBalanceContent {...props} />
+    </SnapshotGate>
+  );
+}
+
+function MonthlyBalanceContent({
+  snapshot = monthlyBalanceSeed().ACCESSIN_MONTHLY_BALANCE_SNAPSHOT,
+  sections = monthlyBalanceSeed().ACCESSIN_MONTHLY_BALANCE_SECTIONS,
   onOpenMember,
 }) {
   const cards = useMemo(() => monthlyBalanceCards(snapshot), [snapshot]);
-  const [openSections, setOpenSections] = useState(() => new Set(sections.map((section) => section.id)));
+  const [openSections, setOpenSections] = useState(() => new Set(sections[0] ? [sections[0].id] : []));
   const [selectedLine, setSelectedLine] = useState(null);
   const [detailsCatalog, setDetailsCatalog] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
@@ -161,7 +191,7 @@ export default function MonthlyBalancePanel({
         if (!cancelled) setDetailsCatalog(catalog);
       })
       .catch(() => {
-        if (!cancelled) setDetailError('No se pudo cargar el detalle del Balance Mensual.');
+        if (!cancelled) setDetailError('No se pudo cargar el detalle del balance mensual.');
       })
       .finally(() => {
         if (!cancelled) setLoadingDetail(false);
@@ -184,69 +214,80 @@ export default function MonthlyBalancePanel({
     );
   }
 
+  const periodLabel = monthHeadingAR(cards.periodFrom);
+  const kpis = [
+    {
+      id: 'net',
+      accent: 'is-net',
+      label: 'Ingresos netos',
+      value: cards.totalIncome,
+      caption: 'Tras imputaciones y saldo a favor',
+    },
+    {
+      id: 'cash',
+      accent: '',
+      label: 'Ingresos en caja',
+      value: cards.totalIncomeCash,
+      caption: 'Cobrado por medio, sin netear',
+    },
+    {
+      id: 'out',
+      accent: 'is-out',
+      label: 'Egresos',
+      value: cards.totalExpenses,
+      caption: 'Por categoría del período',
+    },
+    {
+      id: 'saldo',
+      accent: '',
+      label: 'Saldos de caja',
+      value: cards.cashOnHand,
+      caption: `Cierre ${formatCurrency(cards.closingCash)}`,
+    },
+  ];
+
   return (
-    <div className="fade-in cuotas-panel">
-      <div className="cuotas-toolbar">
-        <h3 className="cuotas-title" style={{ margin: 0 }}>
-          <CalendarDays size={18} /> {cards.complete ? 'Balance mensual completo' : 'Balance mensual'}
-        </h3>
-      </div>
+    <div className="fade-in mb-folio">
+      <header className="mb-folio-head">
+        <div>
+          <p className="mb-folio-kicker">Balance mensual</p>
+          <h3 className="mb-folio-title">{periodLabel}</h3>
+          <p className="mb-folio-meta">
+            {formatAccessinCashDate(cards.periodFrom)} — {formatAccessinCashDate(cards.periodTo)}
+            {cards.generatedAt ? ` · Generado el ${cards.generatedAt}` : ''}
+            {cards.sourceFolder ? ` · ${cards.sourceFolder}` : ''}
+          </p>
+        </div>
+        {cards.complete ? <span className="mb-folio-seal">Cierre completo</span> : null}
+      </header>
 
-      <p style={{ margin: '0 0 0.85rem', color: 'var(--text-secondary)', fontSize: '0.86rem' }}>
-        Export LILA · {cards.fileName || 'Balance Mensual'}
-        {cards.sourceFolder ? ` · ${cards.sourceFolder}` : ''}
-        {' · '}{formatAccessinCashDate(cards.periodFrom)} — {formatAccessinCashDate(cards.periodTo)}
-        {cards.generatedAt ? ` · Generado el ${cards.generatedAt}.` : '.'}
-      </p>
-      <LilaSourceNote
-        asOf={formatAccessinCashDate(cards.asOf)}
-        period={`${formatAccessinCashDate(cards.periodFrom)} — ${formatAccessinCashDate(cards.periodTo)}`}
-        extra="Ingresos netos e ingresos en caja no son el mismo total."
-      />
-
-      <div className="cash-lila-cards">
-        <div className="cash-lila-card is-total">
-          <div className="cash-lila-card-label">Ingresos netos</div>
-          <div className="cash-lila-card-value">{formatCurrency(cards.totalIncome)}</div>
-          <div className="cash-lila-card-caption">Tras imputaciones y saldo a favor</div>
-        </div>
-        <div className="cash-lila-card">
-          <div className="cash-lila-card-label">Ingresos en caja</div>
-          <div className="cash-lila-card-value">{formatCurrency(cards.totalIncomeCash)}</div>
-          <div className="cash-lila-card-caption">Cobrado por medio, sin netear</div>
-        </div>
-        <div className="cash-lila-card">
-          <div className="cash-lila-card-label">Egresos</div>
-          <div className="cash-lila-card-value">{formatCurrency(cards.totalExpenses)}</div>
-          <div className="cash-lila-card-caption">Categorizados en LILA</div>
-        </div>
-        <div className="cash-lila-card">
-          <div className="cash-lila-card-label">Saldos de caja</div>
-          <div className="cash-lila-card-value">{formatCurrency(cards.cashOnHand)}</div>
-          <div className="cash-lila-card-caption">Cierre {formatCurrency(cards.closingCash)}</div>
-        </div>
-      </div>
+      <dl className="mb-folio-kpis">
+        {kpis.map((kpi) => (
+          <div key={kpi.id} className={['mb-folio-kpi', kpi.accent].filter(Boolean).join(' ')}>
+            <dt>{kpi.label}</dt>
+            <dd>{formatCurrency(kpi.value)}</dd>
+            <p>{kpi.caption}</p>
+          </div>
+        ))}
+      </dl>
 
       <div className="mb-sections">
         {sections.map((section) => {
           const open = openSections.has(section.id);
           return (
-            <section key={section.id} className="mb-section">
+            <section key={section.id} className={['mb-section', open ? 'is-open' : ''].filter(Boolean).join(' ')}>
               <button
                 type="button"
                 className="mb-section-toggle"
                 aria-expanded={open}
                 onClick={() => {
-                  setOpenSections((current) => {
-                    const next = new Set(current);
-                    if (next.has(section.id)) next.delete(section.id);
-                    else next.add(section.id);
-                    return next;
-                  });
+                  setOpenSections((current) => (
+                    current.has(section.id) ? new Set() : new Set([section.id])
+                  ));
                 }}
               >
-                {section.title}
-                <span>{open ? '−' : '+'}</span>
+                <span>{prettySectionTitle(section.title)}</span>
+                <ChevronDown size={16} className="mb-section-chevron" aria-hidden="true" />
               </button>
               {open ? (
                 <div className="table-responsive">

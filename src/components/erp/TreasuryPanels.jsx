@@ -181,7 +181,7 @@ export function GaliciaDebitsPanel({ items = [], members = [], onAdd, onSetStatu
     >
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.75rem' }}>
         <MiniStat label="Programados" value={totals.scheduled} />
-        <MiniStat label="Enviados" value={totals.sent} color="#818cf8" />
+        <MiniStat label="Enviados" value={totals.sent} color="var(--primary-gold)" />
         <MiniStat label="Importe lote" value={formatCurrency(totals.amount)} />
       </div>
 

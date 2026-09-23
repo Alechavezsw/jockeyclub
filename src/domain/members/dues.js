@@ -4,6 +4,9 @@ import { getTierMonthlyDues } from './tiers';
 
 const DAY_MS = 86400000;
 
+/** Día de vencimiento de todas las cuotas sociales. */
+export const DUES_DUE_DAY = 10;
+
 function parseDate(value) {
   if (!value) return null;
   // Acepta YYYY-MM-DD o ISO completo
@@ -25,10 +28,128 @@ function startOfDay(date) {
   return d;
 }
 
+function duesDateOnTenth(year, monthIndex) {
+  return new Date(year, monthIndex, DUES_DUE_DAY, 12, 0, 0, 0);
+}
+
+function asDueAnchor(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return startOfDay(value);
+  return parseDate(value) || startOfDay(new Date());
+}
+
+/** Fija cualquier fecha al día 10 de ese mes. */
+export function pinDuesDueDate(value) {
+  if (!value && !(value instanceof Date)) return null;
+  const d = value instanceof Date ? startOfDay(value) : parseDate(value);
+  if (!d) return null;
+  return toISODate(duesDateOnTenth(d.getFullYear(), d.getMonth()));
+}
+
+function parseDueDate(value) {
+  const pinned = pinDuesDueDate(value);
+  return pinned ? parseDate(pinned) : null;
+}
+
+/**
+ * Próximo vencimiento: el 10 de este mes, o el 10 del siguiente si ya pasó.
+ */
+export function nextDuesDueDate(from = new Date()) {
+  const d = asDueAnchor(from);
+  if (d.getDate() <= DUES_DUE_DAY) {
+    return toISODate(duesDateOnTenth(d.getFullYear(), d.getMonth()));
+  }
+  return toISODate(duesDateOnTenth(d.getFullYear(), d.getMonth() + 1));
+}
+
+/**
+ * Un pago cubre el mes en que se hizo. El próximo vencimiento es el 10 del mes siguiente.
+ * Último pago 13/08 → cubre agosto → vence 10/09. El 21/09 ya hay 1 mes atrasado.
+ */
+export function firstUnpaidDuesDate({ lastPaymentDate, nextDueDate, today = new Date() } = {}) {
+  const paid = parseDate(lastPaymentDate);
+  if (paid) {
+    return toISODate(duesDateOnTenth(paid.getFullYear(), paid.getMonth() + 1));
+  }
+  const pinned = pinDuesDueDate(nextDueDate);
+  if (pinned) return pinned;
+  return nextDuesDueDate(today);
+}
+
+/** Cuántos vencimientos del día 10 quedaron sin pagar desde el último cobro. */
+export function monthsBehindOnDues({ lastPaymentDate, nextDueDate, today = new Date() } = {}) {
+  const firstUnpaid = parseDate(firstUnpaidDuesDate({ lastPaymentDate, nextDueDate, today }));
+  if (!firstUnpaid) return 0;
+  const todayStart = startOfDay(today);
+  let months = 0;
+  let cursor = firstUnpaid;
+  while (cursor < todayStart) {
+    months += 1;
+    cursor = duesDateOnTenth(cursor.getFullYear(), cursor.getMonth() + 1);
+    if (months > 120) break;
+  }
+  return months;
+}
+
+export function formatMonthsBehind(months) {
+  const n = Number(months) || 0;
+  if (n <= 0) return null;
+  return n === 1 ? '1 mes atrasado' : `${n} meses atrasados`;
+}
+
 /** Solo activos operan cuota / mora. Baja, suspensión y pendiente no generan ni figuran. */
 export function isMemberBillingActive(member) {
   const s = String(member?.status || 'active').toLowerCase();
   return s === 'active';
+}
+
+/**
+ * Texto de cuota para la ficha.
+ * Baja / suspensión / pendiente no son «al día»: no facturan.
+ */
+export function quotaHeadline(member) {
+  const status = String(member?.status || 'active').toLowerCase();
+  const balance = Number(member?.outstandingBalance) || 0;
+  const billing = isMemberBillingActive(member);
+
+  if (balance > 0) {
+    return {
+      kind: 'debt',
+      title: 'Saldo de cuota',
+      hint: billing
+        ? null
+        : (status === 'inactive'
+          ? 'Deuda previa · no se liquida más'
+          : 'Deuda previa · cuota en pausa'),
+      billing,
+    };
+  }
+
+  if (status === 'inactive') {
+    return {
+      kind: 'off',
+      title: 'Sin cuota',
+      hint: 'No factura mientras esté de baja',
+      billing: false,
+    };
+  }
+  if (status === 'suspended') {
+    return {
+      kind: 'off',
+      title: 'Cuota en pausa',
+      hint: 'Cuenta suspendida · no se liquida',
+      billing: false,
+    };
+  }
+  if (status === 'pending') {
+    return {
+      kind: 'off',
+      title: 'Sin liquidar',
+      hint: 'El alta todavía no factura',
+      billing: false,
+    };
+  }
+
+  return { kind: 'clear', title: 'Al día', hint: null, billing: true };
 }
 
 /** Monto de cuota según categoría (catálogo editable / referencia operativa). */
@@ -78,12 +199,12 @@ export function getOverdueMembers(members, today = new Date()) {
     .filter((m) => isMemberBillingActive(m))
     .filter((m) => {
       if ((Number(m.outstandingBalance) || 0) > 0) return true;
-      const due = parseDate(m.nextDueDate);
+      const due = parseDueDate(m.nextDueDate);
       return due && due < todayStart;
     })
     .map((m) => {
       const balance = Number(m.outstandingBalance) || 0;
-      const due = parseDate(m.nextDueDate);
+      const due = parseDueDate(m.nextDueDate);
       const since = parseDate(m.overdueSince);
       const anchor = (due && due < todayStart) ? due : (since && since < todayStart ? since : null);
       const daysOverdue = anchor
@@ -94,7 +215,7 @@ export function getOverdueMembers(members, today = new Date()) {
         ...m,
         duesStatus: 'overdue',
         daysOverdue,
-        dueDate: m.nextDueDate || m.overdueSince || null,
+        dueDate: pinDuesDueDate(m.nextDueDate) || m.overdueSince || null,
         amountDue: balance > 0 ? balance : duesAmountForMember(m),
       };
     })
@@ -112,17 +233,18 @@ export function getUpcomingDuesMembers(members, { withinDays = 15, today = new D
     .filter((m) => isMemberBillingActive(m))
     .filter((m) => (Number(m.outstandingBalance) || 0) === 0)
     .map((m) => {
-      const due = parseDate(m.nextDueDate);
+      const due = parseDueDate(m.nextDueDate);
       if (!due) return null;
       if (due < todayStart || due > horizon) return null;
       const daysUntil = Math.round((due - todayStart) / DAY_MS);
+      const dueIso = toISODate(due);
       return {
         ...m,
         duesStatus: 'upcoming',
         daysUntil,
-        dueDate: m.nextDueDate || toISODate(due),
+        dueDate: dueIso,
         amountDue: duesAmountForMember(m),
-        nextDueDate: m.nextDueDate || toISODate(due),
+        nextDueDate: dueIso,
       };
     })
     .filter(Boolean)
@@ -158,16 +280,21 @@ export function applyAutomaticDues(members, today = new Date()) {
   const todayStart = startOfDay(today);
 
   return members.map((m) => {
-    if (!isMemberBillingActive(m)) return m;
-    if ((Number(m.outstandingBalance) || 0) > 0) return m;
+    const pinnedDue = pinDuesDueDate(m.nextDueDate);
+    const normalized = pinnedDue && pinnedDue !== m.nextDueDate
+      ? { ...m, nextDueDate: pinnedDue }
+      : m;
 
-    const due = parseDate(m.nextDueDate);
-    if (!due || due >= todayStart) return m;
+    if (!isMemberBillingActive(normalized)) return normalized;
+    if ((Number(normalized.outstandingBalance) || 0) > 0) return normalized;
+
+    const due = parseDueDate(normalized.nextDueDate);
+    if (!due || due >= todayStart) return normalized;
 
     return {
-      ...m,
-      outstandingBalance: duesAmountForMember(m),
-      overdueSince: m.overdueSince || toISODate(due),
+      ...normalized,
+      outstandingBalance: duesAmountForMember(normalized),
+      overdueSince: normalized.overdueSince || toISODate(due),
     };
   });
 }
@@ -181,18 +308,21 @@ export function diffAutomaticDues(before = [], after = []) {
     return (
       Number(prev.outstandingBalance || 0) !== Number(m.outstandingBalance || 0)
       || (prev.overdueSince || null) !== (m.overdueSince || null)
+      || (prev.nextDueDate || null) !== (m.nextDueDate || null)
     );
   });
 }
 
-/** Tras cobrar, deja al día y programa el próximo vencimiento (+1 mes). */
+/** Tras cobrar, deja al día y programa el próximo vencimiento (siempre el día 10). */
 export function afterCollectDues(member, today = new Date()) {
-  const base = parseDate(member.nextDueDate) || new Date(today);
-  const next = new Date(base.getFullYear(), base.getMonth(), base.getDate(), 12, 0, 0, 0);
-  next.setMonth(next.getMonth() + 1);
+  const base = parseDate(member.nextDueDate) || startOfDay(today);
+  let next = duesDateOnTenth(base.getFullYear(), base.getMonth());
+  if (next <= base) {
+    next = duesDateOnTenth(base.getFullYear(), base.getMonth() + 1);
+  }
   const todayStart = startOfDay(today);
   while (next <= todayStart) {
-    next.setMonth(next.getMonth() + 1);
+    next = duesDateOnTenth(next.getFullYear(), next.getMonth() + 1);
   }
   return {
     ...member,

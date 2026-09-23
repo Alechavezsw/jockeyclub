@@ -171,12 +171,12 @@ export default function CashBankAccountsSection({
       <div className="cash-bank-accounts-head">
         <h5 className="cash-lila-section-title" style={{ margin: 0 }}>Cuentas bancarias</h5>
         <div className="cash-bank-accounts-actions">
-          <button type="button" className="btn cash-lila-purple-btn" onClick={openCreate}>
+          <button type="button" className="btn btn-tan" onClick={openCreate}>
             <Plus size={14} /> Cuentas
           </button>
           <button
             type="button"
-            className="btn cash-lila-purple-btn"
+            className="btn btn-tan"
             onClick={() => openEntry()}
             disabled={!rows.length}
           >

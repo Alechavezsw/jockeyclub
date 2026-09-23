@@ -1,5 +1,6 @@
 import { afterCollectDues, duesAmountForMember } from './dues';
-import { createAccountEntry } from '../accounting/memberBalances';
+import { referenceMonthlyDues } from './paymentHistory';
+import { createAccountEntry } from '../accounting/accountEntries';
 import { journalAccountForPayment } from './clubBanks';
 
 export const DUES_METHOD_LABELS = {
@@ -44,10 +45,11 @@ export function payMemberDues(member, {
   today = new Date(),
 } = {}) {
   if (!member) throw new Error('Socio no encontrado.');
-  const due = Number(member.outstandingBalance) || 0;
+  const requested = amount != null ? Number(amount) : 0;
+  const due = Number(member.outstandingBalance) || requested;
   if (due <= 0) throw new Error('No hay saldo pendiente para abonar.');
 
-  const paidAmount = amount != null ? Number(amount) : due;
+  const paidAmount = requested > 0 ? requested : due;
   if (!paidAmount || paidAmount <= 0) throw new Error('Importe inválido.');
   if (paidAmount > due) throw new Error('El importe supera el saldo pendiente.');
 
@@ -102,7 +104,7 @@ export function payUpcomingDues(member, { method = 'transferencia', today = new 
   if ((Number(member.outstandingBalance) || 0) > 0) {
     return payMemberDues(member, { method, today });
   }
-  const amount = duesAmountForMember(member);
+  const amount = duesAmountForMember(member) || referenceMonthlyDues(member, member.paymentHistory);
   const date = today.toISOString().slice(0, 10);
   const payment = {
     id: `pay-${member.memberId}-${Date.now()}`,

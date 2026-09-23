@@ -1,27 +1,30 @@
 import { useMemo, useRef, useState } from 'react';
-import { Download, FileText } from 'lucide-react';
+import { Download, FileSpreadsheet, FileText } from 'lucide-react';
 import { memberNumberOf } from '../../domain/members/households';
 import {
   ACCOUNTING_REPORT_TYPES,
   accountingReportTypeLabel,
   createAccountingReportRecord,
   formatReportGeneratedAt,
-  reportsForType,
 } from '../../domain/accounting/accountingReports';
 import {
   buildLibreDeudaCertificate,
   findMemberForLibreDeuda,
+  LIBRE_DEUDA_SNAPSHOTS,
 } from '../../domain/accounting/libreDeuda';
 import { exportLibreDeudaPdf } from '../../domain/accounting/exportLibreDeudaPdf';
-import { buildSurchargeComposition } from '../../domain/accounting/surchargeComposition';
+import {
+  buildSurchargeComposition,
+  SURCHARGE_COMPOSITION_SNAPSHOTS,
+} from '../../domain/accounting/surchargeComposition';
+import { requireSnapshots } from '../../data/snapshots';
 import { exportSurchargeCompositionPdf } from '../../domain/accounting/exportSurchargeCompositionPdf';
 import { exportDetailedCcPdf } from '../../domain/accounting/exportDetailedCcPdf';
 import { exportFamilyGroupBalancesPdf } from '../../domain/accounting/exportFamilyGroupBalancesPdf';
-
-const MONTHS_ES = [
-  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
-];
+import { exportAccountingReport } from '../../domain/accounting/exportAccountingPack';
+import { exportJournalPdf } from '../../domain/accounting/exportJournalPdf';
+import { exportJournalExcel } from '../../domain/accounting/exportJournalExcel';
+import { DEFAULT_CHART_OF_ACCOUNTS } from '../../domain/accounting/chartOfAccounts';
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -37,12 +40,80 @@ function wrapSelection(textarea, before, after) {
   };
 }
 
+const BOOK_REPORTS = [
+  {
+    id: 'diary',
+    title: 'Libro diario',
+    copy: 'Asientos oficiales, en orden, con debe y haber.',
+    formats: ['pdf', 'xlsx'],
+  },
+  {
+    id: 'mayor',
+    title: 'Libro mayor',
+    copy: 'Movimientos y saldo de cada cuenta con actividad.',
+    formats: ['pdf', 'xlsx'],
+  },
+  {
+    id: 'results',
+    title: 'Estado de resultados',
+    copy: 'Ingresos, egresos y superávit o déficit del ejercicio.',
+    formats: ['pdf', 'xlsx'],
+  },
+  {
+    id: 'balance_sheet',
+    title: 'Balance patrimonial',
+    copy: 'Activo, pasivo y patrimonio, con el resultado ya sumado.',
+    formats: ['pdf', 'xlsx'],
+  },
+  {
+    id: 'trial',
+    title: 'Balance de comprobación',
+    copy: 'Saldos por naturaleza para controlar la partida doble.',
+    formats: ['pdf', 'xlsx'],
+  },
+  {
+    id: 'gestion',
+    title: 'Gestión del ejercicio',
+    copy: 'Mix de ingresos, origen del cobro y pulso mes a mes.',
+    formats: ['pdf', 'xlsx'],
+  },
+];
+
+const MEMBER_REPORTS = [
+  {
+    id: 'recargos',
+    title: 'Composición de recargos',
+    copy: 'Recargos cobrados y adeudados, con o sin socio.',
+    formats: ['pdf'],
+  },
+  {
+    id: 'libre_deuda',
+    title: 'Libre deuda',
+    copy: 'Certificado de un socio a una fecha de corte.',
+    formats: ['pdf'],
+  },
+  {
+    id: 'detailed_cc',
+    title: 'Cuenta corriente detallada',
+    copy: 'Movimientos de la cuenta de un socio.',
+    formats: ['pdf'],
+  },
+  {
+    id: 'family_balances',
+    title: 'Saldo de grupo familiar',
+    copy: 'Saldos agrupados por familia, con filtro opcional.',
+    formats: ['pdf'],
+  },
+];
+
 export default function AccountingReportsPanel({
   members = [],
   reports = [],
   onRecordReport,
+  journalEntries = [],
+  chartOfAccounts = DEFAULT_CHART_OF_ACCOUNTS,
 }) {
-  const [reportType, setReportType] = useState('recargos');
+  const [reportType, setReportType] = useState('results');
   const [memberQuery, setMemberQuery] = useState('');
   const [asOf, setAsOf] = useState(todayIso);
   const [from, setFrom] = useState('');
@@ -50,11 +121,15 @@ export default function AccountingReportsPanel({
   const [extraInfo, setExtraInfo] = useState('');
   const [familyQuery, setFamilyQuery] = useState('');
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(null);
   const extraRef = useRef(null);
 
-  const history = useMemo(() => reportsForType(reports, reportType), [reports, reportType]);
+  const history = useMemo(
+    () => (reports || []).filter((row) => row && row.status !== 'deleted').slice(0, 20),
+    [reports],
+  );
   const typeLabel = accountingReportTypeLabel(reportType);
+  const needsMemberForm = MEMBER_REPORTS.some((item) => item.id === reportType);
 
   const applyExtraMark = (before, after) => {
     const el = extraRef.current;
@@ -66,10 +141,45 @@ export default function AccountingReportsPanel({
   const resolveMember = () => findMemberForLibreDeuda(members, memberQuery)
     || (members || []).find((m) => String(m.name || '').toLowerCase().includes(memberQuery.trim().toLowerCase()));
 
-  const handleContinue = async (e) => {
+  const record = (type, fileName, summary, filters) => {
+    onRecordReport?.(createAccountingReportRecord({
+      reportType: type,
+      filters,
+      summary,
+      fileName,
+    }));
+  };
+
+  const downloadBook = async (type, format) => {
+    setError('');
+    setBusy(`${type}-${format}`);
+    try {
+      if (type === 'diary') {
+        const result = format === 'xlsx'
+          ? await exportJournalExcel(journalEntries, { chart: chartOfAccounts })
+          : await exportJournalPdf(journalEntries, { chart: chartOfAccounts });
+        const fileName = typeof result === 'string' ? result : (result?.fileName || `jockey_club_libro_diario.${format === 'xlsx' ? 'xlsx' : 'pdf'}`);
+        record(type, fileName, `${journalEntries.length} asientos`, { format });
+        return;
+      }
+      const result = await exportAccountingReport({
+        reportType: type,
+        format,
+        journalEntries,
+        chart: chartOfAccounts,
+      });
+      record(type, result.fileName, result.summary, { format });
+    } catch (err) {
+      setError(err.message || 'No se pudo generar el reporte.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleMemberReport = async (e) => {
     e.preventDefault();
     setError('');
-    setBusy(true);
+    setBusy(`${reportType}-pdf`);
     try {
       let fileName = '';
       let summary = '';
@@ -78,6 +188,7 @@ export default function AccountingReportsPanel({
       if (reportType === 'libre_deuda') {
         const member = resolveMember();
         if (!member) throw new Error('Socio. Es obligatorio');
+        await requireSnapshots(LIBRE_DEUDA_SNAPSHOTS);
         const cert = buildLibreDeudaCertificate(member, { asOf, extraInfo, allMembers: members });
         await exportLibreDeudaPdf(cert);
         fileName = `jockey_club_libre_deuda_${cert.memberNumber}_${cert.asOf}.pdf`;
@@ -86,6 +197,7 @@ export default function AccountingReportsPanel({
         const member = memberQuery.trim() ? resolveMember() : null;
         if (memberQuery.trim() && !member) throw new Error('Socio. Es obligatorio');
         const nro = member ? memberNumberOf(member) : '';
+        await requireSnapshots(SURCHARGE_COMPOSITION_SNAPSHOTS);
         const report = buildSurchargeComposition({ memberNumber: nro, from, to });
         fileName = await exportSurchargeCompositionPdf(report);
         summary = `${report.rows.length} recargos · $ ${report.total.toLocaleString('es-AR')}`;
@@ -99,180 +211,212 @@ export default function AccountingReportsPanel({
         summary = familyQuery ? `Filtro ${familyQuery}` : 'Todos los grupos';
       }
 
-      onRecordReport?.(createAccountingReportRecord({
-        reportType,
-        filters,
-        summary,
-        fileName,
-      }));
+      record(reportType, fileName, summary, filters);
     } catch (err) {
       setError(err.message || 'No se pudo generar el reporte.');
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
 
-  const rerun = async (record) => {
-    setReportType(record.reportType);
-    const f = record.filters || {};
-    setMemberQuery(f.memberQuery || '');
-    setAsOf(f.asOf || todayIso());
-    setFrom(f.from || '');
-    setTo(f.to || '');
-    setExtraInfo(f.extraInfo || '');
-    setFamilyQuery(f.familyQuery || '');
+  const rerun = (row) => {
+    setReportType(row.reportType);
+    const filters = row.filters || {};
+    setMemberQuery(filters.memberQuery || '');
+    setAsOf(filters.asOf || todayIso());
+    setFrom(filters.from || '');
+    setTo(filters.to || '');
+    setExtraInfo(filters.extraInfo || '');
+    setFamilyQuery(filters.familyQuery || '');
+    if (BOOK_REPORTS.some((item) => item.id === row.reportType)) {
+      void downloadBook(row.reportType, filters.format === 'xlsx' ? 'xlsx' : 'pdf');
+    }
   };
 
-  return (
-    <div className="fade-in cuotas-panel">
-      <h2 className="cuotas-title" style={{ marginBottom: '1rem' }}>
-        <FileText size={18} /> Reportes
-      </h2>
+  const renderCard = (item) => (
+    <article key={item.id} className={['ar-card', reportType === item.id ? 'is-on' : ''].filter(Boolean).join(' ')}>
+      <button type="button" className="ar-card-pick" onClick={() => { setReportType(item.id); setError(''); }}>
+        <h4>{item.title}</h4>
+        <p>{item.copy}</p>
+      </button>
+      <div className="ar-card-actions">
+        {item.formats.includes('pdf') ? (
+          <button
+            type="button"
+            className="btn btn-tan"
+            disabled={Boolean(busy)}
+            onClick={() => {
+              setReportType(item.id);
+              if (MEMBER_REPORTS.some((row) => row.id === item.id)) return;
+              void downloadBook(item.id, 'pdf');
+            }}
+          >
+            <FileText size={14} aria-hidden="true" />
+            {busy === `${item.id}-pdf` ? 'Generando…' : 'PDF'}
+          </button>
+        ) : null}
+        {item.formats.includes('xlsx') ? (
+          <button
+            type="button"
+            className="btn btn-tan"
+            disabled={Boolean(busy)}
+            onClick={() => {
+              setReportType(item.id);
+              void downloadBook(item.id, 'xlsx');
+            }}
+          >
+            <FileSpreadsheet size={14} aria-hidden="true" />
+            {busy === `${item.id}-xlsx` ? 'Generando…' : 'Excel'}
+          </button>
+        ) : null}
+      </div>
+    </article>
+  );
 
-      <section className="supplier-pay-import-block">
-        <div className="supplier-pay-import-form">
-          <div className="supplier-pay-import-field">
-            <label className="form-label" htmlFor="arep-mod">Módulos</label>
-            <select id="arep-mod" className="form-input" value="contabilidad" disabled>
-              <option value="contabilidad">Contabilidad</option>
-            </select>
-          </div>
-          <div className="supplier-pay-import-field">
-            <label className="form-label" htmlFor="arep-type">Tipos de reporte</label>
-            <select
-              id="arep-type"
-              className="form-input"
-              value={reportType}
-              onChange={(e) => { setReportType(e.target.value); setError(''); }}
-            >
-              {ACCOUNTING_REPORT_TYPES.map((t) => (
-                <option key={t.id} value={t.id}>{t.label}</option>
-              ))}
-            </select>
-          </div>
+  return (
+    <div className="fade-in mb-folio ar-folio">
+      <header className="mb-folio-head">
+        <div>
+          <p className="mb-folio-kicker">Contabilidad</p>
+          <h3 className="mb-folio-title">Reportes descargables</h3>
+          <p className="mb-folio-meta">
+            PDF y Excel de libros, estados y gestión. Abajo, los certificados de socios.
+          </p>
         </div>
+        <span className="mb-folio-seal">{ACCOUNTING_REPORT_TYPES.length} modelos</span>
+      </header>
+
+      {error ? <p className="mb-folio-status is-error" role="alert">{error}</p> : null}
+
+      <section className="er-block">
+        <h4>Libros y estados</h4>
+        <div className="ar-catalog">{BOOK_REPORTS.map(renderCard)}</div>
       </section>
 
-      {error ? (
-        <div className="ig-error" role="alert" style={{ margin: '0.75rem 0' }}>{error}</div>
-      ) : null}
+      <section className="er-block">
+        <h4>Socios</h4>
+        <div className="ar-catalog">{MEMBER_REPORTS.map(renderCard)}</div>
+      </section>
 
-      <form className="supplier-pay-import-block" onSubmit={handleContinue}>
-        <h4 className="supplier-pay-import-title">
-          {reportType === 'recargos' ? 'Buscar recargos' : typeLabel}
-        </h4>
-
-        {reportType === 'recargos' ? (
-          <div className="cuotas-event-filters">
-            <label>
-              <span className="form-label">Socio</span>
-              <input className="form-input" list="arep-members" value={memberQuery} onChange={(e) => setMemberQuery(e.target.value)} placeholder="Nro. o nombre (opcional)" />
-            </label>
-            <label>
-              <span className="form-label">Desde</span>
-              <input type="date" className="form-input" value={from} onChange={(e) => setFrom(e.target.value)} />
-              <span className="disc-field-hint">Recargos a partir de la fecha seleccionada</span>
-            </label>
-            <label>
-              <span className="form-label">Hasta</span>
-              <input type="date" className="form-input" value={to} onChange={(e) => setTo(e.target.value)} />
-              <span className="disc-field-hint">Recargos hasta la fecha seleccionada</span>
-            </label>
+      {needsMemberForm ? (
+        <form className="er-block" onSubmit={handleMemberReport}>
+          <div className="er-block-head">
+            <h4>{typeLabel}</h4>
+            <span>PDF</span>
           </div>
-        ) : null}
 
-        {reportType === 'libre_deuda' ? (
-          <>
-            <div className="cuotas-event-filters">
+          {reportType === 'recargos' ? (
+            <div className="ar-filters">
               <label>
-                <span className="form-label">Fecha</span>
-                <input type="date" className="form-input" value={asOf} onChange={(e) => setAsOf(e.target.value)} required />
+                <span className="form-label">Socio</span>
+                <input className="form-input" list="arep-members" value={memberQuery} onChange={(e) => setMemberQuery(e.target.value)} placeholder="Nro. o nombre (opcional)" />
               </label>
+              <label>
+                <span className="form-label">Desde</span>
+                <input type="date" className="form-input" value={from} onChange={(e) => setFrom(e.target.value)} />
+              </label>
+              <label>
+                <span className="form-label">Hasta</span>
+                <input type="date" className="form-input" value={to} onChange={(e) => setTo(e.target.value)} />
+              </label>
+            </div>
+          ) : null}
+
+          {reportType === 'libre_deuda' ? (
+            <>
+              <div className="ar-filters">
+                <label>
+                  <span className="form-label">Fecha</span>
+                  <input type="date" className="form-input" value={asOf} onChange={(e) => setAsOf(e.target.value)} required />
+                </label>
+                <label>
+                  <span className="form-label">Socio</span>
+                  <input className="form-input" list="arep-members" value={memberQuery} onChange={(e) => setMemberQuery(e.target.value)} placeholder="Nro. o nombre" required />
+                </label>
+              </div>
+              <label className="ar-extra">
+                <span className="form-label">Información extra (opcional)</span>
+                <div className="ar-extra-tools">
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => applyExtraMark('**', '**')}>Negrita</button>
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => applyExtraMark('*', '*')}>Itálica</button>
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => applyExtraMark('_', '_')}>Subrayado</button>
+                </div>
+                <textarea
+                  ref={(el) => { extraRef.current = el; }}
+                  className="form-input"
+                  rows={4}
+                  value={extraInfo}
+                  onChange={(e) => setExtraInfo(e.target.value)}
+                  placeholder="Este texto aparece en: dejo constancia [información extra] del mismo…"
+                />
+              </label>
+            </>
+          ) : null}
+
+          {reportType === 'detailed_cc' ? (
+            <div className="ar-filters">
               <label>
                 <span className="form-label">Socio</span>
                 <input className="form-input" list="arep-members" value={memberQuery} onChange={(e) => setMemberQuery(e.target.value)} placeholder="Nro. o nombre" required />
               </label>
             </div>
-            <div className="disc-field" style={{ marginTop: '1rem' }}>
-              <label className="disc-field-label">Información extra (opcional)</label>
-              <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.4rem' }}>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => applyExtraMark('**', '**')}>Negrita</button>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => applyExtraMark('*', '*')}>Itálica</button>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => applyExtraMark('_', '_')}>Subrayado</button>
-              </div>
-              <textarea
-                ref={(el) => { extraRef.current = el; }}
-                className="form-input"
-                rows={4}
-                value={extraInfo}
-                onChange={(e) => setExtraInfo(e.target.value)}
-                placeholder="Este texto aparece en: dejo constancia [información extra] del mismo…"
-              />
+          ) : null}
+
+          {reportType === 'family_balances' ? (
+            <div className="ar-filters">
+              <label>
+                <span className="form-label">Grupo familiar</span>
+                <input className="form-input" value={familyQuery} onChange={(e) => setFamilyQuery(e.target.value)} placeholder="Nombre del grupo (opcional)" />
+              </label>
             </div>
-          </>
-        ) : null}
+          ) : null}
 
-        {reportType === 'detailed_cc' ? (
-          <div className="cuotas-event-filters">
-            <label>
-              <span className="form-label">Socio</span>
-              <input className="form-input" list="arep-members" value={memberQuery} onChange={(e) => setMemberQuery(e.target.value)} placeholder="Nro. o nombre" required />
-            </label>
+          <datalist id="arep-members">
+            {(members || []).slice(0, 800).map((m) => (
+              <option key={m.memberId || m.id} value={`${memberNumberOf(m)} - ${m.name}`} />
+            ))}
+          </datalist>
+
+          <div className="ar-card-actions">
+            <button type="submit" className="btn btn-tan" disabled={Boolean(busy)}>
+              <Download size={14} aria-hidden="true" />
+              {busy === `${reportType}-pdf` ? 'Generando…' : 'Descargar PDF'}
+            </button>
           </div>
-        ) : null}
+        </form>
+      ) : null}
 
-        {reportType === 'family_balances' ? (
-          <div className="cuotas-event-filters">
-            <label>
-              <span className="form-label">Grupo familiar</span>
-              <input className="form-input" value={familyQuery} onChange={(e) => setFamilyQuery(e.target.value)} placeholder="Nombre del grupo (opcional)" />
-            </label>
-          </div>
-        ) : null}
-
-        <datalist id="arep-members">
-          {(members || []).slice(0, 800).map((m) => (
-            <option key={m.memberId || m.id} value={`${memberNumberOf(m)} - ${m.name}`} />
-          ))}
-        </datalist>
-
-        <div className="supplier-pay-import-actions">
-          <button type="submit" className="btn cash-lila-purple-btn" disabled={busy}>
-            {busy ? 'Generando…' : 'Continuar'}
-          </button>
+      <section className="er-block">
+        <div className="er-block-head">
+          <h4>Generados</h4>
+          <span>{history.length} recientes</span>
         </div>
-      </form>
-
-      <section className="supplier-pay-import-block">
-        <h4 className="supplier-pay-import-title">Reportes generados anteriormente</h4>
         <div className="table-responsive">
-          <table className="admin-table">
+          <table className="balance-table">
             <thead>
               <tr>
-                <th>#</th>
-                <th>Generado el</th>
-                <th>Estado</th>
-                <th>Descargar</th>
+                <th>Reporte</th>
+                <th>Generado</th>
+                <th>Archivo</th>
+                <th />
               </tr>
             </thead>
             <tbody>
               {history.length === 0 ? (
                 <tr>
-                  <td colSpan={4} style={{ color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                    No se encontraron reportes antiguos de “{typeLabel}”
-                  </td>
+                  <td colSpan={4} className="mb-folio-empty">Todavía no se descargó ningún reporte en esta sesión.</td>
                 </tr>
-              ) : history.map((row, idx) => (
-                <tr key={row.id}>
-                  <td>{history.length - idx}</td>
+              ) : history.map((row) => (
+                <tr key={row.id} className="balance-row-account">
+                  <td>{row.reportTypeLabel}</td>
                   <td>
                     {formatReportGeneratedAt(row.generatedAt)}
                     {row.summary ? <div className="disc-field-hint">{row.summary}</div> : null}
                   </td>
-                  <td>Finalizado</td>
+                  <td>{row.fileName || '—'}</td>
                   <td>
-                    <button type="button" className="cash-lila-icon-btn is-edit" title="Volver a generar" onClick={() => rerun(row)}>
-                      <Download size={13} />
+                    <button type="button" className="mb-folio-link" onClick={() => rerun(row)}>
+                      Volver a generar
                     </button>
                   </td>
                 </tr>

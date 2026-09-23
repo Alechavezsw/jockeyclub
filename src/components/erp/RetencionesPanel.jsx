@@ -1,16 +1,15 @@
 import { useMemo, useState } from 'react';
 import { Percent, Plus, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import {
-  ACCESSIN_RETENCIONES_AS_OF,
-  ACCESSIN_RETENCIONES_PERIOD_FROM,
-  ACCESSIN_RETENCIONES_PERIOD_TO,
   RETENCION_STATUS,
   compareRetenciones,
   createRetencion,
+  retencionesSeed,
   retencionTotals,
   updateRetencion,
 } from '../../domain/accounting/retenciones';
 import { formatCurrency } from '../../domain/accounting/journal';
+import { useSnapshotSeed } from '../../hooks/useSnapshots';
 
 const PAGE_SIZE = 40;
 
@@ -37,6 +36,11 @@ export default function RetencionesPanel({
   upsertRetencion,
   suppliers = [],
 }) {
+  const {
+    ACCESSIN_RETENCIONES_AS_OF,
+    ACCESSIN_RETENCIONES_PERIOD_FROM,
+    ACCESSIN_RETENCIONES_PERIOD_TO,
+  } = useSnapshotSeed(['accessinRetenciones'], retencionesSeed);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [page, setPage] = useState(0);

@@ -1,10 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { loadSnapshots } from '../../data/snapshots';
 import {
   ACCESSIN_FEE_CHART_ACCOUNTS,
-  buildFeeAccountLedgerLines,
   filterFeeAccountLedger,
   resolveFeeChartAccounts,
 } from './feeChartAccounts';
+import { buildFeeAccountLedgerLines } from './feeAccountLedger';
+
+beforeAll(async () => {
+  await loadSnapshots(['accessinFeeAccountDetails']);
+});
 
 describe('feeChartAccounts', () => {
   it('tiene cuentas Accessin SOCIO FAMILIAR e INDIVIDUALES', () => {

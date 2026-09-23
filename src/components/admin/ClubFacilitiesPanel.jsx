@@ -3,7 +3,7 @@ import {
   Clock, MapPin, Users, Waves, LandPlot, Building2, Flame, PartyPopper,
   CircleDot, Ban, Snowflake, Radio, Pencil, Plus, Search, Eye, Trash2, X,
 } from 'lucide-react';
-import { FACILITIES, FACILITY_GROUPS, facilitiesByGroup } from '../../domain/reservations/facilities';
+import { FACILITIES, facilitiesByGroup, isDemoFacilityId, isRealBookableSpace } from '../../domain/reservations/facilities';
 import { getFacilityLiveStatus } from '../../domain/reservations/availability';
 import {
   buildFacilityCatalog,
@@ -59,16 +59,25 @@ export default function ClubFacilitiesPanel({
 }) {
   const [viewMode, setViewMode] = useState('manage'); // manage | live
   const [activeType, setActiveType] = useState('salon');
-  const [activeGroup, setActiveGroup] = useState('canchas');
+  const [activeGroup, setActiveGroup] = useState('espacios');
   const [query, setQuery] = useState('');
   const [now, setNow] = useState(() => new Date());
   const [editing, setEditing] = useState(null);
   const [viewing, setViewing] = useState(null);
 
   const catalog = useMemo(
-    () => buildFacilityCatalog(FACILITIES, Array.isArray(facilityCatalog) ? facilityCatalog : []),
+    () => buildFacilityCatalog(FACILITIES, Array.isArray(facilityCatalog) ? facilityCatalog : [])
+      .filter(isRealBookableSpace),
     [facilityCatalog]
   );
+
+  useEffect(() => {
+    if (typeof setFacilityCatalog !== 'function' || !Array.isArray(facilityCatalog)) return;
+    const cleaned = facilityCatalog.filter((f) => f?.id && !isDemoFacilityId(f.id) && isRealBookableSpace(f));
+    if (cleaned.length !== facilityCatalog.length) {
+      setFacilityCatalog(cleaned.length ? cleaned : null);
+    }
+  }, [facilityCatalog, setFacilityCatalog]);
 
   const persistCatalog = (nextList) => {
     if (typeof setFacilityCatalog === 'function') setFacilityCatalog(nextList);
@@ -155,7 +164,7 @@ export default function ClubFacilitiesPanel({
       <div className="club-facilities-head">
         <div>
           <h3 className="serif-font">Espacios del club</h3>
-          <p>Gestión de salones, parrillas, canchas y pileta — los espacios reales reservables.</p>
+          <p>Salones y Espacio Verde — los espacios reales reservables del club.</p>
           {viewMode === 'live' ? (
             <div className="club-facilities-live-clock">
               <span className="pulse" aria-hidden="true" />
@@ -174,7 +183,7 @@ export default function ClubFacilitiesPanel({
           </button>
           <button
             type="button"
-            className={viewMode === 'live' ? 'is-active' : ''}
+            className={`is-live${viewMode === 'live' ? ' is-active' : ''}`}
             onClick={() => setViewMode('live')}
           >
             En vivo
@@ -188,7 +197,7 @@ export default function ClubFacilitiesPanel({
             {FACILITY_MANAGE_TYPES.map((t) => {
               const Icon = TYPE_ICON[t.id] || Building2;
               const count = typeCounts[t.id] || 0;
-              if (count === 0 && !['salon', 'parrilla', 'cancha', 'pileta'].includes(t.id)) return null;
+              if (count === 0) return null;
               return (
                 <button
                   key={t.id}
@@ -220,7 +229,7 @@ export default function ClubFacilitiesPanel({
                   : `Encontrados ${typedList.length} en total`}
               </p>
             </div>
-            <button type="button" className="btn btn-primary" onClick={handleCreate}>
+            <button type="button" className="btn btn-tan" onClick={handleCreate}>
               <Plus size={16} /> Espacio del club
             </button>
           </div>
@@ -304,7 +313,7 @@ export default function ClubFacilitiesPanel({
       ) : (
         <>
           <div className="club-facilities-tabs" role="tablist" aria-label="Grupos de instalaciones">
-            {FACILITY_GROUPS.map((group) => {
+            {groups.filter((group) => group.items.length > 0).map((group) => {
               const Icon = GROUP_ICON[group.id] || Building2;
               const counts = groupCounts[group.id] || { total: 0, available: 0 };
               return (
@@ -344,7 +353,7 @@ export default function ClubFacilitiesPanel({
 
               return (
                 <article key={facility.id} className={`club-facility-card ${cardTone}`}>
-                  <img src={facility.image} alt="" loading="lazy" />
+                  <img src={facility.image} alt={facility.name} loading="lazy" />
                   <div className="club-facility-body">
                     <div className="club-facility-title-row">
                       <h4>{facility.name}</h4>

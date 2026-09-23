@@ -1,6 +1,8 @@
 /** Cuentas contables de cuotas (Accessin / LILA) + cuenta corriente. */
 
-import { ACCESSIN_FEE_ACCOUNT_DETAILS } from '../../data/seed/accessinFeeAccountDetails';
+// buildFeeAccountLedgerLines vive en ./feeAccountLedger. No reexportarlo desde acá:
+// sería un import estático del snapshot de Accessin, y este módulo lo carga el store
+// del ERP al arrancar la app, así que el snapshot volvería al chunk de entrada.
 
 /** Cuentas del módulo Cuotas (no confundir con el plan de cuentas ERP). */
 export const ACCESSIN_FEE_CHART_ACCOUNTS = [
@@ -30,45 +32,6 @@ export const ACCESSIN_FEE_CHART_ACCOUNTS = [
 
 function uid(prefix = 'fca') {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-}
-
-function matchDetailAccount(account, details = ACCESSIN_FEE_ACCOUNT_DETAILS) {
-  if (!account) return null;
-  const label = String(account.detailAccountLabel || account.name || '')
-    .trim()
-    .toUpperCase();
-  return (details || []).find((d) => String(d.accountLabel || '').trim().toUpperCase() === label) || null;
-}
-
-/** Líneas de C.C. derivadas del detalle Accessin (importe/cobrado/pendiente). */
-export function buildFeeAccountLedgerLines(account, details = ACCESSIN_FEE_ACCOUNT_DETAILS) {
-  const detail = matchDetailAccount(account, details);
-  if (!detail) return [];
-  const baseId = Number(account.accessinId || 0) * 100000;
-  return (detail.lines || []).map((line, i) => {
-    const collected = Number(line.amount) || 0;
-    // En el export de cobros el monto es lo cobrado; el importe de cuota se asume igual.
-    const amount = collected;
-    const pending = Math.max(0, amount - collected);
-    return {
-      id: `fcc-${account.id}-${i}`,
-      accessinId: baseId + i + 1,
-      accountId: account.id,
-      memberNumber: String(line.memberNumber || ''),
-      memberName: String(line.memberName || ''),
-      dni: String(line.dni || ''),
-      date: line.feeDate || line.collectedAt || '',
-      dateLabel: line.feeDateLabel || line.collectedAtLabel || '',
-      collectedAt: line.collectedAt || '',
-      collectedAtLabel: line.collectedAtLabel || '',
-      type: line.type || '',
-      description: line.description || '',
-      amount,
-      collected,
-      pending,
-      source: 'accessin',
-    };
-  });
 }
 
 export function feeChartAccountCounts(list = ACCESSIN_FEE_CHART_ACCOUNTS) {

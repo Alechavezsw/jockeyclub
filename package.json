@@ -23,8 +23,16 @@
     "import:liquidacion-cc": "node scripts/generate-accessin-liquidation-cc.cjs",
     "sync:societas": "node scripts/sync-societas-app.mjs",
     "sync:societas:dry": "node scripts/sync-societas-app.mjs --dry-run",
+    "import:altas-bajas": "node scripts/generate-societas-membership-moves.cjs",
+    "sync:bajas": "node scripts/sync-societas-membership-moves.mjs",
+    "sync:bajas:dry": "node scripts/sync-societas-membership-moves.mjs --dry-run",
     "remap:tiers": "node scripts/remap-member-tiers.mjs",
-    "remap:tiers:dry": "node scripts/remap-member-tiers.mjs --dry-run"
+    "remap:tiers:dry": "node scripts/remap-member-tiers.mjs --dry-run",
+    "manual:pdf": "node scripts/generate-user-manual.mjs",
+    "sync:saldos": "node scripts/sync-accessin-balances.mjs",
+    "sync:saldos:dry": "node scripts/sync-accessin-balances.mjs --dry-run",
+    "upload:snapshots": "node scripts/upload-snapshots.mjs",
+    "upload:snapshots:dry": "node scripts/upload-snapshots.mjs --dry-run"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.8",

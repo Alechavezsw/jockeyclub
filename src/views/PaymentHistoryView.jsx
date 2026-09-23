@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   ArrowLeft,
   CreditCard,
@@ -10,14 +10,9 @@ import {
   Download,
   Banknote,
 } from 'lucide-react';
-import {
-  getMemberPaymentHistory,
-  summarizePaymentHistory,
-} from '../domain/members/paymentHistory';
 import { payMemberDues, payUpcomingDues } from '../domain/members/memberPayments';
 import { downloadPaymentReceiptPdf } from '../domain/members/exportPaymentReceiptPdf';
-import { isSupabaseConfigured } from '../lib/supabase';
-import { repos } from '../data/bootstrap';
+import { useMemberDuesStanding } from '../hooks/useMemberDuesStanding';
 
 function formatCurrency(amount) {
   return new Intl.NumberFormat('es-AR', {
@@ -41,48 +36,48 @@ export default function PaymentHistoryView({ member, setCurrentView, updateMembe
   const [paying, setPaying] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const [remoteHistory, setRemoteHistory] = useState(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setRemoteHistory(null);
-    if (!isSupabaseConfigured || !member?.id) return undefined;
-    (async () => {
-      try {
-        const rows = await repos.listMemberPayments(member.id);
-        if (!cancelled) setRemoteHistory(rows);
-      } catch {
-        if (!cancelled) setRemoteHistory([]);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [member?.id]);
-
-  const memberForHistory = useMemo(() => {
-    if (!member) return member;
-    if (remoteHistory == null) return member;
-    return { ...member, paymentHistory: remoteHistory };
-  }, [member, remoteHistory]);
-
-  const history = useMemo(() => getMemberPaymentHistory(memberForHistory), [memberForHistory]);
-  const summary = useMemo(
-    () => summarizePaymentHistory(history, memberForHistory),
-    [history, memberForHistory]
-  );
-  const alDia = summary.outstanding <= 0;
+  const {
+    summary,
+    history,
+    loading: loadingHistory,
+    pending: standingPending,
+    lateLabel,
+    behind,
+    member: duesMember,
+  } = useMemberDuesStanding(member);
+  const profile = duesMember || member;
+  const monthsLate = summary.monthsBehind || 0;
+  const alDia = !standingPending && !behind;
+  const payable = alDia ? summary.nextAmount : summary.outstanding;
+  const billingMember = useMemo(() => {
+    if (!profile) return profile;
+    return {
+      ...profile,
+      paymentHistory: history,
+      outstandingBalance: summary.outstanding,
+      nextDueDate: summary.nextDue || profile.nextDueDate,
+    };
+  }, [profile, history, summary.outstanding, summary.nextDue]);
 
   const handlePay = async () => {
     if (!updateMember) {
       setError('Pago no disponible en este momento.');
       return;
     }
+    if (standingPending) return;
+    const charge = Number(payable) || 0;
+    if (charge <= 0) {
+      setError('No se pudo calcular el importe de la cuota.');
+      return;
+    }
     setPaying(true);
     setError('');
     setMessage('');
     try {
+      const billed = { ...billingMember, outstandingBalance: alDia ? 0 : charge };
       const result = alDia
-        ? payUpcomingDues(member, { method })
-        : payMemberDues(member, { method });
+        ? payUpcomingDues(billed, { method })
+        : payMemberDues(billed, { method, amount: charge });
       updateMember(result.member);
       if (result.ledgerEntry) onAccountEntry?.(result.ledgerEntry);
       setMessage(
@@ -118,19 +113,23 @@ export default function PaymentHistoryView({ member, setCurrentView, updateMembe
             Estado Contable
           </h1>
           <p className="page-subtitle" style={{ margin: 0 }}>
-            Pagos, historial y comprobantes · {member?.name}
+            Pagos, historial y comprobantes · {profile?.name}
           </p>
         </div>
       </header>
 
       <section className="pay-hist-summary">
-        <article className={`pay-hist-kpi${alDia ? ' is-ok' : ' is-debt'}`}>
+        <article className={`pay-hist-kpi${standingPending ? '' : alDia ? ' is-ok' : ' is-debt'}`}>
           <span>Situación actual</span>
-          <strong>{alDia ? 'Al día' : formatCurrency(summary.outstanding)}</strong>
+          <strong>
+            {standingPending ? '…' : alDia ? 'Al día' : (lateLabel || formatCurrency(summary.outstanding))}
+          </strong>
           <small>
-            {alDia
-              ? `Próximo cobro ${formatDate(summary.nextDue)} · ${formatCurrency(summary.nextAmount)}`
-              : 'Saldo pendiente de cuota social'}
+            {standingPending
+              ? 'Confirmando vencimientos'
+              : alDia
+                ? `Próximo cobro ${formatDate(summary.nextDue)} · ${formatCurrency(summary.nextAmount)}`
+                : `Venció el ${formatDate(summary.nextDue)} · ${formatCurrency(summary.outstanding)}`}
           </small>
         </article>
         <article className="pay-hist-kpi">
@@ -138,7 +137,7 @@ export default function PaymentHistoryView({ member, setCurrentView, updateMembe
           <strong>{formatCurrency(summary.totalPaid)}</strong>
           <small>{summary.paymentsCount} pagos registrados</small>
         </article>
-        <article className="pay-hist-kpi">
+        <article className={`pay-hist-kpi${monthsLate > 0 ? ' is-debt' : ''}`}>
           <span>Último pago</span>
           <strong>{summary.lastPayment ? formatDate(summary.lastPayment.date) : '—'}</strong>
           <small>
@@ -146,20 +145,37 @@ export default function PaymentHistoryView({ member, setCurrentView, updateMembe
               ? `${formatCurrency(summary.lastPayment.amount)} · ${summary.lastPayment.methodLabel || summary.lastPayment.method}`
               : 'Sin movimientos'}
           </small>
+          {lateLabel ? (
+            <small className="pay-hist-kpi-late">
+              {lateLabel} · la cuota vence el 10 de cada mes
+            </small>
+          ) : null}
         </article>
       </section>
 
-      <section className="glass-card pay-hist-paybox">
+      <section className={`glass-card pay-hist-paybox${standingPending ? '' : alDia ? ' is-ok' : ' is-debt'}`}>
         <h2>
-          <Banknote size={16} /> {alDia ? 'Pagar cuota anticipada' : 'Pagar cuota pendiente'}
+          <Banknote size={16} />
+          {standingPending
+            ? 'Estado de la cuota'
+            : alDia
+              ? 'Pagar cuota anticipada'
+              : 'Pagar cuota pendiente'}
         </h2>
         <p>
-          {alDia
-            ? `Podés adelantar ${formatCurrency(summary.nextAmount)} y quedar al día hasta ${formatDate(summary.nextDue)}.`
-            : `Saldo a abonar: ${formatCurrency(summary.outstanding)}. Simulación de cobro online (demo).`}
+          {standingPending
+            ? 'Confirmando el estado de tu cuota…'
+            : alDia
+              ? `Podés adelantar ${formatCurrency(payable)} y quedar al día hasta ${formatDate(summary.nextDue)}.`
+              : `${lateLabel ? `${lateLabel}. ` : ''}Saldo a abonar: ${formatCurrency(payable)}. La cuota vence el 10 de cada mes.`}
         </p>
         <div className="pay-hist-payrow">
-          <select className="form-input" value={method} onChange={(e) => setMethod(e.target.value)}>
+          <select
+            className="form-input"
+            value={method}
+            onChange={(e) => setMethod(e.target.value)}
+            disabled={standingPending || paying}
+          >
             <option value="mercadopago">Mercado Pago</option>
             <option value="transferencia">Transferencia</option>
             <option value="debito">Débito automático</option>
@@ -169,22 +185,23 @@ export default function PaymentHistoryView({ member, setCurrentView, updateMembe
           <button
             type="button"
             className="btn btn-primary"
-            disabled={paying || !updateMember}
+            disabled={standingPending || paying || !updateMember || payable <= 0}
             onClick={handlePay}
           >
-            {paying ? 'Procesando…' : alDia ? 'Anticipar cuota' : 'Pagar ahora'}
+            {paying ? 'Procesando…' : standingPending ? 'Un momento…' : alDia ? 'Anticipar cuota' : `Pagar ${formatCurrency(payable)}`}
           </button>
         </div>
-        {message && <div className="pay-hist-ok">{message}</div>}
-        {error && <div className="pay-hist-alert">{error}</div>}
-      </section>
-
-      {!alDia && (
-        <div className="pay-hist-alert">
-          <AlertCircle size={16} />
-          Tenés un saldo pendiente de {formatCurrency(summary.outstanding)}.
+        <div className="pay-hist-feedback" aria-live="polite">
+          {message ? <div className="pay-hist-ok">{message}</div> : null}
+          {error ? <div className="pay-hist-alert is-error">{error}</div> : null}
+          {!message && !error && !standingPending && !alDia ? (
+            <div className="pay-hist-alert is-late">
+              <AlertCircle size={16} />
+              Tenés {lateLabel} de {formatCurrency(payable)}.
+            </div>
+          ) : null}
         </div>
-      )}
+      </section>
 
       <section className="glass-card pay-hist-list-card">
         <div className="pay-hist-list-head">
@@ -194,7 +211,12 @@ export default function PaymentHistoryView({ member, setCurrentView, updateMembe
           <span>{history.length} movimientos</span>
         </div>
 
-        {history.length === 0 ? (
+        {loadingHistory && history.length === 0 ? (
+          <div className="pay-hist-empty">
+            <Wallet size={28} />
+            <p>Cargando pagos…</p>
+          </div>
+        ) : history.length === 0 ? (
           <div className="pay-hist-empty">
             <Wallet size={28} />
             <p>Todavía no hay pagos registrados en tu cuenta.</p>
@@ -214,7 +236,7 @@ export default function PaymentHistoryView({ member, setCurrentView, updateMembe
                   </span>
                 </div>
                 <div className="pay-hist-side">
-                  <strong>{formatCurrency(pay.amount)}</strong>
+                  <strong>{pay.amount > 0 ? formatCurrency(pay.amount) : '—'}</strong>
                   <span>{pay.methodLabel || pay.method}</span>
                   <button
                     type="button"

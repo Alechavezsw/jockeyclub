@@ -1,16 +1,8 @@
 /** Descuentos / bonificaciones (reglas + aplicadas Accessin). */
 
-import {
-  ACCESSIN_BONIFICACIONES,
-  ACCESSIN_BONIFICACIONES_AS_OF,
-  ACCESSIN_BONIFICACIONES_SNAPSHOT,
-} from '../../data/seed/accessinBonificaciones';
-
-export {
-  ACCESSIN_BONIFICACIONES,
-  ACCESSIN_BONIFICACIONES_AS_OF,
-  ACCESSIN_BONIFICACIONES_SNAPSHOT,
-};
+// El snapshot de bonificaciones vive en ./discountsSeed. No importarlo acá: este
+// módulo lo carga el store del ERP al arrancar y arrastraría datos de socios al
+// chunk de entrada del build.
 
 export const DISCOUNT_CATEGORIES = [
   {
@@ -270,13 +262,12 @@ export function filterDiscounts(list = [], { category = null, query = '' } = {})
   return rows;
 }
 
-export function seedDiscounts() {
-  return [...(ACCESSIN_BONIFICACIONES || []), ...(ACCESSIN_DISCOUNT_RULES || [])];
-}
-
-/** Merge seed Accessin + reglas locales guardadas. */
-export function resolveDiscounts(loaded) {
-  const seed = seedDiscounts();
+/**
+ * Merge del seed Accessin con las reglas locales guardadas.
+ * `seed` se pasa desde afuera (ver seedDiscounts en ./discountsSeed) para que este
+ * módulo no dependa del snapshot.
+ */
+export function resolveDiscounts(loaded, seed = ACCESSIN_DISCOUNT_RULES) {
   if (!Array.isArray(loaded) || loaded.length === 0) return seed;
   const seedIds = new Set(seed.map((s) => s.id));
   const extras = loaded.filter((d) => d && !seedIds.has(d.id));

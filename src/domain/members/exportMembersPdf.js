@@ -4,6 +4,7 @@ import {
   drawReportHeader,
   loadClubLogoDataUrl,
 } from '../reports/pdfBrand';
+import { quotaHeadline } from './dues';
 import { getTierDisplayName } from './tiers';
 import { isFamilyDependent } from './households';
 
@@ -107,7 +108,7 @@ export async function exportMembersPdf(members = [], {
       m.phone || '—',
       m.email || '—',
       statusLabel(m.status),
-      Number(m.outstandingBalance) > 0 ? formatCurrency(m.outstandingBalance) : 'Al día',
+      Number(m.outstandingBalance) > 0 ? formatCurrency(m.outstandingBalance) : quotaHeadline(m).title,
     ];
   });
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { isSupabaseConfigured } from '../lib/supabase';
 import * as repos from '../data/repos';
 import { DEFAULT_CHART_OF_ACCOUNTS } from '../domain/accounting/chartOfAccounts';
@@ -10,16 +10,15 @@ import {
   buildCashTransferEntry,
   getOpenSession,
 } from '../domain/accounting/cash';
+import { loadSnapshots } from '../data/snapshots';
+import { cashMovementsSeed, cashSeed, chequesSeed } from '../domain/accounting/cashLedger';
+import { cobranzasSeed } from '../domain/accounting/cobranzas';
+import { seedDiscounts } from '../domain/accounting/discountsSeed';
+import { suppliersSeed } from '../domain/accounting/suppliersSeed';
+import { supplierPaymentsSeed } from '../domain/accounting/supplierPaymentsReport';
 import {
-  ACCESSIN_CASH_MOVEMENTS,
-  ACCESSIN_CASH_REGISTERS,
-  ACCESSIN_CHEQUES,
-} from '../domain/accounting/cashLedger';
-import { ACCESSIN_COBRANZAS } from '../domain/accounting/cobranzas';
-import { ACCESSIN_SUPPLIER_PAYMENTS } from '../domain/accounting/supplierPaymentsReport';
-import {
-  ACCESSIN_BANK_ACCOUNTS,
   applyBankAccountEntry,
+  bankAccountsSeed,
   resolveBankAccounts,
   softDeleteBankAccount,
   upsertBankAccount,
@@ -48,7 +47,7 @@ import {
 import {
   softDeleteAccountEntry,
   upsertAccountEntry,
-} from '../domain/accounting/memberBalances';
+} from '../domain/accounting/accountEntries';
 import { prependAccountingReport } from '../domain/accounting/accountingReports';
 import {
   createExpenseDraft,
@@ -56,13 +55,8 @@ import {
   rejectExpense,
   payExpense,
 } from '../domain/accounting/expenses';
-import {
-  DEFAULT_SUPPLIERS,
-  setSupplierStatus,
-} from '../domain/accounting/suppliers';
-import {
-  DEFAULT_RETENCIONES,
-} from '../domain/accounting/retenciones';
+import { setSupplierStatus } from '../domain/accounting/suppliers';
+import { retencionesSeed } from '../domain/accounting/retenciones';
 import {
   DEFAULT_UNIDENTIFIED_COLLECTIONS,
   DEFAULT_GALICIA_DEBITS,
@@ -82,6 +76,7 @@ import {
 } from '../domain/alerts/alerts';
 import {
   DEFAULT_CLUB_EVENTS,
+  withoutDemoEventData,
   createClubEvent,
   registerForEvent,
   enableMemberEventAccess,
@@ -156,36 +151,69 @@ function migrateJournalEntries(entries, chart) {
   });
 }
 
-export default function useErpStore({ setJournalEntries, isZondaActive, userId }) {
+/**
+ * Snapshots de LILA/Accessin que el store usa de respaldo cuando la base (o localStorage)
+ * no trae datos. No viajan en el build: se piden después del login al registro de
+ * data/snapshots, y las políticas del bucket deciden si la sesión puede leerlos.
+ */
+const ERP_SNAPSHOTS = [
+  'accessinBankAccounts',
+  'accessinBonificaciones',
+  'accessinCashMovements',
+  'accessinCashSnapshot',
+  'accessinCheques',
+  'accessinCobranzas',
+  'accessinRetenciones',
+  'accessinSupplierPayments',
+  'accessinSuppliers',
+];
+
+const DEFAULT_CASH_REGISTER_IDS = new Set(DEFAULT_CASH_REGISTERS.map((r) => r.id));
+
+/** Cajas genéricas de demo (o ninguna): se reemplazan por las cajas reales de Accessin. */
+function isFallbackCashRegisters(list) {
+  return !Array.isArray(list)
+    || list.length < 3
+    || list.every((r) => DEFAULT_CASH_REGISTER_IDS.has(r?.id));
+}
+
+export default function useErpStore({
+  setJournalEntries,
+  isZondaActive,
+  userId,
+  canLoadSeeds = false,
+}) {
   const [chartOfAccounts, setChartOfAccounts] = useState(() =>
     load('jockey-chart-of-accounts', DEFAULT_CHART_OF_ACCOUNTS)
   );
+  // Los respaldos de snapshots arrancan vacíos: los completa el efecto que los pide.
   const [cashRegisters, setCashRegisters] = useState(() => {
     const loaded = load('jockey-cash-registers-v2', null);
     if (Array.isArray(loaded) && loaded.length >= 3) return loaded;
-    return ACCESSIN_CASH_REGISTERS.length ? ACCESSIN_CASH_REGISTERS : DEFAULT_CASH_REGISTERS;
+    const seed = cashSeed().ACCESSIN_CASH_REGISTERS;
+    return seed.length ? seed : DEFAULT_CASH_REGISTERS;
   });
   const [cashSessions, setCashSessions] = useState(() => load('jockey-cash-sessions', []));
   const [cashMovements, setCashMovements] = useState(() => load('jockey-cash-movements', []));
   const [accessinCashMovements, setAccessinCashMovements] = useState(() => {
     const loaded = load('jockey-accessin-cash-movements-v1', null);
     if (Array.isArray(loaded) && loaded.length >= 500) return loaded;
-    return ACCESSIN_CASH_MOVEMENTS;
+    return cashMovementsSeed().ACCESSIN_CASH_MOVEMENTS;
   });
   const [accessinCheques, setAccessinCheques] = useState(() => {
     const loaded = load('jockey-accessin-cheques-v1', null);
     if (Array.isArray(loaded)) return loaded;
-    return ACCESSIN_CHEQUES;
+    return chequesSeed().ACCESSIN_CHEQUES;
   });
   const [accessinCobranzas, setAccessinCobranzas] = useState(() => {
     const loaded = load('jockey-accessin-cobranzas-v1', null);
     if (Array.isArray(loaded) && loaded.length >= 200) return loaded;
-    return ACCESSIN_COBRANZAS;
+    return cobranzasSeed().ACCESSIN_COBRANZAS;
   });
   const [accessinSupplierPayments, setAccessinSupplierPayments] = useState(() => {
     const loaded = load('jockey-accessin-supplier-payments-v1', null);
     if (Array.isArray(loaded)) return loaded;
-    return ACCESSIN_SUPPLIER_PAYMENTS;
+    return supplierPaymentsSeed().ACCESSIN_SUPPLIER_PAYMENTS;
   });
   const [accessinBankAccounts, setAccessinBankAccounts] = useState(() =>
     resolveBankAccounts(load('jockey-accessin-bank-accounts-v1', null))
@@ -199,6 +227,7 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
   const [discounts, setDiscounts] = useState(() =>
     resolveDiscounts(load('jockey-discounts-v1', null))
   );
+
   const [feeExpenses, setFeeExpenses] = useState(() =>
     resolveFeeExpenses(load('jockey-fee-expenses-v1', null))
   );
@@ -222,9 +251,11 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
     if (cloud()) return [];
     const loaded = load('jockey-suppliers-v3', null);
     if (Array.isArray(loaded) && loaded.length >= 50) return loaded;
-    return DEFAULT_SUPPLIERS;
+    return suppliersSeed().ACCESSIN_SUPPLIERS;
   });
-  const [retenciones, setRetenciones] = useState(() => load('jockey-retenciones-v1', DEFAULT_RETENCIONES));
+  const [retenciones, setRetenciones] = useState(() =>
+    load('jockey-retenciones-v1', retencionesSeed().ACCESSIN_RETENCIONES)
+  );
   const [supplierPaymentImports, setSupplierPaymentImports] = useState(() =>
     load('jockey-supplier-payment-imports-v1', [])
   );
@@ -248,10 +279,14 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
   );
   const [alerts, setAlerts] = useState(() => load('jockey-alerts', DEFAULT_ALERTS));
   const [alertAcks, setAlertAcks] = useState(() => loadAlertAcks());
-  const [clubEvents, setClubEvents] = useState(() => load('jockey-club-events', DEFAULT_CLUB_EVENTS));
-  const [eventRegistrations, setEventRegistrations] = useState(() =>
-    load('jockey-event-registrations', [])
-  );
+  const [clubEvents, setClubEvents] = useState(() => {
+    const loaded = load('jockey-club-events', DEFAULT_CLUB_EVENTS);
+    return withoutDemoEventData(loaded, []).events;
+  });
+  const [eventRegistrations, setEventRegistrations] = useState(() => {
+    const loaded = load('jockey-event-registrations', []);
+    return withoutDemoEventData([], loaded).registrations;
+  });
   const [concessions, setConcessions] = useState(() => {
     if (cloud()) return [];
     const loaded = load('jockey-concessions', null);
@@ -269,48 +304,84 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
       };
     });
   });
+  const concessionsRef = useRef(concessions);
+  concessionsRef.current = concessions;
   const [canonPayments, setCanonPayments] = useState(() =>
     load('jockey-canon-payments', DEFAULT_CANON_PAYMENTS)
   );
 
+  // Respaldos de snapshots: se piden con la sesión operativa y solo completan lo que la
+  // base (o localStorage) no trajo. La hidratación puede llegar antes o después.
+  useEffect(() => {
+    if (!canLoadSeeds) return undefined;
+    let cancelled = false;
+    void loadSnapshots(ERP_SNAPSHOTS).then(() => {
+      if (cancelled) return;
+      const registers = cashSeed().ACCESSIN_CASH_REGISTERS;
+      if (registers.length) {
+        setCashRegisters((cur) => (isFallbackCashRegisters(cur) ? registers : cur));
+      }
+      const movements = cashMovementsSeed().ACCESSIN_CASH_MOVEMENTS;
+      if (movements.length) setAccessinCashMovements((cur) => (cur?.length >= 500 ? cur : movements));
+      const cheques = chequesSeed().ACCESSIN_CHEQUES;
+      if (cheques.length) setAccessinCheques((cur) => (cur?.length ? cur : cheques));
+      const cobranzas = cobranzasSeed().ACCESSIN_COBRANZAS;
+      if (cobranzas.length) setAccessinCobranzas((cur) => (cur?.length >= 200 ? cur : cobranzas));
+      const payments = supplierPaymentsSeed().ACCESSIN_SUPPLIER_PAYMENTS;
+      if (payments.length) setAccessinSupplierPayments((cur) => (cur?.length ? cur : payments));
+      const banks = bankAccountsSeed().ACCESSIN_BANK_ACCOUNTS;
+      if (banks.length) setAccessinBankAccounts((cur) => (cur?.length ? cur : banks));
+      const retencionesList = retencionesSeed().ACCESSIN_RETENCIONES;
+      if (retencionesList.length) setRetenciones((cur) => (cur?.length ? cur : retencionesList));
+      const suppliersList = suppliersSeed().ACCESSIN_SUPPLIERS;
+      if (suppliersList.length) setSuppliers((cur) => (cur?.length >= 50 ? cur : suppliersList));
+      setDiscounts((cur) => resolveDiscounts(cur?.length ? cur : null, seedDiscounts()));
+    });
+    return () => { cancelled = true; };
+  }, [canLoadSeeds]);
+
   const applyErpHydration = useCallback((erp) => {
     if (!erp) return;
     if (Array.isArray(erp.chartOfAccounts)) setChartOfAccounts(erp.chartOfAccounts);
+    // Sin datos en la base se usa el snapshot si ya cargó; si todavía no, lo completa el
+    // efecto de los respaldos.
     if (Array.isArray(erp.cashRegisters)) {
+      const seedRegisters = cashSeed().ACCESSIN_CASH_REGISTERS;
       if (erp.cashRegisters.length >= 3) setCashRegisters(erp.cashRegisters);
-      else if (ACCESSIN_CASH_REGISTERS.length) setCashRegisters(ACCESSIN_CASH_REGISTERS);
+      else if (seedRegisters.length) setCashRegisters(seedRegisters);
     }
     if (Array.isArray(erp.cashSessions)) setCashSessions(erp.cashSessions);
     if (Array.isArray(erp.cashMovements)) setCashMovements(erp.cashMovements);
     if (Array.isArray(erp.accessinCashMovements) && erp.accessinCashMovements.length >= 500) {
       setAccessinCashMovements(erp.accessinCashMovements);
-    } else if (ACCESSIN_CASH_MOVEMENTS.length) {
-      setAccessinCashMovements(ACCESSIN_CASH_MOVEMENTS);
+    } else {
+      const seed = cashMovementsSeed().ACCESSIN_CASH_MOVEMENTS;
+      if (seed.length) setAccessinCashMovements((cur) => (cur?.length >= 500 ? cur : seed));
     }
     if (Array.isArray(erp.accessinCheques)) setAccessinCheques(erp.accessinCheques);
-    else setAccessinCheques(ACCESSIN_CHEQUES);
+    else setAccessinCheques(chequesSeed().ACCESSIN_CHEQUES);
     if (Array.isArray(erp.accessinCobranzas) && erp.accessinCobranzas.length >= 200) {
       setAccessinCobranzas(erp.accessinCobranzas);
-    } else if (ACCESSIN_COBRANZAS.length) {
-      setAccessinCobranzas(ACCESSIN_COBRANZAS);
+    } else {
+      const seed = cobranzasSeed().ACCESSIN_COBRANZAS;
+      if (seed.length) setAccessinCobranzas((cur) => (cur?.length >= 200 ? cur : seed));
     }
     if (Array.isArray(erp.accessinSupplierPayments)) {
       setAccessinSupplierPayments(erp.accessinSupplierPayments);
     } else {
-      setAccessinSupplierPayments(ACCESSIN_SUPPLIER_PAYMENTS);
+      setAccessinSupplierPayments(supplierPaymentsSeed().ACCESSIN_SUPPLIER_PAYMENTS);
     }
     if (Array.isArray(erp.accessinBankAccounts) && erp.accessinBankAccounts.length) {
       setAccessinBankAccounts(erp.accessinBankAccounts);
     } else {
-      setAccessinBankAccounts(ACCESSIN_BANK_ACCOUNTS);
+      setAccessinBankAccounts(bankAccountsSeed().ACCESSIN_BANK_ACCOUNTS);
     }
     if (Array.isArray(erp.interestGenerators)) setInterestGenerators(erp.interestGenerators);
     if (Array.isArray(erp.interestRuns)) setInterestRuns(erp.interestRuns);
-    if (Array.isArray(erp.discounts) && erp.discounts.length) {
-      setDiscounts(resolveDiscounts(erp.discounts));
-    } else {
-      setDiscounts(resolveDiscounts(null));
-    }
+    setDiscounts(resolveDiscounts(
+      Array.isArray(erp.discounts) && erp.discounts.length ? erp.discounts : null,
+      seedDiscounts(),
+    ));
     if (Array.isArray(erp.feeExpenses) && erp.feeExpenses.length) {
       setFeeExpenses(resolveFeeExpenses(erp.feeExpenses));
     } else {
@@ -339,7 +410,10 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
     if (Array.isArray(erp.suppliers)) {
       // Preferir nube cuando ya tiene el padrón Accessin; si no, seed local.
       if (erp.suppliers.length >= 200) setSuppliers(erp.suppliers);
-      else if (DEFAULT_SUPPLIERS.length) setSuppliers(DEFAULT_SUPPLIERS);
+      else {
+        const seed = suppliersSeed().ACCESSIN_SUPPLIERS;
+        if (seed.length) setSuppliers((cur) => (cur?.length >= 200 ? cur : seed));
+      }
     }
     if (Array.isArray(erp.retenciones)) setRetenciones(erp.retenciones);
     if (Array.isArray(erp.supplierPaymentImports)) setSupplierPaymentImports(erp.supplierPaymentImports);
@@ -351,13 +425,24 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
     if (Array.isArray(erp.fixedExpenses)) setFixedExpenses(erp.fixedExpenses);
     if (Array.isArray(erp.fixedDiscounts)) setFixedDiscounts(erp.fixedDiscounts);
     if (Array.isArray(erp.paymentOrders)) setPaymentOrders(erp.paymentOrders);
-    if (Array.isArray(erp.alerts)) setAlerts(erp.alerts);
+    if (Array.isArray(erp.concessions)) {
+      concessionsRef.current = erp.concessions;
+      setConcessions(erp.concessions);
+    }
+    if (Array.isArray(erp.alerts)) {
+      setAlerts(syncConcessionAlerts(erp.alerts, concessionsRef.current));
+    } else if (Array.isArray(erp.concessions)) {
+      setAlerts((prev) => syncConcessionAlerts(prev, erp.concessions));
+    }
     if (Array.isArray(erp.alertAcks)) {
       setAlertAcks((prev) => mergeAlertAcknowledgements(prev, erp.alertAcks));
     }
-    if (Array.isArray(erp.clubEvents)) setClubEvents(erp.clubEvents);
-    if (Array.isArray(erp.eventRegistrations)) setEventRegistrations(erp.eventRegistrations);
-    if (Array.isArray(erp.concessions)) setConcessions(erp.concessions);
+    if (Array.isArray(erp.clubEvents)) {
+      setClubEvents(withoutDemoEventData(erp.clubEvents, []).events);
+    }
+    if (Array.isArray(erp.eventRegistrations)) {
+      setEventRegistrations(withoutDemoEventData([], erp.eventRegistrations).registrations);
+    }
     if (Array.isArray(erp.canonPayments)) setCanonPayments(erp.canonPayments);
   }, []);
 
@@ -652,10 +737,11 @@ export default function useErpStore({ setJournalEntries, isZondaActive, userId }
   }, [alerts]);
 
   const ackAlert = useCallback(async (alertOrId, profileId = 'local-user') => {
-    const alertId = typeof alertOrId === 'object' && alertOrId ? alertOrId.id : alertOrId;
-    const alertCode = typeof alertOrId === 'object' && alertOrId ? alertOrId.code : null;
+    const alert = typeof alertOrId === 'object' && alertOrId ? alertOrId : null;
+    const alertId = alert ? alert.id : alertOrId;
+    const alertCode = alert ? alert.code : null;
     if (!alertId) return;
-    setAlertAcks((prev) => acknowledgeAlert(prev, alertId, profileId, alertCode));
+    setAlertAcks((prev) => acknowledgeAlert(prev, alertId, profileId, alertCode, { alert }));
     if (cloud() && PROFILE_UUID_RE.test(String(profileId))) {
       try {
         await repos.ackAlert(alertId, profileId);

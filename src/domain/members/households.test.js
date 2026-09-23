@@ -6,6 +6,10 @@ import {
   attachHouseholdToMembers,
   resolveFamilyForDisplay,
   allocateNextMemberNumber,
+  mergeMembersById,
+  listFamilyGroups,
+  familyGroupMatchesQuery,
+  rankMemberSearchHit,
 } from './households';
 
 const catalog = [
@@ -84,6 +88,21 @@ describe('households', () => {
     expect(withReserved.byTier.find((t) => t.id === 'socio_familiar')?.color.toLowerCase()).not.toBe('#cfa13a');
   });
 
+  it('no duplica un familiar que ya está en adherentes por nombre', () => {
+    const linked = attachHouseholdToMembers([
+      {
+        ...titular,
+        adherents: [{ id: 'adh-1', name: 'Milagros Rojo', relationship: 'Hijo/a' }],
+      },
+      hijo,
+      hija,
+    ]);
+    const t = linked.find((m) => m.memberId === '10009');
+    const names = t.adherents.map((a) => a.name);
+    expect(names.filter((n) => n === 'Milagros Rojo')).toHaveLength(1);
+    expect(names).toContain('Juan Rojo');
+  });
+
   it('asocia integrantes como adherentes del titular', () => {
     const linked = attachHouseholdToMembers([titular, hijo, hija, individual]);
     const t = linked.find((m) => m.memberId === '10009');
@@ -95,6 +114,51 @@ describe('households', () => {
   it('asigna credencial siguiente sin usar números random largos', () => {
     expect(allocateNextMemberNumber([titular, hijo, { memberId: '2026887744320988' }])).toBe('10010');
     expect(allocateNextMemberNumber([])).toBe('10001');
+  });
+
+  it('mezcla resultados remotos sin duplicar credencial', () => {
+    const merged = mergeMembersById(
+      [titular, hijo],
+      [{ ...hijo, name: 'Milagros remota' }, individual],
+      10,
+    );
+    expect(merged.map((m) => m.memberId)).toEqual(['10009', '3501', '2270']);
+    expect(merged.find((m) => m.memberId === '3501').name).toBe('Milagros Rojo');
+  });
+
+  it('arma el padrón de grupos familiares para tocar y ver socios', () => {
+    const groups = listFamilyGroups([titular, hijo, hija, individual]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].id).toBe('10009');
+    expect(groups[0].name).toBe('GF - Rojo');
+    expect(groups[0].size).toBe(3);
+    expect(groups[0].members.map((m) => m.memberId)).toEqual(['10009', '3501', '4928']);
+    expect(groups[0].members[0].role).toBe('titular');
+    expect(familyGroupMatchesQuery(groups[0], 'milagros')).toBe(true);
+    expect(familyGroupMatchesQuery(groups[0], '2270')).toBe(false);
+  });
+
+  it('no usa el Nº como nombre de familia', () => {
+    const groups = listFamilyGroups([
+      { memberId: '90', name: 'Marta Ruiz', familyGroupName: '90' },
+      { memberId: '91', name: 'Pedro Ruiz', familyPrincipalNumber: 90, familyGroupName: '90' },
+    ]);
+    expect(groups[0].name).toBe('Familia Ruiz');
+  });
+
+  it('nombra la familia si no hay grupo LILA', () => {
+    const groups = listFamilyGroups([
+      { memberId: '80', name: 'Ana Perez' },
+      { memberId: '81', name: 'Luis Perez', familyPrincipalNumber: 80 },
+    ]);
+    expect(groups[0].name).toBe('Familia Perez');
+  });
+
+  it('prioriza el apellido del socio sobre un match débil', () => {
+    const q = 'bonilla';
+    const socio = { memberId: '1', name: 'Juan Bonilla', status: 'active' };
+    const otro = { memberId: '2', name: 'Ana López', email: 'bonilla@club.com', status: 'active' };
+    expect(rankMemberSearchHit(socio, q)).toBeLessThan(rankMemberSearchHit(otro, q));
   });
 
   it('en ficha de integrante muestra titular y hermanos', () => {

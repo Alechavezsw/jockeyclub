@@ -107,6 +107,7 @@ function emptyAppShell() {
     disciplineCatalog: null,
     registeredUsersCount: 0,
     membershipApplications: [],
+    portalAccessRequests: [],
   };
 }
 
@@ -132,7 +133,11 @@ export async function bootstrapMemberCriticalFromDb({ memberNumber } = {}) {
       : Promise.resolve(null)),
     () => soft(repos.listNews({ limit: 30 }), [], 'news'),
     () => soft(repos.listMessages({ limit: 80 }), [], 'messages'),
-    () => soft(repos.listReservations({ limit: 80 }), [], 'reservations'),
+    () => soft(repos.listReservations({
+      memberNumber,
+      fromDate: todayISO(),
+      limit: 80,
+    }), [], 'reservations'),
     () => soft(repos.listReservationOccupancy({ fromDate: todayISO(), limit: 400 }), [], 'occupancy'),
     () => soft(repos.getSetting('zonda'), null, 'zonda'),
   ], QUERY_CONCURRENCY);
@@ -253,6 +258,7 @@ export async function bootstrapOpsDeferredFromDb() {
     disciplinesSetting,
     registeredUsersCount,
     membershipApplications,
+    portalAccessRequests,
   ] = await mapLimit([
     () => softD(repos.listWaitlist(), [], 'waitlist'),
     () => softD(repos.listRsvps(), [], 'rsvps'),
@@ -267,6 +273,7 @@ export async function bootstrapOpsDeferredFromDb() {
     () => softD(repos.getSetting('disciplines_catalog'), null, 'disciplines'),
     () => softD(repos.countRegisteredProfiles(), 0, 'profilesCount'),
     () => softD(repos.listMembershipApplications(), [], 'applications'),
+    () => softD(repos.listPortalAccessRequests(), [], 'portalAccess'),
   ], QUERY_CONCURRENCY);
 
   return {
@@ -282,6 +289,7 @@ export async function bootstrapOpsDeferredFromDb() {
       disciplineCatalog: Array.isArray(disciplinesSetting) ? disciplinesSetting : null,
       registeredUsersCount: registeredUsersCount || 0,
       membershipApplications: membershipApplications || [],
+      portalAccessRequests: portalAccessRequests || [],
     },
     erp: {
       clubEvents: clubEvents || [],

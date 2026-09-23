@@ -1,6 +1,12 @@
 import { useState } from 'react';
 import { BellRing, Megaphone, ShieldAlert } from 'lucide-react';
-import { ALERT_SEVERITY, filterAlertsForRole, isAlertAcknowledged, isAlertVisible } from '../../domain/alerts/alerts';
+import {
+  ALERT_SEVERITY,
+  alertDismissKey,
+  filterAlertsForRole,
+  isAlertAcknowledged,
+  isAlertVisible,
+} from '../../domain/alerts/alerts';
 
 export function AlertsBanner({
   alerts,
@@ -15,10 +21,15 @@ export function AlertsBanner({
   style,
   maxItems = 3,
 }) {
+  const [dismissedKeys, setDismissedKeys] = useState(() => new Set());
   const visible = filterAlertsForRole(alerts, userRole).filter((a) => {
     if (onlySources?.length && !onlySources.includes(a.source)) return false;
     if (excludeSources?.length && excludeSources.includes(a.source)) return false;
-    return !isAlertAcknowledged(a, alertAcks);
+    if (isAlertAcknowledged(a, alertAcks)) return false;
+    const key = alertDismissKey(a);
+    if (key && dismissedKeys.has(key)) return false;
+    if (a.id && dismissedKeys.has(String(a.id))) return false;
+    return true;
   });
 
   if (visible.length === 0) return null;
@@ -44,7 +55,20 @@ export function AlertsBanner({
                 <div className="alerts-banner-body">{alert.body}</div>
               </div>
             </div>
-            <button type="button" className="btn btn-sm btn-secondary" onClick={() => onAck?.(alert)}>
+            <button
+              type="button"
+              className="btn btn-sm btn-secondary"
+              onClick={() => {
+                const key = alertDismissKey(alert);
+                setDismissedKeys((prev) => {
+                  const next = new Set(prev);
+                  if (key) next.add(key);
+                  if (alert.id) next.add(String(alert.id));
+                  return next;
+                });
+                onAck?.(alert);
+              }}
+            >
               Entendido
             </button>
           </div>

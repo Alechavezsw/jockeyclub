@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  X, Save, Plus, Copy, Trash2, ChevronDown, ChevronUp, Upload,
+  X, Save, Plus, Copy, Trash2, Upload,
+  Clock, Users, Shield, FileText, Sparkles, BookOpen, Landmark,
 } from 'lucide-react';
 import ModalDialog from '../ModalDialog';
 import {
@@ -13,13 +14,13 @@ import {
 } from '../../domain/reservations/facilityConfig';
 
 const SECTIONS = [
-  { id: 'datos', label: 'Datos del espacio' },
-  { id: 'horarios', label: 'Horarios y precios' },
-  { id: 'reglas', label: 'Reglas y restricciones' },
-  { id: 'invitados', label: 'Invitados' },
-  { id: 'contable', label: 'Información contable' },
-  { id: 'terminos', label: 'Términos y condiciones' },
-  { id: 'extras', label: 'Servicios adicionales' },
+  { id: 'datos', label: 'Datos', title: 'Datos del espacio', hint: 'Nombre, foto y tipo', icon: BookOpen },
+  { id: 'horarios', label: 'Horarios', title: 'Horarios y precios', hint: 'Días, turnos y tarifa', icon: Clock },
+  { id: 'reglas', label: 'Reglas', title: 'Reglas y restricciones', hint: 'Cupos, anticipación y bloqueos', icon: Shield },
+  { id: 'invitados', label: 'Invitados', title: 'Invitados', hint: 'Capacidad y requisitos', icon: Users },
+  { id: 'contable', label: 'Contable', title: 'Información contable', hint: 'Cobro, deuda y Mercado Pago', icon: Landmark },
+  { id: 'terminos', label: 'Términos', title: 'Términos y condiciones', hint: 'Texto que ve el socio al reservar', icon: FileText },
+  { id: 'extras', label: 'Servicios', title: 'Servicios adicionales', hint: 'Adicionales con costo', icon: Sparkles },
 ];
 
 function Field({ label, hint, children }) {
@@ -34,20 +35,16 @@ function Field({ label, hint, children }) {
   );
 }
 
-function Section({ id, openId, setOpenId, label, children }) {
-  const open = openId === id;
+function Section({ id, openId, children }) {
+  if (openId !== id) return null;
+  const meta = SECTIONS.find((s) => s.id === id);
   return (
-    <section className={`fac-edit-section${open ? ' is-open' : ''}`}>
-      <button
-        type="button"
-        className="fac-edit-section-head"
-        onClick={() => setOpenId(open ? null : id)}
-        aria-expanded={open}
-      >
-        <span>{label}</span>
-        {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-      </button>
-      {open ? <div className="fac-edit-section-body">{children}</div> : null}
+    <section className="fac-edit-panel" aria-labelledby={`fac-sec-${id}`}>
+      <header className="fac-edit-panel-head">
+        <h4 id={`fac-sec-${id}`}>{meta?.title || meta?.label}</h4>
+        {meta?.hint ? <p>{meta.hint}</p> : null}
+      </header>
+      <div className="fac-edit-section-body">{children}</div>
     </section>
   );
 }
@@ -73,6 +70,12 @@ export default function FacilityEditorModal({
   const [draft, setDraft] = useState(() => normalizeFacilityConfig(facility));
   const [openSection, setOpenSection] = useState('datos');
   const [error, setError] = useState('');
+  const scrollRef = useRef(null);
+
+  const goToSection = (id) => {
+    setOpenSection(id);
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  };
 
   useEffect(() => {
     setDraft(normalizeFacilityConfig(facility));
@@ -124,7 +127,7 @@ export default function FacilityEditorModal({
   const handleSave = () => {
     if (!String(draft.name || '').trim()) {
       setError('El nombre del espacio es obligatorio.');
-      setOpenSection('datos');
+      goToSection('datos');
       return;
     }
     onSave?.(applyFacilityEditorPatch(draft));
@@ -140,43 +143,55 @@ export default function FacilityEditorModal({
       contentStyle={{
         width: 'min(96vw, 820px)',
         maxHeight: '92vh',
-        overflow: 'auto',
-        padding: '1.15rem 1.25rem 1.35rem',
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+        padding: 0,
         background: 'var(--bg-secondary)',
         border: '1px solid var(--border-glass)',
       }}
     >
-      <header className="fac-edit-top">
-        <div>
-          <h3 id="fac-edit-title" className="serif-font">Editar espacio</h3>
-          <p>{draft.name || facility.name}</p>
-        </div>
-        <div className="fac-edit-top-actions">
-          <button type="button" className="btn btn-secondary btn-sm" onClick={onClose}>
-            <X size={14} /> Cerrar
-          </button>
-          <button type="button" className="btn btn-primary btn-sm" onClick={handleSave}>
-            <Save size={14} /> Guardar
-          </button>
-        </div>
-      </header>
+      <div className="fac-edit-chrome">
+        <header className="fac-edit-top">
+          <div>
+            <h3 id="fac-edit-title" className="serif-font">Editar espacio</h3>
+            <p>{draft.name || facility.name}</p>
+          </div>
+          <div className="fac-edit-top-actions">
+            <button type="button" className="btn btn-secondary btn-sm" onClick={onClose}>
+              <X size={14} /> Cerrar
+            </button>
+            <button type="button" className="btn btn-tan btn-sm" onClick={handleSave}>
+              <Save size={14} /> Guardar
+            </button>
+          </div>
+        </header>
 
-      {error ? <p className="conc-error" role="alert">{error}</p> : null}
+        {error ? <p className="conc-error" role="alert">{error}</p> : null}
 
-      <div className="fac-edit-nav">
-        {SECTIONS.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            className={openSection === s.id ? 'is-active' : ''}
-            onClick={() => setOpenSection(s.id)}
-          >
-            {s.label}
-          </button>
-        ))}
+        <nav className="fac-edit-nav" aria-label="Secciones del espacio">
+          {SECTIONS.map((s) => {
+            const Icon = s.icon;
+            const active = openSection === s.id;
+            return (
+              <button
+                key={s.id}
+                type="button"
+                className={active ? 'is-active' : ''}
+                aria-current={active ? 'page' : undefined}
+                onClick={() => goToSection(s.id)}
+              >
+                <Icon size={14} strokeWidth={active ? 2.4 : 2} aria-hidden="true" />
+                {s.label}
+              </button>
+            );
+          })}
+        </nav>
       </div>
 
-      <Section id="datos" openId={openSection} setOpenId={setOpenSection} label="Datos del espacio">
+      <div className="fac-edit-scroll" ref={scrollRef}>
+
+      <Section id="datos" openId={openSection}>
         <Field label="Nombre" hint="Nombre identificatorio del lugar. Límite 80 caracteres.">
           <input
             className="form-input"
@@ -256,7 +271,7 @@ export default function FacilityEditorModal({
         </Field>
       </Section>
 
-      <Section id="horarios" openId={openSection} setOpenId={setOpenSection} label="Horarios y precios">
+      <Section id="horarios" openId={openSection}>
         <div className="fac-sched-table">
           <div className="fac-sched-head">
             <span>Día</span>
@@ -306,7 +321,7 @@ export default function FacilityEditorModal({
         </p>
       </Section>
 
-      <Section id="reglas" openId={openSection} setOpenId={setOpenSection} label="Reglas y restricciones">
+      <Section id="reglas" openId={openSection}>
         <Field label="Crear reserva en estado" hint="Con Pendiente, Secretaría debe aprobarla.">
           <select className="form-input" value={draft.rules.createStatus} onChange={(e) => patchRules({ createStatus: e.target.value })}>
             <option value="approved">Aprobado</option>
@@ -430,7 +445,7 @@ export default function FacilityEditorModal({
         </div>
       </Section>
 
-      <Section id="invitados" openId={openSection} setOpenId={setOpenSection} label="Invitados">
+      <Section id="invitados" openId={openSection}>
         <Field label="Capacidad" hint="Cantidad máxima de personas del lugar.">
           <input className="form-input" type="number" min={0} value={draft.guests.capacity} onChange={(e) => patchGuests({ capacity: Number(e.target.value) || 0 })} />
         </Field>
@@ -461,7 +476,7 @@ export default function FacilityEditorModal({
         </Field>
       </Section>
 
-      <Section id="contable" openId={openSection} setOpenId={setOpenSection} label="Información contable">
+      <Section id="contable" openId={openSection}>
         <Field label="¿Multiplicar el precio en una reserva ampliada?">
           {yesNo(draft.accounting.multiplyExtendedPrice, (v) => patchAccounting({ multiplyExtendedPrice: v }))}
         </Field>
@@ -523,21 +538,40 @@ export default function FacilityEditorModal({
         </div>
       </Section>
 
-      <Section id="terminos" openId={openSection} setOpenId={setOpenSection} label="Términos y condiciones">
-        <Field label="¿Reconfirmar términos y condiciones?">
-          {yesNo(draft.terms.reconfirm, (v) => patchTerms({ reconfirm: v }))}
-        </Field>
-        <Field label="Términos y condiciones">
-          <textarea
-            className="form-input"
-            rows={10}
-            value={draft.terms.text || ''}
-            onChange={(e) => patchTerms({ text: e.target.value })}
-          />
-        </Field>
+      <Section id="terminos" openId={openSection}>
+        <div className="fac-edit-terms">
+          <div className="fac-edit-terms-row">
+            <p className="fac-edit-terms-q">¿Pedir al socio que reconfirme los términos al reservar?</p>
+            <div className="fac-edit-yesno" role="group" aria-label="Reconfirmar términos">
+              <button
+                type="button"
+                className={draft.terms.reconfirm ? 'is-on' : ''}
+                onClick={() => patchTerms({ reconfirm: true })}
+              >
+                Sí
+              </button>
+              <button
+                type="button"
+                className={!draft.terms.reconfirm ? 'is-on' : ''}
+                onClick={() => patchTerms({ reconfirm: false })}
+              >
+                No
+              </button>
+            </div>
+          </div>
+          <label className="fac-edit-terms-text">
+            <span>Texto que ve el socio</span>
+            <textarea
+              className="form-input"
+              rows={8}
+              value={draft.terms.text || ''}
+              onChange={(e) => patchTerms({ text: e.target.value })}
+            />
+          </label>
+        </div>
       </Section>
 
-      <Section id="extras" openId={openSection} setOpenId={setOpenSection} label="Servicios adicionales">
+      <Section id="extras" openId={openSection}>
         <Field label="¿Particularidades obligatorias?">
           {yesNo(draft.extras.mandatoryParticularity, (v) => patchExtras({ mandatoryParticularity: v }))}
         </Field>
@@ -579,10 +613,11 @@ export default function FacilityEditorModal({
           />
         </Field>
       </Section>
+      </div>
 
       <footer className="fac-edit-foot">
         <button type="button" className="btn btn-secondary" onClick={onClose}>Cancelar</button>
-        <button type="button" className="btn btn-primary" onClick={handleSave}>
+        <button type="button" className="btn btn-tan" onClick={handleSave}>
           <Save size={15} /> Guardar cambios
         </button>
       </footer>

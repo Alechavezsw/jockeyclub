@@ -1,7 +1,10 @@
 /** Reporte composición de recargos (Accessin / LILA). */
 
-import { ACCESSIN_COBRANZAS } from '../../data/seed/accessinCobranzas';
-import { ACCESSIN_MONTHLY_DEBTS_BY_NUMBER } from '../../data/seed/accessinMonthlyDebts';
+import { cobranzasSeed } from './cobranzas';
+import { monthlyDebtsSeed } from './monthlyDebts';
+
+/** Snapshots que tienen que estar cargados para buildSurchargeComposition. */
+export const SURCHARGE_COMPOSITION_SNAPSHOTS = ['accessinCobranzas', 'accessinMonthlyDebts'];
 
 function padMember(n) {
   return String(n || '').replace(/\D/g, '') || '';
@@ -31,8 +34,8 @@ export function buildSurchargeComposition({
   memberNumber = '',
   from = '',
   to = '',
-  cobranzas = ACCESSIN_COBRANZAS,
-  debtsByNumber = ACCESSIN_MONTHLY_DEBTS_BY_NUMBER,
+  cobranzas = cobranzasSeed().ACCESSIN_COBRANZAS,
+  debtsByNumber = monthlyDebtsSeed().ACCESSIN_MONTHLY_DEBTS_BY_NUMBER,
 } = {}) {
   const nro = padMember(memberNumber);
   const rows = [];

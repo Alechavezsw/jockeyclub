@@ -2,10 +2,11 @@ import { useMemo, useRef, useState } from 'react';
 import { ArrowLeft, FileSpreadsheet, Pencil, Percent, Plus, Receipt, Search, Trash2 } from 'lucide-react';
 import { formatCurrency } from '../../domain/accounting/journal';
 import { DATITA_CUOTA_CATEGORY_NAMES } from '../../domain/members/tiers';
+import { bonificacionesSeed } from '../../domain/accounting/discountsSeed';
+import { useSnapshotSeed } from '../../hooks/useSnapshots';
 import {
   DISCOUNT_CATEGORIES,
   DISCOUNT_VALUE_TYPES,
-  ACCESSIN_BONIFICACIONES_SNAPSHOT,
   appliedToLabel as discountAppliedToLabel,
   createDiscount,
   discountCategoryCounts,
@@ -57,6 +58,10 @@ export default function DiscountsBonusesPanel({
   onDeleteFeeExpense,
   onGoExpenses,
 }) {
+  const { ACCESSIN_BONIFICACIONES_SNAPSHOT } = useSnapshotSeed(
+    ['accessinBonificaciones'],
+    bonificacionesSeed,
+  );
   const [hubTab, setHubTab] = useState('discounts');
   const [category, setCategory] = useState(null);
   const [view, setView] = useState('hub');
@@ -268,7 +273,7 @@ export default function DiscountsBonusesPanel({
                 className="form-input"
                 value={form.familyGroup}
                 onChange={(e) => setForm((f) => ({ ...f, familyGroup: e.target.value }))}
-                placeholder="Ej. GF - Laciar 8377"
+                placeholder="Ej. GF - Pérez 1234"
                 required
               />
               <p className="disc-field-hint">
@@ -362,7 +367,7 @@ export default function DiscountsBonusesPanel({
           {error ? <p className="ig-error">{error}</p> : null}
           <div className="ig-form-actions">
             <button type="button" className="btn btn-secondary" onClick={() => setView('list')}>Volver</button>
-            <button type="submit" className="btn cash-lila-purple-btn">
+            <button type="submit" className="btn btn-tan">
               {editingId ? 'Guardar' : 'Crear'}
             </button>
           </div>
@@ -401,7 +406,7 @@ export default function DiscountsBonusesPanel({
                 </button>
               </>
             ) : null}
-            <button type="button" className="btn cash-lila-purple-btn" onClick={openCreate}>
+            <button type="button" className="btn btn-tan" onClick={openCreate}>
               <Plus size={14} /> {Noun}
             </button>
           </div>

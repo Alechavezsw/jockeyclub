@@ -1,4 +1,25 @@
-import { duesAmountForMember, duesAmountForTier } from './dues';
+import {
+  duesAmountForMember,
+  duesAmountForTier,
+  firstUnpaidDuesDate,
+  monthsBehindOnDues,
+} from './dues';
+
+function isDuesPayment(row) {
+  const concept = String(row?.concept || '').toLowerCase();
+  if (/evento|reserva|inscrip/.test(concept)) return false;
+  return true;
+}
+
+function latestDuesPaymentDate(history = [], member) {
+  const fromHistory = (history || [])
+    .filter((p) => p && p.status !== 'void' && isDuesPayment(p) && p.date)
+    .map((p) => String(p.date).slice(0, 10))
+    .sort((a, b) => b.localeCompare(a))[0] || null;
+  const fromMember = member?.lastPaymentDate ? String(member.lastPaymentDate).slice(0, 10) : null;
+  if (fromHistory && fromMember) return fromHistory > fromMember ? fromHistory : fromMember;
+  return fromHistory || fromMember || null;
+}
 
 const METHOD_LABELS = {
   transferencia: 'Transferencia',
@@ -20,24 +41,41 @@ function shiftMonths(fromIso, delta) {
   return d.toISOString().slice(0, 10);
 }
 
+function paymentAmount(row) {
+  const n = Number(row?.amount ?? row?.value ?? row?.monto);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Cuota mensual para mora del titular.
+ * Un pago cubre la cuota de esa ficha: no se multiplica por adherentes.
+ * El grupo familiar se liquida aparte en administración.
+ */
+export function referenceMonthlyDues(member, history = []) {
+  const fromPay = (history || []).find((p) => paymentAmount(p) > 0);
+  if (fromPay) return paymentAmount(fromPay);
+  const fromTier = duesAmountForTier(member?.tier);
+  if (fromTier > 0) return fromTier;
+  return 32000;
+}
+
 /**
  * Historial de pagos del socio.
- * Usa `member.paymentHistory` si existe; si no hay filas y el socio viene de BD (`id`),
- * devuelve vacío (no inventa demos). El historial demo solo aplica a fichas locales.
+ * Si `paymentHistory` viene como array (aunque vacío), no inventa filas.
+ * El historial demo solo aplica a fichas locales sin nube.
  */
-export function getMemberPaymentHistory(member, { today = new Date() } = {}) {
-  if (Array.isArray(member?.paymentHistory) && member.paymentHistory.length) {
+export function getMemberPaymentHistory(member, { today = new Date(), allowDemo = false } = {}) {
+  if (Array.isArray(member?.paymentHistory)) {
     return [...member.paymentHistory]
       .map(normalizePayment)
       .sort((a, b) => String(b.date).localeCompare(String(a.date)));
   }
 
-  // Socio persistido en cloud: sin pagos = historial vacío real
-  if (member?.id) return [];
+  if (member?.id || !allowDemo) return [];
 
   const todayIso = today.toISOString().slice(0, 10);
   const baseDue = member?.nextDueDate || todayIso;
-  const amount = duesAmountForMember(member);
+  const amount = duesAmountForMember(member) || duesAmountForTier(member?.tier) || 32000;
   const years = Math.max(1, Number(member?.yearsActive) || 2);
   const months = Math.min(18, years * 6);
   const hasDebt = (Number(member?.outstandingBalance) || 0) > 0;
@@ -80,31 +118,46 @@ export function getMemberPaymentHistory(member, { today = new Date() } = {}) {
 }
 
 function normalizePayment(row) {
+  const amount = paymentAmount(row);
   return {
-    id: row.id || `pay-${row.date}-${row.amount}`,
+    id: row.id || `pay-${row.date}-${amount}`,
     date: row.date,
     concept: row.concept || 'Cuota social',
-    amount: Number(row.amount) || 0,
+    amount,
     method: row.method || 'caja',
     methodLabel: METHOD_LABELS[row.method] || row.methodLabel || 'Pago',
     status: row.status || 'paid',
-    receipt: row.receipt || null,
+    receipt: row.receipt || row.receiptNumber || null,
     period: row.period || null,
   };
 }
 
-export function summarizePaymentHistory(history = [], member) {
+export function summarizePaymentHistory(history = [], member, { today = new Date() } = {}) {
   const paid = (history || []).filter((p) => p.status === 'paid');
   const totalPaid = paid.reduce((s, p) => s + (Number(p.amount) || 0), 0);
   const last = paid[0] || null;
-  const outstanding = Number(member?.outstandingBalance) || 0;
-  const nextDue = member?.nextDueDate || null;
-  const nextAmount = outstanding > 0 ? outstanding : duesAmountForMember(member);
+  const lastDuesDate = latestDuesPaymentDate(paid, member);
+  const monthsBehind = monthsBehindOnDues({
+    lastPaymentDate: lastDuesDate,
+    nextDueDate: member?.nextDueDate,
+    today,
+  });
+  const monthly = referenceMonthlyDues(member, paid);
+  const stored = Number(member?.outstandingBalance) || 0;
+  const outstanding = Math.max(stored, monthsBehind > 0 ? monthsBehind * monthly : 0);
+  const nextDue = firstUnpaidDuesDate({
+    lastPaymentDate: lastDuesDate,
+    nextDueDate: member?.nextDueDate,
+    today,
+  });
+  const nextAmount = outstanding > 0 ? outstanding : monthly;
 
   return {
     totalPaid,
     paymentsCount: paid.length,
     lastPayment: last,
+    lastDuesDate,
+    monthsBehind,
     outstanding,
     nextDue,
     nextAmount,

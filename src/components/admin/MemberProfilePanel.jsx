@@ -11,7 +11,7 @@ import VirtualCard from '../VirtualCard';
 import GuestPassPanel from '../GuestPassPanel';
 import CollectDuesModal from './CollectDuesModal';
 import ModalDialog from '../ModalDialog';
-import { formatShortDate } from '../../domain/members/dues';
+import { formatShortDate, quotaHeadline } from '../../domain/members/dues';
 import { formatDateTimeAR, todayISODateAR } from '../../lib/arDate';
 import { collectMemberMeta, memberHasSocietasApp } from '../../domain/members/memberAdminActions';
 import { getActiveTiers, getTierDisplayName, tierBadgeStyle } from '../../domain/members/tiers';
@@ -617,6 +617,7 @@ export default function MemberProfilePanel({
   const status = STATUS_COPY[member.status] || STATUS_COPY.pending;
   const balance = Number(member.outstandingBalance) || 0;
   const hasDebt = balance > 0;
+  const quota = quotaHeadline(member);
   const tierName = getTierDisplayName(member.tier, tierCatalog);
   const age = ageFromBirth(member.birthDate);
   const tenure = membershipTenure(member);
@@ -688,21 +689,25 @@ export default function MemberProfilePanel({
           </div>
         </div>
 
-        <aside className={`mp-balance ${hasDebt ? 'has-debt' : 'is-clear'}`} aria-label="Estado de cuota">
+        <aside
+          className={`mp-balance ${hasDebt ? 'has-debt' : quota.kind === 'clear' ? 'is-clear' : 'is-off'}`}
+          aria-label="Estado de cuota"
+        >
           <div className="mp-balance-label">{hasDebt ? 'Saldo de cuota' : 'Estado de cuota'}</div>
           <div className="mp-balance-value">
-            {hasDebt ? formatCurrency(balance) : 'Al día'}
+            {hasDebt ? formatCurrency(balance) : quota.title}
           </div>
           <div className="mp-balance-hint">
-            {hasDebt
-              ? (member.nextDueDate
-                ? `Venció / vence ${formatShortDate(member.nextDueDate)}`
-                : 'Pendiente de cobro')
-              : (member.nextDueDate
-                ? `Próximo vencimiento ${formatShortDate(member.nextDueDate)}`
-                : 'Sin vencimiento cargado')}
+            {quota.hint
+              || (hasDebt
+                ? (member.nextDueDate
+                  ? `Venció / vence ${formatShortDate(member.nextDueDate)}`
+                  : 'Pendiente de cobro')
+                : (member.nextDueDate
+                  ? `Próximo vencimiento ${formatShortDate(member.nextDueDate)}`
+                  : 'Sin vencimiento cargado'))}
           </div>
-          {canCollect ? (
+          {canCollect && (hasDebt || quota.billing) ? (
             <button
               type="button"
               className="btn btn-primary btn-sm mp-collect-btn"

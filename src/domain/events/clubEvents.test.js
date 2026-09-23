@@ -5,6 +5,8 @@ import {
   enableGuestEventAccess,
   countRegistrations,
   eventOpsStats,
+  buildEventDashboard,
+  withoutDemoEventData,
 } from './clubEvents.js';
 
 const event = {
@@ -61,5 +63,43 @@ describe('clubEvents ops', () => {
       registrations: [],
       chart,
     })).toThrow(/titular/i);
+  });
+
+  it('arma series de cupo, mix y cobros para los gráficos', () => {
+    const gala = { ...event, id: 'evt-1', capacity: 10, ticketPrice: 10000 };
+    const after = { id: 'evt-2', title: 'After', capacity: 20, ticketPrice: 0, status: 'published' };
+    const regs = [
+      { id: 'a', eventId: 'evt-1', kind: 'member', amountPaid: 10000, paymentMethod: 'efectivo', status: 'active', guestsCount: 1 },
+      { id: 'b', eventId: 'evt-1', kind: 'guest', amountPaid: 10000, paymentMethod: 'mercadopago', status: 'active', guestsCount: 1 },
+      { id: 'c', eventId: 'evt-2', kind: 'member', amountPaid: 0, paymentMethod: null, status: 'active', guestsCount: 1 },
+      { id: 'd', eventId: 'evt-1', kind: 'member', amountPaid: 10000, paymentMethod: 'efectivo', status: 'revoked', guestsCount: 1 },
+    ];
+    const dash = buildEventDashboard([gala, after], regs);
+    expect(dash.ops.members).toBe(2);
+    expect(dash.ops.guests).toBe(1);
+    expect(dash.ops.collected).toBe(20000);
+    expect(dash.byEvent[0].used).toBe(2);
+    expect(dash.byEvent[0].occupancyPct).toBe(20);
+    expect(dash.byEvent[1].occupancyPct).toBe(5);
+    expect(dash.payments.efectivo).toBe(10000);
+    expect(dash.payments.mercadopago).toBe(10000);
+    expect(dash.payments.complimentary).toBe(1);
+    expect(dash.mix.memberPct).toBe(67);
+    expect(dash.maxCollected).toBe(20000);
+  });
+
+  it('saca eventos e inscripciones de muestra', () => {
+    const cleaned = withoutDemoEventData(
+      [
+        { id: 'evt-1', title: 'Cena de Gala Socios Royal & Platinum' },
+        { id: 'evt-real', title: 'Copa de polo' },
+      ],
+      [
+        { id: 'ereg-d1', eventId: 'evt-1' },
+        { id: 'ereg-live', eventId: 'evt-real' },
+      ],
+    );
+    expect(cleaned.events.map((e) => e.id)).toEqual(['evt-real']);
+    expect(cleaned.registrations.map((r) => r.id)).toEqual(['ereg-live']);
   });
 });

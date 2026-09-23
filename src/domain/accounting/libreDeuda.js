@@ -1,12 +1,18 @@
 /** Certificado de libre deuda (Accessin / LILA · Contabilidad). */
 
-import { ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF } from './currentAccountBalances';
-import { currentAccountBalanceOf, lookupCurrentAccountBalance } from './currentAccountBalances';
+import {
+  currentAccountBalanceOf,
+  currentAccountBalancesSeed,
+  lookupCurrentAccountBalance,
+} from './currentAccountBalances';
 import { lookupMonthlyDebt } from './monthlyDebts';
 import { lookupDetailedCc } from './detailedCurrentAccounts';
-import { familyBalanceForMember, formatSpanishLongDate } from './memberBalances';
+import { familyBalanceForMember, formatSpanishLongDate, MEMBER_BALANCES_SNAPSHOTS } from './memberBalances';
 import { memberNumberOf } from '../members/households';
 import { getTierDisplayName } from '../members/tiers';
+
+/** Snapshots que tienen que estar cargados para armar el certificado. */
+export const LIBRE_DEUDA_SNAPSHOTS = [...MEMBER_BALANCES_SNAPSHOTS, 'accessinMonthlyDebts'];
 
 export const LIBRE_DEUDA_MODULE = 'contabilidad';
 export const LIBRE_DEUDA_REPORT_TYPE = 'libre_deuda';
@@ -56,7 +62,7 @@ export function validateLibreDeudaInput({ member, memberNumber } = {}) {
 export function balanceAsOf(member, asOf = '') {
   const nro = padMember(memberNumberOf(member) || member?.memberId);
   const cutoff = String(asOf || '').slice(0, 10);
-  const seedAsOf = ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF;
+  const seedAsOf = currentAccountBalancesSeed().ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF;
   const month = cutoff.slice(0, 7);
 
   if (!cutoff || cutoff >= seedAsOf) {

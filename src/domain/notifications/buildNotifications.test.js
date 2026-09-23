@@ -51,6 +51,35 @@ describe('buildNotifications', () => {
     expect(list).toHaveLength(0);
   });
 
+  it('ops con padrón ve solicitudes de nuevo socio pendientes', () => {
+    const list = buildNotifications({
+      role: 'admin',
+      membershipApplications: [
+        {
+          id: 'j1',
+          fullName: 'Nuevo Socio',
+          documentNumber: '30111222',
+          status: 'pending',
+          createdAt: '2026-09-22T12:00:00.000Z',
+        },
+        { id: 'j2', fullName: 'Ya resuelto', status: 'approved' },
+      ],
+    });
+    expect(list.map((n) => n.id)).toContain('join-j1');
+    expect(list.map((n) => n.id)).not.toContain('join-j2');
+    expect(list.find((n) => n.id === 'join-j1')?.title).toBe('Solicitud de nuevo socio');
+  });
+
+  it('el socio no ve solicitudes de alta ajenas', () => {
+    const list = buildNotifications({
+      role: 'member',
+      memberId: '111',
+      member: { memberId: '111' },
+      membershipApplications: [{ id: 'j1', fullName: 'Otro', status: 'pending' }],
+    });
+    expect(list.some((n) => n.kind === 'join_request')).toBe(false);
+  });
+
   it('no mete alertas informativas (sin acuse) en la campanita', () => {
     const list = buildNotifications({
       role: 'admin',

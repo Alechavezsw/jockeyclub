@@ -1,16 +1,17 @@
 /** Créditos comprados por socios (Accessin / LILA). */
 
-import {
-  ACCESSIN_CREDIT_PURCHASES,
-  ACCESSIN_CREDIT_PURCHASES_AS_OF,
-  ACCESSIN_CREDIT_PURCHASES_SNAPSHOT,
-} from '../../data/seed/accessinMemberCreditPurchases';
+import { readSnapshot } from '../../data/snapshots';
 
-export {
-  ACCESSIN_CREDIT_PURCHASES,
-  ACCESSIN_CREDIT_PURCHASES_AS_OF,
-  ACCESSIN_CREDIT_PURCHASES_SNAPSHOT,
-};
+const EMPTY_CREDIT_PURCHASES_SEED = Object.freeze({
+  ACCESSIN_CREDIT_PURCHASES: [],
+  ACCESSIN_CREDIT_PURCHASES_AS_OF: '',
+  ACCESSIN_CREDIT_PURCHASES_SNAPSHOT: {},
+});
+
+/** Snapshot `accessinMemberCreditPurchases`; vacío hasta que carga (ver data/snapshots). */
+export function creditPurchasesSeed() {
+  return readSnapshot('accessinMemberCreditPurchases', EMPTY_CREDIT_PURCHASES_SEED);
+}
 
 const HEADER = [
   'nro de socio',
@@ -127,7 +128,10 @@ export function parseCreditPurchaseRows(rows = []) {
   return items;
 }
 
-export function creditPurchaseSummary(items = ACCESSIN_CREDIT_PURCHASES, snapshot = ACCESSIN_CREDIT_PURCHASES_SNAPSHOT) {
+export function creditPurchaseSummary(
+  items = creditPurchasesSeed().ACCESSIN_CREDIT_PURCHASES,
+  snapshot = creditPurchasesSeed().ACCESSIN_CREDIT_PURCHASES_SNAPSHOT,
+) {
   const list = items || [];
   const uniqueMembers = new Set(list.map((row) => row.memberNumber).filter(Boolean));
   const totalAmount = list.reduce((sum, row) => sum + (Number(row.totalAmount) || 0), 0);
@@ -135,7 +139,7 @@ export function creditPurchaseSummary(items = ACCESSIN_CREDIT_PURCHASES, snapsho
   const credits = list.reduce((sum, row) => sum + (Number(row.credits) || 0), 0);
   const pending = list.filter((row) => Number(row.difference) > 0).length;
   return {
-    asOf: snapshot?.asOf || ACCESSIN_CREDIT_PURCHASES_AS_OF,
+    asOf: snapshot?.asOf || creditPurchasesSeed().ACCESSIN_CREDIT_PURCHASES_AS_OF,
     count: list.length,
     uniqueMembers: uniqueMembers.size,
     totalAmount: Math.round(totalAmount * 100) / 100,
@@ -146,7 +150,10 @@ export function creditPurchaseSummary(items = ACCESSIN_CREDIT_PURCHASES, snapsho
   };
 }
 
-export function filterCreditPurchases(items = ACCESSIN_CREDIT_PURCHASES, { query = '', status = '', paymentMethod = '' } = {}) {
+export function filterCreditPurchases(
+  items = creditPurchasesSeed().ACCESSIN_CREDIT_PURCHASES,
+  { query = '', status = '', paymentMethod = '' } = {},
+) {
   const q = String(query || '').trim().toLowerCase();
   const qDigits = q.replace(/\D/g, '');
   const statusKey = String(status || '').trim().toLowerCase();
@@ -165,7 +172,7 @@ export function filterCreditPurchases(items = ACCESSIN_CREDIT_PURCHASES, { query
   });
 }
 
-export function creditPurchasesForMember(memberNumber, items = ACCESSIN_CREDIT_PURCHASES) {
+export function creditPurchasesForMember(memberNumber, items = creditPurchasesSeed().ACCESSIN_CREDIT_PURCHASES) {
   const key = digits(memberNumber);
   if (!key) return [];
   return (items || []).filter((row) => digits(row.memberNumber) === key);

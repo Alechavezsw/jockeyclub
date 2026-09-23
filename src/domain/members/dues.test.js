@@ -7,8 +7,14 @@ import {
   duesAmountForMember,
   getOverdueMembers,
   getUpcomingDuesMembers,
+  quotaHeadline,
   toWhatsAppPhone,
   buildWhatsAppDuesUrl,
+  nextDuesDueDate,
+  pinDuesDueDate,
+  monthsBehindOnDues,
+  firstUnpaidDuesDate,
+  formatMonthsBehind,
 } from './dues';
 import { setRuntimeTierCatalog } from './tiers';
 
@@ -22,10 +28,10 @@ beforeEach(() => setRuntimeTierCatalog(testCatalog));
 afterEach(() => setRuntimeTierCatalog(null));
 
 const members = [
-  { memberId: '1', name: 'A', tier: 'socio_individual', outstandingBalance: 32000, status: 'active', nextDueDate: '2026-06-01' },
-  { memberId: '2', name: 'B', tier: 'grupo_familiar_familiar', outstandingBalance: 0, status: 'active', nextDueDate: '2026-07-28' },
-  { memberId: '3', name: 'C', tier: 'socio_vitalicio', outstandingBalance: 0, status: 'active', nextDueDate: '2026-09-01' },
-  { memberId: '4', name: 'D', tier: 'socio_individual', outstandingBalance: 0, status: 'active', nextDueDate: '2026-07-01' },
+  { memberId: '1', name: 'A', tier: 'socio_individual', outstandingBalance: 32000, status: 'active', nextDueDate: '2026-06-10' },
+  { memberId: '2', name: 'B', tier: 'grupo_familiar_familiar', outstandingBalance: 0, status: 'active', nextDueDate: '2026-08-10' },
+  { memberId: '3', name: 'C', tier: 'socio_vitalicio', outstandingBalance: 0, status: 'active', nextDueDate: '2026-09-10' },
+  { memberId: '4', name: 'D', tier: 'socio_individual', outstandingBalance: 0, status: 'active', nextDueDate: '2026-07-10' },
 ];
 
 describe('dues classification', () => {
@@ -37,8 +43,8 @@ describe('dues classification', () => {
     expect(overdue.map((m) => m.memberId)).toContain('4');
   });
 
-  it('detecta próximas a vencer en 15 días', () => {
-    const upcoming = getUpcomingDuesMembers(members, { withinDays: 15, today });
+  it('detecta próximas a vencer antes del día 10', () => {
+    const upcoming = getUpcomingDuesMembers(members, { withinDays: 20, today });
     expect(upcoming.map((m) => m.memberId)).toEqual(['2']);
   });
 
@@ -52,7 +58,26 @@ describe('dues classification', () => {
   it('al cobrar programa el próximo vencimiento', () => {
     const paid = afterCollectDues(members[0], today);
     expect(paid.outstandingBalance).toBe(0);
-    expect(paid.nextDueDate).toBe('2026-08-01');
+    expect(paid.nextDueDate).toBe('2026-08-10');
+  });
+
+  it('todas las cuotas vencen el día 10', () => {
+    expect(nextDuesDueDate('2026-09-12')).toBe('2026-10-10');
+    expect(nextDuesDueDate('2026-10-05')).toBe('2026-10-10');
+    expect(nextDuesDueDate('2026-10-10')).toBe('2026-10-10');
+    expect(pinDuesDueDate('2026-10-25')).toBe('2026-10-10');
+  });
+
+  it('normaliza vencimientos guardados al día 10', () => {
+    const updated = applyAutomaticDues([
+      { memberId: 'n', name: 'N', tier: 'socio_individual', outstandingBalance: 0, status: 'active', nextDueDate: '2026-10-12' },
+    ], new Date('2026-09-12T12:00:00'));
+    expect(updated[0].nextDueDate).toBe('2026-10-10');
+    expect(updated[0].outstandingBalance).toBe(0);
+    expect(diffAutomaticDues(
+      [{ memberId: 'n', outstandingBalance: 0, nextDueDate: '2026-10-12' }],
+      updated,
+    ).map((m) => m.memberId)).toEqual(['n']);
   });
 
   it('suma cuota del titular y adherentes al alta', () => {
@@ -96,11 +121,46 @@ describe('dues classification', () => {
     expect(toWhatsAppPhone('2645551234')).toBe('5492645551234');
   });
 
+  it('baja del padrón no figura «al día» aunque el saldo sea 0', () => {
+    expect(quotaHeadline({ status: 'inactive', outstandingBalance: 0 }).title).toBe('Sin cuota');
+    expect(quotaHeadline({ status: 'inactive', outstandingBalance: 0 }).kind).toBe('off');
+    expect(quotaHeadline({ status: 'active', outstandingBalance: 0 }).title).toBe('Al día');
+    expect(quotaHeadline({ status: 'inactive', outstandingBalance: 500 }).kind).toBe('debt');
+  });
+
   it('no marca “vence hoy” si hay saldo pero la fecha ancla no está vencida', () => {
     const overdue = getOverdueMembers([
       { memberId: 'x', name: 'X', tier: 'socio_individual', outstandingBalance: 1000, status: 'active', nextDueDate: '2026-09-01' },
     ], today);
     expect(overdue[0].daysOverdue).toBeNull();
+  });
+});
+
+describe('atraso desde último pago (vence el 10)', () => {
+  const today = new Date('2026-09-21T12:00:00');
+
+  it('pago del 13/08 cubre agosto: el 21/09 hay 1 mes atrasado', () => {
+    expect(firstUnpaidDuesDate({ lastPaymentDate: '2026-08-13', today })).toBe('2026-09-10');
+    expect(monthsBehindOnDues({ lastPaymentDate: '2026-08-13', today })).toBe(1);
+    expect(formatMonthsBehind(1)).toBe('1 mes atrasado');
+  });
+
+  it('prioriza el último pago aunque nextDueDate esté más adelante', () => {
+    expect(monthsBehindOnDues({
+      lastPaymentDate: '2026-08-13',
+      nextDueDate: '2026-10-10',
+      today,
+    })).toBe(1);
+  });
+
+  it('pago de julio deja 2 meses atrasados en septiembre', () => {
+    expect(monthsBehindOnDues({ lastPaymentDate: '2026-07-13', today })).toBe(2);
+    expect(formatMonthsBehind(2)).toBe('2 meses atrasados');
+  });
+
+  it('pago en septiembre deja al día aunque sea antes del 10', () => {
+    expect(monthsBehindOnDues({ lastPaymentDate: '2026-09-05', today })).toBe(0);
+    expect(monthsBehindOnDues({ lastPaymentDate: '2026-09-13', today })).toBe(0);
   });
 });
 

@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
-  Settings, UserRound, Plus, Check, X, Loader2, Camera, Trash2,
-  RefreshCw, Copy, Eye, EyeOff, Pencil, History, Search,
+  UserRound, Plus, Check, X, Loader2, Camera, Trash2,
+  RefreshCw, Copy, Eye, EyeOff, Pencil, History, Search, Power, MoreHorizontal,
 } from 'lucide-react';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { repos } from '../../data/bootstrap';
 import { uploadProfilePhoto } from '../../data/storage';
-import { ROLE_LABELS, PORTAL_ROLE_OPTIONS, TITLE_ROLE_OPTIONS, canManageProfiles, primaryRoleFromList, roleRank } from '../../domain/auth/roles';
+import { ROLE_LABELS, PORTAL_ROLE_OPTIONS, TITLE_ROLE_OPTIONS, canManageProfiles, hasSystemAdminRole, primaryRoleFromList, roleRank } from '../../domain/auth/roles';
 import {
   buildCredentials,
   generatePassword,
@@ -17,14 +18,13 @@ import {
   usernameFromEmail,
 } from '../../domain/auth/credentials';
 import { useAuth } from '../../context/AuthContext';
+import { splitMemberName } from '../../domain/members/memberAdminActions';
 import ModalDialog from '../ModalDialog';
 const ROLE_OPTIONS = PORTAL_ROLE_OPTIONS;
 
 const DOC_TYPES = ['Arg-DNI', 'Pasaporte', 'CUIL', 'Otro'];
 const GENDERS = ['Masculino', 'Femenino', 'Otro', 'Prefiero no decir'];
 const BLOOD_TYPES = ['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-'];
-const AUTHZ_BADGE_LIMIT = 3;
-
 const emptyUserForm = () => {
   const creds = buildCredentials();
   return {
@@ -47,9 +47,96 @@ const emptyUserForm = () => {
     password: creds.password,
     passwordVisible: true,
     credentialsLocked: false,
-    roles: [{ roleKey: 'member', label: 'Socio', kind: 'system' }],
+    roles: [{ roleKey: 'admin', label: 'Administrador', kind: 'system' }],
     authorizations: [],
     identifiers: [],
+    linkedMemberId: '',
+  };
+}
+
+function mapMemberDocType(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return 'Arg-DNI';
+  if (DOC_TYPES.includes(raw)) return raw;
+  const upper = raw.toUpperCase();
+  if (upper.includes('PASAPORTE') || upper === 'PASSPORT') return 'Pasaporte';
+  if (upper.includes('CUIL') || upper.includes('CUIT')) return 'CUIL';
+  if (upper.includes('DNI')) return 'Arg-DNI';
+  return 'Otro';
+}
+
+function mapMemberGender(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (GENDERS.includes(raw)) return raw;
+  const lower = raw.toLowerCase();
+  if (['m', 'masculino', 'male', 'hombre'].includes(lower)) return 'Masculino';
+  if (['f', 'femenino', 'female', 'mujer'].includes(lower)) return 'Femenino';
+  return 'Otro';
+}
+
+function ensureAdminAndMember(roles = []) {
+  const next = [...(roles || [])];
+  const add = (roleKey) => {
+    if (!roleChipsSelected(next, roleKey)) {
+      next.push({ roleKey, label: ROLE_LABELS[roleKey] || roleKey, kind: 'system' });
+    }
+  };
+  add('admin');
+  add('member');
+  return next;
+}
+
+function ensureMemberIdentifier(identifiers = [], memberNumber) {
+  const num = String(memberNumber || '').trim();
+  if (!num) return identifiers || [];
+  const list = [...(identifiers || [])];
+  if (list.some((row) => String(row.identifier || '').trim() === num)) return list;
+  return [...list, { idType: 'ST', identifier: num }];
+}
+
+function formFromProfile(profile) {
+  const username = profile.username || usernameFromEmail(profile.email) || '';
+  const roles = profile.roles?.length
+    ? profile.roles.map((r) => ({
+      roleKey: r.roleKey,
+      label: r.label || ROLE_LABELS[r.roleKey] || r.roleKey,
+      kind: r.kind || 'system',
+    }))
+    : [{ roleKey: profile.role || 'member', label: ROLE_LABELS[profile.role] || profile.role || 'Socio', kind: 'system' }];
+  return {
+    avatarUrl: profile.avatarUrl || '',
+    firstName: profile.firstName || '',
+    lastName: profile.lastName || '',
+    documentType: profile.documentType || 'Arg-DNI',
+    documentNumber: profile.documentNumber || '',
+    gender: profile.gender || '',
+    birthDate: profile.birthDate || '',
+    bloodType: profile.bloodType || '',
+    healthInsurance: profile.healthInsurance || '',
+    emergencyPhone: profile.emergencyPhone || '',
+    emergencyClinic: profile.emergencyClinic || '',
+    address: profile.address || '',
+    phone: profile.phone || '',
+    contactEmail: profile.contactEmail || '',
+    username,
+    email: profile.email || loginEmailFromUsername(username),
+    password: '',
+    passwordVisible: false,
+    credentialsLocked: true,
+    roles,
+    authorizations: (profile.authorizations || []).map((a) => ({
+      kind: a.kind || 'custom',
+      title: a.title || '',
+      roleLabel: a.roleLabel || '',
+      expiresAt: a.expiresAt || '',
+      pin: a.pin || '',
+    })),
+    identifiers: (profile.identifiers || []).map((i) => ({
+      idType: i.idType || '',
+      identifier: i.identifier || '',
+    })),
+    linkedMemberId: '',
   };
 };
 
@@ -154,7 +241,7 @@ function normalizeSearch(value = '') {
 
 function profileSearchHaystack(profile) {
   const roles = (profile.roles || []).map((r) => [r.label, r.roleKey, r.publicId].filter(Boolean).join(' '));
-  const authz = profileAuthzBadges(profile).map((b) => `${b.code} ${b.title}`);
+  const authz = (profile.authorizations || []).map((a) => [a.kind, a.title, a.roleLabel, a.expiresAt].filter(Boolean).join(' '));
   const ids = (profile.identifiers || []).map((i) => `${i.idType || ''} ${i.identifier || ''}`);
   return normalizeSearch([
     displayName(profile),
@@ -182,81 +269,12 @@ function profileMatchesQuery(profile, query) {
   return profileSearchHaystack(profile).includes(q);
 }
 
-function authzCode(auth) {
-  const kind = String(auth.kind || '').toLowerCase();
-  if (kind === 'admin') return 'A';
-  if (kind === 'gate_operator' || kind === 'gate') {
-    return auth.expiresAt ? `O (VENC: ${auth.expiresAt})` : 'O';
-  }
-  if (kind === 'admin_employee' || kind === 'employee_admin') return 'EA';
-  if (kind === 'hr') return 'RRHH';
-  const title = String(auth.title || auth.roleLabel || kind || '?');
-  return title.slice(0, 2).toUpperCase();
-}
-
-function identifierCode(row) {
-  const type = String(row.idType || '').toUpperCase();
-  const id = String(row.identifier || '').trim();
-  if (!id) return null;
-  if (type.includes('ST') || type.includes('TITULAR') || type.includes('SOCIO')) {
-    return `ST (${id})`;
-  }
-  if (type.includes('EA') || type.includes('EMPLE')) return `EA (${id})`;
-  const short = type.replace(/[^A-Z0-9]/g, '').slice(0, 3) || 'ID';
-  return `${short} (${id})`;
-}
-
-function profileAuthzBadges(profile) {
-  const fromAuth = (profile.authorizations || []).map((a) => ({
-    key: `a-${a.id || a.kind}-${a.title}`,
-    code: authzCode(a),
-    title: a.title || a.roleLabel || a.kind,
-  }));
-  const fromIds = (profile.identifiers || [])
-    .map((row) => {
-      const code = identifierCode(row);
-      if (!code) return null;
-      return { key: `i-${row.id || row.idType}-${row.identifier}`, code, title: row.idType };
-    })
-    .filter(Boolean);
-  return [...fromAuth, ...fromIds];
-}
-
-function Field({ label, children, className = '' }) {
+function Field({ label, children, className = '', as: Tag = 'label' }) {
   return (
-    <label className={`sys-user-field ${className}`.trim()}>
+    <Tag className={`sys-user-field ${className}`.trim()}>
       <span>{label}</span>
       {children}
-    </label>
-  );
-}
-
-function AuthzBadges({ profile }) {
-  const [expanded, setExpanded] = useState(false);
-  const badges = profileAuthzBadges(profile);
-  if (!badges.length) {
-    return <span className="ops-muted">—</span>;
-  }
-  const visible = expanded ? badges : badges.slice(0, AUTHZ_BADGE_LIMIT);
-  const hidden = badges.length - AUTHZ_BADGE_LIMIT;
-  return (
-    <div className="sys-authz-badges">
-      {visible.map((b) => (
-        <span key={b.key} className="sys-authz-badge" title={b.title}>
-          {b.code}
-        </span>
-      ))}
-      {!expanded && hidden > 0 ? (
-        <button type="button" className="sys-authz-more" onClick={() => setExpanded(true)}>
-          VER +
-        </button>
-      ) : null}
-      {expanded && badges.length > AUTHZ_BADGE_LIMIT ? (
-        <button type="button" className="sys-authz-more" onClick={() => setExpanded(false)}>
-          VER −
-        </button>
-      ) : null}
-    </div>
+    </Tag>
   );
 }
 
@@ -272,10 +290,10 @@ function sortProfileRoles(roles = [], fallbackRole = 'member') {
   });
 }
 
-function RolesCell({ profile, canEdit, busy, onEditRoles }) {
+function RolesCell({ profile, onOpenAll }) {
   const roles = sortProfileRoles(profile.roles, profile.role);
   const primaryKey = primaryRoleFromList(roles);
-  const visible = roles.slice(0, 3);
+  const visible = roles.slice(0, 2);
   const extra = roles.length - visible.length;
 
   return (
@@ -292,28 +310,139 @@ function RolesCell({ profile, canEdit, busy, onEditRoles }) {
                 isPrimary ? 'is-primary' : '',
                 isTitle ? 'is-title' : '',
               ].filter(Boolean).join(' ')}
+              title={r.label || ROLE_LABELS[r.roleKey] || r.roleKey}
             >
-              {r.publicId ? <span className="sys-role-id">#{r.publicId}</span> : null}
               <span className="sys-role-label">{r.label || ROLE_LABELS[r.roleKey] || r.roleKey}</span>
             </li>
           );
         })}
       </ul>
       {extra > 0 ? (
-        <button type="button" className="sys-roles-more" onClick={() => onEditRoles?.(profile)}>
-          +{extra} más
-        </button>
-      ) : null}
-      {canEdit ? (
         <button
           type="button"
-          className="sys-roles-manage"
-          disabled={busy}
-          onClick={() => onEditRoles?.(profile)}
+          className="sys-roles-more"
+          onClick={() => onOpenAll?.(profile)}
+          title="Ver todos los roles"
         >
-          Gestionar
+          +{extra}
         </button>
       ) : null}
+    </div>
+  );
+}
+
+function RowActionsMenu({
+  profile,
+  open,
+  busy,
+  canEdit,
+  onToggle,
+  onClose,
+  onEdit,
+  onHistory,
+  onToggleActive,
+  onResetPassword,
+}) {
+  const btnRef = useRef(null);
+  const menuRef = useRef(null);
+  const [pos, setPos] = useState({ top: 0, right: 0 });
+
+  useEffect(() => {
+    if (!open || !btnRef.current) return undefined;
+    const place = () => {
+      const rect = btnRef.current.getBoundingClientRect();
+      setPos({ top: rect.bottom + 6, right: Math.max(8, window.innerWidth - rect.right) });
+    };
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDoc = (event) => {
+      if (btnRef.current?.contains(event.target) || menuRef.current?.contains(event.target)) return;
+      onClose();
+    };
+    const onKey = (event) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open, onClose]);
+
+  const run = (action) => {
+    onClose();
+    action(profile);
+  };
+
+  return (
+    <div className="sys-user-functions">
+      <button
+        ref={btnRef}
+        type="button"
+        className={`sys-fn-btn is-more${open ? ' is-open' : ''}`}
+        title="Acciones"
+        aria-label="Abrir acciones"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        onClick={onToggle}
+      >
+        <MoreHorizontal size={14} />
+      </button>
+      {open && typeof document !== 'undefined'
+        ? createPortal(
+          <div
+            ref={menuRef}
+            className="sys-row-menu"
+            role="menu"
+            style={{ top: pos.top, right: pos.right }}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              disabled={!canEdit}
+              onClick={() => run(onEdit)}
+            >
+              <Pencil size={14} />
+              Editar ficha y roles
+            </button>
+            <button type="button" role="menuitem" onClick={() => run(onHistory)}>
+              <History size={14} />
+              Historial
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              disabled={!canEdit || busy}
+              onClick={() => run(onToggleActive)}
+            >
+              <Power size={14} />
+              {profile.isActive ? 'Desactivar' : 'Activar'}
+            </button>
+            {canEdit ? (
+              <button
+                type="button"
+                role="menuitem"
+                disabled={busy}
+                onClick={() => run(onResetPassword)}
+              >
+                <RefreshCw size={14} />
+                Regenerar clave
+              </button>
+            ) : null}
+          </div>,
+          document.body,
+        )
+        : null}
     </div>
   );
 }
@@ -322,7 +451,6 @@ function RolesCell({ profile, canEdit, busy, onEditRoles }) {
  * Administración del sistema: usuarios del portal.
  */
 export default function SystemAdminTab({
-  registeredUsersCount = 0,
   setRegisteredUsersCount,
   userRole = 'admin',
 }) {
@@ -347,6 +475,11 @@ export default function SystemAdminTab({
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [lastCreatedCreds, setLastCreatedCreds] = useState(null);
   const [rolesModalProfile, setRolesModalProfile] = useState(null);
+  const [openActionsId, setOpenActionsId] = useState(null);
+  const [memberHits, setMemberHits] = useState([]);
+  const [memberSearchBusy, setMemberSearchBusy] = useState(false);
+  const [memberPicked, setMemberPicked] = useState(null);
+  const [pickingMember, setPickingMember] = useState(false);
   const photoRef = useRef(null);
 
   useEffect(() => {
@@ -359,10 +492,9 @@ export default function SystemAdminTab({
       }
       setLoadingUsers(true);
       try {
-        const list = await repos.listProfiles();
+        const list = await repos.listSystemAdminProfiles();
         if (!cancelled) {
           setProfiles(list);
-          setRegisteredUsersCount?.(list.length);
           setUsersError('');
         }
       } catch (err) {
@@ -380,9 +512,14 @@ export default function SystemAdminTab({
     return () => clearTimeout(t);
   }, [flash]);
 
+  const adminProfiles = useMemo(
+    () => (profiles || []).filter(hasSystemAdminRole),
+    [profiles],
+  );
+
   const filteredProfiles = useMemo(
-    () => (profiles || []).filter((p) => profileMatchesQuery(p, userQuery)),
-    [profiles, userQuery],
+    () => adminProfiles.filter((p) => profileMatchesQuery(p, userQuery)),
+    [adminProfiles, userQuery],
   );
 
   const setUF = (key, value) => setUserForm((f) => ({ ...f, [key]: value }));
@@ -437,6 +574,13 @@ export default function SystemAdminTab({
     }
   };
 
+  const resetMemberLookup = () => {
+    setMemberHits([]);
+    setMemberSearchBusy(false);
+    setMemberPicked(null);
+    setPickingMember(false);
+  };
+
   const openNewUser = () => {
     if (!canEditProfiles) {
       setFlash('Solo el superadministrador puede crear o modificar perfiles.');
@@ -444,57 +588,21 @@ export default function SystemAdminTab({
     }
     setEditingUserId(null);
     setUserForm(emptyUserForm());
+    resetMemberLookup();
     setShowUserForm(true);
   };
+
+  const closeRowActions = () => setOpenActionsId(null);
 
   const openEditUser = (profile) => {
     if (!canEditProfiles) {
       setFlash('Solo el superadministrador puede crear o modificar perfiles.');
       return;
     }
-    const username = profile.username || usernameFromEmail(profile.email) || '';
-    const roles = profile.roles?.length
-      ? profile.roles.map((r) => ({
-        roleKey: r.roleKey,
-        label: r.label || ROLE_LABELS[r.roleKey] || r.roleKey,
-        kind: r.kind || 'system',
-      }))
-      : [{ roleKey: profile.role || 'member', label: ROLE_LABELS[profile.role] || profile.role || 'Socio', kind: 'system' }];
-
+    setOpenActionsId(null);
+    resetMemberLookup();
     setEditingUserId(profile.id);
-    setUserForm({
-      avatarUrl: profile.avatarUrl || '',
-      firstName: profile.firstName || '',
-      lastName: profile.lastName || '',
-      documentType: profile.documentType || 'Arg-DNI',
-      documentNumber: profile.documentNumber || '',
-      gender: profile.gender || '',
-      birthDate: profile.birthDate || '',
-      bloodType: profile.bloodType || '',
-      healthInsurance: profile.healthInsurance || '',
-      emergencyPhone: profile.emergencyPhone || '',
-      emergencyClinic: profile.emergencyClinic || '',
-      address: profile.address || '',
-      phone: profile.phone || '',
-      contactEmail: profile.contactEmail || '',
-      username,
-      email: profile.email || loginEmailFromUsername(username),
-      password: '',
-      passwordVisible: false,
-      credentialsLocked: true,
-      roles,
-      authorizations: (profile.authorizations || []).map((a) => ({
-        kind: a.kind || 'custom',
-        title: a.title || '',
-        roleLabel: a.roleLabel || '',
-        expiresAt: a.expiresAt || '',
-        pin: a.pin || '',
-      })),
-      identifiers: (profile.identifiers || []).map((i) => ({
-        idType: i.idType || '',
-        identifier: i.identifier || '',
-      })),
-    });
+    setUserForm(formFromProfile(profile));
     setShowUserForm(true);
     setHistoryProfileId(null);
   };
@@ -503,6 +611,119 @@ export default function SystemAdminTab({
     setShowUserForm(false);
     setEditingUserId(null);
     setUserForm(emptyUserForm());
+    resetMemberLookup();
+  };
+
+  useEffect(() => {
+    if (!showUserForm || editingUserId || memberPicked) {
+      setMemberHits([]);
+      setMemberSearchBusy(false);
+      return undefined;
+    }
+    const raw = String(userForm.firstName || '').trim();
+    const digits = raw.replace(/\D/g, '');
+    const enough = raw.length >= 2 || digits.length >= 3;
+    if (!enough || !isSupabaseConfigured) {
+      setMemberHits([]);
+      setMemberSearchBusy(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setMemberSearchBusy(true);
+    const timer = window.setTimeout(() => {
+      repos.searchMembersDirectory(raw, { limit: 12 })
+        .then((rows) => {
+          if (!cancelled) setMemberHits(rows || []);
+        })
+        .catch(() => {
+          if (!cancelled) setMemberHits([]);
+        })
+        .finally(() => {
+          if (!cancelled) setMemberSearchBusy(false);
+        });
+    }, 180);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [userForm.firstName, showUserForm, editingUserId, memberPicked]);
+
+  const applyMemberToNewForm = (member) => {
+    const { firstName, lastName } = splitMemberName(member);
+    const documentNumber = member.documentNumber || '';
+    const username = generateUsername({ firstName, lastName, documentNumber });
+    setUserForm((f) => ({
+      ...f,
+      firstName,
+      lastName,
+      documentType: mapMemberDocType(member.documentType),
+      documentNumber,
+      gender: mapMemberGender(member.gender),
+      birthDate: String(member.birthDate || '').slice(0, 10),
+      bloodType: member.bloodType && BLOOD_TYPES.includes(member.bloodType) ? member.bloodType : f.bloodType,
+      healthInsurance: member.healthInsurance || f.healthInsurance,
+      emergencyPhone: member.emergencyPhone || f.emergencyPhone,
+      emergencyClinic: member.emergencyClinic || f.emergencyClinic,
+      address: [member.address, member.city].filter(Boolean).join(', ') || f.address,
+      phone: member.phone || f.phone,
+      contactEmail: member.email || f.contactEmail,
+      avatarUrl: member.photo || f.avatarUrl,
+      linkedMemberId: member.id,
+      roles: ensureAdminAndMember(f.roles),
+      identifiers: ensureMemberIdentifier(f.identifiers, member.memberId),
+      username,
+      email: loginEmailFromUsername(username),
+      credentialsLocked: false,
+    }));
+  };
+
+  const pickMember = async (hit) => {
+    if (!hit) return;
+    setMemberHits([]);
+    setMemberPicked({
+      id: hit.id,
+      memberId: hit.memberId,
+      name: hit.name,
+    });
+    setPickingMember(true);
+    try {
+      let member = hit;
+      try {
+        const full = hit.memberId
+          ? await repos.getMemberByNumber(hit.memberId)
+          : await repos.getMember(hit.id);
+        if (full) member = full;
+      } catch {
+        member = hit;
+      }
+      if (member.profileId) {
+        try {
+          const existing = await repos.getProfile(member.profileId);
+          if (existing) {
+            const next = formFromProfile(existing);
+            setEditingUserId(existing.id);
+            setUserForm({
+              ...next,
+              linkedMemberId: member.id,
+              roles: ensureAdminAndMember(next.roles),
+              identifiers: ensureMemberIdentifier(next.identifiers, member.memberId),
+              avatarUrl: existing.avatarUrl || member.photo || '',
+            });
+            setFlash('Este socio ya tiene usuario. Revisá la ficha y sumá administrador si falta.');
+            return;
+          }
+        } catch {
+          /* alta nueva si el perfil no carga */
+        }
+      }
+      applyMemberToNewForm(member);
+      setFlash(`Ficha completada con el socio Nº ${member.memberId || '—'}.`);
+    } catch (err) {
+      setMemberPicked(null);
+      setFlash(err.message || 'No se pudo cargar el socio.');
+    } finally {
+      setPickingMember(false);
+    }
   };
 
   useEffect(() => {
@@ -653,12 +874,19 @@ export default function SystemAdminTab({
         saved = await repos.replaceProfileRoles(editingUserId, roles);
         await repos.replaceProfileAuthorizations(editingUserId, authorizations);
         await repos.replaceProfileIdentifiers(editingUserId, identifiers);
+        if (userForm.linkedMemberId) {
+          try {
+            await repos.linkMemberProfile(userForm.linkedMemberId, editingUserId);
+          } catch {
+            /* no bloquear la edición si el vínculo falla */
+          }
+        }
         if (password) {
           await repos.resetPortalUserPassword(editingUserId, password);
           setLastCreatedCreds({ username, email: saved.email || email, password });
         }
         // Recargar ficha completa (authz/ids)
-        const refreshed = await repos.listProfiles();
+        const refreshed = await repos.listSystemAdminProfiles();
         setProfiles(refreshed);
         closeUserForm();
         setFlash(password ? 'Usuario actualizado y contraseña regenerada.' : 'Usuario actualizado.');
@@ -686,7 +914,16 @@ export default function SystemAdminTab({
           authorizations,
           identifiers,
         });
-        setProfiles((prev) => [created, ...prev.filter((p) => p.id !== created.id)]);
+        if (userForm.linkedMemberId) {
+          try {
+            await repos.linkMemberProfile(userForm.linkedMemberId, created.id);
+          } catch {
+            /* el usuario ya existe; el vínculo se puede completar después */
+          }
+        }
+        if (hasSystemAdminRole(created)) {
+          setProfiles((prev) => [created, ...prev.filter((p) => p.id !== created.id)]);
+        }
         setRegisteredUsersCount?.((n) => Number(n || 0) + 1);
         setLastCreatedCreds({ username, email, password });
         closeUserForm();
@@ -729,7 +966,13 @@ export default function SystemAdminTab({
     setBusyId(profileId);
     try {
       const saved = await repos.replaceProfileRoles(profileId, roles);
-      setProfiles((prev) => prev.map((p) => (p.id === profileId ? { ...p, ...saved } : p)));
+      setProfiles((prev) => {
+        const next = { ...prev.find((p) => p.id === profileId), ...saved };
+        if (!hasSystemAdminRole(next)) {
+          return prev.filter((p) => p.id !== profileId);
+        }
+        return prev.map((p) => (p.id === profileId ? next : p));
+      });
       setRolesModalProfile((prev) => (prev?.id === profileId ? { ...prev, ...saved } : prev));
       setFlash('Roles actualizados (cambio registrado).');
     } catch (err) {
@@ -786,34 +1029,14 @@ export default function SystemAdminTab({
 
   return (
     <div className="fade-in sys-admin">
-      <header className="sys-admin-head">
-        <div>
-          <p className="sys-admin-eyebrow">
-            <Settings size={14} aria-hidden="true" /> Administración
-          </p>
-          <h2 className="serif-font" style={{ margin: '0.15rem 0 0.35rem', fontSize: '1.45rem' }}>
-            Usuarios y altas
-          </h2>
-          <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.88rem', maxWidth: 520 }}>
-            Alta de usuarios del portal con ficha completa. Todo persiste en la base de datos.
-          </p>
-        </div>
-        <div className="sys-admin-kpis">
-          <div>
-            <b>{registeredUsersCount || profiles.length}</b>
-            <span>Usuarios</span>
-          </div>
-        </div>
-      </header>
-
       {flash && (
         <p className="sys-admin-flash" role="status">{flash}</p>
       )}
 
       <section className="glass-card sys-admin-card">
         <header className="sys-admin-card-head">
-          <UserRound size={16} color="var(--primary-gold)" />
-          <h3>Usuarios registrados</h3>
+          <UserRound size={14} color="var(--primary-gold)" />
+          <h3>Administradores <em>{adminProfiles.length}</em></h3>
           <div className="sys-user-search">
             <Search size={15} aria-hidden="true" />
             <input
@@ -833,8 +1056,8 @@ export default function SystemAdminTab({
           </div>
           <div className="sys-admin-card-actions">
             {canEditProfiles ? (
-              <button type="button" className="btn btn-primary btn-sm" onClick={openNewUser}>
-                <Plus size={14} /> Agregar usuario
+              <button type="button" className="btn btn-primary btn-sm sys-admin-add-btn" onClick={openNewUser}>
+                <Plus size={13} /> Agregar
               </button>
             ) : (
               <span className="ops-muted" style={{ fontSize: '0.78rem' }}>
@@ -888,7 +1111,9 @@ export default function SystemAdminTab({
                   {editingUserId ? 'Editar usuario' : 'Nuevo usuario'}
                 </h4>
                 <p style={{ margin: '0.25rem 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-                  {editingUserId ? 'Actualizá la ficha, roles y autorizaciones.' : 'Completá la ficha; usuario y contraseña se generan solos.'}
+                  {editingUserId
+                    ? 'Actualizá la ficha, roles y autorizaciones.'
+                    : 'Buscá un socio del padrón o completá la ficha a mano.'}
                 </p>
               </div>
               <button
@@ -922,13 +1147,60 @@ export default function SystemAdminTab({
             </div>
 
             <div className="sys-user-grid">
-              <Field label="Nombre">
-                <input
-                  className="form-input"
-                  required
-                  value={userForm.firstName}
-                  onChange={(e) => refreshUsernameFromIdentity({ firstName: e.target.value })}
-                />
+              <Field label="Nombre" as="div" className="sys-user-lookup">
+                <div className="sys-user-lookup-box">
+                  <div className="sys-user-lookup-input">
+                    {!editingUserId ? <Search size={15} aria-hidden="true" /> : null}
+                    <input
+                      className="form-input"
+                      required
+                      autoComplete="off"
+                      placeholder={editingUserId ? undefined : 'Buscar socio o escribir nombre'}
+                      value={userForm.firstName}
+                      disabled={pickingMember}
+                      onChange={(e) => {
+                        setMemberPicked(null);
+                        refreshUsernameFromIdentity({ firstName: e.target.value, linkedMemberId: '' });
+                      }}
+                      aria-autocomplete={!editingUserId ? 'list' : undefined}
+                      aria-expanded={!editingUserId && memberHits.length > 0}
+                    />
+                    {memberSearchBusy || pickingMember ? (
+                      <Loader2 size={14} className="sys-user-lookup-spin" aria-hidden="true" />
+                    ) : null}
+                  </div>
+                  {memberPicked ? (
+                    <p className="sys-user-lookup-picked">
+                      Socio Nº {memberPicked.memberId || '—'}
+                      {memberPicked.name ? ` · ${memberPicked.name}` : ''}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMemberPicked(null);
+                          refreshUsernameFromIdentity({ linkedMemberId: '' });
+                        }}
+                      >
+                        Quitar
+                      </button>
+                    </p>
+                  ) : null}
+                  {!editingUserId && memberHits.length > 0 ? (
+                    <ul className="sys-user-lookup-list" role="listbox">
+                      {memberHits.map((member) => (
+                        <li key={member.id}>
+                          <button type="button" onClick={() => pickMember(member)}>
+                            <strong>{member.name || 'Sin nombre'}</strong>
+                            <span>
+                              Nº {member.memberId || '—'}
+                              {member.documentNumber ? ` · DNI ${member.documentNumber}` : ''}
+                              {member.profileId ? ' · ya tiene usuario' : ''}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
               </Field>
               <Field label="Apellido">
                 <input
@@ -1232,8 +1504,8 @@ export default function SystemAdminTab({
           </p>
         ) : usersError ? (
           <p className="ops-muted" style={{ color: '#fca5a5' }}>{usersError}</p>
-        ) : profiles.length === 0 ? (
-          <p className="ops-muted">Todavía no hay usuarios en profiles.</p>
+        ) : adminProfiles.length === 0 ? (
+          <p className="ops-muted">Todavía no hay administradores del sistema.</p>
         ) : filteredProfiles.length === 0 ? (
           <p className="ops-muted">
             Ningún usuario coincide con «{userQuery.trim()}».
@@ -1242,17 +1514,15 @@ export default function SystemAdminTab({
           <div className="sys-admin-table-wrap">
             {userQuery.trim() ? (
               <p className="sys-user-search-count">
-                Encontrados {filteredProfiles.length} de {profiles.length}
+                Encontrados {filteredProfiles.length} de {adminProfiles.length}
               </p>
             ) : null}
             <table className="admin-table sys-admin-table">
               <thead>
                 <tr>
                   <th>#</th>
-                  <th>Nombre / Documento</th>
-                  <th>Email</th>
-                  <th>Usuario</th>
-                  <th>Autorizaciones</th>
+                  <th>Nombre</th>
+                  <th>Acceso</th>
                   <th>Roles</th>
                   <th>Estado</th>
                   <th>Funciones</th>
@@ -1288,25 +1558,12 @@ export default function SystemAdminTab({
                         </button>
                       </div>
                     </td>
-                    <td className="sys-user-email-cell">
-                      <span>{p.contactEmail || p.email || '—'}</span>
-                      {p.contactEmail && p.email && p.contactEmail !== p.email ? (
-                        <small>Login: {p.email}</small>
-                      ) : null}
-                    </td>
-                    <td className="sys-user-login-cell">
-                      <code>{profileUsername(p)}</code>
+                    <td className="sys-user-access-cell">
+                      <span title={p.contactEmail || p.email || ''}>{p.contactEmail || p.email || '—'}</span>
+                      <code title={p.email || profileUsername(p)}>{profileUsername(p)}</code>
                     </td>
                     <td>
-                      <AuthzBadges profile={p} />
-                    </td>
-                    <td>
-                      <RolesCell
-                        profile={p}
-                        canEdit={canEditProfiles}
-                        busy={busyId === p.id}
-                        onEditRoles={setRolesModalProfile}
-                      />
+                      <RolesCell profile={p} onOpenAll={setRolesModalProfile} />
                     </td>
                     <td>
                       <span className={`sys-admin-pill${p.isActive ? ' is-on' : ''}`}>
@@ -1314,45 +1571,18 @@ export default function SystemAdminTab({
                       </span>
                     </td>
                     <td>
-                      <div className="sys-admin-app-actions sys-user-functions">
-                        <button
-                          type="button"
-                          className="sys-fn-btn"
-                          title="Editar usuario"
-                          disabled={!canEditProfiles}
-                          onClick={() => openEditUser(p)}
-                        >
-                          <Pencil size={14} />
-                        </button>
-                        <button
-                          type="button"
-                          className="sys-fn-btn is-trace"
-                          title="Trazabilidad e historial de cambios"
-                          aria-label="Trazabilidad e historial de cambios"
-                          onClick={() => openHistory(p)}
-                        >
-                          <History size={14} />
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-secondary btn-sm"
-                          disabled={!canEditProfiles || busyId === p.id}
-                          onClick={() => toggleActive(p)}
-                        >
-                          {p.isActive ? 'Desactivar' : 'Activar'}
-                        </button>
-                        {canEditProfiles && (
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            disabled={busyId === p.id}
-                            title="Regenerar contraseña"
-                            onClick={() => resetExistingPassword(p)}
-                          >
-                            <RefreshCw size={14} /> Clave
-                          </button>
-                        )}
-                      </div>
+                      <RowActionsMenu
+                        profile={p}
+                        open={openActionsId === p.id}
+                        busy={busyId === p.id}
+                        canEdit={canEditProfiles}
+                        onToggle={() => setOpenActionsId((id) => (id === p.id ? null : p.id))}
+                        onClose={closeRowActions}
+                        onEdit={openEditUser}
+                        onHistory={openHistory}
+                        onToggleActive={toggleActive}
+                        onResetPassword={resetExistingPassword}
+                      />
                     </td>
                   </tr>
                 ))}
@@ -1445,7 +1675,7 @@ export default function SystemAdminTab({
                   Roles de {displayName(rolesModalProfile)}
                 </h4>
                 <p style={{ margin: '0.25rem 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-                  Sistema y cargos del club. Podés marcar varios.
+                  Todos los roles asignados y los que se pueden sumar.
                 </p>
               </div>
               <button type="button" className="btn btn-secondary btn-sm" onClick={() => setRolesModalProfile(null)}>
@@ -1453,6 +1683,18 @@ export default function SystemAdminTab({
               </button>
             </div>
             <div className="sys-roles-modal-body">
+              <p className="sys-roles-modal-label">Asignados</p>
+              <ul className="sys-roles-assigned">
+                {sortProfileRoles(rolesModalProfile.roles, rolesModalProfile.role).map((r) => (
+                  <li
+                    key={`${rolesModalProfile.id}-${r.roleKey}-${r.publicId || ''}`}
+                    className={`sys-role-row${r.kind === 'title' ? ' is-title' : ' is-primary'}`}
+                  >
+                    {r.publicId ? <span className="sys-role-id">#{r.publicId}</span> : null}
+                    <span className="sys-role-label">{r.label || ROLE_LABELS[r.roleKey] || r.roleKey}</span>
+                  </li>
+                ))}
+              </ul>
               <p className="sys-roles-modal-label">Acceso al sistema</p>
               <div className="sys-role-pick-grid">
                 {ROLE_OPTIONS.map((r) => {

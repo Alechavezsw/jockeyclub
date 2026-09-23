@@ -166,7 +166,7 @@ export default function MessagingTab({
                   onClick={() => openInboxMessage(msg)}
                   style={{
                     width: '100%',
-                    background: String(selectedId) === String(msg.id) ? 'rgba(207,161,58,0.08)' : 'transparent',
+                    background: String(selectedId) === String(msg.id) ? 'rgba(var(--primary-gold-rgb),0.08)' : 'transparent',
                     border: 'none',
                     borderBottom: '1px solid var(--border-glass)',
                     borderLeft: String(selectedId) === String(msg.id) ? '3px solid var(--primary-gold)' : '3px solid transparent',

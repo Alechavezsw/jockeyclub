@@ -85,6 +85,27 @@ export function hasRoleInList(roles = [], roleKey) {
   });
 }
 
+/** Roles que administran el portal (no el padrón de socios). */
+export const SYSTEM_ADMIN_ROLES = ['admin', 'superadmin'];
+
+function collectRoleKeys(roleOrRolesOrProfile) {
+  if (!roleOrRolesOrProfile) return [];
+  if (typeof roleOrRolesOrProfile === 'string') return [roleOrRolesOrProfile];
+  if (Array.isArray(roleOrRolesOrProfile)) {
+    return roleOrRolesOrProfile.map((r) => (typeof r === 'string' ? r : r?.roleKey || r?.key)).filter(Boolean);
+  }
+  const keys = collectRoleKeys(roleOrRolesOrProfile.roles);
+  if (roleOrRolesOrProfile.role) keys.push(roleOrRolesOrProfile.role);
+  return keys;
+}
+
+/** Admin / superadmin. Un socio solo califica si también tiene uno de esos roles. */
+export function hasSystemAdminRole(roleOrRolesOrProfile) {
+  return collectRoleKeys(roleOrRolesOrProfile).some((key) => (
+    SYSTEM_ADMIN_ROLES.includes(String(key || '').toLowerCase())
+  ));
+}
+
 /** Pestañas del panel: el superadmin ve el set completo. */
 export const ALL_ADMIN_TABS = [
   'dashboard',
@@ -148,6 +169,11 @@ export function canAccessAdmin(role) {
 /** Quién puede usar la página móvil de Control QR / molinete. */
 export function canAccessQrGate(role) {
   return ['staff', 'cashier', 'gate_operator', 'admin', 'superadmin'].includes(role);
+}
+
+/** Quién puede usar la página de pileta (`/pileta`). */
+export function canAccessPool(role) {
+  return allowedAdminTabs(role).includes('pool');
 }
 
 /** Quién puede tomar asistencia de disciplinas. */

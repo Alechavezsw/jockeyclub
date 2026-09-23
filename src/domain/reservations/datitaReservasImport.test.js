@@ -32,10 +32,10 @@ describe('datitaReservasImport', () => {
   it('convierte fila del export', () => {
     const r = datitaRowToReservation({
       '#': '27126',
-      'NRO DE SOCIO': '3008',
-      NOMBRE: 'Adrian Cristian',
-      APELLIDO: 'NuÑez',
-      'DOCUMENTO DEL RESPONSABLE': 'Arg-DNI 30243883',
+      'NRO DE SOCIO': '9001',
+      NOMBRE: 'Julián Andrés',
+      APELLIDO: 'MuÑoz',
+      'DOCUMENTO DEL RESPONSABLE': 'Arg-DNI 30000111',
       ESPACIO: 'ESPACIO VERDE',
       'CREADO EL': '29 de Agosto del 2026 a las 17:50',
       'FECHA DE LA RESERVA': '30 de Agosto del 2026',
@@ -50,8 +50,8 @@ describe('datitaReservasImport', () => {
     expect(r).toMatchObject({
       id: 'datita-res-27126',
       facilityId: 'espacio_verde',
-      memberId: '3008',
-      memberName: 'Adrian Cristian NuÑez',
+      memberId: '9001',
+      memberName: 'Julián Andrés MuÑoz',
       date: '2026-08-30',
       time: '11:00',
       endTime: '23:00',
@@ -74,13 +74,13 @@ describe('datitaReservasImport', () => {
         'IDENTIFICADOR EXTERNO',
       ],
       [
-        '26896', '13028', 'Myriam Vanesa', 'Elizondo', 'Arg-DNI 28131649',
+        '26896', '9002', 'Laura Beatriz', 'Gómez', 'Arg-DNI 28000222',
         'SALON MAURIN', '22 de Agosto del 2026 a las 19:46', '30 de Agosto del 2026',
         '11:00', '17:00', 'Aprobado', '0.00', '130000', 'No definido', '130000',
         '', '', '', '', '',
       ],
       [
-        '25744', '8377', 'Carlos Marcelo', 'Laciar', 'Arg-DNI 18206639',
+        '25744', '9003', 'Roberto Luis', 'Fernández', 'Arg-DNI 18000333',
         'SALON MAURIN', '16 de Julio del 2026 a las 19:28', '29 de Agosto del 2026',
         '20:00', '23:59', 'Cancelado', '0.00', '130000', 'No definido', '0',
         '', '', '', '', '',

@@ -1,27 +1,27 @@
 /** Helpers de pagos a proveedores Accessin/LILA. */
 
-import {
-  ACCESSIN_SUPPLIER_PAYMENTS,
-  ACCESSIN_SUPPLIER_PAYMENTS_AS_OF,
-  ACCESSIN_SUPPLIER_PAYMENTS_METHOD_LABELS,
-  ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT,
-} from '../../data/seed/accessinSupplierPayments';
+import { readSnapshot } from '../../data/snapshots';
 import { formatAccessinCashDate } from './cashLedger';
 
-export {
-  ACCESSIN_SUPPLIER_PAYMENTS,
-  ACCESSIN_SUPPLIER_PAYMENTS_AS_OF,
-  ACCESSIN_SUPPLIER_PAYMENTS_METHOD_LABELS,
-  ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT,
-};
+const EMPTY_SUPPLIER_PAYMENTS_SEED = Object.freeze({
+  ACCESSIN_SUPPLIER_PAYMENTS: [],
+  ACCESSIN_SUPPLIER_PAYMENTS_AS_OF: '',
+  ACCESSIN_SUPPLIER_PAYMENTS_METHOD_LABELS: {},
+  ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT: {},
+});
 
-export function supplierPaymentsTotal(items = ACCESSIN_SUPPLIER_PAYMENTS) {
+/** Snapshot `accessinSupplierPayments`; vacío hasta que carga (ver data/snapshots). */
+export function supplierPaymentsSeed() {
+  return readSnapshot('accessinSupplierPayments', EMPTY_SUPPLIER_PAYMENTS_SEED);
+}
+
+export function supplierPaymentsTotal(items = supplierPaymentsSeed().ACCESSIN_SUPPLIER_PAYMENTS) {
   return Math.round((items || []).reduce((s, r) => s + (Number(r.amount) || 0), 0) * 100) / 100;
 }
 
 export function supplierPaymentsSummary(
-  items = ACCESSIN_SUPPLIER_PAYMENTS,
-  snapshot = ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT,
+  items = supplierPaymentsSeed().ACCESSIN_SUPPLIER_PAYMENTS,
+  snapshot = supplierPaymentsSeed().ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT,
 ) {
   const list = items || [];
   const byMethod = {};
@@ -30,7 +30,7 @@ export function supplierPaymentsSummary(
     byMethod[m] = (byMethod[m] || 0) + (Number(row.amount) || 0);
   });
   return {
-    asOf: snapshot?.asOf || ACCESSIN_SUPPLIER_PAYMENTS_AS_OF,
+    asOf: snapshot?.asOf || supplierPaymentsSeed().ACCESSIN_SUPPLIER_PAYMENTS_AS_OF,
     periodFrom: snapshot?.periodFrom,
     periodTo: snapshot?.periodTo,
     count: list.length,
@@ -42,8 +42,8 @@ export function supplierPaymentsSummary(
 }
 
 export function supplierPaymentsBalanceCards(
-  items = ACCESSIN_SUPPLIER_PAYMENTS,
-  snapshot = ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT,
+  items = supplierPaymentsSeed().ACCESSIN_SUPPLIER_PAYMENTS,
+  snapshot = supplierPaymentsSeed().ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT,
 ) {
   const summary = supplierPaymentsSummary(items, snapshot);
   const methodCards = Object.entries(summary.byMethod)
@@ -51,7 +51,7 @@ export function supplierPaymentsBalanceCards(
     .slice(0, 3)
     .map(([method, value]) => ({
       id: `method-${method}`,
-      label: ACCESSIN_SUPPLIER_PAYMENTS_METHOD_LABELS[method] || method,
+      label: supplierPaymentsSeed().ACCESSIN_SUPPLIER_PAYMENTS_METHOD_LABELS[method] || method,
       value,
       caption: 'Importe del período',
       filter: { paymentMethod: method },

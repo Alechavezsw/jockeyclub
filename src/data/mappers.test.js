@@ -8,6 +8,7 @@ import {
   messageFromRow,
   accountFromRow,
   journalFromRow,
+  paymentFromRow,
 } from './mappers';
 
 describe('mappers', () => {
@@ -60,6 +61,49 @@ describe('mappers', () => {
       meta: { cuotaCategories: ['SOCIO INDIVIDUAL, ABONO TENIS'] },
     }, []);
     expect(ui.tier).toBe('socio_individual');
+  });
+
+  it('toma familia y cuota desde extractos de meta', () => {
+    const ui = memberFromRow({
+      member_number: '3501',
+      full_name: 'Milagros Rojo',
+      tier: 'grupo_familiar_familiar',
+      status: 'active',
+      outstanding_balance: 0,
+      family_principal: 10009,
+      family_group_name: 'GF - Rojo',
+      cuota_categories: ['GRUPO FAMILIAR (Familiar)'],
+      meta: {
+        familyPrincipalNumber: 10009,
+        familyGroupName: 'GF - Rojo',
+        cuotaCategories: ['GRUPO FAMILIAR (Familiar)'],
+      },
+    }, []);
+    expect(ui.recordScope).toBe('list');
+    expect(ui.familyPrincipalNumber).toBe(10009);
+    expect(ui.familyGroupName).toBe('GF - Rojo');
+  });
+
+  it('toma lastPaymentDate de meta sin pisar nombre ni saldo', () => {
+    const ui = memberFromRow({
+      member_number: '2026887744320988',
+      full_name: 'Alejandro Chávez',
+      tier: 'socio_individual',
+      status: 'active',
+      outstanding_balance: 96000,
+      years_active: 5,
+      joined_at: '2021-04-10',
+      next_due_date: '2026-07-10',
+      meta: {
+        lastPaymentDate: '2026-06-14',
+        name: 'NO SOBREESCRIBIR',
+        outstandingBalance: 1,
+      },
+    }, []);
+    expect(ui.name).toBe('Alejandro Chávez');
+    expect(ui.outstandingBalance).toBe(96000);
+    expect(ui.lastPaymentDate).toBe('2026-06-14');
+    expect(ui.joinDate).toBe('2021-04-10');
   });
 
   it('marca padrón slim si no vinieron domicilio ni fecha de nacimiento', () => {
@@ -163,5 +207,20 @@ describe('mappers', () => {
     );
     expect(entry.lines[0].debit).toBe(100);
     expect(entry.concept).toBe('Cobro');
+  });
+
+  it('paymentFromRow conserva importe y comprobante', () => {
+    const pay = paymentFromRow({
+      id: 'p1',
+      member_id: 'm1',
+      amount: '32000.00',
+      paid_at: '2026-08-13',
+      method: 'caja',
+      concept: 'Cuota social',
+      receipt_number: 'RC-0988-260813',
+    });
+    expect(pay.amount).toBe(32000);
+    expect(pay.receipt).toBe('RC-0988-260813');
+    expect(pay.date).toBe('2026-08-13');
   });
 });

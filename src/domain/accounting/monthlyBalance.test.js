@@ -1,13 +1,21 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { loadSnapshots } from '../../data/snapshots';
 import {
-  ACCESSIN_MONTHLY_BALANCE_AS_OF,
-  ACCESSIN_MONTHLY_BALANCE_SECTIONS,
-  findMonthlyBalanceSection,
   filterMonthlyBalanceDetailRows,
+  findMonthlyBalanceSection,
   monthlyBalanceCards,
   monthlyBalanceDetailColumns,
+  monthlyBalanceSeed,
   resolveMonthlyBalanceDetail,
 } from './monthlyBalance';
+
+let ACCESSIN_MONTHLY_BALANCE_AS_OF;
+let ACCESSIN_MONTHLY_BALANCE_SECTIONS;
+
+beforeAll(async () => {
+  await loadSnapshots(['accessinMonthlyBalance']);
+  ({ ACCESSIN_MONTHLY_BALANCE_AS_OF, ACCESSIN_MONTHLY_BALANCE_SECTIONS } = monthlyBalanceSeed());
+});
 
 function lineByLabel(sectionId, re) {
   const section = findMonthlyBalanceSection(ACCESSIN_MONTHLY_BALANCE_SECTIONS, sectionId);
@@ -44,12 +52,12 @@ describe('balance mensual LILA', () => {
 
   it('filtra el detalle por socio, DNI o concepto', () => {
     const rows = [
-      { nro_de_socio: '100116', nombre: 'Ignacio', apellido: 'Ranea Paz', dni: '27527974', concepto: 'SALON ANHELO', monto: 170000 },
-      { nro_de_socio: '9819', nombre: 'Marcelo', apellido: 'Duran', dni: '22957919', concepto: 'Agosto del 2026', monto: 60000 },
+      { nro_de_socio: '900116', nombre: 'Pablo', apellido: 'Vera Luna', dni: '27000555', concepto: 'SALON ANHELO', monto: 170000 },
+      { nro_de_socio: '9019', nombre: 'Hugo', apellido: 'Sosa', dni: '22000666', concepto: 'Agosto del 2026', monto: 60000 },
     ];
-    expect(filterMonthlyBalanceDetailRows(rows, 'ranea')).toHaveLength(1);
-    expect(filterMonthlyBalanceDetailRows(rows, '100116')).toHaveLength(1);
-    expect(filterMonthlyBalanceDetailRows(rows, '22957919')).toHaveLength(1);
+    expect(filterMonthlyBalanceDetailRows(rows, 'vera')).toHaveLength(1);
+    expect(filterMonthlyBalanceDetailRows(rows, '900116')).toHaveLength(1);
+    expect(filterMonthlyBalanceDetailRows(rows, '22000666')).toHaveLength(1);
     expect(filterMonthlyBalanceDetailRows(rows, 'zzz')).toHaveLength(0);
   });
 

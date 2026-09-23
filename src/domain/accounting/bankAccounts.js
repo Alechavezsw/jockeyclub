@@ -1,8 +1,16 @@
 /** Cuentas bancarias (listado LILA + CRUD local). */
 
-import { ACCESSIN_BANK_ACCOUNTS } from '../../data/seed/accessinBankAccounts';
+import { readSnapshot } from '../../data/snapshots';
 
-export { ACCESSIN_BANK_ACCOUNTS, ACCESSIN_BANK_ACCOUNTS_AS_OF } from '../../data/seed/accessinBankAccounts';
+const EMPTY_BANK_ACCOUNTS_SEED = Object.freeze({
+  ACCESSIN_BANK_ACCOUNTS: [],
+  ACCESSIN_BANK_ACCOUNTS_AS_OF: '',
+});
+
+/** Snapshot `accessinBankAccounts`; vacío hasta que carga (ver data/snapshots). */
+export function bankAccountsSeed() {
+  return readSnapshot('accessinBankAccounts', EMPTY_BANK_ACCOUNTS_SEED);
+}
 
 export const BANK_CURRENCY_OPTIONS = [
   { id: 'ARS', label: 'Pesos argentinos' },
@@ -137,7 +145,7 @@ export function movementsForBankAccount(movements = [], account) {
 }
 
 /** Merge seed + edits: si el localStorage está vacío/corto, usar seed. */
-export function resolveBankAccounts(loaded) {
-  if (Array.isArray(loaded) && loaded.length >= ACCESSIN_BANK_ACCOUNTS.length) return loaded;
-  return ACCESSIN_BANK_ACCOUNTS;
+export function resolveBankAccounts(loaded, seed = bankAccountsSeed().ACCESSIN_BANK_ACCOUNTS) {
+  if (Array.isArray(loaded) && loaded.length >= seed.length) return loaded;
+  return seed;
 }

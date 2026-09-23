@@ -1,21 +1,19 @@
 /** Retenciones impositivas / Accessin (resumen CC proveedores). */
 
-import {
-  ACCESSIN_RETENCIONES,
-  ACCESSIN_RETENCIONES_AS_OF,
-  ACCESSIN_RETENCIONES_GENERATED_ON,
-  ACCESSIN_RETENCIONES_PERIOD_FROM,
-  ACCESSIN_RETENCIONES_PERIOD_TO,
-} from '../../data/seed/accessinRetenciones';
+import { readSnapshot } from '../../data/snapshots';
 
-export {
-  ACCESSIN_RETENCIONES_AS_OF,
-  ACCESSIN_RETENCIONES_GENERATED_ON,
-  ACCESSIN_RETENCIONES_PERIOD_FROM,
-  ACCESSIN_RETENCIONES_PERIOD_TO,
-};
+const EMPTY_RETENCIONES_SEED = Object.freeze({
+  ACCESSIN_RETENCIONES: [],
+  ACCESSIN_RETENCIONES_AS_OF: '',
+  ACCESSIN_RETENCIONES_GENERATED_ON: '',
+  ACCESSIN_RETENCIONES_PERIOD_FROM: '',
+  ACCESSIN_RETENCIONES_PERIOD_TO: '',
+});
 
-export const DEFAULT_RETENCIONES = ACCESSIN_RETENCIONES;
+/** Snapshot `accessinRetenciones`; vacío hasta que carga (ver data/snapshots). */
+export function retencionesSeed() {
+  return readSnapshot('accessinRetenciones', EMPTY_RETENCIONES_SEED);
+}
 
 export const RETENCION_STATUS = {
   recorded: 'Registrada',
@@ -54,7 +52,7 @@ export function createRetencion({
     status: 'recorded',
     notes: String(notes || '').trim(),
     source: 'manual',
-    asOf: ACCESSIN_RETENCIONES_AS_OF,
+    asOf: retencionesSeed().ACCESSIN_RETENCIONES_AS_OF,
     createdAt: new Date().toISOString(),
   };
 }

@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { loadSnapshots } from '../../data/snapshots';
 import {
   applyAccountEntryToMember,
   buildAccessinAccountEntries,
@@ -7,9 +8,14 @@ import {
   familyBalanceForMember,
   filterMembersForBalances,
   groupEntriesByMonth,
+  MEMBER_BALANCES_SNAPSHOTS,
   memberStatusLabel,
   upsertAccountEntry,
 } from './memberBalances';
+
+beforeAll(async () => {
+  await loadSnapshots(MEMBER_BALANCES_SNAPSHOTS);
+});
 
 describe('memberBalances / saldos', () => {
   it('filtra habilitados y por número de socio', () => {
@@ -17,9 +23,10 @@ describe('memberBalances / saldos', () => {
       { memberId: '10536', name: 'Salvatori Pascual', status: 'active', outstandingBalance: 100 },
       { memberId: '99999', name: 'Baja Uno', status: 'inactive', outstandingBalance: 50 },
     ];
-    const hit = filterMembersForBalances(members, { status: 'habilitado', memberNumber: '10536' });
+    const hit = filterMembersForBalances(members, { status: 'habilitado', query: '10536' });
     expect(hit).toHaveLength(1);
     expect(hit[0].memberId).toBe('10536');
+    expect(filterMembersForBalances(members, { status: 'habilitado', query: 'salvatori' })).toHaveLength(1);
   });
 
   it('arma balance familiar solo para titular', () => {
@@ -60,6 +67,20 @@ describe('memberBalances / saldos', () => {
     expect(groups[0].openingBalance).toBe(0);
     expect(groups[1].openingBalance).toBe(0);
     expect(groups[1].entries).toHaveLength(1);
+  });
+
+  it('al pedir más meses incluye meses vacíos anteriores', () => {
+    const rows = [
+      { id: '1', date: '2026-08-01', value: 1000 },
+      { id: '2', date: '2026-09-01', value: -1000 },
+    ];
+    const three = groupEntriesByMonth(rows, { monthsBack: 3, asOf: '2026-09' });
+    expect(three.map((g) => g.key)).toEqual(['2026-07', '2026-08', '2026-09']);
+    expect(three[0].entries).toHaveLength(0);
+    const six = groupEntriesByMonth(rows, { monthsBack: 6, asOf: '2026-09' });
+    expect(six).toHaveLength(6);
+    expect(six[0].key).toBe('2026-04');
+    expect(six[0].openingLabel).toMatch(/Abril/);
   });
 
   it('etiqueta pending y suspended', () => {

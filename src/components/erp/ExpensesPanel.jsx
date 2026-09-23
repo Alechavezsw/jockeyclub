@@ -179,7 +179,7 @@ export default function ExpensesPanel({
                   <button
                     type="button"
                     className="btn btn-sm"
-                    style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(207,161,58,0.15)', border: '1px solid var(--primary-gold)' }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(var(--primary-gold-rgb),0.15)', border: '1px solid var(--primary-gold)' }}
                     onClick={() => setExpensePaid(exp.id)}
                   >
                     <Banknote size={14} /> Registrar pago

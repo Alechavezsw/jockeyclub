@@ -1,15 +1,33 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { loadSnapshots } from '../../data/snapshots';
+import { bankAccountsSeed } from './bankAccounts';
 import {
-  ACCESSIN_CASH_MOVEMENTS,
-  ACCESSIN_CASH_SNAPSHOT,
-  ACCESSIN_CHEQUES,
-  ACCESSIN_CHEQUES_SNAPSHOT,
   accessinCashBalanceCards,
   accessinChequesTotal,
+  cashMovementsSeed,
+  cashSeed,
+  chequesSeed,
   filterAccessinCashMovements,
   filterAccessinCheques,
   recalculateAccessinCashTotal,
 } from './cashLedger';
+
+let ACCESSIN_CASH_MOVEMENTS;
+let ACCESSIN_CASH_SNAPSHOT;
+let ACCESSIN_CHEQUES;
+let ACCESSIN_CHEQUES_SNAPSHOT;
+
+beforeAll(async () => {
+  await loadSnapshots([
+    'accessinBankAccounts',
+    'accessinCashMovements',
+    'accessinCashSnapshot',
+    'accessinCheques',
+  ]);
+  ({ ACCESSIN_CASH_MOVEMENTS } = cashMovementsSeed());
+  ({ ACCESSIN_CASH_SNAPSHOT } = cashSeed());
+  ({ ACCESSIN_CHEQUES, ACCESSIN_CHEQUES_SNAPSHOT } = chequesSeed());
+});
 
 describe('cashLedger Accessin', () => {
   it('carga el seed de movimientos reales', () => {
@@ -19,12 +37,12 @@ describe('cashLedger Accessin', () => {
   });
 
   it('recalcula el total = apertura + movimientos del Excel', () => {
-    const total = recalculateAccessinCashTotal();
+    const total = recalculateAccessinCashTotal(ACCESSIN_CASH_SNAPSHOT, ACCESSIN_CASH_MOVEMENTS);
     expect(total).toBeCloseTo(ACCESSIN_CASH_SNAPSHOT.closingBalance, 2);
   });
 
   it('tarjetas usan solo datos reales del Excel / cheques', () => {
-    const cards = accessinCashBalanceCards();
+    const cards = accessinCashBalanceCards(ACCESSIN_CASH_SNAPSHOT, ACCESSIN_CASH_MOVEMENTS);
     expect(cards.find((c) => c.id === 'efectivo')?.value).toBeCloseTo(9121500, 2);
     expect(cards.find((c) => c.id === 'bancos')?.value).toBeCloseTo(107861406.58, 2);
     expect(cards.find((c) => c.id === 'cheques')?.value).toBe(0);
@@ -33,8 +51,8 @@ describe('cashLedger Accessin', () => {
     expect(cards.find((c) => c.id === 'efectivo')?.value).not.toBeCloseTo(179794062.75, 0);
   });
 
-  it('tarjetas de bancos usan saldos reales de cuentas cuando hay listado', async () => {
-    const { ACCESSIN_BANK_ACCOUNTS } = await import('../../data/seed/accessinBankAccounts.js');
+  it('tarjetas de bancos usan saldos reales de cuentas cuando hay listado', () => {
+    const { ACCESSIN_BANK_ACCOUNTS } = bankAccountsSeed();
     const cards = accessinCashBalanceCards(
       ACCESSIN_CASH_SNAPSHOT,
       ACCESSIN_CASH_MOVEMENTS,

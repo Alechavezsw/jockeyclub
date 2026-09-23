@@ -32,7 +32,7 @@ import PoolTab from '../components/admin/PoolTab';
 import { DEFAULT_POOL_SETTINGS } from '../domain/pool/poolAccess';
 import { DEFAULT_CHART_OF_ACCOUNTS, resolveAccountId } from '../domain/accounting/chartOfAccounts';
 import { getAccountBalance as domainAccountBalance } from '../domain/accounting/journal';
-import { allowedAdminTabs, allowedAdminTabsForRoles, canAccessConcessions, canAccessQrGate, ROLE_LABELS, ROLE_PANEL_META } from '../domain/auth/roles';
+import { allowedAdminTabsForRoles, canAccessConcessions, canAccessQrGate, ROLE_LABELS, ROLE_PANEL_META } from '../domain/auth/roles';
 import { getOverdueMembers, getUpcomingDuesMembers } from '../domain/members/dues';
 import { useAuth } from '../context/AuthContext';
 import { repos } from '../data/bootstrap';
@@ -68,6 +68,7 @@ export default function AdminView({
   members,
   membersCount = 0,
   membersLoading = false,
+  membersProgress = { loaded: 0, total: 0 },
   reservations,
   setMembers,
   setReservations,
@@ -92,6 +93,8 @@ export default function AdminView({
   setRegisteredUsersCount,
   membershipApplications = [],
   setMembershipApplications,
+  portalAccessRequests = [],
+  setPortalAccessRequests,
   erp = {},
   latestNews = [],
   setNewsList,
@@ -134,6 +137,14 @@ export default function AdminView({
       navigate('/acceso');
       return;
     }
+    if (tabKey === 'pool') {
+      navigate('/pileta');
+      return;
+    }
+    if (tabKey === 'pool_gate') {
+      navigate('/entrada-pileta');
+      return;
+    }
     if (tabKey === 'accounting') {
       const nextFocus = focus || (userRole === 'cashier' ? 'cash' : null);
       if (nextFocus) {
@@ -160,6 +171,8 @@ export default function AdminView({
           { key: 'bookings', icon: Calendar, label: 'Reservas' },
           { key: 'access', icon: DoorOpen, label: 'Ingresos' },
           { key: 'qr_gate', icon: QrCode, label: 'Acceso QR' },
+          { key: 'pool_gate', icon: Waves, label: 'Entrada pileta' },
+          { key: 'pool', icon: Waves, label: 'Pileta' },
         ],
       },
       {
@@ -167,7 +180,6 @@ export default function AdminView({
         label: 'Club',
         tabs: [
           { key: 'disciplines', icon: Trophy, label: 'Disciplinas' },
-          { key: 'pool', icon: Waves, label: 'Pileta' },
           { key: 'events', icon: PartyPopper, label: 'Fiestas' },
           { key: 'news', icon: Newspaper, label: 'Revista' },
           { key: 'surveys', icon: Radio, label: 'Encuestas' },
@@ -217,6 +229,7 @@ export default function AdminView({
         tabs: group.tabs.filter((tab) => {
           if (tab.key === 'concessions') return showConcessionsTab;
           if (tab.key === 'qr_gate') return showQrGateTab;
+          if (tab.key === 'pool_gate') return permittedTabs.includes('pool');
           return permittedTabs.includes(tab.key);
         }),
       }))
@@ -309,7 +322,11 @@ export default function AdminView({
   const utilidadNeta = totalIngresos - totalGastos;
   const totalPatrimonioNetoTotal = totalPatrimonioNetoBase + utilidadNeta;
 
-  const totalMembers = members.length > 0 ? members.length : (membersCount || 0);
+  const totalMembers = Math.max(Number(membersCount) || 0, members.length);
+  const padronReady = !membersLoading && members.length > 0;
+  const padronProgressLabel = membersLoading && membersProgress?.total
+    ? `Cargando ${membersProgress.loaded.toLocaleString('es-AR')} de ${membersProgress.total.toLocaleString('es-AR')}…`
+    : (membersLoading ? 'Cargando detalle del padrón…' : 'Membresías titulares activas');
   const activeBookingsCount = reservations.filter(res => res.status === 'confirmed').length;
   const pendingBookingsCount = reservations.filter(res => res.status === 'pending').length;
 
@@ -317,7 +334,7 @@ export default function AdminView({
   const overdueMembers = getOverdueMembers(members);
   const overdueMembersCount = overdueMembers.length;
   const upcomingDuesCount = getUpcomingDuesMembers(members, { withinDays: 15 }).length;
-  const paymentCollectionRate = members.length > 0 ? Math.round((paidMembers / members.length) * 100) : 0;
+  const paymentCollectionRate = padronReady ? Math.round((paidMembers / members.length) * 100) : 0;
   const totalOutstanding = members.reduce((sum, m) => sum + (Number(m.outstandingBalance) || 0), 0);
 
   // Indicadores operativos para dashboards por rol
@@ -340,7 +357,7 @@ export default function AdminView({
           border-radius: 12px;
           background: #020804;
           border: 2px solid var(--primary-gold);
-          box-shadow: 0 0 15px rgba(207, 161, 58, 0.2);
+          box-shadow: 0 0 15px rgba(var(--primary-gold-rgb), 0.2);
           overflow: hidden;
           display: flex;
           align-items: center;
@@ -367,8 +384,8 @@ export default function AdminView({
           box-shadow: 0 0 8px currentColor;
         }
         .led-green {
-          background-color: #10b981;
-          color: #10b981;
+          background-color: var(--emerald-accent);
+          color: var(--emerald-accent);
           animation: pulseLed 1s infinite alternate;
         }
         .led-red {
@@ -392,7 +409,7 @@ export default function AdminView({
           border-radius: 8px;
           padding: 1rem;
           font-family: 'Courier New', Courier, monospace;
-          color: #10b981;
+          color: var(--emerald-accent);
           min-height: 200px;
           max-height: 320px;
           overflow-y: auto;
@@ -520,7 +537,7 @@ export default function AdminView({
 
       <div className="admin-main">
       {/* Cabecera solo fuera del Inicio (el dashboard ya trae su propia intro) */}
-      {activeTab !== 'dashboard' && (
+      {activeTab !== 'dashboard' && activeTab !== 'events' && activeTab !== 'accounting' && (
         <div className="page-header">
           <div>
             <h1 className="page-title">{panelMeta.title}</h1>
@@ -537,24 +554,24 @@ export default function AdminView({
             staff: [
               { icon: <Calendar size={20} />, bg: 'rgba(16, 185, 129, 0.1)', color: 'var(--emerald-accent)', title: 'Reservas Activas', value: activeBookingsCount, valueColor: 'var(--emerald-accent)', sub: 'Turnos confirmados de canchas' },
               { icon: <Clock size={20} />, bg: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', title: 'Reservas Pendientes', value: pendingBookingsCount, valueColor: '#f59e0b', sub: 'A la espera de confirmación' },
-              { icon: <MessageSquare size={20} />, bg: 'rgba(99, 102, 241, 0.1)', color: '#818cf8', title: 'Reclamos Abiertos', value: pendingClaimsCount, valueColor: '#818cf8', sub: 'Pedidos de socios sin resolver' },
-              { icon: <ClipboardList size={20} />, bg: 'rgba(207, 161, 58, 0.1)', color: 'var(--primary-gold)', title: 'Personal en Servicio', value: activeStaffCount, sub: 'Empleados activos hoy' },
+              { icon: <MessageSquare size={20} />, bg: 'rgba(var(--primary-gold-rgb), 0.1)', color: 'var(--primary-gold)', title: 'Reclamos Abiertos', value: pendingClaimsCount, valueColor: 'var(--primary-gold)', sub: 'Pedidos de socios sin resolver' },
+              { icon: <ClipboardList size={20} />, bg: 'rgba(var(--primary-gold-rgb), 0.1)', color: 'var(--primary-gold)', title: 'Personal en Servicio', value: activeStaffCount, sub: 'Empleados activos hoy' },
             ],
             cashier: [
               { icon: <DollarSign size={20} />, bg: 'rgba(16, 185, 129, 0.1)', color: 'var(--emerald-accent)', title: 'Total en Caja y Bancos', value: formatCurrency(totalCashOnHand), valueColor: 'var(--emerald-accent)', compact: true, sub: 'Caja General + Cantina + Banco Nación' },
-              { icon: <Check size={20} />, bg: 'rgba(16, 185, 129, 0.1)', color: 'var(--emerald-accent)', title: 'Recaudación Cuotas', value: `${paymentCollectionRate}%`, valueColor: 'var(--emerald-accent)', sub: `${paidMembers} de ${totalMembers} socios al día` },
+              { icon: <Check size={20} />, bg: 'rgba(16, 185, 129, 0.1)', color: 'var(--emerald-accent)', title: 'Recaudación Cuotas', value: padronReady ? `${paymentCollectionRate}%` : '…', valueColor: 'var(--emerald-accent)', sub: padronReady ? `${paidMembers} de ${totalMembers} socios al día` : 'Se calcula al terminar el padrón' },
               { icon: <ShieldAlert size={20} />, bg: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', title: 'Deuda Pendiente', value: formatCurrency(totalOutstanding), valueColor: '#f59e0b', compact: true, sub: 'Cuotas sociales a cobrar' },
-              { icon: <Users size={20} />, bg: 'rgba(207, 161, 58, 0.1)', color: 'var(--primary-gold)', title: 'Padrón Social', value: totalMembers, sub: membersLoading && members.length === 0 ? 'Cargando detalle del padrón…' : 'Membresías titulares activas' },
+              { icon: <Users size={20} />, bg: 'rgba(var(--primary-gold-rgb), 0.1)', color: 'var(--primary-gold)', title: 'Padrón Social', value: totalMembers, sub: padronProgressLabel },
             ],
             accountant: [
               { icon: <CreditCard size={20} />, bg: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', title: 'Activos Totales', value: formatCurrency(totalActivos), compact: true, sub: `Pasivos: ${formatCurrency(totalPasivos)}` },
-              { icon: <BookOpen size={20} />, bg: 'rgba(207, 161, 58, 0.1)', color: 'var(--primary-gold)', title: 'Patrimonio Neto', value: formatCurrency(totalPatrimonioNetoTotal), compact: true, sub: 'Incluye resultado del ejercicio' },
+              { icon: <BookOpen size={20} />, bg: 'rgba(var(--primary-gold-rgb), 0.1)', color: 'var(--primary-gold)', title: 'Patrimonio Neto', value: formatCurrency(totalPatrimonioNetoTotal), compact: true, sub: 'Incluye resultado del ejercicio' },
               { icon: <Activity size={20} />, bg: utilidadNeta >= 0 ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)', color: utilidadNeta >= 0 ? 'var(--emerald-accent)' : 'var(--danger-accent)', title: 'Resultado del Ejercicio', value: formatCurrency(utilidadNeta), valueColor: utilidadNeta >= 0 ? 'var(--emerald-accent)' : 'var(--danger-accent)', compact: true, sub: `Ingresos ${formatCurrency(totalIngresos)} · Gastos ${formatCurrency(totalGastos)}` },
-              { icon: <DollarSign size={20} />, bg: 'rgba(16, 185, 129, 0.1)', color: 'var(--emerald-accent)', title: 'Recaudación Cuotas', value: members.length ? `${paymentCollectionRate}%` : (membersLoading ? '…' : `${paymentCollectionRate}%`), valueColor: 'var(--emerald-accent)', sub: `Pendiente: ${formatCurrency(totalOutstanding)}` },
+              { icon: <DollarSign size={20} />, bg: 'rgba(16, 185, 129, 0.1)', color: 'var(--emerald-accent)', title: 'Recaudación Cuotas', value: padronReady ? `${paymentCollectionRate}%` : '…', valueColor: 'var(--emerald-accent)', sub: padronReady ? `Pendiente: ${formatCurrency(totalOutstanding)}` : 'Se calcula al terminar el padrón' },
             ],
             admin: [
-              { icon: <Users size={20} />, bg: 'rgba(207, 161, 58, 0.1)', color: 'var(--primary-gold)', title: 'Padrón Social', value: totalMembers, sub: membersLoading && members.length === 0 ? 'Cargando detalle del padrón…' : 'Membresías titulares activas' },
-              { icon: <DollarSign size={20} />, bg: 'rgba(16, 185, 129, 0.1)', color: 'var(--emerald-accent)', title: 'Recaudación Cuotas', value: members.length ? `${paymentCollectionRate}%` : (membersLoading ? '…' : `${paymentCollectionRate}%`), valueColor: 'var(--emerald-accent)', sub: `Pendiente: ${formatCurrency(totalOutstanding)}` },
+              { icon: <Users size={20} />, bg: 'rgba(var(--primary-gold-rgb), 0.1)', color: 'var(--primary-gold)', title: 'Padrón Social', value: totalMembers, sub: padronProgressLabel },
+              { icon: <DollarSign size={20} />, bg: 'rgba(16, 185, 129, 0.1)', color: 'var(--emerald-accent)', title: 'Recaudación Cuotas', value: padronReady ? `${paymentCollectionRate}%` : '…', valueColor: 'var(--emerald-accent)', sub: padronReady ? `Pendiente: ${formatCurrency(totalOutstanding)}` : 'Se calcula al terminar el padrón' },
               {
                 icon: <ShieldAlert size={20} />,
                 bg: 'rgba(239, 68, 68, 0.15)',
@@ -646,6 +663,7 @@ export default function AdminView({
           chartOfAccounts={chartOfAccounts}
           registeredUsersCount={registeredUsersCount}
           membershipApplications={membershipApplications}
+          portalAccessRequests={portalAccessRequests}
         />
       )}
 
@@ -666,10 +684,13 @@ export default function AdminView({
           onDeleteMemberAccountEntry={erp.deleteMemberAccountEntryRecord}
           reservations={reservations}
           onImputeReservation={(r) => {
-            if (!setReservations || !r?.id) return;
-            setReservations((prev) => (prev || []).map((row) => (
-              row.id === r.id ? { ...row, imputed: true, feeImputed: true, imputedAt: new Date().toISOString() } : row
-            )));
+            if (!setReservations || !(r?.id || r?.accessinId)) return;
+            setReservations((prev) => (prev || []).map((row) => {
+              const same = (r.id && row.id === r.id)
+                || (r.accessinId && row.accessinId === r.accessinId);
+              if (!same) return row;
+              return { ...row, imputed: true, feeImputed: true, imputedAt: new Date().toISOString() };
+            }));
           }}
           addJournalEntry={addJournalEntry}
           formatCurrency={formatCurrency}
@@ -706,6 +727,7 @@ export default function AdminView({
             members={members}
             membersCount={membersCount}
             membersLoading={membersLoading}
+            membersProgress={membersProgress}
             setMembers={setMembers}
             addJournalEntry={addJournalEntry}
             onAccountEntry={erp.upsertMemberAccountEntryRecord}
@@ -715,6 +737,10 @@ export default function AdminView({
             tierCatalog={tierCatalog}
             setTierCatalog={setTierCatalog}
             updateMember={updateMember}
+            membershipApplications={membershipApplications}
+            setMembershipApplications={setMembershipApplications}
+            portalAccessRequests={portalAccessRequests}
+            setPortalAccessRequests={setPortalAccessRequests}
           />
         )
       )}
@@ -744,6 +770,7 @@ export default function AdminView({
           addJournalEntry={addJournalEntry}
           poolAccesses={poolAccesses}
           setPoolAccesses={setPoolAccesses}
+          setEntryLogs={setEntryLogs}
           poolSettings={poolSettings}
           setPoolSettings={setPoolSettings}
         />
@@ -752,6 +779,7 @@ export default function AdminView({
       {activeTab === 'access' && (
         <AccessLogsTab
           entryLogs={entryLogs}
+          poolAccesses={poolAccesses}
           onOpenGate={() => navigate('/acceso')}
         />
       )}
@@ -853,16 +881,14 @@ export default function AdminView({
       )}
 
       {activeTab === 'events' && (
-        <div className="glass-card fade-in" style={{ padding: '1.25rem' }}>
-          <ClubEventsPanel
-            clubEvents={erp.clubEvents || []}
-            eventRegistrations={erp.eventRegistrations || []}
-            members={members}
-            addClubEvent={erp.addClubEvent}
-            registerMemberToEvent={erp.registerMemberToEvent}
-            revokeEventRegistration={erp.revokeEventRegistration}
-          />
-        </div>
+        <ClubEventsPanel
+          clubEvents={erp.clubEvents || []}
+          eventRegistrations={erp.eventRegistrations || []}
+          members={members}
+          addClubEvent={erp.addClubEvent}
+          registerMemberToEvent={erp.registerMemberToEvent}
+          revokeEventRegistration={erp.revokeEventRegistration}
+        />
       )}
 
       {activeTab === 'alerts' && (

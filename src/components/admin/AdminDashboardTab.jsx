@@ -9,11 +9,19 @@ import {
 import { useSedeWeather } from '../../hooks/useSedeWeather';
 import { formatObservedClock } from '../../domain/weather/sedeWeather';
 import { canAccessQrGate } from '../../domain/auth/roles';
-import { isAlertVisible, ALERT_SEVERITY } from '../../domain/alerts/alerts';
+import { filterAlertsForRole, isAlertAcknowledged, isAlertVisible, ALERT_SEVERITY } from '../../domain/alerts/alerts';
 import { buildOpsFinanceSnapshot } from '../../domain/accounting/opsFinanceSnapshot';
 import { isNewsPublished, newsCategoryLabel } from '../../domain/news/news';
 import { buildPadronHouseholdStats } from '../../domain/members/households';
+import { getOverdueMembers } from '../../domain/members/dues';
+import { membershipMovesSeed, uniqueBajas } from '../../domain/members/membershipMoves';
+import { useSnapshotSeed } from '../../hooks/useSnapshots';
+import { todayISODateAR } from '../../lib/arDate';
 import { AlertsBanner } from '../erp/AlertsPanel';
+import { OpsProgressRing, OpsSegmentRing } from './OpsGauge';
+
+const MOVES_SNAPSHOTS = ['societasMembershipMoves'];
+const NO_SNAPSHOTS = [];
 
 function reservationDay(res) {
   return String(res?.date || res?.reservation_date || '').slice(0, 10);
@@ -31,8 +39,24 @@ function parseLogInstant(log) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+function addDaysISO(iso, days) {
+  const [y, m, d] = String(iso).split('-').map(Number);
+  const dt = new Date(y, m - 1, d + days);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+}
+
+function weekdayLabel(iso) {
+  const [y, m, d] = String(iso).split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('es-AR', { weekday: 'short' }).replace('.', '');
+}
+
+function formatMoveDay(iso) {
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso || '—';
+  return `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+}
+
 function buildBookingsSnapshot(reservations = [], today = new Date()) {
-  const todayKey = today.toISOString().slice(0, 10);
+  const todayKey = todayISODateAR(today);
   const list = Array.isArray(reservations) ? reservations : [];
   const upcoming = list.filter((r) => {
     const day = reservationDay(r);
@@ -50,19 +74,45 @@ function buildBookingsSnapshot(reservations = [], today = new Date()) {
       return da.localeCompare(db);
     })
     .slice(0, 3);
+  const pastList = list
+    .filter((r) => r.status !== 'cancelled' && reservationDay(r) && reservationDay(r) < todayKey)
+    .sort((a, b) => {
+      const da = `${reservationDay(a)} ${a.time || a.time_slot || ''}`;
+      const db = `${reservationDay(b)} ${b.time || b.time_slot || ''}`;
+      return db.localeCompare(da);
+    })
+    .slice(0, 3);
+  const facilityCounts = new Map();
+  for (const r of list) {
+    if (r.status === 'cancelled') continue;
+    const name = r.facilityName || r.facilityId || 'Cancha';
+    facilityCounts.set(name, (facilityCounts.get(name) || 0) + 1);
+  }
+  const topFacilities = [...facilityCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([name, count]) => ({ name, count }));
+  const week = Array.from({ length: 7 }, (_, i) => {
+    const key = addDaysISO(todayKey, i);
+    return {
+      key,
+      count: upcoming.filter((r) => reservationDay(r) === key).length,
+      label: weekdayLabel(key),
+      day: key.slice(8, 10),
+    };
+  });
   return {
     confirmedUpcoming: confirmedUpcoming.length,
     pendingUpcoming: pendingUpcoming.length,
     todayCount: todayList.length,
     todayList: todayList.slice(0, 5),
     next,
+    pastList,
+    topFacilities,
+    maxFacility: topFacilities[0]?.count || 1,
+    week,
     pastConfirmed: list.filter((r) => r.status === 'confirmed' && reservationDay(r) < todayKey).length,
   };
-}
-
-function pct(part, total) {
-  if (!total) return '0.00';
-  return ((part / total) * 100).toFixed(2);
 }
 
 function formatLongDate(d = new Date()) {
@@ -109,14 +159,16 @@ export default function AdminDashboardTab({
   chartOfAccounts = [],
   registeredUsersCount = 0,
   membershipApplications = [],
+  portalAccessRequests = [],
 }) {
   const navigate = useNavigate();
   const showGate = canAccessQrGate(userRole);
   const pendingMembershipApps = useMemo(
-    () => (membershipApplications || []).filter((a) => a.status === 'pending').length,
-    [membershipApplications]
+    () => (membershipApplications || []).filter((a) => a.status === 'pending').length
+      + (portalAccessRequests || []).filter((a) => a.status === 'pending').length,
+    [membershipApplications, portalAccessRequests]
   );
-  const todayKey = new Date().toISOString().slice(0, 10);
+  const todayKey = todayISODateAR();
   const hasAccounting = permittedTabs.includes('accounting');
   const hasMessaging = permittedTabs.includes('messaging');
   const hasMembers = permittedTabs.includes('members');
@@ -124,19 +176,25 @@ export default function AdminDashboardTab({
   const bookings = useMemo(() => buildBookingsSnapshot(reservations), [reservations]);
 
   const msgStats = useMemo(() => {
-    const total = messages.length;
-    const unread = messages.filter((m) => !m.isRead).length;
-    const unanswered = messages.filter((m) => !m.isRead && !m.parentId && m.recipientId === 'ops').length;
+    const list = Array.isArray(messages) ? messages : [];
+    const total = list.length;
+    const unread = list.filter((m) => !m.isRead).length;
+    const unanswered = list.filter((m) => !m.isRead && !m.parentId && m.recipientId === 'ops').length;
     const inProgress = Math.max(0, total - unread);
-    return { total, unread, unanswered, inProgress };
+    const attention = unanswered + Math.max(0, unread - unanswered);
+    const recent = [...list]
+      .sort((a, b) => String(b.createdAt || b.date || '').localeCompare(String(a.createdAt || a.date || '')))
+      .slice(0, 3);
+    return { total, unread, unanswered, inProgress, attention, recent };
   }, [messages]);
 
-  const donutGradient = useMemo(() => {
-    const { total, unanswered, unread } = msgStats;
-    if (!total) return 'conic-gradient(var(--border-glass) 0% 100%)';
-    const a = (unanswered / total) * 100;
-    const b = a + (unread / total) * 100;
-    return `conic-gradient(#ef4444 0% ${a}%, #a855f7 ${a}% ${b}%, var(--emerald-accent) ${b}% 100%)`;
+  const commsSegments = useMemo(() => {
+    const unreadOnly = Math.max(0, msgStats.unread - msgStats.unanswered);
+    return [
+      { key: 'wait', value: msgStats.unanswered, color: '#CA390C' },
+      { key: 'read', value: unreadOnly, color: '#7c5cbf' },
+      { key: 'ok', value: msgStats.inProgress, color: '#096755' },
+    ];
   }, [msgStats]);
 
   const todayEntries = useMemo(() => {
@@ -165,6 +223,14 @@ export default function AdminDashboardTab({
   const activeAlerts = useMemo(
     () => (alerts || []).filter((a) => isAlertVisible(a)).slice(0, 4),
     [alerts],
+  );
+
+  const hasOpenConcessionAlerts = useMemo(
+    () => filterAlertsForRole(alerts, userRole).some((a) => (
+      (a.source === 'concession_expiry' || a.source === 'concession_docs')
+      && !isAlertAcknowledged(a, alertAcks)
+    )),
+    [alerts, alertAcks, userRole],
   );
 
   const nextEvent = useMemo(() => {
@@ -200,10 +266,11 @@ export default function AdminDashboardTab({
   const membersWithApp = members.filter((m) => m.hasApp || m.appInstalled).length;
   const padronTop = useMemo(() => {
     const top = household.byTier.slice(0, 5);
-    const restCount = household.byTier.slice(5).reduce((n, t) => n + t.count, 0);
-    const restCats = Math.max(0, household.byTier.length - 5);
+    const rest = household.byTier.slice(5);
+    const restCount = rest.reduce((n, t) => n + t.count, 0);
+    const restCats = rest.length;
     const max = top[0]?.count || 1;
-    return { top, restCount, restCats, max };
+    return { top, rest, restCount, restCats, max };
   }, [household.byTier]);
 
   const monthLabel = new Date().toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
@@ -222,7 +289,63 @@ export default function AdminDashboardTab({
   const cashToday = finance.cashToday;
   const collectedMonth = finance.collectedMonth;
   const liveCollectionRate = finance.collectionRate || paymentCollectionRate || 0;
+  const collectionTone = liveCollectionRate >= 80 ? 'ok' : liveCollectionRate >= 50 ? 'mid' : 'low';
   const debtTotal = finance.debtTotal || totalOutstanding || 0;
+  const monthProgress = finance.expectedMonth > 0
+    ? Math.min(100, Math.round((collectedMonth / finance.expectedMonth) * 100))
+    : 0;
+
+  const cashSplit = useMemo(() => {
+    if (typeof getAccountBalance !== 'function') return [];
+    return [
+      { id: 'caja', label: 'Caja', amount: Number(getAccountBalance('Caja General')) || 0 },
+      { id: 'cantina', label: 'Cantina', amount: Number(getAccountBalance('Caja Cantina')) || 0 },
+      { id: 'banco', label: 'Banco', amount: Number(getAccountBalance('Banco Nación')) || 0 },
+    ];
+  }, [getAccountBalance, cashToday]);
+
+  const overdueTop = useMemo(
+    () => getOverdueMembers(members).slice(0, 5),
+    [members],
+  );
+
+  const padronStatus = useMemo(() => {
+    let active = 0;
+    let inactive = 0;
+    let suspended = 0;
+    for (const m of members) {
+      if (m.status === 'inactive') inactive += 1;
+      else if (m.status === 'suspended') suspended += 1;
+      else active += 1;
+    }
+    return { active, inactive, suspended };
+  }, [members]);
+
+  // Altas y bajas de Societas (nombre y DNI): solo se piden si se ve el padrón.
+  const movesSeed = useSnapshotSeed(hasMembers ? MOVES_SNAPSHOTS : NO_SNAPSHOTS, membershipMovesSeed);
+  const movePulse = useMemo(() => {
+    const {
+      SOCIETAS_MEMBERSHIP_ALTAS,
+      SOCIETAS_MEMBERSHIP_BAJAS,
+      SOCIETAS_MEMBERSHIP_MOVES_SNAPSHOT: snap,
+    } = movesSeed;
+    const altas = [...SOCIETAS_MEMBERSHIP_ALTAS]
+      .sort((a, b) => String(b.date).localeCompare(String(a.date)))
+      .slice(0, 3);
+    const bajas = uniqueBajas(SOCIETAS_MEMBERSHIP_BAJAS).slice(0, 3);
+    return {
+      altas: Number(snap.altas) || 0,
+      bajas: Number(snap.bajas) || 0,
+      from: snap.periodFrom,
+      to: snap.periodTo,
+      recent: [
+        ...altas.map((row) => ({ ...row, move: 'alta' })),
+        ...bajas.map((row) => ({ ...row, move: 'baja' })),
+      ]
+        .sort((a, b) => String(b.date).localeCompare(String(a.date)))
+        .slice(0, 4),
+    };
+  }, [movesSeed]);
 
   const activeSurveys = (surveys || []).filter((s) => s.active !== false && (s.status === 'open' || s.status === 'published' || s.active)).length;
 
@@ -380,31 +503,10 @@ export default function AdminDashboardTab({
               ) : null}
             </header>
             {bookings.todayList.length === 0 ? (
-              <>
-                <p className="ops-muted ops-today-empty">Sin turnos para hoy.</p>
-                {bookings.next.length > 0 ? (
-                  <>
-                    <p className="ops-today-next-label">Próximos</p>
-                    <ul className="ops-today-list ops-today-list--next">
-                      {bookings.next.slice(0, 3).map((res) => (
-                        <li key={res.id || `${reservationDay(res)}-${res.time || res.time_slot}`}>
-                          <span className="ops-today-time tabular-nums">
-                            {String(res.time || res.time_slot || '—').slice(0, 5)}
-                          </span>
-                          <span className="ops-today-copy">
-                            <strong>{res.facilityName || res.facilityId}</strong>
-                            <small>
-                              {reservationDay(res).slice(8, 10)}/{reservationDay(res).slice(5, 7)}
-                              {res.memberName ? ` · ${res.memberName}` : ''}
-                              {res.status === 'pending' ? ' · por confirmar' : ''}
-                            </small>
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                ) : null}
-              </>
+              <p className="ops-muted ops-today-empty">
+                Sin turnos para hoy
+                {bookings.pastConfirmed > 0 ? ` · ${bookings.pastConfirmed} históricas en el libro` : ''}.
+              </p>
             ) : (
               <ul className="ops-today-list">
                 {bookings.todayList.map((res) => (
@@ -423,6 +525,83 @@ export default function AdminDashboardTab({
                 ))}
               </ul>
             )}
+            <ul className="ops-week" aria-label="Turnos de los próximos 7 días">
+              {bookings.week.map((d) => (
+                <li key={d.key} className={d.key === todayKey ? 'is-today' : undefined}>
+                  <span>{d.label}</span>
+                  <b className="tabular-nums">{d.count}</b>
+                  <small className="tabular-nums">{d.day}</small>
+                </li>
+              ))}
+            </ul>
+            {bookings.next.length > 0 ? (
+              <>
+                <p className="ops-today-next-label">Próximos</p>
+                <ul className="ops-today-list ops-today-list--next">
+                  {bookings.next.slice(0, 3).map((res) => (
+                    <li key={res.id || `${reservationDay(res)}-${res.time || res.time_slot}`}>
+                      <span className="ops-today-time tabular-nums">
+                        {String(res.time || res.time_slot || '—').slice(0, 5)}
+                      </span>
+                      <span className="ops-today-copy">
+                        <strong>{res.facilityName || res.facilityId}</strong>
+                        <small>
+                          {formatMoveDay(reservationDay(res))}
+                          {res.memberName ? ` · ${res.memberName}` : ''}
+                          {res.status === 'pending' ? ' · por confirmar' : ''}
+                        </small>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
+            {bookings.topFacilities.length > 0 ? (
+              <div className="ops-today-fill">
+                <p className="ops-today-next-label">Canchas más pedidas</p>
+                <ul className="ops-mini-bars" aria-label="Canchas con más reservas">
+                  {bookings.topFacilities.map((f) => (
+                    <li key={f.name}>
+                      <div className="ops-mini-bars-meta">
+                        <span>{f.name}</span>
+                        <b className="tabular-nums">{f.count}</b>
+                      </div>
+                      <div className="ops-mini-bars-track" aria-hidden="true">
+                        <span style={{ width: `${Math.max(10, Math.round((f.count / bookings.maxFacility) * 100))}%` }} />
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {bookings.todayList.length === 0 && bookings.pastList.length > 0 ? (
+              <div className="ops-today-fill ops-today-fill--scroll">
+                <p className="ops-today-next-label">Últimos turnos</p>
+                <ul className="ops-today-list">
+                  {bookings.pastList.map((res) => (
+                    <li key={res.id || `${reservationDay(res)}-${res.time || res.time_slot}-past`}>
+                      <span className="ops-today-time tabular-nums">
+                        {formatMoveDay(reservationDay(res))}
+                      </span>
+                      <span className="ops-today-copy">
+                        <strong>{res.facilityName || res.facilityId}</strong>
+                        <small>
+                          {String(res.time || res.time_slot || '—').slice(0, 5)}
+                          {res.memberName ? ` · ${res.memberName}` : ''}
+                        </small>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {weatherClosed || weatherCaution ? (
+              <p className={`ops-today-note ${weatherClosed ? 'is-closed' : 'is-caution'}`}>
+                {weatherClosed
+                  ? 'Outdoor en pausa · conviene canchas cubiertas.'
+                  : 'Outdoor con precaución · avisar a profesores.'}
+              </p>
+            ) : null}
             {nextEvent ? (
               <div className="ops-today-event">
                 <PartyPopper size={14} aria-hidden="true" />
@@ -442,6 +621,9 @@ export default function AdminDashboardTab({
             ) : null}
             {permittedTabs.includes('bookings') && (
               <div className="ops-today-pane-foot">
+                <button type="button" className="ops-dash-link" onClick={() => goToTab('bookings')}>
+                  Nueva reserva
+                </button>
                 <Link to="/panel/bookings" className="ops-dash-link">
                   Ver agenda completa
                 </Link>
@@ -551,35 +733,69 @@ export default function AdminDashboardTab({
         <div className="ops-dash-col ops-dash-col--left">
           {hasMessaging ? (
             <article className="glass-card ops-card ops-card--tall ops-tile ops-tile--comms">
-              <header className="ops-card-head">
-                <MessageSquare size={16} color="var(--primary-gold)" />
-                <h3>Comunicaciones</h3>
+              <header className="ops-card-head ops-card-head--split">
+                <div>
+                  <MessageSquare size={16} color="var(--primary-gold)" />
+                  <h3>Comunicaciones</h3>
+                </div>
+                {msgStats.attention > 0 ? (
+                  <span className="ops-comms-badge">{msgStats.attention}</span>
+                ) : null}
               </header>
 
               <div className="ops-donut-wrap">
-                <div className="donut-chart" style={{ background: donutGradient }}>
-                  <div className="donut-hole" />
+                <OpsSegmentRing
+                  segments={commsSegments}
+                  value={msgStats.total}
+                  caption="msgs"
+                  title={`${msgStats.total} mensajes · ${msgStats.attention} para atender`}
+                />
+                <div className="ops-comms-hero">
+                  <strong>Bandeja del club</strong>
+                  <span>
+                    {msgStats.attention > 0
+                      ? `${msgStats.attention} para atender`
+                      : msgStats.total > 0
+                        ? 'Nada pendiente'
+                        : 'Todavía no hay mensajes'}
+                  </span>
                 </div>
-                <strong>{msgStats.total} mensajes</strong>
               </div>
 
-              <ul className="ops-status-list">
-                {[
-                  { color: '#ef4444', count: msgStats.unanswered, label: 'No respondida', p: pct(msgStats.unanswered, msgStats.total) },
-                  { color: '#a855f7', count: msgStats.unread, label: 'No leída', p: pct(msgStats.unread, msgStats.total) },
-                  { color: 'var(--emerald-accent)', count: msgStats.inProgress, label: 'En progreso', p: pct(msgStats.inProgress, msgStats.total) },
-                ].map((row) => (
-                  <li key={row.label}>
-                    <span className="ops-status-dot" style={{ background: row.color }} />
-                    <span className="ops-status-label">{row.count} {row.label}</span>
-                    <span className="ops-status-pct">{row.p}%</span>
-                    <button type="button" className="ops-mini-btn" onClick={() => navigate('/mensajes')}>Ver</button>
-                  </li>
-                ))}
-              </ul>
+              <div className="ops-comms-pills" aria-label="Estado de la bandeja">
+                <button type="button" className="ops-comms-pill tone-wait" onClick={() => navigate('/mensajes')}>
+                  <b className="tabular-nums">{msgStats.unanswered}</b>
+                  <span>Sin responder</span>
+                </button>
+                <button type="button" className="ops-comms-pill tone-read" onClick={() => navigate('/mensajes')}>
+                  <b className="tabular-nums">{msgStats.unread}</b>
+                  <span>Sin leer</span>
+                </button>
+                <button type="button" className="ops-comms-pill tone-ok" onClick={() => navigate('/mensajes')}>
+                  <b className="tabular-nums">{msgStats.inProgress}</b>
+                  <span>En curso</span>
+                </button>
+              </div>
+
+              {msgStats.recent.length > 0 ? (
+                <ul className="ops-comms-mail" aria-label="Últimos mensajes">
+                  {msgStats.recent.map((m) => (
+                    <li key={m.id || `${m.subject}-${m.date}`}>
+                      <button type="button" onClick={() => navigate('/mensajes')}>
+                        <strong>{m.subject || 'Sin asunto'}</strong>
+                        <small>
+                          {m.sender || 'Club'}
+                          {m.date ? ` · ${formatMoveDay(String(m.date).slice(0, 10))}` : ''}
+                          {!m.isRead ? ' · nuevo' : ''}
+                        </small>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
 
               <div className="ops-card-foot">
-                {link('Ver todas las comunicaciones >', () => navigate('/mensajes'))}
+                {link('Abrir bandeja', () => navigate('/mensajes'))}
                 <div className="ops-btn-pair">
                   {permittedTabs.includes('surveys') && (
                     <button type="button" className="ops-outline-btn" onClick={() => goToTab('surveys')}>+ Encuesta</button>
@@ -604,7 +820,7 @@ export default function AdminDashboardTab({
                     claims.filter((c) => c.status !== 'resolved').slice(0, 4).map((clm) => (
                       <div key={clm.id} className="ops-row">
                         <span>{clm.title}</span>
-                        <span style={{ color: clm.status === 'pending' ? '#f59e0b' : '#818cf8' }}>
+                        <span style={{ color: clm.status === 'pending' ? '#f59e0b' : 'var(--primary-gold)' }}>
                           {clm.status === 'pending' ? 'Pendiente' : 'En curso'}
                         </span>
                       </div>
@@ -670,6 +886,11 @@ export default function AdminDashboardTab({
               <button type="button" className="ops-primary-btn" onClick={() => navigate('/acceso')}>
                 Abrir control QR
               </button>
+              {permittedTabs.includes('pool') && (
+                <button type="button" className="ops-primary-btn" onClick={() => navigate('/entrada-pileta')}>
+                  Abrir entrada pileta
+                </button>
+              )}
               {permittedTabs.includes('access') && (
                 <div style={{ marginTop: '0.55rem' }}>
                   {link('Ver registro de ingresos >', () => goToTab('access'))}
@@ -753,9 +974,11 @@ export default function AdminDashboardTab({
                 </header>
 
                 <div className="ops-money-hero">
-                  <div className="ops-ring" title={`${finance.alDia} de ${finance.activeMembers} socios al día`}>
-                    {liveCollectionRate}%
-                  </div>
+                  <OpsProgressRing
+                    value={liveCollectionRate}
+                    tone={collectionTone}
+                    title={`${finance.alDia} de ${finance.activeMembers} socios al día`}
+                  />
                   <div>
                     <div className="ops-money-big" style={{ color: debtTotal > 0 ? '#ef4444' : 'var(--text-strong)' }}>
                       {formatCurrency(debtTotal)}
@@ -797,37 +1020,53 @@ export default function AdminDashboardTab({
                   <span className="ops-cash-go">Ver</span>
                 </button>
 
-                <div className="ops-block" style={{ marginTop: '1rem' }}>
-                  <div className="ops-block-title ops-block-title--split">
-                    <span>Ingresos de hoy</span>
-                    {finance.collectedToday > 0 ? (
+                {cashSplit.length > 0 ? (
+                  <div className="ops-cash-split" aria-label="Saldos por caja">
+                    {cashSplit.map((row) => (
+                      <div key={row.id}>
+                        <b className="tabular-nums">{formatCurrency(row.amount)}</b>
+                        <span>{row.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+
+                {finance.expectedMonth > 0 ? (
+                  <div className="ops-month-progress">
+                    <div className="ops-block-title ops-block-title--split">
+                      <span>Avance de cuotas · {monthLabelCap}</span>
+                      <strong>{monthProgress}%</strong>
+                    </div>
+                    <div className="ops-month-progress-track" aria-hidden="true">
+                      <span style={{ width: `${Math.max(collectedMonth > 0 ? 6 : 0, monthProgress)}%` }} />
+                    </div>
+                    <p className="ops-muted">
+                      {formatCurrency(collectedMonth)} cobrado de {formatCurrency(finance.expectedMonth)} liquidado
+                    </p>
+                  </div>
+                ) : null}
+
+                {finance.todayIncomes.length > 0 ? (
+                  <div className="ops-block" style={{ marginTop: '0.85rem' }}>
+                    <div className="ops-block-title ops-block-title--split">
+                      <span>Ingresos de hoy</span>
                       <strong style={{ color: 'var(--emerald-accent)' }}>
                         {formatCurrency(finance.collectedToday)}
                       </strong>
-                    ) : null}
-                  </div>
-                  {finance.todayIncomes.length === 0 ? (
-                    <p className="ops-muted" style={{ margin: '0.35rem 0 0' }}>
-                      Todavía no hay cobros registrados hoy.
-                    </p>
-                  ) : (
-                    finance.todayIncomes.map((row) => (
+                    </div>
+                    {finance.todayIncomes.map((row) => (
                       <div key={`today-${row.id}`} className="ops-row">
                         <span className="ops-ellipsis">{row.label}</span>
                         <strong style={{ color: 'var(--emerald-accent)' }}>{formatCurrency(row.amount)}</strong>
                       </div>
-                    ))
-                  )}
-                </div>
+                    ))}
+                  </div>
+                ) : null}
 
-                <div className="ops-block" style={{ marginTop: '0.85rem' }}>
-                  <div className="ops-block-title">Últimos ingresos · {monthLabelCap}</div>
-                  {finance.recentIncomes.length === 0 ? (
-                    <p className="ops-muted" style={{ margin: '0.35rem 0 0' }}>
-                      Sin cobros ni asientos de ingreso registrados este mes.
-                    </p>
-                  ) : (
-                    finance.recentIncomes.map((row) => (
+                {finance.recentIncomes.length > 0 ? (
+                  <div className="ops-block" style={{ marginTop: '0.85rem' }}>
+                    <div className="ops-block-title">Últimos ingresos · {monthLabelCap}</div>
+                    {finance.recentIncomes.map((row) => (
                       <div key={row.id} className="ops-row">
                         <span className="ops-ellipsis">
                           <span className="ops-muted" style={{ marginRight: 6 }}>{row.date.slice(8, 10)}/{row.date.slice(5, 7)}</span>
@@ -835,18 +1074,48 @@ export default function AdminDashboardTab({
                         </span>
                         <strong style={{ color: 'var(--emerald-accent)' }}>{formatCurrency(row.amount)}</strong>
                       </div>
-                    ))
-                  )}
-                  {(finance.journalExpenseMonth > 0 || totalActivos > 0) && (
-                    <div className="ops-row" style={{ marginTop: '0.35rem' }}>
-                      <span className="ops-muted">Activos contables / gastos del mes</span>
-                      <strong>
-                        {formatCurrency(totalActivos)}
-                        {finance.journalExpenseMonth > 0 ? ` · −${formatCurrency(finance.journalExpenseMonth)}` : ''}
-                      </strong>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="ops-muted" style={{ margin: '0.7rem 0 0' }}>
+                    Todavía no hay cobros cargados en {monthLabelCap}.
+                  </p>
+                )}
+
+                {(finance.journalExpenseMonth > 0 || totalActivos > 0) && (
+                  <div className="ops-row" style={{ marginTop: '0.45rem' }}>
+                    <span className="ops-muted">Activos contables / gastos del mes</span>
+                    <strong>
+                      {formatCurrency(totalActivos)}
+                      {finance.journalExpenseMonth > 0 ? ` · −${formatCurrency(finance.journalExpenseMonth)}` : ''}
+                    </strong>
+                  </div>
+                )}
+
+                {overdueTop.length > 0 ? (
+                  <div className="ops-block ops-debtors" style={{ marginTop: '0.9rem' }}>
+                    <div className="ops-block-title ops-block-title--split">
+                      <span>Mayores deudas</span>
+                      <strong style={{ color: '#ef4444' }}>{overdueMembersCount || finance.debtors}</strong>
                     </div>
-                  )}
-                </div>
+                    {overdueTop.map((m) => {
+                      const id = m.memberId || m.id;
+                      return (
+                        <Link
+                          key={id}
+                          to={`/panel/members/${encodeURIComponent(id)}`}
+                          className="ops-row ops-debtor-row"
+                        >
+                          <span className="ops-ellipsis">
+                            {m.name}
+                            <small className="ops-muted"> · Nº {id}</small>
+                          </span>
+                          <strong style={{ color: '#ef4444' }}>{formatCurrency(m.amountDue)}</strong>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                ) : null}
 
                 {permittedTabs.includes('dues') && (
                   <div className="ops-dues-strip">
@@ -870,14 +1139,14 @@ export default function AdminDashboardTab({
                   {hasMembers && (
                     <button type="button" className="ops-outline-btn" onClick={() => goToTab('members')}>+ Socios</button>
                   )}
+                  <Link to="/registro?tramite=alta" className="ops-outline-btn">
+                    Inscribirse
+                  </Link>
                   <button type="button" className="ops-outline-btn" onClick={() => goToTab('accounting', 'suppliers')}>+ Proveedores</button>
                 </div>
               </article>
 
-              {(alerts || []).some((a) => (
-                (a.source === 'concession_expiry' || a.source === 'concession_docs')
-                && a.isActive !== false
-              )) ? (
+              {hasOpenConcessionAlerts ? (
                 <div className="ops-tile ops-tile--concessions">
                   <AlertsBanner
                     alerts={alerts}
@@ -962,16 +1231,59 @@ export default function AdminDashboardTab({
                     </li>
                   ))}
                 </ul>
-                {padronTop.restCats > 0 ? (
-                  <p className="ops-muted ops-padron-more">
-                    +{padronTop.restCats} categorías · {padronTop.restCount.toLocaleString('es-AR')} titulares
-                  </p>
+                {padronTop.rest.length > 0 ? (
+                  <ul className="ops-padron-rest" aria-label="Resto de categorías">
+                    {padronTop.rest.map((t) => (
+                      <li key={t.id} style={{ '--chip-color': t.color }}>
+                        <b className="tabular-nums">{t.count}</b>
+                        <span title={t.name}>{t.name}</span>
+                      </li>
+                    ))}
+                  </ul>
                 ) : null}
-                {overdueMembersCount > 0 ? (
-                  <p className="ops-padron-mora">
-                    {overdueMembersCount} con cuota en mora
+                <div className="ops-padron-status" aria-label="Estado del padrón">
+                  <div>
+                    <b className="tabular-nums">{padronStatus.active.toLocaleString('es-AR')}</b>
+                    <span>Activos</span>
+                  </div>
+                  <div>
+                    <b className="tabular-nums">{padronStatus.inactive.toLocaleString('es-AR')}</b>
+                    <span>Inactivos</span>
+                  </div>
+                  {overdueMembersCount > 0 ? (
+                    <button type="button" className="ops-padron-mora-btn" onClick={() => goToTab('dues')}>
+                      <b className="tabular-nums">{overdueMembersCount.toLocaleString('es-AR')}</b>
+                      <span>En mora</span>
+                    </button>
+                  ) : (
+                    <div>
+                      <b className="tabular-nums">{padronStatus.suspended.toLocaleString('es-AR')}</b>
+                      <span>Suspendidos</span>
+                    </div>
+                  )}
+                </div>
+                <div className="ops-padron-moves">
+                  <p className="ops-today-next-label">Altas y bajas</p>
+                  <p className="ops-muted ops-padron-moves-sum">
+                    {movePulse.altas.toLocaleString('es-AR')} altas · {movePulse.bajas.toLocaleString('es-AR')} bajas
+                    {' · '}
+                    {formatMoveDay(movePulse.from)}–{formatMoveDay(movePulse.to)}
                   </p>
-                ) : null}
+                  <ul>
+                    {movePulse.recent.map((row) => (
+                      <li key={`${row.move}-${row.memberId}-${row.date}-${row.motivo || row.movimiento}`}>
+                        <Link
+                          to={`/panel/members/${encodeURIComponent(row.memberId)}`}
+                          className={`ops-padron-move ops-padron-move--${row.move}`}
+                        >
+                          <em>{row.move === 'alta' ? 'Alta' : 'Baja'}</em>
+                          <strong>{row.name || `Nº ${row.memberId}`}</strong>
+                          <small>{formatMoveDay(row.date)}</small>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
                 <button
                   type="button"
                   className="ops-padron-cta"
@@ -982,29 +1294,45 @@ export default function AdminDashboardTab({
                 </button>
               </article>
 
-              <div className="ops-tile ops-tile--stats" aria-label="Atajos de padrón">
-                <button type="button" className="ops-stat ops-stat--a" onClick={() => goToTab('members')}>
-                  <Users size={18} />
-                  <span><b>{household.titulares}</b> Socios titulares</span>
-                </button>
-                <button type="button" className="ops-stat ops-stat--d" onClick={() => goToTab('system')}>
-                  <UserRound size={18} />
-                  <span><b>{registeredUsersCount}</b> Usuarios registrados</span>
-                </button>
-                <button type="button" className="ops-stat ops-stat--e" onClick={() => goToTab('system')}>
-                  <UserPlus size={18} />
-                  <span><b>{pendingMembershipApps}</b> Solicitudes de socio</span>
-                </button>
-                <button type="button" className="ops-stat ops-stat--b" onClick={() => goToTab('members')}>
-                  <Users size={18} />
-                  <span><b>{adherentsCount}</b> Grupo familiar</span>
-                </button>
-                {membersWithApp > 0 && (
-                  <button type="button" className="ops-stat ops-stat--c" onClick={() => goToTab('members')}>
-                    <UserCircle2 size={18} />
-                    <span><b>{membersWithApp}</b> Con app instalada</span>
+              <div className="glass-card ops-tile ops-tile--stats" aria-label="Atajos de padrón">
+                <p className="ops-stats-kicker">Atajos del padrón</p>
+                <div className="ops-stats-grid">
+                  <button type="button" className="ops-stat ops-stat--a" onClick={() => goToTab('members')}>
+                    <Users size={15} strokeWidth={2.1} aria-hidden="true" />
+                    <b className="tabular-nums">{household.titulares.toLocaleString('es-AR')}</b>
+                    <span>Titulares</span>
                   </button>
-                )}
+                  <button type="button" className="ops-stat ops-stat--b" onClick={() => goToTab('members')}>
+                    <Users size={15} strokeWidth={2.1} aria-hidden="true" />
+                    <b className="tabular-nums">{adherentsCount.toLocaleString('es-AR')}</b>
+                    <span>Grupo familiar</span>
+                  </button>
+                  <button type="button" className="ops-stat ops-stat--d" onClick={() => goToTab('system')}>
+                    <UserRound size={15} strokeWidth={2.1} aria-hidden="true" />
+                    <b className="tabular-nums">{registeredUsersCount.toLocaleString('es-AR')}</b>
+                    <span>Con usuario</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`ops-stat ops-stat--e${pendingMembershipApps > 0 ? ' is-wait' : ''}`}
+                    onClick={() => goToTab('members')}
+                  >
+                    <UserPlus size={15} strokeWidth={2.1} aria-hidden="true" />
+                    <b className="tabular-nums">{pendingMembershipApps.toLocaleString('es-AR')}</b>
+                    <span>Solicitudes</span>
+                  </button>
+                  {membersWithApp > 0 ? (
+                    <button type="button" className="ops-stat ops-stat--c" onClick={() => goToTab('members')}>
+                      <UserCircle2 size={15} strokeWidth={2.1} aria-hidden="true" />
+                      <b className="tabular-nums">{membersWithApp.toLocaleString('es-AR')}</b>
+                      <span>Con app</span>
+                    </button>
+                  ) : null}
+                </div>
+                <Link to="/registro?tramite=alta" className="ops-public-join">
+                  <ExternalLink size={14} aria-hidden="true" />
+                  Formulario público para asociarse
+                </Link>
               </div>
             </>
           ) : (
