@@ -10,7 +10,7 @@ import { useAuth } from './context/AuthContext';
 import { canAccessAdmin, canAccessQrGate, canAccessPool, canAccessConcessions, canTakeAttendance, allowedAdminTabs } from './domain/auth/roles';
 import { hasReservationConflict } from './domain/reservations/conflicts';
 import { isDemoFacilityId, isRealBookableSpace, OFFICIAL_FACILITY_IDS } from './domain/reservations/facilities';
-import { countUnread, markMessageRead } from './domain/messaging/messages';
+import { countUnread, markMessageRead, messageReaderKey, rememberReadMessage, withRememberedReads } from './domain/messaging/messages';
 import {
   buildNotifications,
   loadDismissedNotificationIds,
@@ -557,49 +557,25 @@ const DEFAULT_CLAIMS = [
 const DEFAULT_MESSAGES = [
   {
     id: 1,
-    date: '2026-05-19',
-    createdAt: '2026-05-19T09:00:00.000Z',
-    sender: 'Secretaría JCSJ',
+    date: '2026-09-23',
+    createdAt: '2026-09-23T23:20:00.000Z',
+    sender: 'Secretaría del Jockey Club',
     senderId: 'ops',
-    recipientId: '2026887744320988',
-    subject: 'Convocatoria a Asamblea Anual Ordinaria en Sede Rivadavia',
-    content: 'Estimado socio, le informamos que el próximo 30 de mayo a las 18:00 hs se llevará a cabo la Asamblea Ordinaria en el Salón de Honor de República del Líbano 1799 Oeste. Su presencia es de suma importancia.',
+    recipientId: 'all',
+    subject: 'Bienvenida al portal',
+    content: 'Ya tenés el portal de socios del Jockey Club San Juan.\n\nEntrá con tu email y la contraseña que te dio secretaría. Si es la primera vez, cambiala desde Mi perfil.\n\nDesde acá ves tu ficha, reservás canchas, consultás la cuota y leés los avisos del club.',
     isRead: false,
     parentId: null,
   },
   {
     id: 2,
-    date: '2026-05-15',
-    createdAt: '2026-05-15T11:00:00.000Z',
-    sender: 'Tesorería Jockey Club',
-    senderId: 'ops',
-    recipientId: '2026887744320988',
-    subject: 'Recordatorio Cuota de Mayo JCSJ',
-    content: 'Le recordamos que posee un saldo de cuota social mensual pendiente de cancelación. Puede regularizarlo de manera directa en las terminales del club o mediante transferencia bancaria.',
-    isRead: true,
-    parentId: null,
-  },
-  {
-    id: 3,
-    date: '2026-05-18',
-    createdAt: '2026-05-18T16:00:00.000Z',
-    sender: 'Comisión Hípica JCSJ',
+    date: '2026-09-23',
+    createdAt: '2026-09-23T23:19:00.000Z',
+    sender: 'Secretaría del Jockey Club',
     senderId: 'ops',
     recipientId: 'all',
-    subject: 'Apertura de Inscripciones Torneo Cordillerano',
-    content: 'Se informa a todos los socios activos de las disciplinas de equitación e hipismo que se encuentran abiertas las planillas de inscripción para el prestigioso Torneo Cordillerano de Saltos Hípicos 2026.',
-    isRead: false,
-    parentId: null,
-  },
-  {
-    id: 4,
-    date: '2026-05-20',
-    createdAt: '2026-05-20T10:30:00.000Z',
-    sender: 'Alejandro Chávez',
-    senderId: '2026887744320988',
-    recipientId: 'ops',
-    subject: 'Consulta por horario de cancha de tenis',
-    content: 'Buenos días. Quisiera saber si el próximo sábado habrá disponibilidad en Tenis Tradicional por la mañana. Gracias.',
+    subject: 'Cómo usar el portal',
+    content: 'Así funciona el portal, del lado del socio:\n\nInicio. El resumen de tu lugar en el club y los avisos pendientes.\n\nReservar canchas. Elegís el deporte, el día y el horario. Si el turno está tomado, te anotás en la lista de espera.\n\nMi cuenta. Ves la cuota, el saldo y los pagos.\n\nRevista digital. Las novedades del club.\n\nMensajes. Acá llegan los avisos. También podés escribirle a secretaría.\n\nMi perfil. Tus datos de socio. El ingreso es siempre con tu email.',
     isRead: false,
     parentId: null,
   },
@@ -1133,9 +1109,31 @@ function ClubPortal() {
     };
   }, [user?.memberId, user?.fullName, user?.name, user?.email]);
 
-  const activeMember = user?.memberId
+  const [ownCredentialToken, setOwnCredentialToken] = useState('');
+
+  useEffect(() => {
+    const number = user?.memberId;
+    if (!cloudMode || !number) {
+      setOwnCredentialToken('');
+      return undefined;
+    }
+    let cancel = false;
+    repos.getMemberByNumber(number).then((row) => {
+      if (!cancel) setOwnCredentialToken(row?.credentialToken || '');
+    }).catch(() => {
+      if (!cancel) setOwnCredentialToken('');
+    });
+    return () => {
+      cancel = true;
+    };
+  }, [cloudMode, user?.memberId]);
+
+  const listedMember = user?.memberId
     ? (members.find((m) => m.memberId === user.memberId) || sessionMemberFallback)
     : sessionMemberFallback;
+  const activeMember = listedMember && ownCredentialToken
+    ? { ...listedMember, credentialToken: ownCredentialToken }
+    : listedMember;
 
   // Alternar Tema Claro / Oscuro
   const toggleTheme = () => {
@@ -1313,7 +1311,9 @@ function ClubPortal() {
       if (Array.isArray(app.staffMembers)) setStaffMembers(app.staffMembers);
       if (Array.isArray(app.staffHrRecords)) setStaffHrRecords(app.staffHrRecords);
       if (Array.isArray(app.claims)) setClaims(app.claims);
-      if (Array.isArray(app.messages)) setMessages(app.messages);
+      if (Array.isArray(app.messages)) {
+        setMessages(withRememberedReads(app.messages, messageReaderKey({ userId: user?.id, memberId: user?.memberId })));
+      }
       if (Array.isArray(app.entryLogs)) setEntryLogs(app.entryLogs);
       if (Array.isArray(app.surveys)) setSurveys(app.surveys);
       if (Array.isArray(app.guestPasses)) setGuestPasses(app.guestPasses);
@@ -1385,12 +1385,11 @@ function ClubPortal() {
           return bootstrapMembersFromDb({
             onProgress: (partial, meta) => {
               if (cancelled) return;
-              if (meta?.total) {
-                setMembersCount((prev) => Math.max(prev, meta.total));
-                setMembersProgress({
-                  loaded: meta.loaded || partial?.length || 0,
-                  total: meta.total,
-                });
+              const loadedNow = meta?.loaded || partial?.length || 0;
+              const totalNow = meta?.total || 0;
+              if (loadedNow || totalNow) {
+                if (totalNow) setMembersCount((prev) => Math.max(prev, totalNow));
+                setMembersProgress({ loaded: loadedNow, total: totalNow });
               }
               if (!partial?.length) return;
               paintMembers(partial, {
@@ -1639,7 +1638,8 @@ function ClubPortal() {
     try {
       const list = await repos.listMessages();
       setMessages((prev) => {
-        const fromDb = list || [];
+        const reader = messageReaderKey({ userId: user?.id, memberId: user?.memberId });
+        const fromDb = withRememberedReads(list || [], reader, prev);
         const dbIds = new Set(fromDb.map((m) => String(m.id)));
         const dbClientIds = new Set(fromDb.map((m) => m.clientId).filter(Boolean).map(String));
         // Conservar envíos locales aún no confirmados (evita que el poll borre el alta)
@@ -1651,7 +1651,7 @@ function ClubPortal() {
     } catch {
       /* silencioso: no pisar bandeja local ante un fallo puntual */
     }
-  }, [cloudMode, isAuthenticated]);
+  }, [cloudMode, isAuthenticated, user?.id, user?.memberId]);
 
   // Envío garantizado a BD (evita “enviado” fantasma si el insert falla)
   const sendMessage = useCallback(async (msg) => {
@@ -1751,7 +1751,13 @@ function ClubPortal() {
   const setMessagesDb = useCallback((updater) => {
     setMessages((prev) => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
-      if (!cloudMode || !Array.isArray(next)) return next;
+      if (!Array.isArray(next)) return next;
+      const reader = messageReaderKey({ userId: user?.id, memberId: user?.memberId });
+      next.forEach((m) => {
+        const old = prev.find((p) => String(p.id) === String(m.id));
+        if (old && !old.isRead && m.isRead) rememberReadMessage(reader, m.id);
+      });
+      if (!cloudMode) return next;
 
       // Alta de mensaje nuevo (id local msg-… / numérico → insert en BD)
       // Preferir sendMessage() desde la UI; este camino queda como fallback.
@@ -1769,10 +1775,11 @@ function ClubPortal() {
           }
         }
       } else {
-        // Marcar leído (broadcasts "all" quedan solo locales: is_read es compartido)
         next.forEach((m) => {
           const old = prev.find((p) => String(p.id) === String(m.id));
-          if (old && !old.isRead && m.isRead && isDbUuid(m.id) && m.recipientId !== 'all') {
+          if (!(old && !old.isRead && m.isRead)) return;
+          // is_read de un aviso a todos es compartido: no se pisa para el resto de los socios.
+          if (isDbUuid(m.id) && m.recipientId !== 'all') {
             repos.updateMessage(m.id, { isRead: true }).catch((err) => {
               setDbError(err?.message || 'No se pudo marcar el mensaje como leído');
             });
@@ -1781,7 +1788,7 @@ function ClubPortal() {
       }
       return next;
     });
-  }, [cloudMode]);
+  }, [cloudMode, user?.id, user?.memberId]);
 
   const setClaimsDb = (updater) => {
     setClaims((prev) => {
@@ -2021,6 +2028,13 @@ function ClubPortal() {
     sessionMember, messages, waitlist, claims, membershipApplications, erp.alerts, erp.alertAcks, dismissedNotifIds,
   ]);
 
+  const dueNoticeId = notifications.find((n) => String(n.id).startsWith('dues-due-'))?.id || '';
+  useEffect(() => {
+    if (!dueNoticeId || !cloudMode || !user?.id) return undefined;
+    repos.requestOwnDueNotice().catch(() => {});
+    return undefined;
+  }, [dueNoticeId, cloudMode, user?.id]);
+
   const dismissNotification = useCallback((notifId, notif = null) => {
     if (!notifId) return;
     setDismissedNotifIds((prev) => saveDismissedNotificationIds([...prev, notifId]));
@@ -2107,6 +2121,8 @@ function ClubPortal() {
         setGuestPasses={setGuestPassesDb}
         updateMember={updateMember}
         facilityCatalog={facilityCatalog}
+        user={user}
+        sendMessage={sendMessage}
       />
     );
 
@@ -2175,6 +2191,8 @@ function ClubPortal() {
       waitlist={waitlist}
       setWaitlist={setWaitlistDb}
       facilityCatalog={facilityCatalog}
+      user={user}
+      sendMessage={sendMessage}
     />
   );
 
@@ -2190,9 +2208,9 @@ function ClubPortal() {
   const paymentHistoryView = (
     <PaymentHistoryView
       member={activeMember}
+      user={user}
       setCurrentView={setCurrentView}
-      updateMember={updateMember}
-      onAccountEntry={erp.upsertMemberAccountEntryRecord}
+      sendMessage={sendMessage}
     />
   );
 
@@ -2412,7 +2430,9 @@ function ClubPortal() {
                 {membersLoading && !dbSyncing
                   ? (membersProgress.total
                     ? `Cargando padrón de socios… ${membersProgress.loaded.toLocaleString('es-AR')} de ${membersProgress.total.toLocaleString('es-AR')}`
-                    : 'Cargando padrón de socios…')
+                    : (membersProgress.loaded
+                      ? `Cargando padrón de socios… ${membersProgress.loaded.toLocaleString('es-AR')}`
+                      : 'Cargando padrón de socios…'))
                   : 'Actualizando datos del club…'}
               </p>
             ) : null}

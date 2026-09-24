@@ -85,14 +85,19 @@ Deno.serve(async (req) => {
         }
       }
 
-      const { error: updateErr } = await admin.auth.admin.updateUserById(userId, {
-        password,
-      });
+      const loginEmail = String(body.email || "").trim().toLowerCase();
+      const authPatch: { password: string; email?: string; email_confirm?: boolean } = { password };
+      if (loginEmail.includes("@")) {
+        authPatch.email = loginEmail;
+        authPatch.email_confirm = true;
+      }
+      const { error: updateErr } = await admin.auth.admin.updateUserById(userId, authPatch);
       if (updateErr) {
         return json(400, { error: updateErr.message || "No se pudo actualizar la contraseña" });
       }
 
       await admin.from("profiles").update({
+        ...(loginEmail.includes("@") ? { email: loginEmail } : {}),
         updated_at: new Date().toISOString(),
       }).eq("id", userId);
 

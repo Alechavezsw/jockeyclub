@@ -65,4 +65,15 @@ export function buildCredentials(input = {}) {
   };
 }
 
+/** El socio entra con su mail real: usuario y email de login son el mismo. */
+export function portalLoginFromEmail(email = '') {
+  const mail = String(email || '').trim().toLowerCase();
+  if (!mail.includes('@') || mail.startsWith('@') || mail.endsWith('@')) return null;
+  return {
+    username: mail,
+    email: mail,
+    password: generatePassword(),
+  };
+}
+
 export { LOGIN_DOMAIN };

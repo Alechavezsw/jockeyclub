@@ -27,7 +27,7 @@ function sb() {
 const PAGE_SIZE = 1000;
 /** Sin el JSON completo de meta las páginas pueden ser grandes. */
 const MEMBERS_PAGE_SIZE = 1000;
-const MEMBERS_CONCURRENCY = 4;
+const MEMBERS_CONCURRENCY = 6;
 
 /**
  * Grilla: sin foto, token ni meta completo (hay fichas de más de 1 MB).
@@ -56,6 +56,7 @@ const MEMBERS_LIST_SELECT = [
   'family_principal:meta->>familyPrincipalNumber',
   'family_group_name:meta->>familyGroupName',
   'cuota_categories:meta->cuotaCategories',
+  'portal_username:meta->>portalUsername',
 ].join(', ');
 
 export function metaFromListRow(row = {}) {
@@ -63,11 +64,13 @@ export function metaFromListRow(row = {}) {
   const group = row.family_group_name ?? row.familyGroupName ?? row.meta?.familyGroupName;
   const lastPay = row.last_payment_date ?? row.lastPaymentDate ?? row.meta?.lastPaymentDate;
   const cats = row.cuota_categories ?? row.cuotaCategories ?? row.meta?.cuotaCategories;
+  const portalUser = row.portal_username ?? row.portalUsername ?? row.meta?.portalUsername;
   const meta = row.meta && typeof row.meta === 'object' && !Array.isArray(row.meta) ? { ...row.meta } : {};
   if (principal != null && principal !== '') meta.familyPrincipalNumber = principal;
   if (group) meta.familyGroupName = group;
   if (lastPay) meta.lastPaymentDate = lastPay;
   if (cats) meta.cuotaCategories = cats;
+  if (portalUser) meta.portalUsername = portalUser;
   return meta;
 }
 
@@ -184,21 +187,32 @@ export async function listMembers({ onBatch } = {}) {
 }
 
 async function downloadMembersList({ onBatch } = {}) {
-  const { count, error } = await sb()
-    .from('members')
-    .select('id', { count: 'exact', head: true });
-  throwOnError(error, 'No se pudieron cargar socios');
-  const total = count || 0;
-  if (!total) {
-    onBatch?.([], { loaded: 0, total: 0, done: true });
-    return [];
-  }
-
-  onBatch?.([], { loaded: 0, total, done: false });
-
-  const pageCount = Math.ceil(total / MEMBERS_PAGE_SIZE);
   const mapped = [];
   let listSelect = MEMBERS_LIST_SELECT;
+  let knownTotal = 0;
+  let finished = false;
+
+  const report = (done) => {
+    if (finished && !done) return;
+    if (done) finished = true;
+    onBatch?.(mapped, {
+      loaded: mapped.length,
+      total: knownTotal || (done ? mapped.length : 0),
+      done,
+    });
+  };
+
+  // El conteo no bloquea la primera página: antes el padrón no pintaba
+  // hasta que el count exacto (con RLS) terminaba.
+  void sb()
+    .from('members')
+    .select('id', { count: 'exact', head: true })
+    .then(({ count, error }) => {
+      if (error || !count) return;
+      knownTotal = count;
+      report(false);
+    })
+    .catch(() => {});
 
   const fetchPage = async (from) => {
     try {
@@ -237,17 +251,27 @@ async function downloadMembersList({ onBatch } = {}) {
     }
   };
 
-  for (let start = 0; start < pageCount; start += MEMBERS_CONCURRENCY) {
+  let from = 0;
+  let waves = 0;
+  while (waves < 40) {
+    waves += 1;
+    const before = mapped.length;
     const batch = await Promise.all(
-      Array.from({ length: Math.min(MEMBERS_CONCURRENCY, pageCount - start) }, (_, j) => (
-        fetchPage((start + j) * MEMBERS_PAGE_SIZE)
+      Array.from({ length: MEMBERS_CONCURRENCY }, (_, j) => (
+        fetchPage(from + j * MEMBERS_PAGE_SIZE)
       ))
     );
-    for (const chunk of batch) absorb(chunk);
-    onBatch?.(mapped, { loaded: mapped.length, total, done: false });
+    let reachedEnd = false;
+    for (const chunk of batch) {
+      absorb(chunk);
+      if ((chunk || []).length < MEMBERS_PAGE_SIZE) reachedEnd = true;
+    }
+    from += MEMBERS_CONCURRENCY * MEMBERS_PAGE_SIZE;
+    if (reachedEnd || mapped.length === before) break;
+    report(false);
   }
 
-  onBatch?.(mapped, { loaded: mapped.length, total, done: true });
+  report(true);
   return mapped;
 }
 
@@ -580,12 +604,57 @@ export async function setMemberLifecycle(member, {
 }
 
 /**
+ * Vincula el usuario de portal sin reescribir la ficha ni los adherentes.
+ * El padrón completo pesa y el alta de acceso no necesita tocarla.
+ */
+export async function linkMemberPortalAccess(member, profileId, creds, actorName = '') {
+  const portalMeta = {
+    portalUsername: creds?.username || null,
+    portalProvisionedAt: new Date().toISOString(),
+    portalProvisionedBy: actorName || null,
+  };
+  if (!member?.id || !isUuid(member.id)) {
+    return upsertMember({
+      ...member,
+      profileId,
+      email: member?.email || creds?.email,
+      meta: { ...collectMemberMeta(member), ...portalMeta },
+    });
+  }
+  const current = await unwrap(
+    sb().from('members').select('meta').eq('id', member.id).maybeSingle(),
+    'No se pudo leer la ficha'
+  );
+  const prev = current?.meta && typeof current.meta === 'object' ? current.meta : {};
+  const meta = { ...prev, ...portalMeta };
+  const saved = await unwrap(
+    sb().from('members').update({
+      profile_id: profileId,
+      meta,
+    }).eq('id', member.id).select('id, profile_id, member_number').single(),
+    'No se pudo vincular el acceso'
+  );
+  void audit('member.provision_access', 'members', saved.id, {
+    member_number: saved.member_number || member.memberId,
+    username: creds?.username || null,
+    profile_id: profileId,
+  });
+  return {
+    ...member,
+    id: saved.id,
+    profileId: saved.profile_id || profileId,
+    memberId: member.memberId || saved.member_number,
+    meta,
+  };
+}
+
+/**
  * Provisiona acceso portal para un socio (Auth + profile) y lo vincula.
  */
 export async function provisionMemberPortalAccess(member, creds, { actorName = '' } = {}) {
   if (!member) throw new Error('Socio inválido');
   const { firstName, lastName } = splitMemberName(member);
-  const profile = await createPortalUser({
+  const payload = {
     firstName: firstName || member.name || 'Socio',
     lastName: lastName || '',
     email: creds.email || member.email,
@@ -603,25 +672,12 @@ export async function provisionMemberPortalAccess(member, creds, { actorName = '
     identifiers: member.documentNumber
       ? [{ idType: 'dni', identifier: String(member.documentNumber).replace(/\D/g, '') || member.documentNumber }]
       : [],
-  });
-
-  const meta = {
-    ...collectMemberMeta(member),
-    portalUsername: creds.username,
-    portalProvisionedAt: new Date().toISOString(),
-    portalProvisionedBy: actorName || null,
   };
-  const linked = await upsertMember({
-    ...member,
-    profileId: profile.id,
-    email: member.email || creds.email,
-    meta,
-  });
-  await audit('member.provision_access', 'members', linked.id || member.id, {
-    member_number: linked.memberId || member.memberId,
-    username: creds.username,
-    profile_id: profile.id,
-  });
+  const profile = await createPortalUser(payload, { assignRoles: false });
+  const [, linked] = await Promise.all([
+    replaceProfileRoles(profile.id, payload.roles),
+    linkMemberPortalAccess(member, profile.id, creds, actorName),
+  ]);
   return { member: linked, profile, creds };
 }
 
@@ -2214,7 +2270,7 @@ export async function updateProfile(profileId, patch = {}) {
 }
 
 /** Alta de usuario Auth + ficha (vía edge function admin). */
-export async function createPortalUser(payload) {
+export async function createPortalUser(payload, options = {}) {
   const { data: sessionData } = await sb().auth.getSession();
   const token = sessionData?.session?.access_token;
   if (!token) throw new Error('Sesión no válida. Volvé a iniciar sesión.');
@@ -2240,19 +2296,48 @@ export async function createPortalUser(payload) {
   if (!data?.profile) throw new Error('Respuesta inválida al crear usuario');
 
   let profile = M.profileFromRow(data.profile);
-  if (Array.isArray(payload.roles) && payload.roles.length) {
-    profile = await replaceProfileRoles(profile.id, payload.roles);
+  const tasks = [
+    audit('profile.create', 'profile', profile.id, {
+      email: payload.email,
+      username: payload.username,
+      roles: payload.roles || [],
+    }),
+  ];
+  if (options.assignRoles !== false && Array.isArray(payload.roles) && payload.roles.length) {
+    tasks.push(replaceProfileRoles(profile.id, payload.roles).then((next) => {
+      profile = next;
+    }));
   }
-  await audit('profile.create', 'profile', profile.id, {
-    email: payload.email,
-    username: payload.username,
-    roles: payload.roles || [],
-  });
+  await Promise.all(tasks);
   return profile;
 }
 
+/**
+ * Cuenta de portal que ya usa ese email, si no está vinculada a otro socio.
+ * Sirve para no intentar cambiar el email de la ficha vieja (@jockey.sj).
+ */
+export async function portalProfileIdForLogin(email, memberDbId) {
+  const login = String(email || '').trim().toLowerCase();
+  if (!login.includes('@')) return null;
+  const rows = await unwrap(
+    sb().from('profiles').select('id').eq('email', login).limit(1),
+    'No se pudo buscar el email'
+  );
+  const profileId = rows?.[0]?.id;
+  if (!profileId) return null;
+  const owners = await unwrap(
+    sb().from('members').select('id, member_number').eq('profile_id', profileId),
+    'No se pudo verificar el acceso'
+  );
+  const other = (owners || []).find((row) => row.id !== memberDbId);
+  if (other) {
+    throw new Error(`Ese email ya es el acceso del socio Nº ${other.member_number || '—'}.`);
+  }
+  return profileId;
+}
+
 /** Regenera la contraseña de un usuario existente (superadmin vía edge). */
-export async function resetPortalUserPassword(profileId, password) {
+export async function resetPortalUserPassword(profileId, password, email) {
   if (!isUuid(profileId)) throw new Error('Perfil inválido');
   if (!password || String(password).length < 6) {
     throw new Error('La contraseña debe tener al menos 6 caracteres');
@@ -2262,8 +2347,14 @@ export async function resetPortalUserPassword(profileId, password) {
   const token = sessionData?.session?.access_token;
   if (!token) throw new Error('Sesión no válida. Volvé a iniciar sesión.');
 
+  const loginEmail = String(email || '').trim().toLowerCase();
   const { data, error } = await sb().functions.invoke('admin-create-user', {
-    body: { action: 'reset_password', userId: profileId, password },
+    body: {
+      action: 'reset_password',
+      userId: profileId,
+      password,
+      ...(loginEmail.includes('@') ? { email: loginEmail } : {}),
+    },
   });
 
   if (error) {
@@ -2277,12 +2368,26 @@ export async function resetPortalUserPassword(profileId, password) {
     } catch {
       /* ignore */
     }
+    if (/error updating user/i.test(detail)) {
+      detail = 'Ese email ya pertenece a otra cuenta del portal.';
+    }
     throw new Error(data?.error || detail);
   }
   if (data?.error) throw new Error(data.error);
 
-  await audit('profile.reset_password', 'profile', profileId, { reset: true });
+  void audit('profile.reset_password', 'profile', profileId, { reset: true });
   return true;
+}
+
+/** Aviso de vencimiento del socio de la sesión: campanita + mail, una vez por fecha. */
+export async function requestOwnDueNotice() {
+  const { data: sessionData } = await sb().auth.getSession();
+  if (!sessionData?.session?.access_token) return { ok: false };
+  const { data, error } = await sb().functions.invoke('send-due-notices', {
+    body: { scope: 'self' },
+  });
+  if (error || data?.error) return { ok: false };
+  return { ok: true, sent: data?.sent || 0 };
 }
 
 /** Envía la plantilla de acceso por Resend (edge function). */

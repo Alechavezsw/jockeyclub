@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -7,6 +7,9 @@ const FOCUSABLE =
  * Escape to close, focus trap, restore focus, lock body scroll.
  */
 export function useModalA11y({ open, onClose, containerRef }) {
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   useEffect(() => {
     if (!open) return undefined;
 
@@ -29,7 +32,7 @@ export function useModalA11y({ open, onClose, containerRef }) {
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
-        onClose?.();
+        onCloseRef.current?.();
         return;
       }
       if (e.key !== 'Tab' || !node) return;
@@ -61,5 +64,5 @@ export function useModalA11y({ open, onClose, containerRef }) {
         previouslyFocused.focus();
       }
     };
-  }, [open, onClose, containerRef]);
+  }, [open, containerRef]);
 }

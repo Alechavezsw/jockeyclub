@@ -78,10 +78,12 @@ export default function MemberRequestDetailModal({
             <p className="member-request-invite-miss" role="alert">{invite.emailError}</p>
           ) : null}
           <dl className="member-request-detail-grid">
-            <div>
-              <dt>Usuario</dt>
-              <dd>{creds.username}</dd>
-            </div>
+            {creds.username && creds.username !== creds.email ? (
+              <div>
+                <dt>Usuario</dt>
+                <dd>{creds.username}</dd>
+              </div>
+            ) : null}
             <div>
               <dt>Email de ingreso</dt>
               <dd>{creds.email}</dd>

@@ -9,10 +9,15 @@ import {
   Wallet,
   Download,
   Banknote,
+  Upload,
+  QrCode,
 } from 'lucide-react';
-import { payMemberDues, payUpcomingDues } from '../domain/members/memberPayments';
+import { QRCodeSVG } from 'qrcode.react';
 import { downloadPaymentReceiptPdf } from '../domain/members/exportPaymentReceiptPdf';
 import { useMemberDuesStanding } from '../hooks/useMemberDuesStanding';
+import { CLUB_BANK_ACCOUNTS, MERCADO_PAGO, buildMercadoPagoQrPayload } from '../domain/members/clubBanks';
+import { duesPaymentNotice } from '../domain/members/duesPaymentNotice';
+import { uploadDuesReceipt } from '../data/storage';
 
 function formatCurrency(amount) {
   return new Intl.NumberFormat('es-AR', {
@@ -31,11 +36,15 @@ function formatDate(iso) {
   });
 }
 
-export default function PaymentHistoryView({ member, setCurrentView, updateMember, onAccountEntry }) {
+export default function PaymentHistoryView({ member, user, setCurrentView, sendMessage }) {
   const [method, setMethod] = useState('mercadopago');
   const [paying, setPaying] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [receiptFile, setReceiptFile] = useState(null);
+  const [receiptPreview, setReceiptPreview] = useState('');
+  const [notifiedKey, setNotifiedKey] = useState('');
+  const bank = CLUB_BANK_ACCOUNTS[0];
   const {
     summary,
     history,
@@ -49,53 +58,81 @@ export default function PaymentHistoryView({ member, setCurrentView, updateMembe
   const monthsLate = summary.monthsBehind || 0;
   const alDia = !standingPending && !behind;
   const payable = alDia ? summary.nextAmount : summary.outstanding;
-  const billingMember = useMemo(() => {
-    if (!profile) return profile;
-    return {
-      ...profile,
-      paymentHistory: history,
-      outstandingBalance: summary.outstanding,
-      nextDueDate: summary.nextDue || profile.nextDueDate,
-    };
-  }, [profile, history, summary.outstanding, summary.nextDue]);
 
-  const handlePay = async () => {
-    if (!updateMember) {
-      setError('Pago no disponible en este momento.');
-      return;
+  const qr = useMemo(() => {
+    if (method !== 'mercadopago' || !profile || payable <= 0) return null;
+    const payload = buildMercadoPagoQrPayload({
+      amount: payable,
+      memberId: profile.memberId,
+      memberName: profile.name,
+    });
+    const ref = payload.split('|').find((part) => part.startsWith('ref='))?.slice(4) || '';
+    return { payload, ref };
+  }, [method, profile, payable]);
+
+  const noticeKey = `${method}:${profile?.memberId || ''}:${payable}:${receiptFile?.name || ''}`;
+
+  const handleReceipt = (event) => {
+    const file = event.target.files?.[0];
+    setReceiptFile(file || null);
+    setReceiptPreview('');
+    setNotifiedKey('');
+    setMessage('');
+    setError('');
+    if (file && file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = () => setReceiptPreview(String(reader.result || ''));
+      reader.readAsDataURL(file);
     }
+  };
+
+  const handleNotify = async () => {
     if (standingPending) return;
     const charge = Number(payable) || 0;
     if (charge <= 0) {
       setError('No se pudo calcular el importe de la cuota.');
       return;
     }
+    if (!sendMessage) {
+      setError('El aviso a administración no está disponible.');
+      return;
+    }
+    if (method === 'transferencia' && !receiptFile) {
+      setError('Adjuntá el comprobante de la transferencia.');
+      return;
+    }
+    if (notifiedKey === noticeKey) return;
     setPaying(true);
     setError('');
     setMessage('');
     try {
-      const billed = { ...billingMember, outstandingBalance: alDia ? 0 : charge };
-      const result = alDia
-        ? payUpcomingDues(billed, { method })
-        : payMemberDues(billed, { method, amount: charge });
-      updateMember(result.member);
-      if (result.ledgerEntry) onAccountEntry?.(result.ledgerEntry);
-      setMessage(
-        alDia
-          ? `Anticipaste la cuota (${formatCurrency(result.payment.amount)}). Comprobante ${result.payment.receipt}.`
-          : `Pago confirmado (${formatCurrency(result.payment.amount)}). Comprobante ${result.payment.receipt}.`
-      );
-      try {
-        await downloadPaymentReceiptPdf({ member: result.member, payment: result.payment });
-      } catch {
-        /* PDF opcional */
+      let attachment = null;
+      if (method === 'transferencia') {
+        attachment = await uploadDuesReceipt(receiptFile, user?.id);
       }
+      const notice = duesPaymentNotice({
+        memberName: profile?.name,
+        memberId: profile?.memberId,
+        amountLabel: formatCurrency(charge),
+        dueLabel: formatDate(summary.nextDue),
+        method,
+        bankName: bank?.name,
+        qrRef: qr?.ref,
+        attachment,
+      });
+      await sendMessage(notice);
+      setNotifiedKey(noticeKey);
+      setMessage(method === 'transferencia'
+        ? 'El comprobante llegó a administración.'
+        : 'Avisamos a administración.');
     } catch (err) {
-      setError(err.message || 'No se pudo procesar el pago.');
+      setError(err.message || 'No se pudo avisar a administración.');
     } finally {
       setPaying(false);
     }
   };
+
+  const actionLabel = method === 'transferencia' ? 'Enviar comprobante' : 'Avisar a administración';
 
   return (
     <div className="fade-in pay-hist">
@@ -173,24 +210,55 @@ export default function PaymentHistoryView({ member, setCurrentView, updateMembe
           <select
             className="form-input"
             value={method}
-            onChange={(e) => setMethod(e.target.value)}
+            onChange={(e) => {
+              setMethod(e.target.value);
+              setMessage('');
+              setError('');
+              setNotifiedKey('');
+            }}
             disabled={standingPending || paying}
           >
             <option value="mercadopago">Mercado Pago</option>
             <option value="transferencia">Transferencia</option>
             <option value="debito">Débito automático</option>
-            <option value="tarjeta">Tarjeta</option>
-            <option value="caja">Caja / Secretaría</option>
           </select>
           <button
             type="button"
             className="btn btn-primary"
-            disabled={standingPending || paying || !updateMember || payable <= 0}
-            onClick={handlePay}
+            disabled={standingPending || paying || payable <= 0 || notifiedKey === noticeKey}
+            onClick={handleNotify}
           >
-            {paying ? 'Procesando…' : standingPending ? 'Un momento…' : alDia ? 'Anticipar cuota' : `Pagar ${formatCurrency(payable)}`}
+            {paying ? 'Enviando…' : notifiedKey === noticeKey ? 'Avisado' : actionLabel}
           </button>
         </div>
+        {method === 'mercadopago' && qr ? (
+          <div className="pay-hist-qr">
+            <div className="pay-hist-qr-code">
+              <QRCodeSVG value={qr.payload} size={168} level="M" includeMargin />
+            </div>
+            <div>
+              <strong><QrCode size={14} /> QR Mercado Pago</strong>
+              <p>Alias {MERCADO_PAGO.alias}</p>
+              <p>{formatCurrency(payable)}. Al avisar, administración recibe el mensaje sola.</p>
+            </div>
+          </div>
+        ) : null}
+        {method === 'transferencia' && bank ? (
+          <div className="pay-hist-transfer">
+            <p><strong>{bank.name}</strong> · {bank.accountName}</p>
+            <p>CBU {bank.cbu}</p>
+            <p>Alias {bank.alias}</p>
+            <label className="pay-hist-file">
+              <Upload size={16} />
+              {receiptFile?.name || 'Adjuntar comprobante (JPG, PNG o PDF)'}
+              <input type="file" accept="image/jpeg,image/png,application/pdf,.jpg,.jpeg,.png,.pdf" onChange={handleReceipt} />
+            </label>
+            {receiptPreview ? <img src={receiptPreview} alt="Vista previa del comprobante" /> : null}
+          </div>
+        ) : null}
+        {method === 'debito' ? (
+          <p className="pay-hist-note">El aviso pide a administración que adhiera el débito. La cuota se acredita cuando ellos lo confirman.</p>
+        ) : null}
         <div className="pay-hist-feedback" aria-live="polite">
           {message ? <div className="pay-hist-ok">{message}</div> : null}
           {error ? <div className="pay-hist-alert is-error">{error}</div> : null}

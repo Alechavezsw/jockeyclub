@@ -1,11 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Copy, Eye, EyeOff, KeyRound, RefreshCw, X } from 'lucide-react';
+import { Copy, Eye, EyeOff, KeyRound, Mail, RefreshCw, X } from 'lucide-react';
+
+function WhatsAppIcon({ size = 16 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path
+        fill="currentColor"
+        d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.435 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"
+      />
+    </svg>
+  );
+}
 import ModalDialog from '../ModalDialog';
-import { buildCredentials, loginEmailFromUsername } from '../../domain/auth/credentials';
+import { generatePassword, portalLoginFromEmail } from '../../domain/auth/credentials';
 import {
   MEMBER_STATUS_REASONS,
   reasonLabel,
-  splitMemberName,
 } from '../../domain/members/memberAdminActions';
 
 /**
@@ -132,18 +142,20 @@ export function MemberCredentialsModal({
   busy = false,
   error = '',
   result = null,
+  sending = '',
+  notice = '',
   onClose,
   onGenerate,
+  onSendWhatsApp,
+  onSendEmail,
 }) {
   const seed = useMemo(() => {
-    if (!member) return buildCredentials({});
-    const { firstName, lastName } = splitMemberName(member);
-    return buildCredentials({
-      firstName,
-      lastName,
-      documentNumber: member.documentNumber,
-    });
-  }, [member]);
+    return portalLoginFromEmail(member?.email) || {
+      username: '',
+      email: '',
+      password: generatePassword(),
+    };
+  }, [member?.memberId, member?.email]);
 
   const [creds, setCreds] = useState(seed);
   const [showPass, setShowPass] = useState(true);
@@ -156,6 +168,7 @@ export function MemberCredentialsModal({
   if (!open || !member) return null;
 
   const shown = result?.creds || creds;
+  const canSend = String(shown.email || '').includes('@') && String(shown.password || '').length >= 6;
 
   const copy = async (value, label) => {
     try {
@@ -181,7 +194,7 @@ export function MemberCredentialsModal({
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: '0.85rem' }}>
         <div>
           <h4 id="member-creds-title" className="serif-font" style={{ margin: 0, color: 'var(--text-gold)' }}>
-            {result ? 'Acceso generado' : 'Generar usuario y contraseña'}
+            {result ? 'Acceso generado' : 'Generar acceso'}
           </h4>
           <p style={{ margin: '0.35rem 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
             {member.name} · Nº {member.memberId}
@@ -194,7 +207,7 @@ export function MemberCredentialsModal({
 
       {!result ? (
         <p style={{ margin: '0 0 0.85rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-          Se crea el usuario de portal con rol Socio y queda vinculado a esta ficha. La acción se audita.
+          El socio entra con su email y esta contraseña. Queda vinculado a la ficha.
         </p>
       ) : (
         <p style={{ margin: '0 0 0.85rem', fontSize: '0.82rem', color: 'var(--emerald-accent)' }}>
@@ -204,21 +217,20 @@ export function MemberCredentialsModal({
 
       <div className="member-creds-grid">
         <label>
-          <span>Usuario</span>
+          <span>Email</span>
           <div className="member-creds-row">
-            <input className="form-input" value={shown.username} readOnly={Boolean(result)} onChange={(e) => !result && setCreds((c) => {
-              const username = e.target.value;
-              return { ...c, username, email: loginEmailFromUsername(username) };
-            })} />
-            <button type="button" className="btn btn-secondary btn-sm" onClick={() => copy(shown.username, 'Usuario')} title="Copiar">
-              <Copy size={14} />
-            </button>
-          </div>
-        </label>
-        <label>
-          <span>Email de login</span>
-          <div className="member-creds-row">
-            <input className="form-input" value={shown.email || member.email || ''} readOnly />
+            <input
+              className="form-input"
+              type="email"
+              value={shown.email}
+              readOnly={Boolean(result)}
+              autoComplete="off"
+              onChange={(e) => {
+                if (result) return;
+                const email = e.target.value.trim().toLowerCase();
+                setCreds((c) => ({ ...c, email, username: email }));
+              }}
+            />
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => copy(shown.email, 'Email')} title="Copiar">
               <Copy size={14} />
             </button>
@@ -232,6 +244,8 @@ export function MemberCredentialsModal({
               type={showPass ? 'text' : 'password'}
               value={shown.password}
               readOnly={Boolean(result)}
+              autoComplete="off"
+              spellCheck={false}
               onChange={(e) => !result && setCreds((c) => ({ ...c, password: e.target.value }))}
             />
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowPass((v) => !v)} title={showPass ? 'Ocultar' : 'Mostrar'}>
@@ -245,10 +259,7 @@ export function MemberCredentialsModal({
                 type="button"
                 className="btn btn-secondary btn-sm"
                 title="Regenerar"
-                onClick={() => {
-                  const next = buildCredentials(splitMemberName(member));
-                  setCreds(next);
-                }}
+                onClick={() => setCreds((c) => ({ ...c, password: generatePassword() }))}
               >
                 <RefreshCw size={14} />
               </button>
@@ -260,20 +271,41 @@ export function MemberCredentialsModal({
       {copied && copied !== 'error' ? (
         <p style={{ margin: '0.5rem 0 0', fontSize: '0.78rem', color: 'var(--emerald-accent)' }}>{copied} copiado</p>
       ) : null}
+      {notice ? <p style={{ margin: '0.5rem 0 0', fontSize: '0.78rem', color: 'var(--emerald-accent)' }}>{notice}</p> : null}
       {error ? <p className="conc-error" role="alert" style={{ marginTop: '0.65rem' }}>{error}</p> : null}
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: '1rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 8, marginTop: '1rem' }}>
         <button type="button" className="btn btn-secondary" onClick={onClose} disabled={busy}>
           {result ? 'Cerrar' : 'Cancelar'}
+        </button>
+        <button
+          type="button"
+          className="btn btn-emerald"
+          disabled={busy || !canSend || !member.phone}
+          title={member.phone ? 'Abrir WhatsApp con las credenciales' : 'La ficha no tiene celular'}
+          onClick={() => onSendWhatsApp?.(shown)}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+        >
+          <WhatsAppIcon size={16} />
+          {sending === 'whatsapp' ? 'Abriendo…' : 'WhatsApp'}
+        </button>
+        <button
+          type="button"
+          className="btn btn-primary"
+          disabled={busy || !canSend}
+          onClick={() => onSendEmail?.(shown)}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+        >
+          <Mail size={16} /> {sending === 'email' ? 'Enviando…' : 'Enviar por email'}
         </button>
         {!result ? (
           <button
             type="button"
-            className="btn btn-primary"
-            disabled={busy || !creds.username || (creds.password || '').length < 6}
-            onClick={() => onGenerate?.(creds)}
+            className="btn btn-secondary"
+            disabled={busy || !canSend}
+            onClick={() => onGenerate?.(shown)}
           >
-            <KeyRound size={14} /> {busy ? 'Creando…' : 'Crear acceso'}
+            <KeyRound size={14} /> {busy && !sending ? 'Creando…' : 'Crear acceso'}
           </button>
         ) : null}
       </div>

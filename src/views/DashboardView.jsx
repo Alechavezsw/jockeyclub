@@ -43,6 +43,8 @@ export default function DashboardView({
   guestPasses = [],
   setGuestPasses,
   facilityCatalog = null,
+  user = null,
+  sendMessage,
 }) {
   const [showNewClaimForm, setShowNewClaimForm] = useState(false);
   const [claimType, setClaimType] = useState('Mantenimiento');
@@ -136,7 +138,8 @@ export default function DashboardView({
   const heroNameParts = String(profile.name || member.name || '')
     .trim()
     .split(/\s+/)
-    .filter((part) => part && !part.includes('@'));
+    .filter((part) => part && !part.includes('@'))
+    .map((part) => part.charAt(0).toLocaleUpperCase('es-AR') + part.slice(1));
 
   const handleMarkAsRead = (msgId) => {
     setMessages(prev => prev.map(msg => msg.id === msgId ? { ...msg, isRead: true } : msg));
@@ -711,6 +714,8 @@ export default function DashboardView({
             waitlist={waitlist}
             setWaitlist={setWaitlist}
             facilityCatalog={facilityCatalog}
+            user={user}
+            sendMessage={sendMessage}
             compact
           />
         </div>

@@ -21,13 +21,14 @@ export function accessInviteText({
   portalUrl = '',
 } = {}) {
   const greeting = name ? `Hola ${name}` : 'Hola';
+  const sameLogin = !username || username.toLowerCase() === String(loginEmail || '').toLowerCase();
   return [
     `${greeting}, te saludamos de ${CLUB}.`,
     '',
     'Ya tenés acceso al portal de socios.',
     portalUrl,
     '',
-    `Usuario: ${username}`,
+    ...(sameLogin ? [] : [`Usuario: ${username}`]),
     `Email de ingreso: ${loginEmail}`,
     `Contraseña: ${password}`,
     '',
@@ -84,7 +85,7 @@ export function accessInviteHtml({
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4efe4;border:1px solid #e2d3b4;margin:0 0 20px;">
                 <tr>
                   <td style="padding:16px 18px;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1a1612;">
-                    <p style="margin:0 0 8px;"><strong style="color:#096755;">Usuario</strong><br />${user}</p>
+                    ${user && user.toLowerCase() !== mail.toLowerCase() ? `<p style="margin:0 0 8px;"><strong style="color:#096755;">Usuario</strong><br />${user}</p>` : ''}
                     <p style="margin:0 0 8px;"><strong style="color:#096755;">Email de ingreso</strong><br />${mail}</p>
                     <p style="margin:0;"><strong style="color:#096755;">Contraseña</strong><br />${pass}</p>
                   </td>

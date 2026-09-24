@@ -135,7 +135,13 @@ export default function MemberRequestsSection({
     });
   };
 
+  const joinMatch = (item) => matchMemberForAccessRequest(members, {
+    documentNumber: item.documentNumber,
+    fullName: item.fullName,
+  });
+
   const openJoinDetail = (item) => {
+    const match = joinMatch(item);
     setInvite(invitesById[item.id] || null);
     setDeliverError('');
     setDetail({
@@ -143,6 +149,7 @@ export default function MemberRequestsSection({
       item,
       data: buildRequestDetail('alta', item, {
         tierLabel: item.requestedTier ? getTierDisplayName(item.requestedTier) : '',
+        matchName: match ? `${match.name} · Nº ${match.memberId}` : '',
       }),
     });
   };
@@ -160,7 +167,11 @@ export default function MemberRequestsSection({
     setBusyId(item.id);
     setDeliverError('');
     try {
-      const next = await onDeliverAccess(kind, item);
+      const next = await onDeliverAccess(kind, item, null, (ready) => {
+        setInvite(ready);
+        setInvitesById((prev) => ({ ...prev, [item.id]: ready }));
+        setBusyId('');
+      });
       setInvite(next);
       setInvitesById((prev) => ({ ...prev, [item.id]: next }));
     } catch (err) {
@@ -285,6 +296,7 @@ export default function MemberRequestsSection({
               );
             })
             : membershipApplications.map((item) => {
+              const match = joinMatch(item);
               const color = item.status === 'rejected' ? '#c23b3b' : item.status === 'approved' ? '#1f7a4d' : '#1f7a4d';
               const pending = item.status === 'pending';
               return (
@@ -299,6 +311,7 @@ export default function MemberRequestsSection({
                         {item.requestedTier ? ` · ${getTierDisplayName(item.requestedTier)}` : ''}
                         {' · '}
                         {formatRequestWhen(item.createdAt)}
+                        {match ? ` · Ya es socio: ${match.name} Nº ${match.memberId}` : ''}
                       </span>
                     </button>
                   </div>
@@ -307,7 +320,7 @@ export default function MemberRequestsSection({
                     {pending ? (
                       <>
                         <button type="button" className="membership-moves-link" disabled={busyId === item.id} onClick={() => startDeliver('alta', item)}>
-                          Dar de alta y enviar usuario
+                          {match ? 'Actualizar ficha y enviar acceso' : 'Dar de alta y enviar usuario'}
                         </button>
                         <button type="button" className="membership-moves-link" onClick={() => onPrefillAlta?.(item)}>
                           Dar de alta

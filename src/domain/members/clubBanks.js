@@ -22,14 +22,15 @@ export const MERCADO_PAGO = {
 export const CASH_JOURNAL_ACCOUNT = 'Caja General';
 
 /** Payload del QR de cobro MP (demo operativo hasta integrar API real). */
-export function buildMercadoPagoQrPayload({ amount, memberId, memberName }) {
+export function buildMercadoPagoQrPayload({ amount, memberId, memberName, concept }) {
   const ref = `JCSJ-${String(memberId || '').slice(0, 8)}-${Date.now().toString(36).toUpperCase()}`;
+  const label = concept || `Cuota social ${memberName || ''}`.trim();
   return [
     'mercadopago:',
     `alias=${MERCADO_PAGO.alias}`,
     `amount=${Number(amount) || 0}`,
     `ref=${ref}`,
-    `concept=Cuota social ${memberName || ''}`.trim(),
+    `concept=${label}`,
   ].join('|');
 }
 

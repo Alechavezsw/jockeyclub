@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
 import {
   Calendar,
   ChevronLeft,
@@ -16,13 +17,29 @@ import {
   Search,
   MapPin,
   Sparkles,
+  Minus,
+  Plus,
+  QrCode,
+  Upload,
 } from 'lucide-react';
 import { FACILITIES, facilitiesByGroup, sortFacilitiesForDisplay, isRealBookableSpace } from '../domain/reservations/facilities';
 import { buildFacilityCatalog } from '../domain/reservations/facilityConfig';
 import { getFacilityLiveStatus, isSeasonOpen } from '../domain/reservations/availability';
 import { hasReservationConflict } from '../domain/reservations/conflicts';
+import { isSlotPast } from '../domain/reservations/slotTime';
 import { joinWaitlist, leaveWaitlist, waitingForSlot } from '../domain/reservations/waitlist';
+import { CLUB_BANK_ACCOUNTS, MERCADO_PAGO, buildMercadoPagoQrPayload } from '../domain/members/clubBanks';
+import { bookingPaymentNotice } from '../domain/members/duesPaymentNotice';
+import { uploadDuesReceipt } from '../data/storage';
 import ModalDialog from './ModalDialog';
+
+function formatCurrency(amount) {
+  return new Intl.NumberFormat('es-AR', {
+    style: 'currency',
+    currency: 'ARS',
+    minimumFractionDigits: 0,
+  }).format(Number(amount) || 0);
+}
 
 const WEEKDAYS = ['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sá', 'Do'];
 const ACTIVE_RES_STATUSES = new Set(['confirmed', 'pending', 'approved']);
@@ -74,7 +91,8 @@ function buildMonthCells(viewMonth) {
 function freeSlotsForFacility(facility, dateStr, reservations, { isZondaActive, now }) {
   if (!isFacilityOpenForDay(facility, { isZondaActive, now })) return [];
   return (facility.slots || []).filter(
-    (slot) => !hasReservationConflict(reservations, { facilityId: facility.id, date: dateStr, time: slot })
+    (slot) => !isSlotPast(dateStr, slot, now)
+      && !hasReservationConflict(reservations, { facilityId: facility.id, date: dateStr, time: slot })
   );
 }
 
@@ -94,7 +112,8 @@ function dayAvailabilityScore(dateStr, reservations, isZondaActive, now, facilit
     const slots = fac.slots || [];
     total += slots.length;
     const freeSlots = slots.filter(
-      (slot) => !hasReservationConflict(reservations, { facilityId: fac.id, date: dateStr, time: slot })
+      (slot) => !isSlotPast(dateStr, slot, now)
+        && !hasReservationConflict(reservations, { facilityId: fac.id, date: dateStr, time: slot })
     ).length;
     free += freeSlots;
     if (freeSlots > 0) spacesFree += 1;
@@ -130,6 +149,8 @@ export default function MemberFacilitiesBooking({
   waitlist = [],
   setWaitlist,
   facilityCatalog = null,
+  user = null,
+  sendMessage,
 }) {
   const today = useMemo(() => {
     const d = new Date();
@@ -147,10 +168,14 @@ export default function MemberFacilitiesBooking({
   const [selectedFacility, setSelectedFacility] = useState(null);
   const [time, setTime] = useState('');
   const [guests, setGuests] = useState(0);
-  const [guestNames, setGuestNames] = useState('');
+  const [guestNameList, setGuestNameList] = useState([]);
   const [errorMessage, setErrorMessage] = useState('');
   const [bookingSuccess, setBookingSuccess] = useState(false);
   const [waitMsg, setWaitMsg] = useState('');
+  const [payMethod, setPayMethod] = useState('mercadopago');
+  const [receiptFile, setReceiptFile] = useState(null);
+  const [receiptPreview, setReceiptPreview] = useState('');
+  const [paying, setPaying] = useState(false);
 
   const catalog = useMemo(
     () => buildFacilityCatalog(FACILITIES, Array.isArray(facilityCatalog) ? facilityCatalog : [])
@@ -212,10 +237,14 @@ export default function MemberFacilitiesBooking({
     setSelectedFacility(facility);
     setTime('');
     setGuests(0);
-    setGuestNames('');
+    setGuestNameList([]);
     setErrorMessage('');
     setWaitMsg('');
     setBookingSuccess(false);
+    setPayMethod('mercadopago');
+    setReceiptFile(null);
+    setReceiptPreview('');
+    setPaying(false);
   };
 
   const myWaitlist = useMemo(
@@ -251,9 +280,47 @@ export default function MemberFacilitiesBooking({
     setErrorMessage('');
   };
 
-  const handleSubmit = (e) => {
+  const guestLimit = selectedFacility?.guestLimit || 0;
+
+  const setGuestCount = (next) => {
+    const count = Math.max(0, Math.min(guestLimit, next));
+    setGuests(count);
+    setGuestNameList((prev) => {
+      const list = prev.slice(0, count);
+      while (list.length < count) list.push('');
+      return list;
+    });
+  };
+
+  const bookingPrice = Number(selectedFacility?.defaultPrice) || 0;
+  const bank = CLUB_BANK_ACCOUNTS[0];
+  const bookingQr = useMemo(() => {
+    if (payMethod !== 'mercadopago' || bookingPrice <= 0 || !member) return null;
+    const payload = buildMercadoPagoQrPayload({
+      amount: bookingPrice,
+      memberId: member.memberId,
+      memberName: member.name,
+      concept: `${selectedFacility?.name || 'Reserva'} ${selectedDate || ''} ${time || ''}`.trim(),
+    });
+    const ref = payload.split('|').find((part) => part.startsWith('ref='))?.slice(4) || '';
+    return { payload, ref };
+  }, [payMethod, bookingPrice, member, selectedFacility?.name, selectedDate, time]);
+
+  const handleReceipt = (event) => {
+    const file = event.target.files?.[0];
+    setReceiptFile(file || null);
+    setReceiptPreview('');
+    setErrorMessage('');
+    if (file && file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = () => setReceiptPreview(String(reader.result || ''));
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!selectedFacility || !member) return;
+    if (!selectedFacility || !member || paying) return;
     if (!selectedDate) {
       setErrorMessage('Seleccioná una fecha en el calendario.');
       return;
@@ -266,12 +333,56 @@ export default function MemberFacilitiesBooking({
       setErrorMessage('Actividades al aire libre suspendidas por viento Zonda.');
       return;
     }
+    if (isSlotPast(selectedDate, time, now)) {
+      setErrorMessage('Ese horario ya pasó. Elegí un turno más tarde.');
+      return;
+    }
     if (hasReservationConflict(reservations, {
       facilityId: selectedFacility.id,
       date: selectedDate,
       time,
     })) {
       setErrorMessage('Ese turno acaba de ocuparse. Elegí otro horario.');
+      return;
+    }
+    const names = guestNameList.map((name) => name.trim()).filter(Boolean);
+    if (names.length !== guests) {
+      setErrorMessage('Completá el nombre y apellido de cada invitado.');
+      return;
+    }
+
+    if (bookingPrice > 0 && payMethod === 'transferencia' && !receiptFile) {
+      setErrorMessage('Adjuntá el comprobante de la transferencia.');
+      return;
+    }
+    if (bookingPrice > 0 && !sendMessage) {
+      setErrorMessage('El aviso de pago a administración no está disponible.');
+      return;
+    }
+
+    setPaying(true);
+    try {
+      let attachment = null;
+      if (bookingPrice > 0 && payMethod === 'transferencia') {
+        attachment = await uploadDuesReceipt(receiptFile, user?.id);
+      }
+      if (bookingPrice > 0) {
+        await sendMessage(bookingPaymentNotice({
+          memberName: member.name,
+          memberId: member.memberId,
+          amountLabel: formatCurrency(bookingPrice),
+          facilityName: selectedFacility.name,
+          dateLabel: selectedDateLabel,
+          time,
+          method: payMethod,
+          bankName: bank?.name,
+          qrRef: bookingQr?.ref,
+          attachment,
+        }));
+      }
+    } catch (err) {
+      setErrorMessage(err.message || 'No se pudo avisar el pago.');
+      setPaying(false);
       return;
     }
 
@@ -283,10 +394,13 @@ export default function MemberFacilitiesBooking({
       date: selectedDate,
       time,
       guests: Number(guests) || 0,
-      guestNames: guests > 0 ? guestNames : '',
-      status: 'confirmed',
+      guestNames: names.join(', '),
+      status: bookingPrice > 0 ? 'pending' : 'confirmed',
+      estimatedPrice: bookingPrice || null,
+      paymentMethod: bookingPrice > 0 ? payMethod : null,
     };
-    const result = addReservation?.(payload);
+    const result = await addReservation?.(payload);
+    setPaying(false);
     if (result && result.ok === false) {
       setErrorMessage(result.error || 'No se pudo confirmar la reserva.');
       return;
@@ -574,13 +688,11 @@ export default function MemberFacilitiesBooking({
           labelledBy="mfb-book-title"
           contentClassName="modal-content glass-panel mfb-modal"
         >
-            <div className="modal-header" style={{ borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.75rem', marginBottom: '1rem' }}>
+            <div className="modal-header mfb-book-head">
               <div>
-                <h3 id="mfb-book-title" className="serif-font" style={{ fontSize: '1.3rem' }}>Reservar turno</h3>
-                <p style={{ fontSize: '0.85rem', color: 'var(--text-gold)' }}>{selectedFacility.name}</p>
-                <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 4 }}>
-                  {selectedDateLabel}
-                </p>
+                <p className="mfb-book-kicker">Reservar turno</p>
+                <h3 id="mfb-book-title" className="serif-font">{selectedFacility.name}</h3>
+                <p className="mfb-book-date">{selectedDateLabel}</p>
               </div>
               <button type="button" onClick={closeBooking} className="mfb-icon-btn" aria-label="Cerrar">
                 <X size={20} aria-hidden="true" />
@@ -590,18 +702,20 @@ export default function MemberFacilitiesBooking({
             {bookingSuccess ? (
               <div style={{ textAlign: 'center', padding: '1.5rem 0.5rem' }}>
                 <CheckCircle2 size={52} style={{ color: 'var(--emerald-accent)' }} />
-                <h4 style={{ marginTop: '0.75rem' }}>Reserva confirmada</h4>
+                <h4 style={{ marginTop: '0.75rem' }}>{bookingPrice > 0 ? 'Turno reservado' : 'Reserva confirmada'}</h4>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
                   {selectedFacility.name} · {selectedDate} · {time} hs
+                  {bookingPrice > 0 ? '. Avisamos el pago a administración.' : ''}
                 </p>
               </div>
             ) : (
-              <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <form onSubmit={handleSubmit} className="mfb-book-form">
                 <div>
-                  <label className="form-label">Horarios libres</label>
+                  <label className="form-label">Horarios</label>
                   <div className="mfb-time-grid">
                     {(selectedFacility.slots || []).map((slot) => {
-                      const taken = hasReservationConflict(reservations, {
+                      const past = isSlotPast(selectedDate, slot, now);
+                      const taken = !past && hasReservationConflict(reservations, {
                         facilityId: selectedFacility.id,
                         date: selectedDate,
                         time: slot,
@@ -612,23 +726,23 @@ export default function MemberFacilitiesBooking({
                         date: selectedDate,
                         time: slot,
                       }).length;
+                      const label = blockedOutdoor ? 'Cerrado' : past ? 'Pasó' : taken ? 'Ocupado' : 'Libre';
                       return (
                         <button
                           key={slot}
                           type="button"
-                          disabled={blockedOutdoor}
-                          className={`mfb-time${time === slot ? ' is-selected' : ''}${taken ? ' is-taken' : ''}${blockedOutdoor ? ' is-disabled' : ''}`}
+                          disabled={blockedOutdoor || past}
+                          className={`mfb-time${time === slot ? ' is-selected' : ''}${taken ? ' is-taken' : ''}${blockedOutdoor || past ? ' is-disabled' : ''}`}
                           onClick={() => setTime(slot)}
-                          title={taken ? `Ocupado · ${queue} en espera` : 'Disponible'}
+                          title={past ? 'Ese horario ya pasó' : taken ? `Ocupado · ${queue} en espera` : 'Libre'}
                         >
-                          {slot}{taken ? '*' : ''}
+                          <span>{slot}</span>
+                          <small>{label}</small>
                         </button>
                       );
                     })}
                   </div>
-                  <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 8 }}>
-                    * Ocupado: podés anotarte en lista de espera.
-                  </p>
+                  <p className="mfb-book-hint">Si el horario está ocupado, podés anotarte en la lista de espera.</p>
                   {myWaitlist.length > 0 && (
                     <div style={{ marginTop: 8, fontSize: '0.8rem', color: 'var(--text-gold)' }}>
                       Tus esperas: {myWaitlist.map((w) => `${w.facilityName?.split(' - ')[0] || w.facilityId} ${w.date} ${w.time}`).join(' · ')}
@@ -645,32 +759,99 @@ export default function MemberFacilitiesBooking({
                   )}
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '0.75rem' }}>
+                <div className="mfb-guests">
                   <div>
-                    <label className="form-label">Invitados</label>
-                    <select
-                      className="form-input"
-                      value={guests}
-                      onChange={(e) => setGuests(Number(e.target.value))}
-                    >
-                      {[...Array((selectedFacility.guestLimit || 0) + 1).keys()].map((n) => (
-                        <option key={n} value={n}>{n}</option>
-                      ))}
-                    </select>
+                    <label className="form-label" id="mfb-guests-label">Invitados</label>
+                    <div className="mfb-stepper" role="group" aria-labelledby="mfb-guests-label">
+                      <button
+                        type="button"
+                        aria-label="Menos invitados"
+                        disabled={guests <= 0}
+                        onClick={() => setGuestCount(guests - 1)}
+                      >
+                        <Minus size={16} />
+                      </button>
+                      <strong>{guests}</strong>
+                      <button
+                        type="button"
+                        aria-label="Más invitados"
+                        disabled={guests >= guestLimit}
+                        onClick={() => setGuestCount(guests + 1)}
+                      >
+                        <Plus size={16} />
+                      </button>
+                    </div>
+                    <p className="mfb-book-hint">Hasta {guestLimit}. Cada invitado va con su nombre.</p>
                   </div>
-                  {guests > 0 && (
-                    <div>
-                      <label className="form-label">Nombres</label>
-                      <input
-                        className="form-input"
-                        value={guestNames}
-                        onChange={(e) => setGuestNames(e.target.value)}
-                        placeholder="Nombre y apellido"
-                        required
-                      />
+                  {guestNameList.length > 0 && (
+                    <div className="mfb-guest-names">
+                      {guestNameList.map((name, index) => (
+                        <label key={index}>
+                          <span className="form-label">Invitado {index + 1}</span>
+                          <input
+                            className="form-input"
+                            value={name}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setGuestNameList((prev) => prev.map((item, i) => (i === index ? value : item)));
+                            }}
+                            placeholder="Nombre y apellido"
+                            required
+                            autoComplete="name"
+                          />
+                        </label>
+                      ))}
                     </div>
                   )}
                 </div>
+
+                {bookingPrice > 0 && (
+                  <div className="mfb-pay">
+                    <label className="form-label" htmlFor="mfb-pay-method">Pago</label>
+                    <p className="mfb-book-hint">{formatCurrency(bookingPrice)} · el mismo medio que la cuota.</p>
+                    <select
+                      id="mfb-pay-method"
+                      className="form-input"
+                      value={payMethod}
+                      onChange={(e) => {
+                        setPayMethod(e.target.value);
+                        setErrorMessage('');
+                      }}
+                    >
+                      <option value="mercadopago">Mercado Pago</option>
+                      <option value="transferencia">Transferencia</option>
+                      <option value="debito">Débito automático</option>
+                    </select>
+                    {payMethod === 'mercadopago' && bookingQr ? (
+                      <div className="pay-hist-qr">
+                        <div className="pay-hist-qr-code">
+                          <QRCodeSVG value={bookingQr.payload} size={148} level="M" includeMargin />
+                        </div>
+                        <div>
+                          <strong><QrCode size={14} /> QR Mercado Pago</strong>
+                          <p>Alias {MERCADO_PAGO.alias}</p>
+                          <p>{formatCurrency(bookingPrice)}. Al confirmar, administración recibe el aviso.</p>
+                        </div>
+                      </div>
+                    ) : null}
+                    {payMethod === 'transferencia' && bank ? (
+                      <div className="pay-hist-transfer">
+                        <p><strong>{bank.name}</strong> · {bank.accountName}</p>
+                        <p>CBU {bank.cbu}</p>
+                        <p>Alias {bank.alias}</p>
+                        <label className="pay-hist-file">
+                          <Upload size={16} />
+                          {receiptFile?.name || 'Adjuntar comprobante (JPG, PNG o PDF)'}
+                          <input type="file" accept="image/jpeg,image/png,application/pdf,.jpg,.jpeg,.png,.pdf" onChange={handleReceipt} />
+                        </label>
+                        {receiptPreview ? <img src={receiptPreview} alt="Vista previa del comprobante" /> : null}
+                      </div>
+                    ) : null}
+                    {payMethod === 'debito' ? (
+                      <p className="pay-hist-note">Administración adhiere el débito y acredita el turno cuando lo confirma.</p>
+                    ) : null}
+                  </div>
+                )}
 
                 {errorMessage && (
                   <div className="mfb-error">
@@ -692,7 +873,13 @@ export default function MemberFacilitiesBooking({
                       Lista de espera
                     </button>
                   ) : (
-                    <button type="submit" className="btn btn-primary">Confirmar reserva</button>
+                    <button type="submit" className="btn btn-primary" disabled={paying}>
+                      {paying
+                        ? 'Enviando…'
+                        : bookingPrice > 0
+                          ? (payMethod === 'transferencia' ? 'Enviar comprobante' : 'Avisar y reservar')
+                          : 'Confirmar reserva'}
+                    </button>
                   )}
                 </div>
               </form>

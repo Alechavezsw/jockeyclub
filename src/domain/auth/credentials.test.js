@@ -4,6 +4,7 @@ import {
   generatePassword,
   loginEmailFromUsername,
   buildCredentials,
+  portalLoginFromEmail,
 } from './credentials';
 
 describe('credentials', () => {
@@ -32,5 +33,13 @@ describe('credentials', () => {
     expect(creds.username).toContain('ana');
     expect(creds.password.length).toBeGreaterThanOrEqual(8);
     expect(creds.email).toContain('@jockey.sj');
+  });
+
+  it('el acceso del socio usa su mail real', () => {
+    const login = portalLoginFromEmail(' Alechavez@cosechacreativa.com.ar ');
+    expect(login.username).toBe('alechavez@cosechacreativa.com.ar');
+    expect(login.email).toBe('alechavez@cosechacreativa.com.ar');
+    expect(login.password.length).toBeGreaterThanOrEqual(8);
+    expect(portalLoginFromEmail('')).toBeNull();
   });
 });

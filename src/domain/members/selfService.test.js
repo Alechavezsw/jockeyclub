@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applyJoinApplicationToMember,
+  joinDateFromApplication,
   matchMemberForAccessRequest,
   accessReasonLabel,
   buildRequestDetail,
@@ -81,6 +83,33 @@ describe('selfService', () => {
       phone: false,
     });
     expect(joinConflictMessage({ documentNumber: true, phone: true })).toContain('Ya soy socio');
+  });
+
+  it('al aceptar un ingreso, pisa la ficha vieja con la categoría pedida', () => {
+    const next = applyJoinApplicationToMember({
+      fullName: 'manuel alejandro Chávez',
+      documentNumber: '31888184',
+      phone: '+5492645468012',
+      email: 'alechavez@cosechacreativa.com.ar',
+      requestedTier: 'socio_individual',
+      createdAt: '2026-09-23T00:26:09.717Z',
+    }, {
+      id: 'bd6a7348-94a8-4fee-8eff-03dd56fd9c78',
+      memberId: '4240955017912629',
+      name: 'Ale Chavez',
+      documentNumber: '31888184',
+      tier: 'grupo_familiar_familiar',
+      email: 'sarmientowebb@gmail.com',
+      joinDate: '2026-09-13',
+      status: 'active',
+    });
+    expect(next.id).toBe('bd6a7348-94a8-4fee-8eff-03dd56fd9c78');
+    expect(next.memberId).toBe('4240955017912629');
+    expect(next.name).toBe('manuel alejandro Chávez');
+    expect(next.tier).toBe('socio_individual');
+    expect(next.email).toBe('alechavez@cosechacreativa.com.ar');
+    expect(next.joinDate).toBe('2026-09-22');
+    expect(joinDateFromApplication({ createdAt: '2026-09-23T00:26:09.717Z' })).toBe('2026-09-22');
   });
 
   it('etiqueta el motivo', () => {

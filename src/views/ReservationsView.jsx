@@ -9,6 +9,8 @@ export default function ReservationsView({
   waitlist = [],
   setWaitlist,
   facilityCatalog = null,
+  user = null,
+  sendMessage,
 }) {
   if (!member?.memberId) {
     return (
@@ -30,6 +32,8 @@ export default function ReservationsView({
         waitlist={waitlist}
         setWaitlist={setWaitlist}
         facilityCatalog={facilityCatalog}
+        user={user}
+        sendMessage={sendMessage}
         onBooked={() => {
           setTimeout(() => setCurrentView?.('dashboard'), 1600);
         }}

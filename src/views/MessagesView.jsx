@@ -11,6 +11,31 @@ import {
   recipientLabel,
 } from '../domain/messaging/messages';
 import { canAccessAdmin } from '../domain/auth/roles';
+import { signedDuesReceiptUrl } from '../data/storage';
+
+function MessageAttachment({ attachment }) {
+  const [url, setUrl] = useState(attachment?.dataUrl || '');
+  useEffect(() => {
+    if (!attachment?.path) return undefined;
+    let cancelled = false;
+    signedDuesReceiptUrl(attachment.path).then((signed) => {
+      if (!cancelled && signed) setUrl(signed);
+    });
+    return () => { cancelled = true; };
+  }, [attachment?.path]);
+  if (!attachment) return null;
+  const isImage = String(attachment.mimeType || '').startsWith('image/') || /\.(jpe?g|png|webp)$/i.test(attachment.name || '');
+  return (
+    <div className="msg-attachment">
+      {isImage && url ? <img src={url} alt={attachment.name || 'Comprobante'} /> : null}
+      {url ? (
+        <a href={url} target="_blank" rel="noopener noreferrer">{attachment.name || 'Ver comprobante'}</a>
+      ) : (
+        <span>{attachment.name || 'Comprobante adjunto'}</span>
+      )}
+    </div>
+  );
+}
 
 export default function MessagesView({ messages, setMessages, members = [], onRefresh, onSendMessage }) {
   const { user, role } = useAuth();
@@ -520,6 +545,7 @@ export default function MessagesView({ messages, setMessages, members = [], onRe
               <p style={{ color: 'var(--text-secondary)', lineHeight: 1.65, whiteSpace: 'pre-wrap', margin: 0, fontSize: '0.95rem' }}>
                 {selected.content}
               </p>
+              <MessageAttachment attachment={selected.meta?.attachment} />
               {tab === 'inbox' && (
                 <div>
                   <button type="button" className="btn btn-primary btn-sm" onClick={handleReply} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>

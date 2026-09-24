@@ -63,6 +63,52 @@ export function countUnread(messages, identity) {
   return getInbox(messages, identity).filter((m) => !m.isRead).length;
 }
 
+const READ_STORE = 'jockey-read-messages:v1';
+const memoryReads = new Map();
+
+export function messageReaderKey({ userId, memberId } = {}) {
+  return String(userId || memberId || '');
+}
+
+export function loadReadMessageIds(reader) {
+  const ids = new Set(memoryReads.get(reader) || []);
+  if (!reader || typeof localStorage === 'undefined') return ids;
+  try {
+    const raw = JSON.parse(localStorage.getItem(`${READ_STORE}:${reader}`) || '[]');
+    if (Array.isArray(raw)) raw.forEach((id) => ids.add(String(id)));
+  } catch {
+    /* almacenamiento no disponible */
+  }
+  return ids;
+}
+
+export function rememberReadMessage(reader, messageId) {
+  if (!reader || messageId == null) return;
+  const ids = loadReadMessageIds(reader);
+  ids.add(String(messageId));
+  memoryReads.set(reader, ids);
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(`${READ_STORE}:${reader}`, JSON.stringify([...ids]));
+  } catch {
+    /* incógnito o cuota: queda en memoria de la sesión */
+  }
+}
+
+/** La lectura de un aviso a todos los socios es de cada persona, no de la fila compartida. */
+export function withRememberedReads(messages, reader, previous = []) {
+  const remembered = loadReadMessageIds(reader);
+  const already = new Set(
+    (previous || []).filter((m) => m?.isRead).map((m) => String(m.id))
+  );
+  if (!remembered.size && !already.size) return messages || [];
+  return (messages || []).map((m) => (
+    remembered.has(String(m.id)) || already.has(String(m.id))
+      ? { ...m, isRead: true }
+      : m
+  ));
+}
+
 export function markMessageRead(messages, messageId) {
   return messages.map((m) => (m.id === messageId ? { ...m, isRead: true } : m));
 }

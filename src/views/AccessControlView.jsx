@@ -8,7 +8,7 @@ import { parseGuestPassPayload, isGuestPassValid } from '../domain/credentials/g
 import { accessLogsForClubDay, buildAccessLogEntry, GATE_HISTORY_PAGE, tierToGroup } from '../domain/credentials/accessLog';
 import { todayISODateAR } from '../lib/arDate';
 import { mergePoolSearchHits, searchPoolMembers } from '../domain/pool/poolAccess';
-import { searchMembersDirectory } from '../data/repos';
+import { getMemberByNumber, searchMembersDirectory } from '../data/repos';
 import { isSupabaseConfigured } from '../lib/supabase';
 import QrLiveScanner from '../components/QrLiveScanner';
 
@@ -139,7 +139,7 @@ export default function AccessControlView({
     beginCooldown();
   }, [formatCurrency, setEntryLogs, beginCooldown]);
 
-  const processPayload = useCallback((raw, { allowUnsignedNumber = false } = {}) => {
+  const processPayload = useCallback(async (raw, { allowUnsignedNumber = false } = {}) => {
     if (processingRef.current) return;
 
     const guestParsed = parseGuestPassPayload(raw);
@@ -202,7 +202,17 @@ export default function AccessControlView({
       return;
     }
 
-    const member = members.find((m) => m.memberId === memberId);
+    let member = members.find((m) => m.memberId === memberId);
+    if (parsed.signed && isSupabaseConfigured) {
+      try {
+        const full = await getMemberByNumber(memberId);
+        if (full?.credentialToken) {
+          member = { ...(member || full), credentialToken: full.credentialToken };
+        }
+      } catch {
+        /* el padrón en memoria no trae la firma */
+      }
+    }
     if (parsed.signed && member && !credentialTokenMatches(member, parsed)) {
       setResult({
         status: 'denied',

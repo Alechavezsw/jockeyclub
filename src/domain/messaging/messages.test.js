@@ -6,6 +6,8 @@ import {
   getSent,
   isMessageForUser,
   MAILBOX,
+  rememberReadMessage,
+  withRememberedReads,
 } from './messages';
 
 const base = [
@@ -69,5 +71,13 @@ describe('messaging', () => {
     const sent = getSent([msg], { userId: 'x', memberId: '2026887744320988' });
     expect(sent).toHaveLength(1);
     expect(msg.isRead).toBe(false);
+  });
+
+  it('un aviso a todos sigue leído después de recargar la bandeja', () => {
+    rememberReadMessage('user-1', 2);
+    const fresh = withRememberedReads(base, 'user-1', []);
+    expect(fresh.find((m) => m.id === 2).isRead).toBe(true);
+    expect(fresh.find((m) => m.id === 1).isRead).toBe(false);
+    expect(countUnread(fresh, { userId: 'user-1', role: 'member', memberId: '2026887744320988' })).toBe(1);
   });
 });

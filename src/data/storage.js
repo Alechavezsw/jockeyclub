@@ -178,3 +178,36 @@ export async function uploadOtherIncomeAttachment(file, { incomeId = 'draft' } =
     size: file.size || 0,
   };
 }
+
+const DUES_RECEIPTS = 'dues-receipts';
+
+/** Comprobante de transferencia del socio. La carpeta es su usuario. */
+export async function uploadDuesReceipt(file, profileId) {
+  if (!isSupabaseConfigured || !supabase) {
+    throw new Error('Supabase no configurado: no se puede subir el comprobante.');
+  }
+  validateOtherIncomeFile(file);
+  const folder = String(profileId || '').replace(/[^a-z0-9_-]/gi, '');
+  if (!folder) throw new Error('Sesión no válida para adjuntar el comprobante.');
+  const path = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${extFromFile(file)}`;
+  const { error } = await supabase.storage.from(DUES_RECEIPTS).upload(path, file, {
+    cacheControl: '3600',
+    upsert: false,
+    contentType: file.type || undefined,
+  });
+  if (error) throw new Error(error.message || 'No se pudo subir el comprobante.');
+  return {
+    path,
+    bucket: DUES_RECEIPTS,
+    name: file.name || path.split('/').pop(),
+    mimeType: file.type || '',
+    size: file.size || 0,
+  };
+}
+
+export async function signedDuesReceiptUrl(path) {
+  if (!path || !isSupabaseConfigured || !supabase) return '';
+  const { data, error } = await supabase.storage.from(DUES_RECEIPTS).createSignedUrl(path, 60 * 60);
+  if (error) return '';
+  return data?.signedUrl || '';
+}

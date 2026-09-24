@@ -11,16 +11,15 @@ import {
   collectMemberMeta,
   memberHasSocietasApp,
   reasonLabel as lifecycleReasonLabel,
-  splitMemberName,
 } from '../../domain/members/memberAdminActions';
 import { attachHouseholdToMembers, assignDistinctStatColors, buildPadronHouseholdStats, familyGroupMatchesQuery, isFamilyDependent, isTitularMember, listFamilyGroups, mergeMembersById, rankMemberSearchHit, resolveFamilyForDisplay } from '../../domain/members/households';
-import { buildCredentials, loginEmailFromUsername } from '../../domain/auth/credentials';
+import { portalLoginFromEmail } from '../../domain/auth/credentials';
 import {
   buildAccessInvite,
   markAccessApproved,
+  applyJoinApplicationToMember,
   markApplicationApproved,
   matchMemberForAccessRequest,
-  memberDraftFromApplication,
   portalLoginUrl,
 } from '../../domain/members/selfService';
 import { memberMoveKey, membershipMovesSeed, uniqueBajas } from '../../domain/members/membershipMoves';
@@ -319,6 +318,8 @@ export default function MembersTab({
   const [credsBusy, setCredsBusy] = useState(false);
   const [credsError, setCredsError] = useState('');
   const [credsResult, setCredsResult] = useState(null);
+  const [credsSending, setCredsSending] = useState('');
+  const [credsNotice, setCredsNotice] = useState('');
   const [actionFlash, setActionFlash] = useState('');
   const [pendingApplicationId, setPendingApplicationId] = useState(null);
   const [credsFromRequest, setCredsFromRequest] = useState(null);
@@ -864,54 +865,146 @@ export default function MembersTab({
 
   const openCredentials = (member) => {
     setCredsError('');
+    setCredsNotice('');
+    setCredsSending('');
     setCredsResult(null);
     setCredsTarget(member);
   };
 
-  const handleCredentialsGenerate = async (creds) => {
-    if (!credsTarget) return;
-    setCredsBusy(true);
-    setCredsError('');
-    try {
-      const username = String(creds.username || '').trim().toLowerCase();
-      const password = String(creds.password || '');
-      const email = String(creds.email || loginEmailFromUsername(username)).trim().toLowerCase();
-      if (!username || password.length < 6) {
-        throw new Error('Usuario y contraseña (mín. 6) son obligatorios.');
-      }
+  const savePortalAccess = async (creds) => {
+    if (!credsTarget) throw new Error('No hay socio seleccionado.');
+    const email = String(creds.email || credsTarget.email || '').trim().toLowerCase();
+    const username = email;
+    const password = String(creds.password || '');
+    if (!email.includes('@') || password.length < 6) {
+      throw new Error('El email del socio y una contraseña (mín. 6) son obligatorios.');
+    }
+    const ready = { username, password, email };
 
-      if (isSupabaseConfigured) {
-        const { member: saved, creds: out } = await repos.provisionMemberPortalAccess(
-          credsTarget,
-          { username, password, email },
-          { actorName },
-        );
-        await persistMember(saved);
-        setCredsResult({ creds: out });
-      } else {
-        const next = {
-          ...credsTarget,
-          email: credsTarget.email || email,
-          meta: {
-            ...collectMemberMeta(credsTarget),
-            portalUsername: username,
-            portalProvisionedAt: new Date().toISOString(),
-            portalProvisionedBy: actorName || null,
-          },
-        };
-        await persistMember(next);
-        setCredsResult({ creds: { username, password, email } });
-      }
-      if (credsFromRequest) {
-        await persistAccessRequest(markAccessApproved(credsFromRequest, credsTarget));
-        setCredsFromRequest(null);
-      }
-      setActionFlash(`Acceso generado para ${credsTarget.name}`);
-      setTimeout(() => setActionFlash(''), 3200);
+    if (credsResult?.creds?.email === email && credsResult?.creds?.password === password) {
+      return credsResult.creds;
+    }
+
+    let profileId = credsTarget.profileId || null;
+    if (isSupabaseConfigured) {
+      const byEmail = await repos.portalProfileIdForLogin(email, credsTarget.id);
+      if (byEmail) profileId = byEmail;
+    }
+
+    if (isSupabaseConfigured && profileId) {
+      await repos.resetPortalUserPassword(profileId, password, email);
+      const saved = await repos.linkMemberPortalAccess(
+        credsTarget,
+        profileId,
+        ready,
+        actorName,
+      );
+      putMemberInList(saved);
+    } else if (isSupabaseConfigured) {
+      const { member: saved, creds: out } = await repos.provisionMemberPortalAccess(
+        credsTarget,
+        ready,
+        { actorName },
+      );
+      putMemberInList(saved);
+      ready.username = out?.username || username;
+      ready.email = out?.email || email;
+      ready.password = out?.password || password;
+    } else {
+      const next = {
+        ...credsTarget,
+        email: credsTarget.email || email,
+        meta: {
+          ...collectMemberMeta(credsTarget),
+          portalUsername: username,
+          portalProvisionedAt: new Date().toISOString(),
+          portalProvisionedBy: actorName || null,
+        },
+      };
+      await persistMember(next);
+    }
+    if (credsFromRequest) {
+      await persistAccessRequest(markAccessApproved(credsFromRequest, credsTarget));
+      setCredsFromRequest(null);
+    }
+    setCredsResult({ creds: ready });
+    setActionFlash(`Acceso generado para ${credsTarget.name}`);
+    setTimeout(() => setActionFlash(''), 3200);
+    return ready;
+  };
+
+  const handleCredentialsGenerate = async (creds) => {
+    setCredsBusy(true);
+    setCredsSending('');
+    setCredsError('');
+    setCredsNotice('');
+    try {
+      await savePortalAccess(creds);
     } catch (err) {
       setCredsError(err?.message || 'No se pudo crear el acceso.');
     } finally {
       setCredsBusy(false);
+    }
+  };
+
+  const handleSendCredentialsEmail = async (creds) => {
+    setCredsBusy(true);
+    setCredsSending('email');
+    setCredsError('');
+    setCredsNotice('');
+    try {
+      const ready = await savePortalAccess(creds);
+      if (!isSupabaseConfigured) {
+        throw new Error('El mail sale por Resend cuando el portal está conectado.');
+      }
+      await repos.sendAccessInviteEmail({
+        to: ready.email,
+        name: credsTarget?.name,
+        username: ready.username,
+        loginEmail: ready.email,
+        password: ready.password,
+        portalUrl: portalLoginUrl(),
+        logoUrl: typeof window !== 'undefined' && window.location.protocol === 'https:'
+          ? `${window.location.origin}/logo-jockey-club.png`
+          : '',
+      });
+      setCredsNotice(`Mail enviado por Resend a ${ready.email}.`);
+    } catch (err) {
+      setCredsError(err?.message || 'No se pudo enviar el mail.');
+    } finally {
+      setCredsBusy(false);
+      setCredsSending('');
+    }
+  };
+
+  const handleSendCredentialsWhatsApp = async (creds) => {
+    const popup = window.open('', '_blank');
+    setCredsBusy(true);
+    setCredsSending('whatsapp');
+    setCredsError('');
+    setCredsNotice('');
+    try {
+      const ready = await savePortalAccess(creds);
+      const invite = buildAccessInvite({
+        name: credsTarget?.name,
+        phone: credsTarget?.phone,
+        contactEmail: ready.email,
+        creds: ready,
+        portalUrl: portalLoginUrl(),
+      });
+      if (!invite.whatsappUrl) {
+        popup?.close();
+        throw new Error('La ficha no tiene un celular válido para WhatsApp.');
+      }
+      if (popup) popup.location.href = invite.whatsappUrl;
+      else window.open(invite.whatsappUrl, '_blank', 'noopener,noreferrer');
+      setCredsNotice('WhatsApp abierto con las credenciales.');
+    } catch (err) {
+      popup?.close();
+      setCredsError(err?.message || 'No se pudo abrir WhatsApp.');
+    } finally {
+      setCredsBusy(false);
+      setCredsSending('');
     }
   };
 
@@ -923,40 +1016,33 @@ export default function MembersTab({
     });
   };
 
-  const deliverAccessFromRequest = async (kind, item, existingMember = null) => {
-    let member = existingMember || matchMemberForAccessRequest(members, {
+  const deliverAccessFromRequest = async (kind, item, existingMember = null, onReady) => {
+    const matched = existingMember || matchMemberForAccessRequest(members, {
       memberNumber: item.memberNumber,
       documentNumber: item.documentNumber,
     });
-    if (!member && kind === 'alta') {
-      member = memberDraftFromApplication(item);
-    }
+    let member = kind === 'alta'
+      ? applyJoinApplicationToMember(item, matched)
+      : matched;
     if (!member) {
       throw new Error('No hay ficha para vincular. Revisá DNI o Nº de socio.');
     }
 
-    const names = splitMemberName({ name: member.name || item.fullName });
-    const creds = buildCredentials({
-      firstName: names.firstName,
-      lastName: names.lastName,
-      documentNumber: member.documentNumber || item.documentNumber,
-    });
+    const creds = portalLoginFromEmail(item.email || member.email);
+    if (!creds) {
+      throw new Error('Falta el email del socio para crear el acceso.');
+    }
 
-    if (member.profileId && isSupabaseConfigured) {
-      const username = collectMemberMeta(member).portalUsername || creds.username;
-      creds.username = username;
-      creds.email = loginEmailFromUsername(username);
-      await repos.resetPortalUserPassword(member.profileId, creds.password);
-      member = {
-        ...member,
-        meta: {
-          ...collectMemberMeta(member),
-          portalUsername: username,
-          portalProvisionedAt: new Date().toISOString(),
-          portalProvisionedBy: actorName || null,
-        },
-      };
-      await persistMember(member);
+    let profileId = member.profileId || null;
+    if (isSupabaseConfigured) {
+      const byEmail = await repos.portalProfileIdForLogin(creds.email, member.id);
+      if (byEmail) profileId = byEmail;
+    }
+
+    if (profileId && isSupabaseConfigured) {
+      await repos.resetPortalUserPassword(profileId, creds.password, creds.email);
+      member = await repos.linkMemberPortalAccess(member, profileId, creds, actorName);
+      putMemberInList(member);
     } else if (isSupabaseConfigured) {
       const { member: saved } = await repos.provisionMemberPortalAccess(member, creds, { actorName });
       member = saved;
@@ -987,6 +1073,7 @@ export default function MembersTab({
       creds,
       portalUrl: portalLoginUrl(),
     });
+    if (typeof onReady === 'function') onReady(invite);
     const to = invite.contactEmail;
     if (to && isSupabaseConfigured) {
       try {
@@ -2398,15 +2485,21 @@ export default function MembersTab({
         busy={credsBusy}
         error={credsError}
         result={credsResult}
+        sending={credsSending}
+        notice={credsNotice}
         onClose={() => {
           if (!credsBusy) {
             setCredsTarget(null);
             setCredsError('');
             setCredsResult(null);
+            setCredsNotice('');
+            setCredsSending('');
             setCredsFromRequest(null);
           }
         }}
         onGenerate={handleCredentialsGenerate}
+        onSendWhatsApp={handleSendCredentialsWhatsApp}
+        onSendEmail={handleSendCredentialsEmail}
       />
     </div>
   );

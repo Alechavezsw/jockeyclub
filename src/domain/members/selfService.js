@@ -225,9 +225,19 @@ export function portalLoginUrl() {
   return `${window.location.origin}/`;
 }
 
+/** Día de ingreso en Argentina: el de la solicitud, no el de la ficha vieja. */
+export function joinDateFromApplication(app, fallback = null) {
+  const raw = app?.createdAt;
+  if (raw) {
+    const date = new Date(raw);
+    if (!Number.isNaN(date.getTime())) return todayISODateAR(date);
+  }
+  return fallback || todayISODateAR();
+}
+
 /** Alta mínima desde una solicitud pública (sin disciplinas obligatorias). */
 export function memberDraftFromApplication(app) {
-  const joinDate = todayISODateAR();
+  const joinDate = joinDateFromApplication(app);
   return {
     name: String(app?.fullName || '').trim(),
     memberId: String(Math.floor(1000000000000000 + Math.random() * 9000000000000000)),
@@ -255,6 +265,30 @@ export function memberDraftFromApplication(app) {
   };
 }
 
+/**
+ * Alta desde el formulario: si el DNI ya está en el padrón, no se deja
+ * la ficha vieja. Se pisan nombre, contacto y la categoría pedida.
+ */
+export function applyJoinApplicationToMember(app, existing = null) {
+  const draft = memberDraftFromApplication(app);
+  if (!existing) return draft;
+  return {
+    ...existing,
+    name: draft.name || existing.name,
+    documentType: draft.documentType || existing.documentType,
+    documentNumber: draft.documentNumber || existing.documentNumber,
+    birthDate: draft.birthDate || existing.birthDate,
+    email: draft.email || existing.email,
+    phone: draft.phone || existing.phone,
+    address: draft.address || existing.address,
+    city: draft.city || existing.city,
+    province: draft.province || existing.province,
+    tier: app?.requestedTier || existing.tier || draft.tier,
+    status: existing.status === 'inactive' ? 'active' : (existing.status || 'active'),
+    joinDate: joinDateFromApplication(app, existing.joinDate),
+  };
+}
+
 /** Mensaje y links de WhatsApp / mail con usuario, clave y URL del portal. */
 export function buildAccessInvite({
   name = '',
@@ -274,7 +308,7 @@ export function buildAccessInvite({
     'Ya tenés acceso al portal de socios:',
     url,
     '',
-    `Usuario: ${username}`,
+    ...(username && username.toLowerCase() !== email.toLowerCase() ? [`Usuario: ${username}`] : []),
     `Email de ingreso: ${email}`,
     `Contraseña: ${password}`,
     '',

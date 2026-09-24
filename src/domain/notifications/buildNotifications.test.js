@@ -80,6 +80,64 @@ describe('buildNotifications', () => {
     expect(list.some((n) => n.kind === 'join_request')).toBe(false);
   });
 
+  it('el día 10 avisa el vencimiento aunque la ficha no tenga fecha', () => {
+    const list = buildNotifications({
+      role: 'member',
+      memberId: '111',
+      member: { memberId: '111', status: 'active', outstandingBalance: 0, notifyDues: true },
+      todayIso: '2026-10-10',
+    });
+    expect(list.map((n) => n.title)).toEqual(['Hoy vence tu cuota']);
+    expect(list[0].id).toBe('dues-due-111-2026-10-10');
+    expect(list[0].path).toBe('/cuenta');
+  });
+
+  it('fuera del día 10 no inventa un aviso de vencimiento', () => {
+    const list = buildNotifications({
+      role: 'member',
+      memberId: '111',
+      member: { memberId: '111', status: 'active', outstandingBalance: 5000, notifyDues: true },
+      todayIso: '2026-09-23',
+    });
+    expect(list.map((n) => n.title)).toEqual(['Cuota pendiente']);
+  });
+
+  it('una cuota ya pasada queda como vencida', () => {
+    const list = buildNotifications({
+      role: 'member',
+      memberId: '111',
+      member: {
+        memberId: '111',
+        status: 'active',
+        nextDueDate: '2026-07-10',
+        outstandingBalance: 0,
+      },
+      todayIso: '2026-09-23',
+    });
+    expect(list[0].title).toBe('Tu cuota está vencida');
+    expect(list[0].id).toBe('dues-overdue-111-2026-07-10');
+  });
+
+  it('si el aviso de vencimiento ya está en la bandeja, no lo duplica', () => {
+    const list = buildNotifications({
+      role: 'member',
+      memberId: '111',
+      member: { memberId: '111', status: 'active', notifyDues: true },
+      todayIso: '2026-10-10',
+      messages: [{
+        id: 'm1',
+        recipientId: '111',
+        subject: 'Hoy vence tu cuota',
+        sender: 'Secretaría',
+        isRead: false,
+        date: '2026-10-10',
+        meta: { kind: 'dues_due', dueOn: '2026-10-10' },
+      }],
+    });
+    expect(list).toHaveLength(1);
+    expect(list[0].kind).toBe('message');
+  });
+
   it('no mete alertas informativas (sin acuse) en la campanita', () => {
     const list = buildNotifications({
       role: 'admin',

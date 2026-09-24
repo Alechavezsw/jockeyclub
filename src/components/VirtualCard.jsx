@@ -17,6 +17,15 @@ function isCoarsePointer() {
   return window.matchMedia('(hover: none), (pointer: coarse), (max-width: 768px)').matches;
 }
 
+function personName(value) {
+  return String(value || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toLocaleUpperCase('es-AR') + part.slice(1))
+    .join(' ');
+}
+
 function CardFace({
   member,
   t,
@@ -231,7 +240,7 @@ function CardFace({
               overflow: 'hidden',
               textOverflow: 'ellipsis',
             }}>
-              {member?.name}
+              {personName(member?.name)}
             </div>
             <div style={{ marginTop: '0.35rem' }}>
               <span style={{
