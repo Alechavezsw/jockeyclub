@@ -330,11 +330,11 @@ export default function AdminDashboardTab({
     : (finance.collectionRate || paymentCollectionRate || 0);
   const collectionTone = liveCollectionRate >= 80 ? 'ok' : liveCollectionRate >= 50 ? 'mid' : 'low';
   const dueOpen = duesDueMoment(todayKey).phase !== 'before';
+  const debtTotal = finance.debtTotal || totalOutstanding || 0;
   const heroAmount = lilaMoney && dueOpen ? collectedMonth : (lilaMoney ? expectedMonth : debtTotal);
   const heroLabel = lilaMoney && dueOpen
     ? `Recaudado en ${moneyMonthLabel}`
     : (lilaMoney ? `Liquidado en ${moneyMonthLabel}` : 'Deuda de cuotas pendiente');
-  const debtTotal = finance.debtTotal || totalOutstanding || 0;
   const monthProgress = expectedMonth > 0
     ? Math.min(100, Math.round((collectedMonth / expectedMonth) * 100))
     : 0;
