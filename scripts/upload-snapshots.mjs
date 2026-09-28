@@ -83,6 +83,25 @@ async function connect() {
   return sb;
 }
 
+const CHUNK_CHARS = 60_000;
+
+async function upsertSnapshotChunks(sb, name, body) {
+  const b64 = Buffer.from(body, 'utf8').toString('base64');
+  const rows = [];
+  for (let i = 0; i < b64.length; i += CHUNK_CHARS) {
+    rows.push({ name, seq: rows.length, chunk: b64.slice(i, i + CHUNK_CHARS) });
+  }
+  const { error: delError } = await sb.from('club_snapshot_load').delete().eq('name', name);
+  if (delError) return { error: delError };
+  for (let i = 0; i < rows.length; i += 5) {
+    const { error } = await sb
+      .from('club_snapshot_load')
+      .upsert(rows.slice(i, i + 5), { onConflict: 'name,seq' });
+    if (error) return { error };
+  }
+  return { error: null };
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const dryRun = args.includes('--dry-run');
@@ -116,15 +135,26 @@ async function main() {
         upsert: true,
       });
     if (error) throw new Error(`upload ${name}: ${error.message}`);
-    const { error: tableError } = await sb.from('club_snapshots').upsert({
-      name,
-      payload: JSON.parse(body),
-      updated_at: new Date().toISOString(),
-    });
-    if (tableError) {
-      console.warn(`TABLE_WARN ${name}: ${tableError.message}`);
+    const bytes = Buffer.byteLength(body);
+    const { error: chunkError } = await upsertSnapshotChunks(sb, name, body);
+    if (chunkError) {
+      console.warn(`CHUNKS_WARN ${name}: ${chunkError.message}`);
     } else {
-      console.log(`TABLE_OK ${name}`);
+      console.log(`CHUNKS_OK ${name}`);
+    }
+    if (bytes > 350_000) {
+      console.log(`TABLE_SKIP ${name} (${formatKb(bytes)}, queda en storage/partes)`);
+    } else {
+      const { error: tableError } = await sb.from('club_snapshots').upsert({
+        name,
+        payload: JSON.parse(body),
+        updated_at: new Date().toISOString(),
+      });
+      if (tableError) {
+        console.warn(`TABLE_WARN ${name}: ${tableError.message}`);
+      } else {
+        console.log(`TABLE_OK ${name}`);
+      }
     }
     console.log(`UPLOADED ${name}.json`);
   }

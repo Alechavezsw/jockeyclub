@@ -188,6 +188,45 @@ function withTimeout(promise, ms, message) {
   });
 }
 
+function isIndexPayload(payload) {
+  return Boolean(payload && typeof payload === 'object' && (payload.__storage || payload.__chunks));
+}
+
+function decodeBase64Utf8(b64) {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
+async function fetchFromChunks(supabase, name) {
+  const pageSize = 50;
+  const parts = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await withTimeout(
+      supabase
+        .from('club_snapshot_load')
+        .select('seq, chunk')
+        .eq('name', name)
+        .order('seq')
+        .range(from, from + pageSize - 1),
+      60000,
+      `Tiempo agotado al armar ${name}`,
+    );
+    if (error) throw error;
+    if (!data?.length) break;
+    parts.push(...data);
+    if (data.length < pageSize) break;
+  }
+  if (!parts.length) return null;
+  const ordered = parts.toSorted((a, b) => a.seq - b.seq);
+  if (ordered[0].seq !== 0) return null;
+  for (let i = 1; i < ordered.length; i += 1) {
+    if (ordered[i].seq !== i) return null;
+  }
+  return JSON.parse(decodeBase64Utf8(ordered.map((part) => part.chunk).join('')));
+}
+
 async function fetchRemote(name) {
   const { isSupabaseConfigured, supabase } = await import('../lib/supabase');
   if (!isSupabaseConfigured || !supabase) {
@@ -204,18 +243,26 @@ async function fetchRemote(name) {
     REMOTE_TIMEOUT_MS,
     `Tiempo agotado al leer ${name}`,
   );
-  if (!tableError && row?.payload && typeof row.payload === 'object') {
-    if (row.updated_at) seenUpdatedAt.set(name, row.updated_at);
-    return row.payload;
+  if (row?.updated_at) seenUpdatedAt.set(name, row.updated_at);
+  const payload = row?.payload;
+  if (!tableError && payload && typeof payload === 'object' && !isIndexPayload(payload)) {
+    return payload;
   }
 
-  const { data, error } = await withTimeout(
-    supabase.storage.from(SNAPSHOT_BUCKET).download(`${name}.json`),
-    REMOTE_TIMEOUT_MS,
-    `Tiempo agotado al bajar ${name}`,
-  );
-  if (error) throw tableError || error;
-  return JSON.parse(await data.text());
+  try {
+    const { data, error } = await withTimeout(
+      supabase.storage.from(SNAPSHOT_BUCKET).download(`${name}.json`),
+      60000,
+      `Tiempo agotado al bajar ${name}`,
+    );
+    if (!error && data) return JSON.parse(await data.text());
+  } catch {
+    // Storage vacío o timeout: se arma desde club_snapshot_load.
+  }
+
+  const assembled = await fetchFromChunks(supabase, name);
+  if (assembled) return assembled;
+  throw tableError || new Error(`Sin corte ${name} en tabla, storage ni partes.`);
 }
 
 /**
