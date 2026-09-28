@@ -93,15 +93,15 @@ export function clearSnapshots() {
   notify();
 }
 
-/** Tira el cache de un snapshot y lo vuelve a pedir. */
+/** Vuelve a pedir el corte sin vaciar lo que ya se ve. */
 export function reloadSnapshot(name) {
-  forgetSnapshot(name);
-  return loadSnapshot(name);
+  inflight.delete(name);
+  return loadSnapshot(name, { force: true });
 }
 
 export function reloadSnapshots(names = [...loaded.keys()]) {
-  names.forEach(forgetSnapshot);
-  return loadSnapshots(names);
+  names.forEach((name) => inflight.delete(name));
+  return Promise.all(names.map((name) => loadSnapshot(name, { force: true }).catch(() => null)));
 }
 
 function bindAuth(supabase) {
@@ -222,14 +222,14 @@ async function fetchRemote(name) {
  * Carga un snapshot una sola vez. Si la descarga falla resuelve null y el snapshot queda
  * en 'error' (un nuevo pedido reintenta). Solo rechaza ante un nombre desconocido.
  */
-export function loadSnapshot(name) {
+export function loadSnapshot(name, { force = false } = {}) {
   if (!KNOWN.has(name)) {
     const err = new Error(`Snapshot desconocido: ${name}`);
     errors.set(name, err);
     notify();
     return Promise.resolve(null);
   }
-  if (loaded.has(name)) return Promise.resolve(loaded.get(name));
+  if (!force && loaded.has(name)) return Promise.resolve(loaded.get(name));
   if (inflight.has(name)) return inflight.get(name);
 
   const gen = generation;
@@ -245,6 +245,10 @@ export function loadSnapshot(name) {
     .catch((err) => {
       if (gen !== generation) return null;
       if (inflight.get(name) !== promise) return null;
+      if (loaded.has(name)) {
+        if (import.meta.env.DEV) console.warn(`[snapshots] ${name} (se mantiene el corte):`, err?.message || err);
+        return loaded.get(name);
+      }
       errors.set(name, err);
       if (import.meta.env.DEV) console.warn(`[snapshots] ${name}:`, err?.message || err);
       return null;

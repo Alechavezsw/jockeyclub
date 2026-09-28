@@ -63,14 +63,14 @@ describe('registro de snapshots', () => {
     expect(SNAPSHOT_NAMES.every(hasLocalSnapshot)).toBe(true);
   });
 
-  it('reloadSnapshot tira el cache y vuelve a cargar', async () => {
+  it('reloadSnapshot vuelve a pedir sin vaciar lo que ya se ve', async () => {
     await loadSnapshot('accessinCheques');
     const first = readSnapshot('accessinCheques', EMPTY);
     const pending = reloadSnapshot('accessinCheques');
-    expect(snapshotStatus('accessinCheques')).toBe('loading');
+    expect(snapshotStatus('accessinCheques')).toBe('ready');
+    expect(readSnapshot('accessinCheques', EMPTY)).toBe(first);
     await pending;
     expect(snapshotStatus('accessinCheques')).toBe('ready');
-    expect(readSnapshot('accessinCheques', EMPTY)).not.toBe(first);
   });
 
   it('requireSnapshots resuelve con los datos cargados', async () => {

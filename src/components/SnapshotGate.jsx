@@ -1,11 +1,10 @@
-import { Fragment } from 'react';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { loadSnapshots, SNAPSHOT_LABELS } from '../data/snapshots';
 import useSnapshots from '../hooks/useSnapshots';
 
 /**
- * Muestra `children` de inmediato y un aviso mientras bajan los cortes de LILA.
- * Si alguno no se pudo bajar, la pantalla igual queda visible y avisa arriba.
+ * Muestra la pantalla de una y avisa arriba solo en la primera espera.
+ * Un refresco de LILA no vacía ni remonta lo que ya se ve.
  */
 export default function SnapshotGate({ names, children }) {
   const { settled, failed } = useSnapshots(names);
@@ -30,7 +29,7 @@ export default function SnapshotGate({ names, children }) {
           </button>
         </div>
       ) : null}
-      <Fragment key={failed.join('|')}>{children}</Fragment>
+      {children}
     </>
   );
 }
