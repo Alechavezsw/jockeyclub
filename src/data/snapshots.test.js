@@ -5,6 +5,7 @@ import {
   hasLocalSnapshot,
   loadSnapshot,
   readSnapshot,
+  reloadSnapshot,
   requireSnapshots,
   SNAPSHOT_NAMES,
   snapshotStatus,
@@ -59,6 +60,16 @@ describe('registro de snapshots', () => {
 
   it('en desarrollo usa los seeds locales del catálogo', () => {
     expect(SNAPSHOT_NAMES.every(hasLocalSnapshot)).toBe(true);
+  });
+
+  it('reloadSnapshot tira el cache y vuelve a cargar', async () => {
+    await loadSnapshot('accessinCheques');
+    const first = readSnapshot('accessinCheques', EMPTY);
+    const pending = reloadSnapshot('accessinCheques');
+    expect(snapshotStatus('accessinCheques')).toBe('loading');
+    await pending;
+    expect(snapshotStatus('accessinCheques')).toBe('ready');
+    expect(readSnapshot('accessinCheques', EMPTY)).not.toBe(first);
   });
 
   it('requireSnapshots resuelve con los datos cargados', async () => {

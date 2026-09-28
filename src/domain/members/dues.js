@@ -7,6 +7,36 @@ const DAY_MS = 86400000;
 /** Día de vencimiento de todas las cuotas sociales. */
 export const DUES_DUE_DAY = 10;
 
+const DUE_MONTHS = [
+  'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
+];
+
+/**
+ * El 10 de cada mes vencen las cuotas.
+ * before: todavía no llegó. today: es el día. after: el vencimiento de este mes ya pasó.
+ */
+export function duesDueMoment(today = new Date()) {
+  const d = today instanceof Date
+    ? today
+    : new Date(`${String(today).slice(0, 10)}T12:00:00`);
+  const day = d.getDate();
+  const monthName = DUE_MONTHS[d.getMonth()] || '';
+  const dueLabel = `${DUES_DUE_DAY} de ${monthName}`;
+  let phase = 'before';
+  if (day === DUES_DUE_DAY) phase = 'today';
+  else if (day > DUES_DUE_DAY) phase = 'after';
+  return {
+    phase,
+    dueDay: DUES_DUE_DAY,
+    dueLabel,
+    monthName,
+    year: d.getFullYear(),
+    daysUntil: phase === 'before' ? DUES_DUE_DAY - day : 0,
+    daysSince: phase === 'after' ? day - DUES_DUE_DAY : 0,
+  };
+}
+
 function parseDate(value) {
   if (!value) return null;
   // Acepta YYYY-MM-DD o ISO completo

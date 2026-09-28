@@ -4,6 +4,8 @@ import {
   buildCashTransferEntry,
   counterpartAccountsForMovement,
   closedSessions,
+  pickGeneralCashRegister,
+  DEFAULT_CASH_REGISTERS,
 } from './cash';
 
 describe('counterpartAccountsForMovement', () => {
@@ -54,5 +56,12 @@ describe('closedSessions', () => {
       { id: '3', status: 'discrepancy', closedAt: '2026-07-02T10:00:00.000Z' },
     ]);
     expect(list.map((s) => s.id)).toEqual(['3', '2']);
+  });
+});
+
+describe('pickGeneralCashRegister', () => {
+  it('elige la caja imputada a Caja General', () => {
+    const picked = pickGeneralCashRegister(DEFAULT_CASH_REGISTERS, DEFAULT_CHART_OF_ACCOUNTS);
+    expect(picked?.id).toBe('cash-gen');
   });
 });

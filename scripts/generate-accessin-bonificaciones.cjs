@@ -1,16 +1,31 @@
 /**
  * Genera seed de bonificaciones Accessin/LILA.
- * Source: datita/contabilidad/bonificaciones/LILA - Bonificaciones 2026-09-03.xlsx
+ * Toma el Excel más nuevo entre la carpeta de actualización y el corte histórico.
  */
 const XLSX = require('xlsx');
 const fs = require('fs');
 const path = require('path');
 
-const excelPath = path.join(
-  __dirname,
-  '../datita/contabilidad/bonificaciones/LILA - Bonificaciones 2026-09-03.xlsx'
-);
+const sourceDirs = [
+  path.join(__dirname, '../datita/Avtualizacion/Contabilidad/socios/bonifica'),
+  path.join(__dirname, '../datita/contabilidad/bonificaciones'),
+];
 const outFile = path.join(__dirname, '../src/data/seed/accessinBonificaciones.js');
+
+const candidates = [];
+for (const dir of sourceDirs) {
+  if (!fs.existsSync(dir)) continue;
+  for (const name of fs.readdirSync(dir)) {
+    if (!name.endsWith('.xlsx') || name.startsWith('~$') || !/Bonificaciones/i.test(name)) continue;
+    const full = path.join(dir, name);
+    const dated = name.match(/(\d{4}-\d{2}-\d{2})/);
+    candidates.push({ name, full, date: dated ? dated[1] : '', mtime: fs.statSync(full).mtimeMs });
+  }
+}
+candidates.sort((a, b) => b.date.localeCompare(a.date) || b.mtime - a.mtime);
+if (!candidates.length) throw new Error('No hay Excel de bonificaciones');
+const excelPath = candidates[0].full;
+const asOf = candidates[0].date || '2026-09-26';
 
 function excelDateToIso(serial) {
   if (serial == null || serial === '') return null;
@@ -61,12 +76,21 @@ for (let i = headerIdx + 1; i < rows.length; i += 1) {
 }
 
 const totalAmount = Math.round(items.reduce((s, x) => s + (x.amount || 0), 0) * 100) / 100;
-const asOf = '2026-09-03';
+const MONTHS_ES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+];
+const [asOfY, asOfM, asOfD] = asOf.split('-').map(Number);
+const asOfLabel = asOfY && asOfM && asOfD
+  ? `${asOfD} de ${MONTHS_ES[asOfM - 1]} del ${asOfY}`
+  : asOf;
 
-const content = `/** Auto-generado desde LILA - Bonificaciones ${asOf}. No editar a mano. */
+const content = `/** Auto-generado desde ${candidates[0].name}. No editar a mano. */
 export const ACCESSIN_BONIFICACIONES_AS_OF = ${JSON.stringify(asOf)};
 export const ACCESSIN_BONIFICACIONES_SNAPSHOT = {
   asOf: ${JSON.stringify(asOf)},
+  asOfLabel: ${JSON.stringify(asOfLabel)},
+  sourceFile: ${JSON.stringify(candidates[0].name)},
   count: ${items.length},
   totalAmount: ${totalAmount},
   uniqueMembers: ${new Set(items.map((i) => i.memberNumber)).size},

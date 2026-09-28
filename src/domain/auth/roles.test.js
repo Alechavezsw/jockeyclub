@@ -144,6 +144,16 @@ describe('allowedAccountingSubtabs', () => {
   it('el administrador no ve subtabs de contabilidad', () => {
     expect(allowedAccountingSubtabs('admin')).toEqual([]);
   });
+
+  it('el contador emite libre deuda y ve grupos familiares', () => {
+    expect(allowedAccountingSubtabs('accountant')).toContain('libre_deuda');
+    expect(allowedAccountingSubtabs('accountant')).toContain('family_balances');
+    expect(allowedAccountingSubtabs('accountant')).toContain('member_discounts');
+    expect(allowedAccountingSubtabs('accountant')).toContain('bonificaciones');
+    expect(allowedAccountingSubtabs('accountant')).toContain('balance_summary');
+    expect(allowedAccountingSubtabs('accountant')).toContain('siap');
+    expect(allowedAccountingSubtabs('superadmin')).toContain('libre_deuda');
+  });
 });
 
 describe('navItemsForRole', () => {

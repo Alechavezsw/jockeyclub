@@ -1,18 +1,26 @@
 /**
  * Genera seed de saldos de grupo familiar (Accessin/LILA).
- * Source: datita/contabilidad/saldos/saldos grupo familiar/*.xlsx
+ * Toma el Excel más nuevo entre el corte histórico y la carpeta de actualización.
  */
 const XLSX = require('xlsx');
 const fs = require('fs');
 const path = require('path');
 
-const dir = path.join(__dirname, '../datita/contabilidad/saldos/saldos grupo familiar');
+const sourceDirs = [
+  path.join(__dirname, '../datita/Avtualizacion/Contabilidad/socios/saldos de grupo familiar'),
+  path.join(__dirname, '../datita/contabilidad/saldos/saldos grupo familiar'),
+];
 const outFile = path.join(__dirname, '../src/data/seed/accessinFamilyGroupBalances.js');
 
 const MONTHS = {
   enero: '01', febrero: '02', marzo: '03', abril: '04', mayo: '05', junio: '06',
   julio: '07', agosto: '08', septiembre: '09', octubre: '10', noviembre: '11', diciembre: '12',
 };
+
+const MONTHS_ES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+];
 
 function money(v) {
   const n = Number(v);
@@ -45,15 +53,35 @@ function periodKeyFromLabel(label, year) {
   return mon ? `${year}-${mon}` : '';
 }
 
-const files = fs.readdirSync(dir).filter((f) => f.endsWith('.xlsx') && /Saldos de grupos/i.test(f));
+function asOfLabel(iso) {
+  const [y, m, d] = String(iso || '').split('-').map(Number);
+  const month = MONTHS_ES[m - 1];
+  if (!y || !month || !d) return iso || '';
+  return `${d} de ${month} del ${y}`;
+}
+
+function collectExcels() {
+  const files = [];
+  sourceDirs.forEach((dir) => {
+    if (!fs.existsSync(dir)) return;
+    fs.readdirSync(dir).forEach((name) => {
+      if (!name.endsWith('.xlsx') || !/Saldos de grupos/i.test(name)) return;
+      const full = path.join(dir, name);
+      const asOf = (name.match(/(\d{4}-\d{2}-\d{2})/) || [])[1] || '';
+      files.push({ name, full, asOf, mtime: fs.statSync(full).mtimeMs });
+    });
+  });
+  return files.toSorted((a, b) => String(b.asOf).localeCompare(String(a.asOf)) || b.mtime - a.mtime);
+}
+
+const files = collectExcels();
 if (!files.length) throw new Error('No hay Excel de saldos de grupo familiar');
 
-const fileName = files.sort().reverse()[0];
-const yearMatch = fileName.match(/(\d{4})-\d{2}-\d{2}/);
-const year = yearMatch ? Number(yearMatch[1]) : 2026;
-const asOf = (fileName.match(/(\d{4}-\d{2}-\d{2})/) || [])[1] || `${year}-09-03`;
+const picked = files[0];
+const year = picked.asOf ? Number(picked.asOf.slice(0, 4)) : 2026;
+const asOf = picked.asOf || `${year}-09-03`;
 
-const wb = XLSX.readFile(path.join(dir, fileName));
+const wb = XLSX.readFile(picked.full);
 const aoa = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
 
 const byName = {};
@@ -112,8 +140,8 @@ const totalBalance = groups.reduce((s, g) => s + (Number(g.total) || 0), 0);
 
 const snapshot = {
   asOf,
-  asOfLabel: `03 de Septiembre del ${year}`,
-  sourceFile: fileName,
+  asOfLabel: asOfLabel(asOf),
+  sourceFile: picked.name,
   groupCount: groups.length,
   withBalance,
   totalBalance: Math.round(totalBalance * 100) / 100,
@@ -126,6 +154,7 @@ export const ACCESSIN_FAMILY_GROUP_BALANCES_BY_NAME = ${JSON.stringify(byName)};
 export const ACCESSIN_FAMILY_GROUP_BALANCES_BY_NUMBER = ${JSON.stringify(byNumber)};
 `;
 
+fs.mkdirSync(path.dirname(outFile), { recursive: true });
 fs.writeFileSync(outFile, body, 'utf8');
 console.log(`Wrote ${outFile}`);
-console.log(`groups=${groups.length} withBalance=${withBalance} total=${snapshot.totalBalance} asOf=${asOf}`);
+console.log(`groups=${groups.length} withBalance=${withBalance} total=${snapshot.totalBalance} asOf=${asOf} file=${picked.name}`);

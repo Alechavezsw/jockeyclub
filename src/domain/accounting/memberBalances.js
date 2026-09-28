@@ -240,6 +240,8 @@ export function buildAccessinAccountEntries(memberNumber, {
   });
 
   (feeDetails || []).forEach((acc) => {
+    // El período del concepto repite las mismas cuotas que el detalle de cobro.
+    if (acc.periodKind === 'concepto') return;
     (acc.lines || []).forEach((line, i) => {
       if (padMember(line.memberNumber) !== key) return;
       const period = String(line.feeDate || '').slice(0, 7);
@@ -352,7 +354,100 @@ export function mergeAccountEntries(accessinEntries = [], localEntries = [], mem
 }
 
 /** Agrupa entradas por mes con saldo inicial. Incluye meses vacíos de la ventana. */
-export function groupEntriesByMonth(entries = [], { monthsBack = 3, asOf } = {}) {
+const LILA_MONTHS = {
+  enero: 1,
+  febrero: 2,
+  marzo: 3,
+  abril: 4,
+  mayo: 5,
+  junio: 6,
+  julio: 7,
+  agosto: 8,
+  septiembre: 9,
+  octubre: 10,
+  noviembre: 11,
+  diciembre: 12,
+};
+
+export function canonMemberNumber(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  return digits.replace(/^0+/, '') || digits;
+}
+
+/** "Cuota" / "Pago" / "Recargo de Cuota (FIJO)" / "Otros" → tipo interno. */
+export function lilaMovementType(typeLabel) {
+  const text = String(typeLabel || '').toLowerCase();
+  if (text.startsWith('pago')) return 'pago';
+  if (text.startsWith('cuota')) return 'cuota';
+  if (text.startsWith('recargo')) return 'recargo';
+  return 'otros';
+}
+
+/** "Saldo al 01 de Junio del 2026" → 2026-06-01. */
+export function lilaSaldoDate(label) {
+  const match = String(label || '').match(/(\d{1,2}) de ([a-záéíóúñ]+) del (\d{4})/i);
+  if (!match) return '';
+  const month = LILA_MONTHS[match[2].toLowerCase()];
+  if (!month) return '';
+  return `${match[3]}-${String(month).padStart(2, '0')}-${String(match[1]).padStart(2, '0')}`;
+}
+
+/**
+ * Líneas del extracto familiar. En modo personal se queda con las de un socio;
+ * el saldo inicial del grupo no se reparte.
+ */
+export function entriesFromGroupLines(lines = [], { memberNumber } = {}) {
+  const only = memberNumber ? canonMemberNumber(memberNumber) : '';
+  return (lines || []).flatMap((line) => {
+    const nro = canonMemberNumber(line.member_number || line.memberNumber);
+    if (!nro) return [];
+    if (only && nro !== only) return [];
+    const typeLabel = line.type_label || line.typeLabel || '';
+    const lineId = String(line.lila_line_id || line.lilaLineId || '');
+    return [{
+      id: `lila-${lineId || nro}-${line.line_date || line.date || ''}`,
+      accessinId: Number(lineId) || null,
+      memberNumber: nro,
+      memberName: line.member_name || line.memberName || '',
+      date: String(line.line_date || line.date || '').slice(0, 10),
+      type: lilaMovementType(typeLabel),
+      typeLabel,
+      description: line.description || '',
+      value: Number(line.amount ?? line.value) || 0,
+      source: 'lila',
+    }];
+  });
+}
+
+/** Extracto de soporte: valor, pendiente y el pago que imputa cada entrada. */
+export function entriesFromSupportLines(lines = []) {
+  return (lines || []).flatMap((line) => {
+    const typeLabel = line.type_label || line.typeLabel || '';
+    const lineId = String(line.lila_line_id || line.lilaLineId || '');
+    if (!lineId) return [];
+    const links = Array.isArray(line.links) ? line.links : [];
+    return [{
+      id: `support-${lineId}`,
+      accessinId: Number(lineId) || null,
+      date: String(line.line_date || line.date || '').slice(0, 10),
+      type: lilaMovementType(typeLabel),
+      typeLabel,
+      description: line.description || '',
+      pending: Number(line.pending_amount ?? line.pending) || 0,
+      value: Number(line.amount ?? line.value) || 0,
+      links: links.map((link) => ({
+        kind: link.kind === 'entrada' ? 'entrada' : 'pago',
+        date: String(link.date || '').slice(0, 10),
+        lineId: String(link.lineId || link.line_id || ''),
+        label: link.label || '',
+        amount: Number(link.amount) || 0,
+      })),
+      source: 'lila-support',
+    }];
+  });
+}
+
+export function groupEntriesByMonth(entries = [], { monthsBack = 3, asOf, carriedBalance = 0 } = {}) {
   const sorted = [...(entries || [])].toSorted((a, b) => String(a.date).localeCompare(String(b.date)));
   const byMonth = new Map();
   sorted.forEach((e) => {
@@ -366,7 +461,7 @@ export function groupEntriesByMonth(entries = [], { monthsBack = 3, asOf } = {})
   const endKey = asOf || keys[keys.length - 1] || currentMonthKey();
   const recent = monthsBack > 0 ? monthWindowEndingAt(endKey, monthsBack) : keys;
   const windowStart = recent[0] || '';
-  let running = 0;
+  let running = Number(carriedBalance) || 0;
   sorted.forEach((e) => {
     const key = monthKeyFromIso(e.date);
     if (key && key < windowStart) running += Number(e.value) || 0;

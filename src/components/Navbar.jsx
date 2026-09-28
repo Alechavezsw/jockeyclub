@@ -306,7 +306,7 @@ export default function Navbar({
                   <strong style={{ fontSize: '0.9rem' }}>Notificaciones</strong>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                      {visibleNotifs.length === 0 ? 'Al día' : `${visibleNotifs.length} leídas`}
+                      {visibleNotifs.length === 0 ? 'Al día' : `${visibleNotifs.length} avisos`}
                     </span>
                   </div>
                 </div>

@@ -225,6 +225,11 @@ export function portalLoginUrl() {
   return `${window.location.origin}/`;
 }
 
+export function publicJoinUrl() {
+  if (typeof window === 'undefined') return '/registro?tramite=alta';
+  return `${window.location.origin}/registro?tramite=alta`;
+}
+
 /** Día de ingreso en Argentina: el de la solicitud, no el de la ficha vieja. */
 export function joinDateFromApplication(app, fallback = null) {
   const raw = app?.createdAt;

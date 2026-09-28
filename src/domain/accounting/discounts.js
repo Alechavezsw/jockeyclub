@@ -270,7 +270,7 @@ export function filterDiscounts(list = [], { category = null, query = '' } = {})
 export function resolveDiscounts(loaded, seed = ACCESSIN_DISCOUNT_RULES) {
   if (!Array.isArray(loaded) || loaded.length === 0) return seed;
   const seedIds = new Set(seed.map((s) => s.id));
-  const extras = loaded.filter((d) => d && !seedIds.has(d.id));
+  const extras = loaded.filter((d) => d && !seedIds.has(d.id) && d.source !== 'accessin');
   const byId = new Map(seed.map((s) => [s.id, s]));
   loaded.forEach((d) => {
     if (d?.id && byId.has(d.id)) byId.set(d.id, { ...byId.get(d.id), ...d });

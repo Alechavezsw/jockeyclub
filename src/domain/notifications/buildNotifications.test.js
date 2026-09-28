@@ -156,4 +156,44 @@ describe('buildNotifications', () => {
     });
     expect(list).toHaveLength(0);
   });
+
+  it('avisa la reserva de hoy y la respuesta a un reclamo', () => {
+    const list = buildNotifications({
+      role: 'member',
+      memberId: '111',
+      member: { memberId: '111', status: 'active', notifyDues: false },
+      todayIso: '2026-09-26',
+      reservations: [
+        { id: 'r1', memberId: '111', status: 'confirmed', date: '2026-09-26', facilityName: 'Parrilla', time: '20:00' },
+        { id: 'r2', memberId: '999', status: 'confirmed', date: '2026-09-26' },
+      ],
+      claims: [
+        { id: 'c1', memberId: '111', response: 'Ya está el turno.' },
+        { id: 'c2', memberId: '111', response: '   ' },
+      ],
+    });
+    expect(list.map((n) => n.kind)).toEqual(['reservation', 'claim_reply']);
+    expect(list[0].title).toBe('Tenés una reserva hoy');
+    expect(list[1].detail).toBe('Ya está el turno.');
+  });
+
+  it('administración ve reservas pendientes y el comprobante con su asunto', () => {
+    const list = buildNotifications({
+      role: 'admin',
+      messages: [{
+        id: 'pay',
+        recipientId: 'ops',
+        subject: 'Comprobante de transferencia',
+        sender: 'Ana',
+        isRead: false,
+        meta: { kind: 'dues_payment' },
+      }],
+      reservations: [
+        { id: 'p1', status: 'pending' },
+        { id: 'p2', status: 'confirmed' },
+      ],
+    });
+    expect(list.find((n) => n.messageId === 'pay')?.title).toBe('Comprobante de transferencia');
+    expect(list.find((n) => n.kind === 'reservation')?.title).toBe('Reserva pendiente');
+  });
 });

@@ -13,7 +13,7 @@ import CollectDuesModal from './CollectDuesModal';
 import ModalDialog from '../ModalDialog';
 import { formatShortDate, quotaHeadline } from '../../domain/members/dues';
 import { formatDateTimeAR, todayISODateAR } from '../../lib/arDate';
-import { collectMemberMeta, memberHasSocietasApp } from '../../domain/members/memberAdminActions';
+import { collectMemberMeta, memberAppAccess } from '../../domain/members/memberAdminActions';
 import { getActiveTiers, getTierDisplayName, tierBadgeStyle } from '../../domain/members/tiers';
 import { DISCIPLINE_OPTIONS, getDisciplineOptions, normalizeLabel } from '../../domain/sports/disciplines';
 import {
@@ -30,6 +30,7 @@ import {
   DOCUMENT_TYPES,
 } from '../../domain/members/profileEdit';
 import { duesMethodLabel, persistDuesCollection, recordDuesCollection } from '../../domain/members/memberPayments';
+import { sendDuesReceiptMessage } from '../../domain/members/duesReceiptDelivery';
 
 const SECTIONS = [
   { id: 'ficha', label: 'Ficha', icon: User },
@@ -210,6 +211,33 @@ function canonDisciplineList(labels = [], catalogNames = []) {
   return next;
 }
 
+function editFormFromMember(member, disciplineOptions) {
+  if (!member) return null;
+  return {
+    name: member.name || '',
+    documentNumber: member.documentNumber || '',
+    birthDate: member.birthDate || '',
+    tier: member.tier || '',
+    phone: member.phone || '',
+    phoneAlt: member.phoneAlt || '',
+    email: member.email || '',
+    address: member.address || '',
+    city: member.city || '',
+    province: member.province || '',
+    postalCode: member.postalCode || '',
+    emergencyContact: member.emergencyContact || '',
+    emergencyPhone: member.emergencyPhone || '',
+    photo: member.photo || '',
+    disciplines: canonDisciplineList(
+      member.disciplines?.length ? member.disciplines : (member.preferredSports || []),
+      disciplineOptions
+    ),
+    notifyDues: member.notifyDues !== false,
+    notifyReservations: member.notifyReservations !== false,
+    notifyEvents: member.notifyEvents !== false,
+  };
+}
+
 function isDisciplineSelected(current, name) {
   const key = normalizeLabel(name);
   return (current || []).some((d) => normalizeLabel(d) === key);
@@ -284,6 +312,7 @@ export default function MemberProfilePanel({
   selfService = false,
   tierCatalog,
   disciplineCatalog = [],
+  onSendMessage,
 }) {
   const [section, setSection] = useState('ficha');
   const [editForm, setEditForm] = useState(null);
@@ -312,6 +341,20 @@ export default function MemberProfilePanel({
     }, { replace: true });
     return undefined;
   }, [member?.memberId, selfService, searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (selfService || !member || searchParams.get('editar') !== '1') return undefined;
+    setSection('editar');
+    setEditForm(editFormFromMember(member, disciplineOptions));
+    setEditMsg('');
+    setSearchParams((prev) => {
+      if (prev.get('editar') !== '1') return prev;
+      const next = new URLSearchParams(prev);
+      next.delete('editar');
+      return next;
+    }, { replace: true });
+    return undefined;
+  }, [member?.memberId, selfService, searchParams, setSearchParams, disciplineOptions]);
 
   const familyGroup = useMemo(
     () => resolveFamilyForDisplay(member, members.length ? members : [member].filter(Boolean)),
@@ -602,6 +645,7 @@ export default function MemberProfilePanel({
         addJournalEntry,
         onAccountEntry,
       });
+      void sendDuesReceiptMessage({ member, payment: result.payment, onSendMessage });
       setCollectOpen(false);
       setSection('movimientos');
       setCollectFlash(
@@ -615,6 +659,7 @@ export default function MemberProfilePanel({
   };
 
   const status = STATUS_COPY[member.status] || STATUS_COPY.pending;
+  const appAccess = memberAppAccess(member);
   const balance = Number(member.outstandingBalance) || 0;
   const hasDebt = balance > 0;
   const quota = quotaHeadline(member);
@@ -675,13 +720,11 @@ export default function MemberProfilePanel({
                   {status.label}
                 </span>
                 <span
-                  className={`mp-status mp-status--${memberHasSocietasApp(member) ? 'ok' : 'warn'}`}
-                  title={memberHasSocietasApp(member)
-                    ? 'Ya tiene acceso a la app Societas'
-                    : 'Todavía no tiene acceso a la app Societas'}
+                  className={`mp-status mp-status--${appAccess.hasAccess ? 'ok' : 'warn'}`}
+                  title={appAccess.hint}
                 >
                   <span className="mp-status-dot" aria-hidden />
-                  {memberHasSocietasApp(member) ? 'App Societas' : 'Sin app'}
+                  {appAccess.label}
                 </span>
               </div>
               {tenure ? <p className="mp-tenure">{tenure}</p> : null}
@@ -731,29 +774,7 @@ export default function MemberProfilePanel({
               onClick={() => {
                 setSection(s.id);
                 if (s.id === 'editar' && member) {
-                  setEditForm({
-                    name: member.name || '',
-                    documentNumber: member.documentNumber || '',
-                    birthDate: member.birthDate || '',
-                    tier: member.tier || '',
-                    phone: member.phone || '',
-                    phoneAlt: member.phoneAlt || '',
-                    email: member.email || '',
-                    address: member.address || '',
-                    city: member.city || '',
-                    province: member.province || '',
-                    postalCode: member.postalCode || '',
-                    emergencyContact: member.emergencyContact || '',
-                    emergencyPhone: member.emergencyPhone || '',
-                    photo: member.photo || '',
-                    disciplines: canonDisciplineList(
-                      member.disciplines?.length ? member.disciplines : (member.preferredSports || []),
-                      disciplineOptions
-                    ),
-                    notifyDues: member.notifyDues !== false,
-                    notifyReservations: member.notifyReservations !== false,
-                    notifyEvents: member.notifyEvents !== false,
-                  });
+                  setEditForm(editFormFromMember(member, disciplineOptions));
                   setEditMsg('');
                 }
               }}

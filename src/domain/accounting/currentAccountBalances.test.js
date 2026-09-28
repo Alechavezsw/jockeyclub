@@ -16,8 +16,8 @@ beforeAll(async () => {
 });
 
 describe('currentAccountBalances', () => {
-  it('carga snapshot LILA al 2026-09-03', () => {
-    expect(ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF).toBe('2026-09-03');
+  it('carga snapshot LILA al 2026-09-26', () => {
+    expect(ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF).toBe('2026-09-26');
     expect(ACCESSIN_CURRENT_ACCOUNT_BALANCES_SNAPSHOT.rowCount).toBeGreaterThan(7000);
     expect(ACCESSIN_CURRENT_ACCOUNT_BALANCES_SNAPSHOT.withBalance).toBeGreaterThan(1000);
   });
@@ -36,7 +36,7 @@ describe('currentAccountBalances', () => {
       { memberId: '99999999', name: 'Sin seed' },
     ]);
     expect(seeded[0].outstandingBalance).toBe(56000);
-    expect(seeded[0].currentAccountAsOf).toBe('2026-09-03');
+    expect(seeded[0].currentAccountAsOf).toBe('2026-09-26');
     expect(seeded[1].outstandingBalance).toBeUndefined();
 
     const kept = applyCurrentAccountBalances([

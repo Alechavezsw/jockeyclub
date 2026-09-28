@@ -40,12 +40,16 @@ describe('accountingReports', () => {
     expect(() => buildLibreDeudaCertificate(null)).toThrow(/Socio/);
   });
 
-  it('arma certificado de libre deuda con saldo LILA', () => {
+  it('arma certificado de libre deuda con el texto LILA', () => {
     const cert = buildLibreDeudaCertificate(
       { memberId: '1', name: 'Tomás Andrés Peñaloza Martínez', documentNumber: '50000444', tier: 'familiar' },
-      { asOf: '2026-09-03', extraInfo: 'póliza vigente' }
+      { asOf: '2026-09-26', extraInfo: 'póliza vigente', issuedAt: new Date('2026-09-26T12:08:00-03:00') }
     );
-    expect(cert.constancia).toMatch(/deja constancia póliza vigente del mismo/);
+    expect(cert.letter.headingTitle).toBe('DOCUMENTO LIBRE DEUDA');
+    expect(cert.constancia).toMatch(/no posee saldos pendientes de pago en el sistema Jockey Club/);
+    expect(cert.constancia).toMatch(/CUIT 30-53106908-7/);
+    expect(cert.constancia).toMatch(/póliza vigente/);
+    expect(cert.letter.stamp).toMatch(/26 DE SEPTIEMBRE DEL 2026 A LAS/);
     expect(cert.isClear).toBe(true);
   });
 });

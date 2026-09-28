@@ -25,6 +25,8 @@ import {
   setDailyBackupEnabled,
 } from '../../domain/reports/dailyBackupStore';
 import { getTierDisplayName, TIER_COLORS } from '../../domain/members/tiers';
+import { membershipMoveExportRows, membershipMovesSeed } from '../../domain/members/membershipMoves';
+import { useSnapshotSeed } from '../../hooks/useSnapshots';
 
 const SECTIONS = [
   { id: 'resumen', label: 'Resumen' },
@@ -32,6 +34,15 @@ const SECTIONS = [
   { id: 'operativo', label: 'Operativo' },
   { id: 'exportar', label: 'Todos los reportes' },
   { id: 'backup', label: 'Backup' },
+];
+
+const REPORT_MODULES = [
+  { id: 'socios', title: 'Socios', note: 'Padrón, deuda, altas y quién ya entra al portal.' },
+  { id: 'contabilidad', title: 'Contabilidad', note: 'Libro diario, balance, caja, proveedores y retenciones.' },
+  { id: 'reservas', title: 'Reservas', note: 'Turnos por instalación, socio y estado.' },
+  { id: 'porteria', title: 'Portería', note: 'Registro de cada ingreso.' },
+  { id: 'comunicaciones', title: 'Comunicaciones', note: 'Mensajes, reclamos y votaciones.' },
+  { id: 'club', title: 'Del club', note: 'Concesiones, personal, eventos y mural. Van aparte del padrón y de la caja.' },
 ];
 
 function Kpi({ icon: Icon, label, value, tone = 'default' }) {
@@ -104,6 +115,7 @@ export default function ReportsTab({
   suppliers = [],
   retenciones = [],
 }) {
+  const movesSeed = useSnapshotSeed(['societasMembershipMoves'], membershipMovesSeed);
   const [searchParams, setSearchParams] = useSearchParams();
   const sectionFromUrl = searchParams.get('section');
   const [section, setSectionState] = useState(() =>
@@ -300,6 +312,50 @@ export default function ReportsTab({
         mem.status === 'active' ? 'HABILITADO' : 'SUSPENDIDO',
         mem.outstandingBalance ?? 0,
         mem.adherents?.length || 0,
+      ])
+    );
+  };
+
+  const handleExportMovesCSV = () => {
+    const {
+      SOCIETAS_MEMBERSHIP_ALTAS: altas,
+      SOCIETAS_MEMBERSHIP_BAJAS: bajas,
+      SOCIETAS_MEMBERSHIP_MOVES_SNAPSHOT: snap,
+    } = movesSeed;
+    const rows = membershipMoveExportRows({
+      altas,
+      bajas,
+      members,
+      periodTo: snap?.periodTo || '',
+    });
+    downloadCsv(
+      `jockey_club_altas_bajas_${stampDate()}.csv`,
+      ['Movimiento', 'Número', 'Nombre', 'DNI', 'Fecha', 'Detalle', 'Clasificación'],
+      rows.map((row) => [
+        row.move,
+        row.memberId,
+        row.name,
+        row.documentNumber,
+        row.date,
+        row.detail,
+        row.kind,
+      ])
+    );
+  };
+
+  const handleExportPortalCSV = () => {
+    const withPortal = members.filter((mem) => mem.meta?.portalUsername);
+    downloadCsv(
+      `jockey_club_socios_portal_${stampDate()}.csv`,
+      ['Nombre', 'Número', 'Usuario', 'Email', 'Alta del portal', 'Categoría', 'Estado'],
+      withPortal.map((mem) => [
+        mem.name,
+        mem.memberId,
+        mem.meta.portalUsername,
+        mem.email || '',
+        mem.meta.portalProvisionedAt || '',
+        String(mem.tier || '').toUpperCase(),
+        mem.status === 'active' ? 'HABILITADO' : 'SUSPENDIDO',
       ])
     );
   };
@@ -698,6 +754,49 @@ export default function ReportsTab({
 
   const exportCatalog = [
     {
+      module: 'socios',
+      icon: Users,
+      title: 'Padrón de socios',
+      description: 'Titulares con categoría, estado, saldo y adherentes.',
+      actions: (
+        <>
+          <button type="button" className="btn btn-primary" onClick={handleExportMembersCSV}><Download size={14} /> CSV</button>
+          <button type="button" className="btn btn-secondary" onClick={handleExportMembersPDF}><FileText size={14} /> PDF</button>
+        </>
+      ),
+    },
+    {
+      module: 'socios',
+      icon: TrendingUp,
+      title: 'Socios deudores',
+      description: 'Quién debe cuotas, con teléfono para cobrar.',
+      actions: (
+        <>
+          <button type="button" className="btn btn-primary" onClick={handleExportDebtorsCSV}><Download size={14} /> CSV</button>
+          <button type="button" className="btn btn-secondary" onClick={handleExportDebtorsPDF}><FileText size={14} /> PDF</button>
+        </>
+      ),
+    },
+    {
+      module: 'socios',
+      icon: Users,
+      title: 'Altas y bajas',
+      description: 'Movimientos del período. Cada baja sale con el motivo ya clasificado.',
+      actions: (
+        <button type="button" className="btn btn-primary" onClick={handleExportMovesCSV}><Download size={14} /> CSV</button>
+      ),
+    },
+    {
+      module: 'socios',
+      icon: Users,
+      title: 'Socios con portal',
+      description: 'Quién ya tiene usuario, con mail y fecha de alta en el portal.',
+      actions: (
+        <button type="button" className="btn btn-primary" onClick={handleExportPortalCSV}><Download size={14} /> CSV</button>
+      ),
+    },
+    {
+      module: 'contabilidad',
       icon: BarChart3,
       title: 'Informe ejecutivo',
       description: 'Resumen económico y operativo completo del club.',
@@ -708,6 +807,7 @@ export default function ReportsTab({
       ),
     },
     {
+      module: 'contabilidad',
       icon: Wallet,
       title: 'Balance económico',
       description: 'Ingresos, gastos, utilidad, activos, pasivos y cajas.',
@@ -719,9 +819,10 @@ export default function ReportsTab({
       ),
     },
     {
+      module: 'contabilidad',
       icon: FileSpreadsheet,
-      title: 'Libro Diario Legal',
-      description: 'Asientos contables con debe/haber.',
+      title: 'Libro diario',
+      description: 'Asientos con debe y haber, en CSV y en PDF.',
       actions: (
         <>
           <button type="button" className="btn btn-primary" onClick={handleExportJournalCSV}><Download size={14} /> CSV</button>
@@ -730,112 +831,105 @@ export default function ReportsTab({
       ),
     },
     {
-      icon: Users,
-      title: 'Padrón de socios',
-      description: 'Titulares, categoría, estado y saldos.',
-      actions: (
-        <>
-          <button type="button" className="btn btn-primary" onClick={handleExportMembersCSV}><Download size={14} /> CSV</button>
-          <button type="button" className="btn btn-secondary" onClick={handleExportMembersPDF}><FileText size={14} /> PDF</button>
-        </>
-      ),
-    },
-    {
-      icon: TrendingUp,
-      title: 'Socios deudores',
-      description: 'Morosos con saldo pendiente de cuotas.',
-      actions: (
-        <>
-          <button type="button" className="btn btn-primary" onClick={handleExportDebtorsCSV}><Download size={14} /> CSV</button>
-          <button type="button" className="btn btn-secondary" onClick={handleExportDebtorsPDF}><FileText size={14} /> PDF</button>
-        </>
-      ),
-    },
-    {
+      module: 'contabilidad',
       icon: ClipboardList,
-      title: 'Gastos ERP',
+      title: 'Gastos',
       description: 'Comprobantes, proveedores e importes.',
       actions: <button type="button" className="btn btn-primary" onClick={handleExportExpensesCSV}><Download size={14} /> CSV</button>,
     },
     {
+      module: 'contabilidad',
       icon: Wallet,
       title: 'Cajas',
-      description: 'Saldos y estado de cajas registradoras.',
+      description: 'Saldo y estado de cada caja.',
       actions: <button type="button" className="btn btn-primary" onClick={handleExportCashCSV}><Download size={14} /> CSV</button>,
     },
     {
+      module: 'club',
       icon: Store,
       title: 'Concesiones',
-      description: 'Contratos, concesionarios y vigencia.',
+      description: 'Contratos, concesionario y vigencia, cada uno en su fila.',
       actions: <button type="button" className="btn btn-primary" onClick={handleExportConcessionsCSV}><Download size={14} /> CSV</button>,
     },
     {
+      module: 'club',
       icon: Store,
       title: 'Cobros de canon',
       description: 'Pagos registrados de concesiones.',
       actions: <button type="button" className="btn btn-primary" onClick={handleExportCanonCSV}><Download size={14} /> CSV</button>,
     },
     {
+      module: 'contabilidad',
       icon: Briefcase,
       title: 'Proveedores',
-      description: 'Padron de proveedores del ERP.',
+      description: 'Padrón con razón social y contacto.',
       actions: <button type="button" className="btn btn-primary" onClick={handleExportSuppliersCSV}><Download size={14} /> CSV</button>,
     },
     {
+      module: 'contabilidad',
       icon: Briefcase,
       title: 'Retenciones',
-      description: 'Resumen Accessin de retenciones sobre OP.',
+      description: 'Retenciones sobre órdenes de pago, listas para el resumen.',
       actions: <button type="button" className="btn btn-primary" onClick={handleExportRetencionesCSV}><Download size={14} /> CSV</button>,
     },
     {
+      module: 'reservas',
       icon: Calendar,
-      title: 'Reservas',
-      description: 'Turnos por instalación y estado.',
+      title: 'Listado de reservas',
+      description: 'Turno, instalación, socio y estado.',
       actions: <button type="button" className="btn btn-primary" onClick={handleExportReservationsCSV}><Download size={14} /> CSV</button>,
     },
     {
+      module: 'club',
       icon: Briefcase,
       title: 'Personal',
       description: 'Plantel, áreas y contactos.',
       actions: <button type="button" className="btn btn-primary" onClick={handleExportStaffCSV}><Download size={14} /> CSV</button>,
     },
     {
+      module: 'comunicaciones',
       icon: Shield,
       title: 'Reclamos',
-      description: 'Tickets de socios y estado.',
+      description: 'Tickets de socios, con categoría y estado.',
       actions: <button type="button" className="btn btn-primary" onClick={handleExportClaimsCSV}><Download size={14} /> CSV</button>,
     },
     {
+      module: 'porteria',
       icon: DoorOpen,
-      title: 'Bitácora de accesos',
-      description: 'Ingresos por credencial QR.',
+      title: 'Registro de portería',
+      description: 'Cada ingreso: socio, credencial, puerta y resultado.',
       actions: <button type="button" className="btn btn-primary" onClick={handleExportAccessCSV}><Download size={14} /> CSV</button>,
     },
     {
+      module: 'comunicaciones',
       icon: Radio,
-      title: 'Encuestas',
-      description: 'Consultas colectivas y participación.',
+      title: 'Encuestas y votos',
+      description: 'Pregunta, opciones, votos y cuántos participaron.',
       actions: <button type="button" className="btn btn-primary" onClick={handleExportSurveysCSV}><Download size={14} /> CSV</button>,
     },
     {
+      module: 'club',
       icon: PartyPopper,
       title: 'Eventos del club',
       description: 'Agenda social y deportiva.',
       actions: <button type="button" className="btn btn-primary" onClick={handleExportEventsCSV}><Download size={14} /> CSV</button>,
     },
     {
+      module: 'club',
       icon: BellRing,
       title: 'Alertas operativas',
       description: 'Avisos activos del ERP.',
       actions: <button type="button" className="btn btn-primary" onClick={handleExportAlertsCSV}><Download size={14} /> CSV</button>,
     },
     {
+      module: 'comunicaciones',
       icon: ClipboardList,
-      title: 'Mensajería',
-      description: 'Bandeja de mensajes admin ↔ socios.',
+      title: 'Comunicaciones',
+      description: 'Mensajes entre administración y socios.',
       actions: <button type="button" className="btn btn-primary" onClick={handleExportMessagesCSV}><Download size={14} /> CSV</button>,
     },
     {
+      module: 'club',
       icon: FileText,
       title: 'Noticias / mural',
       description: 'Publicaciones del club.',
@@ -849,7 +943,7 @@ export default function ReportsTab({
         <div>
           <h3 className="serif-font">Estadísticas y reportes</h3>
           <p>
-            Tablero económico, indicadores operativos y exportación de todos los módulos del club.
+            Los mismos reportes del club, agrupados por módulo y con el detalle que hace falta para usarlos.
           </p>
         </div>
         <button type="button" className="btn btn-primary" onClick={handleExportExecutivePDF}>
@@ -1066,10 +1160,24 @@ export default function ReportsTab({
       )}
 
       {section === 'exportar' && (
-        <div className="reports-export-grid">
-          {exportCatalog.map((item) => (
-            <ReportCard key={item.title} icon={item.icon} title={item.title} description={item.description} actions={item.actions} />
-          ))}
+        <div className="reports-export-groups">
+          {REPORT_MODULES.map((group) => {
+            const items = exportCatalog.filter((item) => item.module === group.id);
+            if (!items.length) return null;
+            return (
+              <section key={group.id} className="reports-export-group">
+                <header>
+                  <h4 className="serif-font">{group.title}</h4>
+                  <p>{group.note}</p>
+                </header>
+                <div className="reports-export-grid">
+                  {items.map((item) => (
+                    <ReportCard key={item.title} icon={item.icon} title={item.title} description={item.description} actions={item.actions} />
+                  ))}
+                </div>
+              </section>
+            );
+          })}
         </div>
       )}
 

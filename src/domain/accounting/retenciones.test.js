@@ -16,8 +16,8 @@ beforeAll(async () => {
 
 describe('retenciones', () => {
   it('expone el período Accessin del resumen', () => {
-    expect(ACCESSIN_RETENCIONES_PERIOD_FROM).toBe('2026-03-02');
-    expect(ACCESSIN_RETENCIONES_PERIOD_TO).toBe('2026-09-02');
+    expect(ACCESSIN_RETENCIONES_PERIOD_FROM).toBe('2026-03-26');
+    expect(ACCESSIN_RETENCIONES_PERIOD_TO).toBe('2026-09-26');
   });
 
   it('crea retención y totaliza por tipo', () => {

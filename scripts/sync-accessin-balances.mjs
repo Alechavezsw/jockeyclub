@@ -59,17 +59,16 @@ async function fetchMembers(sb) {
 }
 
 /**
- * Devuelve el patch a aplicar, o null si la fila ya está al día.
- * No pisa un saldo operativo distinto de 0: si el club ya cobró y actualizó el saldo
- * en la app, ese valor manda sobre el corte de LILA. Es el mismo criterio que aplicaba
- * applyCurrentAccountBalances del lado del cliente.
+ * Devuelve el patch a aplicar, o null si la fila ya está al día con este corte.
+ * Un corte nuevo reemplaza el saldo. Solo se conserva el saldo de la app si hubo
+ * un cobro con fecha posterior al corte de LILA.
  */
 function buildPatch(dbRow, lila, asOf) {
   const meta = { ...(dbRow.meta && typeof dbRow.meta === 'object' ? dbRow.meta : {}) };
-  if (meta.currentAccountAsOf === asOf) return null; // ya sincronizado con este corte
+  if (meta.currentAccountAsOf === asOf) return null;
 
-  const current = Number(dbRow.outstanding_balance);
-  const hasOperational = Number.isFinite(current) && current !== 0;
+  const lastPay = String(meta.lastPaymentDate || '').slice(0, 10);
+  const paidAfterCut = /^\d{4}-\d{2}-\d{2}$/.test(lastPay) && lastPay > asOf;
 
   meta.currentAccountAsOf = asOf;
   meta.unpaidCapital = money(lila.unpaidCapital);
@@ -79,7 +78,7 @@ function buildPatch(dbRow, lila, asOf) {
   if (lila.accessinId != null) meta.accessinId = lila.accessinId;
 
   const patch = { meta };
-  if (!hasOperational) patch.outstanding_balance = Math.max(0, money(lila.balance));
+  if (!paidAfterCut) patch.outstanding_balance = Math.max(0, money(lila.balance));
   return patch;
 }
 
@@ -128,7 +127,7 @@ async function main() {
 
   const withBalance = updates.filter((u) => Number(u.patch.outstanding_balance) > 0).length;
   console.log(`a actualizar=${updates.length} · con saldo>0=${withBalance} · ` +
-    `saldo operativo respetado=${keptOperational} · ya al día=${alreadySynced} · ` +
+    `cobro posterior al corte=${keptOperational} · ya al día=${alreadySynced} · ` +
     `sin match en LILA=${notInLila}`);
 
   if (!updates.length) { console.log('NADA_QUE_HACER'); return; }

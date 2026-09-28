@@ -18,8 +18,8 @@ beforeAll(async () => {
 
 describe('monthlyDebts / deudas mes a mes', () => {
   it('carga snapshot LILA de morosos', () => {
-    expect(ACCESSIN_MONTHLY_DEBTS_AS_OF).toBe('2026-09-03');
-    expect(ACCESSIN_MONTHLY_DEBTS_SNAPSHOT.memberCount).toBeGreaterThan(1000);
+    expect(ACCESSIN_MONTHLY_DEBTS_AS_OF).toBe('2026-09-26');
+    expect(ACCESSIN_MONTHLY_DEBTS_SNAPSHOT.memberCount).toBeGreaterThan(800);
     expect(ACCESSIN_MONTHLY_DEBTS_SNAPSHOT.monthRowCount).toBeGreaterThan(5000);
     expect(ACCESSIN_MONTHLY_DEBTS_SNAPSHOT.lineCount).toBeGreaterThan(10000);
   });

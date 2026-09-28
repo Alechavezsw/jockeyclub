@@ -13,7 +13,8 @@ function matchDetailAccount(account, details = feeAccountDetailsSeed().ACCESSIN_
   const label = String(account.detailAccountLabel || account.name || '')
     .trim()
     .toUpperCase();
-  return (details || []).find((d) => String(d.accountLabel || '').trim().toUpperCase() === label) || null;
+  const matches = (details || []).filter((d) => String(d.accountLabel || '').trim().toUpperCase() === label);
+  return matches.find((d) => d.periodKind === 'concepto') || matches[0] || null;
 }
 
 /** Líneas de C.C. derivadas del detalle Accessin (importe/cobrado/pendiente). */
@@ -22,10 +23,11 @@ export function buildFeeAccountLedgerLines(account, details = feeAccountDetailsS
   if (!detail) return [];
   const baseId = Number(account.accessinId || 0) * 100000;
   return (detail.lines || []).map((line, i) => {
-    const collected = Number(line.amount) || 0;
-    // En el export de cobros el monto es lo cobrado; el importe de cuota se asume igual.
-    const amount = collected;
-    const pending = Math.max(0, amount - collected);
+    const collected = line.collected != null ? Number(line.collected) || 0 : (Number(line.amount) || 0);
+    const amount = line.billed != null ? Number(line.billed) || 0 : collected;
+    const pending = line.pending != null
+      ? Number(line.pending) || 0
+      : Math.max(0, amount - collected);
     return {
       id: `fcc-${account.id}-${i}`,
       accessinId: baseId + i + 1,

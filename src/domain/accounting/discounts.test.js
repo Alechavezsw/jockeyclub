@@ -7,20 +7,29 @@ import {
   resolveDiscounts,
 } from './discounts';
 import { bonificacionesSeed, seedDiscounts } from './discountsSeed';
+import { listBonificaciones } from './bonificaciones';
 
 let ACCESSIN_BONIFICACIONES;
+let ACCESSIN_BONIFICACIONES_AS_OF;
+let ACCESSIN_BONIFICACIONES_SNAPSHOT;
 
 beforeAll(async () => {
   await loadSnapshots(['accessinBonificaciones']);
-  ({ ACCESSIN_BONIFICACIONES } = bonificacionesSeed());
+  ({
+    ACCESSIN_BONIFICACIONES,
+    ACCESSIN_BONIFICACIONES_AS_OF,
+    ACCESSIN_BONIFICACIONES_SNAPSHOT,
+  } = bonificacionesSeed());
 });
 
 describe('discounts / bonificaciones', () => {
   it('carga seed Accessin real + regla COMISION', () => {
     const all = resolveDiscounts(null, seedDiscounts());
-    expect(ACCESSIN_BONIFICACIONES.length).toBe(27);
+    expect(ACCESSIN_BONIFICACIONES_AS_OF).toBe('2026-09-26');
+    expect(ACCESSIN_BONIFICACIONES_SNAPSHOT.asOfLabel).toMatch(/26 de Septiembre del 2026/);
+    expect(ACCESSIN_BONIFICACIONES.length).toBe(17);
     expect(ACCESSIN_DISCOUNT_RULES).toHaveLength(1);
-    expect(discountCategoryCounts(all).find((c) => c.id === 'members')?.count).toBe(27);
+    expect(discountCategoryCounts(all).find((c) => c.id === 'members')?.count).toBe(17);
     expect(discountCategoryCounts(all).find((c) => c.id === 'fee_category')?.count).toBe(1);
   });
 
@@ -59,6 +68,32 @@ describe('discounts / bonificaciones', () => {
       value: 10,
     });
     const merged = resolveDiscounts([...ACCESSIN_BONIFICACIONES, local], seedDiscounts());
-    expect(merged.length).toBeGreaterThanOrEqual(28);
+    expect(merged.length).toBeGreaterThanOrEqual(18);
+  });
+
+  it('reemplaza bonificaciones Accessin que ya no están en el corte', () => {
+    const stale = {
+      id: 'abon-viejo-1',
+      source: 'accessin',
+      category: 'members',
+      description: 'corte anterior',
+      isActive: true,
+    };
+    const local = createDiscount({
+      category: 'general',
+      description: 'General staff',
+      valueType: 'percent',
+      value: 10,
+    });
+    const merged = resolveDiscounts([stale, local], seedDiscounts());
+    expect(merged.some((d) => d.id === 'abon-viejo-1')).toBe(false);
+    expect(merged.some((d) => d.id === local.id)).toBe(true);
+    expect(merged.filter((d) => d.source === 'accessin' && d.category === 'members')).toHaveLength(17);
+  });
+
+  it('lista el corte y encuentra a Laciar', () => {
+    expect(listBonificaciones()).toHaveLength(17);
+    expect(listBonificaciones({ query: '8377' }).every((r) => r.memberNumber === '8377')).toBe(true);
+    expect(listBonificaciones({ query: 'Ferrer' })[0]?.memberName).toMatch(/Ferrer/);
   });
 });

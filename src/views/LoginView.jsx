@@ -70,7 +70,6 @@ export default function LoginView() {
         @media (max-width: 860px) {
           .login-shell { grid-template-columns: 1fr !important; gap: 1.5rem !important; padding: 0 !important; }
           .login-brand-panel { text-align: center; order: -1; }
-          .login-brand-panel ul { align-items: center; }
         }
         @media (max-width: 480px) {
           .login-shell { padding: 0 !important; }
@@ -85,7 +84,7 @@ export default function LoginView() {
           color: 'var(--text-gold)',
           marginBottom: '0.75rem',
         }}>
-          Sede Rivadavia · San Juan
+          Rivadavia · San Juan
         </p>
         <h1 className="serif-font" style={{
           fontSize: 'clamp(2rem, 4vw, 2.75rem)',
@@ -98,20 +97,6 @@ export default function LoginView() {
         <p style={{ color: 'var(--text-secondary)', fontSize: '1.02rem', maxWidth: 420, lineHeight: 1.55, margin: 0 }}>
           Portal institucional de socios y gestión
         </p>
-        <ul style={{
-          listStyle: 'none',
-          padding: 0,
-          margin: '1.5rem 0 0',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '0.55rem',
-          color: 'var(--text-muted)',
-          fontSize: '0.85rem',
-        }}>
-          <li>· Autogestión de reservas e instalaciones</li>
-          <li>· Contabilidad, cajas y control de acceso</li>
-          <li>· Alertas operativas y comunicaciones oficiales</li>
-        </ul>
       </section>
 
       <div

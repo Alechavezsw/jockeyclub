@@ -1,5 +1,6 @@
+import { useDeferredValue, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ShieldAlert, UserRound } from 'lucide-react';
+import { ChevronDown, ShieldAlert, UserRound } from 'lucide-react';
 import { buildWhatsAppDuesUrl } from '../../domain/members/dues';
 
 function WhatsAppLogo({ size = 18 }) {
@@ -13,105 +14,139 @@ function WhatsAppLogo({ size = 18 }) {
   );
 }
 
+function OverdueDuesRow({ member, formatCurrency }) {
+  const wa = buildWhatsAppDuesUrl(member, formatCurrency);
+  const id = member.memberId || member.id;
+  const profileTo = `/panel/members/${encodeURIComponent(id)}`;
+
+  return (
+    <li>
+      <div className="admin-overdue-strip-who">
+        <Link
+          to={profileTo}
+          className="admin-overdue-strip-name ops-ellipsis"
+          title={`Abrir ficha de ${member.name}`}
+        >
+          {member.name}
+        </Link>
+        <span className="tabular-nums">
+          {formatCurrency(member.amountDue)}
+          {member.daysOverdue != null ? ` · ${member.daysOverdue}d` : ''}
+          {id ? ` · Nº ${id}` : ''}
+        </span>
+      </div>
+      <div className="admin-overdue-strip-actions">
+        <Link
+          className="admin-overdue-btn"
+          to={profileTo}
+          title={`Ver perfil de ${member.name}`}
+        >
+          <UserRound size={14} aria-hidden="true" />
+          Perfil
+        </Link>
+        <Link
+          className="admin-overdue-btn"
+          to={`${profileTo}?cobrar=1`}
+          state={{ cobrar: true, memberId: id, member }}
+        >
+          Cobrar
+        </Link>
+        {wa ? (
+          <a
+            className="admin-overdue-btn admin-overdue-btn--wa"
+            href={wa}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={`WhatsApp ${member.phone}`}
+            aria-label={`WhatsApp a ${member.name}`}
+          >
+            <WhatsAppLogo size={18} />
+          </a>
+        ) : (
+          <span className="admin-overdue-btn admin-overdue-btn--wa is-disabled" aria-hidden="true">
+            <WhatsAppLogo size={18} />
+          </span>
+        )}
+      </div>
+    </li>
+  );
+}
+
 export default function OverdueDuesStrip({
   members = [],
   formatCurrency,
   loading = false,
-  limit = 8,
   duesHref = '/panel/dues',
   onOpenAll,
 }) {
-  const list = (members || []).slice(0, limit);
-  const extra = Math.max(0, (members || []).length - list.length);
+  const [query, setQuery] = useState('');
+  const deferredQuery = useDeferredValue(query);
+  const visible = useMemo(() => {
+    const q = deferredQuery.trim().toLowerCase();
+    const digits = q.replace(/\D/g, '');
+    if (!q) return members;
+    return members.filter((member) => {
+      const name = String(member.name || '').toLowerCase();
+      const id = String(member.memberId || member.id || '');
+      return name.includes(q) || (digits && id.includes(digits));
+    });
+  }, [members, deferredQuery]);
 
   return (
-    <section className="admin-overdue-strip" aria-label="Socios con cuota vencida">
-      <header className="admin-overdue-strip-head">
+    <details className="admin-overdue-strip" aria-label="Socios con cuota vencida">
+      <summary className="admin-overdue-strip-head">
+        <i className="due-fold-arrow" aria-hidden="true">
+          <ChevronDown size={18} strokeWidth={2.5} />
+        </i>
         <ShieldAlert size={16} aria-hidden="true" />
         <h2>Cuotas vencidas</h2>
         <span className="admin-overdue-strip-count">
           {loading ? '…' : members.length}
         </span>
-        {onOpenAll ? (
-          <button type="button" className="admin-overdue-strip-all" onClick={onOpenAll}>
-            Ver todas
-          </button>
-        ) : (
-          <Link to={duesHref} className="admin-overdue-strip-all">
-            Ver todas
-          </Link>
-        )}
-      </header>
+      </summary>
 
-      {loading && list.length === 0 ? (
-        <p className="ops-muted">Cargando socios en mora…</p>
-      ) : list.length === 0 ? (
-        <p className="ops-muted">Ningún socio con cuota vencida.</p>
-      ) : (
-        <ul className="admin-overdue-strip-list">
-          {list.map((m) => {
-            const wa = buildWhatsAppDuesUrl(m, formatCurrency);
-            const id = m.memberId || m.id;
-            const profileTo = `/panel/members/${encodeURIComponent(id)}`;
-            return (
-              <li key={m.id || id}>
-                <div className="admin-overdue-strip-who">
-                  <Link
-                    to={profileTo}
-                    className="admin-overdue-strip-name ops-ellipsis"
-                    title={`Abrir ficha de ${m.name}`}
-                  >
-                    {m.name}
-                  </Link>
-                  <span className="tabular-nums">
-                    {formatCurrency(m.amountDue)}
-                    {m.daysOverdue != null ? ` · ${m.daysOverdue}d` : ''}
-                    {id ? ` · Nº ${id}` : ''}
-                  </span>
-                </div>
-                <div className="admin-overdue-strip-actions">
-                  <Link
-                    className="admin-overdue-btn"
-                    to={profileTo}
-                    title={`Ver perfil de ${m.name}`}
-                  >
-                    <UserRound size={14} aria-hidden="true" />
-                    Perfil
-                  </Link>
-                  <Link
-                    className="admin-overdue-btn"
-                    to={`${profileTo}?cobrar=1`}
-                    state={{ cobrar: true, memberId: id, member: m }}
-                  >
-                    Cobrar
-                  </Link>
-                  {wa ? (
-                    <a
-                      className="admin-overdue-btn admin-overdue-btn--wa"
-                      href={wa}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title={`WhatsApp ${m.phone}`}
-                      aria-label={`WhatsApp a ${m.name}`}
-                    >
-                      <WhatsAppLogo size={18} />
-                    </a>
-                  ) : (
-                    <span className="admin-overdue-btn admin-overdue-btn--wa is-disabled" aria-hidden="true">
-                      <WhatsAppLogo size={18} />
-                    </span>
-                  )}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      {extra > 0 ? (
-        <p className="admin-overdue-strip-more">
-          +{extra} socios más en mora
-        </p>
-      ) : null}
-    </section>
+      <div className="admin-overdue-strip-body">
+        {loading && members.length === 0 ? (
+          <p className="ops-muted">Cargando socios en mora…</p>
+        ) : members.length === 0 ? (
+          <p className="ops-muted">Ningún socio con cuota vencida.</p>
+        ) : (
+          <>
+            <label className="admin-overdue-strip-search">
+              <input
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Buscar nombre o Nº"
+                aria-label="Buscar en cuotas vencidas"
+              />
+            </label>
+            <p className="admin-overdue-strip-hint">
+              {visible.length === members.length
+                ? 'Lista completa. Tocá un nombre para ver la ficha.'
+                : `${visible.length.toLocaleString('es-AR')} de ${members.length.toLocaleString('es-AR')}`}
+              {onOpenAll ? (
+                <button type="button" className="admin-overdue-strip-all" onClick={onOpenAll}>
+                  Ver todas
+                </button>
+              ) : (
+                <Link to={duesHref} className="admin-overdue-strip-all">
+                  Ver todas
+                </Link>
+              )}
+            </p>
+            <ul className="admin-overdue-strip-list">
+              {visible.map((member) => (
+                <OverdueDuesRow
+                  key={member.id || member.memberId}
+                  member={member}
+                  formatCurrency={formatCurrency}
+                />
+              ))}
+            </ul>
+          </>
+        )}
+      </div>
+    </details>
   );
 }

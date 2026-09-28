@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 
 const FOLD_STORAGE_KEY = 'padronFold:v1';
@@ -43,14 +43,20 @@ export default function FoldableSection({
   id,
   title,
   subtitle,
+  count,
   defaultOpen = true,
   storageKey,
+  openToken = 0,
   forceOpen = false,
   extra = null,
   className = '',
   children,
 }) {
-  const [open, toggle] = usePersistedFold(storageKey, defaultOpen);
+  const [open, toggle, setOpen] = usePersistedFold(storageKey, defaultOpen);
+  useEffect(() => {
+    if (!openToken) return;
+    setOpen(true);
+  }, [openToken, setOpen]);
   const visible = forceOpen || open;
 
   const bodyId = id ? `${id}-body` : undefined;
@@ -65,16 +71,19 @@ export default function FoldableSection({
           aria-controls={bodyId}
           onClick={toggle}
         >
-          <div>
+          <i className="due-fold-arrow" aria-hidden="true">
+            <ChevronDown size={18} strokeWidth={2.5} />
+          </i>
+          <span className="foldable-block-copy">
             <h3 id={id}>{title}</h3>
             {subtitle ? <p>{subtitle}</p> : null}
-          </div>
-          <ChevronDown size={18} className={`foldable-block-chevron${open ? ' is-open' : ''}`} aria-hidden />
+          </span>
+          {count != null && count !== '' ? <b className="tabular-nums">{count}</b> : null}
         </button>
-        {visible ? extra : null}
       </header>
       {visible ? (
         <div id={bodyId} className="foldable-block-body">
+          {extra ? <div className="foldable-block-extra">{extra}</div> : null}
           {children}
         </div>
       ) : null}

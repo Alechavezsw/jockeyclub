@@ -13,8 +13,8 @@
  *
  * Credenciales (nunca van en el repo):
  *   - VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY, del entorno o de .env.
- *   - SUPABASE_SERVICE_ROLE_KEY en el entorno, o bien JC_ADMIN_EMAIL y JC_ADMIN_PASSWORD
- *     de un usuario superadmin (las políticas del bucket solo le dejan escribir a ese rol).
+ *   - SUPABASE_SERVICE_ROLE_KEY, o bien JC_ADMIN_EMAIL y JC_ADMIN_PASSWORD
+ *     de un usuario superadmin (entorno o .env). Las políticas del bucket solo le dejan escribir a ese rol.
  */
 import { createClient } from '@supabase/supabase-js';
 import { existsSync, readFileSync } from 'fs';
@@ -62,15 +62,15 @@ async function buildPayloads(names) {
 
 async function connect() {
   const url = requireEnv('VITE_SUPABASE_URL');
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  const serviceKey = envValue('SUPABASE_SERVICE_ROLE_KEY');
   const authOptions = { auth: { persistSession: false, autoRefreshToken: false } };
   if (serviceKey) {
     console.log('AUTH service role');
     return createClient(url, serviceKey, authOptions);
   }
 
-  const email = process.env.JC_ADMIN_EMAIL?.trim();
-  const password = process.env.JC_ADMIN_PASSWORD;
+  const email = envValue('JC_ADMIN_EMAIL') || 'admin@jockey.sj';
+  const password = envValue('JC_ADMIN_PASSWORD');
   if (!email || !password) {
     throw new Error(
       'Definí SUPABASE_SERVICE_ROLE_KEY, o JC_ADMIN_EMAIL y JC_ADMIN_PASSWORD de un superadmin.'
@@ -116,6 +116,16 @@ async function main() {
         upsert: true,
       });
     if (error) throw new Error(`upload ${name}: ${error.message}`);
+    const { error: tableError } = await sb.from('club_snapshots').upsert({
+      name,
+      payload: JSON.parse(body),
+      updated_at: new Date().toISOString(),
+    });
+    if (tableError) {
+      console.warn(`TABLE_WARN ${name}: ${tableError.message}`);
+    } else {
+      console.log(`TABLE_OK ${name}`);
+    }
     console.log(`UPLOADED ${name}.json`);
   }
   console.log(`UPLOAD_OK ${payloads.length} snapshots en ${SNAPSHOT_BUCKET}`);

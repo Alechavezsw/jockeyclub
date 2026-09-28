@@ -9,6 +9,7 @@ import {
   markInboxRead,
   markMessageRead,
   recipientLabel,
+  threadAround,
 } from '../domain/messaging/messages';
 import { canAccessAdmin } from '../domain/auth/roles';
 import { signedDuesReceiptUrl } from '../data/storage';
@@ -37,7 +38,7 @@ function MessageAttachment({ attachment }) {
   );
 }
 
-export default function MessagesView({ messages, setMessages, members = [], onRefresh, onSendMessage }) {
+export default function MessagesView({ messages, setMessages, members = [], onRefresh, onSendMessage, live = false }) {
   const { user, role } = useAuth();
   const isOps = canAccessAdmin(role);
   const identity = {
@@ -48,6 +49,7 @@ export default function MessagesView({ messages, setMessages, members = [], onRe
 
   const [tab, setTab] = useState('inbox');
   const [selectedId, setSelectedId] = useState(null);
+  const [visibleCount, setVisibleCount] = useState(10);
   const [compose, setCompose] = useState({
     recipientId: isOps ? '' : MAILBOX.OPERATIONS,
     subject: '',
@@ -57,7 +59,9 @@ export default function MessagesView({ messages, setMessages, members = [], onRe
   const [sentOk, setSentOk] = useState(false);
   const [sendError, setSendError] = useState('');
   const [recipientError, setRecipientError] = useState('');
-  const [sending, setSending] = useState(false);
+  const [replyText, setReplyText] = useState('');
+  const [replyError, setReplyError] = useState('');
+  const [replySending, setReplySending] = useState(false);
 
   // Refetch al entrar / foco / cada 20s para conversación real entre sesiones
   useEffect(() => {
@@ -65,12 +69,12 @@ export default function MessagesView({ messages, setMessages, members = [], onRe
     void onRefresh();
     const onFocus = () => { void onRefresh(); };
     window.addEventListener('focus', onFocus);
-    const timer = window.setInterval(() => { void onRefresh(); }, 20000);
+    const timer = live ? null : window.setInterval(() => { void onRefresh(); }, 20000);
     return () => {
       window.removeEventListener('focus', onFocus);
-      window.clearInterval(timer);
+      if (timer) window.clearInterval(timer);
     };
-  }, [onRefresh]);
+  }, [onRefresh, live]);
 
   const filteredMembers = useMemo(() => {
     const q = memberQuery.trim().toLowerCase();
@@ -95,7 +99,13 @@ export default function MessagesView({ messages, setMessages, members = [], onRe
     [messages, identity.userId, identity.memberId, identity.role]
   );
   const list = tab === 'inbox' ? inbox : sent;
-  const selected = list.find((m) => m.id === selectedId) || null;
+  const selected = list.find((m) => m.id === selectedId)
+    || (messages || []).find((m) => m.id === selectedId)
+    || null;
+  const thread = useMemo(
+    () => threadAround(messages, selected),
+    [messages, selected]
+  );
 
   const openMessage = (msg) => {
     setSelectedId(msg.id);
@@ -108,6 +118,48 @@ export default function MessagesView({ messages, setMessages, members = [], onRe
     setCompose((c) => ({ ...c, recipientId: id }));
     setRecipientError('');
     setMemberQuery('');
+  };
+
+  const sendReply = async (e) => {
+    e.preventDefault();
+    setReplyError('');
+    if (!selected || !replyText.trim()) return;
+    if (!user?.id && !user?.memberId) {
+      setReplyError('Sesión inválida. Volvé a iniciar sesión.');
+      return;
+    }
+    let replyTo = MAILBOX.OPERATIONS;
+    if (isOps) {
+      const fromMember = selected.senderId && selected.senderId !== MAILBOX.OPERATIONS
+        ? selected.senderId
+        : selected.recipientId;
+      replyTo = fromMember === MAILBOX.ALL_MEMBERS ? '' : fromMember;
+    }
+    if (!replyTo) {
+      setReplyError('Para un comunicado a todos, usá Redactar.');
+      return;
+    }
+    const rootId = selected.parentId || selected.id;
+    const msg = createMessage({
+      sender: user?.fullName || (isOps ? 'Administración' : 'Socio'),
+      senderId: isOps ? MAILBOX.OPERATIONS : user.memberId,
+      recipientId: replyTo,
+      subject: selected.subject.startsWith('Re:') ? selected.subject : `Re: ${selected.subject}`,
+      content: replyText.trim(),
+      parentId: rootId,
+    });
+    setReplySending(true);
+    try {
+      let saved = msg;
+      if (typeof onSendMessage === 'function') saved = await onSendMessage(msg);
+      else setMessages((prev) => [msg, ...prev]);
+      setReplyText('');
+      setSelectedId(saved?.id || msg.id);
+    } catch (err) {
+      setReplyError(err?.message || 'No se pudo enviar la respuesta.');
+    } finally {
+      setReplySending(false);
+    }
   };
 
   const handleSend = async (e) => {
@@ -167,33 +219,15 @@ export default function MessagesView({ messages, setMessages, members = [], onRe
     }
   };
 
-  const handleReply = () => {
-    if (!selected) return;
-    // Socio siempre responde al buzón ops (no al UUID de un admin puntual)
-    let replyTo = MAILBOX.OPERATIONS;
-    if (isOps) {
-      const fromMember = selected.senderId && selected.senderId !== MAILBOX.OPERATIONS
-        ? selected.senderId
-        : selected.recipientId;
-      replyTo = fromMember === MAILBOX.ALL_MEMBERS ? '' : fromMember;
-    }
-    setTab('compose');
-    setCompose({
-      recipientId: replyTo,
-      subject: selected.subject.startsWith('Re:') ? selected.subject : `Re: ${selected.subject}`,
-      content: '',
-    });
-    setMemberQuery('');
-    setSelectedId(null);
-  };
-
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <div>
           <h1 className="page-title" style={{ marginBottom: '0.25rem' }}>Mensajería interna</h1>
           <p className="page-subtitle" style={{ margin: 0 }}>
-            Comunicaciones entre socios y administración del club
+            {live
+              ? 'Conversación en vivo entre socios y administración.'
+              : 'Comunicaciones entre socios y administración del club.'}
           </p>
         </div>
         {tab === 'inbox' && inbox.some((m) => !m.isRead) && (
@@ -218,7 +252,7 @@ export default function MessagesView({ messages, setMessages, members = [], onRe
             key={t.key}
             type="button"
             className={`filter-btn ${tab === t.key ? 'active' : ''}`}
-            onClick={() => { setTab(t.key); setSelectedId(null); }}
+            onClick={() => { setTab(t.key); setSelectedId(null); setVisibleCount(10); }}
             style={{ display: 'flex', alignItems: 'center', gap: 6 }}
           >
             {t.icon} {t.label}
@@ -460,7 +494,7 @@ export default function MessagesView({ messages, setMessages, members = [], onRe
               </p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column' }}>
-                {list.map((msg) => (
+                {list.slice(0, visibleCount).map((msg) => (
                   <button
                     key={msg.id}
                     type="button"
@@ -508,6 +542,24 @@ export default function MessagesView({ messages, setMessages, members = [], onRe
                     </div>
                   </button>
                 ))}
+                {list.length > visibleCount && (
+                  <button
+                    type="button"
+                    onClick={() => setVisibleCount((n) => n + 10)}
+                    style={{
+                      padding: '0.7rem 1rem',
+                      border: 'none',
+                      background: 'transparent',
+                      color: 'var(--text-gold)',
+                      fontWeight: 600,
+                      fontSize: '0.85rem',
+                      cursor: 'pointer',
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    Ver más ({list.length - visibleCount} restantes)
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -542,17 +594,48 @@ export default function MessagesView({ messages, setMessages, members = [], onRe
                   {selected.subject}
                 </h2>
               </div>
-              <p style={{ color: 'var(--text-secondary)', lineHeight: 1.65, whiteSpace: 'pre-wrap', margin: 0, fontSize: '0.95rem' }}>
-                {selected.content}
-              </p>
-              <MessageAttachment attachment={selected.meta?.attachment} />
-              {tab === 'inbox' && (
-                <div>
-                  <button type="button" className="btn btn-primary btn-sm" onClick={handleReply} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    <PenSquare size={14} /> Responder
-                  </button>
-                </div>
-              )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                {thread.map((item) => {
+                  const mine = isOps
+                    ? item.senderId === MAILBOX.OPERATIONS
+                    : item.senderId === user?.memberId;
+                  return (
+                    <div
+                      key={item.id}
+                      style={{
+                        alignSelf: mine ? 'flex-end' : 'flex-start',
+                        maxWidth: '92%',
+                        padding: '0.7rem 0.85rem',
+                        borderRadius: 12,
+                        background: mine ? 'rgba(var(--primary-gold-rgb), 0.14)' : 'var(--bg-secondary)',
+                        border: '1px solid var(--border-glass)',
+                      }}
+                    >
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: 4 }}>
+                        {item.sender || (mine ? 'Vos' : 'Club')} · {item.date}
+                      </div>
+                      <p style={{ margin: 0, whiteSpace: 'pre-wrap', lineHeight: 1.55, fontSize: '0.92rem' }}>{item.content}</p>
+                      <MessageAttachment attachment={item.meta?.attachment} />
+                    </div>
+                  );
+                })}
+              </div>
+              <form onSubmit={sendReply} style={{ display: 'grid', gap: '0.5rem', marginTop: 'auto' }}>
+                <label className="form-label" htmlFor="msg-reply">Responder ahora</label>
+                <textarea
+                  id="msg-reply"
+                  className="form-input"
+                  rows={3}
+                  value={replyText}
+                  onChange={(e) => setReplyText(e.target.value)}
+                  placeholder="Escribí la respuesta. Llega en el momento."
+                  style={{ resize: 'vertical', fontFamily: 'inherit', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+                />
+                {replyError ? <p style={{ color: '#ef4444', fontSize: '0.82rem', margin: 0 }}>{replyError}</p> : null}
+                <button type="submit" className="btn btn-primary btn-sm" disabled={replySending} style={{ justifySelf: 'start', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <Send size={14} /> {replySending ? 'Enviando…' : 'Enviar'}
+                </button>
+              </form>
             </div>
           )}
         </div>

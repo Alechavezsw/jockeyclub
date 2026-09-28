@@ -4,7 +4,7 @@
  *
  * Uso:
  *   node scripts/import-datita-reservas.mjs
- *   node scripts/import-datita-reservas.mjs --file "datita/reservas/Listado….xlsx"
+ *   node scripts/import-datita-reservas.mjs --file "datita/Avtualizacion/reservas/Listado….xlsx"
  *
  * Salidas (locales, no commitear PII):
  *   datita/reservas/reservas.csv
@@ -26,13 +26,27 @@ function argValue(flag) {
 }
 
 function findDefaultXlsx() {
-  const dir = path.join(root, 'datita', 'reservas');
-  if (!fs.existsSync(dir)) return null;
-  const files = fs.readdirSync(dir)
-    .filter((f) => /\.xlsx$/i.test(f) && !f.startsWith('~$'))
-    .map((f) => ({ f, mtime: fs.statSync(path.join(dir, f)).mtimeMs }))
-    .sort((a, b) => b.mtime - a.mtime);
-  return files[0] ? path.join(dir, files[0].f) : null;
+  const dirs = [
+    path.join(root, 'datita', 'Avtualizacion', 'reservas'),
+    path.join(root, 'datita', 'reservas'),
+  ];
+  const files = [];
+  for (const dir of dirs) {
+    if (!fs.existsSync(dir)) continue;
+    for (const name of fs.readdirSync(dir)) {
+      if (!/\.xlsx$/i.test(name) || name.startsWith('~$')) continue;
+      if (!/Listado de Reservas/i.test(name)) continue;
+      const full = path.join(dir, name);
+      const dated = name.match(/(\d{4}-\d{2}-\d{2})/);
+      files.push({
+        full,
+        date: dated ? dated[1] : '',
+        mtime: fs.statSync(full).mtimeMs,
+      });
+    }
+  }
+  files.sort((a, b) => String(b.date).localeCompare(String(a.date)) || b.mtime - a.mtime);
+  return files[0]?.full || null;
 }
 
 async function main() {
@@ -50,7 +64,7 @@ async function main() {
     : findDefaultXlsx();
 
   if (!xlsxPath || !fs.existsSync(xlsxPath)) {
-    console.error('No encontré el xlsx en datita/reservas/. Pasá --file <ruta>.');
+    console.error('No encontré el xlsx en Avtualizacion/reservas ni datita/reservas/. Pasá --file <ruta>.');
     process.exit(1);
   }
 

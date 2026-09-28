@@ -141,6 +141,12 @@ export function isTitularMember(member) {
   return !isFamilyDependent(member);
 }
 
+/** Ficha vigente: no está de baja, suspendida ni pendiente. */
+export function isLiveMember(member) {
+  const status = String(member?.status || 'active').toLowerCase();
+  return status !== 'inactive' && status !== 'suspended' && status !== 'baja' && status !== 'pending';
+}
+
 /** Forma de adherente para UI / ficha a partir de un socio del padrón. */
 export function householdMemberAsAdherent(member, relationship = 'Grupo familiar') {
   return {
@@ -402,18 +408,16 @@ export function buildPadronHouseholdStats(members = [], { tierCatalog = [], rese
     else titulares.push(m);
   }
 
-  const groupsWithMembers = new Set();
-  for (const m of integrantes) {
-    const p = familyPrincipalOf(m);
-    if (p) groupsWithMembers.add(p);
-  }
+  const liveTitulares = titulares.filter(isLiveMember);
+  const liveIntegrantes = integrantes.filter(isLiveMember);
+  const liveGroups = listFamilyGroups(list.filter(isLiveMember));
 
   const catalogById = new Map(
     (tierCatalog || []).map((t) => [String(t.id || '').toLowerCase(), t])
   );
 
   const byTierMap = new Map();
-  for (const m of titulares) {
+  for (const m of liveTitulares) {
     let id = String(m.tier || SIN_CATEGORIA_TIER).toLowerCase();
     if (isExampleMemberTier(id)) continue;
     if (isGeneratedTierId(id) || !catalogById.has(id)) id = SIN_CATEGORIA_TIER;
@@ -432,14 +436,13 @@ export function buildPadronHouseholdStats(members = [], { tierCatalog = [], rese
     [...byTierMap.values()].sort((a, b) => b.count - a.count),
     reservedColors,
   );
-  const titularesActivos = titulares.filter((m) => (m.status || 'active') === 'active').length;
-
   return {
     total: list.length,
     titulares: titulares.length,
-    titularesActivos,
+    titularesActivos: liveTitulares.length,
     integrantes: integrantes.length,
-    gruposFamiliares: groupsWithMembers.size,
+    integrantesActivos: liveIntegrantes.length,
+    gruposFamiliares: liveGroups.length,
     byTier,
   };
 }

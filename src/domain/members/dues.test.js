@@ -12,6 +12,7 @@ import {
   buildWhatsAppDuesUrl,
   nextDuesDueDate,
   pinDuesDueDate,
+  duesDueMoment,
   monthsBehindOnDues,
   firstUnpaidDuesDate,
   formatMonthsBehind,
@@ -161,6 +162,28 @@ describe('atraso desde último pago (vence el 10)', () => {
   it('pago en septiembre deja al día aunque sea antes del 10', () => {
     expect(monthsBehindOnDues({ lastPaymentDate: '2026-09-05', today })).toBe(0);
     expect(monthsBehindOnDues({ lastPaymentDate: '2026-09-13', today })).toBe(0);
+  });
+});
+
+describe('duesDueMoment', () => {
+  it('el 10 es el día de vencimiento', () => {
+    const moment = duesDueMoment('2026-09-10');
+    expect(moment.phase).toBe('today');
+    expect(moment.dueLabel).toBe('10 de septiembre');
+    expect(moment.daysUntil).toBe(0);
+  });
+
+  it('antes del 10 cuenta los días que faltan', () => {
+    const moment = duesDueMoment('2026-09-09');
+    expect(moment.phase).toBe('before');
+    expect(moment.daysUntil).toBe(1);
+  });
+
+  it('después del 10 el vencimiento de ese mes ya pasó', () => {
+    const moment = duesDueMoment('2026-09-27');
+    expect(moment.phase).toBe('after');
+    expect(moment.daysSince).toBe(17);
+    expect(moment.dueLabel).toBe('10 de septiembre');
   });
 });
 

@@ -1,20 +1,58 @@
 /**
  * Genera seed de movimientos de caja Accessin desde Excel LILA.
- * Source: datita/contabilidad/caja/movimiento e cajas/Movimientos de caja - 2026-09-02.xlsx
+ * Toma el Excel más nuevo entre Avtualizacion/Contabilidad/Movimiento de cajas
+ * y el corte histórico.
  */
 const XLSX = require('xlsx');
 const fs = require('fs');
 const path = require('path');
 
-const excelPath = path.join(
-  __dirname,
-  '../datita/contabilidad/caja/movimiento e cajas/Movimientos de caja - 2026-09-02.xlsx'
-);
+const sourceDirs = [
+  path.join(__dirname, '../datita/Avtualizacion/Contabilidad/Movimiento de cajas'),
+  path.join(__dirname, '../datita/contabilidad/caja/movimiento e cajas'),
+];
 const outDir = path.join(__dirname, '../src/data/seed');
 const outFile = path.join(outDir, 'accessinCashMovements.js');
 // Corte y cajas van en un archivo aparte: los usa el store del ERP al arrancar, y los
 // movimientos (~600 kB) se cargan con import() diferido fuera del chunk de entrada.
 const snapshotFile = path.join(outDir, 'accessinCashSnapshot.js');
+
+function collectCashExcels() {
+  const files = [];
+  for (const dir of sourceDirs) {
+    if (!fs.existsSync(dir)) continue;
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.endsWith('.xlsx') || name.startsWith('~$')) continue;
+      if (!/Movimientos de caja/i.test(name)) continue;
+      const full = path.join(dir, name);
+      const dated = name.match(/(\d{4}-\d{2}-\d{2})/);
+      files.push({
+        name,
+        full,
+        date: dated ? dated[1] : '',
+        mtime: fs.statSync(full).mtimeMs,
+      });
+    }
+  }
+  return files.toSorted((a, b) => String(b.date).localeCompare(String(a.date)) || b.mtime - a.mtime);
+}
+
+function parseSpanishMetaDate(raw) {
+  const s = String(raw || '').trim();
+  const m = s.match(/(\d{1,2})\s+de\s+([A-Za-záéíóúÁÉÍÓÚ]+)\s+del\s+(\d{4})/i);
+  if (!m) return '';
+  const months = {
+    enero: '01', febrero: '02', marzo: '03', abril: '04', mayo: '05', junio: '06',
+    julio: '07', agosto: '08', septiembre: '09', octubre: '10', noviembre: '11', diciembre: '12',
+  };
+  const mon = months[m[2].normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()];
+  if (!mon) return '';
+  return `${m[3]}-${mon}-${String(Number(m[1])).padStart(2, '0')}`;
+}
+
+const picked = collectCashExcels()[0];
+if (!picked) throw new Error('No hay Excel de Movimientos de caja');
+const excelPath = picked.full;
 
 const WALLET_META = {
   Efectivo: { id: 'wallet-efectivo', kind: 'cash', label: 'Efectivo', accountId: 'coa-1.1.01' },
@@ -46,6 +84,17 @@ function mapMovementType(tipo) {
 const wb = XLSX.readFile(excelPath);
 const sheet = wb.Sheets[wb.SheetNames[0]];
 const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+
+let generatedAt = '';
+let periodFrom = '';
+let periodTo = '';
+for (const row of rows) {
+  const a = String(row?.[0] || '').trim();
+  if (/^Generado el/i.test(a)) generatedAt = a.replace(/^Generado el\s+/i, '');
+  if (/Periodo desde/i.test(a)) periodFrom = parseSpanishMetaDate(a);
+  if (/Periodo hasta/i.test(a)) periodTo = parseSpanishMetaDate(a);
+}
+
 const headerIdx = rows.findIndex((r) => r && String(r[0] || '').includes('ID CONCEPTO'));
 if (headerIdx < 0) throw new Error('No se encontró encabezado de movimientos de caja');
 
@@ -92,7 +141,7 @@ for (const r of body) {
     familyGroup: memberNumber ? `G-F ${memberNumber}` : '',
     amount,
     source: 'accessin',
-    createdAt: date ? `${date}T12:00:00.000Z` : '2026-09-02T20:28:00.000Z',
+    createdAt: date ? `${date}T12:00:00.000Z` : `${picked.date || periodTo || '2026-09-26'}T12:00:00.000Z`,
   });
 }
 
@@ -118,11 +167,13 @@ const registers = [...walletsSeen.values()].map((w) => ({
   meta: { source: 'accessin' },
 }));
 
+const asOf = periodTo || picked.date || parseSpanishMetaDate(generatedAt) || '';
 const snapshot = {
-  asOf: '2026-09-02',
-  generatedAt: '2026-09-02T20:28:00.000Z',
-  periodFrom: '2026-07-02',
-  periodTo: '2026-09-02',
+  asOf,
+  fileName: picked.name,
+  generatedAt,
+  periodFrom,
+  periodTo,
   openingBalance,
   closingBalance,
   cheques: 0,
@@ -138,16 +189,25 @@ const snapshot = {
 };
 
 fs.mkdirSync(outDir, { recursive: true });
-const snapshotJs = `/** Corte de caja Accessin (jul–sep 2026): saldos y cajas. Auto-generado — no editar a mano. */
-export const ACCESSIN_CASH_AS_OF = '2026-09-02';
+const snapshotJs = `/** Corte de caja Accessin ${asOf}. Auto-generado — no editar a mano. */
+export const ACCESSIN_CASH_AS_OF = ${JSON.stringify(asOf)};
 export const ACCESSIN_CASH_SNAPSHOT = ${JSON.stringify(snapshot, null, 2)};
 export const ACCESSIN_CASH_REGISTERS = ${JSON.stringify(registers, null, 2)};
 `;
-const movementsJs = `/** Movimientos de caja Accessin (jul–sep 2026). Auto-generado — no editar a mano. */
+const movementsJs = `/** Movimientos de caja Accessin ${asOf}. Auto-generado — no editar a mano. */
 export const ACCESSIN_CASH_MOVEMENTS = ${JSON.stringify(movements)};
 `;
 fs.writeFileSync(snapshotFile, snapshotJs);
 fs.writeFileSync(outFile, movementsJs);
 console.log(`Wrote ${registers.length} wallets -> ${snapshotFile}`);
 console.log(`Wrote ${movements.length} movements -> ${outFile}`);
-console.log('closing', closingBalance, 'opening', openingBalance);
+console.log(JSON.stringify({
+  fileName: picked.name,
+  asOf,
+  periodFrom,
+  periodTo,
+  openingBalance,
+  closingBalance,
+  cashInflow,
+  bankInflow,
+}, null, 2));

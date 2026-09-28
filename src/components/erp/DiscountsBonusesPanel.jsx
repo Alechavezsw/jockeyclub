@@ -519,7 +519,7 @@ export default function DiscountsBonusesPanel({
         {!isExpense && category === 'members' && ACCESSIN_BONIFICACIONES_SNAPSHOT?.totalAmount ? (
           <p className="disc-field-hint" style={{ margin: 0 }}>
             Export Accessin: {ACCESSIN_BONIFICACIONES_SNAPSHOT.count} bonificaciones · total{' '}
-            {formatCurrency(ACCESSIN_BONIFICACIONES_SNAPSHOT.totalAmount)} · al {ACCESSIN_BONIFICACIONES_SNAPSHOT.asOf}
+            {formatCurrency(ACCESSIN_BONIFICACIONES_SNAPSHOT.totalAmount)} · al {ACCESSIN_BONIFICACIONES_SNAPSHOT.asOfLabel || ACCESSIN_BONIFICACIONES_SNAPSHOT.asOf}
           </p>
         ) : null}
       </div>

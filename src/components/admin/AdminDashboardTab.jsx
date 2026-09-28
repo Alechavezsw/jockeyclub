@@ -8,19 +8,30 @@ import {
 } from 'lucide-react';
 import { useSedeWeather } from '../../hooks/useSedeWeather';
 import { formatObservedClock } from '../../domain/weather/sedeWeather';
-import { canAccessQrGate } from '../../domain/auth/roles';
-import { filterAlertsForRole, isAlertAcknowledged, isAlertVisible, ALERT_SEVERITY } from '../../domain/alerts/alerts';
-import { buildOpsFinanceSnapshot } from '../../domain/accounting/opsFinanceSnapshot';
-import { isNewsPublished, newsCategoryLabel } from '../../domain/news/news';
+import { canAccessConcessions, canAccessQrGate } from '../../domain/auth/roles';
+import { reviewItemsForAccess } from '../../domain/review/buildClubReview';
+import { isAlertVisible, ALERT_SEVERITY } from '../../domain/alerts/alerts';
+import { buildOpsFinanceSnapshot, composeClubFinance, lilaContabilidadFromSnapshots } from '../../domain/accounting/opsFinanceSnapshot';
+import { monthlyBalanceSeed } from '../../domain/accounting/monthlyBalance';
+import { detailedCcSeed } from '../../domain/accounting/detailedCurrentAccounts';
+import { cashSeed } from '../../domain/accounting/cashLedger';
+import { cobranzasSeed } from '../../domain/accounting/cobranzas';
+import { isNewsPublished } from '../../domain/news/news';
 import { buildPadronHouseholdStats } from '../../domain/members/households';
-import { getOverdueMembers } from '../../domain/members/dues';
+import { duesDueMoment, getOverdueMembers } from '../../domain/members/dues';
 import { membershipMovesSeed, uniqueBajas } from '../../domain/members/membershipMoves';
 import { useSnapshotSeed } from '../../hooks/useSnapshots';
 import { todayISODateAR } from '../../lib/arDate';
-import { AlertsBanner } from '../erp/AlertsPanel';
 import { OpsProgressRing, OpsSegmentRing } from './OpsGauge';
+import DuesDueBanner from './DuesDueBanner';
 
 const MOVES_SNAPSHOTS = ['societasMembershipMoves'];
+const LILA_MONEY_SNAPSHOTS = [
+  'accessinMonthlyBalance',
+  'accessinDetailedCurrentAccounts',
+  'accessinCashSnapshot',
+  'accessinCobranzas',
+];
 const NO_SNAPSHOTS = [];
 
 function reservationDay(res) {
@@ -157,9 +168,11 @@ export default function AdminDashboardTab({
   getAccountBalance,
   journalEntries = [],
   chartOfAccounts = [],
+  feePeriods = [],
   registeredUsersCount = 0,
   membershipApplications = [],
   portalAccessRequests = [],
+  jevReview = null,
 }) {
   const navigate = useNavigate();
   const showGate = canAccessQrGate(userRole);
@@ -170,6 +183,27 @@ export default function AdminDashboardTab({
   );
   const todayKey = todayISODateAR();
   const hasAccounting = permittedTabs.includes('accounting');
+  const lilaCut = useSnapshotSeed(
+    hasAccounting ? LILA_MONEY_SNAPSHOTS : NO_SNAPSHOTS,
+    () => lilaContabilidadFromSnapshots({
+      monthlySnapshot: monthlyBalanceSeed().ACCESSIN_MONTHLY_BALANCE_SNAPSHOT,
+      detailedSnapshot: detailedCcSeed().ACCESSIN_DETAILED_CC_SNAPSHOT,
+      cashSnapshot: cashSeed().ACCESSIN_CASH_SNAPSHOT,
+      cobranzas: cobranzasSeed().ACCESSIN_COBRANZAS,
+      day: todayKey,
+    }),
+  );
+  const lilaMoney = useMemo(
+    () => composeClubFinance({
+      lila: lilaCut,
+      members,
+      journalEntries,
+      chartOfAccounts,
+      feePeriods,
+      today: todayKey,
+    }) || lilaCut,
+    [lilaCut, members, journalEntries, chartOfAccounts, feePeriods, todayKey],
+  );
   const hasMessaging = permittedTabs.includes('messaging');
   const hasMembers = permittedTabs.includes('members');
 
@@ -177,12 +211,15 @@ export default function AdminDashboardTab({
 
   const msgStats = useMemo(() => {
     const list = Array.isArray(messages) ? messages : [];
-    const total = list.length;
-    const unread = list.filter((m) => !m.isRead).length;
-    const unanswered = list.filter((m) => !m.isRead && !m.parentId && m.recipientId === 'ops').length;
+    // Bandeja de administración: solo mensajes dirigidos a "ops" (los enviados
+    // por el propio staff nunca se marcan leídos y no deben inflar el badge).
+    const inbox = list.filter((m) => m.recipientId === 'ops');
+    const total = inbox.length;
+    const unread = inbox.filter((m) => !m.isRead).length;
+    const unanswered = inbox.filter((m) => !m.isRead && !m.parentId).length;
     const inProgress = Math.max(0, total - unread);
     const attention = unanswered + Math.max(0, unread - unanswered);
-    const recent = [...list]
+    const recent = [...inbox]
       .sort((a, b) => String(b.createdAt || b.date || '').localeCompare(String(a.createdAt || a.date || '')))
       .slice(0, 3);
     return { total, unread, unanswered, inProgress, attention, recent };
@@ -198,39 +235,31 @@ export default function AdminDashboardTab({
   }, [msgStats]);
 
   const todayEntries = useMemo(() => {
-    const now = Date.now();
-    const twoHoursAgo = now - 2 * 60 * 60 * 1000;
-    const todays = entryLogs.filter((l) => (l.date || '').startsWith(todayKey) || l.date === todayKey);
-    const recent = entryLogs
+    const todays = entryLogs
       .map((log) => ({ log, at: parseLogInstant(log) }))
-      .filter(({ at }) => at && at.getTime() >= twoHoursAgo)
-      .sort((a, b) => b.at - a.at)
-      .slice(0, 6)
-      .map(({ log, at }) => ({
-        ...log,
-        timeLabel: at.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
-      }));
-    const list = todays.length ? todays : entryLogs.slice(0, 4);
+      .filter(({ log, at }) => {
+        const day = String(log.date || '').slice(0, 10);
+        if (day === todayKey) return true;
+        return at ? todayISODateAR(at) === todayKey : false;
+      })
+      .sort((a, b) => (b.at?.getTime() || 0) - (a.at?.getTime() || 0));
+    const list = todays.map(({ log, at }) => ({
+      ...log,
+      timeLabel: at
+        ? at.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
+        : (log.time || '—'),
+    }));
     return {
-      list: list.slice(0, 3),
-      recent,
+      list: list.slice(0, 8),
       granted: list.filter((l) => l.status === 'granted' || l.status === 'ok').length,
       denied: list.filter((l) => l.status === 'denied' || l.status === 'blocked').length,
-      todayTotal: todays.length,
+      todayTotal: list.length,
     };
   }, [entryLogs, todayKey]);
 
   const activeAlerts = useMemo(
     () => (alerts || []).filter((a) => isAlertVisible(a)).slice(0, 4),
     [alerts],
-  );
-
-  const hasOpenConcessionAlerts = useMemo(
-    () => filterAlertsForRole(alerts, userRole).some((a) => (
-      (a.source === 'concession_expiry' || a.source === 'concession_docs')
-      && !isAlertAcknowledged(a, alertAcks)
-    )),
-    [alerts, alertAcks, userRole],
   );
 
   const nextEvent = useMemo(() => {
@@ -261,8 +290,7 @@ export default function AdminDashboardTab({
     () => buildPadronHouseholdStats(members, { tierCatalog }),
     [members, tierCatalog]
   );
-  const adherentsCount = household.integrantes
-    || members.reduce((n, m) => n + (m.adherents?.length || 0), 0);
+  const adherentsCount = household.integrantesActivos;
   const membersWithApp = members.filter((m) => m.hasApp || m.appInstalled).length;
   const padronTop = useMemo(() => {
     const top = household.byTier.slice(0, 5);
@@ -275,6 +303,14 @@ export default function AdminDashboardTab({
 
   const monthLabel = new Date().toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
   const monthLabelCap = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1);
+  const lilaMonthLabel = lilaMoney?.periodTo
+    ? (() => {
+      const [y, m] = String(lilaMoney.periodTo).split('-');
+      const raw = new Date(Number(y), Number(m) - 1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+      return raw.charAt(0).toUpperCase() + raw.slice(1);
+    })()
+    : '';
+  const moneyMonthLabel = lilaMonthLabel || monthLabelCap;
 
   const finance = useMemo(
     () => buildOpsFinanceSnapshot({
@@ -286,14 +322,26 @@ export default function AdminDashboardTab({
     [members, journalEntries, chartOfAccounts, getAccountBalance]
   );
 
-  const cashToday = finance.cashToday;
-  const collectedMonth = finance.collectedMonth;
-  const liveCollectionRate = finance.collectionRate || paymentCollectionRate || 0;
+  const cashToday = lilaMoney?.cash ?? finance.cashToday;
+  const collectedMonth = lilaMoney?.recaudado || finance.collectedMonth;
+  const expectedMonth = lilaMoney?.liquidado || finance.expectedMonth;
+  const liveCollectionRate = lilaMoney
+    ? lilaMoney.rate
+    : (finance.collectionRate || paymentCollectionRate || 0);
   const collectionTone = liveCollectionRate >= 80 ? 'ok' : liveCollectionRate >= 50 ? 'mid' : 'low';
+  const dueOpen = duesDueMoment(todayKey).phase !== 'before';
+  const heroAmount = lilaMoney && dueOpen ? collectedMonth : (lilaMoney ? expectedMonth : debtTotal);
+  const heroLabel = lilaMoney && dueOpen
+    ? `Recaudado en ${moneyMonthLabel}`
+    : (lilaMoney ? `Liquidado en ${moneyMonthLabel}` : 'Deuda de cuotas pendiente');
   const debtTotal = finance.debtTotal || totalOutstanding || 0;
-  const monthProgress = finance.expectedMonth > 0
-    ? Math.min(100, Math.round((collectedMonth / finance.expectedMonth) * 100))
+  const monthProgress = expectedMonth > 0
+    ? Math.min(100, Math.round((collectedMonth / expectedMonth) * 100))
     : 0;
+  const todayIncomes = useMemo(() => {
+    const lilaToday = (lilaMoney?.lastIncomes || []).filter((row) => row.date === todayKey);
+    return lilaToday.length ? lilaToday : (finance.todayIncomes || []);
+  }, [lilaMoney, todayKey, finance.todayIncomes]);
 
   const cashSplit = useMemo(() => {
     if (typeof getAccountBalance !== 'function') return [];
@@ -333,19 +381,27 @@ export default function AdminDashboardTab({
       .sort((a, b) => String(b.date).localeCompare(String(a.date)))
       .slice(0, 3);
     const bajas = uniqueBajas(SOCIETAS_MEMBERSHIP_BAJAS).slice(0, 3);
+    // Socios dados de alta en la app después del último sync de Societas
+    // (todavía no llegaron al importador, pero ya son socios reales).
+    const knownIds = new Set(SOCIETAS_MEMBERSHIP_ALTAS.map((row) => String(row.memberId)));
+    const liveAltas = (members || [])
+      .filter((m) => m.joinDate && (!snap.periodTo || m.joinDate > snap.periodTo) && !knownIds.has(String(m.memberId)))
+      .map((m) => ({ memberId: m.memberId, name: m.name, date: m.joinDate, move: 'alta' }))
+      .sort((a, b) => String(b.date).localeCompare(String(a.date)));
     return {
-      altas: Number(snap.altas) || 0,
+      altas: (Number(snap.altas) || 0) + liveAltas.length,
       bajas: Number(snap.bajas) || 0,
       from: snap.periodFrom,
       to: snap.periodTo,
       recent: [
+        ...liveAltas.map((row) => ({ ...row, move: 'alta' })),
         ...altas.map((row) => ({ ...row, move: 'alta' })),
         ...bajas.map((row) => ({ ...row, move: 'baja' })),
       ]
         .sort((a, b) => String(b.date).localeCompare(String(a.date)))
         .slice(0, 4),
     };
-  }, [movesSeed]);
+  }, [movesSeed, members]);
 
   const activeSurveys = (surveys || []).filter((s) => s.active !== false && (s.status === 'open' || s.status === 'published' || s.active)).length;
 
@@ -446,6 +502,13 @@ export default function AdminDashboardTab({
     .filter((a) => permittedTabs.includes(a.tab) && (!a.roles || a.roles.includes(userRole)))
     .slice(0, 4);
 
+  const jevVisible = jevReview
+    ? reviewItemsForAccess(jevReview.items, {
+      tabs: permittedTabs,
+      concessions: canAccessConcessions(userRole),
+    })
+    : [];
+
   const link = (label, onClick) => (
     <button type="button" className="ops-dash-link" onClick={onClick}>
       {String(label).replace(/\s*>+\s*$/, '')}
@@ -461,6 +524,31 @@ export default function AdminDashboardTab({
             <p className="ops-dash-kicker" style={{ marginTop: '-0.55rem', marginBottom: '0.85rem' }}>
               {userName} · {formatLongDate()}
             </p>
+          ) : null}
+          {permittedTabs.includes('jev') && jevReview ? (
+            <button type="button" className="jev-teaser" onClick={() => goToTab('jev')}>
+              <span className="jev-teaser-kicker">Jev</span>
+              <strong className="tabular-nums">
+                {jevReview.counts?.ready === false
+                  ? '…'
+                  : Number(jevReview.counts?.bien || 0).toLocaleString('es-AR')}
+              </strong>
+              <span>socios con la ficha bien</span>
+              <em>
+                {jevVisible.length === 0
+                  ? 'Nada pendiente'
+                  : `${jevVisible.length} para revisar`}
+              </em>
+            </button>
+          ) : null}
+          {(permittedTabs.includes('dues') || permittedTabs.includes('accounting')) ? (
+            <DuesDueBanner
+              today={todayKey}
+              members={members}
+              journalEntries={journalEntries}
+              chartOfAccounts={chartOfAccounts}
+              feePeriods={feePeriods}
+            />
           ) : null}
           <div className="ops-dash-actions" aria-label="Accesos rápidos">
             {quickActions.map((action) => {
@@ -712,11 +800,6 @@ export default function AdminDashboardTab({
               </ul>
             )}
             <div className="ops-today-pane-foot">
-              {permittedTabs.includes('claims') && pendingClaimsCount > 0 ? (
-                <p className="ops-muted" style={{ margin: 0 }}>
-                  {pendingClaimsCount} reclamos abiertos
-                </p>
-              ) : null}
               {permittedTabs.includes('alerts') && (
                 <Link to="/panel/alerts" className="ops-dash-link">
                   Ver alertas
@@ -859,7 +942,7 @@ export default function AdminDashboardTab({
                   <h3>Portería</h3>
                 </div>
                 <span className="ops-muted" style={{ fontSize: '0.75rem' }}>
-                  {todayEntries.todayTotal} hoy · últimas 2 h
+                  {todayEntries.todayTotal} hoy
                 </span>
               </header>
               <div className="ops-gate-stats">
@@ -872,7 +955,7 @@ export default function AdminDashboardTab({
                   <span>Denegados</span>
                 </div>
               </div>
-              {(todayEntries.recent.length ? todayEntries.recent : todayEntries.list).map((log) => (
+              {todayEntries.list.map((log) => (
                 <div key={log.id || `${log.memberName}-${log.time || log.timeLabel}`} className="ops-row">
                   <span className="ops-ellipsis">{log.memberName || 'Visitante'}</span>
                   <span className={`ops-gate-tag ${(log.status === 'denied' || log.status === 'blocked') ? 'denied' : 'ok'}`}>
@@ -880,8 +963,8 @@ export default function AdminDashboardTab({
                   </span>
                 </div>
               ))}
-              {todayEntries.recent.length === 0 && todayEntries.list.length === 0 && (
-                <p className="ops-muted" style={{ margin: '0.25rem 0 0.5rem' }}>Sin ingresos recientes.</p>
+              {todayEntries.list.length === 0 && (
+                <p className="ops-muted" style={{ margin: '0.25rem 0 0.5rem' }}>Sin ingresos hoy.</p>
               )}
               <button type="button" className="ops-primary-btn" onClick={() => navigate('/acceso')}>
                 Abrir control QR
@@ -913,47 +996,6 @@ export default function AdminDashboardTab({
             </article>
           )}
 
-          {permittedTabs.includes('bookings') && (hasMessaging || hasAccounting) && (
-            <article className="glass-card ops-floor-card ops-tile ops-tile--book">
-              <header className="ops-card-head">
-                <Calendar size={16} color="var(--primary-gold)" />
-                <h3>Reservas de canchas</h3>
-              </header>
-              <div className="ops-floor-nums">
-                <div>
-                  <b style={{ color: 'var(--emerald-accent)' }}>{bookings.confirmedUpcoming}</b>
-                  <span>próximas OK</span>
-                </div>
-                <div>
-                  <b style={{ color: '#f59e0b' }}>{bookings.pendingUpcoming}</b>
-                  <span>por confirmar</span>
-                </div>
-                <div>
-                  <b style={{ color: 'var(--primary-gold)' }}>{bookings.todayCount}</b>
-                  <span>hoy</span>
-                </div>
-              </div>
-              {bookings.next.length === 0 ? (
-                <p className="ops-muted" style={{ margin: '0.55rem 0 0' }}>
-                  No hay turnos desde hoy en adelante
-                  {bookings.pastConfirmed > 0 ? ` · ${bookings.pastConfirmed} históricas` : ''}.
-                </p>
-              ) : (
-                <div style={{ marginTop: '0.55rem', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                  {bookings.next.map((res) => (
-                    <div key={res.id || `${reservationDay(res)}-${res.time}`} className="ops-row ops-row--stack">
-                      <strong>{res.facilityName || res.facilityId}</strong>
-                      <span className="ops-muted">
-                        {reservationDay(res)} · {res.time || res.time_slot || '—'} hs · {res.memberName || 'Socio'}
-                        {res.status === 'pending' ? ' · pend.' : ''}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {link('Abrir agenda >', () => goToTab('bookings'))}
-            </article>
-          )}
         </div>
 
         {/* CENTRO — Dinero + acceso físico (el bloque más ancho) */}
@@ -970,44 +1012,53 @@ export default function AdminDashboardTab({
                     )}
                     <h3>{userRole === 'cashier' ? 'Caja' : 'Contabilidad'}</h3>
                   </div>
-                  <span className="ops-month">{monthLabelCap}</span>
+                  <span className="ops-month">{moneyMonthLabel}</span>
                 </header>
 
                 <div className="ops-money-hero">
                   <OpsProgressRing
                     value={liveCollectionRate}
                     tone={collectionTone}
-                    title={`${finance.alDia} de ${finance.activeMembers} socios al día`}
+                    title={lilaMoney
+                      ? `${liveCollectionRate}% recaudado de lo liquidado`
+                      : `${finance.alDia} de ${finance.activeMembers} socios al día`}
                   />
                   <div>
-                    <div className="ops-money-big" style={{ color: debtTotal > 0 ? '#ef4444' : 'var(--text-strong)' }}>
-                      {formatCurrency(debtTotal)}
+                    <div className="ops-money-big" style={{ color: lilaMoney && dueOpen ? 'var(--emerald-accent)' : 'var(--text-strong)' }}>
+                      {formatCurrency(heroAmount)}
                     </div>
-                    <div className="ops-muted">Deuda de cuotas pendiente</div>
-
-                    <div className="ops-money-green">{formatCurrency(collectedMonth)}</div>
-                    <div className="ops-muted" style={{ color: 'var(--emerald-accent)' }}>
-                      Recaudado en {monthLabelCap}
-                    </div>
-
-                    <div className="ops-money-liquid">{formatCurrency(finance.expectedMonth || 0)}</div>
                     <div className="ops-muted">
-                      Liquidado del mes
-                      {finance.expectedMonth > 0 && collectedMonth < finance.expectedMonth ? (
-                        <span>
-                          {' · '}resta {formatCurrency(Math.max(0, finance.expectedMonth - collectedMonth))}
-                        </span>
-                      ) : null}
+                      {heroLabel}
                     </div>
 
-                    <div className="ops-muted" style={{ marginTop: '0.25rem', fontSize: '0.78rem' }}>
-                      Hoy: <strong style={{ color: finance.collectedToday > 0 ? 'var(--emerald-accent)' : 'inherit' }}>
-                        {formatCurrency(finance.collectedToday || 0)}
-                      </strong>
+                    <div className="ops-money-green">{formatCurrency(lilaMoney && dueOpen ? expectedMonth : collectedMonth)}</div>
+                    <div className="ops-muted" style={{ color: 'var(--emerald-accent)' }}>
+                      {lilaMoney && dueOpen
+                        ? `Liquidado en ${moneyMonthLabel}${expectedMonth > collectedMonth ? ` · falta cobrar ${formatCurrency(expectedMonth - collectedMonth)}` : ''}`
+                        : `Recaudado en ${moneyMonthLabel}`}
                     </div>
-                    <div className="ops-muted" style={{ marginTop: '0.35rem', fontSize: '0.72rem' }}>
-                      {finance.alDia}/{finance.activeMembers} socios al día
-                    </div>
+
+                    {lilaMoney ? null : (
+                      <>
+                        <div className="ops-money-liquid">{formatCurrency(expectedMonth || 0)}</div>
+                        <div className="ops-muted">
+                          Liquidado del mes
+                          {expectedMonth > 0 && collectedMonth < expectedMonth ? (
+                            <span>
+                              {' · '}resta {formatCurrency(Math.max(0, expectedMonth - collectedMonth))}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="ops-muted" style={{ marginTop: '0.25rem', fontSize: '0.78rem' }}>
+                          Hoy: <strong style={{ color: finance.collectedToday > 0 ? 'var(--emerald-accent)' : 'inherit' }}>
+                            {formatCurrency(finance.collectedToday || 0)}
+                          </strong>
+                        </div>
+                        <div className="ops-muted" style={{ marginTop: '0.35rem', fontSize: '0.72rem' }}>
+                          {finance.alDia}/{finance.activeMembers} socios al día
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -1015,12 +1066,18 @@ export default function AdminDashboardTab({
                   <span className="ops-cash-ico"><DollarSign size={20} /></span>
                   <span>
                     <strong>{formatCurrency(cashToday)}</strong>
-                    <small>Saldo Caja + Cantina + Banco (asientos)</small>
+                    <small>
+                      {lilaMoney
+                        ? (lilaMoney.added?.cash
+                          ? `LILA al ${lilaMoney.periodTo?.slice(8, 10) || ''}/${lilaMoney.periodTo?.slice(5, 7) || ''} + movimientos desde el 1/10`
+                          : `Total en caja al corte ${lilaMoney.periodTo?.slice(8, 10) || ''}/${lilaMoney.periodTo?.slice(5, 7) || ''}`)
+                        : 'Saldo Caja + Cantina + Banco (asientos)'}
+                    </small>
                   </span>
                   <span className="ops-cash-go">Ver</span>
                 </button>
 
-                {cashSplit.length > 0 ? (
+                {!lilaMoney && cashSplit.length > 0 ? (
                   <div className="ops-cash-split" aria-label="Saldos por caja">
                     {cashSplit.map((row) => (
                       <div key={row.id}>
@@ -1031,30 +1088,30 @@ export default function AdminDashboardTab({
                   </div>
                 ) : null}
 
-                {finance.expectedMonth > 0 ? (
+                {expectedMonth > 0 ? (
                   <div className="ops-month-progress">
                     <div className="ops-block-title ops-block-title--split">
-                      <span>Avance de cuotas · {monthLabelCap}</span>
+                      <span>Avance de cuotas · {moneyMonthLabel}</span>
                       <strong>{monthProgress}%</strong>
                     </div>
                     <div className="ops-month-progress-track" aria-hidden="true">
                       <span style={{ width: `${Math.max(collectedMonth > 0 ? 6 : 0, monthProgress)}%` }} />
                     </div>
                     <p className="ops-muted">
-                      {formatCurrency(collectedMonth)} cobrado de {formatCurrency(finance.expectedMonth)} liquidado
+                      {formatCurrency(collectedMonth)} cobrado de {formatCurrency(expectedMonth)} liquidado
                     </p>
                   </div>
                 ) : null}
 
-                {finance.todayIncomes.length > 0 ? (
+                {todayIncomes.length > 0 ? (
                   <div className="ops-block" style={{ marginTop: '0.85rem' }}>
                     <div className="ops-block-title ops-block-title--split">
                       <span>Ingresos de hoy</span>
                       <strong style={{ color: 'var(--emerald-accent)' }}>
-                        {formatCurrency(finance.collectedToday)}
+                        {formatCurrency(todayIncomes.reduce((s, row) => s + (Number(row.amount) || 0), 0))}
                       </strong>
                     </div>
-                    {finance.todayIncomes.map((row) => (
+                    {todayIncomes.map((row) => (
                       <div key={`today-${row.id}`} className="ops-row">
                         <span className="ops-ellipsis">{row.label}</span>
                         <strong style={{ color: 'var(--emerald-accent)' }}>{formatCurrency(row.amount)}</strong>
@@ -1065,7 +1122,7 @@ export default function AdminDashboardTab({
 
                 {finance.recentIncomes.length > 0 ? (
                   <div className="ops-block" style={{ marginTop: '0.85rem' }}>
-                    <div className="ops-block-title">Últimos ingresos · {monthLabelCap}</div>
+                    <div className="ops-block-title">Últimos ingresos · {moneyMonthLabel}</div>
                     {finance.recentIncomes.map((row) => (
                       <div key={row.id} className="ops-row">
                         <span className="ops-ellipsis">
@@ -1078,7 +1135,7 @@ export default function AdminDashboardTab({
                   </div>
                 ) : (
                   <p className="ops-muted" style={{ margin: '0.7rem 0 0' }}>
-                    Todavía no hay cobros cargados en {monthLabelCap}.
+                    Todavía no hay cobros cargados en {moneyMonthLabel}.
                   </p>
                 )}
 
@@ -1145,23 +1202,6 @@ export default function AdminDashboardTab({
                   <button type="button" className="ops-outline-btn" onClick={() => goToTab('accounting', 'suppliers')}>+ Proveedores</button>
                 </div>
               </article>
-
-              {hasOpenConcessionAlerts ? (
-                <div className="ops-tile ops-tile--concessions">
-                  <AlertsBanner
-                    alerts={alerts}
-                    alertAcks={alertAcks}
-                    userRole={userRole}
-                    onAck={onAckAlert}
-                    onlySources={['concession_expiry', 'concession_docs']}
-                    maxItems={5}
-                    style={{ marginBottom: 0, marginTop: 0 }}
-                  />
-                  <Link to="/concesiones" className="ops-dash-link">
-                    Gestionar concesiones
-                  </Link>
-                </div>
-              ) : null}
             </>
           ) : (
             <>
@@ -1193,11 +1233,11 @@ export default function AdminDashboardTab({
                     <Users size={16} color="var(--primary-gold)" />
                     <h3>Padrón</h3>
                   </div>
-                  <span className="ops-padron-total">{household.titulares.toLocaleString('es-AR')}</span>
+                  <span className="ops-padron-total">{household.titularesActivos.toLocaleString('es-AR')}</span>
                 </header>
                 <div className="ops-padron-kpis" aria-label="Resumen de hogares">
                   <div>
-                    <b>{household.titulares.toLocaleString('es-AR')}</b>
+                    <b>{household.titularesActivos.toLocaleString('es-AR')}</b>
                     <span>Titulares</span>
                   </div>
                   <div>
@@ -1205,7 +1245,7 @@ export default function AdminDashboardTab({
                     <span>Grupos</span>
                   </div>
                   <div>
-                    <b>{household.integrantes.toLocaleString('es-AR')}</b>
+                    <b>{household.integrantesActivos.toLocaleString('es-AR')}</b>
                     <span>Integrantes</span>
                   </div>
                 </div>
@@ -1299,7 +1339,7 @@ export default function AdminDashboardTab({
                 <div className="ops-stats-grid">
                   <button type="button" className="ops-stat ops-stat--a" onClick={() => goToTab('members')}>
                     <Users size={15} strokeWidth={2.1} aria-hidden="true" />
-                    <b className="tabular-nums">{household.titulares.toLocaleString('es-AR')}</b>
+                    <b className="tabular-nums">{household.titularesActivos.toLocaleString('es-AR')}</b>
                     <span>Titulares</span>
                   </button>
                   <button type="button" className="ops-stat ops-stat--b" onClick={() => goToTab('members')}>
@@ -1368,60 +1408,6 @@ export default function AdminDashboardTab({
             </button>
           )}
 
-          {(permittedTabs.includes('news') || (permittedTabs.includes('events') && nextEvent && hasAccounting) || (permittedTabs.includes('claims') && hasAccounting)) && (
-            <article className="glass-card ops-floor-card ops-tile ops-tile--revista">
-              {permittedTabs.includes('news') && (
-                <div className="ops-floor-section">
-                  <header className="ops-card-head">
-                    <Newspaper size={16} color="var(--primary-gold)" />
-                    <h3>Revista</h3>
-                  </header>
-                  {featuredNews ? (
-                    <button
-                      type="button"
-                      className="ops-news-teaser ops-news-teaser--compact"
-                      onClick={() => goToTab('news')}
-                    >
-                      {featuredNews.image ? (
-                        <img src={featuredNews.image} alt="" className="ops-news-thumb" />
-                      ) : (
-                        <span className="ops-news-thumb ops-news-thumb--empty" aria-hidden="true" />
-                      )}
-                      <span className="ops-news-meta">
-                        <em>{newsCategoryLabel(featuredNews.category)}</em>
-                        <strong>{featuredNews.title}</strong>
-                        <small>{featuredNews.excerpt || featuredNews.date || 'Última publicación'}</small>
-                      </span>
-                      <ExternalLink size={14} aria-hidden="true" />
-                    </button>
-                  ) : (
-                    <p className="ops-muted">Todavía no hay notas en la revista digital.</p>
-                  )}
-                  {link('Abrir CMS >', () => goToTab('news'))}
-                </div>
-              )}
-
-              {permittedTabs.includes('events') && nextEvent && hasAccounting && (
-                <div className="ops-floor-section">
-                  <header className="ops-card-head">
-                    <PartyPopper size={16} color="var(--primary-gold)" />
-                    <h3>Próxima fiesta</h3>
-                  </header>
-                  <strong style={{ fontSize: '0.88rem' }}>{nextEvent.title}</strong>
-                  <p className="ops-muted" style={{ margin: '0.25rem 0 0.5rem' }}>
-                    {new Date(nextEvent.startsAt).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })}
-                  </p>
-                  {link('Eventos >', () => goToTab('events'))}
-                </div>
-              )}
-
-              {permittedTabs.includes('claims') && hasAccounting && (
-                <button type="button" className="ops-chip ops-chip--block" onClick={() => goToTab('claims')}>
-                  <MessageSquare size={15} /> {pendingClaimsCount} reclamos abiertos
-                </button>
-              )}
-            </article>
-          )}
         </div>
       </section>
 

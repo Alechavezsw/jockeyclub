@@ -7,32 +7,20 @@ import {
   loadClubLogoDataUrl,
 } from '../reports/pdfBrand';
 import { requireSnapshots } from '../../data/snapshots';
-import {
-  familyGroupBalancesSeed,
-  normalizeFamilyGroupKey,
-} from './familyGroupBalances';
+import { familyGroupBalancesSeed, listFamilyGroupBalances } from './familyGroupBalances';
 
 function money(n) {
   return `$ ${Number(n || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export function listFamilyGroupBalancesForReport({ query = '' } = {}) {
-  const q = normalizeFamilyGroupKey(query);
-  const seen = new Set();
-  const groups = [];
-  Object.values(familyGroupBalancesSeed().ACCESSIN_FAMILY_GROUP_BALANCES_BY_NAME || {}).forEach((g) => {
-    if (!g || seen.has(g.key)) return;
-    seen.add(g.key);
-    if (q && !g.key.includes(q) && !String(g.name || '').toLowerCase().includes(query.toLowerCase())) return;
-    groups.push(g);
-  });
-  return groups.toSorted((a, b) => Math.abs(b.total) - Math.abs(a.total) || a.name.localeCompare(b.name));
+export function listFamilyGroupBalancesForReport({ query = '', onlyWithBalance = false, sign = 'all' } = {}) {
+  return listFamilyGroupBalances({ query, onlyWithBalance, sign });
 }
 
-export async function exportFamilyGroupBalancesPdf({ query = '' } = {}) {
+export async function exportFamilyGroupBalancesPdf({ query = '', onlyWithBalance = false, sign = 'all' } = {}) {
   await requireSnapshots(['accessinFamilyGroupBalances']);
   const snapshot = familyGroupBalancesSeed().ACCESSIN_FAMILY_GROUP_BALANCES_SNAPSHOT;
-  const groups = listFamilyGroupBalancesForReport({ query });
+  const groups = listFamilyGroupBalances({ query, onlyWithBalance, sign });
   const [{ jsPDF }, autoTableMod, logoDataUrl] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),

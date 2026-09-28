@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Store, AlertTriangle, CheckCircle2, Clock, Plus, RefreshCw, Ban, Search,
   CalendarDays, FileText, Download, Receipt, ClipboardList, KeyRound, Link2, Upload,
@@ -64,6 +65,7 @@ export default function ConcessionsTab({
   recordCanonPayment,
   renewedBy = 'admin',
 }) {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [section, setSection] = useState('contratos');
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
@@ -109,6 +111,21 @@ export default function ConcessionsTab({
 
   const progress = selected ? checklistProgress(selected) : null;
   const missingDocs = selected ? missingRequiredDocuments(selected) : [];
+
+  useEffect(() => {
+    const id = searchParams.get('id') || searchParams.get('concession');
+    if (!id) return undefined;
+    if (!concessions.some((row) => String(row.id) === String(id))) return undefined;
+    setSelectedId(id);
+    setSearchParams((prev) => {
+      if (!prev.get('id') && !prev.get('concession')) return prev;
+      const next = new URLSearchParams(prev);
+      next.delete('id');
+      next.delete('concession');
+      return next;
+    }, { replace: true });
+    return undefined;
+  }, [concessions, searchParams, setSearchParams]);
 
   // Si faltan docs obligatorios, abrir esa pestaña al elegir la concesión
   useEffect(() => {

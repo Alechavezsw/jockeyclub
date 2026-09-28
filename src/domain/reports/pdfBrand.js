@@ -26,6 +26,18 @@ export async function loadClubLogoDataUrl() {
   }
 }
 
+/** Pastilla crema para que el logo no se pierda sobre la barra verde. */
+export function drawLogoPastilla(doc, logoDataUrl, { x = 8, y = 3.4, size = 18 } = {}) {
+  const pad = 2.1;
+  const box = size + pad * 2;
+  doc.setFillColor(255, 250, 244);
+  doc.roundedRect(x, y, box, box, 6.2, 6.2, 'F');
+  if (logoDataUrl) {
+    doc.addImage(logoDataUrl, 'PNG', x + pad, y + pad, size, size);
+  }
+  return { width: box, height: box, textX: x + box + 4 };
+}
+
 /**
  * Encabezado institucional con logo.
  * @returns {number} coordenada Y sugerida para el contenido
@@ -38,32 +50,25 @@ export function drawReportHeader(doc, {
 } = {}) {
   const pageW = doc.internal.pageSize.getWidth();
   doc.setFillColor(...BRAND.green);
-  doc.rect(0, 0, pageW, 28, 'F');
+  doc.rect(0, 0, pageW, 30, 'F');
 
   let textX = 14;
   if (logoDataUrl) {
     try {
-      doc.addImage(logoDataUrl, 'PNG', 10, 4, 20, 20);
-      textX = 34;
+      textX = drawLogoPastilla(doc, logoDataUrl).textX;
     } catch {
       /* logo opcional */
     }
   }
 
-  doc.setTextColor(...BRAND.gold);
+  doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(14);
-  doc.text(CLUB_NAME, textX, 11);
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
-  doc.setTextColor(230, 230, 220);
-  doc.text(CLUB_SEDE, textX, 17);
+  doc.text(CLUB_NAME, textX, 13);
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
-  doc.setTextColor(255, 255, 255);
-  doc.text(title || 'Informe', textX, 24);
+  doc.text(title || 'Informe', textX, 22);
 
   let y = 34;
   if (subtitle) {
@@ -99,7 +104,7 @@ export function drawReportFooter(doc) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(...BRAND.muted);
-    doc.text(`${CLUB_NAME} · ${CLUB_SEDE}`, 14, h - 7);
+    doc.text(CLUB_NAME, 14, h - 7);
     doc.text(`Página ${i} de ${pageCount}`, w - 14, h - 7, { align: 'right' });
   }
 }

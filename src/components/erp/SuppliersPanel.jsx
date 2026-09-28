@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Truck, Search, Ban, CheckCircle2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { suppliersSeed } from '../../domain/accounting/suppliersSeed';
 import { useSnapshotSeed } from '../../hooks/useSnapshots';
@@ -59,6 +60,7 @@ export default function SuppliersPanel({
   onNavigate,
 }) {
   const { ACCESSIN_SUPPLIERS_AS_OF } = useSnapshotSeed(['accessinSuppliers'], suppliersSeed);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [view, setView] = useState('padron'); // padron | import
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -145,6 +147,21 @@ export default function SuppliersPanel({
     setError('');
     setOk('');
   };
+
+  useEffect(() => {
+    const id = searchParams.get('supplier');
+    if (!id) return undefined;
+    const hit = suppliers.find((row) => String(row.id) === String(id));
+    if (!hit) return undefined;
+    startEdit(hit);
+    setSearchParams((prev) => {
+      if (!prev.get('supplier')) return prev;
+      const next = new URLSearchParams(prev);
+      next.delete('supplier');
+      return next;
+    }, { replace: true });
+    return undefined;
+  }, [searchParams, setSearchParams, suppliers]);
 
   const onSubmit = (e) => {
     e.preventDefault();

@@ -15,7 +15,8 @@ beforeAll(async () => {
 });
 
 describe('supplierPaymentsReport Accessin', () => {
-  it('refleja el reporte LILA (hoy vacío)', () => {
+  it('refleja el reporte LILA del 26 de septiembre (sin pagos)', () => {
+    expect(ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT.asOf).toBe('2026-09-26');
     expect(ACCESSIN_SUPPLIER_PAYMENTS).toEqual([]);
     expect(ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT.totalAmount).toBe(0);
     expect(ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT.count).toBe(0);

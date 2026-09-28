@@ -1,17 +1,42 @@
 /**
  * Genera seed de cobranzas Accessin/LILA.
- * Source: datita/contabilidad/reportes de cobranzas/Reporte de Cobranzas - 2026-09-02.xlsx
+ * Toma el Excel más nuevo entre Avtualizacion/Contabilidad/reporte
+ * y el corte histórico.
  */
 const XLSX = require('xlsx');
 const fs = require('fs');
 const path = require('path');
 
-const excelPath = path.join(
-  __dirname,
-  '../datita/contabilidad/reportes de cobranzas/Reporte de Cobranzas - 2026-09-02.xlsx'
-);
+const sourceDirs = [
+  path.join(__dirname, '../datita/Avtualizacion/Contabilidad/reporte'),
+  path.join(__dirname, '../datita/contabilidad/reportes de cobranzas'),
+];
 const outDir = path.join(__dirname, '../src/data/seed');
 const outFile = path.join(outDir, 'accessinCobranzas.js');
+
+function collectCobranzasExcels() {
+  const files = [];
+  for (const dir of sourceDirs) {
+    if (!fs.existsSync(dir)) continue;
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.endsWith('.xlsx') || name.startsWith('~$')) continue;
+      if (!/Reporte de Cobranzas/i.test(name)) continue;
+      const full = path.join(dir, name);
+      const dated = name.match(/(\d{4}-\d{2}-\d{2})/);
+      files.push({
+        name,
+        full,
+        date: dated ? dated[1] : '',
+        mtime: fs.statSync(full).mtimeMs,
+      });
+    }
+  }
+  return files.toSorted((a, b) => String(b.date).localeCompare(String(a.date)) || b.mtime - a.mtime);
+}
+
+const picked = collectCobranzasExcels()[0];
+if (!picked) throw new Error('No hay Excel de Reporte de Cobranzas');
+const excelPath = picked.full;
 
 function excelDateToIso(serial) {
   if (serial == null || serial === '') return null;
@@ -124,9 +149,11 @@ cobranzas.sort((a, b) => {
   return String(b.receiptId || '').localeCompare(String(a.receiptId || ''));
 });
 
+const asOf = picked.date || maxDate || '';
 const snapshot = {
-  asOf: '2026-09-02',
-  generatedAt: '2026-09-02T00:00:00.000Z',
+  asOf,
+  fileName: picked.name,
+  generatedAt: asOf ? `${asOf}T00:00:00.000Z` : '',
   periodFrom: minDate,
   periodTo: maxDate,
   count: cobranzas.length,
@@ -140,14 +167,19 @@ const snapshot = {
 };
 
 fs.mkdirSync(outDir, { recursive: true });
-const js = `/** Cobranzas Accessin/LILA (ago–sep 2026). Auto-generado — no editar a mano. */
-export const ACCESSIN_COBRANZAS_AS_OF = '2026-09-02';
+const js = `/** Cobranzas Accessin/LILA ${asOf}. Auto-generado — no editar a mano. */
+export const ACCESSIN_COBRANZAS_AS_OF = ${JSON.stringify(asOf)};
 export const ACCESSIN_COBRANZAS_METHOD_LABELS = ${JSON.stringify(METHOD_LABELS, null, 2)};
 export const ACCESSIN_COBRANZAS_SNAPSHOT = ${JSON.stringify(snapshot, null, 2)};
 export const ACCESSIN_COBRANZAS = ${JSON.stringify(cobranzas)};
 `;
 fs.writeFileSync(outFile, js);
 console.log(`Wrote ${cobranzas.length} cobranzas, total ${snapshot.totalAmount} -> ${outFile}`);
-console.log('period', minDate, '->', maxDate);
-console.log('byType', snapshot.byType);
-console.log('byMethod', snapshot.byMethod);
+console.log(JSON.stringify({
+  fileName: picked.name,
+  asOf,
+  periodFrom: minDate,
+  periodTo: maxDate,
+  byType: snapshot.byType,
+  byMethod: snapshot.byMethod,
+}, null, 2));

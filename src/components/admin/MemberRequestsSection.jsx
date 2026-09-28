@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, QrCode } from 'lucide-react';
+import JoinClubPlaque from './JoinClubPlaque';
+import { publicJoinUrl } from '../../domain/members/selfService';
 import {
   accessReasonLabel,
   buildRequestDetail,
@@ -34,6 +36,8 @@ export default function MemberRequestsSection({
   const [invite, setInvite] = useState(null);
   const [invitesById, setInvitesById] = useState({});
   const [deliverError, setDeliverError] = useState('');
+  const [plaqueOpen, setPlaqueOpen] = useState(false);
+  const joinUrl = publicJoinUrl();
 
   useEffect(() => {
     if (openJoinInbox) setView('alta');
@@ -195,16 +199,28 @@ export default function MemberRequestsSection({
       className="membership-moves member-requests"
       id="member-requests-title"
       title="Solicitudes"
-      subtitle={`Pedidos del formulario público · ${pendingAccess.length} accesos · ${pendingJoin.length} ingresos`}
+      subtitle="Pedidos del formulario público"
+      count={(pendingAccess.length + pendingJoin.length).toLocaleString('es-AR')}
       defaultOpen={pendingAccess.length + pendingJoin.length > 0}
       storageKey="solicitudes"
       forceOpen={openJoinInbox}
       extra={(
         <div className="membership-moves-tabs">
-          <Link to="/registro?tramite=alta" className="member-requests-public">
-            <ExternalLink size={13} aria-hidden="true" />
-            Link público
-          </Link>
+          <div className="member-requests-public-wrap">
+            <Link to="/registro?tramite=alta" className="member-requests-public">
+              <ExternalLink size={13} aria-hidden="true" />
+              Link público
+            </Link>
+            <button
+              type="button"
+              className="member-requests-public member-requests-qr"
+              onClick={() => setPlaqueOpen(true)}
+              title="QR y placa para pegar"
+            >
+              <QrCode size={13} aria-hidden="true" />
+              Placa
+            </button>
+          </div>
           <button
             type="button"
             className={view === 'acceso' ? 'is-on' : ''}
@@ -377,6 +393,7 @@ export default function MemberRequestsSection({
           closeDetail();
         } : undefined}
       />
+      <JoinClubPlaque open={plaqueOpen} onClose={() => setPlaqueOpen(false)} url={joinUrl} />
     </>
   );
 }

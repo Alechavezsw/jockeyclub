@@ -99,9 +99,29 @@ export function AuthProvider({ children }) {
       if (!mounted) return;
 
       if (event === 'SIGNED_OUT') {
-        setAuthUser(null);
-        setUser(null);
-        setLoading(false);
+        // El SDK a veces dispara SIGNED_OUT por un hipo transitorio al refrescar
+        // el token (red, pestaña recién reactivada) aunque la sesión siga viva.
+        // Confirmamos con getSession() antes de cerrar de verdad la sesión en la
+        // app; el setTimeout es necesario porque await-ear supabase.* dentro de
+        // este callback sincrónico produce un deadlock (ver comentario arriba).
+        setTimeout(() => {
+          if (!mounted) return;
+          supabase.auth.getSession().then(({ data }) => {
+            if (!mounted) return;
+            if (data?.session?.user) {
+              setAuthUser(data.session.user);
+              return;
+            }
+            setAuthUser(null);
+            setUser(null);
+            setLoading(false);
+          }).catch(() => {
+            if (!mounted) return;
+            setAuthUser(null);
+            setUser(null);
+            setLoading(false);
+          });
+        }, 0);
         return;
       }
 

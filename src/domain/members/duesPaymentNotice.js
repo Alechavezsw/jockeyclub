@@ -61,6 +61,31 @@ export function duesPaymentNotice({
   return msg;
 }
 
+/** Recibo de cuota cobrada por administración, al buzón del socio. */
+export function duesReceiptMessage({ member, payment, attachment }) {
+  const who = String(member?.name || 'Socio').trim();
+  const money = payment?.amount != null ? `Importe: $ ${Number(payment.amount).toLocaleString('es-AR')}` : '';
+  const lines = [
+    `Hola ${who}, registramos tu pago de ${payment?.concept || 'cuota social'}.`,
+    money,
+    payment?.date ? `Fecha: ${payment.date}` : '',
+    payment?.receiptNumber || payment?.receipt ? `Comprobante: ${payment.receiptNumber || payment.receipt}` : '',
+  ];
+
+  const msg = createMessage({
+    sender: 'Administración',
+    senderId: MAILBOX.OPERATIONS,
+    recipientId: member?.memberId,
+    subject: 'Recibo de pago de cuota',
+    content: lines.filter(Boolean).join('\n'),
+  });
+  msg.meta = {
+    kind: 'dues_receipt',
+    ...(attachment ? { attachment } : {}),
+  };
+  return msg;
+}
+
 /** Mismo aviso a administración, para el pago de un turno. */
 export function bookingPaymentNotice({
   memberName,

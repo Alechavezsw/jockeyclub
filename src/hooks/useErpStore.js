@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { isSupabaseConfigured } from '../lib/supabase';
 import * as repos from '../data/repos';
-import { DEFAULT_CHART_OF_ACCOUNTS } from '../domain/accounting/chartOfAccounts';
+import { DEFAULT_CHART_OF_ACCOUNTS, resolveAccountId } from '../domain/accounting/chartOfAccounts';
 import {
   DEFAULT_CASH_REGISTERS,
   openCashSession,
@@ -9,6 +9,7 @@ import {
   buildCashMovementEntry,
   buildCashTransferEntry,
   getOpenSession,
+  pickGeneralCashRegister,
 } from '../domain/accounting/cash';
 import { loadSnapshots } from '../data/snapshots';
 import { cashMovementsSeed, cashSeed, chequesSeed } from '../domain/accounting/cashLedger';
@@ -609,6 +610,60 @@ export default function useErpStore({
       return movement;
     },
     [cashSessions, cashRegisters, chartOfAccounts, setJournalEntries, userId]
+  );
+
+  const recordPoolCanon = useCallback(
+    async ({ amount, concept, memberDbId, date }) => {
+      const fee = Number(amount);
+      if (!fee || fee <= 0) throw new Error('Importe de canon inválido.');
+      const incomeAccountId = resolveAccountId(chartOfAccounts, 'Reservas e Instalaciones');
+      if (!incomeAccountId) throw new Error('Falta la cuenta Reservas e Instalaciones en el plan.');
+      const register = pickGeneralCashRegister(cashRegisters, chartOfAccounts);
+      if (!register) throw new Error('No hay Caja General configurada.');
+      const session = getOpenSession(cashSessions, register.id);
+      if (!session) throw new Error('Abrí la Caja General para cobrar el canon de pileta.');
+      const entry = buildPostedEntry({
+        date: date || new Date().toISOString().slice(0, 10),
+        description: String(concept || 'Canon pileta').trim(),
+        lines: [
+          { accountId: register.accountId, debit: fee, credit: 0 },
+          { accountId: incomeAccountId, debit: 0, credit: fee },
+        ],
+        sourceModule: 'pileta',
+        chart: chartOfAccounts,
+      });
+      if (cloud()) {
+        const savedEntry = await repos.insertJournalEntry(entry, { createdBy: userId });
+        const movement = await repos.insertCashMovement({
+          cashSessionId: session.id,
+          movementType: 'income',
+          amount: fee,
+          concept: entry.description,
+          relatedAccountId: incomeAccountId,
+          memberDbId: memberDbId || null,
+          journalEntryId: savedEntry.id,
+          createdBy: userId,
+        });
+        setCashMovements((prev) => [movement, ...prev]);
+        setJournalEntries((prev) => [savedEntry, ...prev]);
+        return { journalEntry: savedEntry, movement };
+      }
+      const movement = {
+        id: `cm-${Date.now()}`,
+        cashSessionId: session.id,
+        movementType: 'income',
+        amount: fee,
+        concept: entry.description,
+        relatedAccountId: incomeAccountId,
+        memberId: memberDbId || null,
+        journalEntryId: entry.id,
+        createdAt: new Date().toISOString(),
+      };
+      setCashMovements((prev) => [movement, ...prev]);
+      setJournalEntries((prev) => [entry, ...prev]);
+      return { journalEntry: entry, movement };
+    },
+    [cashRegisters, cashSessions, chartOfAccounts, setJournalEntries, userId]
   );
 
   const transferCash = useCallback(
@@ -1446,6 +1501,7 @@ export default function useErpStore({
     openRegister,
     closeRegister,
     addCashMovement,
+    recordPoolCanon,
     transferCash,
     submitExpense,
     setExpenseApproved,

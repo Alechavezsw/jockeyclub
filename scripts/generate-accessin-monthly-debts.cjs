@@ -1,12 +1,15 @@
 /**
  * Genera seed de deudas mes a mes / morosos (Accessin/LILA).
- * Source: datita/contabilidad/saldos/deudas mes a mes/*.xlsx
+ * Toma el Excel más nuevo entre el corte histórico y la carpeta de actualización.
  */
 const XLSX = require('xlsx');
 const fs = require('fs');
 const path = require('path');
 
-const dir = path.join(__dirname, '../datita/contabilidad/saldos/deudas mes a mes');
+const sourceDirs = [
+  path.join(__dirname, '../datita/Avtualizacion/Contabilidad/socios/mes a mes'),
+  path.join(__dirname, '../datita/contabilidad/saldos/deudas mes a mes'),
+];
 const outFile = path.join(__dirname, '../src/data/seed/accessinMonthlyDebts.js');
 
 const MONTHS = {
@@ -86,11 +89,21 @@ function ensureMember(map, nro, base = {}) {
   return map[nro];
 }
 
-const files = fs.readdirSync(dir).filter((f) => f.endsWith('.xlsx') && /Morosos|deuda/i.test(f));
-if (!files.length) throw new Error('No hay Excel de deudas mes a mes');
+const candidates = [];
+for (const dir of sourceDirs) {
+  if (!fs.existsSync(dir)) continue;
+  for (const name of fs.readdirSync(dir)) {
+    if (!name.endsWith('.xlsx') || !/Morosos|deuda/i.test(name)) continue;
+    const full = path.join(dir, name);
+    const dated = name.match(/(\d{4}-\d{2}-\d{2})/);
+    candidates.push({ name, full, date: dated ? dated[1] : '', mtime: fs.statSync(full).mtimeMs });
+  }
+}
+candidates.sort((a, b) => b.date.localeCompare(a.date) || b.mtime - a.mtime);
+if (!candidates.length) throw new Error('No hay Excel de deudas mes a mes');
 
-const fileName = files.sort().reverse()[0];
-const wb = XLSX.readFile(path.join(dir, fileName));
+const fileName = candidates[0].name;
+const wb = XLSX.readFile(candidates[0].full);
 
 const byNumber = {};
 let asOfLabel = '';

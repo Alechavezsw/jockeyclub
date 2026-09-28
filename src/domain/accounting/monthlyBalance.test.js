@@ -23,16 +23,16 @@ function lineByLabel(sectionId, re) {
 }
 
 describe('balance mensual LILA', () => {
-  it('arma las cards del snapshot de agosto 2026', () => {
+  it('arma las cards del snapshot de septiembre 2026', () => {
     const cards = monthlyBalanceCards();
-    expect(ACCESSIN_MONTHLY_BALANCE_AS_OF).toBe('2026-08-31');
-    expect(cards.periodFrom).toBe('2026-08-01');
-    expect(cards.periodTo).toBe('2026-08-31');
-    expect(cards.totalIncome).toBe(55669509.02);
-    expect(cards.totalIncomeCash).toBe(61716509.02);
+    expect(ACCESSIN_MONTHLY_BALANCE_AS_OF).toBe('2026-09-30');
+    expect(cards.periodFrom).toBe('2026-09-01');
+    expect(cards.periodTo).toBe('2026-09-30');
+    expect(cards.totalIncome).toBe(58958673.76);
+    expect(cards.totalIncomeCash).toBe(63155673.76);
     expect(cards.totalExpenses).toBe(0);
-    expect(cards.cashOnHand).toBe(680356959.84);
-    expect(cards.closingCash).toBe(742073468.86);
+    expect(cards.cashOnHand).toBe(742008468.86);
+    expect(cards.closingCash).toBe(805164142.62);
     expect(cards.complete).toBe(true);
     expect(cards.sourceFolder).toMatch(/general/i);
   });

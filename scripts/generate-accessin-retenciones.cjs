@@ -2,12 +2,27 @@ const XLSX = require('xlsx');
 const fs = require('fs');
 const path = require('path');
 
-const excelPath = path.join(
-  __dirname,
-  '../datita/contabilidad/cc proveedores/retenciones/Resumen Retenciones 2026-09-02.xlsx'
-);
+const sourceDirs = [
+  path.join(__dirname, '../datita/contabilidad/cc proveedores/retenciones'),
+  path.join(__dirname, '../datita/Avtualizacion/Contabilidad/retenciones'),
+];
 const outDir = path.join(__dirname, '../src/data/seed');
 const outFile = path.join(outDir, 'accessinRetenciones.js');
+
+function latestWorkbook() {
+  const found = [];
+  for (const dir of sourceDirs) {
+    if (!fs.existsSync(dir)) continue;
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.endsWith('.xlsx') || name.startsWith('~$')) continue;
+      if (!/resumen retenciones/i.test(name)) continue;
+      found.push(path.join(dir, name));
+    }
+  }
+  found.sort((a, b) => path.basename(a).localeCompare(path.basename(b)));
+  if (!found.length) throw new Error('No hay Excel de retenciones');
+  return found[found.length - 1];
+}
 
 function parseSpanishDate(text) {
   const m = String(text || '').match(/(\d{1,2})\s+de\s+(\w+)\s+del?\s+(\d{4})/i);
@@ -37,6 +52,8 @@ function excelDateToIso(v) {
   return s;
 }
 
+const excelPath = latestWorkbook();
+const fileDate = (path.basename(excelPath).match(/(\d{4}-\d{2}-\d{2})/) || [])[1] || '';
 const wb = XLSX.readFile(excelPath);
 const sheet = wb.Sheets['Detalle'] || wb.Sheets[wb.SheetNames[0]];
 const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
@@ -52,7 +69,7 @@ let generatedAt = '';
 for (let i = 0; i < headerIdx; i += 1) {
   const t = rows[i] && rows[i][1] != null ? String(rows[i][1]) : '';
   if (/Generado/i.test(t)) {
-    generatedAt = parseSpanishDate(t) || '2026-09-02';
+    generatedAt = parseSpanishDate(t) || fileDate;
   }
   if (/Desde/i.test(t)) periodFrom = parseSpanishDate(t) || '';
   if (/Hasta/i.test(t)) periodTo = parseSpanishDate(t) || '';
@@ -84,22 +101,21 @@ for (let i = headerIdx + 1; i < rows.length; i += 1) {
     retentionAmount,
     status: 'recorded',
     source: 'accessin',
-    asOf: periodTo || '2026-09-02',
-    createdAt: '2026-09-02T15:39:00.000Z',
+    asOf: periodTo || fileDate,
+    createdAt: generatedAt ? `${generatedAt}T12:00:00.000Z` : new Date().toISOString(),
   });
 }
 
 fs.mkdirSync(outDir, { recursive: true });
 const js = [
   '/** Retenciones Accessin (Resumen). Auto-generado — no editar a mano. */',
-  `export const ACCESSIN_RETENCIONES_AS_OF = '${periodTo || '2026-09-02'}';`,
+  `export const ACCESSIN_RETENCIONES_AS_OF = '${periodTo || fileDate}';`,
   `export const ACCESSIN_RETENCIONES_PERIOD_FROM = '${periodFrom || ''}';`,
   `export const ACCESSIN_RETENCIONES_PERIOD_TO = '${periodTo || ''}';`,
-  `export const ACCESSIN_RETENCIONES_GENERATED_ON = '${generatedAt || periodTo || '2026-09-02'}';`,
+  `export const ACCESSIN_RETENCIONES_GENERATED_ON = '${generatedAt || periodTo || fileDate}';`,
   '',
   `export const ACCESSIN_RETENCIONES = ${JSON.stringify(items, null, 2)};`,
   '',
 ].join('\n');
 fs.writeFileSync(outFile, js);
-console.log(`Wrote ${items.length} retenciones -> ${outFile}`);
-console.log(`Period ${periodFrom} .. ${periodTo}`);
+console.log(`Wrote ${items.length} retenciones (${periodFrom} a ${periodTo}) desde ${path.basename(excelPath)}`);

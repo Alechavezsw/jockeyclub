@@ -1,7 +1,10 @@
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import {
-  ArrowLeft, Eye, FileText, Lock, Plus, Printer, Search, Share2, Trash2, Wallet,
+  ArrowLeft, Eye, FileDown, FileText, LifeBuoy, Lock, Plus, Search, Share2, Trash2,
 } from 'lucide-react';
+import CuotasDeskToolbar, { CuotasTool } from './CuotasDeskToolbar';
+import { exportAccountPaymentPdf } from '../../domain/accounting/exportAccountPaymentPdf';
+import { exportPaymentBoletoPdf } from '../../domain/accounting/exportPaymentBoleto';
 import { getActiveTiers } from '../../domain/members/tiers';
 import { memberNumberOf, resolveFamilyForDisplay } from '../../domain/members/households';
 import {
@@ -11,6 +14,8 @@ import {
   buildPaymentBoleto,
   applyAccountEntryToMember,
   createAccountEntry,
+  entriesFromGroupLines,
+  entriesFromSupportLines,
   familyBalanceForMember,
   filterMembersForBalances,
   formatSpanishLongDate,
@@ -25,6 +30,8 @@ import {
 } from '../../domain/accounting/currentAccountBalances';
 import { lookupMonthlyDebt } from '../../domain/accounting/monthlyDebts';
 import { useSnapshotSeed } from '../../hooks/useSnapshots';
+import { listGroupAccountLedger, listMemberAccountSupport } from '../../data/repos';
+import { isSupabaseConfigured } from '../../lib/supabase';
 import SnapshotGate from '../SnapshotGate';
 
 const SNAPSHOTS = [...MEMBER_BALANCES_SNAPSHOTS, 'accessinMonthlyDebts'];
@@ -59,6 +66,7 @@ function MemberBalancesContent({
   onUpsertEntry,
   onDeleteEntry,
   onBack,
+  onGoView,
   onGoImportCollections,
   onGoImportDebts,
   onGoImputeEvents,
@@ -76,8 +84,10 @@ function MemberBalancesContent({
   const [page, setPage] = useState(0);
   const [selectedMember, setSelectedMember] = useState(null);
   const [selectedEntry, setSelectedEntry] = useState(null);
-  const [monthsBack, setMonthsBack] = useState(3);
-  const [summaryMode, setSummaryMode] = useState('member'); // member | family
+  const [monthsBack, setMonthsBack] = useState(4);
+  const [summaryMode, setSummaryMode] = useState('member'); // member | family | support
+  const [ledger, setLedger] = useState({ status: 'idle', titular: '', account: null });
+  const [support, setSupport] = useState({ status: 'idle', titular: '', account: null });
   const [boleto, setBoleto] = useState(null);
   const [entryForm, setEntryForm] = useState({
     type: 'pago',
@@ -90,6 +100,15 @@ function MemberBalancesContent({
   });
   const [entryQuery, setEntryQuery] = useState('');
   const [error, setError] = useState('');
+  const [exportBusy, setExportBusy] = useState('');
+
+  const goDesk = (next) => {
+    if (next === 'balances') return;
+    if (typeof onGoView === 'function') onGoView(next);
+    else if (next === 'monthly_debts') onGoImportDebts?.();
+    else if (next === 'import_collections') onGoImportCollections?.();
+    else if (next === 'impute_events') onGoImputeEvents?.();
+  };
 
   const entrySuggestions = useMemo(() => {
     const q = entryQuery.trim();
@@ -116,14 +135,71 @@ function MemberBalancesContent({
   const safePage = Math.min(page, totalPages - 1);
   const pageRows = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
 
+  const ledgerTitular = useMemo(
+    () => (selectedMember ? memberNumberOf(selectedMember) : ''),
+    [selectedMember]
+  );
+
+  useEffect(() => {
+    if (view !== 'summary' || !ledgerTitular || !isSupabaseConfigured) return undefined;
+    let cancel = false;
+    setLedger({ status: 'loading', titular: ledgerTitular, account: null });
+    listGroupAccountLedger(ledgerTitular)
+      .then((account) => {
+        if (!cancel) setLedger({ status: 'ready', titular: ledgerTitular, account });
+      })
+      .catch(() => {
+        if (!cancel) setLedger({ status: 'missing', titular: ledgerTitular, account: null });
+      });
+    return () => { cancel = true; };
+  }, [view, ledgerTitular]);
+
+  useEffect(() => {
+    if (view !== 'summary' || summaryMode !== 'support' || !ledgerTitular || !isSupabaseConfigured) return undefined;
+    let cancel = false;
+    setSupport({ status: 'loading', titular: ledgerTitular, account: null });
+    listMemberAccountSupport(ledgerTitular)
+      .then((account) => {
+        if (!cancel) setSupport({ status: 'ready', titular: ledgerTitular, account });
+      })
+      .catch(() => {
+        if (!cancel) setSupport({ status: 'missing', titular: ledgerTitular, account: null });
+      });
+    return () => { cancel = true; };
+  }, [view, summaryMode, ledgerTitular]);
+
+  const ledgerReady = ledger.status === 'ready' && ledger.titular === ledgerTitular && ledger.account;
+  const ledgerLoading = ledger.status === 'loading' && ledger.titular === ledgerTitular;
+  const supportReady = support.status === 'ready' && support.titular === ledgerTitular && support.account;
+  const supportLoading = support.status === 'loading' && support.titular === ledgerTitular;
+
   const entriesForSelected = useMemo(() => {
     if (!selectedMember) return [];
+    if (summaryMode === 'support') {
+      if (!supportReady) return [];
+      return entriesFromSupportLines(support.account.lines);
+    }
+    const family = resolveFamilyForDisplay(selectedMember, members);
+    const nros = new Set([
+      memberNumberOf(selectedMember),
+      ...(family?.members || []).map((m) => memberNumberOf(m) || String(m.memberId || '').replace(/\D/g, '')),
+    ].filter(Boolean));
+
+    if (ledgerReady) {
+      const fromLila = entriesFromGroupLines(ledger.account.lines, {
+        memberNumber: summaryMode === 'member' ? memberNumberOf(selectedMember) : undefined,
+      });
+      const local = [];
+      const targets = summaryMode === 'family' ? nros : new Set([memberNumberOf(selectedMember)]);
+      targets.forEach((nro) => {
+        local.push(...mergeAccountEntries([], accountEntries, nro));
+      });
+      return [...fromLila, ...local].toSorted(
+        (a, b) => String(a.date).localeCompare(String(b.date)) || a.id.localeCompare(b.id)
+      );
+    }
+
     if (summaryMode === 'family') {
-      const family = resolveFamilyForDisplay(selectedMember, members);
-      const nros = new Set([
-        memberNumberOf(selectedMember),
-        ...(family?.members || []).map((m) => memberNumberOf(m) || String(m.memberId || '').replace(/\D/g, '')),
-      ].filter(Boolean));
       const all = [];
       nros.forEach((nro) => {
         const accessin = buildAccessinAccountEntries(nro);
@@ -134,11 +210,17 @@ function MemberBalancesContent({
     const nro = memberNumberOf(selectedMember);
     const accessin = buildAccessinAccountEntries(nro);
     return mergeAccountEntries(accessin, accountEntries, nro);
-  }, [selectedMember, accountEntries, summaryMode, members]);
+  }, [selectedMember, accountEntries, summaryMode, members, ledgerReady, ledgerLoading, ledger.account, supportReady, support.account]);
+
+  const carriedBalance = summaryMode === 'support' && supportReady
+    ? Number(support.account.opening_balance) || 0
+    : ledgerReady && summaryMode === 'family'
+      ? Number(ledger.account.opening_balance) || 0
+      : 0;
 
   const monthGroups = useMemo(
-    () => groupEntriesByMonth(entriesForSelected, { monthsBack }),
-    [entriesForSelected, monthsBack]
+    () => groupEntriesByMonth(entriesForSelected, { monthsBack, carriedBalance }),
+    [entriesForSelected, monthsBack, carriedBalance]
   );
 
   const meta = useMemo(
@@ -149,7 +231,7 @@ function MemberBalancesContent({
   const openSummary = (member, mode = 'member') => {
     setSelectedMember(member);
     setSummaryMode(mode);
-    setMonthsBack(3);
+    setMonthsBack(4);
     setView('summary');
   };
 
@@ -325,11 +407,27 @@ function MemberBalancesContent({
             <ArrowLeft size={14} /> Volver
           </button>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button type="button" className="btn disc-bulk-btn" onClick={() => window.print()}>
-              <Printer size={14} /> Imprimir
+            <button
+              type="button"
+              className="btn disc-bulk-btn"
+              disabled={Boolean(exportBusy)}
+              onClick={async () => {
+                setExportBusy('pdf');
+                setError('');
+                try {
+                  await exportPaymentBoletoPdf(boleto);
+                } catch (err) {
+                  setError(err?.message || 'No se pudo generar el PDF.');
+                } finally {
+                  setExportBusy('');
+                }
+              }}
+            >
+              <FileDown size={14} /> {exportBusy === 'pdf' ? 'Generando…' : 'PDF'}
             </button>
           </div>
         </div>
+        {error ? <p className="ig-error">{error}</p> : null}
         <section className="supplier-pay-import-block boleto-sheet">
           <h3 style={{ marginTop: 0 }}>
             Boleto de pago #{boleto.number} · {boleto.periodLabel} · {boleto.memberNumber}
@@ -424,7 +522,26 @@ function MemberBalancesContent({
           ))}
           <div className="ig-form-actions">
             <button type="button" className="btn btn-secondary" onClick={() => setView('summary')}>Volver</button>
-            <button type="button" className="btn disc-bulk-btn" onClick={() => window.print()}><Printer size={14} /> Imprimir</button>
+            <button
+              type="button"
+              className="btn disc-bulk-btn"
+              disabled={Boolean(exportBusy)}
+              onClick={async () => {
+                setExportBusy('payment-pdf');
+                setError('');
+                try {
+                  await exportAccountPaymentPdf(selectedEntry, {
+                    memberName: selectedMember?.name || '',
+                  });
+                } catch (err) {
+                  setError(err?.message || 'No se pudo generar el PDF.');
+                } finally {
+                  setExportBusy('');
+                }
+              }}
+            >
+              <FileDown size={14} /> {exportBusy === 'payment-pdf' ? 'Generando…' : 'Descargar PDF'}
+            </button>
             <button type="button" className="btn btn-tan"><Share2 size={14} /> Compartir</button>
           </div>
         </section>
@@ -435,25 +552,37 @@ function MemberBalancesContent({
   if (view === 'summary' && selectedMember && meta) {
     const title = summaryMode === 'family' && meta.familyGroupName
       ? `Resumen de cuenta: ${meta.familyGroupName}`
-      : `Resumen de cuenta socio — ${meta.memberNumber}`;
+      : summaryMode === 'support'
+        ? `Resumen de soporte — ${meta.memberNumber}`
+        : `Resumen de cuenta socio — ${meta.memberNumber}`;
+    const cols = summaryMode === 'family' ? 7 : 6;
     const debt = lookupMonthlyDebt(meta.memberNumber);
     const familyOfficial = familyBalanceForMember(selectedMember, members);
 
     return (
       <div className="fade-in cuotas-panel">
-        <div className="cuotas-toolbar">
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => setView('list')}>
-            <ArrowLeft size={14} /> Volver
+        <nav className="cuotas-toolbar cuotas-toolbar--local" aria-label="Resumen de cuenta">
+          <button type="button" className="cuotas-back" onClick={() => setView('list')}>
+            <ArrowLeft size={15} aria-hidden="true" />
+            Volver
           </button>
-          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <button type="button" className="btn btn-tan" onClick={() => openEntry(selectedMember)}>
-              <Plus size={14} /> Entradas
-            </button>
-            <button type="button" className="btn btn-tan" onClick={openBoleto}>
-              <Lock size={14} /> Boleto de pago
-            </button>
+          <div className="cuotas-actions">
+            <CuotasTool
+              icon={Plus}
+              label="Entradas"
+              hint="Cargar un movimiento"
+              tone="emerald"
+              onClick={() => openEntry(selectedMember)}
+            />
+            <CuotasTool
+              icon={Lock}
+              label="Boleto de pago"
+              hint="Imprimir liquidación"
+              tone="emerald"
+              onClick={openBoleto}
+            />
           </div>
-        </div>
+        </nav>
 
         <h3 className="cuotas-title">{title}</h3>
         {summaryMode === 'family' ? (
@@ -529,84 +658,142 @@ function MemberBalancesContent({
                 <th>Fecha</th>
                 <th>Tipo</th>
                 <th>Descripción</th>
+                {summaryMode === 'support' ? <th>Pendiente</th> : null}
                 <th>Valor</th>
-                <th>Funciones</th>
+                {summaryMode === 'support' ? null : <th>Funciones</th>}
               </tr>
             </thead>
             <tbody>
               <tr>
-                <td colSpan={summaryMode === 'family' ? 7 : 6}>
+                <td colSpan={cols}>
                   <button
                     type="button"
-                    className="btn btn-tan"
-                    style={{ width: '100%' }}
+                    className="cuotas-tool tone-gold cuotas-tool--wide"
                     onClick={() => setMonthsBack((n) => n + 3)}
                   >
-                    Cargar 3 meses anteriores
+                    <i className="cuotas-tool-icon" aria-hidden="true">
+                      <Plus size={17} strokeWidth={2.15} />
+                    </i>
+                    <span className="cuotas-tool-copy">
+                      <strong>Cargar 3 meses anteriores</strong>
+                      <small>Ya hay {monthsBack} meses</small>
+                    </span>
                   </button>
                 </td>
               </tr>
-              {monthGroups.length === 0 ? (
+              {(ledgerLoading || (summaryMode === 'support' && supportLoading)) ? (
                 <tr>
-                  <td colSpan={summaryMode === 'family' ? 7 : 6} style={{ color: 'var(--text-muted)' }}>
-                    Sin movimientos en el período.
+                  <td colSpan={cols} style={{ color: 'var(--text-muted)' }}>
+                    El resumen de la app está abajo. El extracto completo sigue cargando.
                   </td>
                 </tr>
-              ) : monthGroups.map((g) => (
+              ) : null}
+              {!(summaryMode === 'support' && supportLoading) && monthGroups.length === 0 ? (
+                <tr>
+                  <td colSpan={cols} style={{ color: 'var(--text-muted)' }}>
+                    {summaryMode === 'support' && support.status === 'ready' && !support.account
+                      ? 'El soporte de esta cuenta todavía no está cargado.'
+                      : 'Sin movimientos en el período.'}
+                  </td>
+                </tr>
+              ) : null}
+              {!(summaryMode === 'support' && supportLoading) && monthGroups.map((g) => (
                 <Fragment key={g.key}>
                   <tr>
-                    <td colSpan={summaryMode === 'family' ? 7 : 6} className="member-balances-month-head">
-                      {g.openingLabel}: {formatLilaMoney(g.openingBalance)}
+                    <td colSpan={cols} className="member-balances-month-head">
+                      {g.openingLabel}: {formatLilaMoney(
+                        summaryMode === 'support'
+                          ? (support.account?.month_balances || []).find((saldo) => String(saldo.on || '').startsWith(g.key))?.amount ?? g.openingBalance
+                          : g.openingBalance
+                      )}
                     </td>
                   </tr>
                   {g.entries.length === 0 ? (
                     <tr>
-                      <td colSpan={summaryMode === 'family' ? 7 : 6} style={{ color: 'var(--text-muted)' }}>
+                      <td colSpan={cols} style={{ color: 'var(--text-muted)' }}>
                         Sin movimientos en {g.title}.
                       </td>
                     </tr>
                   ) : null}
                   {g.entries.map((row) => (
-                    <tr key={row.id}>
-                      <td>{row.accessinId || row.id.slice(-6)}</td>
-                      {summaryMode === 'family' ? (
-                        <td>{row.memberNumber} — {row.memberName || selectedMember.name}</td>
-                      ) : null}
-                      <td>{row.date}</td>
-                      <td>{row.typeLabel || row.type}</td>
-                      <td>{row.description || '—'}</td>
-                      <td style={{
-                        fontWeight: 700,
-                        color: row.value < 0 ? 'var(--danger-accent)' : 'var(--emerald-accent)',
-                      }}
-                      >
-                        {formatLilaMoney(row.value, { signed: true })}
-                      </td>
-                      <td>
-                        <div className="cash-lila-row-actions">
-                          {row.type === 'pago' ? (
-                            <button type="button" className="cash-lila-icon-btn is-edit" title="Ver pago" onClick={() => openPayment(row)}>
-                              <Eye size={13} />
-                            </button>
-                          ) : null}
-                          {row.source === 'manual' ? (
-                            <button
-                              type="button"
-                              className="cash-lila-icon-btn is-del"
-                              title="Eliminar"
-                              onClick={() => {
-                                if (window.confirm('¿Eliminar esta entrada?')) onDeleteEntry?.(row.id);
-                              }}
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          ) : null}
-                        </div>
-                      </td>
-                    </tr>
+                    <Fragment key={row.id}>
+                      <tr>
+                        <td>{row.accessinId || row.id.slice(-6)}</td>
+                        {summaryMode === 'family' ? (
+                          <td>{row.memberNumber} — {row.memberName || selectedMember.name}</td>
+                        ) : null}
+                        <td>{row.date}</td>
+                        <td>{row.typeLabel || row.type}</td>
+                        <td>{row.description || '—'}</td>
+                        {summaryMode === 'support' ? (
+                          <td>{formatLilaMoney(row.pending)}</td>
+                        ) : null}
+                        <td style={{
+                          fontWeight: 700,
+                          color: row.value < 0 ? 'var(--danger-accent)' : 'var(--emerald-accent)',
+                        }}
+                        >
+                          {formatLilaMoney(row.value, { signed: true })}
+                        </td>
+                        {summaryMode === 'support' ? null : (
+                          <td>
+                            <div className="cash-lila-row-actions">
+                              {row.type === 'pago' ? (
+                                <button type="button" className="cash-lila-icon-btn is-edit" title="Ver pago" onClick={() => openPayment(row)}>
+                                  <Eye size={13} />
+                                </button>
+                              ) : null}
+                              {row.source === 'manual' ? (
+                                <button
+                                  type="button"
+                                  className="cash-lila-icon-btn is-del"
+                                  title="Eliminar"
+                                  onClick={() => {
+                                    if (window.confirm('¿Eliminar esta entrada?')) onDeleteEntry?.(row.id);
+                                  }}
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              ) : null}
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                      {summaryMode === 'support' ? (row.links || []).map((link) => (
+                        <tr key={`${row.id}-${link.kind}-${link.lineId}`}>
+                          <td />
+                          <td>{link.date}</td>
+                          <td colSpan={2} style={{ color: 'var(--text-muted)' }}>
+                            {link.kind === 'entrada' ? 'Entrada pagada' : 'Pago vinculado'}
+                            {link.lineId ? ` · ${link.lineId}` : ''}
+                            {link.label ? ` · ${link.label}` : ''}
+                          </td>
+                          <td />
+                          <td>{formatLilaMoney(link.amount, { signed: true })}</td>
+                        </tr>
+                      )) : null}
+                    </Fragment>
                   ))}
                 </Fragment>
               ))}
+              {summaryMode === 'member' ? (
+                <tr>
+                  <td colSpan={cols} className="member-balances-month-head">
+                    Saldo: {formatLilaMoney(currentAccountBalanceOf(selectedMember))}
+                  </td>
+                </tr>
+              ) : null}
+              {((ledgerReady && summaryMode === 'family') || (supportReady && summaryMode === 'support')) && monthGroups.length > 0 ? (
+                <tr>
+                  <td colSpan={cols} className="member-balances-month-head">
+                    Saldo al {formatSpanishLongDate((summaryMode === 'support' ? support.account : ledger.account).closing_on)}: {formatLilaMoney(
+                      summaryMode === 'support'
+                        ? support.account.closing_balance
+                        : monthGroups[monthGroups.length - 1].closingBalance
+                    )}
+                  </td>
+                </tr>
+              ) : null}
             </tbody>
           </table>
         </div>
@@ -617,32 +804,18 @@ function MemberBalancesContent({
   // LIST
   return (
     <div className="fade-in cuotas-panel member-balances-panel">
-      <div className="cuotas-toolbar">
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          {onBack ? (
-            <button type="button" className="btn btn-secondary btn-sm" onClick={onBack}>
-              <ArrowLeft size={14} /> Volver
-            </button>
-          ) : null}
-          <h3 className="cuotas-title" style={{ margin: 0 }}>
-            <Wallet size={18} /> Saldos / Socios
-          </h3>
-        </div>
-        <div className="cuotas-actions">
-          <button type="button" className="btn btn-tan" onClick={() => onGoImportDebts?.()}>
-            Deudas mes a mes
-          </button>
-          <button type="button" className="btn btn-tan" onClick={() => onGoImportCollections?.()}>
-            Importar cobranzas socios
-          </button>
-          <button type="button" className="btn btn-tan" onClick={() => onGoImputeEvents?.()}>
-            Imputar eventos
-          </button>
-          <button type="button" className="btn btn-tan" onClick={() => openEntry()}>
-            <Plus size={14} /> Entradas
-          </button>
-        </div>
-      </div>
+      <CuotasDeskToolbar
+        current="balances"
+        onBack={onBack}
+        onGo={goDesk}
+        extraOperate={[{
+          id: 'entries',
+          icon: Plus,
+          label: 'Entradas',
+          hint: 'Cargar un movimiento',
+          onClick: () => openEntry(),
+        }]}
+      />
 
       <section className="supplier-pay-import-block">
         <h4 className="supplier-pay-import-title">Buscar socio</h4>
@@ -727,7 +900,11 @@ function MemberBalancesContent({
                 <tr key={m.memberId || m.id}>
                   <td>{m.accessinId || String(m.memberId).slice(-5)}</td>
                   <td>{memberNumberOf(m)}</td>
-                  <td style={{ fontWeight: 600 }}>{m.name}</td>
+                  <td style={{ fontWeight: 600 }}>
+                    <button type="button" className="member-balances-open" onClick={() => openSummary(m, 'member')}>
+                      {m.name}
+                    </button>
+                  </td>
                   <td style={{ fontWeight: 700, color: balance > 0 ? 'var(--emerald-accent)' : undefined }}>
                     {formatLilaMoney(balance)}
                   </td>
@@ -739,8 +916,11 @@ function MemberBalancesContent({
                   <td>{memberStatusLabel(m)}</td>
                   <td>
                     <div className="cash-lila-row-actions">
-                      <button type="button" className="cash-lila-icon-btn is-edit" title="Resumen socio" onClick={() => openSummary(m, 'member')}>
+                      <button type="button" className="cash-lila-icon-btn is-edit" title="Resumen de cuenta" aria-label="Resumen de cuenta" onClick={() => openSummary(m, 'member')}>
                         <Eye size={13} />
+                      </button>
+                      <button type="button" className="cash-lila-icon-btn is-edit" title="Resumen de soporte" aria-label="Resumen de soporte" onClick={() => openSummary(m, 'support')}>
+                        <LifeBuoy size={13} />
                       </button>
                       {fam.isTitular ? (
                         <button type="button" className="cash-lila-icon-btn is-edit" title="Resumen grupo familiar" onClick={() => openSummary(m, 'family')}>

@@ -1,12 +1,50 @@
 /**
  * Seed del Detalle Cta. Cte. Liquidación Accessin/LILA.
- * Source: datita/contabilidad/Balances/Detalle Cta Cte Liquidación - */
+ * Toma el Excel más nuevo entre Avtualizacion/balances/Detalle de la cc e cuotas
+ * y el corte histórico.
+ */
 const XLSX = require('xlsx');
 const fs = require('fs');
 const path = require('path');
 
-const balancesDir = path.join(__dirname, '../datita/contabilidad/Balances');
+const sourceRoots = [
+  path.join(__dirname, '../datita/Avtualizacion/Contabilidad/balances/Detalle de la cc e cuotas'),
+  path.join(__dirname, '../datita/Avtualizacion/Contabilidad/balances'),
+  path.join(__dirname, '../datita/contabilidad/Balances'),
+];
 const outFile = path.join(__dirname, '../src/data/seed/accessinLiquidationCc.js');
+
+function collectLiquidationExcels() {
+  const files = [];
+  const seen = new Set();
+  const walk = (dir, depth = 0) => {
+    if (!fs.existsSync(dir) || depth > 2) return;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full, depth + 1);
+        continue;
+      }
+      if (!entry.name.endsWith('.xlsx') || entry.name.startsWith('~$')) continue;
+      if (!/Detalle Cta Cte|Liquidaci[oó]n/i.test(entry.name)) continue;
+      if (/Balance Mensual/i.test(entry.name)) continue;
+      if (seen.has(full)) continue;
+      seen.add(full);
+      const dated = entry.name.match(/(\d{4}-\d{2}-\d{2})/);
+      files.push({
+        name: entry.name,
+        full,
+        date: dated ? dated[1] : '',
+        mtime: fs.statSync(full).mtimeMs,
+      });
+    }
+  };
+  sourceRoots.forEach((root) => walk(root));
+  return files.toSorted((a, b) => String(b.date).localeCompare(String(a.date)) || b.mtime - a.mtime);
+}
+
+const picked = collectLiquidationExcels()[0];
+if (!picked) throw new Error('No hay Excel de Detalle Cta Cte Liquidación');
 
 function cell(value) {
   if (value == null || value === '') return '';
@@ -32,18 +70,8 @@ function parseSpanishMetaDate(raw) {
   return `${m[3]}-${mon}-${String(Number(m[1])).padStart(2, '0')}`;
 }
 
-function findSourceDir() {
-  const dirs = fs.readdirSync(balancesDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && /liquidaci[oó]n/i.test(entry.name));
-  if (!dirs.length) throw new Error('No hay carpeta de Detalle Cta Cte Liquidación');
-  return path.join(balancesDir, dirs.sort((a, b) => b.name.localeCompare(a.name))[0].name);
-}
-
-const dir = findSourceDir();
-const files = fs.readdirSync(dir).filter((name) => name.endsWith('.xlsx') && !name.startsWith('~$'));
-if (!files.length) throw new Error('No hay Excel de Detalle Cta Cte Liquidación');
-const fileName = files.sort().reverse()[0];
-const wb = XLSX.readFile(path.join(dir, fileName));
+const fileName = picked.name;
+const wb = XLSX.readFile(picked.full);
 const sheetName = wb.SheetNames.find((name) => /detalle/i.test(name)) || wb.SheetNames[0];
 const aoa = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
 

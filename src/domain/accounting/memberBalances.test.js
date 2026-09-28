@@ -7,7 +7,10 @@ import {
   createAccountEntry,
   familyBalanceForMember,
   filterMembersForBalances,
+  entriesFromGroupLines,
+  entriesFromSupportLines,
   groupEntriesByMonth,
+  lilaSaldoDate,
   MEMBER_BALANCES_SNAPSHOTS,
   memberStatusLabel,
   upsertAccountEntry,
@@ -67,6 +70,46 @@ describe('memberBalances / saldos', () => {
     expect(groups[0].openingBalance).toBe(0);
     expect(groups[1].openingBalance).toBe(0);
     expect(groups[1].entries).toHaveLength(1);
+  });
+
+  it('arrastra el saldo inicial de Lila antes de los movimientos', () => {
+    const groups = groupEntriesByMonth([
+      { id: '1', date: '2026-09-01', value: 60000 },
+      { id: '2', date: '2026-09-10', value: 6000 },
+    ], { monthsBack: 1, asOf: '2026-09', carriedBalance: 124000 });
+    expect(groups[0].openingBalance).toBe(124000);
+    expect(groups[0].closingBalance).toBe(190000);
+  });
+
+  it('arma el extracto familiar y puede quedarse con un socio', () => {
+    const lines = [
+      { lila_line_id: '1', member_number: '08690', member_name: 'Adherente', line_date: '2026-09-01', type_label: 'Cuota', description: 'Septiembre del 2026', amount: 0 },
+      { lila_line_id: '2', member_number: '10773', member_name: 'Titular', line_date: '2026-09-01', type_label: 'Cuota', description: 'Septiembre del 2026', amount: 60000 },
+      { lila_line_id: '3', member_number: '10773', member_name: 'Titular', line_date: '2026-09-10', type_label: 'Recargo de Cuota (10.00 %)', description: 'Septiembre del 2026', amount: 6000 },
+    ];
+    expect(lilaSaldoDate('Saldo al 01 de Junio del 2026')).toBe('2026-06-01');
+    expect(entriesFromGroupLines(lines)).toHaveLength(3);
+    const personal = entriesFromGroupLines(lines, { memberNumber: '10773' });
+    expect(personal).toHaveLength(2);
+    expect(personal[1].type).toBe('recargo');
+    expect(personal[1].value).toBe(6000);
+    expect(entriesFromGroupLines(lines, { memberNumber: '8690' })[0].memberNumber).toBe('8690');
+  });
+
+  it('arma el soporte con pendiente y el pago imputado', () => {
+    const [row] = entriesFromSupportLines([{
+      lila_line_id: '2311426',
+      line_date: '2026-04-01',
+      type_label: 'Cuota',
+      description: 'Abril del 2026',
+      pending_amount: 0,
+      amount: 50000,
+      links: [{ kind: 'pago', date: '2026-04-12', lineId: '2403176', label: '', amount: 50000 }],
+    }]);
+    expect(row.pending).toBe(0);
+    expect(row.value).toBe(50000);
+    expect(row.links[0].kind).toBe('pago');
+    expect(row.links[0].lineId).toBe('2403176');
   });
 
   it('al pedir más meses incluye meses vacíos anteriores', () => {

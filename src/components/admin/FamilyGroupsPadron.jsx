@@ -69,7 +69,7 @@ export default function FamilyGroupsPadron({
 
   const range = groups.length === 0
     ? 'Sin familias'
-    : `${((safePage - 1) * PAGE_SIZE) + 1}–${Math.min(safePage * PAGE_SIZE, groups.length)} de ${groups.length.toLocaleString('es-AR')}`;
+    : `${((safePage - 1) * PAGE_SIZE) + 1}–${Math.min(safePage * PAGE_SIZE, groups.length)}`;
 
   return (
     <FoldableSection
@@ -78,6 +78,7 @@ export default function FamilyGroupsPadron({
       id="members-family-padron-title"
       title="Padrón de grupos familiares"
       subtitle={range}
+      count={groups.length.toLocaleString('es-AR')}
       defaultOpen
       storageKey="padron-familias"
       forceOpen={forceOpen}

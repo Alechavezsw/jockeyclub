@@ -11,7 +11,7 @@ export default function PoolControlView({
   setMembers,
   updateMember = null,
   formatCurrency,
-  addJournalEntry,
+  recordPoolCanon,
   poolAccesses = [],
   setPoolAccesses,
   setEntryLogs,
@@ -43,7 +43,7 @@ export default function PoolControlView({
         setMembers={setMembers}
         updateMember={updateMember}
         formatCurrency={formatCurrency}
-        addJournalEntry={addJournalEntry}
+        recordPoolCanon={recordPoolCanon}
         poolAccesses={poolAccesses}
         setPoolAccesses={setPoolAccesses}
         setEntryLogs={setEntryLogs}

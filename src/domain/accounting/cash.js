@@ -19,6 +19,17 @@ export const DEFAULT_CASH_REGISTERS = [
   },
 ];
 
+/** Caja cuyo plan es Caja General (1.1.01), o la de secretaría si el plan todavía no cargó. */
+export function pickGeneralCashRegister(registers = [], chart = []) {
+  const active = (registers || []).filter((register) => register.isActive !== false);
+  const byAccount = active.find((register) => {
+    const account = (chart || []).find((row) => row.id === register.accountId);
+    return account && (account.code === '1.1.01' || account.name === 'Caja General');
+  });
+  if (byAccount) return byAccount;
+  return active.find((register) => /general|secretar/i.test(`${register.name || ''} ${register.code || ''}`)) || null;
+}
+
 export function getOpenSession(sessions, cashRegisterId) {
   return sessions.find((s) => s.cashRegisterId === cashRegisterId && s.status === 'open') || null;
 }

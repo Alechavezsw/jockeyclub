@@ -18,6 +18,7 @@ import { todayISODateAR } from '../lib/arDate';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { searchMembersDirectory, listMembersGateIndex, getMemberByNumber } from '../data/repos';
 import { poolIngressToAccessLog } from '../domain/credentials/accessLog';
+import { chargePoolCanon, withChargedPoolEntry } from '../domain/pool/poolCheckout';
 
 /**
  * Entrada de pileta: página de puerta, como /acceso.
@@ -26,7 +27,7 @@ import { poolIngressToAccessLog } from '../domain/credentials/accessLog';
 export default function PoolEntranceView({
   members = [],
   formatCurrency,
-  addJournalEntry,
+  recordPoolCanon,
   poolAccesses = [],
   setPoolAccesses,
   setEntryLogs,
@@ -146,21 +147,11 @@ export default function PoolEntranceView({
         settings,
         actorName,
       });
-      setPoolAccesses(accesses);
+      const charged = await chargePoolCanon({ entry, member: selected, recordPoolCanon });
+      setPoolAccesses(withChargedPoolEntry(accesses, entry, charged));
       if (typeof setEntryLogs === 'function') {
-        const log = poolIngressToAccessLog(entry);
+        const log = poolIngressToAccessLog(charged);
         if (log) setEntryLogs((prev) => [log, ...(prev || [])]);
-      }
-      if (typeof addJournalEntry === 'function' && entry.payment.amount > 0) {
-        addJournalEntry({
-          date: today,
-          description: `Canon pileta — ${selected.name} (entrada)`,
-          lines: [
-            { account: 'Caja General', type: 'debit', amount: entry.payment.amount },
-            { account: 'Reservas e Instalaciones', type: 'credit', amount: entry.payment.amount },
-          ],
-          sourceModule: 'pileta',
-        });
       }
     } catch (err) {
       setError(err?.message || 'No se pudo habilitar.');
@@ -169,7 +160,7 @@ export default function PoolEntranceView({
     }
   };
 
-  const handleAttend = () => {
+  const handleAttend = async () => {
     if (!selected) return;
     setBusy(true);
     setError('');
@@ -180,9 +171,10 @@ export default function PoolEntranceView({
         today,
         actorName,
       });
-      setPoolAccesses(accesses);
+      const charged = await chargePoolCanon({ entry, member: selected, recordPoolCanon });
+      setPoolAccesses(withChargedPoolEntry(accesses, entry, charged));
       if (typeof setEntryLogs === 'function') {
-        const log = poolIngressToAccessLog(entry);
+        const log = poolIngressToAccessLog(charged);
         if (log) setEntryLogs((prev) => [log, ...(prev || [])]);
       }
     } catch (err) {

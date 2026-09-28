@@ -1,32 +1,66 @@
 /**
  * Seed del Balance Mensual Accessin/LILA.
- * Prefiere General completo, luego General, luego Mensual.
+ * Toma el Excel más nuevo entre Avtualizacion/Contabilidad/balances
+ * (General completo → General → Mensual) y el corte histórico.
  */
 const XLSX = require('xlsx');
 const fs = require('fs');
 const path = require('path');
 
-const balancesRoot = path.join(__dirname, '../datita/contabilidad/Balances');
+const sourceRoots = [
+  path.join(__dirname, '../datita/Avtualizacion/Contabilidad/balances'),
+  path.join(__dirname, '../datita/contabilidad/Balances'),
+];
 
-function resolveMonthlyBalanceDir() {
-  const names = fs.readdirSync(balancesRoot, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name);
-  const preferred = names.find((name) => /general\s*completo/i.test(name))
-    || names.find((name) => /^general$/i.test(name))
-    || names.find((name) => /mensual/i.test(name));
-  if (!preferred) throw new Error('No hay carpeta de Balance Mensual / General');
-  const dir = path.join(balancesRoot, preferred);
-  const files = fs.readdirSync(dir).filter((name) => name.endsWith('.xlsx') && !name.startsWith('~$'));
-  if (!files.length && preferred.toLowerCase() !== 'mensual') {
-    const fallback = names.find((name) => /mensual/i.test(name));
-    if (fallback) return { dir: path.join(balancesRoot, fallback), folder: fallback };
-  }
-  if (!files.length) throw new Error(`No hay Excel de Balance en ${preferred}`);
-  return { dir, folder: preferred };
+function folderPriority(name) {
+  if (/general\s*completo/i.test(name)) return 3;
+  if (/^general$/i.test(name)) return 2;
+  if (/mensual/i.test(name)) return 1;
+  return 0;
 }
 
-const { dir, folder: sourceFolder } = resolveMonthlyBalanceDir();
+function collectMonthlyBalanceExcels() {
+  const files = [];
+  for (const root of sourceRoots) {
+    if (!fs.existsSync(root)) continue;
+    const dirs = [
+      { dir: root, folder: path.basename(root), priority: 0 },
+      ...fs.readdirSync(root, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => ({
+          dir: path.join(root, entry.name),
+          folder: entry.name,
+          priority: folderPriority(entry.name),
+        })),
+    ];
+    for (const { dir, folder, priority } of dirs) {
+      if (!fs.existsSync(dir)) continue;
+      for (const name of fs.readdirSync(dir)) {
+        if (!name.endsWith('.xlsx') || name.startsWith('~$')) continue;
+        if (!/Balance Mensual/i.test(name) || /Resumido/i.test(name)) continue;
+        const full = path.join(dir, name);
+        const dated = name.match(/(\d{4}-\d{2}-\d{2})/);
+        files.push({
+          name,
+          full,
+          dir,
+          folder,
+          date: dated ? dated[1] : '',
+          mtime: fs.statSync(full).mtimeMs,
+          priority,
+        });
+      }
+    }
+  }
+  return files.toSorted((a, b) =>
+    String(b.date).localeCompare(String(a.date))
+    || b.priority - a.priority
+    || b.mtime - a.mtime);
+}
+
+const picked = collectMonthlyBalanceExcels()[0];
+if (!picked) throw new Error('No hay Excel de Balance Mensual');
+const sourceFolder = picked.folder;
 const outSummary = path.join(__dirname, '../src/data/seed/accessinMonthlyBalance.js');
 const outDetails = path.join(__dirname, '../src/data/seed/accessinMonthlyBalanceDetails.js');
 
@@ -148,10 +182,8 @@ function pickDetailKey(label, catalog) {
   return scored[0]?.key || '';
 }
 
-const files = fs.readdirSync(dir).filter((name) => name.endsWith('.xlsx') && !name.startsWith('~$'));
-if (!files.length) throw new Error('No hay Excel de Balance Mensual');
-const fileName = files.sort().reverse()[0];
-const wb = XLSX.readFile(path.join(dir, fileName));
+const fileName = picked.name;
+const wb = XLSX.readFile(picked.full);
 const mainName = wb.SheetNames.find((name) => /balance mensual/i.test(name)) || wb.SheetNames[0];
 const mainRows = XLSX.utils.sheet_to_json(wb.Sheets[mainName], { header: 1, defval: '' });
 

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Download, FileSpreadsheet, FileText } from 'lucide-react';
 import { memberNumberOf } from '../../domain/members/households';
 import {
@@ -7,12 +7,7 @@ import {
   createAccountingReportRecord,
   formatReportGeneratedAt,
 } from '../../domain/accounting/accountingReports';
-import {
-  buildLibreDeudaCertificate,
-  findMemberForLibreDeuda,
-  LIBRE_DEUDA_SNAPSHOTS,
-} from '../../domain/accounting/libreDeuda';
-import { exportLibreDeudaPdf } from '../../domain/accounting/exportLibreDeudaPdf';
+import { findMemberForLibreDeuda } from '../../domain/accounting/libreDeuda';
 import {
   buildSurchargeComposition,
   SURCHARGE_COMPOSITION_SNAPSHOTS,
@@ -20,25 +15,10 @@ import {
 import { requireSnapshots } from '../../data/snapshots';
 import { exportSurchargeCompositionPdf } from '../../domain/accounting/exportSurchargeCompositionPdf';
 import { exportDetailedCcPdf } from '../../domain/accounting/exportDetailedCcPdf';
-import { exportFamilyGroupBalancesPdf } from '../../domain/accounting/exportFamilyGroupBalancesPdf';
 import { exportAccountingReport } from '../../domain/accounting/exportAccountingPack';
 import { exportJournalPdf } from '../../domain/accounting/exportJournalPdf';
 import { exportJournalExcel } from '../../domain/accounting/exportJournalExcel';
 import { DEFAULT_CHART_OF_ACCOUNTS } from '../../domain/accounting/chartOfAccounts';
-
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function wrapSelection(textarea, before, after) {
-  const start = textarea.selectionStart;
-  const end = textarea.selectionEnd;
-  const value = textarea.value;
-  const selected = value.slice(start, end) || 'texto';
-  return {
-    next: `${value.slice(0, start)}${before}${selected}${after}${value.slice(end)}`,
-  };
-}
 
 const BOOK_REPORTS = [
   {
@@ -89,8 +69,9 @@ const MEMBER_REPORTS = [
   {
     id: 'libre_deuda',
     title: 'Libre deuda',
-    copy: 'Certificado de un socio a una fecha de corte.',
+    copy: 'Certificado de un socio. Se emite en su propia sección.',
     formats: ['pdf'],
+    opens: 'libre_deuda',
   },
   {
     id: 'detailed_cc',
@@ -101,8 +82,9 @@ const MEMBER_REPORTS = [
   {
     id: 'family_balances',
     title: 'Saldo de grupo familiar',
-    copy: 'Saldos agrupados por familia, con filtro opcional.',
+    copy: 'Saldos por familia. Se consultan en su propia sección.',
     formats: ['pdf'],
+    opens: 'family_balances',
   },
 ];
 
@@ -112,31 +94,22 @@ export default function AccountingReportsPanel({
   onRecordReport,
   journalEntries = [],
   chartOfAccounts = DEFAULT_CHART_OF_ACCOUNTS,
+  onOpenLibreDeuda,
+  onOpenFamilyBalances,
 }) {
   const [reportType, setReportType] = useState('results');
   const [memberQuery, setMemberQuery] = useState('');
-  const [asOf, setAsOf] = useState(todayIso);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
-  const [extraInfo, setExtraInfo] = useState('');
-  const [familyQuery, setFamilyQuery] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(null);
-  const extraRef = useRef(null);
 
   const history = useMemo(
     () => (reports || []).filter((row) => row && row.status !== 'deleted').slice(0, 20),
     [reports],
   );
   const typeLabel = accountingReportTypeLabel(reportType);
-  const needsMemberForm = MEMBER_REPORTS.some((item) => item.id === reportType);
-
-  const applyExtraMark = (before, after) => {
-    const el = extraRef.current;
-    if (!el) return;
-    const { next } = wrapSelection(el, before, after);
-    setExtraInfo(next);
-  };
+  const needsMemberForm = MEMBER_REPORTS.some((item) => item.id === reportType && !item.opens);
 
   const resolveMember = () => findMemberForLibreDeuda(members, memberQuery)
     || (members || []).find((m) => String(m.name || '').toLowerCase().includes(memberQuery.trim().toLowerCase()));
@@ -183,17 +156,9 @@ export default function AccountingReportsPanel({
     try {
       let fileName = '';
       let summary = '';
-      const filters = { memberQuery, asOf, from, to, extraInfo, familyQuery };
+      const filters = { memberQuery, from, to };
 
-      if (reportType === 'libre_deuda') {
-        const member = resolveMember();
-        if (!member) throw new Error('Socio. Es obligatorio');
-        await requireSnapshots(LIBRE_DEUDA_SNAPSHOTS);
-        const cert = buildLibreDeudaCertificate(member, { asOf, extraInfo, allMembers: members });
-        await exportLibreDeudaPdf(cert);
-        fileName = `jockey_club_libre_deuda_${cert.memberNumber}_${cert.asOf}.pdf`;
-        summary = `${cert.memberNumber} · ${cert.statusLabel}`;
-      } else if (reportType === 'recargos') {
+      if (reportType === 'recargos') {
         const member = memberQuery.trim() ? resolveMember() : null;
         if (memberQuery.trim() && !member) throw new Error('Socio. Es obligatorio');
         const nro = member ? memberNumberOf(member) : '';
@@ -207,8 +172,8 @@ export default function AccountingReportsPanel({
         fileName = await exportDetailedCcPdf(memberNumberOf(member));
         summary = memberNumberOf(member);
       } else if (reportType === 'family_balances') {
-        fileName = await exportFamilyGroupBalancesPdf({ query: familyQuery });
-        summary = familyQuery ? `Filtro ${familyQuery}` : 'Todos los grupos';
+        onOpenFamilyBalances?.();
+        return;
       }
 
       record(reportType, fileName, summary, filters);
@@ -220,14 +185,19 @@ export default function AccountingReportsPanel({
   };
 
   const rerun = (row) => {
+    if (row.reportType === 'libre_deuda') {
+      onOpenLibreDeuda?.();
+      return;
+    }
+    if (row.reportType === 'family_balances') {
+      onOpenFamilyBalances?.();
+      return;
+    }
     setReportType(row.reportType);
     const filters = row.filters || {};
     setMemberQuery(filters.memberQuery || '');
-    setAsOf(filters.asOf || todayIso());
     setFrom(filters.from || '');
     setTo(filters.to || '');
-    setExtraInfo(filters.extraInfo || '');
-    setFamilyQuery(filters.familyQuery || '');
     if (BOOK_REPORTS.some((item) => item.id === row.reportType)) {
       void downloadBook(row.reportType, filters.format === 'xlsx' ? 'xlsx' : 'pdf');
     }
@@ -235,7 +205,12 @@ export default function AccountingReportsPanel({
 
   const renderCard = (item) => (
     <article key={item.id} className={['ar-card', reportType === item.id ? 'is-on' : ''].filter(Boolean).join(' ')}>
-      <button type="button" className="ar-card-pick" onClick={() => { setReportType(item.id); setError(''); }}>
+      <button type="button" className="ar-card-pick" onClick={() => {
+        setReportType(item.id);
+        setError('');
+        if (item.opens === 'libre_deuda') onOpenLibreDeuda?.();
+        if (item.opens === 'family_balances') onOpenFamilyBalances?.();
+      }}>
         <h4>{item.title}</h4>
         <p>{item.copy}</p>
       </button>
@@ -247,12 +222,20 @@ export default function AccountingReportsPanel({
             disabled={Boolean(busy)}
             onClick={() => {
               setReportType(item.id);
+              if (item.opens === 'libre_deuda') {
+                onOpenLibreDeuda?.();
+                return;
+              }
+              if (item.opens === 'family_balances') {
+                onOpenFamilyBalances?.();
+                return;
+              }
               if (MEMBER_REPORTS.some((row) => row.id === item.id)) return;
               void downloadBook(item.id, 'pdf');
             }}
           >
             <FileText size={14} aria-hidden="true" />
-            {busy === `${item.id}-pdf` ? 'Generando…' : 'PDF'}
+            {item.opens ? 'Abrir' : busy === `${item.id}-pdf` ? 'Generando…' : 'PDF'}
           </button>
         ) : null}
         {item.formats.includes('xlsx') ? (
@@ -322,51 +305,11 @@ export default function AccountingReportsPanel({
             </div>
           ) : null}
 
-          {reportType === 'libre_deuda' ? (
-            <>
-              <div className="ar-filters">
-                <label>
-                  <span className="form-label">Fecha</span>
-                  <input type="date" className="form-input" value={asOf} onChange={(e) => setAsOf(e.target.value)} required />
-                </label>
-                <label>
-                  <span className="form-label">Socio</span>
-                  <input className="form-input" list="arep-members" value={memberQuery} onChange={(e) => setMemberQuery(e.target.value)} placeholder="Nro. o nombre" required />
-                </label>
-              </div>
-              <label className="ar-extra">
-                <span className="form-label">Información extra (opcional)</span>
-                <div className="ar-extra-tools">
-                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => applyExtraMark('**', '**')}>Negrita</button>
-                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => applyExtraMark('*', '*')}>Itálica</button>
-                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => applyExtraMark('_', '_')}>Subrayado</button>
-                </div>
-                <textarea
-                  ref={(el) => { extraRef.current = el; }}
-                  className="form-input"
-                  rows={4}
-                  value={extraInfo}
-                  onChange={(e) => setExtraInfo(e.target.value)}
-                  placeholder="Este texto aparece en: dejo constancia [información extra] del mismo…"
-                />
-              </label>
-            </>
-          ) : null}
-
           {reportType === 'detailed_cc' ? (
             <div className="ar-filters">
               <label>
                 <span className="form-label">Socio</span>
                 <input className="form-input" list="arep-members" value={memberQuery} onChange={(e) => setMemberQuery(e.target.value)} placeholder="Nro. o nombre" required />
-              </label>
-            </div>
-          ) : null}
-
-          {reportType === 'family_balances' ? (
-            <div className="ar-filters">
-              <label>
-                <span className="form-label">Grupo familiar</span>
-                <input className="form-input" value={familyQuery} onChange={(e) => setFamilyQuery(e.target.value)} placeholder="Nombre del grupo (opcional)" />
               </label>
             </div>
           ) : null}

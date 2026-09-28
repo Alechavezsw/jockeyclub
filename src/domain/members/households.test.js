@@ -59,8 +59,24 @@ describe('households', () => {
     expect(stats.titulares).toBe(2);
     expect(stats.titularesActivos).toBe(2);
     expect(stats.integrantes).toBe(1);
+    expect(stats.integrantesActivos).toBe(1);
     expect(stats.gruposFamiliares).toBe(1);
     expect(stats.byTier.map((t) => t.id)).toEqual(['socio_familiar', 'socio_individual']);
+  });
+
+  it('no mete bajas en los números que se muestran', () => {
+    const stats = buildPadronHouseholdStats([
+      titular,
+      { ...titular, memberId: '10010', name: 'Titular Baja', familyPrincipalNumber: 10010, status: 'inactive' },
+      hijo,
+      { ...hijo, memberId: '3502', name: 'Hijo Baja', familyPrincipalNumber: 10010, status: 'inactive' },
+      individual,
+    ], { tierCatalog: catalog });
+    expect(stats.titulares).toBe(3);
+    expect(stats.titularesActivos).toBe(2);
+    expect(stats.integrantes).toBe(2);
+    expect(stats.integrantesActivos).toBe(1);
+    expect(stats.byTier.find((t) => t.id === 'socio_familiar')?.count).toBe(1);
   });
 
   it('omite categorías de ejemplo y pinta cada card de un color', () => {

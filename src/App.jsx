@@ -1012,8 +1012,8 @@ function ClubPortal() {
 
   useEffect(() => {
     localStorage.setItem('jockey-theme', theme);
-    document.documentElement.setAttribute('data-theme', theme);
-  }, [theme]);
+    document.documentElement.setAttribute('data-theme', isAuthenticated ? theme : 'light');
+  }, [theme, isAuthenticated]);
 
   // Persistencia local solo si no hay Supabase
   useEffect(() => {
@@ -1069,8 +1069,8 @@ function ClubPortal() {
     localStorage.setItem('jockey-attendance', JSON.stringify(attendanceSessions));
   }, [attendanceSessions]);
   useEffect(() => {
-    localStorage.setItem('jockey-pool-access', JSON.stringify(poolAccesses));
-  }, [poolAccesses]);
+    if (!cloudMode) localStorage.setItem('jockey-pool-access', JSON.stringify(poolAccesses));
+  }, [poolAccesses, cloudMode]);
   useEffect(() => {
     localStorage.setItem('jockey-pool-settings', JSON.stringify(poolSettings));
   }, [poolSettings]);
@@ -1315,6 +1315,7 @@ function ClubPortal() {
         setMessages(withRememberedReads(app.messages, messageReaderKey({ userId: user?.id, memberId: user?.memberId })));
       }
       if (Array.isArray(app.entryLogs)) setEntryLogs(app.entryLogs);
+      if (Array.isArray(app.poolAccesses)) setPoolAccesses(app.poolAccesses);
       if (Array.isArray(app.surveys)) setSurveys(app.surveys);
       if (Array.isArray(app.guestPasses)) setGuestPasses(app.guestPasses);
       if (typeof app.registeredUsersCount === 'number') {
@@ -1630,6 +1631,42 @@ function ClubPortal() {
     });
   };
 
+  const setPoolAccessesDb = (updater) => {
+    setPoolAccesses((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      if (cloudMode && Array.isArray(next)) {
+        const prevById = new Map((prev || []).map((row) => [String(row.id), row]));
+        next.forEach((row) => {
+          const before = prevById.get(String(row.id));
+          const alreadySaved = isDbUuid(row?.id);
+          if (!before && row && !alreadySaved) {
+            const dbId = row.memberDbId || memberDbIds[row.memberId] || null;
+            repos.insertPoolAccess(row, dbId).then((saved) => {
+              setPoolAccesses((cur) => cur.map((item) => {
+                if (String(item.id) !== String(row.id)) return item;
+                if (item.status === 'revoked') {
+                  repos.revokePoolAccess(saved.id).catch((err) => {
+                    setDbError(err?.message || 'No se pudo revocar el ingreso de pileta');
+                  });
+                  return { ...saved, status: 'revoked' };
+                }
+                return saved;
+              }));
+            }).catch((err) => {
+              setPoolAccesses((cur) => cur.filter((item) => String(item.id) !== String(row.id)));
+              setDbError(err?.message || 'No se pudo guardar el ingreso de pileta');
+            });
+          } else if (before && before.status !== 'revoked' && row.status === 'revoked' && alreadySaved) {
+            repos.revokePoolAccess(row.id).catch((err) => {
+              setDbError(err?.message || 'No se pudo revocar el ingreso de pileta');
+            });
+          }
+        });
+      }
+      return next;
+    });
+  };
+
   const isDbUuid = (id) =>
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(id || ''));
 
@@ -1747,6 +1784,77 @@ function ClubPortal() {
       if (channel) supabase?.removeChannel(channel);
     };
   }, [cloudMode, isAuthenticated, dbReady, userRole, refreshMembershipApplications]);
+
+  const refreshMembersLive = useCallback(async () => {
+    if (!cloudMode || !isAuthenticated) return;
+    if (!(canAccessAdmin(role) || role === 'gate_operator')) return;
+    repos.invalidateMembersListCache();
+    try {
+      const { members: rawMembers } = await bootstrapMembersFromDb({
+        onProgress: (partial, meta) => {
+          if (!partial?.length) return;
+          const cleaned = partial.filter((m) => !isDemoMember(m));
+          const next = meta?.done ? attachHouseholdToMembers(cleaned) : cleaned;
+          setMembers(next);
+          setMembersCount((prev) => Math.max(prev, next.length, meta?.total || 0));
+          setMembersProgress({
+            loaded: meta?.loaded || next.length,
+            total: meta?.total || next.length,
+          });
+        },
+      });
+      if (rawMembers?.length) {
+        const cleaned = rawMembers.filter((m) => !isDemoMember(m));
+        const withFamily = attachHouseholdToMembers(cleaned);
+        setMembers(withFamily);
+        setMembersCount(withFamily.length);
+        setMembersProgress({ loaded: withFamily.length, total: withFamily.length });
+      }
+    } catch {
+      /* el padrón visible se queda con el último corte */
+    }
+  }, [cloudMode, isAuthenticated, role]);
+
+  useEffect(() => {
+    if (!cloudMode || !isAuthenticated || !dbReady) return undefined;
+    if (!(canAccessAdmin(role) || role === 'gate_operator')) return undefined;
+
+    let debounce = 0;
+    let lastFocusRefresh = 0;
+    const schedule = () => {
+      window.clearTimeout(debounce);
+      debounce = window.setTimeout(() => { void refreshMembersLive(); }, 2500);
+    };
+    const refreshIfStale = () => {
+      if (Date.now() - lastFocusRefresh < 60_000) return;
+      lastFocusRefresh = Date.now();
+      void refreshMembersLive();
+    };
+    const onVis = () => {
+      if (document.visibilityState === 'visible') refreshIfStale();
+    };
+    window.addEventListener('focus', refreshIfStale);
+    document.addEventListener('visibilitychange', onVis);
+
+    let channel = null;
+    if (supabase) {
+      channel = supabase
+        .channel('members-live')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'members' },
+          schedule,
+        )
+        .subscribe();
+    }
+
+    return () => {
+      window.removeEventListener('focus', refreshIfStale);
+      document.removeEventListener('visibilitychange', onVis);
+      window.clearTimeout(debounce);
+      if (channel) supabase?.removeChannel(channel);
+    };
+  }, [cloudMode, isAuthenticated, dbReady, role, refreshMembersLive]);
 
   const setMessagesDb = useCallback((updater) => {
     setMessages((prev) => {
@@ -2018,6 +2126,7 @@ function ClubPortal() {
         messages,
         waitlist,
         claims,
+        reservations,
         membershipApplications,
         alerts: erp.alerts || [],
         alertAcks: erp.alertAcks || [],
@@ -2025,7 +2134,7 @@ function ClubPortal() {
       })
   ), [
     isAuthenticated, cloudMode, dbSyncing, dbHydrated, userRole, user?.id, user?.memberId,
-    sessionMember, messages, waitlist, claims, membershipApplications, erp.alerts, erp.alertAcks, dismissedNotifIds,
+    sessionMember, messages, waitlist, claims, reservations, membershipApplications, erp.alerts, erp.alertAcks, dismissedNotifIds,
   ]);
 
   const dueNoticeId = notifications.find((n) => String(n.id).startsWith('dues-due-'))?.id || '';
@@ -2054,13 +2163,12 @@ function ClubPortal() {
   }, [dismissNotification, navigate, setCurrentView]);
 
   const handleMarkAllNotificationsRead = useCallback(() => {
-    const ids = notifications.map((n) => n.id);
+    const messagesOnly = notifications.filter((n) => n.kind === 'message');
+    const ids = messagesOnly.map((n) => n.id);
     if (!ids.length) return;
     setDismissedNotifIds((prev) => saveDismissedNotificationIds([...prev, ...ids]));
-    notifications.forEach((n) => {
-      if (n.kind === 'message' && n.messageId) {
-        setMessagesDb((prev) => markMessageRead(prev, n.messageId));
-      }
+    messagesOnly.forEach((n) => {
+      if (n.messageId) setMessagesDb((prev) => markMessageRead(prev, n.messageId));
     });
     if (cloudMode && user?.id) {
       repos.markNotificationsRead(ids, user.id).catch(() => {});
@@ -2173,7 +2281,8 @@ function ClubPortal() {
         isZondaActive={isZondaActive}
         updateMember={updateMember}
         poolAccesses={poolAccesses}
-        setPoolAccesses={setPoolAccesses}
+        setPoolAccesses={setPoolAccessesDb}
+        recordPoolCanon={erp.recordPoolCanon}
         poolSettings={poolSettings}
         setPoolSettings={setPoolSettings}
         facilityCatalog={facilityCatalog}
@@ -2253,7 +2362,10 @@ function ClubPortal() {
 
   if (!isAuthenticated) {
     return (
-      <div className={`app-container${isPublicRegistro ? ' is-public-join' : ''}`}>
+      <div
+        className={`app-container${isPublicRegistro ? ' is-public-join' : ' is-public-login'}`}
+        data-theme="light"
+      >
         {!isPublicRegistro ? (
           <>
             <div className="ambient-glow ambient-glow-1" />
@@ -2311,9 +2423,9 @@ function ClubPortal() {
       setMembers={setMembersDb}
       updateMember={updateMember}
       formatCurrency={formatCurrency}
-      addJournalEntry={erp.addPostedEntry}
+      recordPoolCanon={erp.recordPoolCanon}
       poolAccesses={poolAccesses}
-      setPoolAccesses={setPoolAccesses}
+      setPoolAccesses={setPoolAccessesDb}
       setEntryLogs={setEntryLogsDb}
       poolSettings={poolSettings}
       setPoolSettings={setPoolSettings}
@@ -2328,9 +2440,9 @@ function ClubPortal() {
       membersLoading={membersLoading}
       membersCount={membersCount}
       formatCurrency={formatCurrency}
-      addJournalEntry={erp.addPostedEntry}
+      recordPoolCanon={erp.recordPoolCanon}
       poolAccesses={poolAccesses}
-      setPoolAccesses={setPoolAccesses}
+      setPoolAccesses={setPoolAccessesDb}
       setEntryLogs={setEntryLogsDb}
       poolSettings={poolSettings}
     />
@@ -2474,6 +2586,7 @@ function ClubPortal() {
                 members={members}
                 onRefresh={refreshMessages}
                 onSendMessage={sendMessage}
+                live={cloudMode}
               />
             }
           />
@@ -2514,10 +2627,6 @@ function ClubPortal() {
           </p>
           <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
             Portal institucional v{import.meta.env.VITE_APP_VERSION || '1.0.0'}
-            {' · '}
-            {cloudMode
-              ? (dbHealthy ? 'Base de datos conectada' : (dbError ? `BD: ${dbError}` : 'Base de datos configurada'))
-              : 'Entorno local controlado'}
           </p>
         </footer>
       )}

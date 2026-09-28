@@ -1,12 +1,18 @@
 /**
  * Seed de altas y bajas Societas.
- * Source: datita/societas/bajas/*.xlsx
+ * Une todos los Excel de datita/societas/bajas y de
+ * datita/Avtualizacion/Socios/Altas y bajas. Cada export de Societas es una
+ * ventana (no un acumulado): el archivo más nuevo pisa la fila repetida y los
+ * movimientos que solo están en un corte viejo se conservan.
  */
 const XLSX = require('xlsx');
 const fs = require('fs');
 const path = require('path');
 
-const dir = path.join(__dirname, '../datita/societas/bajas');
+const sourceDirs = [
+  path.join(__dirname, '../datita/societas/bajas'),
+  path.join(__dirname, '../datita/Avtualizacion/Socios/Altas y bajas'),
+];
 const outFile = path.join(__dirname, '../src/data/seed/societasMembershipMoves.js');
 
 function cell(value) {
@@ -85,38 +91,76 @@ function parseSheet(wb, name, dateKeys, extra = {}) {
   return items;
 }
 
-function uniqueByKey(rows, keyFn) {
-  const seen = new Set();
-  const out = [];
-  for (const row of rows) {
-    const key = keyFn(row);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(row);
-  }
-  return out;
+function rowKey(row) {
+  return [row.type, row.memberId, row.date, row.motivo, row.movimiento].join('|');
 }
 
-const files = fs.readdirSync(dir).filter((name) => name.endsWith('.xlsx') && !name.startsWith('~$'));
-if (!files.length) throw new Error('No hay Excel de altas y bajas');
-const fileName = files.sort().reverse()[0];
-const asOf = (fileName.match(/(\d{4}-\d{2}-\d{2})/) || [])[1] || '';
-const wb = XLSX.readFile(path.join(dir, fileName));
+function isoFromParts(day, month, year) {
+  return `${year}-${String(Number(month)).padStart(2, '0')}-${String(Number(day)).padStart(2, '0')}`;
+}
 
-const altas = uniqueByKey(
-  parseSheet(wb, 'Altas', ['fecha de alta'], { type: 'alta' }),
-  (row) => `${row.memberId}|${row.date}|${row.motivo}`,
-);
-const bajas = uniqueByKey(
-  parseSheet(wb, 'Bajas', ['fecha de baja'], { type: 'baja' }),
-  (row) => `${row.memberId}|${row.date}|${row.motivo}`,
-);
+function parsePeriod(wb) {
+  const sheet = wb.Sheets.Resumen;
+  if (!sheet) return { from: '', to: '' };
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+  for (const row of rows) {
+    if (!/per[ií]odo/i.test(cell(row?.[0]))) continue;
+    const match = cell(row[1]).match(/(\d{1,2})\/(\d{1,2})\/(\d{4}).*?(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (!match) return { from: '', to: '' };
+    return {
+      from: isoFromParts(match[1], match[2], match[3]),
+      to: isoFromParts(match[4], match[5], match[6]),
+    };
+  }
+  return { from: '', to: '' };
+}
+
+function collectFiles() {
+  const byName = new Map();
+  for (const dir of sourceDirs) {
+    if (!fs.existsSync(dir)) continue;
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.endsWith('.xlsx') || name.startsWith('~$')) continue;
+      const full = path.join(dir, name);
+      const prev = byName.get(name);
+      if (!prev || fs.statSync(full).mtimeMs >= fs.statSync(prev).mtimeMs) byName.set(name, full);
+    }
+  }
+  return [...byName.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([, full]) => full);
+}
+
+const files = collectFiles();
+if (!files.length) throw new Error('No hay Excel de altas y bajas');
+
+const merged = new Map();
+let periodFrom = '';
+let periodTo = '';
+for (const filePath of files) {
+  const wb = XLSX.readFile(filePath);
+  const period = parsePeriod(wb);
+  if (period.from && (!periodFrom || period.from < periodFrom)) periodFrom = period.from;
+  if (period.to && (!periodTo || period.to > periodTo)) periodTo = period.to;
+  const rows = [
+    ...parseSheet(wb, 'Altas', ['fecha de alta'], { type: 'alta' }),
+    ...parseSheet(wb, 'Bajas', ['fecha de baja'], { type: 'baja' }),
+  ];
+  for (const row of rows) merged.set(rowKey(row), row);
+}
+
+const fileName = path.basename(files[files.length - 1]);
+const asOf = (fileName.match(/(\d{4}-\d{2}-\d{2})/) || [])[1] || periodTo;
+const rows = [...merged.values()];
+const altas = rows.filter((row) => row.type === 'alta');
+const bajas = rows.filter((row) => row.type === 'baja');
 
 const snapshot = {
   asOf,
   fileName,
-  periodFrom: '2026-08-01',
-  periodTo: '2026-09-11',
+  sources: files.map((filePath) => path.basename(filePath)),
+  periodFrom,
+  periodTo,
   altas: altas.length,
   bajas: bajas.length,
 };
@@ -128,4 +172,4 @@ export const SOCIETAS_MEMBERSHIP_ALTAS = ${JSON.stringify(altas)};
 export const SOCIETAS_MEMBERSHIP_BAJAS = ${JSON.stringify(bajas)};
 `;
 fs.writeFileSync(outFile, js);
-console.log(`Wrote ${altas.length} altas y ${bajas.length} bajas -> ${outFile}`);
+console.log(`Wrote ${altas.length} altas y ${bajas.length} bajas (${periodFrom} a ${periodTo}) desde ${snapshot.sources.join(' + ')}`);

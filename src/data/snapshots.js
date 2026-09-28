@@ -2,10 +2,9 @@
  * Snapshots exportados de LILA/Accessin y Societas: padrón con DNI, cuentas corrientes,
  * caja, proveedores. No viajan en el build.
  *
- * - Producción: se bajan del bucket privado `club-snapshots` de Supabase Storage con la
- *   sesión del usuario, y las políticas de storage.objects deciden quién los lee
- *   (supabase/migrations/20260916090000_club_snapshots_storage.sql). Se suben con
- *   `npm run upload:snapshots`.
+ * - Producción: se leen de `public.club_snapshots` con la sesión del usuario. Si esa
+ *   fila no está, se intenta el bucket privado `club-snapshots`. Se cargan con
+ *   `npm run upload:snapshots` o escribiendo la fila.
  * - Desarrollo y tests: si existe src/data/seed/<nombre>.js, se usa ese archivo. El
  *   import.meta.glob va detrás de import.meta.env.DEV para que el build no lo empaquete
  *   y para que no falle cuando la carpeta no está (los seeds no se commitean).
@@ -28,10 +27,13 @@ const loaded = new Map();
 const errors = new Map();
 const inflight = new Map();
 const merged = new Map();
+const seenUpdatedAt = new Map();
 const listeners = new Set();
 let version = 0;
 let generation = 0;
 let authBound = false;
+let liveBound = false;
+let liveTimer = 0;
 
 function notify() {
   version += 1;
@@ -73,6 +75,13 @@ export function snapshotError(name) {
   return errors.get(name) || null;
 }
 
+function forgetSnapshot(name) {
+  loaded.delete(name);
+  errors.delete(name);
+  merged.delete(name);
+  inflight.delete(name);
+}
+
 /** Olvida todo lo cargado. Se llama solo al cambiar la sesión. */
 export function clearSnapshots() {
   generation += 1;
@@ -80,7 +89,19 @@ export function clearSnapshots() {
   errors.clear();
   inflight.clear();
   merged.clear();
+  seenUpdatedAt.clear();
   notify();
+}
+
+/** Tira el cache de un snapshot y lo vuelve a pedir. */
+export function reloadSnapshot(name) {
+  forgetSnapshot(name);
+  return loadSnapshot(name);
+}
+
+export function reloadSnapshots(names = [...loaded.keys()]) {
+  names.forEach(forgetSnapshot);
+  return loadSnapshots(names);
 }
 
 function bindAuth(supabase) {
@@ -95,14 +116,85 @@ function bindAuth(supabase) {
   });
 }
 
+function snapshotNameFromChange(payload) {
+  return payload?.new?.name || payload?.old?.name || '';
+}
+
+async function refreshStaleSnapshots(supabase) {
+  const names = [...loaded.keys()];
+  if (!names.length) return;
+  const { data, error } = await supabase
+    .from('club_snapshots')
+    .select('name, updated_at')
+    .in('name', names);
+  if (error || !data?.length) return;
+  const stale = [];
+  for (const row of data) {
+    const prev = seenUpdatedAt.get(row.name);
+    if (prev && prev !== row.updated_at) stale.push(row.name);
+    if (row.updated_at) seenUpdatedAt.set(row.name, row.updated_at);
+  }
+  if (stale.length) await Promise.all(stale.map((name) => reloadSnapshot(name)));
+}
+
+function bindLive(supabase) {
+  if (liveBound || typeof window === 'undefined') return;
+  liveBound = true;
+  supabase
+    .channel('club-snapshots-live')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'club_snapshots' },
+      (payload) => {
+        const name = snapshotNameFromChange(payload);
+        if (name && KNOWN.has(name)) {
+          if (payload?.new?.updated_at) seenUpdatedAt.set(name, payload.new.updated_at);
+          void reloadSnapshot(name);
+          return;
+        }
+        void reloadSnapshots();
+      },
+    )
+    .subscribe();
+
+  const onVisible = () => {
+    if (document.visibilityState === 'visible') void refreshStaleSnapshots(supabase);
+  };
+  document.addEventListener('visibilitychange', onVisible);
+  window.addEventListener('focus', onVisible);
+  liveTimer = window.setInterval(() => {
+    if (document.visibilityState === 'visible') void refreshStaleSnapshots(supabase);
+  }, 20000);
+}
+
+/** Empieza a escuchar cortes nuevos en Supabase (realtime + foco + poll). */
+export function startSnapshotLiveUpdates() {
+  void import('../lib/supabase').then(({ isSupabaseConfigured, supabase }) => {
+    if (!isSupabaseConfigured || !supabase) return;
+    bindAuth(supabase);
+    bindLive(supabase);
+  });
+}
+
 async function fetchRemote(name) {
   const { isSupabaseConfigured, supabase } = await import('../lib/supabase');
   if (!isSupabaseConfigured || !supabase) {
     throw new Error('Sin Supabase configurado y sin archivo local para este snapshot.');
   }
   bindAuth(supabase);
+  bindLive(supabase);
+  const { data: row, error: tableError } = await supabase
+    .from('club_snapshots')
+    .select('payload, updated_at')
+    .eq('name', name)
+    .maybeSingle();
+  if (!tableError && row?.payload && typeof row.payload === 'object') {
+    if (row.updated_at) seenUpdatedAt.set(name, row.updated_at);
+    return row.payload;
+  }
+
   const { data, error } = await supabase.storage.from(SNAPSHOT_BUCKET).download(`${name}.json`);
-  if (error) throw error;
+  if (error) throw tableError || error;
   return JSON.parse(await data.text());
 }
 
@@ -122,19 +214,21 @@ export function loadSnapshot(name) {
   const promise = (local ? local().then((mod) => ({ ...mod })) : fetchRemote(name))
     .then((data) => {
       if (gen !== generation) return null;
+      if (inflight.get(name) !== promise) return data;
       loaded.set(name, data);
       errors.delete(name);
       return data;
     })
     .catch((err) => {
       if (gen !== generation) return null;
+      if (inflight.get(name) !== promise) return null;
       errors.set(name, err);
       if (import.meta.env.DEV) console.warn(`[snapshots] ${name}:`, err?.message || err);
       return null;
     })
     .finally(() => {
       if (gen !== generation) return;
-      inflight.delete(name);
+      if (inflight.get(name) === promise) inflight.delete(name);
       notify();
     });
 

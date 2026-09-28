@@ -54,6 +54,15 @@ export function duesBellItem(member, todayIso = todayISODateAR()) {
   };
 }
 
+function messageTitle(message, fallback) {
+  const kind = message?.meta?.kind;
+  if (kind === 'dues_payment') return message.subject || 'Comprobante de cuota';
+  if (kind === 'booking_payment') return message.subject || 'Comprobante de reserva';
+  if (kind === 'dues_receipt') return message.subject || 'Recibo de pago';
+  if (kind === 'dues_due') return message.subject || 'Aviso de cuota';
+  return message?.subject || fallback;
+}
+
 function requestWhen(iso) {
   if (!iso) return '';
   const d = new Date(iso);
@@ -68,6 +77,7 @@ export function buildNotifications({
   messages = [],
   waitlist = [],
   claims = [],
+  reservations = [],
   membershipApplications = [],
   alerts = [],
   alertAcks = [],
@@ -93,7 +103,7 @@ export function buildNotifications({
           id: `msg-${m.id}`,
           kind: 'message',
           messageId: m.id,
-          title: m.subject || 'Mensaje nuevo',
+          title: messageTitle(m, 'Mensaje nuevo'),
           detail: `${m.sender || 'Administración'} · ${m.date || ''}`.trim(),
           view: 'messages',
           path: '/mensajes',
@@ -134,6 +144,37 @@ export function buildNotifications({
             path: '/reservas',
           });
         });
+
+      const todayBookings = (reservations || []).filter((r) => (
+        String(r.memberId) === String(memberId)
+        && r.status === 'confirmed'
+        && String(r.date || '').slice(0, 10) === todayIso
+      ));
+      if (todayBookings.length) {
+        const first = todayBookings[0];
+        const place = [first.facilityName || first.facilityId, first.time].filter(Boolean).join(' · ');
+        push(out, {
+          id: `rsv-today-${memberId}-${todayIso}`,
+          kind: 'reservation',
+          title: todayBookings.length === 1 ? 'Tenés una reserva hoy' : `Tenés ${todayBookings.length} reservas hoy`,
+          detail: place || 'Mirá tus turnos.',
+          view: 'reservations',
+          path: '/reservas',
+        });
+      }
+
+      (claims || [])
+        .filter((c) => String(c.memberId) === String(memberId) && String(c.response || '').trim())
+        .forEach((c) => {
+          push(out, {
+            id: `claim-reply-${c.id}`,
+            kind: 'claim_reply',
+            title: 'Respondieron tu reclamo',
+            detail: String(c.response).trim(),
+            view: 'dashboard',
+            path: '/',
+          });
+        });
     }
 
     return out;
@@ -146,7 +187,7 @@ export function buildNotifications({
       id: `inbox-${m.id}`,
       kind: 'message',
       messageId: m.id,
-      title: m.subject || 'Mensaje de socio',
+      title: messageTitle(m, 'Mensaje de socio'),
       detail: `${m.sender || 'Socio'} · ${m.date || ''}`.trim(),
       view: 'messages',
       path: '/mensajes',
@@ -180,6 +221,21 @@ export function buildNotifications({
           path: '/panel/claims',
         });
       });
+  }
+
+  if (allowedAdminTabs(role).includes('bookings')) {
+    const pending = (reservations || []).filter((r) => r.status === 'pending');
+    if (pending.length) {
+      const stamp = pending.map((r) => r.id).sort().join(',');
+      push(out, {
+        id: `rsv-pending-${stamp}`,
+        kind: 'reservation',
+        title: pending.length === 1 ? 'Reserva pendiente' : `${pending.length} reservas pendientes`,
+        detail: 'Hay turnos esperando confirmación.',
+        view: 'bookings',
+        path: '/panel/bookings',
+      });
+    }
   }
 
   if (allowedAdminTabs(role).includes('members')) {

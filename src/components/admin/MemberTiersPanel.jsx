@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Pencil, Plus, Check, X, Trash2, Tags } from 'lucide-react';
+import { Pencil, Plus, Check, X, Trash2 } from 'lucide-react';
 import FoldableSection from './FoldableSection';
 import {
   getActiveTiers,
@@ -133,14 +133,11 @@ export default function MemberTiersPanel({
 
   return (
     <FoldableSection
-      className="member-tiers-panel glass-panel"
+      className="member-tiers-panel"
       id="member-tiers-title"
-      title={(
-        <>
-          <Tags size={16} /> Categorías de socios
-        </>
-      )}
-      subtitle={`${tiers.length} categorías · cuota, color y padrón`}
+      title="Categorías de socios"
+      subtitle="Cuota, color y padrón"
+      count={tiers.length}
       defaultOpen={false}
       storageKey="categorias"
       extra={(

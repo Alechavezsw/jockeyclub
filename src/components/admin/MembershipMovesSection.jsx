@@ -25,16 +25,32 @@ function MoveStatCard({ label, value, color, active, onClick }) {
   );
 }
 
-export default function MembershipMovesSection() {
+export default function MembershipMovesSection({ members = [] }) {
   const [view, setView] = useState('bajas');
   const [kind, setKind] = useState(null);
 
   const {
-    SOCIETAS_MEMBERSHIP_ALTAS: altas,
+    SOCIETAS_MEMBERSHIP_ALTAS: societasAltas,
     SOCIETAS_MEMBERSHIP_BAJAS,
     SOCIETAS_MEMBERSHIP_MOVES_SNAPSHOT: snap,
   } = useSnapshotSeed(['societasMembershipMoves'], membershipMovesSeed);
   const bajas = useMemo(() => uniqueBajas(SOCIETAS_MEMBERSHIP_BAJAS), [SOCIETAS_MEMBERSHIP_BAJAS]);
+  // Socios dados de alta en la app (ej. solicitudes públicas aprobadas) después
+  // del último sync de Societas: todavía no llegaron al importador.
+  const altas = useMemo(() => {
+    const knownIds = new Set(societasAltas.map((row) => String(row.memberId)));
+    const liveAltas = (members || [])
+      .filter((m) => m.joinDate && (!snap.periodTo || m.joinDate > snap.periodTo) && !knownIds.has(String(m.memberId)))
+      .map((m) => ({
+        memberId: m.memberId,
+        name: m.name,
+        documentNumber: m.documentNumber,
+        date: m.joinDate,
+        movimiento: 'Solicitud aprobada',
+      }))
+      .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    return [...liveAltas, ...societasAltas];
+  }, [societasAltas, members, snap.periodTo]);
   const summary = useMemo(() => summarizeBajas(bajas), [bajas]);
   const rows = view === 'altas'
     ? altas
@@ -45,7 +61,8 @@ export default function MembershipMovesSection() {
       className="membership-moves"
       id="membership-moves-title"
       title="Altas y bajas"
-      subtitle={`Corte Societas ${formatAr(snap.periodFrom)} al ${formatAr(snap.periodTo)} · ${altas.length.toLocaleString('es-AR')} altas · ${bajas.length.toLocaleString('es-AR')} bajas`}
+      subtitle={`Corte Societas ${formatAr(snap.periodFrom)} al ${formatAr(snap.periodTo)}`}
+      count={`${altas.length.toLocaleString('es-AR')} · ${bajas.length.toLocaleString('es-AR')}`}
       defaultOpen={false}
       storageKey="altasBajas"
       extra={(

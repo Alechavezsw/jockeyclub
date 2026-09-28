@@ -4,6 +4,7 @@ import {
   decorateBaja,
   parseArDate,
   summarizeBajas,
+  membershipMoveExportRows,
   uniqueBajas,
 } from './membershipMoves';
 
@@ -19,6 +20,10 @@ describe('membershipMoves', () => {
     expect(classifyBajaMotivo('Baja Familiar por Mora').id).toBe('mora');
     expect(classifyBajaMotivo('Liga no socio').id).toBe('liga');
     expect(classifyBajaMotivo('baja por afiliarse nuevamente 01/08/2026').id).toBe('reempadron');
+    expect(classifyBajaMotivo('BAJA X MOR + 6 MESES').id).toBe('mora');
+    expect(classifyBajaMotivo('Bja x morosidas').id).toBe('mora');
+    expect(classifyBajaMotivo('baja x morodiad').id).toBe('mora');
+    expect(classifyBajaMotivo('socio moroso').id).toBe('mora');
   });
 
   it('parsea fecha argentina y resume colores', () => {
@@ -33,5 +38,21 @@ describe('membershipMoves', () => {
     const summary = summarizeBajas(rows);
     expect(summary.find((s) => s.id === 'mora')?.count).toBe(1);
     expect(summary.find((s) => s.id === 'licencia')?.count).toBe(1);
+  });
+
+  it('arma altas y bajas con el motivo clasificado y suma altas nuevas del portal', () => {
+    const rows = membershipMoveExportRows({
+      periodTo: '2026-09-01',
+      altas: [{ memberId: '100', name: 'Ana', date: '2026-08-02', movimiento: 'Alta Societas' }],
+      bajas: [{ memberId: '200', name: 'Luis', date: '2026-08-10', motivo: 'Baja x mora' }],
+      members: [
+        { memberId: '300', name: 'Eva', joinDate: '2026-09-12', documentNumber: '30111222' },
+        { memberId: '100', name: 'Ana', joinDate: '2026-09-20' },
+      ],
+    });
+    expect(rows.map((row) => row.memberId)).toEqual(['300', '200', '100']);
+    expect(rows[0].kind).toBe('Alta en el portal');
+    expect(rows[1].kind).toBe('Mora / falta de pago');
+    expect(rows[2].kind).toBe('Alta');
   });
 });

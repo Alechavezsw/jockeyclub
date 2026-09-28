@@ -8,6 +8,7 @@ import {
   MAILBOX,
   rememberReadMessage,
   withRememberedReads,
+  threadAround,
 } from './messages';
 
 const base = [
@@ -79,5 +80,12 @@ describe('messaging', () => {
     expect(fresh.find((m) => m.id === 2).isRead).toBe(true);
     expect(fresh.find((m) => m.id === 1).isRead).toBe(false);
     expect(countUnread(fresh, { userId: 'user-1', role: 'member', memberId: '2026887744320988' })).toBe(1);
+  });
+
+  it('arma el hilo con la respuesta', () => {
+    const root = { id: 'a', content: 'Hola', createdAt: '2026-09-26T10:00:00.000Z' };
+    const reply = { id: 'b', parentId: 'a', content: 'Recibido', createdAt: '2026-09-26T10:01:00.000Z' };
+    const other = { id: 'c', content: 'Otro', createdAt: '2026-09-26T09:00:00.000Z' };
+    expect(threadAround([other, reply, root], reply).map((m) => m.id)).toEqual(['a', 'b']);
   });
 });

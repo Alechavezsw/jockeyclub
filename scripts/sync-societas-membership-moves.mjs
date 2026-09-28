@@ -9,7 +9,10 @@ import { createClient } from '@supabase/supabase-js';
 import { readFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { SOCIETAS_MEMBERSHIP_BAJAS } from '../src/data/seed/societasMembershipMoves.js';
+import {
+  SOCIETAS_MEMBERSHIP_BAJAS,
+  SOCIETAS_MEMBERSHIP_MOVES_AS_OF,
+} from '../src/data/seed/societasMembershipMoves.js';
 import { classifyBajaMotivo, memberMoveKey, uniqueBajas } from '../src/domain/members/membershipMoves.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -95,7 +98,7 @@ async function main() {
           bajaKind: kind.id,
           bajaKindLabel: kind.label,
           sourceSocietasBajas: true,
-          societasBajasAsOf: '2026-09-12',
+          societasBajasAsOf: SOCIETAS_MEMBERSHIP_MOVES_AS_OF,
         },
       },
     });

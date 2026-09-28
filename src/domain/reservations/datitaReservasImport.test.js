@@ -26,6 +26,7 @@ describe('datitaReservasImport', () => {
     expect(mapReservaStatus('Aprobado')).toBe('confirmed');
     expect(mapReservaStatus('Cancelado')).toBe('cancelled');
     expect(mapPaymentMethod('Pago por transferencia')).toBe('transferencia');
+    expect(mapPaymentMethod('Pago por cuenta corriente')).toBe('cuenta_corriente');
     expect(mapPaymentMethod('No definido')).toBeNull();
   });
 

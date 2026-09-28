@@ -243,6 +243,9 @@ export function accessLogFromRow(row) {
     status: row.status,
     notes: row.notes || '',
     source: meta.source || 'access_gate',
+    // logged_on siempre se graba en hora Argentina al registrar el acceso
+    // (ver insertAccessLog); no corresponde el ajuste de -1 día por hora UTC.
+    daySource: 'ar',
   };
 }
 
@@ -612,6 +615,36 @@ export function cashSessionFromRow(row) {
     closedAt: row.closed_at,
     openedBy: row.opened_by,
     closedBy: row.closed_by,
+  };
+}
+
+export function poolAccessFromRow(row) {
+  const meta = row.meta && typeof row.meta === 'object' ? row.meta : {};
+  return {
+    id: row.id,
+    clientId: meta.clientId || null,
+    date: row.access_date,
+    kind: row.kind,
+    memberId: row.member_number || null,
+    memberDbId: row.member_id || null,
+    memberName: row.member_name || '',
+    guestName: row.guest_name || null,
+    hostMemberId: row.host_member_number || null,
+    payment: {
+      amount: Number(row.payment_amount) || 0,
+      method: row.payment_method || null,
+      paidAt: row.enabled_at || null,
+      ref: null,
+      concept: row.payment_concept || '',
+    },
+    medicalExpiresAt: row.medical_expires_at || null,
+    enabledAt: row.enabled_at || null,
+    enabledBy: row.enabled_by || null,
+    status: row.status || 'active',
+    source: row.source || null,
+    revokedAt: row.revoked_at || null,
+    journalEntryId: row.journal_entry_id || null,
+    cashMovementId: row.cash_movement_id || null,
   };
 }
 

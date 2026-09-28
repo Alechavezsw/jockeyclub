@@ -4,6 +4,7 @@ import {
   getSnapshotsVersion,
   loadSnapshots,
   snapshotStatus,
+  startSnapshotLiveUpdates,
   subscribeSnapshots,
 } from '../data/snapshots';
 
@@ -18,6 +19,7 @@ export default function useSnapshots(names = []) {
   const generation = getSnapshotsGeneration();
 
   useEffect(() => {
+    startSnapshotLiveUpdates();
     if (key) void loadSnapshots(key.split('|'));
   }, [key, generation]);
 

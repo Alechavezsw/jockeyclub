@@ -1,17 +1,42 @@
 /**
  * Genera seed de pagos a proveedores Accessin/LILA.
- * Source: datita/contabilidad/Pago a proveedores/Reporte de Pagos a Proveedores - 2026-09-02.xlsx
+ * Toma el Excel más nuevo entre Avtualizacion/Contabilidad/nueva
+ * y el corte histórico.
  */
 const XLSX = require('xlsx');
 const fs = require('fs');
 const path = require('path');
 
-const excelPath = path.join(
-  __dirname,
-  '../datita/contabilidad/Pago a proveedores/Reporte de Pagos a Proveedores - 2026-09-02.xlsx'
-);
+const sourceDirs = [
+  path.join(__dirname, '../datita/Avtualizacion/Contabilidad/nueva'),
+  path.join(__dirname, '../datita/contabilidad/Pago a proveedores'),
+];
 const outDir = path.join(__dirname, '../src/data/seed');
 const outFile = path.join(outDir, 'accessinSupplierPayments.js');
+
+function collectSupplierPaymentExcels() {
+  const files = [];
+  for (const dir of sourceDirs) {
+    if (!fs.existsSync(dir)) continue;
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.endsWith('.xlsx') || name.startsWith('~$')) continue;
+      if (!/Pagos a Proveedores/i.test(name)) continue;
+      const full = path.join(dir, name);
+      const dated = name.match(/(\d{4}-\d{2}-\d{2})/);
+      files.push({
+        name,
+        full,
+        date: dated ? dated[1] : '',
+        mtime: fs.statSync(full).mtimeMs,
+      });
+    }
+  }
+  return files.toSorted((a, b) => String(b.date).localeCompare(String(a.date)) || b.mtime - a.mtime);
+}
+
+const picked = collectSupplierPaymentExcels()[0];
+if (!picked) throw new Error('No hay Excel de Pagos a Proveedores');
+const excelPath = picked.full;
 
 const METHOD_LABELS = {
   efectivo: 'Efectivo',
@@ -118,9 +143,11 @@ payments.sort((a, b) => {
   return String(b.orderId || '').localeCompare(String(a.orderId || ''));
 });
 
+const asOf = picked.date || maxDate || '';
 const snapshot = {
-  asOf: '2026-09-02',
-  generatedAt: '2026-09-02T00:00:00.000Z',
+  asOf,
+  fileName: picked.name,
+  generatedAt: asOf ? `${asOf}T00:00:00.000Z` : '',
   periodFrom: minDate || null,
   periodTo: maxDate || null,
   count: payments.length,
@@ -131,11 +158,18 @@ const snapshot = {
 };
 
 fs.mkdirSync(outDir, { recursive: true });
-const js = `/** Pagos a proveedores Accessin/LILA (al 2026-09-02). Auto-generado — no editar a mano. */
-export const ACCESSIN_SUPPLIER_PAYMENTS_AS_OF = '2026-09-02';
+const js = `/** Pagos a proveedores Accessin/LILA ${asOf}. Auto-generado — no editar a mano. */
+export const ACCESSIN_SUPPLIER_PAYMENTS_AS_OF = ${JSON.stringify(asOf)};
 export const ACCESSIN_SUPPLIER_PAYMENTS_METHOD_LABELS = ${JSON.stringify(METHOD_LABELS, null, 2)};
 export const ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT = ${JSON.stringify(snapshot, null, 2)};
 export const ACCESSIN_SUPPLIER_PAYMENTS = ${JSON.stringify(payments, null, 2)};
 `;
 fs.writeFileSync(outFile, js);
 console.log(`Wrote ${payments.length} payments, total ${snapshot.totalAmount} -> ${outFile}`);
+console.log(JSON.stringify({
+  fileName: picked.name,
+  asOf,
+  periodFrom: minDate || null,
+  periodTo: maxDate || null,
+  byMethod: snapshot.byMethod,
+}, null, 2));

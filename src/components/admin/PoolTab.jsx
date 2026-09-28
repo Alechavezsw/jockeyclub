@@ -20,6 +20,7 @@ import {
   searchPoolMembers,
   memberPoolHistory,
 } from '../../domain/pool/poolAccess';
+import { chargePoolCanon, withChargedPoolEntry, POOL_MP_PENDING } from '../../domain/pool/poolCheckout';
 import { poolIngressToAccessLog } from '../../domain/credentials/accessLog';
 import { todayISODateAR } from '../../lib/arDate';
 
@@ -45,7 +46,7 @@ export default function PoolTab({
   setMembers,
   updateMember = null,
   formatCurrency,
-  addJournalEntry,
+  recordPoolCanon,
   poolAccesses = [],
   setPoolAccesses,
   setEntryLogs,
@@ -173,25 +174,11 @@ export default function PoolTab({
         settings,
         actorName,
       });
-      setPoolAccesses(accesses);
+      const charged = await chargePoolCanon({ entry, member: selected, recordPoolCanon });
+      setPoolAccesses(withChargedPoolEntry(accesses, entry, charged));
       if (typeof setEntryLogs === 'function') {
-        const log = poolIngressToAccessLog(entry);
+        const log = poolIngressToAccessLog(charged);
         if (log) setEntryLogs((prev) => [log, ...(prev || [])]);
-      }
-      if (typeof addJournalEntry === 'function' && entry.payment.amount > 0) {
-        addJournalEntry({
-          date: today,
-          description: `Canon pileta — ${selected.name} (${payMethod === 'mercadopago' ? 'MP QR' : 'Efectivo'})`,
-          lines: [
-            {
-              account: payMethod === 'efectivo' ? 'Caja General' : 'Banco Nación',
-              type: 'debit',
-              amount: entry.payment.amount,
-            },
-            { account: 'Reservas e Instalaciones', type: 'credit', amount: entry.payment.amount },
-          ],
-          sourceModule: 'pileta',
-        });
       }
       showFlash(`Acceso habilitado · ${selected.name}`);
     } catch (err) {
@@ -215,28 +202,14 @@ export default function PoolTab({
         settings,
         actorName,
       });
-      setPoolAccesses(accesses);
+      const charged = await chargePoolCanon({ entry, member: selected, recordPoolCanon });
+      setPoolAccesses(withChargedPoolEntry(accesses, entry, charged));
       setGuestName('');
       if (typeof setEntryLogs === 'function') {
-        const log = poolIngressToAccessLog(entry);
+        const log = poolIngressToAccessLog(charged);
         if (log) setEntryLogs((prev) => [log, ...(prev || [])]);
       }
-      if (typeof addJournalEntry === 'function' && entry.payment.amount > 0) {
-        addJournalEntry({
-          date: today,
-          description: `Canon pileta invitado — ${entry.guestName} (anfitrión ${selected.name})`,
-          lines: [
-            {
-              account: guestMethod === 'efectivo' ? 'Caja General' : 'Banco Nación',
-              type: 'debit',
-              amount: entry.payment.amount,
-            },
-            { account: 'Reservas e Instalaciones', type: 'credit', amount: entry.payment.amount },
-          ],
-          sourceModule: 'pileta',
-        });
-      }
-      showFlash(`Invitado habilitado · ${entry.guestName}`);
+      showFlash(`Invitado habilitado · ${charged.guestName}`);
     } catch (err) {
       setError(err?.message || 'No se pudo habilitar al invitado.');
     } finally {
@@ -260,8 +233,8 @@ export default function PoolTab({
           <p className="pool-kicker"><Waves size={14} aria-hidden="true" /> Pileta</p>
           <h2 className="serif-font">{settings.seasonLabel}</h2>
           <p>
-            Habilitación de socios con revisación médica, cobro de canon (efectivo o QR Mercado Pago)
-            e invitados del día.
+            Habilitación de socios con revisación médica. El canon en efectivo entra en la caja.
+            Mercado Pago se cobra cuando esté la app.
           </p>
         </div>
         <div className="pool-hero-kpis">
@@ -429,7 +402,7 @@ export default function PoolTab({
                   {payMethod === 'mercadopago' ? (
                     <div className="pool-qr-box">
                       <QRCodeSVG value={mpPayload || 'jockey-pool'} size={148} level="M" includeMargin />
-                      <p>Mostrá el QR al socio para pagar {formatCurrency(settings.memberDayFee)}</p>
+                      <p>{POOL_MP_PENDING}</p>
                     </div>
                   ) : null}
                   {eval_.blockers.length > 0 ? (
@@ -495,7 +468,7 @@ export default function PoolTab({
                   {guestMethod === 'mercadopago' && guestName.trim() ? (
                     <div className="pool-qr-box">
                       <QRCodeSVG value={guestMpPayload || 'jockey-pool-guest'} size={132} level="M" includeMargin />
-                      <p>QR invitado · {formatCurrency(settings.guestDayFee)}</p>
+                      <p>{POOL_MP_PENDING}</p>
                     </div>
                   ) : null}
                   <button

@@ -30,7 +30,7 @@ describe('exportFeePeriodDetails', () => {
     const september = ACCESSIN_FEE_PERIODS.find((p) => p.month === 9 && p.year === 2026);
     const accounts = feeAccountDetailsForPeriod(september);
     const model = buildFeePeriodExportModel(september, accounts);
-    expect(model.summary.lineCount).toBe(1669);
-    expect(model.rows).toHaveLength(1669);
+    expect(model.summary.lineCount).toBe(3532);
+    expect(model.rows).toHaveLength(3532);
   });
 });

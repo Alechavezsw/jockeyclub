@@ -67,6 +67,46 @@ export function listDetailedCcMembers({
       || String(a.memberNumber).localeCompare(String(b.memberNumber)));
 }
 
+export function periodKeyFromDate(iso) {
+  const key = String(iso || '').slice(0, 7);
+  return /^\d{4}-\d{2}$/.test(key) ? key : '';
+}
+
+/** Socios con cuota del período cargada y todavía adeudada. */
+export function listUnpaidFeeMembersForPeriod(
+  periodKey,
+  byNumber = detailedCcSeed().ACCESSIN_DETAILED_CC_BY_NUMBER,
+) {
+  const key = periodKeyFromDate(periodKey) || String(periodKey || '');
+  if (!/^\d{4}-\d{2}$/.test(key)) return [];
+
+  const rows = [];
+  for (const member of Object.values(byNumber || {})) {
+    let owed = 0;
+    let amount = 0;
+    for (const line of member.lines || []) {
+      if (line.periodKey !== key) continue;
+      const lineOwed = Number(line.owed) || 0;
+      if (lineOwed <= 0) continue;
+      owed += lineOwed;
+      amount += Number(line.amount) || 0;
+    }
+    if (owed <= 0) continue;
+    rows.push({
+      memberNumber: member.memberNumber || '',
+      memberName: member.memberName || [member.firstName, member.lastName].filter(Boolean).join(' ') || 'Socio',
+      dni: member.dni || '',
+      owed,
+      amount,
+    });
+  }
+  return rows.toSorted((a, b) => (
+    b.owed - a.owed
+    || String(a.memberName).localeCompare(String(b.memberName), 'es')
+    || String(a.memberNumber).localeCompare(String(b.memberNumber))
+  ));
+}
+
 export function listDetailedCcPeriods(byNumber = detailedCcSeed().ACCESSIN_DETAILED_CC_BY_NUMBER) {
   const set = new Set();
   Object.values(byNumber || {}).forEach((m) => {

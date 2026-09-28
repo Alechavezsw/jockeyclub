@@ -17,17 +17,18 @@ beforeAll(async () => {
 
 describe('feeAccountDetails', () => {
   it('carga detalle real septiembre 2026', () => {
-    expect(ACCESSIN_FEE_ACCOUNT_DETAILS).toHaveLength(2);
-    expect(ACCESSIN_FEE_ACCOUNT_DETAILS_SNAPSHOT.totalAmount).toBeCloseTo(90993502.07, 2);
-    expect(ACCESSIN_FEE_ACCOUNT_DETAILS_SNAPSHOT.lineCount).toBe(1669);
+    expect(ACCESSIN_FEE_ACCOUNT_DETAILS).toHaveLength(3);
+    expect(ACCESSIN_FEE_ACCOUNT_DETAILS_SNAPSHOT.asOf).toBe('2026-09-26');
+    expect(ACCESSIN_FEE_ACCOUNT_DETAILS_SNAPSHOT.totalAmount).toBeCloseTo(173261004.44, 2);
+    expect(ACCESSIN_FEE_ACCOUNT_DETAILS_SNAPSHOT.lineCount).toBe(3532);
   });
 
   it('filtra por período y texto', () => {
     const accounts = feeAccountDetailsForPeriod('2026-09');
-    expect(accounts).toHaveLength(2);
+    expect(accounts).toHaveLength(3);
     const summary = feeAccountDetailsSummary(accounts);
-    expect(summary.lineCount).toBe(1669);
-    const familiar = accounts.find((a) => /familiar/i.test(a.accountLabel));
+    expect(summary.lineCount).toBe(3532);
+    const familiar = accounts.find((a) => a.periodKind === 'concepto');
     const hits = filterFeeAccountLines(familiar.lines, '10811');
     expect(hits.length).toBeGreaterThan(0);
     expect(hits[0].memberNumber).toBe('10811');

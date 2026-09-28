@@ -109,6 +109,7 @@ export function hasSystemAdminRole(roleOrRolesOrProfile) {
 /** Pestañas del panel: el superadmin ve el set completo. */
 export const ALL_ADMIN_TABS = [
   'dashboard',
+  'jev',
   'members',
   'dues',
   'bookings',
@@ -197,19 +198,20 @@ export function allowedAdminTabs(role) {
     return [...ADMIN_TABS_NO_ACCOUNTING];
   }
   if (role === 'accountant') {
-    return ['dashboard', 'dues', 'accounting', 'reports', 'events'];
+    return ['dashboard', 'jev', 'dues', 'accounting', 'reports', 'events'];
   }
   // Operador de portería: caja + portería / ingresos.
   if (role === 'gate_operator') {
-    return ['dashboard', 'members', 'dues', 'pool', 'access', 'accounting'];
+    return ['dashboard', 'jev', 'members', 'dues', 'pool', 'access', 'accounting'];
   }
   if (role === 'cashier') {
-    return ['dashboard', 'members', 'dues', 'pool', 'access', 'accounting', 'events'];
+    return ['dashboard', 'jev', 'members', 'dues', 'pool', 'access', 'accounting', 'events'];
   }
   // Empleado de administración: padrón, cuotas, atención (sin contabilidad ni sistema).
   if (role === 'admin_employee') {
     return [
       'dashboard',
+      'jev',
       'members',
       'dues',
       'bookings',
@@ -228,7 +230,7 @@ export function allowedAdminTabs(role) {
     return ['dashboard', 'staff', 'alerts'];
   }
   if (role === 'staff') {
-    return ['dashboard', 'bookings', 'disciplines', 'pool', 'access', 'staff', 'events', 'alerts', 'claims', 'news'];
+    return ['dashboard', 'jev', 'bookings', 'disciplines', 'pool', 'access', 'staff', 'events', 'alerts', 'claims', 'news'];
   }
   return [];
 }
@@ -272,7 +274,7 @@ export function allowedAccountingSubtabsForRoles(rolesOrPrimary) {
 export function allowedAccountingSubtabs(role) {
   if (role === 'superadmin' || role === 'accountant') {
     return [
-      'diary', 'mayor', 'create', 'balance', 'balance_monthly', 'balance_liquidation', 'balance_patrimonial', 'results', 'charts', 'acct_reports', 'plan',
+      'diary', 'mayor', 'create', 'balance', 'balance_monthly', 'balance_summary', 'balance_liquidation', 'balance_patrimonial', 'results', 'charts', 'acct_reports', 'libre_deuda', 'family_balances', 'member_discounts', 'bonificaciones', 'siap', 'plan',
       'cash', 'expenses', 'suppliers', 'retenciones', 'other_incomes', 'interest_generators',
       'unidentified', 'galicia', 'fixed_expenses', 'fixed_discounts', 'balances', 'payment_orders',
       'credit_purchases',

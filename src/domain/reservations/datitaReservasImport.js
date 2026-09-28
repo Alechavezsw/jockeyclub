@@ -107,6 +107,9 @@ export function mapPaymentMethod(forma) {
   if (lower.includes('transfer')) return 'transferencia';
   if (lower.includes('mercado') || lower.includes('mp')) return 'mercadopago';
   if (lower.includes('efectivo') || lower.includes('caja')) return 'efectivo';
+  if (lower.includes('cuenta corriente') || lower.includes('cta cte') || lower.includes('cta. cte')) {
+    return 'cuenta_corriente';
+  }
   return s;
 }
 

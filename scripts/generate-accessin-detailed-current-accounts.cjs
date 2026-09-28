@@ -1,12 +1,16 @@
 /**
  * Genera seed de cuentas corrientes detalladas (Accessin/LILA).
- * Source: datita/contabilidad/CC detalladas/*.xlsx
+ * Toma el Excel más nuevo entre el corte histórico y la carpeta de actualización.
+ * Solo importa la hoja Cuotas; salones, recargos y otros quedan fuera de este listado.
  */
 const XLSX = require('xlsx');
 const fs = require('fs');
 const path = require('path');
 
-const dir = path.join(__dirname, '../datita/contabilidad/CC detalladas');
+const sourceDirs = [
+  path.join(__dirname, '../datita/Avtualizacion/Contabilidad/socios/cuenta corriente detalladas'),
+  path.join(__dirname, '../datita/contabilidad/CC detalladas'),
+];
 const outFile = path.join(__dirname, '../src/data/seed/accessinDetailedCurrentAccounts.js');
 
 const MONTHS_ES = [
@@ -61,11 +65,21 @@ function periodFromIso(iso) {
   };
 }
 
-const files = fs.readdirSync(dir).filter((f) => f.endsWith('.xlsx') && /Detalle/i.test(f));
-if (!files.length) throw new Error('No hay Excel de CC detalladas');
+const candidates = [];
+for (const dir of sourceDirs) {
+  if (!fs.existsSync(dir)) continue;
+  for (const name of fs.readdirSync(dir)) {
+    if (!name.endsWith('.xlsx') || !/Detalle/i.test(name)) continue;
+    const full = path.join(dir, name);
+    const dated = name.match(/(\d{4}-\d{2}-\d{2})/);
+    candidates.push({ name, full, date: dated ? dated[1] : '', mtime: fs.statSync(full).mtimeMs });
+  }
+}
+candidates.sort((a, b) => b.date.localeCompare(a.date) || b.mtime - a.mtime);
+if (!candidates.length) throw new Error('No hay Excel de CC detalladas');
 
-const fileName = files.sort().reverse()[0];
-const wb = XLSX.readFile(path.join(dir, fileName));
+const fileName = candidates[0].name;
+const wb = XLSX.readFile(candidates[0].full);
 
 // --- General ---
 const generalAoa = XLSX.utils.sheet_to_json(wb.Sheets.General || wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });

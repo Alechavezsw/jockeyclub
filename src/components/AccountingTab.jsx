@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import {
   BookOpen, Plus, DollarSign, PieChart, ShieldAlert, CheckCircle2, Trash2, Printer, Search,
   TrendingUp, Book, ListTree, Wallet, Receipt, Truck, HelpCircle, Building2, Repeat, Percent,
-  Scale, FileSpreadsheet, Banknote, FileText, Ticket, CalendarDays, ChevronDown,
+  Scale, FileSpreadsheet, Banknote, FileText, Ticket, CalendarDays, ChevronDown, BadgeCheck, Users,
 } from 'lucide-react';
 import {
   DEFAULT_CHART_OF_ACCOUNTS,
@@ -42,8 +42,14 @@ import {
   PaymentOrdersPanel,
 } from './erp/TreasuryPanels';
 import AccountingReportsPanel from './erp/AccountingReportsPanel';
+import LibreDeudaPanel from './erp/LibreDeudaPanel';
+import FamilyGroupBalancesPanel from './erp/FamilyGroupBalancesPanel';
+import MemberDiscountsPanel from './erp/MemberDiscountsPanel';
+import BonificacionesPanel from './erp/BonificacionesPanel';
+import SiapPanel from './erp/SiapPanel';
 import MemberCreditPurchasesPanel from './erp/MemberCreditPurchasesPanel';
 import MonthlyBalancePanel from './erp/MonthlyBalancePanel';
+import MonthlyBalanceSummaryPanel from './erp/MonthlyBalanceSummaryPanel';
 import LiquidationCcPanel from './erp/LiquidationCcPanel';
 import ResultsChartsPanel from './erp/ResultsChartsPanel';
 import { allowedAccountingSubtabsForRoles } from '../domain/auth/roles';
@@ -66,10 +72,11 @@ const TREASURY_TABS = new Set([
   'credit_purchases',
 ]);
 
-const BALANCE_TABS = new Set(['balance', 'balance_monthly', 'balance_liquidation', 'balance_patrimonial']);
+const BALANCE_TABS = new Set(['balance', 'balance_monthly', 'balance_summary', 'balance_liquidation', 'balance_patrimonial']);
 
 const BALANCE_HUB_TABS = [
   { key: 'balance', icon: CalendarDays, label: 'Mensual' },
+  { key: 'balance_summary', icon: ListTree, label: 'Resumido' },
   { key: 'balance_liquidation', icon: FileSpreadsheet, label: 'Cta. cte.' },
   { key: 'balance_patrimonial', icon: Scale, label: 'Patrimonial' },
 ];
@@ -100,6 +107,11 @@ function buildAccountingNavGroups(accountingTabs) {
         { key: 'results', icon: DollarSign, label: 'Estado de Resultados', short: 'Resultados' },
         { key: 'charts', icon: TrendingUp, label: 'Reportes y gráficos', short: 'Gráficos', accent: 'charts' },
         { key: 'acct_reports', icon: FileText, label: 'Reportes', short: 'Reportes' },
+        { key: 'libre_deuda', icon: BadgeCheck, label: 'Libre deuda', short: 'Libre deuda' },
+        { key: 'family_balances', icon: Users, label: 'Grupo familiar', short: 'Familia' },
+        { key: 'member_discounts', icon: Percent, label: 'Descuentos extras', short: 'Descuentos' },
+        { key: 'bonificaciones', icon: Receipt, label: 'Bonificaciones', short: 'Bonif.' },
+        { key: 'siap', icon: Building2, label: 'SIAP', short: 'SIAP' },
       ],
     },
     {
@@ -522,6 +534,7 @@ export default function AccountingTab({
     && !TREASURY_TABS.has(subTab)
     && subTab !== 'balance'
     && subTab !== 'balance_monthly'
+    && subTab !== 'balance_summary'
     && subTab !== 'balance_liquidation';
 
   const journalExportPayload = subTab === 'diary' ? filteredJournalEntries : journalEntries;
@@ -1298,6 +1311,35 @@ export default function AccountingTab({
           onRecordReport={onRecordAccountingReport}
           journalEntries={journalEntries}
           chartOfAccounts={chartOfAccounts}
+          onOpenLibreDeuda={() => setSubTab('libre_deuda')}
+          onOpenFamilyBalances={() => setSubTab('family_balances')}
+        />
+      )}
+
+      {subTab === 'family_balances' && (
+        <FamilyGroupBalancesPanel
+          reports={accountingReports}
+          onRecordReport={onRecordAccountingReport}
+        />
+      )}
+
+      {subTab === 'member_discounts' && (
+        <MemberDiscountsPanel />
+      )}
+
+      {subTab === 'bonificaciones' && (
+        <BonificacionesPanel />
+      )}
+
+      {subTab === 'siap' && (
+        <SiapPanel />
+      )}
+
+      {subTab === 'libre_deuda' && (
+        <LibreDeudaPanel
+          members={members}
+          reports={accountingReports}
+          onRecordReport={onRecordAccountingReport}
         />
       )}
 
@@ -1524,6 +1566,10 @@ export default function AccountingTab({
 
       {subTab === 'balance_monthly' && (
         <MonthlyBalancePanel />
+      )}
+
+      {subTab === 'balance_summary' && (
+        <MonthlyBalanceSummaryPanel />
       )}
 
       {subTab === 'balance_liquidation' && (

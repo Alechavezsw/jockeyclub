@@ -4,6 +4,7 @@ import {
   reasonLabel,
   buildLifecycleMeta,
   collectMemberMeta,
+  memberAppAccess,
   memberHasSocietasApp,
   splitMemberName,
 } from './memberAdminActions.js';
@@ -51,5 +52,22 @@ describe('memberAdminActions', () => {
     const meta = collectMemberMeta({ hasSocietasApp: true, societasAppAsOf: '2026-09-09' });
     expect(meta.hasSocietasApp).toBe(true);
     expect(meta.societasAppAsOf).toBe('2026-09-09');
+  });
+
+  it('dice Con app solo si ya abrió el portal, no por Societas', () => {
+    expect(memberAppAccess({ meta: { hasSocietasApp: true } })).toEqual({
+      kind: 'none',
+      hasAccess: false,
+      label: 'Sin app',
+      hint: 'Todavía no abrió el portal',
+    });
+    expect(memberAppAccess({ meta: { hasSocietasApp: false }, profileId: 'p-1' })).toEqual({
+      kind: 'portal',
+      hasAccess: true,
+      label: 'Con app',
+      hint: 'Ya abrió el portal',
+    });
+    expect(memberAppAccess({ meta: { portalProvisionedAt: '2026-09-26T12:00:00.000Z' } }).label).toBe('Con app');
+    expect(memberAppAccess({}).label).toBe('Sin app');
   });
 });

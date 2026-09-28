@@ -134,6 +134,19 @@ export function composeRecipients({ role, members = [] }) {
   ];
 }
 
+/** Hilo de una conversación: el mensaje raíz y sus respuestas. */
+export function threadAround(messages, message) {
+  if (!message) return [];
+  const rootId = message.parentId || message.id;
+  return (messages || [])
+    .filter((item) => (
+      String(item.id) === String(rootId)
+      || String(item.parentId) === String(rootId)
+      || String(item.id) === String(message.id)
+    ))
+    .sort((a, b) => String(a.createdAt || a.date).localeCompare(String(b.createdAt || b.date)));
+}
+
 export function recipientLabel(recipientId, members = []) {
   if (recipientId === MAILBOX.ALL_MEMBERS) return 'Todos los socios';
   if (recipientId === MAILBOX.OPERATIONS) return 'Administración';

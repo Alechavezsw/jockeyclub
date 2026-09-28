@@ -57,6 +57,8 @@ const MEMBERS_LIST_SELECT = [
   'family_group_name:meta->>familyGroupName',
   'cuota_categories:meta->cuotaCategories',
   'portal_username:meta->>portalUsername',
+  'portal_provisioned:meta->>portalProvisionedAt',
+  'has_societas_app:meta->>hasSocietasApp',
 ].join(', ');
 
 export function metaFromListRow(row = {}) {
@@ -65,12 +67,16 @@ export function metaFromListRow(row = {}) {
   const lastPay = row.last_payment_date ?? row.lastPaymentDate ?? row.meta?.lastPaymentDate;
   const cats = row.cuota_categories ?? row.cuotaCategories ?? row.meta?.cuotaCategories;
   const portalUser = row.portal_username ?? row.portalUsername ?? row.meta?.portalUsername;
+  const portalAt = row.portal_provisioned ?? row.portalProvisionedAt ?? row.meta?.portalProvisionedAt;
+  const societasApp = row.has_societas_app ?? row.hasSocietasApp ?? row.meta?.hasSocietasApp;
   const meta = row.meta && typeof row.meta === 'object' && !Array.isArray(row.meta) ? { ...row.meta } : {};
   if (principal != null && principal !== '') meta.familyPrincipalNumber = principal;
   if (group) meta.familyGroupName = group;
   if (lastPay) meta.lastPaymentDate = lastPay;
   if (cats) meta.cuotaCategories = cats;
   if (portalUser) meta.portalUsername = portalUser;
+  if (portalAt) meta.portalProvisionedAt = portalAt;
+  if (societasApp === true || societasApp === 'true') meta.hasSocietasApp = true;
   return meta;
 }
 
@@ -855,6 +861,63 @@ export async function insertAccessLog(log, memberDbId = null) {
   return M.accessLogFromRow(saved);
 }
 
+export async function listPoolAccesses({ limit = 2000 } = {}) {
+  const rows = await unwrap(
+    sb()
+      .from('pool_accesses')
+      .select('*')
+      .order('enabled_at', { ascending: false })
+      .limit(Math.max(1, Number(limit) || 2000)),
+    'No se pudieron cargar los ingresos de pileta'
+  );
+  return (rows || []).map(M.poolAccessFromRow);
+}
+
+export async function insertPoolAccess(entry, memberDbId = null) {
+  const memberId = isUuid(memberDbId) ? memberDbId : (isUuid(entry?.memberDbId) ? entry.memberDbId : null);
+  const row = {
+    access_date: entry.date || new Date().toISOString().slice(0, 10),
+    kind: entry.kind === 'guest' ? 'guest' : 'member',
+    member_id: memberId,
+    member_number: entry.memberId ? String(entry.memberId) : null,
+    member_name: entry.memberName || null,
+    guest_name: entry.guestName || null,
+    host_member_number: entry.hostMemberId ? String(entry.hostMemberId) : null,
+    payment_amount: Number(entry.payment?.amount) || 0,
+    payment_method: entry.payment?.method || null,
+    payment_concept: entry.payment?.concept || null,
+    medical_expires_at: entry.medicalExpiresAt || null,
+    status: entry.status === 'revoked' ? 'revoked' : 'active',
+    source: entry.source || null,
+    enabled_by: entry.enabledBy || null,
+    enabled_at: entry.enabledAt || new Date().toISOString(),
+    journal_entry_id: isUuid(entry.journalEntryId) ? entry.journalEntryId : null,
+    cash_movement_id: isUuid(entry.cashMovementId) ? entry.cashMovementId : null,
+    meta: {
+      clientId: entry.id && !isUuid(entry.id) ? String(entry.id) : undefined,
+    },
+  };
+  const saved = await unwrap(
+    sb().from('pool_accesses').insert(row).select().single(),
+    'No se pudo guardar el ingreso de pileta'
+  );
+  return M.poolAccessFromRow(saved);
+}
+
+export async function revokePoolAccess(id) {
+  if (!isUuid(id)) return null;
+  const saved = await unwrap(
+    sb()
+      .from('pool_accesses')
+      .update({ status: 'revoked', revoked_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single(),
+    'No se pudo revocar el ingreso de pileta'
+  );
+  return M.poolAccessFromRow(saved);
+}
+
 export async function listGuestPasses() {
   const rows = await unwrap(
     sb().from('guest_passes').select('*').order('created_at', { ascending: false }),
@@ -1576,7 +1639,7 @@ export async function upsertSupplier(s) {
       payableAccountId: s.payableAccountId || prevMeta.payableAccountId || 'coa-2.1.01',
       accessinCode: s.accessinCode || prevMeta.accessinCode || '',
       openingBalance: s.openingBalance != null ? Number(s.openingBalance) || 0 : (prevMeta.openingBalance || 0),
-      asOf: prevMeta.asOf || '2026-09-02',
+      asOf: s.asOf || prevMeta.asOf || '2026-09-26',
       source: prevMeta.source || (s.accessinCode ? 'accessin' : undefined),
     },
   };
@@ -2884,4 +2947,97 @@ export async function findMemberDbIdByNumber(memberNumber) {
     sb().from('members').select('id').eq('member_number', memberNumber).maybeSingle()
   );
   return row?.id || null;
+}
+
+const ACCOUNT_COLUMNS = 'id, titular_number, opening_on, opening_balance, closing_on, closing_balance';
+
+/** Cuántos extractos familiares hay cargados. No trae movimientos. */
+export async function countGroupAccountLedgers() {
+  const { count, error } = await sb()
+    .from('group_accounts')
+    .select('id', { count: 'exact', head: true });
+  throwOnError(error, 'No se pudo contar los extractos de cuenta');
+  return count || 0;
+}
+
+/** Extracto de Lila del socio: el suyo si es titular, o el del grupo donde figura. */
+export async function listGroupAccountLedger(memberNumber) {
+  const key = String(memberNumber || '').replace(/\D/g, '').replace(/^0+/, '');
+  if (!key) return null;
+  let account = await unwrap(
+    sb()
+      .from('group_accounts')
+      .select(ACCOUNT_COLUMNS)
+      .eq('titular_number', key)
+      .order('loaded_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+  );
+  if (!account) {
+    const hits = await unwrap(
+      sb()
+        .from('group_account_lines')
+        .select('group_account_id')
+        .eq('member_number', key)
+        .limit(1)
+    );
+    const groupAccountId = hits?.[0]?.group_account_id;
+    if (!groupAccountId) return null;
+    account = await unwrap(
+      sb()
+        .from('group_accounts')
+        .select(ACCOUNT_COLUMNS)
+        .eq('id', groupAccountId)
+        .maybeSingle()
+    );
+  }
+  if (!account) return null;
+
+  const lines = [];
+  const pageSize = 1000;
+  for (let from = 0; ; from += pageSize) {
+    const batch = await unwrap(
+      sb()
+        .from('group_account_lines')
+        .select('lila_line_id, member_number, member_name, line_date, type_label, description, amount')
+        .eq('group_account_id', account.id)
+        .order('line_date', { ascending: true })
+        .order('lila_line_id', { ascending: true })
+        .range(from, from + pageSize - 1)
+    );
+    lines.push(...(batch || []));
+    if (!batch || batch.length < pageSize) break;
+  }
+  return { ...account, lines };
+}
+
+/** Resumen de soporte de un socio: pendiente y pagos imputados. */
+export async function listMemberAccountSupport(memberNumber) {
+  const key = String(memberNumber || '').replace(/\D/g, '').replace(/^0+/, '');
+  if (!key) return null;
+  const account = await unwrap(
+    sb()
+      .from('member_support_accounts')
+      .select('titular_number, opening_on, opening_balance, closing_on, closing_balance, month_balances')
+      .eq('titular_number', key)
+      .maybeSingle()
+  );
+  if (!account) return null;
+
+  const lines = [];
+  const pageSize = 1000;
+  for (let from = 0; ; from += pageSize) {
+    const batch = await unwrap(
+      sb()
+        .from('member_support_lines')
+        .select('lila_line_id, line_date, type_label, description, pending_amount, amount, links')
+        .eq('titular_number', key)
+        .order('line_date', { ascending: true })
+        .order('lila_line_id', { ascending: true })
+        .range(from, from + pageSize - 1)
+    );
+    lines.push(...(batch || []));
+    if (!batch || batch.length < pageSize) break;
+  }
+  return { ...account, lines };
 }

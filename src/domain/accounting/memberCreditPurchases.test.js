@@ -17,8 +17,8 @@ beforeAll(async () => {
 });
 
 describe('créditos comprados por socios', () => {
-  it('carga el snapshot LILA aunque no haya compras', () => {
-    expect(ACCESSIN_CREDIT_PURCHASES_AS_OF).toBe('2026-09-09');
+  it('carga el corte del 26 de septiembre aunque no haya compras', () => {
+    expect(ACCESSIN_CREDIT_PURCHASES_AS_OF).toBe('2026-09-26');
     expect(ACCESSIN_CREDIT_PURCHASES).toEqual([]);
     expect(creditPurchaseSummary().count).toBe(0);
   });

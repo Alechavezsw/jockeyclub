@@ -24,6 +24,8 @@ src/data/seed/
 # Scripts de una sola vez con DNI, emails o nombres de personas
 scripts/seed-accessin-system-users.sql
 scripts/chunk-supplier-sql.cjs
+scripts/_lila_ledgers/
+scripts/_lila_support/
 
 # Editor directories and files
 .vscode/*

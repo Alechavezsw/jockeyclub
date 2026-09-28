@@ -1,18 +1,19 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Search, Filter, Plus, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Trash2, Users, UserPlus, X, CreditCard, Camera, FileDown, FileSpreadsheet, Pencil, KeyRound } from 'lucide-react';
+import { Search, Filter, Plus, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Trash2, Users, UserPlus, X, CreditCard, Camera, FileDown, FileSpreadsheet, Pencil, KeyRound, MoreVertical } from 'lucide-react';
 import { duesAmountForHousehold, duesAmountForTier, nextDuesDueDate, pinDuesDueDate, quotaHeadline, toWhatsAppPhone } from '../../domain/members/dues';
 import { persistDuesCollection, recordDuesCollection } from '../../domain/members/memberPayments';
+import { sendDuesReceiptMessage } from '../../domain/members/duesReceiptDelivery';
 import { exportMembersExcel } from '../../domain/members/exportMembersExcel';
 import { exportMembersPdf } from '../../domain/members/exportMembersPdf';
 import { DISCIPLINE_OPTIONS } from '../../domain/sports/disciplines';
-import { getActiveTiers, getTierOptionLabel, getTierDisplayName, splitTierDisplayName, tierChipVars } from '../../domain/members/tiers';
+import { findTier, getActiveTiers, getTierOptionLabel, getTierDisplayName, splitTierDisplayName, tierChipVars } from '../../domain/members/tiers';
 import {
   buildLifecycleMeta,
   collectMemberMeta,
-  memberHasSocietasApp,
+  memberAppAccess,
   reasonLabel as lifecycleReasonLabel,
 } from '../../domain/members/memberAdminActions';
-import { attachHouseholdToMembers, assignDistinctStatColors, buildPadronHouseholdStats, familyGroupMatchesQuery, isFamilyDependent, isTitularMember, listFamilyGroups, mergeMembersById, rankMemberSearchHit, resolveFamilyForDisplay } from '../../domain/members/households';
+import { attachHouseholdToMembers, assignDistinctStatColors, buildPadronHouseholdStats, familyGroupMatchesQuery, isFamilyDependent, isLiveMember, isTitularMember, listFamilyGroups, mergeMembersById, rankMemberSearchHit, resolveFamilyForDisplay } from '../../domain/members/households';
 import { portalLoginFromEmail } from '../../domain/auth/credentials';
 import {
   buildAccessInvite,
@@ -31,6 +32,7 @@ import FoldableSection from './FoldableSection';
 import FamilyGroupsPadron from './FamilyGroupsPadron';
 import MemberTiersPanel from './MemberTiersPanel';
 import MembershipMovesSection from './MembershipMovesSection';
+import InactiveMembersSection from './InactiveMembersSection';
 import MemberRequestsSection from './MemberRequestsSection';
 import { MemberLifecycleModal, MemberCredentialsModal } from './MemberAdminModals';
 import { nowTimeAR, todayISODateAR } from '../../lib/arDate';
@@ -185,12 +187,14 @@ const PADRON_FIXED_CARD_COLORS = {
   familia: '#096755',
   altas: '#0b7a55',
   bajas: '#c23b3b',
+  inactivos: '#7a3048',
 };
 const PADRON_RESERVED_COLORS = [
   PADRON_FIXED_CARD_COLORS.activos,
   PADRON_FIXED_CARD_COLORS.familia,
   PADRON_FIXED_CARD_COLORS.altas,
   PADRON_FIXED_CARD_COLORS.bajas,
+  PADRON_FIXED_CARD_COLORS.inactivos,
 ];
 
 function memberStatusTone(status) {
@@ -238,8 +242,8 @@ function MemberWhatsAppLink({ phone, name }) {
   );
 }
 
-function TierChip({ tier, catalog, compact = false }) {
-  const name = getTierDisplayName(tier, catalog);
+function TierChip({ tier, catalog, compact = false, nameOverride = '' }) {
+  const name = nameOverride || getTierDisplayName(tier, catalog);
   const { main, sub } = splitTierDisplayName(name);
   return (
     <span
@@ -288,6 +292,7 @@ export default function MembersTab({
   setMembershipApplications,
   portalAccessRequests = [],
   setPortalAccessRequests,
+  onSendMessage,
 }) {
   const { user } = useAuth();
   const actorName = user?.fullName || user?.name || user?.email || '';
@@ -299,6 +304,7 @@ export default function MembersTab({
   const defaultTierId = tiers[0]?.id || 'socio_individual';
   const [tierFilter, setTierFilter] = useState('todos');
   const [quickFilter, setQuickFilter] = useState(null);
+  const [inactiveOpenToken, setInactiveOpenToken] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [remoteHits, setRemoteHits] = useState([]);
   const [remoteSearching, setRemoteSearching] = useState(false);
@@ -307,6 +313,7 @@ export default function MembersTab({
   const [form, setForm] = useState(() => emptyMemberForm());
   const [formError, setFormError] = useState('');
   const [expandedMemberId, setExpandedMemberId] = useState(null);
+  const [actionsMenuId, setActionsMenuId] = useState(null);
   const [cardMember, setCardMember] = useState(null);
   const [collectMember, setCollectMember] = useState(null);
   const [lifecycleTarget, setLifecycleTarget] = useState(null); // { member, action }
@@ -523,6 +530,15 @@ export default function MembersTab({
     };
   }, [expandedMemberId, setMembers]);
 
+  useEffect(() => {
+    if (!actionsMenuId) return undefined;
+    const closeOnOutsideClick = (e) => {
+      if (!e.target.closest?.('.member-row-actions')) setActionsMenuId(null);
+    };
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    return () => document.removeEventListener('mousedown', closeOnOutsideClick);
+  }, [actionsMenuId]);
+
   const filteredMembers = useMemo(() => {
     const raw = searchQuery.trim();
     const q = raw.toLowerCase();
@@ -535,10 +551,10 @@ export default function MembersTab({
         || (m.phone || '').includes(raw);
       if (!matchesSearch) return false;
       if (quickFilter === 'activos') {
-        return isTitularMember(m) && (m.status || 'active') === 'active';
+        return isTitularMember(m) && isLiveMember(m);
       }
       if (quickFilter === 'familia') {
-        return isFamilyDependent(m);
+        return isFamilyDependent(m) && isLiveMember(m);
       }
       if (quickFilter === 'altas') {
         return moveIds.altas.has(memberMoveKey(m.memberId));
@@ -546,6 +562,7 @@ export default function MembersTab({
       if (quickFilter === 'bajas') {
         return moveIds.bajas.has(memberMoveKey(m.memberId)) || (m.status || '') === 'inactive';
       }
+      if (!q && (m.status || '') === 'inactive') return false;
       const matchesTier = tierFilter === 'todos'
         || String(m.tier || '').toLowerCase() === String(tierFilter).toLowerCase();
       return matchesTier;
@@ -574,6 +591,7 @@ export default function MembersTab({
           moveIds.bajas.has(memberMoveKey(m.memberId)) || (m.status || '') === 'inactive'
         ));
       }
+      if (!q && group.members.every((m) => (m.status || '') === 'inactive')) return false;
       if (tierFilter === 'todos') return true;
       const wanted = String(tierFilter).toLowerCase();
       return group.members.some((m) => String(m.tier || '').toLowerCase() === wanted);
@@ -596,6 +614,16 @@ export default function MembersTab({
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
 
+  const exportTierLabel = tierFilter === 'todos'
+    ? 'Padrón completo'
+    : getTierDisplayName(tierFilter, tierCatalog);
+  const exportTierSlug = String(exportTierLabel)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '') || 'padron';
+
   const loadPadronForExport = async () => {
     let list = members;
     const expected = Math.max(Number(membersCount) || 0, members.length);
@@ -605,7 +633,9 @@ export default function MembersTab({
       const withFamily = attachHouseholdToMembers(fresh || []);
       if (withFamily.length) list = withFamily;
     }
-    return list;
+    if (tierFilter === 'todos') return list;
+    const wanted = String(tierFilter).toLowerCase();
+    return list.filter((member) => String(member.tier || '').toLowerCase() === wanted);
   };
 
   const handleExportPadronPdf = async () => {
@@ -614,7 +644,8 @@ export default function MembersTab({
     try {
       await exportMembersPdf(await loadPadronForExport(), {
         formatCurrency,
-        filterLabel: 'Padrón completo',
+        filterLabel: exportTierLabel,
+        fileName: `jockey_club_padron_${exportTierSlug}_${new Date().toISOString().slice(0, 10)}.pdf`,
         tierCatalog,
       });
     } catch (err) {
@@ -629,7 +660,8 @@ export default function MembersTab({
     setExportingExcel(true);
     try {
       await exportMembersExcel(await loadPadronForExport(), {
-        filterLabel: 'Padrón completo',
+        filterLabel: exportTierLabel,
+        fileName: `jockey_club_padron_${exportTierSlug}_${new Date().toISOString().slice(0, 10)}.xlsx`,
         tierCatalog,
       });
     } catch (err) {
@@ -781,12 +813,13 @@ export default function MembersTab({
     const member = collectMember;
     if (!member) return;
     try {
-      persistDuesCollection(recordDuesCollection(member, payload), {
+      const result = persistDuesCollection(recordDuesCollection(member, payload), {
         setMembers,
         updateMember,
         addJournalEntry,
         onAccountEntry,
       });
+      void sendDuesReceiptMessage({ member, payment: result.payment, onSendMessage });
       setCollectMember(null);
     } catch {
       /* el modal ya valida comprobante / importe */
@@ -1210,9 +1243,64 @@ export default function MembersTab({
         )}
       </div>
 
+      <div className="admin-filters members-toolbar">
+        <div className="members-toolbar-filter">
+          <Filter size={16} aria-hidden="true" />
+          <select
+            className="form-input"
+            value={tierFilter}
+            onChange={(e) => {
+              setQuickFilter(null);
+              setTierFilter(e.target.value);
+            }}
+            aria-label="Filtrar por categoría"
+          >
+            <option value="todos">Todas las categorías</option>
+            {tiers.map((tier) => (
+              <option key={tier.id} value={tier.id}>{tier.name}</option>
+            ))}
+          </select>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => { void handleExportPadronPdf(); }}
+          className="btn btn-secondary"
+          disabled={exportingPdf || exportingExcel}
+          title={`Exportar ${exportTierLabel} a PDF`}
+        >
+          <FileDown size={16} /> {exportingPdf ? 'Generando…' : 'Exportar PDF'}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => { void handleExportPadronExcel(); }}
+          className="btn btn-secondary"
+          disabled={exportingPdf || exportingExcel}
+          title={`Exportar ${exportTierLabel} a Excel`}
+        >
+          <FileSpreadsheet size={16} /> {exportingExcel ? 'Generando…' : 'Exportar Excel'}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            if (showAddForm) {
+              setShowAddForm(false);
+              return;
+            }
+            resetForm();
+            setShowAddForm(true);
+          }}
+          className="btn btn-emerald"
+        >
+          <Plus size={16} /> Registrar Socio
+        </button>
+      </div>
+
       <div className="members-stat-cards" aria-label="Resumen del padrón">
         <PadronStatCard
-          label="Socios activos"
+          label="Titulares"
           value={household.titularesActivos}
           color={PADRON_FIXED_CARD_COLORS.activos}
           active={quickFilter === 'activos'}
@@ -1223,7 +1311,7 @@ export default function MembersTab({
         />
         <PadronStatCard
           label="Grupo familiar"
-          value={household.integrantes}
+          value={household.integrantesActivos}
           color={PADRON_FIXED_CARD_COLORS.familia}
           active={quickFilter === 'familia'}
           onClick={() => {
@@ -1251,7 +1339,20 @@ export default function MembersTab({
             setTierFilter('todos');
           }}
         />
-        {household.byTier.map((tier) => (
+        <PadronStatCard
+          label="Inactivos"
+          value={members.filter((m) => (m.status || '') === 'inactive').length}
+          color={PADRON_FIXED_CARD_COLORS.inactivos}
+          active={false}
+          onClick={() => {
+            setInactiveOpenToken((token) => token + 1);
+            document.getElementById('socios-inactivos-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }}
+        />
+        {[
+          household.byTier.find((tier) => tier.name?.toUpperCase() === 'SOCIO INDIVIDUAL'),
+          household.byTier.find((tier) => tier.name?.toUpperCase() === 'SOCIO (VITALICIO)'),
+        ].filter(Boolean).map((tier) => (
           <PadronStatCard
             key={tier.id}
             label={tier.name}
@@ -1281,62 +1382,9 @@ export default function MembersTab({
         onDeliverAccess={deliverAccessFromRequest}
       />
 
-      <MembershipMovesSection />
+      <MembershipMovesSection members={members} />
 
-      <div className="admin-filters members-toolbar">
-        <div className="members-toolbar-filter">
-          <Filter size={16} aria-hidden="true" />
-          <select
-            className="form-input"
-            value={tierFilter}
-            onChange={(e) => {
-              setQuickFilter(null);
-              setTierFilter(e.target.value);
-            }}
-            aria-label="Filtrar por categoría"
-          >
-            <option value="todos">Todas las categorías</option>
-            {tiers.map((tier) => (
-              <option key={tier.id} value={tier.id}>{tier.name}</option>
-            ))}
-          </select>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => { void handleExportPadronPdf(); }}
-          className="btn btn-secondary"
-          disabled={exportingPdf || exportingExcel}
-          title="Exportar padrón completo del sistema a PDF"
-        >
-          <FileDown size={16} /> {exportingPdf ? 'Generando…' : 'Exportar PDF'}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => { void handleExportPadronExcel(); }}
-          className="btn btn-secondary"
-          disabled={exportingPdf || exportingExcel}
-          title="Exportar padrón completo del sistema a Excel"
-        >
-          <FileSpreadsheet size={16} /> {exportingExcel ? 'Generando…' : 'Exportar Excel'}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            if (showAddForm) {
-              setShowAddForm(false);
-              return;
-            }
-            resetForm();
-            setShowAddForm(true);
-          }}
-          className="btn btn-emerald"
-        >
-          <Plus size={16} /> Registrar Socio
-        </button>
-      </div>
+      <InactiveMembersSection members={members} openToken={inactiveOpenToken} />
 
       <MemberTiersPanel
         catalog={tierCatalog}
@@ -1910,8 +1958,9 @@ export default function MembersTab({
         subtitle={
           filteredMembers.length === 0
             ? 'Sin resultados'
-            : `${((safePage - 1) * MEMBERS_PAGE_SIZE) + 1}–${Math.min(safePage * MEMBERS_PAGE_SIZE, filteredMembers.length)} de ${filteredMembers.length.toLocaleString('es-AR')}`
+            : `${((safePage - 1) * MEMBERS_PAGE_SIZE) + 1}–${Math.min(safePage * MEMBERS_PAGE_SIZE, filteredMembers.length)}`
         }
+        count={filteredMembers.length.toLocaleString('es-AR')}
         defaultOpen
         storageKey="padron"
         forceOpen={isSearching}
@@ -2019,8 +2068,9 @@ export default function MembersTab({
                           <strong>{m.name}</strong>
                           <span className="member-identity-meta" style={{ color: memberStatusTone(m.status).color }}>
                             {memberStatusTone(m.status).text}
+                            {m.status === 'inactive' && m.bajaMotivo ? ` · ${m.bajaMotivo}` : ''}
                             <span>
-                              · {memberHasSocietasApp(m) ? 'App Societas' : 'Sin app'} · Ver perfil
+                              · {memberAppAccess(m).label} · Ver perfil
                             </span>
                           </span>
                         </div>
@@ -2031,7 +2081,11 @@ export default function MembersTab({
                     {m.memberId.replace(/(\d{4})/g, '$1 ').trim()}
                   </td>
                   <td data-label="Categoría">
-                    <TierChip tier={m.tier} catalog={tierCatalog} />
+                    <TierChip
+                      tier={m.tier}
+                      catalog={tierCatalog}
+                      nameOverride={findTier(m.tier, tierCatalog) ? '' : (Array.isArray(m.cuotaCategories) ? m.cuotaCategories.find(Boolean) || '' : '')}
+                    />
                   </td>
                   <td data-label="Contacto" className="members-padron-phone">
                     <MemberWhatsAppLink phone={m.phone} name={m.name} />
@@ -2055,92 +2109,76 @@ export default function MembersTab({
                       <button
                         type="button"
                         onClick={() => onOpenProfile?.(m.memberId)}
-                        className="btn btn-secondary btn-sm"
-                        style={{ padding: '0.35rem 0.55rem', fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                        className="btn btn-secondary btn-xs"
                         title="Editar ficha"
                       >
-                        <Pencil size={12} /> Editar
+                        <Pencil size={12} />
                       </button>
                       <button
                         type="button"
-                        onClick={() => openCredentials(m)}
-                        className="btn btn-secondary btn-sm"
-                        style={{ padding: '0.35rem 0.55rem', fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                        title="Generar usuario y contraseña"
+                        onClick={() => setActionsMenuId((cur) => (cur === m.memberId ? null : m.memberId))}
+                        className="btn btn-secondary btn-xs"
+                        title="Más acciones"
+                        aria-expanded={actionsMenuId === m.memberId}
                       >
-                        <KeyRound size={12} /> Credenciales
+                        <MoreVertical size={12} />
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => setCardMember(m)}
-                        className="btn btn-secondary btn-sm"
-                        style={{
-                          padding: '0.35rem 0.55rem',
-                          fontSize: '0.72rem',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 4,
-                          borderColor: 'var(--primary-gold)',
-                          color: 'var(--text-gold)',
-                          background: 'rgba(var(--primary-gold-rgb),0.06)',
-                        }}
-                        title="Ver tarjeta virtual"
-                      >
-                        <CreditCard size={12} /> Tarjeta
-                      </button>
-                      {m.outstandingBalance > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => (
-                            onOpenProfile
-                              ? onOpenProfile(`${m.memberId}?cobrar=1`)
-                              : setCollectMember(m)
+                      {actionsMenuId === m.memberId && (
+                        <div className="member-row-menu-panel" role="menu">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => { setActionsMenuId(null); openCredentials(m); }}
+                            title="Generar usuario y contraseña"
+                          >
+                            <KeyRound size={13} /> Credenciales
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => { setActionsMenuId(null); setCardMember(m); }}
+                            title="Ver tarjeta virtual"
+                          >
+                            <CreditCard size={13} /> Tarjeta
+                          </button>
+                          {m.outstandingBalance > 0 && (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="member-row-menu-item--emerald"
+                              onClick={() => {
+                                setActionsMenuId(null);
+                                onOpenProfile
+                                  ? onOpenProfile(`${m.memberId}?cobrar=1`)
+                                  : setCollectMember(m);
+                              }}
+                              title="Cobrar Cuota Pendiente"
+                            >
+                              <Check size={13} /> Cobrar
+                            </button>
                           )}
-                          className="btn btn-secondary btn-sm"
-                          style={{
-                            borderColor: 'var(--emerald-accent)',
-                            color: 'var(--emerald-accent)',
-                            background: 'rgba(16, 185, 129, 0.03)',
-                            padding: '0.35rem 0.55rem',
-                            fontSize: '0.72rem',
-                          }}
-                          title="Cobrar Cuota Pendiente"
-                        >
-                          <Check size={12} /> Cobrar
-                        </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="member-row-menu-item--danger"
+                            onClick={() => { setActionsMenuId(null); openLifecycle(m, m.status === 'active' ? 'suspend' : 'activate'); }}
+                            title={m.status === 'active' ? 'Suspender con motivo' : 'Reactivar con motivo'}
+                          >
+                            {m.status === 'active' ? 'Suspender' : 'Activar'}
+                          </button>
+                          {m.status !== 'inactive' && (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="member-row-menu-item--danger"
+                              onClick={() => { setActionsMenuId(null); openLifecycle(m, 'delete'); }}
+                              title="Dar de baja con motivo (trazable)"
+                            >
+                              <Trash2 size={13} /> Eliminar
+                            </button>
+                          )}
+                        </div>
                       )}
-                      <button
-                        type="button"
-                        onClick={() => openLifecycle(m, m.status === 'active' ? 'suspend' : 'activate')}
-                        className="btn btn-danger btn-sm"
-                        style={{
-                          padding: '0.35rem 0.55rem',
-                          fontSize: '0.72rem',
-                          background: m.status === 'active' ? 'rgba(239, 68, 68, 0.03)' : 'rgba(16, 185, 129, 0.03)',
-                          borderColor: m.status === 'active' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)',
-                          color: m.status === 'active' ? 'var(--danger-accent)' : 'var(--emerald-accent)',
-                        }}
-                        title={m.status === 'active' ? 'Suspender con motivo' : 'Reactivar con motivo'}
-                      >
-                        {m.status === 'active' ? 'Suspender' : 'Activar'}
-                      </button>
-                      {m.status !== 'inactive' ? (
-                        <button
-                          type="button"
-                          onClick={() => openLifecycle(m, 'delete')}
-                          className="btn btn-danger btn-sm"
-                          style={{
-                            padding: '0.35rem 0.55rem',
-                            fontSize: '0.72rem',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 4,
-                          }}
-                          title="Dar de baja con motivo (trazable)"
-                        >
-                          <Trash2 size={12} /> Eliminar
-                        </button>
-                      ) : null}
                     </div>
                   </td>
                 </tr>

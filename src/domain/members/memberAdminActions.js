@@ -92,6 +92,35 @@ export function memberHasSocietasApp(member) {
   return member?.hasSocietasApp === true || member?.meta?.hasSocietasApp === true;
 }
 
+export function memberHasPortalAccess(member) {
+  return Boolean(
+    member?.profileId
+    || member?.profile_id
+    || member?.meta?.portalProvisionedAt
+    || member?.meta?.portalUsername
+    || member?.hasApp
+    || member?.appInstalled
+  );
+}
+
+/** Con app = ya abrió este portal. Societas no cuenta. */
+export function memberAppAccess(member) {
+  if (memberHasPortalAccess(member)) {
+    return {
+      kind: 'portal',
+      hasAccess: true,
+      label: 'Con app',
+      hint: 'Ya abrió el portal',
+    };
+  }
+  return {
+    kind: 'none',
+    hasAccess: false,
+    label: 'Sin app',
+    hint: 'Todavía no abrió el portal',
+  };
+}
+
 export function collectMemberMeta(member = {}) {
   const base = member.meta && typeof member.meta === 'object' ? { ...member.meta } : {};
   const keys = [

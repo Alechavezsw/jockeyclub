@@ -14,8 +14,8 @@ export function membershipMovesSeed() {
   return readSnapshot('societasMembershipMoves', EMPTY_MEMBERSHIP_MOVES_SEED);
 }
 
-export const MEMBERSHIP_MOVE_AS_OF = '2026-09-12';
-export const MEMBERSHIP_MOVE_PERIOD = { from: '2026-08-01', to: '2026-09-11' };
+export const MEMBERSHIP_MOVE_AS_OF = '2026-09-26';
+export const MEMBERSHIP_MOVE_PERIOD = { from: '2026-08-01', to: '2026-09-26' };
 
 export const BAJA_KINDS = {
   licencia: { id: 'licencia', label: 'Licencia', color: '#c9a227' },
@@ -50,7 +50,8 @@ export function classifyBajaMotivo(motivo) {
   if (/mayor(i|ia)|26 a/.test(t)) return BAJA_KINDS.mayoria;
   if (/liga|no socio/.test(t)) return BAJA_KINDS.liga;
   if (/afiliarse nuevamente|creado nuevamente/.test(t)) return BAJA_KINDS.reempadron;
-  if (/mora|no pagar|morosidad|falta de pago|deuda/.test(t)) return BAJA_KINDS.mora;
+  // "MOR" suelto, "moroso/morosidad" y el typo "morodiad"/"morosidas" de Societas.
+  if (/\bmor\b|\bmora\b|moros|morodiad|no pagar|falta de pago|deuda/.test(t)) return BAJA_KINDS.mora;
   if (/titularidad|pertenecer al g-f|desvincul|grupo familiar|baja familiar/.test(t)) return BAJA_KINDS.grupo;
   if (/nota|renuncia|solicit/.test(t)) return BAJA_KINDS.renuncia;
   return BAJA_KINDS.otro;
@@ -102,4 +103,53 @@ export function uniqueBajas(rows = []) {
   }
   return out.toSorted((a, b) => String(b.date).localeCompare(String(a.date))
     || String(a.name).localeCompare(String(b.name), 'es'));
+}
+
+/**
+ * Altas y bajas en una sola planilla: las bajas salen con el motivo ya clasificado
+ * y las altas del portal posteriores al corte se suman al listado importado.
+ */
+export function membershipMoveExportRows({
+  altas = [],
+  bajas = [],
+  members = [],
+  periodTo = '',
+} = {}) {
+  const known = new Set((altas || []).map((row) => String(row.memberId)));
+  const live = (members || [])
+    .filter((member) => (
+      member.joinDate
+      && (!periodTo || member.joinDate > periodTo)
+      && !known.has(String(member.memberId))
+    ))
+    .map((member) => ({
+      move: 'Alta',
+      memberId: member.memberId,
+      name: member.name || '',
+      documentNumber: member.documentNumber || '',
+      date: member.joinDate,
+      detail: 'Solicitud aprobada',
+      kind: 'Alta en el portal',
+    }));
+  const altaRows = (altas || []).map((row) => ({
+    move: 'Alta',
+    memberId: row.memberId,
+    name: row.name || '',
+    documentNumber: row.documentNumber || '',
+    date: row.date || '',
+    detail: row.movimiento || row.motivo || 'Alta',
+    kind: 'Alta',
+  }));
+  const bajaRows = uniqueBajas(bajas).map((row) => ({
+    move: 'Baja',
+    memberId: row.memberId,
+    name: row.name || '',
+    documentNumber: row.documentNumber || '',
+    date: row.date || '',
+    detail: row.motivo || '',
+    kind: row.kindLabel,
+  }));
+  return [...live, ...altaRows, ...bajaRows].toSorted((a, b) => (
+    String(b.date).localeCompare(String(a.date)) || a.move.localeCompare(b.move, 'es')
+  ));
 }

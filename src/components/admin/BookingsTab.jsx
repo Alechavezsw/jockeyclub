@@ -105,9 +105,9 @@ export default function BookingsTab({ reservations = [], setReservations }) {
       ? reservations.filter((r) => r.date === selectedDate)
       : [...reservations];
     return list.sort((a, b) => {
-      const byDateCmp = String(a.date || '').localeCompare(String(b.date || ''));
+      const byDateCmp = String(b.date || '').localeCompare(String(a.date || ''));
       if (byDateCmp !== 0) return byDateCmp;
-      return String(a.time || '').localeCompare(String(b.time || ''));
+      return String(b.time || '').localeCompare(String(a.time || ''));
     });
   }, [reservations, selectedDate]);
 

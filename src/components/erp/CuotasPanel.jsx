@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import {
-  ArrowLeft, BookOpen, CalendarRange, Download, Eye, FileDown, FileSpreadsheet, ListTree, Plus, RotateCcw, Search, Ticket, Trash2, Upload, Wallet,
+  ArrowLeft, ChevronDown, Download, Eye, FileDown, FileSpreadsheet, Plus, RotateCcw, Search, Trash2, Upload, Wallet,
 } from 'lucide-react';
 import { formatCurrency } from '../../domain/accounting/journal';
 import {
@@ -19,6 +19,7 @@ import {
 import { requireSnapshots } from '../../data/snapshots';
 import { useSnapshotSeed } from '../../hooks/useSnapshots';
 import SnapshotGate from '../SnapshotGate';
+import DuesDueBanner from '../admin/DuesDueBanner';
 import { exportFeePeriodExcel, exportFeePeriodPdf } from '../../domain/accounting/exportFeePeriodDetails';
 import {
   LISTA_BASE_COBRANZAS_FILENAME,
@@ -45,6 +46,7 @@ import MemberBalancesPanel from './MemberBalancesPanel';
 import MonthlyDebtsPanel from './MonthlyDebtsPanel';
 import DetailedCurrentAccountsPanel from './DetailedCurrentAccountsPanel';
 import MemberCreditPurchasesPanel from './MemberCreditPurchasesPanel';
+import CuotasDeskToolbar from './CuotasDeskToolbar';
 
 const PAGE_SIZE = 25;
 
@@ -95,13 +97,15 @@ export default function CuotasPanel({
   reservations = [],
   onImputeReservation,
   addJournalEntry,
+  journalEntries = [],
+  chartOfAccounts = [],
   formatCurrency: formatCurrencyProp,
   tierCatalog = [],
+  initialView = 'hub',
 }) {
   const fmt = formatCurrencyProp || formatCurrency;
-  const [view, setView] = useState('hub'); // hub | import_collections | import_debts | impute_events | mora | period_detail | accounts | balances | monthly_debts | detailed_cc | credit_purchases
+  const [view, setView] = useState(initialView); // hub | import_collections | import_debts | impute_events | mora | period_detail | accounts | balances | monthly_debts | detailed_cc | credit_purchases
   const [year, setYear] = useState(2026);
-  const [yearDraft, setYearDraft] = useState('2026');
   const [ccEnabled, setCcEnabled] = useState(true);
   const [flash, setFlash] = useState('');
   const [error, setError] = useState('');
@@ -126,7 +130,20 @@ export default function CuotasPanel({
   const [exportBusy, setExportBusy] = useState(null);
 
   const periods = useMemo(() => feePeriodsForYear(feePeriods, year), [feePeriods, year]);
+  const yearOptions = useMemo(() => {
+    const set = new Set((feePeriods || []).map((p) => Number(p.year)).filter(Boolean));
+    set.add(year);
+    set.add(new Date().getFullYear());
+    return [...set].toSorted((a, b) => b - a);
+  }, [feePeriods, year]);
   const overdueMembers = useMemo(() => getOverdueMembers(members), [members]);
+  const goDesk = (next) => {
+    if (next === 'import_collections') {
+      setError('');
+      setOk('');
+    }
+    setView(next);
+  };
 
   // El detalle de cuotas (665 kB con DNI) se baja recién al abrir un período.
   const {
@@ -144,6 +161,12 @@ export default function CuotasPanel({
     () => feeAccountDetailsSummary(periodAccounts),
     [periodAccounts]
   );
+  const cobroSummary = useMemo(() => {
+    const cobro = periodAccounts.filter((account) => account.periodKind !== 'concepto');
+    return cobro.length && cobro.length !== periodAccounts.length
+      ? feeAccountDetailsSummary(cobro)
+      : null;
+  }, [periodAccounts]);
   const activeAccount = periodAccounts[accountTab] || periodAccounts[0] || null;
   const filteredLines = useMemo(
     () => filterFeeAccountLines(activeAccount?.lines || [], detailQuery),
@@ -219,16 +242,6 @@ export default function CuotasPanel({
     });
     return [...set].sort((a, b) => a.localeCompare(b, 'es'));
   }, [pendingEvents]);
-
-  const applyYear = () => {
-    const y = Number(yearDraft);
-    if (!Number.isFinite(y) || y < 2000 || y > 2100) {
-      setError('Año inválido.');
-      return;
-    }
-    setYear(y);
-    setError('');
-  };
 
   const reservationStatusLabel = (status) => {
     const s = String(status || '').toLowerCase();
@@ -371,9 +384,7 @@ export default function CuotasPanel({
         }}
         onDeleteEntry={onDeleteMemberAccountEntry}
         onBack={() => setView('hub')}
-        onGoImportCollections={() => { setView('import_collections'); setError(''); setOk(''); }}
-        onGoImportDebts={() => setView('monthly_debts')}
-        onGoImputeEvents={() => setView('impute_events')}
+        onGoView={goDesk}
         formatCurrency={fmt}
         tierCatalog={tierCatalog}
       />
@@ -445,8 +456,10 @@ export default function CuotasPanel({
 
           <div className="cuotas-cc-banner">
             <span>
-              {periodAccountsSummary.accountCount} cuentas · {periodAccountsSummary.lineCount} movimientos · total{' '}
-              {fmt(periodAccountsSummary.totalAmount || selectedPeriod.amount)}
+              {periodAccountsSummary.accountCount} cuentas · {periodAccountsSummary.lineCount} movimientos
+              {cobroSummary
+                ? ` · cobrado ${fmt(cobroSummary.totalAmount)}`
+                : ` · total ${fmt(periodAccountsSummary.totalAmount || selectedPeriod.amount)}`}
               {periodAccounts[0]?.slicedFromExport
                 ? ` · cuotas de ${periodLabel(selectedPeriod)} en el export LILA`
                 : ACCESSIN_FEE_ACCOUNT_DETAILS_SNAPSHOT?.asOf
@@ -463,7 +476,8 @@ export default function CuotasPanel({
 
           {activeAccount?.collectionPeriodLabel ? (
             <p className="disc-field-hint" style={{ margin: 0 }}>
-              Período de cobro: {activeAccount.collectionPeriodLabel}
+              {activeAccount.periodKind === 'concepto' ? 'Período del concepto' : 'Período de cobro'}
+              : {activeAccount.collectionPeriodLabel}
             </p>
           ) : null}
 
@@ -475,7 +489,7 @@ export default function CuotasPanel({
                 className={`disc-hub-tab${accountTab === idx ? ' is-active' : ''}`}
                 onClick={() => { setAccountTab(idx); setDetailPage(0); }}
               >
-                {acc.accountLabel}
+                {acc.tabLabel || acc.accountLabel}
                 <span className="disc-badge" style={{ marginLeft: 8 }}>{acc.lineCount}</span>
               </button>
             ))}
@@ -487,7 +501,10 @@ export default function CuotasPanel({
                 <div>
                   <strong>CUENTA CONTABLE: {activeAccount.accountLabel}</strong>
                   <div className="disc-field-hint" style={{ margin: 0 }}>
-                    Total {fmt(activeAccount.total)} · {activeAccount.lineCount} líneas
+                    Total cobrado {fmt(activeAccount.total)}
+                    {activeAccount.billedTotal != null ? ` · importe ${fmt(activeAccount.billedTotal)}` : ''}
+                    {activeAccount.pendingTotal != null ? ` · pendiente ${fmt(activeAccount.pendingTotal)}` : ''}
+                    {' · '}{activeAccount.lineCount} líneas
                   </div>
                 </div>
                 <label className="disc-search-input" style={{ minWidth: 220 }}>
@@ -526,13 +543,15 @@ export default function CuotasPanel({
                       <th>Fecha cuota</th>
                       <th>Tipo</th>
                       <th>Descripción</th>
+                      {activeAccount.periodKind === 'concepto' ? <th>Importe</th> : null}
                       <th>Cobrado</th>
+                      {activeAccount.periodKind === 'concepto' ? <th>Pendiente</th> : null}
                     </tr>
                   </thead>
                   <tbody>
                     {pageLines.length === 0 ? (
                       <tr>
-                        <td colSpan={8} style={{ color: 'var(--text-muted)' }}>Sin líneas.</td>
+                        <td colSpan={activeAccount.periodKind === 'concepto' ? 10 : 8} style={{ color: 'var(--text-muted)' }}>Sin líneas.</td>
                       </tr>
                     ) : (
                       pageLines.map((line, i) => (
@@ -544,7 +563,9 @@ export default function CuotasPanel({
                           <td>{line.feeDateLabel || line.feeDate || '—'}</td>
                           <td>{line.type}</td>
                           <td>{line.description}</td>
+                          {activeAccount.periodKind === 'concepto' ? <td>{fmt(line.billed)}</td> : null}
                           <td style={{ fontWeight: 700 }}>{fmt(line.amount)}</td>
+                          {activeAccount.periodKind === 'concepto' ? <td>{fmt(line.pending)}</td> : null}
                         </tr>
                       ))
                     )}
@@ -891,77 +912,45 @@ export default function CuotasPanel({
   // HUB
   return (
     <div className="fade-in cuotas-panel">
+      <DuesDueBanner
+        members={members}
+        journalEntries={journalEntries}
+        chartOfAccounts={chartOfAccounts}
+        feePeriods={feePeriods}
+        afterCollect={<CuotasDeskToolbar onGo={goDesk} />}
+      />
       <OverdueDuesStrip
         members={overdueMembers}
         formatCurrency={fmt}
         onOpenAll={() => setView('mora')}
       />
-      <div className="cuotas-toolbar">
-        <h2 className="cuotas-title">
-          <CalendarRange size={18} /> Cuotas
-        </h2>
-        <div className="cuotas-actions">
-          <button type="button" className="btn btn-tan" onClick={() => setView('balances')}>
-            <Wallet size={14} /> Saldos / Socios
-          </button>
-          <button type="button" className="btn btn-tan" onClick={() => setView('detailed_cc')}>
-            <ListTree size={14} /> CC detalladas
-          </button>
-          <button type="button" className="btn btn-tan" onClick={() => setView('credit_purchases')}>
-            <Ticket size={14} /> Créditos comprados
-          </button>
-          <button type="button" className="btn btn-tan" onClick={() => setView('monthly_debts')}>
-            <FileSpreadsheet size={14} /> Deudas mes a mes
-          </button>
-          <button type="button" className="btn btn-tan" onClick={() => setView('accounts')}>
-            <BookOpen size={14} /> Cuentas contables
-          </button>
-          <button type="button" className="btn btn-tan" onClick={() => { setView('import_collections'); setError(''); setOk(''); }}>
-            <Upload size={14} /> Importar cobranzas socios
-          </button>
-          <button type="button" className="btn btn-tan" onClick={() => setView('impute_events')}>
-            <Plus size={14} /> Imputar eventos
-          </button>
-          <button type="button" className="btn btn-secondary" onClick={() => setView('mora')}>
-            <Search size={14} /> Control de mora
-          </button>
-        </div>
-      </div>
-
-      <div className={`cuotas-cc-banner${ccEnabled ? '' : ' is-off'}`}>
-        <span>
-          {ccEnabled
-            ? 'Todos los socios pueden ver sus cuentas corrientes'
-            : 'Las cuentas corrientes están desactivadas para los socios'}
-        </span>
-        <button
-          type="button"
-          className={`btn btn-sm cuotas-cc-toggle${ccEnabled ? ' btn-secondary' : ' btn-emerald'}`}
-          onClick={() => setCcEnabled((v) => !v)}
-        >
-          {ccEnabled ? 'Desactivar cuentas corrientes' : 'Activar cuentas corrientes'}
-        </button>
-      </div>
 
       {flash ? <p className="ig-ok">{flash}</p> : null}
       {error ? <p className="ig-error">{error}</p> : null}
 
-      <div className="cuotas-year-row">
-        <label className="form-label" htmlFor="cuotas-year">Año</label>
-        <input
-          id="cuotas-year"
-          className="form-input"
-          value={yearDraft}
-          onChange={(e) => setYearDraft(e.target.value)}
-          style={{ maxWidth: 120 }}
-        />
-        <button type="button" className="btn btn-emerald" onClick={applyYear}>
-          Ver año seleccionado
-        </button>
-      </div>
-
-      <div className="table-responsive">
-        <table className="admin-table">
+      <details className="cuotas-year">
+        <summary className="cuotas-year-summary">
+          <i className="due-fold-arrow" aria-hidden="true">
+            <ChevronDown size={18} strokeWidth={2.5} />
+          </i>
+          <span>Períodos de {year}</span>
+          <b className="tabular-nums">{periods.length}</b>
+        </summary>
+        <div className="cuotas-year-body">
+          <label className="cuotas-year-pick" htmlFor="cuotas-year">
+            <span>Año</span>
+            <select
+              id="cuotas-year"
+              value={year}
+              onChange={(event) => setYear(Number(event.target.value))}
+            >
+              {yearOptions.map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+          </label>
+          <div className="table-responsive">
+            <table className="admin-table">
           <thead>
             <tr>
               <th>#</th>
@@ -1050,6 +1039,23 @@ export default function CuotasPanel({
             )}
           </tbody>
         </table>
+          </div>
+        </div>
+      </details>
+
+      <div className={`cuotas-cc-banner${ccEnabled ? '' : ' is-off'}`}>
+        <span>
+          {ccEnabled
+            ? 'Todos los socios pueden ver sus cuentas corrientes'
+            : 'Las cuentas corrientes están desactivadas para los socios'}
+        </span>
+        <button
+          type="button"
+          className={`btn btn-sm cuotas-cc-toggle${ccEnabled ? ' btn-secondary' : ' btn-emerald'}`}
+          onClick={() => setCcEnabled((v) => !v)}
+        >
+          {ccEnabled ? 'Desactivar cuentas corrientes' : 'Activar cuentas corrientes'}
+        </button>
       </div>
     </div>
   );

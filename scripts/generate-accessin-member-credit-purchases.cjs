@@ -1,13 +1,49 @@
 /**
  * Seed de créditos comprados por socios (Accessin/LILA).
- * Source: datita/contabilidad/socios comprados por socios/*.xlsx
+ * Toma el Excel más nuevo entre Avtualizacion/Contabilidad/l
+ * y el corte histórico.
  */
 const XLSX = require('xlsx');
 const fs = require('fs');
 const path = require('path');
 
-const dir = path.join(__dirname, '../datita/contabilidad/socios comprados por socios');
+const sourceRoots = [
+  path.join(__dirname, '../datita/Avtualizacion/Contabilidad/l'),
+  path.join(__dirname, '../datita/Avtualizacion/Contabilidad/l/Nueva carpeta'),
+  path.join(__dirname, '../datita/contabilidad/socios comprados por socios'),
+];
 const outFile = path.join(__dirname, '../src/data/seed/accessinMemberCreditPurchases.js');
+
+function collectCreditExcels() {
+  const files = [];
+  const seen = new Set();
+  const walk = (dir, depth = 0) => {
+    if (!fs.existsSync(dir) || depth > 2) return;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full, depth + 1);
+        continue;
+      }
+      if (!entry.name.endsWith('.xlsx') || entry.name.startsWith('~$')) continue;
+      if (!/Cr[eé]ditos comprados/i.test(entry.name)) continue;
+      if (seen.has(full)) continue;
+      seen.add(full);
+      const dated = entry.name.match(/(\d{4}-\d{2}-\d{2})/);
+      files.push({
+        name: entry.name,
+        full,
+        date: dated ? dated[1] : '',
+        mtime: fs.statSync(full).mtimeMs,
+      });
+    }
+  };
+  sourceRoots.forEach((root) => walk(root));
+  return files.toSorted((a, b) => String(b.date).localeCompare(String(a.date)) || b.mtime - a.mtime);
+}
+
+const picked = collectCreditExcels()[0];
+if (!picked) throw new Error('No hay Excel de créditos comprados por socios');
 
 function cell(value) {
   if (value == null || value === '') return '';
@@ -39,11 +75,9 @@ function excelDateToIso(serial) {
   return `${parsed.y}-${String(parsed.m).padStart(2, '0')}-${String(parsed.d).padStart(2, '0')}`;
 }
 
-const files = fs.readdirSync(dir).filter((name) => name.endsWith('.xlsx') && !name.startsWith('~$'));
-if (!files.length) throw new Error('No hay Excel de créditos comprados por socios');
-const fileName = files.sort().reverse()[0];
-const asOf = (fileName.match(/(\d{4}-\d{2}-\d{2})/) || [])[1] || '';
-const wb = XLSX.readFile(path.join(dir, fileName));
+const fileName = picked.name;
+const asOf = picked.date || '';
+const wb = XLSX.readFile(picked.full);
 const sheet = wb.Sheets[wb.SheetNames[0]];
 const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
 const headerIdx = rows.findIndex((row) => /nro de socio/i.test(cell(row?.[0])) && /combo/i.test(cell(row?.[5])));
@@ -96,3 +130,4 @@ export const ACCESSIN_CREDIT_PURCHASES = ${JSON.stringify(items)};
 `;
 fs.writeFileSync(outFile, js);
 console.log(`Wrote ${items.length} compras, total ${snapshot.totalAmount} -> ${outFile}`);
+console.log(JSON.stringify({ fileName, asOf, count: items.length }, null, 2));
