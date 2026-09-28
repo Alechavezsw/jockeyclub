@@ -7,6 +7,13 @@ const HORSESHOE_GAP = 62;
 const HORSESHOE_ARC = 360 - HORSESHOE_GAP;
 const HORSESHOE_VISIBLE = CIRC * (HORSESHOE_ARC / 360);
 const HORSESHOE_START = 90 + HORSESHOE_GAP / 2;
+const STROKE_W = 9.5;
+const TONE_STROKE = {
+  ok: '#096755',
+  mid: '#CA390C',
+  low: '#CA390C',
+};
+const TRACK_STROKE = 'rgba(98, 114, 107, 0.48)';
 
 function clampPct(value) {
   const n = Number(value);
@@ -29,6 +36,7 @@ export function OpsProgressRing({
 }) {
   const pct = Math.round(clampPct(value));
   const filled = HORSESHOE_VISIBLE * (pct / 100);
+  const accent = TONE_STROKE[tone] || TONE_STROKE.ok;
   return (
     <div
       className={`ops-gauge ops-gauge--progress ops-gauge--${tone}`}
@@ -42,6 +50,10 @@ export function OpsProgressRing({
           cx={CX}
           cy={CY}
           r={RADIUS}
+          fill="none"
+          stroke={TRACK_STROKE}
+          strokeWidth={STROKE_W}
+          strokeLinecap="round"
           strokeDasharray={`${HORSESHOE_VISIBLE} ${CIRC}`}
           transform={`rotate(${HORSESHOE_START} ${CX} ${CY})`}
         />
@@ -50,11 +62,15 @@ export function OpsProgressRing({
           cx={CX}
           cy={CY}
           r={RADIUS}
-          strokeDasharray={`${filled} ${CIRC}`}
+          fill="none"
+          stroke={accent}
+          strokeWidth={STROKE_W}
+          strokeLinecap="round"
+          strokeDasharray={`${Math.max(filled, pct > 0 ? STROKE_W : 0)} ${CIRC}`}
           transform={`rotate(${HORSESHOE_START} ${CX} ${CY})`}
         />
-        <Nail angle={HORSESHOE_START} fill="currentColor" />
-        <Nail angle={HORSESHOE_START + HORSESHOE_ARC} fill="currentColor" />
+        <Nail angle={HORSESHOE_START} fill={accent} />
+        <Nail angle={HORSESHOE_START + HORSESHOE_ARC} fill={accent} />
       </svg>
       <div className="ops-gauge-core">
         <b className="tabular-nums">{pct}</b>
@@ -95,7 +111,15 @@ export function OpsSegmentRing({
       aria-label={title || String(value ?? '')}
     >
       <svg viewBox={`0 0 ${SIZE} ${SIZE}`} aria-hidden="true">
-        <circle className="ops-gauge-track ops-gauge-track--full" cx={CX} cy={CY} r={RADIUS} />
+        <circle
+          className="ops-gauge-track ops-gauge-track--full"
+          cx={CX}
+          cy={CY}
+          r={RADIUS}
+          fill="none"
+          stroke={TRACK_STROKE}
+          strokeWidth={STROKE_W}
+        />
         {arcs.map((arc) => (
           <circle
             key={arc.key}
@@ -103,7 +127,10 @@ export function OpsSegmentRing({
             cx={CX}
             cy={CY}
             r={RADIUS}
+            fill="none"
             stroke={arc.color}
+            strokeWidth={STROKE_W}
+            strokeLinecap="round"
             strokeDasharray={arc.dash}
             strokeDashoffset={-arc.offset}
             transform={`rotate(-90 ${CX} ${CY})`}

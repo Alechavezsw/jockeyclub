@@ -6511,7 +6511,6 @@ a.ops-outline-btn {
 
 .ops-gauge-fill {
   stroke: var(--gauge-fill);
-  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--gauge-fill) 35%, transparent));
 }
 
 .ops-gauge--ok { --gauge-fill: #096755; color: #096755; }
