@@ -32,9 +32,7 @@ describe('SnapshotGate', () => {
       </SnapshotGate>
     );
     expect(screen.getByRole('status').textContent).toMatch(/Cargando datos de LILA/);
-    expect(screen.queryByText('Panel de cheques')).toBeNull();
-
-    expect(await screen.findByText('Panel de cheques')).toBeTruthy();
+    expect(screen.getByText('Panel de cheques')).toBeTruthy();
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
@@ -45,7 +43,7 @@ describe('SnapshotGate', () => {
       </SnapshotGate>
     );
     expect(await screen.findByText('Panel con datos de la base')).toBeTruthy();
-    const alert = screen.getByRole('alert');
+    const alert = await screen.findByRole('alert');
     expect(alert.textContent).toMatch(/datos de prueba/);
     expect(screen.getByRole('button', { name: 'Reintentar' })).toBeTruthy();
   });

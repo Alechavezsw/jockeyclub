@@ -176,6 +176,18 @@ export function startSnapshotLiveUpdates() {
   });
 }
 
+const REMOTE_TIMEOUT_MS = 20000;
+
+function withTimeout(promise, ms, message) {
+  return new Promise((resolve, reject) => {
+    const id = setTimeout(() => reject(new Error(message)), ms);
+    Promise.resolve(promise).then(
+      (value) => { clearTimeout(id); resolve(value); },
+      (err) => { clearTimeout(id); reject(err); },
+    );
+  });
+}
+
 async function fetchRemote(name) {
   const { isSupabaseConfigured, supabase } = await import('../lib/supabase');
   if (!isSupabaseConfigured || !supabase) {
@@ -183,17 +195,25 @@ async function fetchRemote(name) {
   }
   bindAuth(supabase);
   bindLive(supabase);
-  const { data: row, error: tableError } = await supabase
-    .from('club_snapshots')
-    .select('payload, updated_at')
-    .eq('name', name)
-    .maybeSingle();
+  const { data: row, error: tableError } = await withTimeout(
+    supabase
+      .from('club_snapshots')
+      .select('payload, updated_at')
+      .eq('name', name)
+      .maybeSingle(),
+    REMOTE_TIMEOUT_MS,
+    `Tiempo agotado al leer ${name}`,
+  );
   if (!tableError && row?.payload && typeof row.payload === 'object') {
     if (row.updated_at) seenUpdatedAt.set(name, row.updated_at);
     return row.payload;
   }
 
-  const { data, error } = await supabase.storage.from(SNAPSHOT_BUCKET).download(`${name}.json`);
+  const { data, error } = await withTimeout(
+    supabase.storage.from(SNAPSHOT_BUCKET).download(`${name}.json`),
+    REMOTE_TIMEOUT_MS,
+    `Tiempo agotado al bajar ${name}`,
+  );
   if (error) throw tableError || error;
   return JSON.parse(await data.text());
 }
@@ -204,7 +224,10 @@ async function fetchRemote(name) {
  */
 export function loadSnapshot(name) {
   if (!KNOWN.has(name)) {
-    return Promise.reject(new Error(`Snapshot desconocido: ${name}`));
+    const err = new Error(`Snapshot desconocido: ${name}`);
+    errors.set(name, err);
+    notify();
+    return Promise.resolve(null);
   }
   if (loaded.has(name)) return Promise.resolve(loaded.get(name));
   if (inflight.has(name)) return inflight.get(name);
@@ -238,7 +261,7 @@ export function loadSnapshot(name) {
 }
 
 export function loadSnapshots(names = []) {
-  return Promise.all(names.map(loadSnapshot));
+  return Promise.all(names.map((name) => loadSnapshot(name).catch(() => null)));
 }
 
 /** Para acciones (exportar, generar un reporte): carga y lanza un error legible si falta alguno. */

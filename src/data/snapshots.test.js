@@ -37,8 +37,9 @@ describe('registro de snapshots', () => {
     expect(loadSnapshot('accessinCheques')).toBe(loadSnapshot('accessinCheques'));
   });
 
-  it('rechaza nombres que no están en el catálogo', async () => {
-    await expect(loadSnapshot('noExiste')).rejects.toThrow(/desconocido/);
+  it('marca como error los nombres que no están en el catálogo', async () => {
+    await expect(loadSnapshot('noExiste')).resolves.toBeNull();
+    expect(snapshotStatus('noExiste')).toBe('error');
   });
 
   it('al limpiar olvida lo cargado y avisa con una nueva generación', async () => {

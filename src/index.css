@@ -19490,7 +19490,13 @@ a.ops-outline-btn {
   display: flex;
   align-items: center;
   gap: 0.45rem;
-  padding: 1rem 0;
+  padding: 0.65rem 0;
+}
+.snapshot-gate-status svg {
+  animation: snapshot-gate-spin 0.8s linear infinite;
+}
+@keyframes snapshot-gate-spin {
+  to { transform: rotate(360deg); }
 }
 .snapshot-gate-alert {
   display: flex;
