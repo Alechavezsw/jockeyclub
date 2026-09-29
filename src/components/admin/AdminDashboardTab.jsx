@@ -11,8 +11,9 @@ import { formatObservedClock } from '../../domain/weather/sedeWeather';
 import { canAccessConcessions, canAccessQrGate } from '../../domain/auth/roles';
 import { reviewItemsForAccess } from '../../domain/review/buildClubReview';
 import { isAlertVisible, ALERT_SEVERITY } from '../../domain/alerts/alerts';
-import { buildOpsFinanceSnapshot, composeClubFinance, lilaContabilidadFromSnapshots } from '../../domain/accounting/opsFinanceSnapshot';
+import { buildOpsFinanceSnapshot, composeClubFinance, financeFromMonthlySummary, lilaContabilidadFromSnapshots } from '../../domain/accounting/opsFinanceSnapshot';
 import { monthlyBalanceSeed } from '../../domain/accounting/monthlyBalance';
+import { monthlyBalanceSummarySeed } from '../../domain/accounting/monthlyBalanceSummary';
 import { detailedCcSeed } from '../../domain/accounting/detailedCurrentAccounts';
 import { cashSeed } from '../../domain/accounting/cashLedger';
 import { cobranzasSeed } from '../../domain/accounting/cobranzas';
@@ -28,6 +29,7 @@ import DuesDueBanner from './DuesDueBanner';
 const MOVES_SNAPSHOTS = ['societasMembershipMoves'];
 const LILA_MONEY_SNAPSHOTS = [
   'accessinMonthlyBalance',
+  'accessinMonthlyBalanceSummary',
   'accessinDetailedCurrentAccounts',
   'accessinCashSnapshot',
   'accessinCobranzas',
@@ -185,13 +187,26 @@ export default function AdminDashboardTab({
   const hasAccounting = permittedTabs.includes('accounting');
   const lilaCut = useSnapshotSeed(
     hasAccounting ? LILA_MONEY_SNAPSHOTS : NO_SNAPSHOTS,
-    () => lilaContabilidadFromSnapshots({
-      monthlySnapshot: monthlyBalanceSeed().ACCESSIN_MONTHLY_BALANCE_SNAPSHOT,
-      detailedSnapshot: detailedCcSeed().ACCESSIN_DETAILED_CC_SNAPSHOT,
-      cashSnapshot: cashSeed().ACCESSIN_CASH_SNAPSHOT,
-      cobranzas: cobranzasSeed().ACCESSIN_COBRANZAS,
-      day: todayKey,
-    }),
+    () => {
+      const summary = monthlyBalanceSummarySeed();
+      const currentMonth = financeFromMonthlySummary({
+        snapshot: summary.ACCESSIN_MONTHLY_BALANCE_SUMMARY_SNAPSHOT,
+        sections: summary.ACCESSIN_MONTHLY_BALANCE_SUMMARY_SECTIONS,
+        today: todayKey,
+      });
+      const detailed = lilaContabilidadFromSnapshots({
+        monthlySnapshot: monthlyBalanceSeed().ACCESSIN_MONTHLY_BALANCE_SNAPSHOT,
+        detailedSnapshot: detailedCcSeed().ACCESSIN_DETAILED_CC_SNAPSHOT,
+        cashSnapshot: cashSeed().ACCESSIN_CASH_SNAPSHOT,
+        cobranzas: cobranzasSeed().ACCESSIN_COBRANZAS,
+        day: todayKey,
+      });
+      if (!currentMonth) return detailed;
+      return {
+        ...currentMonth,
+        lastIncomes: detailed?.lastIncomes || [],
+      };
+    },
   );
   const lilaMoney = useMemo(
     () => composeClubFinance({

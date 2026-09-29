@@ -43,15 +43,17 @@ import { membershipMovesSeed } from '../domain/members/membershipMoves';
 import { currentAccountBalancesSeed } from '../domain/accounting/currentAccountBalances';
 import { feeAccountDetailsForPeriod, feeAccountDetailsSeed } from '../domain/accounting/feeAccountDetails';
 import { monthlyBalanceCards, monthlyBalanceSeed } from '../domain/accounting/monthlyBalance';
+import { monthlyBalanceSummarySeed } from '../domain/accounting/monthlyBalanceSummary';
 import { detailedCcSeed } from '../domain/accounting/detailedCurrentAccounts';
 import { cashSeed } from '../domain/accounting/cashLedger';
 import { cobranzasSeed } from '../domain/accounting/cobranzas';
-import { composeClubFinance, lilaContabilidadFromSnapshots } from '../domain/accounting/opsFinanceSnapshot';
+import { composeClubFinance, financeFromMonthlySummary, lilaContabilidadFromSnapshots } from '../domain/accounting/opsFinanceSnapshot';
 import { useSnapshotSeed } from '../hooks/useSnapshots';
 import { todayISODateAR } from '../lib/arDate';
 
 const LILA_METRIC_SNAPSHOTS = [
   'accessinMonthlyBalance',
+  'accessinMonthlyBalanceSummary',
   'accessinDetailedCurrentAccounts',
   'accessinCashSnapshot',
   'accessinCobranzas',
@@ -59,14 +61,24 @@ const LILA_METRIC_SNAPSHOTS = [
 
 function readLilaMetrics() {
   const monthly = monthlyBalanceSeed();
+  const summary = monthlyBalanceSummarySeed();
+  const summarySnapshot = summary.ACCESSIN_MONTHLY_BALANCE_SUMMARY_SNAPSHOT;
+  const currentMonth = financeFromMonthlySummary({
+    snapshot: summarySnapshot,
+    sections: summary.ACCESSIN_MONTHLY_BALANCE_SUMMARY_SECTIONS,
+    today: todayISODateAR(),
+  });
+  const detailed = lilaContabilidadFromSnapshots({
+    monthlySnapshot: monthly.ACCESSIN_MONTHLY_BALANCE_SNAPSHOT,
+    detailedSnapshot: detailedCcSeed().ACCESSIN_DETAILED_CC_SNAPSHOT,
+    cashSnapshot: cashSeed().ACCESSIN_CASH_SNAPSHOT,
+    cobranzas: cobranzasSeed().ACCESSIN_COBRANZAS,
+  });
   return {
-    money: lilaContabilidadFromSnapshots({
-      monthlySnapshot: monthly.ACCESSIN_MONTHLY_BALANCE_SNAPSHOT,
-      detailedSnapshot: detailedCcSeed().ACCESSIN_DETAILED_CC_SNAPSHOT,
-      cashSnapshot: cashSeed().ACCESSIN_CASH_SNAPSHOT,
-      cobranzas: cobranzasSeed().ACCESSIN_COBRANZAS,
-    }),
-    cards: monthlyBalanceCards(monthly.ACCESSIN_MONTHLY_BALANCE_SNAPSHOT),
+    money: currentMonth || detailed,
+    cards: monthlyBalanceCards(
+      currentMonth ? summarySnapshot : monthly.ACCESSIN_MONTHLY_BALANCE_SNAPSHOT,
+    ),
   };
 }
 

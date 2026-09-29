@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+  assembleSnapshotChunks,
   clearSnapshots,
   getSnapshotsGeneration,
   hasLocalSnapshot,
@@ -12,6 +13,26 @@ import {
 } from './snapshots';
 
 const EMPTY = Object.freeze({ ACCESSIN_CHEQUES: [], ACCESSIN_CHEQUES_AS_OF: '', EXTRA: 'vacío' });
+
+describe('assembleSnapshotChunks', () => {
+  function encode(value) {
+    return Buffer.from(JSON.stringify(value), 'utf8').toString('base64');
+  }
+
+  it('arma el JSON cuando las partes empiezan en 0 y siguen en orden', () => {
+    const payload = { ACCESSIN_MONTHLY_BALANCE_SNAPSHOT: { detailSheets: [{ total: 57387000 }] } };
+    const b64 = encode(payload);
+    const mid = Math.floor(b64.length / 2);
+    expect(assembleSnapshotChunks([
+      { seq: 1, chunk: b64.slice(mid) },
+      { seq: 0, chunk: b64.slice(0, mid) },
+    ])).toEqual(payload);
+  });
+
+  it('no arma un corte al que le falta la primera parte', () => {
+    expect(assembleSnapshotChunks([{ seq: 8, chunk: encode({ ok: true }) }])).toBeNull();
+  });
+});
 
 describe('registro de snapshots', () => {
   beforeEach(() => {

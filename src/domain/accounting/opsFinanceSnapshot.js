@@ -193,6 +193,62 @@ function latestCobranzas(cobranzas = [], { limit = 8, day } = {}) {
     }));
 }
 
+function monthKeyOf(value) {
+  const iso = isoDateOf(value);
+  return iso ? iso.slice(0, 7) : '';
+}
+
+function summaryLineAmount(sections, sectionId, labelTest) {
+  const section = (sections || []).find((row) => row?.id === sectionId);
+  const line = (section?.lines || []).find((row) => labelTest(String(row?.label || '')));
+  return money(line?.amount);
+}
+
+/**
+ * KPIs del mes calendario en curso, tomados del balance resumido de LILA.
+ * Si ese corte es de otro mes, devuelve null y se sigue usando el balance detallado.
+ */
+export function financeFromMonthlySummary({
+  snapshot = {},
+  sections = [],
+  today = todayISODateAR(),
+} = {}) {
+  const periodFrom = String(snapshot?.periodFrom || '');
+  const periodTo = String(snapshot?.periodTo || snapshot?.asOf || '');
+  const periodKey = monthKeyOf(periodFrom || periodTo);
+  if (!periodKey || periodKey !== monthKeyOf(today)) return null;
+
+  const liquidado = summaryLineAmount(
+    sections,
+    'liquidacion',
+    (label) => /imputad[oa]s en cuentas corrientes/i.test(label) && !/recargo/i.test(label),
+  );
+  const recaudado = summaryLineAmount(
+    sections,
+    'ingresos_por_tipo_de_entrada',
+    (label) => /^ingresos de (cuotas|expensas)$/i.test(label),
+  );
+  const cash = money(snapshot.closingCash || snapshot.cashOnHand);
+  const income = money(snapshot.totalIncome);
+  const expenses = money(snapshot.totalExpenses);
+  if (!(liquidado > 0 || recaudado > 0 || cash > 0 || income > 0)) return null;
+
+  return {
+    source: 'lila-month',
+    liquidado,
+    recaudado,
+    cash,
+    income,
+    expenses,
+    result: money(income - expenses),
+    rate: liquidado > 0 ? Math.round((recaudado / liquidado) * 100) : 0,
+    periodFrom,
+    periodTo,
+    periodKey,
+    lastIncomes: [],
+  };
+}
+
 /**
  * KPIs del widget Contabilidad de LILA: liquidado / recaudado / caja.
  * Devuelve null si todavía no cargó el corte.

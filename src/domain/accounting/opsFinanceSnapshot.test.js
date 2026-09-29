@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildOpsFinanceSnapshot,
   composeClubFinance,
+  financeFromMonthlySummary,
   lilaContabilidadFromSnapshots,
   LILA_HANDOFF_ISO,
 } from './opsFinanceSnapshot';
@@ -118,6 +119,51 @@ describe('lilaContabilidadFromSnapshots', () => {
       day: '2026-09-27',
     });
     expect(kpis.lastIncomes).toEqual([]);
+  });
+});
+
+describe('financeFromMonthlySummary', () => {
+  const september = {
+    snapshot: {
+      periodFrom: '2026-09-01',
+      periodTo: '2026-09-30',
+      totalIncome: 58958673.76,
+      totalExpenses: 0,
+      closingCash: 813908702.27,
+      cashOnHand: 750753028.51,
+    },
+    sections: [
+      {
+        id: 'liquidacion',
+        lines: [
+          { label: 'Liquidación Septiembre del 2026', amount: 57843000 },
+          { label: 'Expensas imputadas en cuentas corrientes', amount: 57627000 },
+          { label: 'Recargos de expensas imputados en cuentas corrientes', amount: 2011200 },
+        ],
+      },
+      {
+        id: 'ingresos_por_tipo_de_entrada',
+        lines: [
+          { label: 'Ingresos de expensas atrasadas', amount: 10567001.14 },
+          { label: 'Ingresos de expensas', amount: 40496000 },
+          { label: 'Ingresos de recargos de expensas', amount: 284200 },
+        ],
+      },
+    ],
+  };
+
+  it('arma recaudación, caja y resultado del mes en curso', () => {
+    const month = financeFromMonthlySummary({ ...september, today: '2026-09-29' });
+    expect(month.liquidado).toBe(57627000);
+    expect(month.recaudado).toBe(40496000);
+    expect(month.rate).toBe(70);
+    expect(month.cash).toBeCloseTo(813908702.27, 2);
+    expect(month.result).toBeCloseTo(58958673.76, 2);
+    expect(month.periodTo).toBe('2026-09-30');
+  });
+
+  it('ignora un resumen que no es el mes calendario', () => {
+    expect(financeFromMonthlySummary({ ...september, today: '2026-10-02' })).toBeNull();
   });
 });
 

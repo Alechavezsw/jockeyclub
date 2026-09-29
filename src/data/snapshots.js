@@ -199,13 +199,24 @@ function decodeBase64Utf8(b64) {
   return new TextDecoder().decode(bytes);
 }
 
-async function fetchFromChunks(supabase, name) {
+/** Arma un JSON solo si las partes empiezan en 0 y no les falta ninguna. */
+export function assembleSnapshotChunks(parts = []) {
+  if (!parts.length) return null;
+  const ordered = parts.toSorted((a, b) => a.seq - b.seq);
+  if (ordered[0].seq !== 0) return null;
+  for (let i = 1; i < ordered.length; i += 1) {
+    if (ordered[i].seq !== i) return null;
+  }
+  return JSON.parse(decodeBase64Utf8(ordered.map((part) => part.chunk).join('')));
+}
+
+async function fetchChunkRows(supabase, table, name) {
   const pageSize = 50;
   const parts = [];
   for (let from = 0; ; from += pageSize) {
     const { data, error } = await withTimeout(
       supabase
-        .from('club_snapshot_load')
+        .from(table)
         .select('seq, chunk')
         .eq('name', name)
         .order('seq')
@@ -218,13 +229,24 @@ async function fetchFromChunks(supabase, name) {
     parts.push(...data);
     if (data.length < pageSize) break;
   }
-  if (!parts.length) return null;
-  const ordered = parts.toSorted((a, b) => a.seq - b.seq);
-  if (ordered[0].seq !== 0) return null;
-  for (let i = 1; i < ordered.length; i += 1) {
-    if (ordered[i].seq !== i) return null;
+  return parts;
+}
+
+async function fetchFromChunks(supabase, name) {
+  // El balance mensual (lo liquidado del anillo) quedó en club_snapshot_parts.
+  // club_snapshot_load es el destino nuevo; si ahí no está completo, se usa el anterior.
+  const tables = ['club_snapshot_load', 'club_snapshot_parts'];
+  let lastError = null;
+  for (const table of tables) {
+    try {
+      const assembled = assembleSnapshotChunks(await fetchChunkRows(supabase, table, name));
+      if (assembled) return assembled;
+    } catch (err) {
+      lastError = err;
+    }
   }
-  return JSON.parse(decodeBase64Utf8(ordered.map((part) => part.chunk).join('')));
+  if (lastError) throw lastError;
+  return null;
 }
 
 async function fetchRemote(name) {
@@ -257,7 +279,7 @@ async function fetchRemote(name) {
     );
     if (!error && data) return JSON.parse(await data.text());
   } catch {
-    // Storage vacío o timeout: se arma desde club_snapshot_load.
+    // Storage vacío o timeout: se arma desde club_snapshot_load o club_snapshot_parts.
   }
 
   const assembled = await fetchFromChunks(supabase, name);
