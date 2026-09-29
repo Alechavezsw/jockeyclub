@@ -6,9 +6,11 @@ import {
   attachHouseholdToMembers,
   resolveFamilyForDisplay,
   allocateNextMemberNumber,
+  applyMemberListRefresh,
   mergeMembersById,
   listFamilyGroups,
   familyGroupMatchesQuery,
+  memberMatchesDirectoryQuery,
   rankMemberSearchHit,
 } from './households';
 
@@ -170,11 +172,68 @@ describe('households', () => {
     expect(groups[0].name).toBe('Familia Perez');
   });
 
+  it('encuentra por acento, orden de palabras, mail, teléfono y motivo', () => {
+    const member = {
+      memberId: '3501',
+      name: 'Juan Pérez',
+      documentNumber: '20.123.456',
+      email: 'juan.perez@club.com',
+      phone: '+54 264 555-1234',
+      bajaMotivo: 'Renuncia / baja voluntaria',
+      status: 'inactive',
+    };
+    expect(memberMatchesDirectoryQuery(member, 'perez')).toBe(true);
+    expect(memberMatchesDirectoryQuery(member, 'pérez juan')).toBe(true);
+    expect(memberMatchesDirectoryQuery(member, '20.123.456')).toBe(true);
+    expect(memberMatchesDirectoryQuery(member, 'juan.perez@club.com')).toBe(true);
+    expect(memberMatchesDirectoryQuery(member, '2645551234')).toBe(true);
+    expect(memberMatchesDirectoryQuery(member, 'renuncia')).toBe(true);
+    expect(memberMatchesDirectoryQuery(member, 'zzzz')).toBe(false);
+  });
+
+  it('un nombre no coincide con todos por documento vacío', () => {
+    const rows = [
+      { memberId: '1', name: 'Ana López', documentNumber: '30111222' },
+      { memberId: '2', name: 'Luis Gómez', documentNumber: '' },
+    ];
+    expect(rows.filter((member) => memberMatchesDirectoryQuery(member, 'ana'))).toEqual([rows[0]]);
+  });
+
   it('prioriza el apellido del socio sobre un match débil', () => {
     const q = 'bonilla';
     const socio = { memberId: '1', name: 'Juan Bonilla', status: 'active' };
     const otro = { memberId: '2', name: 'Ana López', email: 'bonilla@club.com', status: 'active' };
     expect(rankMemberSearchHit(socio, q)).toBeLessThan(rankMemberSearchHit(otro, q));
+  });
+
+  it('mantiene el padrón visible mientras llega una página y no pisa la ficha', () => {
+    const loaded = [
+      { memberId: '10009', name: 'Titular', status: 'active', outstandingBalance: 1000, recordScope: 'full', address: 'Calle 1', paymentHistory: [{ id: 'p1' }], adherents: [{ name: 'Hijo' }] },
+      { memberId: '3501', name: 'Integrante', status: 'active', outstandingBalance: 0 },
+    ];
+    const page = [
+      { memberId: '10009', name: 'Titular', status: 'inactive', outstandingBalance: 0, recordScope: 'list', address: '', paymentHistory: [], adherents: [], lastPaymentDate: null },
+    ];
+    const mid = applyMemberListRefresh(loaded, page, { done: false });
+    expect(mid.map((m) => m.memberId)).toEqual(['10009', '3501']);
+    expect(mid[0].status).toBe('inactive');
+    expect(mid[0].outstandingBalance).toBe(0);
+    expect(mid[0].address).toBe('Calle 1');
+    expect(mid[0].paymentHistory).toEqual([{ id: 'p1' }]);
+    expect(mid[0].adherents).toEqual([{ name: 'Hijo' }]);
+    expect(mid[0].recordScope).toBe('full');
+
+    const finished = applyMemberListRefresh(mid, page, { done: true });
+    expect(finished.map((m) => m.memberId)).toEqual(['10009']);
+  });
+
+  it('suma un socio nuevo al final cuando la recarga termina', () => {
+    const loaded = [{ memberId: '10009', name: 'Titular', recordScope: 'list' }];
+    const next = applyMemberListRefresh(loaded, [
+      { memberId: '10009', name: 'Titular', recordScope: 'list' },
+      { memberId: '4928', name: 'Nuevo', recordScope: 'list' },
+    ], { done: true });
+    expect(next.map((m) => m.memberId)).toEqual(['10009', '4928']);
   });
 
   it('en ficha de integrante muestra titular y hermanos', () => {

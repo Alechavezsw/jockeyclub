@@ -29,8 +29,9 @@ import {
   upsertMemberDocument,
   DOCUMENT_TYPES,
 } from '../../domain/members/profileEdit';
-import { duesMethodLabel, persistDuesCollection, recordDuesCollection } from '../../domain/members/memberPayments';
+import { duesMethodLabel, isDuesCollectionJournal, journalEntryBelongsToMember, persistDuesCollection, recordDuesCollection } from '../../domain/members/memberPayments';
 import { sendDuesReceiptMessage } from '../../domain/members/duesReceiptDelivery';
+import CurrentAccountCutNote from '../erp/CurrentAccountCutNote';
 
 const SECTIONS = [
   { id: 'ficha', label: 'Ficha', icon: User },
@@ -480,16 +481,8 @@ export default function MemberProfilePanel({
 
   const movements = useMemo(() => {
     if (!member) return [];
-    const idHint = member.memberId.slice(0, 6);
-    const nameHint = member.name;
     return (journalEntries || [])
-      .filter((e) => {
-        const d = e.description || '';
-        return e.memberId === member.memberId
-          || d.includes(nameHint)
-          || d.includes(idHint)
-          || d.includes(member.memberId);
-      })
+      .filter((entry) => journalEntryBelongsToMember(entry, member) && !isDuesCollectionJournal(entry))
       .slice()
       .sort((a, b) => String(b.date).localeCompare(String(a.date)));
   }, [journalEntries, member]);
@@ -736,7 +729,10 @@ export default function MemberProfilePanel({
           className={`mp-balance ${hasDebt ? 'has-debt' : quota.kind === 'clear' ? 'is-clear' : 'is-off'}`}
           aria-label="Estado de cuota"
         >
-          <div className="mp-balance-label">{hasDebt ? 'Saldo de cuota' : 'Estado de cuota'}</div>
+          <div className="mp-balance-label">
+            {hasDebt ? 'Saldo de cuota' : 'Estado de cuota'}
+            {selfService ? null : <CurrentAccountCutNote members={members} />}
+          </div>
           <div className="mp-balance-value">
             {hasDebt ? formatCurrency(balance) : quota.title}
           </div>

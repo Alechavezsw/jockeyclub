@@ -233,7 +233,7 @@ export default function useErpStore({
     resolveFeeExpenses(load('jockey-fee-expenses-v1', null))
   );
   const [feePeriods, setFeePeriods] = useState(() =>
-    resolveFeePeriods(load('jockey-fee-periods-v1', null))
+    resolveFeePeriods(load('jockey-fee-periods-v2', null) || load('jockey-fee-periods-v1', null))
   );
   const [memberCollectionImports, setMemberCollectionImports] = useState(() =>
     load('jockey-member-collection-imports-v1', [])
@@ -469,8 +469,11 @@ export default function useErpStore({
   useEffect(() => persist('jockey-interest-generators-v1', interestGenerators), [interestGenerators]);
   useEffect(() => persist('jockey-interest-runs-v1', interestRuns), [interestRuns]);
   useEffect(() => persist('jockey-discounts-v1', discounts), [discounts]);
+  useEffect(() => {
+    setFeePeriods((current) => resolveFeePeriods(current));
+  }, []);
   useEffect(() => persist('jockey-fee-expenses-v1', feeExpenses), [feeExpenses]);
-  useEffect(() => persist('jockey-fee-periods-v1', feePeriods), [feePeriods]);
+  useEffect(() => persist('jockey-fee-periods-v2', resolveFeePeriods(feePeriods)), [feePeriods]);
   useEffect(() => persist('jockey-member-collection-imports-v1', memberCollectionImports), [memberCollectionImports]);
   useEffect(() => persist('jockey-fee-chart-accounts-v1', feeChartAccounts), [feeChartAccounts]);
   useEffect(() => persist('jockey-member-account-entries-v1', memberAccountEntries), [memberAccountEntries]);

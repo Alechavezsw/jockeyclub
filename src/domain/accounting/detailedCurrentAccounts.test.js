@@ -19,10 +19,10 @@ beforeAll(async () => {
 
 describe('detailedCurrentAccounts', () => {
   it('carga snapshot LILA de CC detalladas', () => {
-    expect(ACCESSIN_DETAILED_CC_AS_OF).toBe('2026-09-30');
+    expect(ACCESSIN_DETAILED_CC_AS_OF).toBe('2026-09-29');
     expect(ACCESSIN_DETAILED_CC_SNAPSHOT.lineCount).toBe(4935);
     expect(ACCESSIN_DETAILED_CC_SNAPSHOT.memberCount).toBe(4934);
-    expect(ACCESSIN_DETAILED_CC_SNAPSHOT.unpaidLines).toBe(316);
+    expect(ACCESSIN_DETAILED_CC_SNAPSHOT.unpaidLines).toBe(311);
   });
 
   it('lookup 11017 con septiembre cancelado', () => {

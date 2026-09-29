@@ -41,8 +41,10 @@ function accountLabel(payment) {
 }
 
 /** Arma el PDF del recibo (compartido por descarga y envío por mensajería). */
-async function buildPaymentReceiptDoc({ member, payment }) {
+async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
   if (!payment) throw new Error('Pago no encontrado.');
+  const isBoleto = kind === 'boleto';
+  const docLabel = isBoleto ? 'Boleto de pago' : 'Recibo de pago';
   const [{ jsPDF }, autoTableMod] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
@@ -55,7 +57,7 @@ async function buildPaymentReceiptDoc({ member, payment }) {
   // recibo va adjunto a un mensaje (bucket con tope de 5MB); el resto del
   // branding (barra verde, dorado) alcanza para que se vea institucional.
   const startY = drawReportHeader(doc, {
-    title: `Recibo de pago #${receiptNo}`,
+    title: `${docLabel} #${receiptNo}`,
     subtitle: `Socio ${member?.memberId || '—'} · ${member?.name || '—'}`,
     metaLine: `Emitido el ${new Date().toLocaleString('es-AR')}`,
   });
@@ -63,7 +65,7 @@ async function buildPaymentReceiptDoc({ member, payment }) {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(13);
   doc.setTextColor(30, 30, 30);
-  doc.text(`RECIBO DE PAGO #${receiptNo}`, 105, startY + 6, { align: 'center' });
+  doc.text(`${docLabel.toUpperCase()} #${receiptNo}`, 105, startY + 6, { align: 'center' });
   doc.setDrawColor(...BRAND.gold);
   doc.setLineWidth(0.3);
   doc.line(14, startY + 10, 196, startY + 10);
@@ -138,7 +140,9 @@ async function buildPaymentReceiptDoc({ member, payment }) {
   doc.setFontSize(8);
   doc.setTextColor(...BRAND.muted);
   doc.text(
-    'Comprobante emitido por el Portal del Socio. Conservelo como constancia de pago.',
+    isBoleto
+      ? 'Boleto emitido por el Portal del Socio para el pago con Mercado Pago. Tambien queda en Cuotas.'
+      : 'Comprobante emitido por el Portal del Socio. Conservelo como constancia de pago.',
     14,
     fy + 6,
     { maxWidth: 180 }
@@ -162,4 +166,19 @@ export async function paymentReceiptPdfFile({ member, payment }) {
   const name = `recibo-${payment.receipt || payment.id}.pdf`;
   const blob = doc.output('blob');
   return new File([blob], name, { type: 'application/pdf' });
+}
+
+/** Boleto de Mercado Pago, como archivo para mail, mensaje y descarga. */
+export async function paymentBoletoPdfFile({ member, boleto }) {
+  const doc = await buildPaymentReceiptDoc({ member, payment: boleto, kind: 'boleto' });
+  const name = `boleto-${boleto.receipt || boleto.id}.pdf`;
+  const blob = doc.output('blob');
+  return new File([blob], name, { type: 'application/pdf' });
+}
+
+export async function downloadPaymentBoletoPdf({ member, boleto }) {
+  const doc = await buildPaymentReceiptDoc({ member, payment: boleto, kind: 'boleto' });
+  const file = `boleto-${boleto.receipt || boleto.id}.pdf`;
+  doc.save(file);
+  return file;
 }

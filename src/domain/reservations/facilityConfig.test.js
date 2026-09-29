@@ -12,8 +12,9 @@ describe('facilityConfig', () => {
     const fac = normalizeFacilityConfig(FACILITIES[0]);
     expect(fac.weeklySchedule).toHaveLength(7);
     expect(fac.status).toBe('disponible');
-    expect(fac.rules.createStatus).toBe('approved');
-    expect(fac.guests.maxGuests).toBe(FACILITIES[0].guestLimit);
+    expect(fac.rules.createStatus).toBe('pending');
+    expect(fac.guests.capacity).toBe(60);
+    expect(fac.turns).toHaveLength(2);
   });
 
   it('actualiza hours al guardar patch de horarios', () => {
@@ -45,7 +46,8 @@ describe('facilityConfig', () => {
     const catalog = buildFacilityCatalog(FACILITIES);
     expect(catalog.some((f) => f.spaceType === 'salon' && /anhelo/i.test(f.name))).toBe(true);
     expect(catalog.some((f) => f.spaceType === 'parrilla' && /verde/i.test(f.name))).toBe(true);
-    expect(catalog.some((f) => f.id === 'salon_eventos')).toBe(true);
+    expect(catalog.some((f) => f.id === 'salon_refugio' && f.status === 'disponible')).toBe(true);
+    expect(catalog.some((f) => f.id === 'salon_eventos')).toBe(false);
     expect(catalog.some((f) => f.id === 'pileta_olimpica')).toBe(false);
     expect(catalog.some((f) => f.id === 'gimnasio')).toBe(false);
     expect(catalog.some((f) => f.id === 'tenis_trad')).toBe(false);

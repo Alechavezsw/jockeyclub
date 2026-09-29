@@ -56,7 +56,7 @@ export default function DashboardView({
   const [hoveredSegments, setHoveredSegments] = useState({});
 
   const liveSnapshot = useMemo(() => {
-    const highlightIds = ['salon_anhelo', 'salon_bustos', 'salon_maurin', 'espacio_verde', 'salon_eventos'];
+    const highlightIds = ['salon_anhelo', 'salon_bustos', 'salon_maurin', 'salon_refugio', 'espacio_verde'];
     return highlightIds
       .map((id) => FACILITIES.find((f) => f.id === id))
       .filter(Boolean)

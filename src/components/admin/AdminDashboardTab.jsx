@@ -25,6 +25,7 @@ import { useSnapshotSeed } from '../../hooks/useSnapshots';
 import { todayISODateAR } from '../../lib/arDate';
 import { OpsProgressRing, OpsSegmentRing } from './OpsGauge';
 import DuesDueBanner from './DuesDueBanner';
+import CurrentAccountCutNote from '../erp/CurrentAccountCutNote';
 
 const MOVES_SNAPSHOTS = ['societasMembershipMoves'];
 const LILA_MONEY_SNAPSHOTS = [
@@ -1025,7 +1026,10 @@ export default function AdminDashboardTab({
                     ) : (
                       <BookOpen size={16} color="var(--primary-gold)" />
                     )}
-                    <h3>{userRole === 'cashier' ? 'Caja' : 'Contabilidad'}</h3>
+                    <h3>
+                      {userRole === 'cashier' ? 'Caja' : 'Contabilidad'}
+                      <CurrentAccountCutNote members={members} />
+                    </h3>
                   </div>
                   <span className="ops-month">{moneyMonthLabel}</span>
                 </header>

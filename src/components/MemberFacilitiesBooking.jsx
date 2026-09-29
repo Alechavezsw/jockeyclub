@@ -26,6 +26,13 @@ import { FACILITIES, facilitiesByGroup, sortFacilitiesForDisplay, isRealBookable
 import { buildFacilityCatalog } from '../domain/reservations/facilityConfig';
 import { getFacilityLiveStatus, isSeasonOpen } from '../domain/reservations/availability';
 import { hasReservationConflict } from '../domain/reservations/conflicts';
+import {
+  facilityTurns,
+  guestCap,
+  latestBookableIso,
+  validateMemberBooking,
+  facilityOffersPaymentButton,
+} from '../domain/reservations/bookingRules';
 import { isSlotPast } from '../domain/reservations/slotTime';
 import { joinWaitlist, leaveWaitlist, waitingForSlot } from '../domain/reservations/waitlist';
 import { CLUB_BANK_ACCOUNTS, MERCADO_PAGO, buildMercadoPagoQrPayload } from '../domain/members/clubBanks';
@@ -90,9 +97,9 @@ function buildMonthCells(viewMonth) {
 
 function freeSlotsForFacility(facility, dateStr, reservations, { isZondaActive, now }) {
   if (!isFacilityOpenForDay(facility, { isZondaActive, now })) return [];
-  return (facility.slots || []).filter(
-    (slot) => !isSlotPast(dateStr, slot, now)
-      && !hasReservationConflict(reservations, { facilityId: facility.id, date: dateStr, time: slot })
+  return facilityTurns(facility).filter(
+    (slot) => !isSlotPast(dateStr, slot.time, now)
+      && !hasReservationConflict(reservations, { facilityId: facility.id, date: dateStr, time: slot.time })
   );
 }
 
@@ -109,11 +116,11 @@ function dayAvailabilityScore(dateStr, reservations, isZondaActive, now, facilit
   for (const fac of facilities) {
     if (!isFacilityOpenForDay(fac, { isZondaActive, now })) continue;
     spacesOpen += 1;
-    const slots = fac.slots || [];
+    const slots = facilityTurns(fac);
     total += slots.length;
     const freeSlots = slots.filter(
-      (slot) => !isSlotPast(dateStr, slot, now)
-        && !hasReservationConflict(reservations, { facilityId: fac.id, date: dateStr, time: slot })
+      (slot) => !isSlotPast(dateStr, slot.time, now)
+        && !hasReservationConflict(reservations, { facilityId: fac.id, date: dateStr, time: slot.time })
     ).length;
     free += freeSlots;
     if (freeSlots > 0) spacesFree += 1;
@@ -241,7 +248,7 @@ export default function MemberFacilitiesBooking({
     setErrorMessage('');
     setWaitMsg('');
     setBookingSuccess(false);
-    setPayMethod('mercadopago');
+    setPayMethod(facilityOffersPaymentButton(facility) ? 'mercadopago' : 'cuenta_corriente');
     setReceiptFile(null);
     setReceiptPreview('');
     setPaying(false);
@@ -280,7 +287,7 @@ export default function MemberFacilitiesBooking({
     setErrorMessage('');
   };
 
-  const guestLimit = selectedFacility?.guestLimit || 0;
+  const guestLimit = guestCap(selectedFacility);
 
   const setGuestCount = (next) => {
     const count = Math.max(0, Math.min(guestLimit, next));
@@ -326,23 +333,24 @@ export default function MemberFacilitiesBooking({
       return;
     }
     if (!time) {
-      setErrorMessage('Elegí un horario disponible.');
+      setErrorMessage('Elegí un turno disponible.');
       return;
     }
     if (selectedFacility.isOutdoor && isZondaActive) {
       setErrorMessage('Actividades al aire libre suspendidas por viento Zonda.');
       return;
     }
-    if (isSlotPast(selectedDate, time, now)) {
-      setErrorMessage('Ese horario ya pasó. Elegí un turno más tarde.');
-      return;
-    }
-    if (hasReservationConflict(reservations, {
-      facilityId: selectedFacility.id,
+    const check = validateMemberBooking({
+      facility: selectedFacility,
+      member,
+      reservations,
       date: selectedDate,
       time,
-    })) {
-      setErrorMessage('Ese turno acaba de ocuparse. Elegí otro horario.');
+      guests,
+      now,
+    });
+    if (!check.ok) {
+      setErrorMessage(check.error);
       return;
     }
     const names = guestNameList.map((name) => name.trim()).filter(Boolean);
@@ -351,11 +359,12 @@ export default function MemberFacilitiesBooking({
       return;
     }
 
-    if (bookingPrice > 0 && payMethod === 'transferencia' && !receiptFile) {
+    const chargeToAccount = payMethod === 'cuenta_corriente';
+    if (bookingPrice > 0 && !chargeToAccount && payMethod === 'transferencia' && !receiptFile) {
       setErrorMessage('Adjuntá el comprobante de la transferencia.');
       return;
     }
-    if (bookingPrice > 0 && !sendMessage) {
+    if (bookingPrice > 0 && !chargeToAccount && !sendMessage) {
       setErrorMessage('El aviso de pago a administración no está disponible.');
       return;
     }
@@ -366,7 +375,7 @@ export default function MemberFacilitiesBooking({
       if (bookingPrice > 0 && payMethod === 'transferencia') {
         attachment = await uploadDuesReceipt(receiptFile, user?.id);
       }
-      if (bookingPrice > 0) {
+      if (bookingPrice > 0 && !chargeToAccount) {
         await sendMessage(bookingPaymentNotice({
           memberName: member.name,
           memberId: member.memberId,
@@ -395,9 +404,11 @@ export default function MemberFacilitiesBooking({
       time,
       guests: Number(guests) || 0,
       guestNames: names.join(', '),
-      status: bookingPrice > 0 ? 'pending' : 'confirmed',
+      status: check.status,
+      endTime: check.turn.endTime,
       estimatedPrice: bookingPrice || null,
       paymentMethod: bookingPrice > 0 ? payMethod : null,
+      source: 'app',
     };
     const result = await addReservation?.(payload);
     setPaying(false);
@@ -475,7 +486,7 @@ export default function MemberFacilitiesBooking({
             {monthCells.map((day, idx) => {
               if (!day) return <span key={`e-${idx}`} className="mfb-cal-empty" />;
               const iso = toISODate(day);
-              const past = iso < todayStr;
+              const past = iso < todayStr || iso > latestBookableIso(todayStr, catalog);
               const selected = iso === selectedDate;
               const isToday = iso === todayStr;
               const score = past
@@ -705,7 +716,11 @@ export default function MemberFacilitiesBooking({
                 <h4 style={{ marginTop: '0.75rem' }}>{bookingPrice > 0 ? 'Turno reservado' : 'Reserva confirmada'}</h4>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
                   {selectedFacility.name} · {selectedDate} · {time} hs
-                  {bookingPrice > 0 ? '. Avisamos el pago a administración.' : ''}
+                  {payMethod === 'cuenta_corriente' && bookingPrice > 0
+                    ? '. El importe se imputa a la cuenta corriente.'
+                    : bookingPrice > 0
+                      ? '. Avisamos el pago a administración.'
+                      : ''}
                 </p>
               </div>
             ) : (
@@ -713,31 +728,32 @@ export default function MemberFacilitiesBooking({
                 <div>
                   <label className="form-label">Horarios</label>
                   <div className="mfb-time-grid">
-                    {(selectedFacility.slots || []).map((slot) => {
-                      const past = isSlotPast(selectedDate, slot, now);
+                    {facilityTurns(selectedFacility).map((turn) => {
+                      const past = isSlotPast(selectedDate, turn.time, now);
                       const taken = !past && hasReservationConflict(reservations, {
                         facilityId: selectedFacility.id,
                         date: selectedDate,
-                        time: slot,
+                        time: turn.time,
                       });
                       const blockedOutdoor = selectedFacility.isOutdoor && isZondaActive;
                       const queue = waitingForSlot(waitlist, {
                         facilityId: selectedFacility.id,
                         date: selectedDate,
-                        time: slot,
+                        time: turn.time,
                       }).length;
                       const label = blockedOutdoor ? 'Cerrado' : past ? 'Pasó' : taken ? 'Ocupado' : 'Libre';
+                      const range = turn.endTime ? `${turn.time}–${turn.endTime}` : turn.time;
                       return (
                         <button
-                          key={slot}
+                          key={turn.time}
                           type="button"
                           disabled={blockedOutdoor || past}
-                          className={`mfb-time${time === slot ? ' is-selected' : ''}${taken ? ' is-taken' : ''}${blockedOutdoor || past ? ' is-disabled' : ''}`}
-                          onClick={() => setTime(slot)}
-                          title={past ? 'Ese horario ya pasó' : taken ? `Ocupado · ${queue} en espera` : 'Libre'}
+                          className={`mfb-time${time === turn.time ? ' is-selected' : ''}${taken ? ' is-taken' : ''}${blockedOutdoor || past ? ' is-disabled' : ''}`}
+                          onClick={() => setTime(turn.time)}
+                          title={past ? 'Ese turno ya pasó' : taken ? `Ocupado · ${queue} en espera` : 'Libre'}
                         >
-                          <span>{slot}</span>
-                          <small>{label}</small>
+                          <span>{range}</span>
+                          <small>{turn.label} · {label}</small>
                         </button>
                       );
                     })}
@@ -805,10 +821,18 @@ export default function MemberFacilitiesBooking({
                   )}
                 </div>
 
-                {bookingPrice > 0 && (
+                {bookingPrice > 0 && !facilityOffersPaymentButton(selectedFacility) && (
+                  <div className="mfb-pay">
+                    <label className="form-label">Pago</label>
+                    <p className="mfb-book-hint">
+                      {formatCurrency(bookingPrice)} · se imputa a la cuenta corriente. En salón hace falta abonar el total o el 50% para no perder la reserva.
+                    </p>
+                  </div>
+                )}
+                {bookingPrice > 0 && facilityOffersPaymentButton(selectedFacility) && (
                   <div className="mfb-pay">
                     <label className="form-label" htmlFor="mfb-pay-method">Pago</label>
-                    <p className="mfb-book-hint">{formatCurrency(bookingPrice)} · el mismo medio que la cuota.</p>
+                    <p className="mfb-book-hint">{formatCurrency(bookingPrice)} · cuenta corriente o botón de pago.</p>
                     <select
                       id="mfb-pay-method"
                       className="form-input"
@@ -818,9 +842,9 @@ export default function MemberFacilitiesBooking({
                         setErrorMessage('');
                       }}
                     >
+                      <option value="cuenta_corriente">Cuenta corriente</option>
                       <option value="mercadopago">Mercado Pago</option>
                       <option value="transferencia">Transferencia</option>
-                      <option value="debito">Débito automático</option>
                     </select>
                     {payMethod === 'mercadopago' && bookingQr ? (
                       <div className="pay-hist-qr">
@@ -877,7 +901,11 @@ export default function MemberFacilitiesBooking({
                       {paying
                         ? 'Enviando…'
                         : bookingPrice > 0
-                          ? (payMethod === 'transferencia' ? 'Enviar comprobante' : 'Avisar y reservar')
+                          ? (payMethod === 'cuenta_corriente'
+                            ? 'Reservar en cuenta corriente'
+                            : payMethod === 'transferencia'
+                              ? 'Enviar comprobante'
+                              : 'Avisar y reservar')
                           : 'Confirmar reserva'}
                     </button>
                   )}

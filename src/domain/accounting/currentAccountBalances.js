@@ -3,6 +3,24 @@
 import { readSnapshot } from '../../data/snapshots';
 import { memberNumberOf } from '../members/households';
 
+/**
+ * Corte de Lila del 29 de septiembre de 2026, ya cargado en public.members.
+ * Los tres números estaban en el Excel de saldos y no en el padrón.
+ */
+export const LILA_BALANCE_CUT = Object.freeze({
+  asOf: '2026-09-29',
+  filePositiveTotal: 341775396.28,
+  omittedTotal: 568000.45,
+  omitted: Object.freeze([
+    Object.freeze({ memberNumber: '2656', balance: 78000 }),
+    Object.freeze({ memberNumber: '10815', balance: 460000.45 }),
+    Object.freeze({ memberNumber: '11153', balance: 30000 }),
+  ]),
+  previousAsOf: '2026-09-26',
+  previousWithBalance: 401,
+  previousTotal: 91708889.13,
+});
+
 const EMPTY_CURRENT_ACCOUNT_BALANCES_SEED = Object.freeze({
   ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF: '',
   ACCESSIN_CURRENT_ACCOUNT_BALANCES_BY_NUMBER: {},
@@ -16,6 +34,36 @@ export function currentAccountBalancesSeed() {
 
 function padMember(n) {
   return String(n || '').replace(/\D/g, '') || '';
+}
+
+/** Totales vivos del padrón. La fecha es la que más socios traen en currentAccountAsOf. */
+export function summarizeCurrentAccountCut(members = []) {
+  const counts = new Map();
+  let withBalance = 0;
+  let total = 0;
+  for (const member of members) {
+    const asOf = String(member?.currentAccountAsOf || '').slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(asOf)) counts.set(asOf, (counts.get(asOf) || 0) + 1);
+    const balance = Number(member?.outstandingBalance) || 0;
+    if (balance > 0) {
+      withBalance += 1;
+      total += balance;
+    }
+  }
+  let asOf = '';
+  let best = 0;
+  for (const [date, count] of counts) {
+    if (count > best) {
+      best = count;
+      asOf = date;
+    }
+  }
+  return {
+    asOf,
+    members: members.length,
+    withBalance,
+    total: Math.round(total * 100) / 100,
+  };
 }
 
 export function lookupCurrentAccountBalance(memberNumber) {

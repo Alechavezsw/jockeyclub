@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, Clock, CalendarDays, X } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, CalendarDays, X } from 'lucide-react';
 
 const WEEKDAYS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
@@ -16,9 +16,18 @@ function monthLabel(year, month) {
 }
 
 function statusLabel(status) {
-  if (status === 'confirmed') return 'Confirmado';
+  if (status === 'confirmed') return 'Confirmada';
   if (status === 'pending') return 'Pendiente';
-  return 'Cancelado';
+  if (status === 'rejected') return 'Rechazada';
+  return 'Cancelada';
+}
+
+function formatBookingDate(iso) {
+  if (!iso) return '—';
+  const date = new Date(`${String(iso).slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return iso;
+  const raw = date.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' });
+  return raw.replace(/\./g, '');
 }
 
 function formatMoney(n) {
@@ -29,11 +38,6 @@ function formatMoney(n) {
     currency: 'ARS',
     maximumFractionDigits: 0,
   }).format(v);
-}
-
-function formatSlot(res) {
-  if (res.endTime) return `${res.time} – ${res.endTime}`;
-  return res.time || '—';
 }
 
 /** Libro de reservas con calendario mensual y tabla de gestión. */
@@ -261,14 +265,92 @@ export default function BookingsTab({ reservations = [], setReservations }) {
           color: var(--text-gold);
         }
         .bookings-day-item {
-          display: flex;
-          justify-content: space-between;
-          gap: 0.5rem;
+          display: grid;
+          grid-template-columns: 4.6rem minmax(0, 1fr) auto;
+          gap: 0.65rem;
+          align-items: center;
           font-size: 0.8rem;
-          padding: 0.45rem 0;
+          padding: 0.7rem 0;
           border-bottom: 1px solid var(--border-glass);
         }
         .bookings-day-item:last-child { border-bottom: none; }
+        .bookings-day-time {
+          font-variant-numeric: tabular-nums;
+          font-weight: 700;
+          letter-spacing: -0.02em;
+          color: var(--text-gold);
+          line-height: 1.15;
+        }
+        .bookings-day-time small {
+          display: block;
+          margin-top: 0.15rem;
+          font-weight: 500;
+          font-size: 0.68rem;
+          letter-spacing: 0;
+          color: var(--text-muted);
+        }
+        .bookings-day-copy {
+          min-width: 0;
+        }
+        .bookings-day-copy strong,
+        .bookings-day-place {
+          display: block;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .bookings-day-place {
+          color: var(--text-muted);
+          margin-top: 0.12rem;
+        }
+        .bookings-day-side {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-end;
+          gap: 0.28rem;
+        }
+        .bookings-money {
+          font-variant-numeric: tabular-nums;
+          font-weight: 650;
+          letter-spacing: -0.02em;
+        }
+        .bookings-status {
+          display: inline-flex;
+          align-items: center;
+          width: fit-content;
+          padding: 0.18rem 0.5rem;
+          border-radius: 999px;
+          font-size: 0.68rem;
+          font-weight: 650;
+          letter-spacing: 0.01em;
+          line-height: 1.2;
+          border: 1px solid transparent;
+        }
+        .bookings-status.confirmed {
+          color: var(--emerald-accent);
+          background: rgba(16, 185, 129, 0.12);
+          border-color: rgba(16, 185, 129, 0.28);
+        }
+        .bookings-status.pending {
+          color: var(--warning-accent);
+          background: rgba(245, 158, 11, 0.12);
+          border-color: rgba(245, 158, 11, 0.28);
+        }
+        .bookings-status.cancelled {
+          color: #ef4444;
+          background: rgba(239, 68, 68, 0.1);
+          border-color: rgba(239, 68, 68, 0.25);
+        }
+        .bookings-when {
+          font-variant-numeric: tabular-nums;
+          white-space: nowrap;
+        }
+        .bookings-when small {
+          display: block;
+          margin-top: 0.12rem;
+          color: var(--text-muted);
+          font-weight: 500;
+        }
         .bookings-legend {
           display: flex;
           flex-wrap: wrap;
@@ -427,21 +509,25 @@ export default function BookingsTab({ reservations = [], setReservations }) {
                   Sin turnos este día.
                 </p>
               ) : (
-                selectedDayList.map((res) => (
-                  <div key={res.id} className="bookings-day-item">
-                    <div>
-                      <strong>{formatSlot(res)}</strong>
-                      <div style={{ color: 'var(--text-muted)' }}>{res.facilityName}</div>
-                      <div>{res.memberName}</div>
-                      {formatMoney(res.chargedPrice || res.estimatedPrice) && (
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                          {formatMoney(res.chargedPrice || res.estimatedPrice)}
-                        </div>
-                      )}
+                selectedDayList.map((res) => {
+                  const money = formatMoney(res.chargedPrice || res.estimatedPrice);
+                  return (
+                    <div key={res.id} className="bookings-day-item">
+                      <div className="bookings-day-time">
+                        {res.time || '—'}
+                        {res.endTime ? <small>a {res.endTime}</small> : null}
+                      </div>
+                      <div className="bookings-day-copy">
+                        <strong>{res.memberName}</strong>
+                        <span className="bookings-day-place">{res.facilityName}</span>
+                      </div>
+                      <div className="bookings-day-side">
+                        {money ? <span className="bookings-money">{money}</span> : null}
+                        <span className={`bookings-status ${res.status}`}>{statusLabel(res.status)}</span>
+                      </div>
                     </div>
-                    <span className={`status-tag ${res.status}`}>{statusLabel(res.status)}</span>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           )}
@@ -516,19 +602,18 @@ export default function BookingsTab({ reservations = [], setReservations }) {
                         <td>
                           <span style={{ color: 'var(--text-gold)', fontWeight: 600 }}>{res.facilityName}</span>
                         </td>
-                        <td>{res.date}</td>
-                        <td>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontWeight: 500 }}>
-                            <Clock size={12} /> {formatSlot(res)}
-                          </span>
+                        <td className="bookings-when">{formatBookingDate(res.date)}</td>
+                        <td className="bookings-when">
+                          {res.time || '—'}
+                          {res.endTime ? <small>a {res.endTime}</small> : null}
                         </td>
-                        <td>
+                        <td className="bookings-money">
                           {formatMoney(res.chargedPrice || res.estimatedPrice) || (
                             <span style={{ color: 'var(--text-muted)' }}>—</span>
                           )}
                         </td>
                         <td>
-                          <span className={`status-tag ${res.status}`}>
+                          <span className={`bookings-status ${res.status}`}>
                             {statusLabel(res.status)}
                           </span>
                         </td>

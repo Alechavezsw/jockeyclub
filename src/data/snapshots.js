@@ -287,6 +287,22 @@ async function fetchRemote(name) {
   throw tableError || new Error(`Sin corte ${name} en tabla, storage ni partes.`);
 }
 
+const DETAILED_CC_MEMBERS = 'ACCESSIN_DETAILED_CC_BY_NUMBER';
+
+/**
+ * Un corte que ya se está viendo no se reemplaza por una bajada a medias.
+ * El detalle de cuotas solo cambia si el archivo nuevo trae al menos la mitad de los socios.
+ */
+export function snapshotPayloadReplaces(name, previous, next) {
+  if (!next || typeof next !== 'object') return false;
+  if (!previous || typeof previous !== 'object') return true;
+  if (name !== 'accessinDetailedCurrentAccounts') return true;
+  const prevSize = Object.keys(previous[DETAILED_CC_MEMBERS] || {}).length;
+  const nextSize = Object.keys(next[DETAILED_CC_MEMBERS] || {}).length;
+  if (prevSize >= 100 && nextSize * 2 < prevSize) return false;
+  return true;
+}
+
 /**
  * Carga un snapshot una sola vez. Si la descarga falla resuelve null y el snapshot queda
  * en 'error' (un nuevo pedido reintenta). Solo rechaza ante un nombre desconocido.
@@ -307,8 +323,16 @@ export function loadSnapshot(name, { force = false } = {}) {
     .then((data) => {
       if (gen !== generation) return null;
       if (inflight.get(name) !== promise) return data;
+      const current = loaded.get(name);
+      if (!snapshotPayloadReplaces(name, current, data)) {
+        if (import.meta.env.DEV) {
+          console.warn(`[snapshots] ${name} (se mantiene el corte: la bajada trae menos socios)`);
+        }
+        return current;
+      }
       loaded.set(name, data);
       errors.delete(name);
+      merged.delete(name);
       return data;
     })
     .catch((err) => {

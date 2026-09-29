@@ -52,6 +52,97 @@ export function assignDistinctStatColors(rows = [], reservedColors = []) {
   });
 }
 
+const LIST_REFRESH_FIELDS = [
+  'id',
+  'memberId',
+  'name',
+  'phone',
+  'email',
+  'tier',
+  'status',
+  'outstandingBalance',
+  'yearsActive',
+  'joinDate',
+  'nextDueDate',
+  'overdueSince',
+  'disciplines',
+  'documentNumber',
+  'documentType',
+  'paymentMethod',
+  'cardNumber',
+  'profileId',
+];
+
+const LIST_META_FIELDS = [
+  'lastPaymentDate',
+  'familyPrincipalNumber',
+  'familyGroupName',
+  'cuotaCategories',
+  'portalUsername',
+  'portalProvisionedAt',
+  'hasSocietasApp',
+  'currentAccountAsOf',
+  'bajaMotivo',
+];
+
+function memberKey(member) {
+  return String(member?.memberId || '').trim();
+}
+
+function metaFieldPresent(value) {
+  if (value == null || value === '') return false;
+  if (Array.isArray(value)) return value.length > 0;
+  return true;
+}
+
+/** La grilla trae columnas cortas. No pisa domicilio, adherentes ni pagos de la ficha. */
+function mergeMemberRecord(current, incoming) {
+  if (!current) return incoming;
+  if (!incoming) return current;
+  if (incoming.recordScope === 'full' || current.recordScope !== 'full') {
+    return { ...current, ...incoming };
+  }
+  const next = { ...current, recordScope: 'full' };
+  for (const key of LIST_REFRESH_FIELDS) {
+    if (incoming[key] !== undefined) next[key] = incoming[key];
+  }
+  for (const key of LIST_META_FIELDS) {
+    if (metaFieldPresent(incoming[key])) next[key] = incoming[key];
+  }
+  return next;
+}
+
+/**
+ * Recarga del padrón sin vaciar la lista.
+ * Mientras `done` es false se conservan los socios que todavía no llegaron.
+ * Al terminar, la bajada es la lista: el que no vino se va.
+ * El orden de los que ya estaban no cambia.
+ */
+export function applyMemberListRefresh(previous = [], incoming = [], { done = false } = {}) {
+  const incomingById = new Map();
+  for (const row of incoming || []) {
+    const id = memberKey(row);
+    if (!id || incomingById.has(id)) continue;
+    incomingById.set(id, row);
+  }
+  const seen = new Set();
+  const out = [];
+  for (const current of previous || []) {
+    const id = memberKey(current);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const row = incomingById.get(id);
+    if (row) {
+      out.push(mergeMemberRecord(current, row));
+      incomingById.delete(id);
+    } else if (!done) {
+      out.push(current);
+    }
+  }
+  for (const row of incomingById.values()) out.push(row);
+  return out;
+}
+
 /** Une listas de socios por credencial, sin pisar la ficha más completa. */
 export function mergeMembersById(primary = [], extra = [], limit = Infinity) {
   const seen = new Set();
@@ -359,15 +450,52 @@ export function listFamilyGroups(members = []) {
   ));
 }
 
+export function foldSearchText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+/** Nombre, número, DNI, mail, teléfono o motivo. Ignora acentos y el orden de las palabras. */
+export function memberMatchesDirectoryQuery(member, query) {
+  const raw = String(query || '').trim();
+  if (!raw) return true;
+  const folded = foldSearchText(raw);
+  const words = folded.split(/[^a-z0-9]+/).filter((word) => word.length >= 2 && /[a-z]/.test(word));
+  const digits = raw.replace(/\D/g, '');
+  const name = foldSearchText(member?.name);
+  const email = foldSearchText(member?.email);
+  const motivo = foldSearchText([member?.bajaMotivo, member?.bajaDetail].filter(Boolean).join(' '));
+  const category = foldSearchText(
+    Array.isArray(member?.cuotaCategories) ? member.cuotaCategories.filter(Boolean).join(' ') : '',
+  );
+  const id = String(member?.memberId || '').replace(/\D/g, '');
+  const dni = String(member?.documentNumber || '').replace(/\D/g, '');
+  const phone = `${member?.phone || ''}${member?.phoneAlt || ''}`.replace(/\D/g, '');
+
+  const nameHit = words.length > 0
+    ? words.every((word) => name.includes(word))
+    : /[a-z]/.test(folded) && name.includes(folded);
+  const emailHit = email
+    && (folded.includes('@') || folded.includes('.') || folded.length >= 5)
+    && email.includes(folded);
+  const textHit = folded.length >= 2 && (motivo.includes(folded) || category.includes(folded));
+  const idHit = digits.length >= 2 && (id === digits || id.includes(digits));
+  const dniHit = digits.length >= 3 && (dni === digits || dni.includes(digits));
+  const phoneHit = digits.length >= 6 && phone.includes(digits);
+  return Boolean(nameHit || emailHit || textHit || idHit || dniHit || phoneHit);
+}
+
 /** Menor = más relevante. Prioriza coincidencia de nombre de socio. */
 export function rankMemberSearchHit(member, query) {
   const raw = String(query || '').trim();
   if (!raw) return 50;
-  const q = raw.toLowerCase();
+  const q = foldSearchText(raw);
   const digits = raw.replace(/\D/g, '');
-  const name = String(member?.name || '').toLowerCase();
+  const name = foldSearchText(member?.name);
   const words = name.split(/\s+/).filter(Boolean);
-  const id = String(member?.memberId || '');
+  const id = String(member?.memberId || '').replace(/\D/g, '');
   const dni = String(member?.documentNumber || '').replace(/\D/g, '');
   const titularBoost = isTitularMember(member) ? 0 : 8;
 
@@ -375,6 +503,9 @@ export function rankMemberSearchHit(member, query) {
   if (name === q) return 1 + titularBoost;
   if (name.startsWith(q)) return 2 + titularBoost;
   if (words.some((word) => word.startsWith(q))) return 3 + titularBoost;
+  if (q.split(/\s+/).filter((word) => word.length >= 2).every((word) => name.includes(word)) && q.includes(' ')) {
+    return 4 + titularBoost;
+  }
   if (name.includes(q)) return 4 + titularBoost;
   if (digits && (id.includes(digits) || dni.includes(digits))) return 12;
   return 20;
@@ -383,19 +514,11 @@ export function rankMemberSearchHit(member, query) {
 export function familyGroupMatchesQuery(group, query) {
   const raw = String(query || '').trim();
   if (!raw) return true;
-  const q = raw.toLowerCase();
+  const folded = foldSearchText(raw);
   const digits = raw.replace(/\D/g, '');
-  if (String(group?.name || '').toLowerCase().includes(q)) return true;
+  if (foldSearchText(group?.name).includes(folded)) return true;
   if (digits && String(group?.id || '').includes(digits)) return true;
-  return (group?.members || []).some((m) => {
-    const name = String(m.name || '').toLowerCase();
-    const id = String(m.memberId || '');
-    const dni = String(m.documentNumber || '').replace(/\D/g, '');
-    const phone = String(m.phone || '');
-    return name.includes(q)
-      || (digits && (id.includes(digits) || dni.includes(digits)))
-      || phone.includes(raw);
-  });
+  return (group?.members || []).some((member) => memberMatchesDirectoryQuery(member, raw));
 }
 
 export function buildPadronHouseholdStats(members = [], { tierCatalog = [], reservedColors = [] } = {}) {

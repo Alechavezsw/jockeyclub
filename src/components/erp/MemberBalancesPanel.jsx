@@ -5,7 +5,7 @@ import {
 import CuotasDeskToolbar, { CuotasTool } from './CuotasDeskToolbar';
 import { exportAccountPaymentPdf } from '../../domain/accounting/exportAccountPaymentPdf';
 import { exportPaymentBoletoPdf } from '../../domain/accounting/exportPaymentBoleto';
-import { getActiveTiers } from '../../domain/members/tiers';
+import { DUES_LATE_RATE, getActiveTiers } from '../../domain/members/tiers';
 import { memberNumberOf, resolveFamilyForDisplay } from '../../domain/members/households';
 import {
   ACCOUNT_ENTRY_TYPES,
@@ -26,13 +26,12 @@ import {
 } from '../../domain/accounting/memberBalances';
 import {
   currentAccountBalanceOf,
-  currentAccountBalancesSeed,
 } from '../../domain/accounting/currentAccountBalances';
 import { lookupMonthlyDebt } from '../../domain/accounting/monthlyDebts';
-import { useSnapshotSeed } from '../../hooks/useSnapshots';
 import { listGroupAccountLedger, listMemberAccountSupport } from '../../data/repos';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import SnapshotGate from '../SnapshotGate';
+import CurrentAccountCutNote from './CurrentAccountCutNote';
 
 const SNAPSHOTS = [...MEMBER_BALANCES_SNAPSHOTS, 'accessinMonthlyDebts'];
 
@@ -72,10 +71,6 @@ function MemberBalancesContent({
   onGoImputeEvents,
   tierCatalog = [],
 }) {
-  const {
-    ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF,
-    ACCESSIN_CURRENT_ACCOUNT_BALANCES_SNAPSHOT,
-  } = useSnapshotSeed(SNAPSHOTS, currentAccountBalancesSeed);
   const tiers = useMemo(() => getActiveTiers(tierCatalog), [tierCatalog]);
 
   const [view, setView] = useState('list'); // list | summary | payment | boleto | entry
@@ -254,7 +249,7 @@ function MemberBalancesContent({
       amount,
       dueDate1: due1,
       dueDate2: due2,
-      surcharge: Math.round(amount * 0.1),
+      surcharge: Math.round(amount * DUES_LATE_RATE),
     }));
     setView('boleto');
   };
@@ -780,6 +775,7 @@ function MemberBalancesContent({
                 <tr>
                   <td colSpan={cols} className="member-balances-month-head">
                     Saldo: {formatLilaMoney(currentAccountBalanceOf(selectedMember))}
+                    <CurrentAccountCutNote members={members} />
                   </td>
                 </tr>
               ) : null}
@@ -818,13 +814,12 @@ function MemberBalancesContent({
       />
 
       <section className="supplier-pay-import-block">
-        <h4 className="supplier-pay-import-title">Buscar socio</h4>
+        <h4 className="supplier-pay-import-title">
+          Buscar socio
+          <CurrentAccountCutNote members={members} />
+        </h4>
         <p className="disc-field-hint" style={{ marginTop: 0 }}>
           Nombre, DNI, Nº de socio o grupo familiar
-          {' · '}
-          Saldos CC LILA al {ACCESSIN_CURRENT_ACCOUNT_BALANCES_SNAPSHOT.asOfLabel || ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF}
-          {' · '}
-          {ACCESSIN_CURRENT_ACCOUNT_BALANCES_SNAPSHOT.withBalance?.toLocaleString('es-AR')} con saldo
         </p>
         <div className="member-balances-search">
           <div className="members-search-field">

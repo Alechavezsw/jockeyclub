@@ -1,6 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { memberMatchesDirectoryQuery, mergeMembersById } from '../../domain/members/households';
+import { repos } from '../../data/bootstrap';
+import { isSupabaseConfigured } from '../../lib/supabase';
 import FoldableSection from './FoldableSection';
 
 const PAGE = 40;
@@ -16,24 +19,48 @@ function categoryOf(member) {
 export default function InactiveMembersSection({ members = [], openToken = 0 }) {
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
-  const inactive = useMemo(
-    () => (members || []).filter((member) => (member.status || '') === 'inactive'),
-    [members],
-  );
+  const [remoteHits, setRemoteHits] = useState([]);
+
+  useEffect(() => {
+    const raw = query.trim();
+    const digits = raw.replace(/\D/g, '');
+    const enough = raw.length >= 2 || digits.length >= 3;
+    if (!enough || !isSupabaseConfigured) {
+      setRemoteHits([]);
+      return undefined;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      repos.searchMembersDirectory(raw, { limit: 40 })
+        .then((rows) => {
+          if (cancelled) return;
+          setRemoteHits((rows || []).filter((member) => (member.status || '') === 'inactive'));
+        })
+        .catch(() => {
+          if (!cancelled) setRemoteHits([]);
+        });
+    }, 280);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [query]);
+
+  const inactive = useMemo(() => {
+    const local = (members || []).filter((member) => (member.status || '') === 'inactive');
+    return mergeMembersById(local, remoteHits);
+  }, [members, remoteHits]);
   const filtered = useMemo(() => {
-    const raw = query.trim().toLowerCase();
-    const digits = query.replace(/\D/g, '');
+    const raw = query.trim();
+    const remoteIds = new Set(remoteHits.map((hit) => String(hit?.memberId || '')));
     const rows = !raw
       ? inactive
       : inactive.filter((member) => (
-        String(member.name || '').toLowerCase().includes(raw)
-        || String(member.memberId || '').includes(digits || raw)
-        || String(member.documentNumber || '').includes(digits)
-        || String(member.bajaMotivo || '').toLowerCase().includes(raw)
-        || categoryOf(member).toLowerCase().includes(raw)
+        remoteIds.has(String(member.memberId || ''))
+        || memberMatchesDirectoryQuery(member, raw)
       ));
     return rows.toSorted((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'es'));
-  }, [inactive, query]);
+  }, [inactive, query, remoteHits]);
   const pages = Math.max(1, Math.ceil(filtered.length / PAGE));
   const safePage = Math.min(page, pages);
   const slice = filtered.slice((safePage - 1) * PAGE, safePage * PAGE);
@@ -55,7 +82,7 @@ export default function InactiveMembersSection({ members = [], openToken = 0 }) 
           <input
             type="search"
             value={query}
-            placeholder="Nombre, número, documento o motivo"
+            placeholder="Nombre, número, documento, mail o motivo"
             onChange={(event) => {
               setQuery(event.target.value);
               setPage(1);

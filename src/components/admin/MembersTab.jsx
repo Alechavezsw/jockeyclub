@@ -13,7 +13,7 @@ import {
   memberAppAccess,
   reasonLabel as lifecycleReasonLabel,
 } from '../../domain/members/memberAdminActions';
-import { attachHouseholdToMembers, assignDistinctStatColors, buildPadronHouseholdStats, familyGroupMatchesQuery, isFamilyDependent, isLiveMember, isTitularMember, listFamilyGroups, mergeMembersById, rankMemberSearchHit, resolveFamilyForDisplay } from '../../domain/members/households';
+import { attachHouseholdToMembers, assignDistinctStatColors, buildPadronHouseholdStats, familyGroupMatchesQuery, isFamilyDependent, isLiveMember, isTitularMember, listFamilyGroups, memberMatchesDirectoryQuery, mergeMembersById, rankMemberSearchHit, resolveFamilyForDisplay } from '../../domain/members/households';
 import { portalLoginFromEmail } from '../../domain/auth/credentials';
 import {
   buildAccessInvite,
@@ -542,14 +542,13 @@ export default function MembersTab({
   const filteredMembers = useMemo(() => {
     const raw = searchQuery.trim();
     const q = raw.toLowerCase();
+    const remoteIds = new Set(remoteHits.map((hit) => String(hit?.memberId || '')));
     const hits = searchDirectory.filter((m) => {
       const matchesSearch = !q
-        || (m.name || '').toLowerCase().includes(q)
-        || String(m.memberId || '').includes(raw)
-        || (m.email || '').toLowerCase().includes(q)
-        || (m.documentNumber || '').includes(raw)
-        || (m.phone || '').includes(raw);
+        || remoteIds.has(String(m.memberId || ''))
+        || memberMatchesDirectoryQuery(m, raw);
       if (!matchesSearch) return false;
+      if (q) return true;
       if (quickFilter === 'activos') {
         return isTitularMember(m) && isLiveMember(m);
       }
@@ -562,7 +561,7 @@ export default function MembersTab({
       if (quickFilter === 'bajas') {
         return moveIds.bajas.has(memberMoveKey(m.memberId)) || (m.status || '') === 'inactive';
       }
-      if (!q && (m.status || '') === 'inactive') return false;
+      if ((m.status || '') === 'inactive') return false;
       const matchesTier = tierFilter === 'todos'
         || String(m.tier || '').toLowerCase() === String(tierFilter).toLowerCase();
       return matchesTier;
@@ -573,7 +572,7 @@ export default function MembersTab({
       if (rank !== 0) return rank;
       return String(a.name || '').localeCompare(String(b.name || ''), 'es');
     });
-  }, [searchDirectory, searchQuery, tierFilter, quickFilter, moveIds]);
+  }, [searchDirectory, searchQuery, remoteHits, tierFilter, quickFilter, moveIds]);
 
   const familyGroups = useMemo(() => listFamilyGroups(searchDirectory), [searchDirectory]);
 
@@ -581,6 +580,7 @@ export default function MembersTab({
     const q = searchQuery.trim();
     return familyGroups.filter((group) => {
       if (q && !familyGroupMatchesQuery(group, q)) return false;
+      if (q) return true;
       if (quickFilter === 'activos') return (group.status || 'active') === 'active';
       if (quickFilter === 'familia') return true;
       if (quickFilter === 'altas') {

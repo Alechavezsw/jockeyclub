@@ -1,6 +1,6 @@
 /** Configuración editable de espacios / canchas / pileta. */
 
-import { isDemoFacilityId, isRealBookableSpace } from './facilities';
+import { isDemoFacilityId, isRealBookableSpace, LILA_RULES_VERSION, RETIRED_FACILITY_IDS } from './facilities';
 
 export const FACILITY_STATUS_OPTIONS = [
   { id: 'disponible', label: 'Disponible' },
@@ -206,12 +206,24 @@ export function deriveSlotsFromSchedule(weeklySchedule = [], durationHours = 1.5
   return slots;
 }
 
+function hoursFromTurns(turns = []) {
+  return turns.map((turn) => `${turn.time}-${turn.endTime || ''}`.replace(/-$/, '')).join(' · ');
+}
+
 /** Aplica cambios del editor y sincroniza hours/slots/guestLimit. */
 export function applyFacilityEditorPatch(facility, patch = {}) {
   const next = normalizeFacilityConfig({ ...facility, ...patch });
-  next.hours = deriveHoursFromSchedule(next.weeklySchedule);
-  next.slots = deriveSlotsFromSchedule(next.weeklySchedule, next.rules.slotDurationHours);
+  const scheduleTouched = Object.prototype.hasOwnProperty.call(patch, 'weeklySchedule');
+  if (!scheduleTouched && Array.isArray(next.turns) && next.turns.length) {
+    next.slots = next.turns.map((turn) => turn.time);
+    next.hours = hoursFromTurns(next.turns);
+  } else {
+    if (scheduleTouched) next.turns = [];
+    next.hours = deriveHoursFromSchedule(next.weeklySchedule);
+    next.slots = deriveSlotsFromSchedule(next.weeklySchedule, next.rules.slotDurationHours);
+  }
   next.guestLimit = Number(next.guests.maxGuests) || next.guestLimit || 0;
+  next.lilaRulesVersion = facility.lilaRulesVersion || LILA_RULES_VERSION;
   if (typeof next.guests.capacity === 'number' && next.guests.capacity > 0) {
     next.capacity = String(next.guests.capacity);
   }
@@ -219,25 +231,35 @@ export function applyFacilityEditorPatch(facility, patch = {}) {
   return next;
 }
 
+function mergeOfficialFacility(seed, over) {
+  const image = over && !/unsplash\.com/i.test(String(over.image || ''))
+    ? (over.image || seed.image)
+    : seed.image;
+  const seedVersion = seed.lilaRulesVersion || LILA_RULES_VERSION;
+  if (!over || over.lilaRulesVersion !== seedVersion) {
+    return normalizeFacilityConfig({
+      ...seed,
+      name: over?.name || seed.name,
+      description: over?.description || seed.description,
+      image,
+      lilaRulesVersion: seedVersion,
+    });
+  }
+  return normalizeFacilityConfig({ ...seed, ...over, image, lilaRulesVersion: seedVersion });
+}
+
 export function buildFacilityCatalog(seedList = [], overrides = []) {
   const byId = new Map(
     (overrides || [])
-      .filter((f) => f?.id && !isDemoFacilityId(f.id))
+      .filter((f) => f?.id && !isDemoFacilityId(f.id) && !RETIRED_FACILITY_IDS.has(f.id))
       .map((f) => [f.id, f])
   );
   const fromSeed = (seedList || [])
-    .filter((seed) => seed?.id && !isDemoFacilityId(seed.id))
-    .map((seed) => {
-      const over = byId.get(seed.id);
-      if (!over) return normalizeFacilityConfig(seed);
-      const image = /unsplash\.com/i.test(String(over.image || ''))
-        ? seed.image
-        : (over.image || seed.image);
-      return normalizeFacilityConfig({ ...seed, ...over, image });
-    });
+    .filter((seed) => seed?.id && !isDemoFacilityId(seed.id) && !RETIRED_FACILITY_IDS.has(seed.id))
+    .map((seed) => mergeOfficialFacility(seed, byId.get(seed.id)));
   const seedIds = new Set(fromSeed.map((f) => f.id));
   const extras = (overrides || [])
-    .filter((f) => f?.id && !seedIds.has(f.id) && !isDemoFacilityId(f.id))
+    .filter((f) => f?.id && !seedIds.has(f.id) && !isDemoFacilityId(f.id) && !RETIRED_FACILITY_IDS.has(f.id))
     .map((f) => normalizeFacilityConfig(f))
     .filter((f) => isRealBookableSpace(f));
   return [...fromSeed, ...extras];

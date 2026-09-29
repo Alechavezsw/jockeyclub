@@ -6,6 +6,7 @@ import {
   hasLocalSnapshot,
   loadSnapshot,
   readSnapshot,
+  snapshotPayloadReplaces,
   reloadSnapshot,
   requireSnapshots,
   SNAPSHOT_NAMES,
@@ -31,6 +32,25 @@ describe('assembleSnapshotChunks', () => {
 
   it('no arma un corte al que le falta la primera parte', () => {
     expect(assembleSnapshotChunks([{ seq: 8, chunk: encode({ ok: true }) }])).toBeNull();
+  });
+});
+
+describe('snapshotPayloadReplaces', () => {
+  const full = {
+    ACCESSIN_DETAILED_CC_BY_NUMBER: Object.fromEntries(
+      Array.from({ length: 200 }, (_, i) => [String(i + 1), { lines: [{}] }]),
+    ),
+  };
+
+  it('no cambia el detalle de cuotas por un corte a medias', () => {
+    const partial = { ACCESSIN_DETAILED_CC_BY_NUMBER: { 1: { lines: [{}] } } };
+    expect(snapshotPayloadReplaces('accessinDetailedCurrentAccounts', full, partial)).toBe(false);
+  });
+
+  it('acepta un detalle nuevo del mismo tamaño y la primera carga', () => {
+    expect(snapshotPayloadReplaces('accessinDetailedCurrentAccounts', full, full)).toBe(true);
+    expect(snapshotPayloadReplaces('accessinDetailedCurrentAccounts', null, full)).toBe(true);
+    expect(snapshotPayloadReplaces('accessinCheques', full, { ACCESSIN_CHEQUES: [] })).toBe(true);
   });
 });
 

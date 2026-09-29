@@ -33,6 +33,62 @@ export const DATITA_CUOTA_CATEGORY_NAMES = [
   'TURF',
 ];
 
+/** Vigente desde octubre 2026. Los importes son los de la liquidación de Lila. */
+export const DUES_TARIFF_FROM = '2026-10-01';
+export const DUES_LATE_RATE = 0.1;
+/** Lila aplica el 10 % solo a estas dos categorías, desde el día 11. */
+export const DUES_LATE_TIER_IDS = new Set(['socio_familiar', 'socio_individual']);
+/** La cuota AMET es la base menos 2,5 %. Ese 2,5 % va en la línea de interés. */
+export const DUES_AMET_RATE = 0.025;
+
+const SEP_FAMILIAR = 60000;
+const SEP_INDIVIDUAL = 36000;
+const OCT_FAMILIAR = 70000;
+const OCT_INDIVIDUAL = 40000;
+const ABONO_TENIS = 10000;
+
+function ametDue(base) {
+  return Math.round(base * (1 - DUES_AMET_RATE));
+}
+
+function ametInterest(base) {
+  return Math.round(base * DUES_AMET_RATE);
+}
+
+/** Cuotas de la liquidación de septiembre 2026 (pack 1311). Grupo familiar, vitalicio y fundador en 0. */
+export const MONTHLY_DUES_THROUGH_SEPTEMBER_2026 = Object.freeze({
+  socio_individual: SEP_INDIVIDUAL,
+  socio_individual_amet: ametDue(SEP_INDIVIDUAL),
+  socio_familiar: SEP_FAMILIAR,
+  socio_familiar_amet: ametDue(SEP_FAMILIAR),
+  abono_tenis: ABONO_TENIS,
+  interes_por_transaccion_25_grupo_familiar_amet: ametInterest(SEP_FAMILIAR),
+  interes_por_transaccion_25_socio_individual_amet: ametInterest(SEP_INDIVIDUAL),
+  grupo_familiar_familiar: 0,
+  grupo_familiar_amet: 0,
+  grupo_familiar_vitalicio: 0,
+  grupo_familiar_fundador: 0,
+  socio_vitalicio: 0,
+  fundador: 0,
+});
+
+/** Borrador de octubre 2026 (pack 1382). Mismos criterios, tarifa nueva. */
+export const MONTHLY_DUES_FROM_OCTOBER_2026 = Object.freeze({
+  socio_individual: OCT_INDIVIDUAL,
+  socio_individual_amet: ametDue(OCT_INDIVIDUAL),
+  socio_familiar: OCT_FAMILIAR,
+  socio_familiar_amet: ametDue(OCT_FAMILIAR),
+  abono_tenis: ABONO_TENIS,
+  interes_por_transaccion_25_grupo_familiar_amet: ametInterest(OCT_FAMILIAR),
+  interes_por_transaccion_25_socio_individual_amet: ametInterest(OCT_INDIVIDUAL),
+  grupo_familiar_familiar: 0,
+  grupo_familiar_amet: 0,
+  grupo_familiar_vitalicio: 0,
+  grupo_familiar_fundador: 0,
+  socio_vitalicio: 0,
+  fundador: 0,
+});
+
 const TIER_SEED = [
   { name: 'FUNDADOR', label: '2266', color: '#a78bfa', sortOrder: 1 },
   { name: 'GRUPO FAMILIAR FUNDADOR', label: '2267', color: '#8b5cf6', sortOrder: 2 },
@@ -123,7 +179,14 @@ export function mergeOfficialTiers(catalog = []) {
     (Array.isArray(catalog) ? catalog : []).map((t) => [String(t.id || '').toLowerCase(), normalizeTier(t)])
   );
   for (const official of MEMBER_TIER_CATALOG) {
-    if (!byId.has(official.id)) byId.set(official.id, { ...official });
+    const current = byId.get(official.id);
+    if (!current) {
+      byId.set(official.id, { ...official });
+      continue;
+    }
+    if (!(Number(current.monthlyDues) > 0) && official.monthlyDues > 0) {
+      byId.set(official.id, { ...current, monthlyDues: official.monthlyDues });
+    }
   }
   return [...byId.values()].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, 'es'));
 }
@@ -147,7 +210,7 @@ export const MEMBER_TIER_CATALOG = TIER_SEED.map((t) => ({
   id: slugifyTierId(t.name),
   name: t.name,
   label: t.label,
-  monthlyDues: 0,
+  monthlyDues: MONTHLY_DUES_FROM_OCTOBER_2026[slugifyTierId(t.name)] || 0,
   color: t.color,
   sortOrder: t.sortOrder,
   isActive: true,

@@ -8,11 +8,13 @@ describe('metaFromListRow', () => {
       family_principal: '10009',
       family_group_name: 'GF - Rojo',
       cuota_categories: ['SOCIO INDIVIDUAL'],
+      current_account_as_of: '2026-09-29',
     });
     expect(meta.lastPaymentDate).toBe('2026-06-14');
     expect(meta.familyPrincipalNumber).toBe('10009');
     expect(meta.familyGroupName).toBe('GF - Rojo');
     expect(meta.cuotaCategories).toEqual(['SOCIO INDIVIDUAL']);
+    expect(meta.currentAccountAsOf).toBe('2026-09-29');
   });
 
   it('conserva meta si ya vino en la fila', () => {

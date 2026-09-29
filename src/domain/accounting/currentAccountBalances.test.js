@@ -5,6 +5,7 @@ import {
   currentAccountBalanceOf,
   currentAccountBalancesSeed,
   lookupCurrentAccountBalance,
+  summarizeCurrentAccountCut,
 } from './currentAccountBalances';
 
 let ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF;
@@ -54,5 +55,17 @@ describe('currentAccountBalances', () => {
     const again = applyCurrentAccountBalances([paid]);
     expect(again[0].outstandingBalance).toBe(10000);
     expect(currentAccountBalanceOf(again[0])).toBe(10000);
+  });
+
+  it('resume el corte que trae cada socio', () => {
+    const summary = summarizeCurrentAccountCut([
+      { currentAccountAsOf: '2026-09-29', outstandingBalance: 100.5 },
+      { currentAccountAsOf: '2026-09-29', outstandingBalance: 0 },
+      { currentAccountAsOf: '2026-09-26', outstandingBalance: 50 },
+    ]);
+    expect(summary.asOf).toBe('2026-09-29');
+    expect(summary.members).toBe(3);
+    expect(summary.withBalance).toBe(2);
+    expect(summary.total).toBe(150.5);
   });
 });

@@ -8,8 +8,9 @@ import { AlertsBanner } from './components/erp/AlertsPanel';
 import SessionStatusBar from './components/SessionStatusBar';
 import { useAuth } from './context/AuthContext';
 import { canAccessAdmin, canAccessQrGate, canAccessPool, canAccessConcessions, canTakeAttendance, allowedAdminTabs } from './domain/auth/roles';
-import { hasReservationConflict } from './domain/reservations/conflicts';
-import { isDemoFacilityId, isRealBookableSpace, OFFICIAL_FACILITY_IDS } from './domain/reservations/facilities';
+import { isDemoFacilityId, isRealBookableSpace, OFFICIAL_FACILITY_IDS, RETIRED_FACILITY_IDS, FACILITIES } from './domain/reservations/facilities';
+import { buildFacilityCatalog } from './domain/reservations/facilityConfig';
+import { validateMemberBooking } from './domain/reservations/bookingRules';
 import { countUnread, markMessageRead, messageReaderKey, rememberReadMessage, withRememberedReads } from './domain/messaging/messages';
 import {
   buildNotifications,
@@ -17,7 +18,7 @@ import {
   saveDismissedNotificationIds,
 } from './domain/notifications/buildNotifications';
 import { applyAutomaticDues, pinDuesDueDate } from './domain/members/dues';
-import { attachHouseholdToMembers } from './domain/members/households';
+import { applyMemberListRefresh, attachHouseholdToMembers } from './domain/members/households';
 // Los saldos de cuenta corriente vienen de la base: public.members.outstanding_balance
 // más el desglose en members.meta (ver scripts/sync-accessin-balances.mjs). El snapshot
 // LILA ya no se aplica del lado del cliente; solo lo usan los reportes de administración.
@@ -690,6 +691,7 @@ function ClubPortal() {
   const cloudMode = isSupabaseConfigured;
   const hydratedRef = useRef(false);
   const membersLoadStartedRef = useRef(false);
+  const membersRefreshGen = useRef(0);
   const [dbReady, setDbReady] = useState(true);
   const [dbSyncing, setDbSyncing] = useState(false);
   // Espejo de hydratedRef para lo que se muestra en pantalla (una ref no re-renderiza).
@@ -933,6 +935,7 @@ function ClubPortal() {
       const real = raw.filter((f) => (
         f?.id
         && !isDemoFacilityId(f.id)
+        && !RETIRED_FACILITY_IDS.has(f.id)
         && (OFFICIAL_FACILITY_IDS.has(f.id) || isRealBookableSpace(f))
       ));
       return real.length ? real : null;
@@ -1142,13 +1145,30 @@ function ClubPortal() {
 
   // Agregar una reserva (con guardia de dominio contra turnos duplicados)
   const addReservation = async (newRes) => {
-    if (hasReservationConflict(reservations, newRes)) {
-      return { ok: false, error: 'El turno ya está reservado para esa instalación, fecha y horario.' };
-    }
+    const catalog = buildFacilityCatalog(FACILITIES, facilityCatalog);
+    const facility = catalog.find((item) => item.id === newRes?.facilityId);
+    const member = (members || []).find((item) => String(item.memberId) === String(newRes?.memberId)) || {
+      memberId: newRes?.memberId,
+      tier: newRes?.tier,
+    };
+    const check = validateMemberBooking({
+      facility,
+      member,
+      reservations,
+      date: newRes?.date,
+      time: newRes?.time,
+      guests: newRes?.guests,
+    });
+    if (!check.ok) return { ok: false, error: check.error };
+    const booking = {
+      ...newRes,
+      status: check.status,
+      endTime: check.turn.endTime || newRes.endTime || null,
+    };
     if (cloudMode) {
       try {
-        const dbId = memberDbIds[newRes.memberId] || await repos.findMemberDbIdByNumber(newRes.memberId);
-        const saved = await repos.createReservation(newRes, dbId);
+        const dbId = memberDbIds[booking.memberId] || await repos.findMemberDbIdByNumber(booking.memberId);
+        const saved = await repos.createReservation(booking, dbId);
         setReservations((prev) => [saved, ...prev]);
         return { ok: true, reservation: saved };
       } catch (err) {
@@ -1156,7 +1176,7 @@ function ClubPortal() {
       }
     }
     const resWithId = {
-      ...newRes,
+      ...booking,
       id: Date.now()
     };
     setReservations(prev => [resWithId, ...prev]);
@@ -1360,20 +1380,38 @@ function ClubPortal() {
         attachFamily = false,
         loaded = 0,
         total = 0,
+        done = false,
       } = {}) => {
         const cleaned = (rawMembers || []).filter((m) => !isDemoMember(m));
-        const next = attachFamily ? attachHouseholdToMembers(cleaned) : cleaned;
-        setMembers(next);
+        const finished = Boolean(done || attachFamily);
+        setMembers((prev) => {
+          const merged = applyMemberListRefresh(
+            (prev || []).filter((m) => !isDemoMember(m)),
+            cleaned,
+            { done: finished },
+          );
+          return finished ? attachHouseholdToMembers(merged) : merged;
+        });
         if (keepCount) {
-          setMembersCount((prev) => Math.max(prev, next.length, expectedCount));
+          setMembersCount((prev) => Math.max(prev, cleaned.length, expectedCount));
         } else {
-          setMembersCount(Math.max(next.length, expectedCount));
+          setMembersCount(Math.max(cleaned.length, expectedCount));
         }
-        setMemberDbIds(
-          Object.fromEntries(next.map((m) => [m.memberId, m.id]).filter(([, id]) => id))
-        );
+        setMemberDbIds((prev) => {
+          const next = { ...(prev || {}) };
+          for (const member of cleaned) {
+            if (member.memberId && member.id) next[member.memberId] = member.id;
+          }
+          if (finished) {
+            const keep = new Set(cleaned.map((member) => String(member.memberId)));
+            for (const key of Object.keys(next)) {
+              if (!keep.has(String(key))) delete next[key];
+            }
+          }
+          return next;
+        });
         if (loaded || total) {
-          setMembersProgress({ loaded: loaded || next.length, total: total || expectedCount || next.length });
+          setMembersProgress({ loaded: loaded || cleaned.length, total: total || expectedCount || cleaned.length });
         }
       };
 
@@ -1396,6 +1434,7 @@ function ClubPortal() {
               paintMembers(partial, {
                 keepCount: !meta?.done,
                 attachFamily: Boolean(meta?.done),
+                done: Boolean(meta?.done),
                 expectedCount: meta?.total || 0,
                 loaded: meta?.loaded || partial.length,
                 total: meta?.total || 0,
@@ -1522,6 +1561,7 @@ function ClubPortal() {
                 paintMembers(rawMembers, {
                   keepCount: false,
                   attachFamily: true,
+                  done: true,
                   expectedCount: app.membersCount || 0,
                   loaded: rawMembers.length,
                   total: app.membersCount || rawMembers.length,
@@ -1580,23 +1620,33 @@ function ClubPortal() {
           onProgress: (partial, meta) => {
             if (cancelled || !partial?.length) return;
             const cleaned = partial.filter((m) => !isDemoMember(m));
-            const next = meta?.done ? attachHouseholdToMembers(cleaned) : cleaned;
-            setMembers(next);
-            setMembersCount((prev) => Math.max(prev, next.length, meta?.total || 0));
-            setMembersProgress({
-              loaded: meta?.loaded || next.length,
-              total: meta?.total || next.length,
+            const finished = Boolean(meta?.done);
+            setMembers((prev) => {
+              const merged = applyMemberListRefresh(
+                (prev || []).filter((m) => !isDemoMember(m)),
+                cleaned,
+                { done: finished },
+              );
+              return finished ? attachHouseholdToMembers(merged) : merged;
             });
-            if (meta?.done) setMembersLoading(false);
+            setMembersCount((prev) => Math.max(prev, cleaned.length, meta?.total || 0));
+            setMembersProgress({
+              loaded: meta?.loaded || cleaned.length,
+              total: meta?.total || cleaned.length,
+            });
+            if (finished) setMembersLoading(false);
           },
         });
         if (cancelled) return;
         if (rawMembers?.length) {
           const cleaned = rawMembers.filter((m) => !isDemoMember(m));
-          const withFamily = attachHouseholdToMembers(cleaned);
-          setMembers(withFamily);
-          setMembersCount(withFamily.length);
-          setMembersProgress({ loaded: withFamily.length, total: withFamily.length });
+          setMembers((prev) => attachHouseholdToMembers(applyMemberListRefresh(
+            (prev || []).filter((m) => !isDemoMember(m)),
+            cleaned,
+            { done: true },
+          )));
+          setMembersCount(cleaned.length);
+          setMembersProgress({ loaded: cleaned.length, total: cleaned.length });
         }
       } catch (err) {
         if (!cancelled) setDbError(friendlyDbError(err, 'No se pudo cargar el padrón completo'));
@@ -1788,27 +1838,41 @@ function ClubPortal() {
   const refreshMembersLive = useCallback(async () => {
     if (!cloudMode || !isAuthenticated) return;
     if (!(canAccessAdmin(role) || role === 'gate_operator')) return;
+    const gen = membersRefreshGen.current + 1;
+    membersRefreshGen.current = gen;
     repos.invalidateMembersListCache();
     try {
       const { members: rawMembers } = await bootstrapMembersFromDb({
         onProgress: (partial, meta) => {
+          if (gen !== membersRefreshGen.current) return;
           if (!partial?.length) return;
           const cleaned = partial.filter((m) => !isDemoMember(m));
-          const next = meta?.done ? attachHouseholdToMembers(cleaned) : cleaned;
-          setMembers(next);
-          setMembersCount((prev) => Math.max(prev, next.length, meta?.total || 0));
+          const finished = Boolean(meta?.done);
+          setMembers((prev) => {
+            const merged = applyMemberListRefresh(
+              (prev || []).filter((m) => !isDemoMember(m)),
+              cleaned,
+              { done: finished },
+            );
+            return finished ? attachHouseholdToMembers(merged) : merged;
+          });
+          setMembersCount((prev) => Math.max(prev, cleaned.length, meta?.total || 0));
           setMembersProgress({
-            loaded: meta?.loaded || next.length,
-            total: meta?.total || next.length,
+            loaded: meta?.loaded || cleaned.length,
+            total: meta?.total || cleaned.length,
           });
         },
       });
+      if (gen !== membersRefreshGen.current) return;
       if (rawMembers?.length) {
         const cleaned = rawMembers.filter((m) => !isDemoMember(m));
-        const withFamily = attachHouseholdToMembers(cleaned);
-        setMembers(withFamily);
-        setMembersCount(withFamily.length);
-        setMembersProgress({ loaded: withFamily.length, total: withFamily.length });
+        setMembers((prev) => attachHouseholdToMembers(applyMemberListRefresh(
+          (prev || []).filter((m) => !isDemoMember(m)),
+          cleaned,
+          { done: true },
+        )));
+        setMembersCount(cleaned.length);
+        setMembersProgress({ loaded: cleaned.length, total: cleaned.length });
       }
     } catch {
       /* el padrón visible se queda con el último corte */

@@ -31,6 +31,10 @@ describe('tiers catalog', () => {
     expect(slugifyTierId('SOCIO (Vitalicio)')).toBe('socio_vitalicio');
     expect(slugifyTierId('GRUPO FAMILIAR (Familiar)')).toBe('grupo_familiar_familiar');
     expect(slugifyTierId('SOCIO INDIVIDUAL')).toBe('socio_individual');
+    expect(slugifyTierId('INTERES POR TRANSACCIÓN 2,5% GRUPO FAMILIAR (AMET)'))
+      .toBe('interes_por_transaccion_25_grupo_familiar_amet');
+    expect(MEMBER_TIER_CATALOG.find((t) => t.id === 'socio_familiar_amet')?.monthlyDues).toBe(68250);
+    expect(MEMBER_TIER_CATALOG.find((t) => t.id === 'abono_tenis')?.monthlyDues).toBe(10000);
     expect(slugifyTierId('–')).toBe(SIN_CATEGORIA_TIER);
   });
 
@@ -62,6 +66,7 @@ describe('tiers catalog', () => {
       { id: 'socio_individual', name: 'SOCIO INDIVIDUAL', monthlyDues: 55000, sortOrder: 9 },
     ]);
     expect(merged.find((t) => t.id === 'socio_individual')?.monthlyDues).toBe(55000);
+    expect(merged.find((t) => t.id === 'grupo_familiar_familiar')?.monthlyDues).toBe(0);
     expect(merged.some((t) => t.id === 'liga_no_socio')).toBe(true);
     expect(merged.some((t) => t.id === 'sin_categoria')).toBe(true);
   });

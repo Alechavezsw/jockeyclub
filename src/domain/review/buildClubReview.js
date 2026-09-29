@@ -153,6 +153,95 @@ function memberSample(member) {
   return asSample(labelOf(member), memberHref(member));
 }
 
+function birthIso(member) {
+  const raw = String(member?.birthDate || member?.birth_date || '').slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : '';
+}
+
+/** Misma persona en más de una credencial: DNI, o nombre con la misma fecha, o nombre sin otro DNI. */
+function duplicateFichaGroups(list) {
+  const people = [];
+  const indexById = new Map();
+  for (const member of list) {
+    const id = memberNumberOf(member);
+    if (!id || indexById.has(id)) continue;
+    indexById.set(id, people.length);
+    people.push(member);
+  }
+  const parent = people.map((_, index) => index);
+  const find = (index) => {
+    let cursor = index;
+    while (parent[cursor] !== cursor) cursor = parent[cursor];
+    return cursor;
+  };
+  const uniteIds = (ids) => {
+    const indexes = [...new Set(ids)].map((id) => indexById.get(id)).filter((index) => index != null);
+    for (let i = 1; i < indexes.length; i += 1) {
+      const left = find(indexes[0]);
+      const right = find(indexes[i]);
+      if (left !== right) parent[right] = left;
+    }
+  };
+
+  const byDni = new Map();
+  const byBirth = new Map();
+  const byName = new Map();
+  for (const member of people) {
+    const id = memberNumberOf(member);
+    const doc = docDigits(member);
+    if (doc.length >= 7) {
+      if (!byDni.has(doc)) byDni.set(doc, []);
+      byDni.get(doc).push(id);
+    }
+    const name = normalizePersonName(personName(member));
+    if (name.length < 8) continue;
+    const birth = birthIso(member);
+    if (birth) {
+      const key = `${name}|${birth}`;
+      if (!byBirth.has(key)) byBirth.set(key, []);
+      byBirth.get(key).push(id);
+    }
+    if (!byName.has(name)) byName.set(name, []);
+    byName.get(name).push(member);
+  }
+  for (const ids of byDni.values()) uniteIds(ids);
+  for (const ids of byBirth.values()) uniteIds(ids);
+  for (const members of byName.values()) uniteIds(members.map(memberNumberOf));
+
+  const buckets = new Map();
+  for (let index = 0; index < people.length; index += 1) {
+    const root = find(index);
+    if (!buckets.has(root)) buckets.set(root, []);
+    buckets.get(root).push(people[index]);
+  }
+  return [...buckets.values()]
+    .filter((members) => new Set(members.map(memberNumberOf)).size > 1 && members.some(isLive))
+    .sort((a, b) => personName(a.find(isLive) || a[0]).localeCompare(personName(b.find(isLive) || b[0]), 'es'));
+}
+
+function duplicateReason(members) {
+  const dnis = new Set(members.map(docDigits).filter((doc) => doc.length >= 7));
+  if (dnis.size === 1) return 'mismo DNI';
+  const births = new Set(members.map(birthIso).filter(Boolean));
+  const names = new Set(members.map((member) => normalizePersonName(personName(member))));
+  if (names.size === 1 && births.size === 1) return 'mismo nombre y fecha de nacimiento';
+  if (dnis.size >= 2) return 'mismo nombre, documentos distintos';
+  return 'mismo nombre';
+}
+
+function duplicateSample(members) {
+  const lead = members.find(isLive) || members[0];
+  const numbers = [...new Set(members.map(memberNumberOf))]
+    .sort((a, b) => a.localeCompare(b, 'es', { numeric: true }));
+  const listed = numbers.length === 2
+    ? `Nº ${numbers[0]} y Nº ${numbers[1]}`
+    : numbers.map((id) => `Nº ${id}`).join(', ');
+  return asSample(
+    `${personName(lead) || 'Sin nombre'} · ${listed} · ${duplicateReason(members)}`,
+    memberHref(lead),
+  );
+}
+
 function take(rows, toSample) {
   return (rows || []).map((row) => {
     const out = toSample(row);
@@ -787,26 +876,19 @@ export function buildClubReview({
     )),
   });
 
-  const dniCounts = new Map();
-  for (const member of live) {
-    const doc = docDigits(member);
-    if (doc.length < 7) continue;
-    dniCounts.set(doc, (dniCounts.get(doc) || 0) + 1);
-  }
-  const duplicateDocs = live.filter((member) => dniCounts.get(docDigits(member)) > 1);
-  duplicateDocs.forEach(stain);
-  const duplicateDocKeys = new Set(duplicateDocs.map((member) => docDigits(member)));
+  const duplicateGroups = duplicateFichaGroups(list);
+  duplicateGroups.forEach((members) => members.forEach(stain));
   row(items, {
     id: 'dup-dni',
     tier: 'ficha',
-    count: duplicateDocKeys.size,
-    title: duplicateDocKeys.size === 1
-      ? '1 DNI repetido entre activos'
-      : `${duplicateDocKeys.size} DNI repetidos entre activos`,
-    detail: 'Dos socios activos tienen el mismo documento.',
-    why: 'Puede ser un duplicado de padrón.',
+    count: duplicateGroups.length,
+    title: duplicateGroups.length === 1
+      ? '1 ficha duplicada'
+      : `${duplicateGroups.length} fichas duplicadas`,
+    detail: 'La misma persona está en más de una credencial: mismo DNI, mismo nombre o misma fecha. También si los documentos no coinciden o una está de baja.',
+    why: 'Hay que dejar una sola ficha.',
     tab: 'members',
-    samples: take(duplicateDocs, memberSample),
+    samples: duplicateGroups.map(duplicateSample),
   });
 
   const noCategory = live.filter((member) => !hasCategory(member));

@@ -5,6 +5,7 @@ import {
   diffAutomaticDues,
   duesAmountForHousehold,
   duesAmountForMember,
+  duesPayableAmount,
   getOverdueMembers,
   getUpcomingDuesMembers,
   quotaHeadline,
@@ -51,7 +52,7 @@ describe('dues classification', () => {
 
   it('genera deuda automática al vencer sin saldo previo', () => {
     const updated = applyAutomaticDues(members, today);
-    expect(updated.find((m) => m.memberId === '4').outstandingBalance).toBe(32000);
+    expect(updated.find((m) => m.memberId === '4').outstandingBalance).toBe(35200);
     expect(updated.find((m) => m.memberId === '1').outstandingBalance).toBe(32000);
     expect(updated.find((m) => m.memberId === '2').outstandingBalance).toBe(0);
   });
@@ -134,6 +135,55 @@ describe('dues classification', () => {
       { memberId: 'x', name: 'X', tier: 'socio_individual', outstandingBalance: 1000, status: 'active', nextDueDate: '2026-09-01' },
     ], today);
     expect(overdue[0].daysOverdue).toBeNull();
+  });
+});
+
+describe('tarifa desde octubre 2026', () => {
+  const october = new Date('2026-10-01T12:00:00');
+  const afterDue = new Date('2026-10-11T12:00:00');
+
+  it('cobra la liquidación de octubre de Lila, línea por línea', () => {
+    expect(duesAmountForMember({ tier: 'socio_individual', adherents: [] }, october)).toBe(40000);
+    expect(duesAmountForMember({ tier: 'socio_familiar', adherents: [] }, october)).toBe(70000);
+    expect(duesAmountForMember({ tier: 'socio_individual_amet', adherents: [] }, october)).toBe(39000);
+    expect(duesAmountForMember({ tier: 'socio_familiar_amet', adherents: [] }, october)).toBe(68250);
+    expect(duesAmountForMember({ tier: 'abono_tenis', adherents: [] }, october)).toBe(10000);
+    expect(duesAmountForMember({ tier: 'grupo_familiar_familiar', adherents: [] }, october)).toBe(0);
+    expect(duesAmountForMember({ tier: 'socio_vitalicio', adherents: [] }, october)).toBe(0);
+    expect(duesAmountForMember({
+      tier: 'interes_por_transaccion_25_grupo_familiar_amet',
+      adherents: [],
+    }, october)).toBe(1750);
+    expect(duesAmountForMember({
+      tier: 'socio_familiar',
+      cuotaCategories: ['SOCIO FAMILIAR', 'ABONO TENIS'],
+      adherents: [],
+    }, october)).toBe(80000);
+  });
+
+  it('en septiembre no reemplaza la cuota que ya estaba en el catálogo', () => {
+    expect(duesAmountForMember({
+      tier: 'socio_individual',
+      adherents: [],
+    }, new Date('2026-09-29T12:00:00'))).toBe(32000);
+  });
+
+  it('después del 10 suma el 10 % y el día 10 no', () => {
+    const member = {
+      memberId: '8',
+      name: 'Octubre',
+      tier: 'socio_individual',
+      outstandingBalance: 0,
+      status: 'active',
+      nextDueDate: '2026-10-10',
+      adherents: [],
+    };
+    expect(duesPayableAmount(40000, { paidOn: '2026-10-10', dueOn: '2026-10-10' })).toBe(40000);
+    expect(duesPayableAmount(70000, { paidOn: '2026-10-11', dueOn: '2026-10-10', tier: 'socio_familiar' })).toBe(77000);
+    expect(duesPayableAmount(68250, { paidOn: '2026-10-11', dueOn: '2026-10-10', tier: 'socio_familiar_amet' })).toBe(68250);
+    expect(duesPayableAmount(10000, { paidOn: '2026-10-11', dueOn: '2026-10-10', tier: 'abono_tenis' })).toBe(10000);
+    expect(applyAutomaticDues([member], new Date('2026-10-10T12:00:00'))[0].outstandingBalance).toBe(0);
+    expect(applyAutomaticDues([member], afterDue)[0].outstandingBalance).toBe(44000);
   });
 });
 

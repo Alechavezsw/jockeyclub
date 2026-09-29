@@ -1,5 +1,29 @@
 import { describe, expect, it } from 'vitest';
-import { payMemberDues, persistDuesCollection, recordDuesCollection } from './memberPayments';
+import {
+  isDuesCollectionJournal,
+  journalEntryBelongsToMember,
+  payMemberDues,
+  persistDuesCollection,
+  recordDuesCollection,
+} from './memberPayments';
+
+describe('journal de cuota en la ficha', () => {
+  const cobro = {
+    description: 'Cobro cuota social (Caja) - Socio: Nahuel Maresca (Cred. 244346)',
+    sourceModule: 'cuotas',
+    memberId: '244346',
+  };
+
+  it('no muestra el asiento de caja en la ficha del socio', () => {
+    expect(isDuesCollectionJournal(cobro)).toBe(true);
+    expect(journalEntryBelongsToMember(cobro, { memberId: '244346' })).toBe(true);
+  });
+
+  it('un número más corto no hereda el cobro de otra credencial', () => {
+    expect(journalEntryBelongsToMember(cobro, { memberId: '244', name: 'Otro' })).toBe(false);
+    expect(journalEntryBelongsToMember(cobro, { memberId: '346', name: 'Caja' })).toBe(false);
+  });
+});
 
 describe('payMemberDues', () => {
   it('cobra con importe explícito aunque el saldo guardado sea 0', () => {

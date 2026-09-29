@@ -18904,6 +18904,57 @@ a.ops-outline-btn {
   line-height: 1.4;
   color: var(--text-muted);
 }
+.cc-cut-q {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 10px;
+  height: 10px;
+  margin: 0 0 0 0.28rem;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 70%, transparent);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 7px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: none;
+  vertical-align: middle;
+  cursor: pointer;
+}
+.cc-cut-q:hover,
+.cc-cut-q[aria-expanded='true'] {
+  color: var(--text-strong);
+  border-color: var(--text-strong);
+}
+.cc-cut-q:focus-visible {
+  outline: 1px solid var(--primary-gold);
+  outline-offset: 2px;
+}
+.cc-cut-note {
+  position: fixed;
+  z-index: 80;
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border-glass);
+  border-radius: 8px;
+  background: var(--surface-bg);
+  box-shadow: var(--shadow-premium);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.45;
+  text-align: left;
+  text-transform: none;
+}
+.cc-cut-note p {
+  margin: 0;
+}
 .disc-expenses-box {
   display: flex;
   flex-direction: column;

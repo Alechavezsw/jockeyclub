@@ -51,6 +51,7 @@ const MEMBERS_LIST_SELECT = [
   'disciplines',
   'document_number',
   'document_type',
+  'birth_date',
   'payment_method',
   'last_payment_date:meta->>lastPaymentDate',
   'family_principal:meta->>familyPrincipalNumber',
@@ -59,6 +60,8 @@ const MEMBERS_LIST_SELECT = [
   'portal_username:meta->>portalUsername',
   'portal_provisioned:meta->>portalProvisionedAt',
   'has_societas_app:meta->>hasSocietasApp',
+  'current_account_as_of:meta->>currentAccountAsOf',
+  'baja_motivo:meta->>bajaMotivo',
 ].join(', ');
 
 export function metaFromListRow(row = {}) {
@@ -69,6 +72,8 @@ export function metaFromListRow(row = {}) {
   const portalUser = row.portal_username ?? row.portalUsername ?? row.meta?.portalUsername;
   const portalAt = row.portal_provisioned ?? row.portalProvisionedAt ?? row.meta?.portalProvisionedAt;
   const societasApp = row.has_societas_app ?? row.hasSocietasApp ?? row.meta?.hasSocietasApp;
+  const accountCut = row.current_account_as_of ?? row.currentAccountAsOf ?? row.meta?.currentAccountAsOf;
+  const bajaMotivo = row.baja_motivo ?? row.bajaMotivo ?? row.meta?.bajaMotivo;
   const meta = row.meta && typeof row.meta === 'object' && !Array.isArray(row.meta) ? { ...row.meta } : {};
   if (principal != null && principal !== '') meta.familyPrincipalNumber = principal;
   if (group) meta.familyGroupName = group;
@@ -77,6 +82,8 @@ export function metaFromListRow(row = {}) {
   if (portalUser) meta.portalUsername = portalUser;
   if (portalAt) meta.portalProvisionedAt = portalAt;
   if (societasApp === true || societasApp === 'true') meta.hasSocietasApp = true;
+  if (accountCut) meta.currentAccountAsOf = String(accountCut).slice(0, 10);
+  if (bajaMotivo) meta.bajaMotivo = bajaMotivo;
   return meta;
 }
 
@@ -236,7 +243,8 @@ async function downloadMembersList({ onBatch } = {}) {
           .replace(', last_payment_date:meta->>lastPaymentDate', '')
           .replace(', family_principal:meta->>familyPrincipalNumber', '')
           .replace(', family_group_name:meta->>familyGroupName', '')
-          .replace(', cuota_categories:meta->cuotaCategories', '');
+          .replace(', cuota_categories:meta->cuotaCategories', '')
+          .replace(', current_account_as_of:meta->>currentAccountAsOf', '');
         return unwrap(
           sb()
             .from('members')
@@ -2497,6 +2505,40 @@ export async function sendAccessInviteEmail({
   }
   if (data?.error) throw new Error(data.error);
   return { ok: true, id: data?.id || null, to: dest };
+}
+
+/** Mail del boleto de Mercado Pago al socio logueado. El destino sale de su ficha. */
+export async function sendPaymentBoletoEmail({
+  amountLabel,
+  receiptNo,
+  periodLabel,
+  pdfBase64,
+  fileName,
+} = {}) {
+  const { data, error } = await sb().functions.invoke('send-payment-boleto', {
+    body: {
+      amountLabel,
+      receiptNo,
+      periodLabel,
+      pdfBase64,
+      fileName,
+    },
+  });
+  if (error) {
+    let detail = error.message || 'No se pudo enviar el boleto por mail';
+    try {
+      const ctx = error.context;
+      if (ctx && typeof ctx.json === 'function') {
+        const body = await ctx.json();
+        if (body?.error) detail = body.error;
+      }
+    } catch {
+      /* ignore */
+    }
+    throw new Error(data?.error || detail);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data;
 }
 
 /** Bienvenida al pedir asociarse. No lleva usuario ni contraseña. */

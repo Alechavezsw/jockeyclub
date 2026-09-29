@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import {
-  ArrowLeft, ChevronDown, Download, Eye, FileDown, FileSpreadsheet, Plus, RotateCcw, Search, Trash2, Upload, Wallet,
+  ArrowLeft, ChevronDown, Download, Eye, FileDown, FileSpreadsheet, Plus, RotateCcw, Trash2, Upload, Wallet,
 } from 'lucide-react';
 import { formatCurrency } from '../../domain/accounting/journal';
 import {
@@ -9,16 +9,11 @@ import {
   liquidateFeePeriod,
   periodLabel,
   periodStatusLabel,
+  resolveFeePeriods,
 } from '../../domain/accounting/feeBilling';
-import {
-  feeAccountDetailsForPeriod,
-  feeAccountDetailsSeed,
-  feeAccountDetailsSummary,
-  filterFeeAccountLines,
-} from '../../domain/accounting/feeAccountDetails';
+import { feeAccountDetailsForPeriod } from '../../domain/accounting/feeAccountDetails';
+import { feePackForPeriod } from '../../domain/accounting/feePackConcepts';
 import { requireSnapshots } from '../../data/snapshots';
-import { useSnapshotSeed } from '../../hooks/useSnapshots';
-import SnapshotGate from '../SnapshotGate';
 import DuesDueBanner from '../admin/DuesDueBanner';
 import { exportFeePeriodExcel, exportFeePeriodPdf } from '../../domain/accounting/exportFeePeriodDetails';
 import {
@@ -48,10 +43,7 @@ import DetailedCurrentAccountsPanel from './DetailedCurrentAccountsPanel';
 import MemberCreditPurchasesPanel from './MemberCreditPurchasesPanel';
 import CuotasDeskToolbar from './CuotasDeskToolbar';
 
-const PAGE_SIZE = 25;
-
 const FEE_DETAILS_SNAPSHOTS = ['accessinFeeAccountDetails'];
-const NO_SNAPSHOTS = [];
 
 const MONTHS_ES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -112,9 +104,6 @@ export default function CuotasPanel({
   const [ok, setOk] = useState('');
   const [busy, setBusy] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState(null);
-  const [accountTab, setAccountTab] = useState(0);
-  const [detailQuery, setDetailQuery] = useState('');
-  const [detailPage, setDetailPage] = useState(0);
 
   const [entity, setEntity] = useState('excel_manual');
   const [forceDate, setForceDate] = useState('');
@@ -129,7 +118,10 @@ export default function CuotasPanel({
   const [detailEvent, setDetailEvent] = useState(null);
   const [exportBusy, setExportBusy] = useState(null);
 
-  const periods = useMemo(() => feePeriodsForYear(feePeriods, year), [feePeriods, year]);
+  const periods = useMemo(
+    () => feePeriodsForYear(resolveFeePeriods(feePeriods), year),
+    [feePeriods, year],
+  );
   const yearOptions = useMemo(() => {
     const set = new Set((feePeriods || []).map((p) => Number(p.year)).filter(Boolean));
     set.add(year);
@@ -145,42 +137,8 @@ export default function CuotasPanel({
     setView(next);
   };
 
-  // El detalle de cuotas (665 kB con DNI) se baja recién al abrir un período.
-  const {
-    ACCESSIN_FEE_ACCOUNT_DETAILS,
-    ACCESSIN_FEE_ACCOUNT_DETAILS_SNAPSHOT,
-  } = useSnapshotSeed(
-    view === 'period_detail' ? FEE_DETAILS_SNAPSHOTS : NO_SNAPSHOTS,
-    feeAccountDetailsSeed,
-  );
-  const periodAccounts = useMemo(
-    () => (selectedPeriod ? feeAccountDetailsForPeriod(selectedPeriod, ACCESSIN_FEE_ACCOUNT_DETAILS) : []),
-    [selectedPeriod, ACCESSIN_FEE_ACCOUNT_DETAILS]
-  );
-  const periodAccountsSummary = useMemo(
-    () => feeAccountDetailsSummary(periodAccounts),
-    [periodAccounts]
-  );
-  const cobroSummary = useMemo(() => {
-    const cobro = periodAccounts.filter((account) => account.periodKind !== 'concepto');
-    return cobro.length && cobro.length !== periodAccounts.length
-      ? feeAccountDetailsSummary(cobro)
-      : null;
-  }, [periodAccounts]);
-  const activeAccount = periodAccounts[accountTab] || periodAccounts[0] || null;
-  const filteredLines = useMemo(
-    () => filterFeeAccountLines(activeAccount?.lines || [], detailQuery),
-    [activeAccount, detailQuery]
-  );
-  const detailPages = Math.max(1, Math.ceil(filteredLines.length / PAGE_SIZE));
-  const safeDetailPage = Math.min(detailPage, detailPages - 1);
-  const pageLines = filteredLines.slice(safeDetailPage * PAGE_SIZE, (safeDetailPage + 1) * PAGE_SIZE);
-
   const openPeriodDetail = (period) => {
     setSelectedPeriod(period);
-    setAccountTab(0);
-    setDetailQuery('');
-    setDetailPage(0);
     setFlash('');
     setView('period_detail');
   };
@@ -420,8 +378,8 @@ export default function CuotasPanel({
   }
 
   if (view === 'period_detail' && selectedPeriod) {
+    const pack = feePackForPeriod(selectedPeriod);
     return (
-      <SnapshotGate names={FEE_DETAILS_SNAPSHOTS}>
         <div className="fade-in cuotas-panel">
           <div className="cuotas-toolbar">
             <button
@@ -432,7 +390,7 @@ export default function CuotasPanel({
               <ArrowLeft size={14} /> Volver
             </button>
             <h3 className="cuotas-title" style={{ margin: 0 }}>
-              Detalle cuentas contables · {periodLabel(selectedPeriod)}
+              {pack?.title || `Liquidación - ${periodLabel(selectedPeriod)}`}
             </h3>
             <div className="cuotas-actions">
               <button
@@ -454,128 +412,68 @@ export default function CuotasPanel({
             </div>
           </div>
 
-          <div className="cuotas-cc-banner">
-            <span>
-              {periodAccountsSummary.accountCount} cuentas · {periodAccountsSummary.lineCount} movimientos
-              {cobroSummary
-                ? ` · cobrado ${fmt(cobroSummary.totalAmount)}`
-                : ` · total ${fmt(periodAccountsSummary.totalAmount || selectedPeriod.amount)}`}
-              {periodAccounts[0]?.slicedFromExport
-                ? ` · cuotas de ${periodLabel(selectedPeriod)} en el export LILA`
-                : ACCESSIN_FEE_ACCOUNT_DETAILS_SNAPSHOT?.asOf
-                  ? ` · export ${ACCESSIN_FEE_ACCOUNT_DETAILS_SNAPSHOT.asOf}`
-                  : ''}
-            </span>
-          </div>
-
-          {periodAccounts.length === 0 ? (
-            <p className="disc-field-hint" style={{ margin: 0 }}>
-              Este período está liquidado por {fmt(selectedPeriod.amount || 0)}, pero no hay líneas de cuenta para mostrar.
-            </p>
-          ) : null}
-
-          {activeAccount?.collectionPeriodLabel ? (
-            <p className="disc-field-hint" style={{ margin: 0 }}>
-              {activeAccount.periodKind === 'concepto' ? 'Período del concepto' : 'Período de cobro'}
-              : {activeAccount.collectionPeriodLabel}
-            </p>
-          ) : null}
-
-          <div className="disc-hub-tabs">
-            {periodAccounts.map((acc, idx) => (
-              <button
-                key={acc.id}
-                type="button"
-                className={`disc-hub-tab${accountTab === idx ? ' is-active' : ''}`}
-                onClick={() => { setAccountTab(idx); setDetailPage(0); }}
-              >
-                {acc.tabLabel || acc.accountLabel}
-                <span className="disc-badge" style={{ marginLeft: 8 }}>{acc.lineCount}</span>
-              </button>
-            ))}
-          </div>
-
-          {activeAccount ? (
-            <section className="supplier-pay-import-block">
-              <div className="cuotas-toolbar" style={{ marginBottom: '0.75rem' }}>
-                <div>
-                  <strong>CUENTA CONTABLE: {activeAccount.accountLabel}</strong>
-                  <div className="disc-field-hint" style={{ margin: 0 }}>
-                    Total cobrado {fmt(activeAccount.total)}
-                    {activeAccount.billedTotal != null ? ` · importe ${fmt(activeAccount.billedTotal)}` : ''}
-                    {activeAccount.pendingTotal != null ? ` · pendiente ${fmt(activeAccount.pendingTotal)}` : ''}
-                    {' · '}{activeAccount.lineCount} líneas
-                  </div>
-                </div>
-                <label className="disc-search-input" style={{ minWidth: 220 }}>
-                  <Search size={14} />
-                  <input
-                    className="form-input"
-                    value={detailQuery}
-                    onChange={(e) => { setDetailQuery(e.target.value); setDetailPage(0); }}
-                    placeholder="Socio, DNI, descripción…"
-                  />
-                </label>
-              </div>
-
-              <div className="disc-pager">
-                <span>
-                  {filteredLines.length === 0
-                    ? 'No se encontraron resultados'
-                    : `Mostrando ${safeDetailPage * PAGE_SIZE + 1} - ${Math.min(filteredLines.length, (safeDetailPage + 1) * PAGE_SIZE)} de ${filteredLines.length}`}
-                </span>
-                {filteredLines.length > PAGE_SIZE ? (
-                  <div className="cash-efectivo-pager">
-                    <button type="button" className="btn btn-secondary btn-sm" disabled={safeDetailPage <= 0} onClick={() => setDetailPage((p) => Math.max(0, p - 1))}>Anterior</button>
-                    <button type="button" className="btn btn-secondary btn-sm" disabled={safeDetailPage >= detailPages - 1} onClick={() => setDetailPage((p) => Math.min(detailPages - 1, p + 1))}>Siguiente</button>
-                  </div>
-                ) : null}
-              </div>
-
+          {pack ? (
+            <>
+              <p className="disc-field-hint" style={{ margin: '0 0 0.75rem' }}>
+                Detalle de gastos · total {fmt(pack.total)}
+              </p>
               <div className="table-responsive">
                 <table className="admin-table">
                   <thead>
                     <tr>
-                      <th>DNI</th>
-                      <th>N° socio</th>
-                      <th>Nombre</th>
-                      <th>Fecha de cobro</th>
-                      <th>Fecha cuota</th>
-                      <th>Tipo</th>
-                      <th>Descripción</th>
-                      {activeAccount.periodKind === 'concepto' ? <th>Importe</th> : null}
-                      <th>Cobrado</th>
-                      {activeAccount.periodKind === 'concepto' ? <th>Pendiente</th> : null}
+                      <th>#</th>
+                      <th>Identificador</th>
+                      <th>Socios titulares activos</th>
+                      <th className="text-right">Valor</th>
+                      <th className="text-right">Total</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {pageLines.length === 0 ? (
-                      <tr>
-                        <td colSpan={activeAccount.periodKind === 'concepto' ? 10 : 8} style={{ color: 'var(--text-muted)' }}>Sin líneas.</td>
+                    {pack.concepts.map((row) => (
+                      <tr key={row.id}>
+                        <td>{row.id}</td>
+                        <td style={{ fontWeight: 600 }}>{row.label}</td>
+                        <td className="tabular-nums">{row.holders}</td>
+                        <td className="tabular-nums">{fmt(row.amount)}</td>
+                        <td className="tabular-nums" style={{ fontWeight: 700 }}>{fmt(row.total)}</td>
                       </tr>
-                    ) : (
-                      pageLines.map((line, i) => (
-                        <tr key={`${line.memberNumber}-${line.feeDate}-${line.amount}-${i}`}>
-                          <td>{line.dni || '—'}</td>
-                          <td>{line.memberNumber}</td>
-                          <td style={{ fontWeight: 600 }}>{line.memberName}</td>
-                          <td>{line.collectedAtLabel || line.collectedAt || '—'}</td>
-                          <td>{line.feeDateLabel || line.feeDate || '—'}</td>
-                          <td>{line.type}</td>
-                          <td>{line.description}</td>
-                          {activeAccount.periodKind === 'concepto' ? <td>{fmt(line.billed)}</td> : null}
-                          <td style={{ fontWeight: 700 }}>{fmt(line.amount)}</td>
-                          {activeAccount.periodKind === 'concepto' ? <td>{fmt(line.pending)}</td> : null}
-                        </tr>
-                      ))
-                    )}
+                    ))}
+                    <tr>
+                      <td colSpan={4} style={{ fontWeight: 700 }}>TOTAL</td>
+                      <td className="tabular-nums" style={{ fontWeight: 700 }}>{fmt(pack.total)}</td>
+                    </tr>
                   </tbody>
                 </table>
               </div>
-            </section>
-          ) : null}
+              {pack.surcharges?.length ? (
+                <div className="table-responsive" style={{ marginTop: '1rem' }}>
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Fecha</th>
+                        <th>Categorías de cuotas</th>
+                        <th>Recargo</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pack.surcharges.map((row) => (
+                        <tr key={`${row.date}-${row.category}-${row.rate}`}>
+                          <td>{row.date}</td>
+                          <td>{row.category}</td>
+                          <td>{row.rate}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <p className="disc-field-hint" style={{ margin: 0 }}>
+              Este período no tiene el detalle de liquidación de Lila.
+            </p>
+          )}
         </div>
-      </SnapshotGate>
     );
   }
 
@@ -971,8 +869,10 @@ export default function CuotasPanel({
                 <tr key={p.id}>
                   <td>{p.accessinId || '—'}</td>
                   <td style={{ fontWeight: 600 }}>{periodLabel(p)}</td>
-                  <td>{p.status === 'processed' ? fmt(p.amount) : '—'}</td>
-                  <td>{formatPeriodGeneratedAt(p.generatedAt)}</td>
+                  <td className="tabular-nums">
+                    {p.status === 'processed' || p.status === 'draft' ? fmt(p.amount) : 'Cuotas no liquidados'}
+                  </td>
+                  <td>{p.status === 'draft' ? 'No liquidado' : formatPeriodGeneratedAt(p.generatedAt)}</td>
                   <td>
                     <span className={`status-badge ${statusTone(p.status)}`}>
                       {periodStatusLabel(p.status)}
@@ -985,8 +885,8 @@ export default function CuotasPanel({
                           <button
                             type="button"
                             className="cash-lila-icon-btn is-edit"
-                            title="Ver detalle de cuentas"
-                            aria-label="Ver detalle de cuentas"
+                            title="Ver liquidación"
+                            aria-label="Ver liquidación"
                             onClick={() => openPeriodDetail(p)}
                           >
                             <Eye size={14} />
@@ -1022,6 +922,16 @@ export default function CuotasPanel({
                             </>
                           ) : null}
                         </>
+                      ) : p.status === 'draft' ? (
+                        <button
+                          type="button"
+                          className="cash-lila-icon-btn is-edit"
+                          title="Ver liquidación"
+                          aria-label="Ver liquidación"
+                          onClick={() => openPeriodDetail(p)}
+                        >
+                          <Eye size={14} />
+                        </button>
                       ) : (
                         <button
                           type="button"

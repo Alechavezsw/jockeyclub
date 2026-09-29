@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { MAILBOX } from '../messaging/messages';
-import { bookingPaymentNotice, duesPaymentNotice } from './duesPaymentNotice';
+import { bookingPaymentNotice, duesBoletoMessage, duesPaymentNotice } from './duesPaymentNotice';
+import { buildOnlineDuesBoleto } from './duesReceiptDelivery';
+import { paymentBoletoPdfFile } from './exportPaymentReceiptPdf';
 
 describe('duesPaymentNotice', () => {
   it('el QR avisa a administración con alias y referencia', () => {
@@ -15,6 +17,51 @@ describe('duesPaymentNotice', () => {
     expect(msg.subject).toBe('Pago por Mercado Pago');
     expect(msg.content).toMatch(/jockey.club.sj.mp/);
     expect(msg.content).toMatch(/JCSJ-111/);
+  });
+
+  it('arma un boleto con número del día, sin marcarlo como cobrado', () => {
+    const boleto = buildOnlineDuesBoleto({
+      member: { memberId: '111' },
+      amount: 10000,
+      dueLabel: '10 sep 2026',
+    });
+    expect(boleto.method).toBe('mercadopago');
+    expect(boleto.status).toBe('issued');
+    expect(boleto.amount).toBe(10000);
+    expect(boleto.receipt).toMatch(/^BOL-111-\d{8}$/);
+    expect(boleto.period).toBe('10 sep 2026');
+  });
+
+  it('el PDF del boleto se arma y dice boleto, no recibo cobrado', async () => {
+    const boleto = buildOnlineDuesBoleto({
+      member: { memberId: '111', name: 'Ana' },
+      amount: 10000,
+      dueLabel: '10 sep 2026',
+    });
+    const file = await paymentBoletoPdfFile({
+      member: { memberId: '111', name: 'Ana' },
+      boleto,
+    });
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const head = String.fromCharCode(...bytes.slice(0, 5));
+    expect(file.type).toBe('application/pdf');
+    expect(file.name).toMatch(/^boleto-BOL-/);
+    expect(head).toBe('%PDF-');
+    const text = new TextDecoder('latin1').decode(bytes);
+    expect(text).toMatch(/BOLETO DE PAGO/);
+    expect(text).not.toMatch(/constancia de pago/);
+  });
+
+  it('el boleto de Mercado Pago va al socio, no a caja', () => {
+    const msg = duesBoletoMessage({
+      member: { name: 'Ana', memberId: '111' },
+      boleto: { amount: 10000, receiptNumber: 'BOL-111-20260929', period: '10 sep 2026' },
+    });
+    expect(msg.recipientId).toBe('111');
+    expect(msg.subject).toBe('Boleto de pago de cuota');
+    expect(msg.content).toMatch(/Mercado Pago/);
+    expect(msg.content).toMatch(/BOL-111-20260929/);
+    expect(msg.meta.kind).toBe('dues_boleto');
   });
 
   it('la transferencia lleva el nombre del comprobante', () => {

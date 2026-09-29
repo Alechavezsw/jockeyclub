@@ -61,6 +61,33 @@ export function duesPaymentNotice({
   return msg;
 }
 
+/** Boleto del pago online, al buzón del socio. */
+export function duesBoletoMessage({ member, boleto, attachment }) {
+  const who = String(member?.name || 'Socio').trim();
+  const money = boleto?.amount != null ? `Importe: $ ${Number(boleto.amount).toLocaleString('es-AR')}` : '';
+  const lines = [
+    `Hola ${who}, este es tu boleto para pagar la cuota con Mercado Pago.`,
+    money,
+    boleto?.period ? `Período: ${boleto.period}` : '',
+    boleto?.receiptNumber || boleto?.receipt ? `Boleto: ${boleto.receiptNumber || boleto.receipt}` : '',
+    'También lo podés descargar en Cuotas, dentro de la app.',
+  ];
+
+  const msg = createMessage({
+    sender: 'Administración',
+    senderId: MAILBOX.OPERATIONS,
+    recipientId: member?.memberId,
+    subject: 'Boleto de pago de cuota',
+    content: lines.filter(Boolean).join('\n'),
+  });
+  msg.meta = {
+    kind: 'dues_boleto',
+    method: 'mercadopago',
+    ...(attachment ? { attachment } : {}),
+  };
+  return msg;
+}
+
 /** Recibo de cuota cobrada por administración, al buzón del socio. */
 export function duesReceiptMessage({ member, payment, attachment }) {
   const who = String(member?.name || 'Socio').trim();

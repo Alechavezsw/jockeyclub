@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
   CreditCard,
@@ -13,11 +13,17 @@ import {
   QrCode,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
-import { downloadPaymentReceiptPdf } from '../domain/members/exportPaymentReceiptPdf';
+import { downloadPaymentBoletoPdf, downloadPaymentReceiptPdf } from '../domain/members/exportPaymentReceiptPdf';
 import { useMemberDuesStanding } from '../hooks/useMemberDuesStanding';
 import { CLUB_BANK_ACCOUNTS, MERCADO_PAGO, buildMercadoPagoQrPayload } from '../domain/members/clubBanks';
 import { duesPaymentNotice } from '../domain/members/duesPaymentNotice';
+import { fileToBase64, prepareOnlineDuesBoleto } from '../domain/members/duesReceiptDelivery';
 import { uploadDuesReceipt } from '../data/storage';
+import { sendPaymentBoletoEmail } from '../data/repos';
+
+function boletoStorageKey(memberId) {
+  return `jockey-mp-boleto:${memberId || ''}`;
+}
 
 function formatCurrency(amount) {
   return new Intl.NumberFormat('es-AR', {
@@ -44,6 +50,7 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
   const [receiptFile, setReceiptFile] = useState(null);
   const [receiptPreview, setReceiptPreview] = useState('');
   const [notifiedKey, setNotifiedKey] = useState('');
+  const [issuedBoleto, setIssuedBoleto] = useState(null);
   const bank = CLUB_BANK_ACCOUNTS[0];
   const {
     summary,
@@ -71,6 +78,17 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
   }, [method, profile, payable]);
 
   const noticeKey = `${method}:${profile?.memberId || ''}:${payable}:${receiptFile?.name || ''}`;
+
+  useEffect(() => {
+    const memberId = profile?.memberId;
+    if (!memberId) return;
+    try {
+      const raw = sessionStorage.getItem(boletoStorageKey(memberId));
+      setIssuedBoleto(raw ? JSON.parse(raw) : null);
+    } catch {
+      setIssuedBoleto(null);
+    }
+  }, [profile?.memberId]);
 
   const handleReceipt = (event) => {
     const file = event.target.files?.[0];
@@ -107,8 +125,37 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
     setMessage('');
     try {
       let attachment = null;
+      let boletoNote = '';
       if (method === 'transferencia') {
         attachment = await uploadDuesReceipt(receiptFile, user?.id);
+      }
+      if (method === 'mercadopago') {
+        const prepared = await prepareOnlineDuesBoleto({
+          member: profile,
+          amount: charge,
+          dueLabel: formatDate(summary.nextDue),
+          profileId: user?.id,
+        });
+        await sendMessage(prepared.message);
+        setIssuedBoleto(prepared.boleto);
+        try {
+          sessionStorage.setItem(boletoStorageKey(profile?.memberId), JSON.stringify(prepared.boleto));
+        } catch {
+          /* el PDF igual se puede regenerar en esta visita */
+        }
+        try {
+          const pdfBase64 = await fileToBase64(prepared.file);
+          await sendPaymentBoletoEmail({
+            amountLabel: formatCurrency(charge),
+            receiptNo: prepared.boleto.receipt,
+            periodLabel: formatDate(summary.nextDue),
+            pdfBase64,
+            fileName: prepared.file.name,
+          });
+          boletoNote = ' Te lo mandamos por mensaje y por mail.';
+        } catch (mailErr) {
+          boletoNote = ` Te lo mandamos por mensaje. El mail no salió: ${mailErr.message || 'intentá de nuevo más tarde.'}`;
+        }
       }
       const notice = duesPaymentNotice({
         memberName: profile?.name,
@@ -124,7 +171,9 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
       setNotifiedKey(noticeKey);
       setMessage(method === 'transferencia'
         ? 'El comprobante llegó a administración.'
-        : 'Avisamos a administración.');
+        : method === 'mercadopago'
+          ? `Listo.${boletoNote} También lo podés bajar acá. La cuota se acredita cuando Mercado Pago confirma el pago.`
+          : 'Avisamos a administración.');
     } catch (err) {
       setError(err.message || 'No se pudo avisar a administración.');
     } finally {
@@ -132,7 +181,12 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
     }
   };
 
-  const actionLabel = method === 'transferencia' ? 'Enviar comprobante' : 'Avisar a administración';
+  const actionLabel = method === 'transferencia'
+    ? 'Enviar comprobante'
+    : method === 'mercadopago'
+      ? 'Enviar boleto'
+      : 'Avisar a administración';
+  const doneLabel = method === 'mercadopago' ? 'Boleto enviado' : 'Avisado';
 
   return (
     <div className="fade-in pay-hist">
@@ -228,7 +282,7 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
             disabled={standingPending || paying || payable <= 0 || notifiedKey === noticeKey}
             onClick={handleNotify}
           >
-            {paying ? 'Enviando…' : notifiedKey === noticeKey ? 'Avisado' : actionLabel}
+            {paying ? 'Enviando…' : notifiedKey === noticeKey ? doneLabel : actionLabel}
           </button>
         </div>
         {method === 'mercadopago' && qr ? (
@@ -239,7 +293,7 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
             <div>
               <strong><QrCode size={14} /> QR Mercado Pago</strong>
               <p>Alias {MERCADO_PAGO.alias}</p>
-              <p>{formatCurrency(payable)}. Al avisar, administración recibe el mensaje sola.</p>
+              <p>{formatCurrency(payable)}. Al confirmar, te llega el boleto por mail y por mensaje. También lo podés bajar acá.</p>
             </div>
           </div>
         ) : null}
@@ -258,6 +312,16 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
         ) : null}
         {method === 'debito' ? (
           <p className="pay-hist-note">El aviso pide a administración que adhiera el débito. La cuota se acredita cuando ellos lo confirman.</p>
+        ) : null}
+        {method === 'mercadopago' && issuedBoleto ? (
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            style={{ marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+            onClick={() => { void downloadPaymentBoletoPdf({ member: profile, boleto: issuedBoleto }); }}
+          >
+            <Download size={12} /> Descargar boleto {issuedBoleto.receipt}
+          </button>
         ) : null}
         <div className="pay-hist-feedback" aria-live="polite">
           {message ? <div className="pay-hist-ok">{message}</div> : null}

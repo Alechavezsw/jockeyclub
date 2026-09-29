@@ -90,11 +90,35 @@ describe('buildClubReview', () => {
     expect(byId['concessions-expired'].samples[0].href).toBe('/concesiones?id=conc-1');
     expect(byId['suppliers-cuit'].samples[0].href).toBe('/panel/accounting?sub=suppliers&supplier=sup-1');
     expect(byId['titular-baja'].samples[0].href).toBe('/panel/members/201?editar=1');
+    expect(byId['dup-dni'].samples[0].label).toMatch(/mismo DNI/);
     expect(byId['dup-dni'].samples[0].href).toMatch(/\/panel\/members\/(100713|101370)\?editar=1/);
     expect(byId['no-category'].samples[0].href).toBe('/panel/members/101324?editar=1');
     expect(byId['no-titular'].samples[0].href).toBe('/panel/members/12932?editar=1');
     expect(byId['no-dni'].samples[0].href).toBe('/panel/members/6677?editar=1');
     expect(byId['bajas-otro'].samples[0].href).toBe('/panel/members/11354?editar=1');
+  });
+
+  it('junta duplicados por DNI aunque uno esté de baja, y por nombre con la misma fecha', () => {
+    const review = buildClubReview({
+      today: TODAY,
+      members: [
+        { memberId: '10', name: 'Ana Bien', documentNumber: '30111222', tier: 'socio', status: 'active' },
+        { memberId: '11', name: 'Ana Bien', documentNumber: '30111222', status: 'inactive' },
+        { memberId: '20', name: 'Luis Gómez', documentNumber: '27111000', birthDate: '1990-04-02', status: 'active' },
+        { memberId: '21', name: 'Luis Gomez', documentNumber: '40999888', birthDate: '1990-04-02', status: 'active' },
+        { memberId: '30', name: 'Pedro Ruiz', documentNumber: '20111001', birthDate: '1980-01-01', status: 'active' },
+        { memberId: '31', name: 'Pedro Ruiz', documentNumber: '20111002', birthDate: '2010-01-01', status: 'active' },
+      ],
+    });
+    const row = review.items.find((item) => item.id === 'dup-dni');
+    expect(row.count).toBe(3);
+    const labels = row.samples.map((sample) => sample.label).join('\n');
+    expect(labels).toMatch(/Ana Bien/);
+    expect(labels).toMatch(/Nº 11/);
+    expect(labels).toMatch(/Luis Gómez/);
+    expect(labels).toMatch(/mismo nombre y fecha de nacimiento/);
+    expect(labels).toMatch(/Pedro Ruiz/);
+    expect(labels).toMatch(/documentos distintos/);
   });
 
   it('guarda todas las fichas del hallazgo, no solo las primeras ocho', () => {

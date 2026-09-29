@@ -5,8 +5,9 @@ import { buildWhatsAppDuesUrl, duesDueMoment } from '../../domain/members/dues';
 import { memberNumberOf } from '../../domain/members/households';
 import { todayISODateAR } from '../../lib/arDate';
 import { formatCurrency } from '../../domain/accounting/journal';
-import { composeClubFinance, lilaContabilidadFromSnapshots } from '../../domain/accounting/opsFinanceSnapshot';
+import { composeClubFinance, financeFromMonthlySummary, lilaContabilidadFromSnapshots } from '../../domain/accounting/opsFinanceSnapshot';
 import { monthlyBalanceSeed } from '../../domain/accounting/monthlyBalance';
+import { monthlyBalanceSummarySeed } from '../../domain/accounting/monthlyBalanceSummary';
 import {
   detailedCcSeed,
   listUnpaidFeeMembersForPeriod,
@@ -18,18 +19,29 @@ import { useSnapshotSeed } from '../../hooks/useSnapshots';
 
 const LILA_MONEY_SNAPSHOTS = [
   'accessinMonthlyBalance',
+  'accessinMonthlyBalanceSummary',
   'accessinDetailedCurrentAccounts',
   'accessinCashSnapshot',
   'accessinCobranzas',
 ];
 
 function readLilaMoney() {
-  return lilaContabilidadFromSnapshots({
+  const summary = monthlyBalanceSummarySeed();
+  const currentMonth = financeFromMonthlySummary({
+    snapshot: summary.ACCESSIN_MONTHLY_BALANCE_SUMMARY_SNAPSHOT,
+    sections: summary.ACCESSIN_MONTHLY_BALANCE_SUMMARY_SECTIONS,
+  });
+  const detailed = lilaContabilidadFromSnapshots({
     monthlySnapshot: monthlyBalanceSeed().ACCESSIN_MONTHLY_BALANCE_SNAPSHOT,
     detailedSnapshot: detailedCcSeed().ACCESSIN_DETAILED_CC_SNAPSHOT,
     cashSnapshot: cashSeed().ACCESSIN_CASH_SNAPSHOT,
     cobranzas: cobranzasSeed().ACCESSIN_COBRANZAS,
   });
+  if (!currentMonth) return detailed;
+  return {
+    ...currentMonth,
+    lastIncomes: detailed?.lastIncomes || [],
+  };
 }
 
 function monthFromPeriod(periodTo, fallback) {

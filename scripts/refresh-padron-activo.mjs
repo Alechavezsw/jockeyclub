@@ -120,12 +120,12 @@ function sheetRows(filePath) {
   return rows;
 }
 
-function toPayload(row) {
+function toPayload(row, asOf) {
   const member = socioToMember(row, row._cuotas);
   const joinFromFile = parseDate(row.fecha_alta);
   const meta = {
     source: 'datita',
-    padronAsOf: '2026-09-26',
+    padronAsOf: asOf,
     autorizacion: member.meta.autorizacion || null,
     anioNacimiento: member.meta.anioNacimiento || null,
     vencimientoAutorizacion: member.meta.vencimientoAutorizacion || null,
@@ -184,6 +184,7 @@ function toPayload(row) {
 function main() {
   const filePath = resolve(ROOT, arg('--file'));
   const dbPath = arg('--db');
+  const asOf = arg('--as-of') || '2026-09-26';
   const outDir = resolve(ROOT, arg('--out') || 'datita/Avtualizacion/Socios/Activo/_refresh');
   const known = loadDbNumbers(dbPath);
   const rows = sheetRows(filePath);
@@ -213,7 +214,7 @@ function main() {
         dropped: ranked.slice(1).map(({ row }) => `${row.nombre} ${row.apellido}`.trim()),
       });
     }
-    const payload = toPayload(best);
+    const payload = toPayload(best, asOf);
     const exists = known.has(nro);
     if (!exists && payload.status !== 'active') {
       skippedInactiveNew += 1;

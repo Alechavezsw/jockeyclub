@@ -996,7 +996,7 @@ export default function ReportsTab({
                   { label: 'Tenis, Pádel & Fútbol', codes: ['tenis_trad', 'padel_vidrio', 'futbol_fusion'], color: '#f97316' },
                   { label: 'Gimnasio', codes: ['gimnasio'], color: '#a855f7' },
                   { label: 'Pileta olímpica', codes: ['pileta_olimpica'], color: '#3b82f6' },
-                  { label: 'Salones y Espacio Verde', codes: ['salon_anhelo', 'salon_bustos', 'salon_maurin', 'salon_refugio', 'salon_eventos', 'espacio_verde'], color: '#ec4899' },
+                  { label: 'Salones y Espacio Verde', codes: ['salon_anhelo', 'salon_bustos', 'salon_maurin', 'salon_refugio', 'espacio_verde'], color: '#ec4899' },
                 ].map((facility) => {
                   const count = reservations.filter((r) => facility.codes.includes(r.facilityId) && r.status === 'confirmed').length;
                   const pct = Math.min(Math.round((count / 15) * 100), 100);

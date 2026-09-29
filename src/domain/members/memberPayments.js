@@ -1,4 +1,4 @@
-import { afterCollectDues, duesAmountForMember } from './dues';
+import { afterCollectDues, duesPayableForMember, nextDuesDueDate } from './dues';
 import { referenceMonthlyDues } from './paymentHistory';
 import { createAccountEntry } from '../accounting/accountEntries';
 import { journalAccountForPayment } from './clubBanks';
@@ -104,7 +104,9 @@ export function payUpcomingDues(member, { method = 'transferencia', today = new 
   if ((Number(member.outstandingBalance) || 0) > 0) {
     return payMemberDues(member, { method, today });
   }
-  const amount = duesAmountForMember(member) || referenceMonthlyDues(member, member.paymentHistory);
+  const dueOn = member.nextDueDate || nextDuesDueDate(today);
+  const amount = duesPayableForMember(member, { paidOn: today, dueOn, on: dueOn })
+    || referenceMonthlyDues(member, member.paymentHistory);
   const date = today.toISOString().slice(0, 10);
   const payment = {
     id: `pay-${member.memberId}-${Date.now()}`,
@@ -191,6 +193,22 @@ export function recordDuesCollection(member, {
       memberId: member.memberId,
     },
   };
+}
+
+/** El asiento de caja nombra al socio. En la ficha no se muestra: el cobro ya está en el historial. */
+export function isDuesCollectionJournal(entry) {
+  if (entry?.sourceModule === 'cuotas') return true;
+  return /^Cobro cuota social\b/i.test(String(entry?.description || ''));
+}
+
+/** Credencial completa, no un prefijo: "244" no es "244346". */
+export function journalEntryBelongsToMember(entry, member) {
+  if (!entry || !member?.memberId) return false;
+  const id = String(member.memberId);
+  if (entry.memberId != null && String(entry.memberId) === id) return true;
+  const text = String(entry.description || '');
+  const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`\\(Cred\\.\\s*${escaped}(?:\\.{3}|…)?\\)`, 'i').test(text);
 }
 
 /** Aplica el cobro al padrón, al libro de cuenta y al diario. */

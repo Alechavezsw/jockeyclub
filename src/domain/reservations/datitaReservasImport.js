@@ -95,6 +95,7 @@ export function mapReservaStatus(estado) {
   const s = String(estado || '').trim().toLowerCase();
   if (!s) return 'pending';
   if (s.includes('cancel')) return 'cancelled';
+  if (s.includes('rechaz')) return 'rejected';
   if (s.includes('aprob') || s.includes('confirm') || s.includes('pagad')) return 'confirmed';
   if (s.includes('pend')) return 'pending';
   return 'pending';

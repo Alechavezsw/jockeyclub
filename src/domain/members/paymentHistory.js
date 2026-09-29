@@ -51,10 +51,10 @@ function paymentAmount(row) {
  * Un pago cubre la cuota de esa ficha: no se multiplica por adherentes.
  * El grupo familiar se liquida aparte en administración.
  */
-export function referenceMonthlyDues(member, history = []) {
+export function referenceMonthlyDues(member, history = [], on = new Date()) {
   const fromPay = (history || []).find((p) => paymentAmount(p) > 0);
   if (fromPay) return paymentAmount(fromPay);
-  const fromTier = duesAmountForTier(member?.tier);
+  const fromTier = duesAmountForTier(member?.tier, undefined, on);
   if (fromTier > 0) return fromTier;
   return 32000;
 }
@@ -142,7 +142,7 @@ export function summarizePaymentHistory(history = [], member, { today = new Date
     nextDueDate: member?.nextDueDate,
     today,
   });
-  const monthly = referenceMonthlyDues(member, paid);
+  const monthly = referenceMonthlyDues(member, paid, today);
   const stored = Number(member?.outstandingBalance) || 0;
   const outstanding = Math.max(stored, monthsBehind > 0 ? monthsBehind * monthly : 0);
   const nextDue = firstUnpaidDuesDate({
@@ -161,7 +161,7 @@ export function summarizePaymentHistory(history = [], member, { today = new Date
     outstanding,
     nextDue,
     nextAmount,
-    monthlyReference: duesAmountForTier(member?.tier),
+    monthlyReference: duesAmountForTier(member?.tier, undefined, today),
   };
 }
 

@@ -1,6 +1,15 @@
 /** Clasificación de cuotas sociales: vencidas vs próximas a vencer. */
 
-import { getTierMonthlyDues } from './tiers';
+import {
+  DUES_LATE_RATE,
+  DUES_LATE_TIER_IDS,
+  DUES_TARIFF_FROM,
+  getTierMonthlyDues,
+  MONTHLY_DUES_FROM_OCTOBER_2026,
+  MONTHLY_DUES_THROUGH_SEPTEMBER_2026,
+  parseCuotaCategories,
+  slugifyTierId,
+} from './tiers';
 
 const DAY_MS = 86400000;
 
@@ -182,27 +191,88 @@ export function quotaHeadline(member) {
   return { kind: 'clear', title: 'Al día', hint: null, billing: true };
 }
 
-/** Monto de cuota según categoría (catálogo editable / referencia operativa). */
-export function duesAmountForTier(tier, catalog) {
-  return getTierMonthlyDues(tier, catalog);
+/**
+ * Monto de cuota según categoría, igual que la liquidación de Lila.
+ * Desde octubre 2026 usa el borrador de ese mes. Antes, la liquidación de septiembre,
+ * salvo que el catálogo tenga un valor editado distinto de la tarifa oficial.
+ */
+export function duesAmountForTier(tier, catalog, on = new Date()) {
+  const when = asDueAnchor(on);
+  const from = parseDate(DUES_TARIFF_FROM);
+  const id = String(tier || '').trim().toLowerCase();
+  const october = MONTHLY_DUES_FROM_OCTOBER_2026[id];
+  const september = MONTHLY_DUES_THROUGH_SEPTEMBER_2026[id];
+  if (from && when >= from && october != null) return october;
+  const catalogAmount = getTierMonthlyDues(tier, catalog);
+  if (from && when < from && october != null && catalogAmount === october) {
+    return september != null ? september : 0;
+  }
+  return catalogAmount;
+}
+
+function billedTierIds(member) {
+  const fromCategories = parseCuotaCategories(member?.cuotaCategories).map((name) => slugifyTierId(name));
+  if (fromCategories.length) return [...new Set(fromCategories)];
+  const tier = String(member?.tier || '').trim().toLowerCase();
+  return tier ? [tier] : [];
+}
+
+/**
+ * Después del 10 el pago lleva 10 % solo en socio familiar y socio individual.
+ * El día 10 todavía es el vencimiento, sin recargo.
+ * Sin categoría, se mantiene el 10 % (un solo importe, sin líneas).
+ */
+export function duesPayableAmount(base, { paidOn = new Date(), dueOn, tier } = {}) {
+  const amount = Math.round(Number(base) || 0);
+  if (amount <= 0) return 0;
+  const paid = asDueAnchor(paidOn);
+  const due = parseDueDate(dueOn) || duesDateOnTenth(paid.getFullYear(), paid.getMonth());
+  if (paid <= due) return amount;
+  const id = String(tier || '').trim().toLowerCase();
+  if (id && !DUES_LATE_TIER_IDS.has(id)) return amount;
+  return Math.round(amount * (1 + DUES_LATE_RATE));
+}
+
+/** Suma cada categoría del socio y aplica el recargo solo donde Lila lo tiene. */
+export function duesPayableForMember(member, { paidOn = new Date(), dueOn, on } = {}) {
+  const when = on || dueOn || paidOn;
+  const ids = billedTierIds(member);
+  const own = ids.reduce(
+    (sum, id) => sum + duesPayableAmount(duesAmountForTier(id, undefined, when), { paidOn, dueOn, tier: id }),
+    0,
+  );
+  const family = (member?.adherents || []).filter((row) => row && row.status !== 'inactive');
+  const extra = family.reduce((sum, row) => {
+    const id = row?.tier || member?.tier;
+    return sum + duesPayableAmount(duesAmountForTier(id, undefined, when), { paidOn, dueOn, tier: id });
+  }, 0);
+  return own + extra;
 }
 
 /**
  * Cuota del grupo familiar al alta: titular + cada adherente según su categoría.
  */
-export function duesAmountForHousehold(titularTier, familyGroup = []) {
-  const titular = duesAmountForTier(titularTier);
+export function duesAmountForHousehold(titularTier, familyGroup = [], on = new Date()) {
+  const titular = duesAmountForTier(titularTier, undefined, on);
   const family = (familyGroup || []).reduce(
-    (sum, row) => sum + duesAmountForTier(row?.tier || titularTier),
+    (sum, row) => sum + duesAmountForTier(row?.tier || titularTier, undefined, on),
     0
   );
   return titular + family;
 }
 
-/** Cuota vigente del socio: titular + adherentes activos. */
-export function duesAmountForMember(member) {
+/** Cuota vigente del socio: cada categoría de Lila, más adherentes activos. `on` es el mes que se cobra. */
+export function duesAmountForMember(member, on = new Date()) {
+  const own = billedTierIds(member).reduce(
+    (sum, id) => sum + duesAmountForTier(id, undefined, on),
+    0,
+  );
   const family = (member?.adherents || []).filter((a) => a && a.status !== 'inactive');
-  return duesAmountForHousehold(member?.tier, family);
+  const extra = family.reduce(
+    (sum, row) => sum + duesAmountForTier(row?.tier || member?.tier, undefined, on),
+    0,
+  );
+  return own + extra;
 }
 
 /**
@@ -246,7 +316,9 @@ export function getOverdueMembers(members, today = new Date()) {
         duesStatus: 'overdue',
         daysOverdue,
         dueDate: pinDuesDueDate(m.nextDueDate) || m.overdueSince || null,
-        amountDue: balance > 0 ? balance : duesAmountForMember(m),
+        amountDue: balance > 0
+        ? balance
+        : duesPayableForMember(m, { paidOn: todayStart, dueOn: due || todayStart, on: due || todayStart }),
       };
     })
     .sort((a, b) => (b.amountDue || 0) - (a.amountDue || 0));
@@ -273,7 +345,7 @@ export function getUpcomingDuesMembers(members, { withinDays = 15, today = new D
         duesStatus: 'upcoming',
         daysUntil,
         dueDate: dueIso,
-        amountDue: duesAmountForMember(m),
+        amountDue: duesAmountForMember(m, due),
         nextDueDate: dueIso,
       };
     })
@@ -321,9 +393,18 @@ export function applyAutomaticDues(members, today = new Date()) {
     const due = parseDueDate(normalized.nextDueDate);
     if (!due || due >= todayStart) return normalized;
 
+    const tariffFrom = parseDate(DUES_TARIFF_FROM);
+    const tierId = String(normalized.tier || '').trim().toLowerCase();
+    const official = MONTHLY_DUES_FROM_OCTOBER_2026[tierId];
+    const catalogAmount = getTierMonthlyDues(tierId);
+    if (tariffFrom && due < tariffFrom && official != null && catalogAmount === official) {
+      return normalized;
+    }
+
+    const base = duesPayableForMember(normalized, { paidOn: todayStart, dueOn: due, on: due });
     return {
       ...normalized,
-      outstandingBalance: duesAmountForMember(normalized),
+      outstandingBalance: base,
       overdueSince: normalized.overdueSince || toISODate(due),
     };
   });
