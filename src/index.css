@@ -19353,6 +19353,16 @@ a.ops-outline-btn {
     transition: none;
   }
 }
+.cuotas-liq-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+.cuotas-liq-table th {
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
 .cuotas-cc-banner {
   display: flex;
   flex-wrap: wrap;

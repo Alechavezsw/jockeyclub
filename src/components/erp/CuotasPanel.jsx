@@ -11,11 +11,10 @@ import {
   periodStatusLabel,
   resolveFeePeriods,
 } from '../../domain/accounting/feeBilling';
-import { feeAccountDetailsForPeriod } from '../../domain/accounting/feeAccountDetails';
 import { feePackForPeriod } from '../../domain/accounting/feePackConcepts';
-import { requireSnapshots } from '../../data/snapshots';
 import DuesDueBanner from '../admin/DuesDueBanner';
 import { exportFeePeriodExcel, exportFeePeriodPdf } from '../../domain/accounting/exportFeePeriodDetails';
+import { buildFeePeriodLiquidation } from '../../domain/accounting/feePeriodLiquidation';
 import {
   LISTA_BASE_COBRANZAS_FILENAME,
   LISTA_BASE_COBRANZAS_URL,
@@ -43,7 +42,25 @@ import DetailedCurrentAccountsPanel from './DetailedCurrentAccountsPanel';
 import MemberCreditPurchasesPanel from './MemberCreditPurchasesPanel';
 import CuotasDeskToolbar from './CuotasDeskToolbar';
 
-const FEE_DETAILS_SNAPSHOTS = ['accessinFeeAccountDetails'];
+function liquidationFromPeriod(period, { members = [], tierCatalog = [] } = {}) {
+  const pack = feePackForPeriod(period);
+  if (pack?.concepts) {
+    return {
+      title: pack.title || `Liquidación - ${periodLabel(period)}`,
+      label: periodLabel(period),
+      total: pack.total,
+      rows: pack.concepts.map((row) => ({
+        identifier: String(row.id ?? ''),
+        name: row.label,
+        holders: row.holders,
+        unit: row.amount,
+        total: row.total,
+      })),
+      surcharges: pack.surcharges || [],
+    };
+  }
+  return buildFeePeriodLiquidation(period, { members, tierCatalog });
+}
 
 const MONTHS_ES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -137,21 +154,25 @@ export default function CuotasPanel({
     setView(next);
   };
 
+  const periodLiquidation = useMemo(
+    () => (selectedPeriod ? liquidationFromPeriod(selectedPeriod, { members, tierCatalog }) : null),
+    [selectedPeriod, members, tierCatalog],
+  );
+
   const openPeriodDetail = (period) => {
     setSelectedPeriod(period);
     setFlash('');
     setView('period_detail');
   };
 
-  const downloadPeriod = async (period, kind) => {
+  const downloadPeriod = async (period, kind, visibleModel) => {
     if (!period || exportBusy) return;
     setExportBusy({ id: period.id, kind });
     setError('');
     try {
-      await requireSnapshots(FEE_DETAILS_SNAPSHOTS);
-      const accounts = feeAccountDetailsForPeriod(period);
-      if (kind === 'xlsx') await exportFeePeriodExcel(period, accounts);
-      else await exportFeePeriodPdf(period, accounts, { formatCurrency: fmt });
+      const model = visibleModel || liquidationFromPeriod(period, { members, tierCatalog });
+      if (kind === 'xlsx') await exportFeePeriodExcel(model, null, { formatCurrency: fmt });
+      else await exportFeePeriodPdf(model, null, { formatCurrency: fmt });
     } catch (err) {
       setError(err?.message || 'No se pudo generar el archivo.');
     } finally {
@@ -378,102 +399,106 @@ export default function CuotasPanel({
   }
 
   if (view === 'period_detail' && selectedPeriod) {
-    const pack = feePackForPeriod(selectedPeriod);
+    const liquidation = periodLiquidation || liquidationFromPeriod(selectedPeriod, { members, tierCatalog });
     return (
-        <div className="fade-in cuotas-panel">
-          <div className="cuotas-toolbar">
+      <div className="fade-in cuotas-panel">
+        <div className="cuotas-toolbar cuotas-toolbar--local">
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => { setView('hub'); setSelectedPeriod(null); }}
+          >
+            <ArrowLeft size={14} /> Volver
+          </button>
+          <h3 className="cuotas-title" style={{ margin: 0 }}>
+            {liquidation.title}
+          </h3>
+          <div className="cuotas-liq-actions">
+            <button
+              type="button"
+              className="btn btn-tan btn-sm"
+              disabled={Boolean(exportBusy)}
+              onClick={() => downloadPeriod(selectedPeriod, 'xlsx', liquidation)}
+            >
+              <FileSpreadsheet size={14} /> {exportBusy?.kind === 'xlsx' ? 'Generando…' : 'Excel'}
+            </button>
             <button
               type="button"
               className="btn btn-secondary btn-sm"
-              onClick={() => { setView('hub'); setSelectedPeriod(null); }}
+              disabled={Boolean(exportBusy)}
+              onClick={() => downloadPeriod(selectedPeriod, 'pdf', liquidation)}
             >
-              <ArrowLeft size={14} /> Volver
+              <FileDown size={14} /> {exportBusy?.kind === 'pdf' ? 'Generando…' : 'PDF'}
             </button>
-            <h3 className="cuotas-title" style={{ margin: 0 }}>
-              {pack?.title || `Liquidación - ${periodLabel(selectedPeriod)}`}
-            </h3>
-            <div className="cuotas-actions">
-              <button
-                type="button"
-                className="btn btn-tan btn-sm"
-                disabled={Boolean(exportBusy)}
-                onClick={() => downloadPeriod(selectedPeriod, 'xlsx')}
-              >
-                <FileSpreadsheet size={14} /> {exportBusy?.kind === 'xlsx' ? 'Generando…' : 'Excel'}
-              </button>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                disabled={Boolean(exportBusy)}
-                onClick={() => downloadPeriod(selectedPeriod, 'pdf')}
-              >
-                <FileDown size={14} /> {exportBusy?.kind === 'pdf' ? 'Generando…' : 'PDF'}
-              </button>
-            </div>
           </div>
-
-          {pack ? (
-            <>
-              <p className="disc-field-hint" style={{ margin: '0 0 0.75rem' }}>
-                Detalle de gastos · total {fmt(pack.total)}
-              </p>
-              <div className="table-responsive">
-                <table className="admin-table">
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>Identificador</th>
-                      <th>Socios titulares activos</th>
-                      <th className="text-right">Valor</th>
-                      <th className="text-right">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pack.concepts.map((row) => (
-                      <tr key={row.id}>
-                        <td>{row.id}</td>
-                        <td style={{ fontWeight: 600 }}>{row.label}</td>
-                        <td className="tabular-nums">{row.holders}</td>
-                        <td className="tabular-nums">{fmt(row.amount)}</td>
-                        <td className="tabular-nums" style={{ fontWeight: 700 }}>{fmt(row.total)}</td>
-                      </tr>
-                    ))}
-                    <tr>
-                      <td colSpan={4} style={{ fontWeight: 700 }}>TOTAL</td>
-                      <td className="tabular-nums" style={{ fontWeight: 700 }}>{fmt(pack.total)}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              {pack.surcharges?.length ? (
-                <div className="table-responsive" style={{ marginTop: '1rem' }}>
-                  <table className="admin-table">
-                    <thead>
-                      <tr>
-                        <th>Fecha</th>
-                        <th>Categorías de cuotas</th>
-                        <th>Recargo</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pack.surcharges.map((row) => (
-                        <tr key={`${row.date}-${row.category}-${row.rate}`}>
-                          <td>{row.date}</td>
-                          <td>{row.category}</td>
-                          <td>{row.rate}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : null}
-            </>
-          ) : (
-            <p className="disc-field-hint" style={{ margin: 0 }}>
-              Este período no tiene el detalle de liquidación de Lila.
-            </p>
-          )}
         </div>
+
+        <div className="cuotas-cc-banner">
+          <span>Detalle de gastos · total {fmt(liquidation.total)}</span>
+        </div>
+
+        <div className="table-responsive">
+          <table className="admin-table cuotas-liq-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>IDENTIFICADOR</th>
+                <th>SOCIOS TITULARES ACTIVOS</th>
+                <th>VALOR</th>
+                <th>TOTAL</th>
+              </tr>
+            </thead>
+            <tbody>
+              {liquidation.rows.length === 0 ? (
+                <tr>
+                  <td colSpan={5} style={{ color: 'var(--text-muted)' }}>
+                    Este período no tiene el detalle de liquidación de Lila.
+                  </td>
+                </tr>
+              ) : (
+                liquidation.rows.map((row) => (
+                  <tr key={`${row.identifier}-${row.name}`}>
+                    <td>{row.identifier || '—'}</td>
+                    <td style={{ fontWeight: 600 }}>{row.name}</td>
+                    <td className="num">{row.holders}</td>
+                    <td className="num">{fmt(row.unit)}</td>
+                    <td className="num" style={{ fontWeight: 700 }}>{fmt(row.total)}</td>
+                  </tr>
+                ))
+              )}
+              {liquidation.rows.length > 0 ? (
+                <tr>
+                  <td colSpan={4} style={{ fontWeight: 700 }}>TOTAL</td>
+                  <td className="num" style={{ fontWeight: 700 }}>{fmt(liquidation.total)}</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+
+        {liquidation.surcharges?.length ? (
+          <div className="table-responsive">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Categorías de cuotas</th>
+                  <th>Recargo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {liquidation.surcharges.map((row) => (
+                  <tr key={`${row.date}-${row.category}-${row.rate}`}>
+                    <td>{row.date}</td>
+                    <td>{row.category}</td>
+                    <td>{row.rate}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </div>
     );
   }
 

@@ -1,36 +1,28 @@
-import { periodLabel, periodStatusLabel } from './feeBilling';
-import {
-  feeAccountDetailsForPeriod,
-  feeAccountDetailsSummary,
-  periodKeyFromPeriod,
-} from './feeAccountDetails';
+import { periodStatusLabel } from './feeBilling';
+import { periodKeyFromPeriod } from './feeAccountDetails';
+import { buildFeePeriodLiquidation } from './feePeriodLiquidation';
 import {
   BRAND,
   CLUB_NAME,
-  CLUB_SEDE,
   drawReportFooter,
   drawReportHeader,
   loadClubLogoDataUrl,
 } from '../reports/pdfBrand';
 
 export const FEE_PERIOD_EXCEL_HEADERS = [
-  'Cuenta',
-  'DNI',
-  'N° socio',
-  'Nombre',
-  'Fecha de cobro',
-  'Fecha cuota',
-  'Tipo',
-  'Descripción',
-  'Cobrado',
+  '#',
+  'IDENTIFICADOR',
+  'SOCIOS TITULARES ACTIVOS',
+  'VALOR',
+  'TOTAL',
 ];
 
 function money(n) {
-  return `$ ${Number(n || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `$ ${Number(n || 0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
-function fileSlug(period) {
-  return periodLabel(period)
+function fileSlug(label) {
+  return String(label || 'periodo')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
@@ -38,83 +30,60 @@ function fileSlug(period) {
     .replace(/^_|_$/g, '') || 'periodo';
 }
 
-export function buildFeePeriodExportModel(period, accounts = feeAccountDetailsForPeriod(period)) {
-  const list = accounts || [];
-  const summary = feeAccountDetailsSummary(list);
-  const rows = list.flatMap((account) => (account.lines || []).map((line) => ({
-    account: account.accountLabel || '',
-    dni: line.dni || '',
-    memberNumber: line.memberNumber || '',
-    memberName: line.memberName || '',
-    collectedAt: line.collectedAtLabel || line.collectedAt || '',
-    feeDate: line.feeDateLabel || line.feeDate || '',
-    type: line.type || '',
-    description: line.description || '',
-    amount: Number(line.amount) || 0,
-  })));
+export function isFeePeriodLiquidationModel(value) {
+  return Boolean(value && Array.isArray(value.rows) && value.title);
+}
+
+export function buildFeePeriodExportModel(period, source = {}) {
+  if (isFeePeriodLiquidationModel(period)) return period;
+  const liquidation = buildFeePeriodLiquidation(period, {
+    members: source?.members || [],
+    tierCatalog: source?.tierCatalog || [],
+    feeAccounts: source?.feeAccounts || [],
+  });
   return {
-    period,
+    ...liquidation,
     periodKey: periodKeyFromPeriod(period),
-    label: periodLabel(period),
     status: periodStatusLabel(period?.status),
-    accounts: list,
-    summary,
-    rows,
   };
 }
 
-export function buildFeePeriodExcelAoA(model) {
+export function buildFeePeriodExcelAoA(model, { formatCurrency: formatCurrencyFn } = {}) {
+  const fmt = formatCurrencyFn || money;
   return [
+    [model.title],
+    [`Detalle de gastos · total ${fmt(model.total)}`],
+    [],
     FEE_PERIOD_EXCEL_HEADERS,
     ...model.rows.map((row) => [
-      row.account,
-      row.dni,
-      row.memberNumber,
-      row.memberName,
-      row.collectedAt,
-      row.feeDate,
-      row.type,
-      row.description,
-      row.amount,
+      row.identifier || '',
+      row.name,
+      row.holders,
+      fmt(row.unit),
+      fmt(row.total),
     ]),
   ];
 }
 
-export async function exportFeePeriodExcel(period, accounts) {
-  const model = buildFeePeriodExportModel(period, accounts);
+export async function exportFeePeriodExcel(model, _unused, { formatCurrency: formatCurrencyFn } = {}) {
+  const liquidation = buildFeePeriodExportModel(model);
+  const fmt = formatCurrencyFn || money;
   const XLSX = await import('xlsx');
   const stamp = new Date().toISOString().slice(0, 10);
-  const fileName = `jockey_club_cuotas_${fileSlug(period)}_${stamp}.xlsx`;
-  const generatedAt = new Date().toLocaleString('es-AR');
+  const fileName = `jockey_club_liquidacion_${fileSlug(liquidation.label)}_${stamp}.xlsx`;
 
   const wb = XLSX.utils.book_new();
-  const aoa = buildFeePeriodExcelAoA(model);
+  const aoa = buildFeePeriodExcelAoA(liquidation, { formatCurrency: fmt });
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [22, 12, 12, 32, 22, 22, 28, 22, 14].map((wch) => ({ wch }));
-  if (aoa.length > 1) ws['!autofilter'] = { ref: `A1:I${aoa.length}` };
-  XLSX.utils.book_append_sheet(wb, ws, 'Detalle');
-
-  const resumen = [
-    ['Detalle de cuentas contables — Jockey Club San Juan'],
-    [model.label],
-    [`Generado ${generatedAt}`],
-    [],
-    ['Estado', model.status],
-    ['Liquidación', Number(period?.amount) || 0],
-    ['Cuentas', model.summary.accountCount],
-    ['Movimientos', model.summary.lineCount],
-    ['Total cobrado', model.summary.totalAmount],
-  ];
-  const wsResumen = XLSX.utils.aoa_to_sheet(resumen);
-  wsResumen['!cols'] = [{ wch: 36 }, { wch: 18 }];
-  XLSX.utils.book_append_sheet(wb, wsResumen, 'Resumen');
-
+  ws['!cols'] = [12, 42, 28, 16, 16].map((wch) => ({ wch }));
+  if (liquidation.rows.length) ws['!autofilter'] = { ref: `A4:E${aoa.length}` };
+  XLSX.utils.book_append_sheet(wb, ws, 'Detalle de gastos');
   XLSX.writeFile(wb, fileName);
-  return { fileName, lineCount: model.rows.length };
+  return { fileName, lineCount: liquidation.rows.length };
 }
 
-export async function exportFeePeriodPdf(period, accounts, { formatCurrency: formatCurrencyFn } = {}) {
-  const model = buildFeePeriodExportModel(period, accounts);
+export async function exportFeePeriodPdf(model, _unused, { formatCurrency: formatCurrencyFn } = {}) {
+  const liquidation = buildFeePeriodExportModel(model);
   const fmt = formatCurrencyFn || money;
   const [{ jsPDF }, autoTableMod, logoDataUrl] = await Promise.all([
     import('jspdf'),
@@ -127,31 +96,33 @@ export async function exportFeePeriodPdf(period, accounts, { formatCurrency: for
 
   autoTable(doc, {
     startY: drawReportHeader(doc, {
-      title: 'Detalle de cuentas · Cuotas',
-      subtitle: `${CLUB_NAME} · ${CLUB_SEDE}`,
-      metaLine: `${model.label} · ${model.status} · ${model.summary.lineCount} movimientos · ${fmt(model.summary.totalAmount || period?.amount || 0)}`,
+      title: liquidation.title,
+      subtitle: `Detalle de gastos · total ${fmt(liquidation.total)}`,
+      metaLine: CLUB_NAME,
       logoDataUrl,
     }),
     head: [FEE_PERIOD_EXCEL_HEADERS],
-    body: model.rows.length
-      ? model.rows.map((row) => [
-        row.account,
-        row.dni,
-        row.memberNumber,
-        row.memberName,
-        row.collectedAt,
-        row.feeDate,
-        row.type,
-        row.description,
-        fmt(row.amount),
+    body: liquidation.rows.length
+      ? liquidation.rows.map((row) => [
+        row.identifier || '—',
+        row.name,
+        String(row.holders),
+        fmt(row.unit),
+        fmt(row.total),
       ])
-      : [['—', '—', '—', 'Sin líneas de cuenta para este período', '', '', '', '', '']],
-    styles: { fontSize: 7.5, cellPadding: 1.5 },
+      : [['—', 'Sin categorías de cuota para este período', '', '', '']],
+    styles: { fontSize: 9, cellPadding: 2 },
     headStyles: { fillColor: BRAND.green, textColor: BRAND.cream },
+    columnStyles: {
+      0: { cellWidth: 28 },
+      2: { halign: 'right' },
+      3: { halign: 'right' },
+      4: { halign: 'right' },
+    },
     margin: { left: 10, right: 10 },
   });
   drawReportFooter(doc);
-  const fileName = `jockey_club_cuotas_${fileSlug(period)}_${stamp}.pdf`;
+  const fileName = `jockey_club_liquidacion_${fileSlug(liquidation.label)}_${stamp}.pdf`;
   doc.save(fileName);
-  return { fileName, lineCount: model.rows.length };
+  return { fileName, lineCount: liquidation.rows.length };
 }
