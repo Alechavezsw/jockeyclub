@@ -2756,10 +2756,7 @@ export async function upsertMembershipApplication(app) {
       'No se pudo actualizar la solicitud de socio'
     );
   } else {
-    saved = await unwrap(
-      sb().from('membership_applications').insert(row).select().single(),
-      'No se pudo crear la solicitud de socio'
-    );
+    saved = await insertPublicRow('membership_applications', row, 'No se pudo crear la solicitud de socio');
   }
   await audit(
     app.id ? 'membership_application.update' : 'membership_application.create',
@@ -2831,10 +2828,7 @@ export async function upsertPortalAccessRequest(req) {
       'No se pudo actualizar el pedido de acceso'
     );
   } else {
-    saved = await unwrap(
-      sb().from('portal_access_requests').insert(row).select().single(),
-      'No se pudo registrar el pedido de acceso'
-    );
+    saved = await insertPublicRow('portal_access_requests', row, 'No se pudo registrar el pedido de acceso');
   }
   await audit(
     req.id ? 'portal_access_request.update' : 'portal_access_request.create',
@@ -2843,6 +2837,16 @@ export async function upsertPortalAccessRequest(req) {
     { status: saved.status, reason: saved.reason }
   );
   return M.portalAccessRequestFromRow(saved);
+}
+
+/** Alta pública: el visitante puede insertar, no leer la fila. El id lo pone el cliente. */
+async function insertPublicRow(table, row, fallback) {
+  const id = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : '';
+  if (!isUuid(id)) throw new Error(fallback);
+  const now = new Date().toISOString();
+  const inserted = { ...row, id };
+  await unwrap(sb().from(table).insert(inserted), fallback);
+  return { ...inserted, created_at: now, updated_at: now };
 }
 
 function foldMemberName(value) {
