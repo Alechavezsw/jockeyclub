@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Waves, Search, UserCheck, Upload, Banknote, QrCode, UserPlus,
+  Waves, Search, UserCheck, Upload, UserPlus,
   CheckCircle2, AlertTriangle, X, Trash2, FileHeart,
 } from 'lucide-react';
-import { QRCodeSVG } from 'qrcode.react';
 import { useAuth } from '../../context/AuthContext';
 import {
   DEFAULT_POOL_SETTINGS,
@@ -15,12 +14,12 @@ import {
   revokePoolAccess,
   listDayAccesses,
   poolDayStats,
-  buildPoolMpPayload,
   guestDayAccessesForHost,
   searchPoolMembers,
   memberPoolHistory,
+  isPoolDayCashOpen,
 } from '../../domain/pool/poolAccess';
-import { chargePoolCanon, withChargedPoolEntry, POOL_MP_PENDING } from '../../domain/pool/poolCheckout';
+import { chargePoolCanon, withChargedPoolEntry } from '../../domain/pool/poolCheckout';
 import { poolIngressToAccessLog } from '../../domain/credentials/accessLog';
 import { todayISODateAR } from '../../lib/arDate';
 
@@ -47,6 +46,9 @@ export default function PoolTab({
   updateMember = null,
   formatCurrency,
   recordPoolCanon,
+  cashSessions = [],
+  cashRegisters = [],
+  onOpenDayCash,
   poolAccesses = [],
   setPoolAccesses,
   setEntryLogs,
@@ -60,10 +62,9 @@ export default function PoolTab({
 
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState(null);
-  const [payMethod, setPayMethod] = useState('efectivo');
   const [guestName, setGuestName] = useState('');
-  const [guestMethod, setGuestMethod] = useState('efectivo');
   const [busy, setBusy] = useState(false);
+  const [openingCash, setOpeningCash] = useState(false);
   const [flash, setFlash] = useState('');
   const [error, setError] = useState('');
   const [feeDraft, setFeeDraft] = useState({
@@ -106,26 +107,21 @@ export default function PoolTab({
     [poolAccesses, selected],
   );
   const selectedDues = Number(selected?.outstandingBalance) || 0;
+  const dayCashOpen = isPoolDayCashOpen(cashSessions, cashRegisters);
 
-  const mpPayload = useMemo(() => {
-    if (!selected) return '';
-    return buildPoolMpPayload({
-      amount: settings.memberDayFee,
-      memberId: selected.memberId,
-      memberName: selected.name,
-      concept: 'Canon pileta',
-    });
-  }, [selected, settings.memberDayFee]);
-
-  const guestMpPayload = useMemo(() => {
-    if (!selected || !guestName.trim()) return '';
-    return buildPoolMpPayload({
-      amount: settings.guestDayFee,
-      memberId: selected.memberId,
-      memberName: `${guestName} / ${selected.name}`,
-      concept: 'Canon pileta invitado',
-    });
-  }, [selected, guestName, settings.guestDayFee]);
+  const openDayCash = async () => {
+    if (dayCashOpen || openingCash || typeof onOpenDayCash !== 'function') return;
+    setOpeningCash(true);
+    setError('');
+    try {
+      const session = await onOpenDayCash();
+      showFlash(session?.openedNow ? 'Caja del día abierta.' : 'La caja del día ya estaba abierta.');
+    } catch (err) {
+      setError(err?.message || 'No se pudo abrir la caja del día.');
+    } finally {
+      setOpeningCash(false);
+    }
+  };
 
   const persistMember = async (next) => {
     if (typeof updateMember === 'function') {
@@ -161,26 +157,31 @@ export default function PoolTab({
     }
   };
 
-  const handleEnableMember = async () => {
-    if (!selected) return;
+  const handleEnableMember = async (member = selected) => {
+    if (!member) return;
+    if (!dayCashOpen) {
+      setError('Abrí la caja del día antes de habilitar.');
+      return;
+    }
+    setSelectedId(member.memberId);
     setBusy(true);
     setError('');
     try {
       const { entry, accesses } = enableMemberPoolAccess({
-        member: selected,
+        member,
         accesses: poolAccesses,
-        method: payMethod,
+        method: 'efectivo',
         today,
         settings,
         actorName,
       });
-      const charged = await chargePoolCanon({ entry, member: selected, recordPoolCanon });
+      const charged = await chargePoolCanon({ entry, member, recordPoolCanon });
       setPoolAccesses(withChargedPoolEntry(accesses, entry, charged));
       if (typeof setEntryLogs === 'function') {
         const log = poolIngressToAccessLog(charged);
         if (log) setEntryLogs((prev) => [log, ...(prev || [])]);
       }
-      showFlash(`Acceso habilitado · ${selected.name}`);
+      showFlash(`Habilitado · ${member.name}`);
     } catch (err) {
       setError(err?.message || 'No se pudo habilitar el acceso.');
     } finally {
@@ -190,6 +191,10 @@ export default function PoolTab({
 
   const handleEnableGuest = async () => {
     if (!selected) return;
+    if (!dayCashOpen) {
+      setError('Abrí la caja del día antes de habilitar.');
+      return;
+    }
     setBusy(true);
     setError('');
     try {
@@ -197,7 +202,7 @@ export default function PoolTab({
         host: selected,
         guestName,
         accesses: poolAccesses,
-        method: guestMethod,
+        method: 'efectivo',
         today,
         settings,
         actorName,
@@ -233,10 +238,17 @@ export default function PoolTab({
           <p className="pool-kicker"><Waves size={14} aria-hidden="true" /> Pileta</p>
           <h2 className="serif-font">{settings.seasonLabel}</h2>
           <p>
-            Habilitación de socios con revisación médica. El canon en efectivo entra en la caja.
-            Mercado Pago se cobra cuando esté la app.
+            Un botón abre la caja para todo el día. Después, cada Habilitar solo anota el ingreso y el canon.
           </p>
         </div>
+        <button
+          type="button"
+          className="btn btn-primary pool-day-cash"
+          disabled={openingCash || dayCashOpen || typeof onOpenDayCash !== 'function'}
+          onClick={openDayCash}
+        >
+          {dayCashOpen ? 'Caja del día abierta' : (openingCash ? 'Abriendo caja…' : 'Abrir caja del día')}
+        </button>
         <div className="pool-hero-kpis">
           <div><strong>{stats.members}</strong><span>Socios hoy</span></div>
           <div><strong>{stats.guests}</strong><span>Invitados</span></div>
@@ -258,7 +270,7 @@ export default function PoolTab({
               <input
                 id="pool-search-input"
                 className="members-search-input"
-                placeholder="Nombre, DNI o Nº de socio…"
+                placeholder="Apellido, nombre, DNI o Nº de socio…"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 autoComplete="off"
@@ -273,16 +285,16 @@ export default function PoolTab({
             <p className="members-search-hint">
               {query.trim()
                 ? `${searchHits.length.toLocaleString('es-AR')} coincidencia${searchHits.length === 1 ? '' : 's'}`
-                : 'Escribí nombre, DNI o número de socio para ver si pagó, el apto médico y el resto de pileta.'}
+                : 'Apellido y nombre, en cualquier orden. También un pedazo de cada uno, el DNI o el número de socio.'}
             </p>
           </div>
           {searchHits.length > 0 && (
             <ul className="pool-search-hits">
               {searchHits.map(({ member: m, snap, dues }) => (
-                <li key={m.memberId}>
+                <li key={m.memberId} className="pool-search-hit">
                   <button
                     type="button"
-                    className={selectedId === m.memberId ? 'is-active' : ''}
+                    className={`pool-hit-open${selectedId === m.memberId ? ' is-active' : ''}`}
                     onClick={() => {
                       setSelectedId(m.memberId);
                       setError('');
@@ -307,6 +319,19 @@ export default function PoolTab({
                       </em>
                     </span>
                   </button>
+                  {snap.alreadyIn ? (
+                    <span className="pool-hit-ready">Hoy</span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn btn-primary pool-hit-enable"
+                      disabled={busy || !dayCashOpen || !snap.canEnable}
+                      title={dayCashOpen ? (snap.blockers[0] || 'Habilitar ingreso de hoy') : 'Abrí la caja del día'}
+                      onClick={() => handleEnableMember(m)}
+                    >
+                      <UserCheck size={15} /> Habilitar
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
@@ -380,31 +405,17 @@ export default function PoolTab({
 
               {!eval_.alreadyIn ? (
                 <div className="pool-pay">
-                  <p className="ops-muted" style={{ margin: '0 0 0.55rem' }}>
-                    Al habilitar se registra el cobro del canon. Completá la revisación médica antes.
+                  <button
+                    type="button"
+                    className="btn btn-primary pool-enable-btn"
+                    disabled={busy || !dayCashOpen || !eval_.canEnable}
+                    onClick={() => handleEnableMember(selected)}
+                  >
+                    <UserCheck size={16} /> Habilitar · {formatCurrency(settings.memberDayFee)}
+                  </button>
+                  <p className="ops-muted">
+                    Efectivo en Caja General. Queda el asiento y el ingreso a tu nombre.
                   </p>
-                  <div className="pool-pay-methods">
-                    <button
-                      type="button"
-                      className={`pool-method ${payMethod === 'efectivo' ? 'is-active' : ''}`}
-                      onClick={() => setPayMethod('efectivo')}
-                    >
-                      <Banknote size={16} /> Efectivo
-                    </button>
-                    <button
-                      type="button"
-                      className={`pool-method ${payMethod === 'mercadopago' ? 'is-active' : ''}`}
-                      onClick={() => setPayMethod('mercadopago')}
-                    >
-                      <QrCode size={16} /> Mercado Pago
-                    </button>
-                  </div>
-                  {payMethod === 'mercadopago' ? (
-                    <div className="pool-qr-box">
-                      <QRCodeSVG value={mpPayload || 'jockey-pool'} size={148} level="M" includeMargin />
-                      <p>{POOL_MP_PENDING}</p>
-                    </div>
-                  ) : null}
                   {eval_.blockers.length > 0 ? (
                     <ul className="pool-blockers">
                       {eval_.blockers.map((b) => (
@@ -412,15 +423,6 @@ export default function PoolTab({
                       ))}
                     </ul>
                   ) : null}
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    disabled={busy || !eval_.canEnable}
-                    onClick={handleEnableMember}
-                    style={{ width: '100%', marginTop: '0.65rem' }}
-                  >
-                    <UserCheck size={16} /> Habilitar acceso · {formatCurrency(settings.memberDayFee)}
-                  </button>
                 </div>
               ) : (
                 <div className="pool-guests">
@@ -449,32 +451,10 @@ export default function PoolTab({
                       placeholder="Apellido y nombre"
                     />
                   </div>
-                  <div className="pool-pay-methods" style={{ marginTop: '0.55rem' }}>
-                    <button
-                      type="button"
-                      className={`pool-method ${guestMethod === 'efectivo' ? 'is-active' : ''}`}
-                      onClick={() => setGuestMethod('efectivo')}
-                    >
-                      <Banknote size={16} /> Efectivo
-                    </button>
-                    <button
-                      type="button"
-                      className={`pool-method ${guestMethod === 'mercadopago' ? 'is-active' : ''}`}
-                      onClick={() => setGuestMethod('mercadopago')}
-                    >
-                      <QrCode size={16} /> Mercado Pago
-                    </button>
-                  </div>
-                  {guestMethod === 'mercadopago' && guestName.trim() ? (
-                    <div className="pool-qr-box">
-                      <QRCodeSVG value={guestMpPayload || 'jockey-pool-guest'} size={132} level="M" includeMargin />
-                      <p>{POOL_MP_PENDING}</p>
-                    </div>
-                  ) : null}
                   <button
                     type="button"
                     className="btn btn-primary"
-                    disabled={busy || !guestName.trim() || hostGuests.length >= settings.maxGuestsPerMember}
+                    disabled={busy || !dayCashOpen || !guestName.trim() || hostGuests.length >= settings.maxGuestsPerMember}
                     onClick={handleEnableGuest}
                     style={{ width: '100%', marginTop: '0.65rem' }}
                   >

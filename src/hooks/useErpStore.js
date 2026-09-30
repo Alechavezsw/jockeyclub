@@ -39,7 +39,7 @@ import {
   softDeleteFeeExpense,
   upsertFeeExpense,
 } from '../domain/accounting/feeExpenses';
-import { resolveFeePeriods } from '../domain/accounting/feeBilling';
+import { feePeriodNeedsClosure, resolveFeePeriods } from '../domain/accounting/feeBilling';
 import {
   resolveFeeChartAccounts,
   softDeleteFeeChartAccount,
@@ -171,11 +171,10 @@ const ERP_SNAPSHOTS = [
 
 const DEFAULT_CASH_REGISTER_IDS = new Set(DEFAULT_CASH_REGISTERS.map((r) => r.id));
 
-/** Cajas genéricas de demo (o ninguna): se reemplazan por las cajas reales de Accessin. */
+/** Cajas de demo, o ninguna. Las cajas reales de la base no se pisan con el corte de Lila. */
 function isFallbackCashRegisters(list) {
-  return !Array.isArray(list)
-    || list.length < 3
-    || list.every((r) => DEFAULT_CASH_REGISTER_IDS.has(r?.id));
+  if (!Array.isArray(list) || !list.length) return true;
+  return list.every((r) => DEFAULT_CASH_REGISTER_IDS.has(r?.id));
 }
 
 export default function useErpStore({
@@ -346,10 +345,11 @@ export default function useErpStore({
     if (Array.isArray(erp.chartOfAccounts)) setChartOfAccounts(erp.chartOfAccounts);
     // Sin datos en la base se usa el snapshot si ya cargó; si todavía no, lo completa el
     // efecto de los respaldos.
-    if (Array.isArray(erp.cashRegisters)) {
+    if (Array.isArray(erp.cashRegisters) && erp.cashRegisters.length) {
+      setCashRegisters(erp.cashRegisters);
+    } else {
       const seedRegisters = cashSeed().ACCESSIN_CASH_REGISTERS;
-      if (erp.cashRegisters.length >= 3) setCashRegisters(erp.cashRegisters);
-      else if (seedRegisters.length) setCashRegisters(seedRegisters);
+      if (seedRegisters.length) setCashRegisters(seedRegisters);
     }
     if (Array.isArray(erp.cashSessions)) setCashSessions(erp.cashSessions);
     if (Array.isArray(erp.cashMovements)) setCashMovements(erp.cashMovements);
@@ -619,6 +619,16 @@ export default function useErpStore({
     async ({ amount, concept, memberDbId, date }) => {
       const fee = Number(amount);
       if (!fee || fee <= 0) throw new Error('Importe de canon inválido.');
+      const description = String(concept || 'Canon pileta').trim();
+      const when = date || new Date().toISOString().slice(0, 10);
+      if (cloud()) {
+        return repos.recordPoolCanon({
+          amount: fee,
+          concept: description,
+          memberDbId: memberDbId || null,
+          date: when,
+        });
+      }
       const incomeAccountId = resolveAccountId(chartOfAccounts, 'Reservas e Instalaciones');
       if (!incomeAccountId) throw new Error('Falta la cuenta Reservas e Instalaciones en el plan.');
       const register = pickGeneralCashRegister(cashRegisters, chartOfAccounts);
@@ -626,8 +636,8 @@ export default function useErpStore({
       const session = getOpenSession(cashSessions, register.id);
       if (!session) throw new Error('Abrí la Caja General para cobrar el canon de pileta.');
       const entry = buildPostedEntry({
-        date: date || new Date().toISOString().slice(0, 10),
-        description: String(concept || 'Canon pileta').trim(),
+        date: when,
+        description,
         lines: [
           { accountId: register.accountId, debit: fee, credit: 0 },
           { accountId: incomeAccountId, debit: 0, credit: fee },
@@ -635,22 +645,6 @@ export default function useErpStore({
         sourceModule: 'pileta',
         chart: chartOfAccounts,
       });
-      if (cloud()) {
-        const savedEntry = await repos.insertJournalEntry(entry, { createdBy: userId });
-        const movement = await repos.insertCashMovement({
-          cashSessionId: session.id,
-          movementType: 'income',
-          amount: fee,
-          concept: entry.description,
-          relatedAccountId: incomeAccountId,
-          memberDbId: memberDbId || null,
-          journalEntryId: savedEntry.id,
-          createdBy: userId,
-        });
-        setCashMovements((prev) => [movement, ...prev]);
-        setJournalEntries((prev) => [savedEntry, ...prev]);
-        return { journalEntry: savedEntry, movement };
-      }
       const movement = {
         id: `cm-${Date.now()}`,
         cashSessionId: session.id,
@@ -668,6 +662,28 @@ export default function useErpStore({
     },
     [cashRegisters, cashSessions, chartOfAccounts, setJournalEntries, userId]
   );
+
+  const openPoolDayCash = useCallback(async () => {
+    if (!cloud()) {
+      const register = pickGeneralCashRegister(cashRegisters, chartOfAccounts);
+      if (!register) throw new Error('No hay Caja General configurada.');
+      const existing = getOpenSession(cashSessions, register.id);
+      if (existing) return { ...existing, openedNow: false };
+      const session = openCashSession({
+        cashRegisterId: register.id,
+        openingBalance: 0,
+        openedBy: userId || 'admin-local',
+      });
+      const next = { ...session, notes: 'Abierta al habilitar pileta' };
+      setCashSessions((prev) => [next, ...prev]);
+      return { ...next, openedNow: true };
+    }
+    const session = await repos.openPoolDayCash();
+    setCashSessions((prev) => (
+      prev.some((row) => row.id === session.id) ? prev : [session, ...prev]
+    ));
+    return session;
+  }, [cashRegisters, cashSessions, chartOfAccounts, userId]);
 
   const transferCash = useCallback(
     async ({ fromRegisterId, toAccountId, amount, concept }) => {
@@ -1205,6 +1221,25 @@ export default function useErpStore({
     setFeePeriods(Array.isArray(next) ? next : []);
   }, []);
 
+  const persistFeePeriod = useCallback(async (period) => {
+    if (!period) return null;
+    if (!cloud() || !feePeriodNeedsClosure(period)) return period;
+    await repos.upsertFeePeriodClosure(period);
+    return period;
+  }, []);
+
+  useEffect(() => {
+    if (!cloud() || !userId) return undefined;
+    let cancelled = false;
+    repos.listFeePeriodClosures()
+      .then((rows) => {
+        if (cancelled || !rows?.length) return;
+        setFeePeriods((cur) => resolveFeePeriods([...(cur || []), ...rows]));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [userId]);
+
   const importMemberCollections = useCallback(async (built) => {
     const batch = built?.batch;
     if (!batch) return null;
@@ -1505,6 +1540,7 @@ export default function useErpStore({
     closeRegister,
     addCashMovement,
     recordPoolCanon,
+    openPoolDayCash,
     transferCash,
     submitExpense,
     setExpenseApproved,
@@ -1529,6 +1565,7 @@ export default function useErpStore({
     upsertFeeExpenseRecord,
     deleteFeeExpenseRecord,
     setFeePeriodsList,
+    persistFeePeriod,
     importMemberCollections,
     deleteMemberCollectionImport,
     upsertFeeChartAccountRecord,

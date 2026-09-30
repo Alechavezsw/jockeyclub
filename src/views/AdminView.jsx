@@ -886,6 +886,10 @@ export default function AdminView({
           journalEntries={journalEntries}
           chartOfAccounts={chartOfAccounts}
           feePeriods={erp.feePeriods || []}
+          poolAccesses={poolAccesses}
+          cashSessions={erp.cashSessions || []}
+          cashRegisters={erp.cashRegisters || []}
+          onOpenDayCash={erp.openPoolDayCash}
           registeredUsersCount={registeredUsersCount}
           membershipApplications={membershipApplications}
           portalAccessRequests={portalAccessRequests}
@@ -910,6 +914,7 @@ export default function AdminView({
           setMembers={setMembers}
           feePeriods={erp.feePeriods}
           onUpsertFeePeriods={erp.setFeePeriodsList}
+          onPersistFeePeriod={erp.persistFeePeriod}
           collectionImports={erp.memberCollectionImports}
           onImportCollections={erp.importMemberCollections}
           onDeleteCollectionImport={erp.deleteMemberCollectionImport}
@@ -1009,6 +1014,9 @@ export default function AdminView({
           updateMember={updateMember}
           formatCurrency={formatCurrency}
           recordPoolCanon={recordPoolCanon}
+          cashSessions={erp.cashSessions || []}
+          cashRegisters={erp.cashRegisters || []}
+          onOpenDayCash={erp.openPoolDayCash}
           poolAccesses={poolAccesses}
           setPoolAccesses={setPoolAccesses}
           setEntryLogs={setEntryLogs}

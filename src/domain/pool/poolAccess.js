@@ -341,32 +341,65 @@ function foldSearch(value) {
     .replace(/[\u0300-\u036f]/g, '');
 }
 
+function nameSearchParts(member) {
+  const name = foldSearch([member?.name, member?.firstName, member?.lastName].filter(Boolean).join(' '));
+  return { name, tokens: name.split(/\s+/).filter(Boolean) };
+}
+
+/** Cada palabra del texto tiene que aparecer en el nombre, en cualquier orden. */
+function scoreNameWords(member, textWords) {
+  if (!textWords.length) return 0;
+  const { name, tokens } = nameSearchParts(member);
+  if (!tokens.length) return 0;
+  const used = new Set();
+  let exact = 0;
+  let prefixes = 0;
+  for (const word of textWords) {
+    const exactAt = tokens.findIndex((token, index) => !used.has(index) && token === word);
+    if (exactAt >= 0) {
+      used.add(exactAt);
+      exact += 1;
+      prefixes += 1;
+      continue;
+    }
+    const prefixAt = tokens.findIndex((token, index) => !used.has(index) && token.startsWith(word));
+    if (prefixAt >= 0) {
+      used.add(prefixAt);
+      prefixes += 1;
+      continue;
+    }
+    if (word.length < 3 || !name.includes(word)) return 0;
+  }
+  if (name.startsWith(textWords.join(' '))) return 92;
+  if (exact === textWords.length) return 88;
+  if (prefixes === textWords.length) return 82;
+  return 64;
+}
+
 export function searchPoolMembers(members = [], query, { limit = 40 } = {}) {
   const raw = String(query || '').trim();
   if (!raw) return [];
   const q = foldSearch(raw);
   const digits = raw.replace(/\D/g, '');
+  const textWords = q.split(/\s+/).flatMap((word) => {
+    const letters = word.replace(/[^a-z]/g, '');
+    return letters ? [letters] : [];
+  });
   const scored = [];
   for (const member of members) {
-    const name = foldSearch(member.name);
-    const parts = name.split(/\s+/).filter(Boolean);
-    const last = foldSearch(member.lastName) || parts.slice(1).join(' ');
-    const first = foldSearch(member.firstName) || parts[0] || '';
     const nro = String(member.memberId || '').replace(/\D/g, '');
     const dni = String(member.documentNumber || '').replace(/\D/g, '');
     let score = 0;
     if (digits && dni === digits) score = 100;
     else if (digits && nro === digits) score = 90;
     else if (digits && digits.length >= 3 && (dni.includes(digits) || nro.includes(digits))) score = 70;
-    if (q) {
-      if (last.startsWith(q)) score = Math.max(score, 80);
-      else if (last.includes(q) || name.includes(q)) score = Math.max(score, 60);
-      else if (first.startsWith(q)) score = Math.max(score, 45);
-    }
+    score = Math.max(score, scoreNameWords(member, textWords));
     if (score > 0) scored.push({ member, score });
   }
   return scored
-    .toSorted((a, b) => b.score - a.score || String(a.member.name || '').localeCompare(String(b.member.name || ''), 'es'))
+    .toSorted((a, b) => b.score - a.score
+      || (a.member.status === 'active' ? 0 : 1) - (b.member.status === 'active' ? 0 : 1)
+      || String(a.member.name || '').localeCompare(String(b.member.name || ''), 'es'))
     .slice(0, limit)
     .map((row) => row.member);
 }
@@ -390,4 +423,45 @@ export function poolDayStats(accesses = [], date = todayISO()) {
   const guests = day.filter((a) => a.kind === 'guest').length;
   const collected = day.reduce((s, a) => s + (Number(a.payment?.amount) || 0), 0);
   return { members, guests, total: members + guests, collected };
+}
+
+/** Un renglón por día: la suma del canon de pileta, no un cobro por socio. */
+export function poolCanonByDay(accesses = [], { month = '', limit = 8 } = {}) {
+  const byDate = new Map();
+  for (const row of accesses || []) {
+    if (row?.status === 'revoked') continue;
+    const date = String(row?.date || '').slice(0, 10);
+    if (!date || (month && !date.startsWith(month))) continue;
+    const amount = Number(row?.payment?.amount) || 0;
+    if (amount <= 0) continue;
+    const current = byDate.get(date) || { amount: 0, count: 0 };
+    current.amount += amount;
+    current.count += 1;
+    byDate.set(date, current);
+  }
+  return [...byDate.entries()]
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .slice(0, limit)
+    .map(([date, current]) => ({
+      id: `pool-canon-${date}`,
+      date,
+      label: `Canon pileta · ${current.count} ${current.count === 1 ? 'ingreso' : 'ingresos'}`,
+      amount: current.amount,
+      source: 'pool',
+    }));
+}
+
+/** La Caja General del día ya está abierta. */
+export function isPoolDayCashOpen(sessions = [], registers = []) {
+  const generalIds = new Set(
+    (registers || [])
+      .filter((register) => register?.isActive !== false
+        && /general|secretar/i.test(`${register.name || ''} ${register.code || ''}`))
+      .map((register) => register.id),
+  );
+  return (sessions || []).some((session) => {
+    if (session?.status !== 'open') return false;
+    if (generalIds.has(session.cashRegisterId)) return true;
+    return /pileta/i.test(session.notes || '');
+  });
 }

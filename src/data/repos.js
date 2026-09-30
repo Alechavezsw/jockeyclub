@@ -912,6 +912,41 @@ export async function insertPoolAccess(entry, memberDbId = null) {
   return M.poolAccessFromRow(saved);
 }
 
+/** Canon de pileta: asiento en Caja General y movimiento de la caja abierta, a nombre de quien cobra. */
+export async function recordPoolCanon({ amount, concept, memberDbId, date }) {
+  const data = await unwrap(
+    sb().rpc('record_pool_canon', {
+      p_amount: Number(amount),
+      p_concept: concept || 'Canon pileta',
+      p_member_id: isUuid(memberDbId) ? memberDbId : null,
+      p_date: date || new Date().toISOString().slice(0, 10),
+    }),
+    'No se pudo registrar el canon de pileta',
+  );
+  return {
+    journalEntry: { id: data?.journal_entry_id || null },
+    movement: { id: data?.cash_movement_id || null },
+    sessionId: data?.cash_session_id || null,
+  };
+}
+
+/** Abre la Caja General una vez para el día. Si ya está abierta, no crea otra. */
+export async function openPoolDayCash() {
+  const data = await unwrap(
+    sb().rpc('open_pool_day_cash'),
+    'No se pudo abrir la caja del día',
+  );
+  return {
+    id: data?.cash_session_id || null,
+    cashRegisterId: data?.cash_register_id || null,
+    status: 'open',
+    openingBalance: Number(data?.opening_balance) || 0,
+    openedAt: data?.opened_at || null,
+    notes: 'Abierta al habilitar pileta',
+    openedNow: Boolean(data?.opened),
+  };
+}
+
 export async function revokePoolAccess(id) {
   if (!isUuid(id)) return null;
   const saved = await unwrap(
@@ -3086,4 +3121,44 @@ export async function listMemberAccountSupport(memberNumber) {
     if (!batch || batch.length < pageSize) break;
   }
   return { ...account, lines };
+}
+
+function feePeriodClosureFromRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    accessinId: row.accessin_id == null ? null : Number(row.accessin_id),
+    year: Number(row.year),
+    month: Number(row.month),
+    amount: Number(row.amount) || 0,
+    generatedAt: row.generated_at || null,
+    status: row.status,
+    lines: Array.isArray(row.lines) ? row.lines : [],
+    pack: row.pack && typeof row.pack === 'object' ? row.pack : null,
+  };
+}
+
+export async function listFeePeriodClosures() {
+  const rows = await unwrap(
+    sb().from('fee_period_closures').select('*').order('year').order('month'),
+  );
+  return (rows || []).map(feePeriodClosureFromRow).filter(Boolean);
+}
+
+export async function upsertFeePeriodClosure(period) {
+  const row = {
+    id: period.id,
+    accessin_id: period.accessinId ?? null,
+    year: Number(period.year),
+    month: Number(period.month),
+    amount: Number(period.amount) || 0,
+    generated_at: period.generatedAt || null,
+    status: period.status || 'processed',
+    lines: Array.isArray(period.lines) ? period.lines : [],
+    pack: period.pack && typeof period.pack === 'object' ? period.pack : null,
+  };
+  const saved = await unwrap(
+    sb().from('fee_period_closures').upsert(row, { onConflict: 'id' }).select().single(),
+  );
+  return feePeriodClosureFromRow(saved);
 }

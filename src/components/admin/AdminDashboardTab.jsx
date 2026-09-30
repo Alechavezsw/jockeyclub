@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Users, Calendar, DollarSign, Activity, MessageSquare, ClipboardList,
@@ -11,6 +11,7 @@ import { formatObservedClock } from '../../domain/weather/sedeWeather';
 import { canAccessConcessions, canAccessQrGate } from '../../domain/auth/roles';
 import { reviewItemsForAccess } from '../../domain/review/buildClubReview';
 import { isAlertVisible, ALERT_SEVERITY } from '../../domain/alerts/alerts';
+import { isPoolDayCashOpen, poolCanonByDay } from '../../domain/pool/poolAccess';
 import { buildOpsFinanceSnapshot, composeClubFinance, financeFromMonthlySummary, lilaContabilidadFromSnapshots } from '../../domain/accounting/opsFinanceSnapshot';
 import { monthlyBalanceSeed } from '../../domain/accounting/monthlyBalance';
 import { monthlyBalanceSummarySeed } from '../../domain/accounting/monthlyBalanceSummary';
@@ -172,12 +173,18 @@ export default function AdminDashboardTab({
   journalEntries = [],
   chartOfAccounts = [],
   feePeriods = [],
+  poolAccesses = [],
+  cashSessions = [],
+  cashRegisters = [],
+  onOpenDayCash,
   registeredUsersCount = 0,
   membershipApplications = [],
   portalAccessRequests = [],
   jevReview = null,
 }) {
   const navigate = useNavigate();
+  const [openingCash, setOpeningCash] = useState(false);
+  const [cashFlash, setCashFlash] = useState('');
   const showGate = canAccessQrGate(userRole);
   const pendingMembershipApps = useMemo(
     () => (membershipApplications || []).filter((a) => a.status === 'pending').length
@@ -358,6 +365,37 @@ export default function AdminDashboardTab({
     const lilaToday = (lilaMoney?.lastIncomes || []).filter((row) => row.date === todayKey);
     return lilaToday.length ? lilaToday : (finance.todayIncomes || []);
   }, [lilaMoney, todayKey, finance.todayIncomes]);
+
+  const poolMonthRows = useMemo(
+    () => poolCanonByDay(poolAccesses, { month: todayKey.slice(0, 7) }),
+    [poolAccesses, todayKey],
+  );
+  const dayCashOpen = isPoolDayCashOpen(cashSessions, cashRegisters);
+  const recentIncomes = useMemo(() => {
+    const base = (finance.recentIncomes || []).filter((row) => !/^canon pileta/i.test(String(row.label || '')));
+    return [...poolMonthRows, ...base]
+      .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
+      .slice(0, 6);
+  }, [finance.recentIncomes, poolMonthRows]);
+  const todayIncomeRows = useMemo(() => {
+    const poolToday = poolMonthRows.find((row) => row.date === todayKey);
+    const base = (todayIncomes || []).filter((row) => !/^canon pileta/i.test(String(row.label || '')));
+    return poolToday ? [poolToday, ...base] : base;
+  }, [poolMonthRows, todayKey, todayIncomes]);
+
+  const openDayCash = async () => {
+    if (dayCashOpen || openingCash || typeof onOpenDayCash !== 'function') return;
+    setOpeningCash(true);
+    setCashFlash('');
+    try {
+      const session = await onOpenDayCash();
+      setCashFlash(session?.openedNow ? 'Caja del día abierta.' : 'La caja del día ya estaba abierta.');
+    } catch (err) {
+      setCashFlash(err?.message || 'No se pudo abrir la caja del día.');
+    } finally {
+      setOpeningCash(false);
+    }
+  };
 
   const cashSplit = useMemo(() => {
     if (typeof getAccountBalance !== 'function') return [];
@@ -1122,15 +1160,15 @@ export default function AdminDashboardTab({
                   </div>
                 ) : null}
 
-                {todayIncomes.length > 0 ? (
+                {todayIncomeRows.length > 0 ? (
                   <div className="ops-block" style={{ marginTop: '0.85rem' }}>
                     <div className="ops-block-title ops-block-title--split">
                       <span>Ingresos de hoy</span>
                       <strong style={{ color: 'var(--emerald-accent)' }}>
-                        {formatCurrency(todayIncomes.reduce((s, row) => s + (Number(row.amount) || 0), 0))}
+                        {formatCurrency(todayIncomeRows.reduce((s, row) => s + (Number(row.amount) || 0), 0))}
                       </strong>
                     </div>
-                    {todayIncomes.map((row) => (
+                    {todayIncomeRows.map((row) => (
                       <div key={`today-${row.id}`} className="ops-row">
                         <span className="ops-ellipsis">{row.label}</span>
                         <strong style={{ color: 'var(--emerald-accent)' }}>{formatCurrency(row.amount)}</strong>
@@ -1139,24 +1177,33 @@ export default function AdminDashboardTab({
                   </div>
                 ) : null}
 
-                {finance.recentIncomes.length > 0 ? (
-                  <div className="ops-block" style={{ marginTop: '0.85rem' }}>
-                    <div className="ops-block-title">Últimos ingresos · {moneyMonthLabel}</div>
-                    {finance.recentIncomes.map((row) => (
-                      <div key={row.id} className="ops-row">
-                        <span className="ops-ellipsis">
-                          <span className="ops-muted" style={{ marginRight: 6 }}>{row.date.slice(8, 10)}/{row.date.slice(5, 7)}</span>
-                          {row.label}
-                        </span>
-                        <strong style={{ color: 'var(--emerald-accent)' }}>{formatCurrency(row.amount)}</strong>
-                      </div>
-                    ))}
+                <div className="ops-block" style={{ marginTop: '0.85rem' }}>
+                  <div className="ops-block-title ops-block-title--split">
+                    <span>Últimos ingresos · {moneyMonthLabel}</span>
+                    <button
+                      type="button"
+                      className="btn btn-primary pool-day-cash"
+                      disabled={openingCash || dayCashOpen || typeof onOpenDayCash !== 'function'}
+                      onClick={openDayCash}
+                    >
+                      {dayCashOpen ? 'Caja del día abierta' : (openingCash ? 'Abriendo…' : 'Abrir caja del día')}
+                    </button>
                   </div>
-                ) : (
-                  <p className="ops-muted" style={{ margin: '0.7rem 0 0' }}>
-                    Todavía no hay cobros cargados en {moneyMonthLabel}.
-                  </p>
-                )}
+                  {cashFlash ? <p className="ops-muted" style={{ margin: '0.35rem 0 0' }}>{cashFlash}</p> : null}
+                  {recentIncomes.length > 0 ? recentIncomes.map((row) => (
+                    <div key={row.id} className="ops-row">
+                      <span className="ops-ellipsis">
+                        <span className="ops-muted" style={{ marginRight: 6 }}>{String(row.date || '').slice(8, 10)}/{String(row.date || '').slice(5, 7)}</span>
+                        {row.label}
+                      </span>
+                      <strong style={{ color: 'var(--emerald-accent)' }}>{formatCurrency(row.amount)}</strong>
+                    </div>
+                  )) : (
+                    <p className="ops-muted" style={{ margin: '0.7rem 0 0' }}>
+                      Todavía no hay cobros cargados en {moneyMonthLabel}.
+                    </p>
+                  )}
+                </div>
 
                 {(finance.journalExpenseMonth > 0 || totalActivos > 0) && (
                   <div className="ops-row" style={{ marginTop: '0.45rem' }}>

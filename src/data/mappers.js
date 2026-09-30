@@ -615,6 +615,7 @@ export function cashSessionFromRow(row) {
     closedAt: row.closed_at,
     openedBy: row.opened_by,
     closedBy: row.closed_by,
+    notes: row.notes || '',
   };
 }
 

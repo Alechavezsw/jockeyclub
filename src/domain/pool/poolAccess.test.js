@@ -11,6 +11,8 @@ import {
   mergePoolSearchHits,
   memberPoolHistory,
   poolEntranceVerdict,
+  poolCanonByDay,
+  isPoolDayCashOpen,
 } from './poolAccess.js';
 
 const member = {
@@ -78,6 +80,18 @@ describe('poolAccess', () => {
     expect(searchPoolMembers(list, '17.554.932')[0].memberId).toBe('5158');
     expect(searchPoolMembers(list, 'gomez')[0].memberId).toBe('88');
     expect(searchPoolMembers(list, '30.111.222')[0].name).toMatch(/Luis/);
+    expect(searchPoolMembers(list, 'mercado oscar')[0].memberId).toBe('10192');
+    expect(searchPoolMembers(list, 'fab merc')[0].memberId).toBe('10192');
+  });
+
+  it('encuentra el nombre aunque el apellido vaya primero', () => {
+    const list = [
+      { memberId: '10485', name: 'Lucrecia Del Valle Aracena Bordonaro', status: 'active' },
+      { memberId: '2', name: 'Lucrecia Pérez', status: 'active' },
+    ];
+    const hits = searchPoolMembers(list, 'Aracena Bordonaro Lucrecia Del Vall');
+    expect(hits[0].memberId).toBe('10485');
+    expect(hits.some((member) => member.memberId === '2')).toBe(false);
   });
 
   it('mezcla hits locales y remotos sin repetir socio', () => {
@@ -124,5 +138,30 @@ describe('poolAccess', () => {
       accesses: [],
       today: '2026-08-30',
     })).toThrow(/titular/i);
+  });
+
+  it('junta el canon de pileta en un solo renglón por día', () => {
+    const rows = poolCanonByDay([
+      { date: '2026-09-30', status: 'active', payment: { amount: 8000 } },
+      { date: '2026-09-30', status: 'active', payment: { amount: 4000 } },
+      { date: '2026-09-29', status: 'active', payment: { amount: 8000 } },
+      { date: '2026-09-30', status: 'revoked', payment: { amount: 8000 } },
+      { date: '2026-08-30', status: 'active', payment: { amount: 8000 } },
+    ], { month: '2026-09' });
+    expect(rows).toEqual([
+      { id: 'pool-canon-2026-09-30', date: '2026-09-30', label: 'Canon pileta · 2 ingresos', amount: 12000, source: 'pool' },
+      { id: 'pool-canon-2026-09-29', date: '2026-09-29', label: 'Canon pileta · 1 ingreso', amount: 8000, source: 'pool' },
+    ]);
+  });
+
+  it('la caja del día está abierta si hay sesión de Caja General', () => {
+    expect(isPoolDayCashOpen(
+      [{ status: 'open', cashRegisterId: 'caja-gen' }],
+      [{ id: 'caja-gen', name: 'Caja General Secretaría', isActive: true }],
+    )).toBe(true);
+    expect(isPoolDayCashOpen(
+      [{ status: 'closed', cashRegisterId: 'caja-gen', notes: 'Abierta al habilitar pileta' }],
+      [{ id: 'caja-gen', name: 'Caja General Secretaría', isActive: true }],
+    )).toBe(false);
   });
 });
