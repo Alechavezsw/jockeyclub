@@ -1,4 +1,4 @@
-/** Desglose de cada liquidacion de Lila (Cuotas), al 29 de septiembre de 2026. */
+/** Desglose de cada liquidacion de Lila (Cuotas), al 30 de septiembre de 2026 a las 08:47. */
 
 export const FEE_PACK_CONCEPTS = {
   "814": {
@@ -2017,14 +2017,14 @@ export const FEE_PACK_CONCEPTS = {
   "1382": {
     "id": 1382,
     "title": "Liquidación - Octubre del 2026",
-    "total": 67677000,
+    "total": 63233000,
     "concepts": [
       {
         "id": "39279",
         "label": "ABONO TENIS",
-        "holders": 61,
-        "amount": 10000,
-        "total": 610000
+        "holders": 63,
+        "amount": 12000,
+        "total": 756000
       },
       {
         "id": "39280",
@@ -2043,7 +2043,7 @@ export const FEE_PACK_CONCEPTS = {
       {
         "id": "39282",
         "label": "GRUPO FAMILIAR (Familiar)",
-        "holders": 3670,
+        "holders": 3423,
         "amount": 0,
         "total": 0
       },
@@ -2057,7 +2057,7 @@ export const FEE_PACK_CONCEPTS = {
       {
         "id": "39284",
         "label": "GRUPO FAMILIAR FUNDADOR",
-        "holders": 3,
+        "holders": 4,
         "amount": 0,
         "total": 0
       },
@@ -2078,16 +2078,16 @@ export const FEE_PACK_CONCEPTS = {
       {
         "id": "39287",
         "label": "SOCIO (Vitalicio)",
-        "holders": 122,
+        "holders": 120,
         "amount": 0,
         "total": 0
       },
       {
         "id": "39288",
         "label": "SOCIO FAMILIAR",
-        "holders": 869,
+        "holders": 808,
         "amount": 70000,
-        "total": 60830000
+        "total": 56560000
       },
       {
         "id": "39289",
@@ -2099,9 +2099,9 @@ export const FEE_PACK_CONCEPTS = {
       {
         "id": "39290",
         "label": "SOCIO INDIVIDUAL",
-        "holders": 139,
+        "holders": 131,
         "amount": 40000,
-        "total": 5560000
+        "total": 5240000
       },
       {
         "id": "39291",
@@ -2127,6 +2127,7 @@ export const FEE_PACK_CONCEPTS = {
 };
 
 export function feePackForPeriod(period) {
+  if (period?.pack?.concepts?.length) return period.pack;
   const id = Number(period?.accessinId);
   if (!id) return null;
   return FEE_PACK_CONCEPTS[id] || FEE_PACK_CONCEPTS[String(id)] || null;

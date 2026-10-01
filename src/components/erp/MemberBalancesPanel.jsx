@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import {
-  ArrowLeft, Eye, FileDown, FileText, LifeBuoy, Lock, Plus, Search, Share2, Trash2,
+  ArrowLeft, Eye, FileDown, LifeBuoy, List, Lock, Plus, Printer, RefreshCw, Search, Share2, Trash2, Users,
 } from 'lucide-react';
 import CuotasDeskToolbar, { CuotasTool } from './CuotasDeskToolbar';
 import { exportAccountPaymentPdf } from '../../domain/accounting/exportAccountPaymentPdf';
@@ -17,8 +17,10 @@ import {
   entriesFromGroupLines,
   entriesFromSupportLines,
   familyBalanceForMember,
+  compareBalanceRows,
   filterMembersForBalances,
   formatSpanishLongDate,
+  lilaClubNumber,
   groupEntriesByMonth,
   MEMBER_BALANCES_SNAPSHOTS,
   memberStatusLabel,
@@ -45,8 +47,25 @@ function formatLilaMoney(n, { signed = false } = {}) {
   return `$ ${abs}`;
 }
 
+function formatLilaListMoney(n) {
+  const v = Number(n) || 0;
+  const abs = Math.abs(v).toFixed(2);
+  return v < 0 ? `$ -${abs}` : `$ ${abs}`;
+}
+
+function pageWindow(current, total) {
+  const width = 5;
+  const start = Math.max(0, Math.min(current - 2, total - width));
+  const end = Math.min(total, start + width);
+  return Array.from({ length: Math.max(0, end - start) }, (_, i) => start + i);
+}
+
 const EMPTY_FILTERS = {
-  query: '',
+  firstName: '',
+  lastName: '',
+  dni: '',
+  memberNumber: '',
+  familyId: '',
   status: 'habilitado',
   tier: 'all',
 };
@@ -74,7 +93,7 @@ function MemberBalancesContent({
   const tiers = useMemo(() => getActiveTiers(tierCatalog), [tierCatalog]);
 
   const [view, setView] = useState('list'); // list | summary | payment | boleto | entry
-  const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [draft, setDraft] = useState(EMPTY_FILTERS);
   const [applied, setApplied] = useState(EMPTY_FILTERS);
   const [page, setPage] = useState(0);
   const [selectedMember, setSelectedMember] = useState(null);
@@ -115,14 +134,18 @@ function MemberBalancesContent({
     return filterMembersForBalances(members, { query: q, status: 'all' }).slice(0, 12);
   }, [members, entryQuery, entryForm.memberNumber, entryForm.memberName]);
 
-  const applyFilters = (next) => {
-    setFilters(next);
-    setApplied(next);
+  const setDraftField = (key, value) => {
+    setDraft((current) => ({ ...current, [key]: value }));
+  };
+
+  const submitSearch = (event) => {
+    event.preventDefault();
+    setApplied(draft);
     setPage(0);
   };
 
   const filtered = useMemo(
-    () => filterMembersForBalances(members, applied),
+    () => filterMembersForBalances(members, applied).toSorted(compareBalanceRows),
     [members, applied]
   );
 
@@ -235,16 +258,17 @@ function MemberBalancesContent({
     setView('payment');
   };
 
-  const openBoleto = () => {
-    if (!selectedMember) return;
+  const openBoleto = (member = selectedMember) => {
+    if (!member) return;
+    setSelectedMember(member);
     const now = new Date();
     const y = now.getFullYear();
     const m = now.getMonth();
     const periodLabel = `${['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'][m]} del ${y}`;
-    const amount = Number(currentAccountBalanceOf(selectedMember)) || 0;
+    const amount = Number(currentAccountBalanceOf(member)) || 0;
     const due1 = `${y}-${String(m + 1).padStart(2, '0')}-10`;
     const due2 = `${y}-${String(m + 1).padStart(2, '0')}-30`;
-    setBoleto(buildPaymentBoleto(selectedMember, {
+    setBoleto(buildPaymentBoleto(member, {
       periodLabel,
       amount,
       dueDate1: due1,
@@ -574,7 +598,7 @@ function MemberBalancesContent({
               label="Boleto de pago"
               hint="Imprimir liquidación"
               tone="emerald"
-              onClick={openBoleto}
+              onClick={() => openBoleto()}
             />
           </div>
         </nav>
@@ -815,56 +839,113 @@ function MemberBalancesContent({
 
       <section className="supplier-pay-import-block">
         <h4 className="supplier-pay-import-title">
-          Buscar socio
+          Buscar por
           <CurrentAccountCutNote members={members} />
         </h4>
-        <p className="disc-field-hint" style={{ marginTop: 0 }}>
-          Nombre, DNI, Nº de socio o grupo familiar
-        </p>
-        <div className="member-balances-search">
-          <div className="members-search-field">
-            <Search size={20} aria-hidden className="members-search-icon" />
+        <form className="member-balances-search" onSubmit={submitSearch}>
+          <label>
+            <span className="form-label member-balances-search-label">Nombre del socio</span>
             <input
-              id="member-balances-search"
-              type="search"
-              className="members-search-input"
-              placeholder="Nombre, DNI, Nº de socio o grupo familiar…"
-              value={filters.query}
-              onChange={(e) => applyFilters({ ...filters, query: e.target.value })}
+              id="balance-first-name"
+              className="form-input"
+              value={draft.firstName}
+              onChange={(e) => setDraftField('firstName', e.target.value)}
               autoComplete="off"
             />
-          </div>
+          </label>
           <label>
-            <span className="form-label">Estado</span>
-            <select className="form-input" value={filters.status} onChange={(e) => applyFilters({ ...filters, status: e.target.value })}>
-              <option value="all">Todos</option>
+            <span className="form-label member-balances-search-label">Apellido del socio</span>
+            <input
+              id="balance-last-name"
+              className="form-input"
+              value={draft.lastName}
+              onChange={(e) => setDraftField('lastName', e.target.value)}
+              autoComplete="off"
+            />
+          </label>
+          <label>
+            <span className="form-label member-balances-search-label">Dni del socio</span>
+            <input
+              id="balance-dni"
+              className="form-input"
+              inputMode="numeric"
+              value={draft.dni}
+              onChange={(e) => setDraftField('dni', e.target.value)}
+              autoComplete="off"
+            />
+          </label>
+          <label>
+            <span className="form-label member-balances-search-label">Número de socio</span>
+            <input
+              id="balance-member-number"
+              className="form-input"
+              inputMode="numeric"
+              value={draft.memberNumber}
+              onChange={(e) => setDraftField('memberNumber', e.target.value)}
+              autoComplete="off"
+            />
+          </label>
+          <label>
+            <span className="form-label member-balances-search-label">Identificador grupo familiar</span>
+            <input
+              id="balance-family"
+              className="form-input"
+              value={draft.familyId}
+              onChange={(e) => setDraftField('familyId', e.target.value)}
+              autoComplete="off"
+            />
+          </label>
+          <label>
+            <span className="form-label member-balances-search-label">Estado</span>
+            <select
+              id="balance-status"
+              className="form-input"
+              value={draft.status}
+              onChange={(e) => setDraftField('status', e.target.value)}
+            >
               <option value="habilitado">Habilitado</option>
-              <option value="inhabilitado">Inhabilitado</option>
+              <option value="deshabilitado">Deshabilitado</option>
             </select>
           </label>
           <label>
-            <span className="form-label">Categoría</span>
-            <select className="form-input" value={filters.tier} onChange={(e) => applyFilters({ ...filters, tier: e.target.value })}>
-              <option value="all">Todas</option>
+            <span className="form-label member-balances-search-label">Categoria de cuota</span>
+            <select
+              id="balance-tier"
+              className="form-input"
+              value={draft.tier}
+              onChange={(e) => setDraftField('tier', e.target.value)}
+            >
+              <option value="all" />
               {tiers.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
           </label>
-        </div>
+          <div className="member-balances-search-actions">
+            <button type="submit" className="btn btn-tan">Buscar</button>
+          </div>
+        </form>
       </section>
+
+      <h4 className="supplier-pay-import-title">Socios</h4>
 
       <div className="disc-pager">
         <span>
           {filtered.length === 0
             ? 'No se encontraron resultados'
-            : `Mostrando ${safePage * PAGE_SIZE + 1} - ${Math.min(filtered.length, (safePage + 1) * PAGE_SIZE)} de ${filtered.length}`}
+            : `Mostrando ${safePage * PAGE_SIZE + 1} - ${Math.min(filtered.length, (safePage + 1) * PAGE_SIZE)} en ${filtered.length}`}
         </span>
         {filtered.length > PAGE_SIZE ? (
           <div className="cash-efectivo-pager">
             <button type="button" className="btn btn-secondary btn-sm" disabled={safePage <= 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>Anterior</button>
-            <button type="button" className={`cash-efectivo-page-btn${safePage === 0 ? ' is-active' : ''}`} onClick={() => setPage(0)}>1</button>
-            {totalPages > 1 ? (
-              <button type="button" className={`cash-efectivo-page-btn${safePage === totalPages - 1 ? ' is-active' : ''}`} onClick={() => setPage(totalPages - 1)}>{totalPages}</button>
-            ) : null}
+            {pageWindow(safePage, totalPages).map((index) => (
+              <button
+                key={index}
+                type="button"
+                className={`cash-efectivo-page-btn${safePage === index ? ' is-active' : ''}`}
+                onClick={() => setPage(index)}
+              >
+                {index + 1}
+              </button>
+            ))}
             <button type="button" className="btn btn-secondary btn-sm" disabled={safePage >= totalPages - 1} onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}>Siguiente</button>
           </div>
         ) : null}
@@ -876,7 +957,7 @@ function MemberBalancesContent({
             <tr>
               <th>#</th>
               <th>Número de socio</th>
-              <th>Socio titular</th>
+              <th>Socio Titular</th>
               <th>Balance</th>
               <th>Balance familiar</th>
               <th>Estado</th>
@@ -893,37 +974,41 @@ function MemberBalancesContent({
               const balance = currentAccountBalanceOf(m);
               return (
                 <tr key={m.memberId || m.id}>
-                  <td>{m.accessinId || String(m.memberId).slice(-5)}</td>
-                  <td>{memberNumberOf(m)}</td>
+                  <td>{m.accessinId || ''}</td>
+                  <td>{lilaClubNumber(m)}</td>
                   <td style={{ fontWeight: 600 }}>
                     <button type="button" className="member-balances-open" onClick={() => openSummary(m, 'member')}>
                       {m.name}
                     </button>
                   </td>
-                  <td style={{ fontWeight: 700, color: balance > 0 ? 'var(--emerald-accent)' : undefined }}>
-                    {formatLilaMoney(balance)}
+                  <td className="tabular-nums" style={{ fontWeight: 700, color: balance > 0 ? 'var(--emerald-accent)' : undefined }}>
+                    {formatLilaListMoney(balance)}
                   </td>
                   <td>
                     {fam.isTitular
-                      ? <span style={{ fontWeight: 700, color: 'var(--emerald-accent)' }}>{formatLilaMoney(fam.amount)}</span>
+                      ? <span className="tabular-nums" style={{ fontWeight: 700, color: 'var(--emerald-accent)' }}>{formatLilaListMoney(fam.amount)}</span>
                       : <span style={{ color: 'var(--text-muted)' }}>{fam.label}</span>}
                   </td>
                   <td>{memberStatusLabel(m)}</td>
                   <td>
                     <div className="cash-lila-row-actions">
-                      <button type="button" className="cash-lila-icon-btn is-edit" title="Resumen de cuenta" aria-label="Resumen de cuenta" onClick={() => openSummary(m, 'member')}>
-                        <Eye size={13} />
+                      <button type="button" className="cash-lila-icon-btn is-edit" title="Resumen de cuenta familiar" aria-label="Resumen de cuenta familiar" onClick={() => openSummary(m, 'family')}>
+                        <Users size={13} />
                       </button>
-                      <button type="button" className="cash-lila-icon-btn is-edit" title="Resumen de soporte" aria-label="Resumen de soporte" onClick={() => openSummary(m, 'support')}>
+                      <button type="button" className="cash-lila-icon-btn is-edit" title="Resumen de cuenta" aria-label="Resumen de cuenta" onClick={() => openSummary(m, 'member')}>
+                        <List size={13} />
+                      </button>
+                      <button type="button" className="cash-lila-icon-btn is-edit" title="Resumen de cuenta para soporte" aria-label="Resumen de cuenta para soporte" onClick={() => openSummary(m, 'support')}>
                         <LifeBuoy size={13} />
                       </button>
-                      {fam.isTitular ? (
-                        <button type="button" className="cash-lila-icon-btn is-edit" title="Resumen grupo familiar" onClick={() => openSummary(m, 'family')}>
-                          <FileText size={13} />
-                        </button>
-                      ) : null}
-                      <button type="button" className="cash-lila-icon-btn is-edit" title="Nueva entrada" onClick={() => openEntry(m)}>
-                        <Plus size={13} />
+                      <button type="button" className="cash-lila-icon-btn is-edit" title="Regenerar Boleto de Pago" aria-label="Regenerar Boleto de Pago" onClick={() => openBoleto(m)}>
+                        <RefreshCw size={13} />
+                      </button>
+                      <button type="button" className="cash-lila-icon-btn is-edit" title="Boleto de Pago" aria-label="Boleto de Pago" onClick={() => openBoleto(m)}>
+                        <Printer size={13} />
+                      </button>
+                      <button type="button" className="cash-lila-icon-btn is-edit" title="Ver cuenta corriente" aria-label="Ver cuenta corriente" onClick={() => openSummary(m, 'member')}>
+                        <Eye size={13} />
                       </button>
                     </div>
                   </td>

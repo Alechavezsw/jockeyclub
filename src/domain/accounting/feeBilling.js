@@ -8,7 +8,7 @@ const MONTHS_ES = [
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
 ];
 
-/** Períodos 2026 tal como están en Lila (Cuotas), al 30 de septiembre de 2026 a las 08:47. */
+/** Períodos 2026 tal como están en Lila (Cuotas). Enero a septiembre: corte del 30 de septiembre de 2026 a las 08:47. Octubre: liquidación procesada, al 1 de octubre de 2026. */
 export const ACCESSIN_FEE_PERIODS = [
   { id: 'fp-814', accessinId: 814, year: 2026, month: 1, amount: 64545500, generatedAt: '2025-12-31', status: 'processed' },
   { id: 'fp-849', accessinId: 849, year: 2026, month: 2, amount: 66554250, generatedAt: '2026-01-13', status: 'processed' },
@@ -19,7 +19,7 @@ export const ACCESSIN_FEE_PERIODS = [
   { id: 'fp-1195', accessinId: 1195, year: 2026, month: 7, amount: 61075000, generatedAt: '2026-06-29', status: 'processed' },
   { id: 'fp-1287', accessinId: 1287, year: 2026, month: 8, amount: 57441000, generatedAt: '2026-08-03', status: 'processed' },
   { id: 'fp-1311', accessinId: 1311, year: 2026, month: 9, amount: 57843000, generatedAt: '2026-08-14', status: 'processed', hasAccountDetails: true },
-  { id: 'fp-1382', accessinId: 1382, year: 2026, month: 10, amount: 67677000, generatedAt: null, status: 'draft' },
+  { id: 'fp-1382', accessinId: 1382, year: 2026, month: 10, amount: 63233000, generatedAt: '2026-09-09', status: 'processed' },
   { id: 'fp-2026-11', accessinId: null, year: 2026, month: 11, amount: 0, generatedAt: null, status: 'pending' },
   { id: 'fp-2026-12', accessinId: null, year: 2026, month: 12, amount: 0, generatedAt: null, status: 'pending' },
 ];

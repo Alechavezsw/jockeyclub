@@ -3,7 +3,10 @@ import {
   applyJoinApplicationToMember,
   joinDateFromApplication,
   matchMemberForAccessRequest,
+  accessInviteMailError,
   accessReasonLabel,
+  portalLoginUrl,
+  requestStatusLabel,
   buildRequestDetail,
   requestPdfFileName,
   buildAccessInvite,
@@ -114,6 +117,14 @@ describe('selfService', () => {
 
   it('etiqueta el motivo', () => {
     expect(accessReasonLabel('forgot_password')).toBe('Olvidé la contraseña');
+  });
+
+  it('al aprobar dice Aprobado y no muestra la secreta de Resend', () => {
+    expect(portalLoginUrl()).toBe('https://www.jockeyclubsj.com.ar/');
+    expect(requestStatusLabel('approved')).toBe('Aprobado');
+    expect(requestStatusLabel('pending')).toBe('Pendiente');
+    expect(accessInviteMailError('Falta configurar RESEND_API_KEY en las secretas de Supabase.')).toBe('');
+    expect(accessInviteMailError('El destinatario rebotó')).toBe('El destinatario rebotó');
   });
 
   it('arma la ficha de ingreso para modal y PDF', () => {

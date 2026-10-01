@@ -8,6 +8,7 @@ import {
   buildRequestDetail,
   formatRequestWhen,
   matchMemberForAccessRequest,
+  accessInviteMailError,
   requestStatusLabel,
 } from '../../domain/members/selfService';
 import { getTierDisplayName } from '../../domain/members/tiers';
@@ -129,7 +130,8 @@ export default function MemberRequestsSection({
 
   const openAccessDetail = (item) => {
     const match = matchMemberForAccessRequest(members, item);
-    setInvite(invitesById[item.id] || null);
+    const stored = invitesById[item.id];
+    setInvite(stored ? { ...stored, emailError: accessInviteMailError(stored.emailError) } : null);
     setDeliverError('');
     setDetail({
       kind: 'acceso',
@@ -146,7 +148,8 @@ export default function MemberRequestsSection({
 
   const openJoinDetail = (item) => {
     const match = joinMatch(item);
-    setInvite(invitesById[item.id] || null);
+    const stored = invitesById[item.id];
+    setInvite(stored ? { ...stored, emailError: accessInviteMailError(stored.emailError) } : null);
     setDeliverError('');
     setDetail({
       kind: 'alta',
@@ -164,6 +167,31 @@ export default function MemberRequestsSection({
     setDeliverError('');
   };
 
+  const markDetailApproved = (kind, source) => {
+    setDetail((prev) => {
+      if (!prev || prev.item?.id !== source.id) return prev;
+      const item = { ...prev.item, status: 'approved' };
+      if (kind === 'acceso') {
+        const match = prev.match || matchMemberForAccessRequest(members, item);
+        return {
+          ...prev,
+          item,
+          match,
+          data: buildRequestDetail('acceso', item, { matchName: match?.name }),
+        };
+      }
+      const match = joinMatch(item);
+      return {
+        ...prev,
+        item,
+        data: buildRequestDetail('alta', item, {
+          tierLabel: item.requestedTier ? getTierDisplayName(item.requestedTier) : '',
+          matchName: match ? `${match.name} · Nº ${match.memberId}` : '',
+        }),
+      };
+    });
+  };
+
   const startDeliver = async (kind, item) => {
     if (!item || typeof onDeliverAccess !== 'function') return;
     if (kind === 'acceso') openAccessDetail(item);
@@ -174,10 +202,14 @@ export default function MemberRequestsSection({
       const next = await onDeliverAccess(kind, item, null, (ready) => {
         setInvite(ready);
         setInvitesById((prev) => ({ ...prev, [item.id]: ready }));
+        markDetailApproved(kind, item);
         setBusyId('');
       });
-      setInvite(next);
-      setInvitesById((prev) => ({ ...prev, [item.id]: next }));
+      const mailError = accessInviteMailError(next?.emailError);
+      const shown = mailError ? next : { ...next, emailError: '' };
+      setInvite(shown);
+      setInvitesById((prev) => ({ ...prev, [item.id]: shown }));
+      markDetailApproved(kind, item);
     } catch (err) {
       setDeliverError(err?.message || 'No se pudo generar el acceso.');
     } finally {

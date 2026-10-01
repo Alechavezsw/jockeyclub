@@ -5,7 +5,8 @@ import { buildWhatsAppDuesUrl, duesDueMoment } from '../../domain/members/dues';
 import { memberNumberOf } from '../../domain/members/households';
 import { todayISODateAR } from '../../lib/arDate';
 import { formatCurrency } from '../../domain/accounting/journal';
-import { composeClubFinance, financeFromMonthlySummary, lilaContabilidadFromSnapshots } from '../../domain/accounting/opsFinanceSnapshot';
+import { liquidatedTotalForMonth } from '../../domain/accounting/feePeriodLiquidation';
+import { appFinanceSinceHandoff, collectionForCalendarMonth, composeClubFinance, financeFromMonthlySummary, lilaContabilidadFromSnapshots } from '../../domain/accounting/opsFinanceSnapshot';
 import { monthlyBalanceSeed } from '../../domain/accounting/monthlyBalance';
 import { monthlyBalanceSummarySeed } from '../../domain/accounting/monthlyBalanceSummary';
 import {
@@ -13,7 +14,8 @@ import {
   listUnpaidFeeMembersForPeriod,
   periodKeyFromDate,
 } from '../../domain/accounting/detailedCurrentAccounts';
-import { cashSeed } from '../../domain/accounting/cashLedger';
+import { currentMonthFeeCollected } from '../../domain/accounting/cashPaymentDetail';
+import { cashSeed, cashMovementsSeed } from '../../domain/accounting/cashLedger';
 import { cobranzasSeed } from '../../domain/accounting/cobranzas';
 import { useSnapshotSeed } from '../../hooks/useSnapshots';
 
@@ -22,6 +24,7 @@ const LILA_MONEY_SNAPSHOTS = [
   'accessinMonthlyBalanceSummary',
   'accessinDetailedCurrentAccounts',
   'accessinCashSnapshot',
+  'accessinCashMovements',
   'accessinCobranzas',
 ];
 
@@ -42,13 +45,6 @@ function readLilaMoney() {
     ...currentMonth,
     lastIncomes: detailed?.lastIncomes || [],
   };
-}
-
-function monthFromPeriod(periodTo, fallback) {
-  if (!periodTo) return fallback;
-  const [y, m] = String(periodTo).split('-');
-  const raw = new Date(Number(y), Number(m) - 1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
-  return raw.charAt(0).toUpperCase() + raw.slice(1);
 }
 
 function WhatsAppLogo({ size = 18 }) {
@@ -177,6 +173,7 @@ export default function DuesDueBanner({
   journalEntries = [],
   chartOfAccounts = [],
   feePeriods = [],
+  tierCatalog = [],
   afterCollect = null,
 }) {
   const moment = duesDueMoment(today);
@@ -192,19 +189,47 @@ export default function DuesDueBanner({
     }) || lilaCut,
     [lilaCut, members, journalEntries, chartOfAccounts, feePeriods, today],
   );
+  const monthKey = String(today).slice(0, 7);
+  const cashMoves = useMemo(() => {
+    const recent = cashSeed().ACCESSIN_CASH_SNAPSHOT?.recentMovements || [];
+    const all = cashMovementsSeed().ACCESSIN_CASH_MOVEMENTS || [];
+    return [...recent, ...all];
+  }, [lilaCut]);
+  const monthFlow = useMemo(
+    () => appFinanceSinceHandoff({
+      members,
+      journalEntries,
+      chartOfAccounts,
+      feePeriods,
+      since: `${monthKey}-01`,
+      today,
+    }),
+    [members, journalEntries, chartOfAccounts, feePeriods, monthKey, today],
+  );
+  const calendar = collectionForCalendarMonth({
+    money,
+    monthFlow,
+    monthKey,
+    cashMovements: cashMoves,
+  });
+  const sheetLiquidated = liquidatedTotalForMonth(feePeriods, monthKey, { members, tierCatalog });
+  const collected = useMemo(
+    () => currentMonthFeeCollected(cashMoves, members, monthKey),
+    [cashMoves, members, monthKey],
+  );
+  const liquidated = sheetLiquidated != null ? sheetLiquidated : calendar.liquidated;
   const periodKey = periodKeyFromDate(money?.periodTo) || periodKeyFromDate(money?.periodKey);
+  const cutIsThisMonth = String(periodKey || '').slice(0, 7) === monthKey;
   const unpaidRows = useMemo(
-    () => (enabled && periodKey ? listUnpaidFeeMembersForPeriod(periodKey) : []),
-    [enabled, periodKey, money],
+    () => (enabled && cutIsThisMonth ? listUnpaidFeeMembersForPeriod(periodKey) : []),
+    [enabled, cutIsThisMonth, periodKey],
   );
   if (!enabled) return null;
 
-  const collected = Number(money?.recaudado) || 0;
-  const liquidated = Number(money?.liquidado) || 0;
-  const hasCut = collected > 0 || liquidated > 0;
   const pending = Math.max(0, liquidated - collected);
   const rate = liquidated > 0 ? Math.min(100, Math.round((collected / liquidated) * 100)) : 0;
-  const monthLabel = monthFromPeriod(money?.periodTo, `${moment.monthName} ${moment.year}`);
+  const monthName = moment.monthName.charAt(0).toUpperCase() + moment.monthName.slice(1);
+  const monthLabel = `${monthName} de ${moment.year}`;
   const urgent = moment.phase === 'today' || moment.phase === 'after';
 
   let headline = `El vencimiento es el ${moment.dueLabel}`;
@@ -230,30 +255,24 @@ export default function DuesDueBanner({
           <p>{detail}</p>
         </div>
         <div className="due-collect-money">
-          <p className="due-collect-kicker">Recaudado{hasCut ? ` · ${monthLabel}` : ''}</p>
+          <p className="due-collect-kicker">Recaudado · {monthLabel}</p>
           <p className="due-collect-amount tabular-nums">
-            {hasCut ? formatCurrency(collected) : '—'}
+            {formatCurrency(collected)}
           </p>
-          {hasCut ? (
-            <p className="due-collect-rest">
-              de {formatCurrency(liquidated)} liquidado
-              {pending > 0 ? ` · falta cobrar ${formatCurrency(pending)}` : ' · el mes está cubierto'}
-            </p>
-          ) : (
-            <p className="due-collect-rest">El corte del mes todavía no cargó.</p>
-          )}
-          {hasCut && liquidated > 0 ? (
-            <div
-              className="due-collect-track"
-              role="meter"
-              aria-valuenow={rate}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-label={`${rate}% recaudado de lo liquidado`}
-            >
-              <span style={{ width: `${Math.max(collected > 0 ? 4 : 0, rate)}%` }} />
-            </div>
-          ) : null}
+          <p className="due-collect-rest">
+            de {formatCurrency(liquidated)} liquidado
+            {pending > 0 ? ` · falta cobrar ${formatCurrency(pending)}` : (liquidated > 0 ? ' · el mes está cubierto' : '')}
+          </p>
+          <div
+            className="due-collect-track"
+            role="meter"
+            aria-valuenow={rate}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label={`${rate}% recaudado de lo liquidado`}
+          >
+            <span style={{ width: `${rate}%` }} />
+          </div>
         </div>
         {urgent ? <span className="due-collect-mark" aria-hidden="true">{moment.dueDay}</span> : null}
       </section>

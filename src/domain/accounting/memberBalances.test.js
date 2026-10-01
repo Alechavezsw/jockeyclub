@@ -5,8 +5,10 @@ import {
   buildAccessinAccountEntries,
   buildPaymentBoleto,
   createAccountEntry,
+  compareBalanceRows,
   familyBalanceForMember,
   filterMembersForBalances,
+  lilaClubNumber,
   entriesFromGroupLines,
   entriesFromSupportLines,
   groupEntriesByMonth,
@@ -128,11 +130,65 @@ describe('memberBalances / saldos', () => {
 
   it('etiqueta pending y suspended', () => {
     expect(memberStatusLabel({ status: 'pending' })).toBe('Pendiente');
-    expect(memberStatusLabel({ status: 'suspended' })).toBe('Inhabilitado');
+    expect(memberStatusLabel({ status: 'suspended' })).toBe('Deshabilitado');
     expect(filterMembersForBalances(
       [{ memberId: '1', name: 'A', status: 'pending' }],
       { status: 'habilitado' },
     )).toHaveLength(0);
+  });
+
+  it('busca como Lila: apellido, dni, número exacto, grupo y categoría', () => {
+    const members = [
+      {
+        memberId: '5969',
+        accessinId: 85819,
+        name: 'Ana López',
+        documentNumber: '30111222',
+        status: 'active',
+        tier: 'grupo_familiar_familiar',
+        familyGroupName: 'GF - Ejemplo',
+        familyPrincipalNumber: '10451',
+      },
+      {
+        memberId: '10451',
+        accessinId: 85818,
+        name: 'Carlos López',
+        documentNumber: '20999888',
+        status: 'active',
+        tier: 'socio_familiar',
+        cuotaCategories: ['SOCIO FAMILIAR', 'ABONO TENIS'],
+        familyGroupName: 'GF - Ejemplo',
+        familyPrincipalNumber: '10451',
+      },
+      {
+        memberId: '9624',
+        accessinId: 85852,
+        name: 'Lucía Ibáñez',
+        documentNumber: '40123456',
+        status: 'inactive',
+        tier: 'socio_familiar',
+      },
+    ];
+    expect(filterMembersForBalances(members, { status: 'habilitado', lastName: 'lopez' })).toHaveLength(2);
+    expect(filterMembersForBalances(members, { status: 'habilitado', firstName: 'ana', lastName: 'lópez' }).map((m) => m.memberId)).toEqual(['5969']);
+    expect(filterMembersForBalances(
+      [...members, {
+        memberId: '10485',
+        name: 'Lucrecia Del Valle Aracena Bordonaro',
+        status: 'active',
+      }],
+      { status: 'habilitado', firstName: 'Aracena Bordonaro Lucrecia Del Vall' },
+    ).map((m) => m.memberId)).toEqual(['10485']);
+    expect(filterMembersForBalances(members, { status: 'all', dni: '30.111.222' }).map((m) => m.memberId)).toEqual(['5969']);
+    expect(filterMembersForBalances(members, { status: 'habilitado', memberNumber: '05969' }).map((m) => m.memberId)).toEqual(['5969']);
+    expect(filterMembersForBalances(members, { status: 'habilitado', memberNumber: '596' })).toHaveLength(0);
+    expect(filterMembersForBalances(members, { status: 'habilitado', familyId: 'ejemplo' }).map((m) => m.memberId).toSorted()).toEqual(['10451', '5969']);
+    expect(filterMembersForBalances(members, { status: 'habilitado', tier: 'abono_tenis' }).map((m) => m.memberId)).toEqual(['10451']);
+    expect(filterMembersForBalances(members, { status: 'deshabilitado' }).map((m) => m.memberId)).toEqual(['9624']);
+    expect(familyBalanceForMember(members[2], members).label).toBe('No pertenece a un grupo familiar');
+    expect(familyBalanceForMember(members[0], members).label).toBe('No es titular de un grupo familiar');
+    expect(lilaClubNumber(members[0])).toBe('05969');
+    expect([members[1], members[0], members[2]].toSorted(compareBalanceRows).map((m) => m.accessinId)).toEqual([85818, 85819, 85852]);
   });
 
   it('aplica una entrada al saldo del socio', () => {

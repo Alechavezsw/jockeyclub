@@ -45,12 +45,13 @@ describe('feeBilling', () => {
     const periods = feePeriodsForYear(resolveFeePeriods(null), 2026);
     expect(periods).toHaveLength(12);
     expect(periodLabel(periods[0])).toBe('Enero del 2026');
-    expect(periods.filter((p) => p.status === 'processed')).toHaveLength(9);
+    expect(periods.filter((p) => p.status === 'processed')).toHaveLength(10);
     expect(periods.find((p) => p.month === 9).amount).toBe(57843000);
     expect(periods.find((p) => p.month === 10)).toMatchObject({
       accessinId: 1382,
-      amount: 67677000,
-      status: 'draft',
+      amount: 63233000,
+      status: 'processed',
+      generatedAt: '2026-09-09',
     });
     expect(periods.find((p) => p.month === 11).status).toBe('pending');
   });

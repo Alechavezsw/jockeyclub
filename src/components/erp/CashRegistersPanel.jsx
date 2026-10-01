@@ -13,6 +13,8 @@ import {
   Printer,
   Trash2,
   Search,
+  ChevronLeft,
+  ChevronRight,
   Landmark,
   Banknote,
   FolderOpen,
@@ -30,12 +32,16 @@ import {
   accessinCashBalanceCards,
   cashSeed,
   chequesSeed,
+  cashMovementMonthSheets,
   enrichCashMovementsWithMembers,
   filterAccessinCashMovements,
   filterAccessinCheques,
   formatAccessinCashDate,
   recalculateAccessinCashTotal,
 } from '../../domain/accounting/cashLedger';
+import { buildCashPaymentDetail } from '../../domain/accounting/cashPaymentDetail';
+import { exportCashPaymentPdf } from '../../domain/accounting/exportCashPaymentPdf';
+import CashPaymentDetailDialog from './CashPaymentDetailDialog';
 import { formatCurrency } from '../../domain/accounting/journal';
 import CashCobranzasSection from './CashCobranzasSection';
 import CashBankAccountsSection from './CashBankAccountsSection';
@@ -148,6 +154,21 @@ function CashRegistersContent({
     query: '',
     showAll: false,
   });
+  const [sheetMonth, setSheetMonth] = useState('');
+  const [paymentDetail, setPaymentDetail] = useState(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || window.location.hash !== '#movimientos-de-caja') return undefined;
+    setLedgerFilter((current) => (
+      current.view === 'movements' && current.showAll && !current.walletKind
+        ? current
+        : { ...current, view: 'movements', walletKind: null, showAll: true }
+    ));
+    const timer = window.setTimeout(() => {
+      document.getElementById('movimientos-de-caja')?.scrollIntoView({ block: 'start' });
+    }, 60);
+    return () => window.clearTimeout(timer);
+  }, []);
   const [recalcTotal, setRecalcTotal] = useState(null);
 
   const selectedRegister = cashRegisters.find((r) => r.id === selectedRegisterId);
@@ -183,14 +204,32 @@ function CashRegistersContent({
     [accessinCheques, ledgerFilter.query]
   );
 
+  const monthSheets = useMemo(() => {
+    const scoped = ledgerFilter.walletKind
+      ? enrichedLedger.filter((row) => row.walletKind === ledgerFilter.walletKind)
+      : enrichedLedger;
+    return cashMovementMonthSheets(scoped);
+  }, [enrichedLedger, ledgerFilter.walletKind]);
+
+  const now = new Date();
+  const todayMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const activeMonth = monthSheets.some((sheet) => sheet.key === sheetMonth)
+    ? sheetMonth
+    : (monthSheets.find((sheet) => sheet.key === todayMonth)?.key || monthSheets[0]?.key || '');
+  const activeSheet = monthSheets.find((sheet) => sheet.key === activeMonth) || null;
+  const activeSheetIndex = monthSheets.findIndex((sheet) => sheet.key === activeMonth);
+  const newerSheet = activeSheetIndex > 0 ? monthSheets[activeSheetIndex - 1] : null;
+  const olderSheet = activeSheetIndex >= 0 ? monthSheets[activeSheetIndex + 1] || null : null;
+
   const ledgerRows = useMemo(() => {
-    const limit = ledgerFilter.showAll ? null : 25;
+    const onMonthSheet = ledgerFilter.view !== 'cheques' && Boolean(activeMonth);
     return filterAccessinCashMovements(enrichedLedger, {
       walletKind: ledgerFilter.walletKind,
       query: ledgerFilter.query,
-      limit,
+      monthKey: onMonthSheet ? activeMonth : null,
+      limit: onMonthSheet ? null : (ledgerFilter.showAll ? null : 25),
     });
-  }, [enrichedLedger, ledgerFilter]);
+  }, [enrichedLedger, ledgerFilter, activeMonth]);
 
   const relatedAccounts = useMemo(
     () =>
@@ -403,14 +442,14 @@ function CashRegistersContent({
             ))}
           </div>
 
-          <div>
+          <div id="movimientos-de-caja">
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '0.65rem' }}>
               <h5 className="cash-lila-section-title" style={{ margin: 0 }}>
                 {ledgerFilter.view === 'cheques'
                   ? `Cheques en cartera · ${formatAccessinCashDate(ACCESSIN_CHEQUES_AS_OF)}`
-                  : ledgerFilter.showAll
-                    ? 'Movimientos de caja'
-                    : 'Últimos movimientos de caja'}
+                  : activeSheet
+                    ? `Hoja de ${activeSheet.label}`
+                    : 'Movimientos de caja'}
               </h5>
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
                 {(ledgerFilter.walletKind || ledgerFilter.view === 'cheques') ? (
@@ -484,6 +523,49 @@ function CashRegistersContent({
               </div>
             ) : (
               <>
+                {activeSheet ? (
+                  <div className="cash-month-sheet">
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      disabled={!olderSheet}
+                      aria-label="Mes anterior"
+                      onClick={() => olderSheet && setSheetMonth(olderSheet.key)}
+                    >
+                      <ChevronLeft size={14} />
+                      {olderSheet ? olderSheet.label.replace(/ de \d{4}$/, '') : 'Anterior'}
+                    </button>
+                    <div className="cash-month-sheet-title">
+                      <span className="cash-month-sheet-kicker">Una hoja</span>
+                      <strong className="cash-month-sheet-name serif-font">{activeSheet.label}</strong>
+                      <span className="cash-month-sheet-meta">
+                        {activeSheet.count.toLocaleString('es-AR')} movimientos
+                      </span>
+                    </div>
+                    <label className="cash-month-sheet-jump">
+                      <select
+                        className="form-input"
+                        aria-label="Elegir mes"
+                        value={activeMonth}
+                        onChange={(e) => setSheetMonth(e.target.value)}
+                      >
+                        {monthSheets.map((sheet) => (
+                          <option key={sheet.key} value={sheet.key}>{sheet.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      disabled={!newerSheet}
+                      aria-label="Mes siguiente"
+                      onClick={() => newerSheet && setSheetMonth(newerSheet.key)}
+                    >
+                      {newerSheet ? newerSheet.label.replace(/ de \d{4}$/, '') : 'Siguiente'}
+                      <ChevronRight size={14} />
+                    </button>
+                  </div>
+                ) : null}
                 <div className="table-responsive">
                   <table className="admin-table cash-lila-table">
                     <thead>
@@ -502,7 +584,9 @@ function CashRegistersContent({
                       {ledgerRows.length === 0 ? (
                         <tr>
                           <td colSpan={8} style={{ color: 'var(--text-muted)' }}>
-                            No hay movimientos con este filtro.
+                            {ledgerFilter.query
+                              ? 'No hay movimientos con este filtro.'
+                              : 'Esta hoja no tiene movimientos.'}
                           </td>
                         </tr>
                       ) : (
@@ -519,10 +603,27 @@ function CashRegistersContent({
                             </td>
                             <td>
                               <div className="cash-lila-row-actions">
-                                <button type="button" className="cash-lila-icon-btn is-print" title="Recibo" aria-label="Recibo">
+                                <button
+                                  type="button"
+                                  className="cash-lila-icon-btn is-print"
+                                  title="Recibo"
+                                  aria-label="Recibo"
+                                  onClick={() => {
+                                    const detail = buildCashPaymentDetail(row, accessinCobranzas, members);
+                                    exportCashPaymentPdf(detail).catch((err) => {
+                                      setError(err?.message || 'No se pudo generar el PDF.');
+                                    });
+                                  }}
+                                >
                                   <Printer size={13} />
                                 </button>
-                                <button type="button" className="cash-lila-icon-btn is-view" title="Ver" aria-label="Ver">
+                                <button
+                                  type="button"
+                                  className="cash-lila-icon-btn is-view"
+                                  title="Ver"
+                                  aria-label="Ver"
+                                  onClick={() => setPaymentDetail(buildCashPaymentDetail(row, accessinCobranzas, members))}
+                                >
                                   <Eye size={13} />
                                 </button>
                                 <button type="button" className="cash-lila-icon-btn is-del" title="Eliminar" aria-label="Eliminar" disabled>
@@ -537,7 +638,7 @@ function CashRegistersContent({
                   </table>
                 </div>
 
-                {!ledgerFilter.showAll ? (
+                {activeSheet ? null : !ledgerFilter.showAll ? (
                   <button
                     type="button"
                     className="cash-lila-see-all"
@@ -878,6 +979,8 @@ function CashRegistersContent({
           </table>
         </div>
       )}
+
+      <CashPaymentDetailDialog detail={paymentDetail} onClose={() => setPaymentDetail(null)} />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ACCESSIN_FEE_PERIODS } from './feeBilling';
-import { buildFeePeriodLiquidation } from './feePeriodLiquidation';
+import { buildFeePeriodLiquidation, liquidatedTotalForMonth, liquidationFromPack } from './feePeriodLiquidation';
 
 const january = ACCESSIN_FEE_PERIODS.find((p) => p.month === 1 && p.year === 2026);
 const catalog = [
@@ -58,5 +58,83 @@ describe('buildFeePeriodLiquidation', () => {
       }],
     });
     expect(model.rows[0]).toMatchObject({ unit: 12000, total: 12000 });
+  });
+});
+
+describe('liquidationFromPack', () => {
+  const october = {
+    ...ACCESSIN_FEE_PERIODS.find((p) => p.id === 'fp-1382'),
+    status: 'draft',
+    generatedAt: null,
+    lines: [],
+  };
+  const pack = {
+    title: 'Liquidación - Octubre del 2026',
+    concepts: [
+      { id: '39279', label: 'ABONO TENIS', holders: 61, amount: 10000, total: 610000 },
+      { id: '39288', label: 'SOCIO FAMILIAR', holders: 869, amount: 70000, total: 60830000 },
+      { id: '39280', label: 'FUNDADOR', holders: 1, amount: 0, total: 0 },
+    ],
+  };
+
+  it('suma titulares por valor con el padrón actual y deja afuera al que no está activo', () => {
+    const model = liquidationFromPack(october, pack, {
+      members: [
+        { memberId: '1', status: 'active', cuotaCategories: ['ABONO TENIS', 'SOCIO FAMILIAR'] },
+        { memberId: '2', status: 'active', cuotaCategories: ['SOCIO FAMILIAR'] },
+        { memberId: '3', status: 'inactive', cuotaCategories: ['SOCIO FAMILIAR'] },
+        { memberId: '4', status: 'active', cuotaCategories: ['FUNDADOR'] },
+      ],
+    });
+    expect(model.rows.find((row) => row.name === 'ABONO TENIS')).toMatchObject({
+      holders: 1, unit: 10000, total: 10000,
+    });
+    expect(model.rows.find((row) => row.name === 'SOCIO FAMILIAR')).toMatchObject({
+      holders: 2, unit: 70000, total: 140000,
+    });
+    expect(model.rows.find((row) => row.name === 'FUNDADOR').total).toBe(0);
+    expect(model.total).toBe(150000);
+  });
+
+  it('un socio más en la categoría suma exactamente el valor', () => {
+    const base = [
+      { memberId: '1', status: 'active', cuotaCategories: ['SOCIO FAMILIAR'] },
+    ];
+    const extra = [
+      ...base,
+      { memberId: '2', status: 'active', cuotaCategories: ['SOCIO FAMILIAR'] },
+    ];
+    const first = liquidationFromPack(october, pack, { members: base });
+    const second = liquidationFromPack(october, pack, { members: extra });
+    expect(second.total - first.total).toBe(70000);
+  });
+
+  it('un mes ya cerrado conserva el detalle guardado', () => {
+    const closed = {
+      ...october,
+      status: 'processed',
+      lines: [{ identifier: '39288', name: 'SOCIO FAMILIAR', holders: 10, unit: 70000, total: 700000 }],
+    };
+    const model = liquidationFromPack(closed, pack, {
+      members: [{ memberId: '1', status: 'active', cuotaCategories: ['SOCIO FAMILIAR'] }],
+    });
+    expect(model.rows).toEqual([
+      { identifier: '39288', name: 'SOCIO FAMILIAR', holders: 10, unit: 70000, total: 700000 },
+    ]);
+    expect(model.total).toBe(700000);
+  });
+});
+
+describe('liquidatedTotalForMonth', () => {
+  it('usa el total procesado de octubre, igual que la fila de Lila', () => {
+    const october = ACCESSIN_FEE_PERIODS.find((p) => p.year === 2026 && p.month === 10);
+    const members = [
+      { memberId: '1', status: 'active', cuotaCategories: ['SOCIO FAMILIAR'] },
+      { memberId: '2', status: 'active', cuotaCategories: ['SOCIO FAMILIAR'] },
+    ];
+    const total = liquidatedTotalForMonth(ACCESSIN_FEE_PERIODS, '2026-10', { members });
+    expect(october.status).toBe('processed');
+    expect(total).toBe(63233000);
+    expect(total).toBe(october.amount);
   });
 });

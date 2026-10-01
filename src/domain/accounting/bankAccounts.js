@@ -149,3 +149,31 @@ export function resolveBankAccounts(loaded, seed = bankAccountsSeed().ACCESSIN_B
   if (Array.isArray(loaded) && loaded.length >= seed.length) return loaded;
   return seed;
 }
+
+/**
+ * El corte de Lila pisa el saldo de las cuentas que ya conocemos.
+ * Una edición local posterior al corte se conserva.
+ */
+export function applySnapshotBankBalances(current = [], snapshotAccounts = []) {
+  if (!Array.isArray(snapshotAccounts) || !snapshotAccounts.length) return current || [];
+  if (!Array.isArray(current) || !current.length) return snapshotAccounts;
+  const byId = new Map(snapshotAccounts.map((account) => [String(account.accessinId), account]));
+  const seen = new Set();
+  const merged = current.map((account) => {
+    const next = byId.get(String(account.accessinId));
+    if (!next) return account;
+    seen.add(String(account.accessinId));
+    const nextAt = Date.parse(next.updatedAt || '') || 0;
+    const curAt = Date.parse(account.updatedAt || '') || 0;
+    if (nextAt && curAt > nextAt) return account;
+    return {
+      ...account,
+      balance: Math.round((Number(next.balance) || 0) * 100) / 100,
+      updatedAt: next.updatedAt || account.updatedAt,
+    };
+  });
+  snapshotAccounts.forEach((account) => {
+    if (!seen.has(String(account.accessinId))) merged.push(account);
+  });
+  return merged;
+}

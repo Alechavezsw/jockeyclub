@@ -5216,6 +5216,57 @@ button.membership-moves-name {
   overflow: auto;
 }
 
+.ops-today-pane--alerts .ops-today-alerts--cycle {
+  overflow: hidden;
+}
+
+.ops-today-pane--alerts .ops-today-alerts--cycle .ops-today-alert-item {
+  animation: ops-alert-soft 1.8s ease;
+}
+
+.ops-alert-dots {
+  display: flex;
+  align-items: center;
+  gap: 0.28rem;
+}
+
+.ops-alert-dots button {
+  width: 0.32rem;
+  height: 0.32rem;
+  padding: 0;
+  border: 0;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--text-muted) 50%, transparent);
+  cursor: pointer;
+  transition: width 0.8s ease, background-color 0.8s ease;
+}
+
+.ops-alert-dots button.is-on {
+  width: 0.7rem;
+  background: color-mix(in srgb, var(--primary-gold) 75%, var(--text-muted));
+}
+
+@keyframes ops-alert-soft {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ops-today-pane--alerts .ops-today-alerts--cycle .ops-today-alert-item {
+    animation: none;
+  }
+
+  .ops-alert-dots button {
+    transition: none;
+  }
+}
+
 .ops-today-pane--alerts .ops-today-alert-item {
   display: flex;
   flex: 1 1 0;
@@ -6338,18 +6389,32 @@ button.membership-moves-name {
 
 .ops-dash-main {
   display: grid;
-  grid-template-columns: minmax(0, 1.08fr) minmax(0, 1.48fr) minmax(0, 0.98fr);
+  grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
   gap: 0.7rem 0.9rem;
   align-items: stretch;
   grid-auto-flow: dense;
 }
 
 .ops-dash-main--ops {
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1.2fr) minmax(0, 0.95fr);
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
 }
 
 .ops-dash-col {
-  display: contents;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.ops-dash-col--center { grid-column: 1; }
+.ops-dash-col--right { grid-column: 2; }
+
+.ops-dash-col--center > .ops-tile--money {
+  flex: 1;
+}
+
+.ops-dash-col--right > .ops-tile--gate {
+  flex: 1;
 }
 
 .ops-tile {
@@ -6357,15 +6422,15 @@ button.membership-moves-name {
 }
 
 .ops-tile--comms { grid-column: 1; border-radius: 18px 8px 12px 14px; }
-.ops-tile--gate { grid-column: 1; border-radius: 10px 8px 16px 8px; }
-.ops-tile--staff { grid-column: 1; border-radius: 8px 14px 8px 16px; }
+.ops-tile--gate { grid-column: 2; border-radius: 10px 8px 16px 8px; }
+.ops-tile--staff { grid-column: 2; border-radius: 8px 14px 8px 16px; }
 .ops-tile--book { grid-column: 1; border-radius: 14px 8px 18px 10px; }
-.ops-tile--money { grid-column: 2; grid-row: span 3; border-radius: 8px 18px 10px 8px; }
-.ops-tile--queue { grid-column: 2; border-radius: 10px 8px 18px 8px; }
-.ops-tile--concessions { grid-column: 2; display: flex; flex-direction: column; gap: 0.55rem; }
-.ops-tile--padron { grid-column: 3; grid-row: span 2; border-radius: 8px 20px 8px 12px; }
+.ops-tile--money { grid-column: 1; border-radius: 8px 18px 10px 8px; }
+.ops-tile--queue { grid-column: 1; border-radius: 10px 8px 18px 8px; }
+.ops-tile--concessions { grid-column: 1; display: flex; flex-direction: column; gap: 0.55rem; }
+.ops-tile--padron { grid-column: 2; border-radius: 8px 20px 8px 12px; }
 .ops-tile--stats {
-  grid-column: 3;
+  grid-column: 2;
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
@@ -6373,7 +6438,7 @@ button.membership-moves-name {
   border-radius: 8px 16px 10px 8px;
 }
 .ops-tile--stats::before { display: none; }
-.ops-tile--revista { grid-column: 3; border-radius: 10px 8px 18px 8px; }
+.ops-tile--revista { grid-column: 2; border-radius: 10px 8px 18px 8px; }
 
 .ops-card {
   display: flex;
@@ -7783,11 +7848,16 @@ a.ops-outline-btn {
     grid-template-columns: 1fr;
   }
 
+  .ops-dash-col--center,
+  .ops-dash-col--right {
+    grid-column: auto;
+  }
+
   .ops-tile--comms { order: 3; }
   .ops-tile--money { order: 1; grid-column: auto; }
   .ops-tile--queue { order: 2; grid-column: auto; }
-  .ops-tile--gate { order: 4; }
-  .ops-tile--padron { order: 5; grid-column: auto; }
+  .ops-tile--padron { order: 4; grid-column: auto; }
+  .ops-tile--gate { order: 5; }
   .ops-tile--stats { order: 6; grid-column: auto; }
   .ops-tile--staff { order: 7; }
   .ops-tile--book { order: 8; }
@@ -18732,6 +18802,63 @@ a.ops-outline-btn {
 }
 .cash-lila-see-all:hover { filter: brightness(1.05); }
 
+.cash-month-sheet {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(8rem, 14rem) minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--primary-gold) 35%, transparent);
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--primary-gold) 8%, transparent), transparent 70%),
+    var(--bg-secondary);
+}
+.cash-month-sheet > .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+.cash-month-sheet > .btn:first-child { justify-self: start; }
+.cash-month-sheet > .btn:last-child { justify-self: end; }
+.cash-month-sheet-title {
+  text-align: center;
+  min-width: 0;
+}
+.cash-month-sheet-kicker {
+  display: block;
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.cash-month-sheet-name {
+  display: block;
+  font-size: 1.05rem;
+  line-height: 1.2;
+}
+.cash-month-sheet-meta {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+.cash-month-sheet-jump .form-input {
+  min-width: 0;
+  width: 100%;
+}
+@media (max-width: 720px) {
+  .cash-month-sheet {
+    grid-template-columns: 1fr 1fr;
+  }
+  .cash-month-sheet-title,
+  .cash-month-sheet-jump {
+    grid-column: 1 / -1;
+  }
+  .cash-month-sheet > .btn:last-child { justify-self: end; }
+}
+
 .cash-lila-balance-block {
   display: flex;
   flex-direction: column;
@@ -18979,6 +19106,18 @@ a.ops-outline-btn {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
+}
+.cash-payment-share {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: -0.7rem;
+}
+.cash-payment-share .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
 }
 @media (max-width: 720px) {
   .cash-payment-detail {

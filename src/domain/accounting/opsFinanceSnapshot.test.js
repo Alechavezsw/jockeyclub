@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildOpsFinanceSnapshot,
+  cashDeltaAfterDate,
+  collectionForCalendarMonth,
   composeClubFinance,
   financeFromMonthlySummary,
+  financeFromSummary,
   lilaContabilidadFromSnapshots,
   LILA_HANDOFF_ISO,
 } from './opsFinanceSnapshot';
@@ -164,6 +167,51 @@ describe('financeFromMonthlySummary', () => {
 
   it('ignora un resumen que no es el mes calendario', () => {
     expect(financeFromMonthlySummary({ ...september, today: '2026-10-02' })).toBeNull();
+  });
+
+  it('un corte de otro mes no cuenta como recaudación de hoy', () => {
+    expect(collectionForCalendarMonth({
+      monthKey: '2026-10',
+      money: { periodTo: '2026-08-31', recaudado: 68778002.4, liquidado: 57387000 },
+      monthFlow: { collectedSince: 0, liquidatedSince: 0 },
+    })).toEqual({ collected: 0, liquidated: 0 });
+  });
+
+  it('suma el cobro de caja de este mes aunque el corte sea del mes anterior', () => {
+    expect(collectionForCalendarMonth({
+      monthKey: '2026-10',
+      money: { periodTo: '2026-09-30', recaudado: 40000000, liquidado: 57000000 },
+      monthFlow: { collectedSince: 0, liquidatedSince: 0 },
+      cashMovements: [
+        { accessinId: 603050, date: '2026-10-01', amount: 39600, movementType: 'income' },
+        { accessinId: 603050, date: '2026-10-01', amount: 39600, movementType: 'income' },
+        { accessinId: 602855, date: '2026-09-30', amount: 62000, movementType: 'income' },
+      ],
+    })).toEqual({ collected: 39600, liquidated: 0 });
+  });
+
+  it('suma a la caja lo cobrado después del corte', () => {
+    expect(cashDeltaAfterDate([
+      { accessinId: 603166, date: '2026-10-01', amount: 66000, movementType: 'income' },
+      { accessinId: 603166, date: '2026-10-01', amount: 66000, movementType: 'income' },
+      { accessinId: 602855, date: '2026-09-30', amount: 62000, movementType: 'income' },
+      { accessinId: 9, date: '2026-10-02', amount: 1000, movementType: 'expense' },
+    ], '2026-09-30')).toBe(65000);
+  });
+
+  it('en el mes del corte usa ese recaudado', () => {
+    expect(collectionForCalendarMonth({
+      monthKey: '2026-10',
+      money: { periodKey: '2026-10', recaudado: 15000, liquidado: 20000 },
+      monthFlow: { collectedSince: 0, liquidatedSince: 0 },
+    })).toEqual({ collected: 15000, liquidated: 20000 });
+  });
+
+  it('el último corte sigue disponible aunque el calendario haya cambiado de mes', () => {
+    const latest = financeFromSummary(september);
+    expect(latest.periodKey).toBe('2026-09');
+    expect(latest.periodTo).toBe('2026-09-30');
+    expect(latest.cash).toBeCloseTo(813908702.27, 2);
   });
 });
 

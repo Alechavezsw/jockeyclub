@@ -12,13 +12,14 @@ import {
   pickGeneralCashRegister,
 } from '../domain/accounting/cash';
 import { loadSnapshots } from '../data/snapshots';
-import { cashMovementsSeed, cashSeed, chequesSeed } from '../domain/accounting/cashLedger';
+import { cashMovementsSeed, cashSeed, chequesSeed, mergeAccessinCashMovements } from '../domain/accounting/cashLedger';
 import { cobranzasSeed } from '../domain/accounting/cobranzas';
 import { seedDiscounts } from '../domain/accounting/discountsSeed';
 import { suppliersSeed } from '../domain/accounting/suppliersSeed';
 import { supplierPaymentsSeed } from '../domain/accounting/supplierPaymentsReport';
 import {
   applyBankAccountEntry,
+  applySnapshotBankBalances,
   bankAccountsSeed,
   resolveBankAccounts,
   softDeleteBankAccount,
@@ -322,7 +323,13 @@ export default function useErpStore({
         setCashRegisters((cur) => (isFallbackCashRegisters(cur) ? registers : cur));
       }
       const movements = cashMovementsSeed().ACCESSIN_CASH_MOVEMENTS;
-      if (movements.length) setAccessinCashMovements((cur) => (cur?.length >= 500 ? cur : movements));
+      const recent = cashSeed().ACCESSIN_CASH_SNAPSHOT?.recentMovements || [];
+      if (movements.length || recent.length) {
+        setAccessinCashMovements((cur) => mergeAccessinCashMovements(
+          mergeAccessinCashMovements(cur, movements),
+          recent,
+        ));
+      }
       const cheques = chequesSeed().ACCESSIN_CHEQUES;
       if (cheques.length) setAccessinCheques((cur) => (cur?.length ? cur : cheques));
       const cobranzas = cobranzasSeed().ACCESSIN_COBRANZAS;
@@ -330,7 +337,7 @@ export default function useErpStore({
       const payments = supplierPaymentsSeed().ACCESSIN_SUPPLIER_PAYMENTS;
       if (payments.length) setAccessinSupplierPayments((cur) => (cur?.length ? cur : payments));
       const banks = bankAccountsSeed().ACCESSIN_BANK_ACCOUNTS;
-      if (banks.length) setAccessinBankAccounts((cur) => (cur?.length ? cur : banks));
+      if (banks.length) setAccessinBankAccounts((cur) => applySnapshotBankBalances(cur, banks));
       const retencionesList = retencionesSeed().ACCESSIN_RETENCIONES;
       if (retencionesList.length) setRetenciones((cur) => (cur?.length ? cur : retencionesList));
       const suppliersList = suppliersSeed().ACCESSIN_SUPPLIERS;
@@ -354,10 +361,21 @@ export default function useErpStore({
     if (Array.isArray(erp.cashSessions)) setCashSessions(erp.cashSessions);
     if (Array.isArray(erp.cashMovements)) setCashMovements(erp.cashMovements);
     if (Array.isArray(erp.accessinCashMovements) && erp.accessinCashMovements.length >= 500) {
-      setAccessinCashMovements(erp.accessinCashMovements);
+      const snap = cashMovementsSeed().ACCESSIN_CASH_MOVEMENTS;
+      const recent = cashSeed().ACCESSIN_CASH_SNAPSHOT?.recentMovements || [];
+      setAccessinCashMovements(mergeAccessinCashMovements(
+        mergeAccessinCashMovements(erp.accessinCashMovements, snap),
+        recent,
+      ));
     } else {
       const seed = cashMovementsSeed().ACCESSIN_CASH_MOVEMENTS;
-      if (seed.length) setAccessinCashMovements((cur) => (cur?.length >= 500 ? cur : seed));
+      const recent = cashSeed().ACCESSIN_CASH_SNAPSHOT?.recentMovements || [];
+      if (seed.length || recent.length) {
+        setAccessinCashMovements((cur) => mergeAccessinCashMovements(
+          mergeAccessinCashMovements(cur, seed),
+          recent,
+        ));
+      }
     }
     if (Array.isArray(erp.accessinCheques)) setAccessinCheques(erp.accessinCheques);
     else setAccessinCheques(chequesSeed().ACCESSIN_CHEQUES);
@@ -373,9 +391,15 @@ export default function useErpStore({
       setAccessinSupplierPayments(supplierPaymentsSeed().ACCESSIN_SUPPLIER_PAYMENTS);
     }
     if (Array.isArray(erp.accessinBankAccounts) && erp.accessinBankAccounts.length) {
-      setAccessinBankAccounts(erp.accessinBankAccounts);
+      setAccessinBankAccounts(applySnapshotBankBalances(
+        erp.accessinBankAccounts,
+        bankAccountsSeed().ACCESSIN_BANK_ACCOUNTS
+      ));
     } else {
-      setAccessinBankAccounts(bankAccountsSeed().ACCESSIN_BANK_ACCOUNTS);
+      const seedBanks = bankAccountsSeed().ACCESSIN_BANK_ACCOUNTS;
+      if (seedBanks.length) {
+        setAccessinBankAccounts((cur) => applySnapshotBankBalances(cur, seedBanks));
+      }
     }
     if (Array.isArray(erp.interestGenerators)) setInterestGenerators(erp.interestGenerators);
     if (Array.isArray(erp.interestRuns)) setInterestRuns(erp.interestRuns);

@@ -16,6 +16,7 @@ import {
 import { attachHouseholdToMembers, assignDistinctStatColors, buildPadronHouseholdStats, familyGroupMatchesQuery, isFamilyDependent, isLiveMember, isTitularMember, listFamilyGroups, memberMatchesDirectoryQuery, mergeMembersById, rankMemberSearchHit, resolveFamilyForDisplay } from '../../domain/members/households';
 import { portalLoginFromEmail } from '../../domain/auth/credentials';
 import {
+  accessInviteMailError,
   buildAccessInvite,
   markAccessApproved,
   applyJoinApplicationToMember,
@@ -997,13 +998,13 @@ export default function MembersTab({
         loginEmail: ready.email,
         password: ready.password,
         portalUrl: portalLoginUrl(),
-        logoUrl: typeof window !== 'undefined' && window.location.protocol === 'https:'
-          ? `${window.location.origin}/logo-jockey-club.png`
-          : '',
+        logoUrl: `${portalLoginUrl()}logo-jockey-club.png`,
       });
       setCredsNotice(`Mail enviado por Resend a ${ready.email}.`);
     } catch (err) {
-      setCredsError(err?.message || 'No se pudo enviar el mail.');
+      const mailError = accessInviteMailError(err?.message);
+      if (mailError) setCredsError(mailError);
+      else setCredsNotice('Acceso listo. El mail no salió: pasale la contraseña por WhatsApp.');
     } finally {
       setCredsBusy(false);
       setCredsSending('');
@@ -1117,15 +1118,14 @@ export default function MembersTab({
           loginEmail: creds.email,
           password: creds.password,
           portalUrl: invite.portalUrl,
-          logoUrl: typeof window !== 'undefined' && window.location.protocol === 'https:'
-            ? `${window.location.origin}/logo-jockey-club.png`
-            : '',
+          logoUrl: `${portalLoginUrl()}logo-jockey-club.png`,
         });
         invite.emailSent = true;
         invite.emailTo = to;
       } catch (err) {
         invite.emailSent = false;
-        invite.emailError = err?.message || 'No se pudo enviar el mail.';
+        const mailError = accessInviteMailError(err?.message);
+        if (mailError) invite.emailError = mailError;
       }
     } else if (!to) {
       invite.emailSent = false;

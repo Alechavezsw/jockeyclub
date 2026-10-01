@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  Users, Calendar, DollarSign, Activity, CreditCard, Check, ShieldAlert,
-  Clock, BookOpen, ClipboardList, MessageSquare, Phone,
+  Users, Calendar, DollarSign, Activity, ShieldAlert,
+  BookOpen, ClipboardList, MessageSquare, Phone,
   FileSpreadsheet, Radio, Database, BellRing, PartyPopper, Trophy, Store, DoorOpen, QrCode, Newspaper,
   LayoutDashboard, ChevronRight, Briefcase, Headset, Settings, Waves, GraduationCap, ListOrdered, TicketCheck,
 } from 'lucide-react';
@@ -47,7 +47,7 @@ import { monthlyBalanceSummarySeed } from '../domain/accounting/monthlyBalanceSu
 import { detailedCcSeed } from '../domain/accounting/detailedCurrentAccounts';
 import { cashSeed } from '../domain/accounting/cashLedger';
 import { cobranzasSeed } from '../domain/accounting/cobranzas';
-import { composeClubFinance, financeFromMonthlySummary, lilaContabilidadFromSnapshots } from '../domain/accounting/opsFinanceSnapshot';
+import { composeClubFinance, financeFromMonthlySummary, financeFromSummary, lilaContabilidadFromSnapshots } from '../domain/accounting/opsFinanceSnapshot';
 import { useSnapshotSeed } from '../hooks/useSnapshots';
 import { todayISODateAR } from '../lib/arDate';
 
@@ -63,10 +63,16 @@ function readLilaMetrics() {
   const monthly = monthlyBalanceSeed();
   const summary = monthlyBalanceSummarySeed();
   const summarySnapshot = summary.ACCESSIN_MONTHLY_BALANCE_SUMMARY_SNAPSHOT;
+  const sections = summary.ACCESSIN_MONTHLY_BALANCE_SUMMARY_SECTIONS;
+  const today = todayISODateAR();
   const currentMonth = financeFromMonthlySummary({
     snapshot: summarySnapshot,
-    sections: summary.ACCESSIN_MONTHLY_BALANCE_SUMMARY_SECTIONS,
-    today: todayISODateAR(),
+    sections,
+    today,
+  });
+  const latestCut = financeFromSummary({
+    snapshot: summarySnapshot,
+    sections,
   });
   const detailed = lilaContabilidadFromSnapshots({
     monthlySnapshot: monthly.ACCESSIN_MONTHLY_BALANCE_SNAPSHOT,
@@ -74,28 +80,13 @@ function readLilaMetrics() {
     cashSnapshot: cashSeed().ACCESSIN_CASH_SNAPSHOT,
     cobranzas: cobranzasSeed().ACCESSIN_COBRANZAS,
   });
+  const summaryMoney = currentMonth || latestCut;
   return {
-    money: currentMonth || detailed,
+    money: summaryMoney || detailed,
     cards: monthlyBalanceCards(
-      currentMonth ? summarySnapshot : monthly.ACCESSIN_MONTHLY_BALANCE_SNAPSHOT,
+      summaryMoney ? summarySnapshot : monthly.ACCESSIN_MONTHLY_BALANCE_SNAPSHOT,
     ),
   };
-}
-
-function monthLabelFromIso(iso) {
-  const [year, month] = String(iso || '').split('-');
-  if (!year || !month) return '';
-  const raw = new Date(Number(year), Number(month) - 1, 1).toLocaleDateString('es-AR', {
-    month: 'long',
-    year: 'numeric',
-  });
-  return raw.charAt(0).toUpperCase() + raw.slice(1);
-}
-
-function formatIsoDateAR(iso) {
-  const [year, month, day] = String(iso || '').split('-');
-  if (!year || !month || !day) return '';
-  return `${day}/${month}/${year}`;
 }
 
 function findMemberForProfile(members = [], routeId) {
@@ -487,33 +478,20 @@ export default function AdminView({
     [lilaMetrics.money, lilaCards, members, journalEntries, chartOfAccounts, erp.feePeriods],
   );
   const lilaMoney = clubFinance || lilaMetrics.money;
-  const lilaMonthLabel = monthLabelFromIso(lilaCards.periodTo || lilaMoney?.periodTo);
-  const lilaAsOfLabel = formatIsoDateAR(lilaCards.asOf || lilaMoney?.periodTo);
-  const addedSinceHandoff = Boolean(
-    lilaMoney?.added?.recaudado
-    || lilaMoney?.added?.liquidado
-    || lilaMoney?.added?.cash
-    || lilaMoney?.added?.income
-    || lilaMoney?.added?.expenses,
-  );
   const hasLilaMonth = Boolean(lilaCards.totalIncome || lilaCards.totalExpenses || lilaMoney?.income);
   const totalActivos = lilaMoney?.cash || lilaCards.closingCash || journalCash;
-  const utilidadNeta = lilaMoney?.result != null
+  const resultadoAcumulado = lilaMoney?.result != null
     ? lilaMoney.result
     : (hasLilaMonth
       ? (Number(lilaCards.totalIncome) || 0) - (Number(lilaCards.totalExpenses) || 0)
       : journalUtilidad);
-  const totalPatrimonioNetoTotal = totalPatrimonioNetoBase + utilidadNeta;
+  const totalPatrimonioNetoTotal = totalPatrimonioNetoBase + resultadoAcumulado;
 
   const liveTitulares = useMemo(
     () => (members || []).filter((member) => isLiveMember(member) && isTitularMember(member)),
     [members],
   );
   const totalMembers = liveTitulares.length;
-  const padronReady = !membersLoading && members.length > 0;
-  const padronProgressLabel = membersLoading && membersProgress?.total
-    ? `Cargando ${membersProgress.loaded.toLocaleString('es-AR')} de ${membersProgress.total.toLocaleString('es-AR')}…`
-    : (membersLoading ? 'Cargando detalle del padrón…' : 'Membresías titulares activas');
   const activeBookingsCount = reservations.filter(res => res.status === 'confirmed').length;
   const pendingBookingsCount = reservations.filter(res => res.status === 'pending').length;
 
@@ -531,10 +509,7 @@ export default function AdminView({
     0,
   );
 
-  // Indicadores operativos para dashboards por rol
-  const totalCashOnHand = totalActivos;
   const pendingClaimsCount = claims.filter(c => c.status !== 'resolved').length;
-  const activeStaffCount = staffMembers.filter(s => s.status === 'active').length;
 
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 }).format(amount);
@@ -752,100 +727,6 @@ export default function AdminView({
             <p className="page-subtitle">{panelMeta.subtitle}</p>
           </div>
         </div>
-      )}
-
-      {/* Tarjetas de métricas solo en Inicio */}
-      {activeTab === 'dashboard' && (
-      <div className="admin-metrics">
-        {(() => {
-          const recaudacionValue = (lilaMoney || padronReady) ? `${paymentCollectionRate}%` : '…';
-          const recaudacionSub = lilaMoney
-            ? `${formatCurrency(lilaMoney.recaudado)} de ${formatCurrency(lilaMoney.liquidado)}${addedSinceHandoff ? ' · LILA + club' : ''}`
-            : (padronReady
-              ? `Pendiente: ${formatCurrency(totalOutstanding)}`
-              : 'Se calcula al terminar el padrón');
-          const cajaSub = addedSinceHandoff
-            ? `LILA al ${lilaAsOfLabel || '30/09'} + movimientos desde el 1/10`
-            : (lilaAsOfLabel ? `Corte al ${lilaAsOfLabel}` : 'Caja, cantina y bancos');
-          const resultadoSub = addedSinceHandoff
-            ? `Ingresos ${formatCurrency(lilaMoney.income)} · Gastos ${formatCurrency(lilaMoney.expenses)} · LILA + club`
-            : (hasLilaMonth
-              ? (lilaCards.totalExpenses
-                ? `Ingresos ${formatCurrency(lilaCards.totalIncome)} · Gastos ${formatCurrency(lilaCards.totalExpenses)}`
-                : `Ingresos de ${lilaMonthLabel}`)
-              : `Diario · ${new Date().toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })}`);
-          const metricsByRole = {
-            staff: [
-              { icon: <Calendar size={20} />, bg: 'rgba(16, 185, 129, 0.1)', color: 'var(--emerald-accent)', title: 'Reservas Activas', value: activeBookingsCount, valueColor: 'var(--emerald-accent)', sub: 'Turnos confirmados de canchas' },
-              { icon: <Clock size={20} />, bg: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', title: 'Reservas Pendientes', value: pendingBookingsCount, valueColor: '#f59e0b', sub: 'A la espera de confirmación' },
-              { icon: <MessageSquare size={20} />, bg: 'rgba(var(--primary-gold-rgb), 0.1)', color: 'var(--primary-gold)', title: 'Reclamos Abiertos', value: pendingClaimsCount, valueColor: 'var(--primary-gold)', sub: 'Pedidos de socios sin resolver' },
-              { icon: <ClipboardList size={20} />, bg: 'rgba(var(--primary-gold-rgb), 0.1)', color: 'var(--primary-gold)', title: 'Personal en Servicio', value: activeStaffCount, sub: 'Empleados activos hoy' },
-            ],
-            cashier: [
-              { icon: <DollarSign size={20} />, bg: 'rgba(16, 185, 129, 0.1)', color: 'var(--emerald-accent)', title: 'Caja y bancos', value: formatCurrency(totalCashOnHand), valueColor: 'var(--emerald-accent)', compact: true, sub: cajaSub },
-              { icon: <Check size={20} />, bg: 'rgba(16, 185, 129, 0.1)', color: 'var(--emerald-accent)', title: 'Recaudación Cuotas', value: recaudacionValue, valueColor: 'var(--emerald-accent)', sub: lilaMoney ? recaudacionSub : `${paidMembers} de ${totalMembers} socios al día` },
-              { icon: <ShieldAlert size={20} />, bg: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', title: 'Deuda Pendiente', value: formatCurrency(totalOutstanding), valueColor: '#f59e0b', compact: true, sub: 'Titulares activos a cobrar' },
-              { icon: <Users size={20} />, bg: 'rgba(var(--primary-gold-rgb), 0.1)', color: 'var(--primary-gold)', title: 'Padrón Social', value: totalMembers, sub: padronProgressLabel },
-            ],
-            accountant: [
-              { icon: <CreditCard size={20} />, bg: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', title: 'Caja y bancos', value: formatCurrency(totalActivos), compact: true, sub: cajaSub },
-              { icon: <BookOpen size={20} />, bg: 'rgba(var(--primary-gold-rgb), 0.1)', color: 'var(--primary-gold)', title: 'Patrimonio Neto', value: formatCurrency(totalPatrimonioNetoTotal), compact: true, sub: 'Incluye resultado del mes' },
-              { icon: <Activity size={20} />, bg: utilidadNeta >= 0 ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)', color: utilidadNeta >= 0 ? 'var(--emerald-accent)' : 'var(--danger-accent)', title: hasLilaMonth ? 'Resultado del mes' : 'Resultado del ejercicio', value: formatCurrency(utilidadNeta), valueColor: utilidadNeta >= 0 ? 'var(--emerald-accent)' : 'var(--danger-accent)', compact: true, sub: resultadoSub },
-              { icon: <DollarSign size={20} />, bg: 'rgba(16, 185, 129, 0.1)', color: 'var(--emerald-accent)', title: 'Recaudación Cuotas', value: recaudacionValue, valueColor: 'var(--emerald-accent)', sub: recaudacionSub },
-            ],
-            admin: [
-              { icon: <Users size={20} />, bg: 'rgba(var(--primary-gold-rgb), 0.1)', color: 'var(--primary-gold)', title: 'Padrón Social', value: totalMembers, sub: padronProgressLabel },
-              { icon: <DollarSign size={20} />, bg: 'rgba(16, 185, 129, 0.1)', color: 'var(--emerald-accent)', title: 'Recaudación Cuotas', value: recaudacionValue, valueColor: 'var(--emerald-accent)', sub: recaudacionSub },
-              {
-                icon: <ShieldAlert size={20} />,
-                bg: 'rgba(239, 68, 68, 0.15)',
-                color: '#ef4444',
-                title: 'Cuotas Vencidas',
-                value: overdueMembersCount,
-                valueColor: '#ef4444',
-                sub: `${formatCurrency(totalOutstanding)} · ${upcomingDuesCount} a vencer`,
-                alert: true,
-                onClick: () => setActiveTab('dues'),
-              },
-              { icon: <CreditCard size={20} />, bg: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', title: 'Caja y bancos', value: formatCurrency(totalActivos), compact: true, sub: cajaSub },
-              { icon: <Activity size={20} />, bg: utilidadNeta >= 0 ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)', color: utilidadNeta >= 0 ? 'var(--emerald-accent)' : 'var(--danger-accent)', title: hasLilaMonth ? 'Resultado del mes' : 'Utilidad del ejercicio', value: formatCurrency(utilidadNeta), valueColor: utilidadNeta >= 0 ? 'var(--emerald-accent)' : 'var(--danger-accent)', compact: true, sub: resultadoSub },
-            ],
-          };
-          const cards = metricsByRole[userRole] || metricsByRole.admin;
-          return cards.map((card, i) => (
-            <div
-              key={i}
-              role={card.onClick ? 'button' : undefined}
-              tabIndex={card.onClick ? 0 : undefined}
-              onClick={card.onClick}
-              onKeyDown={card.onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); card.onClick(); } } : undefined}
-              className={`glass-card stat-widget${card.alert ? ' stat-widget-alert' : ''}`}
-              style={{
-                ...(card.alert ? {
-                  border: '1px solid rgba(239, 68, 68, 0.45)',
-                  background: 'rgba(239, 68, 68, 0.08)',
-                  boxShadow: '0 0 0 1px rgba(239, 68, 68, 0.12), 0 8px 24px rgba(239, 68, 68, 0.12)',
-                } : {}),
-                ...(card.onClick ? { cursor: 'pointer' } : {}),
-              }}
-              title={card.onClick ? 'Ver detalle de cuotas' : undefined}
-            >
-              <div className="stat-icon" style={{ background: card.bg, color: card.color }}>
-                {card.icon}
-              </div>
-              <div className="stat-info">
-                <h4 style={card.alert ? { color: '#ef4444', marginBottom: 4 } : undefined}>
-                  {card.title}
-                </h4>
-                <div className="stat-value" style={{ ...(card.valueColor ? { color: card.valueColor } : {}), ...(card.compact ? { fontSize: '1.2rem', fontWeight: '700', marginTop: '0.2rem' } : {}) }}>
-                  {card.value}
-                </div>
-                <p style={{ fontSize: '0.75rem', color: card.alert ? '#fca5a5' : 'var(--text-secondary)', lineHeight: 1.35 }}>{card.sub}</p>
-              </div>
-            </div>
-          ));
-        })()}
-      </div>
       )}
 
       {/* --- CONTENIDO DE CADA TAB --- */}
@@ -1204,7 +1085,7 @@ export default function AdminView({
           totalPatrimonioNetoTotal={totalPatrimonioNetoTotal}
           totalIngresos={totalIngresos}
           totalGastos={totalGastos}
-          utilidadNeta={utilidadNeta}
+          utilidadNeta={resultadoAcumulado}
           expenses={erp.expenses || []}
           concessions={erp.concessions || []}
           clubEvents={erp.clubEvents || []}

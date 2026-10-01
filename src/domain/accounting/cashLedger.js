@@ -39,6 +39,22 @@ export function cashMovementsSeed() {
   return readSnapshot('accessinCashMovements', EMPTY_CASH_MOVEMENTS_SEED);
 }
 
+/** Suma movimientos nuevos del corte sin pisar los que ya están. */
+export function mergeAccessinCashMovements(current = [], incoming = []) {
+  const byId = new Map(
+    (current || []).map((row) => [String(row.accessinId ?? row.id), row])
+  );
+  (incoming || []).forEach((row) => {
+    const key = String(row.accessinId ?? row.id);
+    if (!byId.has(key)) byId.set(key, row);
+  });
+  return [...byId.values()].sort((a, b) => {
+    const byDate = String(b.date || '').localeCompare(String(a.date || ''));
+    if (byDate) return byDate;
+    return (Number(b.accessinId) || 0) - (Number(a.accessinId) || 0);
+  });
+}
+
 export function formatAccessinCashDate(isoDate) {
   if (!isoDate) return '—';
   const [y, m, d] = String(isoDate).slice(0, 10).split('-');
@@ -104,21 +120,29 @@ export function accessinCashBalanceCards(
     ? `Ingresos ${formatAccessinCashDate(periodFrom)} → ${formatAccessinCashDate(periodTo)}`
     : 'Ingresos del período';
 
+  const cashBalance = snapshot?.cards?.efectivo?.balance;
   const cashInflow = Number(snapshot?.cards?.efectivo?.periodInflow);
   const bankInflow = Number(snapshot?.cards?.bancos?.periodInflow);
-  const efectivoValue = Number.isFinite(cashInflow)
-    ? cashInflow
-    : (movements || []).filter((m) => m.walletKind === 'cash').reduce((s, m) => s + (Number(m.amount) || 0), 0);
+  const hasCashBalance = cashBalance != null && Number.isFinite(Number(cashBalance));
+  const efectivoValue = hasCashBalance
+    ? Number(cashBalance)
+    : (snapshot?.cards?.efectivo?.periodInflow != null && Number.isFinite(cashInflow)
+      ? cashInflow
+      : (movements || []).filter((m) => m.walletKind === 'cash').reduce((s, m) => s + (Number(m.amount) || 0), 0));
 
+  const bankBalance = snapshot?.cards?.bancos?.balance;
+  const hasBankBalance = bankBalance != null && Number.isFinite(Number(bankBalance));
   const activeBanks = (bankAccounts || []).filter((a) => a && a.isActive !== false);
   const banksBalanceSum = activeBanks.length
     ? Math.round(activeBanks.reduce((s, a) => s + (Number(a.balance) || 0), 0) * 100) / 100
     : null;
   const bancosValue = banksBalanceSum != null
     ? banksBalanceSum
-    : (Number.isFinite(bankInflow)
-      ? bankInflow
-      : (movements || []).filter((m) => m.walletKind === 'bank').reduce((s, m) => s + (Number(m.amount) || 0), 0));
+    : (hasBankBalance
+      ? Number(bankBalance)
+      : (snapshot?.cards?.bancos?.periodInflow != null && Number.isFinite(bankInflow)
+        ? bankInflow
+        : (movements || []).filter((m) => m.walletKind === 'bank').reduce((s, m) => s + (Number(m.amount) || 0), 0)));
   const bancosCaption = banksBalanceSum != null
     ? `Saldo cuentas al ${formatAccessinCashDate(snapshot?.asOf || cashSeed().ACCESSIN_CASH_AS_OF)}`
     : periodCaption;
@@ -134,7 +158,9 @@ export function accessinCashBalanceCards(
       id: 'efectivo',
       label: 'Efectivo',
       value: efectivoValue,
-      caption: `${periodCaption} · no es el saldo en caja`,
+      caption: hasCashBalance
+        ? `Saldo al ${formatAccessinCashDate(snapshot?.asOf || cashSeed().ACCESSIN_CASH_AS_OF)}`
+        : `${periodCaption} · no es el saldo en caja`,
       actionLabel: 'Ver registro de efectivo',
       filter: { view: 'efectivo_registro', walletKind: 'cash' },
       icon: 'cash',
@@ -172,17 +198,56 @@ export function accessinCashBalanceCards(
   ];
 }
 
+const CASH_MONTH_NAMES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+];
+
+export function cashMovementMonthKey(row) {
+  const key = String(row?.date || '').slice(0, 7);
+  return /^\d{4}-\d{2}$/.test(key) ? key : '';
+}
+
+export function cashMovementMonthLabel(monthKey) {
+  const [year, month] = String(monthKey || '').split('-');
+  const name = CASH_MONTH_NAMES[Number(month) - 1];
+  if (!year || !name) return '';
+  return `${name} de ${year}`;
+}
+
+/** Meses con movimientos, del más nuevo al más viejo. */
+export function cashMovementMonthSheets(movements = []) {
+  const counts = new Map();
+  for (const row of movements || []) {
+    const key = cashMovementMonthKey(row);
+    if (!key) continue;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([key, count]) => ({
+      key,
+      label: cashMovementMonthLabel(key),
+      count,
+    }));
+}
+
 export function filterAccessinCashMovements(movements = [], filter = {}) {
   const {
     walletKind = null,
     walletId = null,
+    monthKey = null,
     query = '',
     limit = null,
   } = filter || {};
   const q = String(query || '').trim().toLowerCase();
+  const month = String(monthKey || '').slice(0, 7);
   let rows = [...(movements || [])];
   if (walletKind) rows = rows.filter((m) => m.walletKind === walletKind);
   if (walletId) rows = rows.filter((m) => m.walletId === walletId);
+  if (/^\d{4}-\d{2}$/.test(month)) {
+    rows = rows.filter((m) => cashMovementMonthKey(m) === month);
+  }
   if (q) {
     rows = rows.filter((m) => {
       const hay = [

@@ -1,7 +1,6 @@
 import {
   ArrowLeft,
   BookOpen,
-  CalendarRange,
   FileSpreadsheet,
   ListTree,
   Plus,
@@ -12,7 +11,7 @@ import {
 } from 'lucide-react';
 
 const CONSULT = [
-  { id: 'balances', icon: Wallet, label: 'Saldos / Socios', hint: 'Cuentas de cada socio' },
+  { id: 'balances', icon: Wallet, label: 'Saldos', hint: 'Cuentas de cada socio' },
   { id: 'detailed_cc', icon: ListTree, label: 'CC detalladas', hint: 'Cargos y pagos' },
   { id: 'credit_purchases', icon: Ticket, label: 'Créditos comprados', hint: 'Compras a crédito' },
   { id: 'monthly_debts', icon: FileSpreadsheet, label: 'Deudas mes a mes', hint: 'Mora histórica' },
@@ -52,20 +51,14 @@ export default function CuotasDeskToolbar({
 }) {
   return (
     <nav className="cuotas-toolbar" aria-label="Herramientas de cuotas">
-      <div className="cuotas-toolbar-head">
-        {onBack ? (
+      {onBack ? (
+        <div className="cuotas-toolbar-head">
           <button type="button" className="cuotas-back" onClick={onBack}>
             <ArrowLeft size={15} aria-hidden="true" />
             Volver
           </button>
-        ) : (
-          <p className="cuotas-kicker">Caja</p>
-        )}
-        <h2 className="cuotas-title">
-          <CalendarRange size={18} aria-hidden="true" />
-          Cuotas
-        </h2>
-      </div>
+        </div>
+      ) : null}
       <div className="cuotas-desk">
         <div className="cuotas-desk-band">
           <p className="cuotas-desk-label">Consultar</p>

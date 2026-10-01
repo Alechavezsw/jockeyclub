@@ -4,11 +4,12 @@ import { cobranzasSeed } from './cobranzas';
 import { feeAccountDetailsSeed } from './feeAccountDetails';
 import {
   familyPrincipalOf,
+  isFamilyDependent,
   isTitularMember,
   memberNumberOf,
   resolveFamilyForDisplay,
 } from '../members/households';
-import { getTierDisplayName } from '../members/tiers';
+import { getTierDisplayName, parseCuotaCategories, slugifyTierId } from '../members/tiers';
 import { currentAccountBalanceOf } from './currentAccountBalances';
 import { familyGroupBalanceOf } from './familyGroupBalances';
 import { buildDetailedCcAccountEntries } from './detailedCurrentAccounts';
@@ -49,14 +50,73 @@ const MONTHS_ES = [
 
 export function memberStatusLabel(member) {
   const s = String(member?.status || '').toLowerCase();
-  if (s === 'inactive' || s === 'disabled' || s === 'baja' || s === 'suspended') return 'Inhabilitado';
+  if (s === 'inactive' || s === 'disabled' || s === 'baja' || s === 'suspended') return 'Deshabilitado';
   if (s === 'pending') return 'Pendiente';
   return 'Habilitado';
 }
 
+function foldText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+/** Lila escribe apellido y nombre; el padrón, nombre y apellido. Cada palabra alcanza. */
+function nameCoversWords(foldedName, query) {
+  const words = foldText(query).split(/\s+/).filter((word) => word.length > 0);
+  return words.every((word) => foldedName.includes(word));
+}
+
+function belongsToFamilyGroup(member, allMembers = []) {
+  if (isFamilyDependent(member)) return true;
+  if (String(member?.familyGroupName || '').trim()) return true;
+  if (familyPrincipalOf(member)) return true;
+  return (resolveFamilyForDisplay(member, allMembers).members || []).length > 0;
+}
+
+/** Número de socio como lo muestra Lila: 5 dígitos, con ceros a la izquierda. */
+export function lilaClubNumber(member) {
+  const digits = padMember(memberNumberOf(member) || member?.memberId);
+  if (!digits) return '';
+  if (digits.length >= 5) return digits;
+  return digits.padStart(5, '0');
+}
+
+function sameClubNumber(member, queryDigits) {
+  const left = String(queryDigits || '').replace(/^0+/, '') || '0';
+  const right = padMember(memberNumberOf(member) || member?.memberId).replace(/^0+/, '') || '0';
+  return left === right;
+}
+
+function memberCategoryIds(member) {
+  const ids = new Set();
+  if (member?.tier) ids.add(String(member.tier));
+  for (const name of parseCuotaCategories(member?.cuotaCategories)) {
+    const id = slugifyTierId(name);
+    if (id) ids.add(id);
+  }
+  return ids;
+}
+
+/** Mismo orden que el listado de Lila: id interno ascendente. */
+export function compareBalanceRows(a, b) {
+  const ia = Number(a?.accessinId);
+  const ib = Number(b?.accessinId);
+  const aOk = Number.isFinite(ia) && ia > 0;
+  const bOk = Number.isFinite(ib) && ib > 0;
+  if (aOk && bOk && ia !== ib) return ia - ib;
+  if (aOk !== bOk) return aOk ? -1 : 1;
+  return lilaClubNumber(a).localeCompare(lilaClubNumber(b), 'es', { numeric: true });
+}
+
 export function familyBalanceForMember(member, allMembers = []) {
+  if (!belongsToFamilyGroup(member, allMembers)) {
+    return { isTitular: false, belongs: false, label: 'No pertenece a un grupo familiar', amount: null };
+  }
   if (!isTitularMember(member)) {
-    return { isTitular: false, label: 'No es titular de un grupo familiar', amount: null };
+    return { isTitular: false, belongs: true, label: 'No es titular de un grupo familiar', amount: null };
   }
   const family = resolveFamilyForDisplay(member, allMembers);
   const official = familyGroupBalanceOf(member);
@@ -125,29 +185,27 @@ export function filterMembersForBalances(members = [], filters = {}) {
     if (!m) return false;
     const statusLabel = memberStatusLabel(m);
     if (status === 'habilitado' && statusLabel !== 'Habilitado') return false;
-    if (status === 'inhabilitado' && statusLabel !== 'Inhabilitado') return false;
-    if (tier !== 'all' && String(m.tier || '') !== tier) return false;
+    if ((status === 'inhabilitado' || status === 'deshabilitado') && statusLabel !== 'Deshabilitado') return false;
+    if (tier !== 'all' && !memberCategoryIds(m).has(String(tier))) return false;
 
-    const name = String(m.name || '').toLowerCase();
-    const parts = name.split(/\s+/);
-    const last = parts[0] || '';
-    const first = parts.slice(1).join(' ');
-
-    if (fn && !first.includes(fn) && !name.includes(fn)) return false;
-    if (ln && !last.includes(ln) && !name.includes(ln)) return false;
+    const name = foldText(m.name);
+    if (fn && !nameCoversWords(name, fn)) return false;
+    if (ln && !nameCoversWords(name, ln)) return false;
     if (dniQ && !String(m.documentNumber || m.dni || '').replace(/\D/g, '').includes(dniQ)) return false;
-    if (nroQ && !padMember(memberNumberOf(m) || m.memberId).includes(nroQ)) return false;
+    if (nroQ && !sameClubNumber(m, nroQ)) return false;
     if (famQ) {
-      const fam = String(m.familyGroupName || m.familyPrincipalNumber || '').toLowerCase();
-      if (!fam.includes(famQ)) return false;
+      const fam = foldText(`${m.familyGroupName || ''} ${m.familyPrincipalNumber || ''}`);
+      if (!fam.includes(foldText(famQ))) return false;
     }
     if (q) {
+      const qFold = foldText(q);
       const qDigits = q.replace(/\D/g, '');
       const nro = padMember(memberNumberOf(m) || m.memberId);
       const doc = String(m.documentNumber || m.dni || '').replace(/\D/g, '');
-      const hay = [
+      const hay = foldText([
         m.name,
         m.memberId,
+        lilaClubNumber(m),
         m.documentNumber,
         m.dni,
         m.familyGroupName,
@@ -155,9 +213,10 @@ export function filterMembersForBalances(members = [], filters = {}) {
         m.phone,
         m.email,
         getTierDisplayName(m.tier),
-      ].map((x) => String(x || '').toLowerCase()).join(' ');
-      const textHit = hay.includes(q);
-      const digitHit = qDigits.length >= 3 && (nro.includes(qDigits) || doc.includes(qDigits));
+        ...(parseCuotaCategories(m.cuotaCategories)),
+      ].join(' '));
+      const textHit = hay.includes(qFold);
+      const digitHit = qDigits.length >= 3 && (nro.includes(qDigits) || doc.includes(qDigits) || sameClubNumber(m, qDigits));
       if (!textHit && !digitHit) return false;
     }
     return true;

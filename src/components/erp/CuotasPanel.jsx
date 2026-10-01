@@ -1,20 +1,24 @@
 import { useMemo, useRef, useState } from 'react';
 import {
-  ArrowLeft, ChevronDown, Download, Eye, FileDown, FileSpreadsheet, Plus, RotateCcw, Trash2, Upload, Wallet,
+  ArrowLeft, ChevronDown, Download, Eye, FileDown, FileSpreadsheet, Pencil, Plus, RotateCcw, Trash2, Upload, Wallet,
 } from 'lucide-react';
 import { formatCurrency } from '../../domain/accounting/journal';
 import {
+  applyFeePackEdit,
+  feePeriodIsClosed,
   feePeriodsForYear,
   formatPeriodGeneratedAt,
   liquidateFeePeriod,
+  packEditorFromPeriod,
   periodLabel,
   periodStatusLabel,
   resolveFeePeriods,
 } from '../../domain/accounting/feeBilling';
+import FeePackEditor from './FeePackEditor';
 import { feePackForPeriod } from '../../domain/accounting/feePackConcepts';
 import DuesDueBanner from '../admin/DuesDueBanner';
 import { exportFeePeriodExcel, exportFeePeriodPdf } from '../../domain/accounting/exportFeePeriodDetails';
-import { buildFeePeriodLiquidation } from '../../domain/accounting/feePeriodLiquidation';
+import { liquidationFromPeriod } from '../../domain/accounting/feePeriodLiquidation';
 import {
   LISTA_BASE_COBRANZAS_FILENAME,
   LISTA_BASE_COBRANZAS_URL,
@@ -41,26 +45,6 @@ import MonthlyDebtsPanel from './MonthlyDebtsPanel';
 import DetailedCurrentAccountsPanel from './DetailedCurrentAccountsPanel';
 import MemberCreditPurchasesPanel from './MemberCreditPurchasesPanel';
 import CuotasDeskToolbar from './CuotasDeskToolbar';
-
-function liquidationFromPeriod(period, { members = [], tierCatalog = [] } = {}) {
-  const pack = feePackForPeriod(period);
-  if (pack?.concepts) {
-    return {
-      title: pack.title || `Liquidación - ${periodLabel(period)}`,
-      label: periodLabel(period),
-      total: pack.total,
-      rows: pack.concepts.map((row) => ({
-        identifier: String(row.id ?? ''),
-        name: row.label,
-        holders: row.holders,
-        unit: row.amount,
-        total: row.total,
-      })),
-      surcharges: pack.surcharges || [],
-    };
-  }
-  return buildFeePeriodLiquidation(period, { members, tierCatalog });
-}
 
 const MONTHS_ES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -94,6 +78,7 @@ export default function CuotasPanel({
   setMembers,
   feePeriods = [],
   onUpsertFeePeriods,
+  onPersistFeePeriod,
   collectionImports = [],
   onImportCollections,
   onDeleteCollectionImport,
@@ -121,6 +106,7 @@ export default function CuotasPanel({
   const [ok, setOk] = useState('');
   const [busy, setBusy] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState(null);
+  const [editingPeriod, setEditingPeriod] = useState(false);
 
   const [entity, setEntity] = useState('excel_manual');
   const [forceDate, setForceDate] = useState('');
@@ -159,10 +145,34 @@ export default function CuotasPanel({
     [selectedPeriod, members, tierCatalog],
   );
 
-  const openPeriodDetail = (period) => {
+  const openPeriodDetail = (period, edit = false) => {
     setSelectedPeriod(period);
+    setEditingPeriod(edit && !feePeriodIsClosed(period));
     setFlash('');
     setView('period_detail');
+  };
+
+  const savePackEdit = async (draft) => {
+    if (!selectedPeriod || feePeriodIsClosed(selectedPeriod)) return;
+    setError('');
+    setOk('');
+    setBusy(true);
+    try {
+      const next = applyFeePackEdit(selectedPeriod, draft);
+      const source = feePeriods?.length ? feePeriods : [selectedPeriod];
+      const nextList = source.some((p) => p.id === next.id)
+        ? source.map((p) => (p.id === next.id ? next : p))
+        : [...source, next];
+      onUpsertFeePeriods?.(nextList);
+      if (onPersistFeePeriod) await onPersistFeePeriod(next);
+      setSelectedPeriod(next);
+      setEditingPeriod(false);
+      setOk('Cambios guardados. No se imputó una cuota a los socios.');
+    } catch (err) {
+      setError(err?.message || 'No se pudo guardar la liquidación.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const downloadPeriod = async (period, kind, visibleModel) => {
@@ -248,9 +258,19 @@ export default function CuotasPanel({
     }
   };
 
-  const liquidate = (periodId) => {
+  const liquidate = async (periodId) => {
     try {
       const result = liquidateFeePeriod(feePeriods, periodId, members);
+      const open = (feePeriods || []).find((p) => p.id === periodId);
+      const model = liquidationFromPeriod(open, { members, tierCatalog });
+      const closed = {
+        ...result.period,
+        amount: model.total,
+        lines: model.rows,
+      };
+      result.period = closed;
+      result.periods = result.periods.map((p) => (p.id === periodId ? closed : p));
+      if (onPersistFeePeriod) await onPersistFeePeriod(result.period);
       onUpsertFeePeriods?.(result.periods);
       const charges = (result.memberUpdates || []).filter((u) => (Number(u.addAmount) || 0) > 0);
       if (charges.length && typeof setMembers === 'function') {
@@ -272,6 +292,8 @@ export default function CuotasPanel({
           return applyAccountEntryToMember(m, entry);
         }));
       }
+      setSelectedPeriod(null);
+      setView('hub');
       setFlash(`Liquidado ${periodLabel(result.period)}.`);
     } catch (err) {
       setError(err.message || 'No se pudo liquidar.');
@@ -406,7 +428,7 @@ export default function CuotasPanel({
           <button
             type="button"
             className="btn btn-secondary btn-sm"
-            onClick={() => { setView('hub'); setSelectedPeriod(null); }}
+            onClick={() => { setView('hub'); setSelectedPeriod(null); setEditingPeriod(false); }}
           >
             <ArrowLeft size={14} /> Volver
           </button>
@@ -414,6 +436,24 @@ export default function CuotasPanel({
             {liquidation.title}
           </h3>
           <div className="cuotas-liq-actions">
+            {!feePeriodIsClosed(selectedPeriod) && !editingPeriod ? (
+              <>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setEditingPeriod(true)}
+                >
+                  <Pencil size={14} /> Editar
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-emerald btn-sm"
+                  onClick={() => liquidate(selectedPeriod.id)}
+                >
+                  <Plus size={14} /> Liquidar
+                </button>
+              </>
+            ) : null}
             <button
               type="button"
               className="btn btn-tan btn-sm"
@@ -433,6 +473,24 @@ export default function CuotasPanel({
           </div>
         </div>
 
+        {error ? <p className="ig-error">{error}</p> : null}
+        {ok ? <p className="ig-ok">{ok}</p> : null}
+
+        {editingPeriod && !feePeriodIsClosed(selectedPeriod) ? (
+          <FeePackEditor
+            key={selectedPeriod.id}
+            period={selectedPeriod}
+            draft={packEditorFromPeriod(
+              selectedPeriod,
+              feePackForPeriod(selectedPeriod) ? liquidation : null,
+            )}
+            formatCurrency={fmt}
+            busy={busy}
+            onSave={savePackEdit}
+            onCancel={() => setEditingPeriod(false)}
+          />
+        ) : (
+        <>
         <div className="cuotas-cc-banner">
           <span>Detalle de gastos · total {fmt(liquidation.total)}</span>
         </div>
@@ -498,6 +556,8 @@ export default function CuotasPanel({
             </table>
           </div>
         ) : null}
+        </>
+        )}
       </div>
     );
   }
@@ -840,6 +900,7 @@ export default function CuotasPanel({
         journalEntries={journalEntries}
         chartOfAccounts={chartOfAccounts}
         feePeriods={feePeriods}
+        tierCatalog={tierCatalog}
         afterCollect={<CuotasDeskToolbar onGo={goDesk} />}
       />
       <OverdueDuesStrip
@@ -856,7 +917,7 @@ export default function CuotasPanel({
           <i className="due-fold-arrow" aria-hidden="true">
             <ChevronDown size={18} strokeWidth={2.5} />
           </i>
-          <span>Períodos de {year}</span>
+          <span>Cuotas de {year}</span>
           <b className="tabular-nums">{periods.length}</b>
         </summary>
         <div className="cuotas-year-body">
@@ -895,7 +956,9 @@ export default function CuotasPanel({
                   <td>{p.accessinId || '—'}</td>
                   <td style={{ fontWeight: 600 }}>{periodLabel(p)}</td>
                   <td className="tabular-nums">
-                    {p.status === 'processed' || p.status === 'draft' ? fmt(p.amount) : 'Cuotas no liquidados'}
+                    {p.status === 'processed' || p.status === 'draft'
+                      ? fmt(liquidationFromPeriod(p, { members, tierCatalog }).total)
+                      : 'Cuotas no liquidados'}
                   </td>
                   <td>{p.status === 'draft' ? 'No liquidado' : formatPeriodGeneratedAt(p.generatedAt)}</td>
                   <td>
@@ -948,24 +1011,64 @@ export default function CuotasPanel({
                           ) : null}
                         </>
                       ) : p.status === 'draft' ? (
-                        <button
-                          type="button"
-                          className="cash-lila-icon-btn is-edit"
-                          title="Ver liquidación"
-                          aria-label="Ver liquidación"
-                          onClick={() => openPeriodDetail(p)}
-                        >
-                          <Eye size={14} />
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            className="cash-lila-icon-btn is-edit"
+                            title="Ver liquidación"
+                            aria-label="Ver liquidación"
+                            onClick={() => openPeriodDetail(p)}
+                          >
+                            <Eye size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            className="cash-lila-icon-btn is-edit"
+                            title="Editar"
+                            aria-label="Editar liquidación"
+                            onClick={() => openPeriodDetail(p, true)}
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            className="cash-lila-icon-btn is-edit"
+                            title="Liquidar período"
+                            aria-label="Liquidar período"
+                            onClick={() => liquidate(p.id)}
+                          >
+                            <Plus size={13} />
+                          </button>
+                        </>
                       ) : (
-                        <button
-                          type="button"
-                          className="cash-lila-icon-btn is-edit"
-                          title="Liquidar período"
-                          onClick={() => liquidate(p.id)}
-                        >
-                          <Plus size={13} />
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            className="cash-lila-icon-btn is-edit"
+                            title="Ver liquidación"
+                            aria-label="Ver liquidación"
+                            onClick={() => openPeriodDetail(p)}
+                          >
+                            <Eye size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            className="cash-lila-icon-btn is-edit"
+                            title="Editar"
+                            aria-label="Editar liquidación"
+                            onClick={() => openPeriodDetail(p, true)}
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            className="cash-lila-icon-btn is-edit"
+                            title="Liquidar período"
+                            onClick={() => liquidate(p.id)}
+                          >
+                            <Plus size={13} />
+                          </button>
+                        </>
                       )}
                     </div>
                   </td>

@@ -148,9 +148,16 @@ export function matchMemberForAccessRequest(members = [], request) {
 }
 
 export function requestStatusLabel(status) {
-  if (status === 'approved') return 'Resuelto';
+  if (status === 'approved') return 'Aprobado';
   if (status === 'rejected') return 'Rechazado';
   return 'Pendiente';
+}
+
+/** El socio ve la contraseña en pantalla. No hace falta el nombre de la secreta. */
+export function accessInviteMailError(message) {
+  const raw = String(message || '').trim();
+  if (!raw || /RESEND_API_KEY/i.test(raw)) return '';
+  return raw;
 }
 
 export function formatRequestWhen(iso) {
@@ -220,14 +227,14 @@ export function buildRequestDetail(kind, item, extras = {}) {
   };
 }
 
+export const PORTAL_PUBLIC_ORIGIN = 'https://www.jockeyclubsj.com.ar';
+
 export function portalLoginUrl() {
-  if (typeof window === 'undefined') return '/';
-  return `${window.location.origin}/`;
+  return `${PORTAL_PUBLIC_ORIGIN}/`;
 }
 
 export function publicJoinUrl() {
-  if (typeof window === 'undefined') return '/registro?tramite=alta';
-  return `${window.location.origin}/registro?tramite=alta`;
+  return `${PORTAL_PUBLIC_ORIGIN}/registro?tramite=alta`;
 }
 
 /** Día de ingreso en Argentina: el de la solicitud, no el de la ficha vieja. */
@@ -328,9 +335,7 @@ export function buildAccessInvite({
     loginEmail: email,
     password,
     portalUrl: url,
-    logoUrl: typeof window !== 'undefined' && window.location?.protocol === 'https:'
-      ? `${window.location.origin}/logo-jockey-club.png`
-      : '',
+    logoUrl: `${PORTAL_PUBLIC_ORIGIN}/logo-jockey-club.png`,
   });
   return {
     creds: { username, email, password },

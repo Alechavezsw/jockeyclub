@@ -7,6 +7,7 @@ import {
   cashMovementsSeed,
   cashSeed,
   chequesSeed,
+  cashMovementMonthSheets,
   filterAccessinCashMovements,
   filterAccessinCheques,
   recalculateAccessinCashTotal,
@@ -75,5 +76,37 @@ describe('cashLedger Accessin', () => {
     expect(cash.every((m) => m.walletKind === 'cash')).toBe(true);
     const limited = filterAccessinCashMovements(ACCESSIN_CASH_MOVEMENTS, { limit: 10 });
     expect(limited).toHaveLength(10);
+  });
+
+  it('arma una hoja por mes y no mezcla días de otro mes', () => {
+    const rows = [
+      { id: 'a', date: '2026-10-01', accessinId: 603050, amount: 39600 },
+      { id: 'b', date: '2026-09-30', accessinId: 603000, amount: 1000 },
+      { id: 'c', date: '2026-10-01', accessinId: 603051, amount: 500 },
+    ];
+    const sheets = cashMovementMonthSheets(rows);
+    expect(sheets.map((s) => s.key)).toEqual(['2026-10', '2026-09']);
+    expect(sheets[0]).toMatchObject({ label: 'Octubre de 2026', count: 2 });
+    const october = filterAccessinCashMovements(rows, { monthKey: '2026-10' });
+    expect(october.map((r) => r.accessinId)).toEqual([603051, 603050]);
+    expect(october.some((r) => String(r.date).startsWith('2026-09'))).toBe(false);
+  });
+});
+
+describe('saldo de caja al día', () => {
+  it('muestra el saldo de efectivo y bancos del corte, no los ingresos del período', () => {
+    const cards = accessinCashBalanceCards({
+      asOf: '2026-10-01',
+      cards: {
+        efectivo: { periodInflow: 13127240, balance: 187369302.75 },
+        bancos: { periodInflow: 116162942.78, balance: 624226837.87 },
+        cheques: { balance: 0 },
+        total: { balance: 811596140.62 },
+      },
+    }, []);
+    expect(cards.find((c) => c.id === 'efectivo')?.value).toBeCloseTo(187369302.75, 2);
+    expect(cards.find((c) => c.id === 'efectivo')?.caption).toContain('1 de Octubre del 2026');
+    expect(cards.find((c) => c.id === 'bancos')?.value).toBeCloseTo(624226837.87, 2);
+    expect(cards.find((c) => c.id === 'total')?.value).toBeCloseTo(811596140.62, 2);
   });
 });

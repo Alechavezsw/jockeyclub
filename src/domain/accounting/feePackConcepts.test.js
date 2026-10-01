@@ -23,6 +23,6 @@ describe('feePackConcepts', () => {
       expect(sum).toBe(pack.total);
     }
     expect(feePackForPeriod({ accessinId: 1311 }).total).toBe(57843000);
-    expect(feePackForPeriod({ accessinId: 1382 }).total).toBe(67677000);
+    expect(feePackForPeriod({ accessinId: 1382 }).total).toBe(63233000);
   });
 });

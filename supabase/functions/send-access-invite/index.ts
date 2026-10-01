@@ -116,8 +116,14 @@ Deno.serve(async (req) => {
     const username = String(body.username || "").trim();
     const loginEmail = String(body.loginEmail || "").trim();
     const password = String(body.password || "").trim();
-    const portalUrl = String(body.portalUrl || "").trim();
-    const logoUrl = String(body.logoUrl || "").trim();
+    const rawPortalUrl = String(body.portalUrl || "").trim();
+    const portalUrl = /localhost|127\.0\.0\.1/i.test(rawPortalUrl)
+      ? "https://www.jockeyclubsj.com.ar/"
+      : rawPortalUrl;
+    const rawLogoUrl = String(body.logoUrl || "").trim();
+    const logoUrl = /localhost|127\.0\.0\.1/i.test(rawLogoUrl)
+      ? "https://www.jockeyclubsj.com.ar/logo-jockey-club.png"
+      : rawLogoUrl;
 
     if (!to.includes("@")) return json(400, { error: "Falta el email de contacto" });
     if (!username || !password || !portalUrl) {

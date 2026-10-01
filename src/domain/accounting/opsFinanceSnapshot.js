@@ -205,18 +205,16 @@ function summaryLineAmount(sections, sectionId, labelTest) {
 }
 
 /**
- * KPIs del mes calendario en curso, tomados del balance resumido de LILA.
- * Si ese corte es de otro mes, devuelve null y se sigue usando el balance detallado.
+ * KPIs del balance resumido de LILA, aunque el corte no sea el mes calendario.
  */
-export function financeFromMonthlySummary({
+export function financeFromSummary({
   snapshot = {},
   sections = [],
-  today = todayISODateAR(),
 } = {}) {
   const periodFrom = String(snapshot?.periodFrom || '');
   const periodTo = String(snapshot?.periodTo || snapshot?.asOf || '');
   const periodKey = monthKeyOf(periodFrom || periodTo);
-  if (!periodKey || periodKey !== monthKeyOf(today)) return null;
+  if (!periodKey) return null;
 
   const liquidado = summaryLineAmount(
     sections,
@@ -247,6 +245,20 @@ export function financeFromMonthlySummary({
     periodKey,
     lastIncomes: [],
   };
+}
+
+/**
+ * KPIs del mes calendario en curso, tomados del balance resumido de LILA.
+ * Si ese corte es de otro mes, devuelve null.
+ */
+export function financeFromMonthlySummary({
+  snapshot = {},
+  sections = [],
+  today = todayISODateAR(),
+} = {}) {
+  const month = financeFromSummary({ snapshot, sections });
+  if (!month || month.periodKey !== monthKeyOf(today)) return null;
+  return month;
 }
 
 /**
@@ -445,4 +457,62 @@ export function composeClubFinance({
     periodKey: lila?.periodKey || '',
     since: app.since,
   };
+}
+
+/** Recaudado y liquidado del mes calendario. Un corte de otro mes no cuenta. */
+export function collectionForCalendarMonth({
+  money = null,
+  monthFlow = null,
+  monthKey = '',
+  cashMovements = [],
+} = {}) {
+  const cutKey = String(money?.periodKey || money?.periodTo || '').slice(0, 7);
+  if (monthKey && cutKey === monthKey) {
+    return {
+      collected: Number(money?.recaudado) || 0,
+      liquidated: Number(money?.liquidado) || 0,
+    };
+  }
+  return {
+    collected: (Number(monthFlow?.collectedSince) || 0) + collectedFromCashMovements(cashMovements, monthKey),
+    liquidated: Number(monthFlow?.liquidatedSince) || 0,
+  };
+}
+
+/** Ingresos de caja del mes (cobros y transferencias de socios). */
+export function collectedFromCashMovements(movements = [], monthKey = '') {
+  const seen = new Set();
+  let total = 0;
+  for (const row of movements || []) {
+    const date = String(row?.date || '').slice(0, 10);
+    if (!monthKey || !date.startsWith(monthKey)) continue;
+    const type = String(row?.movementType || 'income');
+    if (type === 'expense' || type === 'transfer_out') continue;
+    const amount = Number(row?.amount) || 0;
+    if (amount <= 0) continue;
+    const key = String(row?.accessinId ?? row?.id ?? '');
+    if (key && seen.has(key)) continue;
+    if (key) seen.add(key);
+    total += amount;
+  }
+  return Math.round(total * 100) / 100;
+}
+
+/** Neto de caja posterior al corte (ingresos menos egresos), sin repetir el mismo movimiento. */
+export function cashDeltaAfterDate(movements = [], afterDate = '') {
+  const cut = String(afterDate || '').slice(0, 10);
+  const seen = new Set();
+  let total = 0;
+  for (const row of movements || []) {
+    const date = String(row?.date || '').slice(0, 10);
+    if (!date || (cut && date <= cut)) continue;
+    const amount = Number(row?.amount) || 0;
+    if (!amount) continue;
+    const key = String(row?.accessinId ?? row?.id ?? '');
+    if (key && seen.has(key)) continue;
+    if (key) seen.add(key);
+    const type = String(row?.movementType || 'income');
+    total += type === 'expense' || type === 'transfer_out' ? -Math.abs(amount) : Math.abs(amount);
+  }
+  return Math.round(total * 100) / 100;
 }
