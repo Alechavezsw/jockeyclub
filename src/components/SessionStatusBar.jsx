@@ -33,7 +33,7 @@ const MEMBER_NAV = [
   { id: 'home', label: 'Inicio', path: '/' },
   { id: 'reservas', label: 'Reservar canchas', path: '/reservas' },
   { id: 'cuenta', label: 'Mi cuenta', path: '/cuenta' },
-  { id: 'revista', label: 'Revista digital', path: '/revista' },
+  { id: 'revista', label: 'Novedades', path: '/revista' },
   { id: 'mensajes', label: 'Mensajes', path: '/mensajes' },
   { id: 'perfil', label: 'Mi perfil', path: '/perfil' },
 ];

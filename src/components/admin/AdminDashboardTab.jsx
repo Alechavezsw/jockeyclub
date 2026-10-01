@@ -18,12 +18,12 @@ import { monthlyBalanceSummarySeed } from '../../domain/accounting/monthlyBalanc
 import { detailedCcSeed } from '../../domain/accounting/detailedCurrentAccounts';
 import { cashSeed } from '../../domain/accounting/cashLedger';
 import { cobranzasSeed } from '../../domain/accounting/cobranzas';
-import { isNewsPublished } from '../../domain/news/news';
 import { buildPadronHouseholdStats } from '../../domain/members/households';
 import { duesDueMoment, getOverdueMembers } from '../../domain/members/dues';
 import { membershipMovesSeed, uniqueBajas } from '../../domain/members/membershipMoves';
 import { useSnapshotSeed } from '../../hooks/useSnapshots';
-import { todayISODateAR } from '../../lib/arDate';
+import { formatISODateLongAR, todayISODateAR } from '../../lib/arDate';
+import { dedupeAccessLogs } from '../../domain/credentials/accessLog';
 import { OpsProgressRing, OpsSegmentRing } from './OpsGauge';
 import DuesDueBanner from './DuesDueBanner';
 import CurrentAccountCutNote from '../erp/CurrentAccountCutNote';
@@ -107,11 +107,16 @@ function buildBookingsSnapshot(reservations = [], today = new Date()) {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 4)
     .map(([name, count]) => ({ name, count }));
+  const byDay = new Map();
   const week = Array.from({ length: 7 }, (_, i) => {
     const key = addDaysISO(todayKey, i);
+    const dayList = upcoming
+      .filter((r) => reservationDay(r) === key)
+      .sort((a, b) => String(a.time || a.time_slot || '').localeCompare(String(b.time || b.time_slot || '')));
+    byDay.set(key, dayList);
     return {
       key,
-      count: upcoming.filter((r) => reservationDay(r) === key).length,
+      count: dayList.length,
       label: weekdayLabel(key),
       day: key.slice(8, 10),
     };
@@ -126,6 +131,7 @@ function buildBookingsSnapshot(reservations = [], today = new Date()) {
     topFacilities,
     maxFacility: topFacilities[0]?.count || 1,
     week,
+    byDay,
     pastConfirmed: list.filter((r) => r.status === 'confirmed' && reservationDay(r) < todayKey).length,
   };
 }
@@ -157,7 +163,6 @@ export default function AdminDashboardTab({
   alerts = [],
   alertAcks = [],
   onAckAlert,
-  latestNews = [],
   isZondaActive = false,
   tierCatalog = [],
   totalMembers,
@@ -185,6 +190,7 @@ export default function AdminDashboardTab({
   const navigate = useNavigate();
   const [openingCash, setOpeningCash] = useState(false);
   const [cashFlash, setCashFlash] = useState('');
+  const [agendaDay, setAgendaDay] = useState(null);
   const showGate = canAccessQrGate(userRole);
   const pendingMembershipApps = useMemo(
     () => (membershipApplications || []).filter((a) => a.status === 'pending').length
@@ -231,6 +237,13 @@ export default function AdminDashboardTab({
   const hasMembers = permittedTabs.includes('members');
 
   const bookings = useMemo(() => buildBookingsSnapshot(reservations), [reservations]);
+  const selectedAgendaDay = useMemo(() => {
+    const keys = new Set(bookings.week.map((d) => d.key));
+    if (agendaDay && keys.has(agendaDay)) return agendaDay;
+    const nextBusy = bookings.week.find((d) => d.count > 0);
+    return nextBusy?.key || todayKey;
+  }, [agendaDay, bookings.week, todayKey]);
+  const agendaList = bookings.byDay.get(selectedAgendaDay) || [];
 
   const msgStats = useMemo(() => {
     const list = Array.isArray(messages) ? messages : [];
@@ -258,7 +271,7 @@ export default function AdminDashboardTab({
   }, [msgStats]);
 
   const todayEntries = useMemo(() => {
-    const todays = entryLogs
+    const todays = dedupeAccessLogs(entryLogs)
       .map((log) => ({ log, at: parseLogInstant(log) }))
       .filter(({ log, at }) => {
         const day = String(log.date || '').slice(0, 10);
@@ -291,13 +304,6 @@ export default function AdminDashboardTab({
       .filter((e) => e.status !== 'cancelled' && new Date(e.startsAt).getTime() >= now - 86400000)
       .sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt))[0] || null;
   }, [clubEvents]);
-
-  const featuredNews = useMemo(() => {
-    const list = Array.isArray(latestNews) ? latestNews : [];
-    const published = list.filter(isNewsPublished);
-    const pool = published.length ? published : list;
-    return pool[0] || null;
-  }, [latestNews]);
 
   const { weather, status: weatherStatus } = useSedeWeather({ isZondaActive });
   const weatherClosed = weather?.outdoor === 'closed';
@@ -503,7 +509,7 @@ export default function AdminDashboardTab({
       tone: 'gold',
       icon: Newspaper,
       title: 'Revista',
-      hint: featuredNews ? featuredNews.title : 'Publicar nota',
+      hint: 'Novedades en el portal del socio',
     },
     {
       tab: 'reports',
@@ -569,6 +575,23 @@ export default function AdminDashboardTab({
     </button>
   );
 
+  const jevTeaser = permittedTabs.includes('jev') && jevReview ? (
+    <button type="button" className="jev-teaser" onClick={() => goToTab('jev')}>
+      <span className="jev-teaser-kicker">Jev</span>
+      <strong className="tabular-nums">
+        {jevReview.counts?.ready === false
+          ? '…'
+          : Number(jevReview.counts?.bien || 0).toLocaleString('es-AR')}
+      </strong>
+      <span>socios con la ficha bien</span>
+      <em>
+        {jevVisible.length === 0
+          ? 'Nada pendiente'
+          : `${jevVisible.length} para revisar`}
+      </em>
+    </button>
+  ) : null;
+
   return (
     <div className="fade-in ops-dash">
       <section className="ops-dash-hero ops-dash-hero--solo">
@@ -578,22 +601,6 @@ export default function AdminDashboardTab({
             <p className="ops-dash-kicker" style={{ marginTop: '-0.55rem', marginBottom: '0.85rem' }}>
               {userName} · {formatLongDate()}
             </p>
-          ) : null}
-          {permittedTabs.includes('jev') && jevReview ? (
-            <button type="button" className="jev-teaser" onClick={() => goToTab('jev')}>
-              <span className="jev-teaser-kicker">Jev</span>
-              <strong className="tabular-nums">
-                {jevReview.counts?.ready === false
-                  ? '…'
-                  : Number(jevReview.counts?.bien || 0).toLocaleString('es-AR')}
-              </strong>
-              <span>socios con la ficha bien</span>
-              <em>
-                {jevVisible.length === 0
-                  ? 'Nada pendiente'
-                  : `${jevVisible.length} para revisar`}
-              </em>
-            </button>
           ) : null}
           {(permittedTabs.includes('dues') || permittedTabs.includes('accounting')) ? (
             <DuesDueBanner
@@ -640,18 +647,56 @@ export default function AdminDashboardTab({
             <header className="ops-today-pane-head">
               <Calendar size={15} aria-hidden="true" />
               <h3>Agenda del día</h3>
-              {bookings.todayCount > 0 ? (
-                <span className="ops-today-badge">{bookings.todayCount}</span>
+              {agendaList.length > 0 ? (
+                <span className="ops-today-badge">{agendaList.length}</span>
               ) : null}
             </header>
-            {bookings.todayList.length === 0 ? (
+            <ul className="ops-week" aria-label="Turnos de los próximos 7 días">
+              {bookings.week.map((d) => {
+                const selected = d.key === selectedAgendaDay;
+                const isToday = d.key === todayKey;
+                const classes = [
+                  isToday ? 'is-today' : '',
+                  d.count > 0 ? 'is-busy' : '',
+                  selected ? 'is-selected' : '',
+                ].filter(Boolean).join(' ');
+                return (
+                  <li key={d.key}>
+                    <button
+                      type="button"
+                      className={classes || undefined}
+                      aria-pressed={selected}
+                      aria-current={isToday ? 'date' : undefined}
+                      aria-label={`${d.label} ${d.day}, ${d.count} ${d.count === 1 ? 'turno' : 'turnos'}`}
+                      onClick={() => setAgendaDay(d.key)}
+                    >
+                      <span className="ops-week-dow">{d.label}</span>
+                      <b className="ops-week-date tabular-nums">{d.day}</b>
+                      <small
+                        className={`ops-week-count tabular-nums${d.count > 0 ? '' : ' is-empty'}`}
+                        aria-hidden="true"
+                      >
+                        {d.count > 0 ? d.count : ''}
+                      </small>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="ops-today-next-label">
+              {selectedAgendaDay === todayKey ? 'Hoy' : formatISODateLongAR(selectedAgendaDay)}
+            </p>
+            {agendaList.length === 0 ? (
               <p className="ops-muted ops-today-empty">
-                Sin turnos para hoy
-                {bookings.pastConfirmed > 0 ? ` · ${bookings.pastConfirmed} históricas en el libro` : ''}.
+                Sin turnos
+                {selectedAgendaDay === todayKey && bookings.pastConfirmed > 0
+                  ? ` · ${bookings.pastConfirmed} históricas en el libro`
+                  : ''}
+                .
               </p>
             ) : (
               <ul className="ops-today-list">
-                {bookings.todayList.map((res) => (
+                {agendaList.map((res) => (
                   <li key={res.id || `${reservationDay(res)}-${res.time || res.time_slot}`}>
                     <span className="ops-today-time tabular-nums">
                       {String(res.time || res.time_slot || '—').slice(0, 5)}
@@ -667,37 +712,6 @@ export default function AdminDashboardTab({
                 ))}
               </ul>
             )}
-            <ul className="ops-week" aria-label="Turnos de los próximos 7 días">
-              {bookings.week.map((d) => (
-                <li key={d.key} className={d.key === todayKey ? 'is-today' : undefined}>
-                  <span>{d.label}</span>
-                  <b className="tabular-nums">{d.count}</b>
-                  <small className="tabular-nums">{d.day}</small>
-                </li>
-              ))}
-            </ul>
-            {bookings.next.length > 0 ? (
-              <>
-                <p className="ops-today-next-label">Próximos</p>
-                <ul className="ops-today-list ops-today-list--next">
-                  {bookings.next.slice(0, 3).map((res) => (
-                    <li key={res.id || `${reservationDay(res)}-${res.time || res.time_slot}`}>
-                      <span className="ops-today-time tabular-nums">
-                        {String(res.time || res.time_slot || '—').slice(0, 5)}
-                      </span>
-                      <span className="ops-today-copy">
-                        <strong>{res.facilityName || res.facilityId}</strong>
-                        <small>
-                          {formatMoveDay(reservationDay(res))}
-                          {res.memberName ? ` · ${res.memberName}` : ''}
-                          {res.status === 'pending' ? ' · por confirmar' : ''}
-                        </small>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            ) : null}
             {bookings.topFacilities.length > 0 ? (
               <div className="ops-today-fill">
                 <p className="ops-today-next-label">Canchas más pedidas</p>
@@ -716,7 +730,7 @@ export default function AdminDashboardTab({
                 </ul>
               </div>
             ) : null}
-            {bookings.todayList.length === 0 && bookings.pastList.length > 0 ? (
+            {agendaList.length === 0 && bookings.pastList.length > 0 ? (
               <div className="ops-today-fill ops-today-fill--scroll">
                 <p className="ops-today-next-label">Últimos turnos</p>
                 <ul className="ops-today-list">
@@ -829,37 +843,38 @@ export default function AdminDashboardTab({
               <p className="ops-muted ops-today-empty">Sin alertas vigentes.</p>
             ) : (
               <ul className="ops-today-alerts">
-                {activeAlerts.slice(0, 4).map((a) => {
+                {activeAlerts.slice(0, 3).map((a) => {
                   const sev = a.severity || 'info';
                   const Icon = sev === 'critical'
                     ? ShieldAlert
                     : sev === 'warning'
                       ? AlertTriangle
                       : BellRing;
+                  const openAlerts = permittedTabs.includes('alerts');
                   return (
                     <li key={a.id} className={`ops-today-alert-item sev-${sev}`}>
-                      <span className="ops-today-alert-icon" aria-hidden="true">
-                        <Icon size={16} strokeWidth={2.2} />
-                      </span>
-                      <span className="ops-today-alert-body">
-                        <em className="ops-today-alert-sev">
-                          {ALERT_SEVERITY[sev]?.label || 'Alerta'}
-                        </em>
-                        <strong>{a.title}</strong>
-                        {a.body ? <small>{a.body}</small> : null}
-                      </span>
+                      <button
+                        type="button"
+                        className="ops-today-alert-hit"
+                        onClick={openAlerts ? () => goToTab('alerts') : undefined}
+                      >
+                        <span className="ops-today-alert-icon" aria-hidden="true">
+                          <Icon size={18} strokeWidth={2.2} />
+                        </span>
+                        <span className="ops-today-alert-body">
+                          <em className="ops-today-alert-sev">
+                            {ALERT_SEVERITY[sev]?.label || 'Alerta'}
+                          </em>
+                          <strong>{a.title}</strong>
+                          {a.body ? <small>{a.body}</small> : null}
+                        </span>
+                      </button>
                     </li>
                   );
                 })}
               </ul>
             )}
-            <div className="ops-today-pane-foot">
-              {permittedTabs.includes('alerts') && (
-                <Link to="/panel/alerts" className="ops-dash-link">
-                  Ver alertas
-                </Link>
-              )}
-            </div>
+            {jevTeaser}
           </article>
         </div>
       </section>

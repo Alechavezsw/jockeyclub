@@ -7,6 +7,7 @@ import {
   ACCESS_GROUPS,
   accessCountsByDay,
   clubDayOfAccessLog,
+  dedupeAccessLogs,
   filterAccessLogs,
   mergeAccessLogsWithPool,
   normalizeAccessLog,
@@ -78,7 +79,7 @@ export default function AccessLogsTab({ entryLogs = [], poolAccesses = [], onOpe
   const [page, setPage] = useState(1);
 
   const normalized = useMemo(
-    () => mergeAccessLogsWithPool(entryLogs, poolAccesses).map(normalizeAccessLog),
+    () => dedupeAccessLogs(mergeAccessLogsWithPool(entryLogs, poolAccesses).map(normalizeAccessLog)),
     [entryLogs, poolAccesses],
   );
 

@@ -684,7 +684,7 @@ export default function DashboardView({
           <div className="db-quick-btn-icon" style={{ background: 'rgba(16,185,129,0.12)', color: 'var(--emerald-accent)' }}>
             <Bell size={22} />
           </div>
-          <span className="db-quick-btn-label">Noticias del Club</span>
+          <span className="db-quick-btn-label">Novedades</span>
           <span className="db-quick-btn-sub">Eventos · Anuncios</span>
         </div>
         <div className="db-quick-btn" onClick={() => setShowNewClaimForm(!showNewClaimForm)}>

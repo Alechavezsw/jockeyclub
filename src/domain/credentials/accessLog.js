@@ -116,6 +116,33 @@ export function normalizeAccessLog(log = {}) {
   };
 }
 
+/** Misma lectura grabada dos veces (Strict Mode / insert doble). */
+export function accessLogDedupeKey(log = {}) {
+  const n = normalizeAccessLog(log);
+  const clientId = n.clientId || n.meta?.clientId || '';
+  if (clientId) return `cid:${clientId}`;
+  if (String(n.id || '').startsWith('pool-log-')) return `cid:${n.id}`;
+  return [
+    n.memberId || n.memberName || '',
+    n.date || '',
+    String(n.time || '').slice(0, 5),
+    n.activity || n.notes || '',
+    n.status || '',
+  ].join('|');
+}
+
+export function dedupeAccessLogs(logs = []) {
+  const seen = new Set();
+  const out = [];
+  for (const log of logs || []) {
+    const key = accessLogDedupeKey(log);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(log);
+  }
+  return out;
+}
+
 export function filterAccessLogs(logs = [], {
   query = '',
   status = 'all',

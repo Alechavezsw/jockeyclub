@@ -844,7 +844,24 @@ function toSqlTime(value) {
   return d.toTimeString().slice(0, 8);
 }
 
+async function findRowByClientId(table, clientId) {
+  if (!clientId) return null;
+  const { data, error } = await sb()
+    .from(table)
+    .select('*')
+    .eq('meta->>clientId', clientId)
+    .limit(1)
+    .maybeSingle();
+  if (error) return null;
+  return data || null;
+}
+
 export async function insertAccessLog(log, memberDbId = null) {
+  const clientId = log.id && !isUuid(log.id) ? String(log.id) : null;
+  if (clientId) {
+    const existing = await findRowByClientId('access_logs', clientId);
+    if (existing) return M.accessLogFromRow(existing);
+  }
   const row = {
     member_id: isUuid(memberDbId) ? memberDbId : null,
     member_number: log.memberId ? String(log.memberId) : null,
@@ -855,7 +872,7 @@ export async function insertAccessLog(log, memberDbId = null) {
     logged_on: log.date || new Date().toISOString().slice(0, 10),
     logged_at: toSqlTime(log.time || new Date()),
     meta: {
-      clientId: log.id && !isUuid(log.id) ? String(log.id) : undefined,
+      clientId,
       source: log.source || 'access_gate',
       group: log.group || '',
       activity: log.activity || '',
@@ -882,6 +899,11 @@ export async function listPoolAccesses({ limit = 2000 } = {}) {
 }
 
 export async function insertPoolAccess(entry, memberDbId = null) {
+  const clientId = entry.id && !isUuid(entry.id) ? String(entry.id) : null;
+  if (clientId) {
+    const existing = await findRowByClientId('pool_accesses', clientId);
+    if (existing) return M.poolAccessFromRow(existing);
+  }
   const memberId = isUuid(memberDbId) ? memberDbId : (isUuid(entry?.memberDbId) ? entry.memberDbId : null);
   const row = {
     access_date: entry.date || new Date().toISOString().slice(0, 10),
@@ -902,7 +924,7 @@ export async function insertPoolAccess(entry, memberDbId = null) {
     journal_entry_id: isUuid(entry.journalEntryId) ? entry.journalEntryId : null,
     cash_movement_id: isUuid(entry.cashMovementId) ? entry.cashMovementId : null,
     meta: {
-      clientId: entry.id && !isUuid(entry.id) ? String(entry.id) : undefined,
+      clientId: clientId || undefined,
     },
   };
   const saved = await unwrap(

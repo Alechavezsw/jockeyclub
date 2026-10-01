@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Calendar, Tag, Check, Eye, Bookmark, Globe } from 'lucide-react';
 import ModalDialog from '../components/ModalDialog';
-import { isNewsPublished, newsCategoryLabel, isNewsFeatured, sortNewsForCms } from '../domain/news/news';
+import { DEFAULT_NEWS_IMAGES, isNewsPublished, newsCategoryLabel, isNewsFeatured, sortNewsForCms } from '../domain/news/news';
 
 function renderNewsBody(text) {
   const parts = String(text || '').split(/(\n\n\[imagen\]\([^)]+\)\n\n)/g);
@@ -9,17 +9,45 @@ function renderNewsBody(text) {
     const match = part.match(/^\n\n\[imagen\]\(([^)]+)\)\n\n$/);
     if (match) {
       return (
-        <figure key={`img-${i}`} style={{ margin: '1rem 0' }}>
-          <img src={match[1]} alt="" style={{ width: '100%', borderRadius: 12, display: 'block' }} />
+        <figure key={`img-${i}`} className="news-read-figure">
+          <img src={match[1]} alt="" />
         </figure>
       );
     }
     if (!part.trim()) return null;
-    return (
-      <p key={`p-${i}`} style={{ whiteSpace: 'pre-wrap', margin: '0 0 0.85rem', lineHeight: 1.6, color: 'var(--text-secondary)' }}>
-        {part}
-      </p>
-    );
+
+    const nodes = [];
+    let listItems = [];
+    const flushList = () => {
+      if (!listItems.length) return;
+      nodes.push(
+        <ul key={`ul-${nodes.length}`} className="news-read-list">
+          {listItems}
+        </ul>,
+      );
+      listItems = [];
+    };
+
+    String(part).split('\n').forEach((line, li) => {
+      if (line.startsWith('- ')) {
+        listItems.push(<li key={`li-${li}`}>{line.slice(2)}</li>);
+        return;
+      }
+      flushList();
+      if (line.startsWith('## ')) {
+        nodes.push(<h4 key={`h-${li}`} className="news-read-h">{line.slice(3)}</h4>);
+        return;
+      }
+      if (line.startsWith('> ')) {
+        nodes.push(<blockquote key={`q-${li}`} className="news-read-quote">{line.slice(2)}</blockquote>);
+        return;
+      }
+      if (!line.trim()) return;
+      nodes.push(<p key={`p-${li}`} className="news-read-p">{line}</p>);
+    });
+    flushList();
+
+    return <div key={`block-${i}`} className="news-read-block">{nodes}</div>;
   });
 }
 
@@ -69,8 +97,8 @@ export default function NewsBoardView({ newsList, userRole, toggleEventRSVP, rsv
     <div className="fade-in">
       <div className="page-header">
         <div>
-          <h1 className="page-title">Revista Digital</h1>
-          <p className="page-subtitle">Cronología de eventos, torneos deportivos y anuncios institucionales del club</p>
+          <h1 className="page-title">Novedades</h1>
+          <p className="page-subtitle">Avisos, torneos y anuncios del club</p>
         </div>
       </div>
 
@@ -115,13 +143,11 @@ export default function NewsBoardView({ newsList, userRole, toggleEventRSVP, rsv
                 className={`news-card ${isFeatured ? 'news-card-featured' : ''}`}
                 style={{ gridColumn: isFeatured ? 'span 2' : 'auto' }}
               >
-                <div
-                  className="news-img"
-                  style={{
-                    backgroundImage: `url(${article.image})`,
-                    minHeight: isFeatured ? '320px' : '220px',
-                  }}
-                >
+                <div className="news-img">
+                  <img
+                    src={article.image || DEFAULT_NEWS_IMAGES[article.category] || DEFAULT_NEWS_IMAGES.institucional}
+                    alt=""
+                  />
                   <span className="news-category">{newsCategoryLabel(article.category) || article.category}</span>
                 </div>
 
@@ -240,10 +266,10 @@ export default function NewsBoardView({ newsList, userRole, toggleEventRSVP, rsv
           </div>
           <div className="modal-body">
             {reading.image && (
-              <img src={reading.image} alt="" style={{ width: '100%', borderRadius: 12, marginBottom: '1rem' }} />
+              <img src={reading.image} alt="" className="news-read-cover" />
             )}
-            <p style={{ color: 'var(--text-secondary)', marginTop: 0 }}>{reading.excerpt}</p>
-            <div>{renderNewsBody(reading.content)}</div>
+            <p className="news-read-excerpt">{reading.excerpt}</p>
+            <div className="news-read-body">{renderNewsBody(reading.content)}</div>
             {Array.isArray(reading.gallery) && reading.gallery.length > 0 && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.65rem', marginTop: '1rem' }}>
                 {reading.gallery.map((url) => (

@@ -63,6 +63,19 @@ const ConcessionsView = lazy(() => import('./views/ConcessionsView'));
 const ConcessionPortalView = lazy(() => import('./views/ConcessionPortalView'));
 const MemberAccessView = lazy(() => import('./views/MemberAccessView'));
 
+const persistOnceKeys = new Set();
+
+function persistOnce(key, run) {
+  const id = String(key || '');
+  if (!id || persistOnceKeys.has(id)) return;
+  persistOnceKeys.add(id);
+  Promise.resolve()
+    .then(run)
+    .catch(() => {
+      persistOnceKeys.delete(id);
+    });
+}
+
 function RouteFallback() {
   return (
     <div style={{ minHeight: '40vh', display: 'grid', placeItems: 'center', color: 'var(--text-secondary)' }} aria-live="polite">
@@ -576,7 +589,7 @@ const DEFAULT_MESSAGES = [
     senderId: 'ops',
     recipientId: 'all',
     subject: 'Cómo usar el portal',
-    content: 'Así funciona el portal, del lado del socio:\n\nInicio. El resumen de tu lugar en el club y los avisos pendientes.\n\nReservar canchas. Elegís el deporte, el día y el horario. Si el turno está tomado, te anotás en la lista de espera.\n\nMi cuenta. Ves la cuota, el saldo y los pagos.\n\nRevista digital. Las novedades del club.\n\nMensajes. Acá llegan los avisos. También podés escribirle a secretaría.\n\nMi perfil. Tus datos de socio. El ingreso es siempre con tu email.',
+    content: 'Así funciona el portal, del lado del socio:\n\nInicio. El resumen de tu lugar en el club y los avisos pendientes.\n\nReservar canchas. Elegís el deporte, el día y el horario. Si el turno está tomado, te anotás en la lista de espera.\n\nMi cuenta. Ves la cuota, el saldo y los pagos.\n\nNovedades. Las noticias del club.\n\nMensajes. Acá llegan los avisos. También podés escribirle a secretaría.\n\nMi perfil. Tus datos de socio. El ingreso es siempre con tu email.',
     isRead: false,
     parentId: null,
   },
@@ -1660,21 +1673,23 @@ function ClubPortal() {
   }, [cloudMode, isAuthenticated, authLoading, role, location.pathname]);
 
   // Wrappers de escritura BD para setters usados en vistas
+  const isDbUuid = (id) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(id || ''));
+
   const setEntryLogsDb = (updater) => {
     setEntryLogs((prev) => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
-      if (cloudMode && Array.isArray(next) && next.length > prev.length) {
+      if (cloudMode && Array.isArray(next) && next.length > (prev?.length || 0)) {
         const newest = next[0];
-        const alreadySaved = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-          String(newest?.id || '')
-        );
-        if (newest && !alreadySaved) {
+        if (newest && !isDbUuid(newest.id)) {
           const dbId = memberDbIds[newest.memberId] || null;
-          repos.insertAccessLog(newest, dbId).then((saved) => {
-            setEntryLogs((cur) => [saved, ...cur.filter((x) => x !== newest && String(x.id) !== String(newest.id))]);
-          }).catch((err) => {
-            setDbError(err?.message || 'No se pudo guardar la lectura de acceso en la base de datos');
-          });
+          persistOnce(`access:${newest.id}`, () =>
+            repos.insertAccessLog(newest, dbId).then((saved) => {
+              setEntryLogs((cur) => [saved, ...cur.filter((x) => x !== newest && String(x.id) !== String(newest.id))]);
+            }).then(() => undefined, (err) => {
+              setDbError(err?.message || 'No se pudo guardar la lectura de acceso en la base de datos');
+              throw err;
+            }));
         }
       }
       return next;
@@ -1691,34 +1706,35 @@ function ClubPortal() {
           const alreadySaved = isDbUuid(row?.id);
           if (!before && row && !alreadySaved) {
             const dbId = row.memberDbId || memberDbIds[row.memberId] || null;
-            repos.insertPoolAccess(row, dbId).then((saved) => {
-              setPoolAccesses((cur) => cur.map((item) => {
-                if (String(item.id) !== String(row.id)) return item;
-                if (item.status === 'revoked') {
-                  repos.revokePoolAccess(saved.id).catch((err) => {
-                    setDbError(err?.message || 'No se pudo revocar el ingreso de pileta');
-                  });
-                  return { ...saved, status: 'revoked' };
-                }
-                return saved;
+            persistOnce(`pool:${row.id}`, () =>
+              repos.insertPoolAccess(row, dbId).then((saved) => {
+                setPoolAccesses((cur) => cur.map((item) => {
+                  if (String(item.id) !== String(row.id)) return item;
+                  if (item.status === 'revoked') {
+                    repos.revokePoolAccess(saved.id).catch((err) => {
+                      setDbError(err?.message || 'No se pudo revocar el ingreso de pileta');
+                    });
+                    return { ...saved, status: 'revoked' };
+                  }
+                  return saved;
+                }));
+              }).then(() => undefined, (err) => {
+                setPoolAccesses((cur) => cur.filter((item) => String(item.id) !== String(row.id)));
+                setDbError(err?.message || 'No se pudo guardar el ingreso de pileta');
+                throw err;
               }));
-            }).catch((err) => {
-              setPoolAccesses((cur) => cur.filter((item) => String(item.id) !== String(row.id)));
-              setDbError(err?.message || 'No se pudo guardar el ingreso de pileta');
-            });
           } else if (before && before.status !== 'revoked' && row.status === 'revoked' && alreadySaved) {
-            repos.revokePoolAccess(row.id).catch((err) => {
-              setDbError(err?.message || 'No se pudo revocar el ingreso de pileta');
-            });
+            persistOnce(`pool-rev:${row.id}`, () =>
+              repos.revokePoolAccess(row.id).then(() => undefined, (err) => {
+                setDbError(err?.message || 'No se pudo revocar el ingreso de pileta');
+                throw err;
+              }));
           }
         });
       }
       return next;
     });
   };
-
-  const isDbUuid = (id) =>
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(id || ''));
 
   const refreshMessages = useCallback(async () => {
     if (!cloudMode || !isAuthenticated) return;
@@ -2638,7 +2654,7 @@ function ClubPortal() {
           <Route path="/" element={homeElement} />
           <Route path="/asistencia" element={attendanceView} />
           <Route path="/reservas" element={userRole === 'member' ? reservationsView : <Navigate to={pathForView('dashboard')} replace />} />
-          <Route path="/revista" element={userRole === 'member' ? newsView : <Navigate to={pathForView('dashboard')} replace />} />
+          <Route path="/revista" element={newsView} />
           <Route path="/cuenta" element={userRole === 'member' ? paymentHistoryView : <Navigate to={pathForView('dashboard')} replace />} />
           <Route path="/perfil" element={userRole === 'member' ? memberProfileView : <Navigate to={pathForView('dashboard')} replace />} />
           <Route

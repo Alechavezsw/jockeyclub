@@ -243,6 +243,7 @@ export function accessLogFromRow(row) {
     status: row.status,
     notes: row.notes || '',
     source: meta.source || 'access_gate',
+    clientId: meta.clientId || undefined,
     // logged_on siempre se graba en hora Argentina al registrar el acceso
     // (ver insertAccessLog); no corresponde el ajuste de -1 día por hora UTC.
     daySource: 'ar',

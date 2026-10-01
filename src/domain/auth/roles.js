@@ -305,7 +305,7 @@ export function navItemsForRole(role) {
       { id: 'dashboard', label: 'Inicio' },
       { id: 'reservations', label: 'Reservar Canchas' },
       { id: 'payments', label: 'Mi Cuenta' },
-      { id: 'news', label: 'Revista Digital' },
+      { id: 'news', label: 'Novedades' },
     ];
   }
   if (role === 'teacher') {

@@ -4,6 +4,7 @@ import {
   accessLogsForClubDay,
   buildAccessLogEntry,
   filterAccessLogs,
+  dedupeAccessLogs,
   mergeAccessLogsWithPool,
   poolIngressToAccessLog,
   tierToGroup,
@@ -111,6 +112,24 @@ describe('accessLogsForClubDay', () => {
     ];
     expect(accessLogsForClubDay(logs, '2026-09-14')).toHaveLength(1);
     expect(accessLogsForClubDay(logs, '2026-09-15')).toEqual([]);
+  });
+});
+
+describe('dedupeAccessLogs', () => {
+  it('deja una sola lectura cuando el mismo clientId se grabó dos veces', () => {
+    const a = {
+      id: '7b5bf552-147a-4583-97b1-36826a9390b6',
+      clientId: 'pool-log-pool-muohsum4',
+      memberName: 'Paula Castro',
+      memberId: '9040',
+      date: '2026-09-30',
+      time: '16:22:47',
+      status: 'granted',
+      notes: 'Pileta · canon',
+    };
+    const b = { ...a, id: '0c1dd848-1f2b-45d5-8f9a-071e90c76bbc' };
+    expect(dedupeAccessLogs([a, b])).toHaveLength(1);
+    expect(dedupeAccessLogs([a, b])[0].id).toBe(a.id);
   });
 });
 
