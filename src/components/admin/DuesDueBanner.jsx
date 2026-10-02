@@ -14,7 +14,6 @@ import {
   listUnpaidFeeMembersForPeriod,
   periodKeyFromDate,
 } from '../../domain/accounting/detailedCurrentAccounts';
-import { liveMonthFeeCollected } from '../../domain/accounting/cashPaymentDetail';
 import { cashSeed, cashMovementsSeed } from '../../domain/accounting/cashLedger';
 import { cobranzasSeed } from '../../domain/accounting/cobranzas';
 import { useSnapshotSeed } from '../../hooks/useSnapshots';
@@ -215,13 +214,10 @@ export default function DuesDueBanner({
     cashMovements: cashMoves,
   });
   const sheetLiquidated = liquidatedTotalForMonth(feePeriods, monthKey, { members, tierCatalog });
+  const collected = calendar.collected;
+  const liquidated = sheetLiquidated != null ? sheetLiquidated : calendar.liquidated;
   const periodKey = periodKeyFromDate(money?.periodTo) || periodKeyFromDate(money?.periodKey);
   const cutIsThisMonth = String(periodKey || '').slice(0, 7) === monthKey;
-  const collected = useMemo(
-    () => liveMonthFeeCollected({ movements: cashMoves, members, monthKey }),
-    [cashMoves, members, monthKey],
-  );
-  const liquidated = sheetLiquidated != null ? sheetLiquidated : calendar.liquidated;
   const unpaidRows = useMemo(
     () => (enabled && cutIsThisMonth ? listUnpaidFeeMembersForPeriod(periodKey) : []),
     [enabled, cutIsThisMonth, periodKey],

@@ -7,6 +7,7 @@ import {
   loadSnapshot,
   readSnapshot,
   snapshotPayloadReplaces,
+  overlayCashSnapshot,
   reloadSnapshot,
   requireSnapshots,
   SNAPSHOT_NAMES,
@@ -51,6 +52,28 @@ describe('snapshotPayloadReplaces', () => {
     expect(snapshotPayloadReplaces('accessinDetailedCurrentAccounts', full, full)).toBe(true);
     expect(snapshotPayloadReplaces('accessinDetailedCurrentAccounts', null, full)).toBe(true);
     expect(snapshotPayloadReplaces('accessinCheques', full, { ACCESSIN_CHEQUES: [] })).toBe(true);
+  });
+});
+
+describe('overlayCashSnapshot', () => {
+  it('suma movimientos nuevos del corte remoto sin borrar el histórico local', () => {
+    const merged = overlayCashSnapshot(
+      'accessinCashMovements',
+      { ACCESSIN_CASH_MOVEMENTS: [{ accessinId: 1, date: '2026-09-26', amount: 1000 }] },
+      { ACCESSIN_CASH_MOVEMENTS: [{ accessinId: 603050, date: '2026-10-01', amount: 39600 }] },
+    );
+    expect(merged.ACCESSIN_CASH_MOVEMENTS).toHaveLength(2);
+    expect(merged.ACCESSIN_CASH_MOVEMENTS.map((row) => row.accessinId)).toEqual([1, 603050]);
+  });
+
+  it('usa el corte de caja más nuevo', () => {
+    const remote = overlayCashSnapshot(
+      'accessinCashSnapshot',
+      { ACCESSIN_CASH_AS_OF: '2026-09-26', ACCESSIN_CASH_SNAPSHOT: { asOf: '2026-09-26' } },
+      { ACCESSIN_CASH_AS_OF: '2026-10-01', ACCESSIN_CASH_SNAPSHOT: { asOf: '2026-10-01', recentMovements: [{ amount: 39600 }] } },
+    );
+    expect(remote.ACCESSIN_CASH_AS_OF).toBe('2026-10-01');
+    expect(remote.ACCESSIN_CASH_SNAPSHOT.recentMovements).toHaveLength(1);
   });
 });
 

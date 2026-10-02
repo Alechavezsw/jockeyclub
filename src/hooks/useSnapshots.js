@@ -3,6 +3,7 @@ import {
   getSnapshotsGeneration,
   getSnapshotsVersion,
   loadSnapshots,
+  refreshStaleCashSnapshots,
   snapshotStatus,
   startSnapshotLiveUpdates,
   subscribeSnapshots,
@@ -20,7 +21,14 @@ export default function useSnapshots(names = []) {
 
   useEffect(() => {
     startSnapshotLiveUpdates();
-    if (key) void loadSnapshots(key.split('|'));
+    if (!key) return undefined;
+    const names = key.split('|');
+    void loadSnapshots(names).then(() => {
+      if (names.includes('accessinCashSnapshot') || names.includes('accessinCashMovements')) {
+        void refreshStaleCashSnapshots();
+      }
+    });
+    return undefined;
   }, [key, generation]);
 
   const list = key ? key.split('|') : [];
