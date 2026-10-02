@@ -162,6 +162,7 @@ export function buildExpenseImport({
       amount: row.monto,
       concept: row.concepto,
       invoiceNumber: row.comprobante || '',
+      supplierId: matchedSupplier?.id || null,
       status: 'pending_approval',
       requestedBy: 'import-excel',
       approvedBy: null,

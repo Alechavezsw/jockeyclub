@@ -40,8 +40,12 @@ import {
   softDeleteFeeExpense,
   upsertFeeExpense,
 } from '../domain/accounting/feeExpenses';
-import { feePeriodNeedsClosure, resolveFeePeriods } from '../domain/accounting/feeBilling';
+import { feePeriodNeedsClosure, periodLabel, resolveFeePeriods } from '../domain/accounting/feeBilling';
 import {
+  createFeeChartAccount,
+  ledgerLinesFromCharges,
+  periodLedgerLines,
+  periodMonthKey,
   resolveFeeChartAccounts,
   softDeleteFeeChartAccount,
   upsertFeeChartAccount,
@@ -58,7 +62,9 @@ import {
   payExpense,
 } from '../domain/accounting/expenses';
 import { setSupplierStatus } from '../domain/accounting/suppliers';
+import { matchSupplierByName } from '../domain/accounting/supplierPaymentImport';
 import { retencionesSeed } from '../domain/accounting/retenciones';
+import { memberPaymentOrderDeleteEffect } from '../domain/accounting/memberPaymentOrders';
 import {
   DEFAULT_UNIDENTIFIED_COLLECTIONS,
   DEFAULT_GALICIA_DEBITS,
@@ -768,7 +774,13 @@ export default function useErpStore({
   );
 
   const submitExpense = useCallback(async (payload) => {
-    const expense = createExpenseDraft(payload);
+    const matched = payload?.supplierId
+      ? null
+      : matchSupplierByName(suppliers, payload?.vendorName);
+    const expense = createExpenseDraft({
+      ...payload,
+      supplierId: payload?.supplierId || matched?.id || null,
+    });
     if (cloud()) {
       const saved = await repos.upsertExpense(expense);
       setExpenses((prev) => [saved, ...prev]);
@@ -776,7 +788,7 @@ export default function useErpStore({
     }
     setExpenses((prev) => [expense, ...prev]);
     return expense;
-  }, []);
+  }, [suppliers]);
 
   const setExpenseApproved = useCallback(async (expenseId) => {
     setExpenses((prev) => {
@@ -1047,21 +1059,6 @@ export default function useErpStore({
 
     setPaymentOrders((prev) => [...savedPayments, ...prev]);
 
-    // Aplicar pagos al saldo Accessin de proveedores emparejados.
-    setSuppliers((prev) => {
-      const next = prev.map((s) => {
-        const paid = savedPayments
-          .filter((p) => p.supplierId === s.id || String(p.payee || '').toLowerCase() === String(s.legalName || s.name || '').toLowerCase())
-          .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-        if (!paid) return s;
-        const opening = (Number(s.openingBalance) || 0) - paid;
-        const updated = { ...s, openingBalance: opening, updatedAt: new Date().toISOString() };
-        if (cloud()) repos.upsertSupplier(updated).catch(() => {});
-        return updated;
-      });
-      return next;
-    });
-
     let savedBatch = {
       ...batch,
       paymentIds: savedPayments.map((p) => p.id),
@@ -1122,7 +1119,7 @@ export default function useErpStore({
         concept: entry.concept || entry.typeLabel || 'Pago',
         amount: Number(entry.amount) || 0,
         status: 'paid',
-        paymentMethod: 'transferencia',
+        paymentMethod: entry.paymentMethod || 'transferencia',
         supplierId: entry.supplierId || null,
         accessinCode: entry.accessinCode || '',
         invoiceNumber: entry.invoiceNumber || '',
@@ -1140,8 +1137,9 @@ export default function useErpStore({
       }
       if (payment) {
         try {
-          payment = await repos.upsertPaymentOrder(payment);
+          payment = await repos.upsertPaymentOrder({ ...payment, entryId: savedEntry.id });
           savedEntry = { ...savedEntry, paymentOrderId: payment.id };
+          savedEntry = await repos.upsertSupplierEntry(savedEntry);
         } catch {
           /* keep local payment */
         }
@@ -1149,20 +1147,13 @@ export default function useErpStore({
     }
 
     if (payment) {
+      const linked = { ...payment, entryId: savedEntry.id };
+      if (!savedEntry.paymentOrderId && linked.id) {
+        savedEntry = { ...savedEntry, paymentOrderId: linked.id };
+      }
+      payment = linked;
       setPaymentOrders((prev) => [payment, ...prev]);
     }
-
-    setSuppliers((prev) => {
-      const delta = Number(savedEntry.balanceDelta) || 0;
-      if (!delta || !savedEntry.supplierId) return prev;
-      return prev.map((s) => {
-        if (s.id !== savedEntry.supplierId) return s;
-        const opening = (Number(s.openingBalance) || 0) + delta;
-        const updated = { ...s, openingBalance: opening, updatedAt: new Date().toISOString() };
-        if (cloud()) repos.upsertSupplier(updated).catch(() => {});
-        return updated;
-      });
-    });
 
     setSupplierEntries((prev) => [savedEntry, ...prev]);
     return savedEntry;
@@ -1201,21 +1192,30 @@ export default function useErpStore({
     return result?.movement;
   }, []);
 
-  const upsertInterestGeneratorRecord = useCallback((input) => {
+  const upsertInterestGeneratorRecord = useCallback(async (input) => {
+    if (cloud()) {
+      const saved = await repos.upsertInterestGenerator(input);
+      setInterestGenerators((prev) => upsertInterestGenerator(prev, saved));
+      return saved;
+    }
     setInterestGenerators((prev) => upsertInterestGenerator(prev, input));
+    return input;
   }, []);
 
-  const deleteInterestGeneratorRecord = useCallback((id) => {
+  const deleteInterestGeneratorRecord = useCallback(async (id) => {
+    if (cloud()) await repos.deactivateInterestGenerator(id);
     setInterestGenerators((prev) => softDeleteInterestGenerator(prev, id));
   }, []);
 
-  const recordInterestRun = useCallback((result) => {
+  const recordInterestRun = useCallback(async (result) => {
     if (!result?.run) return null;
+    if (cloud()) await repos.saveInterestRun(result.run);
     setInterestRuns((prev) => [result.run, ...(prev || [])]);
     return result;
   }, []);
 
-  const cancelInterestRunRecord = useCallback((runId) => {
+  const cancelInterestRunRecord = useCallback(async (runId) => {
+    if (cloud()) await repos.cancelInterestRunRecord(runId);
     let cancelled = null;
     setInterestRuns((prev) => {
       const current = (prev || []).find((r) => r.id === runId) || null;
@@ -1252,6 +1252,36 @@ export default function useErpStore({
     return period;
   }, []);
 
+  const applyMemberBalanceDeltas = useCallback(async (deltas) => {
+    if (!cloud()) return;
+    await repos.applyMemberBalanceDeltas(deltas);
+  }, []);
+
+  useEffect(() => {
+    if (!cloud() || !userId) return undefined;
+    let cancelled = false;
+    Promise.all([repos.listInterestGenerators(), repos.listInterestRuns()])
+      .then(([generators, runs]) => {
+        if (cancelled) return;
+        setInterestGenerators(generators || []);
+        setInterestRuns(runs || []);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [userId]);
+
+  useEffect(() => {
+    if (!cloud() || !userId) return undefined;
+    let cancelled = false;
+    repos.listFeeLedgerAccounts()
+      .then((rows) => {
+        if (cancelled || !rows?.length) return;
+        setFeeChartAccounts(resolveFeeChartAccounts(rows));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [userId]);
+
   useEffect(() => {
     if (!cloud() || !userId) return undefined;
     let cancelled = false;
@@ -1277,13 +1307,72 @@ export default function useErpStore({
     )));
   }, []);
 
-  const upsertFeeChartAccountRecord = useCallback((input) => {
-    setFeeChartAccounts((prev) => upsertFeeChartAccount(prev, input));
-  }, []);
+  const upsertFeeChartAccountRecord = useCallback(async (input) => {
+    const existing = feeChartAccounts.find((account) => account.id === input.id) || null;
+    const draft = createFeeChartAccount({
+      ...existing,
+      ...input,
+      id: existing?.id || input.id,
+      createdAt: existing?.createdAt,
+      source: existing?.source || input.source,
+      balance: input.balance == null || input.balance === '' ? existing?.balance : input.balance,
+    });
+    const saved = cloud() ? await repos.upsertFeeLedgerAccount(draft) : draft;
+    setFeeChartAccounts((prev) => upsertFeeChartAccount(prev, saved));
+    return saved;
+  }, [feeChartAccounts]);
 
-  const deleteFeeChartAccountRecord = useCallback((id) => {
+  const deleteFeeChartAccountRecord = useCallback(async (id) => {
+    if (cloud()) await repos.deactivateFeeLedgerAccount(id);
     setFeeChartAccounts((prev) => softDeleteFeeChartAccount(prev, id));
   }, []);
+
+  const ledgerBackfillRef = useRef({ ids: null, done: false, running: false });
+
+  const ensureProcessedFeeLedger = useCallback(async (members = []) => {
+    const state = ledgerBackfillRef.current;
+    if (state.done || state.running) return;
+    if (!cloud() || !members?.length || !feeChartAccounts?.length || !feePeriods?.length) return;
+    if (!state.ids) {
+      state.ids = new Set(
+        feePeriods.filter((period) => period.status === 'processed').map((period) => period.id),
+      );
+    }
+    state.running = true;
+    try {
+      const months = new Set(await repos.listFeeLedgerMonths());
+      const missing = feePeriods.filter((period) => (
+        state.ids.has(period.id) && !months.has(periodMonthKey(period))
+      ));
+      const lines = missing.flatMap((period) => (
+        feeChartAccounts.flatMap((account) => periodLedgerLines(account, members, period))
+      ));
+      if (lines.length) await repos.insertFeeLedgerLines(lines);
+      state.done = true;
+    } catch {
+      state.running = false;
+    }
+  }, [feePeriods, feeChartAccounts]);
+
+  const postFeeLedgerCharges = useCallback(async ({ charges = [], period, members = [] } = {}) => {
+    const built = ledgerLinesFromCharges(
+      feeChartAccounts,
+      members,
+      charges,
+      { ...period, label: periodLabel(period) },
+    );
+    if (!built.lines.length) return built;
+    if (cloud()) await repos.postFeeLedgerLines(built.lines);
+    setFeeChartAccounts((prev) => prev.map((account) => {
+      const add = built.deltas.get(account.id) || 0;
+      if (!add) return account;
+      return {
+        ...account,
+        balance: Math.round((Number(account.balance) + add) * 100) / 100,
+      };
+    }));
+    return built;
+  }, [feeChartAccounts]);
 
   const upsertMemberAccountEntryRecord = useCallback((input) => {
     setMemberAccountEntries((prev) => upsertAccountEntry(prev, input));
@@ -1438,6 +1527,21 @@ export default function useErpStore({
     void run();
   }, [chartOfAccounts, addPostedEntry]);
 
+  const archivePaymentOrderRecord = useCallback(async (order) => {
+    const effect = memberPaymentOrderDeleteEffect(order);
+    if (cloud()) {
+      await repos.archivePaymentOrder(order.id);
+      if (effect.reversesBalance) {
+        await repos.applyMemberBalanceDeltas([{
+          memberId: effect.memberNumber,
+          amount: effect.amount,
+        }]);
+      }
+    }
+    setPaymentOrders((prev) => prev.filter((row) => row.id !== order.id));
+    return effect;
+  }, []);
+
   const upsertChartAccount = useCallback(async (account) => {
     if (cloud()) {
       const saved = await repos.upsertChartAccount(account);
@@ -1590,10 +1694,13 @@ export default function useErpStore({
     deleteFeeExpenseRecord,
     setFeePeriodsList,
     persistFeePeriod,
+    applyMemberBalanceDeltas,
     importMemberCollections,
     deleteMemberCollectionImport,
     upsertFeeChartAccountRecord,
     deleteFeeChartAccountRecord,
+    postFeeLedgerCharges,
+    ensureProcessedFeeLedger,
     upsertMemberAccountEntryRecord,
     deleteMemberAccountEntryRecord,
     recordAccountingReport,
@@ -1604,6 +1711,7 @@ export default function useErpStore({
     addFixedDiscount,
     toggleFixedDiscount,
     upsertPaymentOrder,
+    archivePaymentOrderRecord,
     publishAlert,
     deactivateAlert,
     ackAlert,

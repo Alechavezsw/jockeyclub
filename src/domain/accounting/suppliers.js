@@ -123,15 +123,102 @@ export function setSupplierStatus(supplier, status) {
   return { ...supplier, status, updatedAt: new Date().toISOString() };
 }
 
-/** Gastos vinculados a un proveedor por nombre (match flexible). */
+/** Gastos del proveedor: primero por id, y si no hay id, por nombre. */
 export function expensesForSupplier(expenses = [], supplier) {
   if (!supplier) return [];
+  const id = String(supplier.id || '');
   const keys = [supplier.legalName, supplier.name, supplier.tradeName]
     .filter(Boolean)
     .map((s) => s.toLowerCase());
   return expenses.filter((exp) => {
+    if (exp.supplierId) return id && String(exp.supplierId) === id;
     const vendor = String(exp.vendorName || '').toLowerCase();
     return keys.some((k) => vendor && (vendor.includes(k) || k.includes(vendor)));
+  });
+}
+
+export function entriesForSupplier(entries = [], supplier) {
+  if (!supplier?.id) return [];
+  const id = String(supplier.id);
+  return entries.filter((entry) => (
+    String(entry?.supplierId || '') === id && entry.status !== 'void'
+  ));
+}
+
+/** Órdenes de pago a proveedores (no cobros de socios). */
+export function paymentsForSupplier(paymentOrders = [], supplier) {
+  if (!supplier) return [];
+  const id = String(supplier.id || '');
+  const name = supplierDisplayName(supplier).toLowerCase();
+  return paymentOrders.filter((order) => {
+    if (!order || order.deletedAt || order.orderKind === 'member') return false;
+    if (id && order.supplierId && String(order.supplierId) === id) return true;
+    const payee = String(order.payee || order.beneficiary || '').trim().toLowerCase();
+    return Boolean(name) && payee === name;
+  });
+}
+
+function roundMoney(value) {
+  return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+/**
+ * Saldo de cuenta corriente: apertura Accessin + entradas − pagos que
+ * todavía no tienen entrada vinculada. El saldo de apertura no se reescribe.
+ */
+export function supplierRunningBalance(supplier, { entries = [], paymentOrders = [] } = {}) {
+  const ownEntries = entriesForSupplier(entries, supplier);
+  const linkedOrders = new Set(
+    ownEntries.map((entry) => entry.paymentOrderId).filter(Boolean).map(String)
+  );
+  const linkedEntries = new Set(ownEntries.map((entry) => String(entry.id)));
+  const entryDelta = ownEntries.reduce((sum, entry) => sum + (Number(entry.balanceDelta) || 0), 0);
+  const extraPayments = paymentsForSupplier(paymentOrders, supplier)
+    .filter((order) => (
+      !linkedOrders.has(String(order.id))
+      && !linkedEntries.has(String(order.entryId || ''))
+    ))
+    .reduce((sum, order) => sum + (Number(order.amount) || 0), 0);
+  return roundMoney(supplierAccessinBalance(supplier) + entryDelta - extraPayments);
+}
+
+/** Movimientos de la cuenta corriente, con saldo corrido después de la apertura. */
+export function supplierAccountMovements(supplier, { entries = [], paymentOrders = [] } = {}) {
+  const ownEntries = entriesForSupplier(entries, supplier);
+  const linkedOrders = new Set(
+    ownEntries.map((entry) => entry.paymentOrderId).filter(Boolean).map(String)
+  );
+  const linkedEntries = new Set(ownEntries.map((entry) => String(entry.id)));
+  const rows = [
+    ...ownEntries.map((entry) => ({
+      id: entry.id,
+      date: entry.date || '',
+      kind: entry.typeLabel || entry.type || 'Entrada',
+      concept: entry.concept || '',
+      invoiceNumber: entry.invoiceNumber || '',
+      category: entry.expenseCategory || '',
+      delta: Number(entry.balanceDelta) || 0,
+    })),
+    ...paymentsForSupplier(paymentOrders, supplier)
+      .filter((order) => (
+        !linkedOrders.has(String(order.id))
+        && !linkedEntries.has(String(order.entryId || ''))
+      ))
+      .map((order) => ({
+        id: `pay-${order.id}`,
+        date: order.date || order.dueDate || '',
+        kind: 'Pago',
+        concept: order.concept || order.number || 'Pago',
+        invoiceNumber: order.invoiceNumber || '',
+        category: '',
+        delta: -((Number(order.amount) || 0)),
+      })),
+  ].toSorted((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.id).localeCompare(String(b.id)));
+
+  let balance = supplierAccessinBalance(supplier);
+  return rows.map((row) => {
+    balance = roundMoney(balance + row.delta);
+    return { ...row, balance };
   });
 }
 

@@ -130,7 +130,7 @@ export const ALL_ADMIN_TABS = [
   'migration',
 ];
 
-/** Tabs sin contabilidad (Administrador operativo). */
+/** Tabs sin contabilidad (Administrador operativo). Ve saldos, no el módulo contable. */
 const ADMIN_TABS_NO_ACCOUNTING = ALL_ADMIN_TABS.filter((t) => t !== 'accounting');
 
 export function isSuperAdmin(roleOrRoles) {
@@ -202,12 +202,12 @@ export function allowedAdminTabs(role) {
   }
   // Operador de portería: caja + portería / ingresos.
   if (role === 'gate_operator') {
-    return ['dashboard', 'jev', 'members', 'dues', 'pool', 'access', 'accounting'];
+    return ['dashboard', 'jev', 'members', 'pool', 'access', 'accounting'];
   }
   if (role === 'cashier') {
     return ['dashboard', 'jev', 'members', 'dues', 'pool', 'access', 'accounting', 'events'];
   }
-  // Empleado de administración: padrón, cuotas, atención (sin contabilidad ni sistema).
+  // Empleado de administración: padrón, saldos y atención. La liquidación queda en contador y superadmin.
   if (role === 'admin_employee') {
     return [
       'dashboard',
@@ -276,7 +276,7 @@ export function allowedAccountingSubtabs(role) {
     return [
       'diary', 'mayor', 'create', 'balance', 'balance_monthly', 'balance_summary', 'balance_liquidation', 'balance_patrimonial', 'results', 'charts', 'acct_reports', 'libre_deuda', 'family_balances', 'member_discounts', 'bonificaciones', 'siap', 'plan',
       'cash', 'expenses', 'suppliers', 'retenciones', 'other_incomes', 'interest_generators',
-      'unidentified', 'galicia', 'fixed_expenses', 'fixed_discounts', 'balances', 'payment_orders',
+      'unidentified', 'galicia', 'fixed_expenses', 'balances', 'payment_orders',
       'credit_purchases',
     ];
   }
@@ -289,6 +289,15 @@ export function allowedAccountingSubtabs(role) {
     return ['cash', 'other_incomes'];
   }
   return [];
+}
+
+/** Liquidar períodos de cuotas: superadministrador y contador. */
+export function canLiquidateDues(roleOrRoles) {
+  const keys = (Array.isArray(roleOrRoles) ? roleOrRoles : [roleOrRoles])
+    .map((role) => (typeof role === 'string' ? role : role?.roleKey || role?.key))
+    .filter(Boolean)
+    .map((key) => String(key).toLowerCase());
+  return keys.includes('superadmin') || keys.includes('accountant');
 }
 
 export function canManageMembers(role) {
@@ -333,7 +342,7 @@ export const ROLE_PANEL_META = {
   },
   cashier: {
     title: 'Caja',
-    subtitle: 'Cuotas, padrón, arqueo y acceso',
+    subtitle: 'Padrón, saldos y arqueo',
   },
   gate_operator: {
     title: 'Portería',
@@ -341,7 +350,7 @@ export const ROLE_PANEL_META = {
   },
   admin_employee: {
     title: 'Administración',
-    subtitle: 'Padrón, cuotas y atención al socio',
+    subtitle: 'Padrón, saldos y atención al socio',
   },
   hr: {
     title: 'Recursos humanos',

@@ -3,6 +3,7 @@ import {
   canAccessAdmin,
   canAccessConcessions,
   canTakeAttendance,
+  canLiquidateDues,
   canManageProfiles,
   canManageTeachers,
   isSuperAdmin,
@@ -43,10 +44,27 @@ describe('allowedAdminTabs', () => {
     expect(tabs).not.toContain('migration');
   });
 
-  it('el contador ve reportes pero no gestiona socios', () => {
+  it('el contador ve reportes y cuotas, pero no gestiona socios', () => {
     const tabs = allowedAdminTabs('accountant');
     expect(tabs).toContain('reports');
+    expect(tabs).toContain('dues');
     expect(tabs).not.toContain('members');
+  });
+
+  it('la liquidación de cuotas es de contador y superadministrador', () => {
+    expect(canLiquidateDues('superadmin')).toBe(true);
+    expect(canLiquidateDues('accountant')).toBe(true);
+    expect(canLiquidateDues('cashier')).toBe(false);
+    expect(canLiquidateDues('admin')).toBe(false);
+    expect(canLiquidateDues('admin_employee')).toBe(false);
+    expect(canLiquidateDues('gate_operator')).toBe(false);
+  });
+
+  it('saldos lo ven caja y administración', () => {
+    expect(allowedAdminTabs('cashier')).toContain('dues');
+    expect(allowedAdminTabs('admin')).toContain('dues');
+    expect(allowedAdminTabs('admin_employee')).toContain('dues');
+    expect(allowedAdminTabs('gate_operator')).not.toContain('dues');
   });
 
   it('el admin inicia en dashboard, no ve contabilidad, ni QR/concesiones como pestaña', () => {

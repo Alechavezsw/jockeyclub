@@ -48,6 +48,7 @@ export default function CuotasDeskToolbar({
   onGo,
   onBack,
   extraOperate = [],
+  consultOnly = false,
 }) {
   return (
     <nav className="cuotas-toolbar" aria-label="Herramientas de cuotas">
@@ -75,6 +76,7 @@ export default function CuotasDeskToolbar({
             ))}
           </div>
         </div>
+        {consultOnly ? null : (
         <div className="cuotas-desk-band">
           <p className="cuotas-desk-label">Operar</p>
           <div className="cuotas-actions">
@@ -102,6 +104,7 @@ export default function CuotasDeskToolbar({
             ))}
           </div>
         </div>
+        )}
       </div>
     </nav>
   );

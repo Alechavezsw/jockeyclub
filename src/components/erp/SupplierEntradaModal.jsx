@@ -3,9 +3,11 @@ import { X } from 'lucide-react';
 import ModalDialog from '../ModalDialog';
 import {
   SUPPLIER_ENTRY_TYPE_OPTIONS,
+  SUPPLIER_PAYMENT_METHODS,
   createSupplierEntry,
 } from '../../domain/accounting/supplierEntries';
 import {
+  SUPPLIER_CATEGORIES,
   compareSuppliersByAccessin,
   supplierAccessinCode,
   supplierDisplayName,
@@ -19,6 +21,9 @@ const EMPTY = {
   concept: '',
   invoiceNumber: '',
   notes: '',
+  expenseCategory: 'general',
+  paymentMethod: 'transferencia',
+  effect: 'debit',
 };
 
 export default function SupplierEntradaModal({
@@ -26,6 +31,7 @@ export default function SupplierEntradaModal({
   onClose,
   suppliers = [],
   onSave,
+  initialSupplierId = '',
 }) {
   const [form, setForm] = useState(EMPTY);
   const [error, setError] = useState('');
@@ -36,11 +42,12 @@ export default function SupplierEntradaModal({
       setForm({
         ...EMPTY,
         date: new Date().toISOString().slice(0, 10),
+        supplierId: initialSupplierId || '',
       });
       setError('');
       setBusy(false);
     }
-  }, [open]);
+  }, [open, initialSupplierId]);
 
   const supplierOptions = useMemo(
     () => suppliers
@@ -66,6 +73,9 @@ export default function SupplierEntradaModal({
         concept: form.concept,
         invoiceNumber: form.invoiceNumber,
         notes: form.notes,
+        expenseCategory: form.expenseCategory,
+        paymentMethod: form.type === 'pago' ? form.paymentMethod : '',
+        effect: form.type === 'otros' ? form.effect : '',
       });
       if (typeof onSave === 'function') {
         await onSave(entry);
@@ -164,7 +174,7 @@ export default function SupplierEntradaModal({
         </div>
 
         <div>
-          <label className="form-label" htmlFor="sent-invoice">N° comprobante</label>
+          <label className="form-label" htmlFor="sent-invoice">Nro de comprobante</label>
           <input
             id="sent-invoice"
             className="form-input"
@@ -174,7 +184,52 @@ export default function SupplierEntradaModal({
         </div>
 
         <div>
-          <label className="form-label" htmlFor="sent-concept">Concepto</label>
+          <label className="form-label" htmlFor="sent-category">Categoría de gasto</label>
+          <select
+            id="sent-category"
+            className="form-input"
+            value={form.expenseCategory}
+            onChange={(e) => setForm({ ...form, expenseCategory: e.target.value })}
+          >
+            {Object.entries(SUPPLIER_CATEGORIES).map(([id, label]) => (
+              <option key={id} value={id}>{label}</option>
+            ))}
+          </select>
+        </div>
+
+        {form.type === 'pago' && (
+          <div>
+            <label className="form-label" htmlFor="sent-method">Forma de pago</label>
+            <select
+              id="sent-method"
+              className="form-input"
+              value={form.paymentMethod}
+              onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}
+            >
+              {Object.entries(SUPPLIER_PAYMENT_METHODS).map(([id, label]) => (
+                <option key={id} value={id}>{label}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {form.type === 'otros' && (
+          <div>
+            <label className="form-label" htmlFor="sent-effect">Efecto en la cuenta</label>
+            <select
+              id="sent-effect"
+              className="form-input"
+              value={form.effect}
+              onChange={(e) => setForm({ ...form, effect: e.target.value })}
+            >
+              <option value="debit">Deuda</option>
+              <option value="credit">Saldo a favor</option>
+            </select>
+          </div>
+        )}
+
+        <div>
+          <label className="form-label" htmlFor="sent-concept">Descripción</label>
           <input
             id="sent-concept"
             className="form-input"

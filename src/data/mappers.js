@@ -678,6 +678,7 @@ export function expenseFromRow(row) {
     rejectionReason: row.rejection_reason || '',
     journalEntryId: row.journal_entry_id,
     cashSessionId: row.cash_session_id,
+    supplierId: row.supplier_id || null,
   };
 }
 
@@ -912,6 +913,8 @@ export function supplierEntryFromRow(row) {
     concept: row.concept || meta.concept || '',
     invoiceNumber: row.invoice_number || meta.invoiceNumber || '',
     notes: row.notes || meta.notes || '',
+    expenseCategory: meta.expenseCategory || '',
+    paymentMethod: meta.paymentMethod || '',
     status: row.status || meta.status || 'posted',
     paymentOrderId: meta.paymentOrderId || null,
     createdAt: row.created_at || meta.createdAt || null,

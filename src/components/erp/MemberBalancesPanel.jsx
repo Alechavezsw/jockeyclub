@@ -85,6 +85,7 @@ function MemberBalancesContent({
   onDeleteEntry,
   onBack,
   onGoView,
+  consultOnly = false,
   onGoImportCollections,
   onGoImportDebts,
   onGoImputeEvents,
@@ -828,7 +829,8 @@ function MemberBalancesContent({
         current="balances"
         onBack={onBack}
         onGo={goDesk}
-        extraOperate={[{
+        consultOnly={consultOnly}
+        extraOperate={consultOnly ? [] : [{
           id: 'entries',
           icon: Plus,
           label: 'Entradas',

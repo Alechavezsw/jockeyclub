@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft, BookOpen, Pencil, Plus, Search, Trash2, X,
 } from 'lucide-react';
@@ -8,9 +8,12 @@ import {
   createFeeChartAccount,
   filterFeeAccountLedger,
   formatFeeLedgerDate,
+  withProcessedPeriodLines,
 } from '../../domain/accounting/feeChartAccounts';
 import { buildFeeAccountLedgerLines } from '../../domain/accounting/feeAccountLedger';
 import { feeAccountDetailsSeed } from '../../domain/accounting/feeAccountDetails';
+import { listFeeLedgerLines } from '../../data/repos';
+import { isSupabaseConfigured } from '../../lib/supabase';
 import { useSnapshotSeed } from '../../hooks/useSnapshots';
 import SnapshotGate from '../SnapshotGate';
 
@@ -23,7 +26,6 @@ const EMPTY_FORM = {
   name: '',
   description: '',
   feeCategories: '',
-  balance: '',
 };
 
 function foldCategory(value = '') {
@@ -65,6 +67,8 @@ function formatLilaMoney(n) {
 
 export default function FeeChartAccountsPanel({
   accounts = [],
+  members = [],
+  periods = [],
   onUpsert,
   onDelete,
   onBack,
@@ -76,16 +80,19 @@ export default function FeeChartAccountsPanel({
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [error, setError] = useState('');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
   const [query, setQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
   const [page, setPage] = useState(0);
-  const [filtersOpen, setFiltersOpen] = useState(true);
   const [catQuery, setCatQuery] = useState('');
   const [catOpen, setCatOpen] = useState(false);
+  const [nameOpen, setNameOpen] = useState(false);
+  const [dbLines, setDbLines] = useState(null);
+  const [saving, setSaving] = useState(false);
 
   const activeAccounts = useMemo(
-    () => (accounts || []).filter((a) => a && a.isActive !== false),
+    () => (accounts || [])
+      .filter((account) => account && account.isActive !== false)
+      .toSorted((a, b) => (Number(a.accessinId) || 9999) - (Number(b.accessinId) || 9999)),
     [accounts]
   );
 
@@ -94,15 +101,59 @@ export default function FeeChartAccountsPanel({
     view === 'ledger' ? FEE_DETAILS_SNAPSHOTS : NO_SNAPSHOTS,
     feeAccountDetailsSeed,
   );
-  const ledgerAll = useMemo(
-    () => (selected ? buildFeeAccountLedgerLines(selected, ACCESSIN_FEE_ACCOUNT_DETAILS) : []),
-    [selected, ACCESSIN_FEE_ACCOUNT_DETAILS]
-  );
+  useEffect(() => {
+    if (view !== 'ledger' || !selected?.id || !isSupabaseConfigured) {
+      setDbLines(null);
+      return undefined;
+    }
+    let cancel = false;
+    setDbLines(null);
+    listFeeLedgerLines(selected.id)
+      .then((lines) => {
+        if (!cancel) setDbLines(lines || []);
+      })
+      .catch(() => {
+        if (!cancel) setDbLines([]);
+      });
+    return () => { cancel = true; };
+  }, [view, selected]);
+
+  const ledgerAll = useMemo(() => {
+    if (!selected) return [];
+    const snapshotLines = buildFeeAccountLedgerLines(selected, ACCESSIN_FEE_ACCOUNT_DETAILS);
+    let base = [];
+    if (isSupabaseConfigured && dbLines && dbLines.length >= snapshotLines.length) {
+      base = dbLines;
+    } else if (snapshotLines.length) {
+      base = snapshotLines;
+    } else {
+      base = dbLines || [];
+    }
+    return withProcessedPeriodLines(selected, base, members, periods);
+  }, [selected, ACCESSIN_FEE_ACCOUNT_DETAILS, dbLines, members, periods]);
 
   const ledgerRows = useMemo(
-    () => filterFeeAccountLedger(ledgerAll, { from, to, query }),
-    [ledgerAll, from, to, query]
+    () => filterFeeAccountLedger(ledgerAll, { query }),
+    [ledgerAll, query]
   );
+  const memberHits = useMemo(() => {
+    const q = foldCategory(query);
+    if (q.length < 2) return [];
+    const seen = new Set();
+    const hits = [];
+    for (const line of ledgerAll) {
+      const number = String(line.memberNumber || '');
+      const name = String(line.memberName || '');
+      const key = `${number}|${foldCategory(name)}`;
+      if (!name || seen.has(key)) continue;
+      const hay = foldCategory(`${number} ${name}`);
+      if (!hay.includes(q)) continue;
+      seen.add(key);
+      hits.push({ key, memberNumber: number, memberName: name });
+      if (hits.length >= 8) break;
+    }
+    return hits;
+  }, [ledgerAll, query]);
 
   const totalPages = Math.max(1, Math.ceil(ledgerRows.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages - 1);
@@ -118,6 +169,24 @@ export default function FeeChartAccountsPanel({
     () => filterFeeCategoryOptions(catQuery, selectedCategories),
     [catQuery, selectedCategories]
   );
+  const nameSuggestions = useMemo(() => {
+    const q = foldCategory(form.name);
+    const names = [...new Set([
+      ...DATITA_CUOTA_CATEGORY_NAMES,
+      ...activeAccounts.map((account) => account.name).filter(Boolean),
+    ])];
+    return names.filter((name) => !q || foldCategory(name).includes(q));
+  }, [form.name, activeAccounts]);
+
+  const pickName = (name) => {
+    const next = String(name || '').trim();
+    if (!next) return;
+    setForm((current) => ({ ...current, name: next }));
+    setNameOpen(false);
+    if (DATITA_CUOTA_CATEGORY_NAMES.some((category) => foldCategory(category) === foldCategory(next))) {
+      addCategory(next);
+    }
+  };
 
   const setCategories = (list) => {
     setForm((f) => ({ ...f, feeCategories: joinFeeCategories(list) }));
@@ -145,6 +214,7 @@ export default function FeeChartAccountsPanel({
     setForm(EMPTY_FORM);
     setCatQuery('');
     setCatOpen(false);
+    setNameOpen(false);
     setError('');
     setView('form');
   };
@@ -155,40 +225,40 @@ export default function FeeChartAccountsPanel({
       name: account.name || '',
       description: account.description || '',
       feeCategories: joinFeeCategories(account.feeCategories || []),
-      balance: String(account.balance ?? ''),
     });
     setCatQuery('');
     setCatOpen(false);
+    setNameOpen(false);
     setError('');
     setView('form');
   };
 
   const openLedger = (account) => {
     setSelected(account);
-    setFrom('');
-    setTo('');
     setQuery('');
+    setSearchOpen(false);
     setPage(0);
-    setFiltersOpen(true);
     setView('ledger');
   };
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
     setError('');
+    setSaving(true);
     try {
       const payload = {
         id: editingId || undefined,
         name: form.name,
         description: form.description,
         feeCategories: form.feeCategories,
-        balance: form.balance,
       };
-      createFeeChartAccount(payload);
-      onUpsert?.(payload);
+      createFeeChartAccount({ ...payload, balance: 0 });
+      await onUpsert?.(payload);
       setView('list');
     } catch (err) {
       setError(err.message || 'No se pudo guardar.');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -236,8 +306,53 @@ export default function FeeChartAccountsPanel({
         </div>
         <form className="disc-form" onSubmit={submit}>
           <div className="disc-field">
-            <label className="disc-field-label">Nombre</label>
-            <input className="form-input" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} required />
+            <label className="disc-field-label" htmlFor="fca-name-search">Nombre</label>
+            <div className="fee-cat-pick">
+              <div className="fee-cat-pick-field">
+                <Search size={16} aria-hidden className="fee-cat-pick-icon" />
+                <input
+                  id="fca-name-search"
+                  className="form-input"
+                  value={form.name}
+                  required
+                  autoComplete="off"
+                  aria-expanded={nameOpen && nameSuggestions.length > 0}
+                  aria-autocomplete="list"
+                  onChange={(e) => {
+                    setForm((current) => ({ ...current, name: e.target.value }));
+                    setNameOpen(true);
+                  }}
+                  onFocus={() => setNameOpen(true)}
+                  onBlur={() => {
+                    window.setTimeout(() => setNameOpen(false), 120);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && nameOpen && nameSuggestions[0]
+                      && foldCategory(nameSuggestions[0]) !== foldCategory(form.name)) {
+                      e.preventDefault();
+                      pickName(nameSuggestions[0]);
+                    }
+                    if (e.key === 'Escape') setNameOpen(false);
+                  }}
+                />
+              </div>
+              {nameOpen && nameSuggestions.length > 0 ? (
+                <ul className="member-entry-suggest" role="listbox">
+                  {nameSuggestions.map((name) => (
+                    <li key={name}>
+                      <button
+                        type="button"
+                        role="option"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => pickName(name)}
+                      >
+                        <strong>{name}</strong>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
           </div>
           <div className="disc-field">
             <label className="disc-field-label">Descripción</label>
@@ -311,20 +426,13 @@ export default function FeeChartAccountsPanel({
               Escribí para buscar. Podés asociar varias categorías a la misma cuenta.
             </p>
           </div>
-          <div className="disc-field">
-            <label className="disc-field-label">Balance</label>
-            <input
-              className="form-input"
-              type="number"
-              step="0.01"
-              value={form.balance}
-              onChange={(e) => setForm((f) => ({ ...f, balance: e.target.value }))}
-            />
-          </div>
+          <p className="disc-field-hint">
+            El balance sale de los movimientos de la cuenta. Una liquidación nueva lo suma acá.
+          </p>
           {error ? <p className="ig-error">{error}</p> : null}
           <div className="ig-form-actions">
             <button type="button" className="btn btn-secondary" onClick={() => setView('list')}>Volver</button>
-            <button type="submit" className="btn btn-tan">{editingId ? 'Guardar' : 'Crear'}</button>
+            <button type="submit" className="btn btn-tan" disabled={saving}>{editingId ? 'Guardar' : 'Crear'}</button>
           </div>
         </form>
       </div>
@@ -335,68 +443,85 @@ export default function FeeChartAccountsPanel({
     return (
       <SnapshotGate names={FEE_DETAILS_SNAPSHOTS}>
         <div className="fade-in cuotas-panel">
-          <div className="cuotas-toolbar">
-            <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setView('list'); setSelected(null); }}>
+          <section className="fee-ledger-find">
+            <button type="button" className="cuotas-back" onClick={() => { setView('list'); setSelected(null); }}>
               <ArrowLeft size={14} /> Volver
             </button>
-          </div>
-
-          {filtersOpen ? (
-            <section className="supplier-pay-import-block">
-              <div className="cuotas-toolbar">
-                <h4 className="supplier-pay-import-title" style={{ margin: 0 }}>Buscar por</h4>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setFiltersOpen(false)} title="Minimizar">−</button>
+            <div className="fee-ledger-find-top">
+              <div>
+                <p className="cuotas-kicker">Cuenta corriente</p>
+                <h3 className="cuotas-title">{selected.name}</h3>
               </div>
-              <div className="cuotas-event-filters">
-                <label>
-                  <span className="form-label">Desde</span>
-                  <div style={{ display: 'flex', gap: '0.35rem' }}>
-                    <input type="date" className="form-input" value={from} onChange={(e) => { setFrom(e.target.value); setPage(0); }} />
-                    {from ? <button type="button" className="btn btn-secondary btn-sm" onClick={() => setFrom('')}>×</button> : null}
-                  </div>
-                </label>
-                <label>
-                  <span className="form-label">Hasta</span>
-                  <div style={{ display: 'flex', gap: '0.35rem' }}>
-                    <input type="date" className="form-input" value={to} onChange={(e) => { setTo(e.target.value); setPage(0); }} />
-                    {to ? <button type="button" className="btn btn-secondary btn-sm" onClick={() => setTo('')}>×</button> : null}
-                  </div>
-                </label>
-                <label>
-                  <span className="form-label">Texto</span>
-                  <input
-                    className="form-input"
-                    value={query}
-                    onChange={(e) => { setQuery(e.target.value); setPage(0); }}
-                    placeholder="Socio, nro., descripción…"
-                  />
-                </label>
-                <div style={{ display: 'flex', alignItems: 'end' }}>
-                  <button type="button" className="btn btn-tan" onClick={() => setPage(0)}>
-                    <Search size={14} /> Buscar
-                  </button>
-                </div>
-              </div>
-            </section>
-          ) : (
-            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setFiltersOpen(true)}>Mostrar filtros</button>
-          )}
-
-          <div className="cuotas-toolbar">
-            <h3 className="cuotas-title">Cuentas contables: {selected.name}</h3>
-          </div>
+              <p className="fee-ledger-balance">
+                <small>Balance</small>
+                <strong>{fmt(selected.balance)}</strong>
+              </p>
+            </div>
+            <div className="fee-ledger-search">
+              <Search size={18} aria-hidden className="fee-ledger-search-icon" />
+              <input
+                className="form-input"
+                type="text"
+                value={query}
+                aria-label="Buscar en la cuenta corriente"
+                aria-expanded={searchOpen && memberHits.length > 0}
+                aria-autocomplete="list"
+                placeholder="Buscar socio, número o descripción"
+                autoComplete="off"
+                onChange={(e) => { setQuery(e.target.value); setPage(0); setSearchOpen(true); }}
+                onFocus={() => setSearchOpen(true)}
+                onBlur={() => { window.setTimeout(() => setSearchOpen(false), 120); }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') setSearchOpen(false);
+                }}
+              />
+              {query ? (
+                <button
+                  type="button"
+                  className="fee-ledger-search-clear"
+                  aria-label="Limpiar búsqueda"
+                  onClick={() => { setQuery(''); setPage(0); setSearchOpen(false); }}
+                >
+                  <X size={16} />
+                </button>
+              ) : null}
+              {searchOpen && memberHits.length > 0 ? (
+                <ul className="member-entry-suggest" role="listbox">
+                  {memberHits.map((hit) => (
+                    <li key={hit.key}>
+                      <button
+                        type="button"
+                        role="option"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          setQuery(hit.memberName);
+                          setPage(0);
+                          setSearchOpen(false);
+                        }}
+                      >
+                        <strong>{hit.memberName}</strong>
+                        <span>Socio {hit.memberNumber}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          </section>
 
           <div className="disc-pager">
             <span>
-              {ledgerRows.length === 0
-                ? 'No se encontraron resultados'
-                : `Mostrando ${fromIdx} - ${toIdx} de ${ledgerRows.length}`}
+              {isSupabaseConfigured && dbLines == null && ledgerRows.length === 0
+                ? 'Cargando cuenta corriente…'
+                : ledgerRows.length === 0
+                  ? 'No se encontraron resultados'
+                  : `Mostrando ${fromIdx} - ${toIdx} de ${ledgerRows.length}`}
             </span>
             {pageButtons()}
           </div>
 
           <div className="table-responsive">
-            <table className="admin-table">
+            <table className="admin-table fee-ledger-table">
               <thead>
                 <tr>
                   <th>#</th>
@@ -405,9 +530,9 @@ export default function FeeChartAccountsPanel({
                   <th>Fecha</th>
                   <th>Tipo</th>
                   <th>Descripción</th>
-                  <th>Importe</th>
-                  <th>Cobrado</th>
-                  <th>Pendiente</th>
+                  <th className="fee-ledger-money">Importe</th>
+                  <th className="fee-ledger-money">Cobrado</th>
+                  <th className="fee-ledger-money">Pendiente</th>
                 </tr>
               </thead>
               <tbody>
@@ -426,14 +551,13 @@ export default function FeeChartAccountsPanel({
                       <td>{formatFeeLedgerDate(row)}</td>
                       <td>{row.type}</td>
                       <td>{row.description}</td>
-                      <td style={{ fontWeight: 700, color: 'var(--emerald-accent)' }}>{formatLilaMoney(row.amount)}</td>
-                      <td style={{ fontWeight: 700, color: row.collected > 0 ? 'var(--emerald-accent)' : undefined }}>
+                      <td className="fee-ledger-money" style={{ color: 'var(--emerald-accent)' }}>{formatLilaMoney(row.amount)}</td>
+                      <td className="fee-ledger-money" style={{ color: row.collected > 0 ? 'var(--emerald-accent)' : undefined }}>
                         {formatLilaMoney(row.collected)}
                       </td>
-                      <td style={{
-                        fontWeight: 700,
-                        color: row.pending > 0 ? 'var(--warning-accent)' : 'var(--emerald-accent)',
-                      }}
+                      <td
+                        className="fee-ledger-money"
+                        style={{ color: row.pending > 0 ? 'var(--warning-accent)' : 'var(--emerald-accent)' }}
                       >
                         {formatLilaMoney(row.pending)}
                       </td>
@@ -450,25 +574,30 @@ export default function FeeChartAccountsPanel({
 
   return (
     <div className="fade-in cuotas-panel">
-      <div className="cuotas-toolbar">
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+      <div className="cuotas-toolbar cuotas-toolbar--local">
+        <div className="fee-account-head">
           {onBack ? (
             <button type="button" className="btn btn-secondary btn-sm" onClick={onBack}>
               <ArrowLeft size={14} /> Volver
             </button>
           ) : null}
-          <h3 className="cuotas-title" style={{ margin: 0 }}>
+          <h3 className="cuotas-title">
             <BookOpen size={18} /> Cuentas contables
           </h3>
         </div>
-        <button type="button" className="btn btn-tan" onClick={openCreate}>
-          <Plus size={14} /> Cuenta contable
+        <button type="button" className="fee-account-add" onClick={openCreate}>
+          <i aria-hidden="true"><Plus size={16} strokeWidth={2.4} /></i>
+          <span>
+            <strong>Cuenta contable</strong>
+            <small>Nueva cuenta del plan</small>
+          </span>
         </button>
       </div>
 
       <p className="disc-field-hint" style={{ margin: 0 }}>
         Encontrados {activeAccounts.length} en total
       </p>
+      {error ? <p className="ig-error">{error}</p> : null}
 
       <div className="table-responsive">
         <table className="admin-table">
@@ -502,8 +631,9 @@ export default function FeeChartAccountsPanel({
                   </td>
                   <td style={{ fontWeight: 700, color: 'var(--emerald-accent)' }}>{fmt(row.balance)}</td>
                   <td>
-                    <div className="cash-lila-row-actions">
-                      <button type="button" className="btn btn-tan btn-sm" onClick={() => openLedger(row)}>
+                    <div className="fee-account-actions">
+                      <button type="button" className="fee-cc-btn" title="Cuenta corriente" onClick={() => openLedger(row)}>
+                        <i aria-hidden="true"><BookOpen size={13} /></i>
                         C.C.
                       </button>
                       <button type="button" className="cash-lila-icon-btn is-edit" title="Editar" onClick={() => openEdit(row)}>
@@ -514,7 +644,10 @@ export default function FeeChartAccountsPanel({
                         className="cash-lila-icon-btn is-del"
                         title="Eliminar"
                         onClick={() => {
-                          if (window.confirm(`¿Eliminar la cuenta ${row.name}?`)) onDelete?.(row.id);
+                          if (!window.confirm(`¿Eliminar la cuenta ${row.name}?`)) return;
+                          Promise.resolve(onDelete?.(row.id)).catch((err) => {
+                            setError(err?.message || 'No se pudo eliminar.');
+                          });
                         }}
                       >
                         <Trash2 size={13} />

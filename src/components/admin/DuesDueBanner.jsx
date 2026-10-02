@@ -14,7 +14,7 @@ import {
   listUnpaidFeeMembersForPeriod,
   periodKeyFromDate,
 } from '../../domain/accounting/detailedCurrentAccounts';
-import { currentMonthFeeCollected } from '../../domain/accounting/cashPaymentDetail';
+import { liveMonthFeeCollected } from '../../domain/accounting/cashPaymentDetail';
 import { cashSeed, cashMovementsSeed } from '../../domain/accounting/cashLedger';
 import { cobranzasSeed } from '../../domain/accounting/cobranzas';
 import { useSnapshotSeed } from '../../hooks/useSnapshots';
@@ -174,6 +174,7 @@ export default function DuesDueBanner({
   chartOfAccounts = [],
   feePeriods = [],
   tierCatalog = [],
+  cashMovements = null,
   afterCollect = null,
 }) {
   const moment = duesDueMoment(today);
@@ -190,11 +191,12 @@ export default function DuesDueBanner({
     [lilaCut, members, journalEntries, chartOfAccounts, feePeriods, today],
   );
   const monthKey = String(today).slice(0, 7);
-  const cashMoves = useMemo(() => {
+  const seededMoves = useMemo(() => {
     const recent = cashSeed().ACCESSIN_CASH_SNAPSHOT?.recentMovements || [];
     const all = cashMovementsSeed().ACCESSIN_CASH_MOVEMENTS || [];
     return [...recent, ...all];
   }, [lilaCut]);
+  const cashMoves = cashMovements || seededMoves;
   const monthFlow = useMemo(
     () => appFinanceSinceHandoff({
       members,
@@ -213,13 +215,13 @@ export default function DuesDueBanner({
     cashMovements: cashMoves,
   });
   const sheetLiquidated = liquidatedTotalForMonth(feePeriods, monthKey, { members, tierCatalog });
+  const periodKey = periodKeyFromDate(money?.periodTo) || periodKeyFromDate(money?.periodKey);
+  const cutIsThisMonth = String(periodKey || '').slice(0, 7) === monthKey;
   const collected = useMemo(
-    () => currentMonthFeeCollected(cashMoves, members, monthKey),
+    () => liveMonthFeeCollected({ movements: cashMoves, members, monthKey }),
     [cashMoves, members, monthKey],
   );
   const liquidated = sheetLiquidated != null ? sheetLiquidated : calendar.liquidated;
-  const periodKey = periodKeyFromDate(money?.periodTo) || periodKeyFromDate(money?.periodKey);
-  const cutIsThisMonth = String(periodKey || '').slice(0, 7) === monthKey;
   const unpaidRows = useMemo(
     () => (enabled && cutIsThisMonth ? listUnpaidFeeMembersForPeriod(periodKey) : []),
     [enabled, cutIsThisMonth, periodKey],

@@ -4,7 +4,7 @@ import {
   Users, Calendar, DollarSign, Activity, ShieldAlert,
   BookOpen, ClipboardList, MessageSquare, Phone,
   FileSpreadsheet, Radio, Database, BellRing, PartyPopper, Trophy, Store, DoorOpen, QrCode, Newspaper,
-  LayoutDashboard, ChevronRight, Briefcase, Headset, Settings, Waves, GraduationCap, ListOrdered, TicketCheck,
+  LayoutDashboard, ChevronRight, Briefcase, Headset, Settings, Building2, Waves, GraduationCap, Sparkles, TicketCheck,
 } from 'lucide-react';
 import AccountingTab from '../components/AccountingTab';
 import StaffTab from '../components/StaffTab';
@@ -33,7 +33,7 @@ import JevReviewTab from '../components/admin/JevReviewTab';
 import { DEFAULT_POOL_SETTINGS } from '../domain/pool/poolAccess';
 import { DEFAULT_CHART_OF_ACCOUNTS, resolveAccountId } from '../domain/accounting/chartOfAccounts';
 import { getAccountBalance as domainAccountBalance } from '../domain/accounting/journal';
-import { allowedAdminTabsForRoles, canAccessConcessions, canAccessQrGate, ROLE_LABELS, ROLE_PANEL_META } from '../domain/auth/roles';
+import { allowedAdminTabsForRoles, canAccessConcessions, canAccessQrGate, canLiquidateDues, ROLE_LABELS, ROLE_PANEL_META } from '../domain/auth/roles';
 import { getOverdueMembers, getUpcomingDuesMembers } from '../domain/members/dues';
 import { isLiveMember, isTitularMember } from '../domain/members/households';
 import { useAuth } from '../context/AuthContext';
@@ -108,7 +108,7 @@ const GROUP_ICONS = {
   club: Trophy,
   mgmt: Briefcase,
   care: Headset,
-  admin: Settings,
+  admin: Building2,
   sys: Database,
 };
 
@@ -173,6 +173,10 @@ export default function AdminView({
   const feeDetailsSeed = useSnapshotSeed(['accessinFeeAccountDetails'], feeAccountDetailsSeed);
   const [ledgerCount, setLedgerCount] = useState(0);
   useEffect(() => {
+    if (membersLoading || !members?.length || !erp.ensureProcessedFeeLedger) return;
+    void erp.ensureProcessedFeeLedger(members);
+  }, [membersLoading, members, erp.ensureProcessedFeeLedger]);
+  useEffect(() => {
     let cancelled = false;
     repos.countGroupAccountLedgers()
       .then((count) => {
@@ -198,7 +202,9 @@ export default function AdminView({
     }
     return [...ids];
   }, [feeDetailsSeed]);
-  const permittedTabs = allowedAdminTabsForRoles(user?.roles?.length ? user.roles : userRole);
+  const roleSource = user?.roles?.length ? user.roles : userRole;
+  const permittedTabs = allowedAdminTabsForRoles(roleSource);
+  const liquidateDues = canLiquidateDues(roleSource);
   const clubReview = useMemo(() => buildClubReview({
     members,
     journalEntries,
@@ -311,7 +317,7 @@ export default function AdminView({
         label: 'Operación',
         tabs: [
           { key: 'members', icon: Users, label: 'Socios' },
-          { key: 'dues', icon: ShieldAlert, label: 'Cuotas' },
+          { key: 'dues', icon: ShieldAlert, label: liquidateDues ? 'Cuotas' : 'Saldos' },
           { key: 'bookings', icon: Calendar, label: 'Reservas' },
           { key: 'access', icon: DoorOpen, label: 'Ingresos' },
           { key: 'qr_gate', icon: QrCode, label: 'Acceso QR' },
@@ -325,8 +331,6 @@ export default function AdminView({
         tabs: [
           { key: 'disciplines', icon: Trophy, label: 'Disciplinas' },
           { key: 'events', icon: PartyPopper, label: 'Fiestas' },
-          { key: 'news', icon: Newspaper, label: 'Revista' },
-          { key: 'surveys', icon: Radio, label: 'Encuestas' },
         ],
       },
       {
@@ -345,8 +349,10 @@ export default function AdminView({
       },
       {
         id: 'care',
-        label: 'Atención',
+        label: 'Comunicación',
         tabs: [
+          { key: 'news', icon: Newspaper, label: 'Novedades' },
+          { key: 'surveys', icon: Radio, label: 'Encuestas' },
           { key: 'alerts', icon: BellRing, label: 'Alertas' },
           { key: 'claims', icon: MessageSquare, label: 'Reclamos' },
           { key: 'messaging', icon: Phone, label: 'Mensajería' },
@@ -378,7 +384,7 @@ export default function AdminView({
         }),
       }))
       .filter((group) => group.tabs.length > 0)
-  ), [permittedTabs, showConcessionsTab, showQrGateTab, userRole]);
+  ), [permittedTabs, showConcessionsTab, showQrGateTab, userRole, liquidateDues]);
 
   useEffect(() => {
     const parent = navGroups.find((g) => g.tabs.some((t) => t.key === activeTab));
@@ -660,12 +666,12 @@ export default function AdminView({
               className={`admin-rail-item${activeTab === 'jev' ? ' is-active' : ''}`}
               onClick={() => setActiveTab('jev')}
               aria-current={activeTab === 'jev' ? 'page' : undefined}
-              title="Jev"
+              title="IA"
             >
               <span className="admin-rail-icon" aria-hidden="true">
-                <ListOrdered size={18} strokeWidth={activeTab === 'jev' ? 2.4 : 2} />
+                <Sparkles size={18} strokeWidth={activeTab === 'jev' ? 2.4 : 2} />
               </span>
-              <span className="admin-rail-label">Jev</span>
+              <span className="admin-rail-label">IA</span>
             </button>
           )}
 
@@ -770,6 +776,7 @@ export default function AdminView({
           poolAccesses={poolAccesses}
           cashSessions={erp.cashSessions || []}
           cashRegisters={erp.cashRegisters || []}
+          accessinCashMovements={erp.accessinCashMovements || []}
           onOpenDayCash={erp.openPoolDayCash}
           registeredUsersCount={registeredUsersCount}
           membershipApplications={membershipApplications}
@@ -790,18 +797,21 @@ export default function AdminView({
 
       {activeTab === 'dues' && (
         <CuotasPanel
-          initialView={searchParams.get('vista') === 'saldos' ? 'balances' : 'hub'}
+          initialView={!liquidateDues || searchParams.get('vista') === 'saldos' ? 'balances' : 'hub'}
+          balancesOnly={!liquidateDues}
           members={members}
           setMembers={setMembers}
           feePeriods={erp.feePeriods}
           onUpsertFeePeriods={erp.setFeePeriodsList}
           onPersistFeePeriod={erp.persistFeePeriod}
+          onApplyBalanceDeltas={erp.applyMemberBalanceDeltas}
           collectionImports={erp.memberCollectionImports}
           onImportCollections={erp.importMemberCollections}
           onDeleteCollectionImport={erp.deleteMemberCollectionImport}
           feeChartAccounts={erp.feeChartAccounts}
           onUpsertFeeChartAccount={erp.upsertFeeChartAccountRecord}
           onDeleteFeeChartAccount={erp.deleteFeeChartAccountRecord}
+          onPostFeeLedger={erp.postFeeLedgerCharges}
           memberAccountEntries={erp.memberAccountEntries}
           onUpsertMemberAccountEntry={erp.upsertMemberAccountEntryRecord}
           onDeleteMemberAccountEntry={erp.deleteMemberAccountEntryRecord}
@@ -948,6 +958,7 @@ export default function AdminView({
           paymentImports={erp.supplierPaymentImports}
           onImportSupplierPayments={erp.importSupplierPayments}
           onCreateSupplierEntry={erp.createSupplierEntry}
+          supplierEntries={erp.supplierEntries || []}
           otherIncomes={erp.otherIncomes}
           onCreateOtherIncome={erp.createOtherIncomeRecord}
           interestGenerators={erp.interestGenerators}
@@ -979,7 +990,7 @@ export default function AdminView({
           onUpsertFeeExpense={erp.upsertFeeExpenseRecord}
           onDeleteFeeExpense={erp.deleteFeeExpenseRecord}
           paymentOrders={erp.paymentOrders}
-          upsertPaymentOrder={erp.upsertPaymentOrder}
+          onDeletePaymentOrder={erp.archivePaymentOrderRecord}
           accountingReports={erp.accountingReports}
           onRecordAccountingReport={erp.recordAccountingReport}
         />
@@ -1094,6 +1105,8 @@ export default function AdminView({
           cashSessions={erp.cashSessions || []}
           canonPayments={erp.canonPayments || []}
           suppliers={erp.suppliers || []}
+          supplierEntries={erp.supplierEntries || []}
+          paymentOrders={erp.paymentOrders || []}
           retenciones={erp.retenciones || []}
           newsList={latestNews || []}
         />

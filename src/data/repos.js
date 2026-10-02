@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { unwrap, throwOnError } from './errors';
+import { createDiscount, discountFromRule } from '../domain/accounting/discounts';
 import * as M from './mappers';
 import { collectMemberMeta, buildLifecycleMeta, splitMemberName } from '../domain/members/memberAdminActions';
 import { SYSTEM_ADMIN_ROLES } from '../domain/auth/roles';
@@ -1372,6 +1373,7 @@ export async function upsertExpense(expense) {
     rejection_reason: expense.rejectionReason || null,
     journal_entry_id: expense.journalEntryId || null,
     cash_session_id: expense.cashSessionId || null,
+    supplier_id: isUuid(expense.supplierId) ? expense.supplierId : null,
   };
   if (expense.id && String(expense.id).includes('-')) {
     const saved = await unwrap(sb().from('expenses').update(row).eq('id', expense.id).select().single());
@@ -1851,6 +1853,8 @@ export async function upsertSupplierEntry(entry) {
       balanceDelta: entry.balanceDelta,
       invoiceNumber: entry.invoiceNumber || '',
       notes: entry.notes || '',
+      expenseCategory: entry.expenseCategory || '',
+      paymentMethod: entry.paymentMethod || '',
       paymentOrderId: entry.paymentOrderId || null,
       createdAt: entry.createdAt || null,
     },
@@ -2072,6 +2076,50 @@ export async function upsertFixedExpense(item) {
   return (await listFixedExpenses()).find((x) => x.id === saved.id) || { ...item, id: saved.id, active };
 }
 
+export async function listDiscountRules() {
+  const rows = await unwrap(
+    sb().from('discount_rules').select('*').order('member_name', { ascending: true }),
+  );
+  return (rows || []).map(discountFromRule).filter(Boolean);
+}
+
+export async function upsertDiscountRule(input) {
+  const d = createDiscount(input);
+  const row = {
+    category: d.category,
+    member_numbers: (d.memberIds || []).join(', ') || null,
+    member_name: d.memberName || null,
+    fee_categories: (d.feeCategories || []).join(', ') || null,
+    family_group: d.familyGroup || null,
+    description: d.description,
+    value_type: d.valueType,
+    value: d.value,
+    valid_from: d.validFrom || null,
+    valid_to: d.validTo || null,
+    is_active: d.isActive !== false,
+    accessin_id: input.accessinId ?? null,
+    source: input.source || d.source || 'manual',
+  };
+  if (input.ruleKey) row.rule_key = input.ruleKey;
+  if (isUuid(d.id)) {
+    const saved = await unwrap(
+      sb().from('discount_rules').update(row).eq('id', d.id).select().single(),
+    );
+    return discountFromRule(saved);
+  }
+  row.rule_key = input.ruleKey || d.id;
+  const saved = await unwrap(sb().from('discount_rules').insert(row).select().single());
+  return discountFromRule(saved);
+}
+
+export async function deactivateDiscountRule(id) {
+  if (!isUuid(id)) return null;
+  const saved = await unwrap(
+    sb().from('discount_rules').update({ is_active: false }).eq('id', id).select().single(),
+  );
+  return discountFromRule(saved);
+}
+
 export async function listFixedDiscounts() {
   return listJsonTable('fixed_discounts', (r) => {
     const meta = metaOf(r);
@@ -2115,26 +2163,60 @@ export async function upsertFixedDiscount(item) {
   return (await listFixedDiscounts()).find((x) => x.id === saved.id) || { ...item, id: saved.id, active, percent };
 }
 
+function mapPaymentOrder(r) {
+  const meta = metaOf(r);
+  const payments = (r.payment_order_payments || []).map((payment) => ({
+    id: payment.id,
+    lilaPaymentId: payment.lila_payment_id || '',
+    memberNumber: payment.member_number || '',
+    memberName: payment.member_name || '',
+    imputedAmount: Number(payment.imputed_amount) || 0,
+    groupAccountId: payment.group_account_id || '',
+    lines: (payment.payment_order_lines || [])
+      .slice()
+      .sort((a, b) => (Number(a.position) || 0) - (Number(b.position) || 0))
+      .map((line) => ({
+        id: line.id,
+        position: Number(line.position) || 0,
+        lineType: line.line_type || '',
+        debtLabel: line.debt_label || '',
+        concept: line.concept || '',
+        amount: Number(line.amount) || 0,
+      })),
+  }));
+  return {
+    id: r.id,
+    orderKind: r.order_kind || 'supplier',
+    number: r.lila_number || meta.number || null,
+    date: r.ordered_on || meta.date || r.due_date || r.created_at?.slice?.(0, 10) || null,
+    memberNumber: r.member_number || '',
+    responsible: r.responsible || '',
+    payee: r.beneficiary || meta.payee || '',
+    beneficiary: r.beneficiary || meta.payee || '',
+    concept: r.concept || meta.concept || '',
+    amount: Number(r.amount) || 0,
+    dueDate: r.due_date || meta.dueDate || null,
+    status: r.status || 'draft',
+    paymentMethod: r.payment_method || meta.paymentMethod || '',
+    supplierId: r.supplier_id || null,
+    invoiceNumber: meta.invoiceNumber || '',
+    entryId: meta.entryId || null,
+    payments,
+    balanceApplied: Boolean(r.balance_applied),
+    deletedAt: r.deleted_at || null,
+    createdAt: r.created_at || meta.createdAt || null,
+    updatedAt: meta.updatedAt || null,
+    journalEntryId: meta.journalEntryId || null,
+  };
+}
+
 export async function listPaymentOrders() {
-  return listJsonTable('payment_orders', (r) => {
-    const meta = metaOf(r);
-    return {
-      id: r.id,
-      number: meta.number || null,
-      date: meta.date || r.created_at?.slice?.(0, 10) || null,
-      payee: r.beneficiary || meta.payee || '',
-      beneficiary: r.beneficiary || meta.payee || '',
-      concept: r.concept || meta.concept || '',
-      amount: Number(r.amount) || 0,
-      dueDate: r.due_date || meta.dueDate || null,
-      status: r.status || 'draft',
-      paymentMethod: meta.paymentMethod || 'transferencia',
-      supplierId: r.supplier_id || null,
-      createdAt: r.created_at || meta.createdAt || null,
-      updatedAt: meta.updatedAt || null,
-      journalEntryId: meta.journalEntryId || null,
-    };
-  });
+  const rows = await unwrap(sb()
+    .from('payment_orders')
+    .select('*, payment_order_payments(*, payment_order_lines(*))')
+    .is('deleted_at', null)
+    .order('ordered_on', { ascending: false }));
+  return (rows || []).map(mapPaymentOrder);
 }
 
 export async function upsertPaymentOrder(item) {
@@ -2155,14 +2237,16 @@ export async function upsertPaymentOrder(item) {
     withdrawnBy: item.withdrawnBy || null,
     accessinCode: item.accessinCode || null,
     importSource: item.importSource || null,
+    entryId: item.entryId || null,
   };
   const row = {
-    beneficiary: item.payee || item.beneficiary || 'Beneficiario',
+    beneficiary: item.payee || item.beneficiary || item.responsible || 'Beneficiario',
     amount: Number(item.amount) || 0,
     due_date: item.dueDate || item.date || null,
     status: item.status || 'draft',
     concept: item.concept || null,
     supplier_id: isUuid(item.supplierId) ? item.supplierId : null,
+    order_kind: item.orderKind || 'supplier',
     meta,
   };
   if (isUuid(item.id)) {
@@ -2172,6 +2256,13 @@ export async function upsertPaymentOrder(item) {
   const saved = await unwrap(sb().from('payment_orders').insert(row).select().single());
   await audit('upsert', 'payment_order', saved.id, { amount: row.amount, status: row.status });
   return (await listPaymentOrders()).find((x) => x.id === saved.id) || { ...item, id: saved.id };
+}
+
+export async function archivePaymentOrder(id) {
+  await unwrap(
+    sb().from('payment_orders').update({ deleted_at: new Date().toISOString() }).eq('id', id),
+    'No se pudo eliminar la orden de pago',
+  );
 }
 
 export async function upsertChartAccount(account) {
@@ -3158,6 +3249,319 @@ function feePeriodClosureFromRow(row) {
     lines: Array.isArray(row.lines) ? row.lines : [],
     pack: row.pack && typeof row.pack === 'object' ? row.pack : null,
   };
+}
+
+function interestGeneratorFromRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    identifier: row.identifier,
+    duesDescription: row.dues_description || '',
+    period: row.period || 'manual',
+    separateEntries: Boolean(row.separate_entries),
+    percentage: Number(row.percentage) || 0,
+    includeMembers: row.include_members || [],
+    excludeMembers: row.exclude_members || [],
+    tolerance: Number(row.tolerance) || 0,
+    duesFrom: row.dues_from || '',
+    duesTo: row.dues_to || '',
+    settlementDate: row.settlement_date || null,
+    isActive: row.is_active !== false,
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
+    source: row.source || 'manual',
+  };
+}
+
+function interestRunFromRow(row, entries = []) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    generatorId: row.generator_id,
+    generatorLabel: row.generator_label || '',
+    imputationDate: row.imputation_date || '',
+    createdAt: row.created_at || null,
+    cancelledAt: row.cancelled_at || null,
+    status: row.status || 'completed',
+    entriesCreated: Number(row.entries_created) || entries.length,
+    totalAmount: Number(row.total_amount) || 0,
+    percentage: Number(row.percentage) || 0,
+    separateEntries: Boolean(row.separate_entries),
+    entries,
+  };
+}
+
+export async function listInterestGenerators() {
+  const rows = await unwrap(
+    sb().from('interest_generators').select('*').order('identifier'),
+  );
+  return (rows || []).map(interestGeneratorFromRow).filter(Boolean);
+}
+
+export async function upsertInterestGenerator(item) {
+  const row = {
+    id: item.id,
+    identifier: item.identifier,
+    dues_description: item.duesDescription || '',
+    period: item.period || 'manual',
+    separate_entries: Boolean(item.separateEntries),
+    percentage: Number(item.percentage) || 0,
+    include_members: item.includeMembers || [],
+    exclude_members: item.excludeMembers || [],
+    tolerance: Number(item.tolerance) || 0,
+    dues_from: item.duesFrom || null,
+    dues_to: item.duesTo || null,
+    settlement_date: item.settlementDate || null,
+    is_active: item.isActive !== false,
+    source: item.source || 'manual',
+    created_at: item.createdAt || new Date().toISOString(),
+  };
+  const saved = await unwrap(
+    sb().from('interest_generators').upsert(row, { onConflict: 'id' }).select().single(),
+    'No se pudo guardar el generador de intereses',
+  );
+  return interestGeneratorFromRow(saved);
+}
+
+export async function deactivateInterestGenerator(id) {
+  const saved = await unwrap(
+    sb().from('interest_generators').update({ is_active: false }).eq('id', id).select().single(),
+    'No se pudo eliminar el generador de intereses',
+  );
+  return interestGeneratorFromRow(saved);
+}
+
+export async function listInterestRuns() {
+  const runs = await unwrap(
+    sb().from('interest_runs').select('*').order('created_at', { ascending: false }),
+  );
+  if (!runs?.length) return [];
+  const ids = runs.map((row) => row.id);
+  const entryRows = await unwrap(
+    sb().from('interest_run_entries').select('*').in('run_id', ids),
+  );
+  const byRun = new Map();
+  (entryRows || []).forEach((row) => {
+    const list = byRun.get(row.run_id) || [];
+    list.push({
+      id: row.id,
+      memberId: row.member_number,
+      memberName: row.member_name || '',
+      amount: Number(row.amount) || 0,
+      description: row.description || '',
+      balanceBase: Number(row.balance_base) || 0,
+    });
+    byRun.set(row.run_id, list);
+  });
+  return runs.map((row) => interestRunFromRow(row, byRun.get(row.id) || [])).filter(Boolean);
+}
+
+export async function saveInterestRun(run) {
+  await unwrap(
+    sb().rpc('save_interest_run', {
+      p_run: {
+        id: run.id,
+        generatorId: run.generatorId,
+        generatorLabel: run.generatorLabel,
+        imputationDate: run.imputationDate,
+        status: run.status || 'completed',
+        entriesCreated: run.entriesCreated,
+        totalAmount: run.totalAmount,
+        percentage: run.percentage,
+        separateEntries: Boolean(run.separateEntries),
+        createdAt: run.createdAt,
+      },
+      p_entries: (run.entries || []).map((entry) => ({
+        id: entry.id,
+        memberId: entry.memberId,
+        memberName: entry.memberName || '',
+        amount: entry.amount,
+        description: entry.description || '',
+        balanceBase: entry.balanceBase || 0,
+      })),
+    }),
+    'No se pudo guardar la generación de intereses',
+  );
+  return run;
+}
+
+export async function cancelInterestRunRecord(runId) {
+  await unwrap(
+    sb().rpc('cancel_interest_run', { p_run_id: runId }),
+    'No se pudo anular la generación de intereses',
+  );
+}
+
+export async function applyMemberBalanceDeltas(deltas = []) {
+  const rows = (deltas || [])
+    .map((row) => ({
+      memberId: String(row.memberId || row.memberNumber || '').trim(),
+      amount: Number(row.amount ?? row.addAmount) || 0,
+    }))
+    .filter((row) => row.memberId && row.amount);
+  if (!rows.length) return;
+  await unwrap(
+    sb().rpc('apply_member_balance_deltas', { p_deltas: rows }),
+    'No se pudo imputar la deuda de las cuotas',
+  );
+}
+
+function feeLedgerAccountFromRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    accessinId: row.accessin_id == null ? null : Number(row.accessin_id),
+    name: row.name,
+    description: row.description || '',
+    feeCategories: row.fee_categories || [],
+    balance: Number(row.balance) || 0,
+    detailAccountLabel: row.detail_account_label || row.name,
+    isActive: row.is_active !== false,
+    source: row.source || 'manual',
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
+  };
+}
+
+function feeLedgerLineFromRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    accountId: row.account_id,
+    memberNumber: row.member_number || '',
+    memberName: row.member_name || '',
+    dni: row.dni || '',
+    date: row.line_date || '',
+    dateLabel: row.date_label || '',
+    collectedAt: row.collected_at || '',
+    collectedAtLabel: row.collected_at_label || '',
+    type: row.type_label || '',
+    description: row.description || '',
+    amount: Number(row.amount) || 0,
+    collected: Number(row.collected) || 0,
+    pending: Number(row.pending) || 0,
+    source: row.source || 'manual',
+  };
+}
+
+export async function listFeeLedgerAccounts() {
+  const rows = await unwrap(
+    sb().from('fee_ledger_accounts').select('*').order('accessin_id', { ascending: true }),
+    'No se pudieron leer las cuentas contables',
+  );
+  return (rows || []).map(feeLedgerAccountFromRow).filter(Boolean);
+}
+
+export async function upsertFeeLedgerAccount(input) {
+  const row = {
+    id: input.id,
+    accessin_id: input.accessinId ?? null,
+    name: input.name,
+    description: input.description || '',
+    fee_categories: input.feeCategories || [],
+    balance: Number(input.balance) || 0,
+    detail_account_label: input.detailAccountLabel || input.name,
+    is_active: input.isActive !== false,
+    source: input.source || 'manual',
+  };
+  const saved = await unwrap(
+    sb().from('fee_ledger_accounts').upsert(row, { onConflict: 'id' }).select().single(),
+    'No se pudo guardar la cuenta contable',
+  );
+  return feeLedgerAccountFromRow(saved);
+}
+
+export async function deactivateFeeLedgerAccount(id) {
+  const saved = await unwrap(
+    sb().from('fee_ledger_accounts').update({ is_active: false }).eq('id', id).select().single(),
+    'No se pudo eliminar la cuenta contable',
+  );
+  return feeLedgerAccountFromRow(saved);
+}
+
+export async function listFeeLedgerLines(accountId) {
+  if (!accountId) return [];
+  const lines = [];
+  const pageSize = 1000;
+  for (let from = 0; ; from += pageSize) {
+    const batch = await unwrap(
+      sb()
+        .from('fee_ledger_lines')
+        .select('id, account_id, member_number, member_name, dni, line_date, date_label, collected_at, collected_at_label, type_label, description, amount, collected, pending, source')
+        .eq('account_id', accountId)
+        .order('line_date', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, from + pageSize - 1),
+      'No se pudo leer la cuenta corriente',
+    );
+    lines.push(...(batch || []).map(feeLedgerLineFromRow).filter(Boolean));
+    if (!batch || batch.length < pageSize) break;
+  }
+  return lines;
+}
+
+function feeLedgerLineToRow(line) {
+  return {
+    id: line.id,
+    account_id: line.accountId,
+    member_number: line.memberNumber || '',
+    member_name: line.memberName || '',
+    dni: line.dni || '',
+    line_date: line.date || null,
+    date_label: line.dateLabel || '',
+    collected_at: line.collectedAt || null,
+    collected_at_label: line.collectedAtLabel || '',
+    type_label: line.type || '',
+    description: line.description || '',
+    amount: Number(line.amount) || 0,
+    collected: Number(line.collected) || 0,
+    pending: Number(line.pending) || 0,
+    source: line.source || 'liquidation',
+  };
+}
+
+export async function postFeeLedgerLines(lines = []) {
+  if (!lines.length) return;
+  await unwrap(
+    sb().rpc('post_fee_ledger_lines', { p_lines: lines }),
+    'No se pudieron imputar los movimientos de la cuenta',
+  );
+}
+
+/** Meses que ya tienen movimientos. No toca el balance de la cuenta. */
+export async function listFeeLedgerMonths() {
+  const months = new Set();
+  const pageSize = 1000;
+  for (let from = 0; ; from += pageSize) {
+    const batch = await unwrap(
+      sb()
+        .from('fee_ledger_lines')
+        .select('line_date')
+        .range(from, from + pageSize - 1),
+      'No se pudieron leer los meses de la cuenta corriente',
+    );
+    for (const row of batch || []) {
+      const key = String(row.line_date || '').slice(0, 7);
+      if (/^\d{4}-\d{2}$/.test(key)) months.add(key);
+    }
+    if (!batch || batch.length < pageSize) break;
+  }
+  return [...months];
+}
+
+/** Guarda líneas históricas que faltan. Si el id ya existe, no suma el balance. */
+export async function insertFeeLedgerLines(lines = []) {
+  if (!lines.length) return;
+  const rows = lines.map(feeLedgerLineToRow);
+  const pageSize = 200;
+  for (let i = 0; i < rows.length; i += pageSize) {
+    await unwrap(
+      sb()
+        .from('fee_ledger_lines')
+        .upsert(rows.slice(i, i + pageSize), { onConflict: 'id', ignoreDuplicates: true }),
+      'No se pudieron completar los meses de la cuenta corriente',
+    );
+  }
 }
 
 export async function listFeePeriodClosures() {

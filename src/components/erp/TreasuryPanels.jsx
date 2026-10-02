@@ -1,13 +1,12 @@
 import { useMemo, useState } from 'react';
 import {
-  HelpCircle, Building2, Repeat, Percent, Scale, FileSpreadsheet,
+  HelpCircle, Building2, Repeat, Percent, Scale,
   Plus, Check, X,
 } from 'lucide-react';
 import { formatCurrency } from '../../domain/accounting/journal';
 import {
   UNIDENTIFIED_STATUS,
   DEBIT_STATUS,
-  PAYMENT_ORDER_STATUS,
   createUnidentifiedCollection,
   matchUnidentifiedCollection,
   rejectUnidentifiedCollection,
@@ -15,8 +14,6 @@ import {
   setGaliciaDebitStatus,
   createFixedExpense,
   createFixedDiscount,
-  createPaymentOrder,
-  setPaymentOrderStatus,
 } from '../../domain/accounting/treasury';
 
 function PanelShell({ icon: Icon, title, subtitle, children, actions }) {
@@ -370,89 +367,6 @@ export function BalancesPanel({ members = [], getAccountBalance }) {
                 <td style={{ textTransform: 'capitalize' }}>{m.tier}</td>
                 <td style={{ fontWeight: 700, color: '#ef4444' }}>{formatCurrency(m.outstandingBalance)}</td>
                 <td>{m.nextDueDate || '—'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </PanelShell>
-  );
-}
-
-/** 6) Órdenes de pago */
-export function PaymentOrdersPanel({ items = [], suppliers = [], onAdd, onSetStatus }) {
-  const [form, setForm] = useState({
-    date: new Date().toISOString().slice(0, 10),
-    payee: '',
-    concept: '',
-    amount: '',
-    paymentMethod: 'transferencia',
-  });
-  const [error, setError] = useState('');
-
-  const submit = (e) => {
-    e.preventDefault();
-    setError('');
-    try {
-      onAdd(createPaymentOrder(form));
-      setForm((f) => ({ ...f, payee: '', concept: '', amount: '' }));
-    } catch (err) {
-      setError(err.message);
-    }
-  };
-
-  return (
-    <PanelShell icon={FileSpreadsheet} title="Órdenes de pago" subtitle="Autorización y seguimiento de pagos a proveedores.">
-      <form onSubmit={submit} style={{ display: 'grid', gap: '0.65rem', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', border: '1px solid var(--border-glass)', borderRadius: 12, padding: '0.9rem' }}>
-        <div><label className="form-label">Fecha</label><input type="date" className="form-input" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></div>
-        <div>
-          <label className="form-label">Beneficiario</label>
-          <input className="form-input" list="suppliers-payee" required value={form.payee} onChange={(e) => setForm({ ...form, payee: e.target.value })} />
-          <datalist id="suppliers-payee">
-            {suppliers.filter((s) => s.status === 'active').map((s) => {
-              const name = s.legalName || s.name || '';
-              const code = s.accessinCode ? `#${s.accessinCode} · ` : '';
-              return <option key={s.id} value={name} label={`${code}${name}`} />;
-            })}
-          </datalist>
-        </div>
-        <div><label className="form-label">Importe</label><input type="number" min="1" required className="form-input" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></div>
-        <div>
-          <label className="form-label">Medio</label>
-          <select className="form-input" value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}>
-            <option value="transferencia">Transferencia</option>
-            <option value="cheque">Cheque</option>
-            <option value="efectivo">Efectivo</option>
-          </select>
-        </div>
-        <div style={{ gridColumn: '1 / -1' }}><label className="form-label">Concepto</label><input className="form-input" value={form.concept} onChange={(e) => setForm({ ...form, concept: e.target.value })} /></div>
-        <div><button type="submit" className="btn btn-primary btn-sm"><Plus size={14} /> Crear OP</button></div>
-      </form>
-      {error && <p style={{ color: '#ef4444', margin: 0 }}>{error}</p>}
-
-      <div className="table-responsive">
-        <table className="admin-table">
-          <thead><tr><th>N°</th><th>Fecha</th><th>Beneficiario</th><th>Concepto</th><th>Importe</th><th>Estado</th><th>Gestión</th></tr></thead>
-          <tbody>
-            {items.map((item) => (
-              <tr key={item.id}>
-                <td><strong>{item.number}</strong></td>
-                <td>{item.date}</td>
-                <td>{item.payee}</td>
-                <td>{item.concept || '—'}</td>
-                <td style={{ fontWeight: 700 }}>{formatCurrency(item.amount)}</td>
-                <td>{PAYMENT_ORDER_STATUS[item.status]}</td>
-                <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {item.status === 'draft' && (
-                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => onSetStatus(setPaymentOrderStatus(item, 'approved'))}>Aprobar</button>
-                  )}
-                  {item.status === 'approved' && (
-                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => onSetStatus(setPaymentOrderStatus(item, 'paid'))}>Marcar paga</button>
-                  )}
-                  {item.status !== 'paid' && item.status !== 'cancelled' && (
-                    <button type="button" className="btn btn-danger btn-sm" onClick={() => onSetStatus(setPaymentOrderStatus(item, 'cancelled'))}>Anular</button>
-                  )}
-                </td>
               </tr>
             ))}
           </tbody>

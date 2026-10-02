@@ -137,6 +137,67 @@ export function currentMonthFeeCollected(movements = [], members = [], monthKey 
   return Math.round(total * 100) / 100;
 }
 
+function paymentDate(payment) {
+  return String(payment?.date || payment?.paidAt || '').slice(0, 10);
+}
+
+function memberDigits(memberOrMovement) {
+  return String(
+    memberOrMovement?.memberId
+    || memberOrMovement?.member_number
+    || memberOrMovement?.memberNumber
+    || memberOrMovement?.description
+    || '',
+  ).replace(/\D/g, '');
+}
+
+/**
+ * Cuota del mes, con la misma imputación de LILA, más los cobros cargados
+ * en el club que todavía no están en la caja. Un mismo pago no se suma dos veces.
+ * `afterDate` deja solo lo posterior a un corte ya contabilizado.
+ */
+export function liveMonthFeeCollected({
+  movements = [],
+  members = [],
+  monthKey = '',
+  afterDate = '',
+} = {}) {
+  const cut = String(afterDate || '').slice(0, 10);
+  const inWindow = (date) => Boolean(monthKey) && date.startsWith(monthKey) && (!cut || date > cut);
+  const covered = new Set();
+  const windowMoves = [];
+  for (const row of movements || []) {
+    const date = String(row?.date || '').slice(0, 10);
+    if (!inWindow(date)) continue;
+    windowMoves.push(row);
+    const digits = memberDigits(row);
+    const amount = Number(row?.amount) || 0;
+    if (digits && amount > 0) covered.add(`${digits}|${date}|${amount}`);
+  }
+  for (const member of members || []) {
+    const digits = memberDigits(member);
+    if (!digits) continue;
+    for (const payment of member.paymentHistory || []) {
+      const date = paymentDate(payment);
+      if (!inWindow(date)) continue;
+      if (payment?.status === 'void' || payment?.status === 'cancelled') continue;
+      const amount = Number(payment?.amount) || 0;
+      if (amount <= 0) continue;
+      const key = `${digits}|${date}|${amount}`;
+      if (covered.has(key)) continue;
+      covered.add(key);
+      windowMoves.push({
+        id: payment.id || `pay-${key}`,
+        date,
+        amount,
+        memberNumber: digits,
+        movementType: 'income',
+      });
+    }
+  }
+  return currentMonthFeeCollected(windowMoves, members, monthKey);
+}
+
 function linesForFeePeriod(member, period, paidOn, amount) {
   const key = periodKeyOf(period.year, period.month);
   const on = new Date(period.year, period.month - 1, 1);

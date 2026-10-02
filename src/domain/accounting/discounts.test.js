@@ -4,6 +4,7 @@ import {
   ACCESSIN_DISCOUNT_RULES,
   createDiscount,
   discountCategoryCounts,
+  discountFromRule,
   resolveDiscounts,
 } from './discounts';
 import { bonificacionesSeed, seedDiscounts } from './discountsSeed';
@@ -45,6 +46,28 @@ describe('discounts / bonificaciones', () => {
     });
     expect(d.appliedTo).toBe('COMISION');
     expect(d.percentage).toBe(100);
+  });
+
+  it('lee una regla de descuentos extras ya guardada', () => {
+    const row = discountFromRule({
+      id: '60fea9a6-1916-47ad-aaa9-ce8130ad00b2',
+      rule_key: 'amdis-100007-636',
+      category: 'members',
+      member_numbers: '100007',
+      member_name: 'Moreno Marcelo',
+      description: 'Bonificación Comisión Directiva',
+      value_type: 'percent',
+      value: '100.00',
+      valid_from: '2025-09-25',
+      valid_to: '2026-04-30',
+      is_active: true,
+      accessin_id: 636,
+      source: 'lila',
+    });
+    expect(row.ruleKey).toBe('amdis-100007-636');
+    expect(row.memberNumber).toBe('100007');
+    expect(row.percentage).toBe(100);
+    expect(row.source).toBe('lila');
   });
 
   it('crea descuento por socio', () => {

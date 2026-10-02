@@ -47,6 +47,124 @@ function emptyFormFor(category, isExpense) {
   };
 }
 
+function foldText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function memberNumberOf(member) {
+  return String(member?.memberId || member?.memberNumber || '').trim();
+}
+
+function splitMemberDraft(value) {
+  const ids = [];
+  const words = [];
+  String(value || '').split(/[,;]+/).forEach((part) => {
+    const token = part.trim();
+    if (!token) return;
+    if (/^\d+$/.test(token)) ids.push(token);
+    else words.push(token);
+  });
+  return { ids, query: words.join(' ') };
+}
+
+function matchCategories(query) {
+  const q = foldText(String(query || '').trim());
+  if (q.length < 2) return [];
+  return DATITA_CUOTA_CATEGORY_NAMES.filter((name) => foldText(name).includes(q)).slice(0, 8);
+}
+
+function matchMembers(members, query, exclude = new Set()) {
+  const raw = String(query || '').trim();
+  const q = foldText(raw);
+  if (q.length < 2) return [];
+  const hits = [];
+  const rest = [];
+  for (const member of members || []) {
+    const num = memberNumberOf(member);
+    if (!num || exclude.has(num)) continue;
+    const name = String(member.name || '');
+    const hay = foldText(`${name} ${num} ${member.documentNumber || ''}`);
+    if (!hay.includes(q)) continue;
+    if (foldText(name).startsWith(q) || num.startsWith(raw)) hits.push(member);
+    else rest.push(member);
+  }
+  return [...hits, ...rest].slice(0, 8);
+}
+
+function MemberPickField({ members, value, onChange }) {
+  const selectedIds = splitMemberDraft(value).ids;
+  const [query, setQuery] = useState(() => splitMemberDraft(value).query);
+  const matches = matchMembers(members, query, new Set(selectedIds));
+
+  const write = (ids, name) => {
+    onChange({
+      memberIds: ids.join(', '),
+      memberName: name || '',
+    });
+  };
+
+  const nameFor = (id) => (members || []).find((m) => memberNumberOf(m) === id)?.name || '';
+
+  const addMember = (member) => {
+    const num = memberNumberOf(member);
+    const ids = selectedIds.includes(num) ? selectedIds : [...selectedIds, num];
+    const names = ids.map((id) => (id === num ? member.name : nameFor(id))).filter(Boolean);
+    write(ids, names.join(', '));
+    setQuery('');
+  };
+
+  const removeMember = (id) => {
+    const ids = selectedIds.filter((item) => item !== id);
+    write(ids, ids.map(nameFor).filter(Boolean).join(', '));
+  };
+
+  return (
+    <div className="disc-member-pick">
+      <input
+        className="form-input"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && matches[0]) {
+            e.preventDefault();
+            addMember(matches[0]);
+          }
+        }}
+        placeholder="Nombre, DNI o número de socio"
+        autoComplete="off"
+        aria-autocomplete="list"
+        aria-expanded={matches.length > 0}
+      />
+      <input type="hidden" value={selectedIds.join(',')} required />
+      {matches.length > 0 ? (
+        <ul className="disc-member-hits" role="listbox">
+          {matches.map((member) => (
+            <li key={memberNumberOf(member)}>
+              <button type="button" className="disc-member-hit" onClick={() => addMember(member)}>
+                <span>{member.name}</span>
+                <span>Nº {memberNumberOf(member)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {selectedIds.length > 0 ? (
+        <div className="disc-member-chips">
+          {selectedIds.map((id) => (
+            <button key={id} type="button" className="disc-member-chip" onClick={() => removeMember(id)}>
+              {nameFor(id) ? `${nameFor(id)} · ${id}` : id}
+              <span aria-hidden="true"> ×</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function DiscountsBonusesPanel({
   items = [],
   feeExpenses = [],
@@ -57,6 +175,7 @@ export default function DiscountsBonusesPanel({
   onUpsertFeeExpense,
   onDeleteFeeExpense,
   onGoExpenses,
+  discountsOnly = false,
 }) {
   const { ACCESSIN_BONIFICACIONES_SNAPSHOT } = useSnapshotSeed(
     ['accessinBonificaciones'],
@@ -66,6 +185,8 @@ export default function DiscountsBonusesPanel({
   const [category, setCategory] = useState(null);
   const [view, setView] = useState('hub');
   const [query, setQuery] = useState('');
+  const [memberFilter, setMemberFilter] = useState('');
+  const [suggestOpen, setSuggestOpen] = useState(false);
   const [page, setPage] = useState(0);
   const [form, setForm] = useState(EMPTY_FORM);
   const [editingId, setEditingId] = useState(null);
@@ -73,7 +194,7 @@ export default function DiscountsBonusesPanel({
   const [ok, setOk] = useState('');
   const fileRef = useRef(null);
 
-  const isExpense = hubTab === 'expenses';
+  const isExpense = !discountsOnly && hubTab === 'expenses';
   const noun = isExpense ? 'gasto' : 'descuento';
   const Noun = isExpense ? 'Gasto' : 'Descuento';
   const valueTypes = isExpense ? FEE_EXPENSE_VALUE_TYPES : DISCOUNT_VALUE_TYPES;
@@ -85,11 +206,32 @@ export default function DiscountsBonusesPanel({
   const activeCategory = (isExpense ? FEE_EXPENSE_CATEGORIES : DISCOUNT_CATEGORIES)
     .find((c) => c.id === category) || null;
 
+  const listQuery = memberFilter || query;
+  const categoryHits = suggestOpen ? matchCategories(query) : [];
+  const memberHits = matchMembers(members, suggestOpen ? query : '');
+  const searchHits = [
+    ...categoryHits.map((name) => ({ kind: 'category', id: name, title: name, meta: 'Categoría' })),
+    ...memberHits.map((member) => ({
+      kind: 'member',
+      id: memberNumberOf(member),
+      title: member.name,
+      meta: `Nº ${memberNumberOf(member)}`,
+    })),
+  ].slice(0, 8);
+
+  const applySearchHit = (hit) => {
+    if (!hit) return;
+    if (hit.kind === 'category') setCategory('fee_category');
+    setQuery(hit.title || '');
+    setMemberFilter(hit.kind === 'member' ? hit.id : '');
+    setSuggestOpen(false);
+    setPage(0);
+  };
   const rows = useMemo(
     () => (isExpense
-      ? filterFeeExpenses(feeExpenses, { category, query })
-      : filterDiscounts(items, { category, query })),
-    [isExpense, feeExpenses, items, category, query]
+      ? filterFeeExpenses(feeExpenses, { category, query: listQuery })
+      : filterDiscounts(items, { category, query: listQuery })),
+    [isExpense, feeExpenses, items, category, listQuery]
   );
 
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
@@ -103,6 +245,8 @@ export default function DiscountsBonusesPanel({
     setCategory(null);
     setView('hub');
     setQuery('');
+    setMemberFilter('');
+    setSuggestOpen(false);
     setPage(0);
     setError('');
     setOk('');
@@ -111,6 +255,8 @@ export default function DiscountsBonusesPanel({
   const openCategory = (id) => {
     setCategory(id);
     setQuery('');
+    setMemberFilter('');
+    setSuggestOpen(false);
     setPage(0);
     setView('list');
     setError('');
@@ -150,7 +296,7 @@ export default function DiscountsBonusesPanel({
     return hit?.name || '';
   };
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
     setError('');
     try {
@@ -169,10 +315,10 @@ export default function DiscountsBonusesPanel({
       };
       if (isExpense) {
         createFeeExpense(payload);
-        onUpsertFeeExpense?.(payload);
+        await onUpsertFeeExpense?.(payload);
       } else {
         createDiscount(payload);
-        onUpsert?.(payload);
+        await onUpsert?.(payload);
       }
       setOk(`${Noun} ${editingId ? 'actualizado' : 'creado'}.`);
       setView('list');
@@ -285,17 +431,15 @@ export default function DiscountsBonusesPanel({
           {needsMembers ? (
             <div className="disc-field">
               <label className="disc-field-label">Socios</label>
-              <input
-                className="form-input"
+              <MemberPickField
+                members={members}
                 value={form.memberIds}
-                onChange={(e) => setForm((f) => ({ ...f, memberIds: e.target.value }))}
-                placeholder="Nros. de socio separados por coma"
-                required
+                onChange={({ memberIds, memberName }) => setForm((f) => ({ ...f, memberIds, memberName }))}
               />
               <p className="disc-field-hint">
                 {category === 'member_fee'
-                  ? `Socio al que se aplica el ${noun} sobre una cuota puntual.`
-                  : `Seleccioná uno o varios socios a los cuales aplicará este ${noun}.`}
+                  ? `Escribí el nombre y elegí el socio. El ${noun} aplica sobre una cuota puntual.`
+                  : 'Escribí el nombre y elegí uno o varios socios. Enter toma el primero.'}
               </p>
             </div>
           ) : null}
@@ -427,12 +571,40 @@ export default function DiscountsBonusesPanel({
           <span>Buscar por</span>
           <label className="disc-search-input">
             <Search size={14} />
-            <input
-              className="form-input"
-              value={query}
-              onChange={(e) => { setQuery(e.target.value); setPage(0); }}
-              placeholder="Socio, categoría, descripción…"
-            />
+            <div className="disc-member-pick">
+              <input
+                className="form-input"
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setMemberFilter('');
+                  setSuggestOpen(true);
+                  setPage(0);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && searchHits[0]) {
+                    e.preventDefault();
+                    applySearchHit(searchHits[0]);
+                  }
+                }}
+                placeholder="Socio, categoría, descripción…"
+                autoComplete="off"
+                aria-autocomplete="list"
+                aria-expanded={searchHits.length > 0}
+              />
+              {searchHits.length > 0 ? (
+                <ul className="disc-member-hits" role="listbox">
+                  {searchHits.map((hit) => (
+                    <li key={`${hit.kind}-${hit.id}`}>
+                      <button type="button" className="disc-member-hit" onClick={() => applySearchHit(hit)}>
+                        <span>{hit.title}</span>
+                        <span>{hit.meta}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
           </label>
         </div>
 
@@ -499,10 +671,14 @@ export default function DiscountsBonusesPanel({
                           type="button"
                           className="cash-lila-icon-btn is-del"
                           title="Eliminar"
-                          onClick={() => {
+                          onClick={async () => {
                             if (!window.confirm(`¿Eliminar este ${noun}?`)) return;
-                            if (isExpense) onDeleteFeeExpense?.(row.id);
-                            else onDelete?.(row.id);
+                            try {
+                              if (isExpense) await onDeleteFeeExpense?.(row.id);
+                              else await onDelete?.(row.id);
+                            } catch (err) {
+                              setError(err.message || `No se pudo eliminar el ${noun}.`);
+                            }
                           }}
                         >
                           <Trash2 size={13} />
@@ -530,26 +706,28 @@ export default function DiscountsBonusesPanel({
     <div className="fade-in disc-panel">
       <div className="disc-panel-head">
         <h4 className="disc-panel-title">
-          <Percent size={18} /> Descuentos y gastos
+          <Percent size={18} /> {discountsOnly ? 'Descuentos extras' : 'Descuentos y gastos'}
         </h4>
       </div>
 
-      <div className="disc-hub-tabs">
-        <button
-          type="button"
-          className={`disc-hub-tab${hubTab === 'discounts' ? ' is-active' : ''}`}
-          onClick={() => switchHub('discounts')}
-        >
-          <Receipt size={16} /> Descuentos
-        </button>
-        <button
-          type="button"
-          className={`disc-hub-tab${hubTab === 'expenses' ? ' is-active' : ''}`}
-          onClick={() => switchHub('expenses')}
-        >
-          <Receipt size={16} /> Gastos
-        </button>
-      </div>
+      {discountsOnly ? null : (
+        <div className="disc-hub-tabs">
+          <button
+            type="button"
+            className={`disc-hub-tab${hubTab === 'discounts' ? ' is-active' : ''}`}
+            onClick={() => switchHub('discounts')}
+          >
+            <Receipt size={16} /> Descuentos
+          </button>
+          <button
+            type="button"
+            className={`disc-hub-tab${hubTab === 'expenses' ? ' is-active' : ''}`}
+            onClick={() => switchHub('expenses')}
+          >
+            <Receipt size={16} /> Gastos
+          </button>
+        </div>
+      )}
 
       <div className="disc-cat-list">
         {counts.map((cat) => (

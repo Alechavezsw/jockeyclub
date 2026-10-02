@@ -79,12 +79,14 @@ export default function CuotasPanel({
   feePeriods = [],
   onUpsertFeePeriods,
   onPersistFeePeriod,
+  onApplyBalanceDeltas,
   collectionImports = [],
   onImportCollections,
   onDeleteCollectionImport,
   feeChartAccounts = [],
   onUpsertFeeChartAccount,
   onDeleteFeeChartAccount,
+  onPostFeeLedger,
   memberAccountEntries = [],
   onUpsertMemberAccountEntry,
   onDeleteMemberAccountEntry,
@@ -96,9 +98,10 @@ export default function CuotasPanel({
   formatCurrency: formatCurrencyProp,
   tierCatalog = [],
   initialView = 'hub',
+  balancesOnly = false,
 }) {
   const fmt = formatCurrencyProp || formatCurrency;
-  const [view, setView] = useState(initialView); // hub | import_collections | import_debts | impute_events | mora | period_detail | accounts | balances | monthly_debts | detailed_cc | credit_purchases
+  const [view, setView] = useState(() => (balancesOnly ? 'balances' : initialView)); // hub | import_collections | import_debts | impute_events | mora | period_detail | accounts | balances | monthly_debts | detailed_cc | credit_purchases
   const [year, setYear] = useState(2026);
   const [ccEnabled, setCcEnabled] = useState(true);
   const [flash, setFlash] = useState('');
@@ -132,7 +135,13 @@ export default function CuotasPanel({
     return [...set].toSorted((a, b) => b - a);
   }, [feePeriods, year]);
   const overdueMembers = useMemo(() => getOverdueMembers(members), [members]);
+  const goHome = () => {
+    setSelectedPeriod(null);
+    setEditingPeriod(false);
+    setView(balancesOnly ? 'balances' : 'hub');
+  };
   const goDesk = (next) => {
+    if (balancesOnly && ['import_collections', 'impute_events', 'mora'].includes(next)) return;
     if (next === 'import_collections') {
       setError('');
       setOk('');
@@ -273,6 +282,15 @@ export default function CuotasPanel({
       if (onPersistFeePeriod) await onPersistFeePeriod(result.period);
       onUpsertFeePeriods?.(result.periods);
       const charges = (result.memberUpdates || []).filter((u) => (Number(u.addAmount) || 0) > 0);
+      if (charges.length && onApplyBalanceDeltas) {
+        await onApplyBalanceDeltas(charges.map((u) => ({
+          memberId: u.memberId,
+          amount: u.addAmount,
+        })));
+      }
+      if (charges.length && onPostFeeLedger) {
+        await onPostFeeLedger({ charges, period: result.period, members });
+      }
       if (charges.length && typeof setMembers === 'function') {
         const chargeDate = result.period.generatedAt || new Date().toISOString().slice(0, 10);
         const byId = new Map(charges.map((u) => [String(u.memberId), u]));
@@ -293,7 +311,7 @@ export default function CuotasPanel({
         }));
       }
       setSelectedPeriod(null);
-      setView('hub');
+      goHome();
       setFlash(`Liquidado ${periodLabel(result.period)}.`);
     } catch (err) {
       setError(err.message || 'No se pudo liquidar.');
@@ -364,9 +382,11 @@ export default function CuotasPanel({
     return (
       <FeeChartAccountsPanel
         accounts={feeChartAccounts}
+        members={members}
+        periods={feePeriods}
         onUpsert={onUpsertFeeChartAccount}
         onDelete={onDeleteFeeChartAccount}
-        onBack={() => setView('hub')}
+        onBack={() => goHome()}
         formatCurrency={fmt}
       />
     );
@@ -384,7 +404,8 @@ export default function CuotasPanel({
           }
         }}
         onDeleteEntry={onDeleteMemberAccountEntry}
-        onBack={() => setView('hub')}
+        onBack={balancesOnly ? undefined : goHome}
+        consultOnly={balancesOnly}
         onGoView={goDesk}
         formatCurrency={fmt}
         tierCatalog={tierCatalog}
@@ -395,7 +416,7 @@ export default function CuotasPanel({
   if (view === 'monthly_debts' || view === 'import_debts') {
     return (
       <MonthlyDebtsPanel
-        onBack={() => setView('hub')}
+        onBack={() => goHome()}
         onOpenMemberBalance={() => setView('balances')}
       />
     );
@@ -404,7 +425,7 @@ export default function CuotasPanel({
   if (view === 'detailed_cc') {
     return (
       <DetailedCurrentAccountsPanel
-        onBack={() => setView('hub')}
+        onBack={() => goHome()}
         onOpenMemberBalance={() => setView('balances')}
       />
     );
@@ -414,7 +435,7 @@ export default function CuotasPanel({
     return (
       <MemberCreditPurchasesPanel
         members={members}
-        onBack={() => setView('hub')}
+        onBack={() => goHome()}
         onOpenMember={() => setView('balances')}
       />
     );
@@ -428,7 +449,7 @@ export default function CuotasPanel({
           <button
             type="button"
             className="btn btn-secondary btn-sm"
-            onClick={() => { setView('hub'); setSelectedPeriod(null); setEditingPeriod(false); }}
+            onClick={() => { goHome(); setSelectedPeriod(null); setEditingPeriod(false); }}
           >
             <ArrowLeft size={14} /> Volver
           </button>
@@ -566,7 +587,7 @@ export default function CuotasPanel({
     return (
       <div className="fade-in cuotas-panel">
         <div className="cuotas-toolbar">
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => setView('hub')}>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => goHome()}>
             <ArrowLeft size={14} /> Volver a cuotas
           </button>
         </div>
@@ -653,7 +674,7 @@ export default function CuotasPanel({
           {ok ? <p className="ig-ok">{ok}</p> : null}
 
           <div className="supplier-pay-import-actions">
-            <button type="button" className="btn btn-secondary" onClick={() => { setView('hub'); setError(''); setOk(''); }}>
+            <button type="button" className="btn btn-secondary" onClick={() => { goHome(); setError(''); setOk(''); }}>
               Volver
             </button>
             <button type="button" className="btn btn-tan" disabled={busy} onClick={processCollections}>
@@ -731,7 +752,7 @@ export default function CuotasPanel({
     return (
       <div className="fade-in cuotas-panel">
         <div className="cuotas-toolbar">
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => setView('hub')}>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => goHome()}>
             <ArrowLeft size={14} /> Volver
           </button>
           <h3 className="cuotas-title" style={{ margin: 0 }}>Reservas sin imputar</h3>

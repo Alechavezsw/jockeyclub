@@ -33,6 +33,20 @@ describe('supplierEntries', () => {
     expect(entry.status).toBe('posted');
   });
 
+  it('Otros a favor reduce la deuda', () => {
+    const entry = createSupplierEntry({
+      type: 'otros',
+      supplierId: 'sup-1',
+      supplierName: 'MC IMPRESIONES',
+      amount: 300,
+      effect: 'credit',
+      expenseCategory: 'servicios',
+    });
+    expect(entry.effect).toBe('credit');
+    expect(entry.balanceDelta).toBe(-300);
+    expect(entry.expenseCategory).toBe('servicios');
+  });
+
   it('rechaza monto inválido o proveedor vacío', () => {
     expect(() => createSupplierEntry({ type: 'pago', supplierId: 'x', amount: 0 })).toThrow();
     expect(() => createSupplierEntry({ type: 'pago', amount: 10 })).toThrow();

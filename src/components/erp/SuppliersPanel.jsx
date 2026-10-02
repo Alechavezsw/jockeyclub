@@ -12,9 +12,11 @@ import {
   setSupplierStatus,
   supplierAccessinBalance,
   supplierAccessinCode,
+  supplierAccountMovements,
   supplierDisplayName,
   supplierOpenBalance,
   supplierPaidYtd,
+  supplierRunningBalance,
   updateSupplier,
 } from '../../domain/accounting/suppliers';
 import { formatCurrency } from '../../domain/accounting/journal';
@@ -58,6 +60,8 @@ export default function SuppliersPanel({
   onImportSupplierPayments,
   onCreateSupplierEntry,
   onNavigate,
+  supplierEntries = [],
+  paymentOrders = [],
 }) {
   const { ACCESSIN_SUPPLIERS_AS_OF } = useSnapshotSeed(['accessinSuppliers'], suppliersSeed);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -74,8 +78,21 @@ export default function SuppliersPanel({
   const [form, setForm] = useState(EMPTY_FORM);
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
+  const [accountId, setAccountId] = useState(null);
+  const [entradaSupplierId, setEntradaSupplierId] = useState('');
 
-  const accessinTotals = useMemo(() => accessinBalanceTotals(suppliers), [suppliers]);
+  const ledger = useMemo(
+    () => ({ entries: supplierEntries, paymentOrders }),
+    [supplierEntries, paymentOrders]
+  );
+  const accessinTotals = useMemo(
+    () => accessinBalanceTotals(suppliers.map((supplier) => ({
+      ...supplier,
+      openingBalance: supplierRunningBalance(supplier, ledger),
+    }))),
+    [suppliers, ledger]
+  );
+  const accountSupplier = suppliers.find((supplier) => supplier.id === accountId) || null;
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -206,6 +223,139 @@ export default function SuppliersPanel({
     );
   }
 
+  if (accountSupplier) {
+    const movements = supplierAccountMovements(accountSupplier, ledger);
+    const opening = supplierAccessinBalance(accountSupplier);
+    const current = supplierRunningBalance(accountSupplier, ledger);
+    const linkedExpenses = expensesForSupplier(expenses, accountSupplier);
+    return (
+      <div className="fade-in suppliers-panel" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+          <div>
+            <h4 className="serif-font" style={{ fontSize: '1.25rem', margin: 0 }}>
+              Cuenta corriente · {supplierDisplayName(accountSupplier)}
+            </h4>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0.35rem 0 0' }}>
+              {supplierAccessinCode(accountSupplier) ? `#${supplierAccessinCode(accountSupplier)} · ` : ''}
+              Saldo de apertura Accessin {formatCurrency(opening)}
+              {ACCESSIN_SUPPLIERS_AS_OF ? ` al ${formatAsOf(ACCESSIN_SUPPLIERS_AS_OF)}` : ''}.
+              El saldo actual suma entradas y pagos sin volver a escribir esa apertura.
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setAccountId(null)}>
+              Volver al padrón
+            </button>
+            <button
+              type="button"
+              className="suppliers-action-btn"
+              onClick={() => {
+                setEntradaSupplierId(accountSupplier.id);
+                setShowEntrada(true);
+              }}
+            >
+              + Entradas
+            </button>
+          </div>
+        </div>
+
+        <div className="glass-card" style={{ padding: '0.85rem 1rem', maxWidth: 280 }}>
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Saldo actual</div>
+          <div style={{ fontSize: '1.35rem', fontWeight: 800, color: balanceTone(current) }}>{formatCurrency(current)}</div>
+        </div>
+
+        <div className="table-responsive">
+          <table className="admin-table suppliers-table">
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Movimiento</th>
+                <th>Descripción</th>
+                <th>Comprobante</th>
+                <th>Categoría</th>
+                <th>Importe</th>
+                <th>Saldo</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>{formatAsOf(ACCESSIN_SUPPLIERS_AS_OF) || '—'}</td>
+                <td>Saldo Accessin</td>
+                <td>Apertura de cuenta corriente</td>
+                <td>—</td>
+                <td>—</td>
+                <td style={{ color: balanceTone(opening) }}>{formatCurrency(opening)}</td>
+                <td style={{ fontWeight: 700, color: balanceTone(opening) }}>{formatCurrency(opening)}</td>
+              </tr>
+              {movements.length === 0 ? (
+                <tr>
+                  <td colSpan={7} style={{ color: 'var(--text-muted)', padding: '1rem' }}>
+                    Sin entradas ni pagos posteriores a la apertura.
+                  </td>
+                </tr>
+              ) : movements.map((row) => (
+                <tr key={row.id}>
+                  <td>{formatAsOf(row.date) || row.date || '—'}</td>
+                  <td>{row.kind}</td>
+                  <td>{row.concept || '—'}</td>
+                  <td>{row.invoiceNumber || '—'}</td>
+                  <td>{SUPPLIER_CATEGORIES[row.category] || row.category || '—'}</td>
+                  <td style={{ color: balanceTone(row.delta) }}>{formatCurrency(row.delta)}</td>
+                  <td style={{ fontWeight: 700, color: balanceTone(row.balance) }}>{formatCurrency(row.balance)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {linkedExpenses.length > 0 && (
+          <div>
+            <h5 style={{ margin: '0 0 0.5rem', fontSize: '0.9rem' }}>Gastos del ERP vinculados</h5>
+            <div className="table-responsive">
+              <table className="admin-table suppliers-table">
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Concepto</th>
+                    <th>Estado</th>
+                    <th>Importe</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {linkedExpenses.map((expense) => (
+                    <tr key={expense.id}>
+                      <td>{expense.expenseDate || expense.date || '—'}</td>
+                      <td>{expense.concept || '—'}</td>
+                      <td>{expense.status || '—'}</td>
+                      <td>{formatCurrency(expense.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {error && <p style={{ color: '#ef4444', margin: 0 }}>{error}</p>}
+        {ok && <p style={{ color: 'var(--emerald-accent)', margin: 0 }}>{ok}</p>}
+
+        <SupplierEntradaModal
+          open={showEntrada}
+          onClose={() => setShowEntrada(false)}
+          initialSupplierId={entradaSupplierId || accountSupplier.id}
+          suppliers={suppliers}
+          onSave={async (entry) => {
+            if (typeof onCreateSupplierEntry !== 'function') {
+              throw new Error('Guardado de entradas no disponible.');
+            }
+            await onCreateSupplierEntry(entry);
+            setOk(`Entrada ${entry.typeLabel} registrada · ${entry.supplierName}`);
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="fade-in suppliers-panel" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
@@ -217,7 +367,7 @@ export default function SuppliersPanel({
             </span>
           </h4>
           <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0.35rem 0 0' }}>
-            Padrón real de cuenta corriente ({suppliers.length} fichas). Saldo positivo = deuda del club.
+            Padrón de cuenta corriente ({suppliers.length} fichas). El saldo junta la apertura Accessin, las entradas y los pagos. Positivo = deuda del club.
           </p>
         </div>
       </div>
@@ -237,6 +387,7 @@ export default function SuppliersPanel({
           type="button"
           className="suppliers-action-btn"
           onClick={() => {
+            setEntradaSupplierId(accountSupplier?.id || '');
             setShowEntrada(true);
             setError('');
             setOk('');
@@ -265,19 +416,19 @@ export default function SuppliersPanel({
           <div style={{ fontSize: '1.35rem', fontWeight: 800 }}>{suppliers.length}</div>
         </div>
         <div className="glass-card" style={{ padding: '0.85rem 1rem' }}>
-          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Con saldo Accessin</div>
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Con saldo</div>
           <div style={{ fontSize: '1.35rem', fontWeight: 800 }}>{accessinTotals.withBalance}</div>
         </div>
         <div className="glass-card" style={{ padding: '0.85rem 1rem' }}>
-          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Deuda Accessin</div>
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Deuda</div>
           <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#f59e0b' }}>{formatCurrency(accessinTotals.debt)}</div>
         </div>
         <div className="glass-card" style={{ padding: '0.85rem 1rem' }}>
-          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>A favor Accessin</div>
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>A favor</div>
           <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--emerald-accent)' }}>{formatCurrency(accessinTotals.credit)}</div>
         </div>
         <div className="glass-card" style={{ padding: '0.85rem 1rem' }}>
-          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Neto Accessin</div>
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Neto</div>
           <div style={{ fontSize: '1.1rem', fontWeight: 800, color: balanceTone(accessinTotals.net) }}>
             {formatCurrency(accessinTotals.net)}
           </div>
@@ -473,7 +624,7 @@ export default function SuppliersPanel({
               <th>Proveedor</th>
               <th>CUIT</th>
               <th>Contacto</th>
-              <th>Saldo Accessin</th>
+              <th>Saldo</th>
               <th>Gastos ERP</th>
               <th>Estado</th>
               <th style={{ textAlign: 'right' }}>Acciones</th>
@@ -489,7 +640,7 @@ export default function SuppliersPanel({
             ) : (
               pageRows.map((supplier) => {
                 const linked = expensesForSupplier(expenses, supplier);
-                const accessinBal = supplierAccessinBalance(supplier);
+                const accessinBal = supplierRunningBalance(supplier, ledger);
                 const erpBal = linked.length
                   ? linked
                     .filter((e) => ['pending_approval', 'approved'].includes(e.status))
@@ -535,6 +686,9 @@ export default function SuppliersPanel({
                     </td>
                     <td style={{ textAlign: 'right' }}>
                       <div style={{ display: 'inline-flex', gap: '0.35rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => setAccountId(supplier.id)}>
+                          Cuenta
+                        </button>
                         <button type="button" className="btn btn-secondary btn-sm" onClick={() => startEdit(supplier)}>
                           Editar
                         </button>
@@ -566,6 +720,7 @@ export default function SuppliersPanel({
       <SupplierEntradaModal
         open={showEntrada}
         onClose={() => setShowEntrada(false)}
+        initialSupplierId={entradaSupplierId}
         suppliers={suppliers}
         onSave={async (entry) => {
           if (typeof onCreateSupplierEntry !== 'function') {

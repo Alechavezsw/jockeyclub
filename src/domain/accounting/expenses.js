@@ -9,12 +9,14 @@ export function createExpenseDraft({
   concept,
   invoiceNumber = '',
   requestedBy = 'admin-local',
+  supplierId = null,
 }) {
   return {
     id: `exp-${Date.now()}`,
     expenseNumber: null,
     expenseDate,
     vendorName: vendorName?.trim() || '',
+    supplierId: supplierId || null,
     categoryAccountId,
     paymentAccountId,
     amount: Number(amount),

@@ -511,25 +511,26 @@ export function buildClubReview({
   });
 
   const openOrders = (paymentOrders || []).filter((order) => (
-    order.status === 'draft' || order.status === 'approved'
+    order.orderKind === 'member'
+    && !order.deletedAt
+    && (order.status === 'pending' || order.status === 'processing')
   ));
   row(items, {
     id: 'payment-orders-open',
     tier: 'contabilidad',
     count: openOrders.length,
     title: openOrders.length === 1
-      ? '1 orden de pago sin pagar'
-      : `${openOrders.length} órdenes de pago sin pagar`,
-    detail: 'Están en borrador o aprobadas, y el pago no se registró.',
-    why: 'La deuda con el proveedor sigue abierta.',
+      ? '1 orden de pago sin imputar'
+      : `${openOrders.length} órdenes de pago sin imputar`,
+    detail: 'El cobro del socio todavía está pendiente o en proceso.',
+    why: 'Hasta que se impute, la cuota sigue impaga.',
     tab: 'accounting',
     focus: 'payment_orders',
     samples: take(openOrders, (order) => asSample(
-      order.payee || order.concept || 'Orden de pago',
+      order.responsible || order.memberNumber || 'Orden de pago',
       '/panel/accounting?sub=payment_orders',
     )),
   });
-
   const overdueCheques = (cheques || []).filter((c) => (
     c.status === 'in_portfolio' && c.dueAt && String(c.dueAt).slice(0, 10) < todayIso
   ));

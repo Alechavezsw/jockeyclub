@@ -34,6 +34,7 @@ describe('expenseImport', () => {
     expect(built.expenses).toHaveLength(1);
     expect(built.expenses[0].status).toBe('pending_approval');
     expect(built.expenses[0].invoiceNumber).toBe('A-1');
+    expect(built.expenses[0].supplierId).toBe('s1');
     expect(built.batch.moduleLabel).toMatch(/comprobante/i);
   });
 });

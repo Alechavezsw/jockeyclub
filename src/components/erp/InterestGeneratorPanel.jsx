@@ -68,6 +68,7 @@ export default function InterestGeneratorPanel({
   const [ok, setOk] = useState('');
   const [runDate, setRunDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [runningId, setRunningId] = useState(null);
+  const [busy, setBusy] = useState(false);
 
   const activeGens = useMemo(() => activeInterestGenerators(generators), [generators]);
   const runRows = useMemo(() => interestRunsNewestFirst(runs), [runs]);
@@ -81,7 +82,7 @@ export default function InterestGeneratorPanel({
 
   const setF = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
 
-  const submitCreate = (e) => {
+  const submitCreate = async (e) => {
     e.preventDefault();
     setError('');
     try {
@@ -91,7 +92,7 @@ export default function InterestGeneratorPanel({
         percentage: Number(form.percentage),
         tolerance: Number(form.tolerance),
       });
-      onUpsertGenerator?.(item);
+      await onUpsertGenerator?.(item);
       setOk(`Generador “${item.identifier}” creado.`);
       setView('list');
     } catch (err) {
@@ -99,9 +100,11 @@ export default function InterestGeneratorPanel({
     }
   };
 
-  const handleRun = (generator) => {
+  const handleRun = async (generator) => {
+    if (busy) return;
     setError('');
     setOk('');
+    setBusy(true);
     try {
       const preview = selectMembersForInterest(members, generator);
       if (!preview.length) {
@@ -112,13 +115,15 @@ export default function InterestGeneratorPanel({
         members,
         imputationDate: runDate,
       });
-      onRunGenerator?.(result);
+      await onRunGenerator?.(result);
       setOk(
         `Se generaron ${result.run.entriesCreated} entradas · ${formatCurrency(result.run.totalAmount)}.`
       );
       setRunningId(null);
     } catch (err) {
       setError(err.message || 'No se pudo generar intereses.');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -345,9 +350,12 @@ export default function InterestGeneratorPanel({
                         className="cash-lila-icon-btn is-del"
                         title="Eliminar"
                         aria-label="Eliminar"
-                        onClick={() => {
-                          if (window.confirm(`¿Eliminar generador “${g.identifier}”?`)) {
-                            onDeleteGenerator?.(g.id);
+                        onClick={async () => {
+                          if (!window.confirm(`¿Eliminar generador “${g.identifier}”?`)) return;
+                          try {
+                            await onDeleteGenerator?.(g.id);
+                          } catch (err) {
+                            setError(err.message || 'No se pudo eliminar el generador.');
                           }
                         }}
                       >
@@ -378,6 +386,7 @@ export default function InterestGeneratorPanel({
             <button
               type="button"
               className="btn btn-tan"
+              disabled={busy}
               onClick={() => {
                 const gen = activeGens.find((g) => g.id === runningId);
                 if (gen) handleRun(gen);
@@ -434,9 +443,12 @@ export default function InterestGeneratorPanel({
                       <button
                         type="button"
                         className="btn btn-secondary btn-sm"
-                        onClick={() => {
-                          if (window.confirm('¿Anular esta generación? Se revertirá el saldo imputado.')) {
-                            onCancelRun?.(r.id);
+                        onClick={async () => {
+                          if (!window.confirm('¿Anular esta generación? Se revertirá el saldo imputado.')) return;
+                          try {
+                            await onCancelRun?.(r.id);
+                          } catch (err) {
+                            setError(err.message || 'No se pudo anular la generación.');
                           }
                         }}
                       >

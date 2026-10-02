@@ -32,15 +32,13 @@ import SuppliersPanel from './erp/SuppliersPanel';
 import RetencionesPanel from './erp/RetencionesPanel';
 import OtherIncomePanel from './erp/OtherIncomePanel';
 import InterestGeneratorPanel from './erp/InterestGeneratorPanel';
-import DiscountsBonusesPanel from './erp/DiscountsBonusesPanel';
 import {
   UnidentifiedCollectionsPanel,
   GaliciaDebitsPanel,
   FixedExpensesPanel,
-  FixedDiscountsPanel,
   BalancesPanel,
-  PaymentOrdersPanel,
 } from './erp/TreasuryPanels';
+import PaymentOrdersPanel from './erp/PaymentOrdersPanel';
 import AccountingReportsPanel from './erp/AccountingReportsPanel';
 import LibreDeudaPanel from './erp/LibreDeudaPanel';
 import FamilyGroupBalancesPanel from './erp/FamilyGroupBalancesPanel';
@@ -68,7 +66,7 @@ const SOURCE_MODULE_LABELS = {
 
 const TREASURY_TABS = new Set([
   'cash', 'expenses', 'suppliers', 'retenciones', 'other_incomes', 'interest_generators',
-  'unidentified', 'galicia', 'fixed_expenses', 'fixed_discounts', 'balances', 'payment_orders',
+  'unidentified', 'galicia', 'fixed_expenses', 'balances', 'payment_orders',
   'credit_purchases',
 ]);
 
@@ -156,7 +154,6 @@ const TREASURY_HUB_TABS = [
   { key: 'interest_generators', icon: Percent, label: 'Intereses' },
   { key: 'unidentified', icon: HelpCircle, label: 'Sin identificar' },
   { key: 'galicia', icon: Building2, label: 'Galicia' },
-  { key: 'fixed_discounts', icon: Percent, label: 'Descuentos' },
   { key: 'fixed_expenses', icon: Repeat, label: 'Gastos fijos' },
   { key: 'balances', icon: Scale, label: 'Saldos' },
   { key: 'payment_orders', icon: FileSpreadsheet, label: 'Órdenes' },
@@ -271,6 +268,7 @@ export default function AccountingTab({
   expenseImports = [],
   onImportExpenses,
   onCreateSupplierEntry,
+  supplierEntries = [],
   otherIncomes = [],
   onCreateOtherIncome,
   interestGenerators = [],
@@ -300,7 +298,7 @@ export default function AccountingTab({
   onUpsertFeeExpense,
   onDeleteFeeExpense,
   paymentOrders = [],
-  upsertPaymentOrder,
+  onDeletePaymentOrder,
   accountingReports = [],
   onRecordAccountingReport,
   initialSubTab = null,
@@ -337,6 +335,10 @@ export default function AccountingTab({
 
   useEffect(() => {
     const tabs = allowedAccountingSubtabsForRoles(roles?.length ? roles : (role || 'admin'));
+    if (subTab === 'fixed_discounts') {
+      setSubTab(tabs.includes('member_discounts') ? 'member_discounts' : (tabs[0] || 'diary'));
+      return;
+    }
     if (!tabs.includes(subTab)) setSubTabState(tabs[0] || 'diary');
   }, [role, roles, subTab]);
 
@@ -1324,7 +1326,7 @@ export default function AccountingTab({
       )}
 
       {subTab === 'member_discounts' && (
-        <MemberDiscountsPanel />
+        <MemberDiscountsPanel members={members} />
       )}
 
       {subTab === 'bonificaciones' && (
@@ -1426,6 +1428,8 @@ export default function AccountingTab({
           onImportSupplierPayments={onImportSupplierPayments}
           onCreateSupplierEntry={onCreateSupplierEntry}
           onNavigate={setSubTab}
+          supplierEntries={supplierEntries}
+          paymentOrders={paymentOrders}
         />
       )}
 
@@ -1451,8 +1455,8 @@ export default function AccountingTab({
           members={members}
           onUpsertGenerator={onUpsertInterestGenerator}
           onDeleteGenerator={onDeleteInterestGenerator}
-          onRunGenerator={(result) => {
-            onRecordInterestRun?.(result);
+          onRunGenerator={async (result) => {
+            await onRecordInterestRun?.(result);
             if (typeof setMembers === 'function' && result?.memberBalancePatches?.length) {
               const deltaById = new Map();
               result.memberBalancePatches.forEach((p) => {
@@ -1471,9 +1475,9 @@ export default function AccountingTab({
               }));
             }
           }}
-          onCancelRun={(runId) => {
+          onCancelRun={async (runId) => {
             const run = (interestRuns || []).find((r) => r.id === runId);
-            onCancelInterestRun?.(runId);
+            await onCancelInterestRun?.(runId);
             if (typeof setMembers === 'function' && run?.status === 'completed' && run?.entries?.length) {
               const deltaById = new Map();
               run.entries.forEach((e) => {
@@ -1525,38 +1529,15 @@ export default function AccountingTab({
         />
       )}
 
-      {subTab === 'fixed_discounts' && onUpsertDiscount && (
-        <DiscountsBonusesPanel
-          items={discounts}
-          feeExpenses={feeExpenses}
-          fixedExpenses={fixedExpenses}
-          members={members}
-          onUpsert={onUpsertDiscount}
-          onDelete={onDeleteDiscount}
-          onUpsertFeeExpense={onUpsertFeeExpense}
-          onDeleteFeeExpense={onDeleteFeeExpense}
-          onGoExpenses={() => setSubTab('fixed_expenses')}
-        />
-      )}
-
-      {subTab === 'fixed_discounts' && !onUpsertDiscount && addFixedDiscount && (
-        <FixedDiscountsPanel
-          items={fixedDiscounts}
-          onAdd={addFixedDiscount}
-          onToggle={toggleFixedDiscount}
-        />
-      )}
-
       {subTab === 'balances' && (
         <BalancesPanel members={members} getAccountBalance={getAccountBalance} />
       )}
 
-      {subTab === 'payment_orders' && upsertPaymentOrder && (
+      {subTab === 'payment_orders' && (
         <PaymentOrdersPanel
           items={paymentOrders}
-          suppliers={suppliers}
-          onAdd={upsertPaymentOrder}
-          onSetStatus={upsertPaymentOrder}
+          onDelete={onDeletePaymentOrder}
+          setMembers={setMembers}
         />
       )}
 

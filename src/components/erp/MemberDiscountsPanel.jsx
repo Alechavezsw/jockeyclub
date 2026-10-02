@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Percent, Search } from 'lucide-react';
+import { softDeleteDiscount, upsertDiscount } from '../../domain/accounting/discounts';
 import {
   formatMemberDiscountRange,
   formatMemberDiscountValue,
@@ -8,27 +9,84 @@ import {
   memberDiscountsSeed,
   memberDiscountsSummary,
 } from '../../domain/accounting/memberDiscounts';
+import { deactivateDiscountRule, listDiscountRules, upsertDiscountRule } from '../../data/repos';
 import { useSnapshotSeed } from '../../hooks/useSnapshots';
 import SnapshotGate from '../SnapshotGate';
+import DiscountsBonusesPanel from './DiscountsBonusesPanel';
 
-export default function MemberDiscountsPanel(props) {
-  return (
-    <SnapshotGate names={['accessinMemberDiscounts']}>
-      <MemberDiscountsContent {...props} />
-    </SnapshotGate>
-  );
+export default function MemberDiscountsPanel({ members = [] }) {
+  const [rules, setRules] = useState(null);
+  const [loadError, setLoadError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    listDiscountRules()
+      .then((rows) => {
+        if (!cancelled) setRules(rows);
+      })
+      .catch((err) => {
+        if (!cancelled) setLoadError(err?.message || 'No se pudieron leer los descuentos.');
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const onUpsert = async (payload) => {
+    const existing = (rules || []).find((row) => row.id === payload.id);
+    const saved = await upsertDiscountRule({
+      ...payload,
+      ruleKey: existing?.ruleKey,
+      accessinId: existing?.accessinId ?? null,
+      source: existing?.source || 'manual',
+    });
+    setRules((prev) => upsertDiscount(prev || [], saved).map((row) => (
+      row.id === saved.id
+        ? { ...row, ruleKey: saved.ruleKey, accessinId: saved.accessinId, source: saved.source }
+        : row
+    )));
+  };
+
+  const onDelete = async (id) => {
+    await deactivateDiscountRule(id);
+    setRules((prev) => softDeleteDiscount(prev || [], id));
+  };
+
+  if (rules) {
+    return (
+      <DiscountsBonusesPanel
+        items={rules}
+        members={members}
+        onUpsert={onUpsert}
+        onDelete={onDelete}
+        discountsOnly
+      />
+    );
+  }
+
+  if (loadError) {
+    return (
+      <SnapshotGate names={['accessinMemberDiscounts']}>
+        <MemberDiscountsContent />
+      </SnapshotGate>
+    );
+  }
+
+  return <p className="mb-folio-meta">Cargando descuentos extras…</p>;
 }
 
 function MemberDiscountsContent({ onOpenMember }) {
-  useSnapshotSeed(['accessinMemberDiscounts'], memberDiscountsSeed);
+  const seed = useSnapshotSeed(['accessinMemberDiscounts'], memberDiscountsSeed);
+  const items = seed.ACCESSIN_MEMBER_DISCOUNTS;
   const [query, setQuery] = useState('');
   const [scope, setScope] = useState('all');
   const [status, setStatus] = useState('all');
 
-  const summary = useMemo(() => memberDiscountsSummary(), []);
+  const summary = useMemo(
+    () => memberDiscountsSummary(seed.ACCESSIN_MEMBER_DISCOUNTS_SNAPSHOT, items),
+    [seed, items],
+  );
   const rows = useMemo(
-    () => listMemberDiscounts({ query, scope, status }),
-    [query, scope, status],
+    () => listMemberDiscounts({ query, scope, status, items }),
+    [query, scope, status, items],
   );
 
   return (

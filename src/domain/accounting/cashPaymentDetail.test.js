@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCashPaymentDetail, cashPaymentShareTargets, currentMonthFeeCollected } from './cashPaymentDetail';
+import { buildCashPaymentDetail, cashPaymentShareTargets, currentMonthFeeCollected, liveMonthFeeCollected } from './cashPaymentDetail';
 
 const macro = {
   id: 'acm-603050',
@@ -147,5 +147,42 @@ describe('cuota cobrada del mes corriente', () => {
     expect(currentMonthFeeCollected([
       { accessinId: 6, date: '2026-10-15', amount: 77000, memberNumber: '10567', movementType: 'income' },
     ], members, '2026-10')).toBe(70000);
+  });
+});
+
+describe('recaudado en vivo, como ingresos de expensas', () => {
+  const members = [
+    {
+      memberId: '10567',
+      tier: 'socio_familiar',
+      cuotaCategories: ['SOCIO FAMILIAR'],
+      paymentHistory: [
+        { id: 'app-1', date: '2026-10-02', amount: 70000, status: 'paid' },
+        { id: 'dup', date: '2026-10-01', amount: 70000, status: 'paid' },
+      ],
+    },
+  ];
+
+  it('suma la cuota del mes y el cobro nuevo, sin repetir el que ya está en caja', () => {
+    expect(liveMonthFeeCollected({
+      monthKey: '2026-10',
+      members,
+      movements: [
+        { accessinId: 1, date: '2026-10-01', amount: 70000, memberNumber: '10567', movementType: 'income' },
+        { accessinId: 2, date: '2026-10-01', amount: 66000, memberNumber: '10567', movementType: 'income' },
+        { accessinId: 3, date: '2026-10-02', amount: 22000, typeLabel: 'RENDICION PORTERIA', movementType: 'income' },
+      ],
+    })).toBe(140000);
+  });
+
+  it('después de un corte solo suma la cuota posterior', () => {
+    expect(liveMonthFeeCollected({
+      monthKey: '2026-10',
+      afterDate: '2026-10-01',
+      members,
+      movements: [
+        { accessinId: 1, date: '2026-10-01', amount: 70000, memberNumber: '10567', movementType: 'income' },
+      ],
+    })).toBe(70000);
   });
 });

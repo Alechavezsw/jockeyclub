@@ -26,6 +26,7 @@ import {
 } from '../../domain/reports/dailyBackupStore';
 import { getTierDisplayName, TIER_COLORS } from '../../domain/members/tiers';
 import { membershipMoveExportRows, membershipMovesSeed } from '../../domain/members/membershipMoves';
+import { supplierRunningBalance } from '../../domain/accounting/suppliers';
 import { useSnapshotSeed } from '../../hooks/useSnapshots';
 
 const SECTIONS = [
@@ -113,6 +114,8 @@ export default function ReportsTab({
   canonPayments = [],
   newsList = [],
   suppliers = [],
+  supplierEntries = [],
+  paymentOrders = [],
   retenciones = [],
 }) {
   const movesSeed = useSnapshotSeed(['societasMembershipMoves'], membershipMovesSeed);
@@ -548,7 +551,7 @@ export default function ReportsTab({
   const handleExportSuppliersCSV = () => {
     downloadCsv(
       `jockey_club_proveedores_${stampDate()}.csv`,
-      ['Codigo Accessin', 'Nombre', 'Contacto', 'CUIT', 'Rubro', 'Saldo Accessin', 'Estado', 'Telefono', 'Email'],
+      ['Codigo Accessin', 'Nombre', 'Contacto', 'CUIT', 'Rubro', 'Saldo Accessin', 'Saldo actual', 'Estado', 'Telefono', 'Email'],
       suppliers.map((s) => [
         s.accessinCode || '',
         s.legalName || s.name || '',
@@ -556,6 +559,7 @@ export default function ReportsTab({
         s.cuit || '',
         s.category || s.rubro || '',
         Number(s.openingBalance) || 0,
+        supplierRunningBalance(s, { entries: supplierEntries, paymentOrders }),
         s.status === 'inactive' || s.active === false ? 'Inactivo' : 'Activo',
         s.phone || '',
         s.email || '',

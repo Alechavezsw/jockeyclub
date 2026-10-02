@@ -4,30 +4,11 @@ import { Search, ShieldCheck, User, Users, LayoutDashboard, X } from 'lucide-rea
 import { useAuth } from '../context/AuthContext';
 import {
   ROLE_LABELS,
+  allowedAccountingSubtabs,
   allowedAdminTabs,
   canAccessAdmin,
 } from '../domain/auth/roles';
-
-const SECTION_LABELS = {
-  dashboard: 'Inicio',
-  members: 'Socios',
-  dues: 'Cuotas',
-  bookings: 'Reservas',
-  disciplines: 'Disciplinas',
-  access: 'Ingresos',
-  accounting: 'Contabilidad',
-  interest_generators: 'Intereses',
-  staff: 'Personal',
-  teachers: 'Profesores',
-  events: 'Fiestas',
-  alerts: 'Alertas',
-  claims: 'Reclamos',
-  messaging: 'Mensajería',
-  news: 'Revista',
-  reports: 'Reportes',
-  surveys: 'Encuestas',
-  migration: 'Migración',
-};
+import { searchSession } from '../domain/nav/sessionSearch';
 
 const MEMBER_NAV = [
   { id: 'home', label: 'Inicio', path: '/' },
@@ -67,72 +48,25 @@ export default function SessionStatusBar({ members = [], staffMembers = [] }) {
     const q = normalize(query);
     if (q.length < 2) return [];
 
-    const items = [];
-
     if (isOperative) {
-      tabs.forEach((key) => {
-        const label = SECTION_LABELS[key];
-        if (!label) return;
-        if (normalize(label).includes(q) || normalize(key).includes(q)) {
-          items.push({
-            id: `section-${key}`,
-            kind: 'section',
-            title: label,
-            subtitle: 'Ir al panel',
-            path: `/panel/${key}`,
-          });
-        }
-      });
-
-      if (tabs.includes('members')) {
-        members.forEach((m) => {
-          const hay = normalize([
-            m.name,
-            m.memberId,
-            m.documentNumber,
-            m.email,
-            m.phone,
-          ].join(' '));
-          if (!hay.includes(q)) return;
-          items.push({
-            id: `member-${m.memberId}`,
-            kind: 'member',
-            title: m.name,
-            subtitle: `Socio · ${m.memberId || '—'}`,
-            path: `/panel/members/${m.memberId}`,
-          });
-        });
-      }
-
-      if (tabs.includes('staff')) {
-        staffMembers.forEach((s) => {
-          const hay = normalize([s.name, s.role, s.area, s.email, s.phone, s.id].join(' '));
-          if (!hay.includes(q)) return;
-          items.push({
-            id: `staff-${s.id}`,
-            kind: 'staff',
-            title: s.name || 'Personal',
-            subtitle: `Personal · ${s.role || s.area || s.id}`,
-            path: `/panel/staff/${s.id}`,
-          });
-        });
-      }
-    } else {
-      MEMBER_NAV.forEach((item) => {
-        if (normalize(item.label).includes(q)) {
-          items.push({
-            id: `nav-${item.id}`,
-            kind: 'section',
-            title: item.label,
-            subtitle: 'Ir a',
-            path: item.path,
-          });
-        }
+      return searchSession({
+        query,
+        tabs,
+        accountingTabs: allowedAccountingSubtabs(role),
+        members,
+        staffMembers,
       });
     }
 
-    return items.slice(0, 8);
-  }, [query, isOperative, tabs, members, staffMembers]);
+    const words = q.split(/\s+/).filter((token) => token.length >= 2);
+    return MEMBER_NAV.filter((item) => words.some((token) => normalize(item.label).includes(token))).map((item) => ({
+      id: `nav-${item.id}`,
+      kind: 'section',
+      title: item.label,
+      subtitle: 'Ir a',
+      path: item.path,
+    }));
+  }, [query, isOperative, tabs, role, members, staffMembers]);
 
   useEffect(() => {
     setActiveIndex(0);
@@ -235,7 +169,7 @@ export default function SessionStatusBar({ members = [], staffMembers = [] }) {
           name="global-search"
           autoComplete="off"
           spellCheck={false}
-          placeholder={isOperative ? 'Buscar socio, personal o sección…' : 'Buscar en el portal…'}
+          placeholder={isOperative ? 'Buscar sección, herramienta o socio…' : 'Buscar en el portal…'}
           aria-label="Buscador global"
           aria-expanded={open && results.length > 0}
           aria-controls="session-search-results"

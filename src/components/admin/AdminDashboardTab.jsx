@@ -17,7 +17,8 @@ import { appFinanceSinceHandoff, buildOpsFinanceSnapshot, cashDeltaAfterDate, co
 import { monthlyBalanceSeed } from '../../domain/accounting/monthlyBalance';
 import { monthlyBalanceSummarySeed } from '../../domain/accounting/monthlyBalanceSummary';
 import { detailedCcSeed } from '../../domain/accounting/detailedCurrentAccounts';
-import { cashMovementsSeed, cashSeed } from '../../domain/accounting/cashLedger';
+import { cashMovementsSeed, cashSeed, mergeAccessinCashMovements } from '../../domain/accounting/cashLedger';
+import { liveMonthFeeCollected } from '../../domain/accounting/cashPaymentDetail';
 import { cobranzasSeed } from '../../domain/accounting/cobranzas';
 import { buildPadronHouseholdStats } from '../../domain/members/households';
 import { duesDueMoment, getOverdueMembers } from '../../domain/members/dues';
@@ -35,8 +36,10 @@ const LILA_MONEY_SNAPSHOTS = [
   'accessinMonthlyBalanceSummary',
   'accessinDetailedCurrentAccounts',
   'accessinCashSnapshot',
+  'accessinCashMovements',
   'accessinCobranzas',
 ];
+const CASH_MOVE_SNAPSHOTS = ['accessinCashMovements', 'accessinCashSnapshot'];
 const NO_SNAPSHOTS = [];
 
 function reservationDay(res) {
@@ -184,6 +187,7 @@ export default function AdminDashboardTab({
   poolAccesses = [],
   cashSessions = [],
   cashRegisters = [],
+  accessinCashMovements = [],
   onOpenDayCash,
   membershipApplications = [],
   portalAccessRequests = [],
@@ -326,11 +330,21 @@ export default function AdminDashboardTab({
   const monthRaw = new Date(Number(monthYear), Number(monthNumber) - 1, 1)
     .toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
   const moneyMonthLabel = monthRaw.charAt(0).toUpperCase() + monthRaw.slice(1);
-  const cashMoves = useMemo(() => {
-    const recent = cashSeed().ACCESSIN_CASH_SNAPSHOT?.recentMovements || [];
-    const all = cashMovementsSeed().ACCESSIN_CASH_MOVEMENTS || [];
-    return [...recent, ...all];
-  }, [lilaCut]);
+  const seededMoves = useSnapshotSeed(
+    hasAccounting ? CASH_MOVE_SNAPSHOTS : NO_SNAPSHOTS,
+    () => cashMovementsSeed().ACCESSIN_CASH_MOVEMENTS,
+  );
+  const seededRecent = useSnapshotSeed(
+    hasAccounting ? CASH_MOVE_SNAPSHOTS : NO_SNAPSHOTS,
+    () => cashSeed().ACCESSIN_CASH_SNAPSHOT?.recentMovements || [],
+  );
+  const cashMoves = useMemo(
+    () => mergeAccessinCashMovements(
+      mergeAccessinCashMovements(seededMoves, seededRecent),
+      accessinCashMovements,
+    ),
+    [seededMoves, seededRecent, accessinCashMovements],
+  );
   const monthFlow = useMemo(
     () => appFinanceSinceHandoff({
       members,
@@ -365,7 +379,11 @@ export default function AdminDashboardTab({
     lilaMoney && !cutIsThisMonth ? cashDeltaAfterDate(cashMoves, lilaMoney.periodTo) : 0
   );
   const sheetLiquidated = liquidatedTotalForMonth(feePeriods, monthKey, { members, tierCatalog });
-  const collectedMonth = lilaMoney ? calendarMonth.collected : finance.collectedMonth;
+  const feeCollected = useMemo(
+    () => liveMonthFeeCollected({ movements: cashMoves, members, monthKey }),
+    [cashMoves, members, monthKey],
+  );
+  const collectedMonth = lilaMoney ? feeCollected : finance.collectedMonth;
   const expectedMonth = sheetLiquidated != null
     ? sheetLiquidated
     : (lilaMoney ? calendarMonth.liquidated : finance.expectedMonth);
@@ -752,6 +770,7 @@ export default function AdminDashboardTab({
               chartOfAccounts={chartOfAccounts}
               feePeriods={feePeriods}
               tierCatalog={tierCatalog}
+              cashMovements={cashMoves}
             />
           ) : null}
           <div className="ops-dash-actions" aria-label="Accesos rápidos">

@@ -207,6 +207,51 @@ export function createDiscount(input = {}) {
   };
 }
 
+/** Fila de `discount_rules` (lo guardado anoche) al formato que edita la pantalla. */
+export function discountFromRule(row) {
+  if (!row) return null;
+  const memberIds = String(row.member_numbers || row.memberNumbers || '')
+    .split(/[,;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const feeCategories = String(row.fee_categories || row.feeCategories || '')
+    .split(/[,;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const valueType = (row.value_type || row.valueType) === 'amount' ? 'amount' : 'percent';
+  const value = Number(row.value) || 0;
+  const category = row.category || 'members';
+  const memberName = row.member_name || row.memberName || '';
+  const familyGroup = row.family_group || row.familyGroup || '';
+  return {
+    id: row.id,
+    ruleKey: row.rule_key || row.ruleKey || '',
+    accessinId: row.accessin_id ?? row.accessinId ?? null,
+    category,
+    memberIds,
+    memberNumber: memberIds[0] || '',
+    memberName,
+    feeCategories,
+    appliedTo: category === 'fee_category'
+      ? (feeCategories.join(', ') || memberName)
+      : (memberName || memberIds.join(', ') || familyGroup),
+    familyGroup,
+    description: row.description || '',
+    concept: row.description || '',
+    reason: row.description || '',
+    valueType,
+    value,
+    percentage: valueType === 'percent' ? value : null,
+    amount: valueType === 'amount' ? value : 0,
+    validFrom: row.valid_from || row.validFrom || '',
+    validTo: row.valid_to || row.validTo || '',
+    isActive: row.is_active !== false && row.isActive !== false,
+    source: row.source || 'lila',
+    createdAt: row.created_at || row.createdAt || null,
+    updatedAt: row.updated_at || row.updatedAt || null,
+  };
+}
+
 export function upsertDiscount(list = [], input = {}) {
   const existing = (list || []).find((d) => d.id === input.id) || null;
   const next = createDiscount({
@@ -241,7 +286,7 @@ export function discountCategoryCounts(list = []) {
 }
 
 export function filterDiscounts(list = [], { category = null, query = '' } = {}) {
-  const q = String(query || '').trim().toLowerCase();
+  const q = String(query || '').trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   let rows = activeDiscounts(list, category);
   if (q) {
     rows = rows.filter((d) => {
@@ -255,7 +300,7 @@ export function filterDiscounts(list = [], { category = null, query = '' } = {})
         d.appliedBy,
         d.appliedTo,
         ...(d.feeCategories || []),
-      ].map((x) => String(x || '').toLowerCase()).join(' ');
+      ].map((x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()).join(' ');
       return hay.includes(q);
     });
   }
