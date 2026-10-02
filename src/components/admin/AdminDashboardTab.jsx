@@ -20,7 +20,7 @@ import { detailedCcSeed } from '../../domain/accounting/detailedCurrentAccounts'
 import { cashMovementsSeed, cashSeed } from '../../domain/accounting/cashLedger';
 import { cobranzasSeed } from '../../domain/accounting/cobranzas';
 import { buildPadronHouseholdStats } from '../../domain/members/households';
-import { duesDueMoment, getOverdueMembers } from '../../domain/members/dues';
+import { getOverdueMembers } from '../../domain/members/dues';
 import { membershipMovesSeed, uniqueBajas } from '../../domain/members/membershipMoves';
 import { useSnapshotSeed } from '../../hooks/useSnapshots';
 import { formatISODateLongAR, todayISODateAR } from '../../lib/arDate';
@@ -35,6 +35,7 @@ const LILA_MONEY_SNAPSHOTS = [
   'accessinMonthlyBalanceSummary',
   'accessinDetailedCurrentAccounts',
   'accessinCashSnapshot',
+  'accessinCashMovements',
   'accessinCobranzas',
 ];
 const NO_SNAPSHOTS = [];
@@ -373,15 +374,7 @@ export default function AdminDashboardTab({
     ? Math.round((collectedMonth / expectedMonth) * 100)
     : (lilaMoney ? 0 : (finance.collectionRate || paymentCollectionRate || 0));
   const collectionTone = liveCollectionRate >= 80 ? 'ok' : liveCollectionRate >= 50 ? 'mid' : 'low';
-  const dueOpen = duesDueMoment(todayKey).phase !== 'before';
   const debtTotal = finance.debtTotal || totalOutstanding || 0;
-  const heroAmount = lilaMoney && dueOpen ? collectedMonth : (lilaMoney ? expectedMonth : debtTotal);
-  const heroLabel = lilaMoney && dueOpen
-    ? `Recaudado en ${moneyMonthLabel}`
-    : (lilaMoney ? `Liquidado en ${moneyMonthLabel}` : 'Deuda de cuotas pendiente');
-  const monthProgress = expectedMonth > 0
-    ? Math.min(100, Math.round((collectedMonth / expectedMonth) * 100))
-    : 0;
   const todayIncomes = useMemo(() => {
     const lilaToday = (lilaMoney?.lastIncomes || []).filter((row) => row.date === todayKey);
     return lilaToday.length ? lilaToday : (finance.todayIncomes || []);
@@ -1073,41 +1066,20 @@ export default function AdminDashboardTab({
                       : `${finance.alDia} de ${finance.activeMembers} socios al día`}
                   />
                   <div>
-                    <div className="ops-money-big" style={{ color: lilaMoney && dueOpen ? 'var(--emerald-accent)' : 'var(--text-strong)' }}>
-                      {formatCurrency(heroAmount)}
-                    </div>
+                    <div className="ops-money-big">{liveCollectionRate}%</div>
                     <div className="ops-muted">
-                      {heroLabel}
+                      {lilaMoney
+                        ? `Avance de ${moneyMonthLabel}`
+                        : `${finance.alDia} de ${finance.activeMembers} socios al día`}
                     </div>
-
-                    <div className="ops-money-green">{formatCurrency(lilaMoney && dueOpen ? expectedMonth : collectedMonth)}</div>
-                    <div className="ops-muted" style={{ color: 'var(--emerald-accent)' }}>
-                      {lilaMoney && dueOpen
-                        ? `Liquidado en ${moneyMonthLabel}${expectedMonth > collectedMonth ? ` · falta cobrar ${formatCurrency(expectedMonth - collectedMonth)}` : ''}`
-                        : `Recaudado en ${moneyMonthLabel}`}
-                    </div>
-
-                    {lilaMoney ? null : (
-                      <>
-                        <div className="ops-money-liquid">{formatCurrency(expectedMonth || 0)}</div>
-                        <div className="ops-muted">
-                          Liquidado del mes
-                          {expectedMonth > 0 && collectedMonth < expectedMonth ? (
-                            <span>
-                              {' · '}resta {formatCurrency(Math.max(0, expectedMonth - collectedMonth))}
-                            </span>
-                          ) : null}
-                        </div>
-                        <div className="ops-muted" style={{ marginTop: '0.25rem', fontSize: '0.78rem' }}>
-                          Hoy: <strong style={{ color: finance.collectedToday > 0 ? 'var(--emerald-accent)' : 'inherit' }}>
-                            {formatCurrency(finance.collectedToday || 0)}
-                          </strong>
-                        </div>
-                        <div className="ops-muted" style={{ marginTop: '0.35rem', fontSize: '0.72rem' }}>
-                          {finance.alDia}/{finance.activeMembers} socios al día
-                        </div>
-                      </>
-                    )}
+                    {!lilaMoney ? (
+                      <div className="ops-muted" style={{ marginTop: '0.25rem', fontSize: '0.78rem' }}>
+                        Hoy:{' '}
+                        <strong style={{ color: finance.collectedToday > 0 ? 'var(--emerald-accent)' : 'inherit' }}>
+                          {formatCurrency(finance.collectedToday || 0)}
+                        </strong>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
 
@@ -1134,21 +1106,6 @@ export default function AdminDashboardTab({
                         <span>{row.label}</span>
                       </div>
                     ))}
-                  </div>
-                ) : null}
-
-                {expectedMonth > 0 ? (
-                  <div className="ops-month-progress">
-                    <div className="ops-block-title ops-block-title--split">
-                      <span>Avance de cuotas · {moneyMonthLabel}</span>
-                      <strong>{monthProgress}%</strong>
-                    </div>
-                    <div className="ops-month-progress-track" aria-hidden="true">
-                      <span style={{ width: `${Math.max(collectedMonth > 0 ? 6 : 0, monthProgress)}%` }} />
-                    </div>
-                    <p className="ops-muted">
-                      {formatCurrency(collectedMonth)} cobrado de {formatCurrency(expectedMonth)} liquidado
-                    </p>
                   </div>
                 ) : null}
 

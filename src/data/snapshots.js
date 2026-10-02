@@ -28,6 +28,7 @@ const errors = new Map();
 const inflight = new Map();
 const merged = new Map();
 const seenUpdatedAt = new Map();
+const cashRefreshed = new Set();
 const listeners = new Set();
 let version = 0;
 let generation = 0;
@@ -90,6 +91,7 @@ export function clearSnapshots() {
   inflight.clear();
   merged.clear();
   seenUpdatedAt.clear();
+  cashRefreshed.clear();
   notify();
 }
 
@@ -102,6 +104,16 @@ export function reloadSnapshot(name) {
 export function reloadSnapshots(names = [...loaded.keys()]) {
   names.forEach((name) => inflight.delete(name));
   return Promise.all(names.map((name) => loadSnapshot(name, { force: true }).catch(() => null)));
+}
+
+const CASH_SNAPSHOTS = ['accessinCashSnapshot', 'accessinCashMovements'];
+
+/** Vuelve a bajar caja si el seed local se quedó en un corte viejo. */
+export function refreshStaleCashSnapshots() {
+  const pending = CASH_SNAPSHOTS.filter((name) => !cashRefreshed.has(name));
+  if (!pending.length) return Promise.resolve([]);
+  pending.forEach((name) => cashRefreshed.add(name));
+  return reloadSnapshots(pending);
 }
 
 function bindAuth(supabase) {
@@ -289,6 +301,50 @@ async function fetchRemote(name) {
 
 const DETAILED_CC_MEMBERS = 'ACCESSIN_DETAILED_CC_BY_NUMBER';
 
+/** En local, el seed puede quedar atrás del corte de LILA. Suma caja nueva sin borrar el histórico. */
+export function overlayCashSnapshot(name, localData, remoteData) {
+  if (!remoteData || typeof remoteData !== 'object') return localData;
+  if (!localData || typeof localData !== 'object') return remoteData;
+  if (name === 'accessinCashMovements') {
+    const localRows = Array.isArray(localData.ACCESSIN_CASH_MOVEMENTS)
+      ? localData.ACCESSIN_CASH_MOVEMENTS
+      : [];
+    const remoteRows = Array.isArray(remoteData.ACCESSIN_CASH_MOVEMENTS)
+      ? remoteData.ACCESSIN_CASH_MOVEMENTS
+      : [];
+    const byId = new Map();
+    for (const row of localRows) {
+      const key = String(row?.accessinId ?? row?.id ?? '');
+      if (key) byId.set(key, row);
+    }
+    for (const row of remoteRows) {
+      const key = String(row?.accessinId ?? row?.id ?? '');
+      if (key && !byId.has(key)) byId.set(key, row);
+    }
+    return { ...localData, ACCESSIN_CASH_MOVEMENTS: [...byId.values()] };
+  }
+  if (name === 'accessinCashSnapshot') {
+    const localAsOf = String(
+      localData.ACCESSIN_CASH_AS_OF || localData.ACCESSIN_CASH_SNAPSHOT?.asOf || '',
+    );
+    const remoteAsOf = String(
+      remoteData.ACCESSIN_CASH_AS_OF || remoteData.ACCESSIN_CASH_SNAPSHOT?.asOf || '',
+    );
+    if (remoteAsOf && remoteAsOf > localAsOf) return remoteData;
+  }
+  return localData;
+}
+
+async function overlayNewerCashCut(name, localData) {
+  if (import.meta.env.MODE === 'test') return localData;
+  if (name !== 'accessinCashSnapshot' && name !== 'accessinCashMovements') return localData;
+  try {
+    return overlayCashSnapshot(name, localData, await fetchRemote(name));
+  } catch {
+    return localData;
+  }
+}
+
 /**
  * Un corte que ya se está viendo no se reemplaza por una bajada a medias.
  * El detalle de cuotas solo cambia si el archivo nuevo trae al menos la mitad de los socios.
@@ -319,7 +375,9 @@ export function loadSnapshot(name, { force = false } = {}) {
 
   const gen = generation;
   const local = localLoader(name);
-  const promise = (local ? local().then((mod) => ({ ...mod })) : fetchRemote(name))
+  const promise = (local
+    ? local().then((mod) => overlayNewerCashCut(name, { ...mod }))
+    : fetchRemote(name))
     .then((data) => {
       if (gen !== generation) return null;
       if (inflight.get(name) !== promise) return data;
