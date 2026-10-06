@@ -103,6 +103,7 @@ describe('allowedAdminTabs', () => {
   it('el superadministrador ve todas las pestañas del panel', () => {
     const tabs = allowedAdminTabs('superadmin');
     expect(tabs).toContain('system');
+    expect(tabs).toContain('settings');
     expect(tabs).toContain('migration');
     expect(tabs).toContain('accounting');
     expect(tabs.length).toBeGreaterThan(allowedAdminTabs('admin').length);

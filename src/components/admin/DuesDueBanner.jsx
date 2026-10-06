@@ -5,6 +5,7 @@ import { buildWhatsAppDuesUrl, duesDueMoment } from '../../domain/members/dues';
 import { memberNumberOf } from '../../domain/members/households';
 import { todayISODateAR } from '../../lib/arDate';
 import { formatCurrency } from '../../domain/accounting/journal';
+import { resolveFeePeriods } from '../../domain/accounting/feeBilling';
 import { liquidatedTotalForMonth } from '../../domain/accounting/feePeriodLiquidation';
 import { appFinanceSinceHandoff, collectionForCalendarMonth, composeClubFinance, financeFromMonthlySummary, lilaContabilidadFromSnapshots } from '../../domain/accounting/opsFinanceSnapshot';
 import { monthlyBalanceSeed } from '../../domain/accounting/monthlyBalance';
@@ -213,7 +214,8 @@ export default function DuesDueBanner({
     monthKey,
     cashMovements: cashMoves,
   });
-  const sheetLiquidated = liquidatedTotalForMonth(feePeriods, monthKey, { members, tierCatalog });
+  const periods = useMemo(() => resolveFeePeriods(feePeriods), [feePeriods]);
+  const sheetLiquidated = liquidatedTotalForMonth(periods, monthKey, { members, tierCatalog });
   const collected = calendar.collected;
   const liquidated = sheetLiquidated != null ? sheetLiquidated : calendar.liquidated;
   const periodKey = periodKeyFromDate(money?.periodTo) || periodKeyFromDate(money?.periodKey);

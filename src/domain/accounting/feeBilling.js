@@ -168,6 +168,7 @@ const EXPENSE_CATEGORIES = [
   'Tasas y Servicios',
   'Mantenimiento y Reparaciones',
   'Otros Ingresos',
+  'Seguridad',
 ];
 
 export { EXPENSE_CATEGORIES };

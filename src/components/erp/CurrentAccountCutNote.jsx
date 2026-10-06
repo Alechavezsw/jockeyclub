@@ -68,7 +68,8 @@ export default function CurrentAccountCutNote({ members = [] }) {
 
   const date = longDate(summary.asOf);
   const sameCut = summary.asOf === LILA_BALANCE_CUT.asOf;
-  const omitted = LILA_BALANCE_CUT.omitted.map((row) => row.memberNumber).join(', ');
+  const omittedRows = LILA_BALANCE_CUT.omitted;
+  const omitted = omittedRows.map((row) => row.memberNumber).join(', ');
 
   return (
     <>
@@ -99,15 +100,10 @@ export default function CurrentAccountCutNote({ members = [] }) {
               Hay {summary.members.toLocaleString('es-AR')} socios.
               Hoy, {summary.withBalance.toLocaleString('es-AR')} deben y el total es {pesos(summary.total)}.
             </p>
-            {sameCut ? (
+            {sameCut && omittedRows.length > 0 ? (
               <p>
                 El archivo de Lila sumaba {pesos(LILA_BALANCE_CUT.filePositiveTotal)}.
                 La diferencia de {pesos(LILA_BALANCE_CUT.omittedTotal)} son los números {omitted}, que no vinieron en el padrón.
-              </p>
-            ) : null}
-            {sameCut ? (
-              <p>
-                El detalle de cada cuota es el de septiembre, del 1 al 29, tal como salió de Lila a las 10:15.
               </p>
             ) : null}
           </div>,

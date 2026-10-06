@@ -235,6 +235,8 @@ export function liquidatedTotalForMonth(feePeriods = [], monthKey = '', context 
     && row.status !== 'cancelled'
   ));
   if (!period || (period.status !== 'processed' && period.status !== 'draft')) return null;
-  const total = Number(liquidationFromPeriod(period, context).total) || 0;
+  const computed = Number(liquidationFromPeriod(period, context).total) || 0;
+  const official = Number(period.amount) || 0;
+  const total = computed > 0 ? computed : official;
   return total > 0 ? Math.round(total * 100) / 100 : null;
 }

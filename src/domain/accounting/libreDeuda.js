@@ -12,6 +12,7 @@ import { familyBalanceForMember, formatSpanishLongDate, MEMBER_BALANCES_SNAPSHOT
 import { memberNumberOf } from '../members/households';
 import { getTierDisplayName } from '../members/tiers';
 import { arParts } from '../../lib/arDate';
+import { getClubSettings } from '../system/clubSettings';
 
 /** Snapshots que tienen que estar cargados para armar el certificado. */
 export const LIBRE_DEUDA_SNAPSHOTS = [...MEMBER_BALANCES_SNAPSHOTS, 'accessinMonthlyDebts'];
@@ -36,6 +37,16 @@ export const LIBRE_DEUDA_CLUB = {
   issuerRole: 'Administrador y representante legal',
   systemName: 'Jockey Club',
 };
+
+export function libreDeudaClub() {
+  const live = getClubSettings();
+  return {
+    ...LIBRE_DEUDA_CLUB,
+    name: live.legalName || live.name || LIBRE_DEUDA_CLUB.name,
+    address: [live.address, live.city].filter(Boolean).join(', ') || LIBRE_DEUDA_CLUB.address,
+    cuit: live.cuit || LIBRE_DEUDA_CLUB.cuit,
+  };
+}
 
 export const LIBRE_DEUDA_NOTE = [
   'NOTA: El siguiente documento hace referencia únicamente a la información registrada en Accessin, sin tener en cuenta datos o deudas',
@@ -246,7 +257,7 @@ function resolveCertificateDni(member, cc, monthly, detailed) {
 }
 
 export function buildLibreDeudaLetter(certificate) {
-  const club = LIBRE_DEUDA_CLUB;
+  const club = libreDeudaClub();
   const name = certificate.memberName;
   const dni = certificate.dni;
   const nro = certificate.memberNumberPadded || formatLibreDeudaMemberNumber(certificate.memberNumber);
@@ -330,7 +341,7 @@ export function buildLibreDeudaCertificate(member, {
     issuedStamp,
     unpaidMonths: (monthly?.months || []).filter((row) => monthHasDebt(row)).length,
     unpaidLines: (monthly?.lines || detailed?.lines || []).filter((l) => (Number(l.owed) || 0) > 0).length,
-    clubName: LIBRE_DEUDA_CLUB.name,
+    clubName: libreDeudaClub().name,
     fileName,
   };
 

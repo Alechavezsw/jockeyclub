@@ -4,7 +4,7 @@ import {
   Users, Calendar, DollarSign, Activity, ShieldAlert,
   BookOpen, ClipboardList, MessageSquare, Phone,
   FileSpreadsheet, Radio, Database, BellRing, PartyPopper, Trophy, Store, DoorOpen, QrCode, Newspaper,
-  LayoutDashboard, ChevronRight, Briefcase, Headset, Settings, Building2, Waves, GraduationCap, Sparkles, TicketCheck,
+  LayoutDashboard, ChevronRight, Briefcase, Headset, Settings, SlidersHorizontal, Building2, Waves, GraduationCap, Sparkles, TicketCheck,
 } from 'lucide-react';
 import AccountingTab from '../components/AccountingTab';
 import StaffTab from '../components/StaffTab';
@@ -20,6 +20,7 @@ import MessagingTab from '../components/admin/MessagingTab';
 import ReportsTab from '../components/admin/ReportsTab';
 import SurveysTab from '../components/admin/SurveysTab';
 import MigrationTab from '../components/admin/MigrationTab';
+import SystemSettingsTab from '../components/admin/SystemSettingsTab';
 import CuotasPanel from '../components/erp/CuotasPanel';
 import DisciplinesTab from '../components/admin/DisciplinesTab';
 import AccessLogsTab from '../components/admin/AccessLogsTab';
@@ -156,12 +157,19 @@ export default function AdminView({
   setTierCatalog,
   userRole = 'admin',
   isZondaActive = false,
+  setIsZondaActive,
   updateMember = null,
   poolAccesses = [],
   setPoolAccesses,
   recordPoolCanon,
   poolSettings = DEFAULT_POOL_SETTINGS,
   setPoolSettings,
+  clubSettings,
+  setClubSettings,
+  duesSettings,
+  setDuesSettings,
+  systemRules,
+  setSystemRules,
   facilityCatalog = null,
   setFacilityCatalog = null,
 }) {
@@ -343,7 +351,6 @@ export default function AdminView({
             icon: userRole === 'cashier' ? DollarSign : BookOpen,
             label: userRole === 'cashier' ? 'Caja' : 'Contabilidad',
           },
-          { key: 'staff', icon: ClipboardList, label: 'Personal' },
           { key: 'reports', icon: FileSpreadsheet, label: 'Reportes' },
         ],
       },
@@ -362,6 +369,7 @@ export default function AdminView({
         id: 'admin',
         label: 'Administración',
         tabs: [
+          { key: 'staff', icon: ClipboardList, label: 'Personal' },
           { key: 'teachers', icon: GraduationCap, label: 'Profesores' },
           { key: 'system', icon: Settings, label: 'Usuarios y altas' },
         ],
@@ -370,6 +378,7 @@ export default function AdminView({
         id: 'sys',
         label: 'Sistema',
         tabs: [
+          { key: 'settings', icon: SlidersHorizontal, label: 'Configuración' },
           { key: 'migration', icon: Database, label: 'Migración' },
         ],
       },
@@ -792,6 +801,23 @@ export default function AdminView({
           showConcessions={showConcessionsTab}
           goToTab={goToTab}
           members={members}
+          feePeriods={erp.feePeriods || []}
+          journalEntries={journalEntries}
+          chartOfAccounts={chartOfAccounts}
+          tierCatalog={tierCatalog}
+          reservations={reservations}
+          entryLogs={entryLogs}
+          poolAccesses={poolAccesses}
+          poolSettings={poolSettings}
+          claims={claims}
+          messages={messages}
+          surveys={surveys}
+          staffMembers={staffMembers}
+          events={erp.clubEvents || []}
+          alerts={erp.alerts || []}
+          applications={membershipApplications}
+          portalRequests={portalAccessRequests}
+          concessions={erp.concessions || []}
         />
       )}
 
@@ -1130,6 +1156,22 @@ export default function AdminView({
             setRegisteredUsersCount={setRegisteredUsersCount}
           />
         )
+      )}
+
+      {activeTab === 'settings' && (
+        <SystemSettingsTab
+          clubSettings={clubSettings}
+          setClubSettings={setClubSettings}
+          duesSettings={duesSettings}
+          setDuesSettings={setDuesSettings}
+          systemRules={systemRules}
+          setSystemRules={setSystemRules}
+          poolSettings={poolSettings}
+          setPoolSettings={setPoolSettings}
+          isZondaActive={isZondaActive}
+          setIsZondaActive={setIsZondaActive}
+          goToTab={goToTab}
+        />
       )}
 
       {activeTab === 'migration' && (

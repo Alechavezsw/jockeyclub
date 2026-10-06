@@ -6,6 +6,7 @@ export const DEFAULT_POOL_SETTINGS = {
   medicalValidityDays: 365,
   maxGuestsPerMember: 3,
   seasonLabel: 'Temporada de pileta',
+  memberCanUploadMedical: true,
 };
 
 export const POOL_PAYMENT_METHODS = [

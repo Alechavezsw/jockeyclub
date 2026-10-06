@@ -19,8 +19,9 @@ const ADMIN_SECTIONS = [
   { key: 'reports', title: 'Reportes', keywords: 'reportes informes' },
   { key: 'surveys', title: 'Encuestas', keywords: 'encuestas' },
   { key: 'system', title: 'Usuarios y altas', keywords: 'usuarios altas permisos' },
+  { key: 'settings', title: 'Configuración', keywords: 'configuracion sistema sede pileta zonda vencimiento' },
   { key: 'migration', title: 'Migración', keywords: 'migracion datos' },
-  { key: 'jev', title: 'IA', keywords: 'ia inteligencia artificial revision jev' },
+  { key: 'jev', title: 'IA', keywords: 'ia inteligencia artificial revision jev chat gemini analisis libro consulta predicciones manual uso' },
 ];
 
 const ACCOUNTING_TOOLS = [

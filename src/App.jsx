@@ -17,7 +17,19 @@ import {
   loadDismissedNotificationIds,
   saveDismissedNotificationIds,
 } from './domain/notifications/buildNotifications';
-import { applyAutomaticDues, pinDuesDueDate } from './domain/members/dues';
+import { applyAutomaticDues, pinDuesDueDate, setRuntimeDueDay } from './domain/members/dues';
+import {
+  DEFAULT_CLUB_SETTINGS,
+  DEFAULT_DUES_SETTINGS,
+  clubFooterLine,
+  mergeClubSettings,
+  mergeDuesSettings,
+  mergePoolSettings,
+  setRuntimeClubSettings,
+  SETTINGS_KEYS,
+  DEFAULT_SYSTEM_RULES,
+  mergeSystemRules,
+} from './domain/system/clubSettings';
 import { applyMemberListRefresh, attachHouseholdToMembers } from './domain/members/households';
 // Los saldos de cuenta corriente vienen de la base: public.members.outstanding_balance
 // más el desglose en members.meta (ver scripts/sync-accessin-balances.mjs). El snapshot
@@ -922,22 +934,37 @@ function ClubPortal() {
 
   const [poolSettings, setPoolSettings] = useState(() => {
     try {
-      return {
-        memberDayFee: 5000,
-        guestDayFee: 8000,
-        medicalValidityDays: 365,
-        maxGuestsPerMember: 3,
-        seasonLabel: 'Temporada de pileta',
-        ...JSON.parse(localStorage.getItem('jockey-pool-settings') || '{}'),
-      };
+      return mergePoolSettings(JSON.parse(localStorage.getItem('jockey-pool-settings') || '{}'));
     } catch {
-      return {
-        memberDayFee: 5000,
-        guestDayFee: 8000,
-        medicalValidityDays: 365,
-        maxGuestsPerMember: 3,
-        seasonLabel: 'Temporada de pileta',
-      };
+      return mergePoolSettings();
+    }
+  });
+
+  const [clubSettings, setClubSettings] = useState(() => {
+    try {
+      const next = mergeClubSettings(JSON.parse(localStorage.getItem('jockey-club-settings') || '{}'));
+      setRuntimeClubSettings(next);
+      return next;
+    } catch {
+      return DEFAULT_CLUB_SETTINGS;
+    }
+  });
+
+  const [systemRules, setSystemRules] = useState(() => {
+    try {
+      return mergeSystemRules(JSON.parse(localStorage.getItem('jockey-system-rules') || '{}'));
+    } catch {
+      return DEFAULT_SYSTEM_RULES;
+    }
+  });
+
+  const [duesSettings, setDuesSettings] = useState(() => {
+    try {
+      const next = mergeDuesSettings(JSON.parse(localStorage.getItem('jockey-dues-settings') || '{}'));
+      setRuntimeDueDay(next.dueDay);
+      return next;
+    } catch {
+      return DEFAULT_DUES_SETTINGS;
     }
   });
 
@@ -1089,7 +1116,30 @@ function ClubPortal() {
   }, [poolAccesses, cloudMode]);
   useEffect(() => {
     localStorage.setItem('jockey-pool-settings', JSON.stringify(poolSettings));
-  }, [poolSettings]);
+    if (cloudMode && hydratedRef.current && dbReady) {
+      repos.setSetting(SETTINGS_KEYS.pool, poolSettings, user?.id).catch(() => {});
+    }
+  }, [poolSettings, cloudMode, dbReady, user?.id]);
+  useEffect(() => {
+    setRuntimeClubSettings(clubSettings);
+    localStorage.setItem('jockey-club-settings', JSON.stringify(clubSettings));
+    if (cloudMode && hydratedRef.current && dbReady) {
+      repos.setSetting(SETTINGS_KEYS.club, clubSettings, user?.id).catch(() => {});
+    }
+  }, [clubSettings, cloudMode, dbReady, user?.id]);
+  useEffect(() => {
+    setRuntimeDueDay(duesSettings.dueDay);
+    localStorage.setItem('jockey-dues-settings', JSON.stringify(duesSettings));
+    if (cloudMode && hydratedRef.current && dbReady) {
+      repos.setSetting(SETTINGS_KEYS.dues, duesSettings, user?.id).catch(() => {});
+    }
+  }, [duesSettings, cloudMode, dbReady, user?.id]);
+  useEffect(() => {
+    localStorage.setItem('jockey-system-rules', JSON.stringify(systemRules));
+    if (cloudMode && hydratedRef.current && dbReady) {
+      repos.setSetting(SETTINGS_KEYS.system, systemRules, user?.id).catch(() => {});
+    }
+  }, [systemRules, cloudMode, dbReady, user?.id]);
   useEffect(() => {
     if (facilityCatalog) {
       localStorage.setItem('jockey-facility-catalog', JSON.stringify(facilityCatalog));
@@ -1361,6 +1411,22 @@ function ClubPortal() {
         setPortalAccessRequests(app.portalAccessRequests);
       }
       if (typeof app.isZondaActive === 'boolean') setIsZondaActive(app.isZondaActive);
+      if (app.clubSettings) {
+        const next = mergeClubSettings(app.clubSettings);
+        setClubSettings(next);
+        setRuntimeClubSettings(next);
+      }
+      if (app.duesSettings) {
+        const next = mergeDuesSettings(app.duesSettings);
+        setDuesSettings(next);
+        setRuntimeDueDay(next.dueDay);
+      }
+      if (app.poolSettings) {
+        setPoolSettings(mergePoolSettings(app.poolSettings));
+      }
+      if (app.systemRules) {
+        setSystemRules(mergeSystemRules(app.systemRules));
+      }
       if (Array.isArray(app.tierCatalog) && app.tierCatalog.length) {
         const cleaned = mergeOfficialTiers(stripExampleTiers(app.tierCatalog));
         setTierCatalog(cleaned.length ? cleaned : app.tierCatalog);
@@ -2359,12 +2425,19 @@ function ClubPortal() {
         setCurrentView={setCurrentView}
         erp={erp}
         isZondaActive={isZondaActive}
+        setIsZondaActive={setIsZondaActive}
         updateMember={updateMember}
         poolAccesses={poolAccesses}
         setPoolAccesses={setPoolAccessesDb}
         recordPoolCanon={erp.recordPoolCanon}
         poolSettings={poolSettings}
         setPoolSettings={setPoolSettings}
+        clubSettings={clubSettings}
+        setClubSettings={setClubSettings}
+        duesSettings={duesSettings}
+        setDuesSettings={setDuesSettings}
+        systemRules={systemRules}
+        setSystemRules={setSystemRules}
         facilityCatalog={facilityCatalog}
         setFacilityCatalog={setFacilityCatalog}
       />
@@ -2697,10 +2770,10 @@ function ClubPortal() {
       {!isStandaloneOps && (
         <footer className="app-footer">
           <p className="serif-font" style={{ fontSize: '1rem', color: 'var(--text-gold)', letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
-            Jockey Club San Juan
+            {clubSettings.name}
           </p>
           <p style={{ marginBottom: '0.35rem' }}>
-            República del Líbano 1799 Oeste, Rivadavia · © {new Date().getFullYear()}
+            {clubFooterLine(clubSettings)}
           </p>
           <p style={{ fontSize: '0.75rem', marginBottom: '0.35rem' }}>
             Unión de Rugby de Cuyo · Federación Hípica de San Juan

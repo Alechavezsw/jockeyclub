@@ -16,6 +16,17 @@ const DAY_MS = 86400000;
 /** Día de vencimiento de todas las cuotas sociales. */
 export const DUES_DUE_DAY = 10;
 
+let runtimeDueDay = null;
+
+export function setRuntimeDueDay(day) {
+  const n = Number(day);
+  runtimeDueDay = Number.isInteger(n) && n >= 1 && n <= 28 ? n : null;
+}
+
+export function duesDueDay() {
+  return runtimeDueDay ?? DUES_DUE_DAY;
+}
+
 const DUE_MONTHS = [
   'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
   'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
@@ -31,18 +42,19 @@ export function duesDueMoment(today = new Date()) {
     : new Date(`${String(today).slice(0, 10)}T12:00:00`);
   const day = d.getDate();
   const monthName = DUE_MONTHS[d.getMonth()] || '';
-  const dueLabel = `${DUES_DUE_DAY} de ${monthName}`;
+  const dueDay = duesDueDay();
+  const dueLabel = `${dueDay} de ${monthName}`;
   let phase = 'before';
-  if (day === DUES_DUE_DAY) phase = 'today';
-  else if (day > DUES_DUE_DAY) phase = 'after';
+  if (day === dueDay) phase = 'today';
+  else if (day > dueDay) phase = 'after';
   return {
     phase,
-    dueDay: DUES_DUE_DAY,
+    dueDay,
     dueLabel,
     monthName,
     year: d.getFullYear(),
-    daysUntil: phase === 'before' ? DUES_DUE_DAY - day : 0,
-    daysSince: phase === 'after' ? day - DUES_DUE_DAY : 0,
+    daysUntil: phase === 'before' ? dueDay - day : 0,
+    daysSince: phase === 'after' ? day - dueDay : 0,
   };
 }
 
@@ -68,7 +80,7 @@ function startOfDay(date) {
 }
 
 function duesDateOnTenth(year, monthIndex) {
-  return new Date(year, monthIndex, DUES_DUE_DAY, 12, 0, 0, 0);
+  return new Date(year, monthIndex, duesDueDay(), 12, 0, 0, 0);
 }
 
 function asDueAnchor(value) {
@@ -94,7 +106,7 @@ function parseDueDate(value) {
  */
 export function nextDuesDueDate(from = new Date()) {
   const d = asDueAnchor(from);
-  if (d.getDate() <= DUES_DUE_DAY) {
+  if (d.getDate() <= duesDueDay()) {
     return toISODate(duesDateOnTenth(d.getFullYear(), d.getMonth()));
   }
   return toISODate(duesDateOnTenth(d.getFullYear(), d.getMonth() + 1));

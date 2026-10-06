@@ -127,6 +127,7 @@ export const ALL_ADMIN_TABS = [
   'reports',
   'surveys',
   'system',
+  'settings',
   'migration',
 ];
 

@@ -1,8 +1,18 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { REVIEW_TIERS, reviewItemsForAccess } from '../../domain/review/buildClubReview';
+import { resolveFeePeriods } from '../../domain/accounting/feeBilling';
+import { liquidatedTotalForMonth } from '../../domain/accounting/feePeriodLiquidation';
+import { appFinanceSinceHandoff, collectionForCalendarMonth } from '../../domain/accounting/opsFinanceSnapshot';
+import { cashMovementsSeed, cashSeed } from '../../domain/accounting/cashLedger';
+import { useSnapshotSeed } from '../../hooks/useSnapshots';
+import { buildJevBrief } from '../../domain/assistant/clubGuide';
+import { todayISODateAR } from '../../lib/arDate';
 import ModalDialog from '../ModalDialog';
 import DuesDueBanner from './DuesDueBanner';
+import JevChatDesk from './JevChatDesk';
+import JevForecastRoom from './JevForecastRoom';
+import JevManual from './JevManual';
 
 const TIER_LABEL = Object.fromEntries(REVIEW_TIERS.map((tier) => [tier.id, tier.label]));
 
@@ -35,6 +45,49 @@ function JevSampleLink({ sample, item, onNavigate, className }) {
     <Link to={href} className={className} onClick={onNavigate}>
       {sampleLabel(sample)}
     </Link>
+  );
+}
+
+function JevRooms({ room, onChange }) {
+  return (
+    <div className="jev-rooms" role="tablist" aria-label="Salas de Jev">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={room === 'consulta'}
+        className={room === 'consulta' ? 'is-on' : undefined}
+        onClick={() => onChange('consulta')}
+      >
+        Consulta
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={room === 'revision'}
+        className={room === 'revision' ? 'is-on' : undefined}
+        onClick={() => onChange('revision')}
+      >
+        Revisión
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={room === 'predicciones'}
+        className={room === 'predicciones' ? 'is-on' : undefined}
+        onClick={() => onChange('predicciones')}
+      >
+        Predicciones
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={room === 'manual'}
+        className={room === 'manual' ? 'is-on' : undefined}
+        onClick={() => onChange('manual')}
+      >
+        Manual
+      </button>
+    </div>
   );
 }
 
@@ -131,8 +184,34 @@ export default function JevReviewTab({
   showConcessions = false,
   goToTab,
   members = [],
+  feePeriods = [],
+  journalEntries = [],
+  chartOfAccounts = [],
+  tierCatalog = [],
+  reservations = [],
+  entryLogs = [],
+  poolAccesses = [],
+  poolSettings = {},
+  claims = [],
+  messages = [],
+  surveys = [],
+  staffMembers = [],
+  events = [],
+  alerts = [],
+  applications = [],
+  portalRequests = [],
+  concessions = [],
 }) {
   const [listItem, setListItem] = useState(null);
+  const [params, setParams] = useSearchParams();
+  const vista = params.get('vista');
+  const room = vista === 'revision' || vista === 'predicciones' || vista === 'manual' ? vista : 'consulta';
+  const setRoom = (next) => {
+    const nextParams = new URLSearchParams(params);
+    if (next === 'revision' || next === 'predicciones' || next === 'manual') nextParams.set('vista', next);
+    else nextParams.delete('vista');
+    setParams(nextParams, { replace: true });
+  };
   const items = useMemo(
     () => reviewItemsForAccess(review?.items || [], {
       tabs: permittedTabs,
@@ -152,65 +231,144 @@ export default function JevReviewTab({
   };
 
   const showCollection = permittedTabs.includes('dues') || permittedTabs.includes('accounting');
+  const cashCut = useSnapshotSeed(['accessinCashSnapshot', 'accessinCashMovements'], () => ({
+    recent: cashSeed().ACCESSIN_CASH_SNAPSHOT?.recentMovements || [],
+    all: cashMovementsSeed().ACCESSIN_CASH_MOVEMENTS || [],
+  }));
+  const brief = useMemo(() => {
+    const today = todayISODateAR();
+    const monthKey = today.slice(0, 7);
+    const periods = resolveFeePeriods(feePeriods);
+    const liquidated = liquidatedTotalForMonth(periods, monthKey, { members, tierCatalog });
+    const cashMoves = [...(cashCut.recent || []), ...(cashCut.all || [])];
+    const monthFlow = appFinanceSinceHandoff({
+      members,
+      journalEntries,
+      chartOfAccounts,
+      feePeriods,
+      since: `${monthKey}-01`,
+      today,
+    });
+    const calendar = collectionForCalendarMonth({
+      monthKey,
+      monthFlow,
+      cashMovements: cashMoves,
+    });
+    const [year, month] = monthKey.split('-').map(Number);
+    const monthLabel = new Date(year, month - 1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+    return buildJevBrief({
+      today,
+      monthLabel,
+      collected: calendar.collected,
+      liquidated,
+      counts,
+      members,
+      reservations,
+      entryLogs,
+      poolAccesses,
+      claims,
+      messages,
+      surveys,
+      staffMembers,
+      events,
+      alerts,
+      applications,
+      portalRequests,
+      concessions,
+    });
+  }, [
+    feePeriods, members, tierCatalog, journalEntries, chartOfAccounts, cashCut, counts,
+    reservations, entryLogs, poolAccesses, claims, messages, surveys, staffMembers,
+    events, alerts, applications, portalRequests, concessions,
+  ]);
 
   return (
-    <section className="jev" aria-label="Jev, revisión del club">
-      {showCollection ? <DuesDueBanner members={members} /> : null}
-      <header className="jev-hero">
-        <div>
-          <p className="jev-kicker">Jev</p>
-          <h1 className="jev-hero-label">Socios con la ficha bien</h1>
-          <p className="jev-hero-num tabular-nums">{ready ? formatCount(counts.bien) : '…'}</p>
-          <p className="jev-hero-sub">
-            {ready
-              ? `de ${formatCount(counts.activos)} activos`
-              : 'El padrón todavía se está cargando'}
+    <section className="jev" aria-label="Jev, consulta y revisión del club">
+      <JevRooms room={room} onChange={setRoom} />
+      <div hidden={room !== 'consulta'}>
+        <JevChatDesk brief={brief} goToTab={goToTab} onOpenManual={() => setRoom('manual')} />
+      </div>
+      {room === 'manual' ? <JevManual goToTab={goToTab} /> : null}
+      {room === 'revision' && showCollection ? (
+        <DuesDueBanner
+          members={members}
+          feePeriods={feePeriods}
+          journalEntries={journalEntries}
+          chartOfAccounts={chartOfAccounts}
+          tierCatalog={tierCatalog}
+        />
+      ) : null}
+      {room === 'predicciones' ? (
+        <JevForecastRoom
+          brief={brief}
+          cashMovements={[...(cashCut.recent || []), ...(cashCut.all || [])]}
+          feePeriods={feePeriods}
+          reservations={reservations}
+          entryLogs={entryLogs}
+          poolAccesses={poolAccesses}
+          poolSettings={poolSettings}
+          goToTab={goToTab}
+        />
+      ) : null}
+      {room === 'revision' ? (
+        <>
+          <header className="jev-hero">
+            <div>
+              <p className="jev-kicker">Jev</p>
+              <h1 className="jev-hero-label">Socios con la ficha bien</h1>
+              <p className="jev-hero-num tabular-nums">{ready ? formatCount(counts.bien) : '…'}</p>
+              <p className="jev-hero-sub">
+                {ready
+                  ? `de ${formatCount(counts.activos)} activos`
+                  : 'El padrón todavía se está cargando'}
+              </p>
+            </div>
+            <ul className="jev-kpis" aria-label="Padrón">
+              <li>
+                <b className="tabular-nums">{ready ? formatCount(counts.titulares) : '…'}</b>
+                <span>Titulares</span>
+              </li>
+              <li>
+                <b className="tabular-nums">{ready ? formatCount(counts.grupos) : '…'}</b>
+                <span>Grupos</span>
+              </li>
+              <li>
+                <b className="tabular-nums">{ready ? formatCount(counts.integrantes) : '…'}</b>
+                <span>Integrantes</span>
+              </li>
+              <li>
+                <b className="tabular-nums">{ready ? formatCount(counts.fichas) : '…'}</b>
+                <span>Fichas a corregir</span>
+              </li>
+            </ul>
+          </header>
+
+          <p className="jev-note">
+            El orden es plata, número de socios, ficha, puerta de hoy, cierre del mes y notas.
+            Jev queda activo siempre que el panel está abierto: relee los datos y no escribe nada.
+            Abrir muestra la lista. Cada nombre abre la ficha para editarla.
           </p>
-        </div>
-        <ul className="jev-kpis" aria-label="Padrón">
-          <li>
-            <b className="tabular-nums">{ready ? formatCount(counts.titulares) : '…'}</b>
-            <span>Titulares</span>
-          </li>
-          <li>
-            <b className="tabular-nums">{ready ? formatCount(counts.grupos) : '…'}</b>
-            <span>Grupos</span>
-          </li>
-          <li>
-            <b className="tabular-nums">{ready ? formatCount(counts.integrantes) : '…'}</b>
-            <span>Integrantes</span>
-          </li>
-          <li>
-            <b className="tabular-nums">{ready ? formatCount(counts.fichas) : '…'}</b>
-            <span>Fichas a corregir</span>
-          </li>
-        </ul>
-      </header>
 
-      <p className="jev-note">
-        El orden es plata, número de socios, ficha, puerta de hoy, cierre del mes y notas.
-        Jev queda activo siempre que el panel está abierto: relee los datos y no escribe nada.
-        Abrir muestra la lista. Cada nombre abre la ficha para editarla.
-      </p>
-
-      {items.length === 0 ? (
-        <p className="jev-empty">
-          {ready
-            ? 'Nada para revisar en lo que podés ver.'
-            : 'Cuando termine de cargar el padrón, aparece lo que haya que mirar.'}
-        </p>
-      ) : (
-        <ol className="jev-rail">
-          {items.map((item, index) => (
-            <JevRow
-              key={item.id}
-              item={item}
-              index={index}
-              onOpen={openItem}
-            />
-          ))}
-        </ol>
-      )}
+          {items.length === 0 ? (
+            <p className="jev-empty">
+              {ready
+                ? 'Nada para revisar en lo que podés ver.'
+                : 'Cuando termine de cargar el padrón, aparece lo que haya que mirar.'}
+            </p>
+          ) : (
+            <ol className="jev-rail">
+              {items.map((item, index) => (
+                <JevRow
+                  key={item.id}
+                  item={item}
+                  index={index}
+                  onOpen={openItem}
+                />
+              ))}
+            </ol>
+          )}
+        </>
+      ) : null}
 
       <JevSamplesModal item={listItem} onClose={() => setListItem(null)} />
     </section>
