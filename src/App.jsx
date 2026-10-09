@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-
 import Navbar from './components/Navbar';
 import DashboardView from './views/DashboardView';
 import LoginView from './views/LoginView';
+import SessionDeskGate from './views/SessionDeskGate';
 import useErpStore from './hooks/useErpStore';
 import { AlertsBanner } from './components/erp/AlertsPanel';
 import SessionStatusBar from './components/SessionStatusBar';
@@ -711,11 +712,18 @@ export default function App() {
 }
 
 function ClubPortal() {
-  const { user, loading: authLoading, isAuthenticated, role, canAccessAdmin: sessionCanAccessAdmin } = useAuth();
+  const { user, loading: authLoading, isAuthenticated, role, desk, needsDeskChoice, canAccessAdmin: sessionCanAccessAdmin } = useAuth();
   const userRole = role || 'member';
   const cloudMode = isSupabaseConfigured;
   const hydratedRef = useRef(false);
   const membersLoadStartedRef = useRef(false);
+  const prevDeskRef = useRef(desk);
+  useEffect(() => {
+    if (prevDeskRef.current === desk) return;
+    prevDeskRef.current = desk;
+    hydratedRef.current = false;
+    membersLoadStartedRef.current = false;
+  }, [desk]);
   const membersRefreshGen = useRef(0);
   const [dbReady, setDbReady] = useState(true);
   const [dbSyncing, setDbSyncing] = useState(false);
@@ -733,7 +741,7 @@ function ClubPortal() {
   // Navegación por URL: el "view id" histórico se traduce a rutas reales.
   const navigate = useNavigate();
   const location = useLocation();
-  const isOperativeRole = Boolean(sessionCanAccessAdmin) || canAccessAdmin(userRole);
+  const isOperativeRole = Boolean(sessionCanAccessAdmin);
 
   const pathForView = useCallback((viewId) => {
     switch (viewId) {
@@ -1378,7 +1386,7 @@ function ClubPortal() {
 
   // Hidratar progresivo: abrir UI ya; crítico → diferido → padrón/ERP
   useEffect(() => {
-    if (!cloudMode || !isAuthenticated || authLoading) return undefined;
+    if (!cloudMode || !isAuthenticated || authLoading || needsDeskChoice || !desk) return undefined;
     if (hydratedRef.current) return undefined;
     let cancelled = false;
     const isOps = canAccessAdmin(role) || role === 'gate_operator';
@@ -1681,11 +1689,11 @@ function ClubPortal() {
       clearTimeout(watchdog);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cloudMode, isAuthenticated, authLoading, role, user?.memberId]);
+  }, [cloudMode, isAuthenticated, authLoading, role, desk, needsDeskChoice, user?.memberId]);
 
   // Si entraron por la puerta, el padrón se baja al ir al panel.
   useEffect(() => {
-    if (!cloudMode || !isAuthenticated || authLoading) return undefined;
+    if (!cloudMode || !isAuthenticated || authLoading || needsDeskChoice || desk !== 'ops') return undefined;
     if (location.pathname.startsWith('/entrada-pileta')) return undefined;
     if (location.pathname.startsWith('/registro')) return undefined;
     const isOps = canAccessAdmin(role) || role === 'gate_operator';
@@ -2512,6 +2520,18 @@ function ClubPortal() {
   }
 
   const isPublicRegistro = location.pathname.startsWith('/registro');
+
+  if (needsDeskChoice) {
+    return (
+      <div className="app-container is-public-login" data-theme="light">
+        <div className="ambient-glow ambient-glow-1" />
+        <div className="ambient-glow ambient-glow-2" />
+        <main className="main-content">
+          <SessionDeskGate />
+        </main>
+      </div>
+    );
+  }
 
   if (!isAuthenticated) {
     return (

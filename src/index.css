@@ -3571,6 +3571,142 @@ button.membership-moves-name {
   color: var(--text-gold);
 }
 
+.session-desk-gate {
+  min-height: 85vh;
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 420px);
+  gap: 2rem;
+  align-items: center;
+  padding: 2rem 1.25rem;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.session-desk-kicker {
+  font-size: 0.72rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-gold);
+  margin-bottom: 0.75rem;
+}
+
+.session-desk-title {
+  font-size: clamp(2rem, 4vw, 2.75rem);
+  margin: 0 0 0.75rem;
+  letter-spacing: 0.06em;
+  line-height: 1.15;
+}
+
+.session-desk-lead {
+  color: var(--text-secondary);
+  font-size: 1.02rem;
+  max-width: 420px;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.session-desk-card {
+  width: 100%;
+  padding: 2rem 1.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.session-desk-card-kicker {
+  margin: 0;
+  text-align: center;
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.session-desk-doors {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.session-desk-door {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 0.85rem;
+  row-gap: 0.2rem;
+  text-align: left;
+  padding: 1rem 1.05rem;
+  border-radius: 12px;
+  border: 1px solid var(--border-glass);
+  background: rgba(255, 255, 255, 0.03);
+  color: inherit;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.session-desk-door-icon {
+  grid-row: 1 / span 2;
+  width: 42px;
+  height: 42px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  align-self: center;
+}
+
+.session-desk-door.is-member .session-desk-door-icon {
+  background: color-mix(in srgb, #ca390c 16%, transparent);
+  color: #ca390c;
+}
+
+.session-desk-door.is-ops .session-desk-door-icon {
+  background: color-mix(in srgb, #096755 18%, transparent);
+  color: #0b7a64;
+}
+
+.session-desk-door-name {
+  font-size: 1.2rem;
+  letter-spacing: 0.04em;
+}
+
+.session-desk-door-copy {
+  grid-column: 2;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.session-desk-door:hover,
+.session-desk-door:focus-visible {
+  border-color: color-mix(in srgb, var(--primary-gold) 45%, var(--border-glass));
+}
+
+.session-desk-exit {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+}
+
+.nav-desk-switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+@media (max-width: 860px) {
+  .session-desk-gate {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+    padding: 0;
+  }
+}
+
 .app-container.is-public-join {
   min-height: 100dvh;
   background:
@@ -21806,6 +21942,17 @@ details[open] > summary .due-fold-arrow {
   font-size: 1.25rem;
   font-weight: 700;
   color: var(--text-strong);
+}
+.jev-list-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-shrink: 0;
+}
+.jev-list-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
 }
 .jev-list-kicker {
   margin: 0;

@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { FileSpreadsheet } from 'lucide-react';
 import { REVIEW_TIERS, reviewItemsForAccess } from '../../domain/review/buildClubReview';
+import { exportTableExcel } from '../../domain/reports/exportTableExcel';
 import { resolveFeePeriods } from '../../domain/accounting/feeBilling';
 import { liquidatedTotalForMonth } from '../../domain/accounting/feePeriodLiquidation';
 import { appFinanceSinceHandoff, collectionForCalendarMonth } from '../../domain/accounting/opsFinanceSnapshot';
@@ -110,12 +112,32 @@ function JevRow({ item, index, onOpen }) {
 
 function JevSamplesModal({ item, onClose }) {
   const [query, setQuery] = useState('');
+  const [exporting, setExporting] = useState(false);
   const samples = item?.samples || [];
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
     if (!needle) return samples;
     return samples.filter((sample) => sampleLabel(sample).toLowerCase().includes(needle));
   }, [samples, query]);
+
+  const downloadExcel = async () => {
+    if (!filtered.length || exporting) return;
+    setExporting(true);
+    try {
+      await exportTableExcel({
+        title: item.title,
+        sheetName: TIER_LABEL[item.tier] || 'Jev',
+        headers: ['#', 'Detalle', 'Destino'],
+        rows: filtered.map((sample, index) => [
+          index + 1,
+          sampleLabel(sample),
+          sampleHref(sample, item),
+        ]),
+      });
+    } finally {
+      setExporting(false);
+    }
+  };
 
   if (!item) return null;
 
@@ -132,9 +154,21 @@ function JevSamplesModal({ item, onClose }) {
           <p className="jev-list-kicker">{TIER_LABEL[item.tier] || item.tier}</p>
           <h3 id="jev-list-title">{item.title}</h3>
         </div>
-        <button type="button" className="btn btn-secondary btn-sm" onClick={onClose} aria-label="Cerrar">
-          ×
-        </button>
+        <div className="jev-list-actions">
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => { void downloadExcel(); }}
+            disabled={!filtered.length || exporting}
+            title="Descargar esta lista en Excel"
+          >
+            <FileSpreadsheet size={14} aria-hidden="true" />
+            {exporting ? 'Generando…' : 'Excel'}
+          </button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={onClose} aria-label="Cerrar">
+            ×
+          </button>
+        </div>
       </div>
       <div className="modal-body jev-list-body">
         {samples.length > 12 ? (

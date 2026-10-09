@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Sun, Moon, Shield, User, Menu, X, Bell, LogOut, Mail, LayoutDashboard } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { canAccessAdmin, navItemsForRole, ROLE_LABELS, sessionGreetLabel } from '../domain/auth/roles';
+import { navItemsForRole, ROLE_LABELS, sessionGreetLabel } from '../domain/auth/roles';
 import { formatLongDateAR, todayISODateAR } from '../lib/arDate';
 
 export default function Navbar({
@@ -16,7 +16,7 @@ export default function Navbar({
   onDismissNotification,
   onMarkAllNotificationsRead,
 }) {
-  const { user, role, logout, roleLabel, canAccessAdmin: sessionCanAccessAdmin, roles } = useAuth();
+  const { user, role, logout, roleLabel, canAccessAdmin: sessionCanAccessAdmin, roles, isDualDesk, desk, switchDesk } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
@@ -24,9 +24,15 @@ export default function Navbar({
   // Snapshot al abrir: se puede leer el listado aunque ya se marquen leídas (badge a 0).
   const [notifSnapshot, setNotifSnapshot] = useState([]);
 
-  const isOperative = Boolean(sessionCanAccessAdmin) || canAccessAdmin(role || 'member');
+  const isOperative = Boolean(sessionCanAccessAdmin);
   const isTeacher = role === 'teacher' || (roles || []).some((r) => r.roleKey === 'teacher');
   const visibleItems = navItemsForRole(role || 'member');
+  const deskSwitch = isDualDesk && desk
+    ? {
+      label: desk === 'ops' ? 'Entrar como socio' : 'Entrar a administración',
+      next: desk === 'ops' ? 'member' : 'ops',
+    }
+    : null;
   const headerDate = formatLongDateAR();
   const headerDateISO = todayISODateAR();
   const greetName = sessionGreetLabel(user?.fullName || '', role);
@@ -426,6 +432,18 @@ export default function Navbar({
             </span>
           </button>
 
+          {deskSwitch && (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm nav-desk-switch"
+              onClick={() => switchDesk(deskSwitch.next)}
+              title={deskSwitch.label}
+            >
+              {desk === 'ops' ? <User size={14} /> : <Shield size={14} />}
+              {deskSwitch.label}
+            </button>
+          )}
+
           <button
             type="button"
             onClick={handleLogout}
@@ -613,6 +631,18 @@ export default function Navbar({
               {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
             </button>
           </div>
+
+          {deskSwitch && (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => switchDesk(deskSwitch.next)}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+            >
+              {desk === 'ops' ? <User size={16} /> : <Shield size={16} />}
+              {deskSwitch.label}
+            </button>
+          )}
 
           <button type="button" className="btn btn-secondary" onClick={handleLogout} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
             <LogOut size={16} /> Cerrar sesión

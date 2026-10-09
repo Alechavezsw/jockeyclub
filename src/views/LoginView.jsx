@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { ROLE_LABELS } from '../domain/auth/roles';
 
 export default function LoginView() {
-  const { login, authError, setAuthError, isSupabase, loading } = useAuth();
+  const { login, authError, setAuthError, isSupabase } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -33,24 +33,22 @@ export default function LoginView() {
 
   const onSubmit = async (e) => {
     e.preventDefault();
+    const form = e.currentTarget;
+    const data = new FormData(form);
+    const nextEmail = String(data.get('email') || email || '').trim();
+    const nextPassword = String(data.get('password') || password || '');
+    setEmail(nextEmail);
+    setPassword(nextPassword);
     setSubmitting(true);
     setAuthError('');
     try {
-      await login({ email, password });
+      await login({ email: nextEmail, password: nextPassword });
     } catch {
       // error en contexto
     } finally {
       setSubmitting(false);
     }
   };
-
-  if (loading) {
-    return (
-      <div style={{ minHeight: '70vh', display: 'grid', placeItems: 'center', color: 'var(--text-secondary)' }}>
-        Verificando credenciales…
-      </div>
-    );
-  }
 
   return (
     <div
@@ -156,6 +154,7 @@ export default function LoginView() {
                 id="login-password"
                 className="form-input"
                 type="password"
+                name="password"
                 required
                 autoComplete="current-password"
                 value={password}

@@ -1,6 +1,18 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { allowLocalDemoAuth, isSupabaseConfigured, supabase } from '../lib/supabase';
-import { ROLE_LABELS, canAccessAdmin } from '../domain/auth/roles';
+import { ROLE_LABELS, canAccessAdmin, primaryRoleFromList } from '../domain/auth/roles';
+import {
+  SESSION_DESK,
+  canUseMemberDesk,
+  canUseOpsDesk,
+  clearSessionDesk,
+  effectiveRoleForDesk,
+  homePathForDesk,
+  isDualDeskUser,
+  loadSessionDesk,
+  persistSessionDesk,
+  resolveSessionDesk,
+} from '../domain/auth/sessionDesk';
 
 const AuthContext = createContext(null);
 const SESSION_KEY = 'jockey-auth-session';
@@ -23,12 +35,10 @@ function mapProfile(sessionUser, profileRow) {
     label: r.label,
     kind: r.kind,
   }));
-  const primary = profileRow?.role
-    || (roles.length ? roles.map((r) => r.roleKey).sort((a, b) => {
-      const rank = { superadmin: 60, admin: 50, accountant: 40, cashier: 30, staff: 20, teacher: 15, member: 10 };
-      return (rank[b] || 0) - (rank[a] || 0);
-    })[0] : null)
-    || 'member';
+  const primary = primaryRoleFromList([
+    profileRow?.role,
+    ...roles.map((r) => r.roleKey),
+  ]);
 
   return {
     id: sessionUser.id,
@@ -49,11 +59,12 @@ function mapProfile(sessionUser, profileRow) {
 }
 
 async function loadUserFromSession(sessionUser) {
-  // Paralelo: perfil + roles + vínculo socio (antes eran 3 round-trips en serie).
-  const [profileRes, roleRes, memberRes] = await Promise.all([
+  const email = String(sessionUser.email || '').trim();
+  // Paralelo: perfil + roles + ficha (por vínculo o por el mismo correo).
+  const [profileRes, roleRes, memberByProfile, memberByEmail] = await Promise.all([
     supabase
       .from('profiles')
-      .select('full_name, role')
+      .select('full_name, role, document_number')
       .eq('id', sessionUser.id)
       .maybeSingle(),
     supabase
@@ -65,13 +76,33 @@ async function loadUserFromSession(sessionUser) {
       .from('members')
       .select('member_number')
       .eq('profile_id', sessionUser.id)
-      .maybeSingle(),
+      .limit(1),
+    email
+      ? supabase
+        .from('members')
+        .select('member_number')
+        .ilike('email', email)
+        .limit(1)
+      : Promise.resolve({ data: [] }),
   ]);
+
+  let memberNumber = memberByProfile.data?.[0]?.member_number
+    || memberByEmail.data?.[0]?.member_number
+    || null;
+  const documentNumber = String(profileRes.data?.document_number || '').replace(/\D/g, '');
+  if (!memberNumber && documentNumber) {
+    const { data: byDoc } = await supabase
+      .from('members')
+      .select('member_number')
+      .eq('document_number', documentNumber)
+      .limit(1);
+    memberNumber = byDoc?.[0]?.member_number || null;
+  }
 
   return mapProfile(sessionUser, {
     ...profileRes.data,
     profile_roles: roleRes.data || [],
-    member_number: memberRes.data?.member_number || null,
+    member_number: memberNumber,
   });
 }
 
@@ -79,8 +110,21 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   /** Usuario auth de Supabase (sin perfil). El perfil se carga fuera de onAuthStateChange. */
   const [authUser, setAuthUser] = useState(null);
+  const [desk, setDesk] = useState(() => loadSessionDesk());
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState('');
+
+  const applyMappedUser = useCallback((mapped) => {
+    if (!mapped) {
+      setUser(null);
+      setDesk(null);
+      return mapped;
+    }
+    const nextDesk = resolveSessionDesk(mapped, loadSessionDesk());
+    setUser(mapped);
+    setDesk(nextDesk);
+    return mapped;
+  }, []);
 
   // Listener sync: NUNCA await supabase.* acá (deadlock → “sesión cerrada” / UI colgada)
   useEffect(() => {
@@ -89,7 +133,13 @@ export function AuthProvider({ children }) {
     if (!isSupabaseConfigured || !supabase) {
       const local = allowLocalDemoAuth ? loadLocalSession() : null;
       if (mounted) {
-        setUser(local);
+        if (local) {
+          setUser(local);
+          setDesk(resolveSessionDesk(local, loadSessionDesk()));
+        } else {
+          setUser(null);
+          setDesk(null);
+        }
         setLoading(false);
       }
       return () => { mounted = false; };
@@ -114,11 +164,13 @@ export function AuthProvider({ children }) {
             }
             setAuthUser(null);
             setUser(null);
+            setDesk(null);
             setLoading(false);
           }).catch(() => {
             if (!mounted) return;
             setAuthUser(null);
             setUser(null);
+            setDesk(null);
             setLoading(false);
           });
         }, 0);
@@ -157,7 +209,7 @@ export function AuthProvider({ children }) {
       try {
         const mapped = await loadUserFromSession(authUser);
         if (!cancelled) {
-          setUser(mapped);
+          applyMappedUser(mapped);
           setLoading(false);
         }
       } catch {
@@ -174,7 +226,7 @@ export function AuthProvider({ children }) {
       cancelled = true;
       clearTimeout(watchdog);
     };
-  }, [authUser?.id]);
+  }, [authUser?.id, applyMappedUser]);
 
   const login = useCallback(async ({ email, password }) => {
     setAuthError('');
@@ -196,7 +248,7 @@ export function AuthProvider({ children }) {
         }
         const mapped = await loadUserFromSession(data.user);
         setAuthUser(data.user);
-        setUser(mapped);
+        applyMappedUser(mapped);
         setLoading(false);
         return mapped;
       } catch (err) {
@@ -240,10 +292,10 @@ export function AuthProvider({ children }) {
       isLocal: true,
     };
     localStorage.setItem(SESSION_KEY, JSON.stringify(sessionUser));
-    setUser(sessionUser);
+    applyMappedUser(sessionUser);
     setLoading(false);
     return sessionUser;
-  }, []);
+  }, [applyMappedUser]);
 
   const logout = useCallback(async () => {
     setAuthError('');
@@ -252,28 +304,57 @@ export function AuthProvider({ children }) {
     }
     localStorage.removeItem(SESSION_KEY);
     localStorage.removeItem('jockey-role');
+    clearSessionDesk();
     setAuthUser(null);
     setUser(null);
+    setDesk(null);
   }, []);
+
+  const enterDesk = useCallback((next) => {
+    if (next !== SESSION_DESK.member && next !== SESSION_DESK.ops) return;
+    persistSessionDesk(next);
+    setDesk(next);
+  }, []);
+
+  const switchDesk = useCallback((next) => {
+    if (next !== SESSION_DESK.member && next !== SESSION_DESK.ops) return;
+    persistSessionDesk(next);
+    if (typeof window !== 'undefined') {
+      window.location.assign(homePathForDesk(next));
+    }
+  }, []);
+
+  const needsDeskChoice = Boolean(user) && !desk && isDualDeskUser(user);
+  const effectiveRole = user ? effectiveRoleForDesk(user, desk) : null;
+  const opsOnThisDesk = Boolean(
+    user
+    && desk === SESSION_DESK.ops
+    && (canAccessAdmin(user.role) || (user.roles || []).some((r) => canAccessAdmin(r.roleKey)))
+  );
 
   const value = useMemo(
     () => ({
       user,
       loading,
       authError,
+      desk,
+      needsDeskChoice,
+      canUseMemberDesk: canUseMemberDesk(user),
+      canUseOpsDesk: canUseOpsDesk(user),
+      isDualDesk: isDualDeskUser(user),
       isAuthenticated: Boolean(user),
-      role: user?.role || null,
+      role: needsDeskChoice ? null : (effectiveRole || null),
       roles: user?.roles || [],
-      roleLabel: user ? ROLE_LABELS[user.role] || user.role : null,
-      canAccessAdmin: user
-        ? (canAccessAdmin(user.role) || (user.roles || []).some((r) => canAccessAdmin(r.roleKey)))
-        : false,
+      roleLabel: effectiveRole ? ROLE_LABELS[effectiveRole] || effectiveRole : null,
+      canAccessAdmin: opsOnThisDesk,
       isSupabase: isSupabaseConfigured,
       login,
       logout,
+      enterDesk,
+      switchDesk,
       setAuthError,
     }),
-    [user, loading, authError, login, logout]
+    [user, loading, authError, desk, needsDeskChoice, effectiveRole, opsOnThisDesk, login, logout, enterDesk, switchDesk]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

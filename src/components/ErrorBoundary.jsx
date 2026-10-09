@@ -15,6 +15,10 @@ export default class ErrorBoundary extends Component {
 
   componentDidCatch(error, info) {
     console.error('[Jockey Club] Error de interfaz:', error, info?.componentStack);
+    const message = String(error?.message || '');
+    if (/useAuth|AuthProvider/i.test(message) && import.meta.env.DEV) {
+      window.location.reload();
+    }
   }
 
   handleRecover = () => {

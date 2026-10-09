@@ -87,6 +87,14 @@ function ensureAdminAndMember(roles = []) {
   return next;
 }
 
+function ensureMemberRole(roles = []) {
+  const next = [...(roles || [])];
+  if (!roleChipsSelected(next, 'member')) {
+    next.push({ roleKey: 'member', label: ROLE_LABELS.member || 'Socio', kind: 'system' });
+  }
+  return next;
+}
+
 function ensureMemberIdentifier(identifiers = [], memberNumber) {
   const num = String(memberNumber || '').trim();
   if (!num) return identifiers || [];
@@ -477,6 +485,7 @@ export default function SystemAdminTab({
   const [rolesModalProfile, setRolesModalProfile] = useState(null);
   const [openActionsId, setOpenActionsId] = useState(null);
   const [memberHits, setMemberHits] = useState([]);
+  const [memberLookup, setMemberLookup] = useState('');
   const [memberSearchBusy, setMemberSearchBusy] = useState(false);
   const [memberPicked, setMemberPicked] = useState(null);
   const [pickingMember, setPickingMember] = useState(false);
@@ -576,6 +585,7 @@ export default function SystemAdminTab({
 
   const resetMemberLookup = () => {
     setMemberHits([]);
+    setMemberLookup('');
     setMemberSearchBusy(false);
     setMemberPicked(null);
     setPickingMember(false);
@@ -615,12 +625,12 @@ export default function SystemAdminTab({
   };
 
   useEffect(() => {
-    if (!showUserForm || editingUserId || memberPicked) {
+    if (!showUserForm || memberPicked) {
       setMemberHits([]);
       setMemberSearchBusy(false);
       return undefined;
     }
-    const raw = String(userForm.firstName || '').trim();
+    const raw = String(memberLookup || (!editingUserId ? userForm.firstName : '') || '').trim();
     const digits = raw.replace(/\D/g, '');
     const enough = raw.length >= 2 || digits.length >= 3;
     if (!enough || !isSupabaseConfigured) {
@@ -646,7 +656,7 @@ export default function SystemAdminTab({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [userForm.firstName, showUserForm, editingUserId, memberPicked]);
+  }, [memberLookup, userForm.firstName, showUserForm, editingUserId, memberPicked]);
 
   const applyMemberToNewForm = (member) => {
     const { firstName, lastName } = splitMemberName(member);
@@ -695,6 +705,16 @@ export default function SystemAdminTab({
         if (full) member = full;
       } catch {
         member = hit;
+      }
+      if (editingUserId) {
+        setUserForm((current) => ({
+          ...current,
+          linkedMemberId: member.id,
+          roles: ensureMemberRole(current.roles),
+          identifiers: ensureMemberIdentifier(current.identifiers, member.memberId),
+        }));
+        setFlash(`Ficha Nº ${member.memberId || '—'} lista para vincular. Guardá el usuario.`);
+        return;
       }
       if (member.profileId) {
         try {
@@ -1202,6 +1222,41 @@ export default function SystemAdminTab({
                   ) : null}
                 </div>
               </Field>
+              {editingUserId ? (
+                <Field label="Ficha de socio" className="sys-user-span2">
+                  <div className="sys-user-lookup-box">
+                    <div className="sys-user-lookup-input">
+                      <Search size={15} aria-hidden="true" />
+                      <input
+                        className="form-input"
+                        autoComplete="off"
+                        placeholder="Nº o nombre del padrón para abrir el portal de socio"
+                        value={memberLookup}
+                        onChange={(e) => {
+                          setMemberPicked(null);
+                          setMemberLookup(e.target.value);
+                        }}
+                      />
+                    </div>
+                    {memberHits.length > 0 ? (
+                      <ul className="sys-user-lookup-list" role="listbox">
+                        {memberHits.map((member) => (
+                          <li key={member.id}>
+                            <button type="button" onClick={() => pickMember(member)}>
+                              <strong>{member.name || 'Sin nombre'}</strong>
+                              <span>
+                                Nº {member.memberId || '—'}
+                                {member.documentNumber ? ` · DNI ${member.documentNumber}` : ''}
+                                {member.profileId ? ' · ya tiene usuario' : ''}
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </div>
+                </Field>
+              ) : null}
               <Field label="Apellido">
                 <input
                   className="form-input"
