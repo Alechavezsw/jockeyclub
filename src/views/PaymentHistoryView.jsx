@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ArrowLeft,
   CreditCard,
@@ -10,20 +10,13 @@ import {
   Download,
   Banknote,
   Upload,
-  QrCode,
 } from 'lucide-react';
-import { QRCodeSVG } from 'qrcode.react';
-import { downloadPaymentBoletoPdf, downloadPaymentReceiptPdf } from '../domain/members/exportPaymentReceiptPdf';
+import { downloadPaymentReceiptPdf } from '../domain/members/exportPaymentReceiptPdf';
 import { useMemberDuesStanding } from '../hooks/useMemberDuesStanding';
-import { CLUB_BANK_ACCOUNTS, MERCADO_PAGO, buildMercadoPagoQrPayload } from '../domain/members/clubBanks';
+import { CLUB_BANK_ACCOUNTS } from '../domain/members/clubBanks';
 import { duesPaymentNotice } from '../domain/members/duesPaymentNotice';
-import { fileToBase64, prepareOnlineDuesBoleto } from '../domain/members/duesReceiptDelivery';
 import { uploadDuesReceipt } from '../data/storage';
-import { sendPaymentBoletoEmail } from '../data/repos';
-
-function boletoStorageKey(memberId) {
-  return `jockey-mp-boleto:${memberId || ''}`;
-}
+import MercadoPagoCheckout from '../components/MercadoPagoCheckout';
 
 function formatCurrency(amount) {
   return new Intl.NumberFormat('es-AR', {
@@ -50,7 +43,6 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
   const [receiptFile, setReceiptFile] = useState(null);
   const [receiptPreview, setReceiptPreview] = useState('');
   const [notifiedKey, setNotifiedKey] = useState('');
-  const [issuedBoleto, setIssuedBoleto] = useState(null);
   const bank = CLUB_BANK_ACCOUNTS[0];
   const {
     summary,
@@ -66,29 +58,16 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
   const alDia = !standingPending && !behind;
   const payable = alDia ? summary.nextAmount : summary.outstanding;
 
-  const qr = useMemo(() => {
-    if (method !== 'mercadopago' || !profile || payable <= 0) return null;
-    const payload = buildMercadoPagoQrPayload({
-      amount: payable,
-      memberId: profile.memberId,
-      memberName: profile.name,
-    });
-    const ref = payload.split('|').find((part) => part.startsWith('ref='))?.slice(4) || '';
-    return { payload, ref };
-  }, [method, profile, payable]);
-
   const noticeKey = `${method}:${profile?.memberId || ''}:${payable}:${receiptFile?.name || ''}`;
 
   useEffect(() => {
-    const memberId = profile?.memberId;
-    if (!memberId) return;
-    try {
-      const raw = sessionStorage.getItem(boletoStorageKey(memberId));
-      setIssuedBoleto(raw ? JSON.parse(raw) : null);
-    } catch {
-      setIssuedBoleto(null);
+    const flag = new URLSearchParams(window.location.search).get('mp');
+    if (flag === 'ok' || flag === 'sub') {
+      setMessage('Mercado Pago ya tiene el movimiento. En un momento se acredita en tu cuenta.');
+    } else if (flag === 'fail') {
+      setError('El pago no se completó. Podés intentar de nuevo.');
     }
-  }, [profile?.memberId]);
+  }, []);
 
   const handleReceipt = (event) => {
     const file = event.target.files?.[0];
@@ -124,39 +103,9 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
     setError('');
     setMessage('');
     try {
-      let attachment = null;
-      let boletoNote = '';
-      if (method === 'transferencia') {
-        attachment = await uploadDuesReceipt(receiptFile, user?.id);
-      }
-      if (method === 'mercadopago') {
-        const prepared = await prepareOnlineDuesBoleto({
-          member: profile,
-          amount: charge,
-          dueLabel: formatDate(summary.nextDue),
-          profileId: user?.id,
-        });
-        await sendMessage(prepared.message);
-        setIssuedBoleto(prepared.boleto);
-        try {
-          sessionStorage.setItem(boletoStorageKey(profile?.memberId), JSON.stringify(prepared.boleto));
-        } catch {
-          /* el PDF igual se puede regenerar en esta visita */
-        }
-        try {
-          const pdfBase64 = await fileToBase64(prepared.file);
-          await sendPaymentBoletoEmail({
-            amountLabel: formatCurrency(charge),
-            receiptNo: prepared.boleto.receipt,
-            periodLabel: formatDate(summary.nextDue),
-            pdfBase64,
-            fileName: prepared.file.name,
-          });
-          boletoNote = ' Te lo mandamos por mensaje y por mail.';
-        } catch (mailErr) {
-          boletoNote = ` Te lo mandamos por mensaje. El mail no salió: ${mailErr.message || 'intentá de nuevo más tarde.'}`;
-        }
-      }
+      const attachment = method === 'transferencia'
+        ? await uploadDuesReceipt(receiptFile, user?.id)
+        : null;
       const notice = duesPaymentNotice({
         memberName: profile?.name,
         memberId: profile?.memberId,
@@ -164,16 +113,13 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
         dueLabel: formatDate(summary.nextDue),
         method,
         bankName: bank?.name,
-        qrRef: qr?.ref,
         attachment,
       });
       await sendMessage(notice);
       setNotifiedKey(noticeKey);
       setMessage(method === 'transferencia'
         ? 'El comprobante llegó a administración.'
-        : method === 'mercadopago'
-          ? `Listo.${boletoNote} También lo podés bajar acá. La cuota se acredita cuando Mercado Pago confirma el pago.`
-          : 'Avisamos a administración.');
+        : 'Avisamos a administración.');
     } catch (err) {
       setError(err.message || 'No se pudo avisar a administración.');
     } finally {
@@ -181,12 +127,9 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
     }
   };
 
-  const actionLabel = method === 'transferencia'
-    ? 'Enviar comprobante'
-    : method === 'mercadopago'
-      ? 'Enviar boleto'
-      : 'Avisar a administración';
-  const doneLabel = method === 'mercadopago' ? 'Boleto enviado' : 'Avisado';
+  const actionLabel = method === 'transferencia' ? 'Enviar comprobante' : 'Avisar a administración';
+  const subscribed = String(profile?.mpAdhesion || '').toLowerCase() === 'authorized'
+    || profile?.paymentMethod === 'debito';
 
   return (
     <div className="fade-in pay-hist">
@@ -272,30 +215,30 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
             }}
             disabled={standingPending || paying}
           >
-            <option value="mercadopago">Mercado Pago</option>
+            <option value="mercadopago">Pagar online (Mercado Pago)</option>
             <option value="transferencia">Transferencia</option>
-            <option value="debito">Débito automático</option>
+            <option value="debito">Suscripción mensual</option>
           </select>
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={standingPending || paying || payable <= 0 || notifiedKey === noticeKey}
-            onClick={handleNotify}
-          >
-            {paying ? 'Enviando…' : notifiedKey === noticeKey ? doneLabel : actionLabel}
-          </button>
+          {method === 'transferencia' ? (
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={standingPending || paying || payable <= 0 || notifiedKey === noticeKey}
+              onClick={handleNotify}
+            >
+              {paying ? 'Enviando…' : notifiedKey === noticeKey ? 'Avisado' : actionLabel}
+            </button>
+          ) : null}
         </div>
-        {method === 'mercadopago' && qr ? (
-          <div className="pay-hist-qr">
-            <div className="pay-hist-qr-code">
-              <QRCodeSVG value={qr.payload} size={168} level="M" includeMargin />
-            </div>
-            <div>
-              <strong><QrCode size={14} /> QR Mercado Pago</strong>
-              <p>Alias {MERCADO_PAGO.alias}</p>
-              <p>{formatCurrency(payable)}. Al confirmar, te llega el boleto por mail y por mensaje. También lo podés bajar acá.</p>
-            </div>
-          </div>
+        {method === 'mercadopago' ? (
+          <MercadoPagoCheckout
+            kind="dues"
+            amount={payable}
+            memberNumber={profile?.memberId}
+            concept={`Cuota social · ${profile?.name || 'socio'}`}
+            disabled={standingPending || payable <= 0}
+            onApproved={() => setMessage('Pago acreditado. Ya figura en tu cuenta.')}
+          />
         ) : null}
         {method === 'transferencia' && bank ? (
           <div className="pay-hist-transfer">
@@ -311,17 +254,19 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
           </div>
         ) : null}
         {method === 'debito' ? (
-          <p className="pay-hist-note">El aviso pide a administración que adhiera el débito. La cuota se acredita cuando ellos lo confirman.</p>
-        ) : null}
-        {method === 'mercadopago' && issuedBoleto ? (
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            style={{ marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 4 }}
-            onClick={() => { void downloadPaymentBoletoPdf({ member: profile, boleto: issuedBoleto }); }}
-          >
-            <Download size={12} /> Descargar boleto {issuedBoleto.receipt}
-          </button>
+          subscribed ? (
+            <p className="pay-hist-note">Ya estás adherido al débito automático de Mercado Pago. Cada mes se cobra la cuota.</p>
+          ) : (
+            <MercadoPagoCheckout
+              kind="subscription"
+              subscribe
+              amount={payable || summary.nextAmount}
+              memberNumber={profile?.memberId}
+              concept={`Suscripción cuota social · ${profile?.name || 'socio'}`}
+              disabled={standingPending || (payable || summary.nextAmount) <= 0}
+              onApproved={() => setMessage('Adhesión lista. Mercado Pago debitará la cuota cada mes.')}
+            />
+          )
         ) : null}
         <div className="pay-hist-feedback" aria-live="polite">
           {message ? <div className="pay-hist-ok">{message}</div> : null}

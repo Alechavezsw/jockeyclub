@@ -227,7 +227,8 @@ export function buildRequestDetail(kind, item, extras = {}) {
   };
 }
 
-export const PORTAL_PUBLIC_ORIGIN = 'https://www.jockeyclubsj.com.ar';
+export const PORTAL_PUBLIC_ORIGIN = 'https://jockeyclubsj.com.ar';
+export const PORTAL_WWW_ORIGIN = 'https://www.jockeyclubsj.com.ar';
 
 export function portalLoginUrl() {
   return `${PORTAL_PUBLIC_ORIGIN}/`;

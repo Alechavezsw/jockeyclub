@@ -7,7 +7,7 @@ const corsHeaders = {
 };
 
 const AR_TZ = "America/Argentina/San_Juan";
-const PORTAL_ACCOUNT = "https://jockeyclubsj.org/cuenta";
+const PORTAL_ACCOUNT = "https://jockeyclubsj.com.ar/cuenta";
 
 function json(status: number, body: Record<string, unknown>) {
   return new Response(JSON.stringify(body), {

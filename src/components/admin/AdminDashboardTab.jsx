@@ -4,7 +4,7 @@ import {
   Users, Calendar, DollarSign, Activity, MessageSquare, ClipboardList,
   Radio, BookOpen, ShieldAlert, BellRing, CheckCircle2,
   PartyPopper, FileSpreadsheet, Wind, Newspaper,
-  DoorOpen, ChevronRight, AlertTriangle,
+  DoorOpen, ChevronRight, AlertTriangle, Waves,
 } from 'lucide-react';
 import { useSedeWeather } from '../../hooks/useSedeWeather';
 import { formatObservedClock } from '../../domain/weather/sedeWeather';
@@ -601,6 +601,14 @@ export default function AdminDashboardTab({
       badge: pendingClaimsCount > 0 ? String(pendingClaimsCount) : null,
     },
     {
+      tab: 'pool_gate',
+      tone: 'emerald',
+      icon: Waves,
+      title: 'Puerta pileta',
+      hint: 'Buscar socio, cobrar canon y habilitar',
+      roles: ['pool_operator'],
+    },
+    {
       tab: 'accounting',
       focus: 'cash',
       tone: 'emerald',
@@ -618,7 +626,10 @@ export default function AdminDashboardTab({
       roles: ['accountant'],
     },
   ]
-    .filter((a) => permittedTabs.includes(a.tab) && (!a.roles || a.roles.includes(userRole)))
+    .filter((a) => (
+      (a.tab === 'pool_gate' ? permittedTabs.includes('pool') : permittedTabs.includes(a.tab))
+      && (!a.roles || a.roles.includes(userRole))
+    ))
     .slice(0, 4);
 
   const jevVisible = jevReview

@@ -58,7 +58,7 @@ export const CLUB_GUIDE = [
     tab: 'pool_gate',
     title: 'Entrada pileta',
     keywords: 'entrada pileta ticket invitado pase',
-    teach: 'Entrada pileta abre /entrada-pileta: el control de ingreso a pileta, distinto de la caja del día.',
+    teach: 'Entrada pileta abre /entrada-pileta: el control de ingreso a pileta, distinto de la caja del día. En temporada, desde el 10, sin la cuota del mes no entra.',
   },
   {
     id: 'pileta',
@@ -162,8 +162,8 @@ export const CLUB_GUIDE = [
     id: 'configuracion',
     tab: 'settings',
     title: 'Configuración',
-    keywords: 'configuracion sistema sede pileta zonda vencimiento cuit',
-    teach: 'Configuración está en Sistema, al lado de Migración. Ahí se guarda la sede, el día de las cuotas, el canon de pileta y el Zonda. Vive en el libro.',
+    keywords: 'configuracion sistema sede pileta zonda vencimiento cuit mercado pago',
+    teach: 'Configuración está en Sistema, al lado de Migración. Ahí se guarda la sede, el día de las cuotas, el canon de pileta, Mercado Pago (online, QR de mostrador y suscripción) y el Zonda. Vive en el libro.',
   },
   {
     id: 'migracion',
@@ -218,7 +218,7 @@ export const ALL_GUIDE_TOPICS = [...CLUB_GUIDE, ...CLUB_TOOLS];
 
 export const JEV_TABS = 'dashboard|jev|members|dues|bookings|disciplines|pool|pool_gate|access|qr_gate|accounting|staff|teachers|events|alerts|claims|messaging|news|reports|surveys|system|settings|migration|concessions';
 
-export const APP_ROLES = 'Socio (portal), Profesor (/asistencia), Personal, RR.HH., Empleado de administración, Operador de portería, Cajero, Contador, Administrador (sin contabilidad), Superadministrador (todo, únicos que crean perfiles).';
+export const APP_ROLES = 'Socio (portal), Profesor (/asistencia), Personal, RR.HH., Empleado de administración, Operador de portería, Operario de pileta (puerta y cobro del canon), Cajero, Contador, Administrador (sin contabilidad), Superadministrador (todo, únicos que crean perfiles).';
 
 function fold(value) {
   return String(value || '')

@@ -131,6 +131,22 @@ describe('poolAccess', () => {
       .toThrow(/ya está anotado/i);
   });
 
+  it('en temporada no habilita ni anota si debe la cuota del mes', () => {
+    const debtor = {
+      ...attachPoolMedical(member, { fileName: 'apto.pdf', uploadedAt: '2026-11-01T12:00:00.000Z' }),
+      tier: 'socio_familiar',
+      outstandingBalance: 70000,
+      nextDueDate: '2026-12-10',
+    };
+    const snap = evaluatePoolAccess(debtor, { today: '2026-12-12', accesses: [] });
+    expect(snap.duesBlocked).toBe(true);
+    expect(snap.canEnable).toBe(false);
+    expect(() => enableMemberPoolAccess({ member: debtor, accesses: [], today: '2026-12-12' }))
+      .toThrow(/mora/i);
+    expect(() => recordPoolAttendance({ member: debtor, accesses: [], today: '2026-12-12' }))
+      .toThrow(/mora/i);
+  });
+
   it('bloquea invitado si el titular no está habilitado', () => {
     expect(() => enableGuestPoolAccess({
       host: member,

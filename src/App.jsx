@@ -2583,6 +2583,7 @@ function ClubPortal() {
       setEntryLogs={setEntryLogsDb}
       formatCurrency={formatCurrency}
       guestPasses={guestPasses}
+      poolSettings={poolSettings}
     />
   ) : (
     <Navigate to="/panel" replace />

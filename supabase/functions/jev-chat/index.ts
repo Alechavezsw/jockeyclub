@@ -9,9 +9,9 @@ const corsHeaders = {
 const GUIDE = `Mapa entero del Jockey Club San Juan (Sede Rivadavia).
 PANEL (rail): Inicio · IA/Jev (Consulta + Revisión) · Operación: Socios, Cuotas/Saldos, Reservas, Ingresos, Acceso QR (/acceso), Entrada pileta (/entrada-pileta), Pileta (/pileta) · Club: Disciplinas, Fiestas · Gestión: Concesiones (/concesiones), Contabilidad, Personal, Reportes · Comunicación: Novedades/Revista, Encuestas, Alertas, Reclamos, Mensajería · Administración: Profesores, Usuarios y altas · Sistema: Migración.
 CONTABILIDAD: Diario, Mayor, Crear asiento, Balance (mensual/resumido/cta cte/patrimonial), Resultados, Gráficos, Reportes, Libre deuda, Grupo familiar, Descuentos extras, Bonificaciones, SIAP, Plan de cuentas, Cajas, Gastos, Proveedores, Retenciones, Otros ingresos, Intereses, Sin identificar, Galicia, Gastos fijos, Saldos, Órdenes de pago, Créditos socios. Cajero y portería solo ven caja. Administrador no entra a Contabilidad.
-PORTAL SOCIO: Inicio, Reservar Canchas (/reservas), Mi Cuenta (/cuenta), Novedades (/revista), Perfil (/perfil). Alta pública /registro.
+PORTAL SOCIO: Inicio, Reservar Canchas (/reservas), Mi Cuenta (/cuenta: paga online con Checkout Pro o se suscribe al débito mensual), Novedades (/revista), Perfil (/perfil). Alta pública /registro. Pileta y caja: QR de mostrador (Orders API). Configuración → Mercado Pago (online, QR, suscripción). Token en secretas MP_ACCESS_TOKEN de la cuenta del club.
 PROFESOR: /asistencia. No entra al panel.
-ROLES: socio, profesor, personal, RR.HH., empleado de administración, operador de portería, cajero, contador, administrador (sin contabilidad), superadministrador (todo; únicos que crean perfiles). Liquidan cuotas: superadmin y contador.
+ROLES: socio, profesor, personal, RR.HH., empleado de administración, operador de portería, operario de pileta (puerta y cobro del canon), cajero, contador, administrador (sin contabilidad), superadministrador (todo; únicos que crean perfiles). Liquidan cuotas: superadmin y contador.
 LILA/Societas: empalme 1 de octubre de 2026. Octubre liquidó $ 63.233.000. Migración guarda los cortes. No reimportar lo que ya está.`;
 
 function json(status: number, body: Record<string, unknown>) {

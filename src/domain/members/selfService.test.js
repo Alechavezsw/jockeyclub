@@ -120,7 +120,7 @@ describe('selfService', () => {
   });
 
   it('al aprobar dice Aprobado y no muestra la secreta de Resend', () => {
-    expect(portalLoginUrl()).toBe('https://www.jockeyclubsj.com.ar/');
+    expect(portalLoginUrl()).toBe('https://jockeyclubsj.com.ar/');
     expect(requestStatusLabel('approved')).toBe('Aprobado');
     expect(requestStatusLabel('pending')).toBe('Pendiente');
     expect(accessInviteMailError('Falta configurar RESEND_API_KEY en las secretas de Supabase.')).toBe('');

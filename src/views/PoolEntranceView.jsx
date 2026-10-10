@@ -19,6 +19,10 @@ import { isSupabaseConfigured } from '../lib/supabase';
 import { searchMembersDirectory, listMembersGateIndex, getMemberByNumber } from '../data/repos';
 import { poolIngressToAccessLog } from '../domain/credentials/accessLog';
 import { chargePoolCanon, withChargedPoolEntry } from '../domain/pool/poolCheckout';
+import MercadoPagoCheckout from '../components/MercadoPagoCheckout';
+import { listPoolAccesses } from '../data/repos';
+import { isPoolSeasonLive } from '../domain/pool/poolSeason';
+import { SEASON_DUES_GATE_COPY } from '../domain/pool/seasonDuesGate';
 
 /**
  * Entrada de pileta: página de puerta, como /acceso.
@@ -48,6 +52,7 @@ export default function PoolEntranceView({
   const [searching, setSearching] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [payMethod, setPayMethod] = useState('efectivo');
 
   useEffect(() => {
     if (members.length > directory.length) setDirectory(members);
@@ -270,6 +275,15 @@ export default function PoolEntranceView({
         ) : null}
       </div>
 
+      {settings.seasonBlocksUnpaidDues !== false ? (
+        <p className="season-dues-rule">
+          {SEASON_DUES_GATE_COPY.lead}
+          {' '}
+          {SEASON_DUES_GATE_COPY.mora}
+          {isPoolSeasonLive(today) ? '' : ' Rige en temporada, diciembre a marzo.'}
+        </p>
+      ) : null}
+
       {error ? <p className="conc-error" role="alert">{error}</p> : null}
 
       {selected ? (
@@ -330,14 +344,51 @@ export default function PoolEntranceView({
           </dl>
 
           {eval_.canEnable ? (
-            <button
-              type="button"
-              className="btn btn-primary pool-entrance-pay"
-              disabled={busy}
-              onClick={handleEnable}
-            >
-              Cobrar canon e ingresar · {formatCurrency(settings.memberDayFee)}
-            </button>
+            <div className="pool-entrance-paybox">
+              <div className="pool-entrance-methods">
+                <button
+                  type="button"
+                  className={`pool-method${payMethod === 'efectivo' ? ' is-active' : ''}`}
+                  onClick={() => setPayMethod('efectivo')}
+                >
+                  Efectivo
+                </button>
+                <button
+                  type="button"
+                  className={`pool-method${payMethod === 'mercadopago' ? ' is-active' : ''}`}
+                  onClick={() => setPayMethod('mercadopago')}
+                >
+                  Mercado Pago
+                </button>
+              </div>
+              {payMethod === 'efectivo' ? (
+                <button
+                  type="button"
+                  className="btn btn-primary pool-entrance-pay"
+                  disabled={busy}
+                  onClick={handleEnable}
+                >
+                  Cobrar canon e ingresar · {formatCurrency(settings.memberDayFee)}
+                </button>
+              ) : (
+                <MercadoPagoCheckout
+                  kind="pool"
+                  mode="qr"
+                  amount={settings.memberDayFee}
+                  memberNumber={selected.memberId}
+                  concept={`Canon pileta · ${selected.name}`}
+                  disabled={busy}
+                  onApproved={async () => {
+                    try {
+                      const rows = await listPoolAccesses();
+                      setPoolAccesses(rows);
+                    } catch (err) {
+                      setError(err?.message || 'El pago entró. Recargá la puerta para verlo.');
+                    }
+                  }}
+                />
+              )}
+            </div>
           ) : null}
 
           {eval_.alreadyIn ? (
@@ -346,7 +397,7 @@ export default function PoolEntranceView({
             <button
               type="button"
               className="btn pool-entrance-attend"
-              disabled={busy}
+              disabled={busy || eval_.duesBlocked}
               onClick={handleAttend}
             >
               Asistió
@@ -381,7 +432,9 @@ export default function PoolEntranceView({
                 <span className="pool-hit-flags">
                   <em className={snap.paidToday ? 'is-ok' : 'is-bad'}>{snap.paidToday ? 'Canon pago' : 'Canon impago'}</em>
                   <em className={snap.medical?.ok ? 'is-ok' : 'is-bad'}>{snap.medical?.ok ? 'Apto' : 'Sin apto'}</em>
-                  <em className={owed > 0 ? 'is-bad' : 'is-ok'}>{owed > 0 ? `Debe ${formatCurrency(owed)}` : 'Cuota al día'}</em>
+                  <em className={snap.duesBlocked || owed > 0 ? 'is-bad' : 'is-ok'}>
+                    {snap.duesBlocked ? 'En mora' : owed > 0 ? `Debe ${formatCurrency(owed)}` : 'Cuota al día'}
+                  </em>
                 </span>
               </button>
             </li>

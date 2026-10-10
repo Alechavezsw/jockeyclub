@@ -2,6 +2,7 @@
 
 import { duesDueDay } from '../members/dues';
 import { mergePoolSettings } from '../pool/poolAccess';
+import { poolSeasonWindow } from '../pool/poolSeason';
 
 function money(value) {
   const n = Number(value);
@@ -247,35 +248,7 @@ function accessPay(row) {
   return money(row?.payment?.amount ?? row?.payment_amount ?? row?.amount);
 }
 
-/** Temporada de pileta del club: diciembre a marzo. */
-export function poolSeasonWindow(today) {
-  const [year, month] = dayOf(today).split('-').map(Number);
-  if (month >= 4 && month <= 11) {
-    return {
-      open: `${year}-12-01`,
-      close: `${year + 1}-03-31`,
-      previousOpen: `${year - 1}-12-01`,
-      previousClose: `${year}-03-31`,
-      live: false,
-    };
-  }
-  if (month === 12) {
-    return {
-      open: `${year}-12-01`,
-      close: `${year + 1}-03-31`,
-      previousOpen: `${year - 1}-12-01`,
-      previousClose: `${year}-03-31`,
-      live: true,
-    };
-  }
-  return {
-    open: `${year - 1}-12-01`,
-    close: `${year}-03-31`,
-    previousOpen: `${year - 2}-12-01`,
-    previousClose: `${year - 1}-03-31`,
-    live: true,
-  };
-}
+export { poolSeasonWindow } from '../pool/poolSeason';
 
 function listSeasonAccesses(rows, from, to) {
   return (rows || []).filter((row) => (

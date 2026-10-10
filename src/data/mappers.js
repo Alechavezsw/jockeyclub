@@ -487,6 +487,7 @@ function roleRank(roleKey) {
     admin: 50,
     accountant: 40,
     cashier: 30,
+    pool_operator: 28,
     staff: 20,
     teacher: 15,
     member: 10,

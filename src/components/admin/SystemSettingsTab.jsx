@@ -4,15 +4,18 @@ import { repos } from '../../data/bootstrap';
 import {
   DEFAULT_CLUB_SETTINGS,
   DEFAULT_DUES_SETTINGS,
+  DEFAULT_MP_SETTINGS,
   DEFAULT_SYSTEM_RULES,
   mergeClubSettings,
   mergeDuesSettings,
+  mergeMercadoPagoSettings,
   mergePoolSettings,
   mergeSystemRules,
   setRuntimeClubSettings,
   SETTINGS_KEYS,
 } from '../../domain/system/clubSettings';
 import { DEFAULT_POOL_SETTINGS } from '../../domain/pool/poolAccess';
+import { SEASON_DUES_GATE_COPY } from '../../domain/pool/seasonDuesGate';
 import { setRuntimeDueDay } from '../../domain/members/dues';
 
 function Field({ label, hint, children }) {
@@ -63,8 +66,10 @@ export default function SystemSettingsTab({
     maxGuestsPerMember: pool.maxGuestsPerMember,
     seasonLabel: pool.seasonLabel,
     memberCanUploadMedical: pool.memberCanUploadMedical !== false,
+    seasonBlocksUnpaidDues: pool.seasonBlocksUnpaidDues !== false,
   });
   const [rulesDraft, setRulesDraft] = useState(() => mergeSystemRules(systemRules));
+  const [mpDraft, setMpDraft] = useState(DEFAULT_MP_SETTINGS);
   const [saving, setSaving] = useState('');
   const [note, setNote] = useState('');
   const [health, setHealth] = useState(null);
@@ -86,12 +91,22 @@ export default function SystemSettingsTab({
       maxGuestsPerMember: next.maxGuestsPerMember,
       seasonLabel: next.seasonLabel,
       memberCanUploadMedical: next.memberCanUploadMedical !== false,
+      seasonBlocksUnpaidDues: next.seasonBlocksUnpaidDues !== false,
     });
   }, [poolSettings]);
 
   useEffect(() => {
     setRulesDraft(mergeSystemRules(systemRules));
   }, [systemRules]);
+
+  useEffect(() => {
+    let live = true;
+    if (!isSupabaseConfigured) return undefined;
+    repos.getSetting(SETTINGS_KEYS.mercadopago)
+      .then((row) => { if (live) setMpDraft(mergeMercadoPagoSettings(row || {})); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, []);
 
   useEffect(() => {
     let live = true;
@@ -151,6 +166,7 @@ export default function SystemSettingsTab({
       maxGuestsPerMember: Math.max(0, Number(poolDraft.maxGuestsPerMember) || 0),
       seasonLabel: poolDraft.seasonLabel,
       memberCanUploadMedical: poolDraft.memberCanUploadMedical !== false,
+      seasonBlocksUnpaidDues: poolDraft.seasonBlocksUnpaidDues !== false,
     });
     setSaving('pool');
     setNote('');
@@ -160,6 +176,23 @@ export default function SystemSettingsTab({
       setNote('Canon de pileta guardado en el libro.');
     } catch (err) {
       setNote(err.message || 'No se pudo guardar la pileta.');
+    } finally {
+      setSaving('');
+    }
+  };
+
+  const saveMp = async () => {
+    const next = mergeMercadoPagoSettings(mpDraft);
+    setSaving('mp');
+    setNote('');
+    try {
+      await persist(SETTINGS_KEYS.mercadopago, next);
+      setMpDraft(next);
+      setNote(next.enabled
+        ? 'Mercado Pago quedó prendido. El token vive en las secretas de Supabase.'
+        : 'Mercado Pago quedó apagado.');
+    } catch (err) {
+      setNote(err.message || 'No se pudo guardar Mercado Pago.');
     } finally {
       setSaving('');
     }
@@ -328,6 +361,20 @@ export default function SystemSettingsTab({
               <option value="no">No</option>
             </select>
           </Field>
+          <Field
+            label="Mora desde el 10 bloquea el ingreso"
+            hint="En temporada (diciembre a marzo). Vale para sede y pileta."
+          >
+            <YesNo
+              value={poolDraft.seasonBlocksUnpaidDues !== false}
+              onChange={(on) => setPoolDraft((p) => ({ ...p, seasonBlocksUnpaidDues: on }))}
+            />
+          </Field>
+          <p className="sys-set-hint">
+            {SEASON_DUES_GATE_COPY.lead}
+            {' '}
+            {SEASON_DUES_GATE_COPY.mora}
+          </p>
           <div className="sys-set-actions">
             <button type="button" className="jev-slip-go" onClick={savePool} disabled={saving === 'pool'}>
               {saving === 'pool' ? 'Guardando…' : 'Guardar pileta'}
@@ -336,6 +383,34 @@ export default function SystemSettingsTab({
               <button type="button" className="btn btn-secondary" onClick={() => goToTab('pool')}>Ir a Pileta</button>
             ) : null}
           </div>
+        </article>
+
+        <article className="sys-set-card">
+          <header>
+            <p>Mercado Pago</p>
+            <b>Tres productos: cobro online en el portal, QR en caja o pileta, y suscripción mensual. El access token no se guarda acá: va en las secretas de Supabase (MP_ACCESS_TOKEN), de la cuenta del club.</b>
+          </header>
+          <Field label="Cobros habilitados" hint="Si está en No, no se abre ni el checkout, ni el QR, ni la adhesión.">
+            <YesNo value={mpDraft.enabled} onChange={(on) => setMpDraft((p) => ({ ...p, enabled: on }))} />
+          </Field>
+          <Field label="Caja QR" hint="Identificador de la caja en Mercado Pago (external_id). Se crea sola la primera vez.">
+            <input
+              className="form-input"
+              value={mpDraft.posId}
+              onChange={(e) => setMpDraft((p) => ({ ...p, posId: e.target.value }))}
+            />
+          </Field>
+          <ul className="sys-set-hint">
+            <li><strong>Online.</strong> Checkout Pro: el socio paga en el portal y vuelve a su cuenta.</li>
+            <li><strong>En el lugar.</strong> QR dinámico en caja y pileta. El socio escanea con la app.</li>
+            <li><strong>Suscripción.</strong> Débito mensual de la cuota desde Mercado Pago.</li>
+          </ul>
+          <p className="sys-set-hint">
+            SITE_URL: https://jockeyclubsj.com.ar o https://www.jockeyclubsj.com.ar. Webhook: mp-webhook, con los tópicos payment, merchant_order, order, preapproval y subscription_authorized_payment.
+          </p>
+          <button type="button" className="jev-slip-go" onClick={saveMp} disabled={saving === 'mp'}>
+            {saving === 'mp' ? 'Guardando…' : 'Guardar Mercado Pago'}
+          </button>
         </article>
 
         <article className="sys-set-card is-wide">

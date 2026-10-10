@@ -1,8 +1,8 @@
-export const POOL_MP_PENDING = 'Mercado Pago se cobra cuando esté la app. Hasta entonces el canon entra en efectivo, en la caja.';
+export const POOL_MP_PENDING = 'El canon de Mercado Pago se acredita cuando confirma el pago.';
 
 /**
  * El canon en efectivo entra en la caja abierta y en el libro.
- * La asistencia no cobra. Mercado Pago queda para la app.
+ * La asistencia no cobra. Mercado Pago lo acredita el webhook.
  */
 export async function chargePoolCanon({ entry, member, recordPoolCanon }) {
   const amount = Number(entry?.payment?.amount) || 0;
@@ -12,6 +12,7 @@ export async function chargePoolCanon({ entry, member, recordPoolCanon }) {
     return { ...entry, memberDbId };
   }
   if (method === 'mercadopago') {
+    if (entry?.journalEntryId) return { ...entry, memberDbId };
     throw new Error(POOL_MP_PENDING);
   }
   if (method !== 'efectivo') {

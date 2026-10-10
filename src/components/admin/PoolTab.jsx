@@ -22,6 +22,8 @@ import {
 import { chargePoolCanon, withChargedPoolEntry } from '../../domain/pool/poolCheckout';
 import { poolIngressToAccessLog } from '../../domain/credentials/accessLog';
 import { todayISODateAR } from '../../lib/arDate';
+import MercadoPagoCheckout from '../MercadoPagoCheckout';
+import { listPoolAccesses } from '../../data/repos';
 
 function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -67,6 +69,8 @@ export default function PoolTab({
   const [openingCash, setOpeningCash] = useState(false);
   const [flash, setFlash] = useState('');
   const [error, setError] = useState('');
+  const [payMethod, setPayMethod] = useState('efectivo');
+  const [guestMethod, setGuestMethod] = useState('efectivo');
   const [feeDraft, setFeeDraft] = useState({
     memberDayFee: settings.memberDayFee,
     guestDayFee: settings.guestDayFee,
@@ -405,16 +409,38 @@ export default function PoolTab({
 
               {!eval_.alreadyIn ? (
                 <div className="pool-pay">
-                  <button
-                    type="button"
-                    className="btn btn-primary pool-enable-btn"
-                    disabled={busy || !dayCashOpen || !eval_.canEnable}
-                    onClick={() => handleEnableMember(selected)}
-                  >
-                    <UserCheck size={16} /> Habilitar · {formatCurrency(settings.memberDayFee)}
-                  </button>
+                  <div className="pool-entrance-methods">
+                    <button type="button" className={`pool-method${payMethod === 'efectivo' ? ' is-active' : ''}`} onClick={() => setPayMethod('efectivo')}>Efectivo</button>
+                    <button type="button" className={`pool-method${payMethod === 'mercadopago' ? ' is-active' : ''}`} onClick={() => setPayMethod('mercadopago')}>Mercado Pago</button>
+                  </div>
+                  {payMethod === 'efectivo' ? (
+                    <button
+                      type="button"
+                      className="btn btn-primary pool-enable-btn"
+                      disabled={busy || !dayCashOpen || !eval_.canEnable}
+                      onClick={() => handleEnableMember(selected)}
+                    >
+                      <UserCheck size={16} /> Habilitar · {formatCurrency(settings.memberDayFee)}
+                    </button>
+                  ) : (
+                    <MercadoPagoCheckout
+                      kind="pool"
+                      mode="qr"
+                      amount={settings.memberDayFee}
+                      memberNumber={selected.memberId}
+                      concept={`Canon pileta · ${selected.name}`}
+                      disabled={busy || !eval_.canEnable}
+                      onApproved={async () => {
+                        const rows = await listPoolAccesses();
+                        setPoolAccesses(rows);
+                        showFlash(`Pago Mercado Pago · ${selected.name}`);
+                      }}
+                    />
+                  )}
                   <p className="ops-muted">
-                    Efectivo en Caja General. Queda el asiento y el ingreso a tu nombre.
+                    {payMethod === 'efectivo'
+                      ? 'Efectivo en Caja General. Queda el asiento y el ingreso a tu nombre.'
+                      : 'El socio paga en el teléfono. Cuando Mercado Pago confirma, entra el canon y el ingreso.'}
                   </p>
                   {eval_.blockers.length > 0 ? (
                     <ul className="pool-blockers">
@@ -451,15 +477,37 @@ export default function PoolTab({
                       placeholder="Apellido y nombre"
                     />
                   </div>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    disabled={busy || !dayCashOpen || !guestName.trim() || hostGuests.length >= settings.maxGuestsPerMember}
-                    onClick={handleEnableGuest}
-                    style={{ width: '100%', marginTop: '0.65rem' }}
-                  >
-                    <UserPlus size={16} /> Sumar invitado · {formatCurrency(settings.guestDayFee)}
-                  </button>
+                  <div className="pool-entrance-methods" style={{ marginTop: '0.65rem' }}>
+                    <button type="button" className={`pool-method${guestMethod === 'efectivo' ? ' is-active' : ''}`} onClick={() => setGuestMethod('efectivo')}>Efectivo</button>
+                    <button type="button" className={`pool-method${guestMethod === 'mercadopago' ? ' is-active' : ''}`} onClick={() => setGuestMethod('mercadopago')}>Mercado Pago</button>
+                  </div>
+                  {guestMethod === 'efectivo' ? (
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      disabled={busy || !dayCashOpen || !guestName.trim() || hostGuests.length >= settings.maxGuestsPerMember}
+                      onClick={handleEnableGuest}
+                      style={{ width: '100%', marginTop: '0.65rem' }}
+                    >
+                      <UserPlus size={16} /> Sumar invitado · {formatCurrency(settings.guestDayFee)}
+                    </button>
+                  ) : (
+                    <MercadoPagoCheckout
+                      kind="pool"
+                      mode="qr"
+                      amount={settings.guestDayFee}
+                      memberNumber={selected.memberId}
+                      guestName={guestName}
+                      concept={`Canon pileta invitado · ${guestName || 'invitado'}`}
+                      disabled={busy || !guestName.trim() || hostGuests.length >= settings.maxGuestsPerMember}
+                      onApproved={async () => {
+                        const rows = await listPoolAccesses();
+                        setPoolAccesses(rows);
+                        setGuestName('');
+                        showFlash('Invitado pago por Mercado Pago');
+                      }}
+                    />
+                  )}
                 </div>
               )}
             </div>

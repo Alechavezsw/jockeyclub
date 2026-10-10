@@ -1,5 +1,7 @@
 /** Acceso a pileta: revisación médica, canon del día e invitados. */
 
+import { seasonDuesGate } from './seasonDuesGate';
+
 export const DEFAULT_POOL_SETTINGS = {
   memberDayFee: 5000,
   guestDayFee: 8000,
@@ -7,11 +9,12 @@ export const DEFAULT_POOL_SETTINGS = {
   maxGuestsPerMember: 3,
   seasonLabel: 'Temporada de pileta',
   memberCanUploadMedical: true,
+  seasonBlocksUnpaidDues: true,
 };
 
 export const POOL_PAYMENT_METHODS = [
   { id: 'efectivo', label: 'Efectivo' },
-  { id: 'mercadopago', label: 'Mercado Pago (QR)' },
+  { id: 'mercadopago', label: 'Mercado Pago' },
 ];
 
 function todayISO(d = new Date()) {
@@ -25,7 +28,9 @@ function addDaysISO(isoDate, days) {
 }
 
 export function mergePoolSettings(raw = {}) {
-  return { ...DEFAULT_POOL_SETTINGS, ...(raw || {}) };
+  const next = { ...DEFAULT_POOL_SETTINGS, ...(raw || {}) };
+  next.seasonBlocksUnpaidDues = raw?.seasonBlocksUnpaidDues !== false;
+  return next;
 }
 
 /** Documento médico de pileta (apto / revisación). */
@@ -131,7 +136,15 @@ export function evaluatePoolAccess(member, {
 } = {}) {
   const cfg = mergePoolSettings(settings);
   if (!member) {
-    return { canEnable: false, blockers: ['Seleccioná un socio.'], medical: null, paidToday: false, alreadyIn: false };
+    return {
+      canEnable: false,
+      blockers: ['Seleccioná un socio.'],
+      medical: null,
+      duesGate: { blocked: false, inSeason: false, mora: false, reason: '' },
+      duesBlocked: false,
+      paidToday: false,
+      alreadyIn: false,
+    };
   }
   const blockers = [];
   if (member.status === 'inactive') blockers.push('El socio está de baja.');
@@ -140,6 +153,9 @@ export function evaluatePoolAccess(member, {
 
   const medical = getMedicalStatus(member, { today, validityDays: cfg.medicalValidityDays });
   if (!medical.ok) blockers.push(medical.label);
+
+  const duesGate = seasonDuesGate(member, { today, settings: cfg });
+  if (duesGate.blocked) blockers.push(duesGate.reason);
 
   const alreadyIn = Boolean(memberDayAccess(accesses, member.memberId, today));
   const paidToday = listDayAccesses(accesses, today).some(
@@ -152,6 +168,8 @@ export function evaluatePoolAccess(member, {
     canEnable: blockers.length === 0 && !alreadyIn,
     blockers,
     medical,
+    duesGate,
+    duesBlocked: duesGate.blocked,
     paidToday,
     alreadyIn,
     memberFee: cfg.memberDayFee,
@@ -183,6 +201,7 @@ export function enableMemberPoolAccess({
 }) {
   const eval_ = evaluatePoolAccess(member, { accesses, today, settings });
   if (eval_.alreadyIn) throw new Error('El socio ya tiene acceso habilitado hoy.');
+  if (eval_.duesBlocked) throw new Error(eval_.duesGate?.reason || 'En mora · no ingresa hasta regularizar.');
   if (!eval_.medical?.ok) throw new Error(eval_.medical?.label || 'Falta revisación médica.');
   if (member.status !== 'active') throw new Error('Solo socios activos pueden ingresar a pileta.');
 
@@ -221,6 +240,8 @@ export function recordPoolAttendance({
   today = todayISO(),
 } = {}) {
   if (!member?.memberId) throw new Error('Seleccioná un socio.');
+  const duesGate = seasonDuesGate(member, { today });
+  if (duesGate.blocked) throw new Error(duesGate.reason);
   if (memberDayAccess(accesses, member.memberId, today)) {
     throw new Error('El socio ya está anotado hoy.');
   }

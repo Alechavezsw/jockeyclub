@@ -7,7 +7,9 @@ import { credentialTokenMatches, parseCredentialQRPayload } from '../domain/cred
 import { parseGuestPassPayload, isGuestPassValid } from '../domain/credentials/guestPass';
 import { accessLogsForClubDay, buildAccessLogEntry, GATE_HISTORY_PAGE, tierToGroup } from '../domain/credentials/accessLog';
 import { todayISODateAR } from '../lib/arDate';
-import { mergePoolSearchHits, searchPoolMembers } from '../domain/pool/poolAccess';
+import { mergePoolSearchHits, mergePoolSettings, searchPoolMembers } from '../domain/pool/poolAccess';
+import { isPoolSeasonLive } from '../domain/pool/poolSeason';
+import { SEASON_DUES_GATE_COPY, seasonDuesGate } from '../domain/pool/seasonDuesGate';
 import { getMemberByNumber, searchMembersDirectory } from '../data/repos';
 import { isSupabaseConfigured } from '../lib/supabase';
 import QrLiveScanner from '../components/QrLiveScanner';
@@ -59,6 +61,7 @@ export default function AccessControlView({
   setEntryLogs,
   formatCurrency,
   guestPasses = [],
+  poolSettings,
 }) {
   const navigate = useNavigate();
   const processingRef = useRef(false);
@@ -80,6 +83,7 @@ export default function AccessControlView({
   const [clubDay, setClubDay] = useState(() => todayISODateAR());
   const [historyShown, setHistoryShown] = useState(GATE_HISTORY_PAGE);
   const manualRef = useRef(null);
+  const poolCfg = mergePoolSettings(poolSettings);
 
   const beginCooldown = useCallback((ms = COOLDOWN_MS) => {
     processingRef.current = true;
@@ -100,18 +104,21 @@ export default function AccessControlView({
   const admitMember = useCallback((member) => {
     if (!member || processingRef.current) return;
     const isSuspended = member.status !== 'active';
+    const duesGate = seasonDuesGate(member, { today: clubDay, settings: poolCfg });
     const hasDebt = (member.outstandingBalance || 0) > 0;
-    const isAllowed = !isSuspended;
+    const isAllowed = !isSuspended && !duesGate.blocked;
     const status = isAllowed ? 'granted' : 'denied';
     const notes = isSuspended
       ? 'Cuenta suspendida'
-      : hasDebt
-        ? `Ingreso OK · Deuda ${formatCurrency(member.outstandingBalance)}`
-        : 'Acceso aprobado · Sin deuda pendiente';
+      : duesGate.blocked
+        ? duesGate.reason
+        : hasDebt
+          ? `Ingreso OK · Deuda ${formatCurrency(member.outstandingBalance)}`
+          : 'Acceso aprobado · Sin deuda pendiente';
 
     setResult({
       status,
-      title: isAllowed ? (hasDebt ? 'ACCESO CON DEUDA' : 'ACCESO AUTORIZADO') : 'ACCESO DENEGADO',
+      title: isAllowed ? (hasDebt ? 'ACCESO CON DEUDA' : 'ACCESO AUTORIZADO') : (duesGate.blocked ? 'ACCESO DENEGADO · MORA' : 'ACCESO DENEGADO'),
       detail: `${member.name} · ${isAllowed ? (member.tier?.toUpperCase() || 'SOCIO') : notes}`,
       memberName: member.name,
       photo: member.photo,
@@ -125,9 +132,11 @@ export default function AccessControlView({
         group: tierToGroup(member.tier),
         activity: isSuspended
           ? 'Acceso denegado'
-          : hasDebt
-            ? 'Ingreso con deuda'
-            : 'Ingreso sede',
+          : duesGate.blocked
+            ? 'Acceso denegado · mora'
+            : hasDebt
+              ? 'Ingreso con deuda'
+              : 'Ingreso sede',
         status,
         notes,
       }),
@@ -137,7 +146,7 @@ export default function AccessControlView({
     setManualHint('');
     setRemoteHits([]);
     beginCooldown();
-  }, [formatCurrency, setEntryLogs, beginCooldown]);
+  }, [formatCurrency, setEntryLogs, beginCooldown, clubDay, poolCfg]);
 
   const processPayload = useCallback(async (raw, { allowUnsignedNumber = false } = {}) => {
     if (processingRef.current) return;
@@ -146,13 +155,18 @@ export default function AccessControlView({
     if (guestParsed) {
       const pass = (guestPasses || []).find((p) => p.id === guestParsed.id);
       const host = members.find((m) => m.memberId === guestParsed.hostMemberId);
-      const valid = pass && isGuestPassValid(pass, { parsed: guestParsed }) && host?.status === 'active';
+      const hostBlocked = host
+        ? seasonDuesGate(host, { today: clubDay, settings: poolCfg }).blocked
+        : false;
+      const valid = pass && isGuestPassValid(pass, { parsed: guestParsed }) && host?.status === 'active' && !hostBlocked;
       setResult({
         status: valid ? 'granted' : 'denied',
-        title: valid ? 'INVITADO AUTORIZADO' : 'PASE INVÁLIDO',
+        title: valid ? 'INVITADO AUTORIZADO' : (hostBlocked ? 'ANFITRIÓN EN MORA' : 'PASE INVÁLIDO'),
         detail: valid
           ? `${pass.guestName} · invitado de ${host?.name || 'socio'}`
-          : 'Pase vencido, revocado o no registrado.',
+          : hostBlocked
+            ? 'El socio anfitrión no regularizó la cuota del mes.'
+            : 'Pase vencido, revocado o no registrado.',
         memberName: pass?.guestName || null,
       });
       playBeep(valid);
@@ -166,7 +180,9 @@ export default function AccessControlView({
           status: valid ? 'granted' : 'denied',
           notes: valid
             ? `Pase ${pass.id} · anfitrión ${host?.name || ''}`
-            : 'Pase vencido, revocado o no registrado',
+            : hostBlocked
+              ? 'Anfitrión en mora'
+              : 'Pase vencido, revocado o no registrado',
         }),
         ...(prev || []),
       ]);
@@ -261,7 +277,7 @@ export default function AccessControlView({
     }
 
     admitMember(member);
-  }, [members, guestPasses, formatCurrency, setEntryLogs, beginCooldown, admitMember]);
+  }, [members, guestPasses, formatCurrency, setEntryLogs, beginCooldown, admitMember, clubDay, poolCfg]);
 
   const startCamera = useCallback(() => {
     setCameraError('');
@@ -401,6 +417,11 @@ export default function AccessControlView({
           margin: 0 auto;
           flex: 1;
           align-items: start;
+        }
+        .access-gate .season-dues-rule {
+          width: 100%;
+          max-width: 1100px;
+          margin: 0 auto 0.85rem;
         }
         .access-scanner-shell {
           position: relative;
@@ -646,6 +667,15 @@ export default function AccessControlView({
           <ArrowLeft size={14} /> Panel
         </button>
       </header>
+
+      {poolCfg.seasonBlocksUnpaidDues !== false ? (
+        <p className="season-dues-rule">
+          {SEASON_DUES_GATE_COPY.lead}
+          {' '}
+          {SEASON_DUES_GATE_COPY.mora}
+          {isPoolSeasonLive(clubDay) ? '' : ' Rige en temporada, diciembre a marzo.'}
+        </p>
+      ) : null}
 
       <div className="access-gate-layout">
         <div className={`access-scanner-shell${cameraLive ? '' : ' is-idle'}`}>

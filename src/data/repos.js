@@ -2655,6 +2655,64 @@ export async function sendAccessInviteEmail({
   return { ok: true, id: data?.id || null, to: dest };
 }
 
+async function invokeFunction(name, body, fallback) {
+  const { data, error } = await sb().functions.invoke(name, { body });
+  if (error) {
+    let detail = error.message || fallback;
+    try {
+      const ctx = error.context;
+      if (ctx && typeof ctx.json === 'function') {
+        const parsed = await ctx.json();
+        if (parsed?.error) detail = parsed.error;
+      }
+    } catch {
+      /* ignore */
+    }
+    throw new Error(data?.error || detail);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
+export async function createMercadoPagoCheckout({
+  kind = 'dues',
+  amount,
+  memberNumber,
+  concept,
+  guestName,
+  channel,
+  origin = typeof window !== 'undefined' ? window.location.origin : '',
+} = {}) {
+  return invokeFunction('mp-create', {
+    kind,
+    amount,
+    memberNumber,
+    concept,
+    guestName,
+    channel,
+    origin,
+  }, 'No se pudo abrir Mercado Pago');
+}
+
+export async function getMercadoPagoIntent(id) {
+  if (!id) return null;
+  const row = await unwrap(
+    sb().from('mp_intents').select('*').eq('id', id).maybeSingle(),
+    'No se pudo leer el cobro de Mercado Pago',
+  );
+  if (!row) return null;
+  return {
+    id: row.id,
+    kind: row.kind,
+    status: row.status,
+    amount: Number(row.amount) || 0,
+    initPoint: row.init_point || row.sandbox_init_point || '',
+    qrData: row.meta?.qr_data || '',
+    appliedAt: row.applied_at || null,
+    memberNumber: row.member_number,
+  };
+}
+
 /** Mail del boleto de Mercado Pago al socio logueado. El destino sale de su ficha. */
 export async function sendPaymentBoletoEmail({
   amountLabel,
@@ -2766,6 +2824,7 @@ const SYSTEM_ROLE_LABELS = {
   hr: 'Recursos humanos',
   admin_employee: 'Empleado de administración',
   gate_operator: 'Operador de portería',
+  pool_operator: 'Operario de pileta',
   cashier: 'Cajero',
   accountant: 'Contador',
   admin: 'Administrador',

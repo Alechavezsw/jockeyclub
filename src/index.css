@@ -9100,6 +9100,59 @@ a.ops-outline-btn {
   max-width: 260px;
 }
 
+.mp-box {
+  display: grid;
+  gap: 0.7rem;
+  margin-top: 0.75rem;
+}
+.mp-box-go {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+}
+.mp-box-wait {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.85rem;
+  align-items: center;
+  padding: 0.85rem;
+  border-radius: 14px;
+  border: 1px solid rgba(202, 57, 12, 0.22);
+  background: #fff;
+}
+.mp-box-qr {
+  background: #fff;
+  border-radius: 10px;
+}
+.mp-box-wait strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: #CA390C;
+}
+.mp-box-wait p,
+.mp-box-hint,
+.mp-box-ok,
+.mp-box-err {
+  margin: 0.35rem 0 0;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+.mp-box-ok { color: #096755; }
+.mp-box-err { color: #b42318; }
+.mp-spin { animation: mp-spin 0.8s linear infinite; }
+@keyframes mp-spin { to { transform: rotate(360deg); } }
+.pool-entrance-paybox {
+  display: grid;
+  gap: 0.65rem;
+  width: min(100%, 28rem);
+}
+.pool-entrance-methods {
+  display: flex;
+  gap: 0.45rem;
+}
+
 .pay-hist-qr,
 .pay-hist-transfer {
   display: flex;
@@ -16771,6 +16824,16 @@ a.ops-outline-btn {
   background: color-mix(in srgb, var(--primary-gold) 22%, transparent);
 }
 
+.season-dues-rule {
+  margin: 0 0 0.85rem;
+  padding: 0.8rem 0.95rem;
+  border: 1px solid color-mix(in srgb, #ca390c 28%, #d8c7a4);
+  background: #fffdf8;
+  color: #3f3830;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
 .pool-entrance-hint {
   margin: 0.35rem 0 0;
   color: var(--text-secondary);
@@ -21010,6 +21073,11 @@ a.ops-outline-btn {
   letter-spacing: 0;
   font-style: normal;
   font-size: 0.75rem;
+}
+ul.sys-set-hint {
+  padding-left: 1.05rem;
+  display: grid;
+  gap: 0.28rem;
 }
 .sys-set-rows {
   display: grid;

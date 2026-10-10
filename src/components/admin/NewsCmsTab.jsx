@@ -6,6 +6,7 @@ import {
   List, Type, Sparkles, Globe, User,
 } from 'lucide-react';
 import { isSupabaseConfigured } from '../../lib/supabase';
+import { PORTAL_PUBLIC_ORIGIN } from '../../domain/members/selfService';
 import { uploadNewsImage } from '../../data/storage';
 import {
   NEWS_CATEGORIES,
@@ -835,7 +836,7 @@ export default function NewsCmsTab({ newsList = [], setNewsList, authorName = ''
                     <div className="news-cms-seo-card">
                       <span>Vista tipo Google</span>
                       <strong>{draft.seoTitle || draft.title || 'Título de la nota'}</strong>
-                      <em>jockeyclubsj.org/revista/{draft.slug || 'nota'}</em>
+                      <em>{PORTAL_PUBLIC_ORIGIN.replace('https://', '')}/revista/{draft.slug || 'nota'}</em>
                       <p>{draft.seoDescription || draft.excerpt || 'Meta descripción…'}</p>
                     </div>
                   </>

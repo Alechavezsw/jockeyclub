@@ -2,6 +2,7 @@
 
 import { DUES_DUE_DAY } from '../members/dues';
 import { DEFAULT_POOL_SETTINGS, mergePoolSettings } from '../pool/poolAccess';
+import { DEFAULT_MP_SETTINGS, mergeMercadoPagoSettings } from '../payments/mercadoPago';
 
 export const SETTINGS_KEYS = {
   club: 'club',
@@ -9,6 +10,7 @@ export const SETTINGS_KEYS = {
   dues: 'dues',
   zonda: 'zonda',
   system: 'system',
+  mercadopago: 'mercadopago',
 };
 
 export const DEFAULT_CLUB_SETTINGS = {
@@ -138,7 +140,7 @@ export function mergeSystemRules(raw = {}) {
   };
 }
 
-export { DEFAULT_POOL_SETTINGS, mergePoolSettings };
+export { DEFAULT_POOL_SETTINGS, mergePoolSettings, DEFAULT_MP_SETTINGS, mergeMercadoPagoSettings };
 
 let runtimeClub = null;
 

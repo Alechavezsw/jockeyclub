@@ -116,18 +116,12 @@ Deno.serve(async (req) => {
     const username = String(body.username || "").trim();
     const loginEmail = String(body.loginEmail || "").trim();
     const password = String(body.password || "").trim();
-    const rawPortalUrl = String(body.portalUrl || "").trim();
-    const portalUrl = /localhost|127\.0\.0\.1/i.test(rawPortalUrl)
-      ? "https://www.jockeyclubsj.com.ar/"
-      : rawPortalUrl;
-    const rawLogoUrl = String(body.logoUrl || "").trim();
-    const logoUrl = /localhost|127\.0\.0\.1/i.test(rawLogoUrl)
-      ? "https://www.jockeyclubsj.com.ar/logo-jockey-club.png"
-      : rawLogoUrl;
+    const portalUrl = "https://jockeyclubsj.com.ar/";
+    const logoUrl = "https://jockeyclubsj.com.ar/logo-jockey-club.png";
 
     if (!to.includes("@")) return json(400, { error: "Falta el email de contacto" });
-    if (!username || !password || !portalUrl) {
-      return json(400, { error: "Faltan usuario, contraseña o el link del portal" });
+    if (!username || !password) {
+      return json(400, { error: "Faltan usuario o contraseña" });
     }
 
     const from = Deno.env.get("RESEND_FROM") || "Jockey Club San Juan <onboarding@resend.dev>";

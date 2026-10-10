@@ -21,7 +21,7 @@ export const MERCADO_PAGO = {
 
 export const CASH_JOURNAL_ACCOUNT = 'Caja General';
 
-/** Payload del QR de cobro MP (demo operativo hasta integrar API real). */
+/** Payload de respaldo (alias) si el checkout todavía no está habilitado. */
 export function buildMercadoPagoQrPayload({ amount, memberId, memberName, concept }) {
   const ref = `JCSJ-${String(memberId || '').slice(0, 8)}-${Date.now().toString(36).toUpperCase()}`;
   const label = concept || `Cuota social ${memberName || ''}`.trim();

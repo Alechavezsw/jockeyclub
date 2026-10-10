@@ -7,6 +7,7 @@ export const ROLES = {
   hr: 'hr',
   admin_employee: 'admin_employee',
   gate_operator: 'gate_operator',
+  pool_operator: 'pool_operator',
   cashier: 'cashier',
   accountant: 'accountant',
   admin: 'admin',
@@ -20,6 +21,7 @@ export const ROLE_LABELS = {
   hr: 'Recursos humanos',
   admin_employee: 'Empleado de administración',
   gate_operator: 'Operador de portería',
+  pool_operator: 'Operario de pileta',
   cashier: 'Cajero',
   accountant: 'Contador',
   admin: 'Administrador',
@@ -34,6 +36,7 @@ export const PORTAL_ROLE_OPTIONS = [
   'hr',
   'admin_employee',
   'gate_operator',
+  'pool_operator',
   'cashier',
   'accountant',
   'admin',
@@ -57,6 +60,7 @@ const ROLE_RANK = {
   accountant: 40,
   cashier: 32,
   gate_operator: 31,
+  pool_operator: 30,
   admin_employee: 25,
   hr: 23,
   staff: 20,
@@ -157,6 +161,7 @@ const OPS_ROLES = [
   'hr',
   'admin_employee',
   'gate_operator',
+  'pool_operator',
   'cashier',
   'accountant',
   'admin',
@@ -204,6 +209,9 @@ export function allowedAdminTabs(role) {
   // Operador de portería: caja + portería / ingresos.
   if (role === 'gate_operator') {
     return ['dashboard', 'jev', 'members', 'pool', 'access', 'accounting'];
+  }
+  if (role === 'pool_operator') {
+    return ['dashboard', 'jev', 'pool'];
   }
   if (role === 'cashier') {
     return ['dashboard', 'jev', 'members', 'dues', 'pool', 'access', 'accounting', 'events'];
@@ -306,7 +314,7 @@ export function canManageMembers(role) {
 }
 
 export function canPostJournal(role) {
-  return ['cashier', 'gate_operator', 'accountant', 'superadmin'].includes(role);
+  return ['cashier', 'gate_operator', 'pool_operator', 'accountant', 'superadmin'].includes(role);
 }
 
 export function navItemsForRole(role) {
@@ -348,6 +356,10 @@ export const ROLE_PANEL_META = {
   gate_operator: {
     title: 'Portería',
     subtitle: 'Control de acceso, ingresos y caja',
+  },
+  pool_operator: {
+    title: 'Pileta',
+    subtitle: 'Puerta de pileta y cobro del canon',
   },
   admin_employee: {
     title: 'Administración',

@@ -1,18 +1,16 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { X, Banknote, Landmark, QrCode, Upload, Copy, Check } from 'lucide-react';
-import { QRCodeSVG } from 'qrcode.react';
 import ModalDialog from '../ModalDialog';
+import MercadoPagoCheckout from '../MercadoPagoCheckout';
 import {
   CLUB_BANK_ACCOUNTS,
-  MERCADO_PAGO,
-  buildMercadoPagoQrPayload,
   journalAccountForPayment,
 } from '../../domain/members/clubBanks';
 
 const METHODS = [
   { id: 'efectivo', label: 'Efectivo', icon: Banknote, hint: 'Cobro en sede / caja' },
   { id: 'transferencia', label: 'Transferencia', icon: Landmark, hint: 'Bancos del club + comprobante' },
-  { id: 'mercadopago', label: 'Mercado Pago', icon: QrCode, hint: 'Genera QR de cobro' },
+  { id: 'mercadopago', label: 'Mercado Pago', icon: QrCode, hint: 'QR de mostrador y acreditación automática' },
 ];
 
 function CopyBtn({ value }) {
@@ -58,15 +56,6 @@ export default function CollectDuesModal({
   const [submitting, setSubmitting] = useState(false);
 
   const selectedBank = CLUB_BANK_ACCOUNTS.find((b) => b.id === bankId) || CLUB_BANK_ACCOUNTS[0];
-
-  const mpPayload = useMemo(() => {
-    if (!member) return '';
-    return buildMercadoPagoQrPayload({
-      amount,
-      memberId: member.memberId,
-      memberName: member.name,
-    });
-  }, [member, amount]);
 
   const handleReceipt = (e) => {
     const file = e.target.files?.[0];
@@ -256,19 +245,21 @@ export default function CollectDuesModal({
         )}
 
         {method === 'mercadopago' && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.85rem', marginBottom: '1rem', padding: '1rem', borderRadius: 10, border: '1px solid var(--border-glass)' }}>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontWeight: 700, color: 'var(--text-gold)', marginBottom: 4 }}>QR Mercado Pago</div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                Alias: <code>{MERCADO_PAGO.alias}</code> · {formatCurrency(amount)}
-              </div>
-            </div>
-            <div style={{ background: '#fff', padding: 12, borderRadius: 12 }}>
-              <QRCodeSVG value={mpPayload} size={180} level="M" includeMargin />
-            </div>
-            <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)', textAlign: 'center', maxWidth: 320 }}>
-              El socio escanea el QR o transfiere al alias. Confirme el cobro cuando vea el acreditado.
-            </p>
+          <div style={{ marginBottom: '1rem' }}>
+            <MercadoPagoCheckout
+              kind="dues"
+              mode="qr"
+              amount={amount}
+              memberNumber={member.memberId}
+              concept={`Cuota social · ${member.name || 'socio'}`}
+              onApproved={() => {
+                onConfirm({
+                  method: 'mercadopago',
+                  alreadyApplied: true,
+                  amount,
+                });
+              }}
+            />
           </div>
         )}
 
@@ -280,19 +271,17 @@ export default function CollectDuesModal({
           <button type="button" className="btn btn-secondary" onClick={onClose}>
             Cancelar
           </button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={handleConfirm}
-            disabled={submitting}
-            style={{ minWidth: 160 }}
-          >
-            {method === 'efectivo'
-              ? 'Acreditar efectivo'
-              : method === 'mercadopago'
-                ? 'Confirmar cobro MP'
-                : 'Registrar con comprobante'}
-          </button>
+          {method === 'mercadopago' ? null : (
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handleConfirm}
+              disabled={submitting}
+              style={{ minWidth: 160 }}
+            >
+              {method === 'efectivo' ? 'Acreditar efectivo' : 'Registrar con comprobante'}
+            </button>
+          )}
         </div>
     </ModalDialog>
   );

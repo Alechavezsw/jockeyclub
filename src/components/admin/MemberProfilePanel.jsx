@@ -31,6 +31,7 @@ import {
 } from '../../domain/members/profileEdit';
 import { duesMethodLabel, isDuesCollectionJournal, journalEntryBelongsToMember, persistDuesCollection, recordDuesCollection } from '../../domain/members/memberPayments';
 import { sendDuesReceiptMessage } from '../../domain/members/duesReceiptDelivery';
+import { repos } from '../../data/bootstrap';
 import CurrentAccountCutNote from '../erp/CurrentAccountCutNote';
 
 const SECTIONS = [
@@ -630,6 +631,18 @@ export default function MemberProfilePanel({
   }
 
   const handleConfirmCollect = (payload) => {
+    if (payload?.alreadyApplied) {
+      if (member.memberId) {
+        repos.getMemberByNumber(member.memberId, { withPayments: true })
+          .then((fresh) => { if (fresh) updateMember?.(fresh); })
+          .catch(() => {});
+      }
+      setCollectOpen(false);
+      setSection('movimientos');
+      setCollectFlash('Pago de Mercado Pago acreditado en la cuenta.');
+      window.setTimeout(() => setCollectFlash(''), 5000);
+      return;
+    }
     try {
       const result = recordDuesCollection(member, payload);
       persistDuesCollection(result, {

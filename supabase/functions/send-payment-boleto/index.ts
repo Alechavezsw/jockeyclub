@@ -6,7 +6,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const PORTAL_PAYMENTS = "https://jockeyclubsj.org/cuenta";
+const PORTAL_PAYMENTS = "https://jockeyclubsj.com.ar/cuenta";
 const MAX_PDF_CHARS = 1_800_000;
 
 function json(status: number, body: Record<string, unknown>) {

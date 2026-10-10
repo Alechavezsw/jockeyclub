@@ -813,6 +813,15 @@ export default function MembersTab({
   const handleConfirmCollect = (payload) => {
     const member = collectMember;
     if (!member) return;
+    if (payload?.alreadyApplied) {
+      if (member.memberId) {
+        repos.getMemberByNumber(member.memberId, { withPayments: true })
+          .then((fresh) => { if (fresh) updateMember?.(fresh); })
+          .catch(() => {});
+      }
+      setCollectMember(null);
+      return;
+    }
     try {
       const result = persistDuesCollection(recordDuesCollection(member, payload), {
         setMembers,

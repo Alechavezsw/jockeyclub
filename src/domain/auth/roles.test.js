@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   canAccessAdmin,
   canAccessConcessions,
+  canAccessPool,
+  canAccessQrGate,
+  canPostJournal,
   canTakeAttendance,
   canLiquidateDues,
   canManageProfiles,
@@ -20,7 +23,7 @@ describe('canAccessAdmin', () => {
   it('los roles operativos acceden al panel; el socio y el profesor no', () => {
     expect(canAccessAdmin('member')).toBe(false);
     expect(canAccessAdmin('teacher')).toBe(false);
-    for (const role of ['staff', 'cashier', 'accountant', 'admin', 'superadmin', 'gate_operator', 'admin_employee', 'hr']) {
+    for (const role of ['staff', 'cashier', 'accountant', 'admin', 'superadmin', 'gate_operator', 'pool_operator', 'admin_employee', 'hr']) {
       expect(canAccessAdmin(role)).toBe(true);
     }
   });
@@ -83,6 +86,20 @@ describe('allowedAdminTabs', () => {
     expect(tabs).toContain('accounting');
     expect(tabs).toContain('access');
     expect(tabs).not.toContain('migration');
+  });
+
+  it('el operario de pileta cobra en la puerta y no entra a libros', () => {
+    const tabs = allowedAdminTabs('pool_operator');
+    expect(tabs).toContain('pool');
+    expect(tabs).not.toContain('accounting');
+    expect(tabs).not.toContain('members');
+    expect(tabs).not.toContain('dues');
+    expect(tabs).not.toContain('migration');
+    expect(canAccessAdmin('pool_operator')).toBe(true);
+    expect(canAccessPool('pool_operator')).toBe(true);
+    expect(canAccessQrGate('pool_operator')).toBe(false);
+    expect(canLiquidateDues('pool_operator')).toBe(false);
+    expect(canPostJournal('pool_operator')).toBe(true);
   });
 
   it('empleado de administración no ve contabilidad ni sistema', () => {

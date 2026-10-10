@@ -286,6 +286,11 @@ export default function AdminView({
     ? (searchParams.get('sub') || (userRole === 'cashier' ? 'cash' : null))
     : null;
 
+  useEffect(() => {
+    if (userRole !== 'pool_operator' || routeTab) return;
+    navigate('/entrada-pileta', { replace: true });
+  }, [userRole, routeTab, navigate]);
+
   const goToTab = (tabKey, focus = null) => {
     if (tabKey === 'concessions') {
       navigate('/concesiones');
