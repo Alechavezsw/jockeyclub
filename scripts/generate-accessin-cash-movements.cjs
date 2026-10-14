@@ -98,12 +98,26 @@ for (const row of rows) {
 const headerIdx = rows.findIndex((r) => r && String(r[0] || '').includes('ID CONCEPTO'));
 if (headerIdx < 0) throw new Error('No se encontró encabezado de movimientos de caja');
 
+function colIndex(header, pattern, fallback) {
+  const idx = header.findIndex((cell) => pattern.test(String(cell || '')));
+  return idx >= 0 ? idx : fallback;
+}
+
+const header = rows[headerIdx];
+const col = {
+  date: colIndex(header, /FECHA/i, 1),
+  wallet: colIndex(header, /^CAJA$/i, 2),
+  type: colIndex(header, /^TIPO$/i, 3),
+  description: colIndex(header, /DESCRIP/i, 4),
+  amount: colIndex(header, /^TOTAL$/i, 5),
+};
+
 const body = rows.slice(headerIdx + 1);
 const openingRow = body.find((r) => r && String(r[0] || '').startsWith('Saldo al'));
 const closingRow = [...body].reverse().find((r) => r && String(r[0] || '').startsWith('Saldo al'));
 
-const openingBalance = Number(openingRow?.[5]) || 0;
-const closingBalance = Number(closingRow?.[5]) || 0;
+const openingBalance = Number(openingRow?.[col.amount]) || 0;
+const closingBalance = Number(closingRow?.[col.amount]) || 0;
 
 const movements = [];
 const periodInflows = {};
@@ -112,11 +126,11 @@ const walletsSeen = new Map();
 for (const r of body) {
   if (!r || r[0] == null) continue;
   if (typeof r[0] !== 'number') continue;
-  const walletName = String(r[2] || '').trim();
-  const tipo = String(r[3] || '').trim();
-  const description = r[4] == null ? '' : String(r[4]).trim();
-  const amount = Number(r[5]) || 0;
-  const date = excelDateToIso(r[1]);
+  const walletName = String(r[col.wallet] || '').trim();
+  const tipo = String(r[col.type] || '').trim();
+  const description = r[col.description] == null ? '' : String(r[col.description]).trim();
+  const amount = Number(r[col.amount]) || 0;
+  const date = excelDateToIso(r[col.date]);
   const meta = WALLET_META[walletName] || {
     id: `wallet-${walletName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
     kind: 'bank',

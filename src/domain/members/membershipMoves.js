@@ -14,8 +14,8 @@ export function membershipMovesSeed() {
   return readSnapshot('societasMembershipMoves', EMPTY_MEMBERSHIP_MOVES_SEED);
 }
 
-export const MEMBERSHIP_MOVE_AS_OF = '2026-09-26';
-export const MEMBERSHIP_MOVE_PERIOD = { from: '2026-08-01', to: '2026-09-26' };
+export const MEMBERSHIP_MOVE_AS_OF = '2026-10-13';
+export const MEMBERSHIP_MOVE_PERIOD = { from: '2026-08-01', to: '2026-10-13' };
 
 export const BAJA_KINDS = {
   licencia: { id: 'licencia', label: 'Licencia', color: '#c9a227' },

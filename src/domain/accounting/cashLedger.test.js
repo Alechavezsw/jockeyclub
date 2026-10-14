@@ -32,10 +32,10 @@ beforeAll(async () => {
 
 describe('cashLedger Accessin', () => {
   it('carga el seed de movimientos reales', () => {
-    expect(ACCESSIN_CASH_MOVEMENTS.length).toBe(1854);
-    expect(ACCESSIN_CASH_SNAPSHOT.asOf).toBe('2026-09-26');
-    expect(ACCESSIN_CASH_SNAPSHOT.openingBalance).toBeCloseTo(675873959.84, 2);
-    expect(ACCESSIN_CASH_SNAPSHOT.closingBalance).toBeCloseTo(805164142.62, 2);
+    expect(ACCESSIN_CASH_MOVEMENTS.length).toBe(2039);
+    expect(ACCESSIN_CASH_SNAPSHOT.asOf).toBe('2026-10-13');
+    expect(ACCESSIN_CASH_SNAPSHOT.openingBalance).toBeCloseTo(715570159.84, 2);
+    expect(ACCESSIN_CASH_SNAPSHOT.closingBalance).toBeCloseTo(868476635.75, 2);
   });
 
   it('recalcula el total = apertura + movimientos del Excel', () => {
@@ -45,10 +45,10 @@ describe('cashLedger Accessin', () => {
 
   it('tarjetas usan solo datos reales del Excel / cheques', () => {
     const cards = accessinCashBalanceCards(ACCESSIN_CASH_SNAPSHOT, ACCESSIN_CASH_MOVEMENTS);
-    expect(cards.find((c) => c.id === 'efectivo')?.value).toBeCloseTo(13127240, 2);
-    expect(cards.find((c) => c.id === 'bancos')?.value).toBeCloseTo(116162942.78, 2);
+    expect(cards.find((c) => c.id === 'efectivo')?.value).toBeCloseTo(14093240, 2);
+    expect(cards.find((c) => c.id === 'bancos')?.value).toBeCloseTo(138813235.91, 2);
     expect(cards.find((c) => c.id === 'cheques')?.value).toBe(0);
-    expect(cards.find((c) => c.id === 'total')?.value).toBeCloseTo(805164142.62, 2);
+    expect(cards.find((c) => c.id === 'total')?.value).toBeCloseTo(868476635.75, 2);
     // No usar saldos inventados de capturas de pantalla.
     expect(cards.find((c) => c.id === 'efectivo')?.value).not.toBeCloseTo(179794062.75, 0);
   });
@@ -61,7 +61,7 @@ describe('cashLedger Accessin', () => {
       ACCESSIN_CHEQUES,
       ACCESSIN_BANK_ACCOUNTS
     );
-    expect(cards.find((c) => c.id === 'bancos')?.value).toBeCloseTo(590868406.11, 2);
+    expect(cards.find((c) => c.id === 'bancos')?.value).toBeCloseTo(668037170.87, 2);
     expect(cards.find((c) => c.id === 'bancos')?.filter?.view).toBe('bank_accounts');
   });
 

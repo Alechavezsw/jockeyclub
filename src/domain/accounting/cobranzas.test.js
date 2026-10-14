@@ -16,9 +16,9 @@ beforeAll(async () => {
 
 describe('cobranzas Accessin', () => {
   it('carga el reporte real', () => {
-    expect(ACCESSIN_COBRANZAS_SNAPSHOT.asOf).toBe('2026-09-26');
-    expect(ACCESSIN_COBRANZAS.length).toBe(1342);
-    expect(ACCESSIN_COBRANZAS_SNAPSHOT.totalAmount).toBeCloseTo(61404570.76, 2);
+    expect(ACCESSIN_COBRANZAS_SNAPSHOT.asOf).toBe('2026-10-13');
+    expect(ACCESSIN_COBRANZAS.length).toBe(1740);
+    expect(ACCESSIN_COBRANZAS_SNAPSHOT.totalAmount).toBeCloseTo(83215757.39, 2);
   });
 
   it('resume por tipo', () => {

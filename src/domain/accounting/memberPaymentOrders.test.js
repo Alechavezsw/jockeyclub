@@ -11,7 +11,7 @@ import {
 
 const orders = [
   {
-    id: '1', orderKind: 'member', number: '100', date: '2026-10-02',
+    id: '1', orderKind: 'member', number: '100', date: '2026-10-14',
     memberNumber: '10377', responsible: 'Yubel Fabio Rafael', status: 'imputed',
     amount: 70000, balanceApplied: true,
   },
@@ -75,7 +75,7 @@ describe('member payment orders', () => {
     });
     expect(memberPaymentOrderDeleteEffect({
       ...orders[0],
-      date: '2026-10-02',
+      date: '2026-10-14',
       balanceApplied: false,
     }).reversesBalance).toBe(false);
     expect(memberPaymentOrderDeleteEffect({

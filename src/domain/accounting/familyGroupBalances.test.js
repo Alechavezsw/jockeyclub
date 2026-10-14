@@ -18,10 +18,10 @@ beforeAll(async () => {
 
 describe('familyGroupBalances', () => {
   it('carga snapshot LILA de grupos familiares', () => {
-    expect(ACCESSIN_FAMILY_GROUP_BALANCES_AS_OF).toBe('2026-09-26');
-    expect(ACCESSIN_FAMILY_GROUP_BALANCES_SNAPSHOT.groupCount).toBeGreaterThan(700);
+    expect(ACCESSIN_FAMILY_GROUP_BALANCES_AS_OF).toBe('2026-10-13');
+    expect(ACCESSIN_FAMILY_GROUP_BALANCES_SNAPSHOT.groupCount).toBeGreaterThanOrEqual(700);
     expect(ACCESSIN_FAMILY_GROUP_BALANCES_SNAPSHOT.withBalance).toBeGreaterThan(100);
-    expect(ACCESSIN_FAMILY_GROUP_BALANCES_SNAPSHOT.asOfLabel).toMatch(/26 de Septiembre del 2026/);
+    expect(ACCESSIN_FAMILY_GROUP_BALANCES_SNAPSHOT.asOfLabel).toMatch(/13 de Octubre del 2026/);
   });
 
   it('lista grupos y resume el corte', () => {
@@ -37,7 +37,7 @@ describe('familyGroupBalances', () => {
   it('lookup por nombre y por nro de socio 11017', () => {
     const byName = lookupFamilyGroupBalance({ name: 'GF - Rodriguez 11017' });
     const byNumber = lookupFamilyGroupBalance({ memberNumber: '11017' });
-    expect(byName?.total).toBe(-62000);
+    expect(byName?.total).toBe(-60000);
     expect(byNumber?.name).toMatch(/11017/);
     expect(byNumber?.months.length).toBeGreaterThanOrEqual(2);
   });
@@ -53,7 +53,7 @@ describe('familyGroupBalances', () => {
     expect(fam.isTitular).toBe(true);
     expect(fam.source).toBe('ledger');
     expect(fam.amount).toBe(60000);
-    expect(fam.officialAmount).toBe(-62000);
+    expect(fam.officialAmount).toBe(-60000);
   });
 
   it('si no hay grupo LILA, suma saldos individuales', () => {

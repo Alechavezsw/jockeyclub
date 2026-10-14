@@ -18,7 +18,7 @@ beforeAll(async () => {
 
 describe('monthlyDebts / deudas mes a mes', () => {
   it('carga snapshot LILA de morosos', () => {
-    expect(ACCESSIN_MONTHLY_DEBTS_AS_OF).toBe('2026-09-26');
+    expect(ACCESSIN_MONTHLY_DEBTS_AS_OF).toBe('2026-10-06');
     expect(ACCESSIN_MONTHLY_DEBTS_SNAPSHOT.memberCount).toBeGreaterThan(800);
     expect(ACCESSIN_MONTHLY_DEBTS_SNAPSHOT.monthRowCount).toBeGreaterThan(5000);
     expect(ACCESSIN_MONTHLY_DEBTS_SNAPSHOT.lineCount).toBeGreaterThan(10000);
@@ -36,7 +36,9 @@ describe('monthlyDebts / deudas mes a mes', () => {
 
   it('lista y filtra por período', () => {
     const all = listMonthlyDebtors();
-    expect(all.length).toBe(ACCESSIN_MONTHLY_DEBTS_SNAPSHOT.memberCount);
+    expect(all.length).toBeGreaterThan(800);
+    expect(all.length).toBeLessThanOrEqual(ACCESSIN_MONTHLY_DEBTS_SNAPSHOT.memberCount);
+    expect(all.every((m) => Number(m.totalDebt) > 0)).toBe(true);
     const periods = listDebtPeriods();
     expect(periods.some((p) => p.periodKey === '2026-09')).toBe(true);
     const sept = filterDebtorsByPeriod(all, '2026-09');

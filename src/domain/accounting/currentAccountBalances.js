@@ -4,22 +4,21 @@ import { readSnapshot } from '../../data/snapshots';
 import { memberNumberOf } from '../members/households';
 
 /**
- * Corte de Lila del 6 de octubre de 2026, cargado en public.members.
- * El total positivo es el del Excel de saldos. Tres números de ese archivo
- * no están en el padrón.
+ * Corte de Lila del 13 de octubre de 2026, cargado en public.members.
+ * El total positivo es el del Excel de saldos.
  */
 export const LILA_BALANCE_CUT = Object.freeze({
-  asOf: '2026-10-06',
-  filePositiveTotal: 360449461.84,
+  asOf: '2026-10-13',
+  filePositiveTotal: 354715661.09,
   omittedTotal: 568000.45,
   omitted: Object.freeze([
-    Object.freeze({ memberNumber: '2656', balance: 78000 }),
-    Object.freeze({ memberNumber: '10815', balance: 460000.45 }),
-    Object.freeze({ memberNumber: '11153', balance: 30000 }),
+    Object.freeze({ memberNumber: '2656', amount: 78000 }),
+    Object.freeze({ memberNumber: '10815', amount: 460000.45 }),
+    Object.freeze({ memberNumber: '11153', amount: 30000 }),
   ]),
-  previousAsOf: '2026-10-02',
-  previousWithBalance: 1187,
-  previousTotal: 366376562.05,
+  previousAsOf: '2026-10-06',
+  previousWithBalance: 1097,
+  previousTotal: 360449461.84,
 });
 
 const EMPTY_CURRENT_ACCOUNT_BALANCES_SEED = Object.freeze({
