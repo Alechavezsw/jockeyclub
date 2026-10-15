@@ -24,6 +24,7 @@ import { chargePoolCanon, withChargedPoolEntry } from '../../domain/pool/poolChe
 import { poolIngressToAccessLog } from '../../domain/credentials/accessLog';
 import { todayISODateAR } from '../../lib/arDate';
 import MercadoPagoCheckout from '../MercadoPagoCheckout';
+import ModalDialog from '../ModalDialog';
 import { listPoolAccesses } from '../../data/repos';
 
 function readFileAsDataUrl(file) {
@@ -139,6 +140,12 @@ export default function PoolTab({
   const showFlash = (msg) => {
     setFlash(msg);
     setTimeout(() => setFlash(''), 3200);
+  };
+
+  const closeSelected = () => {
+    setSelectedId(null);
+    setGuestName('');
+    setError('');
   };
 
   const handleUploadMedical = async (file) => {
@@ -287,7 +294,15 @@ export default function PoolTab({
                 autoFocus
               />
               {query ? (
-                <button type="button" className="members-search-clear" onClick={() => setQuery('')} aria-label="Limpiar">
+                <button
+                  type="button"
+                  className="members-search-clear"
+                  onClick={() => {
+                    setQuery('');
+                    closeSelected();
+                  }}
+                  aria-label="Limpiar"
+                >
                   <X size={16} />
                 </button>
               ) : null}
@@ -298,7 +313,7 @@ export default function PoolTab({
                 : 'Apellido y nombre, en cualquier orden. También un pedazo de cada uno, el DNI o el número de socio.'}
             </p>
           </div>
-          {searchHits.length > 0 && (
+          {searchHits.length > 0 && !selected && (
             <ul className="pool-search-hits">
               {searchHits.map(({ member: m, snap, dues }) => (
                 <li key={m.memberId} className="pool-search-hit">
@@ -345,19 +360,39 @@ export default function PoolTab({
             </ul>
           )}
 
-          {selected ? (
+          {!selected && searchHits.length === 0 ? (
+            <p className="ops-muted" style={{ marginTop: '1rem' }}>
+              Buscá un socio por nombre, DNI o número para ver si pagó pileta, la cuota y el apto médico.
+            </p>
+          ) : null}
+
+          <ModalDialog
+            open={Boolean(selected)}
+            onClose={closeSelected}
+            labelledBy="pool-member-title"
+            overlayClassName="modal-overlay pool-member-overlay"
+            contentClassName="modal-content glass-panel pool-member-modal"
+          >
+            {selected ? (
             <div className="pool-selected">
               <header>
                 <div>
-                  <h4 className="serif-font">{selected.name}</h4>
+                  <h4 id="pool-member-title" className="serif-font">{selected.name}</h4>
                   <p>Nº {selected.memberId} · {selected.documentNumber ? `DNI ${selected.documentNumber}` : 'Sin DNI'}</p>
                 </div>
-                {eval_.alreadyIn ? (
-                  <span className="pool-badge pool-badge--ok"><CheckCircle2 size={14} /> En pileta hoy</span>
-                ) : (
-                  <span className="pool-badge"><UserCheck size={14} /> Seleccionado</span>
-                )}
+                <div className="pool-selected-actions">
+                  {eval_.alreadyIn ? (
+                    <span className="pool-badge pool-badge--ok"><CheckCircle2 size={14} /> En pileta hoy</span>
+                  ) : (
+                    <span className="pool-badge"><UserCheck size={14} /> Seleccionado</span>
+                  )}
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={closeSelected} aria-label="Cerrar ficha">
+                    <X size={14} aria-hidden /> Cerrar
+                  </button>
+                </div>
               </header>
+              {error ? <p className="conc-error" role="alert">{error}</p> : null}
+              {flash ? <p className="member-action-flash" role="status">{flash}</p> : null}
 
               <div className="pool-checklist">
                 <div className={`pool-check ${selected.status === 'active' ? 'is-ok' : 'is-bad'}`}>
@@ -519,35 +554,32 @@ export default function PoolTab({
                   )}
                 </div>
               )}
-            </div>
-          ) : (
-            <p className="ops-muted" style={{ marginTop: '1rem' }}>
-              Buscá un socio por nombre, DNI o número para ver si pagó pileta, la cuota y el apto médico.
-            </p>
-          )}
 
-          {selected && selectedHistory.length > 0 ? (
-            <section className="pool-history">
-              <h4>Historial de pileta</h4>
-              <ul>
-                {selectedHistory.map((row) => (
-                  <li key={row.id}>
-                    <strong>
-                      {row.kind === 'guest' ? `Invitado ${row.guestName}` : 'Socio'}
-                      {row.status === 'revoked' ? ' · revocado' : ''}
-                    </strong>
-                    <span>
-                      {row.date}
-                      {' · '}
-                      {row.payment?.method === 'asistencia'
-                        ? 'Asistió'
-                        : `${row.payment?.amount != null ? formatCurrency(row.payment.amount) : 's/importe'} · ${row.payment?.method === 'mercadopago' ? 'Mercado Pago' : (row.payment?.method || '—')}`}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
+              {selectedHistory.length > 0 ? (
+                <section className="pool-history">
+                  <h4>Historial de pileta</h4>
+                  <ul>
+                    {selectedHistory.map((row) => (
+                      <li key={row.id}>
+                        <strong>
+                          {row.kind === 'guest' ? `Invitado ${row.guestName}` : 'Socio'}
+                          {row.status === 'revoked' ? ' · revocado' : ''}
+                        </strong>
+                        <span>
+                          {row.date}
+                          {' · '}
+                          {row.payment?.method === 'asistencia'
+                            ? 'Asistió'
+                            : `${row.payment?.amount != null ? formatCurrency(row.payment.amount) : 's/importe'} · ${row.payment?.method === 'mercadopago' ? 'Mercado Pago' : (row.payment?.method || '—')}`}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
+            </div>
+            ) : null}
+          </ModalDialog>
         </section>
 
         <aside className="pool-side">

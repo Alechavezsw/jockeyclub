@@ -17471,6 +17471,30 @@ a.ops-outline-btn {
   margin: 0.45rem 0 0;
 }
 
+.modal-overlay.pool-member-overlay {
+  align-items: flex-start;
+}
+
+.pool-member-modal {
+  width: min(42rem, 100%);
+  max-width: 42rem;
+  margin: 0 auto 2rem;
+  padding: 1.15rem 1.2rem 1.25rem;
+}
+
+.pool-member-modal .pool-selected {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.pool-selected-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
 .pool-selected {
   margin-top: 1rem;
   padding-top: 1rem;
