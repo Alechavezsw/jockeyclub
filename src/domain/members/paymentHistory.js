@@ -1,3 +1,4 @@
+import { formatInstantAR, hasClock, nowTimeAR } from '../../lib/arDate';
 import {
   duesAmountForMember,
   duesAmountForTier,
@@ -119,17 +120,52 @@ export function getMemberPaymentHistory(member, { today = new Date(), allowDemo 
 
 function normalizePayment(row) {
   const amount = paymentAmount(row);
+  const date = row.date ? String(row.date).slice(0, 10) : row.date;
   return {
     id: row.id || `pay-${row.date}-${amount}`,
-    date: row.date,
+    date,
+    time: row.time || '',
+    paidAt: row.paidAt || null,
+    createdAt: row.createdAt || null,
     concept: row.concept || 'Cuota social',
     amount,
     method: row.method || 'caja',
     methodLabel: METHOD_LABELS[row.method] || row.methodLabel || 'Pago',
+    bankName: row.bankName || '',
     status: row.status || 'paid',
     receipt: row.receipt || row.receiptNumber || null,
+    receiptNumber: row.receiptNumber || row.receipt || null,
     period: row.period || null,
   };
+}
+
+function clockFromPayment(payment) {
+  if (payment?.time) return payment.time;
+  const stamp = payment?.paidAt || payment?.createdAt;
+  if (!stamp || !hasClock(stamp)) return '';
+  const raw = String(stamp);
+  const instant = new Date(raw.includes('T') ? raw : raw.replace(' ', 'T'));
+  if (Number.isNaN(instant.getTime())) return '';
+  return nowTimeAR(instant);
+}
+
+/** Fecha de pago + hora de registro. Misma regla para todos los cobros. */
+export function paymentWhenStamp(payment) {
+  if (!payment) return '';
+  const date = String(payment.date || '').slice(0, 10);
+  const time = clockFromPayment(payment);
+  if (date && time) return `${date}T${time}`;
+  return date;
+}
+
+/** Fecha y hora del pago de cuota, en es-AR. Vale para todas las fichas. */
+export function formatPaymentWhen(payment) {
+  if (!payment) return '—';
+  const date = String(payment.date || '').slice(0, 10);
+  const time = clockFromPayment(payment);
+  if (date && time) return formatInstantAR(date, time);
+  if (date) return formatInstantAR(date);
+  return '—';
 }
 
 export function summarizePaymentHistory(history = [], member, { today = new Date() } = {}) {

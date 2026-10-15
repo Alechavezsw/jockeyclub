@@ -177,9 +177,84 @@ export function matchMemberForAccessRequest(members = [], request) {
   return hits.length === 1 ? hits[0] : null;
 }
 
+export const ACCESS_REQUEST_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+function accessTrailDigits(value) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+/** Una ficha = un trazado. Nº de socio, si no DNI. */
+export function accessRequestTrailKey(item = {}) {
+  const member = accessTrailDigits(item.memberNumber);
+  if (member.length >= 3) return `n:${member}`;
+  const doc = accessTrailDigits(item.documentNumber);
+  if (doc.length >= 6) return `d:${doc}`;
+  return item.id ? `id:${item.id}` : '';
+}
+
+export function accessRequestIsOpen(item, now = Date.now()) {
+  if (!item || item.status !== 'pending') return false;
+  const created = new Date(item.createdAt || 0).getTime();
+  if (!Number.isFinite(created) || created <= 0) return true;
+  return (now - created) < ACCESS_REQUEST_TTL_MS;
+}
+
+export function effectiveAccessStatus(item, now = Date.now()) {
+  if (item?.status === 'pending' && !accessRequestIsOpen(item, now)) return 'done';
+  return item?.status || 'pending';
+}
+
+/** El último pedido por ficha. Los anteriores no se muestran. */
+export function oneAccessRequestTrail(list = []) {
+  const sorted = [...list].sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+  const seen = new Set();
+  const out = [];
+  for (const item of sorted) {
+    const key = accessRequestTrailKey(item);
+    if (key && seen.has(key)) continue;
+    if (key) seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
+/** Vigentes en bandeja; el resto se mira con Listos. */
+export function splitAccessRequestInbox(list = [], now = Date.now()) {
+  const open = oneAccessRequestTrail((list || []).filter((item) => accessRequestIsOpen(item, now)));
+  const openIds = new Set(open.map((item) => item.id));
+  const hidden = (list || [])
+    .filter((item) => !openIds.has(item.id))
+    .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+  return { open, hidden };
+}
+
+export function mergeOpenAccessRequest(list = [], payload, now = Date.now()) {
+  const key = accessRequestTrailKey(payload);
+  const open = key
+    ? list.find((item) => accessRequestIsOpen(item, now) && accessRequestTrailKey(item) === key)
+    : null;
+  if (!open) {
+    return { list: [payload, ...list], item: payload, merged: false };
+  }
+  const item = {
+    ...open,
+    ...payload,
+    id: open.id,
+    createdAt: open.createdAt,
+    status: 'pending',
+    updatedAt: new Date(now).toISOString(),
+  };
+  return {
+    list: list.map((row) => (row.id === open.id ? item : row)),
+    item,
+    merged: true,
+  };
+}
+
 export function requestStatusLabel(status) {
   if (status === 'approved') return 'Aprobado';
   if (status === 'rejected') return 'Rechazado';
+  if (status === 'done') return 'Listo';
   return 'Pendiente';
 }
 

@@ -431,11 +431,7 @@ export default function AdminView({
     }
     setProfileLookupDone(false);
     const local = findMemberForProfile(members, routeEntityId);
-    if (local && local.recordScope !== 'list') {
-      setFetchedProfile(local);
-      setProfileLookupDone(true);
-      return undefined;
-    }
+    if (local) setFetchedProfile(local);
     let cancelled = false;
     repos.getMemberByNumber(routeEntityId, { withPayments: true })
       .then((row) => {
@@ -888,6 +884,8 @@ export default function AdminView({
             addJournalEntry={addJournalEntry}
             onAccountEntry={erp.upsertMemberAccountEntryRecord}
             onSendMessage={sendMessage}
+            accessinCobranzas={erp.accessinCobranzas}
+            poolSettings={poolSettings}
           />
         ) : (
           <MembersTab

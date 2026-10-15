@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isCurrentMonthDuesUnpaid, seasonDuesGate } from './seasonDuesGate';
+import { isCurrentMonthDuesUnpaid, piletaPayAccess, seasonDuesGate } from './seasonDuesGate';
 
 const familiar = {
   memberId: '1',
@@ -48,5 +48,44 @@ describe('seasonDuesGate', () => {
       today: '2026-12-15',
       settings: { seasonBlocksUnpaidDues: false },
     }).blocked).toBe(false);
+  });
+});
+
+describe('piletaPayAccess', () => {
+  it('en temporada, mora no puede pagar pileta', () => {
+    const access = piletaPayAccess(familiar, { today: '2026-12-15' });
+    expect(access.canPay).toBe(false);
+    expect(access.label).toMatch(/no puede pagar pileta/i);
+  });
+
+  it('después del 10, con saldo, no paga pileta hasta regularizar', () => {
+    const access = piletaPayAccess(familiar, { today: '2026-10-14' });
+    expect(access.canPay).toBe(false);
+    expect(access.detail).toMatch(/mora/i);
+  });
+
+  it('con deuda de un mes anterior no paga pileta aunque aún no sea el 10', () => {
+    const access = piletaPayAccess({
+      ...familiar,
+      nextDueDate: '2026-09-10',
+    }, { today: '2026-10-05' });
+    expect(access.canPay).toBe(false);
+  });
+
+  it('al día puede pagar pileta', () => {
+    const access = piletaPayAccess({
+      ...familiar,
+      outstandingBalance: 0,
+      lastPaymentDate: '2026-10-01',
+      nextDueDate: '2026-11-10',
+      status: 'active',
+    }, { today: '2026-10-14' });
+    expect(access.canPay).toBe(true);
+    expect(access.label).toMatch(/puede pagar pileta/i);
+  });
+
+  it('suspendido no puede pagar pileta', () => {
+    const access = piletaPayAccess({ ...familiar, status: 'suspended' }, { today: '2026-10-14' });
+    expect(access.canPay).toBe(false);
   });
 });

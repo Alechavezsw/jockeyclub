@@ -222,5 +222,25 @@ describe('mappers', () => {
     expect(pay.amount).toBe(32000);
     expect(pay.receipt).toBe('RC-0988-260813');
     expect(pay.date).toBe('2026-08-13');
+    expect(pay.createdAt).toBeNull();
+  });
+
+  it('paymentFromRow conserva hora de registro y banco', () => {
+    const pay = paymentFromRow({
+      id: 'p2',
+      member_id: 'm1',
+      amount: 66000,
+      paid_at: '2026-10-01',
+      created_at: '2026-10-01T17:57:51.952Z',
+      method: 'transferencia',
+      concept: 'Cuota social',
+      receipt_number: 'RC-1',
+      meta: { bank: 'Banco de San Juan', paidAt: '2026-10-01T17:57:51.952Z', time: '14:57' },
+    });
+    expect(pay.date).toBe('2026-10-01');
+    expect(pay.time).toBe('14:57');
+    expect(pay.paidAt).toBe('2026-10-01T17:57:51.952Z');
+    expect(pay.createdAt).toBe('2026-10-01T17:57:51.952Z');
+    expect(pay.bankName).toBe('Banco de San Juan');
   });
 });

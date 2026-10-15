@@ -9,6 +9,7 @@ import {
   getOverdueMembers,
   getUpcomingDuesMembers,
   quotaHeadline,
+  isVitalicioMember,
   toWhatsAppPhone,
   buildWhatsAppDuesUrl,
   nextDuesDueDate,
@@ -128,6 +129,17 @@ describe('dues classification', () => {
     expect(quotaHeadline({ status: 'inactive', outstandingBalance: 0 }).kind).toBe('off');
     expect(quotaHeadline({ status: 'active', outstandingBalance: 0 }).title).toBe('Al día');
     expect(quotaHeadline({ status: 'inactive', outstandingBalance: 500 }).kind).toBe('debt');
+  });
+
+  it('vitalicio no factura ni figura al día', () => {
+    expect(isVitalicioMember({ tier: 'socio_vitalicio' })).toBe(true);
+    expect(isVitalicioMember({ tier: 'grupo_familiar_vitalicio' })).toBe(true);
+    expect(isVitalicioMember({ cuotaCategories: ['SOCIO (Vitalicio)'] })).toBe(true);
+    expect(isVitalicioMember({ tier: 'socio_individual' })).toBe(false);
+    const quota = quotaHeadline({ status: 'active', outstandingBalance: 0, tier: 'socio_vitalicio' });
+    expect(quota.title).toBe('Vitalicio');
+    expect(quota.billing).toBe(false);
+    expect(quota.kind).toBe('off');
   });
 
   it('no marca “vence hoy” si hay saldo pero la fecha ancla no está vencida', () => {

@@ -9,6 +9,7 @@ import {
   enableMemberPoolAccess,
   recordPoolAttendance,
   searchPoolMembers,
+  poolSearchFlags,
   poolDayStats,
   mergePoolSearchHits,
   poolEntranceVerdict,
@@ -365,7 +366,7 @@ export default function PoolEntranceView({
                 <button
                   type="button"
                   className="btn btn-primary pool-entrance-pay"
-                  disabled={busy}
+                  disabled={busy || !eval_.canEnable}
                   onClick={handleEnable}
                 >
                   Cobrar canon e ingresar · {formatCurrency(settings.memberDayFee)}
@@ -377,7 +378,7 @@ export default function PoolEntranceView({
                   amount={settings.memberDayFee}
                   memberNumber={selected.memberId}
                   concept={`Canon pileta · ${selected.name}`}
-                  disabled={busy}
+                  disabled={busy || !eval_.canEnable}
                   onApproved={async () => {
                     try {
                       const rows = await listPoolAccesses();
@@ -430,11 +431,11 @@ export default function PoolEntranceView({
                   {m.documentNumber ? ` · DNI ${m.documentNumber}` : ''}
                 </span>
                 <span className="pool-hit-flags">
-                  <em className={snap.paidToday ? 'is-ok' : 'is-bad'}>{snap.paidToday ? 'Canon pago' : 'Canon impago'}</em>
-                  <em className={snap.medical?.ok ? 'is-ok' : 'is-bad'}>{snap.medical?.ok ? 'Apto' : 'Sin apto'}</em>
-                  <em className={snap.duesBlocked || owed > 0 ? 'is-bad' : 'is-ok'}>
-                    {snap.duesBlocked ? 'En mora' : owed > 0 ? `Debe ${formatCurrency(owed)}` : 'Cuota al día'}
-                  </em>
+                  {poolSearchFlags(snap, owed, formatCurrency).map((flag) => (
+                    <em key={flag.label} className={flag.tone === 'ok' ? 'is-ok' : 'is-bad'}>
+                      {flag.label}
+                    </em>
+                  ))}
                 </span>
               </button>
             </li>

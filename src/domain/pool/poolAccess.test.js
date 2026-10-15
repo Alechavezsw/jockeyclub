@@ -3,6 +3,7 @@ import {
   getMedicalStatus,
   attachPoolMedical,
   evaluatePoolAccess,
+  poolSearchFlags,
   enableMemberPoolAccess,
   enableGuestPoolAccess,
   recordPoolAttendance,
@@ -129,6 +130,23 @@ describe('poolAccess', () => {
     expect(poolDayStats(accesses, '2026-09-12').collected).toBe(0);
     expect(() => recordPoolAttendance({ member, accesses, today: '2026-09-12' }))
       .toThrow(/ya está anotado/i);
+  });
+
+  it('después del 10, con mora, no cobra pileta hasta regularizar', () => {
+    const debtor = {
+      ...attachPoolMedical(member, { fileName: 'apto.pdf', uploadedAt: '2026-09-01T12:00:00.000Z' }),
+      tier: 'socio_familiar',
+      outstandingBalance: 70000,
+      nextDueDate: '2026-10-10',
+    };
+    const snap = evaluatePoolAccess(debtor, { today: '2026-10-14', accesses: [] });
+    expect(snap.payBlocked).toBe(true);
+    expect(snap.canEnable).toBe(false);
+    expect(() => enableMemberPoolAccess({ member: debtor, accesses: [], today: '2026-10-14' }))
+      .toThrow(/mora/i);
+    const flags = poolSearchFlags(snap, 70000, (n) => `$${n}`).map((f) => f.label);
+    expect(flags[0]).toMatch(/mora/i);
+    expect(flags.join(' ')).not.toMatch(/canon impago/i);
   });
 
   it('en temporada no habilita ni anota si debe la cuota del mes', () => {

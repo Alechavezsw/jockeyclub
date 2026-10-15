@@ -1,6 +1,6 @@
 /** Acceso a pileta: revisación médica, canon del día e invitados. */
 
-import { seasonDuesGate } from './seasonDuesGate';
+import { piletaPayAccess, seasonDuesGate } from './seasonDuesGate';
 
 export const DEFAULT_POOL_SETTINGS = {
   memberDayFee: 5000,
@@ -142,6 +142,7 @@ export function evaluatePoolAccess(member, {
       medical: null,
       duesGate: { blocked: false, inSeason: false, mora: false, reason: '' },
       duesBlocked: false,
+      payBlocked: false,
       paidToday: false,
       alreadyIn: false,
     };
@@ -156,6 +157,8 @@ export function evaluatePoolAccess(member, {
 
   const duesGate = seasonDuesGate(member, { today, settings: cfg });
   if (duesGate.blocked) blockers.push(duesGate.reason);
+  const payAccess = piletaPayAccess(member, { today, settings: cfg });
+  if (!duesGate.blocked && payAccess.mora) blockers.push(payAccess.detail);
 
   const alreadyIn = Boolean(memberDayAccess(accesses, member.memberId, today));
   const paidToday = listDayAccesses(accesses, today).some(
@@ -170,12 +173,40 @@ export function evaluatePoolAccess(member, {
     medical,
     duesGate,
     duesBlocked: duesGate.blocked,
+    payBlocked: Boolean(payAccess.mora),
     paidToday,
     alreadyIn,
     memberFee: cfg.memberDayFee,
     guestFee: cfg.guestDayFee,
     maxGuests: cfg.maxGuestsPerMember,
   };
+}
+
+/** Banderas de la búsqueda de pileta: en mora no se ofrece canon. */
+export function poolSearchFlags(snap, dues, formatMoney) {
+  const flags = [];
+  const owed = Number(dues) || 0;
+  if (snap?.payBlocked) {
+    flags.push({ tone: 'bad', label: 'En mora · no paga pileta' });
+  } else {
+    flags.push({
+      tone: snap?.paidToday ? 'ok' : 'bad',
+      label: snap?.paidToday ? 'Canon pago' : 'Canon impago',
+    });
+  }
+  flags.push({
+    tone: snap?.medical?.ok ? 'ok' : 'bad',
+    label: snap?.medical?.ok ? 'Apto médico' : 'Sin apto',
+  });
+  if (owed > 0) {
+    flags.push({
+      tone: 'bad',
+      label: typeof formatMoney === 'function' ? `Debe ${formatMoney(owed)}` : `Debe ${owed}`,
+    });
+  } else if (!snap?.payBlocked) {
+    flags.push({ tone: 'ok', label: 'Cuota al día' });
+  }
+  return flags;
 }
 
 export function buildPoolMpPayload({ amount, memberId, memberName, concept = 'Canon pileta' }) {
@@ -201,6 +232,7 @@ export function enableMemberPoolAccess({
 }) {
   const eval_ = evaluatePoolAccess(member, { accesses, today, settings });
   if (eval_.alreadyIn) throw new Error('El socio ya tiene acceso habilitado hoy.');
+  if (eval_.payBlocked) throw new Error('En mora · regularizá la cuota para pagar pileta.');
   if (eval_.duesBlocked) throw new Error(eval_.duesGate?.reason || 'En mora · no ingresa hasta regularizar.');
   if (!eval_.medical?.ok) throw new Error(eval_.medical?.label || 'Falta revisación médica.');
   if (member.status !== 'active') throw new Error('Solo socios activos pueden ingresar a pileta.');

@@ -512,7 +512,12 @@ export default function MembersTab({
         setMembers((prev) => {
           const idx = (prev || []).findIndex((m) => String(m.memberId) === String(full.memberId));
           const current = idx >= 0 ? prev[idx] : null;
-          if (current?.recordScope === 'full' && current.address) return prev;
+          if (current?.recordScope === 'full' && current.address) {
+            if (!full.paymentHistory?.length) return prev;
+            return prev.map((m, i) => (
+              i === idx ? { ...current, paymentHistory: full.paymentHistory } : m
+            ));
+          }
           const hydrated = {
             ...current,
             ...full,

@@ -23,6 +23,7 @@ import { cobranzasSeed } from '../../domain/accounting/cobranzas';
 import { buildPadronHouseholdStats } from '../../domain/members/households';
 import { getOverdueMembers } from '../../domain/members/dues';
 import { membershipMovesSeed, uniqueBajas } from '../../domain/members/membershipMoves';
+import { accessRequestIsOpen } from '../../domain/members/selfService';
 import { useSnapshotSeed } from '../../hooks/useSnapshots';
 import { formatISODateLongAR, todayISODateAR } from '../../lib/arDate';
 import { dedupeAccessLogs } from '../../domain/credentials/accessLog';
@@ -202,7 +203,7 @@ export default function AdminDashboardTab({
   const showGate = canAccessQrGate(userRole);
   const pendingMembershipApps = useMemo(
     () => (membershipApplications || []).filter((a) => a.status === 'pending').length
-      + (portalAccessRequests || []).filter((a) => a.status === 'pending').length,
+      + (portalAccessRequests || []).filter((a) => accessRequestIsOpen(a)).length,
     [membershipApplications, portalAccessRequests]
   );
   const todayKey = todayISODateAR();

@@ -5,11 +5,14 @@ import JoinClubPlaque from './JoinClubPlaque';
 import { publicJoinUrl } from '../../domain/members/selfService';
 import {
   accessReasonLabel,
+  accessRequestIsOpen,
   buildRequestDetail,
+  effectiveAccessStatus,
   formatRequestWhen,
   matchMemberForAccessRequest,
   accessInviteMailError,
   requestStatusLabel,
+  splitAccessRequestInbox,
 } from '../../domain/members/selfService';
 import { getTierDisplayName } from '../../domain/members/tiers';
 import { isSupabaseConfigured } from '../../lib/supabase';
@@ -30,6 +33,7 @@ export default function MemberRequestsSection({
   const [params] = useSearchParams();
   const openJoinInbox = params.get('solicitudes') === 'alta';
   const [view, setView] = useState(openJoinInbox ? 'alta' : 'acceso');
+  const [showClosed, setShowClosed] = useState(false);
   const [busyId, setBusyId] = useState('');
   const [rejectId, setRejectId] = useState('');
   const [rejectNote, setRejectNote] = useState('');
@@ -41,7 +45,10 @@ export default function MemberRequestsSection({
   const joinUrl = publicJoinUrl();
 
   useEffect(() => {
-    if (openJoinInbox) setView('alta');
+    if (openJoinInbox) {
+      setView('alta');
+      setShowClosed(false);
+    }
   }, [openJoinInbox]);
 
   useEffect(() => {
@@ -58,12 +65,16 @@ export default function MemberRequestsSection({
     return () => { cancelled = true; };
   }, [setMembershipApplications, setPortalAccessRequests]);
 
-  const pendingAccess = useMemo(
-    () => (portalAccessRequests || []).filter((r) => r.status === 'pending'),
+  const accessInbox = useMemo(
+    () => splitAccessRequestInbox(portalAccessRequests),
     [portalAccessRequests],
   );
   const pendingJoin = useMemo(
     () => (membershipApplications || []).filter((a) => a.status === 'pending'),
+    [membershipApplications],
+  );
+  const pendingJoinClosed = useMemo(
+    () => (membershipApplications || []).filter((a) => a.status !== 'pending'),
     [membershipApplications],
   );
 
@@ -222,8 +233,17 @@ export default function MemberRequestsSection({
     await startDeliver(detail.kind, detail.item);
   };
 
-  const rows = view === 'acceso' ? portalAccessRequests : membershipApplications;
-  const detailPending = detail?.item?.status === 'pending' && !invite;
+  const accessRows = showClosed ? accessInbox.hidden : accessInbox.open;
+  const joinRows = showClosed ? pendingJoinClosed : pendingJoin;
+  const rows = view === 'acceso' ? accessRows : joinRows;
+  const closedCount = view === 'acceso' ? accessInbox.hidden.length : pendingJoinClosed.length;
+  const detailPending = Boolean(detail?.item) && !invite && (
+    detail.kind === 'acceso' ? accessRequestIsOpen(detail.item) : detail.item.status === 'pending'
+  );
+  const setInbox = (nextView) => {
+    setView(nextView);
+    setShowClosed(false);
+  };
 
   return (
     <>
@@ -231,9 +251,9 @@ export default function MemberRequestsSection({
       className="membership-moves member-requests"
       id="member-requests-title"
       title="Solicitudes"
-      subtitle="Pedidos del formulario público"
-      count={(pendingAccess.length + pendingJoin.length).toLocaleString('es-AR')}
-      defaultOpen={pendingAccess.length + pendingJoin.length > 0}
+      subtitle={showClosed ? 'Pedidos que ya no están en la bandeja' : 'Pedidos del formulario público · 7 días'}
+      count={(accessInbox.open.length + pendingJoin.length).toLocaleString('es-AR')}
+      defaultOpen={accessInbox.open.length + pendingJoin.length > 0}
       storageKey="solicitudes"
       forceOpen={openJoinInbox}
       extra={(
@@ -255,32 +275,44 @@ export default function MemberRequestsSection({
           </div>
           <button
             type="button"
-            className={view === 'acceso' ? 'is-on' : ''}
+            className={view === 'acceso' && !showClosed ? 'is-on' : ''}
             style={{ '--stat-accent': '#b08d57' }}
-            onClick={() => setView('acceso')}
+            onClick={() => setInbox('acceso')}
           >
             Acceso al portal
           </button>
           <button
             type="button"
-            className={view === 'alta' ? 'is-on' : ''}
+            className={view === 'alta' && !showClosed ? 'is-on' : ''}
             style={{ '--stat-accent': '#1f7a4d' }}
-            onClick={() => setView('alta')}
+            onClick={() => setInbox('alta')}
           >
             Quiero asociarme
+          </button>
+          <button
+            type="button"
+            className={showClosed ? 'is-on' : ''}
+            style={{ '--stat-accent': '#6b7c74' }}
+            onClick={() => setShowClosed((on) => !on)}
+          >
+            {`Listos${closedCount ? ` ${closedCount.toLocaleString('es-AR')}` : ''}`}
           </button>
         </div>
       )}
     >
 
       {rows.length === 0 ? (
-        <p className="membership-moves-meta" style={{ margin: 0 }}>No hay trámites en esta bandeja.</p>
+        <p className="membership-moves-meta" style={{ margin: 0 }}>
+          {showClosed ? 'No hay pedidos listos para ver.' : 'No hay trámites en esta bandeja.'}
+        </p>
       ) : (
         <ul className="membership-moves-list">
           {view === 'acceso'
-            ? portalAccessRequests.map((item) => {
+            ? accessRows.map((item) => {
               const match = matchMemberForAccessRequest(members, item);
-              const color = item.status === 'rejected' ? '#c23b3b' : item.status === 'approved' ? '#1f7a4d' : '#b08d57';
+              const status = effectiveAccessStatus(item);
+              const open = accessRequestIsOpen(item);
+              const color = status === 'rejected' ? '#c23b3b' : status === 'approved' ? '#1f7a4d' : status === 'done' ? '#6b7c74' : '#b08d57';
               return (
                 <li key={item.id} className="membership-moves-row" style={{ '--move-color': color }}>
                   <div>
@@ -300,8 +332,8 @@ export default function MemberRequestsSection({
                     </button>
                   </div>
                   <div className="membership-moves-right">
-                    <span className="membership-moves-chip">{requestStatusLabel(item.status)}</span>
-                    {item.status === 'pending' ? (
+                    <span className="membership-moves-chip">{requestStatusLabel(status)}</span>
+                    {open ? (
                       <>
                         <button type="button" className="membership-moves-link" disabled={busyId === item.id} onClick={() => startDeliver('acceso', item)}>
                           Entregar acceso
@@ -343,7 +375,7 @@ export default function MemberRequestsSection({
                 </li>
               );
             })
-            : membershipApplications.map((item) => {
+            : joinRows.map((item) => {
               const match = joinMatch(item);
               const color = item.status === 'rejected' ? '#c23b3b' : item.status === 'approved' ? '#1f7a4d' : '#1f7a4d';
               const pending = item.status === 'pending';

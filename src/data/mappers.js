@@ -122,12 +122,18 @@ export function memberToRow(member) {
 export function paymentFromRow(row) {
   const amount = Number(row.amount ?? row.value ?? row.monto) || 0;
   const receipt = row.receipt_number || row.receipt || '';
+  const meta = row.meta && typeof row.meta === 'object' ? row.meta : {};
+  const paidAt = row.paid_at || row.date || null;
   return {
     id: row.id,
     memberDbId: row.member_id,
     amount,
-    date: row.paid_at || row.date || null,
+    date: paidAt ? String(paidAt).slice(0, 10) : null,
+    time: meta.time || row.time || '',
+    paidAt: meta.paidAt || null,
+    createdAt: row.created_at || row.createdAt || null,
     method: row.method || '',
+    bankName: meta.bank || row.bankName || '',
     concept: row.concept || '',
     period: row.period_label || row.period || '',
     receipt,

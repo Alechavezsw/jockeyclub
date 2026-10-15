@@ -80,17 +80,58 @@ export function addMonthsISODate(iso, months = 1) {
   return `${yy}-${mm}-${dd}`;
 }
 
+const INSTANT_LABEL = {
+  timeZone: AR_TZ,
+  day: '2-digit',
+  month: 'short',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+};
+
+function parseInstant(value) {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const normalized = raw.includes('T')
+    ? raw
+    : raw.replace(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})/, '$1T$2');
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/** True si el valor trae reloj (no solo YYYY-MM-DD). */
+export function hasClock(value) {
+  if (value instanceof Date) return true;
+  const raw = String(value || '');
+  return /T\d{2}:\d{2}/.test(raw) || /\s\d{2}:\d{2}/.test(raw);
+}
+
 /** Etiqueta corta fecha+hora en es-AR. */
 export function formatDateTimeAR(isoDate, timeHHMM) {
   if (!isoDate) return '—';
   const date = new Date(`${String(isoDate).slice(0, 10)}T${timeHHMM || '12:00'}:00`);
   if (Number.isNaN(date.getTime())) return isoDate;
-  return date.toLocaleString('es-AR', {
+  return date.toLocaleString('es-AR', INSTANT_LABEL);
+}
+
+/** Fecha, y hora si el ISO la trae. No inventa 12:00. */
+export function formatInstantAR(value, timeHHMM) {
+  if (!value && !timeHHMM) return '—';
+  const day = String(value || '').slice(0, 10);
+  if (timeHHMM) return formatDateTimeAR(day || value, timeHHMM);
+  const instant = hasClock(value) ? parseInstant(value) : null;
+  if (instant) return instant.toLocaleString('es-AR', INSTANT_LABEL);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return value ? String(value) : '—';
+  const [year, month, date] = day.split('-').map(Number);
+  const noon = new Date(year, month - 1, date, 12, 0, 0);
+  return noon.toLocaleDateString('es-AR', {
     timeZone: AR_TZ,
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
   });
 }

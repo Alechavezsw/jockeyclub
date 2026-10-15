@@ -16,6 +16,7 @@ import {
   poolDayStats,
   guestDayAccessesForHost,
   searchPoolMembers,
+  poolSearchFlags,
   memberPoolHistory,
   isPoolDayCashOpen,
 } from '../../domain/pool/poolAccess';
@@ -163,6 +164,11 @@ export default function PoolTab({
 
   const handleEnableMember = async (member = selected) => {
     if (!member) return;
+    const snap = evaluatePoolAccess(member, { accesses: poolAccesses, today, settings });
+    if (snap.payBlocked) {
+      setError('En mora · regularizá la cuota para pagar pileta.');
+      return;
+    }
     if (!dayCashOpen) {
       setError('Abrí la caja del día antes de habilitar.');
       return;
@@ -312,19 +318,17 @@ export default function PoolTab({
                       {m.status === 'active' ? 'Activo' : m.status === 'inactive' ? 'Baja' : m.status}
                     </span>
                     <span className="pool-hit-flags">
-                      <em className={snap.paidToday ? 'is-ok' : 'is-bad'}>
-                        {snap.paidToday ? 'Canon pago' : 'Canon impago'}
-                      </em>
-                      <em className={snap.medical?.ok ? 'is-ok' : 'is-bad'}>
-                        {snap.medical?.ok ? 'Apto médico' : 'Sin apto'}
-                      </em>
-                      <em className={dues > 0 ? 'is-bad' : 'is-ok'}>
-                        {dues > 0 ? `Debe ${formatCurrency(dues)}` : 'Cuota al día'}
-                      </em>
+                      {poolSearchFlags(snap, dues, formatCurrency).map((flag) => (
+                        <em key={flag.label} className={flag.tone === 'ok' ? 'is-ok' : 'is-bad'}>
+                          {flag.label}
+                        </em>
+                      ))}
                     </span>
                   </button>
                   {snap.alreadyIn ? (
                     <span className="pool-hit-ready">Hoy</span>
+                  ) : snap.payBlocked ? (
+                    <span className="pool-hit-mora">Mora</span>
                   ) : (
                     <button
                       type="button"
@@ -407,7 +411,12 @@ export default function PoolTab({
                 </div>
               </div>
 
-              {!eval_.alreadyIn ? (
+              {eval_.payBlocked && !eval_.alreadyIn ? (
+                <p className="pool-mora-lock" role="status">
+                  <AlertTriangle size={16} aria-hidden />
+                  En mora. No puede pagar pileta hasta regularizar la cuota social.
+                </p>
+              ) : !eval_.alreadyIn ? (
                 <div className="pool-pay">
                   <div className="pool-entrance-methods">
                     <button type="button" className={`pool-method${payMethod === 'efectivo' ? ' is-active' : ''}`} onClick={() => setPayMethod('efectivo')}>Efectivo</button>

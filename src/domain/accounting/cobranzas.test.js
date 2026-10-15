@@ -32,4 +32,13 @@ describe('cobranzas Accessin', () => {
     expect(cuotas).toHaveLength(5);
     expect(cuotas.every((r) => r.type === 'Cuotas')).toBe(true);
   });
+
+  it('filtra cobros de cuota por credencial', () => {
+    const rows = filterAccessinCobranzas([
+      { type: 'Cuotas', memberNumber: '10680', date: '2026-10-01', amount: 66000, receiptId: '1' },
+      { type: 'Cuotas', memberNumber: '11017', date: '2026-09-01', amount: 32000, receiptId: '2' },
+    ], { type: 'Cuotas', memberNumbers: ['10680'] });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].memberNumber).toBe('10680');
+  });
 });

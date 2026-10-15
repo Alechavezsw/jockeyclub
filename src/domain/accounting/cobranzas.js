@@ -81,6 +81,7 @@ export function filterAccessinCobranzas(items = [], filter = {}) {
     type = null,
     paymentMethod = null,
     bankName = null,
+    memberNumbers = null,
     query = '',
     limit = null,
   } = filter || {};
@@ -89,6 +90,12 @@ export function filterAccessinCobranzas(items = [], filter = {}) {
   if (type) rows = rows.filter((r) => r.type === type);
   if (paymentMethod) rows = rows.filter((r) => r.paymentMethod === paymentMethod);
   if (bankName) rows = rows.filter((r) => r.bankName === bankName);
+  if (memberNumbers?.length) {
+    const keys = new Set(
+      memberNumbers.map((n) => String(n || '').replace(/\D/g, '')).filter(Boolean)
+    );
+    rows = rows.filter((r) => keys.has(String(r.memberNumber || '').replace(/\D/g, '')));
+  }
   if (q) {
     rows = rows.filter((r) => {
       const hay = [

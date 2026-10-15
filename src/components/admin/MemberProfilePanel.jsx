@@ -11,8 +11,14 @@ import VirtualCard from '../VirtualCard';
 import GuestPassPanel from '../GuestPassPanel';
 import CollectDuesModal from './CollectDuesModal';
 import ModalDialog from '../ModalDialog';
-import { formatShortDate, quotaHeadline } from '../../domain/members/dues';
+import { formatShortDate, isVitalicioMember, quotaHeadline } from '../../domain/members/dues';
 import { formatDateTimeAR, todayISODateAR } from '../../lib/arDate';
+import { formatPaymentWhen, paymentWhenStamp } from '../../domain/members/paymentHistory';
+import { DEFAULT_POOL_SETTINGS } from '../../domain/pool/poolAccess';
+import { piletaPayAccess } from '../../domain/pool/seasonDuesGate';
+import { cobranzasSeed, filterAccessinCobranzas } from '../../domain/accounting/cobranzas';
+import { buildDetailedCcAccountEntries } from '../../domain/accounting/detailedCurrentAccounts';
+import useSnapshots from '../../hooks/useSnapshots';
 import { collectMemberMeta, memberAppAccess } from '../../domain/members/memberAdminActions';
 import { getActiveTiers, getTierDisplayName, tierBadgeStyle } from '../../domain/members/tiers';
 import { DISCIPLINE_OPTIONS, getDisciplineOptions, normalizeLabel } from '../../domain/sports/disciplines';
@@ -88,6 +94,28 @@ function formatDocument(type, number) {
   return `${type || 'DNI'} ${formatted}`;
 }
 
+function documentParts(type, number) {
+  const formatted = formatDocument(type, number);
+  if (!formatted) return { kind: type || 'Documento', nro: null };
+  const digits = String(number).replace(/\D/g, '');
+  const nro = digits.length >= 7
+    ? digits.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+    : String(number);
+  return { kind: type || 'DNI', nro };
+}
+
+function SheetHead({ index, title, kicker }) {
+  return (
+    <header className="mp-sheet-head">
+      <span className="mp-sheet-idx">{index}</span>
+      <div>
+        <h5>{title}</h5>
+        {kicker ? <p>{kicker}</p> : null}
+      </div>
+    </header>
+  );
+}
+
 function ageFromBirth(iso) {
   if (!iso) return null;
   const birth = new Date(`${String(iso).slice(0, 10)}T12:00:00`);
@@ -122,49 +150,37 @@ function membershipTenure(member) {
 }
 
 function Fact({ icon: Icon, label, value, hint }) {
-  if (value == null || value === '') {
-    return (
-      <div className="mp-fact is-empty">
-        {Icon ? <Icon size={14} className="mp-fact-icon" aria-hidden /> : null}
-        <div>
-          <div className="mp-fact-label">{label}</div>
-          <div className="mp-fact-value muted">Sin dato</div>
-        </div>
-      </div>
-    );
-  }
+  const empty = value == null || value === '';
   return (
-    <div className="mp-fact">
-      {Icon ? <Icon size={14} className="mp-fact-icon" aria-hidden /> : null}
+    <div className={`mp-fact${empty ? ' is-empty' : ''}`}>
+      {Icon ? (
+        <span className="mp-fact-stamp" aria-hidden>
+          <Icon size={14} />
+        </span>
+      ) : null}
       <div>
         <div className="mp-fact-label">{label}</div>
-        <div className="mp-fact-value">{value}</div>
-        {hint ? <div className="mp-fact-hint">{hint}</div> : null}
+        <div className={`mp-fact-value${empty ? ' muted' : ''}`}>{empty ? 'Sin dato' : value}</div>
+        {hint && !empty ? <div className="mp-fact-hint">{hint}</div> : null}
       </div>
     </div>
   );
 }
 
 function ContactRow({ icon: Icon, label, value, href }) {
-  if (!value) {
-    return (
-      <div className="mp-contact-row is-empty">
-        <Icon size={15} aria-hidden />
-        <div>
-          <span className="mp-contact-label">{label}</span>
-          <span className="mp-contact-value muted">No cargado</span>
-        </div>
-      </div>
-    );
-  }
-  const content = href ? (
+  const empty = !value;
+  const content = empty ? (
+    <span className="mp-contact-value muted">No cargado</span>
+  ) : href ? (
     <a href={href} className="mp-contact-value link">{value}</a>
   ) : (
     <span className="mp-contact-value">{value}</span>
   );
   return (
-    <div className="mp-contact-row">
-      <Icon size={15} aria-hidden />
+    <div className={`mp-contact-row${empty ? ' is-empty' : ''}`}>
+      <span className="mp-contact-stamp" aria-hidden>
+        <Icon size={15} />
+      </span>
       <div>
         <span className="mp-contact-label">{label}</span>
         {content}
@@ -315,6 +331,8 @@ export default function MemberProfilePanel({
   tierCatalog,
   disciplineCatalog = [],
   onSendMessage,
+  accessinCobranzas = [],
+  poolSettings = DEFAULT_POOL_SETTINGS,
 }) {
   const [section, setSection] = useState('ficha');
   const [editForm, setEditForm] = useState(null);
@@ -324,7 +342,11 @@ export default function MemberProfilePanel({
   const [cardMember, setCardMember] = useState(null);
   const [familyEdit, setFamilyEdit] = useState(null);
   const [familyEditMsg, setFamilyEditMsg] = useState('');
+  const [householdPayments, setHouseholdPayments] = useState([]);
   const [searchParams, setSearchParams] = useSearchParams();
+  const { version: cobrosSnapshotVersion } = useSnapshots(
+    selfService ? [] : ['accessinCobranzas', 'accessinDetailedCurrentAccounts']
+  );
   const visibleSections = SECTIONS.filter((s) => !s.memberOnly || selfService);
   const canCollect = !selfService && Boolean(setMembers || updateMember);
   const disciplineOptions = useMemo(() => {
@@ -334,7 +356,8 @@ export default function MemberProfilePanel({
 
   useEffect(() => {
     if (selfService || !member || searchParams.get('cobrar') !== '1') return undefined;
-    setCollectOpen(true);
+    const hasDebt = (Number(member.outstandingBalance) || 0) > 0;
+    if (hasDebt || !isVitalicioMember(member)) setCollectOpen(true);
     setSearchParams((prev) => {
       if (prev.get('cobrar') !== '1') return prev;
       const next = new URLSearchParams(prev);
@@ -516,6 +539,40 @@ export default function MemberProfilePanel({
     );
   }, [messages, member]);
 
+  const householdNumbers = useMemo(() => {
+    const nums = new Set();
+    const add = (value) => {
+      const n = String(value || '').replace(/\D/g, '');
+      if (!n) return;
+      nums.add(n);
+      nums.add(String(Number(n)));
+      if (n.length < 6) nums.add(n.padStart(5, '0'));
+      if (n.length < 6) nums.add(n.padStart(6, '0'));
+    };
+    add(member?.memberId);
+    add(familyPrincipalOf(member));
+    add(memberNumberOf(familyGroup.titular));
+    (familyRows || []).forEach((row) => add(row.memberId));
+    return [...nums];
+  }, [member, familyGroup.titular, familyRows]);
+
+  const householdKey = householdNumbers.join('|');
+  useEffect(() => {
+    const numbers = householdKey ? householdKey.split('|') : [];
+    if (selfService || !numbers.length) {
+      setHouseholdPayments([]);
+      return undefined;
+    }
+    let cancelled = false;
+    Promise.all(
+      numbers.map((n) => repos.getMemberByNumber(n, { withPayments: true }).catch(() => null))
+    ).then((rows) => {
+      if (cancelled) return;
+      setHouseholdPayments(rows.flatMap((m) => m?.paymentHistory || []));
+    });
+    return () => { cancelled = true; };
+  }, [selfService, householdKey]);
+
   const timeline = useMemo(() => {
     if (!member) return [];
     const items = [];
@@ -540,19 +597,65 @@ export default function MemberProfilePanel({
       });
     });
 
-    (member.paymentHistory || []).forEach((p) => {
+    const seenCobros = new Set();
+    const pushCobro = (p) => {
+      const key = `${String(p.date || '').slice(0, 10)}|${Number(p.amount) || 0}`;
+      if (seenCobros.has(key)) return;
+      seenCobros.add(key);
       items.push({
-        when: formatShortDate(p.date),
+        when: formatPaymentWhen(p),
         title: p.concept || `Cobro · ${duesMethodLabel(p.method, p.bankName)}`,
         detail: [
           formatCurrency(p.amount),
           duesMethodLabel(p.method, p.bankName),
-          p.receiptNumber || p.receipt,
+          p.receiptNumber || p.receipt || p.receiptId,
           p.receiptName ? `Comp. ${p.receiptName}` : null,
         ].filter(Boolean).join(' · '),
         tone: 'ok',
-        sort: p.date || '',
+        sort: paymentWhenStamp(p) || p.date || '',
       });
+    };
+    (member.paymentHistory || []).forEach(pushCobro);
+    householdPayments.forEach(pushCobro);
+    const paymentsByDayAmount = new Map();
+    [...(member.paymentHistory || []), ...householdPayments].forEach((p) => {
+      const key = `${String(p.date || '').slice(0, 10)}|${Number(p.amount) || 0}`;
+      if (p.time || p.paidAt || p.createdAt) paymentsByDayAmount.set(key, p);
+    });
+    const liveCobranzas = accessinCobranzas.length
+      ? accessinCobranzas
+      : cobranzasSeed().ACCESSIN_COBRANZAS;
+    filterAccessinCobranzas(liveCobranzas, {
+      memberNumbers: householdNumbers,
+    }).forEach((row) => {
+      const isCuota = row.type === 'Cuotas' || /cuota/i.test(String(row.concept || ''));
+      if (!isCuota) return;
+      const key = `${String(row.date || '').slice(0, 10)}|${Number(row.amount) || 0}`;
+      const timed = paymentsByDayAmount.get(key);
+      pushCobro({
+        date: row.date,
+        amount: row.amount,
+        method: row.paymentMethod,
+        bankName: row.bankName,
+        concept: row.concept || 'Cobro de cuota',
+        receiptNumber: row.receiptId,
+        time: row.time || timed?.time || '',
+        paidAt: row.paidAt || timed?.paidAt || null,
+        createdAt: row.createdAt || timed?.createdAt || null,
+      });
+    });
+    householdNumbers.forEach((n) => {
+      buildDetailedCcAccountEntries(n)
+        .filter((e) => e.type === 'pago')
+        .forEach((e) => {
+          pushCobro({
+            date: e.date,
+            amount: Math.abs(Number(e.value) || 0),
+            concept: e.description ? `Cobro de cuota · ${e.description}` : 'Cobro de cuota',
+            method: (e.paymentMethods || [])[0]?.method || '',
+            receiptNumber: e.accessinId ? String(e.accessinId) : '',
+          });
+        });
     });
 
     entries.forEach((e) => {
@@ -617,7 +720,7 @@ export default function MemberProfilePanel({
     }
 
     return items.sort((a, b) => String(b.sort).localeCompare(String(a.sort)));
-  }, [member, movements, entries, bookings, memberClaims, formatCurrency, tierCatalog]);
+  }, [member, movements, entries, bookings, memberClaims, formatCurrency, tierCatalog, accessinCobranzas, householdNumbers, householdPayments, cobrosSnapshotVersion]);
 
   if (!member) {
     return (
@@ -669,6 +772,7 @@ export default function MemberProfilePanel({
   const balance = Number(member.outstandingBalance) || 0;
   const hasDebt = balance > 0;
   const quota = quotaHeadline(member);
+  const poolPay = piletaPayAccess(member, { settings: poolSettings });
   const tierName = getTierDisplayName(member.tier, tierCatalog);
   const age = ageFromBirth(member.birthDate);
   const tenure = membershipTenure(member);
@@ -693,6 +797,7 @@ export default function MemberProfilePanel({
     [member.city, member.province].filter(Boolean).join(', '),
     member.postalCode ? `CP ${member.postalCode}` : null,
   ].filter(Boolean).join(' · ');
+  const doc = documentParts(member.documentType, member.documentNumber);
 
   return (
     <div className="glass-card fade-in member-profile">
@@ -740,7 +845,7 @@ export default function MemberProfilePanel({
 
         <aside
           className={`mp-balance ${hasDebt ? 'has-debt' : quota.kind === 'clear' ? 'is-clear' : 'is-off'}`}
-          aria-label="Estado de cuota"
+          aria-label="Estado de cuota y pileta"
         >
           <div className="mp-balance-label">
             {hasDebt ? 'Saldo de cuota' : 'Estado de cuota'}
@@ -759,6 +864,10 @@ export default function MemberProfilePanel({
                   ? `Próximo vencimiento ${formatShortDate(member.nextDueDate)}`
                   : 'Sin vencimiento cargado'))}
           </div>
+          <p className={`mp-balance-pool ${poolPay.canPay ? 'is-ok' : 'is-no'}`}>
+            {poolPay.label}
+            <span>{poolPay.detail}</span>
+          </p>
           {canCollect && (hasDebt || quota.billing) ? (
             <button
               type="button"
@@ -798,13 +907,24 @@ export default function MemberProfilePanel({
       <div className="mp-panel glass-panel">
         {section === 'ficha' && (
           <div className="mp-dossier">
-            <section className="mp-block">
-              <header className="mp-block-head">
-                <h5>Identidad</h5>
-                <p>Documento y datos personales del padrón</p>
-              </header>
-              <div className="mp-facts">
-                <Fact icon={IdCard} label="Documento" value={formatDocument(member.documentType, member.documentNumber)} />
+            <section className="mp-sheet mp-sheet--id">
+              <SheetHead index="01" title="Identidad" kicker="Documento y datos personales del padrón" />
+              <div className="mp-id-spotlight">
+                <div className={`mp-id-doc${doc.nro ? '' : ' is-empty'}`}>
+                  <span className="mp-fact-label">Documento</span>
+                  <span className="mp-id-kind">{doc.kind}</span>
+                  <strong>{doc.nro || 'Sin documento'}</strong>
+                </div>
+                <div className={`mp-id-join${joinLabel ? '' : ' is-empty'}`}>
+                  <span className="mp-fact-stamp" aria-hidden><Clock size={16} /></span>
+                  <div>
+                    <span className="mp-fact-label">Ingreso al club</span>
+                    <strong>{joinLabel || 'Sin fecha'}</strong>
+                    {tenure ? <span className="mp-fact-hint">{tenure}</span> : null}
+                  </div>
+                </div>
+              </div>
+              <div className="mp-ledger">
                 <Fact
                   icon={Cake}
                   label="Nacimiento"
@@ -814,15 +934,11 @@ export default function MemberProfilePanel({
                 <Fact icon={User} label="Género" value={titleCase(member.gender)} />
                 <Fact icon={Heart} label="Estado civil" value={titleCase(member.maritalStatus)} />
                 <Fact icon={Flag} label="Nacionalidad" value={member.nationality || 'Argentina'} />
-                <Fact icon={Clock} label="Ingreso al club" value={joinLabel} />
               </div>
             </section>
 
-            <section className="mp-block">
-              <header className="mp-block-head">
-                <h5>Contacto y domicilio</h5>
-                <p>Cómo ubicar al socio</p>
-              </header>
+            <section className="mp-sheet mp-sheet--contact">
+              <SheetHead index="02" title="Contacto y domicilio" kicker="Cómo ubicar al socio" />
               <div className="mp-contact-grid">
                 <ContactRow icon={Phone} label="WhatsApp" value={member.phone} href={phoneHref} />
                 <ContactRow icon={Phone} label="Tel. alternativo" value={member.phoneAlt} />
@@ -831,11 +947,8 @@ export default function MemberProfilePanel({
               </div>
             </section>
 
-            <section className="mp-block">
-              <header className="mp-block-head">
-                <h5>Datos de emergencia</h5>
-                <p>Grupo sanguíneo, obra social y contactos médicos</p>
-              </header>
+            <section className="mp-sheet mp-sheet--alert">
+              <SheetHead index="03" title="Datos de emergencia" kicker="Grupo sanguíneo, obra social y contactos médicos" />
               <div className="mp-facts">
                 <Fact icon={Heart} label="Grupo sanguíneo" value={member.bloodType || member.meta?.bloodType || null} />
                 <Fact icon={ShieldCheck} label="Obra social" value={member.healthInsurance || member.meta?.healthInsurance || null} />
@@ -848,12 +961,9 @@ export default function MemberProfilePanel({
               </div>
             </section>
 
-            <section className="mp-block">
-              <header className="mp-block-head">
-                <h5>Membresía y cobranza</h5>
-                <p>Categoría, cuota y datos de facturación</p>
-              </header>
-              <div className="mp-facts">
+            <section className="mp-sheet mp-sheet--dues">
+              <SheetHead index="04" title="Membresía y cobranza" kicker="Categoría, cuota y datos de facturación" />
+              <div className="mp-facts mp-facts--dues">
                 <Fact icon={ShieldCheck} label="Categoría" value={tierName} hint={status.hint} />
                 <Fact icon={ShieldCheck} label="Estado de cuenta" value={status.label} />
                 <Fact icon={CalendarClock} label="Próximo vencimiento" value={formatShortDate(member.nextDueDate)} />
@@ -885,10 +995,8 @@ export default function MemberProfilePanel({
             </section>
 
             {member.notes ? (
-              <section className="mp-block mp-notes">
-                <header className="mp-block-head">
-                  <h5>Observaciones</h5>
-                </header>
+              <section className="mp-sheet mp-sheet--notes mp-notes">
+                <SheetHead index="05" title="Observaciones" />
                 <p>{member.notes}</p>
               </section>
             ) : null}
@@ -1220,7 +1328,7 @@ export default function MemberProfilePanel({
               <>
                 {(member.paymentHistory || []).map((p) => (
                   <div key={p.id || `${p.date}-${p.amount}`} className="mp-list-row">
-                    <span className="mp-list-when">{formatShortDate(p.date)}</span>
+                    <span className="mp-list-when">{formatPaymentWhen(p)}</span>
                     <span className="mp-list-main">
                       {p.concept || `Cobro · ${duesMethodLabel(p.method, p.bankName)}`}
                       {p.receiptName ? (

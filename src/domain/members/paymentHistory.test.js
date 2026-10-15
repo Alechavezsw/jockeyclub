@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
-import { getMemberPaymentHistory, summarizePaymentHistory } from './paymentHistory';
+import { formatPaymentWhen, getMemberPaymentHistory, summarizePaymentHistory } from './paymentHistory';
 import { setRuntimeTierCatalog } from './tiers';
 
 const testCatalog = [
@@ -78,6 +78,28 @@ describe('summarizePaymentHistory', () => {
     expect(summary.monthsBehind).toBe(3);
     expect(summary.outstanding).toBe(96000);
     expect(summary.nextDue).toBe('2026-07-10');
+  });
+});
+
+describe('formatPaymentWhen', () => {
+  it('muestra fecha y hora del cobro de cuota', () => {
+    const label = formatPaymentWhen({
+      date: '2026-10-01',
+      createdAt: '2026-10-01T17:57:51.952Z',
+    });
+    expect(label).toMatch(/01/);
+    expect(label).toMatch(/2026/);
+    expect(label).toMatch(/14:57/);
+  });
+
+  it('si hay hora de registro, la muestra también sobre la fecha de pago', () => {
+    const label = formatPaymentWhen({
+      date: '2026-06-14',
+      createdAt: '2026-09-22T00:56:31.557Z',
+    });
+    expect(label).toMatch(/14/);
+    expect(label).toMatch(/2026/);
+    expect(label).toMatch(/\d{2}:\d{2}/);
   });
 });
 

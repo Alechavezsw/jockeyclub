@@ -2,6 +2,7 @@ import { afterCollectDues, duesPayableForMember, nextDuesDueDate } from './dues'
 import { referenceMonthlyDues } from './paymentHistory';
 import { createAccountEntry } from '../accounting/accountEntries';
 import { journalAccountForPayment } from './clubBanks';
+import { nowTimeAR, todayISODateAR } from '../../lib/arDate';
 
 export const DUES_METHOD_LABELS = {
   efectivo: 'Efectivo',
@@ -53,10 +54,15 @@ export function payMemberDues(member, {
   if (!paidAmount || paidAmount <= 0) throw new Error('Importe inválido.');
   if (paidAmount > due) throw new Error('El importe supera el saldo pendiente.');
 
-  const date = today.toISOString().slice(0, 10);
+  const date = todayISODateAR(today);
+  const time = nowTimeAR(today);
+  const paidAt = today.toISOString();
   const payment = {
     id: `pay-${member.memberId}-${Date.now()}`,
     date,
+    time,
+    paidAt,
+    createdAt: paidAt,
     concept: `Cuota social · ${duesMethodLabel(method)}`,
     amount: paidAmount,
     method,
@@ -107,10 +113,15 @@ export function payUpcomingDues(member, { method = 'transferencia', today = new 
   const dueOn = member.nextDueDate || nextDuesDueDate(today);
   const amount = duesPayableForMember(member, { paidOn: today, dueOn, on: dueOn })
     || referenceMonthlyDues(member, member.paymentHistory);
-  const date = today.toISOString().slice(0, 10);
+  const date = todayISODateAR(today);
+  const time = nowTimeAR(today);
+  const paidAt = today.toISOString();
   const payment = {
     id: `pay-${member.memberId}-${Date.now()}`,
     date,
+    time,
+    paidAt,
+    createdAt: paidAt,
     concept: `Cuota social anticipada · ${duesMethodLabel(method)}`,
     amount,
     method,

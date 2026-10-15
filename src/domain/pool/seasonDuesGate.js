@@ -63,3 +63,46 @@ export function seasonDuesGate(member, {
     reason: SEASON_DUES_BLOCK_REASON,
   };
 }
+
+/**
+ * Mora de pileta: desde el 10 de cada mes, o con saldo, no paga hasta regularizar.
+ * No espera a la temporada dic–mar.
+ */
+export function isPiletaMora(member, { today = new Date(), settings = {} } = {}) {
+  if (!member) return false;
+  if (settings?.seasonBlocksUnpaidDues === false) return false;
+  if ((Number(member?.outstandingBalance) || 0) > 0) return true;
+  return isCurrentMonthDuesUnpaid(member, today);
+}
+
+/**
+ * Si el socio puede pagar pileta: mora del 10 en adelante, hasta regularizar.
+ */
+export function piletaPayAccess(member, { today = new Date(), settings = {} } = {}) {
+  const gate = seasonDuesGate(member, { today, settings });
+  const status = member?.status;
+  if (status && status !== 'active') {
+    const detail = status === 'suspended'
+      ? 'Suspendido'
+      : status === 'inactive'
+        ? 'Dado de baja'
+        : 'Cuenta no habilitada';
+    return { canPay: false, label: 'No puede pagar pileta', detail, gate, mora: false };
+  }
+  if (isPiletaMora(member, { today, settings })) {
+    return {
+      canPay: false,
+      label: 'No puede pagar pileta',
+      detail: 'En mora · regularizá la cuota',
+      gate: { ...gate, mora: true },
+      mora: true,
+    };
+  }
+  return {
+    canPay: true,
+    label: 'Puede pagar pileta',
+    detail: gate.inSeason ? 'Temporada en curso' : 'Temporada dic–mar',
+    gate,
+    mora: false,
+  };
+}

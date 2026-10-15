@@ -17,6 +17,7 @@ import { CLUB_BANK_ACCOUNTS } from '../domain/members/clubBanks';
 import { duesPaymentNotice } from '../domain/members/duesPaymentNotice';
 import { uploadDuesReceipt } from '../data/storage';
 import MercadoPagoCheckout from '../components/MercadoPagoCheckout';
+import { formatPaymentWhen } from '../domain/members/paymentHistory';
 
 function formatCurrency(amount) {
   return new Intl.NumberFormat('es-AR', {
@@ -308,7 +309,7 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
                 <div className="pay-hist-main">
                   <strong>{pay.concept}</strong>
                   <span>
-                    <Calendar size={12} /> {formatDate(pay.date)}
+                    <Calendar size={12} /> {formatPaymentWhen(pay)}
                     {pay.receipt ? ` · Comp. ${pay.receipt}` : ''}
                   </span>
                 </div>

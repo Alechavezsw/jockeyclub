@@ -153,6 +153,13 @@ export function isMemberBillingActive(member) {
   return s === 'active';
 }
 
+/** SOCIO (Vitalicio) y GRUPO FAMILIAR (Vitalicio): no liquidan cuota social. */
+export function isVitalicioMember(member) {
+  const ids = billedTierIds(member);
+  if (ids.some((id) => /vitalicio/.test(id))) return true;
+  return /vitalicio/i.test(String(member?.tier || ''));
+}
+
 /**
  * Texto de cuota para la ficha.
  * Baja / suspensión / pendiente no son «al día»: no facturan.
@@ -196,6 +203,15 @@ export function quotaHeadline(member) {
       kind: 'off',
       title: 'Sin liquidar',
       hint: 'El alta todavía no factura',
+      billing: false,
+    };
+  }
+
+  if (isVitalicioMember(member)) {
+    return {
+      kind: 'off',
+      title: 'Vitalicio',
+      hint: 'No abona cuota social',
       billing: false,
     };
   }
@@ -311,6 +327,7 @@ export function getOverdueMembers(members, today = new Date()) {
     .filter((m) => isMemberBillingActive(m))
     .filter((m) => {
       if ((Number(m.outstandingBalance) || 0) > 0) return true;
+      if (isVitalicioMember(m)) return false;
       const due = parseDueDate(m.nextDueDate);
       return due && due < todayStart;
     })
@@ -344,7 +361,7 @@ export function getUpcomingDuesMembers(members, { withinDays = 15, today = new D
   const horizon = new Date(todayStart.getTime() + withinDays * DAY_MS);
 
   return members
-    .filter((m) => isMemberBillingActive(m))
+    .filter((m) => isMemberBillingActive(m) && !isVitalicioMember(m))
     .filter((m) => (Number(m.outstandingBalance) || 0) === 0)
     .map((m) => {
       const due = parseDueDate(m.nextDueDate);
@@ -399,7 +416,7 @@ export function applyAutomaticDues(members, today = new Date()) {
       ? { ...m, nextDueDate: pinnedDue }
       : m;
 
-    if (!isMemberBillingActive(normalized)) return normalized;
+    if (!isMemberBillingActive(normalized) || isVitalicioMember(normalized)) return normalized;
     if ((Number(normalized.outstandingBalance) || 0) > 0) return normalized;
 
     const due = parseDueDate(normalized.nextDueDate);

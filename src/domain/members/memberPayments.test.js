@@ -60,6 +60,8 @@ describe('payMemberDues', () => {
     expect(next.paymentHistory[0].id).toBe(payment.id);
     expect(payment.amount).toBe(32000);
     expect(next.lastPaymentDate).toBe('2026-07-24');
+    expect(payment.time).toMatch(/^\d{2}:\d{2}$/);
+    expect(payment.paidAt).toBeTruthy();
     expect(next.nextDueDate > '2026-06-01').toBe(true);
     expect(ledgerEntry.type).toBe('pago');
     expect(ledgerEntry.value).toBe(-32000);

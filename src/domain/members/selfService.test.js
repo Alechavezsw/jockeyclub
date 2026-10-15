@@ -8,6 +8,11 @@ import {
   accessReasonForMember,
   accessReasonsForMember,
   accessReasonLabel,
+  accessRequestIsOpen,
+  effectiveAccessStatus,
+  mergeOpenAccessRequest,
+  oneAccessRequestTrail,
+  splitAccessRequestInbox,
   portalLoginUrl,
   requestStatusLabel,
   buildRequestDetail,
@@ -122,6 +127,42 @@ describe('selfService', () => {
     expect(accessReasonLabel('forgot_password')).toBe('Olvidé la contraseña');
   });
 
+  it('a la semana el pedido queda listo y no duplica el trazado', () => {
+    const now = Date.parse('2026-10-14T21:24:00.000-03:00');
+    const fresh = {
+      id: 'a',
+      memberNumber: '9910',
+      documentNumber: '25939818',
+      status: 'pending',
+      createdAt: '2026-10-14T21:24:00.000-03:00',
+    };
+    const stale = {
+      id: 'b',
+      memberNumber: '9910',
+      status: 'pending',
+      createdAt: '2026-10-06T12:00:00.000-03:00',
+    };
+    expect(accessRequestIsOpen(fresh, now)).toBe(true);
+    expect(effectiveAccessStatus(stale, now)).toBe('done');
+    expect(oneAccessRequestTrail([stale, fresh]).map((r) => r.id)).toEqual(['a']);
+    const merged = mergeOpenAccessRequest([fresh], {
+      memberNumber: '9910',
+      phone: '2644436262',
+      reason: 'forgot_password',
+    }, now);
+    expect(merged.merged).toBe(true);
+    expect(merged.item.id).toBe('a');
+    expect(merged.item.createdAt).toBe(fresh.createdAt);
+    expect(merged.list).toHaveLength(1);
+    const inbox = splitAccessRequestInbox([
+      fresh,
+      stale,
+      { id: 'c', memberNumber: '1622', status: 'approved', createdAt: '2026-09-30T12:00:00.000Z' },
+    ], now);
+    expect(inbox.open.map((r) => r.id)).toEqual(['a']);
+    expect(inbox.hidden.map((r) => r.id)).toEqual(['b', 'c']);
+  });
+
   it('si ya tiene usuario, el trámite es recuperar clave', () => {
     expect(accessReasonsForMember({ hasApp: true }).map((r) => r.id)).toEqual(['forgot_password']);
     expect(accessReasonForMember({ hasApp: true }, 'first_access')).toBe('forgot_password');
@@ -145,6 +186,7 @@ describe('selfService', () => {
     expect(portalLoginUrl()).toBe('https://jockeyclubsj.com.ar/');
     expect(requestStatusLabel('approved')).toBe('Aprobado');
     expect(requestStatusLabel('pending')).toBe('Pendiente');
+    expect(requestStatusLabel('done')).toBe('Listo');
     expect(accessInviteMailError('Falta configurar RESEND_API_KEY en las secretas de Supabase.')).toBe('');
     expect(accessInviteMailError('El destinatario rebotó')).toBe('El destinatario rebotó');
   });

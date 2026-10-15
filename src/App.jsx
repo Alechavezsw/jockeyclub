@@ -2504,6 +2504,7 @@ function ClubPortal() {
       reservations={reservations}
       claims={claims}
       messages={messages}
+      poolSettings={poolSettings}
     />
   );
 

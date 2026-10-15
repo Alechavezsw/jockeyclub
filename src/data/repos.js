@@ -10,6 +10,7 @@ import {
   joinConflictsFromFlags,
   joinIdentityConflicts,
   JoinIdentityTakenError,
+  mergeOpenAccessRequest,
 } from '../domain/members/selfService';
 
 const FISCAL_2026 = '11111111-1111-1111-1111-111111111111';
@@ -699,15 +700,21 @@ export async function provisionMemberPortalAccess(member, creds, { actorName = '
 }
 
 export async function insertMemberPayment(memberDbId, payment) {
+  const paidDay = String(payment.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
   const row = {
     member_id: memberDbId,
     amount: Number(payment.amount) || 0,
-    paid_at: payment.date || new Date().toISOString().slice(0, 10),
+    paid_at: paidDay,
     method: payment.method || null,
     concept: payment.concept || null,
     period_label: payment.period || null,
     receipt_number: payment.receiptNumber || payment.receipt || null,
     journal_entry_id: payment.journalEntryId || null,
+    meta: {
+      ...(payment.paidAt ? { paidAt: payment.paidAt } : {}),
+      ...(payment.time ? { time: payment.time } : {}),
+      ...(payment.bankName ? { bank: payment.bankName } : {}),
+    },
   };
   const saved = await unwrap(
     sb().from('member_payments').insert(row).select().single(),
@@ -3224,9 +3231,25 @@ export async function submitPortalAccessRequest(req) {
     memberDbId: matched?.id || req.memberDbId || null,
   };
   if (!supabase) {
-    const item = stampLocalRecord(payload);
-    writeLocalList(LOCAL_ACCESS_KEY, [item, ...loadLocalPortalAccessRequests().filter((x) => x.id !== item.id)]);
-    return item;
+    const stamped = stampLocalRecord(payload);
+    const merged = mergeOpenAccessRequest(loadLocalPortalAccessRequests(), stamped);
+    writeLocalList(LOCAL_ACCESS_KEY, merged.list);
+    return merged.item;
+  }
+  const { data, error } = await sb().rpc('submit_portal_access_request', {
+    p_full_name: payload.fullName,
+    p_document_number: payload.documentNumber || null,
+    p_member_number: payload.memberNumber || null,
+    p_phone: payload.phone || null,
+    p_email: payload.email || null,
+    p_reason: payload.reason || 'first_access',
+    p_member_id: isUuid(payload.memberDbId) ? payload.memberDbId : null,
+  });
+  if (!error && data) {
+    return { ...payload, id: data, status: 'pending' };
+  }
+  if (error && !isMissingRpc(error)) {
+    throwOnError(error, 'No se pudo registrar el pedido de acceso');
   }
   return upsertPortalAccessRequest(payload);
 }
