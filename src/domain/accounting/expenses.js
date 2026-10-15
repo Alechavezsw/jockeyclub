@@ -1,4 +1,5 @@
 import { buildPostedEntry } from './journal';
+import { ensureTaxAccounts, splitPurchaseTotal, taxAccountId } from './impuestos';
 
 export function createExpenseDraft({
   expenseDate,
@@ -10,6 +11,8 @@ export function createExpenseDraft({
   invoiceNumber = '',
   requestedBy = 'admin-local',
   supplierId = null,
+  ivaAliquotId = '',
+  fiscalCondition = '',
 }) {
   return {
     id: `exp-${Date.now()}`,
@@ -21,16 +24,18 @@ export function createExpenseDraft({
     paymentAccountId,
     amount: Number(amount),
     concept: concept.trim(),
-    invoiceNumber,
-    status: 'pending_approval',
-    requestedBy,
-    approvedBy: null,
-    approvedAt: null,
-    paidAt: null,
-    journalEntryId: null,
-    rejectionReason: null,
-    createdAt: new Date().toISOString(),
-  };
+  invoiceNumber,
+  status: 'pending_approval',
+  requestedBy,
+  approvedBy: null,
+  approvedAt: null,
+  paidAt: null,
+  journalEntryId: null,
+  rejectionReason: null,
+  ivaAliquotId: ivaAliquotId || '',
+  fiscalCondition: fiscalCondition || '',
+  createdAt: new Date().toISOString(),
+};
 }
 
 export function approveExpense(expense, approvedBy = 'admin-local') {
@@ -64,16 +69,28 @@ export function payExpense(expense, chart) {
     throw new Error('Debe indicar cuenta de pago (caja/banco).');
   }
 
+  const fullChart = ensureTaxAccounts(chart);
+  const split = expense.ivaAliquotId
+    ? splitPurchaseTotal(expense.amount, expense.ivaAliquotId, expense.fiscalCondition || 'exento')
+    : null;
+  const lines = split?.iva
+    ? [
+      { accountId: expense.categoryAccountId, debit: split.net, credit: 0 },
+      { accountId: taxAccountId(fullChart, 'ivaCredito'), debit: split.iva, credit: 0 },
+      { accountId: expense.paymentAccountId, debit: 0, credit: Number(expense.amount) || 0 },
+    ]
+    : [
+      { accountId: expense.categoryAccountId, debit: expense.amount, credit: 0 },
+      { accountId: expense.paymentAccountId, debit: 0, credit: expense.amount },
+    ];
+
   const entry = buildPostedEntry({
     date: expense.expenseDate || new Date().toISOString().slice(0, 10),
     description: `Gasto: ${expense.concept}${expense.vendorName ? ` — ${expense.vendorName}` : ''}`,
-    lines: [
-      { accountId: expense.categoryAccountId, debit: expense.amount, credit: 0 },
-      { accountId: expense.paymentAccountId, debit: 0, credit: expense.amount },
-    ],
+    lines,
     sourceModule: 'gastos',
     sourceId: expense.id,
-    chart,
+    chart: fullChart,
   });
 
   return {

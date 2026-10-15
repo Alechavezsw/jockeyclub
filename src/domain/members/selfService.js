@@ -2,6 +2,7 @@ import { nextDuesDueDate, pinDuesDueDate, toWhatsAppPhone } from './dues';
 import { todayISODateAR } from '../../lib/arDate';
 import { loginEmailFromUsername } from '../auth/credentials';
 import { buildAccessInviteEmail } from './accessInviteEmail';
+import { memberHasPortalAccess } from './memberAdminActions';
 
 /** Pedidos públicos de alta y de acceso al portal. Secretaría los resuelve. */
 
@@ -12,6 +13,35 @@ export const ACCESS_REASONS = [
 
 export function accessReasonLabel(reason) {
   return ACCESS_REASONS.find((r) => r.id === reason)?.label || 'Pedido de acceso';
+}
+
+export function accessLookupHasUser(member) {
+  return memberHasPortalAccess(member);
+}
+
+/** Si la ficha ya tiene usuario, el trámite es recuperar clave. */
+export function accessReasonsForMember(member) {
+  if (accessLookupHasUser(member)) {
+    return ACCESS_REASONS.filter((r) => r.id === 'forgot_password');
+  }
+  if (member?.id || member?.memberId) {
+    return ACCESS_REASONS.filter((r) => r.id === 'first_access');
+  }
+  return ACCESS_REASONS;
+}
+
+export function accessReasonForMember(member, reason) {
+  const options = accessReasonsForMember(member);
+  if (options.some((r) => r.id === reason)) return reason;
+  return options[0]?.id || 'first_access';
+}
+
+/** Línea del typeahead público: si la ficha ya tiene portal, que lo diga. */
+export function accessLookupPickedLine(member) {
+  const who = `Socio Nº ${member?.memberId || '—'}${member?.name ? ` · ${member.name}` : ''}`;
+  return accessLookupHasUser(member)
+    ? `${who} · ya tiene usuario`
+    : `${who} · el pedido llega a esa ficha`;
 }
 
 function digits(value) {

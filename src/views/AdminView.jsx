@@ -1003,6 +1003,15 @@ export default function AdminView({
           onImportExpenses={erp.importExpenses}
           retenciones={erp.retenciones}
           upsertRetencion={erp.upsertRetencion}
+          comprobantes={erp.comprobantes}
+          liquidaciones={erp.liquidaciones}
+          perfilFiscal={erp.perfilFiscal}
+          onSaveComprobante={erp.saveComprobante}
+          onVoidComprobante={erp.voidComprobanteRecord}
+          onSavePerfilFiscal={erp.saveFiscalProfile}
+          onSaveLiquidacion={erp.saveLiquidacion}
+          onPostLiquidacion={erp.postLiquidacion}
+          onPayLiquidacion={erp.payLiquidacion}
           members={members}
           unidentifiedCollections={erp.unidentifiedCollections}
           upsertUnidentifiedCollection={erp.upsertUnidentifiedCollection}

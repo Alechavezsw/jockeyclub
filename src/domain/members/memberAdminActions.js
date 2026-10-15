@@ -96,6 +96,8 @@ export function memberHasPortalAccess(member) {
   return Boolean(
     member?.profileId
     || member?.profile_id
+    || member?.has_portal === true
+    || member?.hasPortal === true
     || member?.meta?.portalProvisionedAt
     || member?.meta?.portalUsername
     || member?.hasApp

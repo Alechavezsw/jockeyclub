@@ -4,6 +4,9 @@ import {
   joinDateFromApplication,
   matchMemberForAccessRequest,
   accessInviteMailError,
+  accessLookupPickedLine,
+  accessReasonForMember,
+  accessReasonsForMember,
   accessReasonLabel,
   portalLoginUrl,
   requestStatusLabel,
@@ -117,6 +120,25 @@ describe('selfService', () => {
 
   it('etiqueta el motivo', () => {
     expect(accessReasonLabel('forgot_password')).toBe('Olvidé la contraseña');
+  });
+
+  it('si ya tiene usuario, el trámite es recuperar clave', () => {
+    expect(accessReasonsForMember({ hasApp: true }).map((r) => r.id)).toEqual(['forgot_password']);
+    expect(accessReasonForMember({ hasApp: true }, 'first_access')).toBe('forgot_password');
+    expect(accessReasonsForMember({ id: 'm1', memberId: '9910' }).map((r) => r.id)).toEqual(['first_access']);
+    expect(accessReasonsForMember(null).map((r) => r.id)).toEqual(['first_access', 'forgot_password']);
+  });
+
+  it('dice si la ficha ya tiene usuario', () => {
+    expect(accessLookupPickedLine({
+      memberId: '9910',
+      name: 'Paula Andrea Cuello Scida',
+    })).toBe('Socio Nº 9910 · Paula Andrea Cuello Scida · el pedido llega a esa ficha');
+    expect(accessLookupPickedLine({
+      memberId: '9910',
+      name: 'Paula Andrea Cuello Scida',
+      hasApp: true,
+    })).toBe('Socio Nº 9910 · Paula Andrea Cuello Scida · ya tiene usuario');
   });
 
   it('al aprobar dice Aprobado y no muestra la secreta de Resend', () => {

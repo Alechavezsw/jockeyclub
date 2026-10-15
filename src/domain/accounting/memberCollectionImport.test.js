@@ -53,6 +53,6 @@ describe('feeBilling', () => {
       status: 'processed',
       generatedAt: '2026-09-09',
     });
-    expect(periods.find((p) => p.month === 11).status).toBe('pending');
+    expect(periods.find((p) => p.month === 11).status).toBe('draft');
   });
 });

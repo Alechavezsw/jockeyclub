@@ -68,6 +68,7 @@ describe('memberAdminActions', () => {
       hint: 'Ya abrió el portal',
     });
     expect(memberAppAccess({ meta: { portalProvisionedAt: '2026-09-26T12:00:00.000Z' } }).label).toBe('Con app');
+    expect(memberAppAccess({ has_portal: true }).label).toBe('Con app');
     expect(memberAppAccess({}).label).toBe('Sin app');
   });
 });

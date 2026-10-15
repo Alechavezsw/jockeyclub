@@ -3908,6 +3908,11 @@ button.membership-moves-name {
   color: #096755;
 }
 
+.join-lookup__picked.is-user {
+  background: color-mix(in srgb, #ca390c 10%, #fff);
+  color: #8a2808;
+}
+
 .join-lookup__list {
   list-style: none;
   margin: 0;
@@ -3964,6 +3969,9 @@ button.membership-moves-name {
 
 .join-submit {
   appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
   min-height: 50px;
   margin-top: 0.15rem;
@@ -3975,6 +3983,8 @@ button.membership-moves-name {
   font-size: 1rem;
   font-weight: 700;
   cursor: pointer;
+  text-decoration: none;
+  box-sizing: border-box;
 }
 
 .join-submit:disabled {

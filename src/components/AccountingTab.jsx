@@ -45,6 +45,7 @@ import FamilyGroupBalancesPanel from './erp/FamilyGroupBalancesPanel';
 import MemberDiscountsPanel from './erp/MemberDiscountsPanel';
 import BonificacionesPanel from './erp/BonificacionesPanel';
 import SiapPanel from './erp/SiapPanel';
+import ImpuestosPanel from './erp/ImpuestosPanel';
 import MemberCreditPurchasesPanel from './erp/MemberCreditPurchasesPanel';
 import MonthlyBalancePanel from './erp/MonthlyBalancePanel';
 import MonthlyBalanceSummaryPanel from './erp/MonthlyBalanceSummaryPanel';
@@ -62,6 +63,7 @@ const SOURCE_MODULE_LABELS = {
   gastos: 'Gastos',
   concesiones: 'Concesiones',
   cuotas: 'Cuotas',
+  impuestos: 'Impuestos',
 };
 
 const TREASURY_TABS = new Set([
@@ -110,6 +112,7 @@ function buildAccountingNavGroups(accountingTabs) {
         { key: 'member_discounts', icon: Percent, label: 'Descuentos extras', short: 'Descuentos' },
         { key: 'bonificaciones', icon: Receipt, label: 'Bonificaciones', short: 'Bonif.' },
         { key: 'siap', icon: Building2, label: 'SIAP', short: 'SIAP' },
+        { key: 'impuestos', icon: Percent, label: 'Impuestos', short: 'Impuestos' },
       ],
     },
     {
@@ -280,6 +283,15 @@ export default function AccountingTab({
   setMembers,
   retenciones = [],
   upsertRetencion,
+  comprobantes = [],
+  liquidaciones = [],
+  perfilFiscal,
+  onSaveComprobante,
+  onVoidComprobante,
+  onSavePerfilFiscal,
+  onSaveLiquidacion,
+  onPostLiquidacion,
+  onPayLiquidacion,
   members = [],
   unidentifiedCollections = [],
   upsertUnidentifiedCollection,
@@ -533,6 +545,7 @@ export default function AccountingTab({
   ) || acctNavGroups[0];
   const showAcctExport = subTab !== 'create'
     && subTab !== 'plan'
+    && subTab !== 'impuestos'
     && !TREASURY_TABS.has(subTab)
     && subTab !== 'balance'
     && subTab !== 'balance_monthly'
@@ -1415,6 +1428,7 @@ export default function AccountingTab({
           expenseImports={expenseImports}
           onImportExpenses={onImportExpenses}
           initialView={importFromUrl === 'gastos' ? 'import' : 'list'}
+          perfilFiscal={perfilFiscal}
         />
       )}
 
@@ -1438,6 +1452,22 @@ export default function AccountingTab({
           retenciones={retenciones}
           upsertRetencion={upsertRetencion}
           suppliers={suppliers}
+        />
+      )}
+
+      {subTab === 'impuestos' && (
+        <ImpuestosPanel
+          comprobantes={comprobantes}
+          liquidaciones={liquidaciones}
+          perfilFiscal={perfilFiscal}
+          retenciones={retenciones}
+          chartOfAccounts={chartOfAccounts}
+          onSavePerfil={onSavePerfilFiscal}
+          onSaveComprobante={onSaveComprobante}
+          onVoidComprobante={onVoidComprobante}
+          onSaveLiquidacion={onSaveLiquidacion}
+          onPostLiquidacion={onPostLiquidacion}
+          onPayLiquidacion={onPayLiquidacion}
         />
       )}
 

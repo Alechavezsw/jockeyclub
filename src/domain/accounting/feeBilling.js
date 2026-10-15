@@ -20,9 +20,38 @@ export const ACCESSIN_FEE_PERIODS = [
   { id: 'fp-1287', accessinId: 1287, year: 2026, month: 8, amount: 57441000, generatedAt: '2026-08-03', status: 'processed' },
   { id: 'fp-1311', accessinId: 1311, year: 2026, month: 9, amount: 57843000, generatedAt: '2026-08-14', status: 'processed', hasAccountDetails: true },
   { id: 'fp-1382', accessinId: 1382, year: 2026, month: 10, amount: 63233000, generatedAt: '2026-09-09', status: 'processed' },
-  { id: 'fp-2026-11', accessinId: null, year: 2026, month: 11, amount: 0, generatedAt: null, status: 'pending' },
-  { id: 'fp-2026-12', accessinId: null, year: 2026, month: 12, amount: 0, generatedAt: null, status: 'pending' },
+  { id: 'fp-2026-11', accessinId: null, year: 2026, month: 11, amount: 0, generatedAt: null, status: 'draft', source: 'app' },
+  { id: 'fp-2026-12', accessinId: null, year: 2026, month: 12, amount: 0, generatedAt: null, status: 'draft', source: 'app' },
 ];
+
+/** Desde noviembre 2026 las cuotas las liquida esta app. Octubre y lo anterior es el corte de LILA. */
+export const APP_DUES_FROM = Object.freeze({ year: 2026, month: 11 });
+
+export function feePeriodMonthIndex(period) {
+  return (Number(period?.year) || 0) * 12 + (Number(period?.month) || 0);
+}
+
+export function appOwnsFeePeriod(period) {
+  if (!period) return false;
+  return feePeriodMonthIndex(period) >= (APP_DUES_FROM.year * 12 + APP_DUES_FROM.month);
+}
+
+/**
+ * Vacío si se puede liquidar. Hasta octubre quedó en LILA.
+ * En la app solo se cierra el mes en curso; el borrador se arma el mes anterior.
+ */
+export function feePeriodLiquidateBlock(period, today = new Date()) {
+  if (!period) return 'Período no encontrado.';
+  if (period.status === 'processed') return 'El período ya está liquidado.';
+  if (period.status === 'cancelled') return 'El período está anulado.';
+  if (!appOwnsFeePeriod(period)) return 'Hasta octubre de 2026 la liquidación quedó en LILA.';
+  const when = today instanceof Date ? today : new Date(`${String(today).slice(0, 10)}T12:00:00`);
+  const current = (when.getFullYear() * 12) + (when.getMonth() + 1);
+  if (feePeriodMonthIndex(period) !== current) {
+    return 'Solo se liquida el mes en curso. El borrador se arma el mes anterior.';
+  }
+  return '';
+}
 
 export function periodLabel(period) {
   if (!period) return '—';
@@ -114,6 +143,8 @@ export function liquidateFeePeriod(list = [], periodId, members = [], today = ne
   const period = (list || []).find((p) => p.id === periodId);
   if (!period) throw new Error('Período no encontrado.');
   if (period.status === 'processed') throw new Error('El período ya está liquidado.');
+  const block = feePeriodLiquidateBlock(period, today);
+  if (block) throw new Error(block);
 
   const pack = feePackForPeriod(period);
   const iso = today.toISOString().slice(0, 10);
@@ -258,6 +289,7 @@ export function packEditorFromPeriod(period, liquidation = null) {
 export function applyFeePackEdit(period, draft) {
   if (!period) throw new Error('Período no encontrado.');
   if (feePeriodIsClosed(period)) throw new Error('El período está cerrado.');
+  if (!appOwnsFeePeriod(period)) throw new Error('Hasta octubre de 2026 la liquidación quedó en LILA.');
   const concepts = (draft?.concepts || []).map((row) => {
     const holders = Number(row.holders) || 0;
     const amount = roundUnit(row.amount, draft);

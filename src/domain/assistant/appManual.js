@@ -132,12 +132,12 @@ export const APP_MANUAL = [
     keywords: 'liquidar periodo mes cuotas excel pdf',
     who: 'Solo superadmin y contador.',
     steps: [
-      'Operación → Cuotas. Elegí el año y el período.',
-      'Revisá el detalle. Si hace falta, Editar el paquete y guardá.',
-      'Liquidar. El período cerrado no se vuelve a abrir a mano.',
+      'Operación → Cuotas. El borrador del mes siguiente se arma durante el mes en curso.',
+      'Revisá cantidad de socios y monto unitario por categoría. Si hace falta, Editar y guardá.',
+      'Liquidar recién en el mes en curso. El período cerrado no se vuelve a abrir.',
       'Excel y PDF salen de esa misma pantalla.',
     ],
-    dont: 'Octubre 2026 ya está liquidado en LILA ($ 63.233.000). No lo reimportes ni lo vuelvas a liquidar.',
+    dont: 'Hasta octubre de 2026 la liquidación es la de LILA (octubre: $ 63.233.000). Desde noviembre liquida esta app, solo el mes en curso.',
   },
   {
     id: 'pasar-porteria',

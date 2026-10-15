@@ -188,6 +188,7 @@ describe('allowedAccountingSubtabs', () => {
     expect(allowedAccountingSubtabs('accountant')).toContain('bonificaciones');
     expect(allowedAccountingSubtabs('accountant')).toContain('balance_summary');
     expect(allowedAccountingSubtabs('accountant')).toContain('siap');
+    expect(allowedAccountingSubtabs('accountant')).toContain('impuestos');
     expect(allowedAccountingSubtabs('superadmin')).toContain('libre_deuda');
   });
 });

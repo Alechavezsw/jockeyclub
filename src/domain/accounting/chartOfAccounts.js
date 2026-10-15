@@ -13,12 +13,19 @@ export const DEFAULT_CHART_OF_ACCOUNTS = [
   { id: 'coa-1.1.01', code: '1.1.01', name: 'Caja General', accountType: 'asset', parentId: 'coa-1.1', level: 3, isPostable: true, isCashAccount: true },
   { id: 'coa-1.1.02', code: '1.1.02', name: 'Caja Cantina', accountType: 'asset', parentId: 'coa-1.1', level: 3, isPostable: true, isCashAccount: true },
   { id: 'coa-1.1.03', code: '1.1.03', name: 'Banco Nación', accountType: 'asset', parentId: 'coa-1.1', level: 3, isPostable: true, isCashAccount: true },
+  { id: 'coa-1.1.04', code: '1.1.04', name: 'IVA Crédito Fiscal', accountType: 'asset', parentId: 'coa-1.1', level: 3, isPostable: true, isCashAccount: false },
+  { id: 'coa-1.1.05', code: '1.1.05', name: 'Percepciones a Favor', accountType: 'asset', parentId: 'coa-1.1', level: 3, isPostable: true, isCashAccount: false },
+  { id: 'coa-1.1.06', code: '1.1.06', name: 'Cuentas a Cobrar', accountType: 'asset', parentId: 'coa-1.1', level: 3, isPostable: true, isCashAccount: false },
   { id: 'coa-1.2.01', code: '1.2.01', name: 'Equipamiento Canchas', accountType: 'asset', parentId: 'coa-1', level: 3, isPostable: true, isCashAccount: false },
   { id: 'coa-1.2.02', code: '1.2.02', name: 'Caballos Criollos', accountType: 'asset', parentId: 'coa-1', level: 3, isPostable: true, isCashAccount: false },
   { id: 'coa-2', code: '2', name: 'PASIVO', accountType: 'liability', parentId: null, level: 1, isPostable: false, isCashAccount: false },
   { id: 'coa-2.1.01', code: '2.1.01', name: 'Proveedores Hípicos', accountType: 'liability', parentId: 'coa-2', level: 3, isPostable: true, isCashAccount: false },
   { id: 'coa-2.1.02', code: '2.1.02', name: 'Sueldos a Pagar', accountType: 'liability', parentId: 'coa-2', level: 3, isPostable: true, isCashAccount: false },
   { id: 'coa-2.1.03', code: '2.1.03', name: 'Impuestos Pendientes', accountType: 'liability', parentId: 'coa-2', level: 3, isPostable: true, isCashAccount: false },
+  { id: 'coa-2.1.04', code: '2.1.04', name: 'IVA Débito Fiscal', accountType: 'liability', parentId: 'coa-2', level: 3, isPostable: true, isCashAccount: false },
+  { id: 'coa-2.1.05', code: '2.1.05', name: 'IVA a Pagar', accountType: 'liability', parentId: 'coa-2', level: 3, isPostable: true, isCashAccount: false },
+  { id: 'coa-2.1.06', code: '2.1.06', name: 'IIBB a Pagar', accountType: 'liability', parentId: 'coa-2', level: 3, isPostable: true, isCashAccount: false },
+  { id: 'coa-2.1.07', code: '2.1.07', name: 'Percepciones a Depositar', accountType: 'liability', parentId: 'coa-2', level: 3, isPostable: true, isCashAccount: false },
   { id: 'coa-3', code: '3', name: 'PATRIMONIO NETO', accountType: 'equity', parentId: null, level: 1, isPostable: false, isCashAccount: false },
   { id: 'coa-3.1.01', code: '3.1.01', name: 'Capital Social', accountType: 'equity', parentId: 'coa-3', level: 3, isPostable: true, isCashAccount: false },
   { id: 'coa-3.1.02', code: '3.1.02', name: 'Resultados Acumulados', accountType: 'equity', parentId: 'coa-3', level: 3, isPostable: true, isCashAccount: false },
@@ -33,6 +40,7 @@ export const DEFAULT_CHART_OF_ACCOUNTS = [
   { id: 'coa-5.1.03', code: '5.1.03', name: 'Alimento Equino', accountType: 'expense', parentId: 'coa-5', level: 3, isPostable: true, isCashAccount: false },
   { id: 'coa-5.1.04', code: '5.1.04', name: 'Servicios e Insumos', accountType: 'expense', parentId: 'coa-5', level: 3, isPostable: true, isCashAccount: false },
   { id: 'coa-5.1.05', code: '5.1.05', name: 'Gastos de Eventos', accountType: 'expense', parentId: 'coa-5', level: 3, isPostable: true, isCashAccount: false },
+  { id: 'coa-5.1.06', code: '5.1.06', name: 'Impuestos y Tasas', accountType: 'expense', parentId: 'coa-5', level: 3, isPostable: true, isCashAccount: false },
 ];
 
 /** Compatibilidad con asientos legacy (nombre de cuenta → id). */

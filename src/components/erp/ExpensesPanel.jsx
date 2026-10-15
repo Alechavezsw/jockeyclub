@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Receipt, Check, X, Banknote, Upload } from 'lucide-react';
 import { getPostableAccounts, accountLabel } from '../../domain/accounting/chartOfAccounts';
 import { EXPENSE_STATUS_LABELS } from '../../domain/accounting/expenses';
+import { IVA_ALIQUOTS } from '../../domain/accounting/impuestos';
 import { formatCurrency } from '../../domain/accounting/journal';
 import ExpenseImportPanel from './ExpenseImportPanel';
 
@@ -16,6 +17,7 @@ export default function ExpensesPanel({
   expenseImports = [],
   onImportExpenses,
   initialView = 'list',
+  perfilFiscal = null,
 }) {
   const expenseAccounts = getPostableAccounts(chartOfAccounts).filter((a) => a.accountType === 'expense');
   const paymentAccounts = getPostableAccounts(chartOfAccounts).filter(
@@ -31,6 +33,8 @@ export default function ExpensesPanel({
     amount: '',
     concept: '',
     invoiceNumber: '',
+    ivaAliquotId: '',
+    fiscalCondition: perfilFiscal?.condition || '',
   });
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
@@ -45,9 +49,9 @@ export default function ExpensesPanel({
     setOk('');
     try {
       if (!form.concept.trim() || !form.amount) throw new Error('Concepto e importe son obligatorios.');
-      submitExpense(form);
+      submitExpense({ ...form, fiscalCondition: perfilFiscal?.condition || form.fiscalCondition || '' });
       setOk('Gasto enviado a aprobación.');
-      setForm((f) => ({ ...f, amount: '', concept: '', vendorName: '', invoiceNumber: '' }));
+      setForm((f) => ({ ...f, amount: '', concept: '', vendorName: '', invoiceNumber: '', ivaAliquotId: '' }));
     } catch (err) {
       setError(err.message);
     }
@@ -120,6 +124,15 @@ export default function ExpensesPanel({
           <label className="form-label">Importe</label>
           <input type="number" min="1" className="form-input" required value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
         </div>
+        {perfilFiscal?.condition === 'responsable_inscripto' ? (
+          <div>
+            <label className="form-label">IVA incluido</label>
+            <select className="form-input" value={form.ivaAliquotId} onChange={(e) => setForm({ ...form, ivaAliquotId: e.target.value })}>
+              <option value="">Sin discriminar</option>
+              {IVA_ALIQUOTS.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+            </select>
+          </div>
+        ) : null}
         <div>
           <label className="form-label">Cuenta de gasto</label>
           <select className="form-input" value={form.categoryAccountId} onChange={(e) => setForm({ ...form, categoryAccountId: e.target.value })}>

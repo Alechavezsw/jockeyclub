@@ -37,6 +37,7 @@ const ACCOUNTING_TOOLS = [
   { key: 'member_discounts', title: 'Descuentos extras', keywords: 'descuentos extras socios categorias bonificaciones' },
   { key: 'bonificaciones', title: 'Bonificaciones', keywords: 'bonificaciones descuentos socios' },
   { key: 'siap', title: 'SIAP', keywords: 'siap impuestos' },
+  { key: 'impuestos', title: 'Impuestos', keywords: 'impuestos iva iibb comprobantes liquidacion taxes' },
   { key: 'plan', title: 'Plan de cuentas', keywords: 'plan cuentas contabilidad' },
   { key: 'cash', title: 'Cajas', keywords: 'caja cajas tesoreria efectivo' },
   { key: 'expenses', title: 'Gastos', keywords: 'gastos egresos proveedores tesoreria' },

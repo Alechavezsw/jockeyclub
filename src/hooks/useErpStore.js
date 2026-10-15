@@ -106,6 +106,14 @@ import {
   syncConcessionAlerts,
 } from '../domain/concessions/concessions';
 import { buildPostedEntry, normalizeLines } from '../domain/accounting/journal';
+import {
+  DEFAULT_FISCAL_PROFILE,
+  compraFromExpense,
+  ensureTaxAccounts,
+  journalForComprobante,
+  journalForLiquidacion,
+  journalForTaxPayment,
+} from '../domain/accounting/impuestos';
 
 const cloud = () => isSupabaseConfigured;
 
@@ -262,6 +270,9 @@ export default function useErpStore({
   });
   const [retenciones, setRetenciones] = useState(() =>
     load('jockey-retenciones-v1', retencionesSeed().ACCESSIN_RETENCIONES)
+  );
+  const [fiscalDocuments, setFiscalDocuments] = useState(() =>
+    load('jockey-fiscal-documents-v1', [])
   );
   const [supplierPaymentImports, setSupplierPaymentImports] = useState(() =>
     load('jockey-supplier-payment-imports-v1', [])
@@ -447,6 +458,7 @@ export default function useErpStore({
       }
     }
     if (Array.isArray(erp.retenciones)) setRetenciones(erp.retenciones);
+    if (Array.isArray(erp.fiscalDocuments)) setFiscalDocuments(erp.fiscalDocuments);
     if (Array.isArray(erp.supplierPaymentImports)) setSupplierPaymentImports(erp.supplierPaymentImports);
     if (Array.isArray(erp.expenseImports)) setExpenseImports(erp.expenseImports);
     if (Array.isArray(erp.supplierEntries)) setSupplierEntries(erp.supplierEntries);
@@ -511,6 +523,7 @@ export default function useErpStore({
   useEffect(() => persist('jockey-expenses', expenses), [expenses]);
   useEffect(() => persist('jockey-suppliers-v3', suppliers), [suppliers]);
   useEffect(() => persist('jockey-retenciones-v1', retenciones), [retenciones]);
+  useEffect(() => persist('jockey-fiscal-documents-v1', fiscalDocuments), [fiscalDocuments]);
   useEffect(() => persist('jockey-supplier-payment-imports-v1', supplierPaymentImports), [supplierPaymentImports]);
   useEffect(() => persist('jockey-expense-imports-v1', expenseImports), [expenseImports]);
   useEffect(() => persist('jockey-supplier-entries-v1', supplierEntries), [supplierEntries]);
@@ -812,16 +825,39 @@ export default function useErpStore({
     async (expenseId) => {
       const target = expenses.find((e) => e.id === expenseId);
       if (!target) return;
-      const { expense, journalEntry } = payExpense(target, chartOfAccounts);
+      const chart = ensureTaxAccounts(chartOfAccounts);
+      const { expense, journalEntry } = payExpense(target, chart);
+      const compra = compraFromExpense(expense);
       if (cloud()) {
         const savedEntry = await repos.insertJournalEntry(journalEntry, { createdBy: userId });
         const savedExp = await repos.upsertExpense({ ...expense, journalEntryId: savedEntry.id });
         setExpenses((prev) => prev.map((e) => (e.id === expenseId ? savedExp : e)));
         setJournalEntries((entries) => [savedEntry, ...entries]);
+        if (compra) {
+          const linked = { ...compra, journalEntryId: savedEntry.id };
+          const savedDoc = await repos.upsertFiscalDocument(linked);
+          setFiscalDocuments((prev) => {
+            const idx = prev.findIndex((row) => row.id === savedDoc.id);
+            if (idx === -1) return [savedDoc, ...prev];
+            const next = [...prev];
+            next[idx] = savedDoc;
+            return next;
+          });
+        }
         return;
       }
       setExpenses((prev) => prev.map((e) => (e.id === expenseId ? expense : e)));
       setJournalEntries((entries) => [journalEntry, ...entries]);
+      if (compra) {
+        setFiscalDocuments((prev) => {
+          const linked = { ...compra, journalEntryId: journalEntry.id };
+          const idx = prev.findIndex((row) => row.id === linked.id);
+          if (idx === -1) return [linked, ...prev];
+          const next = [...prev];
+          next[idx] = linked;
+          return next;
+        });
+      }
     },
     [chartOfAccounts, expenses, setJournalEntries, userId]
   );
@@ -1619,6 +1655,72 @@ export default function useErpStore({
     [clubEvents, eventRegistrations, chartOfAccounts, setJournalEntries, userId]
   );
 
+  const upsertFiscal = useCallback(async (item) => {
+    if (cloud()) {
+      const saved = await repos.upsertFiscalDocument(item);
+      setFiscalDocuments((prev) => {
+        const idx = prev.findIndex((row) => row.id === saved.id);
+        if (idx === -1) return [saved, ...prev];
+        const next = [...prev];
+        next[idx] = saved;
+        return next;
+      });
+      return saved;
+    }
+    setFiscalDocuments((prev) => {
+      const idx = prev.findIndex((row) => row.id === item.id);
+      if (idx === -1) return [item, ...prev];
+      const next = [...prev];
+      next[idx] = item;
+      return next;
+    });
+    return item;
+  }, []);
+
+  const saveComprobante = useCallback(async (voucher, { postJournal = false } = {}) => {
+    let next = voucher;
+    if (postJournal && !voucher.journalEntryId) {
+      const entry = journalForComprobante(voucher, ensureTaxAccounts(chartOfAccounts));
+      const savedEntry = await addPostedEntry(entry);
+      next = { ...voucher, journalEntryId: savedEntry.id };
+    }
+    return upsertFiscal(next);
+  }, [addPostedEntry, chartOfAccounts, upsertFiscal]);
+
+  const voidComprobanteRecord = useCallback(async (voucher) => {
+    return upsertFiscal({ ...voucher, status: 'void', updatedAt: new Date().toISOString() });
+  }, [upsertFiscal]);
+
+  const saveFiscalProfile = useCallback(async (profile) => {
+    return upsertFiscal({ ...DEFAULT_FISCAL_PROFILE, ...profile, id: 'perfil-fiscal', docKind: 'perfil' });
+  }, [upsertFiscal]);
+
+  const saveLiquidacion = useCallback(async (liquidation) => {
+    return upsertFiscal(liquidation);
+  }, [upsertFiscal]);
+
+  const postLiquidacion = useCallback(async (liquidation) => {
+    const entry = journalForLiquidacion(liquidation, ensureTaxAccounts(chartOfAccounts));
+    const savedEntry = await addPostedEntry(entry);
+    return upsertFiscal({
+      ...liquidation,
+      status: 'closed',
+      journalEntryId: savedEntry.id,
+      updatedAt: new Date().toISOString(),
+    });
+  }, [addPostedEntry, chartOfAccounts, upsertFiscal]);
+
+  const payLiquidacion = useCallback(async (liquidation, paymentAccountId) => {
+    const entry = journalForTaxPayment(liquidation, ensureTaxAccounts(chartOfAccounts), paymentAccountId);
+    const savedEntry = await addPostedEntry(entry);
+    return upsertFiscal({
+      ...liquidation,
+      status: 'paid',
+      paymentJournalEntryId: savedEntry.id,
+      updatedAt: new Date().toISOString(),
+    });
+  }, [addPostedEntry, chartOfAccounts, upsertFiscal]);
+
   const revokeEventRegistration = useCallback((registrationId) => {
     setEventRegistrations((prev) => revokeEventRegistrationDomain(prev, registrationId));
   }, []);
@@ -1647,6 +1749,15 @@ export default function useErpStore({
     expenses,
     suppliers,
     retenciones,
+    comprobantes: fiscalDocuments.filter((row) => row.docKind === 'comprobante'),
+    liquidaciones: fiscalDocuments.filter((row) => row.docKind === 'liquidacion'),
+    perfilFiscal: fiscalDocuments.find((row) => row.docKind === 'perfil') || DEFAULT_FISCAL_PROFILE,
+    saveComprobante,
+    voidComprobanteRecord,
+    saveFiscalProfile,
+    saveLiquidacion,
+    postLiquidacion,
+    payLiquidacion,
     supplierPaymentImports,
     expenseImports,
     supplierEntries,

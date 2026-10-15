@@ -680,6 +680,8 @@ export function expenseFromRow(row) {
     journalEntryId: row.journal_entry_id,
     cashSessionId: row.cash_session_id,
     supplierId: row.supplier_id || null,
+    ivaAliquotId: row.meta?.ivaAliquotId || '',
+    fiscalCondition: row.meta?.fiscalCondition || '',
   };
 }
 

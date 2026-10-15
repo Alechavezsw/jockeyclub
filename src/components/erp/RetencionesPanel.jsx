@@ -8,6 +8,7 @@ import {
   retencionTotals,
   updateRetencion,
 } from '../../domain/accounting/retenciones';
+import { RETENTION_SUGGESTIONS } from '../../domain/accounting/impuestos';
 import { formatCurrency } from '../../domain/accounting/journal';
 import { useSnapshotSeed } from '../../hooks/useSnapshots';
 
@@ -263,11 +264,8 @@ export default function RetencionesPanel({
             <label className="form-label">Tipo retención</label>
             <input className="form-input" list="retencion-types" value={form.retentionType} onChange={(e) => setForm({ ...form, retentionType: e.target.value })} placeholder="Ganancias / IVA / SUSS…" />
             <datalist id="retencion-types">
+              {RETENTION_SUGGESTIONS.map((t) => <option key={t} value={t} />)}
               {types.map((t) => <option key={t} value={t} />)}
-              <option value="Ganancias" />
-              <option value="IVA" />
-              <option value="SUSS" />
-              <option value="IIBB" />
             </datalist>
           </div>
           <div>

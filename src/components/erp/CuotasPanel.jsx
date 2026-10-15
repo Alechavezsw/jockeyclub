@@ -8,6 +8,7 @@ import {
   feePeriodIsClosed,
   feePeriodsForYear,
   formatPeriodGeneratedAt,
+  feePeriodLiquidateBlock,
   liquidateFeePeriod,
   packEditorFromPeriod,
   periodLabel,
@@ -972,7 +973,9 @@ export default function CuotasPanel({
                 <td colSpan={6} style={{ color: 'var(--text-muted)' }}>No hay períodos para {year}.</td>
               </tr>
             ) : (
-              periods.map((p) => (
+              periods.map((p) => {
+                const liquidateBlock = feePeriodLiquidateBlock(p);
+                return (
                 <tr key={p.id}>
                   <td>{p.accessinId || '—'}</td>
                   <td style={{ fontWeight: 600 }}>{periodLabel(p)}</td>
@@ -1054,8 +1057,9 @@ export default function CuotasPanel({
                           <button
                             type="button"
                             className="cash-lila-icon-btn is-edit"
-                            title="Liquidar período"
+                            title={liquidateBlock || 'Liquidar período'}
                             aria-label="Liquidar período"
+                            disabled={Boolean(liquidateBlock)}
                             onClick={() => liquidate(p.id)}
                           >
                             <Plus size={13} />
@@ -1084,7 +1088,9 @@ export default function CuotasPanel({
                           <button
                             type="button"
                             className="cash-lila-icon-btn is-edit"
-                            title="Liquidar período"
+                            title={liquidateBlock || 'Liquidar período'}
+                            aria-label="Liquidar período"
+                            disabled={Boolean(liquidateBlock)}
                             onClick={() => liquidate(p.id)}
                           >
                             <Plus size={13} />
@@ -1094,7 +1100,8 @@ export default function CuotasPanel({
                     </div>
                   </td>
                 </tr>
-              ))
+                );
+              })
             )}
           </tbody>
         </table>

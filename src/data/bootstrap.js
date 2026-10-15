@@ -14,6 +14,7 @@ const EMPTY_ERP = {
   expenseImports: [],
   supplierEntries: [],
   otherIncomes: [],
+  fiscalDocuments: [],
   unidentifiedCollections: [],
   galiciaDebits: [],
   fixedExpenses: [],
@@ -339,6 +340,7 @@ export async function bootstrapErpFromDb() {
     expenseImports,
     supplierEntries,
     otherIncomes,
+    fiscalDocuments,
   ] = await mapLimit([
     () => softErp(repos.listChartOfAccounts(), [], 'coa'),
     () => softErp(repos.listCashRegisters(), [], 'cashRegisters'),
@@ -359,6 +361,7 @@ export async function bootstrapErpFromDb() {
     () => softErp(repos.listExpenseImports(), [], 'expenseImports'),
     () => softErp(repos.listSupplierEntries(), [], 'supplierEntries'),
     () => softErp(repos.listOtherIncomes(), [], 'otherIncomes'),
+    () => softErp(repos.listFiscalDocuments(), [], 'fiscalDocuments'),
   ], QUERY_CONCURRENCY);
 
   return {
@@ -373,6 +376,7 @@ export async function bootstrapErpFromDb() {
     expenseImports: expenseImports || [],
     supplierEntries: supplierEntries || [],
     otherIncomes: otherIncomes || [],
+    fiscalDocuments: fiscalDocuments || [],
     unidentifiedCollections: unidentifiedCollections || [],
     galiciaDebits: galiciaDebits || [],
     fixedExpenses: fixedExpenses || [],

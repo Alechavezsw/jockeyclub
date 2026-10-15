@@ -90,12 +90,14 @@ export function metaFromListRow(row = {}) {
 
 function listRowToMember(row) {
   if (!row) return null;
-  return M.memberFromRow({
+  const mapped = M.memberFromRow({
     ...row,
     meta: metaFromListRow(row),
     photo_url: undefined,
     credential_token: undefined,
   }, []);
+  if (row.has_portal === true) return { ...mapped, hasApp: true };
+  return mapped;
 }
 
 let membersListInflight = null;
@@ -1374,6 +1376,11 @@ export async function upsertExpense(expense) {
     journal_entry_id: expense.journalEntryId || null,
     cash_session_id: expense.cashSessionId || null,
     supplier_id: isUuid(expense.supplierId) ? expense.supplierId : null,
+    meta: {
+      ...(expense.meta && typeof expense.meta === 'object' ? expense.meta : {}),
+      ivaAliquotId: expense.ivaAliquotId || '',
+      fiscalCondition: expense.fiscalCondition || '',
+    },
   };
   if (expense.id && String(expense.id).includes('-')) {
     const saved = await unwrap(sb().from('expenses').update(row).eq('id', expense.id).select().single());
@@ -1751,6 +1758,36 @@ export async function upsertRetencion(item) {
   }
   const saved = await unwrap(sb().from('retenciones').insert(row).select().single());
   return M.retencionFromRow(saved);
+}
+
+export async function listFiscalDocuments() {
+  const rows = await unwrap(
+    sb().from('fiscal_documents').select('*').order('doc_date', { ascending: false })
+  );
+  return (rows || []).map((row) => ({
+    ...(row.payload || {}),
+    id: row.client_key || row.payload?.id,
+    docKind: row.doc_kind || row.payload?.docKind,
+    status: row.status || row.payload?.status,
+    date: row.doc_date || row.payload?.date || null,
+    period: row.period || row.payload?.period || '',
+  }));
+}
+
+export async function upsertFiscalDocument(item) {
+  const row = {
+    client_key: item.id,
+    doc_kind: item.docKind || 'comprobante',
+    status: item.status || 'recorded',
+    doc_date: item.date || null,
+    period: item.period || null,
+    payload: item,
+    updated_at: new Date().toISOString(),
+  };
+  const saved = await unwrap(
+    sb().from('fiscal_documents').upsert(row, { onConflict: 'client_key' }).select().single()
+  );
+  return saved?.payload ? { ...saved.payload, id: saved.client_key || item.id } : item;
 }
 
 export async function listSupplierPaymentImports() {

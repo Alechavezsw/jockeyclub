@@ -989,37 +989,7 @@ export default function ReportsTab({
             <Kpi icon={Shield} label="Reclamos abiertos" value={o.openClaims} tone={o.openClaims ? 'bad' : 'good'} />
           </div>
 
-          <div className="reports-two-col">
-            <div className="glass-panel reports-panel">
-              <h4 className="serif-font">Ocupación de turnos por disciplina</h4>
-              <div className="reports-bars">
-                {[
-                  { label: 'Rugby Cuyano (Masc/Fem)', codes: ['rugby_masc', 'rugby_fem'], color: 'var(--primary-gold)' },
-                  { label: 'Hockey sobre Césped', codes: ['hockey_cesped'], color: '#10b981' },
-                  { label: 'Equitación', codes: ['equitacion_pistas'], color: '#d97706' },
-                  { label: 'Tenis, Pádel & Fútbol', codes: ['tenis_trad', 'padel_vidrio', 'futbol_fusion'], color: '#f97316' },
-                  { label: 'Gimnasio', codes: ['gimnasio'], color: '#a855f7' },
-                  { label: 'Pileta olímpica', codes: ['pileta_olimpica'], color: '#3b82f6' },
-                  { label: 'Salones y Espacio Verde', codes: ['salon_anhelo', 'salon_bustos', 'salon_maurin', 'salon_refugio', 'espacio_verde'], color: '#ec4899' },
-                ].map((facility) => {
-                  const count = reservations.filter((r) => facility.codes.includes(r.facilityId) && r.status === 'confirmed').length;
-                  const pct = Math.min(Math.round((count / 15) * 100), 100);
-                  return (
-                    <div key={facility.label} className="reports-bar-row">
-                      <div className="reports-bar-meta">
-                        <span>{facility.label}</span>
-                        <strong>{count} turnos</strong>
-                      </div>
-                      <div className="progress-bar-container">
-                        <div className="progress-bar-fill" style={{ width: `${Math.max(pct, 5)}%`, backgroundColor: facility.color }} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="glass-panel reports-panel">
+          <div className="glass-panel reports-panel">
               <h4 className="serif-font">Padrón por categoría</h4>
               <div className="reports-donut-wrap">
                 <div className="reports-donut">
@@ -1070,7 +1040,6 @@ export default function ReportsTab({
                 <div><span>Adherentes</span><strong>{m.adherents}</strong></div>
               </div>
             </div>
-          </div>
         </>
       )}
 

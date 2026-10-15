@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { CheckCircle2 } from 'lucide-react';
 import { getActiveTiers, getTierOptionLabel } from '../domain/members/tiers';
 import {
-  ACCESS_REASONS,
+  accessLookupHasUser,
+  accessLookupPickedLine,
+  accessReasonForMember,
+  accessReasonsForMember,
   emptyJoinConflicts,
   hasJoinIdentityConflict,
   joinConflictMessage,
@@ -62,6 +65,10 @@ export default function MemberAccessView() {
   const [joinConflicts, setJoinConflicts] = useState(emptyJoinConflicts);
   const tiers = useMemo(() => getActiveTiers(), []);
   const joining = tab === 'alta';
+  const hasPortalUser = accessLookupHasUser(accessPicked);
+  const accessReasons = accessReasonsForMember(accessPicked);
+  const accessReason = accessReasonForMember(accessPicked, accessForm.reason);
+  const askingNewPassword = accessReason === 'forgot_password';
 
   const setTab = (id) => {
     setDone(false);
@@ -144,9 +151,15 @@ export default function MemberAccessView() {
 
   const pickAccessMember = (hit) => {
     if (!hit) return;
+    const hasUser = accessLookupHasUser(hit);
     setAccessHits([]);
     setShowSearchHint(false);
-    setAccessPicked({ id: hit.id, memberId: hit.memberId, name: hit.name });
+    setAccessPicked({
+      id: hit.id,
+      memberId: hit.memberId,
+      name: hit.name,
+      hasApp: hasUser,
+    });
     setAccessForm((prev) => ({
       ...prev,
       fullName: hit.name || prev.fullName,
@@ -155,12 +168,24 @@ export default function MemberAccessView() {
       email: hit.email || prev.email,
       phone: hit.phone || prev.phone,
       linkedMemberId: hit.id,
+      reason: hasUser ? 'forgot_password' : prev.reason,
     }));
     const hydrate = hit.memberId
       ? repos.getMemberByNumber(hit.memberId)
       : repos.getMember(hit.id);
     hydrate.then((full) => {
       if (!full) return;
+      const hydratedHasUser = accessLookupHasUser(full);
+      setAccessPicked((prev) => {
+        if (!prev || (prev.id && prev.id !== full.id)) return prev;
+        return {
+          ...prev,
+          id: full.id || prev.id,
+          memberId: full.memberId || prev.memberId,
+          name: full.name || prev.name,
+          hasApp: hydratedHasUser || prev.hasApp,
+        };
+      });
       setAccessForm((prev) => (
         prev.linkedMemberId !== full.id
           ? prev
@@ -171,6 +196,7 @@ export default function MemberAccessView() {
             memberNumber: full.memberId || prev.memberNumber,
             email: full.email || prev.email,
             phone: full.phone || prev.phone,
+            reason: hydratedHasUser ? 'forgot_password' : prev.reason,
           }
       ));
     }).catch(() => {});
@@ -191,7 +217,7 @@ export default function MemberAccessView() {
         memberNumber: accessForm.memberNumber.trim(),
         phone: accessForm.phone.trim(),
         email: accessForm.email.trim(),
-        reason: accessForm.reason,
+        reason: accessReason,
         memberDbId: accessForm.linkedMemberId || null,
       });
       setDone(true);
@@ -268,7 +294,9 @@ export default function MemberAccessView() {
         <p className="join-hero__lead">
           {joining
             ? 'Dejá tu solicitud. Te mandamos un mail de bienvenida. El usuario llega cuando secretaría te dé de alta.'
-            : 'Pedí tu usuario. Secretaría verifica tu ficha y te entrega el acceso.'}
+            : hasPortalUser
+              ? 'Esta ficha ya tiene usuario. Si olvidaste la clave, pedí recuperarla.'
+              : 'Pedí tu usuario. Secretaría verifica tu ficha y te entrega el acceso.'}
         </p>
       </header>
 
@@ -295,7 +323,9 @@ export default function MemberAccessView() {
             <p>
               {joining
                 ? 'Te mandamos un mail de bienvenida. Secretaría revisa tu solicitud y, cuando te den de alta, te llega otro mail con usuario y contraseña.'
-                : 'Secretaría va a revisar los datos y te va a contactar. No te damos usuario ni contraseña por acá.'}
+                : askingNewPassword
+                  ? 'Pediste recuperar la clave. Secretaría revisa la ficha y te contacta. No te damos una clave nueva por acá.'
+                  : 'Secretaría va a revisar los datos y te va a contactar. No te damos usuario ni contraseña por acá.'}
             </p>
             <button
               type="button"
@@ -481,11 +511,16 @@ export default function MemberAccessView() {
               />
               {showSearchHint ? <p className="join-lookup__hint">Buscando en el padrón…</p> : null}
               {accessPicked ? (
-                <p className="join-lookup__picked">
-                  Socio Nº {accessPicked.memberId || '—'}
-                  {accessPicked.name ? ` · ${accessPicked.name}` : ''}
-                  {' · el pedido llega a esa ficha'}
-                </p>
+                <>
+                  <p className={`join-lookup__picked${accessLookupHasUser(accessPicked) ? ' is-user' : ''}`}>
+                    {accessLookupPickedLine(accessPicked)}
+                  </p>
+                  {hasPortalUser ? (
+                    <p className="join-lookup__hint">
+                      Entrá al portal con tu mail. Si no la recordás, pedí una clave nueva.
+                    </p>
+                  ) : null}
+                </>
               ) : null}
               {!accessPicked && accessHits.length > 0 ? (
                 <ul className="join-lookup__list" role="listbox">
@@ -496,6 +531,7 @@ export default function MemberAccessView() {
                         <span>
                           Nº {member.memberId || '—'}
                           {member.documentNumber ? ` · DNI ${member.documentNumber}` : ''}
+                          {accessLookupHasUser(member) ? ' · ya tiene usuario' : ''}
                         </span>
                       </button>
                     </li>
@@ -550,18 +586,23 @@ export default function MemberAccessView() {
             <label className="join-field">
               <span>Motivo</span>
               <select
-                value={accessForm.reason}
+                value={accessReason}
                 onChange={(e) => setAccessForm((p) => ({ ...p, reason: e.target.value }))}
               >
-                {ACCESS_REASONS.map((r) => (
+                {accessReasons.map((r) => (
                   <option key={r.id} value={r.id}>{r.label}</option>
                 ))}
               </select>
             </label>
 
             {error ? <p className="join-error" role="alert">{error}</p> : null}
+            {hasPortalUser ? (
+              <Link to="/" className="join-submit join-submit--ghost">
+                Entrar al portal
+              </Link>
+            ) : null}
             <button type="submit" className="join-submit" disabled={submitting}>
-              {submitting ? 'Enviando…' : 'Enviar pedido'}
+              {submitting ? 'Enviando…' : (askingNewPassword ? 'Pedir recuperar clave' : 'Enviar pedido')}
             </button>
           </form>
         )}

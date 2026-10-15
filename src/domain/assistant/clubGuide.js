@@ -30,7 +30,7 @@ export const CLUB_GUIDE = [
     tab: 'dues',
     title: 'Cuotas',
     keywords: 'cuota liquidar periodo vencimiento mora saldos',
-    teach: 'En Cuotas liquidás el mes, ves saldos y exportás PDF/Excel. Octubre 2026 ya está procesado en LILA. Solo liquidan superadmin y contador. El resto ve Saldos.',
+    teach: 'En Cuotas se arma el borrador el mes anterior y se liquida el mes en curso. Hasta octubre de 2026 el corte es el de LILA. Desde noviembre liquida esta app. Solo liquidan superadmin y contador. El resto ve Saldos.',
   },
   {
     id: 'reservas',
@@ -203,6 +203,7 @@ export const CLUB_TOOLS = [
   { id: 'descuentos', tab: 'accounting', focus: 'member_discounts', title: 'Descuentos extras', keywords: 'descuento extra categoria', teach: 'Descuentos extras está en Contabilidad → Informes. Las bonificaciones de LILA son otra lista.' },
   { id: 'bonificaciones', tab: 'accounting', focus: 'bonificaciones', title: 'Bonificaciones', keywords: 'bonificacion descuento lila', teach: 'Bonificaciones está en Contabilidad → Informes. Es el listado que vino de LILA.' },
   { id: 'siap', tab: 'accounting', focus: 'siap', title: 'SIAP', keywords: 'siap impuestos afip', teach: 'SIAP está en Contabilidad → Informes.' },
+  { id: 'impuestos', tab: 'accounting', focus: 'impuestos', title: 'Impuestos', keywords: 'impuestos iva iibb liquidacion comprobante', teach: 'Impuestos está en Contabilidad → Informes. Ahí se cargan comprobantes y se liquida IVA o IIBB. Las retenciones de Operación entran en esa liquidación.' },
   { id: 'plan', tab: 'accounting', focus: 'plan', title: 'Plan de cuentas', keywords: 'plan cuentas catalogo', teach: 'El plan de cuentas está en Contabilidad → Catálogo.' },
   { id: 'retenciones', tab: 'accounting', focus: 'retenciones', title: 'Retenciones', keywords: 'retencion impuesto', teach: 'Retenciones está en Contabilidad → Operación.' },
   { id: 'otros-ingresos', tab: 'accounting', focus: 'other_incomes', title: 'Otros ingresos', keywords: 'otros ingresos extra', teach: 'Otros ingresos está en Contabilidad → Operación. Cajero también lo ve.' },
@@ -672,7 +673,7 @@ export function guideForPrompt() {
   return `MANUAL DE USO (pasos concretos):
 ${manualForPrompt()}
 Roles: ${APP_ROLES}
-Empalme LILA: 1 de octubre de 2026. Octubre liquidó $ 63.233.000.
+Empalme LILA: 1 de octubre de 2026. Octubre liquidó $ 63.233.000. Desde noviembre de 2026 las cuotas las liquida esta app.
 Portal socio: / /reservas /cuenta /revista /perfil /registro
 Profesor: /asistencia
 Portería QR: /acceso · Pileta: /pileta · Entrada pileta: /entrada-pileta · Concesiones: /concesiones`;

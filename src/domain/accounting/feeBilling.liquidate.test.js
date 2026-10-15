@@ -3,7 +3,9 @@ import { feePackForPeriod } from './feePackConcepts';
 import {
   ACCESSIN_FEE_PERIODS,
   applyFeePackEdit,
+  appOwnsFeePeriod,
   feePeriodIsClosed,
+  feePeriodLiquidateBlock,
   feePeriodNeedsClosure,
   liquidateFeePeriod,
   packEditorFromPeriod,
@@ -33,18 +35,37 @@ describe('liquidateFeePeriod', () => {
   });
 
   it('cerrar un borrador con pack no imputa cuotas', () => {
+    const pack = feePackForPeriod(ACCESSIN_FEE_PERIODS.find((p) => p.id === 'fp-1382'));
     const draftList = ACCESSIN_FEE_PERIODS.map((period) => (
-      period.id === 'fp-1382' ? { ...period, status: 'draft', generatedAt: null } : period
+      period.id === 'fp-2026-11'
+        ? { ...period, status: 'draft', pack, amount: pack.total, generatedAt: null }
+        : period
     ));
-    const result = liquidateFeePeriod(draftList, 'fp-1382', [
+    const result = liquidateFeePeriod(draftList, 'fp-2026-11', [
       { memberId: '10485', status: 'active' },
-    ], TODAY);
+    ], new Date('2026-11-02T15:00:00.000Z'));
 
     expect(result.memberUpdates).toEqual([]);
     expect(result.period.status).toBe('processed');
     expect(result.period.amount).toBe(63233000);
-    expect(result.period.generatedAt).toBe('2026-09-30');
+    expect(result.period.generatedAt).toBe('2026-11-02');
     expect(feePeriodNeedsClosure(result.period)).toBe(true);
+  });
+
+  it('desde noviembre liquida la app y solo el mes en curso', () => {
+    const november = ACCESSIN_FEE_PERIODS.find((p) => p.month === 11);
+    const october = ACCESSIN_FEE_PERIODS.find((p) => p.month === 10);
+    expect(november.status).toBe('draft');
+    expect(appOwnsFeePeriod(november)).toBe(true);
+    expect(appOwnsFeePeriod(october)).toBe(false);
+    expect(feePeriodLiquidateBlock(november, new Date('2026-10-14T15:00:00'))).toMatch(/mes en curso/);
+    expect(() => liquidateFeePeriod(ACCESSIN_FEE_PERIODS, 'fp-2026-11', [], new Date('2026-10-14T15:00:00')))
+      .toThrow(/mes en curso/);
+    const opened = ACCESSIN_FEE_PERIODS.map((period) => (
+      period.month === 9 ? { ...period, status: 'draft' } : period
+    ));
+    expect(() => liquidateFeePeriod(opened, 'fp-1311', [], new Date('2026-09-01T15:00:00')))
+      .toThrow(/LILA/);
   });
 
   it('no vuelve a liquidar un mes ya procesado', () => {
@@ -83,7 +104,7 @@ describe('liquidateFeePeriod', () => {
     draft.concepts = [{ id: '1', label: 'SOCIO FAMILIAR', holders: 2, amount: 70000 }];
     draft.surcharges = [{ date: '2026-11-10', category: 'SOCIO FAMILIAR', type: 'percentage', value: 10 }];
     const next = applyFeePackEdit(november, draft);
-    expect(next.status).toBe('pending');
+    expect(next.status).toBe('draft');
     expect(next.amount).toBe(140000);
     expect(next.lines).toEqual([
       { identifier: '1', name: 'SOCIO FAMILIAR', holders: 2, unit: 70000, total: 140000 },
