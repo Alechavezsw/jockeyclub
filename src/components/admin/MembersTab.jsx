@@ -13,7 +13,7 @@ import {
   memberAppAccess,
   reasonLabel as lifecycleReasonLabel,
 } from '../../domain/members/memberAdminActions';
-import { attachHouseholdToMembers, assignDistinctStatColors, buildPadronHouseholdStats, familyGroupMatchesQuery, isFamilyDependent, isLiveMember, isTitularMember, listFamilyGroups, memberMatchesDirectoryQuery, mergeMembersById, rankMemberSearchHit, resolveFamilyForDisplay } from '../../domain/members/households';
+import { attachHouseholdToMembers, assignDistinctStatColors, buildPadronHouseholdStats, familyGroupMatchesQuery, isFamilyDependent, isLiveMember, isTitularMember, listFamilyGroups, memberMatchesDirectoryQuery, mergeMemberRecord, mergeMembersById, rankMemberSearchHit, resolveFamilyForDisplay } from '../../domain/members/households';
 import { portalLoginFromEmail } from '../../domain/auth/credentials';
 import {
   accessInviteMailError,
@@ -512,20 +512,7 @@ export default function MembersTab({
         setMembers((prev) => {
           const idx = (prev || []).findIndex((m) => String(m.memberId) === String(full.memberId));
           const current = idx >= 0 ? prev[idx] : null;
-          if (current?.recordScope === 'full' && current.address) {
-            if (!full.paymentHistory?.length) return prev;
-            return prev.map((m, i) => (
-              i === idx ? { ...current, paymentHistory: full.paymentHistory } : m
-            ));
-          }
-          const hydrated = {
-            ...current,
-            ...full,
-            adherents: (full.adherents && full.adherents.length)
-              ? full.adherents
-              : current?.adherents,
-            recordScope: 'full',
-          };
+          const hydrated = mergeMemberRecord(current, { ...full, recordScope: 'full' });
           if (idx < 0) return mergeMembersById(prev, [hydrated]);
           return prev.map((m, i) => (i === idx ? hydrated : m));
         });

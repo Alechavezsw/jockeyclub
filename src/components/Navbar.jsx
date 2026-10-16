@@ -12,6 +12,8 @@ export default function Navbar({
   toggleTheme,
   notifications = [],
   unreadMessages = 0,
+  duesOverdue = false,
+  duesDueSoon = false,
   onOpenNotification,
   onDismissNotification,
   onMarkAllNotificationsRead,
@@ -210,8 +212,22 @@ export default function Navbar({
           <button
             type="button"
             onClick={() => handleNavClick('messages')}
-            title="Mensajería interna"
-            aria-label={unreadMessages > 0 ? `Mensajes, ${unreadMessages} sin leer` : 'Mensajes'}
+            title={
+              duesOverdue
+                ? 'Mensajería interna · cuota en mora'
+                : duesDueSoon
+                  ? 'Mensajería interna · cuota por vencer'
+                  : 'Mensajería interna'
+            }
+            aria-label={
+              duesOverdue
+                ? (unreadMessages > 0 ? `Mensajes, ${unreadMessages} sin leer y cuota en mora` : 'Mensajes, cuota en mora')
+                : duesDueSoon
+                  ? (unreadMessages > 0 ? `Mensajes, ${unreadMessages} sin leer y cuota por vencer` : 'Mensajes, cuota por vencer')
+                  : unreadMessages > 0
+                    ? `Mensajes, ${unreadMessages} sin leer`
+                    : 'Mensajes'
+            }
             style={{
               background: currentView === 'messages' ? 'rgba(var(--primary-gold-rgb),0.12)' : 'rgba(255,255,255,0.03)',
               border: `1px solid ${currentView === 'messages' ? 'rgba(var(--primary-gold-rgb),0.4)' : 'var(--border-glass)'}`,
@@ -227,7 +243,7 @@ export default function Navbar({
             }}
           >
             <Mail size={18} aria-hidden="true" />
-            {unreadMessages > 0 && (
+            {(unreadMessages > 0 || duesOverdue || duesDueSoon) && (
               <span style={{
                 position: 'absolute',
                 top: '-4px',
@@ -235,8 +251,8 @@ export default function Navbar({
                 minWidth: '18px',
                 height: '18px',
                 borderRadius: '9px',
-                background: 'var(--primary-gold)',
-                color: '#060e0a',
+                background: duesOverdue ? '#CA390C' : 'var(--primary-gold)',
+                color: duesOverdue ? '#fff' : '#060e0a',
                 fontSize: '0.68rem',
                 fontWeight: '800',
                 display: 'flex',
@@ -245,7 +261,7 @@ export default function Navbar({
                 padding: '0 4px',
                 border: '2px solid var(--bg-primary, #060e0a)'
               }}>
-                {unreadMessages > 9 ? '9+' : unreadMessages}
+                {unreadMessages > 0 ? (unreadMessages > 9 ? '9+' : unreadMessages) : '!'}
               </span>
             )}
           </button>
@@ -565,17 +581,23 @@ export default function Navbar({
             }}
           >
             <Mail size={16} /> Mensajes
-            {unreadMessages > 0 && (
+            {(unreadMessages > 0 || duesOverdue || duesDueSoon) && (
               <span style={{
                 marginLeft: 'auto',
-                background: 'var(--primary-gold)',
-                color: '#060e0a',
+                background: duesOverdue ? '#CA390C' : 'var(--primary-gold)',
+                color: duesOverdue ? '#fff' : '#060e0a',
                 borderRadius: 10,
                 padding: '0.1rem 0.45rem',
                 fontSize: '0.72rem',
                 fontWeight: 800,
               }}>
-                {unreadMessages}
+                {unreadMessages > 0
+                  ? unreadMessages
+                  : duesOverdue
+                    ? 'Mora'
+                    : duesDueSoon
+                      ? 'Vence'
+                      : unreadMessages}
               </span>
             )}
           </button>

@@ -85,6 +85,28 @@ const LIST_META_FIELDS = [
   'bajaMotivo',
 ];
 
+/** Campos de ficha que el padrón corto rellena vacío. No se pisan si ya estaban. */
+const FICHA_KEEP_FIELDS = [
+  'address',
+  'city',
+  'province',
+  'postalCode',
+  'phoneAlt',
+  'gender',
+  'maritalStatus',
+  'nationality',
+  'emergencyContact',
+  'emergencyPhone',
+  'billingName',
+  'cuitCuil',
+  'taxCondition',
+  'notes',
+  'photo',
+  'credentialToken',
+  'bloodType',
+  'healthInsurance',
+];
+
 function memberKey(member) {
   return String(member?.memberId || '').trim();
 }
@@ -95,12 +117,25 @@ function metaFieldPresent(value) {
   return true;
 }
 
+function keepFilled(current, incoming, key) {
+  return metaFieldPresent(incoming[key]) ? incoming[key] : current[key];
+}
+
 /** La grilla trae columnas cortas. No pisa domicilio, adherentes ni pagos de la ficha. */
-function mergeMemberRecord(current, incoming) {
+export function mergeMemberRecord(current, incoming) {
   if (!current) return incoming;
   if (!incoming) return current;
   if (incoming.recordScope === 'full' || current.recordScope !== 'full') {
-    return { ...current, ...incoming };
+    const next = { ...current, ...incoming };
+    if (current.recordScope === 'full') {
+      next.recordScope = 'full';
+      for (const key of FICHA_KEEP_FIELDS) {
+        next[key] = keepFilled(current, incoming, key);
+      }
+      if (!incoming.adherents?.length) next.adherents = current.adherents;
+      if (!incoming.paymentHistory?.length) next.paymentHistory = current.paymentHistory;
+    }
+    return next;
   }
   const next = { ...current, recordScope: 'full' };
   for (const key of LIST_REFRESH_FIELDS) {

@@ -17,6 +17,7 @@ import {
 import { DEFAULT_POOL_SETTINGS } from '../../domain/pool/poolAccess';
 import { SEASON_DUES_GATE_COPY } from '../../domain/pool/seasonDuesGate';
 import { setRuntimeDueDay } from '../../domain/members/dues';
+import { duesNoticeCalendar } from '../../domain/members/duesNotices';
 
 function Field({ label, hint, children }) {
   return (
@@ -56,6 +57,7 @@ export default function SystemSettingsTab({
 }) {
   const club = mergeClubSettings(clubSettings);
   const dues = mergeDuesSettings(duesSettings);
+  const noticeCal = duesNoticeCalendar(dues.dueDay, dues.noticeAdvanceDays);
   const pool = mergePoolSettings(poolSettings);
   const [clubDraft, setClubDraft] = useState(club);
   const [duesDraft, setDuesDraft] = useState(dues);
@@ -149,7 +151,7 @@ export default function SystemSettingsTab({
       setDuesSettings?.(next);
       setRuntimeDueDay(next.dueDay);
       await persist(SETTINGS_KEYS.dues, next);
-      setNote(`El vencimiento quedó el día ${next.dueDay}.`);
+      setNote(`El vencimiento quedó el día ${next.dueDay}. Avisos: ${next.noticeAdvanceDays} días antes, el ${next.dueDay} y el ${next.noticeMoraDay}.`);
     } catch (err) {
       setNote(err.message || 'No se pudo guardar el vencimiento.');
     } finally {
@@ -327,6 +329,41 @@ export default function SystemSettingsTab({
               <button type="button" className="btn btn-secondary" onClick={() => goToTab('dues')}>Ir a Cuotas</button>
             ) : null}
           </div>
+        </article>
+
+        <article className="sys-set-card is-wide">
+          <header>
+            <p>Regla de avisos</p>
+            <b>
+              Queda guardada en el libro. Mensaje interno y mail reales, con las consecuencias de mora.
+            </b>
+          </header>
+          <ol className="sys-set-beats">
+            <li>
+              <b>{noticeCal.upcomingDay}</b>
+              <span>
+                Cinco días antes. Mensaje y mail: la cuota está por vencer y qué pasa si entra en mora.
+              </span>
+            </li>
+            <li>
+              <b>{noticeCal.dueDay}</b>
+              <span>
+                El día que vence. Mensaje y mail: hoy vence, sin recargo si se abona hoy.
+              </span>
+            </li>
+            <li>
+              <b>{noticeCal.moraDay}</b>
+              <span>
+                Día {noticeCal.moraDay} del ciclo. Mensaje y mail: ya está en mora.
+              </span>
+            </li>
+          </ol>
+          <p className="sys-set-label">Consecuencias de mora</p>
+          <ul className="sys-set-hint">
+            {(dues.moraConsequences || []).map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
         </article>
 
         <article className="sys-set-card">

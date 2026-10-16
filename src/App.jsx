@@ -15,6 +15,7 @@ import { validateMemberBooking } from './domain/reservations/bookingRules';
 import { countUnread, markMessageRead, messageReaderKey, rememberReadMessage, withRememberedReads } from './domain/messaging/messages';
 import {
   buildNotifications,
+  duesBellItem,
   loadDismissedNotificationIds,
   saveDismissedNotificationIds,
 } from './domain/notifications/buildNotifications';
@@ -1184,18 +1185,24 @@ function ClubPortal() {
   }, [user?.memberId, user?.fullName, user?.name, user?.email]);
 
   const [ownCredentialToken, setOwnCredentialToken] = useState('');
+  const [ownMember, setOwnMember] = useState(null);
 
   useEffect(() => {
     const number = user?.memberId;
     if (!cloudMode || !number) {
       setOwnCredentialToken('');
+      setOwnMember(null);
       return undefined;
     }
     let cancel = false;
     repos.getMemberByNumber(number).then((row) => {
-      if (!cancel) setOwnCredentialToken(row?.credentialToken || '');
+      if (cancel) return;
+      setOwnCredentialToken(row?.credentialToken || '');
+      setOwnMember(row || null);
     }).catch(() => {
-      if (!cancel) setOwnCredentialToken('');
+      if (cancel) return;
+      setOwnCredentialToken('');
+      setOwnMember(null);
     });
     return () => {
       cancel = true;
@@ -1203,7 +1210,7 @@ function ClubPortal() {
   }, [cloudMode, user?.memberId]);
 
   const listedMember = user?.memberId
-    ? (members.find((m) => m.memberId === user.memberId) || sessionMemberFallback)
+    ? (ownMember || members.find((m) => m.memberId === user.memberId) || sessionMemberFallback)
     : sessionMemberFallback;
   const activeMember = listedMember && ownCredentialToken
     ? { ...listedMember, credentialToken: ownCredentialToken }
@@ -2265,8 +2272,13 @@ function ClubPortal() {
   }, [cloudMode, isAuthenticated, dbReady, user?.id]);
 
   const sessionMember = user?.memberId
-    ? members.find((m) => m.memberId === user.memberId) || null
+    ? (ownMember || members.find((m) => String(m.memberId) === String(user.memberId)) || null)
     : null;
+  const duesNotice = userRole === 'member' && sessionMember
+    ? duesBellItem(sessionMember)
+    : null;
+  const duesOverdue = Boolean(duesNotice?.id?.startsWith('dues-overdue-'));
+  const duesDueSoon = Boolean(duesNotice && !duesOverdue);
 
   // Campanita: solo datos reales de la sesión (sin semillas / sin socio fallback)
   const notifications = useMemo(() => (
@@ -2291,7 +2303,7 @@ function ClubPortal() {
     sessionMember, messages, waitlist, claims, reservations, membershipApplications, erp.alerts, erp.alertAcks, dismissedNotifIds,
   ]);
 
-  const dueNoticeId = notifications.find((n) => String(n.id).startsWith('dues-due-'))?.id || '';
+  const dueNoticeId = notifications.find((n) => /^(dues-upcoming-|dues-due-|dues-overdue-)/.test(String(n.id)))?.id || '';
   useEffect(() => {
     if (!dueNoticeId || !cloudMode || !user?.id) return undefined;
     repos.requestOwnDueNotice().catch(() => {});
@@ -2677,6 +2689,8 @@ function ClubPortal() {
           toggleTheme={toggleTheme}
           notifications={notifications}
           unreadMessages={unreadMessages}
+          duesOverdue={duesOverdue}
+          duesDueSoon={duesDueSoon}
           onOpenNotification={handleNotificationOpen}
           onDismissNotification={(id) => {
             const n = notifications.find((x) => String(x.id) === String(id));
@@ -2762,6 +2776,7 @@ function ClubPortal() {
                 onRefresh={refreshMessages}
                 onSendMessage={sendMessage}
                 live={cloudMode}
+                duesNotice={duesNotice}
               />
             }
           />

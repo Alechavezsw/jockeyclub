@@ -63,7 +63,8 @@ export function memberFromRow(row, payments = []) {
     paymentHistory: payments.map(paymentFromRow),
     lastPaymentDate: meta.lastPaymentDate || null,
     credentialToken: row.credential_token || null,
-    recordScope: row.address === undefined && row.birth_date === undefined ? 'list' : 'full',
+    // La grilla trae birth_date y no address. Si address no vino en el SELECT, es padrón corto.
+    recordScope: Object.prototype.hasOwnProperty.call(row, 'address') ? 'full' : 'list',
   };
 }
 

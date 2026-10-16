@@ -30,15 +30,27 @@ export function memberDueOn(member, todayIso = todayISODateAR()) {
 export function duesBellItem(member, todayIso = todayISODateAR()) {
   const dueOn = memberDueOn(member, todayIso);
   const days = dueOn ? daysUntil(todayIso, dueOn) : null;
-  if (days == null || days > 0) return null;
+  if (days == null || days > 5) return null;
   const when = formatISODateLongAR(dueOn);
+  if (days === 5) {
+    return {
+      id: `dues-upcoming-${member.memberId}-${dueOn}`,
+      dueOn,
+      kind: 'dues',
+      title: 'Tu cuota vence en 5 días',
+      detail: `Vence el ${when}. En mora hay recargo, no se entra al club y no se paga pileta.`,
+      view: 'payments',
+      path: '/cuenta',
+    };
+  }
+  if (days > 0) return null;
   if (days === 0) {
     return {
       id: `dues-due-${member.memberId}-${dueOn}`,
       dueOn,
       kind: 'dues',
       title: 'Hoy vence tu cuota',
-      detail: `Vence el ${when}. Tocá para ver Mi cuenta.`,
+      detail: `Vence el ${when}. Si no abonás, desde mañana hay mora.`,
       view: 'payments',
       path: '/cuenta',
     };
@@ -47,8 +59,8 @@ export function duesBellItem(member, todayIso = todayISODateAR()) {
     id: `dues-overdue-${member.memberId}-${dueOn}`,
     dueOn,
     kind: 'dues',
-    title: 'Tu cuota está vencida',
-    detail: `Venció el ${when}. Tocá para ver Mi cuenta.`,
+    title: 'Tu cuota está en mora',
+    detail: `Venció el ${when}. Recargo del 10 %, sin ingreso al club ni pileta hasta regularizar.`,
     view: 'payments',
     path: '/cuenta',
   };
@@ -59,7 +71,9 @@ function messageTitle(message, fallback) {
   if (kind === 'dues_payment') return message.subject || 'Comprobante de cuota';
   if (kind === 'booking_payment') return message.subject || 'Comprobante de reserva';
   if (kind === 'dues_receipt') return message.subject || 'Recibo de pago';
-  if (kind === 'dues_due') return message.subject || 'Aviso de cuota';
+  if (kind === 'dues_due' || kind === 'dues_upcoming' || kind === 'dues_mora') {
+    return message.subject || 'Aviso de cuota';
+  }
   return message?.subject || fallback;
 }
 
@@ -114,12 +128,18 @@ export function buildNotifications({
     // Solo el socio de la sesión (nunca un fallback de padrón)
     if (member && member.memberId === memberId) {
       const dueItem = duesBellItem(member, todayIso);
-      const dueAlreadySent = dueItem && (messages || []).some((m) => (
-        m.meta?.kind === 'dues_due'
+      const dueKind = String(dueItem?.id || '').startsWith('dues-upcoming-')
+        ? 'dues_upcoming'
+        : String(dueItem?.id || '').startsWith('dues-overdue-')
+          ? 'dues_mora'
+          : 'dues_due';
+      const dueUnreadInInbox = dueItem && (messages || []).some((m) => (
+        !m.isRead
+        && m.meta?.kind === dueKind
         && m.meta?.dueOn === dueItem.dueOn
         && (m.recipientId === memberId || m.recipientId === MAILBOX.ALL_MEMBERS)
       ));
-      if (dueItem && !dueAlreadySent) push(out, dueItem);
+      if (dueItem && !dueUnreadInInbox) push(out, dueItem);
       else if (!dueItem && member.notifyDues !== false && (Number(member.outstandingBalance) || 0) > 0) {
         const bal = Number(member.outstandingBalance) || 0;
         push(out, {

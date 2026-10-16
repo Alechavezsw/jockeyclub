@@ -1,6 +1,11 @@
 /** Configuración viva del club. Vive en app_settings; acá solo se normaliza. */
 
 import { DUES_DUE_DAY } from '../members/dues';
+import {
+  DUES_NOTICE_ADVANCE_DAYS,
+  MORA_CONSEQUENCES,
+  duesNoticeCalendar,
+} from '../members/duesNotices';
 import { DEFAULT_POOL_SETTINGS, mergePoolSettings } from '../pool/poolAccess';
 import { DEFAULT_MP_SETTINGS, mergeMercadoPagoSettings } from '../payments/mercadoPago';
 
@@ -24,12 +29,24 @@ export const DEFAULT_CLUB_SETTINGS = {
   email: 'jockeyclubsj@gmail.com',
 };
 
+function noticeRuleForDueDay(dueDay) {
+  const cal = duesNoticeCalendar(dueDay, DUES_NOTICE_ADVANCE_DAYS);
+  return {
+    noticeAdvanceDays: cal.advanceDays,
+    noticeMoraDay: cal.moraDay,
+    noticeByMessage: true,
+    noticeByEmail: true,
+    moraConsequences: [...MORA_CONSEQUENCES],
+  };
+}
+
 export const DEFAULT_DUES_SETTINGS = {
   dueDay: DUES_DUE_DAY,
   paymentTolerance: 1000,
   gracePeriodDays: 5,
   maxGroupDebt: 0,
   accountProtectDate: '2026-09-29',
+  ...noticeRuleForDueDay(DUES_DUE_DAY),
 };
 
 /** Reglas de configuración de Lila que el panel usa y no entran en sede, cuotas o pileta. */
@@ -93,14 +110,16 @@ function money(value, fallback) {
 export function mergeDuesSettings(raw = {}) {
   const day = Number(raw?.dueDay);
   const protect = text(raw?.accountProtectDate, DEFAULT_DUES_SETTINGS.accountProtectDate);
+  const dueDay = Number.isInteger(day) && day >= 1 && day <= 28 ? day : DUES_DUE_DAY;
   return {
-    dueDay: Number.isInteger(day) && day >= 1 && day <= 28 ? day : DUES_DUE_DAY,
+    dueDay,
     paymentTolerance: money(raw?.paymentTolerance, DEFAULT_DUES_SETTINGS.paymentTolerance),
     gracePeriodDays: money(raw?.gracePeriodDays, DEFAULT_DUES_SETTINGS.gracePeriodDays),
     maxGroupDebt: money(raw?.maxGroupDebt, DEFAULT_DUES_SETTINGS.maxGroupDebt),
     accountProtectDate: /^\d{4}-\d{2}-\d{2}$/.test(protect)
       ? protect
       : DEFAULT_DUES_SETTINGS.accountProtectDate,
+    ...noticeRuleForDueDay(dueDay),
   };
 }
 

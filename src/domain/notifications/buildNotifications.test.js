@@ -102,7 +102,7 @@ describe('buildNotifications', () => {
     expect(list.map((n) => n.title)).toEqual(['Cuota pendiente']);
   });
 
-  it('una cuota ya pasada queda como vencida', () => {
+  it('una cuota ya pasada queda en mora', () => {
     const list = buildNotifications({
       role: 'member',
       memberId: '111',
@@ -114,8 +114,43 @@ describe('buildNotifications', () => {
       },
       todayIso: '2026-09-23',
     });
-    expect(list[0].title).toBe('Tu cuota está vencida');
+    expect(list[0].title).toBe('Tu cuota está en mora');
     expect(list[0].id).toBe('dues-overdue-111-2026-07-10');
+  });
+
+  it('cinco días antes avisa que está por vencer', () => {
+    const list = buildNotifications({
+      role: 'member',
+      memberId: '111',
+      member: { memberId: '111', status: 'active', nextDueDate: '2026-10-10', notifyDues: true },
+      todayIso: '2026-10-05',
+    });
+    expect(list[0].title).toBe('Tu cuota vence en 5 días');
+    expect(list[0].id).toBe('dues-upcoming-111-2026-10-10');
+  });
+
+  it('si el aviso del 10 ya se leyó, después avisa que la cuota está vencida', () => {
+    const list = buildNotifications({
+      role: 'member',
+      memberId: '111',
+      member: {
+        memberId: '111',
+        status: 'active',
+        nextDueDate: '2026-10-10',
+        notifyDues: true,
+      },
+      todayIso: '2026-10-15',
+      messages: [{
+        id: 'm1',
+        recipientId: '111',
+        subject: 'Hoy vence tu cuota',
+        sender: 'Secretaría',
+        isRead: true,
+        date: '2026-10-10',
+        meta: { kind: 'dues_due', dueOn: '2026-10-10' },
+      }],
+    });
+    expect(list.some((n) => n.title === 'Tu cuota está en mora')).toBe(true);
   });
 
   it('si el aviso de vencimiento ya está en la bandeja, no lo duplica', () => {

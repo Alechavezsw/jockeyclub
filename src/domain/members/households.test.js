@@ -7,6 +7,7 @@ import {
   resolveFamilyForDisplay,
   allocateNextMemberNumber,
   applyMemberListRefresh,
+  mergeMemberRecord,
   mergeMembersById,
   listFamilyGroups,
   familyGroupMatchesQuery,
@@ -225,6 +226,36 @@ describe('households', () => {
 
     const finished = applyMemberListRefresh(mid, page, { done: true });
     expect(finished.map((m) => m.memberId)).toEqual(['10009']);
+  });
+
+  it('si el padrón llega mal marcado como ficha, no borra el domicilio', () => {
+    const current = {
+      memberId: '10009',
+      name: 'Titular',
+      recordScope: 'full',
+      address: 'Calle San Martín 120',
+      city: 'Rivadavia',
+      paymentHistory: [{ id: 'p1' }],
+      adherents: [{ name: 'Hijo' }],
+    };
+    const incoming = {
+      memberId: '10009',
+      name: 'Titular',
+      status: 'active',
+      recordScope: 'full',
+      address: '',
+      city: '',
+      birthDate: '1984-03-02',
+      paymentHistory: [],
+      adherents: [],
+    };
+    const merged = mergeMemberRecord(current, incoming);
+    expect(merged.address).toBe('Calle San Martín 120');
+    expect(merged.city).toBe('Rivadavia');
+    expect(merged.birthDate).toBe('1984-03-02');
+    expect(merged.paymentHistory).toEqual([{ id: 'p1' }]);
+    expect(merged.adherents).toEqual([{ name: 'Hijo' }]);
+    expect(merged.recordScope).toBe('full');
   });
 
   it('suma un socio nuevo al final cuando la recarga termina', () => {

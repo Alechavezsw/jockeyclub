@@ -106,17 +106,31 @@ describe('mappers', () => {
     expect(ui.joinDate).toBe('2021-04-10');
   });
 
-  it('marca padrón slim si no vinieron domicilio ni fecha de nacimiento', () => {
+  it('marca padrón slim si no vino la columna de domicilio', () => {
     const ui = memberFromRow({
       member_number: '100001',
       full_name: 'Lista Slim',
       tier: 'socio_individual',
       status: 'active',
       outstanding_balance: 0,
+      birth_date: '1990-04-12',
       credential_token: 'aabbccddeeff00112233445566778899',
     }, []);
     expect(ui.recordScope).toBe('list');
     expect(ui.credentialToken).toBe('aabbccddeeff00112233445566778899');
+    expect(ui.address).toBe('');
+    expect(ui.birthDate).toBe('1990-04-12');
+  });
+
+  it('marca ficha completa si vino domicilio, aunque esté vacío', () => {
+    const ui = memberFromRow({
+      member_number: '100001',
+      full_name: 'Ficha vacía',
+      status: 'active',
+      address: null,
+      birth_date: null,
+    }, []);
+    expect(ui.recordScope).toBe('full');
     expect(ui.address).toBe('');
   });
 

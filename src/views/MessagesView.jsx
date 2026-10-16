@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Inbox, Send, PenSquare, MailOpen, ArrowLeft, CheckCheck, Search, X } from 'lucide-react';
+import { Inbox, Send, PenSquare, MailOpen, ArrowLeft, CheckCheck, Search, X, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 import {
   MAILBOX,
   createMessage,
@@ -38,8 +39,9 @@ function MessageAttachment({ attachment }) {
   );
 }
 
-export default function MessagesView({ messages, setMessages, members = [], onRefresh, onSendMessage, live = false }) {
+export default function MessagesView({ messages, setMessages, members = [], onRefresh, onSendMessage, live = false, duesNotice = null }) {
   const { user, role } = useAuth();
+  const navigate = useNavigate();
   const isOps = canAccessAdmin(role);
   const identity = {
     userId: user?.id,
@@ -241,6 +243,31 @@ export default function MessagesView({ messages, setMessages, members = [], onRe
           </button>
         )}
       </div>
+
+      {duesNotice ? (
+        <div
+          role="status"
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '0.75rem',
+            padding: '0.85rem 1rem',
+            borderRadius: 12,
+            border: '1px solid rgba(202,57,12,0.35)',
+            background: 'rgba(202,57,12,0.08)',
+          }}
+        >
+          <p style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8, fontWeight: 650 }}>
+            <AlertTriangle size={16} color="#CA390C" aria-hidden />
+            {duesNotice.title}. {duesNotice.detail}
+          </p>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => navigate('/cuenta')}>
+            Ver Mi cuenta
+          </button>
+        </div>
+      ) : null}
 
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
         {[

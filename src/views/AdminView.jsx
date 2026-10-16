@@ -36,7 +36,7 @@ import { DEFAULT_CHART_OF_ACCOUNTS, resolveAccountId } from '../domain/accountin
 import { getAccountBalance as domainAccountBalance } from '../domain/accounting/journal';
 import { allowedAdminTabsForRoles, canAccessConcessions, canAccessQrGate, canLiquidateDues, ROLE_LABELS, ROLE_PANEL_META } from '../domain/auth/roles';
 import { getOverdueMembers, getUpcomingDuesMembers } from '../domain/members/dues';
-import { isLiveMember, isTitularMember } from '../domain/members/households';
+import { isLiveMember, isTitularMember, mergeMemberRecord } from '../domain/members/households';
 import { useAuth } from '../context/AuthContext';
 import { repos } from '../data/bootstrap';
 import { buildClubReview } from '../domain/review/buildClubReview';
@@ -431,19 +431,20 @@ export default function AdminView({
     }
     setProfileLookupDone(false);
     const local = findMemberForProfile(members, routeEntityId);
-    if (local) setFetchedProfile(local);
+    if (local?.recordScope === 'full') setFetchedProfile(local);
     let cancelled = false;
     repos.getMemberByNumber(routeEntityId, { withPayments: true })
       .then((row) => {
         if (cancelled) return;
         if (row) {
-          setFetchedProfile(row);
+          const full = { ...row, recordScope: 'full' };
+          setFetchedProfile(full);
           setMembers?.((prev) => {
             const list = prev || [];
             const idx = list.findIndex((m) => findMemberForProfile([m], row.memberId));
-            if (idx < 0) return [row, ...list];
+            if (idx < 0) return [full, ...list];
             const next = list.slice();
-            next[idx] = { ...list[idx], ...row, recordScope: 'full' };
+            next[idx] = mergeMemberRecord(list[idx], full);
             return next;
           });
         }
@@ -455,8 +456,11 @@ export default function AdminView({
     return () => { cancelled = true; };
   }, [activeTab, routeEntityId]);
 
+  const listedProfile = activeTab === 'members' && routeEntityId
+    ? findMemberForProfile(members, routeEntityId)
+    : null;
   const profileMember = activeTab === 'members' && routeEntityId
-    ? findMemberForProfile(members, routeEntityId) || fetchedProfile
+    ? mergeMemberRecord(listedProfile, fetchedProfile) || listedProfile || fetchedProfile
     : null;
   const profileStaff = activeTab === 'staff' && routeEntityId
     ? staffMembers.find((e) => e.id === routeEntityId) || null

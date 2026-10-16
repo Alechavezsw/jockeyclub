@@ -162,8 +162,8 @@ export const CLUB_GUIDE = [
     id: 'configuracion',
     tab: 'settings',
     title: 'Configuración',
-    keywords: 'configuracion sistema sede pileta zonda vencimiento cuit mercado pago',
-    teach: 'Configuración está en Sistema, al lado de Migración. Ahí se guarda la sede, el día de las cuotas, el canon de pileta, Mercado Pago (online, QR de mostrador y suscripción) y el Zonda. Vive en el libro.',
+    keywords: 'configuracion sistema sede pileta zonda vencimiento cuit mercado pago avisos mora',
+    teach: 'Configuración está en Sistema, al lado de Migración. Ahí se guarda la sede, el día de las cuotas, los avisos del 5, el 10 y el 15, el canon de pileta, Mercado Pago y el Zonda. Vive en el libro.',
   },
   {
     id: 'migracion',

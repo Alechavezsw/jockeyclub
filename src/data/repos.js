@@ -97,8 +97,8 @@ function listRowToMember(row) {
     photo_url: undefined,
     credential_token: undefined,
   }, []);
-  if (row.has_portal === true) return { ...mapped, hasApp: true };
-  return mapped;
+  if (row.has_portal === true) return { ...mapped, hasApp: true, recordScope: 'list' };
+  return { ...mapped, recordScope: 'list' };
 }
 
 let membersListInflight = null;
