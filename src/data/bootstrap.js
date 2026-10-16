@@ -133,7 +133,7 @@ export async function bootstrapMemberCriticalFromDb({ memberNumber } = {}) {
       ? soft(repos.getMemberByNumber(memberNumber, { withPayments: true }), null, 'member')
       : Promise.resolve(null)),
     () => soft(repos.listNews({ limit: 30 }), [], 'news'),
-    () => soft(repos.listMessages({ limit: 80 }), [], 'messages'),
+    () => soft(repos.listMessages({ limit: 80, memberNumber }), [], 'messages'),
     () => soft(repos.listReservations({
       memberNumber,
       fromDate: todayISO(),
@@ -213,7 +213,7 @@ export async function bootstrapOpsCriticalFromDb() {
     () => soft(repos.countMembers(), 0, 'countMembers'),
     () => soft(repos.listReservations({ limit: 150 }), [], 'reservations'),
     () => soft(repos.listNews({ limit: 40 }), [], 'news'),
-    () => soft(repos.listMessages({ limit: 100 }), [], 'messages'),
+    () => soft(repos.listMessages({ limit: 100, forStaff: true }), [], 'messages'),
     () => soft(repos.listClaims({ limit: 80 }), [], 'claims'),
     () => soft(repos.listAlerts({ limit: 40 }), [], 'alerts'),
     () => soft(repos.listAlertAcks(), [], 'alertAcks'),

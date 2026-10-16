@@ -9,6 +9,7 @@ import {
   rememberReadMessage,
   withRememberedReads,
   threadAround,
+  withoutDuesBroadcasts,
 } from './messages';
 
 const base = [
@@ -80,6 +81,36 @@ describe('messaging', () => {
     expect(fresh.find((m) => m.id === 2).isRead).toBe(true);
     expect(fresh.find((m) => m.id === 1).isRead).toBe(false);
     expect(countUnread(fresh, { userId: 'user-1', role: 'member', memberId: '2026887744320988' })).toBe(1);
+  });
+
+  it('el aviso de mora llega solo a quien debe, no a todo el padrón', () => {
+    const personal = {
+      id: 9,
+      sender: 'Secretaría del Jockey Club',
+      senderId: 'ops',
+      recipientId: '2026887744320988',
+      subject: 'Tu cuota está en mora',
+      content: 'Hola Alejandro',
+      isRead: false,
+      date: '2026-10-16',
+      meta: { kind: 'dues_mora', dueOn: '2026-10-10' },
+    };
+    const circular = {
+      ...personal,
+      id: 10,
+      recipientId: MAILBOX.ALL_MEMBERS,
+      content: 'Hola, aviso a todos',
+      meta: { kind: 'dues_mora', dueOn: '2026-10-10', broadcast: true },
+    };
+    expect(withoutDuesBroadcasts([personal, circular]).map((m) => m.id)).toEqual([9]);
+    expect(getInbox([personal, circular], {
+      memberId: '2026887744320988',
+      role: 'member',
+    }).map((m) => m.id)).toEqual([9]);
+    expect(getInbox([personal, circular], {
+      memberId: '999',
+      role: 'member',
+    }).map((m) => m.id)).toEqual([]);
   });
 
   it('arma el hilo con la respuesta', () => {

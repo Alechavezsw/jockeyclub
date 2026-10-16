@@ -9,6 +9,7 @@ import {
   getSent,
   markInboxRead,
   markMessageRead,
+  messageRouteLine,
   recipientLabel,
   threadAround,
 } from '../domain/messaging/messages';
@@ -541,6 +542,7 @@ export default function MessagesView({ messages, setMessages, members = [], onRe
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
                       <span style={{ fontSize: '0.72rem', color: 'var(--text-gold)', fontWeight: 700 }}>
                         {tab === 'inbox' ? msg.sender : recipientLabel(msg.recipientId, members)}
+                        {tab === 'inbox' && msg.recipientId === MAILBOX.ALL_MEMBERS ? ' · Todos los socios' : ''}
                       </span>
                       <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{msg.date}</span>
                     </div>
@@ -613,7 +615,7 @@ export default function MessagesView({ messages, setMessages, members = [], onRe
 
               <div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 6 }}>
-                  {tab === 'inbox' ? `De: ${selected.sender}` : `Para: ${recipientLabel(selected.recipientId, members)}`}
+                  {messageRouteLine(selected, { tab, members })}
                   {' · '}{selected.date}
                 </div>
                 <h2 className="serif-font" style={{ fontSize: '1.35rem', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>

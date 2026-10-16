@@ -1820,7 +1820,11 @@ function ClubPortal() {
   const refreshMessages = useCallback(async () => {
     if (!cloudMode || !isAuthenticated) return;
     try {
-      const list = await repos.listMessages();
+      const list = await repos.listMessages({
+        limit: 120,
+        memberNumber: user?.memberId || undefined,
+        forStaff: userRole !== 'member',
+      });
       setMessages((prev) => {
         const reader = messageReaderKey({ userId: user?.id, memberId: user?.memberId });
         const fromDb = withRememberedReads(list || [], reader, prev);
@@ -1835,7 +1839,7 @@ function ClubPortal() {
     } catch {
       /* silencioso: no pisar bandeja local ante un fallo puntual */
     }
-  }, [cloudMode, isAuthenticated, user?.id, user?.memberId]);
+  }, [cloudMode, isAuthenticated, user?.id, user?.memberId, userRole]);
 
   // Envío garantizado a BD (evita “enviado” fantasma si el insert falla)
   const sendMessage = useCallback(async (msg) => {

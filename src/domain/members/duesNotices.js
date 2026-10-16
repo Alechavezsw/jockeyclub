@@ -61,11 +61,12 @@ export function longDueDate(iso) {
 }
 
 export function duesNoticeCopy({ name, dueOn, stage }) {
-  const who = String(name || '').trim() || 'socio';
   const when = longDueDate(dueOn);
   const consequences = MORA_CONSEQUENCES.join(' ');
+  const greeting = `Hola ${String(name || '').trim() || 'socio'},`;
   if (stage === 'upcoming') {
     return {
+      greeting,
       subject: `Tu cuota vence el ${when}`,
       lead: `Faltan 5 días: el ${when} vence la cuota social del Jockey Club San Juan.`,
       consequences,
@@ -73,12 +74,14 @@ export function duesNoticeCopy({ name, dueOn, stage }) {
   }
   if (stage === 'mora') {
     return {
+      greeting,
       subject: 'Tu cuota está en mora',
       lead: `El ${when} venció la cuota social y seguís sin regularizar. Ya estás en mora.`,
       consequences,
     };
   }
   return {
+    greeting,
     subject: 'Hoy vence tu cuota',
     lead: `Hoy, ${when}, vence la cuota social del Jockey Club San Juan. Si abonás hoy no lleva recargo.`,
     consequences,

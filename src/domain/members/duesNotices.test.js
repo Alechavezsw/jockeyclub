@@ -37,5 +37,6 @@ describe('duesNotices', () => {
     const mora = duesNoticeCopy({ name: 'Alejandro', dueOn: '2026-10-10', stage: 'mora' });
     expect(mora.subject).toMatch(/mora/i);
     expect(mora.lead).toMatch(/venció/i);
+    expect(mora.greeting).toMatch(/Alejandro/);
   });
 });

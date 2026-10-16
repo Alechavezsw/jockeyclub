@@ -92,8 +92,9 @@ function noticeCopy(name: string, dueOn: string, stage: string) {
     subject = "Tu cuota está en mora";
     lead = `El ${when} venció la cuota social y seguís sin regularizar. Ya estás en mora.`;
   }
+  const greeting = `Hola ${who},`;
   const text = [
-    `Hola ${who},`,
+    greeting,
     "",
     lead,
     "",
@@ -118,7 +119,7 @@ function noticeCopy(name: string, dueOn: string, stage: string) {
         </tr>
         <tr>
           <td style="padding:28px;">
-            <p style="margin:0 0 12px;font-size:18px;">Hola ${escapeHtml(who)},</p>
+            <p style="margin:0 0 12px;font-size:18px;">${escapeHtml(greeting)}</p>
             <p style="margin:0 0 14px;font-size:15px;line-height:1.55;color:#3f3830;">${escapeHtml(lead)}</p>
             <p style="margin:0 0 8px;font-size:14px;font-weight:bold;color:#ca390c;">Consecuencias de estar en mora</p>
             <p style="margin:0 0 18px;font-size:15px;line-height:1.55;color:#3f3830;">${escapeHtml(consequences)}</p>
@@ -165,12 +166,39 @@ function deliverableEmail(value: string | null | undefined) {
   return email;
 }
 
+async function ensureMemberMessage(
+  admin: ReturnType<typeof createClient>,
+  member: MemberRow,
+  copy: ReturnType<typeof noticeCopy>,
+  dueOn: string,
+  stage: string,
+  existingMessageId?: string | null,
+) {
+  if (existingMessageId) return existingMessageId;
+  const recipient = String(member.member_number || "").replace(/[^a-zA-Z0-9._-]/g, "");
+  if (!recipient) return null;
+  const inserted = await admin
+    .from("messages")
+    .insert({
+      sender_name: "Secretaría del Jockey Club",
+      sender_key: "ops",
+      recipient_key: recipient,
+      subject: copy.subject,
+      body: copy.text,
+      is_read: false,
+      meta: { kind: copy.kind, dueOn, stage },
+    })
+    .select("id")
+    .single();
+  return inserted.data?.id || null;
+}
+
 async function prepareNotice(
   admin: ReturnType<typeof createClient>,
   member: MemberRow,
   dueOn: string,
   stage: string,
-): Promise<{ status: "already" | "skip" | "ready"; prepared?: Prepared; emailed?: boolean }> {
+): Promise<{ status: "already" | "skip" | "ready"; prepared?: Prepared; messaged?: boolean }> {
   const { data: existing } = await admin
     .from("dues_notice_sends")
     .select("id, resend_id, message_id")
@@ -181,7 +209,6 @@ async function prepareNotice(
   if (existing?.resend_id) return { status: "already" };
 
   let rowId = existing?.id as string | undefined;
-  let messageId = existing?.message_id as string | undefined;
   const email = deliverableEmail(member.email);
   if (!rowId) {
     const inserted = await admin
@@ -194,24 +221,9 @@ async function prepareNotice(
   }
 
   const copy = noticeCopy(member.full_name || "", dueOn, stage);
-  if (!messageId && member.member_number) {
-    const message = await admin
-      .from("messages")
-      .insert({
-        sender_name: "Secretaría del Jockey Club",
-        sender_key: "ops",
-        recipient_key: member.member_number,
-        subject: copy.subject,
-        body: copy.text,
-        is_read: false,
-        meta: { kind: copy.kind, dueOn, stage },
-      })
-      .select("id")
-      .single();
-    if (message.data?.id) {
-      messageId = message.data.id;
-      await admin.from("dues_notice_sends").update({ message_id: messageId }).eq("id", rowId);
-    }
+  const messageId = await ensureMemberMessage(admin, member, copy, dueOn, stage, existing?.message_id);
+  if (messageId && messageId !== existing?.message_id) {
+    await admin.from("dues_notice_sends").update({ message_id: messageId }).eq("id", rowId);
   }
 
   if (!email) {
@@ -219,10 +231,10 @@ async function prepareNotice(
       .from("dues_notice_sends")
       .update({ resend_id: "no-email", email_error: "Sin mail real" })
       .eq("id", rowId);
-    return { status: "ready", emailed: false };
+    return { status: "ready", messaged: Boolean(messageId) };
   }
 
-  return { status: "ready", emailed: true, prepared: { rowId, email, copy } };
+  return { status: "ready", messaged: Boolean(messageId), prepared: { rowId, email, copy } };
 }
 
 async function sendEmailBatch(
@@ -334,7 +346,7 @@ Deno.serve(async (req) => {
           const result = await prepareNotice(admin, member, dueOn, stage);
           if (result.status === "already") counts.already += 1;
           else if (result.status === "ready") {
-            counts.messaged += 1;
+            if (result.messaged) counts.messaged += 1;
             if (result.prepared) ready.push(result.prepared);
           }
         }

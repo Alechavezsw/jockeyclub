@@ -4,6 +4,7 @@ import { createDiscount, discountFromRule } from '../domain/accounting/discounts
 import * as M from './mappers';
 import { collectMemberMeta, buildLifecycleMeta, splitMemberName } from '../domain/members/memberAdminActions';
 import { SYSTEM_ADMIN_ROLES } from '../domain/auth/roles';
+import { withoutDuesBroadcasts } from '../domain/messaging/messages';
 import {
   emptyJoinConflicts,
   hasJoinIdentityConflict,
@@ -1024,11 +1025,64 @@ export async function upsertGuestPass(pass, hostDbId = null) {
 }
 
 // ---- Messages / Claims / Surveys / News ----
-export async function listMessages({ limit } = {}) {
-  let q = sb().from('messages').select('*').order('created_at', { ascending: false });
-  if (limit && Number(limit) > 0) q = q.limit(Number(limit));
-  const rows = await unwrap(q, 'No se pudieron cargar mensajes');
-  return (rows || []).map(M.messageFromRow);
+export async function listMessages({ limit, memberNumber, forStaff } = {}) {
+  const cap = Number(limit) > 0 ? Number(limit) : 120;
+  const fail = 'No se pudieron cargar mensajes';
+  const newest = (rows) => withoutDuesBroadcasts(
+    (rows || []).map(M.messageFromRow)
+      .sort((a, b) => String(b.createdAt || b.date).localeCompare(String(a.createdAt || a.date))),
+  );
+
+  const key = String(memberNumber || '').replace(/[^a-zA-Z0-9._-]/g, '');
+  if (key && !forStaff) {
+    const [inbox, sent] = await Promise.all([
+      unwrap(
+        sb().from('messages').select('*')
+          .in('recipient_key', [key, 'all'])
+          .order('created_at', { ascending: false })
+          .limit(cap),
+        fail,
+      ),
+      unwrap(
+        sb().from('messages').select('*')
+          .eq('sender_key', key)
+          .order('created_at', { ascending: false })
+          .limit(cap),
+        fail,
+      ),
+    ]);
+    const map = new Map();
+    for (const row of [...(inbox || []), ...(sent || [])]) map.set(row.id, row);
+    return newest([...map.values()]);
+  }
+
+  if (forStaff) {
+    const [opsInbox, circulars] = await Promise.all([
+      unwrap(
+        sb().from('messages').select('*')
+          .eq('recipient_key', 'ops')
+          .order('created_at', { ascending: false })
+          .limit(cap),
+        fail,
+      ),
+      unwrap(
+        sb().from('messages').select('*')
+          .eq('recipient_key', 'all')
+          .order('created_at', { ascending: false })
+          .limit(40),
+        fail,
+      ),
+    ]);
+    const map = new Map();
+    for (const row of [...(opsInbox || []), ...(circulars || [])]) map.set(row.id, row);
+    return newest([...map.values()]);
+  }
+
+  const rows = await unwrap(
+    sb().from('messages').select('*').order('created_at', { ascending: false }).limit(cap),
+    fail,
+  );
+  return newest(rows);
 }
 
 export async function insertMessage(msg) {

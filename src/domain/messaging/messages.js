@@ -41,8 +41,19 @@ export function isMessageForUser(message, { userId, memberId, role }) {
   return false;
 }
 
+const DUES_NOTICE_KINDS = new Set(['dues_upcoming', 'dues_due', 'dues_mora']);
+
+/** El aviso de cuota no es circular: solo lo ve quien todavía debe. */
+export function isDuesBroadcast(message) {
+  return DUES_NOTICE_KINDS.has(message?.meta?.kind) && message?.recipientId === MAILBOX.ALL_MEMBERS;
+}
+
+export function withoutDuesBroadcasts(messages) {
+  return (messages || []).filter((m) => !isDuesBroadcast(m));
+}
+
 export function getInbox(messages, identity) {
-  return [...messages]
+  return withoutDuesBroadcasts(messages)
     .filter((m) => isMessageForUser(m, identity))
     .sort((a, b) => String(b.createdAt || b.date).localeCompare(String(a.createdAt || a.date)));
 }
@@ -152,4 +163,11 @@ export function recipientLabel(recipientId, members = []) {
   if (recipientId === MAILBOX.OPERATIONS) return 'Administración';
   const member = members.find((m) => m.memberId === recipientId);
   return member?.name || recipientId;
+}
+
+export function messageRouteLine(message, { tab, members } = {}) {
+  const from = `De: ${message?.sender || 'Club'}`;
+  const to = `Para: ${recipientLabel(message?.recipientId, members)}`;
+  if (message?.recipientId === MAILBOX.ALL_MEMBERS) return `${from} · ${to}`;
+  return tab === 'sent' ? to : from;
 }
