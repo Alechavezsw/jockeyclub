@@ -1310,9 +1310,14 @@ export default function useErpStore({
     if (!cloud() || !userId) return undefined;
     let cancelled = false;
     repos.listFeeLedgerAccounts()
-      .then((rows) => {
-        if (cancelled || !rows?.length) return;
-        setFeeChartAccounts(resolveFeeChartAccounts(rows));
+      .then(async (rows) => {
+        if (cancelled) return;
+        const resolved = resolveFeeChartAccounts(rows);
+        setFeeChartAccounts(resolved);
+        const have = new Set((rows || []).map((row) => row.id));
+        const missing = resolved.filter((account) => account.isActive !== false && !have.has(account.id));
+        if (!missing.length) return;
+        await Promise.all(missing.map((account) => repos.upsertFeeLedgerAccount(account).catch(() => null)));
       })
       .catch(() => {});
     return () => { cancelled = true; };

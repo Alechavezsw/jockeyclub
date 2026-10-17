@@ -6,21 +6,17 @@ import { formatCurrency } from '../../domain/accounting/journal';
 import { DATITA_CUOTA_CATEGORY_NAMES } from '../../domain/members/tiers';
 import {
   createFeeChartAccount,
+  feeLedgerTotals,
   filterFeeAccountLedger,
   formatFeeLedgerDate,
-  withProcessedPeriodLines,
+  liveFeeAccountLedgerLines,
+  mergeFeeLedgerLines,
+  withLiveFeeAccountBalances,
 } from '../../domain/accounting/feeChartAccounts';
-import { buildFeeAccountLedgerLines } from '../../domain/accounting/feeAccountLedger';
-import { feeAccountDetailsSeed } from '../../domain/accounting/feeAccountDetails';
 import { listFeeLedgerLines } from '../../data/repos';
 import { isSupabaseConfigured } from '../../lib/supabase';
-import { useSnapshotSeed } from '../../hooks/useSnapshots';
-import SnapshotGate from '../SnapshotGate';
 
 const PAGE_SIZE = 20;
-
-const FEE_DETAILS_SNAPSHOTS = ['accessinFeeAccountDetails'];
-const NO_SNAPSHOTS = [];
 
 const EMPTY_FORM = {
   name: '',
@@ -68,7 +64,6 @@ function formatLilaMoney(n) {
 export default function FeeChartAccountsPanel({
   accounts = [],
   members = [],
-  periods = [],
   onUpsert,
   onDelete,
   onBack,
@@ -89,18 +84,17 @@ export default function FeeChartAccountsPanel({
   const [dbLines, setDbLines] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  const activeAccounts = useMemo(
-    () => (accounts || [])
-      .filter((account) => account && account.isActive !== false)
-      .toSorted((a, b) => (Number(a.accessinId) || 9999) - (Number(b.accessinId) || 9999)),
-    [accounts]
-  );
+  const activeAccounts = useMemo(() => {
+    const live = withLiveFeeAccountBalances(
+      (accounts || []).filter((account) => account && account.isActive !== false),
+      members,
+    );
+    return live.toSorted((a, b) => (
+      (Number(a.accessinId) || 9999) - (Number(b.accessinId) || 9999)
+      || String(a.name || '').localeCompare(String(b.name || ''), 'es')
+    ));
+  }, [accounts, members]);
 
-  // El libro de cada cuenta sale del detalle de cuotas (665 kB con DNI): se baja al abrirlo.
-  const { ACCESSIN_FEE_ACCOUNT_DETAILS } = useSnapshotSeed(
-    view === 'ledger' ? FEE_DETAILS_SNAPSHOTS : NO_SNAPSHOTS,
-    feeAccountDetailsSeed,
-  );
   useEffect(() => {
     if (view !== 'ledger' || !selected?.id || !isSupabaseConfigured) {
       setDbLines(null);
@@ -118,19 +112,18 @@ export default function FeeChartAccountsPanel({
     return () => { cancel = true; };
   }, [view, selected]);
 
+  const liveLines = useMemo(
+    () => (selected ? liveFeeAccountLedgerLines(selected, members) : []),
+    [selected, members],
+  );
+
   const ledgerAll = useMemo(() => {
     if (!selected) return [];
-    const snapshotLines = buildFeeAccountLedgerLines(selected, ACCESSIN_FEE_ACCOUNT_DETAILS);
-    let base = [];
-    if (isSupabaseConfigured && dbLines && dbLines.length >= snapshotLines.length) {
-      base = dbLines;
-    } else if (snapshotLines.length) {
-      base = snapshotLines;
-    } else {
-      base = dbLines || [];
-    }
-    return withProcessedPeriodLines(selected, base, members, periods);
-  }, [selected, ACCESSIN_FEE_ACCOUNT_DETAILS, dbLines, members, periods]);
+    const posted = (dbLines || []).filter((line) => (
+      line.source === 'liquidation' || line.source === 'dues'
+    ));
+    return mergeFeeLedgerLines(liveLines, posted);
+  }, [selected, liveLines, dbLines]);
 
   const ledgerRows = useMemo(
     () => filterFeeAccountLedger(ledgerAll, { query }),
@@ -427,7 +420,7 @@ export default function FeeChartAccountsPanel({
             </p>
           </div>
           <p className="disc-field-hint">
-            El balance sale de los movimientos de la cuenta. Una liquidación nueva lo suma acá.
+            El pendiente se calcula con la cuota vigente. La liquidación de un mes entra en la cuenta de cada categoría.
           </p>
           {error ? <p className="ig-error">{error}</p> : null}
           <div className="ig-form-actions">
@@ -440,8 +433,9 @@ export default function FeeChartAccountsPanel({
   }
 
   if (view === 'ledger' && selected) {
+    const totals = feeLedgerTotals(ledgerAll);
+    const painted = activeAccounts.find((account) => account.id === selected.id) || selected;
     return (
-      <SnapshotGate names={FEE_DETAILS_SNAPSHOTS}>
         <div className="fade-in cuotas-panel">
           <section className="fee-ledger-find">
             <button type="button" className="cuotas-back" onClick={() => { setView('list'); setSelected(null); }}>
@@ -451,10 +445,13 @@ export default function FeeChartAccountsPanel({
               <div>
                 <p className="cuotas-kicker">Cuenta corriente</p>
                 <h3 className="cuotas-title">{selected.name}</h3>
+                <p className="disc-field-hint" style={{ margin: '0.35rem 0 0' }}>
+                  Pendiente de cuota vigente · {painted.memberCount?.toLocaleString('es-AR') || 0} socios
+                </p>
               </div>
               <p className="fee-ledger-balance">
-                <small>Balance</small>
-                <strong>{fmt(selected.balance)}</strong>
+                <small>Pendiente</small>
+                <strong>{fmt(totals.pending || painted.balance)}</strong>
               </p>
             </div>
             <div className="fee-ledger-search">
@@ -568,7 +565,6 @@ export default function FeeChartAccountsPanel({
             </table>
           </div>
         </div>
-      </SnapshotGate>
     );
   }
 
@@ -595,7 +591,12 @@ export default function FeeChartAccountsPanel({
       </div>
 
       <p className="disc-field-hint" style={{ margin: 0 }}>
-        Encontrados {activeAccounts.length} en total
+        {activeAccounts.length} cuentas con tarifa
+        {' · '}
+        pendiente {fmt(activeAccounts.reduce((sum, account) => sum + (Number(account.balance) || 0), 0))}
+      </p>
+      <p className="disc-field-hint">
+        Cada cuenta junta una categoría de cuota. El saldo es lo que falta cobrar: vence el 10, recargo del 10 % (familiar e individual) desde el 11.
       </p>
       {error ? <p className="ig-error">{error}</p> : null}
 
@@ -607,19 +608,20 @@ export default function FeeChartAccountsPanel({
               <th>Nombre</th>
               <th>Descripción</th>
               <th>Categorías de cuotas</th>
-              <th>Balance</th>
+              <th>Socios</th>
+              <th>Pendiente</th>
               <th>Funciones</th>
             </tr>
           </thead>
           <tbody>
             {activeAccounts.length === 0 ? (
               <tr>
-                <td colSpan={6} style={{ color: 'var(--text-muted)' }}>No hay cuentas contables.</td>
+                <td colSpan={7} style={{ color: 'var(--text-muted)' }}>No hay cuentas contables.</td>
               </tr>
             ) : (
               activeAccounts.map((row) => (
                 <tr key={row.id}>
-                  <td>{row.accessinId || row.id.slice(-4)}</td>
+                  <td>{row.accessinId || '—'}</td>
                   <td style={{ fontWeight: 700 }}>{row.name}</td>
                   <td>{row.description || '—'}</td>
                   <td>
@@ -629,6 +631,7 @@ export default function FeeChartAccountsPanel({
                       ))}
                     </div>
                   </td>
+                  <td>{(row.memberCount || 0).toLocaleString('es-AR')}</td>
                   <td style={{ fontWeight: 700, color: 'var(--emerald-accent)' }}>{fmt(row.balance)}</td>
                   <td>
                     <div className="fee-account-actions">

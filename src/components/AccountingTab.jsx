@@ -54,17 +54,17 @@ import ResultsChartsPanel from './erp/ResultsChartsPanel';
 import { allowedAccountingSubtabsForRoles } from '../domain/auth/roles';
 import { useAuth } from '../context/AuthContext';
 import { formatISODateLongAR, todayISODateAR } from '../lib/arDate';
-
-const SOURCE_MODULE_LABELS = {
-  manual: 'Manual',
-  eventos: 'Eventos',
-  pileta: 'Pileta',
-  caja: 'Caja',
-  gastos: 'Gastos',
-  concesiones: 'Concesiones',
-  cuotas: 'Cuotas',
-  impuestos: 'Impuestos',
-};
+import {
+  buildOfficialJournalEntries,
+  groupJournalByMonth,
+  journalDayFamily,
+  journalDayNumber,
+  journalEntryKind,
+  journalKindFamily,
+  JOURNAL_KIND_LABELS,
+  journalMixChips,
+  journalMonthLabel,
+} from '../domain/accounting/officialJournal';
 
 const TREASURY_TABS = new Set([
   'cash', 'expenses', 'suppliers', 'retenciones', 'other_incomes', 'interest_generators',
@@ -178,22 +178,33 @@ function lineAmount(line) {
   return Number(line.debit) || Number(line.credit) || 0;
 }
 
+function JournalKindChips({ mix }) {
+  const chips = journalMixChips(mix);
+  if (!chips.length) return null;
+  return (
+    <span className="jd-mix">
+      {chips.map((chip) => (
+        <i key={chip.family} className={`jd-mix-chip is-${chip.family}`}>{chip.label}</i>
+      ))}
+    </span>
+  );
+}
+
 function JournalEntryLeaf({ entry, ordinal, chart }) {
   const lines = normalizeLines(entry.lines || [], chart);
   const debit = sumDebits(lines);
   const credit = sumCredits(lines);
   const squared = linesAreBalanced(lines);
-  const source = SOURCE_MODULE_LABELS[entry.sourceModule] || entry.sourceModule;
+  const kind = journalEntryKind(entry);
+  const family = journalKindFamily(kind);
   const dateKey = journalDateKey(entry);
 
   return (
-    <article className={['jd-leaf', squared ? '' : 'is-unbalanced'].filter(Boolean).join(' ')}>
+    <article className={['jd-leaf', `is-${family}`, squared ? '' : 'is-unbalanced'].filter(Boolean).join(' ')}>
       <header className="jd-leaf-head">
         <strong className="jd-leaf-no">Asiento {ordinal ?? '—'}</strong>
         <time dateTime={dateKey}>{formatISODateLongAR(dateKey)}</time>
-        {entry.sourceModule && entry.sourceModule !== 'manual' ? (
-          <span className="jd-leaf-source">{source}</span>
-        ) : null}
+        <span className={`jd-leaf-source is-${family}`}>{JOURNAL_KIND_LABELS[kind] || 'Asiento'}</span>
         {!squared ? <span className="jd-leaf-warn">Desbalanceado</span> : null}
       </header>
       <p className="jd-leaf-glosa">{entry.description || entry.concept || 'Sin glosa'}</p>
@@ -313,6 +324,8 @@ export default function AccountingTab({
   onDeletePaymentOrder,
   accountingReports = [],
   onRecordAccountingReport,
+  feePeriods = [],
+  reservations = [],
   initialSubTab = null,
 }) {
   const { role, roles } = useAuth();
@@ -376,11 +389,14 @@ export default function AccountingTab({
   ]);
   const [formSuccess, setFormSuccess] = useState(false);
   const [formError, setFormError] = useState('');
+  const [savingEntry, setSavingEntry] = useState(false);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStartDate, setFilterStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
+  const [openDiaryMonth, setOpenDiaryMonth] = useState(null);
   const [openDiaryDay, setOpenDiaryDay] = useState(null);
+  const [openMayorMonth, setOpenMayorMonth] = useState(null);
   const [openMayorDay, setOpenMayorDay] = useState(null);
 
   const [selectedMayorAccount, setSelectedMayorAccount] = useState('Caja General');
@@ -415,13 +431,16 @@ export default function AccountingTab({
     setLines((curr) => curr.map((line, i) => (i === index ? { ...line, [field]: value } : line)));
   };
 
-  const handleSaveEntry = (e) => {
+  const handleSaveEntry = async (e) => {
     e.preventDefault();
     if (!isBalanced) {
       setFormError('El asiento está desbalanceado. La suma de los débitos debe ser igual a los créditos.');
       return;
     }
+    if (savingEntry) return;
 
+    setSavingEntry(true);
+    setFormError('');
     try {
       const newEntry = buildPostedEntry({
         date,
@@ -430,9 +449,8 @@ export default function AccountingTab({
         sourceModule: 'manual',
         chart: chartOfAccounts,
       });
-      addJournalEntry(newEntry);
+      await addJournalEntry(newEntry);
       setFormSuccess(true);
-      setFormError('');
       setDescription('');
       setDate(todayISODateAR());
       setLines([
@@ -445,13 +463,26 @@ export default function AccountingTab({
       }, 2000);
     } catch (err) {
       setFormError(err.message || 'No se pudo guardar el asiento.');
+    } finally {
+      setSavingEntry(false);
     }
   };
+
+  const officialJournal = useMemo(
+    () => buildOfficialJournalEntries({
+      journalEntries,
+      feePeriods,
+      accessinCashMovements,
+      cashMovements,
+      reservations,
+    }),
+    [journalEntries, feePeriods, accessinCashMovements, cashMovements, reservations],
+  );
 
   const getAccountBalance = (accountName) => {
     const accountId = resolveAccountId(chartOfAccounts, accountName);
     if (!accountId) return 0;
-    return domainAccountBalance(accountId, journalEntries, chartOfAccounts);
+    return domainAccountBalance(accountId, officialJournal, chartOfAccounts);
   };
 
   const getCategoryTotal = (accountsArray) => accountsArray.reduce((sum, acc) => sum + getAccountBalance(acc), 0);
@@ -471,37 +502,41 @@ export default function AccountingTab({
   const pasivoBarPct = Math.min(100, (pasivoMasPatrimonio / equationDenom) * 100);
 
   const filteredJournalEntries = useMemo(
-    () => filterJournalEntries(journalEntries, {
+    () => filterJournalEntries(officialJournal, {
       search: searchTerm,
       from: filterStartDate,
       to: filterEndDate,
       chart: chartOfAccounts,
     }),
-    [journalEntries, searchTerm, filterStartDate, filterEndDate, chartOfAccounts]
+    [officialJournal, searchTerm, filterStartDate, filterEndDate, chartOfAccounts]
   );
-  const journalOrdinals = useMemo(() => journalOrdinalMap(journalEntries), [journalEntries]);
+  const journalOrdinals = useMemo(() => journalOrdinalMap(officialJournal), [officialJournal]);
   const diarySummary = useMemo(
     () => summarizeJournalBook(filteredJournalEntries, chartOfAccounts),
     [filteredJournalEntries, chartOfAccounts]
   );
-  const diaryGroups = useMemo(() => {
-    const groups = [];
-    for (const entry of filteredJournalEntries) {
-      const key = journalDateKey(entry) || 'sin-fecha';
-      const last = groups[groups.length - 1];
-      if (!last || last.key !== key) groups.push({ key, entries: [entry] });
-      else last.entries.push(entry);
-    }
-    return groups;
-  }, [filteredJournalEntries]);
-  const diaryGroupKeys = diaryGroups.map((group) => group.key).join('|');
+  const diaryMonths = useMemo(
+    () => groupJournalByMonth(filteredJournalEntries),
+    [filteredJournalEntries],
+  );
+  const diaryMonthKeys = diaryMonths.map((month) => month.key).join('|');
 
   useEffect(() => {
-    const keys = diaryGroupKeys ? diaryGroupKeys.split('|') : [];
-    setOpenDiaryDay((current) => (
+    const keys = diaryMonthKeys ? diaryMonthKeys.split('|') : [];
+    setOpenDiaryMonth((current) => (
       current && keys.includes(current) ? current : (keys[0] || null)
     ));
-  }, [diaryGroupKeys]);
+  }, [diaryMonthKeys]);
+
+  const openDiaryDays = diaryMonths.find((month) => month.key === openDiaryMonth)?.days || [];
+  const diaryDayKeys = `${openDiaryMonth || ''}|${openDiaryDays.map((day) => day.key).join('|')}`;
+
+  useEffect(() => {
+    const days = diaryDayKeys.split('|').slice(1).filter(Boolean);
+    setOpenDiaryDay((current) => (
+      current && days.includes(current) ? current : (days[0] || null)
+    ));
+  }, [diaryDayKeys]);
   const diaryPeriod = useMemo(() => {
     if (filteredJournalEntries.length === 0) return '';
     const newest = journalDateKey(filteredJournalEntries[0]);
@@ -514,8 +549,8 @@ export default function AccountingTab({
 
   const mayorAccountId = resolveAccountId(chartOfAccounts, selectedMayorAccount);
   const mayorReport = useMemo(
-    () => buildMayorLedger(mayorAccountId, journalEntries, chartOfAccounts),
-    [mayorAccountId, journalEntries, chartOfAccounts]
+    () => buildMayorLedger(mayorAccountId, officialJournal, chartOfAccounts),
+    [mayorAccountId, officialJournal, chartOfAccounts]
   );
   const mayorGroups = useMemo(() => {
     const groups = [];
@@ -527,14 +562,43 @@ export default function AccountingTab({
     }
     return groups;
   }, [mayorReport.lines]);
-  const mayorGroupKeys = `${selectedMayorAccount}|${mayorGroups.map((group) => group.key).join('|')}`;
+  const mayorMonths = useMemo(() => {
+    const months = [];
+    for (const day of mayorGroups) {
+      const month = day.key === 'sin-fecha' ? 'sin-fecha' : String(day.key).slice(0, 7);
+      const last = months[months.length - 1];
+      if (!last || last.key !== month) {
+        months.push({
+          key: month,
+          label: journalMonthLabel(month),
+          days: [day],
+          count: day.lines.length,
+        });
+      } else {
+        last.days.push(day);
+        last.count += day.lines.length;
+      }
+    }
+    return months;
+  }, [mayorGroups]);
+  const mayorMonthKeys = `${selectedMayorAccount}|${mayorMonths.map((month) => month.key).join('|')}`;
 
   useEffect(() => {
-    const keys = mayorGroupKeys.split('|').slice(1).filter(Boolean);
-    setOpenMayorDay((current) => (
+    const keys = mayorMonthKeys.split('|').slice(1).filter(Boolean);
+    setOpenMayorMonth((current) => (
       current && keys.includes(current) ? current : (keys[keys.length - 1] || null)
     ));
-  }, [mayorGroupKeys]);
+  }, [mayorMonthKeys]);
+
+  const openMayorDays = mayorMonths.find((month) => month.key === openMayorMonth)?.days || [];
+  const mayorDayKeys = `${openMayorMonth || ''}|${openMayorDays.map((day) => day.key).join('|')}`;
+
+  useEffect(() => {
+    const days = mayorDayKeys.split('|').slice(1).filter(Boolean);
+    setOpenMayorDay((current) => (
+      current && days.includes(current) ? current : (days[days.length - 1] || null)
+    ));
+  }, [mayorDayKeys]);
 
   const acctNavGroups = useMemo(
     () => buildAccountingNavGroups(accountingTabs),
@@ -552,7 +616,7 @@ export default function AccountingTab({
     && subTab !== 'balance_summary'
     && subTab !== 'balance_liquidation';
 
-  const journalExportPayload = subTab === 'diary' ? filteredJournalEntries : journalEntries;
+  const journalExportPayload = subTab === 'diary' ? filteredJournalEntries : officialJournal;
 
   const handlePrint = () => {
     void import('../domain/accounting/exportJournalPdf')
@@ -727,7 +791,7 @@ export default function AccountingTab({
               <h3 className="mb-folio-title">Asientos oficiales</h3>
               <p className="mb-folio-meta">
                 {diaryPeriod || 'Sin movimientos en el recorte'}
-                {' · '}Partida doble, del más reciente al más antiguo. Los anulados no se muestran.
+                {' · '}Liquidaciones de cuota, caja y cobros vivos. Partida doble, del más reciente al más antiguo. Los anulados no se muestran.
               </p>
             </div>
           </header>
@@ -799,48 +863,89 @@ export default function AccountingTab({
             </button>
           </div>
 
+          <ul className="jd-legend" aria-label="Tipos de asiento">
+            <li className="is-liq">Liquidación de cuota</li>
+            <li className="is-lila">Caja y bancos</li>
+            <li className="is-live">Cobro, pileta o evento vivo</li>
+          </ul>
+
           {filteredJournalEntries.length === 0 ? (
             <div className="jd-empty">
               <ShieldAlert size={28} aria-hidden="true" />
               <p>No hay asientos con esos filtros. Probá otra fecha o registrá un asiento.</p>
             </div>
           ) : (
-            diaryGroups.map((group) => {
-              const open = openDiaryDay === group.key;
-              const count = group.entries.length;
-              return (
-                <section key={group.key} className={['jd-day', open ? 'is-open' : ''].filter(Boolean).join(' ')}>
-                  <button
-                    type="button"
-                    className="jd-day-toggle"
-                    aria-expanded={open}
-                    onClick={() => {
-                      setOpenDiaryDay((current) => (current === group.key ? null : group.key));
-                    }}
+            <div className="jd-book">
+              {diaryMonths.map((month) => {
+                const monthOpen = openDiaryMonth === month.key;
+                const selectedDay = month.days.find((day) => day.key === openDiaryDay);
+                return (
+                  <section
+                    key={month.key}
+                    className={['jd-month', monthOpen ? 'is-open' : ''].filter(Boolean).join(' ')}
                   >
-                    <span>
-                      {group.key === 'sin-fecha' ? 'Sin fecha' : formatISODateLongAR(group.key)}
-                      <em>
-                        {count === 1 ? '1 asiento' : `${count} asientos`}
-                      </em>
-                    </span>
-                    <ChevronDown size={16} className="jd-day-chevron" aria-hidden="true" />
-                  </button>
-                  {open ? (
-                    <div className="jd-day-body">
-                      {group.entries.map((entry) => (
-                        <JournalEntryLeaf
-                          key={entry.id}
-                          entry={entry}
-                          ordinal={journalOrdinals.get(entry.id)}
-                          chart={chartOfAccounts}
-                        />
-                      ))}
-                    </div>
-                  ) : null}
-                </section>
-              );
-            })
+                    <button
+                      type="button"
+                      className="jd-month-toggle"
+                      aria-expanded={monthOpen}
+                      onClick={() => {
+                        setOpenDiaryMonth((current) => (current === month.key ? null : month.key));
+                        setOpenDiaryDay(month.days[0]?.key || null);
+                      }}
+                    >
+                      <span>
+                        {month.label}
+                        <em>{month.count === 1 ? '1 asiento' : `${month.count} asientos`}</em>
+                        <JournalKindChips mix={month.mix} />
+                      </span>
+                      <ChevronDown size={16} className="jd-day-chevron" aria-hidden="true" />
+                    </button>
+                    {monthOpen ? (
+                      <div className="jd-month-body">
+                        <div className="jd-day-strip" role="tablist" aria-label={`Días de ${month.label}`}>
+                          {month.days.map((day) => {
+                            const selected = openDiaryDay === day.key;
+                            const family = journalDayFamily(day.mix);
+                            return (
+                              <button
+                                key={day.key}
+                                type="button"
+                                role="tab"
+                                aria-selected={selected}
+                                className={['jd-day-chip', `is-${family}`, selected ? 'is-active' : ''].filter(Boolean).join(' ')}
+                                onClick={() => setOpenDiaryDay(day.key)}
+                              >
+                                {day.key === 'sin-fecha' ? '—' : journalDayNumber(day.key)}
+                                <em>{day.count || day.entries.length}</em>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {selectedDay ? (
+                          <>
+                            <p className="jd-day-caption">
+                              <time dateTime={selectedDay.key === 'sin-fecha' ? undefined : selectedDay.key}>
+                                {selectedDay.key === 'sin-fecha' ? 'Sin fecha' : formatISODateLongAR(selectedDay.key)}
+                              </time>
+                              <em>{selectedDay.count === 1 ? '1 asiento' : `${selectedDay.count} asientos`}</em>
+                              <JournalKindChips mix={selectedDay.mix} />
+                            </p>
+                            {selectedDay.entries.map((entry) => (
+                              <JournalEntryLeaf
+                                key={entry.id}
+                                entry={entry}
+                                ordinal={journalOrdinals.get(entry.id)}
+                                chart={chartOfAccounts}
+                              />
+                            ))}
+                          </>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </section>
+                );
+              })}
+            </div>
           )}
         </div>
       )}
@@ -852,7 +957,7 @@ export default function AccountingTab({
               <p className="mb-folio-kicker">Libro mayor</p>
               <h3 className="mb-folio-title">{selectedMayorAccount || 'Cuenta'}</h3>
               <p className="mb-folio-meta">
-                Saldo según la naturaleza de la cuenta, del más antiguo al más reciente. Solo asientos oficiales.
+                Saldo según la naturaleza de la cuenta, del más antiguo al más reciente. Mismo libro que el diario: liquidaciones, caja y asientos vivos.
               </p>
             </div>
           </header>
@@ -886,70 +991,105 @@ export default function AccountingTab({
             </div>
           </div>
 
-          {mayorGroups.length === 0 ? (
+          {mayorMonths.length === 0 ? (
             <div className="jd-empty">
               <p>No hay movimientos en {selectedMayorAccount}.</p>
             </div>
           ) : (
-            mayorGroups.map((group) => {
-              const open = openMayorDay === group.key;
-              const count = group.lines.length;
-              const closeBalance = group.lines[group.lines.length - 1]?.balance ?? 0;
-              return (
-                <section key={group.key} className={['jd-day', open ? 'is-open' : ''].filter(Boolean).join(' ')}>
-                  <button
-                    type="button"
-                    className="jd-day-toggle"
-                    aria-expanded={open}
-                    onClick={() => {
-                      setOpenMayorDay((current) => (current === group.key ? null : group.key));
-                    }}
+            <div className="jd-book">
+              {mayorMonths.map((month) => {
+                const monthOpen = openMayorMonth === month.key;
+                const closeBalance = month.days[month.days.length - 1]?.lines.at(-1)?.balance ?? 0;
+                const selectedDay = month.days.find((day) => day.key === openMayorDay);
+                return (
+                  <section
+                    key={month.key}
+                    className={['jd-month', monthOpen ? 'is-open' : ''].filter(Boolean).join(' ')}
                   >
-                    <span>
-                      {group.key === 'sin-fecha' ? 'Sin fecha' : formatISODateLongAR(group.key)}
-                      <em>
-                        {count === 1 ? '1 movimiento' : `${count} movimientos`}
-                        {' · '}
-                        {formatCurrency(closeBalance)}
-                      </em>
-                    </span>
-                    <ChevronDown size={16} className="jd-day-chevron" aria-hidden="true" />
-                  </button>
-                  {open ? (
-                    <div className="jd-day-body">
-                      <div className="table-responsive">
-                        <table className="admin-table mb-folio-table">
-                          <thead>
-                            <tr>
-                              <th>Glosa</th>
-                              <th style={{ textAlign: 'right' }}>Debe</th>
-                              <th style={{ textAlign: 'right' }}>Haber</th>
-                              <th style={{ textAlign: 'right' }}>Saldo</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {group.lines.map((line) => (
-                              <tr key={line.id}>
-                                <td>{line.description}</td>
-                                <td style={{ textAlign: 'right' }}>{line.debit > 0 ? formatCurrency(line.debit) : '—'}</td>
-                                <td style={{ textAlign: 'right' }}>{line.credit > 0 ? formatCurrency(line.credit) : '—'}</td>
-                                <td style={{
-                                  textAlign: 'right',
-                                  fontWeight: 700,
-                                  color: line.balance >= 0 ? 'var(--emerald-accent)' : 'var(--danger-accent)',
-                                }}>
-                                  {formatCurrency(line.balance)}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                    <button
+                      type="button"
+                      className="jd-month-toggle"
+                      aria-expanded={monthOpen}
+                      onClick={() => {
+                        setOpenMayorMonth((current) => (current === month.key ? null : month.key));
+                        const days = month.days;
+                        setOpenMayorDay(days[days.length - 1]?.key || null);
+                      }}
+                    >
+                      <span>
+                        {month.label}
+                        <em>
+                          {month.count === 1 ? '1 movimiento' : `${month.count} movimientos`}
+                          {' · '}
+                          {formatCurrency(closeBalance)}
+                        </em>
+                      </span>
+                      <ChevronDown size={16} className="jd-day-chevron" aria-hidden="true" />
+                    </button>
+                    {monthOpen ? (
+                      <div className="jd-month-body">
+                        <div className="jd-day-strip" role="tablist" aria-label={`Días de ${month.label}`}>
+                          {month.days.map((day) => {
+                            const selected = openMayorDay === day.key;
+                            return (
+                              <button
+                                key={day.key}
+                                type="button"
+                                role="tab"
+                                aria-selected={selected}
+                                className={['jd-day-chip', selected ? 'is-active' : ''].filter(Boolean).join(' ')}
+                                onClick={() => setOpenMayorDay(day.key)}
+                              >
+                                {day.key === 'sin-fecha' ? '—' : journalDayNumber(day.key)}
+                                <em>{day.lines.length}</em>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {selectedDay ? (
+                          <>
+                            <p className="jd-day-caption">
+                              <time dateTime={selectedDay.key === 'sin-fecha' ? undefined : selectedDay.key}>
+                                {selectedDay.key === 'sin-fecha' ? 'Sin fecha' : formatISODateLongAR(selectedDay.key)}
+                              </time>
+                              <em>{selectedDay.lines.length === 1 ? '1 movimiento' : `${selectedDay.lines.length} movimientos`}</em>
+                            </p>
+                            <div className="table-responsive">
+                              <table className="admin-table mb-folio-table">
+                                <thead>
+                                  <tr>
+                                    <th>Glosa</th>
+                                    <th style={{ textAlign: 'right' }}>Debe</th>
+                                    <th style={{ textAlign: 'right' }}>Haber</th>
+                                    <th style={{ textAlign: 'right' }}>Saldo</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {selectedDay.lines.map((line) => (
+                                    <tr key={line.id}>
+                                      <td>{line.description}</td>
+                                      <td style={{ textAlign: 'right' }}>{line.debit > 0 ? formatCurrency(line.debit) : '—'}</td>
+                                      <td style={{ textAlign: 'right' }}>{line.credit > 0 ? formatCurrency(line.credit) : '—'}</td>
+                                      <td style={{
+                                        textAlign: 'right',
+                                        fontWeight: 700,
+                                        color: line.balance >= 0 ? 'var(--emerald-accent)' : 'var(--danger-accent)',
+                                      }}>
+                                        {formatCurrency(line.balance)}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </>
+                        ) : null}
                       </div>
-                    </div>
-                  ) : null}
-                </section>
-              );
-            })
+                    ) : null}
+                  </section>
+                );
+              })}
+            </div>
           )}
         </div>
       )}
@@ -1083,7 +1223,11 @@ export default function AccountingTab({
                   <span>Haber {formatCurrency(totalCredit)}</span>
                 </div>
                 <strong>
-                  {isBalanced ? 'Cuadrado' : `Faltan ${formatCurrency(imbalanceDiff)}`}
+                  {totalDebit === 0 && totalCredit === 0
+                    ? 'Cargá el debe y el haber'
+                    : isBalanced
+                      ? 'Cuadrado'
+                      : `Faltan ${formatCurrency(imbalanceDiff)}`}
                 </strong>
               </div>
 
@@ -1091,9 +1235,9 @@ export default function AccountingTab({
                 <button
                   type="submit"
                   className="btn btn-tan"
-                  disabled={!isBalanced}
+                  disabled={!isBalanced || savingEntry}
                 >
-                  <BookOpen size={16} /> Guardar asiento
+                  <BookOpen size={16} /> {savingEntry ? 'Guardando…' : 'Guardar asiento'}
                 </button>
               </div>
             </form>
@@ -1324,7 +1468,7 @@ export default function AccountingTab({
           members={members}
           reports={accountingReports}
           onRecordReport={onRecordAccountingReport}
-          journalEntries={journalEntries}
+          journalEntries={officialJournal}
           chartOfAccounts={chartOfAccounts}
           onOpenLibreDeuda={() => setSubTab('libre_deuda')}
           onOpenFamilyBalances={() => setSubTab('family_balances')}
@@ -1360,7 +1504,7 @@ export default function AccountingTab({
 
       {subTab === 'charts' && (
         <ResultsChartsPanel
-          journalEntries={journalEntries}
+          journalEntries={officialJournal}
           chartOfAccounts={chartOfAccounts}
           accountPlan={ACCOUNT_PLAN}
           getAccountBalance={getAccountBalance}
@@ -1389,7 +1533,7 @@ export default function AccountingTab({
           chartOfAccounts={chartOfAccounts}
           setChartOfAccounts={setChartOfAccounts}
           upsertChartAccount={upsertChartAccount}
-          journalEntries={journalEntries}
+          journalEntries={officialJournal}
         />
       )}
 

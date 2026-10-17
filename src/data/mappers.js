@@ -186,6 +186,12 @@ export function reservationFromRow(row) {
     externalId: meta.externalId || null,
     source: meta.source || null,
     createdAt: meta.createdAt || row.created_at || null,
+    imputed: Boolean(meta.imputed || meta.feeImputed),
+    feeImputed: Boolean(meta.feeImputed || meta.imputed),
+    imputedAt: meta.imputedAt || null,
+    imputationEntryId: meta.imputationEntryId || null,
+    accountEntry: meta.accountEntry || null,
+    balanceBefore: meta.balanceBefore ?? null,
   };
 }
 
@@ -213,6 +219,12 @@ export function reservationToRow(res, memberDbId = null) {
       document: res.document || null,
       mpTransactionId: res.mpTransactionId || null,
       voucher: res.voucher || null,
+      imputed: Boolean(res.imputed || res.feeImputed),
+      feeImputed: Boolean(res.feeImputed || res.imputed),
+      imputedAt: res.imputedAt || null,
+      imputationEntryId: res.imputationEntryId || null,
+      accountEntry: res.accountEntry || null,
+      balanceBefore: res.balanceBefore ?? null,
     },
   };
 }

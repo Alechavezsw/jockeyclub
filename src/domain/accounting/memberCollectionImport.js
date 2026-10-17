@@ -1,14 +1,19 @@
-import { createAccountEntry } from './memberBalances';
+import { createAccountEntry, padMember } from './accountEntries';
+import { memberNumberOf } from '../members/households';
+import {
+  applyImportedMemberPayment,
+  revertImportedMemberPayment,
+} from '../members/memberPayments';
 
-/** Importación de cobranzas de socios (Excel Manual / lista base LILA). */
+/** Importación de cobranzas de socios (Excel Manual). */
 
 export const MEMBER_COLLECTION_ENTITIES = {
   excel_manual: 'Excel Manual',
 };
 
 export const MEMBER_COLLECTION_IMPUTATION_ORDERS = {
-  chronological: 'Orden cronológico (De lo más antiguo a lo más nuevo según fecha de imputación)',
-  reverse: 'Orden inverso (De lo más nuevo a lo más antiguo)',
+  chronological: 'Deuda más antigua primero',
+  reverse: 'Pago más reciente primero',
 };
 
 export const MEMBER_COLLECTION_IMPORT_STATUS = {
@@ -52,13 +57,46 @@ function padUnidad(v) {
   return String(v ?? '').trim();
 }
 
-export function matchMemberByUnidad(members = [], unidad) {
+function clubNumber(member) {
+  const digits = padMember(memberNumberOf(member) || member?.memberId);
+  if (!digits) return '';
+  if (digits.length >= 5) return digits;
+  return digits.padStart(5, '0');
+}
+
+function memberLookupKeys(member) {
+  const keys = new Set();
+  const nro = memberNumberOf(member);
+  if (nro) {
+    keys.add(nro);
+    keys.add(nro.replace(/^0+/, '') || nro);
+    keys.add(nro.padStart(5, '0'));
+  }
+  const club = clubNumber(member);
+  if (club) keys.add(club);
+  const dni = String(member?.documentNumber || member?.dni || '').replace(/\D/g, '');
+  if (dni) keys.add(dni);
+  return keys;
+}
+
+export function buildMemberMatchIndex(members = []) {
+  const byKey = new Map();
+  for (const member of members || []) {
+    for (const key of memberLookupKeys(member)) {
+      if (!byKey.has(key)) byKey.set(key, member);
+    }
+  }
+  return byKey;
+}
+
+export function matchMemberByUnidad(members = [], unidad, index) {
   const key = padUnidad(unidad);
   if (!key) return null;
-  const exact = members.find((m) => padUnidad(m.memberId) === key);
-  if (exact) return exact;
-  const padded = key.padStart(5, '0');
-  return members.find((m) => padUnidad(m.memberId).padStart(5, '0') === padded) || null;
+  const map = index || buildMemberMatchIndex(members);
+  return map.get(key)
+    || map.get(key.replace(/^0+/, '') || key)
+    || map.get(key.padStart(5, '0'))
+    || null;
 }
 
 /** AOA hoja Socios → filas normalizadas. */
@@ -69,7 +107,7 @@ export function parseCobranzasSociosSheetRows(aoa = []) {
   const headerIdx = aoa.findIndex((r) => {
     if (!r || !r.length) return false;
     const h0 = normHeader(r[0]);
-    return h0 === 'UNIDAD' || h0.startsWith('UNIDAD');
+    return h0 === 'UNIDAD' || h0.startsWith('UNIDAD') || h0 === 'NRO' || h0.startsWith('NRO');
   });
   if (headerIdx < 0) {
     throw new Error('No se encontró el encabezado UNIDAD en la hoja Socios.');
@@ -77,12 +115,13 @@ export function parseCobranzasSociosSheetRows(aoa = []) {
 
   const header = (aoa[headerIdx] || []).map(normHeader);
   const idx = {
-    unidad: header.findIndex((h) => h.startsWith('UNIDAD')),
+    unidad: header.findIndex((h) => h.startsWith('UNIDAD') || h === 'NRO' || h.startsWith('NRO ')),
     nombre: header.findIndex((h) => h.includes('NOMBRE')),
     fecha: header.findIndex((h) => h.startsWith('FECHA')),
     monto: header.findIndex((h) => h === 'MONTO' || h.startsWith('MONTO')),
     cbu: header.findIndex((h) => h.includes('CBU')),
     comprobante: header.findIndex((h) => h.includes('COMPROBANTE')),
+    dni: header.findIndex((h) => h.includes('DNI') || h.includes('DOCUMENTO')),
   };
   if (idx.unidad < 0 || idx.monto < 0) {
     throw new Error('La plantilla debe incluir columnas UNIDAD y MONTO.');
@@ -93,12 +132,14 @@ export function parseCobranzasSociosSheetRows(aoa = []) {
     const r = aoa[i];
     if (!r) continue;
     const unidad = padUnidad(r[idx.unidad]);
+    const dni = idx.dni >= 0 ? padUnidad(r[idx.dni]) : '';
     const monto = Number(r[idx.monto]) || 0;
     const nombre = idx.nombre >= 0 ? String(r[idx.nombre] ?? '').trim() : '';
-    if (!unidad && !monto && !nombre) continue;
+    if (!unidad && !dni && !monto && !nombre) continue;
     rows.push({
       line: i + 1,
-      unidad,
+      unidad: unidad || dni,
+      dni,
       nombre,
       fecha: excelDateToIso(idx.fecha >= 0 ? r[idx.fecha] : ''),
       monto,
@@ -107,6 +148,16 @@ export function parseCobranzasSociosSheetRows(aoa = []) {
     });
   }
   return rows;
+}
+
+function sortPayableRows(rows, imputationOrder) {
+  const dir = imputationOrder === 'reverse' ? -1 : 1;
+  return [...(rows || [])].toSorted((a, b) => {
+    const da = String(a.fecha || '');
+    const db = String(b.fecha || '');
+    if (da !== db) return da.localeCompare(db) * dir;
+    return (a.line || 0) - (b.line || 0);
+  });
 }
 
 /**
@@ -125,22 +176,22 @@ export function buildMemberCollectionImport({
   const errors = [];
   const stamp = new Date();
   let totalAmount = 0;
+  const index = buildMemberMatchIndex(members);
 
   const payable = (rows || []).filter((r) => (Number(r.monto) || 0) > 0);
-  const ordered = imputationOrder === 'reverse'
-    ? [...payable].reverse()
-    : payable;
+  const ordered = sortPayableRows(payable, imputationOrder);
 
   ordered.forEach((row, i) => {
-    if (!row.unidad) {
-      errors.push({ line: row.line, message: 'Falta UNIDAD (nro. de socio).' });
+    if (!row.unidad && !row.dni) {
+      errors.push({ line: row.line, message: 'Falta UNIDAD o DNI (nro. de socio).' });
       return;
     }
-    const matched = matchMemberByUnidad(members, row.unidad);
+    const matched = matchMemberByUnidad(members, row.unidad, index)
+      || matchMemberByUnidad(members, row.dni, index);
     const date = forceDate || row.fecha || stamp.toISOString().slice(0, 10);
     const payment = {
       id: `mcp-${stamp.getTime()}-${i}`,
-      memberId: matched?.memberId || row.unidad,
+      memberId: matched?.memberId || row.unidad || row.dni,
       memberName: matched?.name || row.nombre || row.unidad,
       date,
       amount: row.monto,
@@ -153,7 +204,10 @@ export function buildMemberCollectionImport({
     payments.push(payment);
     totalAmount += row.monto;
     if (!matched) {
-      errors.push({ line: row.line, message: `Socio no encontrado en padrón: ${row.unidad} ${row.nombre || ''}`.trim() });
+      errors.push({
+        line: row.line,
+        message: `Socio no encontrado en padrón: ${row.unidad || row.dni} ${row.nombre || ''}`.trim(),
+      });
     }
   });
 
@@ -177,42 +231,75 @@ export function buildMemberCollectionImport({
     forceDate: forceDate || '',
     imputationOrder,
     paymentIds: payments.map((p) => p.id),
+    applied: [],
   };
 
   return { batch, payments, errors };
 }
 
-/** Aplica pagos al saldo de socios (reduce outstandingBalance). */
+/** Aplica pagos al padrón vivo (saldo, vencimiento, historial, crédito). */
 export function applyMemberCollectionPayments(members = [], payments = []) {
-  const byId = new Map((members || []).map((m) => [String(m.memberId), m]));
   const next = [...(members || [])];
   const indexById = new Map(next.map((m, i) => [String(m.memberId), i]));
+  const applied = [];
+  const ledgerEntries = [];
+  let fullyPaidCount = 0;
+  let creditCount = 0;
 
-  (payments || []).forEach((p) => {
-    if (!p?.matched) return;
-    const key = String(p.memberId);
-    const idx = indexById.get(key);
-    if (idx == null) return;
-    const m = next[idx];
-    const bal = Number(m.outstandingBalance) || 0;
-    const paid = Number(p.amount) || 0;
-    next[idx] = {
-      ...m,
-      outstandingBalance: Math.max(0, Math.round((bal - paid) * 100) / 100),
-      lastPaymentDate: p.date || m.lastPaymentDate,
-      updatedAt: new Date().toISOString(),
-    };
-    byId.set(key, next[idx]);
-  });
+  for (const payment of payments || []) {
+    if (!payment?.matched) continue;
+    const idx = indexById.get(String(payment.memberId));
+    if (idx == null) continue;
+    try {
+      const result = applyImportedMemberPayment(next[idx], {
+        amount: payment.amount,
+        date: payment.date,
+        voucher: payment.voucher,
+        method: 'transferencia',
+        id: payment.id,
+      });
+      next[idx] = result.member;
+      applied.push({
+        paymentId: result.payment.id,
+        memberId: result.member.memberId,
+        amount: result.payment.amount,
+        date: result.payment.date,
+        fullyPaid: result.fullyPaid,
+        credit: result.credit,
+        outstandingBalance: result.before.outstandingBalance,
+        lastPaymentDate: result.before.lastPaymentDate,
+        nextDueDate: result.before.nextDueDate,
+        overdueSince: result.before.overdueSince,
+      });
+      ledgerEntries.push(result.ledgerEntry);
+      if (result.fullyPaid) fullyPaidCount += 1;
+      if (result.credit) creditCount += 1;
+    } catch {
+      /* fila inválida: no corta el lote */
+    }
+  }
 
+  return { members: next, applied, ledgerEntries, fullyPaidCount, creditCount };
+}
+
+export function revertMemberCollectionPayments(members = [], applied = []) {
+  const next = [...(members || [])];
+  const indexById = new Map(next.map((m, i) => [String(m.memberId), i]));
+  for (const snapshot of [...(applied || [])].toReversed()) {
+    const idx = indexById.get(String(snapshot.memberId));
+    if (idx == null) continue;
+    next[idx] = revertImportedMemberPayment(next[idx], snapshot);
+  }
   return next;
 }
 
-export function collectionPaymentsToEntries(payments = []) {
+export function collectionPaymentsToEntries(payments = [], ledgerEntries = []) {
+  if (Array.isArray(ledgerEntries) && ledgerEntries.length) return ledgerEntries;
   return (payments || []).flatMap((p) => {
     if (!p?.matched || !(Number(p.amount) > 0)) return [];
     try {
       return [createAccountEntry({
+        id: p.id,
         type: 'pago',
         memberNumber: p.memberId,
         memberName: p.nombre || p.memberName || '',

@@ -22,18 +22,155 @@ function receiptNumberFor(member, date) {
   return `RC-${String(member.memberId).slice(-6)}-${String(date).replace(/-/g, '')}`;
 }
 
+function roundMoney(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
 function ledgerPago(member, payment) {
   return createAccountEntry({
+    id: payment.ledgerId,
     type: 'pago',
     memberNumber: member.memberId,
     memberName: member.name,
     value: payment.amount,
     date: payment.date,
-    voucher: payment.receiptNumber || payment.receipt,
-    source: 'dues_payment',
+    voucher: payment.receiptNumber || payment.receipt || payment.voucher,
+    source: payment.source || 'dues_payment',
     description: payment.concept,
     paymentMethods: payment.method ? [payment.method] : [],
   });
+}
+
+function duesSnapshot(member) {
+  return {
+    outstandingBalance: Number(member?.outstandingBalance) || 0,
+    lastPaymentDate: member?.lastPaymentDate || null,
+    nextDueDate: member?.nextDueDate || null,
+    overdueSince: member?.overdueSince ?? null,
+  };
+}
+
+function asPaymentDate(date) {
+  const iso = String(date || todayISODateAR()).slice(0, 10);
+  const when = new Date(`${iso}T12:00:00`);
+  return { iso, when: Number.isNaN(when.getTime()) ? new Date() : when };
+}
+
+/**
+ * Pago importado (Excel): baja saldo, deja crédito si sobra,
+ * y si cancela pasa el vencimiento al próximo día 10 (igual que caja).
+ */
+export function applyImportedMemberPayment(member, {
+  amount,
+  date,
+  voucher = '',
+  method = 'transferencia',
+  id,
+  source = 'collection_import',
+} = {}) {
+  if (!member) throw new Error('Socio no encontrado.');
+  const paid = roundMoney(amount);
+  if (paid <= 0) throw new Error('Importe inválido.');
+  const { iso, when } = asPaymentDate(date);
+  const before = duesSnapshot(member);
+  const payment = {
+    id: id || `pay-${member.memberId}-${Date.now()}`,
+    date: iso,
+    time: nowTimeAR(when),
+    paidAt: when.toISOString(),
+    createdAt: when.toISOString(),
+    concept: 'Importación cobranzas socios',
+    amount: paid,
+    method,
+    status: 'paid',
+    receipt: voucher || receiptNumberFor(member, iso),
+    receiptNumber: voucher || receiptNumberFor(member, iso),
+    voucher,
+    source,
+    ledgerId: id,
+    period: when.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' }),
+  };
+
+  let current = member;
+  let leftover = paid;
+  const due = roundMoney(member.outstandingBalance);
+
+  if (due > 0.01) {
+    const take = Math.min(due, leftover);
+    leftover = roundMoney(leftover - take);
+    if (take + 0.01 >= due) {
+      current = afterCollectDues(member, when);
+    } else {
+      current = {
+        ...member,
+        outstandingBalance: roundMoney(due - take),
+      };
+    }
+  }
+
+  let months = 0;
+  while (leftover > 0.01 && months < 24) {
+    months += 1;
+    const dueOn = current.nextDueDate || nextDuesDueDate(when);
+    const monthAmount = roundMoney(duesPayableForMember(current, { paidOn: when, dueOn, on: dueOn }));
+    if (monthAmount <= 0.01) {
+      current = {
+        ...current,
+        outstandingBalance: roundMoney((Number(current.outstandingBalance) || 0) - leftover),
+      };
+      leftover = 0;
+      break;
+    }
+    if (leftover + 0.01 >= monthAmount) {
+      leftover = roundMoney(leftover - monthAmount);
+      current = afterCollectDues({
+        ...current,
+        outstandingBalance: monthAmount,
+        nextDueDate: current.nextDueDate || dueOn,
+      }, when);
+    } else {
+      current = {
+        ...current,
+        outstandingBalance: roundMoney((Number(current.outstandingBalance) || 0) - leftover),
+      };
+      leftover = 0;
+    }
+  }
+  if (leftover > 0.01) {
+    current = {
+      ...current,
+      outstandingBalance: roundMoney((Number(current.outstandingBalance) || 0) - leftover),
+    };
+  }
+
+  const next = {
+    ...current,
+    lastPaymentDate: iso,
+    paymentHistory: [payment, ...(member.paymentHistory || [])],
+    updatedAt: new Date().toISOString(),
+  };
+  const balance = roundMoney(next.outstandingBalance);
+  return {
+    member: next,
+    payment,
+    fullyPaid: balance <= 0.01,
+    credit: balance < -0.01 ? Math.abs(balance) : 0,
+    before,
+    ledgerEntry: ledgerPago(next, payment),
+  };
+}
+
+export function revertImportedMemberPayment(member, snapshot = {}) {
+  if (!member || !snapshot) return member;
+  return {
+    ...member,
+    outstandingBalance: snapshot.outstandingBalance,
+    lastPaymentDate: snapshot.lastPaymentDate,
+    nextDueDate: snapshot.nextDueDate,
+    overdueSince: snapshot.overdueSince,
+    paymentHistory: (member.paymentHistory || []).filter((row) => row.id !== snapshot.paymentId),
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 /**
@@ -223,7 +360,7 @@ export function journalEntryBelongsToMember(entry, member) {
 }
 
 /** Aplica el cobro al padrón, al libro de cuenta y al diario. */
-export function persistDuesCollection(result, {
+export async function persistDuesCollection(result, {
   setMembers,
   updateMember,
   addJournalEntry,
@@ -241,6 +378,15 @@ export function persistDuesCollection(result, {
     updateMember?.(result.member);
   }
   if (result.ledgerEntry) onAccountEntry?.(result.ledgerEntry);
-  if (result.journalEntry) addJournalEntry?.(result.journalEntry);
+  if (result.journalEntry && typeof addJournalEntry === 'function') {
+    try {
+      const saved = await addJournalEntry(result.journalEntry);
+      if (saved && typeof saved === 'object') {
+        return { ...result, journalEntry: saved };
+      }
+    } catch {
+      /* El cobro del padrón ya quedó. El diario se recompone con el libro oficial. */
+    }
+  }
   return result;
 }

@@ -30,13 +30,21 @@ import {
   buildMemberCollectionImport,
   collectionPaymentsToEntries,
   parseCobranzasSociosSheetRows,
+  revertMemberCollectionPayments,
 } from '../../domain/accounting/memberCollectionImport';
 import {
   applyAccountEntryToMember,
   applyEntryToMembers,
   createAccountEntry,
 } from '../../domain/accounting/memberBalances';
-import { buildEventImputationEntry, reservationChargeAmount } from '../../domain/accounting/eventImputation';
+import {
+  applyEventImputation,
+  imputedEventReservations,
+  pendingEventReservations,
+  reservationChargeAmount,
+  reservationStatusBucket,
+  revertEventImputation,
+} from '../../domain/accounting/eventImputation';
 import { getOverdueMembers } from '../../domain/members/dues';
 import DuesControlTab from '../admin/DuesControlTab';
 import OverdueDuesStrip from '../admin/OverdueDuesStrip';
@@ -46,6 +54,7 @@ import MonthlyDebtsPanel from './MonthlyDebtsPanel';
 import DetailedCurrentAccountsPanel from './DetailedCurrentAccountsPanel';
 import MemberCreditPurchasesPanel from './MemberCreditPurchasesPanel';
 import CuotasDeskToolbar from './CuotasDeskToolbar';
+import { mergeDuesSettings } from '../../domain/system/clubSettings';
 
 const MONTHS_ES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -98,13 +107,16 @@ export default function CuotasPanel({
   chartOfAccounts = [],
   formatCurrency: formatCurrencyProp,
   tierCatalog = [],
+  onSendMessage,
   initialView = 'hub',
   balancesOnly = false,
+  duesSettings,
+  setDuesSettings,
 }) {
   const fmt = formatCurrencyProp || formatCurrency;
   const [view, setView] = useState(() => (balancesOnly ? 'balances' : initialView)); // hub | import_collections | import_debts | impute_events | mora | period_detail | accounts | balances | monthly_debts | detailed_cc | credit_purchases
   const [year, setYear] = useState(2026);
-  const [ccEnabled, setCcEnabled] = useState(true);
+  const ccEnabled = duesSettings?.showCurrentAccountsToMembers !== false;
   const [flash, setFlash] = useState('');
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
@@ -122,6 +134,7 @@ export default function CuotasPanel({
   const [evSpace, setEvSpace] = useState('all');
   const [evStatus, setEvStatus] = useState('all');
   const [evPay, setEvPay] = useState('all');
+  const [evList, setEvList] = useState('pending');
   const [detailEvent, setDetailEvent] = useState(null);
   const [exportBusy, setExportBusy] = useState(null);
 
@@ -200,20 +213,11 @@ export default function CuotasPanel({
     }
   };
 
-  const pendingEvents = useMemo(() => {
-    const list = (reservations || []).filter((r) => {
-      if (r.imputed === true || r.feeImputed === true) return false;
-      const facility = String(r.facilityName || r.facilityId || r.space || '').toLowerCase();
-      const looksEvent = /salon|espacio|evento|verde|anhelo|bustos|maurin|refugio/i.test(facility)
-        || r.type === 'event'
-        || r.sourceModule === 'events';
-      return looksEvent || Boolean(r.needsImputation);
-    });
-    return list;
-  }, [reservations]);
+  const pendingEvents = useMemo(() => pendingEventReservations(reservations), [reservations]);
+  const imputedEvents = useMemo(() => imputedEventReservations(reservations), [reservations]);
 
   const filteredEvents = useMemo(() => {
-    let rows = pendingEvents;
+    let rows = evList === 'imputed' ? imputedEvents : pendingEvents;
     if (evSocio.trim()) {
       const q = evSocio.trim().toLowerCase();
       rows = rows.filter((r) => (
@@ -225,22 +229,26 @@ export default function CuotasPanel({
       rows = rows.filter((r) => String(r.facilityName || r.facilityId || r.space || '') === evSpace);
     }
     if (evStatus !== 'all') {
-      rows = rows.filter((r) => String(r.status || '').toLowerCase() === evStatus);
+      rows = rows.filter((r) => reservationStatusBucket(r.status) === evStatus);
     }
     if (evPay !== 'all') {
-      rows = rows.filter((r) => String(r.paymentMethod || r.payMethod || 'all') === evPay);
+      rows = rows.filter((r) => {
+        const method = String(r.paymentMethod || r.payMethod || '').toLowerCase();
+        if (evPay === 'none') return !method;
+        return method === evPay;
+      });
     }
     return rows;
-  }, [pendingEvents, evSocio, evSpace, evStatus, evPay]);
+  }, [pendingEvents, imputedEvents, evList, evSocio, evSpace, evStatus, evPay]);
 
   const spaces = useMemo(() => {
     const set = new Set();
-    pendingEvents.forEach((r) => {
+    [...pendingEvents, ...imputedEvents].forEach((r) => {
       const s = r.facilityName || r.facilityId || r.space;
       if (s) set.add(String(s));
     });
     return [...set].sort((a, b) => a.localeCompare(b, 'es'));
-  }, [pendingEvents]);
+  }, [pendingEvents, imputedEvents]);
 
   const reservationStatusLabel = (status) => {
     const s = String(status || '').toLowerCase();
@@ -251,20 +259,51 @@ export default function CuotasPanel({
     return status || 'Aprobada';
   };
 
-  const imputeEvent = (reservation) => {
+  const imputeEvent = async (reservation) => {
     setError('');
     setOk('');
+    setBusy(true);
     try {
-      const entry = buildEventImputationEntry(reservation);
-      onUpsertMemberAccountEntry?.(entry);
+      const result = applyEventImputation(reservation, members);
       if (typeof setMembers === 'function') {
-        setMembers((prev) => applyEntryToMembers(prev, entry));
+        setMembers((prev) => prev.map((row) => (
+          row.memberId === result.member.memberId ? result.member : row
+        )));
       }
-      onImputeReservation?.(reservation);
+      onUpsertMemberAccountEntry?.(result.entry);
+      if (typeof addJournalEntry === 'function') {
+        await addJournalEntry(result.journal);
+      }
+      await onImputeReservation?.(result.reservation);
       setDetailEvent(null);
-      setOk(`Imputado ${reservation.memberName || reservation.memberId}: ${fmt(entry.value)}.`);
+      setOk(`Imputado ${result.member.name || reservation.memberName}: ${fmt(result.amount)}. Queda en la cuenta y no se vuelve a cargar al recargar.`);
     } catch (err) {
       setError(err?.message || 'No se pudo imputar el evento.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revertEvent = async (reservation) => {
+    setError('');
+    setOk('');
+    if (!window.confirm('¿Revertir esta imputación? Se baja el alquiler del saldo del socio.')) return;
+    setBusy(true);
+    try {
+      const result = revertEventImputation(reservation, members);
+      if (result.member && typeof setMembers === 'function') {
+        setMembers((prev) => prev.map((row) => (
+          row.memberId === result.member.memberId ? result.member : row
+        )));
+      }
+      if (result.entryId) onDeleteMemberAccountEntry?.(result.entryId);
+      await onImputeReservation?.(result.reservation);
+      setDetailEvent(null);
+      setOk(`Revertido ${fmt(result.amount)}.`);
+    } catch (err) {
+      setError(err?.message || 'No se pudo revertir la imputación.');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -346,17 +385,29 @@ export default function CuotasPanel({
       if (!built.payments.length) {
         throw new Error('No hay filas con MONTO > 0 para importar. Completá la lista base y volvé a subirla.');
       }
-      if (typeof onImportCollections === 'function') {
-        await onImportCollections(built);
-      }
+      let appliedResult = { members, applied: [], ledgerEntries: [], fullyPaidCount: 0, creditCount: 0 };
       if (typeof setMembers === 'function') {
-        setMembers((prev) => applyMemberCollectionPayments(prev, built.payments));
+        setMembers((prev) => {
+          appliedResult = applyMemberCollectionPayments(prev, built.payments);
+          return appliedResult.members;
+        });
+      } else {
+        appliedResult = applyMemberCollectionPayments(members, built.payments);
       }
-      collectionPaymentsToEntries(built.payments).forEach((entry) => {
+      const batch = {
+        ...built.batch,
+        applied: appliedResult.applied,
+        fullyPaidCount: appliedResult.fullyPaidCount,
+        creditCount: appliedResult.creditCount,
+      };
+      if (typeof onImportCollections === 'function') {
+        await onImportCollections({ ...built, batch });
+      }
+      collectionPaymentsToEntries(built.payments, appliedResult.ledgerEntries).forEach((entry) => {
         onUpsertMemberAccountEntry?.(entry);
       });
       if (typeof addJournalEntry === 'function' && built.batch.totalAmount > 0) {
-        addJournalEntry({
+        await addJournalEntry({
           date: forceDate || new Date().toISOString().slice(0, 10),
           description: `Importación cobranzas socios (${built.batch.fileName || 'Excel Manual'})`,
           sourceModule: 'cuotas',
@@ -368,6 +419,8 @@ export default function CuotasPanel({
       }
       setOk(
         `Importados ${built.batch.importedCount} de ${built.batch.totalRows} pagos · ${fmt(built.batch.totalAmount)}`
+        + (appliedResult.fullyPaidCount ? ` · ${appliedResult.fullyPaidCount} socio(s) al día` : '')
+        + (appliedResult.creditCount ? ` · ${appliedResult.creditCount} con crédito a favor` : '')
         + (built.errors.length ? ` · ${built.errors.length} aviso(s)` : '')
       );
       setFile(null);
@@ -384,7 +437,6 @@ export default function CuotasPanel({
       <FeeChartAccountsPanel
         accounts={feeChartAccounts}
         members={members}
-        periods={feePeriods}
         onUpsert={onUpsertFeeChartAccount}
         onDelete={onDeleteFeeChartAccount}
         onBack={() => goHome()}
@@ -417,6 +469,8 @@ export default function CuotasPanel({
   if (view === 'monthly_debts' || view === 'import_debts') {
     return (
       <MonthlyDebtsPanel
+        members={members}
+        accountEntries={memberAccountEntries}
         onBack={() => goHome()}
         onOpenMemberBalance={() => setView('balances')}
       />
@@ -597,6 +651,7 @@ export default function CuotasPanel({
           setMembers={setMembers}
           addJournalEntry={addJournalEntry}
           onAccountEntry={onUpsertMemberAccountEntry}
+          onSendMessage={onSendMessage}
           formatCurrency={fmt}
           tierCatalog={tierCatalog}
         />
@@ -620,6 +675,9 @@ export default function CuotasPanel({
                   <option key={id} value={id}>{label}</option>
                 ))}
               </select>
+              <p className="disc-field-hint">
+                Excel de transferencias, débitos o cobros. Cada fila es un pago de cuota viva (día 10 / mora).
+              </p>
             </div>
             <div className="supplier-pay-import-field">
               <label className="form-label" htmlFor="mci-force">Forzar fecha</label>
@@ -636,8 +694,8 @@ export default function CuotasPanel({
                 ) : null}
               </div>
               <p className="disc-field-hint">
-                Los pagos se imputarán en la fecha seleccionada, ignorando la fecha real del pago.
-                Si se deja en blanco, se usa la fecha real de cada pago.
+                Si está vacía, se usa la fecha de cada fila. Si la completás, todos los pagos se imputan ese día
+                (vence el 10; recargo desde el 11).
               </p>
             </div>
             <div className="supplier-pay-import-field">
@@ -652,7 +710,10 @@ export default function CuotasPanel({
                   <option key={id} value={id}>{label}</option>
                 ))}
               </select>
-              <p className="disc-field-hint">Prioridad entre tipos de cuota según el orden elegido.</p>
+              <p className="disc-field-hint">
+                Si un socio trae varios renglones, se aplican en ese orden. Cada pago baja el saldo y, si cancela,
+                pasa el vencimiento al próximo día 10. El excedente queda como crédito o anticipo.
+              </p>
             </div>
             <div className="supplier-pay-import-field">
               <label className="form-label" htmlFor="mci-file">Archivo</label>
@@ -724,18 +785,31 @@ export default function CuotasPanel({
                               <Download size={13} />
                             </a>
                           ) : null}
+                          {batch.status === 'deleted' ? null : (
                           <button
                             type="button"
                             className="cash-lila-icon-btn is-del"
-                            title="Eliminar"
+                            title="Revertir e eliminar"
                             onClick={() => {
-                              if (window.confirm('¿Marcar esta importación como eliminada?')) {
-                                onDeleteCollectionImport?.(batch.id);
+                              const canRevert = Array.isArray(batch.applied) && batch.applied.length > 0;
+                              const okDelete = window.confirm(
+                                canRevert
+                                  ? '¿Revertir esta importación? Se restauran saldo, vencimiento y mora de esos socios.'
+                                  : '¿Marcar esta importación como eliminada? Los saldos no se revierten (lote anterior).',
+                              );
+                              if (!okDelete) return;
+                              if (canRevert && typeof setMembers === 'function') {
+                                setMembers((prev) => revertMemberCollectionPayments(prev, batch.applied));
                               }
+                              (batch.applied || []).forEach((row) => {
+                                if (row.paymentId) onDeleteMemberAccountEntry?.(row.paymentId);
+                              });
+                              onDeleteCollectionImport?.(batch.id);
                             }}
                           >
                             <Trash2 size={13} />
                           </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -756,11 +830,18 @@ export default function CuotasPanel({
           <button type="button" className="btn btn-secondary btn-sm" onClick={() => goHome()}>
             <ArrowLeft size={14} /> Volver
           </button>
-          <h3 className="cuotas-title" style={{ margin: 0 }}>Reservas sin imputar</h3>
+          <h3 className="cuotas-title" style={{ margin: 0 }}>Imputar eventos</h3>
         </div>
 
         <section className="supplier-pay-import-block">
           <div className="cuotas-event-filters">
+            <label>
+              <span className="form-label">Lista</span>
+              <select className="form-input" value={evList} onChange={(e) => setEvList(e.target.value)}>
+                <option value="pending">Pendientes</option>
+                <option value="imputed">Ya imputadas</option>
+              </select>
+            </label>
             <label>
               <span className="form-label">Socio</span>
               <input className="form-input" value={evSocio} onChange={(e) => setEvSocio(e.target.value)} placeholder="Nombre o nro." />
@@ -776,9 +857,8 @@ export default function CuotasPanel({
               <span className="form-label">Estado</span>
               <select className="form-input" value={evStatus} onChange={(e) => setEvStatus(e.target.value)}>
                 <option value="all">Todos</option>
-                <option value="aprobado">Aprobado</option>
-                <option value="approved">Approved</option>
-                <option value="confirmed">Confirmed</option>
+                <option value="confirmed">Confirmada</option>
+                <option value="pending">Pendiente</option>
               </select>
             </label>
             <label>
@@ -787,15 +867,17 @@ export default function CuotasPanel({
                 <option value="all">Todas</option>
                 <option value="efectivo">Efectivo</option>
                 <option value="transferencia">Transferencia</option>
+                <option value="none">Sin dato</option>
               </select>
             </label>
           </div>
 
           <p className="disc-field-hint">
             {filteredEvents.length} reservas
-            {pendingEvents.length ? ` · ${pendingEvents.length} sin imputar` : ''}
+            {` · ${pendingEvents.length} sin imputar`}
+            {imputedEvents.length ? ` · ${imputedEvents.length} imputadas` : ''}
             {' · '}
-            Imputar carga el alquiler en la cuenta corriente del socio
+            Imputar carga el alquiler (precio de la reserva) en la cuenta del socio y lo deja guardado.
           </p>
           {ok ? <p className="ig-ok">{ok}</p> : null}
           {error ? <p className="ig-error">{error}</p> : null}
@@ -817,12 +899,14 @@ export default function CuotasPanel({
                 {filteredEvents.length === 0 ? (
                   <tr>
                     <td colSpan={7} style={{ color: 'var(--text-muted)' }}>
-                      No hay reservas de salón/espacio pendientes de imputar.
+                      {evList === 'imputed'
+                        ? 'No hay alquileres imputados en esta lista.'
+                        : 'No hay reservas de salón/espacio pendientes de imputar.'}
                     </td>
                   </tr>
                 ) : (
                   filteredEvents.map((r) => {
-                    const amount = reservationChargeAmount(r);
+                    const amount = reservationChargeAmount(r, undefined, { includeCharged: evList === 'imputed' });
                     return (
                       <tr key={r.id || r.accessinId}>
                         <td>{r.accessinId || String(r.id || '—').slice(0, 8)}</td>
@@ -839,13 +923,25 @@ export default function CuotasPanel({
                         <td style={{ fontWeight: 700 }}>{amount > 0 ? fmt(amount) : '—'}</td>
                         <td>
                           <div className="cash-lila-row-actions">
+                            {evList === 'imputed' ? (
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              disabled={busy}
+                              onClick={() => revertEvent(r)}
+                            >
+                              Revertir
+                            </button>
+                            ) : (
                             <button
                               type="button"
                               className="btn btn-tan btn-sm"
+                              disabled={busy}
                               onClick={() => imputeEvent(r)}
                             >
-                              Imputar
+                              {busy ? 'Imputando…' : 'Imputar'}
                             </button>
+                            )}
                             <button
                               type="button"
                               className="btn btn-secondary btn-sm"
@@ -903,9 +999,15 @@ export default function CuotasPanel({
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setDetailEvent(null)}>Cerrar</button>
-                <button type="button" className="btn btn-emerald" onClick={() => imputeEvent(detailEvent)}>
+                {evList === 'imputed' ? (
+                <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => revertEvent(detailEvent)}>
+                  Revertir imputación
+                </button>
+                ) : (
+                <button type="button" className="btn btn-emerald" disabled={busy} onClick={() => imputeEvent(detailEvent)}>
                   <Wallet size={16} /> Imputar a la cuenta
                 </button>
+                )}
               </div>
             </div>
           </div>
@@ -1118,7 +1220,11 @@ export default function CuotasPanel({
         <button
           type="button"
           className={`btn btn-sm cuotas-cc-toggle${ccEnabled ? ' btn-secondary' : ' btn-emerald'}`}
-          onClick={() => setCcEnabled((v) => !v)}
+          disabled={typeof setDuesSettings !== 'function'}
+          onClick={() => setDuesSettings?.((prev) => ({
+            ...mergeDuesSettings(prev),
+            showCurrentAccountsToMembers: !ccEnabled,
+          }))}
         >
           {ccEnabled ? 'Desactivar cuentas corrientes' : 'Activar cuentas corrientes'}
         </button>

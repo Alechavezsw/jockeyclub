@@ -317,14 +317,18 @@ export function canPostJournal(role) {
   return ['cashier', 'gate_operator', 'pool_operator', 'accountant', 'superadmin'].includes(role);
 }
 
-export function navItemsForRole(role) {
+export function navItemsForRole(role, { membersCanViewCurrentAccounts = true } = {}) {
   if (role === 'member') {
-    return [
+    const items = [
       { id: 'dashboard', label: 'Inicio' },
       { id: 'reservations', label: 'Reservar Canchas' },
       { id: 'payments', label: 'Mi Cuenta' },
       { id: 'news', label: 'Novedades' },
     ];
+    if (!membersCanViewCurrentAccounts) {
+      return items.filter((item) => item.id !== 'payments');
+    }
+    return items;
   }
   if (role === 'teacher') {
     return [

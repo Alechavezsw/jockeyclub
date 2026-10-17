@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applyImportedMemberPayment,
   isDuesCollectionJournal,
   journalEntryBelongsToMember,
   payMemberDues,
@@ -111,7 +112,7 @@ describe('payMemberDues', () => {
     expect(result.journalEntry.description).toMatch(/Comp: comprobante.pdf/);
   });
 
-  it('persistDuesCollection actualiza padrón, ledger y diario', () => {
+  it('persistDuesCollection actualiza padrón, ledger y diario', async () => {
     const member = {
       memberId: '9',
       name: 'Ana',
@@ -125,7 +126,7 @@ describe('payMemberDues', () => {
     });
     const ledger = [];
     const journal = [];
-    persistDuesCollection(result, {
+    await persistDuesCollection(result, {
       setMembers: (fn) => { members.splice(0, members.length, ...fn(members)); },
       onAccountEntry: (entry) => ledger.push(entry),
       addJournalEntry: (entry) => journal.push(entry),
@@ -133,5 +134,27 @@ describe('payMemberDues', () => {
     expect(members[0].outstandingBalance).toBe(0);
     expect(ledger[0].type).toBe('pago');
     expect(journal[0].sourceModule).toBe('cuotas');
+  });
+});
+
+describe('applyImportedMemberPayment', () => {
+  it('anticipa un mes si el socio ya está al día', () => {
+    const member = {
+      memberId: '3008',
+      name: 'Test',
+      tier: 'socio_individual',
+      outstandingBalance: 0,
+      nextDueDate: '2026-11-10',
+      paymentHistory: [],
+    };
+    const { member: next, fullyPaid } = applyImportedMemberPayment(member, {
+      amount: 40000,
+      date: '2026-10-16',
+      id: 'mcp-1',
+    });
+    expect(fullyPaid).toBe(true);
+    expect(next.outstandingBalance).toBe(0);
+    expect(next.nextDueDate).toBe('2026-12-10');
+    expect(next.paymentHistory[0].id).toBe('mcp-1');
   });
 });

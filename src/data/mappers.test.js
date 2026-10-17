@@ -171,6 +171,31 @@ describe('mappers', () => {
     expect(row.member_id).toBe('m-db');
   });
 
+  it('round-trip de imputación de salón en meta', () => {
+    const ui = reservationFromRow({
+      id: 'r-evt',
+      facility_id: 'salon_maurin',
+      member_number: '13028',
+      member_name: 'Test',
+      reservation_date: '2026-08-30',
+      time_slot: '20:00',
+      status: 'confirmed',
+      guests: 10,
+      meta: {
+        facilityName: 'Salón Maurin',
+        estimatedPrice: 130000,
+        imputed: true,
+        chargedPrice: 130000,
+        imputationEntryId: 'mae-evt-r-evt',
+      },
+    });
+    expect(ui.imputed).toBe(true);
+    expect(ui.chargedPrice).toBe(130000);
+    const row = reservationToRow(ui);
+    expect(row.meta.imputed).toBe(true);
+    expect(row.meta.chargedPrice).toBe(130000);
+  });
+
   it('maps message body/content', () => {
     const ui = messageFromRow({
       id: 'msg1',

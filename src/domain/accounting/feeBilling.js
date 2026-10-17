@@ -1,4 +1,5 @@
-import { duesPayableForMember, isMemberBillingActive } from '../members/dues';
+import { duesAmountForMember, isDuesExemptMember, isMemberBillingActive } from '../members/dues';
+import { isTitularMember } from '../members/households';
 import { feePackForPeriod } from './feePackConcepts';
 
 /** Liquidación mensual de cuotas (Accessin / LILA). */
@@ -134,10 +135,14 @@ export function feePeriodNeedsClosure(period) {
     || Number(base.amount) !== Number(period.amount);
 }
 
+function duesAmountForLiquidationTitular(member, on) {
+  return duesAmountForMember({ ...member, adherents: [] }, on);
+}
+
 /**
- * Cierra un período como las liquidaciones ya procesadas de Lila.
- * Si el mes tiene desglose importado, se conserva ese total y no se imputan cuotas nuevas.
- * Sin desglose, suma las cuotas de los socios activos.
+ * Cierra un período de la app (desde noviembre 2026).
+ * Imputa la cuota viva a titulares activos (sin recargo: el 10 % es al pagar después del 10).
+ * Comisión, vitalicio, fundador e integrantes del grupo no se cobran.
  */
 export function liquidateFeePeriod(list = [], periodId, members = [], today = new Date()) {
   const period = (list || []).find((p) => p.id === periodId);
@@ -146,40 +151,23 @@ export function liquidateFeePeriod(list = [], periodId, members = [], today = ne
   const block = feePeriodLiquidateBlock(period, today);
   if (block) throw new Error(block);
 
-  const pack = feePackForPeriod(period);
-  const iso = today.toISOString().slice(0, 10);
-  if (pack) {
-    const nextPeriod = {
-      ...period,
-      status: 'processed',
-      amount: Number(pack.total) || Number(period.amount) || 0,
-      generatedAt: iso,
-      updatedAt: new Date().toISOString(),
-    };
-    return {
-      periods: (list || []).map((p) => (p.id === periodId ? nextPeriod : p)),
-      memberUpdates: [],
-      period: nextPeriod,
-    };
-  }
-
-  const active = (members || []).filter((m) => m && isMemberBillingActive(m));
-  let total = 0;
-  const memberUpdates = active.map((m) => {
-    const periodDate = new Date(Number(period.year), (Number(period.month) || 1) - 1, 10, 12, 0, 0, 0);
-    const dueOn = `${period.year}-${String(period.month).padStart(2, '0')}-10`;
-    const amount = duesPayableForMember(m, { paidOn: today, dueOn, on: periodDate });
-    total += amount;
-    return {
-      memberId: m.memberId,
-      addAmount: amount,
-    };
+  const iso = today instanceof Date
+    ? today.toISOString().slice(0, 10)
+    : String(today).slice(0, 10);
+  const periodDate = new Date(Number(period.year), (Number(period.month) || 1) - 1, 10, 12, 0, 0, 0);
+  const memberUpdates = (members || []).flatMap((member) => {
+    if (!member || !isMemberBillingActive(member) || !isTitularMember(member)) return [];
+    if (isDuesExemptMember(member)) return [];
+    const amount = Math.round(duesAmountForLiquidationTitular(member, periodDate) || 0);
+    if (amount <= 0) return [];
+    return [{ memberId: member.memberId, addAmount: amount }];
   });
+  const chargedTotal = memberUpdates.reduce((sum, row) => sum + row.addAmount, 0);
 
   const nextPeriod = {
     ...period,
     status: 'processed',
-    amount: total,
+    amount: chargedTotal || Number(period.amount) || 0,
     generatedAt: iso,
     accessinId: period.accessinId || Number(String(Date.now()).slice(-4)),
     updatedAt: new Date().toISOString(),

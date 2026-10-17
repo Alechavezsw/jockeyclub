@@ -8,21 +8,21 @@ import {
 } from './duesNotices';
 
 describe('duesNotices', () => {
-  it('el 5 manda aviso de por vencer, el 10 de vencimiento y el 15 de mora', () => {
+  it('el 5 manda aviso de por vencer, el 10 de vencimiento y el 11 de mora', () => {
     expect(duesNoticeCalendar(10)).toEqual({
       dueDay: 10,
       advanceDays: 5,
       upcomingDay: 5,
-      moraDay: 15,
+      moraDay: 11,
     });
     expect(duesNoticeStagesForDay('2026-10-05')).toEqual(['upcoming']);
     expect(duesNoticeStagesForDay('2026-10-10')).toEqual(['due']);
-    expect(duesNoticeStagesForDay('2026-10-15')).toEqual(['mora']);
+    expect(duesNoticeStagesForDay('2026-10-11')).toEqual(['mora']);
     expect(duesNoticeStagesForDay('2026-10-04')).toEqual([]);
   });
 
-  it('si se atrasó el cron, el 12 todavía manda el del 10 y el 16 el de mora', () => {
-    expect(duesNoticeStagesForDay('2026-10-12')).toEqual(['due']);
+  it('si se atrasó el cron, el 12 ya manda mora, no el aviso de vencimiento', () => {
+    expect(duesNoticeStagesForDay('2026-10-12')).toEqual(['mora']);
     expect(duesNoticeStagesForDay('2026-10-20')).toEqual(['mora']);
   });
 

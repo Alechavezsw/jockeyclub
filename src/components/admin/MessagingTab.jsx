@@ -1,11 +1,26 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Phone, Inbox, MailOpen, ExternalLink } from 'lucide-react';
+import { Phone, Inbox, Mail, MailOpen, MessageSquare, ExternalLink } from 'lucide-react';
 import { MAILBOX, markMessageRead } from '../../domain/messaging/messages';
+import { groupMailCampaigns } from '../../domain/messaging/clubNotice';
 import { useAuth } from '../../context/AuthContext';
+import { repos } from '../../data/bootstrap';
 import NoticeComposeCard from './NoticeComposeCard';
 
-/** Mensajería interna: bandeja ops + envío al portal + cobranza WhatsApp. */
+const SECTIONS = [
+  { id: 'mail', label: 'Mail', Icon: Mail },
+  { id: 'md', label: 'MD', Icon: MessageSquare },
+  { id: 'whatsapp', label: 'WhatsApp', Icon: Phone },
+];
+
+function formatWhen(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 16);
+  return date.toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' });
+}
+
+/** Mensajería: Mail, MD y WhatsApp, cada uno en su sala. */
 export default function MessagingTab({
   members,
   messages,
@@ -16,13 +31,43 @@ export default function MessagingTab({
 }) {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [section, setSection] = useState('mail');
   const [msgError, setMsgError] = useState('');
   const [selectedId, setSelectedId] = useState(null);
   const [replyToId, setReplyToId] = useState('');
+  const [mailRows, setMailRows] = useState([]);
+  const [mailError, setMailError] = useState('');
+  const [mailBusy, setMailBusy] = useState(false);
+  const [mailBox, setMailBox] = useState('in');
+  const [inboxThreads, setInboxThreads] = useState([]);
+  const [selectedThreadId, setSelectedThreadId] = useState('');
+  const [threadEmails, setThreadEmails] = useState([]);
+  const [selectedCampaignId, setSelectedCampaignId] = useState('');
   const [whatsappTemplate, setWhatsappTemplate] = useState(
     'Estimado/a *{nombre}*, le saludamos cordialmente de la Comisión Directiva del Jockey Club San Juan (Sede Rivadavia). Le recordamos amablemente que posee un saldo pendiente de cuota social de *{saldo}*. Puede regularizar su situación en la administración central o mediante transferencia al Banco Nación. ¡Muchas gracias!'
   );
   const [virtualSentLogs, setVirtualSentLogs] = useState([]);
+
+  const loadMails = useCallback(async () => {
+    setMailBusy(true);
+    setMailError('');
+    try {
+      const [sent, received] = await Promise.all([
+        repos.listClubMailSends({ limit: 800 }),
+        repos.listClubInbox().then(
+          (threads) => ({ threads, error: '' }),
+          (err) => ({ threads: [], error: err?.message || 'No se pudo leer el mail recibido.' }),
+        ),
+      ]);
+      setMailRows(sent);
+      setInboxThreads(received.threads);
+      if (received.error) setMailError(received.error);
+    } catch (err) {
+      setMailError(err?.message || 'No se pudo leer la bandeja de mail.');
+    } finally {
+      setMailBusy(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (typeof onRefresh !== 'function') return undefined;
@@ -36,6 +81,16 @@ export default function MessagingTab({
     };
   }, [onRefresh]);
 
+  useEffect(() => {
+    if (section !== 'mail') return undefined;
+    void loadMails();
+    return undefined;
+  }, [section, loadMails]);
+
+  useEffect(() => {
+    if (replyToId) setSection('md');
+  }, [replyToId]);
+
   const opsInbox = useMemo(() => (
     [...(messages || [])]
       .filter((m) => m.recipientId === MAILBOX.OPERATIONS)
@@ -45,8 +100,16 @@ export default function MessagingTab({
       })
   ), [messages]);
 
+  const mailCampaigns = useMemo(() => groupMailCampaigns(mailRows), [mailRows]);
+  const selectedCampaign = mailCampaigns.find((row) => row.id === selectedCampaignId) || null;
+  const selectedThread = inboxThreads.find((row) => row.id === selectedThreadId) || null;
+  const unreadInbox = inboxThreads.filter((row) => row.unread).length;
   const unreadOps = opsInbox.filter((m) => !m.isRead).length;
   const selected = opsInbox.find((m) => String(m.id) === String(selectedId)) || null;
+  const debtors = useMemo(
+    () => (members || []).filter((m) => Number(m.outstandingBalance) > 0),
+    [members],
+  );
 
   const openInboxMessage = (msg) => {
     setSelectedId(msg.id);
@@ -65,8 +128,11 @@ export default function MessagingTab({
       return;
     }
     setMsgError('');
+    setSection('md');
     setReplyToId(to);
-    document.getElementById('ops-compose-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    window.setTimeout(() => {
+      document.getElementById('ops-compose-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 40);
   };
 
   const handleSendWhatsAppRedirect = (memberItem) => {
@@ -75,7 +141,7 @@ export default function MessagingTab({
       .replace('{saldo}', formatCurrency(memberItem.outstandingBalance));
 
     const encodedText = encodeURIComponent(rawMsg);
-    const cleanPhone = memberItem.phone.replace(/[+\s-]/g, '');
+    const cleanPhone = String(memberItem.phone || '').replace(/[+\s-]/g, '');
     const waUrl = `https://wa.me/${cleanPhone}?text=${encodedText}`;
 
     window.open(waUrl, '_blank');
@@ -88,181 +154,310 @@ export default function MessagingTab({
       messagePreview: `${rawMsg.slice(0, 80)}...`,
       status: 'Redirected',
     };
-    setVirtualSentLogs([logItem, ...virtualSentLogs]);
+    setVirtualSentLogs((prev) => [logItem, ...prev]);
+  };
+
+  const openSection = (id) => {
+    setSection(id);
+    setMsgError('');
+  };
+
+  const openThread = async (id) => {
+    setSelectedThreadId(id);
+    setThreadEmails([]);
+    try {
+      setThreadEmails(await repos.readClubInboxThread(id));
+    } catch (err) {
+      setMailError(err?.message || 'No se pudo abrir el mail.');
+    }
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-      {/* Bandeja de entrada (socios → administración) */}
-      <div className="glass-card fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <div>
-            <h3 className="serif-font" style={{ fontSize: '1.3rem', color: 'var(--text-gold)', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Inbox size={18} /> Bandeja de administración
-            </h3>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
-              Mensajes que los socios envían a Secretaría / Administración
-              {unreadOps > 0 ? ` · ${unreadOps} sin leer` : ''}.
-            </p>
-          </div>
+    <div className="ops-msg">
+      <div className="ops-msg-tabs" role="tablist" aria-label="Salas de mensajería">
+        {SECTIONS.map(({ id, label, Icon }) => (
           <button
+            key={id}
             type="button"
-            className="btn btn-secondary btn-sm"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-            onClick={() => navigate('/mensajes')}
+            role="tab"
+            aria-selected={section === id}
+            className={`ops-msg-tab${section === id ? ' is-on' : ''}`}
+            onClick={() => openSection(id)}
           >
-            <ExternalLink size={14} /> Vista completa
+            <Icon size={15} aria-hidden /> {label}
           </button>
-        </div>
+        ))}
+      </div>
 
-        {opsInbox.length === 0 ? (
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textAlign: 'center', padding: '1.25rem 0.5rem' }}>
-            Todavía no hay mensajes de socios hacia administración.
-          </p>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: selected ? 'minmax(220px, 1fr) 1.3fr' : '1fr', gap: 0, border: '1px solid var(--border-glass)', borderRadius: 10, overflow: 'hidden' }}>
-            <div style={{ maxHeight: 320, overflowY: 'auto', borderRight: selected ? '1px solid var(--border-glass)' : 'none' }}>
-              {opsInbox.map((msg) => (
-                <button
-                  key={msg.id}
-                  type="button"
-                  onClick={() => openInboxMessage(msg)}
-                  style={{
-                    width: '100%',
-                    background: String(selectedId) === String(msg.id) ? 'rgba(var(--primary-gold-rgb),0.08)' : 'transparent',
-                    border: 'none',
-                    borderBottom: '1px solid var(--border-glass)',
-                    borderLeft: String(selectedId) === String(msg.id) ? '3px solid var(--primary-gold)' : '3px solid transparent',
-                    padding: '0.75rem 0.9rem',
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                    fontFamily: 'inherit',
-                    color: 'var(--text-primary)',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
-                    <span style={{ fontSize: '0.72rem', color: 'var(--text-gold)', fontWeight: 700 }}>{msg.sender}</span>
-                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{msg.date}</span>
-                  </div>
-                  <div style={{ fontSize: '0.88rem', fontWeight: msg.isRead ? 500 : 700, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    {!msg.isRead && (
-                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--primary-gold)', flexShrink: 0 }} />
-                    )}
-                    {msg.subject}
-                  </div>
-                </button>
-              ))}
-            </div>
-            {selected && (
-              <div style={{ padding: '1rem 1.1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-                  <div>
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-gold)', fontWeight: 700 }}>{selected.sender}</div>
-                    <h4 style={{ margin: '0.2rem 0 0', fontSize: '1.05rem' }}>{selected.subject}</h4>
-                  </div>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{selected.date}</span>
-                </div>
-                <p style={{ margin: 0, fontSize: '0.9rem', lineHeight: 1.55, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>
-                  {selected.content}
+      {section === 'mail' ? (
+        <>
+          <div className="glass-card fade-in ops-msg-pane">
+            <div className="ops-msg-pane-head">
+              <div>
+                <h3 className="serif-font ops-msg-title">
+                  <Inbox size={18} /> Bandeja de mail
+                </h3>
+                <p className="ops-msg-lead">
+                  {mailBox === 'in'
+                    ? `Lo que llega a socios@jockeyclubsj.com.ar${unreadInbox ? ` · ${unreadInbox} sin leer` : ''}.`
+                    : `Comunicados enviados desde acá${mailCampaigns.length ? ` · ${mailCampaigns.length} envíos` : ''}.`}
                 </p>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
-                  <button type="button" className="btn btn-primary btn-sm" onClick={replyToSelected} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    <MailOpen size={14} /> Responder
-                  </button>
+              </div>
+              <div className="ops-msg-tabs" role="tablist" aria-label="Recibidos o enviados">
+                <button
+                  type="button"
+                  className={`ops-msg-tab${mailBox === 'in' ? ' is-on' : ''}`}
+                  onClick={() => setMailBox('in')}
+                >
+                  Recibidos
+                </button>
+                <button
+                  type="button"
+                  className={`ops-msg-tab${mailBox === 'out' ? ' is-on' : ''}`}
+                  onClick={() => setMailBox('out')}
+                >
+                  Enviados
+                </button>
+              </div>
+            </div>
+            {mailError ? <div role="alert" className="ops-notice-err">{mailError}</div> : null}
+            {mailBox === 'in' ? (
+              mailBusy && inboxThreads.length === 0 ? (
+                <p className="ops-msg-empty">Cargando recibidos…</p>
+              ) : inboxThreads.length === 0 ? (
+                <p className="ops-msg-empty">Todavía no llegó ningún mail a socios@jockeyclubsj.com.ar.</p>
+              ) : (
+                <div className={`ops-msg-split${selectedThread ? ' has-detail' : ''}`}>
+                  <div className="ops-msg-list">
+                    {inboxThreads.map((thread) => (
+                      <button
+                        key={thread.id}
+                        type="button"
+                        className={`ops-msg-row${selectedThreadId === thread.id ? ' is-on' : ''}`}
+                        onClick={() => { void openThread(thread.id); }}
+                      >
+                        <div className="ops-msg-row-top">
+                          <span>{thread.from || 'Sin remitente'}</span>
+                          <span>{formatWhen(thread.receivedAt)}</span>
+                        </div>
+                        <div className={`ops-msg-row-subject${thread.unread ? ' is-new' : ''}`}>
+                          {thread.unread ? <i /> : null}
+                          {thread.subject}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                  {selectedThread ? (
+                    <div className="ops-msg-detail">
+                      <small>{selectedThread.from}</small>
+                      <h4>{selectedThread.subject}</h4>
+                      {threadEmails.length === 0 ? (
+                        <p>Abriendo…</p>
+                      ) : threadEmails.map((mail) => (
+                        <div key={mail.id} className="ops-msg-letter">
+                          <span>{mail.inbound ? 'Recibido' : 'Enviado'} · {formatWhen(mail.receivedAt)}</span>
+                          <p className="ops-msg-body">{mail.text || '(sin texto)'}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
+              )
+            ) : mailBusy && mailCampaigns.length === 0 ? (
+              <p className="ops-msg-empty">Cargando enviados…</p>
+            ) : mailCampaigns.length === 0 ? (
+              <p className="ops-msg-empty">Todavía no hay mails enviados desde acá.</p>
+            ) : (
+              <div className={`ops-msg-split${selectedCampaign ? ' has-detail' : ''}`}>
+                <div className="ops-msg-list">
+                  {mailCampaigns.map((camp) => (
+                    <button
+                      key={camp.id}
+                      type="button"
+                      className={`ops-msg-row${selectedCampaignId === camp.id ? ' is-on' : ''}`}
+                      onClick={() => setSelectedCampaignId(camp.id)}
+                    >
+                      <div className="ops-msg-row-top">
+                        <span>{camp.sent} enviados{camp.failed ? ` · ${camp.failed} no salieron` : ''}</span>
+                        <span>{formatWhen(camp.createdAt)}</span>
+                      </div>
+                      <div className="ops-msg-row-subject">{camp.subject}</div>
+                    </button>
+                  ))}
+                </div>
+                {selectedCampaign ? (
+                  <div className="ops-msg-detail">
+                    <h4>{selectedCampaign.subject}</h4>
+                    <p>
+                      {selectedCampaign.sent} enviados
+                      {selectedCampaign.failed ? ` · ${selectedCampaign.failed} no salieron` : ''}
+                      {' · '}
+                      {formatWhen(selectedCampaign.createdAt)}
+                    </p>
+                    <ul className="ops-msg-targets">
+                      {selectedCampaign.rows.slice(0, 60).map((row) => (
+                        <li key={row.id}>
+                          <strong>{row.email}</strong>
+                          <span>{row.sent ? 'Enviado' : (row.error || 'No salió')}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    {selectedCampaign.rows.length > 60 ? (
+                      <p className="ops-msg-more">y {selectedCampaign.rows.length - 60} más en este envío.</p>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             )}
           </div>
-        )}
-      </div>
-
-      {msgError ? (
-        <div role="alert" style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid var(--danger-accent)', color: '#f87171', padding: '0.6rem', borderRadius: '6px', fontSize: '0.8rem' }}>
-          {msgError}
-        </div>
+          <NoticeComposeCard
+            members={members}
+            onSendMessage={onSendMessage}
+            senderName={user?.fullName || 'Administración Jockey Club'}
+            channel="mail"
+            onSent={() => { void loadMails(); }}
+          />
+        </>
       ) : null}
 
-      <NoticeComposeCard
-        members={members}
-        onSendMessage={onSendMessage}
-        senderName={user?.fullName || 'Administración Jockey Club'}
-        replyToId={replyToId}
-      />
+      {section === 'md' ? (
+        <>
+          <div className="glass-card fade-in ops-msg-pane">
+            <div className="ops-msg-pane-head">
+              <div>
+                <h3 className="serif-font ops-msg-title">
+                  <Inbox size={18} /> Bandeja de MD
+                </h3>
+                <p className="ops-msg-lead">
+                  Mensajes internos que los socios envían a Secretaría
+                  {unreadOps > 0 ? ` · ${unreadOps} sin leer` : ''}.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => navigate('/mensajes')}
+              >
+                <ExternalLink size={14} /> Vista completa
+              </button>
+            </div>
 
-      <div className="glass-card fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+            {opsInbox.length === 0 ? (
+              <p className="ops-msg-empty">Todavía no hay mensajes internos hacia administración.</p>
+            ) : (
+              <div className={`ops-msg-split${selected ? ' has-detail' : ''}`}>
+                <div className="ops-msg-list">
+                  {opsInbox.map((msg) => (
+                    <button
+                      key={msg.id}
+                      type="button"
+                      className={`ops-msg-row${String(selectedId) === String(msg.id) ? ' is-on' : ''}`}
+                      onClick={() => openInboxMessage(msg)}
+                    >
+                      <div className="ops-msg-row-top">
+                        <span>{msg.sender}</span>
+                        <span>{msg.date}</span>
+                      </div>
+                      <div className={`ops-msg-row-subject${msg.isRead ? '' : ' is-new'}`}>
+                        {msg.isRead ? null : <i />}
+                        {msg.subject}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                {selected ? (
+                  <div className="ops-msg-detail">
+                    <div className="ops-msg-detail-head">
+                      <div>
+                        <small>{selected.sender}</small>
+                        <h4>{selected.subject}</h4>
+                      </div>
+                      <span>{selected.date}</span>
+                    </div>
+                    <p className="ops-msg-body">{selected.content}</p>
+                    <button type="button" className="btn btn-primary btn-sm" onClick={replyToSelected}>
+                      <MailOpen size={14} /> Responder
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </div>
+
+          {msgError ? (
+            <div role="alert" className="ops-notice-err">{msgError}</div>
+          ) : null}
+
+          <NoticeComposeCard
+            members={members}
+            onSendMessage={onSendMessage}
+            senderName={user?.fullName || 'Administración Jockey Club'}
+            replyToId={replyToId}
+            channel="dm"
+          />
+        </>
+      ) : null}
+
+      {section === 'whatsapp' ? (
+        <div className="glass-card fade-in ops-msg-pane">
           <div>
-            <h3 className="serif-font" style={{ fontSize: '1.3rem', color: 'var(--text-gold)', margin: 0 }}>Cobranza vía WhatsApp</h3>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
-              Envíe recordatorios elegantes y pre-armados directamente a sus celulares.
+            <h3 className="serif-font ops-msg-title">Cobranza vía WhatsApp</h3>
+            <p className="ops-msg-lead">
+              Recordatorios de saldo pendiente, directo al celular del socio.
             </p>
           </div>
 
-          <div className="form-group" style={{ marginBottom: 0, background: 'rgba(0,0,0,0.1)', padding: '0.75rem', borderRadius: '6px' }}>
-            <label className="form-label" style={{ fontSize: '0.72rem', color: 'var(--text-gold)' }}>Configurar Plantilla de WhatsApp</label>
+          <div className="ops-msg-wa-tpl">
+            <label className="form-label" htmlFor="ops-wa-tpl">Plantilla de WhatsApp</label>
             <textarea
+              id="ops-wa-tpl"
               className="form-input"
-              style={{ padding: '0.4rem', fontSize: '0.78rem', minHeight: '65px', fontFamily: 'inherit', background: 'rgba(0,0,0,0.2)' }}
               value={whatsappTemplate}
               onChange={(e) => setWhatsappTemplate(e.target.value)}
             />
-            <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
-              Variables admitidas: <code>{'{nombre}'}</code> y <code>{'{saldo}'}</code>.
+            <span>
+              Variables: <code>{'{nombre}'}</code> y <code>{'{saldo}'}</code>.
             </span>
           </div>
 
-          <div style={{ maxHeight: '250px', overflowY: 'auto' }}>
-            <h5 className="serif-font" style={{ fontSize: '0.95rem', marginBottom: '0.5rem', color: 'var(--warning-accent)' }}>Socios con Cuotas Pendientes</h5>
-
-            {members.filter((m) => m.outstandingBalance > 0).length === 0 ? (
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', padding: '1rem' }}>
-                No existen socios con deuda social de momento. ¡Excelente gestión!
-              </p>
+          <div className="ops-msg-wa-list">
+            <h5 className="serif-font">Socios con cuotas pendientes</h5>
+            {debtors.length === 0 ? (
+              <p className="ops-msg-empty">No hay socios con deuda social de momento.</p>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                {members.filter((m) => m.outstandingBalance > 0).map((debtor) => (
-                  <div
-                    key={debtor.memberId}
-                    style={{
-                      background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-glass)',
-                      padding: '0.6rem 0.8rem', borderRadius: '6px', display: 'flex',
-                      justifyContent: 'space-between', alignItems: 'center',
-                    }}
-                  >
-                    <div>
-                      <strong style={{ fontSize: '0.85rem', color: 'var(--text-strong)' }}>{debtor.name}</strong>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--warning-accent)' }}>Deuda: {formatCurrency(debtor.outstandingBalance)}</div>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Cel: {debtor.phone || 'No registrado'}</div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => handleSendWhatsAppRedirect(debtor)}
-                      disabled={!debtor.phone}
-                      className="btn btn-secondary btn-sm"
-                      style={{ padding: '0.25rem 0.55rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.25rem', borderColor: 'var(--emerald-accent)', color: 'var(--emerald-accent)' }}
-                    >
-                      <Phone size={12} /> WhatsApp
-                    </button>
+              debtors.map((debtor) => (
+                <div key={debtor.memberId} className="ops-msg-wa-row">
+                  <div>
+                    <strong>{debtor.name}</strong>
+                    <em>Deuda: {formatCurrency(debtor.outstandingBalance)}</em>
+                    <span>Cel: {debtor.phone || 'No registrado'}</span>
                   </div>
-                ))}
-              </div>
+                  <button
+                    type="button"
+                    onClick={() => handleSendWhatsAppRedirect(debtor)}
+                    disabled={!debtor.phone}
+                    className="btn btn-secondary btn-sm"
+                  >
+                    <Phone size={12} /> WhatsApp
+                  </button>
+                </div>
+              ))
             )}
           </div>
 
-          {virtualSentLogs.length > 0 && (
-            <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '0.75rem' }}>
-              <h5 className="serif-font" style={{ fontSize: '0.9rem', color: 'var(--text-gold)', marginBottom: '0.4rem' }}>Log de Avisos Enviados (Sesión)</h5>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', maxHeight: '110px', overflowY: 'auto' }}>
-                {virtualSentLogs.map((log) => (
-                  <div key={log.id} style={{ fontSize: '0.72rem', background: 'rgba(255,255,255,0.01)', padding: '0.35rem', borderRadius: '4px', border: '1px solid var(--border-glass)', display: 'flex', justifyContent: 'space-between' }}>
-                    <span>A: <strong>{log.memberName}</strong> ({log.phone})</span>
-                    <span style={{ color: 'var(--emerald-accent)' }}>{log.time} - {log.status}</span>
-                  </div>
-                ))}
-              </div>
+          {virtualSentLogs.length > 0 ? (
+            <div className="ops-msg-wa-log">
+              <h5 className="serif-font">Avisos abiertos en esta sesión</h5>
+              {virtualSentLogs.map((log) => (
+                <div key={log.id}>
+                  <span>A: <strong>{log.memberName}</strong></span>
+                  <span>{log.time}</span>
+                </div>
+              ))}
             </div>
-          )}
-      </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

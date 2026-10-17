@@ -1,6 +1,6 @@
 /** En temporada, desde el 10, sin la cuota del mes no se entra al club. */
 
-import { duesAmountForMember, duesDueMoment, pinDuesDueDate } from '../members/dues';
+import { duesAmountForMember, duesDueMoment, isDuesExemptMember, pinDuesDueDate } from '../members/dues';
 import { isPoolSeasonLive } from './poolSeason';
 
 export const SEASON_DUES_GATE_COPY = {
@@ -71,6 +71,7 @@ export function seasonDuesGate(member, {
 export function isPiletaMora(member, { today = new Date(), settings = {} } = {}) {
   if (!member) return false;
   if (settings?.seasonBlocksUnpaidDues === false) return false;
+  if (isDuesExemptMember(member)) return false;
   if ((Number(member?.outstandingBalance) || 0) > 0) return true;
   return isCurrentMonthDuesUnpaid(member, today);
 }

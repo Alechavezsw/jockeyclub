@@ -1,13 +1,7 @@
 import { Fragment, useMemo, useState } from 'react';
 import { ArrowLeft, Eye, Wallet } from 'lucide-react';
-import {
-  listDebtPeriods,
-  listMonthlyDebtors,
-  lookupMonthlyDebt,
-  monthlyDebtsSeed,
-} from '../../domain/accounting/monthlyDebts';
-import { useSnapshotSeed } from '../../hooks/useSnapshots';
-import SnapshotGate from '../SnapshotGate';
+import { buildAppMonthlyDebts } from '../../domain/accounting/appMonthlyDebts';
+import { listDebtPeriods, listMonthlyDebtors } from '../../domain/accounting/monthlyDebts';
 
 const PAGE_SIZE = 50;
 
@@ -17,33 +11,30 @@ function formatLilaMoney(n) {
   return v < 0 ? `$ -${abs}` : `$ ${abs}`;
 }
 
-export default function MonthlyDebtsPanel(props) {
-  return (
-    <SnapshotGate names={['accessinMonthlyDebts']}>
-      <MonthlyDebtsContent {...props} />
-    </SnapshotGate>
-  );
-}
-
-function MonthlyDebtsContent({ onBack, onOpenMemberBalance }) {
-  const {
-    ACCESSIN_MONTHLY_DEBTS_AS_OF,
-    ACCESSIN_MONTHLY_DEBTS_SNAPSHOT,
-  } = useSnapshotSeed(['accessinMonthlyDebts'], monthlyDebtsSeed);
+export default function MonthlyDebtsPanel({
+  members = [],
+  accountEntries = [],
+  onBack,
+  onOpenMemberBalance,
+}) {
   const [query, setQuery] = useState('');
   const [period, setPeriod] = useState('all');
   const [page, setPage] = useState(0);
   const [selected, setSelected] = useState(null);
 
-  const periods = useMemo(() => listDebtPeriods(), []);
+  const snapshot = useMemo(
+    () => buildAppMonthlyDebts(members, { today: new Date(), accountEntries }),
+    [members, accountEntries],
+  );
+  const periods = useMemo(() => listDebtPeriods(snapshot.byNumber), [snapshot]);
   const debtors = useMemo(
-    () => listMonthlyDebtors({ query, periodKey: period }),
-    [query, period]
+    () => listMonthlyDebtors({ byNumber: snapshot.byNumber, query, periodKey: period }),
+    [snapshot, query, period],
   );
   const periodLabel = periods.find((p) => p.periodKey === period)?.periodLabel || '';
   const periodTotal = useMemo(
     () => debtors.reduce((sum, m) => sum + (Number(m.totalDebt) || 0), 0),
-    [debtors]
+    [debtors],
   );
 
   const totalPages = Math.max(1, Math.ceil(debtors.length / PAGE_SIZE));
@@ -51,7 +42,7 @@ function MonthlyDebtsContent({ onBack, onOpenMemberBalance }) {
   const pageRows = debtors.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
 
   if (selected) {
-    const detail = lookupMonthlyDebt(selected.memberNumber) || selected;
+    const detail = snapshot.byNumber[selected.memberNumber] || selected;
     return (
       <div className="fade-in cuotas-panel">
         <div className="cuotas-toolbar">
@@ -75,6 +66,7 @@ function MonthlyDebtsContent({ onBack, onOpenMemberBalance }) {
         <p>
           <strong>Cuota social:</strong> {detail.socialFee || '—'}
           {detail.sportsFee ? <> · <strong>Deportiva:</strong> {detail.sportsFee}</> : null}
+          {detail.standing ? <> · <strong>Estado:</strong> {detail.standing}</> : null}
         </p>
         <p>
           <strong>Total deuda:</strong> {formatLilaMoney(detail.totalDebt)}
@@ -100,7 +92,7 @@ function MonthlyDebtsContent({ onBack, onOpenMemberBalance }) {
               </thead>
               <tbody>
                 {(detail.months || []).length === 0 ? (
-                  <tr><td colSpan={4} style={{ color: 'var(--text-muted)' }}>Sin períodos.</td></tr>
+                  <tr><td colSpan={4} style={{ color: 'var(--text-muted)' }}>Sin períodos de cuota: el saldo queda sin imputar.</td></tr>
                 ) : (detail.months || []).map((row) => (
                   <tr key={row.periodKey || row.periodLabel}>
                     <td>{row.periodLabel}</td>
@@ -115,7 +107,7 @@ function MonthlyDebtsContent({ onBack, onOpenMemberBalance }) {
         </section>
 
         <section className="supplier-pay-import-block">
-          <h4>Detalle por socio (cargos adeudados)</h4>
+          <h4>Movimientos de cuenta</h4>
           <div className="table-responsive">
             <table className="admin-table">
               <thead>
@@ -130,7 +122,7 @@ function MonthlyDebtsContent({ onBack, onOpenMemberBalance }) {
               </thead>
               <tbody>
                 {(detail.lines || []).length === 0 ? (
-                  <tr><td colSpan={6} style={{ color: 'var(--text-muted)' }}>Sin líneas.</td></tr>
+                  <tr><td colSpan={6} style={{ color: 'var(--text-muted)' }}>Sin movimientos en la cuenta del portal.</td></tr>
                 ) : (detail.lines || []).map((line, idx) => (
                   <tr key={`${line.id || 'l'}-${idx}`}>
                     <td>{line.id || '—'}</td>
@@ -163,19 +155,23 @@ function MonthlyDebtsContent({ onBack, onOpenMemberBalance }) {
       </div>
 
       <section className="supplier-pay-import-block">
-        <h4 className="supplier-pay-import-title">Morosos</h4>
+        <h4 className="supplier-pay-import-title">Saldo de cuota</h4>
         <p className="disc-field-hint" style={{ marginTop: 0 }}>
-          Al {ACCESSIN_MONTHLY_DEBTS_SNAPSHOT.asOfLabel || ACCESSIN_MONTHLY_DEBTS_AS_OF}
+          Al {snapshot.asOfLabel || snapshot.asOf}
           {' · '}
           {period === 'all'
-            ? `${ACCESSIN_MONTHLY_DEBTS_SNAPSHOT.memberCount?.toLocaleString('es-AR')} morosos`
-            : `${debtors.length.toLocaleString('es-AR')} morosos en ${periodLabel}`}
+            ? `${snapshot.memberCount.toLocaleString('es-AR')} con saldo`
+            : `${debtors.length.toLocaleString('es-AR')} en ${periodLabel}`}
           {' · '}
           {period === 'all'
-            ? `${ACCESSIN_MONTHLY_DEBTS_SNAPSHOT.monthRowCount?.toLocaleString('es-AR')} períodos`
+            ? `${snapshot.monthRowCount.toLocaleString('es-AR')} períodos`
             : periodLabel}
           {' · '}
-          total {formatLilaMoney(period === 'all' ? ACCESSIN_MONTHLY_DEBTS_SNAPSHOT.totalDebt : periodTotal)}
+          total {formatLilaMoney(period === 'all' ? snapshot.totalDebt : periodTotal)}
+        </p>
+        <p className="disc-field-hint">
+          Vence el 10. Después del 10 está en mora. Recargo del 10 % (familiar e individual) desde el 11.
+          Lo que no entra en esas cuotas queda sin imputar.
         </p>
         <div className="cuotas-event-filters">
           <label>
@@ -203,7 +199,7 @@ function MonthlyDebtsContent({ onBack, onOpenMemberBalance }) {
       <div className="disc-pager">
         <span>
           {debtors.length === 0
-            ? 'No se encontraron morosos'
+            ? 'No se encontraron deudas'
             : `Mostrando ${safePage * PAGE_SIZE + 1} - ${Math.min(debtors.length, (safePage + 1) * PAGE_SIZE)} de ${debtors.length}`}
         </span>
         {debtors.length > PAGE_SIZE ? (
@@ -236,12 +232,17 @@ function MonthlyDebtsContent({ onBack, onOpenMemberBalance }) {
           <tbody>
             {pageRows.length === 0 ? (
               <tr><td colSpan={9} style={{ color: 'var(--text-muted)' }}>Sin resultados.</td></tr>
-            ) : pageRows.map((m) => (
+            ) : pageRows.map((m, idx) => (
               <Fragment key={m.memberNumber}>
                 <tr>
-                  <td>{m.accessinId || '—'}</td>
+                  <td>{safePage * PAGE_SIZE + idx + 1}</td>
                   <td>{m.memberNumber}</td>
-                  <td style={{ fontWeight: 600 }}>{m.memberName}</td>
+                  <td>
+                    <div style={{ fontWeight: 600 }}>{m.memberName}</div>
+                    {m.standing ? (
+                      <div className="disc-field-hint" style={{ margin: 0 }}>{m.standing}</div>
+                    ) : null}
+                  </td>
                   <td>{m.socialFee || '—'}</td>
                   <td>{formatLilaMoney(m.capital)}</td>
                   <td>{formatLilaMoney(m.interest)}</td>

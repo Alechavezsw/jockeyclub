@@ -7,6 +7,7 @@ const corsHeaders = {
 };
 
 const DEFAULT_FROM = "Jockey Club San Juan <socios@jockeyclubsj.com.ar>";
+const LOGO_SRC = "https://jockeyclubsj.com.ar/logo-jockey-club.png";
 const PAGE = 500;
 const BATCH = 100;
 const MAX_BATCHES = 6;
@@ -38,36 +39,28 @@ function deliverableEmail(value: string | null | undefined) {
 function noticeHtml(subject: string, body: string) {
   const paragraphs = escapeHtml(body)
     .split(/\n{2,}/)
-    .map((block) => `<p style="margin:0 0 14px;">${block.replace(/\n/g, "<br>")}</p>`)
+    .map((block) => "<p style='margin:0 0 14px;'>" + block.replace(/\n/g, "<br>") + "</p>")
     .join("");
-  return `<!DOCTYPE html>
-<html lang="es">
-<head><meta charset="utf-8"><title>${escapeHtml(subject)}</title></head>
-<body style="margin:0;padding:0;background:#efe6d4;font-family:Georgia,'Times New Roman',serif;color:#1a1612;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#efe6d4;padding:28px 12px;">
-    <tr><td align="center">
-      <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#fffdf8;border:1px solid #d8c7a4;">
-        <tr>
-          <td style="background:#096755;padding:28px 28px 22px;text-align:center;color:#fffdf8;">
-            <p style="margin:0;font-size:11px;letter-spacing:0.22em;text-transform:uppercase;color:#d7c48a;">Sede Rivadavia</p>
-            <h1 style="margin:10px 0 0;font-size:26px;font-weight:normal;">Jockey Club San Juan</h1>
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:28px;font-size:15px;line-height:1.6;color:#3f3830;">
-            ${paragraphs}
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:18px 28px 26px;border-top:1px solid #eadcc0;font-size:12px;color:#6a6156;">
-            Jockey Club San Juan · República del Líbano 1799 Oeste, Rivadavia
-          </td>
-        </tr>
-      </table>
-    </td></tr>
-  </table>
-</body>
-</html>`;
+  const title = escapeHtml(subject);
+  return [
+    "<!DOCTYPE html><html lang='es'><head><meta charset='utf-8'><title>",
+    title,
+    "</title></head>",
+    "<body style='margin:0;padding:0;background:#efe6d4;font-family:Georgia,serif;color:#1a1612;'>",
+    "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' style='background:#efe6d4;padding:28px 12px;'>",
+    "<tr><td align='center'><table role='presentation' width='560' cellpadding='0' cellspacing='0' style='max-width:560px;width:100%;background:#fffdf8;border:1px solid #d8c7a4;'>",
+    "<tr><td style='background:#096755;padding:28px 28px 22px;text-align:center;color:#fffdf8;'>",
+    "<img src='",
+    LOGO_SRC,
+    "' width='72' height='72' alt='Jockey Club San Juan' style='display:block;margin:0 auto 12px;border:0;border-radius:50%;background:#ffffff;padding:4px;box-sizing:border-box;' />",
+    "<p style='margin:0;font-size:11px;letter-spacing:0.22em;text-transform:uppercase;color:#d7c48a;'>Sede Rivadavia</p>",
+    "<h1 style='margin:10px 0 0;font-size:26px;font-weight:normal;'>Jockey Club San Juan</h1>",
+    "</td></tr><tr><td style='padding:28px;font-size:15px;line-height:1.6;color:#3f3830;'>",
+    paragraphs,
+    "</td></tr><tr><td style='padding:18px 28px 26px;border-top:1px solid #eadcc0;font-size:12px;color:#6a6156;'>",
+    "Jockey Club San Juan · República del Líbano 1799 Oeste, Rivadavia",
+    "</td></tr></table></td></tr></table></body></html>",
+  ].join("");
 }
 
 type Admin = ReturnType<typeof createClient>;
@@ -114,6 +107,7 @@ async function sendBatch(
       prepared.map((item) => ({
         from,
         to: [item.email],
+        reply_to: ["socios@jockeyclubsj.com.ar"],
         subject,
         text,
         html,

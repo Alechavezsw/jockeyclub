@@ -1,32 +1,36 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  AlertTriangle, Clock3, Search, Users, Download, ExternalLink, Banknote,
+  AlertTriangle, CalendarClock, Clock3, Search, Users, Download, ExternalLink, Banknote,
 } from 'lucide-react';
 import {
   formatShortDate,
+  getDueTodayMembers,
   getOverdueMembers,
   getUpcomingDuesMembers,
+  memberMatchesDuesTier,
   toWhatsAppPhone,
 } from '../../domain/members/dues';
+import { persistDuesCollection, recordDuesCollection } from '../../domain/members/memberPayments';
+import { sendDuesReceiptMessage } from '../../domain/members/duesReceiptDelivery';
 import { downloadCsv, stampDate } from '../../domain/reports/downloadCsv';
 import { getActiveTiers, getTierDisplayName } from '../../domain/members/tiers';
+import CollectDuesModal from './CollectDuesModal';
 
 function matchesSearch(member, query) {
   const q = query.trim().toLowerCase();
   if (!q) return true;
   const phone = (member.phone || '').replace(/\s/g, '');
+  const categories = Array.isArray(member.cuotaCategories)
+    ? member.cuotaCategories.join(' ')
+    : String(member.cuotaCategories || '');
   return (
     member.name?.toLowerCase().includes(q)
     || member.memberId?.toLowerCase().includes(q)
     || phone.includes(q.replace(/\s/g, ''))
     || (member.tier || '').toLowerCase().includes(q)
+    || categories.toLowerCase().includes(q)
   );
-}
-
-function matchesTier(member, tier) {
-  if (tier === 'all') return true;
-  return (member.tier || '').toLowerCase() === tier;
 }
 
 function WhatsAppIcon({ size = 16 }) {
@@ -40,43 +44,57 @@ function WhatsAppIcon({ size = 16 }) {
   );
 }
 
-function buildWhatsAppUrl(member, formatCurrency, isOverdue) {
+function buildWhatsAppUrl(member, formatCurrency, tone) {
   const cleanPhone = toWhatsAppPhone(member.phone);
   if (!cleanPhone) return null;
 
   const dueLabel = formatShortDate(member.dueDate || member.nextDueDate);
-  const msg = isOverdue
-    ? `Estimado/a ${member.name}, le saludamos del Jockey Club San Juan. Le recordamos que posee una cuota vencida de ${formatCurrency(member.amountDue)} (vencimiento ${dueLabel}). Puede regularizarla en administración o por transferencia. ¡Gracias!`
-    : `Estimado/a ${member.name}, le saludamos del Jockey Club San Juan. Le recordamos que su próxima cuota (${formatCurrency(member.amountDue)}) vence el ${dueLabel}. Ante cualquier consulta estamos a disposición. ¡Gracias!`;
+  const msg = tone === 'mora'
+    ? `Estimado/a ${member.name}, le saludamos del Jockey Club San Juan. Le recordamos que su cuota está en mora por ${formatCurrency(member.amountDue)} (vencimiento ${dueLabel}). Puede regularizarla en administración o por transferencia. ¡Gracias!`
+    : tone === 'due'
+      ? `Estimado/a ${member.name}, le saludamos del Jockey Club San Juan. Le recordamos que hoy vence su cuota de ${formatCurrency(member.amountDue)}. Si abona hoy no lleva recargo. ¡Gracias!`
+      : `Estimado/a ${member.name}, le saludamos del Jockey Club San Juan. Le recordamos que su próxima cuota (${formatCurrency(member.amountDue)}) vence el ${dueLabel}. Ante cualquier consulta estamos a disposición. ¡Gracias!`;
 
   return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`;
 }
 
-function plazoLabel(member, isOverdue) {
-  if (isOverdue) {
-    if (member.daysOverdue == null) return 'En mora';
-    if (member.daysOverdue === 0) return 'Vence hoy';
+function plazoLabel(member, tone) {
+  if (tone === 'mora') {
+    if (member.daysOverdue == null || member.daysOverdue === 0) return 'En mora';
     return `${member.daysOverdue} día${member.daysOverdue === 1 ? '' : 's'}`;
   }
+  if (tone === 'due') return 'Vence hoy';
   if (member.daysUntil == null) return 'Próxima';
   if (member.daysUntil === 0) return 'Hoy';
   if (member.daysUntil === 1) return 'Mañana';
   return `En ${member.daysUntil} días`;
 }
 
+function collectTitle(tone) {
+  if (tone === 'mora') return 'Registrar cobro de cuota en mora';
+  if (tone === 'due') return 'Cobrar cuota que vence hoy';
+  return 'Cobrar cuota anticipada';
+}
+
+function dueDateKicker(tone) {
+  if (tone === 'mora' || tone === 'upcoming') return 'Próximo vto';
+  if (tone === 'due') return 'Vence';
+  return null;
+}
+
 function MemberDuesRow({
   member,
   formatCurrency,
-  tone = 'overdue',
+  tone = 'mora',
   onOpen,
   onCollect,
 }) {
-  const isOverdue = tone === 'overdue';
-  const waUrl = buildWhatsAppUrl(member, formatCurrency, isOverdue);
+  const waUrl = buildWhatsAppUrl(member, formatCurrency, tone);
   const dueIso = member.dueDate || member.nextDueDate || member.overdueSince;
-  const canCollect = isOverdue
-    ? (Number(member.outstandingBalance) || 0) > 0 || (Number(member.amountDue) || 0) > 0
-    : true;
+  const dateKicker = dueDateKicker(tone);
+  const canCollect = (Number(member.amountDue) || 0) > 0
+    || (Number(member.outstandingBalance) || 0) > 0
+    || tone !== 'mora';
 
   return (
     <div className="dues-row">
@@ -90,11 +108,14 @@ function MemberDuesRow({
           {member.memberId ? ` · ${member.memberId}` : ''}
         </div>
       </div>
-      <div className={`dues-plazo ${isOverdue ? 'is-overdue' : 'is-upcoming'}`}>
-        {plazoLabel(member, isOverdue)}
+      <div className={`dues-plazo is-${tone}`}>
+        {plazoLabel(member, tone)}
       </div>
-      <div className="dues-date">{formatShortDate(dueIso)}</div>
-      <div className={`dues-amount ${isOverdue ? 'is-overdue' : 'is-upcoming'}`}>
+      <div className="dues-date">
+        {dateKicker ? <span className="dues-date-kicker">{dateKicker}</span> : null}
+        <span>{formatShortDate(dueIso)}</span>
+      </div>
+      <div className={`dues-amount is-${tone}`}>
         {formatCurrency(member.amountDue)}
       </div>
       <div className="dues-actions">
@@ -117,7 +138,7 @@ function MemberDuesRow({
             type="button"
             className="btn btn-sm btn-primary dues-collect-btn"
             onClick={() => onCollect?.(member, tone)}
-            title={isOverdue ? 'Registrar cobro de cuota' : 'Cobrar cuota anticipada'}
+            title={collectTitle(tone)}
           >
             <Banknote size={14} /> Cobrar
           </button>
@@ -139,6 +160,10 @@ function DuesTableHead({ labels }) {
 
 export default function DuesControlTab({
   members = [],
+  setMembers,
+  addJournalEntry,
+  onAccountEntry,
+  onSendMessage,
   formatCurrency,
   tierCatalog = [],
 }) {
@@ -147,19 +172,23 @@ export default function DuesControlTab({
   const [statusFilter, setStatusFilter] = useState('all');
   const [tierFilter, setTierFilter] = useState('all');
   const [sortBy, setSortBy] = useState('amount');
+  const [collectMember, setCollectMember] = useState(null);
+  const [flash, setFlash] = useState('');
   const tiers = useMemo(() => getActiveTiers(tierCatalog), [tierCatalog]);
+  const canCollectHere = typeof setMembers === 'function';
 
   const overdueAll = useMemo(() => getOverdueMembers(members), [members]);
-  const upcomingAll = useMemo(() => getUpcomingDuesMembers(members, { withinDays: 15 }), [members]);
+  const dueTodayAll = useMemo(() => getDueTodayMembers(members), [members]);
+  const upcomingAll = useMemo(() => getUpcomingDuesMembers(members), [members]);
 
   const applyListFilters = (list, tone) => {
-    let next = list.filter((m) => matchesSearch(m, search) && matchesTier(m, tierFilter));
+    let next = list.filter((m) => matchesSearch(m, search) && memberMatchesDuesTier(m, tierFilter));
     next = [...next].sort((a, b) => {
       if (sortBy === 'name') return (a.name || '').localeCompare(b.name || '', 'es');
       if (sortBy === 'days') {
-        const da = tone === 'overdue' ? (a.daysOverdue ?? -1) : (a.daysUntil ?? 99);
-        const db = tone === 'overdue' ? (b.daysOverdue ?? -1) : (b.daysUntil ?? 99);
-        return tone === 'overdue' ? db - da : da - db;
+        const da = tone === 'mora' ? (a.daysOverdue ?? -1) : (a.daysUntil ?? 99);
+        const db = tone === 'mora' ? (b.daysOverdue ?? -1) : (b.daysUntil ?? 99);
+        return tone === 'mora' ? db - da : da - db;
       }
       return (b.amountDue || 0) - (a.amountDue || 0);
     });
@@ -167,9 +196,14 @@ export default function DuesControlTab({
   };
 
   const overdue = useMemo(
-    () => applyListFilters(overdueAll, 'overdue'),
+    () => applyListFilters(overdueAll, 'mora'),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [overdueAll, search, tierFilter, sortBy]
+  );
+  const dueToday = useMemo(
+    () => applyListFilters(dueTodayAll, 'due'),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dueTodayAll, search, tierFilter, sortBy]
   );
   const upcoming = useMemo(
     () => applyListFilters(upcomingAll, 'upcoming'),
@@ -178,9 +212,12 @@ export default function DuesControlTab({
   );
 
   const overdueTotalAll = overdueAll.reduce((s, m) => s + (Number(m.amountDue) || 0), 0);
+  const dueTodayTotalAll = dueTodayAll.reduce((s, m) => s + (Number(m.amountDue) || 0), 0);
   const upcomingTotalAll = upcomingAll.reduce((s, m) => s + (Number(m.amountDue) || 0), 0);
-  const showOverdue = statusFilter === 'all' || statusFilter === 'overdue';
+  const showOverdue = statusFilter === 'all' || statusFilter === 'mora';
+  const showDueToday = statusFilter === 'all' || statusFilter === 'due';
   const showUpcoming = statusFilter === 'all' || statusFilter === 'upcoming';
+  const filteredHint = Boolean(search || tierFilter !== 'all');
 
   const openMember = (member) => {
     if (!member?.memberId) return;
@@ -189,9 +226,37 @@ export default function DuesControlTab({
 
   const handleCollect = (member) => {
     if (!member?.memberId) return;
+    if (canCollectHere) {
+      setCollectMember(member);
+      return;
+    }
     navigate(`/panel/members/${encodeURIComponent(member.memberId)}?cobrar=1`, {
       state: { cobrar: true, memberId: member.memberId },
     });
+  };
+
+  const handleConfirmCollect = async (payload) => {
+    if (!collectMember) return;
+    try {
+      const result = recordDuesCollection(collectMember, payload);
+      await persistDuesCollection(result, {
+        setMembers,
+        addJournalEntry,
+        onAccountEntry,
+      });
+      void sendDuesReceiptMessage({
+        member: result.member,
+        payment: result.payment,
+        onSendMessage,
+      });
+      setCollectMember(null);
+      setFlash(`Cobro registrado · ${formatCurrency(result.payment.amount)} · ${result.member.name}`);
+      window.setTimeout(() => setFlash(''), 5000);
+    } catch (err) {
+      setCollectMember(null);
+      setFlash(err.message || 'No se pudo registrar el cobro.');
+      window.setTimeout(() => setFlash(''), 5000);
+    }
   };
 
   const handleExport = () => {
@@ -199,11 +264,25 @@ export default function DuesControlTab({
     if (showOverdue) {
       overdue.forEach((m) => {
         rows.push([
-          'Vencida',
+          'En mora',
           m.name,
           m.memberId,
           getTierDisplayName(m.tier),
-          plazoLabel(m, true),
+          plazoLabel(m, 'mora'),
+          m.dueDate || m.nextDueDate || '',
+          m.amountDue,
+          m.phone || '',
+        ]);
+      });
+    }
+    if (showDueToday) {
+      dueToday.forEach((m) => {
+        rows.push([
+          'Vence hoy',
+          m.name,
+          m.memberId,
+          getTierDisplayName(m.tier),
+          plazoLabel(m, 'due'),
           m.dueDate || m.nextDueDate || '',
           m.amountDue,
           m.phone || '',
@@ -217,7 +296,7 @@ export default function DuesControlTab({
           m.name,
           m.memberId,
           getTierDisplayName(m.tier),
-          plazoLabel(m, false),
+          plazoLabel(m, 'upcoming'),
           m.dueDate || m.nextDueDate || '',
           m.amountDue,
           m.phone || '',
@@ -226,7 +305,7 @@ export default function DuesControlTab({
     }
     downloadCsv(
       `jockey_club_control_cuotas_${stampDate()}.csv`,
-      ['Estado', 'Socio', 'Credencial', 'Categoria', 'Plazo', 'Vencimiento', 'Importe', 'Telefono'],
+          ['Estado', 'Socio', 'Credencial', 'Categoria', 'Plazo', 'Proximo vto', 'Importe', 'Telefono'],
       rows
     );
   };
@@ -249,13 +328,16 @@ export default function DuesControlTab({
         <div>
           <h2 className="serif-font">Control de Cuotas</h2>
           <p>
-            Mora real (saldo o vencimiento pasado) y socios al día con vencimiento en los próximos 15 días.
+            Cuota social viva sobre el padrón: el 10 vence sin recargo, desde el 11 está en mora.
+            El saldo de cuota del padrón entra acá. Un alquiler queda afuera si el mes ya está pago. Cobrar usa el recaudo de caja.
           </p>
         </div>
         <button type="button" className="btn btn-secondary" onClick={handleExport}>
           <Download size={14} /> Exportar vista CSV
         </button>
       </div>
+
+      {flash ? <p className="dues-flash" role="status">{flash}</p> : null}
 
       <div className="glass-card dues-filters">
         <div>
@@ -282,10 +364,17 @@ export default function DuesControlTab({
               </button>
               <button
                 type="button"
-                style={filterBtn(statusFilter === 'overdue', { background: '#ef4444', color: '#fff' })}
-                onClick={() => setStatusFilter('overdue')}
+                style={filterBtn(statusFilter === 'mora', { background: '#ef4444', color: '#fff' })}
+                onClick={() => setStatusFilter('mora')}
               >
-                Vencidas ({overdueAll.length})
+                En mora ({overdueAll.length})
+              </button>
+              <button
+                type="button"
+                style={filterBtn(statusFilter === 'due', { background: '#2563eb', color: '#fff' })}
+                onClick={() => setStatusFilter('due')}
+              >
+                Vence hoy ({dueTodayAll.length})
               </button>
               <button
                 type="button"
@@ -331,14 +420,26 @@ export default function DuesControlTab({
       <div className="dues-kpi-grid">
         <button
           type="button"
-          className={`dues-kpi is-overdue${statusFilter === 'overdue' ? ' is-active' : ''}`}
-          onClick={() => setStatusFilter(statusFilter === 'overdue' ? 'all' : 'overdue')}
+          className={`dues-kpi is-mora${statusFilter === 'mora' ? ' is-active' : ''}`}
+          onClick={() => setStatusFilter(statusFilter === 'mora' ? 'all' : 'mora')}
         >
-          <div className="dues-kpi-label"><AlertTriangle size={16} /> Vencidas</div>
+          <div className="dues-kpi-label"><AlertTriangle size={16} /> En mora</div>
           <div className="dues-kpi-value">{overdueAll.length}</div>
-          <div className="dues-kpi-sub">{formatCurrency(overdueTotalAll)} en mora</div>
-          {(search || tierFilter !== 'all') && overdue.length !== overdueAll.length && (
+          <div className="dues-kpi-sub">{formatCurrency(overdueTotalAll)} después del 10</div>
+          {filteredHint && overdue.length !== overdueAll.length && (
             <div className="dues-kpi-hint">{overdue.length} con filtro actual</div>
+          )}
+        </button>
+        <button
+          type="button"
+          className={`dues-kpi is-due${statusFilter === 'due' ? ' is-active' : ''}`}
+          onClick={() => setStatusFilter(statusFilter === 'due' ? 'all' : 'due')}
+        >
+          <div className="dues-kpi-label"><CalendarClock size={16} /> Vence hoy</div>
+          <div className="dues-kpi-value">{dueTodayAll.length}</div>
+          <div className="dues-kpi-sub">{formatCurrency(dueTodayTotalAll)} · sin recargo</div>
+          {filteredHint && dueToday.length !== dueTodayAll.length && (
+            <div className="dues-kpi-hint">{dueToday.length} con filtro actual</div>
           )}
         </button>
         <button
@@ -348,8 +449,8 @@ export default function DuesControlTab({
         >
           <div className="dues-kpi-label"><Clock3 size={16} /> A vencer</div>
           <div className="dues-kpi-value">{upcomingAll.length}</div>
-          <div className="dues-kpi-sub">{formatCurrency(upcomingTotalAll)} · próximos 15 días</div>
-          {(search || tierFilter !== 'all') && upcoming.length !== upcomingAll.length && (
+          <div className="dues-kpi-sub">{formatCurrency(upcomingTotalAll)} · hasta el 10</div>
+          {filteredHint && upcoming.length !== upcomingAll.length && (
             <div className="dues-kpi-hint">{upcoming.length} con filtro actual</div>
           )}
         </button>
@@ -359,10 +460,10 @@ export default function DuesControlTab({
         <section className="glass-card dues-section is-overdue">
           <div className="dues-section-head">
             <AlertTriangle size={16} />
-            <h3>Cuotas vencidas</h3>
+            <h3>En mora</h3>
             <span>{overdue.length} socios</span>
           </div>
-          <DuesTableHead labels={['Socio', 'Mora', 'Vencimiento', 'Importe', 'Acciones']} />
+          <DuesTableHead labels={['Socio', 'Días', 'Próximo vto', 'Importe', 'Acciones']} />
           {overdue.length === 0 ? (
             <p className="dues-empty">No hay resultados con los filtros actuales.</p>
           ) : (
@@ -371,7 +472,32 @@ export default function DuesControlTab({
                 key={m.memberId}
                 member={m}
                 formatCurrency={formatCurrency}
-                tone="overdue"
+                tone="mora"
+                onOpen={openMember}
+                onCollect={handleCollect}
+              />
+            ))
+          )}
+        </section>
+      )}
+
+      {showDueToday && (
+        <section className="glass-card dues-section is-due">
+          <div className="dues-section-head">
+            <CalendarClock size={16} />
+            <h3>Vence hoy</h3>
+            <span>{dueToday.length} socios</span>
+          </div>
+          <DuesTableHead labels={['Socio', 'Plazo', 'Vence', 'Cuota', 'Acciones']} />
+          {dueToday.length === 0 ? (
+            <p className="dues-empty">Hoy no vence ninguna cuota al día.</p>
+          ) : (
+            dueToday.map((m) => (
+              <MemberDuesRow
+                key={m.memberId}
+                member={m}
+                formatCurrency={formatCurrency}
+                tone="due"
                 onOpen={openMember}
                 onCollect={handleCollect}
               />
@@ -387,9 +513,9 @@ export default function DuesControlTab({
             <h3>Próximas a vencer</h3>
             <span>{upcoming.length} socios</span>
           </div>
-          <DuesTableHead labels={['Socio', 'Plazo', 'Vencimiento', 'Cuota', 'Acciones']} />
+          <DuesTableHead labels={['Socio', 'Plazo', 'Próximo vto', 'Cuota', 'Acciones']} />
           {upcoming.length === 0 ? (
-            <p className="dues-empty"><Users size={14} /> No hay resultados con los filtros actuales.</p>
+            <p className="dues-empty"><Users size={14} /> No hay cuotas al día por vencer hasta el 10.</p>
           ) : (
             upcoming.map((m) => (
               <MemberDuesRow
@@ -404,6 +530,15 @@ export default function DuesControlTab({
           )}
         </section>
       )}
+
+      {collectMember ? (
+        <CollectDuesModal
+          member={collectMember}
+          formatCurrency={formatCurrency}
+          onClose={() => setCollectMember(null)}
+          onConfirm={handleConfirmCollect}
+        />
+      ) : null}
     </div>
   );
 }

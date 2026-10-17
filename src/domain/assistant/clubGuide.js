@@ -141,8 +141,8 @@ export const CLUB_GUIDE = [
     id: 'mensajeria',
     tab: 'messaging',
     title: 'Mensajería',
-    keywords: 'mensajeria mensaje correo interno mail comunicado masivo jev',
-    teach: 'En Mensajería se redacta el comunicado: mensaje interno, mail, o los dos, a un socio o a todos. La IA escribe el texto. WhatsApp de vencimiento sale desde Cuotas.',
+    keywords: 'mensajeria mensaje correo interno mail md whatsapp comunicado masivo ia',
+    teach: 'En Mensajería hay tres salas: Mail (bandeja y envío de correo), MD (mensaje interno) y WhatsApp (cobranza). La IA escribe el texto.',
   },
   {
     id: 'profesores',
@@ -163,7 +163,7 @@ export const CLUB_GUIDE = [
     tab: 'settings',
     title: 'Configuración',
     keywords: 'configuracion sistema sede pileta zonda vencimiento cuit mercado pago avisos mora',
-    teach: 'Configuración está en Sistema, al lado de Migración. Ahí se guarda la sede, el día de las cuotas, los avisos del 5, el 10 y el 15, el canon de pileta, Mercado Pago y el Zonda. Vive en el libro.',
+    teach: 'Configuración está en Sistema, al lado de Migración. Ahí se guarda la sede, el día de las cuotas, los avisos del 5, el 10 y el 11, el canon de pileta, Mercado Pago y el Zonda. Vive en el libro.',
   },
   {
     id: 'migracion',
@@ -465,7 +465,7 @@ function countInsight(brief, kind) {
     },
     messages: {
       verdict: brief.mensajes != null ? `${formatGuideCount(brief.mensajes)} mensajes en el libro.` : 'Mensajería es el correo del club.',
-      text: 'En Mensajería se manda mensaje interno y mail, a uno o a todos. La IA redacta. WhatsApp de vencimiento sale desde Cuotas.',
+      text: 'En Mensajería hay Mail, MD y WhatsApp. Cada uno en su botón. La IA redacta el comunicado.',
       go: 'messaging',
       label: 'Mensajes',
       value: brief.mensajes,

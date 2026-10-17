@@ -70,6 +70,7 @@ export const MONTHLY_DUES_THROUGH_SEPTEMBER_2026 = Object.freeze({
   grupo_familiar_fundador: 0,
   socio_vitalicio: 0,
   fundador: 0,
+  comision: 0,
 });
 
 /** Borrador de octubre 2026 (pack 1382). Mismos criterios, tarifa nueva. */
@@ -87,6 +88,7 @@ export const MONTHLY_DUES_FROM_OCTOBER_2026 = Object.freeze({
   grupo_familiar_fundador: 0,
   socio_vitalicio: 0,
   fundador: 0,
+  comision: 0,
 });
 
 const TIER_SEED = [

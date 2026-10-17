@@ -36,7 +36,7 @@ function formatDate(iso) {
   });
 }
 
-export default function PaymentHistoryView({ member, user, setCurrentView, sendMessage }) {
+export default function PaymentHistoryView({ member, user, setCurrentView, sendMessage, membersCanViewCurrentAccounts = true }) {
   const [method, setMethod] = useState('mercadopago');
   const [paying, setPaying] = useState(false);
   const [message, setMessage] = useState('');
@@ -131,6 +131,31 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
   const actionLabel = method === 'transferencia' ? 'Enviar comprobante' : 'Avisar a administración';
   const subscribed = String(profile?.mpAdhesion || '').toLowerCase() === 'authorized'
     || profile?.paymentMethod === 'debito';
+
+  if (!membersCanViewCurrentAccounts) {
+    return (
+      <div className="fade-in pay-hist">
+        <header className="pay-hist-head">
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm pay-hist-back"
+            onClick={() => setCurrentView?.('dashboard')}
+          >
+            <ArrowLeft size={14} /> Volver al inicio
+          </button>
+          <div>
+            <h1 className="page-title" style={{ marginBottom: '0.35rem' }}>
+              <CreditCard size={22} style={{ verticalAlign: -3, marginRight: 8 }} />
+              Cuenta corriente
+            </h1>
+            <p className="page-subtitle" style={{ margin: 0 }}>
+              No está visible en el portal. Consultá el saldo en administración.
+            </p>
+          </div>
+        </header>
+      </div>
+    );
+  }
 
   return (
     <div className="fade-in pay-hist">

@@ -14,7 +14,7 @@ const ADMIN_SECTIONS = [
   { key: 'events', title: 'Fiestas', keywords: 'fiestas eventos' },
   { key: 'alerts', title: 'Alertas', keywords: 'alertas avisos' },
   { key: 'claims', title: 'Reclamos', keywords: 'reclamos' },
-  { key: 'messaging', title: 'Mensajería', keywords: 'mensajeria mensajes mail comunicado masivo ia redactar' },
+  { key: 'messaging', title: 'Mensajería', keywords: 'mensajeria mensajes mail md whatsapp comunicado masivo ia redactar' },
   { key: 'news', title: 'Novedades', keywords: 'novedades revista' },
   { key: 'reports', title: 'Reportes', keywords: 'reportes informes' },
   { key: 'surveys', title: 'Encuestas', keywords: 'encuestas' },

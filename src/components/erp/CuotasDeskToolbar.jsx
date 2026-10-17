@@ -14,13 +14,13 @@ const CONSULT = [
   { id: 'balances', icon: Wallet, label: 'Saldos', hint: 'Cuentas de cada socio' },
   { id: 'detailed_cc', icon: ListTree, label: 'CC detalladas', hint: 'Cargos y pagos' },
   { id: 'credit_purchases', icon: Ticket, label: 'Créditos comprados', hint: 'Compras a crédito' },
-  { id: 'monthly_debts', icon: FileSpreadsheet, label: 'Deudas mes a mes', hint: 'Mora histórica' },
-  { id: 'accounts', icon: BookOpen, label: 'Cuentas contables', hint: 'Plan de cuotas' },
+  { id: 'monthly_debts', icon: FileSpreadsheet, label: 'Deudas mes a mes', hint: 'Saldo por mes' },
+  { id: 'accounts', icon: BookOpen, label: 'Cuentas contables', hint: 'Pendiente por categoría' },
 ];
 
 const OPERATE = [
-  { id: 'import_collections', icon: Upload, label: 'Importar cobranzas', hint: 'Cargar el Excel', tone: 'emerald' },
-  { id: 'impute_events', icon: Plus, label: 'Imputar eventos', hint: 'Pasar a la cuenta', tone: 'emerald' },
+  { id: 'import_collections', icon: Upload, label: 'Importar cobranzas', hint: 'Excel de cobros vivos', tone: 'emerald' },
+  { id: 'impute_events', icon: Plus, label: 'Imputar eventos', hint: 'Alquiler a la cuenta', tone: 'emerald' },
   { id: 'mora', icon: Search, label: 'Control de mora', hint: 'Quién debe hoy', tone: 'warn' },
 ];
 

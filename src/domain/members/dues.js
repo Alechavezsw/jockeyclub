@@ -1,4 +1,4 @@
-/** Clasificación de cuotas sociales: vencidas vs próximas a vencer. */
+/** Clasificación de cuotas sociales: en mora (después del 10) vs próximas a vencer. */
 
 import {
   DUES_LATE_RATE,
@@ -153,11 +153,40 @@ export function isMemberBillingActive(member) {
   return s === 'active';
 }
 
+function isExemptDuesTierId(id) {
+  const t = String(id || '').trim().toLowerCase();
+  return /vitalicio|fundador|^comision$/.test(t);
+}
+
 /** SOCIO (Vitalicio) y GRUPO FAMILIAR (Vitalicio): no liquidan cuota social. */
 export function isVitalicioMember(member) {
   const ids = billedTierIds(member);
   if (ids.some((id) => /vitalicio/.test(id))) return true;
   return /vitalicio/i.test(String(member?.tier || ''));
+}
+
+/**
+ * No abonan cuota social: vitalicio, fundador y comisión (presidente / comisión directiva).
+ * Si además tienen una categoría que sí liquida (p. ej. socio familiar), no están exentos.
+ */
+export function isDuesExemptMember(member) {
+  if (isVitalicioMember(member)) return true;
+  const ids = billedTierIds(member);
+  const tier = String(member?.tier || '').trim().toLowerCase();
+  const pool = ids.length ? ids : (tier ? [tier] : []);
+  if (!pool.length) return false;
+  return pool.every((id) => isExemptDuesTierId(id));
+}
+
+function duesExemptHeadline(member) {
+  const blob = `${String(member?.tier || '')} ${billedTierIds(member).join(' ')}`.toLowerCase();
+  if (/comision/.test(blob)) {
+    return { title: 'Comisión', hint: 'No abona cuota social' };
+  }
+  if (/fundador/.test(blob)) {
+    return { title: 'Fundador', hint: 'No abona cuota social' };
+  }
+  return { title: 'Vitalicio', hint: 'No abona cuota social' };
 }
 
 /**
@@ -168,6 +197,16 @@ export function quotaHeadline(member) {
   const status = String(member?.status || 'active').toLowerCase();
   const balance = Number(member?.outstandingBalance) || 0;
   const billing = isMemberBillingActive(member);
+
+  if (isDuesExemptMember(member)) {
+    const copy = duesExemptHeadline(member);
+    return {
+      kind: 'off',
+      title: copy.title,
+      hint: copy.hint,
+      billing: false,
+    };
+  }
 
   if (balance > 0) {
     return {
@@ -207,15 +246,6 @@ export function quotaHeadline(member) {
     };
   }
 
-  if (isVitalicioMember(member)) {
-    return {
-      kind: 'off',
-      title: 'Vitalicio',
-      hint: 'No abona cuota social',
-      billing: false,
-    };
-  }
-
   return { kind: 'clear', title: 'Al día', hint: null, billing: true };
 }
 
@@ -243,6 +273,82 @@ function billedTierIds(member) {
   if (fromCategories.length) return [...new Set(fromCategories)];
   const tier = String(member?.tier || '').trim().toLowerCase();
   return tier ? [tier] : [];
+}
+
+export function memberDuesTierIds(member) {
+  return billedTierIds(member);
+}
+
+export function memberMatchesDuesTier(member, tierId) {
+  if (!tierId || tierId === 'all') return true;
+  const want = String(tierId).trim().toLowerCase();
+  if (!want) return true;
+  if (String(member?.tier || '').trim().toLowerCase() === want) return true;
+  return billedTierIds(member).includes(want);
+}
+
+/** Días hasta el 10 de este mes. Después del 10 no hay “a vencer” hasta el aviso del mes siguiente. */
+export function upcomingDuesHorizonDays(today = new Date()) {
+  const moment = duesDueMoment(today);
+  if (moment.phase === 'before') return Math.max(0, moment.daysUntil);
+  return 0;
+}
+
+/** Cuota social impaga (con recargo desde el 11), sin mezclar alquiler ni otros cargos. */
+export function unpaidSocialDuesAmount(member, today = new Date()) {
+  const todayStart = startOfDay(today);
+  const first = parseDate(firstUnpaidDuesDate({
+    lastPaymentDate: member?.lastPaymentDate,
+    nextDueDate: member?.nextDueDate,
+    today: todayStart,
+  }));
+  if (!first || first >= todayStart) return 0;
+  let total = 0;
+  let cursor = first;
+  let months = 0;
+  while (cursor < todayStart && months < 24) {
+    total += duesPayableForMember(member, { paidOn: todayStart, dueOn: cursor, on: cursor });
+    cursor = duesDateOnTenth(cursor.getFullYear(), cursor.getMonth() + 1);
+    months += 1;
+  }
+  return total;
+}
+
+function socialDuesAmountDue(member, todayStart) {
+  const synthetic = unpaidSocialDuesAmount(member, todayStart);
+  const stored = Number(member?.outstandingBalance) || 0;
+  if (synthetic > 0 && stored > synthetic) return synthetic;
+  if (stored > 0) return stored;
+  return synthetic;
+}
+
+function isSocialDuesMora(member, todayStart) {
+  if (!isMemberBillingActive(member) || isDuesExemptMember(member)) return false;
+  const due = parseDueDate(member?.nextDueDate);
+  if (due && due < todayStart) return true;
+  if (monthsBehindOnDues({
+    lastPaymentDate: member?.lastPaymentDate,
+    nextDueDate: member?.nextDueDate,
+    today: todayStart,
+  }) > 0) return true;
+  const stored = Number(member?.outstandingBalance) || 0;
+  if (stored <= 0) return false;
+  // Padrón LILA: hay saldo de cuota y no está cargado el vencimiento.
+  if (!due) return true;
+  const paid = parseDate(member?.lastPaymentDate);
+  if (paid && due >= todayStart
+    && paid.getFullYear() === todayStart.getFullYear()
+    && paid.getMonth() === todayStart.getMonth()) {
+    return false;
+  }
+  return false;
+}
+
+function isSocialDuesDueToday(member, todayStart) {
+  if (!isMemberBillingActive(member) || isDuesExemptMember(member)) return false;
+  if (isSocialDuesMora(member, todayStart)) return false;
+  const due = parseDueDate(member?.nextDueDate);
+  return Boolean(due && toISODate(due) === toISODate(todayStart));
 }
 
 /**
@@ -317,56 +423,78 @@ export function toWhatsAppPhone(phone) {
 }
 
 /**
- * Socios con cuota vencida: saldo pendiente > 0,
- * o fecha de vencimiento ya pasada (aunque el saldo aún no se haya persistido).
+ * Socios en mora de cuota social: vencimiento ya pasado (después del 10)
+ * o meses impagos. Un saldo de salón/alquiler no alcanza para entrar acá.
  */
 export function getOverdueMembers(members, today = new Date()) {
   const todayStart = startOfDay(today);
 
   return members
-    .filter((m) => isMemberBillingActive(m))
-    .filter((m) => {
-      if ((Number(m.outstandingBalance) || 0) > 0) return true;
-      if (isVitalicioMember(m)) return false;
-      const due = parseDueDate(m.nextDueDate);
-      return due && due < todayStart;
-    })
+    .filter((m) => isSocialDuesMora(m, todayStart))
     .map((m) => {
-      const balance = Number(m.outstandingBalance) || 0;
       const due = parseDueDate(m.nextDueDate);
       const since = parseDate(m.overdueSince);
-      const anchor = (due && due < todayStart) ? due : (since && since < todayStart ? since : null);
+      const firstUnpaid = parseDate(firstUnpaidDuesDate({
+        lastPaymentDate: m.lastPaymentDate,
+        nextDueDate: m.nextDueDate,
+        today: todayStart,
+      }));
+      const anchor = (firstUnpaid && firstUnpaid < todayStart)
+        ? firstUnpaid
+        : ((due && due < todayStart) ? due : (since && since < todayStart ? since : null));
       const daysOverdue = anchor
         ? Math.max(0, Math.floor((todayStart - anchor) / DAY_MS))
         : null;
+      const amountDue = socialDuesAmountDue(m, todayStart);
 
       return {
         ...m,
-        duesStatus: 'overdue',
+        duesStatus: 'mora',
         daysOverdue,
-        dueDate: pinDuesDueDate(m.nextDueDate) || m.overdueSince || null,
-        amountDue: balance > 0
-        ? balance
-        : duesPayableForMember(m, { paidOn: todayStart, dueOn: due || todayStart, on: due || todayStart }),
+        dueDate: pinDuesDueDate(m.nextDueDate) || pinDuesDueDate(firstUnpaid) || m.overdueSince || null,
+        amountDue,
       };
     })
+    .filter((m) => (Number(m.amountDue) || 0) > 0)
+    .sort((a, b) => (b.amountDue || 0) - (a.amountDue || 0));
+}
+
+/** El día 10: vence hoy, todavía sin recargo ni mora. */
+export function getDueTodayMembers(members, today = new Date()) {
+  const todayStart = startOfDay(today);
+  return members
+    .filter((m) => isSocialDuesDueToday(m, todayStart))
+    .map((m) => {
+      const due = parseDueDate(m.nextDueDate) || todayStart;
+      const dueIso = toISODate(due);
+      return {
+        ...m,
+        duesStatus: 'due',
+        daysUntil: 0,
+        dueDate: dueIso,
+        amountDue: duesAmountForMember(m, due),
+        nextDueDate: dueIso,
+      };
+    })
+    .filter((m) => (Number(m.amountDue) || 0) > 0)
     .sort((a, b) => (b.amountDue || 0) - (a.amountDue || 0));
 }
 
 /**
- * Socios al día cuya próxima cuota vence dentro de `withinDays` (default 15).
+ * Socios al día cuya cuota vence dentro del horizonte (hasta el 10 de este mes).
  */
-export function getUpcomingDuesMembers(members, { withinDays = 15, today = new Date() } = {}) {
+export function getUpcomingDuesMembers(members, { withinDays, today = new Date() } = {}) {
   const todayStart = startOfDay(today);
-  const horizon = new Date(todayStart.getTime() + withinDays * DAY_MS);
+  const horizonDays = withinDays == null ? upcomingDuesHorizonDays(todayStart) : withinDays;
+  const horizon = new Date(todayStart.getTime() + horizonDays * DAY_MS);
 
   return members
-    .filter((m) => isMemberBillingActive(m) && !isVitalicioMember(m))
-    .filter((m) => (Number(m.outstandingBalance) || 0) === 0)
+    .filter((m) => isMemberBillingActive(m) && !isDuesExemptMember(m))
+    .filter((m) => !isSocialDuesMora(m, todayStart) && !isSocialDuesDueToday(m, todayStart))
     .map((m) => {
       const due = parseDueDate(m.nextDueDate);
       if (!due) return null;
-      if (due < todayStart || due > horizon) return null;
+      if (due <= todayStart || due > horizon) return null;
       const daysUntil = Math.round((due - todayStart) / DAY_MS);
       const dueIso = toISODate(due);
       return {
@@ -416,7 +544,7 @@ export function applyAutomaticDues(members, today = new Date()) {
       ? { ...m, nextDueDate: pinnedDue }
       : m;
 
-    if (!isMemberBillingActive(normalized) || isVitalicioMember(normalized)) return normalized;
+    if (!isMemberBillingActive(normalized) || isDuesExemptMember(normalized)) return normalized;
     if ((Number(normalized.outstandingBalance) || 0) > 0) return normalized;
 
     const due = parseDueDate(normalized.nextDueDate);

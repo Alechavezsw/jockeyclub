@@ -40,7 +40,7 @@ function MessageAttachment({ attachment }) {
   );
 }
 
-export default function MessagesView({ messages, setMessages, members = [], onRefresh, onSendMessage, live = false, duesNotice = null }) {
+export default function MessagesView({ messages, setMessages, members = [], onRefresh, onSendMessage, live = false, duesNotice = null, membersCanViewCurrentAccounts = true }) {
   const { user, role } = useAuth();
   const navigate = useNavigate();
   const isOps = canAccessAdmin(role);
@@ -265,9 +265,11 @@ export default function MessagesView({ messages, setMessages, members = [], onRe
             <AlertTriangle size={16} color="#CA390C" aria-hidden />
             {duesNotice.title}. {duesNotice.detail}
           </p>
+          {membersCanViewCurrentAccounts ? (
           <button type="button" className="btn btn-secondary btn-sm" onClick={() => navigate('/cuenta')}>
             Ver Mi cuenta
           </button>
+          ) : null}
         </div>
       ) : null}
 

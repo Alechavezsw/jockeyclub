@@ -125,6 +125,7 @@ export default function AdminView({
   reservations,
   setMembers,
   setReservations,
+  persistReservation,
   journalEntries = [],
   setJournalEntries,
   addJournalEntry,
@@ -518,7 +519,7 @@ export default function AdminView({
   const paidMembers = liveTitulares.filter((m) => (Number(m.outstandingBalance) || 0) === 0).length;
   const overdueMembers = getOverdueMembers(members);
   const overdueMembersCount = overdueMembers.length;
-  const upcomingDuesCount = getUpcomingDuesMembers(members, { withinDays: 15 }).length;
+  const upcomingDuesCount = getUpcomingDuesMembers(members).length;
   const paymentCollectionRate = lilaMoney
     ? lilaMoney.rate
     : (liveTitulares.length
@@ -847,20 +848,22 @@ export default function AdminView({
           onUpsertMemberAccountEntry={erp.upsertMemberAccountEntryRecord}
           onDeleteMemberAccountEntry={erp.deleteMemberAccountEntryRecord}
           reservations={reservations}
-          onImputeReservation={(r) => {
-            if (!setReservations || !(r?.id || r?.accessinId)) return;
+          onImputeReservation={persistReservation || ((next) => {
+            if (!setReservations || !(next?.id || next?.accessinId)) return;
             setReservations((prev) => (prev || []).map((row) => {
-              const same = (r.id && row.id === r.id)
-                || (r.accessinId && row.accessinId === r.accessinId);
-              if (!same) return row;
-              return { ...row, imputed: true, feeImputed: true, imputedAt: new Date().toISOString() };
+              const same = (next.id && row.id === next.id)
+                || (next.accessinId && row.accessinId === next.accessinId);
+              return same ? { ...row, ...next } : row;
             }));
-          }}
+          })}
           addJournalEntry={addJournalEntry}
           journalEntries={journalEntries}
           chartOfAccounts={chartOfAccounts}
           formatCurrency={formatCurrency}
           tierCatalog={tierCatalog}
+          onSendMessage={sendMessage}
+          duesSettings={duesSettings}
+          setDuesSettings={setDuesSettings}
         />
       )}
 
@@ -1035,6 +1038,8 @@ export default function AdminView({
           onDeletePaymentOrder={erp.archivePaymentOrderRecord}
           accountingReports={erp.accountingReports}
           onRecordAccountingReport={erp.recordAccountingReport}
+          feePeriods={erp.feePeriods}
+          reservations={reservations}
         />
       )}
 

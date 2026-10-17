@@ -27,7 +27,11 @@ function normalize(value) {
     .trim();
 }
 
-export default function SessionStatusBar({ members = [], staffMembers = [] }) {
+export default function SessionStatusBar({
+  members = [],
+  staffMembers = [],
+  membersCanViewCurrentAccounts = true,
+}) {
   const { user, role } = useAuth();
   const navigate = useNavigate();
   const rootRef = useRef(null);
@@ -59,14 +63,17 @@ export default function SessionStatusBar({ members = [], staffMembers = [] }) {
     }
 
     const words = q.split(/\s+/).filter((token) => token.length >= 2);
-    return MEMBER_NAV.filter((item) => words.some((token) => normalize(item.label).includes(token))).map((item) => ({
+    const nav = membersCanViewCurrentAccounts
+      ? MEMBER_NAV
+      : MEMBER_NAV.filter((item) => item.id !== 'cuenta');
+    return nav.filter((item) => words.some((token) => normalize(item.label).includes(token))).map((item) => ({
       id: `nav-${item.id}`,
       kind: 'section',
       title: item.label,
       subtitle: 'Ir a',
       path: item.path,
     }));
-  }, [query, isOperative, tabs, role, members, staffMembers]);
+  }, [query, isOperative, tabs, role, members, staffMembers, membersCanViewCurrentAccounts]);
 
   useEffect(() => {
     setActiveIndex(0);

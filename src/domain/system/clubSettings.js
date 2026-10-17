@@ -46,8 +46,14 @@ export const DEFAULT_DUES_SETTINGS = {
   gracePeriodDays: 5,
   maxGroupDebt: 0,
   accountProtectDate: '2026-09-29',
+  showCurrentAccountsToMembers: true,
   ...noticeRuleForDueDay(DUES_DUE_DAY),
 };
+
+/** Si el socio puede ver saldo, extracto y Mi cuenta. Administración siempre ve. */
+export function membersCanViewCurrentAccounts(dues = {}) {
+  return mergeDuesSettings(dues).showCurrentAccountsToMembers;
+}
 
 /** Reglas de configuración de Lila que el panel usa y no entran en sede, cuotas o pileta. */
 export const DEFAULT_SYSTEM_RULES = {
@@ -119,6 +125,7 @@ export function mergeDuesSettings(raw = {}) {
     accountProtectDate: /^\d{4}-\d{2}-\d{2}$/.test(protect)
       ? protect
       : DEFAULT_DUES_SETTINGS.accountProtectDate,
+    showCurrentAccountsToMembers: raw?.showCurrentAccountsToMembers !== false,
     ...noticeRuleForDueDay(dueDay),
   };
 }

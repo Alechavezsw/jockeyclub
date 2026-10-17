@@ -97,6 +97,7 @@ export function buildNotifications({
   alertAcks = [],
   dismissedIds = [],
   todayIso = todayISODateAR(),
+  membersCanViewCurrentAccounts = true,
 } = {}) {
   const dismissed = new Set((dismissedIds || []).map(String));
   const push = (list, item) => {
@@ -139,16 +140,21 @@ export function buildNotifications({
         && m.meta?.dueOn === dueItem.dueOn
         && (m.recipientId === memberId || m.recipientId === MAILBOX.ALL_MEMBERS)
       ));
-      if (dueItem && !dueUnreadInInbox) push(out, dueItem);
-      else if (!dueItem && member.notifyDues !== false && (Number(member.outstandingBalance) || 0) > 0) {
+      if (dueItem && !dueUnreadInInbox) {
+        push(out, membersCanViewCurrentAccounts
+          ? dueItem
+          : { ...dueItem, view: 'profile', path: '/perfil' });
+      } else if (!dueItem && member.notifyDues !== false && (Number(member.outstandingBalance) || 0) > 0) {
         const bal = Number(member.outstandingBalance) || 0;
         push(out, {
           id: `dues-debt-${member.memberId}-${bal}`,
           kind: 'dues',
           title: 'Cuota pendiente',
-          detail: 'Tenés saldo por abonar. Tocá para ver Mi Cuenta.',
-          view: 'payments',
-          path: '/cuenta',
+          detail: membersCanViewCurrentAccounts
+            ? 'Tenés saldo por abonar. Tocá para ver Mi Cuenta.'
+            : 'Tenés un pendiente de cuota. Regularizalo en administración.',
+          view: membersCanViewCurrentAccounts ? 'payments' : 'profile',
+          path: membersCanViewCurrentAccounts ? '/cuenta' : '/perfil',
         });
       }
 

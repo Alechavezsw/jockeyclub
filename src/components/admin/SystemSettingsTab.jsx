@@ -321,6 +321,14 @@ export default function SystemSettingsTab({
               onChange={(e) => setDuesDraft((p) => ({ ...p, accountProtectDate: e.target.value }))}
             />
           </Field>
+          <label className="mp-edit-check" style={{ marginTop: '0.75rem' }}>
+            <input
+              type="checkbox"
+              checked={duesDraft.showCurrentAccountsToMembers !== false}
+              onChange={(e) => setDuesDraft((p) => ({ ...p, showCurrentAccountsToMembers: e.target.checked }))}
+            />
+            Los socios pueden ver su cuenta corriente
+          </label>
           <div className="sys-set-actions">
             <button type="button" className="jev-slip-go" onClick={saveDues} disabled={saving === 'dues'}>
               {saving === 'dues' ? 'Guardando…' : 'Guardar vencimiento'}
@@ -354,7 +362,7 @@ export default function SystemSettingsTab({
             <li>
               <b>{noticeCal.moraDay}</b>
               <span>
-                Día {noticeCal.moraDay} del ciclo. Mensaje y mail: ya está en mora.
+                Después del vencimiento. Mensaje y mail: ya está en mora.
               </span>
             </li>
           </ol>

@@ -41,6 +41,13 @@ describe('seasonDuesGate', () => {
       outstandingBalance: 0,
       status: 'active',
     }, { today: '2026-12-15' }).blocked).toBe(false);
+    expect(seasonDuesGate({
+      memberId: '8377',
+      tier: 'comision',
+      cuotaCategories: ['COMISION'],
+      outstandingBalance: 1466000,
+      status: 'active',
+    }, { today: '2026-12-15' }).blocked).toBe(false);
   });
 
   it('se puede apagar la regla', () => {

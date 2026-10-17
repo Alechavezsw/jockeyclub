@@ -27,10 +27,15 @@ describe('clubSettings', () => {
     expect(mergeDuesSettings({ dueDay: 31 }).dueDay).toBe(10);
   });
 
-  it('guarda la regla de avisos del 5, el 10 y el 15', () => {
+  it('deja ocultar la cuenta corriente a los socios', () => {
+    expect(mergeDuesSettings({}).showCurrentAccountsToMembers).toBe(true);
+    expect(mergeDuesSettings({ showCurrentAccountsToMembers: false }).showCurrentAccountsToMembers).toBe(false);
+  });
+
+  it('guarda la regla de avisos del 5, el 10 y el 11', () => {
     const dues = mergeDuesSettings({ dueDay: 10 });
     expect(dues.noticeAdvanceDays).toBe(5);
-    expect(dues.noticeMoraDay).toBe(15);
+    expect(dues.noticeMoraDay).toBe(11);
     expect(dues.noticeByMessage).toBe(true);
     expect(dues.noticeByEmail).toBe(true);
     expect(dues.moraConsequences.join(' ')).toMatch(/recargo del 10/);

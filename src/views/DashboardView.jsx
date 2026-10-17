@@ -45,6 +45,7 @@ export default function DashboardView({
   facilityCatalog = null,
   user = null,
   sendMessage,
+  membersCanViewCurrentAccounts = true,
 }) {
   const [showNewClaimForm, setShowNewClaimForm] = useState(false);
   const [claimType, setClaimType] = useState('Mantenimiento');
@@ -119,18 +120,22 @@ export default function DashboardView({
     return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 }).format(amount);
   };
   const quota = quotaHeadline(profile);
-  const duesValue = duesPending
-    ? 'Consultando…'
-    : !quota.billing && quota.kind !== 'debt'
-      ? quota.title
+  const duesValue = !membersCanViewCurrentAccounts
+    ? 'En administración'
+    : duesPending
+      ? 'Consultando…'
+      : !quota.billing && quota.kind !== 'debt'
+        ? quota.title
+        : duesBehind
+          ? (duesLateLabel || formatCurrency(duesStanding.outstanding))
+          : 'Al día';
+  const duesSub = !membersCanViewCurrentAccounts
+    ? 'La cuenta corriente no se muestra en el portal'
+    : duesPending
+      ? 'Confirmando vencimientos'
       : duesBehind
-        ? (duesLateLabel || formatCurrency(duesStanding.outstanding))
-        : 'Al día';
-  const duesSub = duesPending
-    ? 'Confirmando vencimientos'
-    : duesBehind
-      ? `${formatCurrency(duesStanding.outstanding)} · Ver pagos`
-      : quota.hint || 'Historial de pagos';
+        ? `${formatCurrency(duesStanding.outstanding)} · Ver pagos`
+        : quota.hint || 'Historial de pagos';
   const tierRow = findTier(profile.tier);
   const membershipLabel = prettyMembershipName(tierRow?.name || profile.tier);
   const membershipYears = yearsOnClub(profile);
@@ -663,11 +668,15 @@ export default function DashboardView({
         <div className="dues-banner">
           <span>
             <ShieldAlert size={16} style={{ verticalAlign: -3, marginRight: 6 }} />
-            {duesLateLabel ? `${duesLateLabel}. ` : ''}Cuota pendiente: {formatCurrency(duesStanding.outstanding)}. Vence el 10 de cada mes.
+            {membersCanViewCurrentAccounts
+              ? `${duesLateLabel ? `${duesLateLabel}. ` : ''}Cuota pendiente: ${formatCurrency(duesStanding.outstanding)}. Vence el 10 de cada mes.`
+              : 'Hay un pendiente de cuota. Regularizalo en administración.'}
           </span>
+          {membersCanViewCurrentAccounts ? (
           <button type="button" className="btn btn-primary btn-sm" onClick={() => setCurrentView('payments')}>
             Pagar ahora
           </button>
+          ) : null}
         </div>
       )}
 
@@ -867,17 +876,17 @@ export default function DashboardView({
           {/* Stats Row */}
           <div className="db-stat-row">
             <div
-              className={`db-stat-card is-clickable${duesPending ? '' : duesBehind ? ' is-late' : ' is-ok'}`}
-              role="button"
-              tabIndex={0}
-              onClick={() => setCurrentView('payments')}
-              onKeyDown={(e) => {
+              className={`db-stat-card${membersCanViewCurrentAccounts ? ' is-clickable' : ''}${duesPending ? '' : duesBehind ? ' is-late' : ' is-ok'}`}
+              role={membersCanViewCurrentAccounts ? 'button' : undefined}
+              tabIndex={membersCanViewCurrentAccounts ? 0 : undefined}
+              onClick={membersCanViewCurrentAccounts ? () => setCurrentView('payments') : undefined}
+              onKeyDown={membersCanViewCurrentAccounts ? (e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
                   setCurrentView('payments');
                 }
-              }}
-              title="Ver historial de pagos"
+              } : undefined}
+              title={membersCanViewCurrentAccounts ? 'Ver historial de pagos' : 'Consultá en administración'}
             >
               <div className="db-stat-head">
                 <span className="db-stat-ico"><CreditCard size={15} /></span>

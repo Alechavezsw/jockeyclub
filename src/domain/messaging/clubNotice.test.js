@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   deliverableEmail,
   mailAudienceCount,
+  groupMailCampaigns,
   noticeConfirmLine,
   parseComposeDraft,
 } from './clubNotice';
@@ -75,5 +76,17 @@ describe('clubNotice', () => {
       subject: 'Asamblea el viernes',
       body: 'Estimados socios,\n\nLos esperamos.',
     });
+  });
+
+  it('agrupa la bandeja de mail por campaña', () => {
+    const grouped = groupMailCampaigns([
+      { campaignId: 'a', subject: 'Asamblea', sent: true, createdAt: '2026-10-17T12:00:00Z' },
+      { campaignId: 'a', subject: 'Asamblea', sent: false, createdAt: '2026-10-17T12:01:00Z' },
+      { campaignId: 'b', subject: 'Zonda', sent: true, createdAt: '2026-10-17T13:00:00Z' },
+    ]);
+    expect(grouped.map((row) => ({ id: row.id, sent: row.sent, failed: row.failed }))).toEqual([
+      { id: 'b', sent: 1, failed: 0 },
+      { id: 'a', sent: 1, failed: 1 },
+    ]);
   });
 });

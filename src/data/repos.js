@@ -763,11 +763,22 @@ export async function updateReservation(id, patch) {
   if (patch.time != null) row.time_slot = patch.time;
   if (patch.guests != null) row.guests = patch.guests;
   if (patch.notes != null) row.notes = patch.notes;
-  if (patch.guestNames != null || patch.facilityName != null) {
-    row.meta = {
-      guestNames: patch.guestNames,
-      facilityName: patch.facilityName,
-    };
+  const metaFields = [
+    'guestNames', 'facilityName', 'endTime', 'estimatedPrice', 'chargedPrice',
+    'paymentMethod', 'imputed', 'feeImputed', 'imputedAt', 'imputationEntryId',
+    'accountEntry', 'balanceBefore',
+  ];
+  const touchesMeta = Boolean(patch.meta) || metaFields.some((key) => patch[key] !== undefined);
+  if (touchesMeta) {
+    const current = await unwrap(
+      sb().from('reservations').select('meta').eq('id', id).single(),
+      'No se pudo leer la reserva'
+    );
+    const nextMeta = { ...(current?.meta || {}), ...(patch.meta || {}) };
+    for (const key of metaFields) {
+      if (patch[key] !== undefined) nextMeta[key] = patch[key];
+    }
+    row.meta = nextMeta;
   }
   const saved = await unwrap(
     sb().from('reservations').update(row).eq('id', id).select().single(),
@@ -1309,7 +1320,7 @@ export async function listChartOfAccounts() {
 
 export async function listJournalEntries() {
   const entries = await unwrap(
-    sb().from('journal_entries').select('*').order('entry_date', { ascending: false }).limit(500)
+    sb().from('journal_entries').select('*').order('entry_date', { ascending: false }).limit(5000)
   );
   if (!entries?.length) return [];
   const ids = entries.map((e) => e.id);
@@ -2766,7 +2777,16 @@ async function invokeFunction(name, body, fallback) {
     } catch {
       /* ignore */
     }
-    throw new Error(data?.error || detail);
+    const raw = String(data?.error || detail || fallback);
+    if (/restricted to only send/i.test(raw)) {
+      throw new Error('La clave de Resend solo puede enviar. Hace falta una clave con acceso a la bandeja.');
+    }
+    if (/Failed to send a request to the Edge Function/i.test(raw)) {
+      throw new Error(name === 'send-club-mail'
+        ? 'El envío de mail no está disponible. Reintentá.'
+        : 'La bandeja de mail no está disponible. Reintentá.');
+    }
+    throw new Error(raw);
   }
   if (data?.error) throw new Error(data.error);
   return data;
@@ -2912,6 +2932,37 @@ export async function sendClubMailCampaign({
     throw new Error(lastError);
   }
   return { ok: true, sent, failed, skipped, campaignId: id };
+}
+
+/** Bandeja de comunicados por mail enviados desde Mensajería. */
+export async function listClubInbox() {
+  const data = await invokeFunction('club-mail-inbox', { action: 'list' }, 'No se pudo leer el mail recibido');
+  return Array.isArray(data?.threads) ? data.threads : [];
+}
+
+export async function readClubInboxThread(threadId) {
+  const data = await invokeFunction('club-mail-inbox', { action: 'read', threadId }, 'No se pudo abrir el mail');
+  return Array.isArray(data?.emails) ? data.emails : [];
+}
+
+/** Bandeja de comunicados por mail enviados desde Mensajería. */
+export async function listClubMailSends({ limit = 500 } = {}) {
+  const { data, error } = await sb()
+    .from('club_mail_sends')
+    .select('id, campaign_id, email, member_number, subject, resend_id, email_error, created_at')
+    .order('created_at', { ascending: false })
+    .limit(Math.min(2000, Math.max(1, Number(limit) || 500)));
+  throwOnError(error, 'No se pudo leer la bandeja de mail');
+  return (data || []).map((row) => ({
+    id: row.id,
+    campaignId: row.campaign_id,
+    email: row.email,
+    memberNumber: row.member_number,
+    subject: row.subject,
+    sent: Boolean(row.resend_id),
+    error: row.email_error || '',
+    createdAt: row.created_at,
+  }));
 }
 
 export async function replaceProfileAuthorizations(profileId, authorizations = []) {

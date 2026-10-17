@@ -802,7 +802,7 @@ export default function MembersTab({
     setShowAddForm(true);
   };
 
-  const handleConfirmCollect = (payload) => {
+  const handleConfirmCollect = async (payload) => {
     const member = collectMember;
     if (!member) return;
     if (payload?.alreadyApplied) {
@@ -815,7 +815,7 @@ export default function MembersTab({
       return;
     }
     try {
-      const result = persistDuesCollection(recordDuesCollection(member, payload), {
+      const result = await persistDuesCollection(recordDuesCollection(member, payload), {
         setMembers,
         updateMember,
         addJournalEntry,

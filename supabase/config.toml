@@ -420,6 +420,9 @@ verify_jwt = true
 
 [functions.send-club-mail]
 verify_jwt = true
+
+[functions.club-mail-inbox]
+verify_jwt = true
 # Directory under `supabase/` where declarative files are written.
 # declarative_schema_path = "./database"
 # JSON string passed through to pg-delta SQL formatting.

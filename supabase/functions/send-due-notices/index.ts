@@ -50,11 +50,12 @@ function asDay(value: unknown, fallback: number) {
   return Number.isInteger(n) && n >= 1 && n <= 28 ? n : fallback;
 }
 
-function stagesForDay(todayIso: string, dueDay = 10, advanceDays = 5, moraDay = dueDay + 5) {
+function stagesForDay(todayIso: string, dueDay = 10, advanceDays = 5) {
   const day = Number(todayIso.slice(8, 10));
+  const moraDay = Math.min(28, dueDay + 1);
   const stages: Array<"upcoming" | "due" | "mora"> = [];
   if (day >= dueDay - advanceDays && day < dueDay) stages.push("upcoming");
-  if (day >= dueDay && day < moraDay) stages.push("due");
+  if (day === dueDay) stages.push("due");
   if (day >= moraDay) stages.push("mora");
   return stages;
 }
@@ -66,7 +67,7 @@ async function loadDuesClock(admin: ReturnType<typeof createClient>) {
   return {
     dueDay,
     advanceDays,
-    moraDay: asDay(data?.value?.noticeMoraDay, dueDay + advanceDays),
+    moraDay: Math.min(28, dueDay + 1),
   };
 }
 
@@ -321,7 +322,7 @@ Deno.serve(async (req) => {
     const today = arISODate();
     const clock = await loadDuesClock(admin);
     const dueOn = cycleDueOn(today, clock.dueDay);
-    const stages = stagesForDay(today, clock.dueDay, clock.advanceDays, clock.moraDay);
+    const stages = stagesForDay(today, clock.dueDay, clock.advanceDays);
     if (!stages.length) return json(200, { ok: true, sent: 0, already: 0, failed: 0, skipped: "fuera de fecha" });
 
     const from = Deno.env.get("RESEND_FROM") || DEFAULT_FROM;

@@ -11,7 +11,7 @@ import VirtualCard from '../VirtualCard';
 import GuestPassPanel from '../GuestPassPanel';
 import CollectDuesModal from './CollectDuesModal';
 import ModalDialog from '../ModalDialog';
-import { formatShortDate, isVitalicioMember, quotaHeadline } from '../../domain/members/dues';
+import { formatShortDate, isDuesExemptMember, quotaHeadline } from '../../domain/members/dues';
 import { formatDateTimeAR, todayISODateAR } from '../../lib/arDate';
 import { formatPaymentWhen, paymentWhenStamp } from '../../domain/members/paymentHistory';
 import { DEFAULT_POOL_SETTINGS } from '../../domain/pool/poolAccess';
@@ -328,6 +328,7 @@ export default function MemberProfilePanel({
   guestPasses = [],
   setGuestPasses = null,
   selfService = false,
+  showCurrentAccounts = true,
   tierCatalog,
   disciplineCatalog = [],
   onSendMessage,
@@ -347,7 +348,12 @@ export default function MemberProfilePanel({
   const { version: cobrosSnapshotVersion } = useSnapshots(
     selfService ? [] : ['accessinCobranzas', 'accessinDetailedCurrentAccounts']
   );
-  const visibleSections = SECTIONS.filter((s) => !s.memberOnly || selfService);
+  const hideCurrentAccount = selfService && !showCurrentAccounts;
+  const visibleSections = SECTIONS.filter((s) => {
+    if (s.memberOnly && !selfService) return false;
+    if (hideCurrentAccount && s.id === 'movimientos') return false;
+    return true;
+  });
   const canCollect = !selfService && Boolean(setMembers || updateMember);
   const disciplineOptions = useMemo(() => {
     const fromCatalog = getDisciplineOptions(disciplineCatalog);
@@ -356,8 +362,7 @@ export default function MemberProfilePanel({
 
   useEffect(() => {
     if (selfService || !member || searchParams.get('cobrar') !== '1') return undefined;
-    const hasDebt = (Number(member.outstandingBalance) || 0) > 0;
-    if (hasDebt || !isVitalicioMember(member)) setCollectOpen(true);
+    if (!isDuesExemptMember(member)) setCollectOpen(true);
     setSearchParams((prev) => {
       if (prev.get('cobrar') !== '1') return prev;
       const next = new URLSearchParams(prev);
@@ -733,7 +738,7 @@ export default function MemberProfilePanel({
     );
   }
 
-  const handleConfirmCollect = (payload) => {
+  const handleConfirmCollect = async (payload) => {
     if (payload?.alreadyApplied) {
       if (member.memberId) {
         repos.getMemberByNumber(member.memberId, { withPayments: true })
@@ -748,7 +753,7 @@ export default function MemberProfilePanel({
     }
     try {
       const result = recordDuesCollection(member, payload);
-      persistDuesCollection(result, {
+      await persistDuesCollection(result, {
         setMembers,
         updateMember,
         addJournalEntry,
@@ -770,7 +775,8 @@ export default function MemberProfilePanel({
   const status = STATUS_COPY[member.status] || STATUS_COPY.pending;
   const appAccess = memberAppAccess(member);
   const balance = Number(member.outstandingBalance) || 0;
-  const hasDebt = balance > 0;
+  const duesExempt = isDuesExemptMember(member);
+  const hasDebt = balance > 0 && !duesExempt;
   const quota = quotaHeadline(member);
   const poolPay = piletaPayAccess(member, { settings: poolSettings });
   const tierName = getTierDisplayName(member.tier, tierCatalog);
@@ -848,21 +854,25 @@ export default function MemberProfilePanel({
           aria-label="Estado de cuota y pileta"
         >
           <div className="mp-balance-label">
-            {hasDebt ? 'Saldo de cuota' : 'Estado de cuota'}
+            {hideCurrentAccount ? 'Estado de cuenta' : (hasDebt ? 'Saldo de cuota' : 'Estado de cuota')}
             {selfService ? null : <CurrentAccountCutNote members={members} />}
           </div>
           <div className="mp-balance-value">
-            {hasDebt ? formatCurrency(balance) : quota.title}
+            {hideCurrentAccount
+              ? 'En administración'
+              : (hasDebt ? formatCurrency(balance) : quota.title)}
           </div>
           <div className="mp-balance-hint">
-            {quota.hint
-              || (hasDebt
-                ? (member.nextDueDate
-                  ? `Venció / vence ${formatShortDate(member.nextDueDate)}`
-                  : 'Pendiente de cobro')
-                : (member.nextDueDate
-                  ? `Próximo vencimiento ${formatShortDate(member.nextDueDate)}`
-                  : 'Sin vencimiento cargado'))}
+            {hideCurrentAccount
+              ? 'La cuenta corriente no se muestra en el portal'
+              : (quota.hint
+                || (hasDebt
+                  ? (member.nextDueDate
+                    ? `Venció / vence ${formatShortDate(member.nextDueDate)}`
+                    : 'Pendiente de cobro')
+                  : (member.nextDueDate
+                    ? `Próximo vencimiento ${formatShortDate(member.nextDueDate)}`
+                    : 'Sin vencimiento cargado')))}
           </div>
           <p className={`mp-balance-pool ${poolPay.canPay ? 'is-ok' : 'is-no'}`}>
             {poolPay.label}

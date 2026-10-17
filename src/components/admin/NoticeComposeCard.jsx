@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Mail, MessageSquare, Search, Send, Sparkles, X } from 'lucide-react';
 import { askJevCompose } from '../../data/jevChat';
 import { repos } from '../../data/bootstrap';
+import { isSupabaseConfigured } from '../../lib/supabase';
 import {
   createMessage,
   MAILBOX,
@@ -12,18 +13,64 @@ import {
   mailAudienceCount,
   noticeConfirmLine,
 } from '../../domain/messaging/clubNotice';
+import {
+  filterMembersForBalances,
+  lilaClubNumber,
+} from '../../domain/accounting/memberBalances';
+import {
+  mergeMembersById,
+  rankMemberSearchHit,
+} from '../../domain/members/households';
+
+const EMPTY_PICK = {
+  firstName: '',
+  lastName: '',
+  dni: '',
+  memberNumber: '',
+  familyId: '',
+};
+
+function memberHitLine(member) {
+  const nro = lilaClubNumber(member);
+  const dni = String(member?.documentNumber || member?.dni || '').replace(/\D/g, '');
+  const bits = [
+    nro ? `N° ${nro}` : '',
+    dni ? `DNI ${dni}` : '',
+    member?.email || '',
+    member?.phone || member?.phoneAlt || '',
+    member?.familyGroupName || '',
+  ].filter(Boolean);
+  return bits.join(' · ') || member?.tier || '';
+}
+
+function remoteNeedle(query, pick) {
+  const q = String(query || '').trim();
+  if (q) return q;
+  const nro = String(pick.memberNumber || '').replace(/\D/g, '');
+  if (nro) return nro;
+  const dni = String(pick.dni || '').replace(/\D/g, '');
+  if (dni) return dni;
+  const name = [pick.lastName, pick.firstName].map((part) => String(part || '').trim()).filter(Boolean).join(' ');
+  if (name) return name;
+  return String(pick.familyId || '').trim();
+}
 
 export default function NoticeComposeCard({
   members = [],
   onSendMessage,
   senderName = 'Administración Jockey Club',
   replyToId = '',
+  channel = 'both',
+  onSent,
 }) {
   const [audience, setAudience] = useState('all');
-  const [sendDm, setSendDm] = useState(true);
-  const [sendMail, setSendMail] = useState(true);
+  const [sendDm, setSendDm] = useState(channel !== 'mail');
+  const [sendMail, setSendMail] = useState(channel !== 'dm');
   const [recipientId, setRecipientId] = useState('');
   const [memberQuery, setMemberQuery] = useState('');
+  const [memberPick, setMemberPick] = useState(EMPTY_PICK);
+  const [remoteHits, setRemoteHits] = useState([]);
+  const [remoteBusy, setRemoteBusy] = useState(false);
   const [subject, setSubject] = useState('');
   const [content, setContent] = useState('');
   const [aiPrompt, setAiPrompt] = useState('');
@@ -34,6 +81,16 @@ export default function NoticeComposeCard({
   const [progress, setProgress] = useState('');
 
   useEffect(() => {
+    if (channel === 'mail') {
+      setSendDm(false);
+      setSendMail(true);
+    } else if (channel === 'dm') {
+      setSendDm(true);
+      setSendMail(false);
+    }
+  }, [channel]);
+
+  useEffect(() => {
     if (!replyToId) return;
     setAudience('one');
     setRecipientId(replyToId);
@@ -41,20 +98,73 @@ export default function NoticeComposeCard({
   }, [replyToId]);
 
   const mailCounts = useMemo(() => mailAudienceCount(members), [members]);
-  const filteredMembers = useMemo(() => {
-    const q = memberQuery.trim().toLowerCase();
-    if (!q) return members.slice(0, 8);
-    return members
-      .filter((m) => (
-        String(m.name || '').toLowerCase().includes(q)
-        || String(m.memberId || '').includes(q)
-        || String(m.phone || '').includes(q)
-      ))
-      .slice(0, 12);
-  }, [members, memberQuery]);
+  const directory = useMemo(
+    () => mergeMembersById(members, remoteHits),
+    [members, remoteHits],
+  );
 
-  const selectedLabel = recipientId ? recipientLabel(recipientId, members) : '';
-  const selectedMember = members.find((m) => m.memberId === recipientId) || null;
+  useEffect(() => {
+    const needle = remoteNeedle(memberQuery, memberPick);
+    const digits = needle.replace(/\D/g, '');
+    const enough = needle.length >= 2 || digits.length >= 3;
+    if (!enough || !isSupabaseConfigured) {
+      setRemoteHits([]);
+      setRemoteBusy(false);
+      return undefined;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      setRemoteBusy(true);
+      repos.searchMembersDirectory(needle, { limit: 40 })
+        .then((rows) => {
+          if (!cancelled) setRemoteHits(rows || []);
+        })
+        .catch(() => {
+          if (!cancelled) setRemoteHits([]);
+        })
+        .finally(() => {
+          if (!cancelled) setRemoteBusy(false);
+        });
+    }, 280);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [memberQuery, memberPick]);
+
+  const filteredMembers = useMemo(() => {
+    const q = memberQuery.trim();
+    const structured = Boolean(
+      memberPick.firstName
+      || memberPick.lastName
+      || memberPick.dni
+      || memberPick.memberNumber
+      || memberPick.familyId,
+    );
+    if (!q && !structured) return directory.slice(0, 8);
+    const fields = {
+      firstName: memberPick.firstName,
+      lastName: memberPick.lastName,
+      dni: memberPick.dni,
+      memberNumber: memberPick.memberNumber,
+      familyId: memberPick.familyId,
+      status: 'all',
+    };
+    const local = filterMembersForBalances(directory, { ...fields, query: q });
+    const seen = new Set(local.map((row) => String(row.memberId || '')));
+    const extra = q
+      ? filterMembersForBalances(remoteHits, fields).filter((row) => {
+        const id = String(row.memberId || '');
+        return id && !seen.has(id);
+      })
+      : [];
+    return [...local, ...extra]
+      .toSorted((a, b) => rankMemberSearchHit(a, q) - rankMemberSearchHit(b, q))
+      .slice(0, 16);
+  }, [directory, memberPick, memberQuery, remoteHits]);
+
+  const selectedLabel = recipientId ? recipientLabel(recipientId, directory) : '';
+  const selectedMember = directory.find((m) => m.memberId === recipientId) || null;
   const selectedHasMail = Boolean(deliverableEmail(selectedMember?.email));
   const channels = [sendDm ? 'mensaje interno' : '', sendMail ? 'mail' : ''].filter(Boolean).join(' y ');
   const confirmLine = noticeConfirmLine({
@@ -116,7 +226,9 @@ export default function NoticeComposeCard({
       return;
     }
     if (sendMail && audience === 'one' && !selectedHasMail) {
-      setError('Ese socio no tiene un mail real. Mandá solo el mensaje interno, o cargá el correo en la ficha.');
+      setError(sendDm
+        ? 'Ese socio no tiene un mail real. Mandá solo el mensaje interno, o cargá el correo en la ficha.'
+        : 'Ese socio no tiene un mail real. Cargá el correo en la ficha.');
       return;
     }
     if (audience === 'all' && !confirmMass) {
@@ -166,6 +278,7 @@ export default function NoticeComposeCard({
       setConfirmMass(false);
       setProgress('');
       resetOk(`Enviado: ${bits.join(' · ')}.`);
+      if (typeof onSent === 'function') onSent({ mail: sendMail, dm: sendDm });
     } catch (err) {
       setError(err?.message || 'No se pudo enviar.');
     } finally {
@@ -175,27 +288,42 @@ export default function NoticeComposeCard({
 
   return (
     <div id="ops-compose-form" className="glass-card fade-in ops-notice">
-      <div>
-        <h3 className="serif-font" style={{ fontSize: '1.3rem', color: 'var(--text-gold)', margin: 0 }}>
-          Comunicado
-        </h3>
-        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
-          Mensaje interno, mail, o los dos. A un socio o a todos. La IA puede redactarlo.
-        </p>
+      <div className="ops-notice-head">
+        <img
+          className="club-mark ops-notice-logo"
+          src="/logo-jockey-club.png?v=clavos-blancos"
+          alt=""
+          width={48}
+          height={48}
+        />
+        <div>
+          <h3 className="serif-font" style={{ fontSize: '1.3rem', color: 'var(--text-gold)', margin: 0 }}>
+            Comunicado
+          </h3>
+          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
+            {channel === 'mail'
+              ? 'Mail a un socio o a todos. La IA puede redactarlo.'
+              : channel === 'dm'
+                ? 'Mensaje interno a un socio o a todos. La IA puede redactarlo.'
+                : 'Mensaje interno, mail, o los dos. A un socio o a todos. La IA puede redactarlo.'}
+          </p>
+        </div>
       </div>
 
       <form onSubmit={handleSend} className="ops-notice-form">
-        <fieldset className="ops-notice-set">
-          <legend>Canal</legend>
-          <label className={`ops-notice-chip${sendDm ? ' is-on' : ''}`}>
-            <input type="checkbox" checked={sendDm} onChange={(e) => { setSendDm(e.target.checked); setConfirmMass(false); }} />
-            <MessageSquare size={14} aria-hidden /> Mensaje interno
-          </label>
-          <label className={`ops-notice-chip${sendMail ? ' is-on' : ''}`}>
-            <input type="checkbox" checked={sendMail} onChange={(e) => { setSendMail(e.target.checked); setConfirmMass(false); }} />
-            <Mail size={14} aria-hidden /> Mail
-          </label>
-        </fieldset>
+        {channel === 'both' ? (
+          <fieldset className="ops-notice-set">
+            <legend>Canal</legend>
+            <label className={`ops-notice-chip${sendDm ? ' is-on' : ''}`}>
+              <input type="checkbox" checked={sendDm} onChange={(e) => { setSendDm(e.target.checked); setConfirmMass(false); }} />
+              <MessageSquare size={14} aria-hidden /> Mensaje interno
+            </label>
+            <label className={`ops-notice-chip${sendMail ? ' is-on' : ''}`}>
+              <input type="checkbox" checked={sendMail} onChange={(e) => { setSendMail(e.target.checked); setConfirmMass(false); }} />
+              <Mail size={14} aria-hidden /> Mail
+            </label>
+          </fieldset>
+        ) : null}
 
         <fieldset className="ops-notice-set">
           <legend>Destino</legend>
@@ -226,7 +354,15 @@ export default function NoticeComposeCard({
                     <em>{selectedHasMail ? selectedMember.email : 'Sin mail real'}</em>
                   ) : null}
                 </span>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setRecipientId('')}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => {
+                    setRecipientId('');
+                    setMemberQuery('');
+                    setMemberPick(EMPTY_PICK);
+                  }}
+                >
                   <X size={14} /> Cambiar
                 </button>
               </div>
@@ -239,21 +375,76 @@ export default function NoticeComposeCard({
                     className="form-input"
                     value={memberQuery}
                     onChange={(e) => setMemberQuery(e.target.value)}
-                    placeholder="Buscar socio por nombre, credencial o teléfono…"
+                    placeholder="Nombre, apellido, DNI, n° de socio, mail o teléfono…"
                     autoComplete="off"
+                    aria-label="Buscar socio"
                   />
+                </div>
+                <div className="ops-notice-filters">
+                  <label>
+                    <span className="form-label">Nombre</span>
+                    <input
+                      className="form-input"
+                      value={memberPick.firstName}
+                      onChange={(e) => setMemberPick((prev) => ({ ...prev, firstName: e.target.value }))}
+                      autoComplete="off"
+                    />
+                  </label>
+                  <label>
+                    <span className="form-label">Apellido</span>
+                    <input
+                      className="form-input"
+                      value={memberPick.lastName}
+                      onChange={(e) => setMemberPick((prev) => ({ ...prev, lastName: e.target.value }))}
+                      autoComplete="off"
+                    />
+                  </label>
+                  <label>
+                    <span className="form-label">DNI</span>
+                    <input
+                      className="form-input"
+                      inputMode="numeric"
+                      value={memberPick.dni}
+                      onChange={(e) => setMemberPick((prev) => ({ ...prev, dni: e.target.value }))}
+                      autoComplete="off"
+                    />
+                  </label>
+                  <label>
+                    <span className="form-label">N° de socio</span>
+                    <input
+                      className="form-input"
+                      inputMode="numeric"
+                      value={memberPick.memberNumber}
+                      onChange={(e) => setMemberPick((prev) => ({ ...prev, memberNumber: e.target.value }))}
+                      autoComplete="off"
+                    />
+                  </label>
+                  <label>
+                    <span className="form-label">Grupo familiar</span>
+                    <input
+                      className="form-input"
+                      value={memberPick.familyId}
+                      onChange={(e) => setMemberPick((prev) => ({ ...prev, familyId: e.target.value }))}
+                      autoComplete="off"
+                    />
+                  </label>
                 </div>
                 <div className="ops-notice-hits">
                   {filteredMembers.length === 0 ? (
-                    <p>No se encontraron socios con ese criterio.</p>
+                    <p>{remoteBusy ? 'Buscando en el padrón…' : 'No se encontraron socios con ese criterio.'}</p>
                   ) : filteredMembers.map((m) => (
                     <button
                       key={m.memberId}
                       type="button"
-                      onClick={() => { setRecipientId(m.memberId); setMemberQuery(''); setConfirmMass(false); }}
+                      onClick={() => {
+                        setRecipientId(m.memberId);
+                        setMemberQuery('');
+                        setMemberPick(EMPTY_PICK);
+                        setConfirmMass(false);
+                      }}
                     >
                       <strong>{m.name}</strong>
-                      <span>Cred. {String(m.memberId || '').slice(0, 8)}… · {m.tier}</span>
+                      <span>{memberHitLine(m)}</span>
                     </button>
                   ))}
                 </div>
@@ -313,7 +504,7 @@ export default function NoticeComposeCard({
         <textarea
           id="ops-notice-body"
           className="form-input"
-          rows={8}
+          rows={14}
           value={content}
           onChange={(e) => { setContent(e.target.value); setConfirmMass(false); }}
           placeholder="Cuerpo del comunicado"

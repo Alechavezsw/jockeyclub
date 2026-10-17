@@ -34,7 +34,37 @@ describe('liquidateFeePeriod', () => {
       .toThrow(/ya está liquidado/);
   });
 
-  it('cerrar un borrador con pack no imputa cuotas', () => {
+  it('noviembre imputa la cuota viva a titulares, sin recargo ni exentos', () => {
+    const members = [
+      { memberId: '10', status: 'active', tier: 'socio_familiar', cuotaCategories: ['SOCIO FAMILIAR'] },
+      { memberId: '11', status: 'active', tier: 'socio_individual', cuotaCategories: ['SOCIO INDIVIDUAL'] },
+      { memberId: '8377', status: 'active', tier: 'comision', cuotaCategories: ['COMISION'] },
+      {
+        memberId: '12',
+        status: 'active',
+        tier: 'grupo_familiar_familiar',
+        familyPrincipalNumber: '10',
+        cuotaCategories: ['GRUPO FAMILIAR (Familiar)'],
+      },
+    ];
+    const result = liquidateFeePeriod(
+      ACCESSIN_FEE_PERIODS,
+      'fp-2026-11',
+      members,
+      new Date('2026-11-15T12:00:00'),
+    );
+
+    expect(result.period.status).toBe('processed');
+    expect(result.memberUpdates).toEqual([
+      { memberId: '10', addAmount: 70000 },
+      { memberId: '11', addAmount: 40000 },
+    ]);
+    expect(result.period.amount).toBe(110000);
+    expect(result.period.generatedAt).toBe('2026-11-15');
+    expect(feePeriodNeedsClosure(result.period)).toBe(true);
+  });
+
+  it('noviembre con pack editado igual cobra a los titulares', () => {
     const pack = feePackForPeriod(ACCESSIN_FEE_PERIODS.find((p) => p.id === 'fp-1382'));
     const draftList = ACCESSIN_FEE_PERIODS.map((period) => (
       period.id === 'fp-2026-11'
@@ -42,14 +72,12 @@ describe('liquidateFeePeriod', () => {
         : period
     ));
     const result = liquidateFeePeriod(draftList, 'fp-2026-11', [
-      { memberId: '10485', status: 'active' },
+      { memberId: '10485', status: 'active', tier: 'socio_familiar', cuotaCategories: ['SOCIO FAMILIAR'] },
     ], new Date('2026-11-02T15:00:00.000Z'));
 
-    expect(result.memberUpdates).toEqual([]);
+    expect(result.memberUpdates).toEqual([{ memberId: '10485', addAmount: 70000 }]);
     expect(result.period.status).toBe('processed');
-    expect(result.period.amount).toBe(63233000);
-    expect(result.period.generatedAt).toBe('2026-11-02');
-    expect(feePeriodNeedsClosure(result.period)).toBe(true);
+    expect(result.period.amount).toBe(70000);
   });
 
   it('desde noviembre liquida la app y solo el mes en curso', () => {

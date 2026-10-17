@@ -10,6 +10,7 @@ import SessionStatusBar from './components/SessionStatusBar';
 import { useAuth } from './context/AuthContext';
 import { canAccessAdmin, canAccessQrGate, canAccessPool, canAccessConcessions, canTakeAttendance, allowedAdminTabs } from './domain/auth/roles';
 import { isDemoFacilityId, isRealBookableSpace, OFFICIAL_FACILITY_IDS, RETIRED_FACILITY_IDS, FACILITIES } from './domain/reservations/facilities';
+import { accountEntriesFromImputedReservations } from './domain/accounting/eventImputation';
 import { buildFacilityCatalog } from './domain/reservations/facilityConfig';
 import { validateMemberBooking } from './domain/reservations/bookingRules';
 import { countUnread, markMessageRead, messageReaderKey, rememberReadMessage, withRememberedReads } from './domain/messaging/messages';
@@ -1344,6 +1345,26 @@ function ClubPortal() {
     );
   };
 
+  const persistReservation = async (next) => {
+    if (!next?.id && !next?.accessinId) return next;
+    setReservations((prev) => (prev || []).map((row) => {
+      const same = (next.id && row.id === next.id)
+        || (next.accessinId && row.accessinId === next.accessinId);
+      return same ? { ...row, ...next } : row;
+    }));
+    const cloudId = String(next.id || '');
+    if (cloudMode && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(cloudId)) {
+      try {
+        const saved = await repos.updateReservation(cloudId, next);
+        setReservations((prev) => prev.map((row) => (row.id === saved.id ? { ...row, ...saved } : row)));
+        return saved;
+      } catch {
+        return next;
+      }
+    }
+    return next;
+  };
+
   const erp = useErpStore({
     setJournalEntries,
     isZondaActive,
@@ -1352,6 +1373,11 @@ function ClubPortal() {
     // bonificaciones). Sin sesión operativa no se bajan.
     canLoadSeeds: canLoadErpSeeds,
   });
+
+  useEffect(() => {
+    const extras = accountEntriesFromImputedReservations(reservations);
+    extras.forEach((entry) => erp.upsertMemberAccountEntryRecord(entry));
+  }, [reservations, erp.upsertMemberAccountEntryRecord]);
 
   useDailyBackup({
     enabled: true,
@@ -2278,6 +2304,7 @@ function ClubPortal() {
   const sessionMember = user?.memberId
     ? (ownMember || members.find((m) => String(m.memberId) === String(user.memberId)) || null)
     : null;
+  const memberSeesCurrentAccount = duesSettings?.showCurrentAccountsToMembers !== false;
   const duesNotice = userRole === 'member' && sessionMember
     ? duesBellItem(sessionMember)
     : null;
@@ -2301,10 +2328,12 @@ function ClubPortal() {
         alerts: erp.alerts || [],
         alertAcks: erp.alertAcks || [],
         dismissedIds: dismissedNotifIds,
+        membersCanViewCurrentAccounts: memberSeesCurrentAccount,
       })
   ), [
     isAuthenticated, cloudMode, dbSyncing, dbHydrated, userRole, user?.id, user?.memberId,
     sessionMember, messages, waitlist, claims, reservations, membershipApplications, erp.alerts, erp.alertAcks, dismissedNotifIds,
+    memberSeesCurrentAccount,
   ]);
 
   const dueNoticeId = notifications.find((n) => /^(dues-upcoming-|dues-due-|dues-overdue-)/.test(String(n.id)))?.id || '';
@@ -2401,6 +2430,7 @@ function ClubPortal() {
         facilityCatalog={facilityCatalog}
         user={user}
         sendMessage={sendMessage}
+        membersCanViewCurrentAccounts={memberSeesCurrentAccount}
       />
     );
 
@@ -2413,6 +2443,7 @@ function ClubPortal() {
         reservations={reservations}
         setMembers={setMembersDb}
         setReservations={setReservations}
+        persistReservation={persistReservation}
         latestNews={newsList}
         setNewsList={setNewsDb}
         disciplineCatalog={disciplineCatalog}
@@ -2497,6 +2528,7 @@ function ClubPortal() {
       user={user}
       setCurrentView={setCurrentView}
       sendMessage={sendMessage}
+      membersCanViewCurrentAccounts={memberSeesCurrentAccount}
     />
   );
 
@@ -2507,6 +2539,7 @@ function ClubPortal() {
       onBack={() => setCurrentView('dashboard')}
       backLabel="Inicio"
       selfService
+      showCurrentAccounts={memberSeesCurrentAccount}
       updateMember={updateMember}
       guestPasses={guestPasses}
       setGuestPasses={setGuestPassesDb}
@@ -2686,7 +2719,7 @@ function ClubPortal() {
       <div className="ambient-glow ambient-glow-2" />
 
       {!isStandaloneOps && (
-        <Navbar
+            <Navbar
           currentView={currentView}
           setCurrentView={setCurrentView}
           theme={theme}
@@ -2695,6 +2728,7 @@ function ClubPortal() {
           unreadMessages={unreadMessages}
           duesOverdue={duesOverdue}
           duesDueSoon={duesDueSoon}
+          membersCanViewCurrentAccounts={memberSeesCurrentAccount}
           onOpenNotification={handleNotificationOpen}
           onDismissNotification={(id) => {
             const n = notifications.find((x) => String(x.id) === String(id));
@@ -2717,7 +2751,11 @@ function ClubPortal() {
       >
         {!isStandaloneOps && (
           <>
-            <SessionStatusBar members={members} staffMembers={staffMembers} />
+            <SessionStatusBar
+              members={members}
+              staffMembers={staffMembers}
+              membersCanViewCurrentAccounts={memberSeesCurrentAccount}
+            />
             {dbSyncing || membersLoading ? (
               <p
                 role="status"
@@ -2781,6 +2819,7 @@ function ClubPortal() {
                 onSendMessage={sendMessage}
                 live={cloudMode}
                 duesNotice={duesNotice}
+                membersCanViewCurrentAccounts={memberSeesCurrentAccount}
               />
             }
           />

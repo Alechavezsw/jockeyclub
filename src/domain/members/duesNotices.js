@@ -1,4 +1,4 @@
-/** Avisos reales de cuota: 5 días antes, el 10 y el 15. Mensaje interno + mail. */
+/** Avisos reales de cuota: 5 días antes, el 10 (vence) y el 11 (mora). Mensaje interno + mail. */
 
 export const DUES_NOTICE_STAGES = ['upcoming', 'due', 'mora'];
 export const DUES_NOTICE_ADVANCE_DAYS = 5;
@@ -20,7 +20,7 @@ export function duesNoticeCalendar(dueDay = 10, advanceDays = DUES_NOTICE_ADVANC
     dueDay: safeDue,
     advanceDays: safeAdvance,
     upcomingDay: safeDue - safeAdvance,
-    moraDay: Math.min(28, safeDue + safeAdvance),
+    moraDay: Math.min(28, safeDue + 1),
   };
 }
 
@@ -38,7 +38,7 @@ export function duesNoticeStagesForDay(todayIso, dueDay = 10, advanceDays = DUES
   const cal = duesNoticeCalendar(dueDay, advanceDays);
   const stages = [];
   if (day >= cal.upcomingDay && day < cal.dueDay) stages.push('upcoming');
-  if (day >= cal.dueDay && day < cal.moraDay) stages.push('due');
+  if (day === cal.dueDay) stages.push('due');
   if (day >= cal.moraDay) stages.push('mora');
   return stages;
 }

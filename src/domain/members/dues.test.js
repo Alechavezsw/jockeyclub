@@ -7,9 +7,11 @@ import {
   duesAmountForMember,
   duesPayableAmount,
   getOverdueMembers,
+  getDueTodayMembers,
   getUpcomingDuesMembers,
   quotaHeadline,
   isVitalicioMember,
+  isDuesExemptMember,
   toWhatsAppPhone,
   buildWhatsAppDuesUrl,
   nextDuesDueDate,
@@ -44,6 +46,45 @@ describe('dues classification', () => {
     const overdue = getOverdueMembers(members, today);
     expect(overdue.map((m) => m.memberId)).toContain('1');
     expect(overdue.map((m) => m.memberId)).toContain('4');
+  });
+
+  it('después del 10 la cuota impaga está en mora', () => {
+    const overdue = getOverdueMembers([
+      { memberId: 'm', name: 'M', tier: 'socio_individual', outstandingBalance: 0, status: 'active', nextDueDate: '2026-10-10' },
+    ], new Date('2026-10-11T12:00:00'));
+    expect(overdue).toHaveLength(1);
+    expect(overdue[0].duesStatus).toBe('mora');
+  });
+
+  it('el día 10 todavía vence, no entra en mora', () => {
+    const member = { memberId: 'm', name: 'M', tier: 'socio_individual', outstandingBalance: 0, status: 'active', nextDueDate: '2026-10-10' };
+    const today = new Date('2026-10-10T12:00:00');
+    expect(getOverdueMembers([member], today)).toHaveLength(0);
+    expect(getDueTodayMembers([member], today)[0]?.duesStatus).toBe('due');
+    expect(getUpcomingDuesMembers([member], { today })).toHaveLength(0);
+  });
+
+  it('el saldo de cuota del padrón cuenta como mora aunque no tenga vencimiento cargado', () => {
+    const overdue = getOverdueMembers([
+      { memberId: 'l', name: 'Lila', tier: 'socio_familiar', outstandingBalance: 77000, status: 'active' },
+    ], new Date('2026-10-17T12:00:00'));
+    expect(overdue).toHaveLength(1);
+    expect(overdue[0].amountDue).toBe(77000);
+  });
+
+  it('un alquiler en la cuenta no es mora de cuota', () => {
+    const overdue = getOverdueMembers([
+      {
+        memberId: 's',
+        name: 'Salón',
+        tier: 'socio_individual',
+        outstandingBalance: 80000,
+        status: 'active',
+        lastPaymentDate: '2026-10-12',
+        nextDueDate: '2026-11-10',
+      },
+    ], new Date('2026-10-17T12:00:00'));
+    expect(overdue).toHaveLength(0);
   });
 
   it('detecta próximas a vencer antes del día 10', () => {
@@ -131,6 +172,31 @@ describe('dues classification', () => {
     expect(quotaHeadline({ status: 'inactive', outstandingBalance: 500 }).kind).toBe('debt');
   });
 
+  it('comisión y presidente no figuran en mora de cuota', () => {
+    expect(isDuesExemptMember({ tier: 'comision', cuotaCategories: ['COMISION'] })).toBe(true);
+    expect(isDuesExemptMember({
+      tier: 'comision',
+      cuotaCategories: ['COMISION', 'SOCIO FAMILIAR'],
+    })).toBe(false);
+    const overdue = getOverdueMembers([
+      {
+        memberId: '8377',
+        name: 'Presidente',
+        tier: 'comision',
+        cuotaCategories: ['COMISION'],
+        outstandingBalance: 1466000,
+        status: 'active',
+      },
+    ], new Date('2026-10-17T12:00:00'));
+    expect(overdue).toHaveLength(0);
+    expect(quotaHeadline({
+      status: 'active',
+      outstandingBalance: 1466000,
+      tier: 'comision',
+      cuotaCategories: ['COMISION'],
+    }).title).toBe('Comisión');
+  });
+
   it('vitalicio no factura ni figura al día', () => {
     expect(isVitalicioMember({ tier: 'socio_vitalicio' })).toBe(true);
     expect(isVitalicioMember({ tier: 'grupo_familiar_vitalicio' })).toBe(true);
@@ -142,11 +208,11 @@ describe('dues classification', () => {
     expect(quota.kind).toBe('off');
   });
 
-  it('no marca “vence hoy” si hay saldo pero la fecha ancla no está vencida', () => {
+  it('un saldo de cuenta no es mora si la cuota todavía no venció', () => {
     const overdue = getOverdueMembers([
       { memberId: 'x', name: 'X', tier: 'socio_individual', outstandingBalance: 1000, status: 'active', nextDueDate: '2026-09-01' },
     ], today);
-    expect(overdue[0].daysOverdue).toBeNull();
+    expect(overdue).toHaveLength(0);
   });
 });
 

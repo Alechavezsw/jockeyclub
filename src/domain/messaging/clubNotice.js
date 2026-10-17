@@ -130,6 +130,32 @@ export function noticeConfirmLine({
   return `Se envía ${channels.join(' y ')}.`;
 }
 
+export function groupMailCampaigns(rows = []) {
+  const byId = new Map();
+  for (const row of rows) {
+    const id = String(row.campaignId || row.campaign_id || '');
+    if (!id) continue;
+    let camp = byId.get(id);
+    if (!camp) {
+      camp = {
+        id,
+        subject: String(row.subject || '').trim() || 'Sin asunto',
+        createdAt: row.createdAt || row.created_at || '',
+        sent: 0,
+        failed: 0,
+        rows: [],
+      };
+      byId.set(id, camp);
+    }
+    camp.rows.push(row);
+    if (row.sent || row.resendId || row.resend_id) camp.sent += 1;
+    else camp.failed += 1;
+    const when = row.createdAt || row.created_at || '';
+    if (String(when) > String(camp.createdAt)) camp.createdAt = when;
+  }
+  return [...byId.values()].toSorted((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+
 export function newCampaignId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();

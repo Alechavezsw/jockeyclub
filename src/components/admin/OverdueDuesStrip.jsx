@@ -93,13 +93,13 @@ export default function OverdueDuesStrip({
   }, [members, deferredQuery]);
 
   return (
-    <details className="admin-overdue-strip" aria-label="Socios con cuota vencida">
+    <details className="admin-overdue-strip" aria-label="Socios en mora">
       <summary className="admin-overdue-strip-head">
         <i className="due-fold-arrow" aria-hidden="true">
           <ChevronDown size={18} strokeWidth={2.5} />
         </i>
         <ShieldAlert size={16} aria-hidden="true" />
-        <h2>Cuotas vencidas</h2>
+        <h2>En mora</h2>
         <span className="admin-overdue-strip-count">
           {loading ? '…' : members.length}
         </span>
@@ -109,7 +109,7 @@ export default function OverdueDuesStrip({
         {loading && members.length === 0 ? (
           <p className="ops-muted">Cargando socios en mora…</p>
         ) : members.length === 0 ? (
-          <p className="ops-muted">Ningún socio con cuota vencida.</p>
+          <p className="ops-muted">Ningún socio en mora.</p>
         ) : (
           <>
             <label className="admin-overdue-strip-search">
@@ -118,7 +118,7 @@ export default function OverdueDuesStrip({
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Buscar nombre o Nº"
-                aria-label="Buscar en cuotas vencidas"
+                aria-label="Buscar en mora"
               />
             </label>
             <p className="admin-overdue-strip-hint">
