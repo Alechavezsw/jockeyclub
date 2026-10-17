@@ -2868,6 +2868,52 @@ export async function sendJoinWelcomeEmail(applicationId) {
   return { ok: true, to: data?.to || null };
 }
 
+/** Comunicado por mail (uno o a todos). Reintenta mientras queden lotes. */
+export async function sendClubMailCampaign({
+  subject,
+  text,
+  audience = 'all',
+  memberNumber = '',
+  campaignId,
+  onProgress,
+} = {}) {
+  const { data: sessionData } = await sb().auth.getSession();
+  if (!sessionData?.session?.access_token) {
+    throw new Error('Sesión no válida. Volvé a iniciar sesión.');
+  }
+  let id = campaignId || (typeof crypto !== 'undefined' && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `camp-${Date.now()}`);
+  let sent = 0;
+  let failed = 0;
+  let skipped = 0;
+  let more = true;
+  let guard = 0;
+  let lastError = '';
+  while (more && guard < 40) {
+    const data = await invokeFunction('send-club-mail', {
+      subject,
+      text,
+      audience,
+      memberNumber,
+      campaignId: id,
+    }, 'No se pudo enviar el mail');
+    sent += Number(data?.sent) || 0;
+    failed += Number(data?.failed) || 0;
+    skipped += Number(data?.skipped) || 0;
+    more = Boolean(data?.more);
+    id = data?.campaignId || id;
+    lastError = String(data?.error || '');
+    guard += 1;
+    if (typeof onProgress === 'function') onProgress({ sent, failed, skipped, more, campaignId: id });
+    if (audience === 'one') break;
+  }
+  if (lastError && sent === 0 && failed === 0) {
+    throw new Error(lastError);
+  }
+  return { ok: true, sent, failed, skipped, campaignId: id };
+}
+
 export async function replaceProfileAuthorizations(profileId, authorizations = []) {
   if (!isUuid(profileId)) throw new Error('Perfil inválido');
   await unwrap(

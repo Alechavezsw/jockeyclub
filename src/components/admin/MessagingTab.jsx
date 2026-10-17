@@ -1,12 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Phone, Inbox, MailOpen, ExternalLink } from 'lucide-react';
-import {
-  createMessage,
-  MAILBOX,
-  markMessageRead,
-} from '../../domain/messaging/messages';
+import { Phone, Inbox, MailOpen, ExternalLink } from 'lucide-react';
+import { MAILBOX, markMessageRead } from '../../domain/messaging/messages';
 import { useAuth } from '../../context/AuthContext';
+import NoticeComposeCard from './NoticeComposeCard';
 
 /** Mensajería interna: bandeja ops + envío al portal + cobranza WhatsApp. */
 export default function MessagingTab({
@@ -19,12 +16,9 @@ export default function MessagingTab({
 }) {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [msgRecipient, setMsgRecipient] = useState(MAILBOX.ALL_MEMBERS);
-  const [msgSubject, setMsgSubject] = useState('');
-  const [msgContent, setMsgContent] = useState('');
-  const [msgSuccess, setMsgSuccess] = useState(false);
   const [msgError, setMsgError] = useState('');
   const [selectedId, setSelectedId] = useState(null);
+  const [replyToId, setReplyToId] = useState('');
   const [whatsappTemplate, setWhatsappTemplate] = useState(
     'Estimado/a *{nombre}*, le saludamos cordialmente de la Comisión Directiva del Jockey Club San Juan (Sede Rivadavia). Le recordamos amablemente que posee un saldo pendiente de cuota social de *{saldo}*. Puede regularizar su situación en la administración central o mediante transferencia al Banco Nación. ¡Muchas gracias!'
   );
@@ -70,40 +64,9 @@ export default function MessagingTab({
       setMsgError('No se pudo determinar el socio remitente.');
       return;
     }
-    setMsgRecipient(to);
-    setMsgSubject(selected.subject.startsWith('Re:') ? selected.subject : `Re: ${selected.subject}`);
-    setMsgContent('');
     setMsgError('');
+    setReplyToId(to);
     document.getElementById('ops-compose-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
-
-  const handleSendMessage = async (e) => {
-    e.preventDefault();
-    setMsgError('');
-    if (!msgSubject.trim() || !msgContent.trim()) return;
-
-    const newMsg = createMessage({
-      sender: user?.fullName || 'Administración Jockey Club',
-      senderId: MAILBOX.OPERATIONS,
-      recipientId: msgRecipient,
-      subject: msgSubject,
-      content: msgContent,
-      parentId: selected && msgSubject.startsWith('Re:') ? selected.id : null,
-    });
-
-    try {
-      if (typeof onSendMessage === 'function') {
-        await onSendMessage(newMsg);
-      } else {
-        setMessages((prev) => [newMsg, ...(prev || [])]);
-      }
-      setMsgSubject('');
-      setMsgContent('');
-      setMsgSuccess(true);
-      setTimeout(() => setMsgSuccess(false), 3000);
-    } catch (err) {
-      setMsgError(err?.message || 'No se pudo enviar el mensaje.');
-    }
   };
 
   const handleSendWhatsAppRedirect = (memberItem) => {
@@ -213,82 +176,20 @@ export default function MessagingTab({
         )}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '1.5rem' }} className="responsive-form-grid">
-        {/* Enviar Comunicados */}
-        <div id="ops-compose-form" className="glass-card fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
-          <div>
-            <h3 className="serif-font" style={{ fontSize: '1.3rem', color: 'var(--text-gold)', margin: 0 }}>Mailing & Mensajería Exclusiva</h3>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
-              Envíe avisos institucionales directamente al portal privado del socio.
-            </p>
-          </div>
-
-          {msgSuccess && (
-            <div role="status" style={{ background: 'rgba(16, 185, 129, 0.1)', border: '1px solid var(--emerald-accent)', color: 'var(--emerald-accent)', padding: '0.6rem', borderRadius: '6px', fontSize: '0.8rem', textAlign: 'center' }}>
-              Mensaje enviado. Quedará visible en la bandeja del destinatario.
-            </div>
-          )}
-          {msgError && (
-            <div role="alert" style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid var(--danger-accent)', color: '#f87171', padding: '0.6rem', borderRadius: '6px', fontSize: '0.8rem' }}>
-              {msgError}
-            </div>
-          )}
-
-          <form onSubmit={handleSendMessage} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label className="form-label" style={{ fontSize: '0.75rem' }}>Destinatario del Mensaje</label>
-              <select
-                className="form-input"
-                value={msgRecipient}
-                onChange={(e) => setMsgRecipient(e.target.value)}
-                style={{ padding: '0.5rem', fontSize: '0.85rem' }}
-              >
-                <option value="all" style={{ background: 'var(--bg-secondary)' }}>Todos los Socios (Broadcast Global)</option>
-                {members.map((m) => (
-                  <option key={m.memberId} value={m.memberId} style={{ background: 'var(--bg-secondary)' }}>
-                    {m.name} (Cred: {m.memberId.slice(0, 6)}...)
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label className="form-label" style={{ fontSize: '0.75rem' }}>Asunto del Comunicado</label>
-              <input
-                type="text"
-                placeholder="Ej: Modificación Horario de Canchas de Polo"
-                className="form-input"
-                value={msgSubject}
-                onChange={(e) => setMsgSubject(e.target.value)}
-                style={{ padding: '0.5rem', fontSize: '0.85rem' }}
-                required
-              />
-            </div>
-
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label className="form-label" style={{ fontSize: '0.75rem' }}>Cuerpo del Mensaje</label>
-              <textarea
-                placeholder="Escriba las directivas del comunicado..."
-                className="form-input"
-                value={msgContent}
-                onChange={(e) => setMsgContent(e.target.value)}
-                style={{ padding: '0.55rem', fontSize: '0.85rem', minHeight: '80px', fontFamily: 'inherit', resize: 'vertical' }}
-                required
-              />
-            </div>
-
-            <button
-              type="submit"
-              className="btn btn-primary"
-              style={{ padding: '0.6rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', fontWeight: 'bold' }}
-            >
-              <Send size={14} /> Enviar Mensaje Interno
-            </button>
-          </form>
+      {msgError ? (
+        <div role="alert" style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid var(--danger-accent)', color: '#f87171', padding: '0.6rem', borderRadius: '6px', fontSize: '0.8rem' }}>
+          {msgError}
         </div>
+      ) : null}
 
-        {/* Módulo WhatsApp Direct Debtors */}
-        <div className="glass-card fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+      <NoticeComposeCard
+        members={members}
+        onSendMessage={onSendMessage}
+        senderName={user?.fullName || 'Administración Jockey Club'}
+        replyToId={replyToId}
+      />
+
+      <div className="glass-card fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
           <div>
             <h3 className="serif-font" style={{ fontSize: '1.3rem', color: 'var(--text-gold)', margin: 0 }}>Cobranza vía WhatsApp</h3>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
@@ -361,7 +262,6 @@ export default function MessagingTab({
               </div>
             </div>
           )}
-        </div>
       </div>
     </div>
   );

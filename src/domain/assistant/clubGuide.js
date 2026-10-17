@@ -141,8 +141,8 @@ export const CLUB_GUIDE = [
     id: 'mensajeria',
     tab: 'messaging',
     title: 'Mensajería',
-    keywords: 'mensajeria mensaje correo interno',
-    teach: 'En Mensajería está el correo interno del panel. WhatsApp de vencimiento sale desde Cuotas, no de acá.',
+    keywords: 'mensajeria mensaje correo interno mail comunicado masivo jev',
+    teach: 'En Mensajería se redacta el comunicado: mensaje interno, mail, o los dos, a un socio o a todos. La IA escribe el texto. WhatsApp de vencimiento sale desde Cuotas.',
   },
   {
     id: 'profesores',
@@ -464,8 +464,8 @@ function countInsight(brief, kind) {
       value: brief.reclamosAbiertos,
     },
     messages: {
-      verdict: brief.mensajes != null ? `${formatGuideCount(brief.mensajes)} mensajes en el libro.` : 'Mensajería es el correo interno.',
-      text: 'WhatsApp de vencimiento sale desde Cuotas. El correo del panel está en Mensajería.',
+      verdict: brief.mensajes != null ? `${formatGuideCount(brief.mensajes)} mensajes en el libro.` : 'Mensajería es el correo del club.',
+      text: 'En Mensajería se manda mensaje interno y mail, a uno o a todos. La IA redacta. WhatsApp de vencimiento sale desde Cuotas.',
       go: 'messaging',
       label: 'Mensajes',
       value: brief.mensajes,

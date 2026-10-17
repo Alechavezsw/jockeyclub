@@ -575,10 +575,11 @@ export const APP_MANUAL = [
     group: 'com',
     title: 'Mensajería',
     tab: 'messaging',
-    keywords: 'mensajeria mensaje correo interno',
+    keywords: 'mensajeria mensaje correo interno mail comunicado masivo jev',
     who: 'Personal del panel.',
     steps: [
-      'Comunicación → Mensajería: correo interno del panel.',
+      'Comunicación → Mensajería: mensaje interno, mail, o los dos.',
+      'Un socio o todos. La IA puede redactar el texto.',
       'WhatsApp de cuota sale desde Cuotas.',
     ],
     dont: 'No mandes el vencimiento desde acá.',

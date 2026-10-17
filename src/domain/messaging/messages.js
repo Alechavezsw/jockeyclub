@@ -13,6 +13,7 @@ export function createMessage({
   subject,
   content,
   parentId = null,
+  meta = null,
 }) {
   const now = new Date();
   return {
@@ -26,6 +27,7 @@ export function createMessage({
     content: content.trim(),
     isRead: false,
     parentId,
+    ...(meta ? { meta } : {}),
   };
 }
 

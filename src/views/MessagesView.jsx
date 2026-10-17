@@ -65,6 +65,7 @@ export default function MessagesView({ messages, setMessages, members = [], onRe
   const [replyText, setReplyText] = useState('');
   const [replyError, setReplyError] = useState('');
   const [replySending, setReplySending] = useState(false);
+  const [sending, setSending] = useState(false);
 
   // Refetch al entrar / foco / cada 20s para conversación real entre sesiones
   useEffect(() => {
