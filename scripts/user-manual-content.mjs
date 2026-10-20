@@ -421,6 +421,14 @@ export function buildBody(m) {
   /* ----------------------------------------------------------------- 16 */
   m.h1('16.  Jev, el asistente del panel', { n: '16' });
   m.p('Jev está en el menú IA del panel, para el personal con sesión. Lee el club entero (cuotas, portería, reservas, pileta, reclamos) y te dice qué falta o adónde ir. No escribe en el libro: no cobra, no liquida, no publica.');
+  m.h2('Qué dudas resuelve');
+  m.bullets([
+    'Cómo se hace algo: “¿cómo cobro a un socio?”, “¿cómo anulo un cobro?”, “¿cómo liquido el mes?”. Contesta con los pasos del manual y te lleva a la sección.',
+    'Por qué algo no anda: “¿por qué no lo deja pasar?”, “¿por qué no puede pagar pileta?”, “¿por qué no veo Contabilidad?”, “¿por qué no coinciden los números?”.',
+    'Qué significa una palabra o una regla: “¿qué es AMET?”, “¿cuándo empieza el recargo?”, “¿qué es el empalme?”.',
+    'Un socio en particular: escribí su número, su DNI o su nombre y apellido. Jev explica su caso con las mismas reglas que usa la caja y la puerta: categoría, titular o adherente, mora y recargo, si entra hoy y si puede pagar pileta. Podés repreguntar sobre el mismo socio.',
+  ]);
+  m.p('Si el manual no cubre la duda, Jev lo dice y te manda a Secretaría o al superadministrador: no inventa pantallas, botones ni montos.');
   m.table(
     ['Sala', 'Para qué sirve'],
     [

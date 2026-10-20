@@ -2,6 +2,7 @@
 
 export const MANUAL_GROUPS = [
   { id: 'dia', label: 'El día' },
+  { id: 'ayuda', label: 'Si algo no anda' },
   { id: 'entrar', label: 'Entrar' },
   { id: 'ops', label: 'Operación' },
   { id: 'club', label: 'Club' },
@@ -185,7 +186,7 @@ export const APP_MANUAL = [
     group: 'dia',
     title: 'Cobrar pileta',
     tab: 'pool',
-    keywords: 'pileta canon invitado apto entrada ticket',
+    keywords: 'pileta canon invitado apto entrada ticket abrir caja del dia cobro',
     who: 'Caja de pileta, admin, superadmin.',
     steps: [
       'El ingreso se controla en Entrada pileta (/entrada-pileta).',
@@ -207,12 +208,215 @@ export const APP_MANUAL = [
     who: 'Personal del club con sesión.',
     steps: [
       'IA → Consulta. Escribí un número de socio, el mes, o cómo se hace algo. Los atajos de arriba (El mes, Qué conviene, La puerta, Enseñame) hacen la pregunta por vos.',
+      'Para un socio, escribí su número, su DNI o nombre y apellido: «¿por qué el socio 1234 no puede pagar pileta?». Jev contesta con las mismas reglas que usan la caja y la puerta: categoría, titular o adherente, mora y recargo, si entra hoy y si puede pagar pileta. Podés repreguntar sobre el mismo socio.',
+      'También contesta dudas: «¿por qué no lo deja pasar?», «¿qué pasa si entra en mora?», «¿qué significa AMET?». Si el manual no lo cubre, te lo dice y te manda a Secretaría; no inventa.',
       'Revisión es el padrón sucio: lo que falta, lo que se repite y lo que no cierra. Se baja a Excel.',
       'Predicciones proyecta el 10 y la pileta.',
       'Manual es la sala de al lado: el paso escrito de cada oficio, con captura y botón Ir a esa sección.',
       'Jev lee el club entero (cuotas, portería, reservas, pileta, reclamos) y te dice qué falta. No escribe en el libro.',
     ],
     dont: 'No le pidas a Jev que cobre, liquide o publique. Lee y te lleva.',
+  },
+  {
+    id: 'transferencia-socio',
+    group: 'dia',
+    title: 'Registrar una transferencia que avisó el socio',
+    tab: 'members',
+    keywords: 'transferencia comprobante aviso banco acreditar imputar cbu alias deposito',
+    who: 'Caja, administración, contador, superadmin.',
+    steps: [
+      'El aviso del socio llega como mensaje a la bandeja de Operaciones (Comunicación → Mensajería → MD), con el comprobante adjunto.',
+      'Verificá en el banco que la plata esté acreditada. El aviso solo avisa: no cobra ni cambia el saldo.',
+      'Abrí la ficha del socio y tocá Cobrar. Elegí Transferencia, el banco del club y adjuntá el comprobante: sin comprobante no deja confirmar.',
+      'Confirmá. El saldo se actualiza, la caja registra el ingreso y el recibo le llega al socio por mensaje.',
+      'Si el socio no es el titular, el cobro entra en la cuenta del titular.',
+    ],
+    dont: 'No cobres solo porque llegó el aviso: primero mirá que el dinero esté en el banco.',
+  },
+  {
+    id: 'no-pasa-puerta',
+    group: 'ayuda',
+    title: 'Por qué no lo deja pasar en la puerta',
+    tab: 'qr_gate',
+    keywords: 'puerta denegado rechazado no pasa no entra no deja entrar molinete qr mora suspendido invalido anfitrion bloqueado',
+    who: 'Portería, caja, personal.',
+    steps: [
+      'Leé el título del resultado: dice el motivo.',
+      'ACCESO DENEGADO · MORA: es temporada de pileta (diciembre a marzo), pasó el 10 y no pagó la cuota del mes. Que regularice en Caja o en Mi Cuenta; cuando se acredita, pasa. Fuera de temporada, la deuda no cierra la puerta.',
+      'ACCESO DENEGADO: cuenta suspendida u otro bloqueo. Se rehabilita en la ficha, con motivo, desde Socios.',
+      'QR no válido o adulterado: es una foto o un carnet viejo. Que abra la app de nuevo, o buscalo por DNI, apellido o número.',
+      'Socio no encontrado: el número no está en el padrón. Avisá a Secretaría; no improvises un pase.',
+      'Invitado: ANFITRIÓN EN MORA significa que el socio que lo invitó está bloqueado; PASE INVÁLIDO es un pase vencido, anulado o con anfitrión suspendido. Los pases valen solo el día.',
+      'El motivo de cada lectura queda en Operación → Ingresos.',
+    ],
+    dont: 'No dejes pasar a un denegado por mora “por esta vez” ni inventes un pase. La regla de mora se prende o apaga en Configuración → Pileta, no en la puerta.',
+  },
+  {
+    id: 'credencial-qr',
+    group: 'ayuda',
+    title: 'Credencial, QR y socio sin carnet',
+    tab: 'qr_gate',
+    keywords: 'credencial carnet tarjeta qr virtual firmado sin carnet sin celular no lo lee no lee foto celular codigo manual jcsj dni',
+    who: 'Portería, caja, personal y atención al socio.',
+    steps: [
+      'La credencial del socio es la tarjeta virtual de su Inicio: nombre, número y un QR firmado. El personal también la ve en la ficha, sección Tarjeta.',
+      'Si el lector no toma el QR: que el socio abra la app de nuevo (una foto o un carnet viejo no sirve), subir el brillo, o buscarlo por DNI, apellido o número en Acceso QR.',
+      'Socio sin carnet ni celular: en Acceso QR escribí el DNI, el apellido, el número o el código JCSJ en Código manual. Se aplican las mismas reglas que con el QR.',
+      'Un QR no válido o adulterado queda registrado en Ingresos.',
+    ],
+    dont: 'No dejes pasar sin buscar al socio. Si no figura en el padrón, que lo resuelva Secretaría.',
+  },
+  {
+    id: 'no-puede-pagar',
+    group: 'ayuda',
+    title: 'Por qué un socio no puede pagar',
+    tab: 'members',
+    keywords: 'no puede pagar pago boton mercado pago exento adherente pileta mora cuenta checkout debito sin botones',
+    who: 'Caja y atención al socio.',
+    steps: [
+      'Mi Cuenta sin botones de pago: es exento (vitalicio, fundador o comisión), es adherente (paga el titular) o el estado de la cuota todavía se está confirmando; esperar unos segundos.',
+      'Mercado Pago no abre: si Cobros habilitados está en No (Configuración → Mercado Pago), se apagan el cobro online, el QR y la adhesión de todos.',
+      'Un exento o un adherente no pueden pagar ni adherirse al débito mensual.',
+      'Pileta: en mora (desde el 10 sin la cuota del mes, o con saldo) no puede pagar pileta hasta regularizar. También si está suspendido, de baja o con la cuenta no habilitada. La cabecera de la ficha lo dice.',
+      'Cobro en caja a un adherente: entra en la cuenta del titular. Si el titular no está en el padrón, el sistema no deja cobrar.',
+      'Transferencia: sin comprobante adjunto no se confirma.',
+    ],
+    dont: 'No le cargues una deuda a un exento ni a un adherente para que “le aparezca el botón”.',
+  },
+  {
+    id: 'no-puede-reservar',
+    group: 'ayuda',
+    title: 'Por qué un socio no puede reservar',
+    tab: 'bookings',
+    keywords: 'no puede reservar reserva rechazada turno cancha anticipacion invitados categoria titular adherente zonda lleno ocupado',
+    who: 'Atención al socio y administración.',
+    steps: [
+      '“Las reservas las hace el titular de la cuenta”: es adherente. Que reserve el titular.',
+      '“Ese turno ya está reservado” o “ya empezó”: elegir otro horario. Si el turno ya empezó, no se puede tomar.',
+      '“Se puede reservar hasta N días antes” y “Hay que reservar con al menos N horas de anticipación”: lo fija cada espacio.',
+      '“El máximo de invitados es N”: tope del espacio.',
+      '“Tu categoría de cuota no puede reservar este espacio”: el espacio restringe por categoría; se edita en el espacio, en Reservas.',
+      '“Ya tenés una reserva vigente en este espacio”: una por espacio.',
+      '“Ese espacio no está disponible”: suspendido, en mantenimiento o no disponible. Con Zonda declarado se suspende lo que está al aire libre.',
+    ],
+    dont: 'No fuerces una reserva cargándola a mano para saltar una regla: cambiá la regla del espacio si corresponde.',
+  },
+  {
+    id: 'no-veo-pantalla',
+    group: 'ayuda',
+    title: 'Por qué no veo una pantalla',
+    tab: 'system',
+    keywords: 'no veo pantalla seccion permiso rol menu falta contabilidad cuotas saldos acceso restringido perfil',
+    who: 'Todo el personal.',
+    steps: [
+      'El menú muestra solo lo que abre tu perfil. Si falta una sección, no está rota: tu perfil no la habilita.',
+      'Cuotas o Saldos: se llama Cuotas solo si tu perfil liquida (contador y superadmin). Para el resto es Saldos.',
+      'Contabilidad: solo contador y superadmin. Cajero y portería ven solo Cajas y Otros ingresos. El administrador no entra.',
+      'Crear y editar usuarios y perfiles es solo del superadmin. Configuración y Migración también se manejan con él.',
+      'Un usuario puede tener más de un rol y los permisos se suman. El superadmin los cambia en Usuarios y altas.',
+      'Un socio no ve el panel. Un adherente no puede reservar ni pagar.',
+    ],
+    dont: 'No pidas un rol más alto “para probar”: pedí el permiso que necesitás.',
+  },
+  {
+    id: 'numeros-no-cierran',
+    group: 'ayuda',
+    title: 'Por qué los números no coinciden',
+    tab: 'dashboard',
+    keywords: 'numeros no coinciden no cierra no cierran diferencia recaudado liquidado saldo corte lila total distinto cobrabilidad caja',
+    who: 'Tesorería, contador y administración.',
+    steps: [
+      'El saldo vivo de un socio es el de su ficha. Los reportes “Corte LILA” son fotos de un día anterior al empalme (1 de octubre de 2026): no son el saldo de hoy.',
+      'Recaudado del mes en Inicio es solo la cuota del mes sobre lo liquidado. Las atrasadas cobradas, los recargos y las reservas van aparte; por eso la caja del mes da más que ese número.',
+      'La liquidación cobra una cuota por grupo familiar, la del titular. Los adherentes no suman cuota (el abono de tenis sí).',
+      'Un cobro anulado no desaparece: deja el cobro tachado y su contraasiento.',
+      'El mensual, la cuenta corriente y la caja de otro corte pueden dar distinto: son fotos de días distintos. Anotá la fecha de cada uno.',
+    ],
+    dont: 'No iguales dos reportes a mano. Mirá primero la fecha del corte.',
+  },
+  {
+    id: 'portal-no-entra',
+    group: 'ayuda',
+    title: 'El socio no puede entrar al portal',
+    tab: 'system',
+    keywords: 'socio no puede entrar portal clave contrasena usuario olvido recuperar acceso mail registro login ficha vinculada',
+    who: 'Secretaría y superadmin.',
+    steps: [
+      'El socio entra con el correo de su ficha y su contraseña. Verificá que el mail de la ficha sea el correcto.',
+      'Si no tiene usuario o olvidó la clave, en la pantalla de ingreso usa “Ya soy socio y no tengo usuario / olvidé la contraseña” (/registro). El pedido llega a Usuarios y altas y a Inicio.',
+      'Secretaría verifica la ficha y contacta al socio. Por esa pantalla nunca se entrega una clave.',
+      'Si el mail con el acceso no sale, se le pasa la contraseña por WhatsApp.',
+      'Si entra pero no le carga su ficha, el usuario no está vinculado al padrón: el superadmin pega el número de socio al perfil en Usuarios y altas.',
+    ],
+    dont: 'No le prestes tu usuario ni crees uno con el mail de otra persona.',
+  },
+  {
+    id: 'mora-que-pasa',
+    group: 'ayuda',
+    title: 'Qué pasa cuando un socio entra en mora',
+    tab: 'dues',
+    keywords: 'mora vencimiento recargo aviso pileta puerta regularizar atrasado deuda consecuencias que pasa suspender',
+    who: 'Caja, administración, contador.',
+    steps: [
+      'El día 10 (AMET, el 18) vence la cuota. Hasta ese día no lleva recargo.',
+      'Desde el día siguiente (el 11; AMET, el 19) es mora. En socio familiar e individual corre el recargo del 10 %; AMET no lleva recargo.',
+      'El socio recibe aviso por mensaje interno y por mail, con las consecuencias.',
+      'No puede pagar pileta hasta regularizar. En temporada de pileta (diciembre a marzo), tampoco ingresa al club.',
+      'Se regulariza cobrando en la ficha o con Mercado Pago en Mi Cuenta. Tesorería, contador y superadmin pueden perdonar el recargo al cobrar.',
+      'Control de mora, en Cuotas, lista a quien debe, cuántos meses y cuánto. Un exento o un adherente nunca entra en mora.',
+    ],
+    dont: 'Mora no es suspensión. Suspender es otra acción: pide un motivo y queda en la trazabilidad de la ficha.',
+  },
+  {
+    id: 'alta-baja-socio',
+    group: 'ayuda',
+    title: 'Alta, suspensión y baja de un socio',
+    tab: 'members',
+    keywords: 'alta baja suspender reactivar activar habilitar socio nuevo solicitud aprobar motivo trazabilidad pendiente duplicado',
+    who: 'Administración y caja con permiso.',
+    steps: [
+      'Alta: Operación → Socios, alta de socio titular. Las solicitudes que llegan de /registro quedan pendientes hasta que Secretaría las apruebe.',
+      'Suspender y Activar: botones en la fila del socio y en la ficha. Piden un motivo (mora, conducta, documentación, pedido del socio, otro) y queda en la Trazabilidad.',
+      'Un suspendido no ingresa y su cuota queda en pausa: no se liquida.',
+      'Dar de baja pide un motivo (renuncia, fallecimiento, mora irrecuperable, duplicado, corrección de padrón, otro). Queda auditado y no factura más; la deuda previa se informa pero no se liquida.',
+      'Un adherente se suspende o se habilita desde el desglose del grupo familiar, en la fila del titular.',
+    ],
+    dont: 'No des de baja un duplicado sin revisar cuál es la ficha buena: la baja queda auditada.',
+  },
+  {
+    id: 'invitados',
+    group: 'ayuda',
+    title: 'Invitados: pase del día y pileta',
+    tab: 'members',
+    keywords: 'invitado invitados pase qr dia pileta cupo anfitrion tope',
+    who: 'Portería, pileta y atención al socio.',
+    steps: [
+      'Pase de invitado (puerta de la sede): el socio lo genera en Inicio con el nombre del invitado. Máximo 3 activos por día y por socio; vale solo ese día.',
+      'Si el anfitrión está suspendido o en mora (en temporada), el invitado no entra.',
+      'Invitados de pileta: es otro cupo, el que fija Configuración → Pileta (hoy 3 por día), con un canon por invitado que se cobra en la caja de pileta, después de habilitar al socio.',
+      'En la ficha del socio, la sección Invitados muestra y genera los pases.',
+    ],
+    dont: 'No confundas los dos cupos: el pase de la sede y el invitado de pileta son cosas distintas.',
+  },
+  {
+    id: 'glosario',
+    group: 'ayuda',
+    title: 'Qué significa cada palabra del club',
+    tab: 'dashboard',
+    keywords: 'glosario significa que es palabra termino padron ficha titular adherente exento amet mora recargo imputar liquidar corte lila empalme apto zonda',
+    who: 'Cualquiera.',
+    steps: [
+      'Padrón: la lista oficial de socios. Ficha: la pantalla completa de una persona.',
+      'Titular: lleva la cuenta del grupo. Adherente: familiar a cargo; no paga ni reserva por su cuenta.',
+      'Exento: vitalicio, fundador o comisión. No abonan cuota social.',
+      'AMET: categoría que vence el 18, con la cuota en base menos 2,5 %; ese 2,5 % es tarifa, no mora, y no lleva recargo.',
+      'Mora: cuota vencida y sin pagar, desde el día siguiente al vencimiento. Recargo: 10 % sobre la cuota en mora, solo familiar e individual.',
+      'Imputar: asignar un cobro o un evento a la cuenta de un socio. Liquidar: cerrar el período y generar las cuotas del mes (contador y superadmin).',
+      'Corte LILA: foto de un Excel de un día anterior al 1 de octubre de 2026, no el ahora. Empalme: la fecha en que el portal pasó a ser el libro vivo.',
+      'Apto: la revisación médica para usar la pileta. QR firmado: código de la app que no se puede inventar con el número.',
+      'Zonda: viento fuerte; se cierran las canchas al aire libre.',
+    ],
+    dont: 'Si una palabra no está acá, preguntale a Secretaría antes de suponer.',
   },
   {
     id: 'roles',
@@ -268,7 +472,7 @@ export const APP_MANUAL = [
     group: 'ops',
     title: 'Socios',
     tab: 'members',
-    keywords: 'socio padron ficha adherente grupo familiar titular editar',
+    keywords: 'socio padron ficha adherente grupo familiar titular editar imprimir excel pdf exportar',
     who: 'Operación y administración.',
     steps: [
       'El padrón está en Operación → Socios. El número de socio es la llave. La lista es liviana a propósito: el domicilio y el resto de la ficha se leen al abrir al socio.',
@@ -690,7 +894,7 @@ export const APP_MANUAL = [
     group: 'admin',
     title: 'Usuarios y altas',
     tab: 'system',
-    keywords: 'usuario permiso rol invitar perfil portal alta registro',
+    keywords: 'usuario usuarios permiso rol invitar perfil portal alta registro crear creo crea nuevo personal',
     who: 'Solo superadmin crea y edita perfiles.',
     steps: [
       'Administración → Usuarios y altas.',
@@ -707,7 +911,7 @@ export const APP_MANUAL = [
     group: 'sys',
     title: 'Configuración',
     tab: 'settings',
-    keywords: 'configuracion sistema sede pileta zonda vencimiento cuit reglas tutores boleto mercado pago avisos mora',
+    keywords: 'configuracion sistema sede pileta zonda vencimiento cuit reglas tutores boleto mercado pago avisos mora cambiar cambio dia',
     who: 'Superadmin.',
     steps: [
       'Sistema → Configuración. Todo se guarda en el libro.',
@@ -726,7 +930,7 @@ export const APP_MANUAL = [
     group: 'sys',
     title: 'Mercado Pago',
     tab: 'settings',
-    keywords: 'mercado pago mp qr checkout suscripcion debito automatico online token cobro webhook',
+    keywords: 'mercado pago mp qr checkout suscripcion debito automatico online token cobro webhook activar prender paga pagar pagos',
     who: 'Superadmin lo prende. Caja y pileta lo usan. El socio paga en Mi cuenta.',
     steps: [
       'Sistema → Configuración → Mercado Pago. Poné Cobros habilitados en Sí. El token va en las secretas de Supabase (MP_ACCESS_TOKEN), no en esta pantalla.',
@@ -784,11 +988,18 @@ export const APP_MANUAL = [
   },
 ];
 
+/** Siglas de dos letras que sí son una duda («el qr no lee», «MD»). */
+const SHORT_TERMS = new Set(['qr', 'md', 'mp']);
+
 const MANUAL_STOP = new Set([
   'como', 'para', 'esta', 'este', 'esto', 'aqui', 'alla', 'desde', 'hasta',
   'tiene', 'solo', 'todo', 'toda', 'cada', 'otra', 'otro', 'unas', 'unos',
   'donde', 'abrir', 'usar', 'paso', 'pasa', 'hace', 'hago', 'tengo', 'esa',
   'ese', 'las', 'los', 'del', 'una', 'por', 'con', 'que', 'app', 'uso',
+  'cuando', 'cuanto', 'cuantos', 'cuanta', 'cuantas', 'quien', 'quienes', 'cual', 'cuales',
+  'puede', 'pueden', 'puedo', 'sirve', 'hacer', 'sobre', 'entre', 'tambien', 'ahora',
+  'dice', 'dicen', 'alguien', 'algun', 'alguna', 'sin', 'mas', 'hay', 'muy', 'son',
+  'soy', 'fue', 'era', 'les', 'mis', 'tus', 'sus', 'nos', 'uno', 'eso', 'vez', 'sea', 'ser',
 ]);
 
 function fold(value) {
@@ -804,13 +1015,28 @@ function wordsOf(value) {
 }
 
 function tokenMatchesWord(token, word) {
-  if (word === token || word.startsWith(token) || token.startsWith(word)) return true;
+  // Una palabra corta («por», «del», «con») no puede ser prefijo de la pregunta: «por» no es «portal».
+  if (word === token || word.startsWith(token) || (word.length >= 4 && token.startsWith(word))) return true;
   const stem = token.slice(0, 4);
   return stem.length >= 4 && word.startsWith(stem);
 }
 
-function countTokenHits(tokens, words) {
-  return tokens.filter((token) => words.some((word) => tokenMatchesWord(token, word))).length;
+function wordsHit(token, words) {
+  return words.some((word) => tokenMatchesWord(token, word));
+}
+
+let lessonIndexCache = null;
+
+function lessonIndex() {
+  if (!lessonIndexCache) {
+    lessonIndexCache = APP_MANUAL.map((lesson) => ({
+      lesson,
+      title: wordsOf(lesson.title),
+      keywords: wordsOf(lesson.keywords),
+      body: wordsOf(`${lesson.who} ${lesson.steps.join(' ')} ${lesson.dont}`),
+    }));
+  }
+  return lessonIndexCache;
 }
 
 export function lessonTeach(lesson) {
@@ -820,16 +1046,23 @@ export function lessonTeach(lesson) {
 }
 
 export function matchManualLessons(query = '') {
-  const tokens = wordsOf(query).filter((token) => token.length >= 4 && !MANUAL_STOP.has(token));
+  const tokens = wordsOf(query).filter((token) => (token.length >= 3 || SHORT_TERMS.has(token)) && !MANUAL_STOP.has(token));
   if (!tokens.length) return [];
-  return APP_MANUAL
-    .map((lesson) => {
-      const titleWords = wordsOf(`${lesson.title} ${lesson.keywords}`);
-      const stepWords = wordsOf(`${lesson.who} ${lesson.steps.join(' ')} ${lesson.dont}`);
-      const titleHits = countTokenHits(tokens, titleWords);
-      const stepHits = countTokenHits(tokens, stepWords);
-      const hits = titleHits * 3 + stepHits;
-      return { ...lesson, hits };
+  const index = lessonIndex();
+  // Una palabra que está en casi todas las lecciones («socio») dice poco; una rara («recargo», «comunicado») dice mucho.
+  const weight = new Map(tokens.map((token) => {
+    const df = index.filter((row) => wordsHit(token, row.title) || wordsHit(token, row.keywords) || wordsHit(token, row.body)).length;
+    return [token, Math.log(1 + index.length / (1 + df))];
+  }));
+  return index
+    .map((row) => {
+      // El título pesa más que las palabras clave, y estas más que el cuerpo: «cómo hago un asiento» va a Crear asiento.
+      const hits = tokens.reduce((sum, token) => sum + weight.get(token) * (
+        (wordsHit(token, row.title) ? 4 : 0)
+        + (wordsHit(token, row.keywords) ? 3 : 0)
+        + (wordsHit(token, row.body) ? 1 : 0)
+      ), 0);
+      return { ...row.lesson, hits };
     })
     .filter((lesson) => lesson.hits > 0)
     .toSorted((a, b) => b.hits - a.hits || a.title.localeCompare(b.title, 'es'));
@@ -855,7 +1088,7 @@ export function lessonInsight(query = '') {
   const top = hits[0];
   return {
     verdict: top.title,
-    text: `${top.who} ${top.steps.map((step, index) => `${index + 1}. ${step}`).join(' ')}`,
+    text: `${top.who}\n${top.steps.map((step, index) => `${index + 1}. ${step}`).join('\n')}`,
     figures: [],
     next: top.dont,
     go: top.tab,
@@ -864,11 +1097,50 @@ export function lessonInsight(query = '') {
   };
 }
 
+function lessonForPrompt(lesson) {
+  const where = lesson.focus
+    ? `${lesson.title} (${lesson.tab} → ${lesson.focus})`
+    : lesson.title;
+  return `- ${where} [quién: ${lesson.who}]: ${lesson.steps.join(' ')} ${lesson.dont}`;
+}
+
 export function manualForPrompt() {
-  return APP_MANUAL.map((lesson) => {
-    const where = lesson.focus
-      ? `${lesson.title} (${lesson.tab} → ${lesson.focus})`
-      : lesson.title;
-    return `- ${where}: ${lesson.steps.join(' ')} ${lesson.dont}`;
-  }).join('\n');
+  return APP_MANUAL.map(lessonForPrompt).join('\n');
+}
+
+/** Lecciones que siempre viajan: las reglas de las que cuelga casi cualquier duda. */
+const CORE_LESSON_IDS = ['reglas-cuota', 'roles'];
+
+/**
+ * El manual que ve Gemini para una pregunta: las lecciones que corresponden, completas,
+ * más las reglas fijas, y un índice de una línea por el resto para que sepa adónde mandar.
+ * Entra en `limit` caracteres, así que nunca se corta a la mitad de una lección.
+ */
+export function manualPromptFor(query = '', { limit = 9000, top = 4 } = {}) {
+  const picked = [];
+  const seen = new Set();
+  const take = (lesson) => {
+    if (lesson && !seen.has(lesson.id)) {
+      seen.add(lesson.id);
+      picked.push(lesson);
+    }
+  };
+  matchManualLessons(query).slice(0, top).forEach(take);
+  CORE_LESSON_IDS.forEach((id) => take(APP_MANUAL.find((lesson) => lesson.id === id)));
+
+  const index = APP_MANUAL
+    .filter((lesson) => !seen.has(lesson.id))
+    .map((lesson) => `- ${lesson.title}: ${lesson.who}`);
+  const indexText = index.length ? `\nTAMBIÉN EN EL MANUAL (una línea por sección; si hace falta el detalle, mandá a esa sección):\n${index.join('\n')}` : '';
+
+  const budget = Math.max(0, limit - indexText.length);
+  const lines = [];
+  let used = 0;
+  for (const lesson of picked) {
+    const line = lessonForPrompt(lesson);
+    if (used + line.length + 1 > budget) continue;
+    lines.push(line);
+    used += line.length + 1;
+  }
+  return `${lines.join('\n')}${indexText}`.slice(0, limit);
 }

@@ -320,7 +320,13 @@ export default function JevReviewTab({
     <section className="jev" aria-label="Jev, consulta y revisión del club">
       <JevRooms room={room} onChange={setRoom} />
       <div hidden={room !== 'consulta'}>
-        <JevChatDesk brief={brief} goToTab={goToTab} onOpenManual={() => setRoom('manual')} />
+        <JevChatDesk
+          brief={brief}
+          goToTab={goToTab}
+          onOpenManual={() => setRoom('manual')}
+          members={members}
+          poolSettings={poolSettings}
+        />
       </div>
       {room === 'manual' ? <JevManual goToTab={goToTab} /> : null}
       {room === 'revision' && showCollection ? (

@@ -3,10 +3,13 @@ import {
   answerFromBrief,
   buildJevBrief,
   composeInsight,
+  guideForPrompt,
   matchGuideTopics,
+  mergeJevReply,
   monthReading,
   teachFromQuery,
 } from './clubGuide';
+import { memberFacts } from './memberFacts';
 
 describe('clubGuide', () => {
   it('enseña a liquidar desde Cuotas', () => {
@@ -87,5 +90,56 @@ describe('clubGuide', () => {
     });
     expect(brief.reservasHoy).toBe(1);
     expect(brief.reclamosAbiertos).toBe(1);
+  });
+
+  it('una duda se contesta con la lección, no con un recuento del día', () => {
+    const duda = composeInsight('por qué no deja pasar a un socio en la puerta', { porteriaHoy: 40 });
+    expect(duda.text).toMatch(/MORA/);
+    expect(duda.go).toBe('qr_gate');
+    const pileta = composeInsight('por qué un socio no puede pagar pileta', {});
+    expect(pileta.text).toMatch(/mora/i);
+  });
+
+  it('con un socio consultado contesta desde su ficha', () => {
+    const facts = memberFacts({
+      memberId: '1001',
+      name: 'Ana Pérez',
+      status: 'active',
+      tier: 'socio_familiar',
+      outstandingBalance: 70000,
+      nextDueDate: '2026-10-10',
+      lastPaymentDate: '2026-08-12',
+    }, { today: '2026-10-20' });
+    const insight = composeInsight('por qué no puede pagar pileta', {}, { member: facts });
+    expect(insight.verdict).toMatch(/1001/);
+    expect(insight.text).toMatch(/pileta/i);
+  });
+
+  it('el prompt de Gemini entra en el límite del servidor y trae las reglas de contestación', () => {
+    const facts = memberFacts({
+      memberId: '1002',
+      name: 'Luis Pérez',
+      status: 'active',
+      tier: 'socio_familiar',
+      familyPrincipalNumber: '1001',
+    }, { today: '2026-10-20' });
+    const guide = guideForPrompt('por qué el socio 1002 no puede reservar', { member: facts });
+    expect(guide.length).toBeLessThanOrEqual(12000);
+    expect(guide).toMatch(/CÓMO CONTESTAR/);
+    expect(guide).toMatch(/SOCIO CONSULTADO/);
+    expect(guide).toMatch(/ADHERENTE/);
+    expect(guide).toMatch(/reservas las hace el titular/);
+    expect(guideForPrompt('cobrar').length).toBeLessThanOrEqual(12000);
+  });
+
+  it('si Gemini contestó bien, manda su respuesta; si no, queda la del libro', () => {
+    const local = composeInsight('cómo cobro un socio', {});
+    const bien = mergeJevReply(local, { source: 'gemini', text: 'Abrí la ficha y tocá Cobrar.', tab: 'members' });
+    expect(bien.text).toBe('Abrí la ficha y tocá Cobrar.');
+    expect(bien.go).toBe('members');
+    const roto = mergeJevReply(local, { source: 'gemini', text: '{"verdict":' });
+    expect(roto.text).toBe(local.text);
+    const sinIa = mergeJevReply(local, { source: 'libro', text: 'otra cosa' });
+    expect(sinIa.text).toBe(local.text);
   });
 });

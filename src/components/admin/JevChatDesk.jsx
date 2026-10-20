@@ -8,6 +8,7 @@ import {
   monthReading,
   openingBriefing,
 } from '../../domain/assistant/clubGuide';
+import { findMemberInQuery, memberFacts } from '../../domain/assistant/memberFacts';
 import { todayISODateAR } from '../../lib/arDate';
 
 const STARTERS = [
@@ -17,6 +18,9 @@ const STARTERS = [
   { id: 'usar', label: 'Enseñame', ask: 'Enseñame a cobrar, liquidar y usar la puerta.' },
   { id: 'manual', label: 'Manual', ask: null, room: 'manual' },
 ];
+
+/** Repregunta sobre el mismo socio: «¿y puede pagar pileta?», «¿qué le falta a ese socio?». */
+const FOLLOW_UP = /\b(ese|esa|este|esta|ella|su|sus|mismo|misma)\b/;
 
 function slipTime(iso = new Date()) {
   return new Date(iso).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
@@ -71,6 +75,8 @@ export default function JevChatDesk({
   brief = {},
   goToTab,
   onOpenManual,
+  members = [],
+  poolSettings = {},
 }) {
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -85,6 +91,7 @@ export default function JevChatDesk({
     },
   ]);
   const scroller = useRef(null);
+  const lastMember = useRef({ member: null, at: -99 });
   const reading = useMemo(() => monthReading({ ...brief, today: brief.today || todayISODateAR() }), [brief]);
   const tiles = useMemo(() => ([
     {
@@ -135,9 +142,16 @@ export default function JevChatDesk({
       .filter((row) => row.id !== 'open')
       .slice(-8)
       .map((row) => ({ role: row.role, content: row.text }));
-    const local = composeInsight(text, { ...brief, today: brief.today || todayISODateAR() });
+    const today = brief.today || todayISODateAR();
+    const folded = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const turn = messages.length;
+    const asked = findMemberInQuery(text, members)
+      || (FOLLOW_UP.test(folded) && turn - lastMember.current.at <= 4 ? lastMember.current.member : null);
+    if (asked) lastMember.current = { member: asked, at: turn };
+    const facts = asked ? memberFacts(asked, { today, poolSettings, members }) : null;
+    const local = composeInsight(text, { ...brief, today }, { member: facts });
     try {
-      const reply = await askJevChat({ messages: history, brief });
+      const reply = await askJevChat({ messages: history, brief, member: facts });
       const merged = mergeJevReply(local, reply);
       setMessages((curr) => [...curr, {
         id: `a-${Date.now()}`,

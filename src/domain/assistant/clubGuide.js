@@ -1,7 +1,8 @@
 /** Mapa del panel y dictámenes de Jev (cómo usar la app y qué dice el libro). */
 
 import { duesDueMoment } from '../members/dues';
-import { lessonInsight, matchManualLessons, manualForPrompt, manualOverview } from './appManual';
+import { lessonInsight, matchManualLessons, manualOverview, manualPromptFor } from './appManual';
+import { memberFactsForPrompt, memberInsight } from './memberFacts';
 
 export const CLUB_GUIDE = [
   {
@@ -16,7 +17,7 @@ export const CLUB_GUIDE = [
     tab: 'jev',
     title: 'IA · Jev',
     keywords: 'ia jev chat analisis preguntar consulta revision',
-    teach: 'IA tiene tres salas. Consulta es la mesa. Revisión es el padrón. Predicciones proyecta el 10, la puerta y el padrón. Gemini no es un menú: es el motor de la consulta.',
+    teach: 'IA tiene cuatro salas. Consulta es la mesa: preguntás un número de socio, el mes o cómo se hace algo. Revisión es el padrón. Predicciones proyecta el 10, la puerta y el padrón. Manual es el paso escrito de cada oficio.',
   },
   {
     id: 'socios',
@@ -582,14 +583,19 @@ export function openingBriefing(brief = {}) {
 }
 
 /** Dictamen estructurado: veredicto, cifras y el paso siguiente. */
-export function composeInsight(query = '', brief = {}) {
+/** «Por qué no…», «qué pasa si…», «qué significa…»: la duda se contesta con el manual, no con un recuento. */
+const DOUBT = /por ?que|que pasa|que significa|que quiere decir|no (me )?(deja|dejan|puede|puedo|pueden|anda|andan|funciona|veo|entra|entran|pasa|pasan|cierra|cierran|aparece|aparecen|carga|llega|sale|coincide|coinciden)|problema|error|equivoc|duda|no se (como|que|donde)/;
+
+export function composeInsight(query = '', brief = {}, { member = null } = {}) {
   const text = fold(query);
   if (!text) return openingBriefing(brief);
-  if (/conviene|prioridad|mirar ahora|que hago|qué hago|urgente/.test(text)) {
+  if (/conviene|prioridad|mirar ahora|que hago|qué hago|urgente/.test(text) && !member) {
     return priorityInsight(brief);
   }
   const askingHow = /manual|como se usa|ense[nñ]|donde esta|dónde está|como |cómo |abrir /.test(text);
+  if (member && !askingHow) return memberInsight(member);
   if (askingHow) return teachInsight(query);
+  if (DOUBT.test(text) && matchManualLessons(query).length) return lessonInsight(query);
   if (/puerta|porter|pileta|reserva/.test(text)) return doorInsight(brief);
   if (/reclamo|queja/.test(text)) return countInsight(brief, 'claims');
   if (/mensaje|mensaj/.test(text)) return countInsight(brief, 'messages');
@@ -654,8 +660,9 @@ export function mergeJevReply(local, remote) {
   const parsed = parseJevReply(remote);
   const geminiText = String(parsed?.text || '').trim();
   const geminiLooksBroken = !geminiText || geminiText.startsWith('{') || geminiText.startsWith('```');
-  const localTeach = Boolean(local?.text && /\b1\.\s/.test(local.text));
-  const fromGemini = remote?.source === 'gemini' && geminiText && !geminiLooksBroken && !localTeach;
+  // Gemini ve las lecciones que corresponden y los datos del socio: si contestó bien, manda su respuesta.
+  // El texto del libro queda de respaldo cuando no contestó o contestó roto.
+  const fromGemini = remote?.source === 'gemini' && geminiText && !geminiLooksBroken;
   return {
     verdict: parsed?.verdict && !String(parsed.verdict).startsWith('{')
       ? parsed.verdict
@@ -669,14 +676,31 @@ export function mergeJevReply(local, remote) {
   };
 }
 
-export function guideForPrompt() {
-  return `MANUAL DE USO (pasos concretos):
-${manualForPrompt()}
-Roles: ${APP_ROLES}
+const ANSWER_RULES = `CÓMO CONTESTAR:
+- Tu trabajo es sacarle la duda a quien pregunta, con este manual y el LIBRO. Resolvé la duda completa; no mandes a leer el manual entero.
+- "¿Cómo se hace…?": pasos numerados del manual (1. 2. 3., máximo 6) en el campo text, y la sección en tab.
+- "¿Por qué no…?" o "¿qué pasa si…?": nombrá la regla, la causa más probable (según los datos del socio, si los hay) y qué hacer para resolverlo.
+- Si hay SOCIO CONSULTADO, contestá desde esos datos: ya vienen calculados con las reglas del club. No los contradigas ni los recalcules.
+- Si la duda no está cubierta, decilo en una línea y mandá a Secretaría o al superadministrador. No inventes pantallas, botones, montos ni plazos.
+- Si la pregunta es ambigua, hacé UNA pregunta corta en vez de adivinar.
+- No escribís en el libro: no cobrás, no liquidás, no publicás.`;
+
+const FIXED_FACTS = `Roles: ${APP_ROLES}
 Empalme LILA: 1 de octubre de 2026. Octubre liquidó $ 63.233.000. Desde noviembre de 2026 las cuotas las liquida esta app.
-Portal socio: / /reservas /cuenta /revista /perfil /registro
+Portal socio: / /reservas /cuenta /revista /perfil /mensajes /registro
 Profesor: /asistencia
 Portería QR: /acceso · Pileta: /pileta · Entrada pileta: /entrada-pileta · Concesiones: /concesiones`;
+
+/**
+ * Lo que Gemini lee para esta pregunta: cómo contestar, el socio consultado (si hay),
+ * las reglas fijas y las lecciones del manual que corresponden. Entra en `limit` caracteres
+ * (la función del servidor corta en 12.000).
+ */
+export function guideForPrompt(query = '', { member = null, limit = 11800 } = {}) {
+  const facts = member ? `SOCIO CONSULTADO (ya calculado):\n${memberFactsForPrompt(member)}` : '';
+  const head = [ANSWER_RULES, facts, FIXED_FACTS].filter(Boolean).join('\n');
+  const room = Math.max(3000, limit - head.length - 40);
+  return `${head}\nMANUAL DE USO (pasos concretos):\n${manualPromptFor(query, { limit: room })}`;
 }
 
 function dayOf(value) {

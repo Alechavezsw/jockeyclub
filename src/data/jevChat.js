@@ -2,7 +2,16 @@ import { isSupabaseConfigured, supabase } from '../lib/supabase';
 import { guideForPrompt } from '../domain/assistant/clubGuide';
 import { parseComposeDraft } from '../domain/messaging/clubNotice';
 
-export async function askJevChat({ messages = [], brief = {}, guide = '' } = {}) {
+/** Lo último que preguntó el usuario (y lo anterior, por si es una repregunta): con eso se eligen las lecciones. */
+function recentQuestions(messages = []) {
+  return messages
+    .filter((row) => row?.role === 'user')
+    .slice(-2)
+    .map((row) => String(row.content || ''))
+    .join(' ');
+}
+
+export async function askJevChat({ messages = [], brief = {}, guide = '', member = null } = {}) {
   if (!isSupabaseConfigured || !supabase) {
     throw new Error('Jev necesita la sesión del club para leer el libro.');
   }
@@ -11,7 +20,7 @@ export async function askJevChat({ messages = [], brief = {}, guide = '' } = {})
     throw new Error('Volvé a entrar para hablar con Jev.');
   }
   const { data, error } = await supabase.functions.invoke('jev-chat', {
-    body: { messages, brief, guide: guide || guideForPrompt() },
+    body: { messages, brief, guide: guide || guideForPrompt(recentQuestions(messages), { member }) },
   });
   if (error) {
     let detail = error.message || 'Jev no pudo responder';

@@ -22897,6 +22897,9 @@ ul.sys-set-hint {
   background: rgba(202, 57, 12, 0.12);
 }
 .jev-desk-wait,
+.jev-slip-text {
+  white-space: pre-line;
+}
 .jev-desk-error {
   margin: 0;
   font-size: 0.82rem;
