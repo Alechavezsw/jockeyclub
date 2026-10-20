@@ -401,6 +401,22 @@ async function main() {
       console.log(`    ─────────────────────────────`);
       console.log(`    TOTAL:         ${formatMoney(summary.recaudado).padStart(16)}`);
 
+      console.log('');
+      console.log('  DESGLOSE DETALLADO POR LÍNEA:');
+      console.log(`    Cuotas del mes:              ${formatMoney(summary.cuotasDelMes).padStart(16)}`);
+      console.log(`    Cuotas atrasadas:            ${formatMoney(summary.cuotasAtrasadas).padStart(16)}`);
+      console.log(`    Cuotas adelantadas:          ${formatMoney(summary.cuotasAdelantadas).padStart(16)}`);
+      if (summary.cuotasSinClasificar > 0) {
+        console.log(`    Cuotas sin clasificar:       ${formatMoney(summary.cuotasSinClasificar).padStart(16)}`);
+      }
+      console.log(`    Recargos:                    ${formatMoney(summary.recargos).padStart(16)}`);
+      console.log(`    Reservas/Eventos de salón:   ${formatMoney(summary.reservasEventos).padStart(16)}`);
+      console.log(`    Varios:                      ${formatMoney(summary.varios).padStart(16)}`);
+      console.log(`    Alquileres a terceros:       ${formatMoney(summary.alquileresATerceros).padStart(16)}`);
+      console.log(`    Portería/Estacionamiento:    ${formatMoney(summary.porteriaEstacionamiento).padStart(16)}`);
+      console.log(`    ─────────────────────────────────────────────`);
+      console.log(`    TOTAL PERCIBIDO:             ${formatMoney(summary.totalImporteTotal).padStart(16)}`);
+
       // Check exact total percibido against expected
       const totalMatch = centsMatch(summary.totalImporteTotal, EXPECTED_TOTAL_PERCIBIDO);
       console.log('');

@@ -419,6 +419,47 @@ export function computeFamilyGroupTotals(balances) {
 // COBRANZAS (RECAUDADO) - Lila "Reporte de Cobranzas" import
 // =============================================================================
 
+const MONTH_NAME_TO_NUM = {
+  enero: 1, febrero: 2, marzo: 3, abril: 4,
+  mayo: 5, junio: 6, julio: 7, agosto: 8,
+  septiembre: 9, setiembre: 9, octubre: 10, noviembre: 11, diciembre: 12,
+};
+
+/**
+ * Extract period (year-month) from a concepto string.
+ * E.g., "Octubre del 2026 - SOCIO FAMILIAR" → "2026-10"
+ *       "Septiembre del 2026" → "2026-09"
+ */
+function extractPeriodFromConcepto(concepto) {
+  if (!concepto) return null;
+  const match = concepto.match(/(\w+)\s+(?:del?\s+)?(\d{4})/i);
+  if (!match) return null;
+  const monthName = match[1].toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
+  const month = MONTH_NAME_TO_NUM[monthName];
+  if (!month) return null;
+  return `${match[2]}-${String(month).padStart(2, '0')}`;
+}
+
+/**
+ * Classify cuota timing relative to payment month.
+ * @returns 'del_mes' | 'atrasada' | 'adelantada' | null
+ */
+function classifyCuotaTiming(conceptoPeriod, paymentMonth) {
+  if (!conceptoPeriod || !paymentMonth) return null;
+  if (conceptoPeriod === paymentMonth) return 'del_mes';
+  if (conceptoPeriod < paymentMonth) return 'atrasada';
+  return 'adelantada';
+}
+
+/**
+ * Check if concepto indicates portería/estacionamiento.
+ */
+function isPorteriaEstacionamiento(concepto) {
+  if (!concepto) return false;
+  const lower = concepto.toLowerCase();
+  return lower.includes('porter') || lower.includes('estacion') || lower.includes('cochera');
+}
+
 /**
  * Find header row in cobranzas sheet.
  * Header is "Tipo | ID Recibo | Fecha | Mes | Año | NRO DE SOCIO | ..."
@@ -518,6 +559,16 @@ export function parseCobranzas(aoa, options = {}) {
     // Non-socio rows are now included as 'alquileres a terceros'
     // Examples: Colegio Fanzolato, La Kelita, Alameda Padel
 
+    // Extract period from concepto for cuotas classification
+    const conceptoPeriod = tipo === 'Cuotas' ? extractPeriodFromConcepto(concepto) : null;
+    const paymentMonth = fecha ? fecha.slice(0, 7) : null;
+    const cuotaTiming = tipo === 'Cuotas' && !isNonSocio
+      ? classifyCuotaTiming(conceptoPeriod, paymentMonth)
+      : null;
+
+    // Check for portería/estacionamiento
+    const isPorteria = isPorteriaEstacionamiento(concepto);
+
     // Determine if this payment counts toward target period recaudado
     // Rule: Cuotas where concepto starts with "Octubre del 2026" (or target period)
     //       + Recargos where concepto contains "Octubre del 2026"
@@ -542,6 +593,9 @@ export function parseCobranzas(aoa, options = {}) {
       isTargetPeriodCuota,
       isTargetPeriodRecargo,
       isNonSocio,
+      conceptoPeriod,
+      cuotaTiming,
+      isPorteria,
     });
   }
 
@@ -557,9 +611,17 @@ export function parseCobranzas(aoa, options = {}) {
     totalSocios: 0,
     totalNoSocios: 0,
     alquileresATerceros: 0,
+    porteriaEstacionamiento: 0,
     paymentsCount: payments.length,
     receiptsCount: new Set(payments.map(p => p.reciboId)).size,
     noSociosCount: 0,
+    cuotasDelMes: 0,
+    cuotasAtrasadas: 0,
+    cuotasAdelantadas: 0,
+    cuotasSinClasificar: 0,
+    recargos: 0,
+    reservasEventos: 0,
+    varios: 0,
   };
 
   for (const p of payments) {
@@ -574,6 +636,29 @@ export function parseCobranzas(aoa, options = {}) {
     } else {
       summary.byTipoSocios[p.tipo] = (summary.byTipoSocios[p.tipo] || 0) + p.importeTotal;
       summary.totalSocios += p.importeTotal;
+
+      // Classify socio payments by detailed category
+      if (p.tipo === 'Cuotas') {
+        if (p.cuotaTiming === 'del_mes') {
+          summary.cuotasDelMes += p.importeTotal;
+        } else if (p.cuotaTiming === 'atrasada') {
+          summary.cuotasAtrasadas += p.importeTotal;
+        } else if (p.cuotaTiming === 'adelantada') {
+          summary.cuotasAdelantadas += p.importeTotal;
+        } else {
+          summary.cuotasSinClasificar += p.importeTotal;
+        }
+      } else if (p.tipo === 'Recargos') {
+        summary.recargos += p.importeTotal;
+      } else if (p.tipo === 'Eventos') {
+        summary.reservasEventos += p.importeTotal;
+      } else if (p.tipo === 'Varios') {
+        if (p.isPorteria) {
+          summary.porteriaEstacionamiento += p.importeTotal;
+        } else {
+          summary.varios += p.importeTotal;
+        }
+      }
     }
 
     if (p.countsForRecaudado) {
@@ -584,13 +669,22 @@ export function parseCobranzas(aoa, options = {}) {
   }
 
   // Round to avoid floating point issues
-  summary.recaudado = Math.round(summary.recaudado * 100) / 100;
-  summary.recaudadoCuotas = Math.round(summary.recaudadoCuotas * 100) / 100;
-  summary.recaudadoRecargos = Math.round(summary.recaudadoRecargos * 100) / 100;
-  summary.totalImporteTotal = Math.round(summary.totalImporteTotal * 100) / 100;
-  summary.totalSocios = Math.round(summary.totalSocios * 100) / 100;
-  summary.totalNoSocios = Math.round(summary.totalNoSocios * 100) / 100;
-  summary.alquileresATerceros = Math.round(summary.alquileresATerceros * 100) / 100;
+  const round = (v) => Math.round(v * 100) / 100;
+  summary.recaudado = round(summary.recaudado);
+  summary.recaudadoCuotas = round(summary.recaudadoCuotas);
+  summary.recaudadoRecargos = round(summary.recaudadoRecargos);
+  summary.totalImporteTotal = round(summary.totalImporteTotal);
+  summary.totalSocios = round(summary.totalSocios);
+  summary.totalNoSocios = round(summary.totalNoSocios);
+  summary.alquileresATerceros = round(summary.alquileresATerceros);
+  summary.porteriaEstacionamiento = round(summary.porteriaEstacionamiento);
+  summary.cuotasDelMes = round(summary.cuotasDelMes);
+  summary.cuotasAtrasadas = round(summary.cuotasAtrasadas);
+  summary.cuotasAdelantadas = round(summary.cuotasAdelantadas);
+  summary.cuotasSinClasificar = round(summary.cuotasSinClasificar);
+  summary.recargos = round(summary.recargos);
+  summary.reservasEventos = round(summary.reservasEventos);
+  summary.varios = round(summary.varios);
 
   const dateRange = {
     from: minDate ? minDate.toISOString().slice(0, 10) : null,

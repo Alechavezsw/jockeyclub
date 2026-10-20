@@ -1191,17 +1191,52 @@ export default function AdminDashboardTab({
                     {cobranzasBreakdown && cobranzasBreakdown.count > 0 ? (
                       <div>
                         <div className="ops-muted" style={{ fontSize: '0.72rem', marginBottom: '0.35rem' }}>
-                          Recaudado (percibido por tipo)
+                          Recaudado (percibido)
                         </div>
-                        {Object.entries(cobranzasBreakdown.byType || {})
-                          .sort((a, b) => b[1] - a[1])
-                          .slice(0, 5)
-                          .map(([tipo, amount]) => (
-                            <div key={tipo} className="ops-row" style={{ fontSize: '0.8rem' }}>
-                              <span className="ops-ellipsis">{tipo}</span>
-                              <strong style={{ color: 'var(--emerald-accent)' }}>{formatCurrency(amount)}</strong>
-                            </div>
-                          ))}
+                        {cobranzasBreakdown.cuotasDelMes > 0 ? (
+                          <div className="ops-row" style={{ fontSize: '0.8rem' }}>
+                            <span className="ops-ellipsis">Cuotas del mes</span>
+                            <strong style={{ color: 'var(--emerald-accent)' }}>{formatCurrency(cobranzasBreakdown.cuotasDelMes)}</strong>
+                          </div>
+                        ) : null}
+                        {cobranzasBreakdown.cuotasAtrasadas > 0 ? (
+                          <div className="ops-row" style={{ fontSize: '0.8rem' }}>
+                            <span className="ops-ellipsis">Cuotas atrasadas</span>
+                            <strong style={{ color: 'var(--emerald-accent)' }}>{formatCurrency(cobranzasBreakdown.cuotasAtrasadas)}</strong>
+                          </div>
+                        ) : null}
+                        {cobranzasBreakdown.cuotasAdelantadas > 0 ? (
+                          <div className="ops-row" style={{ fontSize: '0.8rem' }}>
+                            <span className="ops-ellipsis">Cuotas adelantadas</span>
+                            <strong style={{ color: 'var(--emerald-accent)' }}>{formatCurrency(cobranzasBreakdown.cuotasAdelantadas)}</strong>
+                          </div>
+                        ) : null}
+                        {cobranzasBreakdown.recargos > 0 ? (
+                          <div className="ops-row" style={{ fontSize: '0.8rem' }}>
+                            <span className="ops-ellipsis">Recargos</span>
+                            <strong style={{ color: 'var(--emerald-accent)' }}>{formatCurrency(cobranzasBreakdown.recargos)}</strong>
+                          </div>
+                        ) : null}
+                        {cobranzasBreakdown.reservasEventos > 0 ? (
+                          <div className="ops-row" style={{ fontSize: '0.8rem' }}>
+                            <span className="ops-ellipsis">Reservas/Eventos de salón</span>
+                            <strong style={{ color: 'var(--emerald-accent)' }}>{formatCurrency(cobranzasBreakdown.reservasEventos)}</strong>
+                          </div>
+                        ) : null}
+                        {cobranzasBreakdown.varios > 0 ? (
+                          <div className="ops-row" style={{ fontSize: '0.8rem' }}>
+                            <span className="ops-ellipsis">Varios</span>
+                            <strong style={{ color: 'var(--emerald-accent)' }}>{formatCurrency(cobranzasBreakdown.varios)}</strong>
+                          </div>
+                        ) : null}
+                        <div className="ops-row" style={{ fontSize: '0.8rem' }}>
+                          <span className="ops-ellipsis">Alquileres a terceros</span>
+                          <strong style={{ color: 'var(--emerald-accent)' }}>{formatCurrency(cobranzasBreakdown.alquileresATerceros || 0)}</strong>
+                        </div>
+                        <div className="ops-row" style={{ fontSize: '0.8rem' }}>
+                          <span className="ops-ellipsis">Portería/Estacionamiento</span>
+                          <strong style={{ color: 'var(--emerald-accent)' }}>{formatCurrency(cobranzasBreakdown.porteriaEstacionamiento || 0)}</strong>
+                        </div>
                         <div className="ops-row" style={{ marginTop: '0.25rem', borderTop: '1px solid var(--border-subtle)', paddingTop: '0.25rem' }}>
                           <span><strong>Total recaudado</strong></span>
                           <strong style={{ color: 'var(--emerald-accent)' }}>{formatCurrency(cobranzasBreakdown.totalAmount)}</strong>
