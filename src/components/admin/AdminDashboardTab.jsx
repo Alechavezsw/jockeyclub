@@ -12,14 +12,14 @@ import { canAccessConcessions, canAccessQrGate } from '../../domain/auth/roles';
 import { reviewItemsForAccess } from '../../domain/review/buildClubReview';
 import { isAlertVisible, ALERT_SEVERITY } from '../../domain/alerts/alerts';
 import { isPoolDayCashOpen, poolCanonByDay } from '../../domain/pool/poolAccess';
-import { liquidatedTotalForMonth } from '../../domain/accounting/feePeriodLiquidation';
+import { liquidatedTotalForMonth, liquidationFromPeriod } from '../../domain/accounting/feePeriodLiquidation';
 import { appFinanceSinceHandoff, buildOpsFinanceSnapshot, cashDeltaAfterDate, collectionForCalendarMonth, composeClubFinance, financeFromSummary, lilaContabilidadFromSnapshots } from '../../domain/accounting/opsFinanceSnapshot';
 import { monthlyBalanceSeed } from '../../domain/accounting/monthlyBalance';
 import { monthlyBalanceSummarySeed } from '../../domain/accounting/monthlyBalanceSummary';
 import { detailedCcSeed } from '../../domain/accounting/detailedCurrentAccounts';
 import { cashMovementsSeed, cashSeed, mergeAccessinCashMovements } from '../../domain/accounting/cashLedger';
 import { liveMonthFeeCollected } from '../../domain/accounting/cashPaymentDetail';
-import { cobranzasSeed } from '../../domain/accounting/cobranzas';
+import { cobranzasSeed, cobranzasSummary } from '../../domain/accounting/cobranzas';
 import { buildPadronHouseholdStats } from '../../domain/members/households';
 import { getOverdueMembers } from '../../domain/members/dues';
 import { membershipMovesSeed, uniqueBajas } from '../../domain/members/membershipMoves';
@@ -397,6 +397,29 @@ export default function AdminDashboardTab({
     const lilaToday = (lilaMoney?.lastIncomes || []).filter((row) => row.date === todayKey);
     return lilaToday.length ? lilaToday : (finance.todayIncomes || []);
   }, [lilaMoney, todayKey, finance.todayIncomes]);
+
+  const liquidationBreakdown = useMemo(() => {
+    const [year, month] = String(monthKey || '').split('-').map(Number);
+    if (!year || !month) return null;
+    const period = (feePeriods || []).find((row) => (
+      Number(row.year) === year
+      && Number(row.month) === month
+      && row.status !== 'cancelled'
+    ));
+    if (!period) return null;
+    const detail = liquidationFromPeriod(period, { members, tierCatalog });
+    const cuotasSociales = (detail?.rows || [])
+      .filter((row) => /socio\s*(familiar|individual)/i.test(row.name))
+      .reduce((sum, row) => sum + row.total, 0);
+    return { detail, cuotasSociales };
+  }, [feePeriods, monthKey, members, tierCatalog]);
+
+  const cobranzasBreakdown = useMemo(() => {
+    const { ACCESSIN_COBRANZAS: cobranzas, ACCESSIN_COBRANZAS_SNAPSHOT: snapshot } = cobranzasSeed();
+    if (!cobranzas?.length) return null;
+    const summary = cobranzasSummary(cobranzas, snapshot || {});
+    return summary;
+  }, [lilaMoney]);
 
   const poolMonthRows = useMemo(
     () => poolCanonByDay(poolAccesses, { month: todayKey.slice(0, 7) }),
@@ -1136,6 +1159,55 @@ export default function AdminDashboardTab({
                         <span>{row.label}</span>
                       </div>
                     ))}
+                  </div>
+                ) : null}
+
+                {lilaMoney && (liquidationBreakdown || cobranzasBreakdown) ? (
+                  <div className="ops-block" style={{ marginTop: '0.85rem' }}>
+                    <div className="ops-block-title">Liquidado vs Recaudado · {moneyMonthLabel}</div>
+                    {liquidationBreakdown?.detail?.rows?.length > 0 ? (
+                      <div style={{ marginBottom: '0.65rem' }}>
+                        <div className="ops-muted" style={{ fontSize: '0.72rem', marginBottom: '0.35rem' }}>
+                          Liquidado (cuotas sociales)
+                        </div>
+                        {liquidationBreakdown.detail.rows
+                          .filter((row) => row.total > 0)
+                          .slice(0, 4)
+                          .map((row) => (
+                            <div key={row.name} className="ops-row" style={{ fontSize: '0.8rem' }}>
+                              <span className="ops-ellipsis">
+                                {row.name}
+                                <small className="ops-muted"> · {row.holders} × {formatCurrency(row.unit)}</small>
+                              </span>
+                              <strong>{formatCurrency(row.total)}</strong>
+                            </div>
+                          ))}
+                        <div className="ops-row" style={{ marginTop: '0.25rem', borderTop: '1px solid var(--border-subtle)', paddingTop: '0.25rem' }}>
+                          <span><strong>Total liquidado</strong></span>
+                          <strong>{formatCurrency(expectedMonth)}</strong>
+                        </div>
+                      </div>
+                    ) : null}
+                    {cobranzasBreakdown && cobranzasBreakdown.count > 0 ? (
+                      <div>
+                        <div className="ops-muted" style={{ fontSize: '0.72rem', marginBottom: '0.35rem' }}>
+                          Recaudado (percibido por tipo)
+                        </div>
+                        {Object.entries(cobranzasBreakdown.byType || {})
+                          .sort((a, b) => b[1] - a[1])
+                          .slice(0, 5)
+                          .map(([tipo, amount]) => (
+                            <div key={tipo} className="ops-row" style={{ fontSize: '0.8rem' }}>
+                              <span className="ops-ellipsis">{tipo}</span>
+                              <strong style={{ color: 'var(--emerald-accent)' }}>{formatCurrency(amount)}</strong>
+                            </div>
+                          ))}
+                        <div className="ops-row" style={{ marginTop: '0.25rem', borderTop: '1px solid var(--border-subtle)', paddingTop: '0.25rem' }}>
+                          <span><strong>Total recaudado</strong></span>
+                          <strong style={{ color: 'var(--emerald-accent)' }}>{formatCurrency(cobranzasBreakdown.totalAmount)}</strong>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
 

@@ -512,23 +512,11 @@ export function parseCobranzas(aoa, options = {}) {
       }
     }
 
-    // Check if member number is valid
-    if (!memberNumber || !/^\d+$/.test(memberNumber)) {
-      if (tipo && importeTotal !== 0) {
-        droppedRows.push({
-          rowIndex: i,
-          tipo,
-          reciboId,
-          rawMemberNumber: memberNumber,
-          nombre,
-          apellido,
-          concepto,
-          importeTotal,
-          reason: 'non-numeric nro_socio',
-        });
-      }
-      continue;
-    }
+    // Check if member number is valid (numeric = socio, non-numeric = tercero/alquiler)
+    const isNonSocio = !memberNumber || !/^\d+$/.test(memberNumber);
+
+    // Non-socio rows are now included as 'alquileres a terceros'
+    // Examples: Colegio Fanzolato, La Kelita, Alameda Padel
 
     // Determine if this payment counts toward target period recaudado
     // Rule: Cuotas where concepto starts with "Octubre del 2026" (or target period)
@@ -543,7 +531,8 @@ export function parseCobranzas(aoa, options = {}) {
       fecha,
       mes,
       anio,
-      memberNumber,
+      memberNumber: isNonSocio ? null : memberNumber,
+      rawMemberNumber: memberNumber,
       nombre,
       apellido,
       dni,
@@ -552,23 +541,40 @@ export function parseCobranzas(aoa, options = {}) {
       countsForRecaudado,
       isTargetPeriodCuota,
       isTargetPeriodRecargo,
+      isNonSocio,
     });
   }
 
   // Compute summary by tipo and recaudado
   const summary = {
     byTipo: {},
+    byTipoSocios: {},
+    byTipoNoSocios: {},
     recaudado: 0,
     recaudadoCuotas: 0,
     recaudadoRecargos: 0,
     totalImporteTotal: 0,
+    totalSocios: 0,
+    totalNoSocios: 0,
+    alquileresATerceros: 0,
     paymentsCount: payments.length,
     receiptsCount: new Set(payments.map(p => p.reciboId)).size,
+    noSociosCount: 0,
   };
 
   for (const p of payments) {
     summary.byTipo[p.tipo] = (summary.byTipo[p.tipo] || 0) + p.importeTotal;
     summary.totalImporteTotal += p.importeTotal;
+
+    if (p.isNonSocio) {
+      summary.byTipoNoSocios[p.tipo] = (summary.byTipoNoSocios[p.tipo] || 0) + p.importeTotal;
+      summary.totalNoSocios += p.importeTotal;
+      summary.alquileresATerceros += p.importeTotal;
+      summary.noSociosCount++;
+    } else {
+      summary.byTipoSocios[p.tipo] = (summary.byTipoSocios[p.tipo] || 0) + p.importeTotal;
+      summary.totalSocios += p.importeTotal;
+    }
 
     if (p.countsForRecaudado) {
       summary.recaudado += p.importeTotal;
@@ -582,15 +588,22 @@ export function parseCobranzas(aoa, options = {}) {
   summary.recaudadoCuotas = Math.round(summary.recaudadoCuotas * 100) / 100;
   summary.recaudadoRecargos = Math.round(summary.recaudadoRecargos * 100) / 100;
   summary.totalImporteTotal = Math.round(summary.totalImporteTotal * 100) / 100;
+  summary.totalSocios = Math.round(summary.totalSocios * 100) / 100;
+  summary.totalNoSocios = Math.round(summary.totalNoSocios * 100) / 100;
+  summary.alquileresATerceros = Math.round(summary.alquileresATerceros * 100) / 100;
 
   const dateRange = {
     from: minDate ? minDate.toISOString().slice(0, 10) : null,
     to: maxDate ? maxDate.toISOString().slice(0, 10) : null,
   };
 
+  // Get non-socio payments for separate reporting
+  const nonSocioPayments = payments.filter(p => p.isNonSocio);
+
   return {
     payments,
     droppedRows,
+    nonSocioPayments,
     summary,
     dateRange,
     targetPeriodKey,

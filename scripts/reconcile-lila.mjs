@@ -335,6 +335,10 @@ async function main() {
 
   let cobranzasData = null;
 
+  // CRITICAL: Expected total percibido from Lila cobranzas file
+  // Per treasurer: every fund actually received must appear
+  const EXPECTED_TOTAL_PERCIBIDO = 60782873.34;
+
   if (cobranzasFile) {
     console.log('--- 6. COBRANZAS (Reporte de Cobranzas) ---');
     const wb = XLSX.readFile(cobranzasFile);
@@ -347,7 +351,7 @@ async function main() {
     if (parsed.error) {
       console.log(`  ❌ Error: ${parsed.error}`);
     } else {
-      const { payments, droppedRows, summary, dateRange } = parsed;
+      const { payments, nonSocioPayments, summary, dateRange } = parsed;
       cobranzasData = parsed;
 
       console.log(`  Archivo: ${basename(cobranzasFile)}`);
@@ -363,28 +367,63 @@ async function main() {
       console.log(`    ${'─'.repeat(30)}`);
       console.log(`    ${'TOTAL'.padEnd(12)} ${formatMoney(summary.totalImporteTotal).padStart(16)}`);
       console.log('');
+
+      // Breakdown by socios vs no-socios (alquileres a terceros)
+      console.log('  DESGLOSE SOCIOS vs TERCEROS:');
+      console.log(`    Ingresos de socios:              ${formatMoney(summary.totalSocios).padStart(16)}`);
+      console.log(`    Alquileres a terceros/no socios: ${formatMoney(summary.alquileresATerceros).padStart(16)}`);
+      console.log(`    ─────────────────────────────────────────────`);
+      console.log(`    TOTAL PERCIBIDO:                 ${formatMoney(summary.totalImporteTotal).padStart(16)}`);
+
+      if (nonSocioPayments.length > 0) {
+        console.log(`\n  Detalle alquileres a terceros (${nonSocioPayments.length} líneas):`);
+        // Group by name/concepto
+        const byName = new Map();
+        for (const p of nonSocioPayments) {
+          const key = p.rawMemberNumber || p.nombre || 'DESCONOCIDO';
+          if (!byName.has(key)) {
+            byName.set(key, { nombre: p.nombre, apellido: p.apellido, total: 0, count: 0, tipos: new Set() });
+          }
+          byName.get(key).total += p.importeTotal;
+          byName.get(key).count++;
+          byName.get(key).tipos.add(p.tipo);
+        }
+        for (const [key, data] of [...byName.entries()].sort((a, b) => b[1].total - a[1].total)) {
+          const tipos = [...data.tipos].join(', ');
+          console.log(`      → "${key}" ${data.nombre} ${data.apellido}: ${formatMoney(data.total)} (${data.count} líneas, ${tipos})`);
+        }
+      }
+
+      console.log('');
       console.log(`  RECAUDADO ${parsed.targetPeriodPrefix} (cuotas del período + recargos):`);
       console.log(`    Cuotas:        ${formatMoney(summary.recaudadoCuotas).padStart(16)}`);
       console.log(`    Recargos:      ${formatMoney(summary.recaudadoRecargos).padStart(16)}`);
       console.log(`    ─────────────────────────────`);
       console.log(`    TOTAL:         ${formatMoney(summary.recaudado).padStart(16)}`);
 
-      if (droppedRows.length > 0) {
-        console.log(`\n  ⚠️  Filas excluidas (nro_socio no numérico): ${droppedRows.length}`);
-        for (const d of droppedRows.slice(0, 3)) {
-          console.log(`      → "${d.rawMemberNumber}" ${d.nombre} ${d.apellido}: ${d.tipo} ${formatMoney(d.importeTotal)}`);
-        }
+      // Check exact total percibido against expected
+      const totalMatch = centsMatch(summary.totalImporteTotal, EXPECTED_TOTAL_PERCIBIDO);
+      console.log('');
+      console.log('  📋 VERIFICACIÓN TOTAL PERCIBIDO:');
+      console.log(`    Esperado (archivo Lila): ${formatMoney(EXPECTED_TOTAL_PERCIBIDO).padStart(16)}`);
+      console.log(`    Calculado:               ${formatMoney(summary.totalImporteTotal).padStart(16)}`);
+      console.log(`    Diferencia:              ${formatMoney(summary.totalImporteTotal - EXPECTED_TOTAL_PERCIBIDO).padStart(16)}`);
+      if (totalMatch) {
+        console.log('    ✅ TOTAL PERCIBIDO COINCIDE EXACTAMENTE');
+      } else {
+        console.log('    ❌ TOTAL PERCIBIDO NO COINCIDE');
+        totalMismatches++;
       }
 
       results.cobranzas = {
-        status: 'OK',
-        lila: summary.totalImporteTotal,
+        status: totalMatch ? 'OK' : 'FAIL',
+        lila: EXPECTED_TOTAL_PERCIBIDO,
         app: summary.totalImporteTotal,
-        diff: 0,
-        mismatches: [],
+        diff: Math.round((summary.totalImporteTotal - EXPECTED_TOTAL_PERCIBIDO) * 100) / 100,
+        mismatches: totalMatch ? [] : ['Total percibido no coincide'],
         summary,
         dateRange,
-        droppedRows,
+        nonSocioPayments,
       };
 
       console.log(`  ✓ Reconciliación (total percibido): ${formatMoney(summary.totalImporteTotal)}\n`);
@@ -688,33 +727,47 @@ async function main() {
     console.log(`  Período: ${cobranzasData.targetPeriodPrefix}`);
     console.log(`  Rango fechas: ${dateRange.from} a ${dateRange.to}`);
     console.log('');
-    console.log('  INGRESOS POR TIPO (percibido):');
+    console.log('  INGRESOS POR TIPO - SOCIOS:');
     console.log('  ─────────────────────────────────────────────────────────────');
 
     const tipoLabels = {
       'Cuotas': 'Cuotas sociales',
       'Recargos': 'Recargos (10%)',
       'Varios': 'Varios (conceptos mixtos)',
-      'Eventos': 'Eventos/Reservas',
+      'Eventos': 'Eventos/Reservas de salón',
     };
 
-    let totalPercibido = 0;
-    for (const [tipo, total] of Object.entries(summary.byTipo).sort((a, b) => b[1] - a[1])) {
+    for (const [tipo, total] of Object.entries(summary.byTipoSocios || {}).sort((a, b) => b[1] - a[1])) {
       const label = tipoLabels[tipo] || tipo;
       console.log(`    ${label.padEnd(30)} ${formatMoney(total).padStart(18)}`);
-      totalPercibido += total;
     }
-
     console.log('  ─────────────────────────────────────────────────────────────');
-    console.log(`    ${'TOTAL PERCIBIDO'.padEnd(30)} ${formatMoney(totalPercibido).padStart(18)}`);
+    console.log(`    ${'Subtotal socios'.padEnd(30)} ${formatMoney(summary.totalSocios).padStart(18)}`);
 
-    console.log('\n  DESGLOSE CUOTAS:');
+    console.log('');
+    console.log('  INGRESOS POR TIPO - NO SOCIOS (Alquileres a terceros):');
+    console.log('  ─────────────────────────────────────────────────────────────');
+
+    for (const [tipo, total] of Object.entries(summary.byTipoNoSocios || {}).sort((a, b) => b[1] - a[1])) {
+      const label = tipoLabels[tipo] || tipo;
+      console.log(`    ${label.padEnd(30)} ${formatMoney(total).padStart(18)}`);
+    }
+    console.log('  ─────────────────────────────────────────────────────────────');
+    console.log(`    ${'Subtotal alquileres a terceros'.padEnd(30)} ${formatMoney(summary.alquileresATerceros).padStart(18)}`);
+
+    console.log('');
+    console.log('  ═════════════════════════════════════════════════════════════');
+    console.log(`    ${'TOTAL PERCIBIDO'.padEnd(30)} ${formatMoney(summary.totalImporteTotal).padStart(18)}`);
+
+    console.log('\n  DESGLOSE CUOTAS SOCIOS:');
     console.log(`    Cuotas ${cobranzasData.targetPeriodPrefix}:   ${formatMoney(summary.recaudadoCuotas).padStart(18)}`);
-    console.log(`    Cuotas atrasadas:            ${formatMoney((summary.byTipo['Cuotas'] || 0) - summary.recaudadoCuotas).padStart(18)}`);
+    console.log(`    Cuotas atrasadas:            ${formatMoney((summary.byTipoSocios?.['Cuotas'] || 0) - summary.recaudadoCuotas).padStart(18)}`);
 
     console.log('\n  REGLA DE NEGOCIO:');
     console.log('  • Dashboard "recaudado" = base percibido (todos los fondos recibidos)');
     console.log('  • Cada tipo de ingreso en su propia línea');
+    console.log('  • Alquileres a terceros (Colegio Fanzolato, La Kelita, Alameda Padel)');
+    console.log('    deben mostrarse por separado');
     console.log('  • AMET 2.5% es comisión bancaria, no mora');
     console.log('  • Pagos se imputan a deuda más antigua primero');
   }
