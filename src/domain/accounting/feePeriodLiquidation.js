@@ -10,6 +10,7 @@ import {
 } from '../members/tiers';
 import { periodLabel } from './feeBilling';
 import { feePackForPeriod } from './feePackConcepts';
+import { discountOnAmount, resolveDiscountRules } from './discountApplication';
 
 function fold(value = '') {
   return String(value || '')
@@ -75,12 +76,36 @@ function conceptRows(concepts = [], counts = null) {
   });
 }
 
+function packImputationDay(period) {
+  const year = Number(period?.year);
+  const month = Number(period?.month);
+  if (!year || !month) return '';
+  return `${year}-${String(month).padStart(2, '0')}-01`;
+}
+
+function applyDiscountsToPackRows(rows, members, rules, on, catalog) {
+  if (!rules?.length || !members?.length) return rows;
+  return rows.map((row) => {
+    const unit = Number(row.unit) || 0;
+    let total = 0;
+    let holders = 0;
+    for (const member of members) {
+      if (!isMemberBillingActive(member)) continue;
+      const names = memberCuotaCategoryNames(member, catalog);
+      if (!names.some((name) => fold(name) === fold(row.name))) continue;
+      holders += 1;
+      total += discountOnAmount(unit, rules, member, { on, categoryName: row.name }).net;
+    }
+    return { ...row, holders, total: Math.round(total * 100) / 100 };
+  });
+}
+
 /**
- * Detalle de una liquidación con pack de Lila.
+ * Detalle de una liquidación con pack de cuotas.
  * Si el período no está cerrado y hay padrón, los titulares salen del padrón
- * y el total es la suma de titulares × valor.
+ * y el total es la suma de titulares × valor, menos descuentos extras vigentes.
  */
-export function liquidationFromPack(period, pack, { members = [], tierCatalog = [] } = {}) {
+export function liquidationFromPack(period, pack, { members = [], tierCatalog = [], discountRules } = {}) {
   const frozen = Array.isArray(period?.lines) && period.lines.length > 0;
   const counts = !frozen && period?.status !== 'processed'
     ? holderCountsFromMembers(members, tierCatalog)
@@ -93,7 +118,16 @@ export function liquidationFromPack(period, pack, { members = [], tierCatalog = 
       amount: row.unit,
     }))
     : pack?.concepts;
-  const rows = conceptRows(source, frozen ? null : counts);
+  const baseRows = conceptRows(source, frozen ? null : counts);
+  const rows = frozen
+    ? baseRows
+    : applyDiscountsToPackRows(
+      baseRows,
+      members,
+      resolveDiscountRules(discountRules),
+      packImputationDay(period),
+      tierCatalog,
+    );
   const total = rows.reduce((sum, row) => sum + row.total, 0);
   return {
     period,
@@ -217,10 +251,10 @@ export function buildFeePeriodLiquidation(period, {
 }
 
 /** Mismo total que la columna Monto de Períodos de cuotas. */
-export function liquidationFromPeriod(period, { members = [], tierCatalog = [] } = {}) {
+export function liquidationFromPeriod(period, { members = [], tierCatalog = [], discountRules } = {}) {
   const pack = feePackForPeriod(period);
   if (pack?.concepts || (period?.status === 'processed' && period?.lines?.length)) {
-    return liquidationFromPack(period, pack, { members, tierCatalog });
+    return liquidationFromPack(period, pack, { members, tierCatalog, discountRules });
   }
   return buildFeePeriodLiquidation(period, { members, tierCatalog });
 }

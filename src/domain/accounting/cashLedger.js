@@ -77,6 +77,40 @@ export function recalculateAccessinCashTotal(snapshot = cashSeed().ACCESSIN_CASH
   return Math.round((opening + inflow) * 100) / 100;
 }
 
+function roundMoney(value) {
+  return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+function banksOnHand(bankAccounts, snapshot) {
+  const active = (bankAccounts || []).filter((account) => account && account.isActive !== false);
+  if (active.length) {
+    return roundMoney(active.reduce((sum, account) => sum + (Number(account.balance) || 0), 0));
+  }
+  if (snapshot?.cards?.bancos?.balance != null && Number.isFinite(Number(snapshot.cards.bancos.balance))) {
+    return Number(snapshot.cards.bancos.balance);
+  }
+  return roundMoney(Number(snapshot?.cards?.bancos?.periodInflow) || 0);
+}
+
+/** Efectivo en caja: saldo del corte, o total menos bancos y cheques. */
+export function impliedCashOnHand(snapshot = {}, { bankAccounts = [], cheques = [] } = {}) {
+  const chequesValue = accessinChequesTotal(cheques);
+  const bancos = banksOnHand(bankAccounts, snapshot);
+  const total = snapshot?.cards?.total?.balance != null
+    ? Number(snapshot.cards.total.balance)
+    : (Number(snapshot?.closingBalance) || 0);
+  if (snapshot?.cards?.efectivo?.balance != null && Number.isFinite(Number(snapshot.cards.efectivo.balance))) {
+    return {
+      efectivo: Number(snapshot.cards.efectivo.balance),
+      bancos,
+      cheques: chequesValue,
+      total,
+    };
+  }
+  const efectivo = roundMoney(total - bancos - chequesValue);
+  return { efectivo, bancos, cheques: chequesValue, total };
+}
+
 export function accessinChequesTotal(cheques = chequesSeed().ACCESSIN_CHEQUES) {
   return Math.round(
     (cheques || [])
@@ -114,53 +148,25 @@ export function accessinCashBalanceCards(
   cheques = chequesSeed().ACCESSIN_CHEQUES,
   bankAccounts = null,
 ) {
-  const periodFrom = snapshot?.periodFrom;
-  const periodTo = snapshot?.periodTo;
-  const periodCaption = periodFrom && periodTo
-    ? `Ingresos ${formatAccessinCashDate(periodFrom)} → ${formatAccessinCashDate(periodTo)}`
-    : 'Ingresos del período';
-
-  const cashBalance = snapshot?.cards?.efectivo?.balance;
-  const cashInflow = Number(snapshot?.cards?.efectivo?.periodInflow);
-  const bankInflow = Number(snapshot?.cards?.bancos?.periodInflow);
-  const hasCashBalance = cashBalance != null && Number.isFinite(Number(cashBalance));
-  const efectivoValue = hasCashBalance
-    ? Number(cashBalance)
-    : (snapshot?.cards?.efectivo?.periodInflow != null && Number.isFinite(cashInflow)
-      ? cashInflow
-      : (movements || []).filter((m) => m.walletKind === 'cash').reduce((s, m) => s + (Number(m.amount) || 0), 0));
-
-  const bankBalance = snapshot?.cards?.bancos?.balance;
-  const hasBankBalance = bankBalance != null && Number.isFinite(Number(bankBalance));
-  const activeBanks = (bankAccounts || []).filter((a) => a && a.isActive !== false);
-  const banksBalanceSum = activeBanks.length
-    ? Math.round(activeBanks.reduce((s, a) => s + (Number(a.balance) || 0), 0) * 100) / 100
-    : null;
-  const bancosValue = banksBalanceSum != null
-    ? banksBalanceSum
-    : (hasBankBalance
-      ? Number(bankBalance)
-      : (snapshot?.cards?.bancos?.periodInflow != null && Number.isFinite(bankInflow)
-        ? bankInflow
-        : (movements || []).filter((m) => m.walletKind === 'bank').reduce((s, m) => s + (Number(m.amount) || 0), 0)));
-  const bancosCaption = banksBalanceSum != null
-    ? `Saldo cuentas al ${formatAccessinCashDate(snapshot?.asOf || cashSeed().ACCESSIN_CASH_AS_OF)}`
-    : periodCaption;
-
-  // Preferir saldo explícito del Excel; si no, recalcular apertura + movimientos.
+  const asOf = snapshot?.asOf || cashSeed().ACCESSIN_CASH_AS_OF;
+  const asOfLabel = formatAccessinCashDate(asOf);
+  const onHand = impliedCashOnHand(snapshot, { bankAccounts, cheques });
+  const efectivoValue = onHand.efectivo;
+  const bancosValue = onHand.bancos;
+  const chequesValue = onHand.cheques;
   const totalValue = snapshot?.cards?.total?.balance != null
     ? Number(snapshot.cards.total.balance)
-    : recalculateAccessinCashTotal(snapshot, movements);
-  const chequesValue = accessinChequesTotal(cheques);
+    : (Number.isFinite(onHand.total) && onHand.total
+      ? onHand.total
+      : recalculateAccessinCashTotal(snapshot, movements));
+  const bancosCaption = `Saldo al ${asOfLabel}`;
 
   return [
     {
       id: 'efectivo',
       label: 'Efectivo',
       value: efectivoValue,
-      caption: hasCashBalance
-        ? `Saldo al ${formatAccessinCashDate(snapshot?.asOf || cashSeed().ACCESSIN_CASH_AS_OF)}`
-        : `${periodCaption} · no es el saldo en caja`,
+      caption: `Saldo al ${asOfLabel}`,
       actionLabel: 'Ver registro de efectivo',
       filter: { view: 'efectivo_registro', walletKind: 'cash' },
       icon: 'cash',
@@ -169,7 +175,7 @@ export function accessinCashBalanceCards(
       id: 'cheques',
       label: 'Cheques en Cartera',
       value: chequesValue,
-      caption: `Cartera al ${formatAccessinCashDate(chequesSeed().ACCESSIN_CHEQUES_AS_OF)}`,
+      caption: `Cartera al ${formatAccessinCashDate(chequesSeed().ACCESSIN_CHEQUES_AS_OF || asOf)}`,
       actionLabel: 'Ver cheques',
       filter: { view: 'cheques' },
       icon: 'checks',
@@ -189,7 +195,7 @@ export function accessinCashBalanceCards(
       id: 'total',
       label: 'Total Caja',
       value: totalValue,
-      caption: `Saldo al ${formatAccessinCashDate(snapshot?.asOf || cashSeed().ACCESSIN_CASH_AS_OF)}`,
+      caption: `Saldo al ${asOfLabel}`,
       actionLabel: null,
       filter: null,
       emphasize: true,

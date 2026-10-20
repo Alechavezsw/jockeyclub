@@ -1,5 +1,6 @@
 /** Módulos de tesorería: cobranzas NN, débitos Galicia, fijos, órdenes de pago. */
 
+import { formatISODateLongAR, todayISODateAR } from '../../lib/arDate';
 import { buildPostedEntry } from './journal';
 
 export const UNIDENTIFIED_STATUS = {
@@ -22,120 +23,90 @@ export const PAYMENT_ORDER_STATUS = {
   cancelled: 'Anulada',
 };
 
-export const DEFAULT_UNIDENTIFIED_COLLECTIONS = [
-  {
-    id: 'nn-1',
-    date: '2026-07-20',
-    amount: 45000,
-    bankRef: 'TRANSF-88421',
-    originLabel: 'Transferencia Banco Nación',
-    note: 'Sin concepto / CUIT no legible',
-    status: 'pending',
-    matchedMemberId: null,
-    createdAt: '2026-07-20T15:00:00.000Z',
-  },
-  {
-    id: 'nn-2',
-    date: '2026-07-22',
-    amount: 32000,
-    bankRef: 'MP-99102',
-    originLabel: 'Mercado Pago',
-    note: 'Alias genérico',
-    status: 'pending',
-    matchedMemberId: null,
-    createdAt: '2026-07-22T11:20:00.000Z',
-  },
-];
+export const DEFAULT_UNIDENTIFIED_COLLECTIONS = [];
+export const DEFAULT_GALICIA_DEBITS = [];
+export const DEFAULT_FIXED_EXPENSES = [];
+export const DEFAULT_FIXED_DISCOUNTS = [];
+export const DEFAULT_PAYMENT_ORDERS = [];
 
-export const DEFAULT_GALICIA_DEBITS = [
-  {
-    id: 'gal-1',
-    period: '2026-07',
-    memberName: 'Victoria Cantoni',
-    memberId: '2020445599881122',
-    cbuMask: '****8844',
-    amount: 38000,
-    status: 'sent',
-    scheduledDate: '2026-07-28',
-    createdAt: '2026-07-15T10:00:00.000Z',
-  },
-  {
-    id: 'gal-2',
-    period: '2026-07',
-    memberName: 'Adolfo Sarmiento',
-    memberId: '2018776655443322',
-    cbuMask: '****1122',
-    amount: 45000,
-    status: 'scheduled',
-    scheduledDate: '2026-07-28',
-    createdAt: '2026-07-15T10:00:00.000Z',
-  },
-];
+const DEMO_TREASURY_IDS = new Set([
+  'nn-1', 'nn-2', 'gal-1', 'gal-2', 'fix-1', 'fix-2', 'fd-1', 'fd-2', 'fd-3', 'po-1',
+]);
 
-export const DEFAULT_FIXED_EXPENSES = [
-  {
-    id: 'fix-1',
-    name: 'Energía eléctrica',
-    vendorName: 'EDEMSA',
-    amount: 285000,
-    dayOfMonth: 10,
-    accountHint: 'Servicios e Insumos',
-    active: true,
-  },
-  {
-    id: 'fix-2',
-    name: 'Internet sede',
-    vendorName: 'Claro Empresas',
-    amount: 42000,
-    dayOfMonth: 5,
-    accountHint: 'Servicios e Insumos',
-    active: true,
-  },
-];
+export function withoutDemoTreasuryRows(rows = []) {
+  return (rows || []).filter((row) => !DEMO_TREASURY_IDS.has(String(row?.id || '')));
+}
 
-export const DEFAULT_FIXED_DISCOUNTS = [
-  {
-    id: 'fd-1',
-    name: 'Familiar conviviente',
-    percent: 15,
-    appliesTo: 'grupo_familiar',
-    active: true,
-  },
-  {
-    id: 'fd-2',
-    name: 'Vitalicio',
-    percent: 100,
-    appliesTo: 'vitalicio',
-    active: true,
-  },
-  {
-    id: 'fd-3',
-    name: 'Staff / cortesía',
-    percent: 50,
-    appliesTo: 'staff',
-    active: false,
-  },
-];
+function roundMoney(value) {
+  return Math.round((Number(value) || 0) * 100) / 100;
+}
 
-export const DEFAULT_PAYMENT_ORDERS = [
-  {
-    id: 'po-1',
-    number: 'OP-2026-001',
-    date: '2026-07-18',
-    payee: 'Forrajes Cuyo SA',
-    concept: 'Alimento equino julio',
-    amount: 186000,
-    status: 'approved',
-    paymentMethod: 'transferencia',
-    createdAt: '2026-07-18T14:00:00.000Z',
-  },
-];
+export function nextFixedExpenseDate(dayOfMonth, asOf = todayISODateAR()) {
+  const day = Math.min(28, Math.max(1, Number(dayOfMonth) || 1));
+  const [year, month, date] = String(asOf).split('-').map(Number);
+  if (!year || !month || !date) return asOf;
+  if (date <= day) {
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  }
+  const nextMonth = month === 12 ? 1 : month + 1;
+  const nextYear = month === 12 ? year + 1 : year;
+  return `${nextYear}-${String(nextMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+export function buildLiveUnidentified(items = [], today = new Date()) {
+  const asOf = todayISODateAR(today);
+  const rows = withoutDemoTreasuryRows(items);
+  const pending = rows.filter((row) => row.status === 'pending');
+  return {
+    asOf,
+    asOfLabel: formatISODateLongAR(asOf),
+    rows,
+    pending,
+    pendingCount: pending.length,
+    pendingTotal: roundMoney(pending.reduce((sum, row) => sum + (Number(row.amount) || 0), 0)),
+  };
+}
+
+export function buildLiveGalicia(items = [], today = new Date()) {
+  const asOf = todayISODateAR(today);
+  const period = asOf.slice(0, 7);
+  const rows = withoutDemoTreasuryRows(items);
+  const ofPeriod = rows.filter((row) => String(row.period || '').slice(0, 7) === period);
+  const active = ofPeriod.filter((row) => row.status !== 'rejected');
+  return {
+    asOf,
+    asOfLabel: formatISODateLongAR(asOf),
+    period,
+    rows,
+    ofPeriod,
+    scheduled: ofPeriod.filter((row) => row.status === 'scheduled').length,
+    sent: ofPeriod.filter((row) => row.status === 'sent').length,
+    settled: ofPeriod.filter((row) => row.status === 'settled').length,
+    amount: roundMoney(active.reduce((sum, row) => sum + (Number(row.amount) || 0), 0)),
+  };
+}
+
+export function buildLiveFixedExpenses(items = [], today = new Date()) {
+  const asOf = todayISODateAR(today);
+  const rows = withoutDemoTreasuryRows(items).map((row) => ({
+    ...row,
+    nextDate: nextFixedExpenseDate(row.dayOfMonth, asOf),
+  }));
+  const active = rows.filter((row) => row.active);
+  return {
+    asOf,
+    asOfLabel: formatISODateLongAR(asOf),
+    rows,
+    activeCount: active.length,
+    monthly: roundMoney(active.reduce((sum, row) => sum + (Number(row.amount) || 0), 0)),
+  };
+}
 
 export function createUnidentifiedCollection({ date, amount, bankRef, originLabel, note }) {
   if (!amount || Number(amount) <= 0) throw new Error('Importe inválido.');
   return {
     id: `nn-${Date.now()}`,
-    date: date || new Date().toISOString().slice(0, 10),
+    date: date || todayISODateAR(),
     amount: Number(amount),
     bankRef: String(bankRef || '').trim() || `REF-${Date.now()}`,
     originLabel: String(originLabel || 'Cobranza bancaria').trim(),
@@ -170,13 +141,13 @@ export function createGaliciaDebit({ period, memberName, memberId, cbuMask, amou
   if (!memberId || !amount) throw new Error('Socio e importe son obligatorios.');
   return {
     id: `gal-${Date.now()}`,
-    period: period || new Date().toISOString().slice(0, 7),
+    period: period || todayISODateAR().slice(0, 7),
     memberName: memberName || '',
     memberId,
     cbuMask: cbuMask || '****0000',
     amount: Number(amount),
     status: 'scheduled',
-    scheduledDate: scheduledDate || new Date().toISOString().slice(0, 10),
+    scheduledDate: scheduledDate || todayISODateAR(),
     createdAt: new Date().toISOString(),
   };
 }
@@ -214,12 +185,13 @@ export function createFixedDiscount({ name, percent, appliesTo }) {
 
 export function createPaymentOrder({ date, payee, concept, amount, paymentMethod }) {
   if (!String(payee || '').trim() || !amount) throw new Error('Beneficiario e importe son obligatorios.');
+  const asOf = todayISODateAR();
   const stamp = new Date();
-  const number = `OP-${stamp.getFullYear()}-${String(stamp.getMonth() + 1).padStart(2, '0')}${String(stamp.getDate()).padStart(2, '0')}-${String(stamp.getHours()).padStart(2, '0')}${String(stamp.getMinutes()).padStart(2, '0')}`;
+  const number = `OP-${asOf.slice(0, 4)}-${asOf.slice(5, 7)}${asOf.slice(8, 10)}-${String(stamp.getHours()).padStart(2, '0')}${String(stamp.getMinutes()).padStart(2, '0')}`;
   return {
     id: `po-${Date.now()}`,
     number,
-    date: date || stamp.toISOString().slice(0, 10),
+    date: date || asOf,
     payee: String(payee).trim(),
     concept: String(concept || '').trim(),
     amount: Number(amount),
@@ -239,7 +211,7 @@ export function buildUnidentifiedMatchEntry(item, chart) {
   const amount = Number(item.amount) || 0;
   if (amount <= 0) return null;
   return buildPostedEntry({
-    date: item.date || new Date().toISOString().slice(0, 10),
+    date: item.date || todayISODateAR(),
     description: `Cobranza identificada ${item.bankRef || item.originLabel || ''}`.trim(),
     lines: [
       { account: 'Banco Nación', type: 'debit', amount },
@@ -255,7 +227,7 @@ export function buildGaliciaSettledEntry(item, chart) {
   const amount = Number(item.amount) || 0;
   if (amount <= 0) return null;
   return buildPostedEntry({
-    date: item.scheduledDate || new Date().toISOString().slice(0, 10),
+    date: item.scheduledDate || todayISODateAR(),
     description: `Débito Galicia acreditado — ${item.memberName || item.memberId || ''}`.trim(),
     lines: [
       { account: 'Banco Nación', type: 'debit', amount },
@@ -271,7 +243,7 @@ export function buildPaymentOrderPaidEntry(order, chart) {
   const amount = Number(order.amount) || 0;
   if (amount <= 0) return null;
   return buildPostedEntry({
-    date: order.date || new Date().toISOString().slice(0, 10),
+    date: order.date || todayISODateAR(),
     description: `Orden de pago ${order.number || ''} — ${order.payee || order.beneficiary || ''}`.trim(),
     lines: [
       { account: 'Servicios e Insumos', type: 'debit', amount },

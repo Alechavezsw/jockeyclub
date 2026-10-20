@@ -5,21 +5,22 @@ import { suppliersSeed } from '../../domain/accounting/suppliersSeed';
 import { useSnapshotSeed } from '../../hooks/useSnapshots';
 import {
   SUPPLIER_CATEGORIES,
-  accessinBalanceTotals,
   compareSuppliersByAccessin,
   createSupplier,
   expensesForSupplier,
+  liveSupplierTotals,
   setSupplierStatus,
   supplierAccessinBalance,
   supplierAccessinCode,
   supplierAccountMovements,
   supplierDisplayName,
-  supplierOpenBalance,
+  supplierOpenExpenseBalance,
   supplierPaidYtd,
   supplierRunningBalance,
   updateSupplier,
 } from '../../domain/accounting/suppliers';
 import { formatCurrency } from '../../domain/accounting/journal';
+import { formatISODateLongAR, todayISODateAR } from '../../lib/arDate';
 import SupplierPaymentsImportPanel from './SupplierPaymentsImportPanel';
 import SupplierEntradaModal from './SupplierEntradaModal';
 
@@ -86,12 +87,10 @@ export default function SuppliersPanel({
     [supplierEntries, paymentOrders]
   );
   const accessinTotals = useMemo(
-    () => accessinBalanceTotals(suppliers.map((supplier) => ({
-      ...supplier,
-      openingBalance: supplierRunningBalance(supplier, ledger),
-    }))),
+    () => liveSupplierTotals(suppliers, ledger),
     [suppliers, ledger]
   );
+  const asOf = todayISODateAR();
   const accountSupplier = suppliers.find((supplier) => supplier.id === accountId) || null;
 
   const filtered = useMemo(() => {
@@ -100,7 +99,7 @@ export default function SuppliersPanel({
       .filter((s) => (statusFilter === 'all' ? true : s.status === statusFilter))
       .filter((s) => (categoryFilter === 'all' ? true : s.category === categoryFilter))
       .filter((s) => {
-        const bal = supplierAccessinBalance(s);
+        const bal = supplierRunningBalance(s, ledger);
         if (balanceFilter === 'with') return bal !== 0;
         if (balanceFilter === 'debt') return bal > 0;
         if (balanceFilter === 'credit') return bal < 0;
@@ -124,18 +123,18 @@ export default function SuppliersPanel({
     }
     if (sortBy === 'balance') {
       return rows.toSorted((a, b) =>
-        Math.abs(supplierAccessinBalance(b)) - Math.abs(supplierAccessinBalance(a))
+        Math.abs(supplierRunningBalance(b, ledger)) - Math.abs(supplierRunningBalance(a, ledger))
       );
     }
     return rows.toSorted(compareSuppliersByAccessin);
-  }, [suppliers, search, categoryFilter, statusFilter, balanceFilter, sortBy]);
+  }, [suppliers, search, categoryFilter, statusFilter, balanceFilter, sortBy, ledger]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount - 1);
   const pageRows = filtered.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
 
   const erpOpen = useMemo(
-    () => suppliers.reduce((sum, s) => sum + Math.max(0, supplierOpenBalance(expenses, s)), 0),
+    () => suppliers.reduce((sum, s) => sum + supplierOpenExpenseBalance(expenses, s), 0),
     [suppliers, expenses]
   );
 
@@ -236,10 +235,7 @@ export default function SuppliersPanel({
               Cuenta corriente · {supplierDisplayName(accountSupplier)}
             </h4>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0.35rem 0 0' }}>
-              {supplierAccessinCode(accountSupplier) ? `#${supplierAccessinCode(accountSupplier)} · ` : ''}
-              Saldo de apertura Accessin {formatCurrency(opening)}
-              {ACCESSIN_SUPPLIERS_AS_OF ? ` al ${formatAsOf(ACCESSIN_SUPPLIERS_AS_OF)}` : ''}.
-              El saldo actual suma entradas y pagos sin volver a escribir esa apertura.
+              {`${supplierAccessinCode(accountSupplier) ? `#${supplierAccessinCode(accountSupplier)} · ` : ''}Saldo de apertura ${formatCurrency(opening)}${ACCESSIN_SUPPLIERS_AS_OF ? ` al ${formatAsOf(ACCESSIN_SUPPLIERS_AS_OF)}` : ''}. El saldo actual suma entradas y pagos. Al día: ${formatISODateLongAR(asOf)}.`}
             </p>
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -280,7 +276,7 @@ export default function SuppliersPanel({
             <tbody>
               <tr>
                 <td>{formatAsOf(ACCESSIN_SUPPLIERS_AS_OF) || '—'}</td>
-                <td>Saldo Accessin</td>
+                <td>Saldo de apertura</td>
                 <td>Apertura de cuenta corriente</td>
                 <td>—</td>
                 <td>—</td>
@@ -310,7 +306,7 @@ export default function SuppliersPanel({
 
         {linkedExpenses.length > 0 && (
           <div>
-            <h5 style={{ margin: '0 0 0.5rem', fontSize: '0.9rem' }}>Gastos del ERP vinculados</h5>
+            <h5 style={{ margin: '0 0 0.5rem', fontSize: '0.9rem' }}>Gastos vinculados</h5>
             <div className="table-responsive">
               <table className="admin-table suppliers-table">
                 <thead>
@@ -363,11 +359,11 @@ export default function SuppliersPanel({
           <h4 className="serif-font" style={{ fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
             <Truck size={18} /> Proveedores
             <span className="suppliers-accessin-badge">
-              Accessin · CC al {formatAsOf(ACCESSIN_SUPPLIERS_AS_OF)}
+              CC al {formatISODateLongAR(asOf)}
             </span>
           </h4>
           <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0.35rem 0 0' }}>
-            Padrón de cuenta corriente ({suppliers.length} fichas). El saldo junta la apertura Accessin, las entradas y los pagos. Positivo = deuda del club.
+            {`Padrón de cuenta corriente (${suppliers.length} fichas). El saldo junta la apertura${ACCESSIN_SUPPLIERS_AS_OF ? ` del ${formatAsOf(ACCESSIN_SUPPLIERS_AS_OF)}` : ''}, las entradas y los pagos. Positivo = deuda del club.`}
           </p>
         </div>
       </div>
@@ -434,7 +430,7 @@ export default function SuppliersPanel({
           </div>
         </div>
         <div className="glass-card" style={{ padding: '0.85rem 1rem' }}>
-          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Gastos ERP abiertos</div>
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Gastos abiertos</div>
           <div style={{ fontSize: '1.1rem', fontWeight: 800 }}>{formatCurrency(erpOpen)}</div>
         </div>
       </div>
@@ -449,7 +445,7 @@ export default function SuppliersPanel({
               setSearch(e.target.value);
               setPage(0);
             }}
-            placeholder="Buscar por código Accessin, razón social, CUIT o contacto…"
+            placeholder="Buscar por código, razón social, CUIT o contacto…"
             style={{ paddingLeft: '2.3rem' }}
           />
         </div>
@@ -499,7 +495,7 @@ export default function SuppliersPanel({
             setPage(0);
           }}
         >
-          <option value="accessin">Orden Accessin</option>
+          <option value="accessin">Por código</option>
           <option value="name">Por nombre</option>
           <option value="balance">Por |saldo|</option>
         </select>
@@ -519,7 +515,7 @@ export default function SuppliersPanel({
           }}
         >
           <div>
-            <label className="form-label">Código Accessin</label>
+            <label className="form-label">Código</label>
             <input
               className="form-input"
               value={form.accessinCode}
@@ -540,7 +536,7 @@ export default function SuppliersPanel({
             <input className="form-input" value={form.cuit} onChange={(e) => setForm({ ...form, cuit: e.target.value })} placeholder="30-XXXXXXXX-X" />
           </div>
           <div>
-            <label className="form-label">Saldo Accessin</label>
+            <label className="form-label">Saldo de apertura</label>
             <input
               type="number"
               step="0.01"
@@ -625,7 +621,7 @@ export default function SuppliersPanel({
               <th>CUIT</th>
               <th>Contacto</th>
               <th>Saldo</th>
-              <th>Gastos ERP</th>
+              <th>Gastos abiertos</th>
               <th>Estado</th>
               <th style={{ textAlign: 'right' }}>Acciones</th>
             </tr>

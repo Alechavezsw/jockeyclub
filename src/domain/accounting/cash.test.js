@@ -5,6 +5,7 @@ import {
   counterpartAccountsForMovement,
   closedSessions,
   pickGeneralCashRegister,
+  sessionStatusLabel,
   DEFAULT_CASH_REGISTERS,
 } from './cash';
 
@@ -56,6 +57,14 @@ describe('closedSessions', () => {
       { id: '3', status: 'discrepancy', closedAt: '2026-07-02T10:00:00.000Z' },
     ]);
     expect(list.map((s) => s.id)).toEqual(['3', '2']);
+  });
+});
+
+describe('sessionStatusLabel', () => {
+  it('traduce el estado de la sesión', () => {
+    expect(sessionStatusLabel('open')).toBe('Abierta');
+    expect(sessionStatusLabel('closed')).toBe('Cerrada');
+    expect(sessionStatusLabel('discrepancy')).toBe('Con diferencia');
   });
 });
 

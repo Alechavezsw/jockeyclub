@@ -1,4 +1,6 @@
-/** Entradas de cuenta corriente de proveedores (Accessin / LILA). */
+/** Entradas de cuenta corriente de proveedores. */
+
+import { todayISODateAR } from '../../lib/arDate';
 
 export const SUPPLIER_ENTRY_TYPES = {
   pago: { label: 'Pago', effect: 'credit' },
@@ -29,7 +31,7 @@ export const SUPPLIER_PAYMENT_METHODS = {
   otro: 'Otro',
 };
 
-/** Delta sobre saldo Accessin: débito suma deuda; crédito la reduce. */
+/** Delta sobre el saldo: débito suma deuda; crédito la reduce. */
 export function supplierEntryBalanceDelta(type, amount, effect) {
   const amt = Number(amount) || 0;
   const resolved = effect === 'credit' || effect === 'debit'
@@ -43,7 +45,7 @@ export function createSupplierEntry({
   supplierId,
   supplierName = '',
   accessinCode = '',
-  date = new Date().toISOString().slice(0, 10),
+  date = todayISODateAR(),
   amount = 0,
   concept = '',
   invoiceNumber = '',

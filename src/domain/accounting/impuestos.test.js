@@ -2,10 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_CHART_OF_ACCOUNTS } from './chartOfAccounts';
 import { payExpense } from './expenses';
 import {
+  buildLiveImpuestos,
   classifyRetention,
   compraFromExpense,
   createComprobante,
+  currentTaxPeriod,
+  DEFAULT_FISCAL_PROFILE,
   journalForComprobante,
+  liveCompraFromExpense,
+  liveVentaFromOtherIncome,
   liquidatePeriod,
   priceLine,
   splitPurchaseTotal,
@@ -194,5 +199,164 @@ describe('gastos con IVA', () => {
       vendorName: 'Luz',
       concept: 'Servicio',
     })).toBeNull();
+  });
+});
+
+describe('posición fiscal viva', () => {
+  it('el período sigue el calendario de San Juan, no UTC', () => {
+    expect(currentTaxPeriod(new Date('2026-10-20T00:30:00.000Z'))).toBe('2026-10');
+    expect(currentTaxPeriod(new Date('2026-11-01T02:00:00.000Z'))).toBe('2026-10');
+  });
+
+  it('un gasto pagado entra como compra aunque el club esté exento', () => {
+    const compra = liveCompraFromExpense({
+      id: 'exp-luz',
+      status: 'paid',
+      amount: 80000,
+      expenseDate: '2026-10-08',
+      vendorName: 'EDEMSA',
+      concept: 'Energía',
+    }, DEFAULT_FISCAL_PROFILE);
+    expect(compra.book).toBe('compra');
+    expect(compra.totals.iva).toBe(0);
+    expect(compra.totals.total).toBe(80000);
+  });
+
+  it('las cuotas de otros ingresos no se facturan; un evento sí entra a IIBB', () => {
+    expect(liveVentaFromOtherIncome({
+      id: 'oi-cuota',
+      date: '2026-10-05',
+      group: 'cuotas',
+      payerName: 'Socio',
+      concept: 'Cuota octubre',
+      amount: 70000,
+      status: 'posted',
+    })).toBeNull();
+
+    const evento = liveVentaFromOtherIncome({
+      id: 'oi-fiesta',
+      date: '2026-10-12',
+      group: 'eventos',
+      payerName: 'Quinta',
+      concept: 'Salón',
+      amount: 1000,
+      status: 'posted',
+    }, { condition: 'exento', iibbPercent: 3, pointOfSale: '1' });
+    expect(evento.totals.iva).toBe(0);
+    expect(evento.totals.iibb).toBe(30);
+  });
+
+  it('arma el tablero del mes con gastos, ingresos y retenciones sin duplicar comprobantes', () => {
+    const gasto = {
+      id: 'exp-luz',
+      status: 'paid',
+      amount: 10000,
+      expenseDate: '2026-10-08',
+      vendorName: 'Luz',
+      concept: 'Energía',
+    };
+    const live = buildLiveImpuestos({
+      period: '2026-10',
+      today: new Date('2026-10-19T21:00:00-03:00'),
+      profile: DEFAULT_FISCAL_PROFILE,
+      expenses: [gasto, { ...gasto, id: 'exp-old', expenseDate: '2026-09-01' }],
+      otherIncomes: [{
+        id: 'oi-fiesta',
+        date: '2026-10-12',
+        group: 'eventos',
+        payerName: 'Quinta',
+        concept: 'Salón',
+        amount: 5000,
+        status: 'posted',
+      }],
+      retenciones: [{
+        id: 'ret-1',
+        status: 'recorded',
+        retentionDate: '2026-10-09',
+        retentionType: 'Retencion IIBB de San Juan',
+        retentionAmount: 250,
+        supplierName: 'Banco',
+      }],
+      vouchers: [createComprobante({
+        id: 'cmp-exp-exp-luz',
+        book: 'compra',
+        letter: 'C',
+        date: '2026-10-08',
+        counterpartyName: 'Luz',
+        sourceId: 'exp-luz',
+        lines: [{ quantity: 1, unitPrice: 10000, aliquotId: 'exento' }],
+      })],
+    });
+    expect(live.period).toBe('2026-10');
+    expect(live.gastosCount).toBe(1);
+    expect(live.ingresosCount).toBe(1);
+    expect(live.retencionesAmount).toBe(250);
+    expect(live.impliedCount).toBe(1);
+    expect(live.board.iva.aPagar).toBe(0);
+    expect(live.activity.some((row) => row.origin === 'gasto')).toBe(false);
+    expect(live.activity.some((row) => row.origin === 'ingreso')).toBe(true);
+  });
+
+  it('el tablero toma ingresos y gastos del libro del mes sin facturar cuotas', () => {
+    const live = buildLiveImpuestos({
+      period: '2026-10',
+      profile: DEFAULT_FISCAL_PROFILE,
+      chartOfAccounts: [],
+      journalEntries: [{
+        date: '2026-10-01',
+        status: 'posted',
+        lines: [
+          { account: 'Cuotas Sociales', type: 'credit', amount: 70000 },
+          { account: 'Servicios e Insumos', type: 'debit', amount: 12000 },
+        ],
+      }],
+    });
+    expect(live.bookIncome).toBe(70000);
+    expect(live.bookExpense).toBe(12000);
+    expect(live.cashIn).toBe(0);
+    expect(live.board.iva.aPagar).toBe(0);
+    expect(live.activity.some((row) => row.originLabel.includes('no se facturan'))).toBe(true);
+  });
+
+  it('los cobros de tesorería del mes aparecen aunque no sean ingreso fiscal', () => {
+    const live = buildLiveImpuestos({
+      period: '2026-10',
+      profile: DEFAULT_FISCAL_PROFILE,
+      chartOfAccounts: [],
+      journalEntries: [{
+        date: '2026-10-13',
+        status: 'posted',
+        lines: [
+          { account: 'Banco Nación', type: 'debit', amount: 1462000 },
+          { account: 'Cuentas a Cobrar', type: 'credit', amount: 1462000 },
+        ],
+      }],
+    });
+    expect(live.cashIn).toBe(1462000);
+    expect(live.bookIncome).toBe(0);
+    expect(live.activity.some((row) => row.origin === 'cobro' && row.total === 1462000)).toBe(true);
+  });
+
+  it('trata Banco Nación como tesorería aunque el plan no lo marque caja', () => {
+    const live = buildLiveImpuestos({
+      period: '2026-10',
+      profile: DEFAULT_FISCAL_PROFILE,
+      chartOfAccounts: [{
+        id: 'bank-1',
+        code: '1.1.03',
+        name: 'Banco Nación',
+        accountType: 'asset',
+        isCashAccount: false,
+      }],
+      journalEntries: [{
+        date: '2026-10-13',
+        status: 'posted',
+        lines: [
+          { account: 'Banco Nación', type: 'debit', amount: 3385635 },
+          { account: 'Cuentas a Cobrar', type: 'credit', amount: 3385635 },
+        ],
+      }],
+    });
+    expect(live.cashIn).toBe(3385635);
   });
 });

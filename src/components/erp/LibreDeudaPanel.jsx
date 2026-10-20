@@ -10,13 +10,10 @@ import {
   buildLibreDeudaCertificate,
   findMemberForLibreDeuda,
   formatLibreDeudaMemberNumber,
-  LIBRE_DEUDA_SNAPSHOTS,
 } from '../../domain/accounting/libreDeuda';
 import { exportLibreDeudaPdf } from '../../domain/accounting/exportLibreDeudaPdf';
 import { filterMembersForBalances } from '../../domain/accounting/memberBalances';
-import { requireSnapshots } from '../../data/snapshots';
 import { todayISODateAR } from '../../lib/arDate';
-import SnapshotGate from '../SnapshotGate';
 
 function wrapSelection(textarea, before, after) {
   const start = textarea.selectionStart;
@@ -26,15 +23,7 @@ function wrapSelection(textarea, before, after) {
   return `${value.slice(0, start)}${before}${selected}${after}${value.slice(end)}`;
 }
 
-export default function LibreDeudaPanel(props) {
-  return (
-    <SnapshotGate names={LIBRE_DEUDA_SNAPSHOTS}>
-      <LibreDeudaContent {...props} />
-    </SnapshotGate>
-  );
-}
-
-function LibreDeudaContent({
+export default function LibreDeudaPanel({
   members = [],
   reports = [],
   onRecordReport,
@@ -95,7 +84,6 @@ function LibreDeudaContent({
     }
     setBusy(true);
     try {
-      await requireSnapshots(LIBRE_DEUDA_SNAPSHOTS);
       const fileName = await exportLibreDeudaPdf(sourceCert);
       onRecordReport?.(createAccountingReportRecord({
         reportType: 'libre_deuda',
@@ -125,8 +113,8 @@ function LibreDeudaContent({
           <p className="mb-folio-kicker">Contabilidad</p>
           <h3 className="mb-folio-title">Libre deuda</h3>
           <p className="mb-folio-meta">
-            Certificado de un socio a una fecha de corte. El PDF sale con el texto institucional:
-            Administración, CUIT, última liquidación paga y la nota del sistema.
+            Certificado de un socio a una fecha de corte, con el saldo de cuota vivo.
+            El PDF lleva Administración, CUIT y última liquidación paga.
           </p>
         </div>
         <span className={['mb-folio-seal', certificate && !certificate.isClear ? 'is-warn' : ''].filter(Boolean).join(' ')}>
@@ -219,6 +207,13 @@ function LibreDeudaContent({
         <article className="ld-letter" aria-label="Vista previa del certificado">
           <header className="ld-letter-head">
             <p>{certificate.letter.headingMember}</p>
+            <img
+              className="club-mark ld-letter-crest"
+              src="/logo-jockey-club.png?v=clavos-blancos"
+              alt="Jockey Club San Juan"
+              width={88}
+              height={88}
+            />
             <strong>{certificate.letter.headingClub}</strong>
             <em>{certificate.letter.headingTitle}</em>
           </header>

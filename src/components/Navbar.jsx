@@ -4,6 +4,7 @@ import { Sun, Moon, Shield, User, Menu, X, Bell, LogOut, Mail, LayoutDashboard }
 import { useAuth } from '../context/AuthContext';
 import { navItemsForRole, ROLE_LABELS, sessionGreetLabel } from '../domain/auth/roles';
 import { formatLongDateAR, todayISODateAR } from '../lib/arDate';
+import { preventButtonScroll } from '../lib/scrollPage';
 
 export default function Navbar({
   currentView,
@@ -178,6 +179,7 @@ export default function Navbar({
             <button
               key={item.id}
               type="button"
+              onMouseDown={preventButtonScroll}
               onClick={() => handleNavClick(item.id)}
               aria-current={currentView === item.id ? 'page' : undefined}
               style={{
@@ -542,6 +544,8 @@ export default function Navbar({
           {visibleItems.map(item => (
             <button
               key={item.id}
+              type="button"
+              onMouseDown={preventButtonScroll}
               onClick={() => handleNavClick(item.id)}
               style={{
                 background: currentView === item.id ? 'rgba(var(--primary-gold-rgb), 0.05)' : 'transparent',

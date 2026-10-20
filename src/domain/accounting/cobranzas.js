@@ -27,7 +27,7 @@ export function cobranzasSummary(
   const byType = {};
   const byMethod = {};
   list.forEach((row) => {
-    const t = row.type || 'Otros';
+    const t = String(row.type || '').trim() || 'Otros';
     const m = row.paymentMethod || 'otros';
     byType[t] = (byType[t] || 0) + (Number(row.amount) || 0);
     byMethod[m] = (byMethod[m] || 0) + (Number(row.amount) || 0);
@@ -54,12 +54,11 @@ export function cobranzasBalanceCards(
   const summary = cobranzasSummary(items, snapshot);
   const typeCards = Object.entries(summary.byType)
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 4)
     .map(([type, value]) => ({
       id: `type-${type}`,
       label: type,
       value,
-      caption: 'Importe del período',
+      caption: 'Incluido en el total cobrado',
       filter: { type },
     }));
 
@@ -82,13 +81,18 @@ export function filterAccessinCobranzas(items = [], filter = {}) {
     paymentMethod = null,
     bankName = null,
     memberNumbers = null,
+    monthKey = null,
     query = '',
     limit = null,
   } = filter || {};
   const q = String(query || '').trim().toLowerCase();
   let rows = [...(items || [])];
-  if (type) rows = rows.filter((r) => r.type === type);
+  if (type) rows = rows.filter((r) => (r.type || 'Otros') === type);
   if (paymentMethod) rows = rows.filter((r) => r.paymentMethod === paymentMethod);
+  const month = String(monthKey || '').slice(0, 7);
+  if (/^\d{4}-\d{2}$/.test(month)) {
+    rows = rows.filter((r) => String(r.date || '').slice(0, 7) === month);
+  }
   if (bankName) rows = rows.filter((r) => r.bankName === bankName);
   if (memberNumbers?.length) {
     const keys = new Set(

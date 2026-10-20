@@ -1,9 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Receipt, Check, X, Banknote, Upload } from 'lucide-react';
 import { getPostableAccounts, accountLabel } from '../../domain/accounting/chartOfAccounts';
-import { EXPENSE_STATUS_LABELS } from '../../domain/accounting/expenses';
+import {
+  EXPENSE_STATUS_LABELS,
+  buildLiveExpenses,
+  expensePaymentAccounts,
+} from '../../domain/accounting/expenses';
 import { IVA_ALIQUOTS } from '../../domain/accounting/impuestos';
 import { formatCurrency } from '../../domain/accounting/journal';
+import { formatISODateLongAR, todayISODateAR } from '../../lib/arDate';
 import ExpenseImportPanel from './ExpenseImportPanel';
 
 export default function ExpensesPanel({
@@ -20,13 +25,13 @@ export default function ExpensesPanel({
   perfilFiscal = null,
 }) {
   const expenseAccounts = getPostableAccounts(chartOfAccounts).filter((a) => a.accountType === 'expense');
-  const paymentAccounts = getPostableAccounts(chartOfAccounts).filter(
-    (a) => a.accountType === 'asset' && (a.isCashAccount || a.code.startsWith('1.1'))
-  );
+  const paymentAccounts = expensePaymentAccounts(chartOfAccounts);
+  const live = useMemo(() => buildLiveExpenses({ expenses }), [expenses]);
 
   const [view, setView] = useState(initialView === 'import' ? 'import' : 'list');
-  const [form, setForm] = useState({
-    expenseDate: new Date().toISOString().slice(0, 10),
+  const [statusFilter, setStatusFilter] = useState(null);
+  const [form, setForm] = useState(() => ({
+    expenseDate: todayISODateAR(),
     vendorName: '',
     categoryAccountId: expenseAccounts[0]?.id || '',
     paymentAccountId: paymentAccounts[0]?.id || '',
@@ -35,7 +40,7 @@ export default function ExpensesPanel({
     invoiceNumber: '',
     ivaAliquotId: '',
     fiscalCondition: perfilFiscal?.condition || '',
-  });
+  }));
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
 
@@ -76,10 +81,11 @@ export default function ExpensesPanel({
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
         <div>
           <h4 className="serif-font" style={{ fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
-            <Receipt size={18} /> Gastos y Aprobaciones
+            <Receipt size={18} /> Gastos
+            <span className="suppliers-accessin-badge">{formatISODateLongAR(live.asOf)}</span>
           </h4>
           <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0.35rem 0 0' }}>
-            Flujo: solicitud → aprobación → pago con asiento automático.
+            Solicitud → aprobación → pago. Al pagar se asienta y baja caja o banco.
           </p>
         </div>
         <button
@@ -104,7 +110,7 @@ export default function ExpensesPanel({
             list="expense-suppliers"
             value={form.vendorName}
             onChange={(e) => setForm({ ...form, vendorName: e.target.value })}
-            placeholder="Accessin / razón social"
+            placeholder="Razón social o nombre"
           />
           <datalist id="expense-suppliers">
             {suppliers
@@ -157,9 +163,37 @@ export default function ExpensesPanel({
       {error && <p style={{ color: '#ef4444' }}>{error}</p>}
       {ok && <p style={{ color: 'var(--emerald-accent)' }}>{ok}</p>}
 
+      <div className="cash-lila-cards">
+        {live.cards.map((card) => (
+          <button
+            key={card.id}
+            type="button"
+            className={`cash-lila-card${card.emphasize ? ' is-total' : ''}${statusFilter && card.filter === statusFilter ? ' is-total' : ''}`}
+            onClick={() => setStatusFilter((current) => (
+              card.filter && current === card.filter ? null : card.filter
+            ))}
+            style={{ textAlign: 'left', cursor: card.filter ? 'pointer' : 'default' }}
+          >
+            <div className="cash-lila-card-label">{card.label}</div>
+            <div className="cash-lila-card-value">{formatCurrency(card.value)}</div>
+            <div className="cash-lila-card-caption">{card.caption}</div>
+          </button>
+        ))}
+      </div>
+
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
-        {expenses.length === 0 && <p style={{ color: 'var(--text-secondary)' }}>No hay gastos registrados.</p>}
-        {expenses.map((exp) => {
+        {live.rows.length === 0 && (
+          <p style={{ color: 'var(--text-secondary)' }}>
+            No hay gastos cargados. El que solicites acá queda pendiente, se aprueba y al pagar entra al diario y a Cajas.
+          </p>
+        )}
+        {live.rows.filter((exp) => {
+          if (!statusFilter) return true;
+          if (statusFilter === 'pending_approval') {
+            return exp.status === 'pending_approval' || exp.status === 'draft';
+          }
+          return exp.status === statusFilter;
+        }).map((exp) => {
           const cat = chartOfAccounts.find((a) => a.id === exp.categoryAccountId);
           return (
             <div key={exp.id} style={{ border: '1px solid var(--border-glass)', borderRadius: 12, padding: '0.9rem 1rem' }}>
@@ -167,7 +201,7 @@ export default function ExpensesPanel({
                 <div>
                   <strong>{exp.concept}</strong>
                   <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                    {exp.expenseDate} · {cat ? accountLabel(cat) : '—'}
+                    {formatISODateLongAR(exp.expenseDate)} · {cat ? accountLabel(cat) : '—'}
                     {exp.vendorName ? ` · ${exp.vendorName}` : ''}
                     {exp.invoiceNumber ? ` · Comp. ${exp.invoiceNumber}` : ''}
                   </div>

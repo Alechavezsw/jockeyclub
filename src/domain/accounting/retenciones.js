@@ -1,5 +1,6 @@
-/** Retenciones impositivas / Accessin (resumen CC proveedores). */
+/** Retenciones practicadas sobre órdenes de pago a proveedores. */
 
+import { formatISODateLongAR, todayISODateAR } from '../../lib/arDate';
 import { readSnapshot } from '../../data/snapshots';
 
 const EMPTY_RETENCIONES_SEED = Object.freeze({
@@ -10,7 +11,7 @@ const EMPTY_RETENCIONES_SEED = Object.freeze({
   ACCESSIN_RETENCIONES_PERIOD_TO: '',
 });
 
-/** Snapshot `accessinRetenciones`; vacío hasta que carga (ver data/snapshots). */
+/** Snapshot histórico; vacío hasta que carga (ver data/snapshots). */
 export function retencionesSeed() {
   return readSnapshot('accessinRetenciones', EMPTY_RETENCIONES_SEED);
 }
@@ -20,17 +21,31 @@ export const RETENCION_STATUS = {
   void: 'Anulada',
 };
 
+function roundMoney(value) {
+  return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+function isoDate(value) {
+  const raw = String(value || '').slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : '';
+}
+
+function retentionAmountOf(row) {
+  return Number(row?.retentionAmount ?? row?.withholdingAmount ?? row?.retencion) || 0;
+}
+
 export function createRetencion({
-  clientName = '',
+  clientName = 'Jockey Club San Juan',
   supplierName = '',
   paymentOrderNumber = '',
   paymentOrderAmount = 0,
   retentionType = '',
-  retentionDate = new Date().toISOString().slice(0, 10),
+  retentionDate = todayISODateAR(),
   retentionAmount = 0,
   lineNumber = null,
   notes = '',
-}) {
+  paymentOrderId = '',
+} = {}) {
   const amount = Number(retentionAmount);
   if (!Number.isFinite(amount) || amount === 0) {
     throw new Error('El monto de retención es obligatorio.');
@@ -46,13 +61,14 @@ export function createRetencion({
     supplierName: String(supplierName || '').trim(),
     paymentOrderNumber: String(paymentOrderNumber || '').trim(),
     paymentOrderAmount: Number(paymentOrderAmount) || 0,
+    paymentOrderId: String(paymentOrderId || '').trim(),
     retentionType: String(retentionType || '').trim(),
-    retentionDate: String(retentionDate || '').slice(0, 10),
+    retentionDate: isoDate(retentionDate) || todayISODateAR(),
     retentionAmount: amount,
     status: 'recorded',
     notes: String(notes || '').trim(),
     source: 'manual',
-    asOf: retencionesSeed().ACCESSIN_RETENCIONES_AS_OF,
+    asOf: todayISODateAR(),
     createdAt: new Date().toISOString(),
   };
 }
@@ -100,9 +116,11 @@ export function retencionTotals(items = []) {
   }
   return {
     count: active.length,
-    total,
-    paymentOrders,
-    byType,
+    total: roundMoney(total),
+    paymentOrders: roundMoney(paymentOrders),
+    byType: Object.fromEntries(
+      Object.entries(byType).map(([key, value]) => [key, roundMoney(value)])
+    ),
   };
 }
 
@@ -111,4 +129,99 @@ export function compareRetenciones(a, b) {
   const db = String(b.retentionDate || '');
   if (da !== db) return db.localeCompare(da);
   return (Number(a.lineNumber) || 0) - (Number(b.lineNumber) || 0);
+}
+
+export function retentionFromPaymentOrder(order) {
+  if (!order || order.deletedAt || order.orderKind === 'member') return null;
+  if (order.status === 'void' || order.status === 'cancelled') return null;
+  const amount = retentionAmountOf(order);
+  if (amount === 0) return null;
+  const date = isoDate(order.retentionDate || order.date || order.paidAt || order.dueDate);
+  return {
+    id: `ret-op-${order.id}`,
+    lineNumber: null,
+    clientName: 'Jockey Club San Juan',
+    supplierName: String(order.payee || order.beneficiary || order.supplierName || '').trim(),
+    paymentOrderNumber: String(order.number || order.paymentOrderNumber || '').trim(),
+    paymentOrderAmount: Number(order.amount) || 0,
+    paymentOrderId: String(order.id || ''),
+    retentionType: String(order.retentionType || 'Retención').trim(),
+    retentionDate: date,
+    retentionAmount: amount,
+    status: 'recorded',
+    notes: String(order.concept || '').trim(),
+    source: 'payment_order',
+    asOf: todayISODateAR(),
+  };
+}
+
+export function mergeLiveRetenciones(retenciones = [], paymentOrders = []) {
+  const rows = (retenciones || []).filter(Boolean);
+  const linked = new Set(
+    rows.flatMap((row) => [
+      String(row.paymentOrderId || ''),
+      String(row.paymentOrderNumber || '').trim().toLowerCase(),
+    ]).filter(Boolean)
+  );
+  const extra = (paymentOrders || []).flatMap((order) => {
+    const row = retentionFromPaymentOrder(order);
+    if (!row) return [];
+    if (linked.has(String(row.paymentOrderId || ''))) return [];
+    const number = String(row.paymentOrderNumber || '').trim().toLowerCase();
+    if (number && linked.has(number)) return [];
+    return [row];
+  });
+  return [...rows, ...extra];
+}
+
+export function filterRetenciones(items = [], filter = {}) {
+  const q = String(filter.query || '').trim().toLowerCase();
+  const month = String(filter.monthKey || '').slice(0, 7);
+  const type = filter.type && filter.type !== 'all' ? filter.type : '';
+  return (items || []).filter((row) => {
+    if (!row || row.status === 'void') return false;
+    if (month && isoDate(row.retentionDate).slice(0, 7) !== month) return false;
+    if (type && row.retentionType !== type) return false;
+    if (!q) return true;
+    return (
+      String(row.supplierName || '').toLowerCase().includes(q)
+      || String(row.clientName || '').toLowerCase().includes(q)
+      || String(row.paymentOrderNumber || '').toLowerCase().includes(q)
+      || String(row.retentionType || '').toLowerCase().includes(q)
+    );
+  });
+}
+
+export function buildLiveRetenciones({
+  retenciones = [],
+  paymentOrders = [],
+  today = new Date(),
+} = {}) {
+  const asOf = todayISODateAR(today);
+  const month = asOf.slice(0, 7);
+  const rows = mergeLiveRetenciones(retenciones, paymentOrders).toSorted(compareRetenciones);
+  const active = rows.filter((row) => row.status !== 'void');
+  const ofMonth = active.filter((row) => isoDate(row.retentionDate).slice(0, 7) === month);
+  const totals = retencionTotals(active);
+  const monthTotals = retencionTotals(ofMonth);
+  const dates = active.map((row) => isoDate(row.retentionDate)).filter(Boolean).toSorted();
+  const months = [...new Set(active.map((row) => isoDate(row.retentionDate).slice(0, 7)).filter(Boolean))]
+    .toSorted()
+    .toReversed();
+  return {
+    asOf,
+    asOfLabel: formatISODateLongAR(asOf),
+    month,
+    rows: active,
+    count: totals.count,
+    total: totals.total,
+    paymentOrders: totals.paymentOrders,
+    byType: totals.byType,
+    monthCount: monthTotals.count,
+    monthTotal: monthTotals.total,
+    monthPaymentOrders: monthTotals.paymentOrders,
+    periodFrom: dates[0] || asOf,
+    periodTo: dates[dates.length - 1] || asOf,
+    months,
+  };
 }

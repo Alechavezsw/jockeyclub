@@ -1,4 +1,6 @@
-/** Proveedores del club y movimientos de cuenta corriente (Accessin). */
+/** Proveedores del club y movimientos de cuenta corriente. */
+
+import { todayISODateAR } from '../../lib/arDate';
 
 // El padrón de proveedores vive en ./suppliersSeed. No importarlo acá: este módulo
 // lo carga el store del ERP al arrancar y arrastraría CUIT y razón social al chunk
@@ -21,9 +23,35 @@ export function supplierAccessinCode(supplier) {
   return String(supplier?.accessinCode || '').trim();
 }
 
-/** Saldo de apertura Accessin (positivo = deuda del club; negativo = a favor). */
+/** Saldo de apertura del corte (positivo = deuda del club; negativo = a favor). */
 export function supplierAccessinBalance(supplier) {
   return Number(supplier?.openingBalance) || 0;
+}
+
+export function supplierLiveBalance(supplier, ledger) {
+  return supplierRunningBalance(supplier, ledger);
+}
+
+export function liveSupplierTotals(suppliers = [], ledger = {}) {
+  let debt = 0;
+  let credit = 0;
+  let withBalance = 0;
+  for (const supplier of suppliers) {
+    const bal = supplierRunningBalance(supplier, ledger);
+    if (bal > 0) {
+      debt += bal;
+      withBalance += 1;
+    } else if (bal < 0) {
+      credit += Math.abs(bal);
+      withBalance += 1;
+    }
+  }
+  return {
+    debt: roundMoney(debt),
+    credit: roundMoney(credit),
+    net: roundMoney(debt - credit),
+    withBalance,
+  };
 }
 
 export function supplierLabel(supplier) {
@@ -163,7 +191,7 @@ function roundMoney(value) {
 }
 
 /**
- * Saldo de cuenta corriente: apertura Accessin + entradas − pagos que
+ * Saldo de cuenta corriente: apertura del corte + entradas − pagos que
  * todavía no tienen entrada vinculada. El saldo de apertura no se reescribe.
  */
 export function supplierRunningBalance(supplier, { entries = [], paymentOrders = [] } = {}) {
@@ -222,19 +250,24 @@ export function supplierAccountMovements(supplier, { entries = [], paymentOrders
   });
 }
 
-/**
- * Deuda operativa: gastos ERP pendientes/aprobados;
- * si no hay, cae al saldo Accessin de apertura.
- */
-export function supplierOpenBalance(expenses = [], supplier) {
-  const fromExpenses = expensesForSupplier(expenses, supplier)
+/** Gastos pendientes o aprobados, sin mezclar el saldo de apertura. */
+export function supplierOpenExpenseBalance(expenses = [], supplier) {
+  return expensesForSupplier(expenses, supplier)
     .filter((e) => ['pending_approval', 'approved'].includes(e.status))
     .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
-  if (fromExpenses) return fromExpenses;
-  return supplierAccessinBalance(supplier);
 }
 
-export function supplierPaidYtd(expenses = [], supplier, year = new Date().getFullYear()) {
+/**
+ * Deuda operativa: gastos pendientes/aprobados;
+ * si no hay, el saldo vivo de cuenta corriente.
+ */
+export function supplierOpenBalance(expenses = [], supplier, ledger = {}) {
+  const fromExpenses = supplierOpenExpenseBalance(expenses, supplier);
+  if (fromExpenses) return fromExpenses;
+  return supplierRunningBalance(supplier, ledger);
+}
+
+export function supplierPaidYtd(expenses = [], supplier, year = Number(todayISODateAR().slice(0, 4))) {
   return expensesForSupplier(expenses, supplier)
     .filter((e) => e.status === 'paid' && String(e.expenseDate || '').startsWith(String(year)))
     .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);

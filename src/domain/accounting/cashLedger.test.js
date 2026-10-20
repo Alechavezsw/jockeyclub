@@ -43,14 +43,21 @@ describe('cashLedger Accessin', () => {
     expect(total).toBeCloseTo(ACCESSIN_CASH_SNAPSHOT.closingBalance, 2);
   });
 
-  it('tarjetas usan solo datos reales del Excel / cheques', () => {
+  it('tarjetas usan el saldo lógico: efectivo = total − bancos − cheques', () => {
     const cards = accessinCashBalanceCards(ACCESSIN_CASH_SNAPSHOT, ACCESSIN_CASH_MOVEMENTS);
-    expect(cards.find((c) => c.id === 'efectivo')?.value).toBeCloseTo(14093240, 2);
-    expect(cards.find((c) => c.id === 'bancos')?.value).toBeCloseTo(138813235.91, 2);
-    expect(cards.find((c) => c.id === 'cheques')?.value).toBe(0);
-    expect(cards.find((c) => c.id === 'total')?.value).toBeCloseTo(868476635.75, 2);
-    // No usar saldos inventados de capturas de pantalla.
-    expect(cards.find((c) => c.id === 'efectivo')?.value).not.toBeCloseTo(179794062.75, 0);
+    const efectivo = cards.find((c) => c.id === 'efectivo')?.value;
+    const bancos = cards.find((c) => c.id === 'bancos')?.value;
+    const cheques = cards.find((c) => c.id === 'cheques')?.value;
+    const total = cards.find((c) => c.id === 'total')?.value;
+    expect(bancos).toBeCloseTo(138813235.91, 2);
+    expect(cheques).toBe(0);
+    expect(total).toBeCloseTo(868476635.75, 2);
+    expect(efectivo).toBeCloseTo(729663399.84, 2);
+    expect(efectivo).not.toBeCloseTo(14093240, 0);
+    expect(efectivo).not.toBeCloseTo(179794062.75, 0);
+    expect(cards.find((c) => c.id === 'efectivo')?.caption).toContain('13 de Octubre del 2026');
+    expect(cards.find((c) => c.id === 'efectivo')?.caption).not.toMatch(/no es el saldo/i);
+    expect(Math.round((efectivo + bancos + cheques) * 100) / 100).toBeCloseTo(total, 2);
   });
 
   it('tarjetas de bancos usan saldos reales de cuentas cuando hay listado', () => {
@@ -61,7 +68,15 @@ describe('cashLedger Accessin', () => {
       ACCESSIN_CHEQUES,
       ACCESSIN_BANK_ACCOUNTS
     );
-    expect(cards.find((c) => c.id === 'bancos')?.value).toBeCloseTo(668037170.87, 2);
+    const efectivo = cards.find((c) => c.id === 'efectivo')?.value;
+    const bancos = cards.find((c) => c.id === 'bancos')?.value;
+    const cheques = cards.find((c) => c.id === 'cheques')?.value;
+    const total = cards.find((c) => c.id === 'total')?.value;
+    expect(bancos).toBeCloseTo(668037170.87, 2);
+    expect(efectivo).toBeCloseTo(200439464.88, 2);
+    expect(cheques).toBe(0);
+    expect(total).toBeCloseTo(868476635.75, 2);
+    expect(Math.round((efectivo + bancos + cheques) * 100) / 100).toBeCloseTo(total, 2);
     expect(cards.find((c) => c.id === 'bancos')?.filter?.view).toBe('bank_accounts');
   });
 

@@ -25,6 +25,8 @@ describe('cobranzas Accessin', () => {
     const summary = cobranzasSummary();
     expect(summary.byType.Cuotas).toBeGreaterThan(40_000_000);
     expect(summary.count).toBe(ACCESSIN_COBRANZAS.length);
+    const typed = Object.values(summary.byType).reduce((sum, value) => sum + value, 0);
+    expect(Math.round(typed * 100) / 100).toBeCloseTo(summary.totalAmount, 2);
   });
 
   it('filtra por tipo y texto', () => {
@@ -40,5 +42,14 @@ describe('cobranzas Accessin', () => {
     ], { type: 'Cuotas', memberNumbers: ['10680'] });
     expect(rows).toHaveLength(1);
     expect(rows[0].memberNumber).toBe('10680');
+  });
+
+  it('filtra cobros de un mes sin mezclar otro', () => {
+    const rows = filterAccessinCobranzas([
+      { type: 'Cuotas', date: '2026-10-13', amount: 1, receiptId: 'a' },
+      { type: 'Cuotas', date: '2026-09-30', amount: 2, receiptId: 'b' },
+    ], { monthKey: '2026-10' });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].receiptId).toBe('a');
   });
 });

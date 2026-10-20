@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
+import { keepPageAtTop } from './lib/scrollPage';
 import Navbar from './components/Navbar';
 import DashboardView from './views/DashboardView';
 import LoginView from './views/LoginView';
@@ -777,6 +778,10 @@ function ClubPortal() {
             : location.pathname.startsWith('/concesiones')
               ? 'concessions'
               : 'dashboard';
+
+  useLayoutEffect(() => {
+    keepPageAtTop();
+  }, [location.pathname]);
 
   const [members, setMembers] = useState(() => {
     if (isSupabaseConfigured) return [];

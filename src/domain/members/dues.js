@@ -4,12 +4,14 @@ import {
   DUES_LATE_RATE,
   DUES_LATE_TIER_IDS,
   DUES_TARIFF_FROM,
+  getTierDisplayName,
   getTierMonthlyDues,
   MONTHLY_DUES_FROM_OCTOBER_2026,
   MONTHLY_DUES_THROUGH_SEPTEMBER_2026,
   parseCuotaCategories,
   slugifyTierId,
 } from './tiers';
+import { discountOnAmount, resolveDiscountRules } from '../accounting/discountApplication';
 
 const DAY_MS = 86400000;
 
@@ -275,6 +277,28 @@ function billedTierIds(member) {
   return tier ? [tier] : [];
 }
 
+function asDiscountPerson(row, titular) {
+  if (!row) return titular;
+  return {
+    ...row,
+    memberId: row.memberId || row.memberNumber,
+    memberNumber: row.memberId || row.memberNumber,
+    familyGroupName: row.familyGroupName || titular?.familyGroupName,
+    cuotaCategories: row.cuotaCategories || (row.tier ? [row.tier] : titular?.cuotaCategories),
+  };
+}
+
+function discountedTierAmount(member, id, on, rules) {
+  const gross = duesAmountForTier(id, undefined, on);
+  if (!gross) return 0;
+  if (!rules?.length) return gross;
+  return discountOnAmount(gross, rules, member, {
+    on,
+    categoryName: getTierDisplayName(id),
+    tierId: id,
+  }).net;
+}
+
 export function memberDuesTierIds(member) {
   return billedTierIds(member);
 }
@@ -367,18 +391,26 @@ export function duesPayableAmount(base, { paidOn = new Date(), dueOn, tier } = {
   return Math.round(amount * (1 + DUES_LATE_RATE));
 }
 
-/** Suma cada categoría del socio y aplica el recargo solo donde Lila lo tiene. */
-export function duesPayableForMember(member, { paidOn = new Date(), dueOn, on } = {}) {
+/** Suma cada categoría del socio y aplica el recargo solo donde corresponde. */
+export function duesPayableForMember(member, { paidOn = new Date(), dueOn, on, rules } = {}) {
   const when = on || dueOn || paidOn;
+  const discountRules = resolveDiscountRules(rules);
   const ids = billedTierIds(member);
   const own = ids.reduce(
-    (sum, id) => sum + duesPayableAmount(duesAmountForTier(id, undefined, when), { paidOn, dueOn, tier: id }),
+    (sum, id) => sum + duesPayableAmount(
+      discountedTierAmount(member, id, when, discountRules),
+      { paidOn, dueOn, tier: id },
+    ),
     0,
   );
   const family = (member?.adherents || []).filter((row) => row && row.status !== 'inactive');
   const extra = family.reduce((sum, row) => {
     const id = row?.tier || member?.tier;
-    return sum + duesPayableAmount(duesAmountForTier(id, undefined, when), { paidOn, dueOn, tier: id });
+    const person = asDiscountPerson(row, member);
+    return sum + duesPayableAmount(
+      discountedTierAmount(person, id, when, discountRules),
+      { paidOn, dueOn, tier: id },
+    );
   }, 0);
   return own + extra;
 }
@@ -395,17 +427,18 @@ export function duesAmountForHousehold(titularTier, familyGroup = [], on = new D
   return titular + family;
 }
 
-/** Cuota vigente del socio: cada categoría de Lila, más adherentes activos. `on` es el mes que se cobra. */
-export function duesAmountForMember(member, on = new Date()) {
+/** Cuota vigente del socio: cada categoría, más adherentes activos. `on` es el mes que se cobra. */
+export function duesAmountForMember(member, on = new Date(), options = {}) {
+  const rules = resolveDiscountRules(options?.rules);
   const own = billedTierIds(member).reduce(
-    (sum, id) => sum + duesAmountForTier(id, undefined, on),
+    (sum, id) => sum + discountedTierAmount(member, id, on, rules),
     0,
   );
   const family = (member?.adherents || []).filter((a) => a && a.status !== 'inactive');
-  const extra = family.reduce(
-    (sum, row) => sum + duesAmountForTier(row?.tier || member?.tier, undefined, on),
-    0,
-  );
+  const extra = family.reduce((sum, row) => {
+    const id = row?.tier || member?.tier;
+    return sum + discountedTierAmount(asDiscountPerson(row, member), id, on, rules);
+  }, 0);
   return own + extra;
 }
 

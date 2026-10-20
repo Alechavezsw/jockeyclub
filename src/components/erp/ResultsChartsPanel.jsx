@@ -37,12 +37,14 @@ function MixPie({ rows, total, centerLabel, emptyLabel, onOpen, colors }) {
     ? (SOURCE_LABELS[active.label] || active.label)
     : centerLabel;
   const centerValue = active ? formatCurrency(active.amount) : formatCurrency(total);
+  const centerDigits = centerValue.replace(/^\s*\$\s*/, '');
   const centerPct = active ? pctLabel(active.amount, total) : null;
 
   return (
     <div className="er-pie">
       <div className="er-pie-ring">
-        <svg viewBox="0 0 100 100" width="156" height="156" aria-hidden="true">
+        <svg viewBox="0 0 100 100" width="168" height="168" aria-hidden="true">
+          <circle cx="50" cy="50" r="41" className="er-pie-halo" />
           <circle cx="50" cy="50" r={PIE_R} className="er-pie-track" />
           {total > 0 ? slices.reduce((acc, row, index) => {
             const frac = row.amount / total;
@@ -54,7 +56,7 @@ function MixPie({ rows, total, centerLabel, emptyLabel, onOpen, colors }) {
                 r={PIE_R}
                 fill="none"
                 stroke={sliceColor(index, row.label, colors)}
-                strokeWidth={hover === row.label ? 15 : 12}
+                strokeWidth={hover === row.label ? 12 : 10}
                 strokeDasharray={`${frac * PIE_CIRC} ${PIE_CIRC}`}
                 strokeDashoffset={-acc.offset * PIE_CIRC}
                 transform="rotate(-90 50 50)"
@@ -68,9 +70,13 @@ function MixPie({ rows, total, centerLabel, emptyLabel, onOpen, colors }) {
             acc.offset += frac;
             return acc;
           }, { offset: 0, nodes: [] }).nodes : null}
+          <circle cx="50" cy="50" r="26.5" className="er-pie-hub" />
         </svg>
         <div className="er-pie-center">
-          <strong>{centerValue}</strong>
+          <strong>
+            <b>$</b>
+            {centerDigits}
+          </strong>
           <span>{centerPct || centerName}</span>
           {centerPct ? <em>{centerName}</em> : null}
         </div>
@@ -320,13 +326,13 @@ export default function ResultsChartsPanel({
         </article>
       </div>
 
-      <section className="er-block">
+      <section className="er-block er-cockades">
         <div className="er-block-head">
           <h4>Tortas del ejercicio</h4>
           <span>{insights.incomeMix.length + insights.expenseMix.length + insights.sourceMix.length} cortes</span>
         </div>
         <div className="er-pies">
-          <article>
+          <article className="er-pie-plate">
             <h5>Ingresos</h5>
             <MixPie
               rows={insights.incomeMix}
@@ -336,7 +342,7 @@ export default function ResultsChartsPanel({
               onOpen={onOpenAccount}
             />
           </article>
-          <article>
+          <article className="er-pie-plate">
             <h5>Resultado</h5>
             <MixPie
               rows={[
@@ -352,7 +358,7 @@ export default function ResultsChartsPanel({
               }}
             />
           </article>
-          <article>
+          <article className="er-pie-plate">
             <h5>Origen</h5>
             <MixPie
               rows={insights.sourceMix}
@@ -361,7 +367,7 @@ export default function ResultsChartsPanel({
               emptyLabel="Sin origen de cobro imputado."
             />
           </article>
-          <article>
+          <article className="er-pie-plate">
             <h5>Patrimonio</h5>
             <MixPie
               rows={[
@@ -381,24 +387,27 @@ export default function ResultsChartsPanel({
       </section>
 
       <div className="er-flow" aria-label="Cascada de resultado">
-        <div className="er-flow-row is-in">
-          <span>Ingresos</span>
-          <span className="er-flow-track"><i style={{ width: income ? '100%' : '0%' }} /></span>
-          <strong>{formatCurrency(income)}</strong>
-        </div>
-        <div className="er-flow-row is-out">
-          <span>Egresos</span>
-          <span className="er-flow-track">
-            <i style={{ width: `${expenseShare}%` }} />
-          </span>
-          <strong>{formatCurrency(expense)}</strong>
-        </div>
-        <div className={['er-flow-row', result >= 0 ? 'is-net' : 'is-out'].join(' ')}>
-          <span>Resultado</span>
-          <span className="er-flow-track">
-            <i style={{ width: `${resultShare}%` }} />
-          </span>
-          <strong>{formatCurrency(result)}</strong>
+        <div className="er-flow-post" aria-hidden="true" />
+        <div className="er-flow-tape">
+          <div className="er-flow-row is-in">
+            <span>Ingresos</span>
+            <span className="er-flow-track"><i style={{ width: income ? '100%' : '0%' }} /></span>
+            <strong>{formatCurrency(income)}</strong>
+          </div>
+          <div className="er-flow-row is-out">
+            <span>Egresos</span>
+            <span className="er-flow-track">
+              <i style={{ width: `${expenseShare}%` }} />
+            </span>
+            <strong>{formatCurrency(expense)}</strong>
+          </div>
+          <div className={['er-flow-row', result >= 0 ? 'is-net' : 'is-out'].join(' ')}>
+            <span>Resultado</span>
+            <span className="er-flow-track">
+              <i style={{ width: `${resultShare}%` }} />
+            </span>
+            <strong>{formatCurrency(result)}</strong>
+          </div>
         </div>
       </div>
 
@@ -423,7 +432,7 @@ export default function ResultsChartsPanel({
         </section>
       </div>
 
-      <section className="er-block">
+      <section className="er-block er-track">
         <div className="er-block-head">
           <h4>Mes a mes</h4>
           <span>
@@ -435,31 +444,40 @@ export default function ResultsChartsPanel({
         {insights.series.length === 0 ? (
           <p className="er-empty">Cuando haya asientos, acá se ve el pulso del año.</p>
         ) : (
-          <div className="er-months" role="img" aria-label="Ingresos y egresos por mes">
-            {insights.series.map((row) => (
-              <div key={row.month} className="er-month">
-                <div className="er-month-bars">
-                  <span
-                    className="is-in"
-                    style={{ height: `${maxMonth ? Math.max(4, (row.income / maxMonth) * 100) : 0}%` }}
-                    title={`Ingresos ${formatCurrency(row.income)}`}
-                  />
-                  <span
-                    className="is-out"
-                    style={{ height: `${maxMonth ? Math.max(row.expense ? 4 : 0, (row.expense / maxMonth) * 100) : 0}%` }}
-                    title={`Egresos ${formatCurrency(row.expense)}`}
-                  />
+          <>
+            <div className="er-months" role="img" aria-label="Ingresos y egresos por mes">
+              {insights.series.map((row) => (
+                <div
+                  key={row.month}
+                  className={['er-month', insights.bestMonth?.month === row.month ? 'is-best' : ''].filter(Boolean).join(' ')}
+                >
+                  <div className="er-month-bars">
+                    <span
+                      className="is-in"
+                      style={{ height: `${maxMonth ? Math.max(6, (row.income / maxMonth) * 100) : 0}%` }}
+                      title={`Ingresos ${formatCurrency(row.income)}`}
+                    />
+                    <span
+                      className="is-out"
+                      style={{ height: `${maxMonth ? Math.max(row.expense ? 6 : 0, (row.expense / maxMonth) * 100) : 0}%` }}
+                      title={`Egresos ${formatCurrency(row.expense)}`}
+                    />
+                  </div>
+                  <em>{row.label}</em>
+                  <strong className={row.result >= 0 ? 'is-net' : 'is-out'}>{formatCurrency(row.result)}</strong>
+                  <small>{formatCurrency(row.income)}</small>
                 </div>
-                <em>{row.label}</em>
-                <strong className={row.result >= 0 ? 'is-net' : 'is-out'}>{formatCurrency(row.result)}</strong>
-                <small>{formatCurrency(row.income)}</small>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+            <p className="er-month-key">
+              <i className="is-in" /> Ingresos
+              <i className="is-out" /> Egresos
+            </p>
+          </>
         )}
       </section>
 
-      <section className="er-block">
+      <section className="er-block er-eq">
         <div className="er-block-head">
           <h4>Ecuación patrimonial</h4>
           <span className={totals?.squared ? 'is-ok' : 'is-off'}>
@@ -470,7 +488,7 @@ export default function ResultsChartsPanel({
           Activo tiene que igualar pasivo más patrimonio neto, con el resultado del ejercicio ya sumado.
         </p>
         <div className="er-eq-grid">
-          <div>
+          <div className="er-eq-plate is-asset">
             <p className="er-eq-label">Activo</p>
             <strong className="er-eq-value">{formatCurrency(totals?.activos || 0)}</strong>
             <div className="acct-occ-track" aria-hidden="true">
@@ -483,7 +501,10 @@ export default function ResultsChartsPanel({
               onOpen={onOpenAccount}
             />
           </div>
-          <div>
+          <div className="er-eq-fulcrum" aria-hidden="true">
+            <span>=</span>
+          </div>
+          <div className="er-eq-plate is-equity">
             <p className="er-eq-label">Pasivo + patrimonio</p>
             <strong className="er-eq-value">{formatCurrency(totals?.pasivoPn || 0)}</strong>
             <div className="acct-occ-track" aria-hidden="true">

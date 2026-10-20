@@ -2,6 +2,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { loadSnapshots } from '../../data/snapshots';
 import {
   filterMonthlyBalanceDetailRows,
+  balanceSectionFamily,
+  balanceSectionFamilyLabel,
   findMonthlyBalanceSection,
   monthlyBalanceCards,
   monthlyBalanceDetailColumns,
@@ -40,6 +42,10 @@ describe('balance mensual LILA', () => {
   it('encuentra secciones y enlaza líneas con su hoja de detalle', () => {
     expect(findMonthlyBalanceSection(ACCESSIN_MONTHLY_BALANCE_SECTIONS, 'saldos_de_caja')?.title)
       .toBe('SALDOS DE CAJA');
+    expect(balanceSectionFamily({ id: 'saldos_de_caja', title: 'SALDOS DE CAJA' })).toBe('cash');
+    expect(balanceSectionFamily({ id: 'ingresos_por_tipo_de_entrada' })).toBe('in');
+    expect(balanceSectionFamily({ id: 'egresos_por_categoria' })).toBe('out');
+    expect(balanceSectionFamilyLabel('in')).toBe('Ingresos');
     expect(lineByLabel('liquidacion', /cuotas imputadas/i)?.detailKey)
       .toBe('cuotas_imputadas_en_cuent');
     expect(lineByLabel('ingresos_por_tipo_de_entrada', /^ingresos de reservas$/i)?.detailKey)

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { isSupabaseConfigured } from '../lib/supabase';
+import { todayISODateAR } from '../lib/arDate';
 import * as repos from '../data/repos';
 import { DEFAULT_CHART_OF_ACCOUNTS, resolveAccountId } from '../domain/accounting/chartOfAccounts';
 import {
@@ -35,6 +36,7 @@ import {
   softDeleteDiscount,
   upsertDiscount,
 } from '../domain/accounting/discounts';
+import { setRuntimeDiscountRules } from '../domain/accounting/discountApplication';
 import {
   resolveFeeExpenses,
   softDeleteFeeExpense,
@@ -71,6 +73,7 @@ import {
   DEFAULT_FIXED_EXPENSES,
   DEFAULT_FIXED_DISCOUNTS,
   DEFAULT_PAYMENT_ORDERS,
+  withoutDemoTreasuryRows,
   buildUnidentifiedMatchEntry,
   buildGaliciaSettledEntry,
   buildPaymentOrderPaidEntry,
@@ -281,19 +284,19 @@ export default function useErpStore({
   const [supplierEntries, setSupplierEntries] = useState(() => load('jockey-supplier-entries-v1', []));
   const [otherIncomes, setOtherIncomes] = useState(() => load('jockey-other-incomes-v1', []));
   const [unidentifiedCollections, setUnidentifiedCollections] = useState(() =>
-    load('jockey-unidentified-collections', DEFAULT_UNIDENTIFIED_COLLECTIONS)
+    withoutDemoTreasuryRows(load('jockey-unidentified-collections', DEFAULT_UNIDENTIFIED_COLLECTIONS))
   );
   const [galiciaDebits, setGaliciaDebits] = useState(() =>
-    load('jockey-galicia-debits', DEFAULT_GALICIA_DEBITS)
+    withoutDemoTreasuryRows(load('jockey-galicia-debits', DEFAULT_GALICIA_DEBITS))
   );
   const [fixedExpenses, setFixedExpenses] = useState(() =>
-    load('jockey-fixed-expenses', DEFAULT_FIXED_EXPENSES)
+    withoutDemoTreasuryRows(load('jockey-fixed-expenses', DEFAULT_FIXED_EXPENSES))
   );
   const [fixedDiscounts, setFixedDiscounts] = useState(() =>
-    load('jockey-fixed-discounts', DEFAULT_FIXED_DISCOUNTS)
+    withoutDemoTreasuryRows(load('jockey-fixed-discounts', DEFAULT_FIXED_DISCOUNTS))
   );
   const [paymentOrders, setPaymentOrders] = useState(() =>
-    load('jockey-payment-orders', DEFAULT_PAYMENT_ORDERS)
+    withoutDemoTreasuryRows(load('jockey-payment-orders', DEFAULT_PAYMENT_ORDERS))
   );
   const [alerts, setAlerts] = useState(() => load('jockey-alerts', DEFAULT_ALERTS));
   const [alertAcks, setAlertAcks] = useState(() => loadAlertAcks());
@@ -360,6 +363,10 @@ export default function useErpStore({
       const suppliersList = suppliersSeed().ACCESSIN_SUPPLIERS;
       if (suppliersList.length) setSuppliers((cur) => (cur?.length >= 50 ? cur : suppliersList));
       setDiscounts((cur) => resolveDiscounts(cur?.length ? cur : null, seedDiscounts()));
+      void repos.listDiscountRules().then((rows) => {
+        if (cancelled || !Array.isArray(rows) || !rows.length) return;
+        setDiscounts(rows);
+      }).catch(() => {});
     });
     return () => { cancelled = true; };
   }, [canLoadSeeds]);
@@ -420,10 +427,9 @@ export default function useErpStore({
     }
     if (Array.isArray(erp.interestGenerators)) setInterestGenerators(erp.interestGenerators);
     if (Array.isArray(erp.interestRuns)) setInterestRuns(erp.interestRuns);
-    setDiscounts(resolveDiscounts(
-      Array.isArray(erp.discounts) && erp.discounts.length ? erp.discounts : null,
-      seedDiscounts(),
-    ));
+    if (Array.isArray(erp.discounts) && erp.discounts.length) {
+      setDiscounts(erp.discounts);
+    }
     if (Array.isArray(erp.feeExpenses) && erp.feeExpenses.length) {
       setFeeExpenses(resolveFeeExpenses(erp.feeExpenses));
     } else {
@@ -463,11 +469,11 @@ export default function useErpStore({
     if (Array.isArray(erp.expenseImports)) setExpenseImports(erp.expenseImports);
     if (Array.isArray(erp.supplierEntries)) setSupplierEntries(erp.supplierEntries);
     if (Array.isArray(erp.otherIncomes)) setOtherIncomes(erp.otherIncomes);
-    if (Array.isArray(erp.unidentifiedCollections)) setUnidentifiedCollections(erp.unidentifiedCollections);
-    if (Array.isArray(erp.galiciaDebits)) setGaliciaDebits(erp.galiciaDebits);
-    if (Array.isArray(erp.fixedExpenses)) setFixedExpenses(erp.fixedExpenses);
-    if (Array.isArray(erp.fixedDiscounts)) setFixedDiscounts(erp.fixedDiscounts);
-    if (Array.isArray(erp.paymentOrders)) setPaymentOrders(erp.paymentOrders);
+    if (Array.isArray(erp.unidentifiedCollections)) setUnidentifiedCollections(withoutDemoTreasuryRows(erp.unidentifiedCollections));
+    if (Array.isArray(erp.galiciaDebits)) setGaliciaDebits(withoutDemoTreasuryRows(erp.galiciaDebits));
+    if (Array.isArray(erp.fixedExpenses)) setFixedExpenses(withoutDemoTreasuryRows(erp.fixedExpenses));
+    if (Array.isArray(erp.fixedDiscounts)) setFixedDiscounts(withoutDemoTreasuryRows(erp.fixedDiscounts));
+    if (Array.isArray(erp.paymentOrders)) setPaymentOrders(withoutDemoTreasuryRows(erp.paymentOrders));
     if (Array.isArray(erp.concessions)) {
       concessionsRef.current = erp.concessions;
       setConcessions(erp.concessions);
@@ -511,6 +517,9 @@ export default function useErpStore({
   useEffect(() => persist('jockey-interest-generators-v1', interestGenerators), [interestGenerators]);
   useEffect(() => persist('jockey-interest-runs-v1', interestRuns), [interestRuns]);
   useEffect(() => persist('jockey-discounts-v1', discounts), [discounts]);
+  useEffect(() => {
+    setRuntimeDiscountRules(discounts);
+  }, [discounts]);
   useEffect(() => {
     setFeePeriods((current) => resolveFeePeriods(current));
   }, []);
@@ -614,7 +623,7 @@ export default function useErpStore({
       if (!register) throw new Error('Caja no encontrada.');
 
       const entry = buildCashMovementEntry({
-        date: new Date().toISOString().slice(0, 10),
+        date: todayISODateAR(),
         concept,
         cashAccountId: register.accountId,
         relatedAccountId,
@@ -742,7 +751,7 @@ export default function useErpStore({
       if (!amt || amt <= 0) throw new Error('Importe inválido.');
 
       const entry = buildCashTransferEntry({
-        date: new Date().toISOString().slice(0, 10),
+        date: todayISODateAR(),
         concept: concept?.trim() || `Traspaso desde ${fromRegister.name}`,
         fromAccountId: fromRegister.accountId,
         toAccountId,

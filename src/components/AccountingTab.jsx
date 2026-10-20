@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   BookOpen, Plus, DollarSign, PieChart, ShieldAlert, CheckCircle2, Trash2, Printer, Search,
@@ -54,6 +54,7 @@ import ResultsChartsPanel from './erp/ResultsChartsPanel';
 import { allowedAccountingSubtabsForRoles } from '../domain/auth/roles';
 import { useAuth } from '../context/AuthContext';
 import { formatISODateLongAR, todayISODateAR } from '../lib/arDate';
+import { keepPageAtTop, preventButtonScroll } from '../lib/scrollPage';
 import {
   buildOfficialJournalEntries,
   groupJournalByMonth,
@@ -107,6 +108,12 @@ function buildAccountingNavGroups(accountingTabs) {
         { key: 'results', icon: DollarSign, label: 'Estado de Resultados', short: 'Resultados' },
         { key: 'charts', icon: TrendingUp, label: 'Reportes y gráficos', short: 'Gráficos', accent: 'charts' },
         { key: 'acct_reports', icon: FileText, label: 'Reportes', short: 'Reportes' },
+      ],
+    },
+    {
+      id: 'padron',
+      label: 'Padrón',
+      tabs: [
         { key: 'libre_deuda', icon: BadgeCheck, label: 'Libre deuda', short: 'Libre deuda' },
         { key: 'family_balances', icon: Users, label: 'Grupo familiar', short: 'Familia' },
         { key: 'member_discounts', icon: Percent, label: 'Descuentos extras', short: 'Descuentos' },
@@ -353,6 +360,10 @@ export default function AccountingTab({
     else next.delete('import');
     setSearchParams(next, { replace: true });
   };
+
+  useLayoutEffect(() => {
+    keepPageAtTop();
+  }, [subTab]);
 
   const postableAccounts = useMemo(() => getPostableAccounts(chartOfAccounts), [chartOfAccounts]);
   const ALL_ACCOUNTS = useMemo(() => postableAccounts.map((a) => a.name), [postableAccounts]);
@@ -635,7 +646,7 @@ export default function AccountingTab({
   };
 
   return (
-    <div className="fade-in acct-books">
+    <div className="acct-books">
       {/* Membrete Oficial del Club para Impresiones */}
       <div className="print-header">
         <h2 style={{ fontFamily: 'Times New Roman, serif', letterSpacing: '0.1em', fontSize: '20pt', margin: '0 0 5px 0' }}>JOCKEY CLUB SAN JUAN</h2>
@@ -661,6 +672,7 @@ export default function AccountingTab({
                     role="tab"
                     aria-selected={isFamilyActive}
                     className={['acct-subnav-family', isFamilyActive ? 'is-active' : ''].filter(Boolean).join(' ')}
+                    onMouseDown={preventButtonScroll}
                     onClick={() => {
                       if (isFamilyActive) return;
                       const first = group.tabs[0];
@@ -709,6 +721,7 @@ export default function AccountingTab({
                     aria-selected={isActive}
                     aria-current={isActive ? 'page' : undefined}
                     title={tab.label}
+                    onMouseDown={preventButtonScroll}
                     onClick={() => setSubTab(resolveNavTabKey(tab, subTab))}
                     className={[
                       'acct-subnav-item',
@@ -750,6 +763,7 @@ export default function AccountingTab({
                 type="button"
                 className={`acct-treasury-hub-item${isActive ? ' is-active' : ''}`}
                 aria-current={isActive ? 'page' : undefined}
+                onMouseDown={preventButtonScroll}
                 onClick={() => setSubTab(tab.key)}
               >
                 <Icon size={14} aria-hidden="true" />
@@ -761,7 +775,7 @@ export default function AccountingTab({
       )}
 
       {BALANCE_TABS.has(subTab) && accountingTabs.length > 1 && (
-        <nav className="acct-treasury-hub" aria-label="Informes de balance">
+        <nav className="acct-view-strip" role="tablist" aria-label="Vistas de balance">
           {BALANCE_HUB_TABS.filter((t) => accountingTabs.includes(t.key)).map((tab) => {
             const Icon = tab.icon;
             const isActive = tab.key === 'balance'
@@ -771,8 +785,11 @@ export default function AccountingTab({
               <button
                 key={tab.key}
                 type="button"
-                className={`acct-treasury-hub-item${isActive ? ' is-active' : ''}`}
+                role="tab"
+                aria-selected={isActive}
                 aria-current={isActive ? 'page' : undefined}
+                className={['acct-view-chip', isActive ? 'is-active' : ''].filter(Boolean).join(' ')}
+                onMouseDown={preventButtonScroll}
                 onClick={() => setSubTab(tab.key)}
               >
                 <Icon size={14} aria-hidden="true" />
@@ -783,6 +800,7 @@ export default function AccountingTab({
         </nav>
       )}
 
+      <div className="page-stage">
       {subTab === 'diary' && (
         <div className="fade-in mb-folio">
           <header className="mb-folio-head">
@@ -1246,7 +1264,10 @@ export default function AccountingTab({
       )}
 
       {subTab === 'balance' && (
-        <MonthlyBalancePanel />
+        <MonthlyBalancePanel
+          journalEntries={officialJournal}
+          chartOfAccounts={chartOfAccounts}
+        />
       )}
 
       {/* SUB-TAB 4: BALANCE PATRIMONIAL (diario) */}
@@ -1477,6 +1498,7 @@ export default function AccountingTab({
 
       {subTab === 'family_balances' && (
         <FamilyGroupBalancesPanel
+          members={members}
           reports={accountingReports}
           onRecordReport={onRecordAccountingReport}
         />
@@ -1487,7 +1509,7 @@ export default function AccountingTab({
       )}
 
       {subTab === 'bonificaciones' && (
-        <BonificacionesPanel />
+        <BonificacionesPanel members={members} />
       )}
 
       {subTab === 'siap' && (
@@ -1551,7 +1573,11 @@ export default function AccountingTab({
           deleteBankAccount={deleteBankAccount}
           addBankAccountEntry={addBankAccountEntry}
           chartOfAccounts={chartOfAccounts}
+          journalEntries={officialJournal}
+          otherIncomes={otherIncomes}
           members={members}
+          paymentOrders={paymentOrders}
+          expenses={expenses}
           openRegister={openRegister}
           closeRegister={closeRegister}
           addCashMovement={addCashMovement}
@@ -1596,6 +1622,7 @@ export default function AccountingTab({
           retenciones={retenciones}
           upsertRetencion={upsertRetencion}
           suppliers={suppliers}
+          paymentOrders={paymentOrders}
         />
       )}
 
@@ -1605,6 +1632,9 @@ export default function AccountingTab({
           liquidaciones={liquidaciones}
           perfilFiscal={perfilFiscal}
           retenciones={retenciones}
+          expenses={expenses}
+          otherIncomes={otherIncomes}
+          journalEntries={officialJournal}
           chartOfAccounts={chartOfAccounts}
           onSavePerfil={onSavePerfilFiscal}
           onSaveComprobante={onSaveComprobante}
@@ -1704,7 +1734,23 @@ export default function AccountingTab({
       )}
 
       {subTab === 'balances' && (
-        <BalancesPanel members={members} getAccountBalance={getAccountBalance} />
+        <BalancesPanel
+          members={members}
+          suppliers={suppliers}
+          supplierEntries={supplierEntries}
+          paymentOrders={paymentOrders}
+          cashRegisters={cashRegisters}
+          cashSessions={cashSessions}
+          cashMovements={cashMovements}
+          accessinCashMovements={accessinCashMovements}
+          accessinCheques={accessinCheques}
+          accessinCobranzas={accessinCobranzas}
+          accessinBankAccounts={accessinBankAccounts}
+          journalEntries={officialJournal}
+          otherIncomes={otherIncomes}
+          chartOfAccounts={chartOfAccounts}
+          onNavigate={setSubTab}
+        />
       )}
 
       {subTab === 'payment_orders' && (
@@ -1720,16 +1766,23 @@ export default function AccountingTab({
       )}
 
       {subTab === 'balance_monthly' && (
-        <MonthlyBalancePanel />
+        <MonthlyBalancePanel
+          journalEntries={officialJournal}
+          chartOfAccounts={chartOfAccounts}
+        />
       )}
 
       {subTab === 'balance_summary' && (
-        <MonthlyBalanceSummaryPanel />
+        <MonthlyBalanceSummaryPanel
+          journalEntries={officialJournal}
+          chartOfAccounts={chartOfAccounts}
+        />
       )}
 
       {subTab === 'balance_liquidation' && (
-        <LiquidationCcPanel />
+        <LiquidationCcPanel members={members} />
       )}
+      </div>
     </div>
   );
 }

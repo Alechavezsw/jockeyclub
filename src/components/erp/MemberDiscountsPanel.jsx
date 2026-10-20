@@ -9,14 +9,22 @@ import {
   memberDiscountsSeed,
   memberDiscountsSummary,
 } from '../../domain/accounting/memberDiscounts';
+import { ruleCoversDate, setRuntimeDiscountRules } from '../../domain/accounting/discountApplication';
+import { duesAmountForMember } from '../../domain/members/dues';
 import { deactivateDiscountRule, listDiscountRules, upsertDiscountRule } from '../../data/repos';
+import { formatLongDateAR } from '../../lib/arDate';
 import { useSnapshotSeed } from '../../hooks/useSnapshots';
 import SnapshotGate from '../SnapshotGate';
 import DiscountsBonusesPanel from './DiscountsBonusesPanel';
 
+function money(n) {
+  return `$ ${Math.abs(Number(n) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 export default function MemberDiscountsPanel({ members = [] }) {
   const [rules, setRules] = useState(null);
   const [loadError, setLoadError] = useState('');
+  const today = useMemo(() => new Date(), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -29,6 +37,37 @@ export default function MemberDiscountsPanel({ members = [] }) {
       });
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    if (rules) setRuntimeDiscountRules(rules);
+  }, [rules]);
+
+  const impact = useMemo(() => {
+    const list = rules || [];
+    const covering = list.filter((row) => ruleCoversDate(row, today));
+    const expired = list.filter((row) => row?.isActive !== false && row?.validTo && !ruleCoversDate(row, today));
+    let waived = 0;
+    let zeroed = 0;
+    let touched = 0;
+    for (const member of members) {
+      if (String(member?.status || 'active').toLowerCase() !== 'active') continue;
+      const gross = duesAmountForMember(member, today, { rules: [] });
+      if (gross <= 0) continue;
+      const net = duesAmountForMember(member, today, { rules: covering });
+      const cut = Math.max(0, gross - net);
+      if (cut <= 0) continue;
+      waived += cut;
+      touched += 1;
+      if (net <= 0) zeroed += 1;
+    }
+    return {
+      covering: covering.length,
+      expired: expired.length,
+      waived: Math.round(waived * 100) / 100,
+      zeroed,
+      touched,
+    };
+  }, [rules, members, today]);
 
   const onUpsert = async (payload) => {
     const existing = (rules || []).find((row) => row.id === payload.id);
@@ -52,13 +91,46 @@ export default function MemberDiscountsPanel({ members = [] }) {
 
   if (rules) {
     return (
-      <DiscountsBonusesPanel
-        items={rules}
-        members={members}
-        onUpsert={onUpsert}
-        onDelete={onDelete}
-        discountsOnly
-      />
+      <div className="fade-in mb-folio">
+        <header className="mb-folio-head">
+          <div>
+            <p className="mb-folio-kicker">Contabilidad</p>
+            <h3 className="mb-folio-title">Descuentos extras</h3>
+            <p className="mb-folio-meta">
+              Bajan la cuota viva del {formatLongDateAR(today)}. Comisión y vitalicio siguen por categoría.
+            </p>
+          </div>
+          <span className="mb-folio-seal">{impact.covering.toLocaleString('es-AR')} vigentes</span>
+        </header>
+
+        <dl className="mb-folio-kpis">
+          <div className="mb-folio-kpi is-net">
+            <dt>Bajan este mes</dt>
+            <dd>{money(impact.waived)}</dd>
+            <p>{impact.touched.toLocaleString('es-AR')} socios</p>
+          </div>
+          <div className="mb-folio-kpi">
+            <dt>Cuota en cero</dt>
+            <dd>{impact.zeroed.toLocaleString('es-AR')}</dd>
+          </div>
+          <div className="mb-folio-kpi is-out">
+            <dt>Vencidos</dt>
+            <dd>{impact.expired.toLocaleString('es-AR')}</dd>
+          </div>
+          <div className="mb-folio-kpi">
+            <dt>Reglas</dt>
+            <dd>{rules.length.toLocaleString('es-AR')}</dd>
+          </div>
+        </dl>
+
+        <DiscountsBonusesPanel
+          items={rules}
+          members={members}
+          onUpsert={onUpsert}
+          onDelete={onDelete}
+          discountsOnly
+        />
+      </div>
     );
   }
 
@@ -96,8 +168,7 @@ function MemberDiscountsContent({ onOpenMember }) {
           <p className="mb-folio-kicker">Contabilidad</p>
           <h3 className="mb-folio-title">Descuentos extras</h3>
           <p className="mb-folio-meta">
-            Corte al {summary.asOfLabel || '—'}.
-            {summary.sourceFile ? ` ${summary.sourceFile.replace(/^LILA\s*[-–]\s*/i, '')}` : ''}
+            Listado de respaldo al {summary.asOfLabel || '—'}.
           </p>
         </div>
         <span className="mb-folio-seal">{summary.count.toLocaleString('es-AR')} reglas</span>

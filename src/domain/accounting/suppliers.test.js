@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   createSupplier,
   expensesForSupplier,
+  liveSupplierTotals,
   supplierAccountMovements,
   supplierOpenBalance,
+  supplierOpenExpenseBalance,
   supplierRunningBalance,
   updateSupplier,
 } from './suppliers';
@@ -35,13 +37,14 @@ describe('suppliers', () => {
     expect(supplierOpenBalance(expenses, updated)).toBe(15000);
   });
 
-  it('usa saldo Accessin cuando no hay gastos ERP', () => {
+  it('usa el saldo de apertura cuando no hay gastos ni movimientos', () => {
     const s = createSupplier({
       legalName: 'QUIROGA C Rodrigo Osvaldo',
       accessinCode: '1348',
       openingBalance: 500000,
     });
     expect(supplierOpenBalance([], s)).toBe(500000);
+    expect(supplierOpenExpenseBalance([], s)).toBe(0);
   });
 
   it('vincula gastos por id de proveedor', () => {
@@ -64,5 +67,11 @@ describe('suppliers', () => {
     expect(supplierRunningBalance(s, { entries, paymentOrders })).toBe(1200);
     const movements = supplierAccountMovements(s, { entries, paymentOrders });
     expect(movements.map((row) => row.balance)).toEqual([1500, 1300, 1200]);
+    expect(liveSupplierTotals([s], { entries, paymentOrders })).toEqual({
+      debt: 1200,
+      credit: 0,
+      net: 1200,
+      withBalance: 1,
+    });
   });
 });

@@ -1,21 +1,18 @@
-/** Certificado de libre deuda, mismo texto que LILA / Accessin. */
+/** Certificado de libre deuda con el saldo de cuota vivo. */
 
 import { cobranzasSeed } from './cobranzas';
-import {
-  currentAccountBalanceOf,
-  currentAccountBalancesSeed,
-  lookupCurrentAccountBalance,
-} from './currentAccountBalances';
 import { lookupMonthlyDebt } from './monthlyDebts';
 import { lookupDetailedCc, periodLabelFromKey } from './detailedCurrentAccounts';
-import { familyBalanceForMember, formatSpanishLongDate, MEMBER_BALANCES_SNAPSHOTS } from './memberBalances';
+import { formatSpanishLongDate } from './memberBalances';
+import { appMonthlyDebtForMember } from './appMonthlyDebts';
+import { liveFamilyBalanceForMember } from './liveFamilyGroupBalances';
+import { pinDuesDueDate } from '../members/dues';
 import { memberNumberOf } from '../members/households';
 import { getTierDisplayName } from '../members/tiers';
 import { arParts } from '../../lib/arDate';
 import { getClubSettings } from '../system/clubSettings';
 
-/** Snapshots que tienen que estar cargados para armar el certificado. */
-export const LIBRE_DEUDA_SNAPSHOTS = [...MEMBER_BALANCES_SNAPSHOTS, 'accessinMonthlyDebts'];
+export const LIBRE_DEUDA_SNAPSHOTS = [];
 
 export const LIBRE_DEUDA_MODULE = 'contabilidad';
 export const LIBRE_DEUDA_REPORT_TYPE = 'libre_deuda';
@@ -28,7 +25,7 @@ export const ACCOUNTING_REPORT_TYPES = {
   libre_deuda: 'Libre deuda',
 };
 
-/** Datos legales del club, tal como los imprime LILA. */
+/** Datos legales del club. */
 export const LIBRE_DEUDA_CLUB = {
   name: 'JOCKEY CLUB SAN JUAN',
   address: 'República del Líbano Oeste 1799, Rivadavia, San Juan',
@@ -49,8 +46,8 @@ export function libreDeudaClub() {
 }
 
 export const LIBRE_DEUDA_NOTE = [
-  'NOTA: El siguiente documento hace referencia únicamente a la información registrada en Accessin, sin tener en cuenta datos o deudas',
-  'ajenas al sistema. Toda la información cargada en el mismo es exclusiva responsabilidad de Administración.',
+  'NOTA: El siguiente documento hace referencia únicamente a la información registrada en el sistema del Jockey Club San Juan, sin tener en cuenta datos o deudas',
+  'ajenas al club. Toda la información cargada en el mismo es exclusiva responsabilidad de Administración.',
 ].join(' ');
 
 const MONTHS_ES = [
@@ -105,7 +102,7 @@ export function formatLibreDeudaMonthYear(periodKey) {
   return periodLabelFromKey(periodKey) || '';
 }
 
-/** “a los 26 dias del mes de Septiembre de 2026 .” — mismo corte que LILA. */
+/** “a los 26 dias del mes de Septiembre de 2026 .” */
 export function formatLibreDeudaPlaceDate(iso) {
   const key = String(iso || '').slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return '';
@@ -163,6 +160,14 @@ function collectPaidPeriods(memberNumber, asOf, {
  * LILA lo imprime como “Siendo la última liquidación paga en Septiembre del 2026.”
  */
 export function lastPaidLiquidationPeriod(memberNumber, asOf = '', sources = {}) {
+  const livePaid = sources.member?.lastPaymentDate || sources.lastPaymentDate;
+  if (livePaid) {
+    const paidOn = String(livePaid).slice(0, 10);
+    if (!asOf || paidOn <= String(asOf).slice(0, 10)) {
+      const due = pinDuesDueDate(paidOn);
+      if (due) return due.slice(0, 7);
+    }
+  }
   const paid = collectPaidPeriods(memberNumber, asOf, sources);
   if (paid.length) return paid[paid.length - 1];
 
@@ -204,35 +209,14 @@ export function validateLibreDeudaInput({ member, memberNumber } = {}) {
 }
 
 /**
- * Saldo del socio a la fecha de corte.
- * Si la fecha es posterior o igual al snapshot LILA, usa el saldo de CC.
- * Si es anterior, reconstruye con deuda mes a mes / CC detallada.
+ * Saldo del socio a la fecha de corte, con la cuota viva de la app.
  */
 export function balanceAsOf(member, asOf = '') {
-  const nro = normalizeLibreDeudaMemberNumber(memberNumberOf(member) || member?.memberId);
-  const cutoff = String(asOf || '').slice(0, 10);
-  const seedAsOf = currentAccountBalancesSeed().ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF;
-  const month = cutoff.slice(0, 7);
-
-  if (!cutoff || cutoff >= seedAsOf) {
-    return currentAccountBalanceOf(member);
-  }
-
-  const monthly = lookupMonthlyDebt(nro);
-  if (monthly?.months?.length) {
-    const upTo = monthly.months.filter((row) => row.periodKey && row.periodKey <= month);
-    if (upTo.length) return Number(upTo[upTo.length - 1].accumulated) || 0;
-    return 0;
-  }
-
-  const detailed = lookupDetailedCc(nro);
-  if (detailed?.lines?.length) {
-    return detailed.lines
-      .filter((line) => !line.feeDate || line.feeDate <= cutoff)
-      .reduce((sum, line) => sum + (Number(line.owed) || 0), 0);
-  }
-
-  return currentAccountBalanceOf(member);
+  const persisted = Math.max(0, Number(member?.outstandingBalance) || 0);
+  if (persisted <= 0) return 0;
+  const debt = appMonthlyDebtForMember(member, { today: asOf || new Date() });
+  if (debt) return Number(debt.totalDebt) || persisted;
+  return persisted;
 }
 
 function cleanExtra(raw) {
@@ -244,16 +228,12 @@ function cleanExtra(raw) {
     .trim();
 }
 
-function resolveCertificateName(member, cc, monthly, detailed) {
-  return cc?.memberName
-    || monthly?.memberName
-    || detailed?.memberName
-    || member.name
-    || '—';
+function resolveCertificateName(member) {
+  return member?.name || '—';
 }
 
-function resolveCertificateDni(member, cc, monthly, detailed) {
-  return rawDigits(member.documentNumber || member.dni || cc?.dni || monthly?.dni || detailed?.dni) || '—';
+function resolveCertificateDni(member) {
+  return rawDigits(member?.documentNumber || member?.dni) || '—';
 }
 
 export function buildLibreDeudaLetter(certificate) {
@@ -301,20 +281,18 @@ export function buildLibreDeudaCertificate(member, {
 } = {}) {
   const memberNumber = validateLibreDeudaInput({ member });
   const padded = formatLibreDeudaMemberNumber(memberNumber);
-  const cc = lookupCurrentAccountBalance(memberNumber);
-  const monthly = lookupMonthlyDebt(memberNumber);
-  const detailed = lookupDetailedCc(memberNumber);
   const individualBalance = balanceAsOf(member, asOf);
-  const family = familyBalanceForMember(member, allMembers);
+  const debt = individualBalance > 0 ? appMonthlyDebtForMember(member, { today: asOf }) : null;
+  const family = liveFamilyBalanceForMember(member, allMembers, { today: asOf });
   const familyAmount = family.isTitular ? Number(family.amount) || 0 : null;
   const isClear = individualBalance <= 0 && (familyAmount == null || familyAmount <= 0);
   const extra = cleanExtra(extraInfo);
   const asOfLabel = formatSpanishLongDate(asOf);
-  const lastPaidPeriod = lastPaidLiquidationPeriod(memberNumber, asOf);
+  const lastPaidPeriod = lastPaidLiquidationPeriod(memberNumber, asOf, { member });
   const lastPaidLabel = formatLibreDeudaMonthYear(lastPaidPeriod);
-  const memberName = resolveCertificateName(member, cc, monthly, detailed);
-  const dni = resolveCertificateDni(member, cc, monthly, detailed);
-  const tierLabel = getTierDisplayName(member.tier) || cc?.socialFee || monthly?.socialFee || '—';
+  const memberName = resolveCertificateName(member);
+  const dni = resolveCertificateDni(member);
+  const tierLabel = getTierDisplayName(member.tier) || debt?.socialFee || '—';
   const issuedStamp = formatLibreDeudaStamp(issuedAt);
   const placeDate = formatLibreDeudaPlaceDate(asOf);
   const fileName = `Socio ${padded} - ${memberName}.pdf`;
@@ -339,8 +317,8 @@ export function buildLibreDeudaCertificate(member, {
     lastPaidPeriod,
     lastPaidLabel,
     issuedStamp,
-    unpaidMonths: (monthly?.months || []).filter((row) => monthHasDebt(row)).length,
-    unpaidLines: (monthly?.lines || detailed?.lines || []).filter((l) => (Number(l.owed) || 0) > 0).length,
+    unpaidMonths: (debt?.months || []).filter((row) => monthHasDebt(row)).length,
+    unpaidLines: (debt?.months || []).filter((row) => monthHasDebt(row)).length,
     clubName: libreDeudaClub().name,
     fileName,
   };

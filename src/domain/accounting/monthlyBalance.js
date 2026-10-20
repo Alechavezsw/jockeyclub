@@ -64,6 +64,28 @@ export function findMonthlyBalanceSection(sections = monthlyBalanceSeed().ACCESS
   return (sections || []).find((section) => section.id === id) || null;
 }
 
+/** Caja, ingresos, egresos o totales: para pintar el folio sin mezclar las partidas. */
+export function balanceSectionFamily(section = {}) {
+  const hay = `${section.id || ''} ${section.title || ''}`.toLowerCase();
+  if (/egreso/.test(hay)) return 'out';
+  if (/ingreso|liquidacion/.test(hay)) return 'in';
+  if (/caja|saldo/.test(hay)) return 'cash';
+  if (/total/.test(hay)) return 'net';
+  return 'mix';
+}
+
+export function balanceSectionFamilyLabel(family) {
+  if (family === 'out') return 'Egresos';
+  if (family === 'in') return 'Ingresos';
+  if (family === 'cash') return 'Caja';
+  if (family === 'net') return 'Totales';
+  return 'Balance';
+}
+
+export function balanceSectionItemCount(section = {}) {
+  return (section.lines || []).filter((line) => line.kind !== 'total' && line.kind !== 'subtotal').length;
+}
+
 export function resolveMonthlyBalanceDetail(details, key) {
   if (!key || !details) return null;
   return details[key] || null;

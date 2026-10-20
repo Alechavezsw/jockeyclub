@@ -4,9 +4,16 @@ import {
   Plus, Check, X,
 } from 'lucide-react';
 import { formatCurrency } from '../../domain/accounting/journal';
+import { cashSeed, chequesSeed } from '../../domain/accounting/cashLedger';
+import { buildLiveCashLedger } from '../../domain/accounting/liveCashLedger';
+import { buildLiveSaldos } from '../../domain/accounting/liveSaldos';
+import { useSnapshotSeed } from '../../hooks/useSnapshots';
 import {
   UNIDENTIFIED_STATUS,
   DEBIT_STATUS,
+  buildLiveFixedExpenses,
+  buildLiveGalicia,
+  buildLiveUnidentified,
   createUnidentifiedCollection,
   matchUnidentifiedCollection,
   rejectUnidentifiedCollection,
@@ -15,6 +22,8 @@ import {
   createFixedExpense,
   createFixedDiscount,
 } from '../../domain/accounting/treasury';
+import { todayISODateAR } from '../../lib/arDate';
+import { duesAmountForMember } from '../../domain/members/dues';
 
 function PanelShell({ icon: Icon, title, subtitle, children, actions }) {
   return (
@@ -33,30 +42,42 @@ function PanelShell({ icon: Icon, title, subtitle, children, actions }) {
   );
 }
 
-function MiniStat({ label, value, color }) {
+function MiniStat({ label, value, color, caption }) {
   return (
     <div className="glass-card" style={{ padding: '0.8rem 1rem' }}>
       <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{label}</div>
       <div style={{ fontSize: '1.15rem', fontWeight: 800, color: color || 'var(--text-primary)' }}>{value}</div>
+      {caption ? (
+        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 2 }}>{caption}</div>
+      ) : null}
     </div>
   );
 }
 
+function formatIsoDate(iso) {
+  const raw = String(iso || '').slice(0, 10);
+  const [y, m, d] = raw.split('-');
+  if (!y || !m || !d) return iso || '—';
+  return `${d}/${m}/${y}`;
+}
+
 /** 1) Cobranzas sin identificar */
 export function UnidentifiedCollectionsPanel({ items = [], members = [], onAdd, onMatch, onReject }) {
-  const [form, setForm] = useState({ date: new Date().toISOString().slice(0, 10), amount: '', bankRef: '', originLabel: 'Transferencia', note: '' });
+  const live = useMemo(() => buildLiveUnidentified(items), [items]);
+  const [form, setForm] = useState(() => ({ date: todayISODateAR(), amount: '', bankRef: '', originLabel: 'Transferencia', note: '' }));
   const [matchMap, setMatchMap] = useState({});
   const [error, setError] = useState('');
-
-  const pending = items.filter((i) => i.status === 'pending');
-  const pendingTotal = pending.reduce((s, i) => s + (i.amount || 0), 0);
+  const memberById = useMemo(
+    () => new Map((members || []).map((member) => [String(member.memberId), member])),
+    [members]
+  );
 
   const submit = (e) => {
     e.preventDefault();
     setError('');
     try {
       onAdd(createUnidentifiedCollection(form));
-      setForm((f) => ({ ...f, amount: '', bankRef: '', note: '' }));
+      setForm((f) => ({ ...f, date: todayISODateAR(), amount: '', bankRef: '', note: '' }));
     } catch (err) {
       setError(err.message);
     }
@@ -65,12 +86,17 @@ export function UnidentifiedCollectionsPanel({ items = [], members = [], onAdd, 
   return (
     <PanelShell
       icon={HelpCircle}
-      title="Cobranzas sin identificar"
-      subtitle="Pagos bancarios o MP que aún no están asociados a un socio."
+      title={(
+        <>
+          Cobranzas sin identificar
+          <span className="suppliers-accessin-badge">Al {live.asOfLabel}</span>
+        </>
+      )}
+      subtitle="Transferencias o Mercado Pago que todavía no tienen socio. Al identificarla, baja la cuenta corriente."
     >
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.75rem' }}>
-        <MiniStat label="Pendientes" value={pending.length} color="#f59e0b" />
-        <MiniStat label="Monto a identificar" value={formatCurrency(pendingTotal)} color="#f59e0b" />
+        <MiniStat label="Pendientes" value={live.pendingCount} color="#f59e0b" />
+        <MiniStat label="Monto a identificar" value={formatCurrency(live.pendingTotal)} color="#f59e0b" />
       </div>
 
       <form onSubmit={submit} style={{ display: 'grid', gap: '0.65rem', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', border: '1px solid var(--border-glass)', borderRadius: 12, padding: '0.9rem' }}>
@@ -89,16 +115,16 @@ export function UnidentifiedCollectionsPanel({ items = [], members = [], onAdd, 
             <tr><th>Fecha</th><th>Origen</th><th>Ref.</th><th>Importe</th><th>Estado</th><th>Identificar</th></tr>
           </thead>
           <tbody>
-            {items.length === 0 && (
+            {live.rows.length === 0 && (
               <tr>
                 <td colSpan={6} style={{ color: 'var(--text-muted)' }}>
-                  No hay cobranzas guardadas. Las altas se sincronizan con la base (no se pierden al refrescar).
+                  No hay cobranzas sin socio. Registrá una transferencia o Mercado Pago acá.
                 </td>
               </tr>
             )}
-            {items.map((item) => (
+            {live.rows.map((item) => (
               <tr key={item.id}>
-                <td>{item.date}</td>
+                <td>{formatIsoDate(item.date)}</td>
                 <td>
                   <strong>{item.originLabel}</strong>
                   {item.note && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{item.note}</div>}
@@ -127,7 +153,7 @@ export function UnidentifiedCollectionsPanel({ items = [], members = [], onAdd, 
                     </div>
                   ) : (
                     <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                      {item.matchedMemberId || '—'}
+                      {memberById.get(String(item.matchedMemberId))?.name || item.matchedMemberId || '—'}
                     </span>
                   )}
                 </td>
@@ -142,15 +168,10 @@ export function UnidentifiedCollectionsPanel({ items = [], members = [], onAdd, 
 
 /** 2) Débitos automáticos Galicia */
 export function GaliciaDebitsPanel({ items = [], members = [], onAdd, onSetStatus }) {
+  const live = useMemo(() => buildLiveGalicia(items), [items]);
   const [memberId, setMemberId] = useState('');
   const [amount, setAmount] = useState('');
   const [error, setError] = useState('');
-
-  const totals = useMemo(() => ({
-    scheduled: items.filter((i) => i.status === 'scheduled').length,
-    sent: items.filter((i) => i.status === 'sent').length,
-    amount: items.filter((i) => i.status !== 'rejected').reduce((s, i) => s + i.amount, 0),
-  }), [items]);
 
   const submit = (e) => {
     e.preventDefault();
@@ -161,6 +182,8 @@ export function GaliciaDebitsPanel({ items = [], members = [], onAdd, onSetStatu
         memberId,
         memberName: member?.name || '',
         amount,
+        period: live.period,
+        scheduledDate: todayISODateAR(),
         cbuMask: '****Galicia',
       }));
       setMemberId('');
@@ -173,13 +196,19 @@ export function GaliciaDebitsPanel({ items = [], members = [], onAdd, onSetStatu
   return (
     <PanelShell
       icon={Building2}
-      title="Débitos Aut. Galicia"
-      subtitle="Adhesiones y lote de débitos automáticos del período."
+      title={(
+        <>
+          Débitos Galicia
+          <span className="suppliers-accessin-badge">Al {live.asOfLabel}</span>
+        </>
+      )}
+      subtitle={`Lote del ${live.period.slice(5, 7)}/${live.period.slice(0, 4)}. Programar, enviar y acreditar.`}
     >
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.75rem' }}>
-        <MiniStat label="Programados" value={totals.scheduled} />
-        <MiniStat label="Enviados" value={totals.sent} color="var(--primary-gold)" />
-        <MiniStat label="Importe lote" value={formatCurrency(totals.amount)} />
+        <MiniStat label="Programados" value={live.scheduled} />
+        <MiniStat label="Enviados" value={live.sent} color="var(--primary-gold)" />
+        <MiniStat label="Acreditados" value={live.settled} color="var(--emerald-accent)" />
+        <MiniStat label="Importe del mes" value={formatCurrency(live.amount)} />
       </div>
 
       <form onSubmit={submit} style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap', alignItems: 'end' }}>
@@ -204,10 +233,17 @@ export function GaliciaDebitsPanel({ items = [], members = [], onAdd, onSetStatu
             <tr><th>Período</th><th>Socio</th><th>CBU</th><th>Importe</th><th>Estado</th><th>Gestión</th></tr>
           </thead>
           <tbody>
-            {items.map((item) => (
+            {live.ofPeriod.length === 0 && (
+              <tr>
+                <td colSpan={6} style={{ color: 'var(--text-muted)' }}>
+                  No hay débitos en este mes. Agregá un socio al lote.
+                </td>
+              </tr>
+            )}
+            {live.ofPeriod.map((item) => (
               <tr key={item.id}>
                 <td>{item.period}</td>
-                <td><strong>{item.memberName}</strong><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{item.memberId}</div></td>
+                <td><strong>{item.memberName}</strong></td>
                 <td>{item.cbuMask}</td>
                 <td style={{ fontWeight: 700 }}>{formatCurrency(item.amount)}</td>
                 <td>{DEBIT_STATUS[item.status]}</td>
@@ -335,43 +371,150 @@ export function FixedDiscountsPanel({ items = [], onAdd, onToggle }) {
 }
 
 /** 5) Saldos */
-export function BalancesPanel({ members = [], getAccountBalance }) {
-  const memberDebt = members.reduce((s, m) => s + (Number(m.outstandingBalance) || 0), 0);
-  const cash = (getAccountBalance?.('Caja General') || 0)
-    + (getAccountBalance?.('Caja Cantina') || 0)
-    + (getAccountBalance?.('Banco Nación') || 0);
-  const providers = getAccountBalance?.('Proveedores Hípicos') || 0;
-  const duesIncome = getAccountBalance?.('Cuotas Sociales') || 0;
-
-  const topDebtors = [...members]
-    .filter((m) => (m.outstandingBalance || 0) > 0)
-    .sort((a, b) => b.outstandingBalance - a.outstandingBalance)
-    .slice(0, 8);
+export function BalancesPanel({
+  members = [],
+  suppliers = [],
+  supplierEntries = [],
+  paymentOrders = [],
+  cashRegisters = [],
+  cashSessions = [],
+  cashMovements = [],
+  accessinCashMovements = [],
+  accessinCheques = [],
+  accessinCobranzas = [],
+  accessinBankAccounts = [],
+  journalEntries = [],
+  otherIncomes = [],
+  chartOfAccounts = [],
+  onNavigate,
+}) {
+  const { ACCESSIN_CASH_SNAPSHOT } = useSnapshotSeed(['accessinCashSnapshot', 'accessinCheques'], cashSeed);
+  const { ACCESSIN_CHEQUES } = useSnapshotSeed(['accessinCheques'], chequesSeed);
+  const cashLive = useMemo(
+    () => buildLiveCashLedger({
+      snapshot: ACCESSIN_CASH_SNAPSHOT,
+      movements: accessinCashMovements,
+      liveMovements: cashMovements,
+      sessions: cashSessions,
+      registers: cashRegisters,
+      cheques: accessinCheques?.length ? accessinCheques : ACCESSIN_CHEQUES,
+      bankAccounts: accessinBankAccounts,
+      journalEntries,
+      cobranzas: accessinCobranzas,
+      otherIncomes,
+      members,
+      chartOfAccounts,
+    }),
+    [
+      ACCESSIN_CASH_SNAPSHOT,
+      accessinCashMovements,
+      cashMovements,
+      cashSessions,
+      cashRegisters,
+      accessinCheques,
+      ACCESSIN_CHEQUES,
+      accessinBankAccounts,
+      journalEntries,
+      accessinCobranzas,
+      otherIncomes,
+      members,
+      chartOfAccounts,
+    ]
+  );
+  const live = useMemo(
+    () => buildLiveSaldos({
+      members,
+      suppliers,
+      supplierEntries,
+      paymentOrders,
+      cash: cashLive,
+    }),
+    [members, suppliers, supplierEntries, paymentOrders, cashLive]
+  );
 
   return (
-    <PanelShell icon={Scale} title="Saldos" subtitle="Posición de caja, deuda social y pasivos de proveedores.">
+    <PanelShell
+      icon={Scale}
+      title={(
+        <>
+          Saldos
+          <span className="suppliers-accessin-badge">Al {live.asOfLabel}</span>
+        </>
+      )}
+      subtitle="Tesorería, cuenta corriente de socios y deuda con proveedores. El mismo corte que Cajas y Proveedores."
+    >
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '0.75rem' }}>
-        <MiniStat label="Caja + bancos" value={formatCurrency(cash)} color="var(--emerald-accent)" />
-        <MiniStat label="Deuda de socios" value={formatCurrency(memberDebt)} color="#ef4444" />
-        <MiniStat label="Proveedores (cuenta)" value={formatCurrency(Math.abs(providers))} color="#f59e0b" />
-        <MiniStat label="Cuotas acreditadas" value={formatCurrency(duesIncome)} />
+        <MiniStat
+          label="Tesorería"
+          value={formatCurrency(live.treasury)}
+          color="var(--emerald-accent)"
+          caption={`Caja ${formatCurrency(live.efectivo)} · Bancos ${formatCurrency(live.bancos)}`}
+        />
+        <MiniStat
+          label="Deuda de socios"
+          value={formatCurrency(live.memberDebt)}
+          color="#ef4444"
+          caption={`${live.withDebt} con saldo`}
+        />
+        <MiniStat
+          label="A favor de socios"
+          value={formatCurrency(live.memberCredit)}
+          caption={`${live.withCredit} cuentas`}
+        />
+        <MiniStat
+          label="Proveedores"
+          value={formatCurrency(live.supplierDebt)}
+          color="#f59e0b"
+          caption={live.supplierCredit ? `A favor ${formatCurrency(live.supplierCredit)}` : `${live.suppliersWithBalance} con saldo`}
+        />
       </div>
       <div className="table-responsive">
         <table className="admin-table">
-          <thead><tr><th>Mayores deudores</th><th>Categoría</th><th>Saldo</th><th>Vencimiento</th></tr></thead>
+          <thead>
+            <tr>
+              <th>Mayores deudores</th>
+              <th>Categoría</th>
+              <th>Saldo</th>
+              <th>Vencimiento</th>
+            </tr>
+          </thead>
           <tbody>
-            {topDebtors.length === 0 && <tr><td colSpan={4} style={{ color: 'var(--text-muted)' }}>No hay saldos pendientes.</td></tr>}
-            {topDebtors.map((m) => (
-              <tr key={m.memberId}>
-                <td><strong>{m.name}</strong></td>
-                <td style={{ textTransform: 'capitalize' }}>{m.tier}</td>
-                <td style={{ fontWeight: 700, color: '#ef4444' }}>{formatCurrency(m.outstandingBalance)}</td>
-                <td>{m.nextDueDate || '—'}</td>
+            {live.topDebtors.length === 0 && (
+              <tr>
+                <td colSpan={4} style={{ color: 'var(--text-muted)' }}>No hay saldos pendientes.</td>
+              </tr>
+            )}
+            {live.topDebtors.map((row) => (
+              <tr key={row.id}>
+                <td>
+                  <strong>{row.name}</strong>
+                  {row.memberNumber ? (
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Nº {row.memberNumber}</div>
+                  ) : null}
+                </td>
+                <td>{row.tierLabel}</td>
+                <td style={{ fontWeight: 700, color: '#ef4444' }}>{formatCurrency(row.balance)}</td>
+                <td>
+                  {formatIsoDate(row.dueDate)}
+                  {row.inMora ? (
+                    <div style={{ fontSize: '0.72rem', color: '#ef4444' }}>En mora</div>
+                  ) : null}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      {typeof onNavigate === 'function' ? (
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => onNavigate('cash')}>
+            Ver Cajas
+          </button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => onNavigate('suppliers')}>
+            Ver Proveedores
+          </button>
+        </div>
+      ) : null}
     </PanelShell>
   );
 }

@@ -4,8 +4,9 @@
  * La posición se calcula en el dominio; no presenta nada ante ARCA.
  */
 
-import { buildPostedEntry } from './journal';
-import { DEFAULT_CHART_OF_ACCOUNTS } from './chartOfAccounts';
+import { buildPostedEntry, journalDateKey, normalizeLines, postedJournalEntries } from './journal';
+import { DEFAULT_CHART_OF_ACCOUNTS, getAccountById, resolveAccountId } from './chartOfAccounts';
+import { formatISODateLongAR, todayISODateAR } from '../../lib/arDate';
 
 export const TAX_ACCOUNT_CODES = {
   ivaCredito: '1.1.04',
@@ -563,7 +564,7 @@ export function journalForTaxPayment(liquidation, chart, paymentAccountId) {
   if (amount <= 0) throw new Error('No hay saldo a pagar.');
   const account = liquidation.kind === 'iva' ? 'ivaPagar' : 'iibbPagar';
   return buildPostedEntry({
-    date: new Date().toISOString().slice(0, 10),
+    date: todayISODateAR(),
     description: `Pago ${liquidation.kind.toUpperCase()} ${liquidation.period}`,
     lines: [
       { accountId: taxAccountId(fullChart, account), debit: amount, credit: 0 },
@@ -601,4 +602,296 @@ export function compraFromExpense(expense, profile = DEFAULT_FISCAL_PROFILE) {
       aliquotId: expense.ivaAliquotId,
     }],
   }, { ...profile, condition: 'responsable_inscripto', iibbPercent: 0 });
+}
+
+const MEMBERSHIP_INCOME_GROUPS = new Set(['cuotas']);
+
+export function currentTaxPeriod(today = new Date()) {
+  return periodOf(todayISODateAR(today));
+}
+
+export function taxPeriodLabel(period) {
+  const key = String(period || '').slice(0, 7);
+  const long = formatISODateLongAR(`${key}-01`);
+  return long.replace(/^\d+ de /, '') || key || '—';
+}
+
+/** Ingresos y gastos del libro en el período (las cuotas no se facturan). */
+export function journalPeriodBase(entries = [], chart = DEFAULT_CHART_OF_ACCOUNTS, period) {
+  const list = chart?.length ? chart : DEFAULT_CHART_OF_ACCOUNTS;
+  const incomeBy = new Map();
+  const expenseBy = new Map();
+  const cashInBy = new Map();
+  const cashOutBy = new Map();
+  postedJournalEntries(entries).forEach((entry) => {
+    if (periodOf(journalDateKey(entry)) !== period) return;
+    normalizeLines(entry.lines || [], list).forEach((line) => {
+      const accountId = resolveAccountId(list, line.accountId) || line.accountId;
+      const account = getAccountById(list, accountId);
+      if (!account) return;
+      const debit = Number(line.debit) || 0;
+      const credit = Number(line.credit) || 0;
+      if (account.isCashAccount || account.code === '1.1.03' || /banco/i.test(account.name || '')) {
+        if (debit) {
+          const prev = cashInBy.get(account.id) || { account, amount: 0 };
+          prev.amount = roundMoney(prev.amount + debit);
+          cashInBy.set(account.id, prev);
+        }
+        if (credit) {
+          const prev = cashOutBy.get(account.id) || { account, amount: 0 };
+          prev.amount = roundMoney(prev.amount + credit);
+          cashOutBy.set(account.id, prev);
+        }
+      }
+      if (account.accountType === 'income') {
+        const amount = roundMoney(credit - debit);
+        if (!amount) return;
+        const prev = incomeBy.get(account.id) || { account, amount: 0 };
+        prev.amount = roundMoney(prev.amount + amount);
+        incomeBy.set(account.id, prev);
+      }
+      if (account.accountType === 'expense') {
+        const amount = roundMoney(debit - credit);
+        if (!amount) return;
+        const prev = expenseBy.get(account.id) || { account, amount: 0 };
+        prev.amount = roundMoney(prev.amount + amount);
+        expenseBy.set(account.id, prev);
+      }
+    });
+  });
+  const incomeRows = [...incomeBy.values()].filter((row) => row.amount).toSorted((a, b) => b.amount - a.amount);
+  const expenseRows = [...expenseBy.values()].filter((row) => row.amount).toSorted((a, b) => b.amount - a.amount);
+  const cashInRows = [...cashInBy.values()].filter((row) => row.amount).toSorted((a, b) => b.amount - a.amount);
+  const cashOutRows = [...cashOutBy.values()].filter((row) => row.amount).toSorted((a, b) => b.amount - a.amount);
+  return {
+    income: roundMoney(incomeRows.reduce((sum, row) => sum + row.amount, 0)),
+    expense: roundMoney(expenseRows.reduce((sum, row) => sum + row.amount, 0)),
+    cashIn: roundMoney(cashInRows.reduce((sum, row) => sum + row.amount, 0)),
+    cashOut: roundMoney(cashOutRows.reduce((sum, row) => sum + row.amount, 0)),
+    incomeRows,
+    expenseRows,
+    cashInRows,
+    cashOutRows,
+  };
+}
+
+function coveredSourceIds(vouchers = []) {
+  const ids = new Set();
+  vouchers.forEach((row) => {
+    if (!row || row.status === 'void') return;
+    if (row.sourceId) ids.add(String(row.sourceId));
+    if (row.id) ids.add(String(row.id));
+  });
+  return ids;
+}
+
+function isLiveExpense(expense) {
+  const status = String(expense?.status || '').toLowerCase();
+  return status === 'paid' || status === 'approved';
+}
+
+/** Compra viva del gasto pagado o aprobado. No se guarda hasta que se registre. */
+export function liveCompraFromExpense(expense, profile = DEFAULT_FISCAL_PROFILE) {
+  if (!isLiveExpense(expense)) return null;
+  const date = String(expense.expenseDate || expense.date || expense.paidAt || '').slice(0, 10);
+  if (!periodOf(date)) return null;
+  const amount = roundMoney(expense.amount);
+  if (amount <= 0) return null;
+  const aliquotId = expense.ivaAliquotId || 'exento';
+  const split = splitPurchaseTotal(amount, aliquotId, expense.fiscalCondition || profile.condition);
+  try {
+    return createComprobante({
+      id: `cmp-live-exp-${expense.id}`,
+      book: 'compra',
+      letter: split.iva ? 'A' : 'C',
+      date,
+      counterpartyName: expense.vendorName || 'Proveedor',
+      number: expense.invoiceNumber || '',
+      paymentTerm: 'contado',
+      condition: profile.condition,
+      iibbPercent: 0,
+      expenseAccountId: expense.categoryAccountId,
+      paymentAccountId: expense.paymentAccountId,
+      sourceId: expense.id,
+      journalEntryId: expense.journalEntryId || null,
+      notes: 'Desde gastos',
+      lines: [{
+        detail: expense.concept || 'Gasto',
+        quantity: 1,
+        unitPrice: split.net,
+        bonusPercent: 0,
+        aliquotId,
+      }],
+    }, profile);
+  } catch {
+    return null;
+  }
+}
+
+/** Venta viva de otro ingreso (eventos, canon, alquileres). Las cuotas no se facturan. */
+export function liveVentaFromOtherIncome(item, profile = DEFAULT_FISCAL_PROFILE) {
+  if (!item || String(item.status || 'posted').toLowerCase() === 'void') return null;
+  if (MEMBERSHIP_INCOME_GROUPS.has(item.group)) return null;
+  const date = String(item.date || '').slice(0, 10);
+  if (!periodOf(date)) return null;
+  const amount = roundMoney(item.amount);
+  if (amount <= 0) return null;
+  try {
+    return createComprobante({
+      id: `cmp-live-oi-${item.id}`,
+      book: 'venta',
+      letter: 'C',
+      date,
+      counterpartyName: item.payerName || item.concept || 'Ingreso',
+      number: item.documentId || item.operationRef || '',
+      paymentTerm: item.paymentMethod === 'efectivo' ? 'contado' : 'transferencia',
+      condition: profile.condition,
+      incomeAccountId: '',
+      sourceId: item.id,
+      notes: item.concept || 'Desde otros ingresos',
+      lines: [{
+        detail: item.concept || 'Ingreso',
+        quantity: 1,
+        unitPrice: amount,
+        bonusPercent: 0,
+        aliquotId: 'exento',
+      }],
+    }, profile);
+  } catch {
+    return null;
+  }
+}
+
+function activityRow(voucher, profile, origin, originLabel) {
+  const totals = voucher.totals || voucherTotals(voucher, profile);
+  return {
+    id: voucher.id,
+    origin,
+    originLabel,
+    book: voucher.book,
+    date: voucher.date,
+    party: voucher.counterpartyName,
+    concept: voucher.notes || voucher.lines?.[0]?.detail || '',
+    number: voucher.number || '',
+    net: totals.net,
+    iva: totals.iva,
+    iibb: totals.iibb,
+    total: totals.total,
+    official: origin === 'comprobante',
+  };
+}
+
+export function buildLiveImpuestos({
+  vouchers = [],
+  retenciones = [],
+  expenses = [],
+  otherIncomes = [],
+  journalEntries = [],
+  chartOfAccounts = DEFAULT_CHART_OF_ACCOUNTS,
+  profile = DEFAULT_FISCAL_PROFILE,
+  period,
+  today = new Date(),
+} = {}) {
+  const month = period || currentTaxPeriod(today);
+  const official = (vouchers || []).filter((row) => (
+    row?.docKind !== 'perfil'
+    && row?.status !== 'void'
+    && (row.period || periodOf(row.date)) === month
+  ));
+  const covered = coveredSourceIds(official);
+  const impliedCompras = (expenses || []).flatMap((expense) => {
+    if (covered.has(String(expense.id))) return [];
+    if (covered.has(`cmp-exp-${expense.id}`) || covered.has(`cmp-live-exp-${expense.id}`)) return [];
+    if (periodOf(String(expense.expenseDate || expense.date || expense.paidAt || '').slice(0, 10)) !== month) return [];
+    const voucher = liveCompraFromExpense(expense, profile);
+    return voucher ? [voucher] : [];
+  });
+  const impliedVentas = (otherIncomes || []).flatMap((item) => {
+    if (covered.has(String(item.id))) return [];
+    if (covered.has(`cmp-live-oi-${item.id}`)) return [];
+    if (periodOf(item.date) !== month) return [];
+    const voucher = liveVentaFromOtherIncome(item, profile);
+    return voucher ? [voucher] : [];
+  });
+  const implied = [...impliedVentas, ...impliedCompras];
+  const merged = [...official, ...implied];
+  const board = taxBoard({ vouchers: merged, retenciones, period: month, profile });
+  const retencionesDelMes = (retenciones || []).filter((row) => (
+    row.status !== 'void' && periodOf(row.retentionDate) === month
+  ));
+  const retencionesAmount = roundMoney(retencionesDelMes.reduce((sum, row) => sum + (Number(row.retentionAmount) || 0), 0));
+  const gastosAmount = roundMoney(impliedCompras.reduce((sum, row) => sum + Math.abs(row.totals?.total || 0), 0)
+    + official.filter((row) => row.book === 'compra').reduce((sum, row) => sum + Math.abs((row.totals || voucherTotals(row, profile)).total || 0), 0));
+  const ingresosAmount = roundMoney(impliedVentas.reduce((sum, row) => sum + Math.abs(row.totals?.total || 0), 0)
+    + official.filter((row) => row.book === 'venta').reduce((sum, row) => sum + Math.abs((row.totals || voucherTotals(row, profile)).total || 0), 0));
+
+  const book = journalPeriodBase(journalEntries, chartOfAccounts, month);
+  const asBookRow = (row, origin, originLabel, bookKind) => ({
+    id: `libro-${origin}-${row.account.id}`,
+    origin,
+    originLabel,
+    book: bookKind,
+    date: `${month}-01`,
+    party: '—',
+    concept: row.account.name,
+    number: row.account.code,
+    net: row.amount,
+    iva: 0,
+    iibb: 0,
+    total: row.amount,
+    official: false,
+  });
+  const bookRows = [
+    ...book.cashInRows.map((row) => asBookRow(row, 'cobro', 'Cobros (tesorería)', 'venta')),
+    ...book.cashOutRows.map((row) => asBookRow(row, 'egreso', 'Egresos de tesorería', 'compra')),
+    ...book.incomeRows.map((row) => asBookRow(
+      row,
+      'libro',
+      row.account.name === 'Cuotas Sociales' ? 'Cuotas (no se facturan)' : 'Ingreso del libro',
+      'venta',
+    )),
+    ...book.expenseRows.map((row) => asBookRow(row, 'libro', 'Gasto del libro', 'compra')),
+  ];
+
+  const detail = [
+    ...official.map((row) => activityRow(row, profile, 'comprobante', 'Comprobante')),
+    ...impliedVentas.map((row) => activityRow(row, profile, 'ingreso', 'Otros ingresos')),
+    ...impliedCompras.map((row) => activityRow(row, profile, 'gasto', 'Gastos')),
+    ...retencionesDelMes.map((row) => ({
+      id: row.id || `ret-${row.retentionDate}`,
+      origin: 'retencion',
+      originLabel: 'Retención',
+      book: 'retencion',
+      date: String(row.retentionDate || '').slice(0, 10),
+      party: row.supplierName || row.clientName || 'Agente',
+      concept: row.retentionType || 'Retención',
+      number: row.paymentOrderNumber || '',
+      net: 0,
+      iva: classifyRetention(row.retentionType) === 'iva' ? Number(row.retentionAmount) || 0 : 0,
+      iibb: classifyRetention(row.retentionType) === 'iibb' ? Number(row.retentionAmount) || 0 : 0,
+      total: Number(row.retentionAmount) || 0,
+      official: false,
+    })),
+  ].toSorted((a, b) => String(b.date).localeCompare(String(a.date)) || String(a.party).localeCompare(String(b.party), 'es'));
+
+  return {
+    period: month,
+    asOfLabel: formatISODateLongAR(todayISODateAR(today)),
+    periodLabel: taxPeriodLabel(month),
+    officialCount: official.length,
+    impliedCount: implied.length,
+    gastosCount: impliedCompras.length + official.filter((row) => row.book === 'compra').length,
+    gastosAmount,
+    ingresosCount: impliedVentas.length + official.filter((row) => row.book === 'venta').length,
+    ingresosAmount,
+    bookIncome: book.income,
+    bookExpense: book.expense,
+    cashIn: book.cashIn,
+    cashOut: book.cashOut,
+    retencionesCount: retencionesDelMes.length,
+    retencionesAmount,
+    board,
+    activity: [...bookRows, ...detail],
+    vouchersForLiquidation: merged,
+  };
 }

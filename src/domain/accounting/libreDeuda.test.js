@@ -60,6 +60,6 @@ describe('libreDeuda', () => {
     expect(letter.paragraphs[2]).toBe('CERTIFICO:');
     expect(letter.paragraphs.some((p) => p.includes('no posee saldos pendientes de pago'))).toBe(true);
     expect(letter.paragraphs.some((p) => p.includes('a los 26 dias del mes de Septiembre de 2026 .'))).toBe(true);
-    expect(letter.note).toMatch(/información registrada en Accessin/);
+    expect(letter.note).toMatch(/información registrada en el sistema del Jockey Club San Juan/);
   });
 });

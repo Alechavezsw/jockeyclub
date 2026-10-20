@@ -27,18 +27,17 @@ import {
   counterpartAccountsForMovement,
   closedSessions,
   isLiquidAccount,
+  sessionStatusLabel,
 } from '../../domain/accounting/cash';
 import {
-  accessinCashBalanceCards,
   cashSeed,
   chequesSeed,
   cashMovementMonthSheets,
-  enrichCashMovementsWithMembers,
   filterAccessinCashMovements,
   filterAccessinCheques,
   formatAccessinCashDate,
-  recalculateAccessinCashTotal,
 } from '../../domain/accounting/cashLedger';
+import { buildLiveCashLedger } from '../../domain/accounting/liveCashLedger';
 import { buildCashPaymentDetail } from '../../domain/accounting/cashPaymentDetail';
 import { exportCashPaymentPdf } from '../../domain/accounting/exportCashPaymentPdf';
 import CashPaymentDetailDialog from './CashPaymentDetailDialog';
@@ -50,6 +49,7 @@ import CashSupplierPaymentsSection from './CashSupplierPaymentsSection';
 import { cobranzasSeed } from '../../domain/accounting/cobranzas';
 import { supplierPaymentsSeed } from '../../domain/accounting/supplierPaymentsReport';
 import { bankAccountsSeed } from '../../domain/accounting/bankAccounts';
+import { formatInstantAR } from '../../lib/arDate';
 import { useSnapshotSeed } from '../../hooks/useSnapshots';
 import SnapshotGate from '../SnapshotGate';
 
@@ -117,14 +117,18 @@ function CashRegistersContent({
   deleteBankAccount,
   addBankAccountEntry,
   chartOfAccounts,
+  journalEntries = [],
+  otherIncomes = [],
   members = [],
+  paymentOrders = [],
+  expenses = [],
   openRegister,
   closeRegister,
   addCashMovement,
   transferCash,
   onNavigate,
 }) {
-  const { ACCESSIN_CASH_AS_OF, ACCESSIN_CASH_SNAPSHOT } = useSnapshotSeed(CASH_SNAPSHOTS, cashSeed);
+  const { ACCESSIN_CASH_SNAPSHOT } = useSnapshotSeed(CASH_SNAPSHOTS, cashSeed);
   const { ACCESSIN_CHEQUES_AS_OF } = useSnapshotSeed(CASH_SNAPSHOTS, chequesSeed);
   const [pickedRegisterId, setSelectedRegisterId] = useState(cashRegisters[0]?.id || '');
   // Las cajas reales pueden llegar después de montar (base o snapshot): si la elegida ya
@@ -133,7 +137,7 @@ function CashRegistersContent({
     ? pickedRegisterId
     : (cashRegisters[0]?.id || '');
   const [panelTab, setPanelTab] = useState('ledger');
-  const [openingBalance, setOpeningBalance] = useState('50000');
+  const [openingBalance, setOpeningBalance] = useState('0');
   const [countedBalance, setCountedBalance] = useState('');
   const [moveForm, setMoveForm] = useState({
     movementType: 'income',
@@ -180,21 +184,43 @@ function CashRegistersContent({
   const expected = openSession ? sessionExpectedBalance(openSession, cashMovements) : 0;
   const sessionMoves = cashMovements.filter((m) => openSession && m.cashSessionId === openSession.id);
 
-  const enrichedLedger = useMemo(
-    () => enrichCashMovementsWithMembers(accessinCashMovements, members),
-    [accessinCashMovements, members]
+  const live = useMemo(
+    () => buildLiveCashLedger({
+      snapshot: ACCESSIN_CASH_SNAPSHOT,
+      movements: accessinCashMovements,
+      liveMovements: cashMovements,
+      sessions: cashSessions,
+      registers: cashRegisters,
+      cheques: accessinCheques,
+      bankAccounts: accessinBankAccounts,
+      journalEntries,
+      cobranzas: accessinCobranzas,
+      otherIncomes,
+      members,
+      chartOfAccounts,
+    }),
+    [
+      ACCESSIN_CASH_SNAPSHOT,
+      accessinCashMovements,
+      cashMovements,
+      cashSessions,
+      cashRegisters,
+      accessinCheques,
+      accessinBankAccounts,
+      journalEntries,
+      accessinCobranzas,
+      otherIncomes,
+      members,
+      chartOfAccounts,
+    ],
   );
 
+  const enrichedLedger = live.ledger;
+
   const balanceCards = useMemo(() => {
-    const cards = accessinCashBalanceCards(
-      ACCESSIN_CASH_SNAPSHOT,
-      enrichedLedger,
-      accessinCheques,
-      accessinBankAccounts
-    );
-    if (recalcTotal == null) return cards;
-    return cards.map((c) => (c.id === 'total' ? { ...c, value: recalcTotal } : c));
-  }, [ACCESSIN_CASH_SNAPSHOT, enrichedLedger, accessinCheques, accessinBankAccounts, recalcTotal]);
+    if (recalcTotal == null) return live.cards;
+    return live.cards.map((c) => (c.id === 'total' ? { ...c, value: recalcTotal } : c));
+  }, [live.cards, recalcTotal]);
 
   const chequeRows = useMemo(
     () => filterAccessinCheques(accessinCheques, {
@@ -211,8 +237,7 @@ function CashRegistersContent({
     return cashMovementMonthSheets(scoped);
   }, [enrichedLedger, ledgerFilter.walletKind]);
 
-  const now = new Date();
-  const todayMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const todayMonth = String(live.asOf || '').slice(0, 7);
   const activeMonth = monthSheets.some((sheet) => sheet.key === sheetMonth)
     ? sheetMonth
     : (monthSheets.find((sheet) => sheet.key === todayMonth)?.key || monthSheets[0]?.key || '');
@@ -256,13 +281,24 @@ function CashRegistersContent({
     [cashSessions, selectedRegisterId]
   );
 
+  const transferMoves = useMemo(
+    () => cashMovements
+      .filter((row) => row.movementType === 'transfer_out' || row.movementType === 'transfer_in')
+      .toSorted((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
+      .slice(0, 25),
+    [cashMovements],
+  );
+
   useEffect(() => {
     if (!relatedAccounts.length) return;
     const stillValid = relatedAccounts.some((a) => a.id === moveForm.relatedAccountId);
     if (!stillValid) {
       const fallback =
-        relatedAccounts.find((a) => a.id === DEFAULT_RELATED[moveForm.movementType]) ||
-        relatedAccounts[0];
+        relatedAccounts.find((a) => a.id === DEFAULT_RELATED[moveForm.movementType])
+        || relatedAccounts.find((a) => (
+          moveForm.movementType === 'income' ? a.accountType === 'income' : a.accountType === 'expense'
+        ))
+        || relatedAccounts[0];
       setMoveForm((f) => ({ ...f, relatedAccountId: fallback.id }));
     }
   }, [relatedAccounts, moveForm.movementType, moveForm.relatedAccountId]);
@@ -298,10 +334,14 @@ function CashRegistersContent({
         <div>
           <h4 className="serif-font" style={{ margin: 0, fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: 8 }}>
             <Wallet size={18} /> Cajas
-            <span className="suppliers-accessin-badge">{formatAccessinCashDate(ACCESSIN_CASH_AS_OF)}</span>
+            <span className="suppliers-accessin-badge">{live.asOfLabel}</span>
           </h4>
           <p style={{ margin: '0.35rem 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-            Movimientos reales ({enrichedLedger.length}) · período {formatAccessinCashDate(ACCESSIN_CASH_SNAPSHOT.periodFrom)} → {formatAccessinCashDate(ACCESSIN_CASH_SNAPSHOT.periodTo)}.
+            {enrichedLedger.length} movimientos · {formatAccessinCashDate(ACCESSIN_CASH_SNAPSHOT.periodFrom)} → {live.asOfLabel}
+            {live.extraCount > 0
+              ? ` · ${live.extraCount} posteriores al ${live.cutoffLabel}`
+              : ''}
+            . Efectivo, bancos y cheques suman el total.
           </p>
         </div>
         <div className="cash-lila-actions">
@@ -309,9 +349,8 @@ function CashRegistersContent({
             type="button"
             className="btn btn-secondary btn-sm"
             onClick={() => {
-              const total = recalculateAccessinCashTotal(ACCESSIN_CASH_SNAPSHOT, enrichedLedger);
-              setRecalcTotal(total);
-              setMessage(`Balances recalculados · Total ${formatCurrency(total)}`);
+              setRecalcTotal(live.total);
+              setMessage(`Balances al ${live.asOfLabel} · Total ${formatCurrency(live.total)}`);
               setPanelTab('ledger');
             }}
           >
@@ -345,7 +384,7 @@ function CashRegistersContent({
 
       {panelTab === 'ledger' && ledgerFilter.view === 'efectivo_registro' ? (
         <CashEfectivoRegistroSection
-          movements={accessinCashMovements}
+          movements={enrichedLedger}
           cobranzas={accessinCobranzas}
           members={members}
           onBack={() => setLedgerFilter((f) => ({
@@ -361,7 +400,7 @@ function CashRegistersContent({
       {panelTab === 'ledger' && ledgerFilter.view === 'bank_accounts' ? (
         <CashBankAccountsSection
           accounts={accessinBankAccounts}
-          movements={accessinCashMovements}
+          movements={enrichedLedger}
           members={members}
           onUpsert={(input) => {
             if (!upsertBankAccount) throw new Error('No se puede guardar la cuenta.');
@@ -663,11 +702,21 @@ function CashRegistersContent({
       )}
 
       {panelTab === 'cobranzas' && (
-        <CashCobranzasSection items={accessinCobranzas} />
+        <CashCobranzasSection
+          items={live.cobranzas}
+          asOf={live.asOf}
+          periodTo={live.asOf}
+          extraCount={live.extraCobranzasCount}
+          cutoff={live.cutoff}
+        />
       )}
 
       {panelTab === 'supplier_payments' && (
-        <CashSupplierPaymentsSection items={accessinSupplierPayments} />
+        <CashSupplierPaymentsSection
+          items={accessinSupplierPayments}
+          paymentOrders={paymentOrders}
+          expenses={expenses}
+        />
       )}
 
       {panelTab !== 'ledger' && panelTab !== 'cobranzas' && panelTab !== 'supplier_payments' && (
@@ -749,83 +798,213 @@ function CashRegistersContent({
         </div>
       )}
 
-      {panelTab === 'moves' && openSession && (
+      {panelTab === 'moves' && (
         <>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              run(() => {
-                addCashMovement({
-                  cashRegisterId: selectedRegisterId,
-                  ...moveForm,
-                  amount: moveForm.amount,
-                });
-                setMoveForm((f) => ({ ...f, amount: '', concept: '' }));
-                setMessage('Movimiento registrado y asiento generado.');
-              });
-            }}
-            style={{
-              border: '1px solid var(--border-glass)',
-              borderRadius: 12,
-              padding: '1rem',
-              ...fieldGrid,
-            }}
-          >
-            <div>
-              <label className="form-label">Tipo</label>
-              <select
-                className="form-input"
-                value={moveForm.movementType}
-                onChange={(e) => setMoveForm({ ...moveForm, movementType: e.target.value })}
+          <div>
+            <h5 className="cash-lila-section-title">Operación · {live.asOfLabel}</h5>
+            <p style={{ margin: '0 0 0.75rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+              Ingresos y egresos de la caja abierta. Cada movimiento genera asiento al {live.asOfLabel}.
+              {openSession ? ' Sesión en curso.' : ' Abrí la caja para registrar.'}
+            </p>
+          </div>
+          {openSession ? (
+            <>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  run(() => {
+                    addCashMovement({
+                      cashRegisterId: selectedRegisterId,
+                      ...moveForm,
+                      amount: moveForm.amount,
+                    });
+                    setMoveForm((f) => ({ ...f, amount: '', concept: '' }));
+                    setMessage('Movimiento registrado y asiento generado.');
+                  });
+                }}
+                style={{
+                  border: '1px solid var(--border-glass)',
+                  borderRadius: 12,
+                  padding: '1rem',
+                  ...fieldGrid,
+                }}
               >
-                <option value="income">Ingreso</option>
-                <option value="expense">Egreso</option>
-              </select>
-            </div>
-            <div>
-              <label className="form-label">Importe</label>
-              <input
-                className="form-input"
-                type="number"
-                min="1"
-                required
-                value={moveForm.amount}
-                onChange={(e) => setMoveForm({ ...moveForm, amount: e.target.value })}
-              />
-            </div>
-            <div>
-              <label className="form-label">
-                {moveForm.movementType === 'income'
-                  ? 'Ingresos y pasivos (cobros / débitos).'
-                  : 'Cuenta contrapartida'}
-              </label>
-              <select
-                className="form-input"
-                value={moveForm.relatedAccountId}
-                onChange={(e) => setMoveForm({ ...moveForm, relatedAccountId: e.target.value })}
-              >
-                {relatedAccounts.map((a) => (
-                  <option key={a.id} value={a.id}>{accountLabel(a)}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="form-label">Concepto</label>
-              <input
-                className="form-input"
-                required
-                value={moveForm.concept}
-                onChange={(e) => setMoveForm({ ...moveForm, concept: e.target.value })}
-              />
-            </div>
-            <div>
-              <button type="submit" className="btn btn-tan" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                {moveForm.movementType === 'income' ? <ArrowDownLeft size={14} /> : <ArrowUpRight size={14} />}
-                Registrar
-              </button>
-            </div>
-          </form>
+                <div>
+                  <label className="form-label">Tipo</label>
+                  <select
+                    className="form-input"
+                    value={moveForm.movementType}
+                    onChange={(e) => setMoveForm({ ...moveForm, movementType: e.target.value })}
+                  >
+                    <option value="income">Ingreso</option>
+                    <option value="expense">Egreso</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="form-label">Importe</label>
+                  <input
+                    className="form-input"
+                    type="number"
+                    min="1"
+                    required
+                    value={moveForm.amount}
+                    onChange={(e) => setMoveForm({ ...moveForm, amount: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="form-label">
+                    {moveForm.movementType === 'income'
+                      ? 'Ingresos y pasivos (cobros / débitos).'
+                      : 'Cuenta contrapartida'}
+                  </label>
+                  <select
+                    className="form-input"
+                    value={moveForm.relatedAccountId}
+                    onChange={(e) => setMoveForm({ ...moveForm, relatedAccountId: e.target.value })}
+                  >
+                    {relatedAccounts.map((a) => (
+                      <option key={a.id} value={a.id}>{accountLabel(a)}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="form-label">Concepto</label>
+                  <input
+                    className="form-input"
+                    required
+                    value={moveForm.concept}
+                    onChange={(e) => setMoveForm({ ...moveForm, concept: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <button type="submit" className="btn btn-tan" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    {moveForm.movementType === 'income' ? <ArrowDownLeft size={14} /> : <ArrowUpRight size={14} />}
+                    Registrar
+                  </button>
+                </div>
+              </form>
 
+              <div className="table-responsive">
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>Tipo</th>
+                      <th>Concepto</th>
+                      <th>Importe</th>
+                      <th>Hora</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sessionMoves.length === 0 ? (
+                      <tr><td colSpan={4} style={{ color: 'var(--text-muted)' }}>Sin movimientos en esta sesión.</td></tr>
+                    ) : (
+                      sessionMoves.map((m) => (
+                        <tr key={m.id}>
+                          <td style={{ color: moveTypeColor(m.movementType) }}>{moveTypeLabel(m.movementType)}</td>
+                          <td>{m.concept}</td>
+                          <td>{formatCurrency(m.amount)}</td>
+                          <td>{formatInstantAR(m.createdAt)}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap', alignItems: 'end' }}>
+                <div>
+                  <label className="form-label">Saldo contado</label>
+                  <input
+                    className="form-input"
+                    type="number"
+                    value={countedBalance}
+                    onChange={(e) => setCountedBalance(e.target.value)}
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                  onClick={() =>
+                    run(() => {
+                      closeRegister(openSession.id, countedBalance);
+                      setCountedBalance('');
+                      setMessage('Caja cerrada.');
+                    })
+                  }
+                >
+                  <Lock size={16} /> Cerrar caja
+                </button>
+              </div>
+            </>
+          ) : null}
+        </>
+      )}
+
+      {panelTab === 'transfers' && (
+        <>
+          <div>
+            <h5 className="cash-lila-section-title">Traspasos · {live.asOfLabel}</h5>
+            <p style={{ margin: '0 0 0.75rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+              Mueve fondos entre cuentas líquidas. El asiento queda al {live.asOfLabel}.
+              {openSession ? '' : ' Abrí la caja origen para traspasar.'}
+            </p>
+          </div>
+          {openSession ? (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                run(() => {
+                  transferCash({
+                    fromRegisterId: selectedRegisterId,
+                    toAccountId: transferForm.toAccountId,
+                    amount: transferForm.amount,
+                    concept: transferForm.concept,
+                  });
+                  setTransferForm((f) => ({ ...f, amount: '', concept: '' }));
+                  setMessage('Traspaso registrado.');
+                });
+              }}
+              style={{ border: '1px solid var(--border-glass)', borderRadius: 12, padding: '1rem', ...fieldGrid }}
+            >
+              <div>
+                <label className="form-label">Destino</label>
+                <select
+                  className="form-input"
+                  value={transferForm.toAccountId}
+                  onChange={(e) => setTransferForm({ ...transferForm, toAccountId: e.target.value })}
+                >
+                  {transferDestinations.map((a) => (
+                    <option key={a.id} value={a.id}>{accountLabel(a)}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="form-label">Importe</label>
+                <input
+                  className="form-input"
+                  type="number"
+                  min="1"
+                  required
+                  value={transferForm.amount}
+                  onChange={(e) => setTransferForm({ ...transferForm, amount: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="form-label">Concepto</label>
+                <input
+                  className="form-input"
+                  value={transferForm.concept}
+                  onChange={(e) => setTransferForm({ ...transferForm, concept: e.target.value })}
+                />
+              </div>
+              <div>
+                <button type="submit" className="btn btn-tan" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <ArrowLeftRight size={14} /> Traspasar
+                </button>
+              </div>
+            </form>
+          ) : null}
           <div className="table-responsive">
             <table className="admin-table">
               <thead>
@@ -833,151 +1012,82 @@ function CashRegistersContent({
                   <th>Tipo</th>
                   <th>Concepto</th>
                   <th>Importe</th>
-                  <th>Hora</th>
+                  <th>Fecha</th>
                 </tr>
               </thead>
               <tbody>
-                {sessionMoves.length === 0 ? (
-                  <tr><td colSpan={4} style={{ color: 'var(--text-muted)' }}>Sin movimientos en esta sesión.</td></tr>
+                {transferMoves.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} style={{ color: 'var(--text-muted)' }}>
+                      Todavía no hay traspasos. Cuando pases fondos entre cajas o bancos, aparecen acá.
+                    </td>
+                  </tr>
                 ) : (
-                  sessionMoves.map((m) => (
-                    <tr key={m.id}>
-                      <td style={{ color: moveTypeColor(m.movementType) }}>{moveTypeLabel(m.movementType)}</td>
-                      <td>{m.concept}</td>
-                      <td>{formatCurrency(m.amount)}</td>
-                      <td>{m.createdAt ? new Date(m.createdAt).toLocaleTimeString('es-AR') : '—'}</td>
+                  transferMoves.map((row) => (
+                    <tr key={row.id}>
+                      <td style={{ color: moveTypeColor(row.movementType) }}>{moveTypeLabel(row.movementType)}</td>
+                      <td>{row.concept}</td>
+                      <td>{formatCurrency(row.amount)}</td>
+                      <td>{formatInstantAR(row.createdAt)}</td>
                     </tr>
                   ))
                 )}
               </tbody>
             </table>
           </div>
-
-          <div style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap', alignItems: 'end' }}>
-            <div>
-              <label className="form-label">Saldo contado</label>
-              <input
-                className="form-input"
-                type="number"
-                value={countedBalance}
-                onChange={(e) => setCountedBalance(e.target.value)}
-              />
-            </div>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-              onClick={() =>
-                run(() => {
-                  closeRegister(selectedRegisterId, countedBalance);
-                  setCountedBalance('');
-                  setMessage('Caja cerrada.');
-                })
-              }
-            >
-              <Lock size={16} /> Cerrar caja
-            </button>
-          </div>
         </>
       )}
 
-      {panelTab === 'transfers' && (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            run(() => {
-              transferCash({
-                fromRegisterId: selectedRegisterId,
-                toAccountId: transferForm.toAccountId,
-                amount: transferForm.amount,
-                concept: transferForm.concept,
-              });
-              setTransferForm((f) => ({ ...f, amount: '', concept: '' }));
-              setMessage('Traspaso registrado.');
-            });
-          }}
-          style={{ border: '1px solid var(--border-glass)', borderRadius: 12, padding: '1rem', ...fieldGrid }}
-        >
-          <div>
-            <label className="form-label">Destino</label>
-            <select
-              className="form-input"
-              value={transferForm.toAccountId}
-              onChange={(e) => setTransferForm({ ...transferForm, toAccountId: e.target.value })}
-            >
-              {transferDestinations.map((a) => (
-                <option key={a.id} value={a.id}>{accountLabel(a)}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="form-label">Importe</label>
-            <input
-              className="form-input"
-              type="number"
-              min="1"
-              required
-              value={transferForm.amount}
-              onChange={(e) => setTransferForm({ ...transferForm, amount: e.target.value })}
-            />
-          </div>
-          <div>
-            <label className="form-label">Concepto</label>
-            <input
-              className="form-input"
-              value={transferForm.concept}
-              onChange={(e) => setTransferForm({ ...transferForm, concept: e.target.value })}
-            />
-          </div>
-          <div>
-            <button type="submit" className="btn btn-tan" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <ArrowLeftRight size={14} /> Traspasar
-            </button>
-          </div>
-        </form>
-      )}
-
       {panelTab === 'closures' && (
-        <div className="table-responsive">
-          <table className="admin-table">
-            <thead>
-              <tr>
-                <th>Caja</th>
-                <th>Cierre</th>
-                <th>Esperado</th>
-                <th>Contado</th>
-                <th>Dif.</th>
-                <th>Estado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {historyClosed.length === 0 ? (
+        <>
+          <div>
+            <h5 className="cash-lila-section-title">Cierres · {live.asOfLabel}</h5>
+            <p style={{ margin: '0 0 0.75rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+              Historial de sesiones cerradas de {selectedRegister?.name || 'la caja'}.
+              La diferencia es contado menos saldo esperado.
+            </p>
+          </div>
+          <div className="table-responsive">
+            <table className="admin-table">
+              <thead>
                 <tr>
-                  <td colSpan={6} style={{ color: 'var(--text-muted)' }}>
-                    <ClipboardCheck size={14} style={{ marginRight: 6 }} />
-                    Sin cierres registrados.
-                  </td>
+                  <th>Caja</th>
+                  <th>Cierre</th>
+                  <th>Esperado</th>
+                  <th>Contado</th>
+                  <th>Dif.</th>
+                  <th>Estado</th>
                 </tr>
-              ) : (
-                historyClosed.map((s) => {
-                  const reg = cashRegisters.find((r) => r.id === s.cashRegisterId);
-                  return (
-                    <tr key={s.id}>
-                      <td>{reg?.name || s.cashRegisterId}</td>
-                      <td>{s.closedAt ? new Date(s.closedAt).toLocaleString('es-AR') : '—'}</td>
-                      <td>{formatCurrency(s.expectedBalance)}</td>
-                      <td>{formatCurrency(s.countedBalance)}</td>
-                      <td style={{ color: Math.abs(s.difference || 0) > 0.01 ? '#f59e0b' : 'var(--emerald-accent)' }}>
-                        {formatCurrency(s.difference)}
-                      </td>
-                      <td>{s.status}</td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {historyClosed.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} style={{ color: 'var(--text-muted)' }}>
+                      <ClipboardCheck size={14} style={{ marginRight: 6 }} />
+                      Todavía no hay cierres. Cuando cierres una sesión en Operación, queda acá.
+                    </td>
+                  </tr>
+                ) : (
+                  historyClosed.map((s) => {
+                    const reg = cashRegisters.find((r) => r.id === s.cashRegisterId);
+                    return (
+                      <tr key={s.id}>
+                        <td>{reg?.name || s.cashRegisterId}</td>
+                        <td>{formatInstantAR(s.closedAt)}</td>
+                        <td>{formatCurrency(s.expectedBalance)}</td>
+                        <td>{formatCurrency(s.countedBalance)}</td>
+                        <td style={{ color: Math.abs(s.difference || 0) > 0.01 ? '#f59e0b' : 'var(--emerald-accent)' }}>
+                          {formatCurrency(s.difference)}
+                        </td>
+                        <td>{sessionStatusLabel(s.status)}</td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
 
       <CashPaymentDetailDialog detail={paymentDetail} onClose={() => setPaymentDetail(null)} />

@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import {
+  buildLiveSupplierPayments,
   filterAccessinSupplierPayments,
-  supplierPaymentsBalanceCards,
   supplierPaymentsSeed,
 } from '../../domain/accounting/supplierPaymentsReport';
 import { formatAccessinCashDate } from '../../domain/accounting/cashLedger';
@@ -18,45 +18,70 @@ export default function CashSupplierPaymentsSection(props) {
   );
 }
 
-function CashSupplierPaymentsContent({ items = [] }) {
-  const {
-    ACCESSIN_SUPPLIER_PAYMENTS_AS_OF,
-    ACCESSIN_SUPPLIER_PAYMENTS_METHOD_LABELS,
-    ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT,
-  } = useSnapshotSeed(['accessinSupplierPayments'], supplierPaymentsSeed);
+function CashSupplierPaymentsContent({
+  items = [],
+  paymentOrders = [],
+  expenses = [],
+}) {
+  const { ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT } = useSnapshotSeed(
+    ['accessinSupplierPayments'],
+    supplierPaymentsSeed,
+  );
+  const live = useMemo(
+    () => buildLiveSupplierPayments({
+      items,
+      snapshot: ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT,
+      paymentOrders,
+      expenses,
+    }),
+    [items, ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT, paymentOrders, expenses],
+  );
+  const liveAsOf = live.asOf;
+  const livePeriodFrom = live.periodFrom;
+  const extraCount = live.extraCount;
+  const cutoff = live.cutoff;
   const [filter, setFilter] = useState({
     paymentMethod: null,
     query: '',
     showAll: false,
   });
 
-  const cards = useMemo(
-    () => supplierPaymentsBalanceCards(items, ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT),
-    [items, ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT]
-  );
+  const cards = live.cards;
+
+  const methodLabels = useMemo(() => {
+    const labels = { ...live.methodLabels };
+    live.rows.forEach((row) => {
+      if (row.paymentMethod && !labels[row.paymentMethod]) {
+        labels[row.paymentMethod] = row.paymentMethodLabel || row.paymentMethod;
+      }
+    });
+    return labels;
+  }, [live.methodLabels, live.rows]);
 
   const rows = useMemo(
-    () => filterAccessinSupplierPayments(items, {
+    () => filterAccessinSupplierPayments(live.rows, {
       paymentMethod: filter.paymentMethod,
       query: filter.query,
       limit: filter.showAll ? null : 40,
     }),
-    [items, filter]
+    [live.rows, filter],
   );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div>
         <h5 className="cash-lila-section-title">
-          Pago a proveedores · {formatAccessinCashDate(ACCESSIN_SUPPLIER_PAYMENTS_AS_OF)}
+          Pago a proveedores · {formatAccessinCashDate(liveAsOf)}
         </h5>
         <p style={{ margin: '0 0 0.75rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-          Reporte LILA Accessin
-          {ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT.periodFrom
-            ? ` · ${formatAccessinCashDate(ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT.periodFrom)} → ${formatAccessinCashDate(ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT.periodTo)}`
-            : ''}
+          Órdenes de pago y gastos pagados al día. No es el saldo de proveedores.
+          {' '}Período {formatAccessinCashDate(livePeriodFrom)} → {formatAccessinCashDate(liveAsOf)}
           {' · '}
-          {items.length} orden(es).
+          {live.rows.length} pago(s)
+          {extraCount > 0
+            ? ` · ${extraCount} posteriores al ${formatAccessinCashDate(cutoff)}`
+            : ''}
+          .
         </p>
         <div className="cash-lila-cards">
           {cards.map((card) => (
@@ -99,7 +124,7 @@ function CashSupplierPaymentsContent({ items = [] }) {
           }))}
         >
           <option value="">Todos los medios</option>
-          {Object.entries(ACCESSIN_SUPPLIER_PAYMENTS_METHOD_LABELS).map(([id, label]) => (
+          {Object.entries(methodLabels).map(([id, label]) => (
             <option key={id} value={id}>{label}</option>
           ))}
         </select>
@@ -143,8 +168,8 @@ function CashSupplierPaymentsContent({ items = [] }) {
             {rows.length === 0 ? (
               <tr>
                 <td colSpan={10} style={{ color: 'var(--text-muted)' }}>
-                  Sin pagos a proveedores en el reporte Accessin al {formatAccessinCashDate(ACCESSIN_SUPPLIER_PAYMENTS_AS_OF)}.
-                  Cuando haya movimientos en LILA, regenerá el seed.
+                  No hay pagos a proveedores al {formatAccessinCashDate(liveAsOf)}.
+                  Los que registres en Gastos o en Órdenes de pago aparecen acá.
                 </td>
               </tr>
             ) : (
@@ -169,7 +194,7 @@ function CashSupplierPaymentsContent({ items = [] }) {
         </table>
       </div>
 
-      {!filter.showAll && items.length > 40 ? (
+      {!filter.showAll && live.rows.length > 40 ? (
         <button
           type="button"
           className="cash-lila-see-all"

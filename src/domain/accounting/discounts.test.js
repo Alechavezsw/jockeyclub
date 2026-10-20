@@ -115,8 +115,8 @@ describe('discounts / bonificaciones', () => {
   });
 
   it('lista el corte y encuentra a Laciar', () => {
-    expect(listBonificaciones()).toHaveLength(17);
-    expect(listBonificaciones({ query: '8377' }).every((r) => r.memberNumber === '8377')).toBe(true);
-    expect(listBonificaciones({ query: 'Ferrer' })[0]?.memberName).toMatch(/Ferrer/);
+    expect(listBonificaciones({ items: ACCESSIN_BONIFICACIONES })).toHaveLength(17);
+    expect(listBonificaciones({ items: ACCESSIN_BONIFICACIONES, query: '8377' }).every((r) => r.memberNumber === '8377')).toBe(true);
+    expect(listBonificaciones({ items: ACCESSIN_BONIFICACIONES, query: 'Ferrer' })[0]?.memberName).toMatch(/Ferrer/);
   });
 });

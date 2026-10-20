@@ -6,17 +6,14 @@ import {
   drawReportHeader,
   loadClubLogoDataUrl,
 } from '../reports/pdfBrand';
-import { requireSnapshots } from '../../data/snapshots';
-import { lookupDetailedCc, periodLabelFromKey } from './detailedCurrentAccounts';
+import { periodLabelFromKey } from './detailedCurrentAccounts';
 
 function money(n) {
   return `$ ${Number(n || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export async function exportDetailedCcPdf(memberNumber) {
-  await requireSnapshots(['accessinDetailedCurrentAccounts']);
-  const detail = lookupDetailedCc(memberNumber);
-  if (!detail) throw new Error('Socio. Es obligatorio');
+export async function exportDetailedCcPdf(detail) {
+  if (!detail?.memberNumber) throw new Error('Socio. Es obligatorio');
   const [{ jsPDF }, autoTableMod, logoDataUrl] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
@@ -34,14 +31,16 @@ export async function exportDetailedCcPdf(memberNumber) {
       logoDataUrl,
     }),
     head: [['#', 'Período', 'Fecha', 'Monto', 'Pago', 'Adeudado']],
-    body: (detail.lines || []).map((l) => [
-      String(l.id),
-      periodLabelFromKey(l.periodKey),
-      l.feeDate || '—',
-      money(l.amount),
-      money(l.paid),
-      money(l.owed),
-    ]),
+    body: (detail.lines || []).length
+      ? (detail.lines || []).map((l, index) => [
+        String(l.id || index + 1),
+        l.periodKey ? periodLabelFromKey(l.periodKey) : (l.type || '—'),
+        l.feeDate || '—',
+        money(l.amount),
+        money(l.paid),
+        money(l.owed),
+      ])
+      : [['—', 'Sin deuda de cuota', '—', money(0), money(0), money(0)]],
     styles: { fontSize: 8, cellPadding: 1.8 },
     headStyles: { fillColor: BRAND.green, textColor: BRAND.cream },
     margin: { left: 14, right: 14 },

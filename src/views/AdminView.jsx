@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Users, Calendar, DollarSign, Activity, ShieldAlert,
@@ -35,6 +35,7 @@ import { DEFAULT_POOL_SETTINGS } from '../domain/pool/poolAccess';
 import { DEFAULT_CHART_OF_ACCOUNTS, resolveAccountId } from '../domain/accounting/chartOfAccounts';
 import { getAccountBalance as domainAccountBalance } from '../domain/accounting/journal';
 import { allowedAdminTabsForRoles, canAccessConcessions, canAccessQrGate, canLiquidateDues, ROLE_LABELS, ROLE_PANEL_META } from '../domain/auth/roles';
+import { keepPageAtTop, preventButtonScroll } from '../lib/scrollPage';
 import { getOverdueMembers, getUpcomingDuesMembers } from '../domain/members/dues';
 import { isLiveMember, isTitularMember, mergeMemberRecord } from '../domain/members/households';
 import { useAuth } from '../context/AuthContext';
@@ -321,6 +322,10 @@ export default function AdminView({
     navigate(`/panel/${tabKey}`);
   };
   const setActiveTab = (tabKey) => goToTab(tabKey);
+
+  useLayoutEffect(() => {
+    keepPageAtTop();
+  }, [activeTab]);
   const showConcessionsTab = canAccessConcessions(userRole) || (user?.roles || []).some((r) => canAccessConcessions(r.roleKey || r));
   const showQrGateTab = canAccessQrGate(userRole) || (user?.roles || []).some((r) => canAccessQrGate(r.roleKey || r));
 
@@ -537,7 +542,7 @@ export default function AdminView({
   };
 
   return (
-    <div className="fade-in admin-shell">
+    <div className="admin-shell">
       <style>{`
         /* Animaciones del Scanner QR */
         .scanner-visualizer {
@@ -665,6 +670,7 @@ export default function AdminView({
             <button
               type="button"
               className={`admin-rail-item${activeTab === 'dashboard' ? ' is-active' : ''}`}
+              onMouseDown={preventButtonScroll}
               onClick={() => setActiveTab('dashboard')}
               aria-current={activeTab === 'dashboard' ? 'page' : undefined}
               title="Inicio"
@@ -679,6 +685,7 @@ export default function AdminView({
             <button
               type="button"
               className={`admin-rail-item${activeTab === 'jev' ? ' is-active' : ''}`}
+              onMouseDown={preventButtonScroll}
               onClick={() => setActiveTab('jev')}
               aria-current={activeTab === 'jev' ? 'page' : undefined}
               title="IA"
@@ -720,6 +727,7 @@ export default function AdminView({
                       <button
                         key={tab.key}
                         type="button"
+                        onMouseDown={preventButtonScroll}
                         onClick={() => setActiveTab(tab.key)}
                         className={`admin-rail-item is-sub${isActive ? ' is-active' : ''}`}
                         aria-current={isActive ? 'page' : undefined}
@@ -740,6 +748,7 @@ export default function AdminView({
       </aside>
 
       <div className="admin-main">
+      <div className="page-stage">
       {/* Cabecera solo fuera del Inicio (el dashboard ya trae su propia intro) */}
       {activeTab !== 'dashboard' && activeTab !== 'events' && activeTab !== 'accounting' && activeTab !== 'jev' && (
         <div className="page-header">
@@ -1207,6 +1216,7 @@ export default function AdminView({
           setFacilityCatalog={setFacilityCatalog}
         />
       )}
+      </div>
       </div>
     </div>
   );

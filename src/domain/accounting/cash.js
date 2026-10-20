@@ -189,3 +189,10 @@ export function closedSessions(sessions = []) {
     .filter((s) => s.status === 'closed' || s.status === 'discrepancy')
     .sort((a, b) => String(b.closedAt || '').localeCompare(String(a.closedAt || '')));
 }
+
+export function sessionStatusLabel(status) {
+  if (status === 'open') return 'Abierta';
+  if (status === 'discrepancy') return 'Con diferencia';
+  if (status === 'closed') return 'Cerrada';
+  return status || '—';
+}

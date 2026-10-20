@@ -1,25 +1,44 @@
-/** PDF del certificado, mismo cuerpo que LILA. */
+/** PDF del certificado de libre deuda. */
+
+import { loadClubLogoDataUrl } from '../reports/pdfBrand';
 
 export async function exportLibreDeudaPdf(certificate) {
   const { jsPDF } = await import('jspdf');
   const letter = certificate.letter;
   const nro = certificate.memberNumberPadded || certificate.memberNumber || 'socio';
   const fileName = certificate.fileName || `Socio ${nro}.pdf`;
+  const logoDataUrl = await loadClubLogoDataUrl();
 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
   const left = 22;
   const width = pageW - 44;
-  let y = 22;
+  let y = 18;
 
   doc.setFont('times', 'bold');
   doc.setFontSize(12);
   doc.setTextColor(20, 20, 20);
   doc.text(letter.headingMember, left, y);
 
-  y += 10;
+  y += 8;
+  if (logoDataUrl) {
+    const size = 26;
+    const cx = pageW / 2;
+    doc.setFillColor(255, 255, 255);
+    doc.circle(cx, y + size / 2, size / 2 + 1.4, 'F');
+    doc.setDrawColor(9, 103, 85);
+    doc.setLineWidth(0.6);
+    doc.circle(cx, y + size / 2, size / 2 + 1.4, 'S');
+    doc.addImage(logoDataUrl, 'PNG', cx - size / 2, y, size, size);
+    y += size + 8;
+  } else {
+    y += 8;
+  }
+
+  doc.setFont('times', 'bold');
   doc.setFontSize(14);
+  doc.setTextColor(20, 20, 20);
   doc.text(letter.headingClub, pageW / 2, y, { align: 'center' });
 
   y += 8;

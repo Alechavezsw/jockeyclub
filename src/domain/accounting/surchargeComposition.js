@@ -1,13 +1,27 @@
-/** Reporte composición de recargos (Accessin / LILA). */
+/** Recargos cobrados y adeudados con la cuota viva (10 % desde el día 11). */
 
-import { cobranzasSeed } from './cobranzas';
-import { monthlyDebtsSeed } from './monthlyDebts';
+import { padMember } from './accountEntries';
+import { appMonthlyDebtForMember } from './appMonthlyDebts';
+import {
+  duesAmountForMember,
+  duesPayableForMember,
+  pinDuesDueDate,
+} from '../members/dues';
+import { DUES_LATE_RATE } from '../members/tiers';
+import { memberNumberOf } from '../members/households';
 
-/** Snapshots que tienen que estar cargados para buildSurchargeComposition. */
-export const SURCHARGE_COMPOSITION_SNAPSHOTS = ['accessinCobranzas', 'accessinMonthlyDebts'];
+const EPS = 0.009;
+const RATE_PCT = Math.round(DUES_LATE_RATE * 10000) / 100;
+const KIND_LABEL = `Recargo de Cuota (${RATE_PCT.toFixed(2)} %)`;
 
-function padMember(n) {
-  return String(n || '').replace(/\D/g, '') || '';
+function asIsoDate(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, '0');
+    const d = String(value.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  return String(value || '').slice(0, 10);
 }
 
 function inRange(iso, from, to) {
@@ -18,69 +32,107 @@ function inRange(iso, from, to) {
   return true;
 }
 
-function classifySurcharge(type, concept) {
-  const text = `${type || ''} ${concept || ''}`;
-  const pct = text.match(/(\d+(?:[.,]\d+)?)\s*%/);
-  if (/fijo/i.test(text)) return { kind: 'fijo', kindLabel: 'Recargo de Cuota (FIJO)', rate: null };
-  if (pct) {
-    const rate = Number(String(pct[1]).replace(',', '.'));
-    return { kind: 'porcentaje', kindLabel: `Recargo de Cuota (${rate.toFixed(2)} %)`, rate };
-  }
-  return { kind: 'otro', kindLabel: 'Recargo', rate: null };
+function roundMoney(value) {
+  return Math.round((Number(value) || 0) * 100) / 100;
 }
 
-/** Recargos cobrados (caja) + recargos aún adeudados (morosos). */
+function memberDisplayName(member) {
+  const joined = [member?.firstName, member?.lastName].filter(Boolean).join(' ').trim();
+  return String(member?.name || joined || '').trim();
+}
+
+function recargoOfPayment(member, paidOn, amount) {
+  const dueOn = pinDuesDueDate(paidOn);
+  if (!dueOn) return 0;
+  const on = dueOn;
+  const capital = roundMoney(duesAmountForMember(member, on));
+  const payable = roundMoney(duesPayableForMember(member, { paidOn, dueOn, on }));
+  const recargo = roundMoney(Math.max(0, payable - capital));
+  if (recargo <= EPS) return 0;
+  if (amount != null && Number.isFinite(Number(amount)) && Number(amount) + EPS < recargo) return 0;
+  return recargo;
+}
+
+function paymentsOf(member) {
+  const history = (member?.paymentHistory || []).filter((row) => row && row.status !== 'void' && row.status !== 'cancelled');
+  if (history.length) return history;
+  if (member?.lastPaymentDate) {
+    return [{ date: member.lastPaymentDate, amount: null, id: `last-${memberNumberOf(member)}` }];
+  }
+  return [];
+}
+
+function collectedRows(member, { from, to }) {
+  const nro = padMember(memberNumberOf(member));
+  const name = memberDisplayName(member);
+  const rows = [];
+  for (const payment of paymentsOf(member)) {
+    const date = asIsoDate(payment.date || payment.paidAt);
+    if (!inRange(date, from, to)) continue;
+    const amount = recargoOfPayment(member, date, payment.amount);
+    if (amount <= EPS) continue;
+    rows.push({
+      id: payment.id || `cobrado-${nro}-${date}`,
+      source: 'cobro',
+      memberNumber: nro,
+      memberName: name,
+      date,
+      type: KIND_LABEL,
+      description: `Cuota ${date.slice(0, 7)}`,
+      amount,
+      status: 'cobrado',
+      kind: 'porcentaje',
+    });
+  }
+  return rows;
+}
+
+function owedRows(member, { from, to, today }) {
+  const debt = appMonthlyDebtForMember(member, { today });
+  if (!debt) return [];
+  const nro = padMember(debt.memberNumber);
+  const rows = [];
+  for (const month of debt.months || []) {
+    const amount = roundMoney(month.interest);
+    if (amount <= EPS) continue;
+    const date = month.dueOn || `${month.periodKey}-10`;
+    if (!inRange(date, from, to)) continue;
+    rows.push({
+      id: `adeudado-${nro}-${month.periodKey}`,
+      source: 'deuda',
+      memberNumber: nro,
+      memberName: debt.memberName,
+      date,
+      type: KIND_LABEL,
+      description: month.periodLabel || month.periodKey,
+      amount,
+      status: 'adeudado',
+      kind: 'porcentaje',
+    });
+  }
+  return rows;
+}
+
 export function buildSurchargeComposition({
+  members = [],
   memberNumber = '',
   from = '',
   to = '',
-  cobranzas = cobranzasSeed().ACCESSIN_COBRANZAS,
-  debtsByNumber = monthlyDebtsSeed().ACCESSIN_MONTHLY_DEBTS_BY_NUMBER,
+  today = new Date(),
 } = {}) {
   const nro = padMember(memberNumber);
+  const list = (members || []).filter((member) => {
+    if (!nro) return true;
+    return padMember(memberNumberOf(member)) === nro;
+  });
+
   const rows = [];
+  for (const member of list) {
+    rows.push(...collectedRows(member, { from, to }));
+    rows.push(...owedRows(member, { from, to, today }));
+  }
 
-  (cobranzas || []).forEach((row) => {
-    if (String(row.type || '') !== 'Recargos') return;
-    if (nro && padMember(row.memberNumber) !== nro) return;
-    if (!inRange(row.date, from, to)) return;
-    const cls = classifySurcharge(row.type, row.concept);
-    rows.push({
-      id: row.id,
-      source: 'cobranza',
-      memberNumber: padMember(row.memberNumber),
-      memberName: row.memberName || '',
-      date: row.date,
-      type: cls.kindLabel,
-      description: String(row.concept || '').replace(/^Recargo:\s*/i, ''),
-      amount: Number(row.amount) || 0,
-      status: 'cobrado',
-      kind: cls.kind,
-    });
-  });
-
-  Object.values(debtsByNumber || {}).forEach((debtor) => {
-    if (nro && padMember(debtor.memberNumber) !== nro) return;
-    (debtor.lines || []).forEach((line) => {
-      if (!/recargo/i.test(line.type || '')) return;
-      if (!inRange(line.date, from, to)) return;
-      const cls = classifySurcharge(line.type, line.description);
-      rows.push({
-        id: `debt-${line.id || line.date}-${debtor.memberNumber}`,
-        source: 'deuda',
-        memberNumber: padMember(debtor.memberNumber),
-        memberName: debtor.memberName || '',
-        date: line.date,
-        type: cls.kindLabel,
-        description: line.description || '',
-        amount: Number(line.owed) || Number(line.amount) || 0,
-        status: 'adeudado',
-        kind: cls.kind,
-      });
-    });
-  });
-
-  const sorted = rows.toSorted((a, b) => String(a.date).localeCompare(String(b.date)) || a.id.localeCompare(b.id));
+  const sorted = rows.toSorted((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.id).localeCompare(String(b.id)));
   const byKind = {};
   let total = 0;
   let collected = 0;
@@ -101,8 +153,8 @@ export function buildSurchargeComposition({
     to,
     rows: sorted,
     byKind: Object.values(byKind),
-    total: Math.round(total * 100) / 100,
-    collected: Math.round(collected * 100) / 100,
-    owed: Math.round(owed * 100) / 100,
+    total: roundMoney(total),
+    collected: roundMoney(collected),
+    owed: roundMoney(owed),
   };
 }

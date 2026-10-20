@@ -6,6 +6,7 @@ import {
   duesAmountForHousehold,
   duesAmountForMember,
   duesPayableAmount,
+  duesPayableForMember,
   getOverdueMembers,
   getDueTodayMembers,
   getUpcomingDuesMembers,
@@ -22,6 +23,7 @@ import {
   formatMonthsBehind,
 } from './dues';
 import { setRuntimeTierCatalog } from './tiers';
+import { setRuntimeDiscountRules } from '../accounting/discountApplication';
 
 const testCatalog = [
   { id: 'socio_individual', name: 'SOCIO INDIVIDUAL', monthlyDues: 32000, sortOrder: 1 },
@@ -30,7 +32,10 @@ const testCatalog = [
 ];
 
 beforeEach(() => setRuntimeTierCatalog(testCatalog));
-afterEach(() => setRuntimeTierCatalog(null));
+afterEach(() => {
+  setRuntimeTierCatalog(null);
+  setRuntimeDiscountRules([]);
+});
 
 const members = [
   { memberId: '1', name: 'A', tier: 'socio_individual', outstandingBalance: 32000, status: 'active', nextDueDate: '2026-06-10' },
@@ -262,6 +267,38 @@ describe('tarifa desde octubre 2026', () => {
     expect(duesPayableAmount(10000, { paidOn: '2026-10-11', dueOn: '2026-10-10', tier: 'abono_tenis' })).toBe(10000);
     expect(applyAutomaticDues([member], new Date('2026-10-10T12:00:00'))[0].outstandingBalance).toBe(0);
     expect(applyAutomaticDues([member], afterDue)[0].outstandingBalance).toBe(44000);
+  });
+});
+
+describe('descuentos extras sobre la cuota viva', () => {
+  const october = new Date('2026-10-01T12:00:00');
+  const rule = {
+    id: 'disc-9216',
+    category: 'members',
+    memberIds: ['9216'],
+    memberNumber: '9216',
+    valueType: 'percent',
+    value: 100,
+    validFrom: '2026-06-12',
+    validTo: '2027-04-30',
+    isActive: true,
+  };
+
+  it('un 100 % vigente deja la cuota y el recargo en cero', () => {
+    const member = {
+      memberId: '9216',
+      tier: 'socio_familiar',
+      cuotaCategories: ['SOCIO FAMILIAR'],
+      status: 'active',
+      adherents: [],
+    };
+    expect(duesAmountForMember(member, october, { rules: [rule] })).toBe(0);
+    expect(duesPayableForMember(member, {
+      paidOn: '2026-10-11',
+      dueOn: '2026-10-10',
+      on: '2026-10-01',
+      rules: [rule],
+    })).toBe(0);
   });
 });
 

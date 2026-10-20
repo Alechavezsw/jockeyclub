@@ -1,17 +1,12 @@
-import { beforeAll, describe, expect, it } from 'vitest';
-import { loadSnapshots } from '../../data/snapshots';
+import { describe, expect, it } from 'vitest';
 import {
   ACCOUNTING_REPORT_TYPES,
   createAccountingReportRecord,
   prependAccountingReport,
   reportsForType,
 } from './accountingReports';
-import { buildSurchargeComposition, SURCHARGE_COMPOSITION_SNAPSHOTS } from './surchargeComposition';
-import { buildLibreDeudaCertificate, LIBRE_DEUDA_SNAPSHOTS } from './libreDeuda';
-
-beforeAll(async () => {
-  await loadSnapshots([...LIBRE_DEUDA_SNAPSHOTS, ...SURCHARGE_COMPOSITION_SNAPSHOTS]);
-});
+import { buildSurchargeComposition } from './surchargeComposition';
+import { buildLibreDeudaCertificate } from './libreDeuda';
 
 describe('accountingReports', () => {
   it('incluye libros, estados y reportes de socios', () => {
@@ -29,18 +24,29 @@ describe('accountingReports', () => {
     expect(reportsForType(list, 'libre_deuda')).toHaveLength(0);
   });
 
-  it('compone recargos cobrados y adeudados', () => {
-    const report = buildSurchargeComposition({ memberNumber: '10743' });
+  it('compone recargos de la cuota viva', () => {
+    const report = buildSurchargeComposition({
+      members: [{
+        memberId: '4240',
+        name: 'Ana Pérez',
+        tier: 'socio_familiar',
+        status: 'active',
+        lastPaymentDate: '2026-09-13',
+        nextDueDate: '2026-10-10',
+        outstandingBalance: 77000,
+      }],
+      today: '2026-10-19',
+    });
     expect(report.rows.length).toBeGreaterThan(0);
     expect(report.total).toBeGreaterThan(0);
-    expect(report.byKind.length).toBeGreaterThan(0);
+    expect(report.owed).toBe(7000);
   });
 
   it('exige socio en libre deuda', () => {
     expect(() => buildLibreDeudaCertificate(null)).toThrow(/Socio/);
   });
 
-  it('arma certificado de libre deuda con el texto LILA', () => {
+  it('arma certificado de libre deuda con el texto del club', () => {
     const cert = buildLibreDeudaCertificate(
       { memberId: '1', name: 'Tomás Andrés Peñaloza Martínez', documentNumber: '50000444', tier: 'familiar' },
       { asOf: '2026-09-26', extraInfo: 'póliza vigente', issuedAt: new Date('2026-09-26T12:08:00-03:00') }

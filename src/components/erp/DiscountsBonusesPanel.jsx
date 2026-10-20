@@ -1,9 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { ArrowLeft, FileSpreadsheet, Pencil, Percent, Plus, Receipt, Search, Trash2 } from 'lucide-react';
-import { formatCurrency } from '../../domain/accounting/journal';
 import { DATITA_CUOTA_CATEGORY_NAMES } from '../../domain/members/tiers';
-import { bonificacionesSeed } from '../../domain/accounting/discountsSeed';
-import { useSnapshotSeed } from '../../hooks/useSnapshots';
 import {
   DISCOUNT_CATEGORIES,
   DISCOUNT_VALUE_TYPES,
@@ -177,10 +174,6 @@ export default function DiscountsBonusesPanel({
   onGoExpenses,
   discountsOnly = false,
 }) {
-  const { ACCESSIN_BONIFICACIONES_SNAPSHOT } = useSnapshotSeed(
-    ['accessinBonificaciones'],
-    bonificacionesSeed,
-  );
   const [hubTab, setHubTab] = useState('discounts');
   const [category, setCategory] = useState(null);
   const [view, setView] = useState('hub');
@@ -692,23 +685,19 @@ export default function DiscountsBonusesPanel({
           </table>
         </div>
 
-        {!isExpense && category === 'members' && ACCESSIN_BONIFICACIONES_SNAPSHOT?.totalAmount ? (
-          <p className="disc-field-hint" style={{ margin: 0 }}>
-            Export Accessin: {ACCESSIN_BONIFICACIONES_SNAPSHOT.count} bonificaciones · total{' '}
-            {formatCurrency(ACCESSIN_BONIFICACIONES_SNAPSHOT.totalAmount)} · al {ACCESSIN_BONIFICACIONES_SNAPSHOT.asOfLabel || ACCESSIN_BONIFICACIONES_SNAPSHOT.asOf}
-          </p>
-        ) : null}
       </div>
     );
   }
 
   return (
     <div className="fade-in disc-panel">
-      <div className="disc-panel-head">
-        <h4 className="disc-panel-title">
-          <Percent size={18} /> {discountsOnly ? 'Descuentos extras' : 'Descuentos y gastos'}
-        </h4>
-      </div>
+      {discountsOnly ? null : (
+        <div className="disc-panel-head">
+          <h4 className="disc-panel-title">
+            <Percent size={18} /> Descuentos y gastos
+          </h4>
+        </div>
+      )}
 
       {discountsOnly ? null : (
         <div className="disc-hub-tabs">

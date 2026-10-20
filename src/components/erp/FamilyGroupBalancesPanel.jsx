@@ -1,14 +1,8 @@
 import { useMemo, useState } from 'react';
 import { ArrowLeft, Download, Search, Users } from 'lucide-react';
-import {
-  familyGroupBalancesSeed,
-  familyGroupBalancesSummary,
-  listFamilyGroupBalances,
-} from '../../domain/accounting/familyGroupBalances';
+import { buildLiveFamilyGroupBalances } from '../../domain/accounting/liveFamilyGroupBalances';
 import { exportFamilyGroupBalancesPdf } from '../../domain/accounting/exportFamilyGroupBalancesPdf';
 import { createAccountingReportRecord } from '../../domain/accounting/accountingReports';
-import { useSnapshotSeed } from '../../hooks/useSnapshots';
-import SnapshotGate from '../SnapshotGate';
 
 const PAGE_SIZE = 40;
 
@@ -20,20 +14,12 @@ function money(n) {
   return `$ ${abs}`;
 }
 
-export default function FamilyGroupBalancesPanel(props) {
-  return (
-    <SnapshotGate names={['accessinFamilyGroupBalances']}>
-      <FamilyGroupBalancesContent {...props} />
-    </SnapshotGate>
-  );
-}
-
-function FamilyGroupBalancesContent({
+export default function FamilyGroupBalancesPanel({
+  members = [],
   reports = [],
   onRecordReport,
   onOpenMember,
 }) {
-  useSnapshotSeed(['accessinFamilyGroupBalances'], familyGroupBalancesSeed);
   const [query, setQuery] = useState('');
   const [sign, setSign] = useState('all');
   const [onlyWithBalance, setOnlyWithBalance] = useState(false);
@@ -42,11 +28,12 @@ function FamilyGroupBalancesContent({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const summary = useMemo(() => familyGroupBalancesSummary(), []);
-  const rows = useMemo(
-    () => listFamilyGroupBalances({ query, sign, onlyWithBalance }),
-    [query, sign, onlyWithBalance],
+  const book = useMemo(
+    () => buildLiveFamilyGroupBalances(members, { query, sign, onlyWithBalance }),
+    [members, query, sign, onlyWithBalance],
   );
+  const summary = book.summary;
+  const rows = book.groups;
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages - 1);
   const pageRows = rows.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
@@ -55,7 +42,10 @@ function FamilyGroupBalancesContent({
     setError('');
     setBusy(true);
     try {
-      const fileName = await exportFamilyGroupBalancesPdf({ query, sign, onlyWithBalance });
+      const fileName = await exportFamilyGroupBalancesPdf({
+        groups: rows,
+        asOfLabel: summary.asOfLabel,
+      });
       onRecordReport?.(createAccountingReportRecord({
         reportType: 'family_balances',
         filters: { familyQuery: query, sign, onlyWithBalance },
@@ -81,7 +71,7 @@ function FamilyGroupBalancesContent({
             <h3 className="mb-folio-title">{selected.name}</h3>
             <p className="mb-folio-meta">
               {selected.memberNumber ? `Socio ${selected.memberNumber}` : 'Sin nro. de socio en el grupo'}
-              {` · al ${summary.asOfLabel}`}
+              {` · ${summary.asOfLabel}`}
             </p>
           </div>
           <span className={['mb-folio-seal', selected.total > 0 ? 'is-warn' : ''].filter(Boolean).join(' ')}>
@@ -141,8 +131,7 @@ function FamilyGroupBalancesContent({
           <p className="mb-folio-kicker">Contabilidad</p>
           <h3 className="mb-folio-title">Saldos de grupo familiar</h3>
           <p className="mb-folio-meta">
-            Corte al {summary.asOfLabel || '—'}.
-            {summary.sourceFile ? ` ${summary.sourceFile.replace(/^LILA\s*[-–]\s*/i, '')}` : ''}
+            Saldo vivo de cada familia al {summary.asOfLabel || 'hoy'}.
           </p>
         </div>
         <span className="mb-folio-seal">{summary.groupCount.toLocaleString('es-AR')} grupos</span>

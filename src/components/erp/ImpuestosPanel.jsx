@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Receipt, Scale, LayoutDashboard } from 'lucide-react';
 import { getPostableAccounts, accountLabel } from '../../domain/accounting/chartOfAccounts';
 import { formatCurrency } from '../../domain/accounting/journal';
@@ -9,20 +9,28 @@ import {
   PAYMENT_TERMS,
   RECEIPT_LETTERS,
   VOUCHER_BOOKS,
+  buildLiveImpuestos,
   createComprobante,
+  currentTaxPeriod,
   liquidatePeriod,
-  taxBoard,
   voucherTotals,
 } from '../../domain/accounting/impuestos';
+import { todayISODateAR } from '../../lib/arDate';
 
 const VIEWS = [
+  { id: 'tablero', label: 'Tablero', icon: LayoutDashboard },
   { id: 'comprobantes', label: 'Comprobantes', icon: Receipt },
   { id: 'liquidar', label: 'Liquidar', icon: Scale },
-  { id: 'tablero', label: 'Tablero', icon: LayoutDashboard },
 ];
 
 function emptyLine() {
-  return { detail: '', quantity: 1, unitPrice: '', bonusPercent: 0, aliquotId: 'iva-21' };
+  return { detail: '', quantity: 1, unitPrice: '', bonusPercent: 0, aliquotId: 'exento' };
+}
+
+function formatIsoDate(iso) {
+  const [y, m, d] = String(iso || '').slice(0, 10).split('-');
+  if (!y || !m || !d) return iso || '—';
+  return `${d}/${m}/${y}`;
 }
 
 export default function ImpuestosPanel({
@@ -30,6 +38,9 @@ export default function ImpuestosPanel({
   liquidaciones = [],
   perfilFiscal = DEFAULT_FISCAL_PROFILE,
   retenciones = [],
+  expenses = [],
+  otherIncomes = [],
+  journalEntries = [],
   chartOfAccounts = [],
   onSavePerfil,
   onSaveComprobante,
@@ -38,17 +49,17 @@ export default function ImpuestosPanel({
   onPostLiquidacion,
   onPayLiquidacion,
 }) {
-  const [view, setView] = useState('comprobantes');
+  const [view, setView] = useState('tablero');
   const [profile, setProfile] = useState(() => ({ ...DEFAULT_FISCAL_PROFILE, ...perfilFiscal }));
   const [book, setBook] = useState('venta');
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
   const [postJournal, setPostJournal] = useState(true);
-  const [period, setPeriod] = useState(() => new Date().toISOString().slice(0, 7));
+  const [period, setPeriod] = useState(() => currentTaxPeriod());
   const [kind, setKind] = useState('iva');
-  const [form, setForm] = useState({
-    letter: 'A',
-    date: new Date().toISOString().slice(0, 10),
+  const [form, setForm] = useState(() => ({
+    letter: 'C',
+    date: todayISODateAR(),
     counterpartyName: '',
     cuit: '',
     number: '',
@@ -59,20 +70,49 @@ export default function ImpuestosPanel({
     amount: '',
     taxKind: 'iva',
     lines: [emptyLine()],
-  });
+  }));
+
+  useEffect(() => {
+    setProfile({
+      ...DEFAULT_FISCAL_PROFILE,
+      ...perfilFiscal,
+      condition: perfilFiscal?.condition || DEFAULT_FISCAL_PROFILE.condition,
+      jurisdiction: perfilFiscal?.jurisdiction || DEFAULT_FISCAL_PROFILE.jurisdiction,
+      iibbPercent: perfilFiscal?.iibbPercent ?? DEFAULT_FISCAL_PROFILE.iibbPercent,
+      pointOfSale: perfilFiscal?.pointOfSale || DEFAULT_FISCAL_PROFILE.pointOfSale,
+    });
+  }, [
+    perfilFiscal?.condition,
+    perfilFiscal?.jurisdiction,
+    perfilFiscal?.iibbPercent,
+    perfilFiscal?.pointOfSale,
+  ]);
 
   const bookMeta = VOUCHER_BOOKS.find((item) => item.id === book);
   const incomeAccounts = getPostableAccounts(chartOfAccounts).filter((account) => account.accountType === 'income');
   const expenseAccounts = getPostableAccounts(chartOfAccounts).filter((account) => account.accountType === 'expense');
   const paymentAccounts = getPostableAccounts(chartOfAccounts).filter((account) => account.isCashAccount || account.code === '1.1.03');
-  const visible = comprobantes.filter((row) => row.book === book && row.status !== 'void');
-  const board = useMemo(() => {
-    try {
-      return taxBoard({ vouchers: comprobantes, retenciones, period, profile });
-    } catch {
-      return null;
-    }
-  }, [comprobantes, retenciones, period, profile]);
+
+  const live = useMemo(
+    () => buildLiveImpuestos({
+      vouchers: comprobantes,
+      retenciones,
+      expenses,
+      otherIncomes,
+      journalEntries,
+      chartOfAccounts,
+      profile,
+      period,
+    }),
+    [comprobantes, retenciones, expenses, otherIncomes, journalEntries, chartOfAccounts, profile, period],
+  );
+
+  const visible = comprobantes.filter((row) => (
+    row.book === book
+    && row.status !== 'void'
+    && (row.period || String(row.date || '').slice(0, 7)) === period
+  ));
+  const board = live.board;
 
   const saveProfile = async () => {
     setError('');
@@ -105,6 +145,7 @@ export default function ImpuestosPanel({
         cuit: '',
         number: '',
         amount: '',
+        date: todayISODateAR(),
         lines: [emptyLine()],
       }));
     } catch (err) {
@@ -120,7 +161,13 @@ export default function ImpuestosPanel({
       if (existing?.status === 'closed' || existing?.status === 'paid') {
         throw new Error('Esa liquidación ya está cerrada.');
       }
-      const next = liquidatePeriod({ period, kind, vouchers: comprobantes, retenciones, profile });
+      const next = liquidatePeriod({
+        period,
+        kind,
+        vouchers: live.vouchersForLiquidation,
+        retenciones,
+        profile,
+      });
       await onSaveLiquidacion?.({ ...existing, ...next, id: existing?.id || next.id, status: 'open' });
       setOk(`Liquidación de ${kind.toUpperCase()} ${period} actualizada.`);
       setView('liquidar');
@@ -136,9 +183,11 @@ export default function ImpuestosPanel({
           <p className="mb-folio-kicker">Contabilidad</p>
           <h3 className="mb-folio-title">Impuestos</h3>
           <p className="mb-folio-meta">
-            Comprobantes, liquidación de IVA e IIBB y posición del período. Las retenciones de tesorería entran en la liquidación.
+            Posición de IVA e IIBB al {live.asOfLabel}. Gastos, otros ingresos y retenciones del mes entran solos.
+            Las cuotas no se facturan. No presenta nada ante ARCA.
           </p>
         </div>
+        <span className="mb-folio-seal">{live.periodLabel}</span>
       </header>
 
       <form
@@ -163,12 +212,39 @@ export default function ImpuestosPanel({
           <label className="form-label">Punto de venta</label>
           <input className="form-input" value={profile.pointOfSale || ''} onChange={(event) => setProfile({ ...profile, pointOfSale: event.target.value })} />
         </div>
+        <div>
+          <label className="form-label">Período</label>
+          <input type="month" className="form-input" value={period} onChange={(event) => setPeriod(event.target.value)} />
+        </div>
         <div style={{ alignSelf: 'end' }}>
           <button type="submit" className="btn btn-secondary btn-sm">Guardar perfil</button>
         </div>
       </form>
 
-      <div className="acct-treasury-hub" role="tablist" aria-label="Impuestos">
+      <dl className="mb-folio-kpis">
+        <div className="mb-folio-kpi is-net">
+          <dt>IVA a pagar</dt>
+          <dd>{formatCurrency(board?.iva?.aPagar || 0)}</dd>
+          <p>{board?.iva?.aFavor ? `A favor ${formatCurrency(board.iva.aFavor)}` : profile.condition === 'exento' ? 'Exento' : 'Sin saldo'}</p>
+        </div>
+        <div className="mb-folio-kpi is-out">
+          <dt>IIBB a pagar</dt>
+          <dd>{formatCurrency(board?.iibb?.aPagar || 0)}</dd>
+          <p>{Number(profile.iibbPercent) ? `${profile.iibbPercent} % ${profile.jurisdiction || ''}`.trim() : 'Alícuota 0 %'}</p>
+        </div>
+        <div className="mb-folio-kpi">
+          <dt>Retenciones</dt>
+          <dd>{formatCurrency(live.retencionesAmount)}</dd>
+          <p>{live.retencionesCount.toLocaleString('es-AR')} en tesorería</p>
+        </div>
+        <div className="mb-folio-kpi">
+          <dt>Cobros del mes</dt>
+          <dd>{formatCurrency(live.cashIn)}</dd>
+          <p>Egresos {formatCurrency(live.cashOut)}</p>
+        </div>
+      </dl>
+
+      <div className="acct-treasury-hub" role="tablist" aria-label="Impuestos" style={{ marginTop: '1rem' }}>
         {VIEWS.map((item) => {
           const Icon = item.icon;
           return (
@@ -185,8 +261,52 @@ export default function ImpuestosPanel({
         })}
       </div>
 
-      {error ? <p style={{ color: '#ef4444' }}>{error}</p> : null}
-      {ok ? <p style={{ color: 'var(--emerald-accent)' }}>{ok}</p> : null}
+      {error ? <p className="mb-folio-status is-error" role="alert">{error}</p> : null}
+      {ok ? <p className="mb-folio-status" style={{ color: 'var(--emerald-accent)' }}>{ok}</p> : null}
+
+      {view === 'tablero' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
+          <p className="mb-folio-meta">
+            En {live.periodLabel} hay {formatCurrency(live.cashIn)} cobrados en tesorería
+            {live.bookIncome ? ` y ${formatCurrency(live.bookIncome)} de ingresos del libro` : ''}.
+            Las cuotas y los cobros no se facturan. Un comprobante registrado pisa el gasto o ingreso vivo del mismo origen.
+          </p>
+          <div className="table-responsive">
+            <table className="admin-table cash-lila-table">
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Origen</th>
+                  <th>Contraparte</th>
+                  <th>Concepto</th>
+                  <th>IVA</th>
+                  <th>IIBB</th>
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {live.activity.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="mb-folio-empty">
+                      No hay movimientos de {live.periodLabel} en el libro, ni retenciones o comprobantes.
+                    </td>
+                  </tr>
+                ) : live.activity.map((row) => (
+                  <tr key={row.id}>
+                    <td>{row.origin === 'libro' || row.origin === 'cobro' || row.origin === 'egreso' ? live.periodLabel : formatIsoDate(row.date)}</td>
+                    <td>{row.originLabel}</td>
+                    <td>{row.party || '—'}</td>
+                    <td>{row.concept || '—'}</td>
+                    <td>{row.iva ? formatCurrency(row.iva) : '—'}</td>
+                    <td>{row.iibb ? formatCurrency(row.iibb) : '—'}</td>
+                    <td style={{ fontWeight: 700 }}>{formatCurrency(row.total)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {view === 'comprobantes' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
@@ -311,6 +431,7 @@ export default function ImpuestosPanel({
             </div>
           </form>
 
+          <p className="mb-folio-meta">{visible.length.toLocaleString('es-AR')} registrados en {live.periodLabel}</p>
           <div className="table-responsive">
             <table className="admin-table">
               <thead>
@@ -327,12 +448,12 @@ export default function ImpuestosPanel({
               </thead>
               <tbody>
                 {visible.length === 0 ? (
-                  <tr><td colSpan={8}>No hay comprobantes en este libro.</td></tr>
+                  <tr><td colSpan={8} className="mb-folio-empty">No hay comprobantes registrados en este libro y período.</td></tr>
                 ) : visible.map((row) => {
                   const totals = row.totals || voucherTotals(row, profile);
                   return (
                     <tr key={row.id}>
-                      <td>{row.date}</td>
+                      <td>{formatIsoDate(row.date)}</td>
                       <td>{row.counterpartyName}</td>
                       <td>{row.number || '—'}</td>
                       <td>{formatCurrency(totals.net)}</td>
@@ -354,13 +475,10 @@ export default function ImpuestosPanel({
       {view === 'liquidar' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
           <p className="mb-folio-meta">
-            Primero contabilizá los comprobantes. Después, contabilizar la liquidación pasa el débito y el crédito al saldo a pagar.
+            La liquidación usa comprobantes registrados más la actividad viva del período.
+            Contabilizar pasa el débito y el crédito al saldo a pagar.
           </p>
           <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'end' }}>
-            <div>
-              <label className="form-label">Período</label>
-              <input className="form-input" value={period} onChange={(event) => setPeriod(event.target.value)} placeholder="2026-10" />
-            </div>
             <div>
               <label className="form-label">Liquidación</label>
               <select className="form-input" value={kind} onChange={(event) => setKind(event.target.value)}>
@@ -368,7 +486,7 @@ export default function ImpuestosPanel({
                 <option value="iibb">IIBB</option>
               </select>
             </div>
-            <button type="button" className="btn btn-primary btn-sm" onClick={liquidate}>Liquidar</button>
+            <button type="button" className="btn btn-primary btn-sm" onClick={liquidate}>Liquidar {live.periodLabel}</button>
           </div>
           <div className="table-responsive">
             <table className="admin-table">
@@ -387,7 +505,7 @@ export default function ImpuestosPanel({
               </thead>
               <tbody>
                 {liquidaciones.length === 0 ? (
-                  <tr><td colSpan={9}>No hay liquidaciones. Elegí período y tipo.</td></tr>
+                  <tr><td colSpan={9} className="mb-folio-empty">Todavía no hay una liquidación cerrada. Elegí IVA o IIBB y liquidá {live.periodLabel}.</td></tr>
                 ) : liquidaciones.map((row) => (
                   <tr key={row.id}>
                     <td>{row.period}</td>
@@ -420,15 +538,6 @@ export default function ImpuestosPanel({
             </table>
           </div>
         </div>
-      )}
-
-      {view === 'tablero' && board && (
-        <dl className="mb-folio-kpis" style={{ marginTop: '1rem' }}>
-          <div className="mb-folio-kpi"><dt>Comprobantes</dt><dd>{board.vouchers}</dd></div>
-          <div className="mb-folio-kpi"><dt>IVA a pagar</dt><dd>{formatCurrency(board.iva.aPagar)}</dd></div>
-          <div className="mb-folio-kpi"><dt>IVA a favor</dt><dd>{formatCurrency(board.iva.aFavor)}</dd></div>
-          <div className="mb-folio-kpi is-net"><dt>IIBB a pagar</dt><dd>{formatCurrency(board.iibb.aPagar)}</dd></div>
-        </dl>
       )}
     </div>
   );
