@@ -17,6 +17,14 @@ export const DEFAULT_CASH_REGISTERS = [
     accountId: 'coa-1.1.02',
     isActive: true,
   },
+  {
+    id: 'cash-amet',
+    code: 'CAJA-AMET',
+    name: 'AMET',
+    location: 'Tesorería',
+    accountId: 'coa-1.1.07',
+    isActive: true,
+  },
 ];
 
 /** Caja cuyo plan es Caja General (1.1.01), o la de secretaría si el plan todavía no cargó. */
@@ -134,9 +142,9 @@ export function buildCashMovementEntry({
   });
 }
 
-/** Cuentas líquidas (cajas + bancos). */
+/** Cuentas líquidas (cajas y bancos, no IVA ni cuentas a cobrar). */
 export function isLiquidAccount(account) {
-  return Boolean(account?.isCashAccount || String(account?.code || '').startsWith('1.1.'));
+  return Boolean(account?.isCashAccount);
 }
 
 /**

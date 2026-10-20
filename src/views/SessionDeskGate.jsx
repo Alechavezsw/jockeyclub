@@ -9,7 +9,13 @@ export default function SessionDeskGate() {
   return (
     <div className="fade-in login-shell session-desk-gate">
       <section className="login-brand-panel" style={{ padding: '0.5rem 0.25rem' }}>
-        <p className="session-desk-kicker">Rivadavia · San Juan</p>
+        <img
+          src="/logo-jockey-club.png?v=clavos-blancos"
+          alt="Escudo Jockey Club San Juan"
+          className="club-mark session-desk-mark"
+          width={112}
+          height={112}
+        />
         <h1 className="serif-font session-desk-title">
           Dos puertas.<br />Una sola sesión.
         </h1>

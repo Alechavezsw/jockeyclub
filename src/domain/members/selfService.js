@@ -1,4 +1,4 @@
-import { nextDuesDueDate, pinDuesDueDate, toWhatsAppPhone } from './dues';
+import { duesOnJoin, toWhatsAppPhone } from './dues';
 import { todayISODateAR } from '../../lib/arDate';
 import { loginEmailFromUsername } from '../auth/credentials';
 import { buildAccessInviteEmail } from './accessInviteEmail';
@@ -360,7 +360,7 @@ export function joinDateFromApplication(app, fallback = null) {
 /** Alta mínima desde una solicitud pública (sin disciplinas obligatorias). */
 export function memberDraftFromApplication(app) {
   const joinDate = joinDateFromApplication(app);
-  return {
+  const draft = {
     name: String(app?.fullName || '').trim(),
     memberId: String(Math.floor(1000000000000000 + Math.random() * 9000000000000000)),
     documentType: app?.documentType || 'DNI',
@@ -375,16 +375,15 @@ export function memberDraftFromApplication(app) {
     tier: app?.requestedTier || 'socio_individual',
     status: 'active',
     joinDate,
-    nextDueDate: pinDuesDueDate(nextDuesDueDate(joinDate)),
     disciplines: ['Social'],
     notes: String(app?.notes || '').trim(),
-    outstandingBalance: 0,
     yearsActive: 1,
     adherents: [],
     billingName: String(app?.fullName || '').trim(),
     paymentMethod: 'transferencia',
     taxCondition: 'consumidor_final',
   };
+  return { ...draft, ...duesOnJoin(draft, joinDate) };
 }
 
 /**

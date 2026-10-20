@@ -1,13 +1,14 @@
 import { useDeferredValue, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Banknote, ChevronDown } from 'lucide-react';
-import { buildWhatsAppDuesUrl, duesDueMoment } from '../../domain/members/dues';
+import { buildWhatsAppDuesUrl, DUES_AMET_DUE_DAY, duesDueMoment } from '../../domain/members/dues';
 import { memberNumberOf } from '../../domain/members/households';
 import { todayISODateAR } from '../../lib/arDate';
 import { formatCurrency } from '../../domain/accounting/journal';
 import { resolveFeePeriods } from '../../domain/accounting/feeBilling';
 import { liquidatedTotalForMonth } from '../../domain/accounting/feePeriodLiquidation';
-import { appFinanceSinceHandoff, collectionForCalendarMonth, composeClubFinance, financeFromMonthlySummary, lilaContabilidadFromSnapshots } from '../../domain/accounting/opsFinanceSnapshot';
+import { appFinanceSinceHandoff, composeClubFinance, financeFromMonthlySummary, lilaContabilidadFromSnapshots } from '../../domain/accounting/opsFinanceSnapshot';
+import { splitMonthDuesCollection } from '../../domain/accounting/cashPaymentDetail';
 import { monthlyBalanceSeed } from '../../domain/accounting/monthlyBalance';
 import { monthlyBalanceSummarySeed } from '../../domain/accounting/monthlyBalanceSummary';
 import {
@@ -208,15 +209,18 @@ export default function DuesDueBanner({
     }),
     [members, journalEntries, chartOfAccounts, feePeriods, monthKey, today],
   );
-  const calendar = collectionForCalendarMonth({
-    monthFlow,
-    monthKey,
-    cashMovements: cashMoves,
-  });
+  const split = useMemo(
+    () => splitMonthDuesCollection({
+      movements: cashMoves,
+      members,
+      monthKey,
+    }),
+    [cashMoves, members, monthKey],
+  );
   const periods = useMemo(() => resolveFeePeriods(feePeriods), [feePeriods]);
   const sheetLiquidated = liquidatedTotalForMonth(periods, monthKey, { members, tierCatalog });
-  const collected = calendar.collected;
-  const liquidated = sheetLiquidated != null ? sheetLiquidated : calendar.liquidated;
+  const collected = split.cuotaMes;
+  const liquidated = sheetLiquidated != null ? sheetLiquidated : (Number(monthFlow?.liquidatedSince) || 0);
   const periodKey = periodKeyFromDate(money?.periodTo) || periodKeyFromDate(money?.periodKey);
   const cutIsThisMonth = String(periodKey || '').slice(0, 7) === monthKey;
   const unpaidRows = useMemo(
@@ -231,18 +235,19 @@ export default function DuesDueBanner({
   const monthLabel = `${monthName} de ${moment.year}`;
   const urgent = moment.phase === 'today' || moment.phase === 'after';
 
+  const ametNote = `AMET vence el ${DUES_AMET_DUE_DAY}.`;
   let headline = `El vencimiento es el ${moment.dueLabel}`;
   let detail = moment.daysUntil === 1
-    ? 'Falta 1 día.'
-    : `Faltan ${moment.daysUntil} días.`;
+    ? `Falta 1 día. ${ametNote}`
+    : `Faltan ${moment.daysUntil} días. ${ametNote}`;
   if (moment.phase === 'today') {
     headline = 'Hoy vencen las cuotas';
-    detail = `El vencimiento es el ${moment.dueLabel}.`;
+    detail = `El vencimiento es el ${moment.dueLabel}. ${ametNote}`;
   } else if (moment.phase === 'after') {
     headline = `Vencieron el ${moment.dueLabel}`;
     detail = moment.daysSince === 1
-      ? 'Pasó 1 día del vencimiento.'
-      : `Pasaron ${moment.daysSince} días del vencimiento.`;
+      ? `Pasó 1 día del vencimiento. ${ametNote}`
+      : `Pasaron ${moment.daysSince} días del vencimiento. ${ametNote}`;
   }
 
   return (
@@ -254,13 +259,14 @@ export default function DuesDueBanner({
           <p>{detail}</p>
         </div>
         <div className="due-collect-money">
-          <p className="due-collect-kicker">Recaudado · {monthLabel}</p>
+          <p className="due-collect-kicker">Recaudado del mes · {monthLabel}</p>
           <p className="due-collect-amount tabular-nums">
             {formatCurrency(collected)}
           </p>
           <p className="due-collect-rest">
             de {formatCurrency(liquidated)} liquidado
-            {pending > 0 ? ` · falta cobrar ${formatCurrency(pending)}` : (liquidated > 0 ? ' · el mes está cubierto' : '')}
+            {liquidated > 0 ? ` · ${rate}% cobrabilidad` : ''}
+            {pending > 0 ? ` · falta ${formatCurrency(pending)}` : (liquidated > 0 && pending === 0 ? ' · cubierto' : '')}
           </p>
           <div
             className="due-collect-track"
@@ -268,10 +274,23 @@ export default function DuesDueBanner({
             aria-valuenow={rate}
             aria-valuemin={0}
             aria-valuemax={100}
-            aria-label={`${rate}% recaudado de lo liquidado`}
+            aria-label={`${rate}% de cuota del mes sobre lo liquidado`}
           >
             <span style={{ width: `${rate}%` }} />
           </div>
+          {(split.atrasadas > 0 || split.recargos > 0 || split.reservas > 0) ? (
+            <ul className="due-collect-lines">
+              {split.atrasadas > 0 ? (
+                <li><span>Atrasadas cobradas</span><b className="tabular-nums">{formatCurrency(split.atrasadas)}</b></li>
+              ) : null}
+              {split.recargos > 0 ? (
+                <li><span>Recargos</span><b className="tabular-nums">{formatCurrency(split.recargos)}</b></li>
+              ) : null}
+              {split.reservas > 0 ? (
+                <li><span>Reservas</span><b className="tabular-nums">{formatCurrency(split.reservas)}</b></li>
+              ) : null}
+            </ul>
+          ) : null}
         </div>
         {urgent ? <span className="due-collect-mark" aria-hidden="true">{moment.dueDay}</span> : null}
       </section>

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Search, Filter, Plus, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Trash2, Users, UserPlus, X, CreditCard, Camera, FileDown, FileSpreadsheet, Pencil, KeyRound, MoreVertical } from 'lucide-react';
-import { duesAmountForHousehold, duesAmountForTier, isDuesExemptMember, nextDuesDueDate, pinDuesDueDate, quotaHeadline, toWhatsAppPhone } from '../../domain/members/dues';
+import { duesAmountForHousehold, duesAmountForTier, duesOnJoin, isDuesExemptMember, pinDuesDueDate, quotaHeadline, toWhatsAppPhone } from '../../domain/members/dues';
 import { persistDuesCollection, recordDuesCollection } from '../../domain/members/memberPayments';
 import { sendDuesReceiptMessage } from '../../domain/members/duesReceiptDelivery';
 import { exportMembersExcel } from '../../domain/members/exportMembersExcel';
@@ -63,7 +63,7 @@ function emptyMemberForm() {
     status: 'active',
     joinDate,
     joinTime: nowTimeAR(),
-    nextDueDate: nextDuesDueDate(joinDate),
+    nextDueDate: duesOnJoin({ tier: 'socio_individual' }, joinDate).nextDueDate,
     paymentMethod: 'transferencia',
     billingName: '',
     cuitCuil: '',
@@ -696,12 +696,16 @@ export default function MembersTab({
     }
 
     const randomNum = Math.floor(1000000000000000 + Math.random() * 9000000000000000);
-    const firstDues = form.chargeFirstDues
-      ? duesAmountForHousehold(form.tier, form.familyGroup)
-      : 0;
     const joinDate = form.joinDate || todayISODateAR();
     const joinTime = form.joinTime || nowTimeAR();
-    const nextDue = pinDuesDueDate(form.nextDueDate || nextDuesDueDate(joinDate));
+    const dues = duesOnJoin({
+      name: form.name,
+      tier: form.tier,
+      familyGroup: form.familyGroup,
+      status: form.status,
+    }, joinDate);
+    const firstDues = form.chargeFirstDues ? dues.outstandingBalance : 0;
+    const nextDue = pinDuesDueDate(form.nextDueDate || dues.nextDueDate, { tier: form.tier });
 
     const adherents = form.familyGroup.map((f, idx) => ({
       id: `adh-${Date.now()}-${idx}`,
@@ -815,13 +819,13 @@ export default function MembersTab({
       return;
     }
     try {
-      const result = await persistDuesCollection(recordDuesCollection(member, payload), {
+      const result = await persistDuesCollection(recordDuesCollection(member, { ...payload, members }), {
         setMembers,
         updateMember,
         addJournalEntry,
         onAccountEntry,
       });
-      void sendDuesReceiptMessage({ member, payment: result.payment, onSendMessage });
+      void sendDuesReceiptMessage({ member: result.member, payment: result.payment, onSendMessage });
       setCollectMember(null);
     } catch {
       /* el modal ya valida comprobante / importe */
@@ -851,7 +855,6 @@ export default function MembersTab({
     setLifecycleBusy(true);
     setLifecycleError('');
     try {
-      const nextStatus = action === 'activate' ? 'active' : action === 'suspend' ? 'suspended' : 'inactive';
       const nextMeta = buildLifecycleMeta(collectMemberMeta(member), {
         action,
         reasonId: payload.reasonId,
@@ -859,6 +862,11 @@ export default function MembersTab({
         detail: payload.detail,
         actorName,
       });
+      const nextStatus = action === 'activate'
+        ? 'active'
+        : action === 'suspend'
+          ? 'suspended'
+          : (nextMeta.pendingBaja ? 'active' : 'inactive');
       const next = {
         ...member,
         status: nextStatus,
@@ -884,7 +892,9 @@ export default function MembersTab({
 
       setActionFlash(
         action === 'delete'
-          ? `Baja registrada: ${member.name}`
+          ? (nextMeta.pendingBaja
+            ? `Baja el ${nextMeta.bajaFecha}: ${member.name}. Hasta entonces se cobra el mes.`
+            : `Baja registrada: ${member.name}`)
           : action === 'suspend'
             ? `Suspensión registrada: ${member.name}`
             : `Reactivación registrada: ${member.name}`,
@@ -1622,7 +1632,7 @@ export default function MembersTab({
                     setForm((prev) => ({
                       ...prev,
                       joinDate,
-                      nextDueDate: nextDuesDueDate(joinDate || todayISODateAR()),
+                      nextDueDate: duesOnJoin({ tier: prev.tier }, joinDate || todayISODateAR()).nextDueDate,
                     }));
                   }}
                 />
@@ -2459,6 +2469,7 @@ export default function MembersTab({
       {collectMember && (
         <CollectDuesModal
           member={collectMember}
+          members={members}
           formatCurrency={formatCurrency}
           onClose={() => setCollectMember(null)}
           onConfirm={handleConfirmCollect}

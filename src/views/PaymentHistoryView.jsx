@@ -14,7 +14,7 @@ import {
 import { downloadPaymentReceiptPdf } from '../domain/members/exportPaymentReceiptPdf';
 import { useMemberDuesStanding } from '../hooks/useMemberDuesStanding';
 import { CLUB_BANK_ACCOUNTS } from '../domain/members/clubBanks';
-import { duesAmountForMember, isDuesExemptMember, quotaHeadline } from '../domain/members/dues';
+import { duesAmountForMember, duesChargeBreakdown, isDuesExemptMember, quotaHeadline } from '../domain/members/dues';
 import { duesPaymentNotice } from '../domain/members/duesPaymentNotice';
 import { uploadDuesReceipt } from '../data/storage';
 import MercadoPagoCheckout from '../components/MercadoPagoCheckout';
@@ -62,7 +62,8 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
   const duesExempt = isDuesExemptMember(profile) || !quota.billing;
   const alDia = !standingPending && !behind;
   const monthly = duesExempt ? 0 : duesAmountForMember(profile);
-  const payable = duesExempt ? 0 : mpPayNowAmount(summary.outstanding, monthly);
+  const split = duesExempt ? { quota: 0, surcharge: 0, total: 0 } : duesChargeBreakdown(profile);
+  const payable = duesExempt ? 0 : (split.total || mpPayNowAmount(summary.outstanding, monthly));
   const subscribeAmount = duesExempt ? 0 : mpSubscribeAmount(monthly);
 
   const noticeKey = `${method}:${profile?.memberId || ''}:${payable}:${receiptFile?.name || ''}`;
@@ -238,7 +239,7 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
               ? (quota.hint || 'Esta categoría no liquida cuota social.')
               : alDia
                 ? `Podés adelantar ${formatCurrency(payable)} y quedar al día hasta ${formatDate(summary.nextDue)}.`
-                : `${lateLabel ? `${lateLabel}. ` : ''}Saldo a abonar: ${formatCurrency(payable)}. La cuota vence el 10 de cada mes.`}
+                : `${lateLabel ? `${lateLabel}. ` : ''}Saldo a abonar: ${formatCurrency(payable)}${split.surcharge > 0 ? ` (cuota ${formatCurrency(split.quota)} + recargo ${formatCurrency(split.surcharge)})` : ''}. La cuota vence el 10 de cada mes.`}
         </p>
         {!duesExempt ? (
           <>

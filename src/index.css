@@ -3596,12 +3596,11 @@ button.membership-moves-name {
   margin: 0 auto;
 }
 
-.session-desk-kicker {
-  font-size: 0.72rem;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: var(--text-gold);
-  margin-bottom: 0.75rem;
+.session-desk-mark {
+  width: 112px;
+  height: 112px;
+  display: block;
+  margin: 0 0 1rem;
 }
 
 .session-desk-title {
@@ -3718,6 +3717,21 @@ button.membership-moves-name {
     grid-template-columns: 1fr;
     gap: 1.5rem;
     padding: 0;
+  }
+
+  .session-desk-gate .login-brand-panel {
+    text-align: center;
+    order: -1;
+  }
+
+  .session-desk-mark {
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .session-desk-lead {
+    margin-left: auto;
+    margin-right: auto;
   }
 }
 
@@ -17343,6 +17357,43 @@ a.ops-outline-btn {
   color: var(--emerald-accent);
 }
 
+.mp-ops-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0 0 1rem;
+}
+
+.mp-ops-note {
+  margin: 0;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--border-glass);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.mp-ops-note.is-warn {
+  color: var(--text-primary);
+}
+
+.mp-family-standing {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+
+.mp-family-cert {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.35rem 1rem 0 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
 .mp-nav {
   display: flex;
   gap: 0.4rem;
@@ -22846,6 +22897,9 @@ ul.sys-set-hint {
   line-height: 1.45;
   color: var(--text-primary);
 }
+.jev-slip-text {
+  white-space: pre-line;
+}
 .jev-slip-next {
   margin-top: 0.45rem;
   color: var(--text-secondary);
@@ -22897,9 +22951,6 @@ ul.sys-set-hint {
   background: rgba(202, 57, 12, 0.12);
 }
 .jev-desk-wait,
-.jev-slip-text {
-  white-space: pre-line;
-}
 .jev-desk-error {
   margin: 0;
   font-size: 0.82rem;
@@ -23251,6 +23302,24 @@ ul.sys-set-hint {
   height: 100%;
   border-radius: inherit;
   background: var(--emerald-accent);
+}
+.due-collect-lines {
+  list-style: none;
+  margin: 0.65rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.22rem;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+.due-collect-lines li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.due-collect-lines b {
+  font-weight: 600;
+  color: var(--text-secondary);
 }
 .due-collect-mark {
   position: absolute;

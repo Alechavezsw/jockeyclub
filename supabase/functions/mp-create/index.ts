@@ -81,6 +81,15 @@ function memberSelect() {
   return "id, member_number, full_name, email, profile_id, outstanding_balance, document_number, tier, meta";
 }
 
+function billingDayOf(member: { tier?: string | null; meta?: Record<string, unknown> | null } | null) {
+  const tier = String(member?.tier || "").toLowerCase();
+  const blob = `${tier} ${JSON.stringify(member?.meta || {})}`.toLowerCase();
+  if (/socio_familiar_amet|socio_individual_amet|socio familiar \(amet\)|socio individual \(amet\)/.test(blob)) {
+    return 18;
+  }
+  return 10;
+}
+
 async function mpJson(path: string, token: string, init: { method?: string; body?: Record<string, unknown> } = {}) {
   const method = init.method || "GET";
   const res = await fetch(`https://api.mercadopago.com${path}`, {
@@ -293,7 +302,7 @@ Deno.serve(async (req) => {
             frequency_type: "months",
             transaction_amount: amount,
             currency_id: "ARS",
-            billing_day: 10,
+            billing_day: billingDayOf(member),
             billing_day_proportional: false,
           },
           back_url: `${accountOrigin(origin)}/cuenta?mp=sub`,

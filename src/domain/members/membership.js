@@ -1,5 +1,11 @@
 /** Etiqueta y antigüedad de la categoría de socio (padrón, no Gold/Platinum). */
 
+import { isDuesExemptMember, isMemberBillingActive, isVitalicioMember } from './dues';
+import { isTitularMember } from './households';
+
+/** Años en el club para avisar el paso a socio vitalicio. */
+export const VITALICIO_YEARS_ON_CLUB = 25;
+
 export function prettyMembershipName(raw) {
   const name = String(raw || '').replace(/_/g, ' ').trim();
   if (!name) return 'Socio';
@@ -33,4 +39,14 @@ export function membershipCaption(member, today = new Date()) {
   const since = formatJoinYear(member?.joinDate);
   if (since) return `Desde ${since}`;
   return 'Categoría de socio';
+}
+
+/** Titular activo que ya cumplió los años para pasar a vitalicio. */
+export function shouldOfferVitalicio(member, today = new Date()) {
+  const when = today instanceof Date
+    ? today
+    : new Date(`${String(today).slice(0, 10)}T12:00:00`);
+  if (!member || !isTitularMember(member) || !isMemberBillingActive(member, when)) return false;
+  if (isVitalicioMember(member) || isDuesExemptMember(member)) return false;
+  return yearsOnClub(member, when) >= VITALICIO_YEARS_ON_CLUB;
 }

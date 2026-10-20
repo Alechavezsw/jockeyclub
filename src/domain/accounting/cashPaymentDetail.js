@@ -2,7 +2,7 @@
 
 import { periodLabelFromKey } from './detailedCurrentAccounts';
 import { formatAccessinCashDate } from './cashLedger';
-import { duesAmountForMember, duesPayableForMember, toWhatsAppPhone } from '../members/dues';
+import { duesAmountForMember, duesDueDayForMember, duesPayableForMember, toWhatsAppPhone } from '../members/dues';
 
 export function isCashMemberPayment(movement) {
   return /pago con efectivo/i.test(String(movement?.typeLabel || ''));
@@ -94,7 +94,8 @@ export function feeImputationLines(movement, member) {
   const day = Number(match[3]);
   const current = { year, month };
   const previous = shiftMonth(year, month, -1);
-  const order = day <= 10 ? [previous, current] : [current, previous];
+  const dueDay = duesDueDayForMember(member);
+  const order = day <= dueDay ? [previous, current] : [current, previous];
   for (const period of order) {
     const lines = linesForFeePeriod(member, period, paidOn, amount);
     if (lines.length) return lines;
@@ -198,10 +199,121 @@ export function liveMonthFeeCollected({
   return currentMonthFeeCollected(windowMoves, members, monthKey);
 }
 
+function roundCollected(value) {
+  return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+function movementBlob(row) {
+  return `${row?.typeLabel || ''} ${row?.description || ''} ${row?.note || ''} ${row?.concept || ''}`;
+}
+
+function isPorteriaMovement(row) {
+  return /porter[ií]a/i.test(movementBlob(row));
+}
+
+function isReservationMovement(row) {
+  const blob = movementBlob(row);
+  return /reserva|sal[oó]n|alquiler/i.test(blob) && !isPorteriaMovement(row);
+}
+
+function collectWindowMoves({ movements = [], members = [], monthKey = '', afterDate = '' } = {}) {
+  const cut = String(afterDate || '').slice(0, 10);
+  const inWindow = (date) => Boolean(monthKey) && date.startsWith(monthKey) && (!cut || date > cut);
+  const covered = new Set();
+  const windowMoves = [];
+  for (const row of movements || []) {
+    const date = String(row?.date || '').slice(0, 10);
+    if (!inWindow(date)) continue;
+    windowMoves.push(row);
+    const digits = memberDigits(row);
+    const amount = Number(row?.amount) || 0;
+    if (digits && amount > 0) covered.add(`${digits}|${date}|${amount}`);
+  }
+  for (const member of members || []) {
+    const digits = memberDigits(member);
+    if (!digits) continue;
+    for (const payment of member.paymentHistory || []) {
+      const date = paymentDate(payment);
+      if (!inWindow(date)) continue;
+      if (payment?.status === 'void' || payment?.status === 'cancelled') continue;
+      const amount = Number(payment?.amount) || 0;
+      if (amount <= 0) continue;
+      const key = `${digits}|${date}|${amount}`;
+      if (covered.has(key)) continue;
+      covered.add(key);
+      windowMoves.push({
+        id: payment.id || `pay-${key}`,
+        date,
+        amount,
+        memberNumber: digits,
+        movementType: 'income',
+        typeLabel: payment.concept || '',
+        description: payment.concept || '',
+      });
+    }
+  }
+  return windowMoves;
+}
+
+/**
+ * Tesorería: cuota del mes, atrasadas cobradas, recargos y reservas.
+ * Portería no entra. El % de cobrabilidad usa solo cuota del mes / liquidado.
+ */
+export function splitMonthDuesCollection({
+  movements = [],
+  members = [],
+  monthKey = '',
+  afterDate = '',
+} = {}) {
+  const byNumber = new Map();
+  for (const member of members || []) {
+    const digits = memberDigits(member);
+    if (digits && !byNumber.has(digits)) byNumber.set(digits, member);
+  }
+  const seen = new Set();
+  let cuotaMes = 0;
+  let atrasadas = 0;
+  let recargos = 0;
+  let reservas = 0;
+  for (const row of collectWindowMoves({ movements, members, monthKey, afterDate })) {
+    const movementType = String(row?.movementType || 'income');
+    if (movementType === 'expense' || movementType === 'transfer_out') continue;
+    if (row?.status === 'void' || row?.status === 'cancelled') continue;
+    if (isPorteriaMovement(row)) continue;
+    const amount = Number(row?.amount) || 0;
+    if (amount <= 0) continue;
+    const id = String(row?.accessinId ?? row?.id ?? '');
+    if (id && seen.has(id)) continue;
+    if (id) seen.add(id);
+    const member = byNumber.get(memberDigits(row));
+    const lines = member ? feeImputationLines(row, member) : [];
+    if (lines.length) {
+      for (const line of lines) {
+        const value = Number(line.amount) || 0;
+        if (/recargo/i.test(String(line.type || ''))) {
+          recargos += value;
+          continue;
+        }
+        const lineMonth = String(line.date || '').slice(0, 7);
+        if (lineMonth === monthKey) cuotaMes += value;
+        else if (lineMonth && lineMonth < monthKey) atrasadas += value;
+      }
+      continue;
+    }
+    if (isReservationMovement(row)) reservas += amount;
+  }
+  return {
+    cuotaMes: roundCollected(cuotaMes),
+    atrasadas: roundCollected(atrasadas),
+    recargos: roundCollected(recargos),
+    reservas: roundCollected(reservas),
+  };
+}
+
 function linesForFeePeriod(member, period, paidOn, amount) {
   const key = periodKeyOf(period.year, period.month);
   const on = new Date(period.year, period.month - 1, 1);
-  const dueOn = `${key}-10`;
+  const dueOn = `${key}-${String(duesDueDayForMember(member)).padStart(2, '0')}`;
   const cuota = Math.round((Number(duesAmountForMember(member, on)) || 0) * 100) / 100;
   if (!(cuota > 0)) return [];
   const payable = Math.round((Number(duesPayableForMember(member, { paidOn, dueOn, on })) || 0) * 100) / 100;

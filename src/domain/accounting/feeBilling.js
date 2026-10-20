@@ -1,5 +1,6 @@
-import { duesAmountForMember, isDuesExemptMember, isMemberBillingActive } from '../members/dues';
-import { isTitularMember } from '../members/households';
+import { duesAmountForMember, duesAmountForTier, isDuesExemptMember, isMemberBillingActive, memberDuesTierIds } from '../members/dues';
+import { attachHouseholdToMembers, isTitularMember } from '../members/households';
+import { getTierDisplayName } from '../members/tiers';
 import { feePackForPeriod } from './feePackConcepts';
 
 /** Liquidación mensual de cuotas (Accessin / LILA). */
@@ -135,14 +136,11 @@ export function feePeriodNeedsClosure(period) {
     || Number(base.amount) !== Number(period.amount);
 }
 
-function duesAmountForLiquidationTitular(member, on) {
-  return duesAmountForMember({ ...member, adherents: [] }, on);
-}
-
 /**
  * Cierra un período de la app (desde noviembre 2026).
  * Imputa la cuota viva a titulares activos (sin recargo: el 10 % es al pagar después del 10).
  * Comisión, vitalicio, fundador e integrantes del grupo no se cobran.
+ * El tenis del adherente entra en la cuenta del titular.
  */
 export function liquidateFeePeriod(list = [], periodId, members = [], today = new Date()) {
   const period = (list || []).find((p) => p.id === periodId);
@@ -155,14 +153,16 @@ export function liquidateFeePeriod(list = [], periodId, members = [], today = ne
     ? today.toISOString().slice(0, 10)
     : String(today).slice(0, 10);
   const periodDate = new Date(Number(period.year), (Number(period.month) || 1) - 1, 10, 12, 0, 0, 0);
-  const memberUpdates = (members || []).flatMap((member) => {
-    if (!member || !isMemberBillingActive(member) || !isTitularMember(member)) return [];
+  const billed = attachHouseholdToMembers(members);
+  const memberUpdates = billed.flatMap((member) => {
+    if (!member || !isMemberBillingActive(member, today) || !isTitularMember(member)) return [];
     if (isDuesExemptMember(member)) return [];
-    const amount = Math.round(duesAmountForLiquidationTitular(member, periodDate) || 0);
+    const amount = Math.round(duesAmountForMember(member, periodDate) || 0);
     if (amount <= 0) return [];
     return [{ memberId: member.memberId, addAmount: amount }];
   });
   const chargedTotal = memberUpdates.reduce((sum, row) => sum + row.addAmount, 0);
+  const packLines = feePackLinesFromMembers(billed, periodDate, today);
 
   const nextPeriod = {
     ...period,
@@ -171,6 +171,19 @@ export function liquidateFeePeriod(list = [], periodId, members = [], today = ne
     generatedAt: iso,
     accessinId: period.accessinId || Number(String(Date.now()).slice(-4)),
     updatedAt: new Date().toISOString(),
+    pack: {
+      ...(period.pack || {}),
+      title: period.pack?.title || `Liquidación - ${periodLabel(period)}`,
+      total: chargedTotal,
+      concepts: packLines,
+    },
+    lines: packLines.map((row) => ({
+      identifier: row.id,
+      name: row.label,
+      holders: row.holders,
+      unit: row.amount,
+      total: row.total,
+    })),
   };
 
   return {
@@ -191,6 +204,34 @@ const EXPENSE_CATEGORIES = [
 ];
 
 export { EXPENSE_CATEGORIES };
+
+/** Incluye categorías en cero (grupo familiar, vitalicio, fundador) para verificar el grupo. */
+export function feePackLinesFromMembers(members = [], periodDate = new Date(), today = periodDate) {
+  const buckets = new Map();
+  const add = (id) => {
+    const key = String(id || '').trim().toLowerCase();
+    if (!key) return;
+    if (!buckets.has(key)) {
+      const amount = Math.round(duesAmountForTier(key, undefined, periodDate) || 0);
+      buckets.set(key, {
+        id: key,
+        label: getTierDisplayName(key),
+        holders: 0,
+        amount,
+      });
+    }
+    buckets.get(key).holders += 1;
+  };
+  for (const member of members) {
+    if (!member || !isMemberBillingActive(member, today)) continue;
+    const ids = memberDuesTierIds(member);
+    const pool = ids.length ? ids : [String(member.tier || '').trim().toLowerCase()].filter(Boolean);
+    pool.forEach(add);
+  }
+  return [...buckets.values()]
+    .map((row) => ({ ...row, total: row.holders * row.amount }))
+    .toSorted((a, b) => a.label.localeCompare(b.label, 'es'));
+}
 
 function pad2(n) {
   return String(n).padStart(2, '0');

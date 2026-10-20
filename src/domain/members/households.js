@@ -267,6 +267,22 @@ export function isTitularMember(member) {
   return !isFamilyDependent(member);
 }
 
+/** El adherente no paga ni alquila: la cuenta y las reservas son del titular. */
+export function memberMayOperateAccount(member) {
+  return isTitularMember(member);
+}
+
+/** Ficha donde impacta un cobro: titular del grupo, o la misma si ya es titular. */
+export function billingAccountMember(member, members = []) {
+  if (!member || isTitularMember(member)) return member;
+  const key = familyPrincipalOf(member);
+  const titular = (members || []).find((row) => memberNumberOf(row) === key);
+  if (!titular) {
+    throw new Error('El cobro va a la cuenta del titular. No está en el padrón.');
+  }
+  return titular;
+}
+
 /** Ficha vigente: no está de baja, suspendida ni pendiente. */
 export function isLiveMember(member) {
   const status = String(member?.status || 'active').toLowerCase();
@@ -280,6 +296,7 @@ export function householdMemberAsAdherent(member, relationship = 'Grupo familiar
     name: member.name || member.full_name || '—',
     relationship,
     tier: member.tier,
+    cuotaCategories: member.cuotaCategories || (member.tier ? [member.tier] : []),
     status: member.status || 'active',
     outstandingBalance: Number(member.outstandingBalance) || 0,
     disciplines: member.disciplines || [],

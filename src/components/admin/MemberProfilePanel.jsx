@@ -12,6 +12,10 @@ import GuestPassPanel from '../GuestPassPanel';
 import CollectDuesModal from './CollectDuesModal';
 import ModalDialog from '../ModalDialog';
 import { formatShortDate, isDuesExemptMember, quotaHeadline } from '../../domain/members/dues';
+import { familyChildStanding, regularidadOf, upsertRegularidad } from '../../domain/members/familyStanding';
+import { shouldOfferVitalicio } from '../../domain/members/membership';
+import { canVoidDuesPayment } from '../../domain/auth/roles';
+import { useAuth } from '../../context/AuthContext';
 import { formatDateTimeAR, todayISODateAR } from '../../lib/arDate';
 import { formatPaymentWhen, paymentWhenStamp } from '../../domain/members/paymentHistory';
 import { DEFAULT_POOL_SETTINGS } from '../../domain/pool/poolAccess';
@@ -19,7 +23,7 @@ import { piletaPayAccess } from '../../domain/pool/seasonDuesGate';
 import { cobranzasSeed, filterAccessinCobranzas } from '../../domain/accounting/cobranzas';
 import { buildDetailedCcAccountEntries } from '../../domain/accounting/detailedCurrentAccounts';
 import useSnapshots from '../../hooks/useSnapshots';
-import { collectMemberMeta, memberAppAccess } from '../../domain/members/memberAdminActions';
+import { collectMemberMeta, isPendingBaja, memberAppAccess } from '../../domain/members/memberAdminActions';
 import { getActiveTiers, getTierDisplayName, tierBadgeStyle } from '../../domain/members/tiers';
 import { DISCIPLINE_OPTIONS, getDisciplineOptions, normalizeLabel } from '../../domain/sports/disciplines';
 import {
@@ -35,7 +39,7 @@ import {
   upsertMemberDocument,
   DOCUMENT_TYPES,
 } from '../../domain/members/profileEdit';
-import { duesMethodLabel, isDuesCollectionJournal, journalEntryBelongsToMember, persistDuesCollection, recordDuesCollection } from '../../domain/members/memberPayments';
+import { duesMethodLabel, isDuesCollectionJournal, journalEntryBelongsToMember, persistDuesCollection, persistDuesVoid, recordDuesCollection, voidMemberDuesPayment } from '../../domain/members/memberPayments';
 import { sendDuesReceiptMessage } from '../../domain/members/duesReceiptDelivery';
 import { repos } from '../../data/bootstrap';
 import CurrentAccountCutNote from '../erp/CurrentAccountCutNote';
@@ -308,6 +312,20 @@ function TimelineItem({ when, title, detail, tone = 'neutral' }) {
   );
 }
 
+function applyRegularidadForm(person, form) {
+  const year = Number(String(todayISODateAR()).slice(0, 4));
+  const withStart = upsertRegularidad(person || {}, {
+    year,
+    term: 'start',
+    present: Boolean(form?.regularidadStart),
+  });
+  return upsertRegularidad(withStart, {
+    year,
+    term: 'end',
+    present: Boolean(form?.regularidadEnd),
+  });
+}
+
 /** Perfil institucional completo del socio titular. */
 export default function MemberProfilePanel({
   member,
@@ -335,6 +353,8 @@ export default function MemberProfilePanel({
   accessinCobranzas = [],
   poolSettings = DEFAULT_POOL_SETTINGS,
 }) {
+  const { roles, role, user } = useAuth();
+  const canVoid = canVoidDuesPayment({ roles, role });
   const [section, setSection] = useState('ficha');
   const [editForm, setEditForm] = useState(null);
   const [editMsg, setEditMsg] = useState('');
@@ -428,6 +448,8 @@ export default function MemberProfilePanel({
         photo: '',
         relationship: 'Grupo familiar',
         memberId: allocateNextMemberNumber(members),
+        regularidadStart: false,
+        regularidadEnd: false,
       },
     });
   };
@@ -443,6 +465,7 @@ export default function MemberProfilePanel({
     const groupName = host?.familyGroupName || member?.familyGroupName || `Grupo ${principalId}`;
     const principalNum = Number.parseInt(principalId, 10);
     const familyPrincipalNumber = Number.isFinite(principalNum) ? principalNum : principalId;
+    const withCerts = applyRegularidadForm({}, form);
     const newMember = {
       name: String(form.name || '').trim(),
       memberId,
@@ -467,9 +490,11 @@ export default function MemberProfilePanel({
       familyPrincipalNumber,
       familyGroupName: groupName,
       adherents: [],
+      regularidadCertificates: withCerts.regularidadCertificates,
       meta: collectMemberMeta({
         familyPrincipalNumber,
         familyGroupName: groupName,
+        regularidadCertificates: withCerts.regularidadCertificates,
       }),
     };
     if (setMembers) {
@@ -492,6 +517,7 @@ export default function MemberProfilePanel({
             photo: newMember.photo,
             status: 'active',
             outstandingBalance: 0,
+            regularidadCertificates: withCerts.regularidadCertificates,
           },
         ],
         updatedAt: new Date().toISOString(),
@@ -752,14 +778,14 @@ export default function MemberProfilePanel({
       return;
     }
     try {
-      const result = recordDuesCollection(member, payload);
+      const result = recordDuesCollection(member, { ...payload, members });
       await persistDuesCollection(result, {
         setMembers,
         updateMember,
         addJournalEntry,
         onAccountEntry,
       });
-      void sendDuesReceiptMessage({ member, payment: result.payment, onSendMessage });
+      void sendDuesReceiptMessage({ member: result.member, payment: result.payment, onSendMessage });
       setCollectOpen(false);
       setSection('movimientos');
       setCollectFlash(
@@ -782,6 +808,11 @@ export default function MemberProfilePanel({
   const tierName = getTierDisplayName(member.tier, tierCatalog);
   const age = ageFromBirth(member.birthDate);
   const tenure = membershipTenure(member);
+  const childStanding = familyChildStanding(member);
+  const vitalicioOffer = shouldOfferVitalicio(member);
+  const pendingBaja = isPendingBaja(member);
+  const debitFailed = String(member?.mpAdhesion || member?.mercadoPagoAdhesion || member?.meta?.mpAdhesion || '').toLowerCase() === 'rejected'
+    || Boolean(member?.meta?.lastDebitFailedAt);
   const joinLabel = member.joinDate
     ? (member.joinTime
       ? formatDateTimeAR(member.joinDate, member.joinTime)
@@ -890,6 +921,31 @@ export default function MemberProfilePanel({
           {collectFlash ? <p className="mp-collect-flash">{collectFlash}</p> : null}
         </aside>
       </header>
+
+      {(pendingBaja || vitalicioOffer || debitFailed || (childStanding.kind === 'leave')) ? (
+        <div className="mp-ops-notes">
+          {pendingBaja ? (
+            <p className="mp-ops-note">
+              Baja programada el {member.bajaFecha || member.meta?.bajaFecha}. Hasta ese día se cobra el mes.
+            </p>
+          ) : null}
+          {vitalicioOffer ? (
+            <p className="mp-ops-note is-warn">
+              Este socio llegó para pasar a vitalicio. Avisarle y cambiar la categoría.
+            </p>
+          ) : null}
+          {debitFailed ? (
+            <p className="mp-ops-note is-warn">
+              {selfService
+                ? 'No pasó el débito automático de tu cuota. Entrá a Mi cuenta para regularizarlo.'
+                : 'No pasó el débito de Mercado Pago. Hay que avisarle al socio.'}
+            </p>
+          ) : null}
+          {childStanding.kind === 'leave' ? (
+            <p className="mp-ops-note is-warn">{childStanding.label}</p>
+          ) : null}
+        </div>
+      ) : null}
 
       <nav className="mp-nav section-chips" aria-label="Secciones del perfil">
         {visibleSections.map((s) => {
@@ -1275,6 +1331,11 @@ export default function MemberProfilePanel({
                           {adh.memberId ? ` · Nº ${adh.memberId}` : ''}
                           {' · '}
                           {(adh.disciplines || []).join(', ') || 'Sin disciplina'}
+                          {familyChildStanding(source || adh).label ? (
+                            <span className="mp-family-standing">
+                              {familyChildStanding(source || adh).label}
+                            </span>
+                          ) : null}
                         </div>
                       </div>
                       <span className="mp-tier-pill" style={tierBadgeStyle(adh.tier, tierCatalog)}>
@@ -1305,6 +1366,8 @@ export default function MemberProfilePanel({
                                   ),
                                   photo: source?.photo || adh.photo || '',
                                   relationship: adh.relationship || source?.relationship || 'Grupo familiar',
+                                  regularidadStart: regularidadOf(person, Number(String(todayISODateAR()).slice(0, 4))).start,
+                                  regularidadEnd: regularidadOf(person, Number(String(todayISODateAR()).slice(0, 4))).end,
                                 },
                               });
                             }}
@@ -1342,13 +1405,45 @@ export default function MemberProfilePanel({
                     <span className="mp-list-when">{formatPaymentWhen(p)}</span>
                     <span className="mp-list-main">
                       {p.concept || `Cobro · ${duesMethodLabel(p.method, p.bankName)}`}
+                      {p.status === 'void' ? (
+                        <div className="mp-list-sub">Anulado{p.voidedBy ? ` · ${p.voidedBy}` : ''}</div>
+                      ) : p.surcharge > 0 ? (
+                        <div className="mp-list-sub">Cuota {formatCurrency(p.quota)} · Recargo {formatCurrency(p.surcharge)}</div>
+                      ) : null}
                       {p.receiptName ? (
                         <div className="mp-list-sub">Comprobante: {p.receiptName}</div>
                       ) : null}
                     </span>
-                    <strong className="mp-list-amount">
+                    <strong className="mp-list-amount" style={p.status === 'void' ? { textDecoration: 'line-through', opacity: 0.6 } : undefined}>
                       {formatCurrency(p.amount)}
                     </strong>
+                    {canCollect && p.status !== 'void' && p.id && canVoid ? (
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={async () => {
+                          if (!window.confirm('¿Anular este cobro? Queda el rastro y se restaura el saldo.')) return;
+                          try {
+                            const result = voidMemberDuesPayment(member, p.id, {
+                              voidedBy: user?.name || 'Tesorería',
+                            });
+                            await persistDuesVoid(result, {
+                              setMembers,
+                              updateMember,
+                              addJournalEntry,
+                              onAccountEntry,
+                            });
+                            setCollectFlash(`Cobro anulado · ${formatCurrency(p.amount)}`);
+                            window.setTimeout(() => setCollectFlash(''), 5000);
+                          } catch (err) {
+                            setCollectFlash(err.message || 'No se pudo anular.');
+                            window.setTimeout(() => setCollectFlash(''), 5000);
+                          }
+                        }}
+                      >
+                        Anular
+                      </button>
+                    ) : null}
                   </div>
                 ))}
                 {movements.map((e) => {
@@ -1471,6 +1566,7 @@ export default function MemberProfilePanel({
       {collectOpen ? (
         <CollectDuesModal
           member={member}
+          members={members}
           formatCurrency={formatCurrency}
           onClose={() => setCollectOpen(false)}
           onConfirm={handleConfirmCollect}
@@ -1551,7 +1647,7 @@ export default function MemberProfilePanel({
                 return;
               }
               if (familyEdit.source) {
-                updateMember({
+                const nextPerson = applyRegularidadForm({
                   ...familyEdit.source,
                   name,
                   documentNumber: form.documentNumber || '',
@@ -1563,14 +1659,15 @@ export default function MemberProfilePanel({
                   photo: form.photo || '',
                   relationship: form.relationship || familyEdit.source.relationship,
                   updatedAt: new Date().toISOString(),
-                });
+                }, form);
+                updateMember(nextPerson);
               } else {
                 const host = familyGroup.titular && memberNumberOf(familyGroup.titular) === memberNumberOf(member)
                   ? member
                   : (familyGroup.titular || member);
                 const nextAdherents = (host.adherents || []).map((row) => (
                   String(row.id) === String(familyEdit.adherentId) || String(row.memberId) === String(familyEdit.adherentId)
-                    ? {
+                    ? applyRegularidadForm({
                       ...row,
                       name,
                       relationship: form.relationship,
@@ -1581,7 +1678,7 @@ export default function MemberProfilePanel({
                       tier: form.tier,
                       disciplines: form.disciplines || [],
                       photo: form.photo,
-                    }
+                    }, form)
                     : row
                 ));
                 updateMember({ ...host, adherents: nextAdherents, updatedAt: new Date().toISOString() });
@@ -1691,6 +1788,29 @@ export default function MemberProfilePanel({
                   <option key={t.id} value={t.id}>{t.name}</option>
                 ))}
               </select>
+            </div>
+            <div className="mp-edit-field" style={{ gridColumn: '1 / -1' }}>
+              <span className="form-label">Certificado de regularidad {String(todayISODateAR()).slice(0, 4)}</span>
+              <label className="mp-family-cert">
+                <input
+                  type="checkbox"
+                  checked={Boolean(familyEdit.form.regularidadStart)}
+                  onChange={(ev) => setFamilyEdit((curr) => curr
+                    ? { ...curr, form: { ...curr.form, regularidadStart: ev.target.checked } }
+                    : curr)}
+                />
+                Inicio de año
+              </label>
+              <label className="mp-family-cert">
+                <input
+                  type="checkbox"
+                  checked={Boolean(familyEdit.form.regularidadEnd)}
+                  onChange={(ev) => setFamilyEdit((curr) => curr
+                    ? { ...curr, form: { ...curr.form, regularidadEnd: ev.target.checked } }
+                    : curr)}
+                />
+                Fin de año
+              </label>
             </div>
             <div className="mp-edit-field" style={{ gridColumn: '1 / -1' }}>
               <span className="form-label">Disciplinas</span>

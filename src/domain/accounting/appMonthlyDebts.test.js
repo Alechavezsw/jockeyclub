@@ -40,13 +40,15 @@ describe('appMonthlyDebts', () => {
     const row = appMonthlyDebtForMember(
       familiar({
         tier: 'socio_familiar_amet',
+        nextDueDate: '2026-10-18',
         outstandingBalance: 68250,
       }),
-      { today: TODAY },
+      { today: '2026-10-19' },
     );
     expect(row.months[0].capital).toBe(68250);
     expect(row.months[0].interest).toBe(0);
     expect(row.totalDebt).toBe(68250);
+    expect(row.dueDay).toBe(18);
   });
 
   it('reparte el ciclo impago con recargo y el saldo previo mes a mes sin recargo', () => {

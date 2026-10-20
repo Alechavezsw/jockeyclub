@@ -5,6 +5,7 @@ import {
   diffAutomaticDues,
   duesAmountForHousehold,
   duesAmountForMember,
+  duesChargeBreakdown,
   duesPayableAmount,
   duesPayableForMember,
   getOverdueMembers,
@@ -23,6 +24,10 @@ import {
   formatMonthsBehind,
   unpaidSocialDuesAmount,
   canChargeSocialDues,
+  isAmetDuesMember,
+  duesDueDayForMember,
+  duesOnJoin,
+  isMemberBillingActive,
 } from './dues';
 import { setRuntimeTierCatalog } from './tiers';
 import { setRuntimeDiscountRules } from '../accounting/discountApplication';
@@ -119,6 +124,31 @@ describe('dues classification', () => {
     expect(pinDuesDueDate('2026-10-25')).toBe('2026-10-10');
   });
 
+  it('AMET vence el 18, sin recargo del 10 %', () => {
+    const amet = {
+      memberId: 'amet-1',
+      name: 'AMET',
+      tier: 'socio_familiar_amet',
+      cuotaCategories: ['SOCIO FAMILIAR (AMET)'],
+      outstandingBalance: 0,
+      status: 'active',
+      nextDueDate: '2026-10-10',
+      adherents: [],
+    };
+    expect(isAmetDuesMember(amet)).toBe(true);
+    expect(duesDueDayForMember(amet)).toBe(18);
+    expect(pinDuesDueDate('2026-10-10', amet)).toBe('2026-10-18');
+    expect(nextDuesDueDate('2026-10-12', amet)).toBe('2026-10-18');
+    expect(nextDuesDueDate('2026-10-18', amet)).toBe('2026-10-18');
+    expect(nextDuesDueDate('2026-10-19', amet)).toBe('2026-11-18');
+    expect(duesPayableAmount(68250, { paidOn: '2026-10-19', dueOn: '2026-10-18', tier: 'socio_familiar_amet' })).toBe(68250);
+    expect(getOverdueMembers([amet], new Date('2026-10-11T12:00:00'))).toHaveLength(0);
+    expect(getDueTodayMembers([{ ...amet, nextDueDate: '2026-10-18' }], new Date('2026-10-18T12:00:00'))).toHaveLength(1);
+    const charged = applyAutomaticDues([{ ...amet, nextDueDate: '2026-10-18' }], new Date('2026-10-19T12:00:00'))[0];
+    expect(charged.outstandingBalance).toBe(68250);
+    expect(afterCollectDues(charged, new Date('2026-10-19T12:00:00')).nextDueDate).toBe('2026-11-18');
+  });
+
   it('normaliza vencimientos guardados al día 10', () => {
     const updated = applyAutomaticDues([
       { memberId: 'n', name: 'N', tier: 'socio_individual', outstandingBalance: 0, status: 'active', nextDueDate: '2026-10-12' },
@@ -131,13 +161,17 @@ describe('dues classification', () => {
     ).map((m) => m.memberId)).toEqual(['n']);
   });
 
-  it('suma cuota del titular y adherentes al alta', () => {
+  it('al alta el grupo tiene el valor único del titular, no suma cuota social de adherentes', () => {
     const october = new Date('2026-10-20T12:00:00');
     expect(duesAmountForHousehold('socio_individual', [], october)).toBe(40000);
     expect(duesAmountForHousehold('socio_individual', [
       { tier: 'socio_individual' },
       { tier: 'grupo_familiar_familiar' },
-    ], october)).toBe(40000 + 40000);
+    ], october)).toBe(40000);
+    expect(duesAmountForHousehold('socio_familiar', [
+      { tier: 'grupo_familiar_familiar' },
+      { tier: 'abono_tenis' },
+    ], october)).toBe(80000);
   });
 
   it('calcula cuota del socio con adherentes activos', () => {
@@ -150,12 +184,30 @@ describe('dues classification', () => {
       ],
     }, october)).toBe(0);
     expect(duesAmountForMember({
-      tier: 'socio_individual',
+      tier: 'socio_familiar',
       adherents: [
-        { tier: 'socio_individual', status: 'active' },
-        { tier: 'socio_individual', status: 'inactive' },
+        { tier: 'socio_familiar', status: 'active' },
+        { tier: 'grupo_familiar_familiar', status: 'active' },
+        { tier: 'abono_tenis', status: 'active', cuotaCategories: ['ABONO TENIS'] },
       ],
     }, october)).toBe(80000);
+    expect(duesAmountForMember({
+      memberId: '3501',
+      familyPrincipalNumber: '10009',
+      tier: 'socio_familiar',
+      cuotaCategories: ['SOCIO FAMILIAR', 'ABONO TENIS'],
+    }, october)).toBe(0);
+    expect(duesChargeBreakdown({
+      tier: 'socio_familiar',
+      adherents: [],
+    }, { paidOn: '2026-10-11', dueOn: '2026-10-10', on: '2026-10-11' })).toEqual({
+      quota: 70000,
+      surcharge: 7000,
+      total: 77000,
+      capital: 70000,
+      payable: 77000,
+      waivedSurcharge: 0,
+    });
   });
 
   it('excluye suspended y pending de mora y cuota automática', () => {
@@ -238,6 +290,12 @@ describe('dues classification', () => {
     }], new Date('2026-10-20T12:00:00'))).toHaveLength(0);
     expect(canChargeSocialDues({ status: 'active', tier: 'socio_vitalicio' })).toBe(false);
     expect(canChargeSocialDues({ status: 'active', tier: 'socio_individual' })).toBe(true);
+    expect(canChargeSocialDues({
+      status: 'active',
+      tier: 'socio_familiar',
+      memberId: '3501',
+      familyPrincipalNumber: '10009',
+    })).toBe(false);
     expect(duesAmountForMember({
       tier: 'socio_vitalicio',
       outstandingBalance: 32000,
@@ -386,6 +444,41 @@ describe('duesDueMoment', () => {
     expect(moment.phase).toBe('after');
     expect(moment.daysSince).toBe(17);
     expect(moment.dueLabel).toBe('10 de septiembre');
+  });
+});
+
+describe('duesOnJoin', () => {
+  it('alta a mitad de mes cobra el mes entero y vence el siguiente', () => {
+    const alta = duesOnJoin({
+      memberId: '1',
+      status: 'active',
+      tier: 'socio_individual',
+      cuotaCategories: ['SOCIO INDIVIDUAL'],
+    }, '2026-10-15');
+    expect(alta.outstandingBalance).toBe(40000);
+    expect(alta.nextDueDate).toBe('2026-11-10');
+  });
+
+  it('alta antes del 10 vence ese mes', () => {
+    const alta = duesOnJoin({
+      memberId: '1',
+      status: 'active',
+      tier: 'socio_individual',
+      cuotaCategories: ['SOCIO INDIVIDUAL'],
+    }, '2026-10-05');
+    expect(alta.outstandingBalance).toBe(40000);
+    expect(alta.nextDueDate).toBe('2026-10-10');
+  });
+
+  it('deja de facturar el día de la baja programada', () => {
+    const member = {
+      memberId: '1',
+      status: 'active',
+      bajaFecha: '2026-11-01',
+      tier: 'socio_individual',
+    };
+    expect(isMemberBillingActive(member, new Date('2026-10-20T12:00:00'))).toBe(true);
+    expect(isMemberBillingActive(member, new Date('2026-11-01T12:00:00'))).toBe(false);
   });
 });
 

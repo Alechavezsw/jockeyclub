@@ -61,7 +61,30 @@ describe('liquidateFeePeriod', () => {
     ]);
     expect(result.period.amount).toBe(110000);
     expect(result.period.generatedAt).toBe('2026-11-15');
+    const zeroLine = result.period.pack.concepts.find((row) => Number(row.amount) === 0);
+    expect(zeroLine).toBeTruthy();
+    expect(zeroLine.holders).toBeGreaterThan(0);
     expect(feePeriodNeedsClosure(result.period)).toBe(true);
+  });
+
+  it('el abono de tenis del adherente se liquida en el titular', () => {
+    const result = liquidateFeePeriod(
+      ACCESSIN_FEE_PERIODS,
+      'fp-2026-11',
+      [
+        { memberId: '10', status: 'active', tier: 'socio_familiar', cuotaCategories: ['SOCIO FAMILIAR'] },
+        {
+          memberId: '12',
+          status: 'active',
+          tier: 'grupo_familiar_familiar',
+          familyPrincipalNumber: '10',
+          cuotaCategories: ['GRUPO FAMILIAR (Familiar)', 'ABONO TENIS'],
+        },
+      ],
+      new Date('2026-11-02T15:00:00.000Z'),
+    );
+    expect(result.memberUpdates).toEqual([{ memberId: '10', addAmount: 80000 }]);
+    expect(result.period.amount).toBe(80000);
   });
 
   it('noviembre con pack editado igual cobra a los titulares', () => {

@@ -9,8 +9,14 @@ const corsHeaders = {
 const AR_TZ = "America/Argentina/San_Juan";
 const PORTAL_ACCOUNT = "https://www.jockeyclubsj.com.ar/cuenta";
 const DEFAULT_FROM = "Jockey Club San Juan <socios@jockeyclubsj.com.ar>";
+const AMET_DUE_DAY = 18;
 const MORA_CONSEQUENCES = [
   "A partir del día 11, socio familiar y socio individual pagan un recargo del 10 %.",
+  "En mora no se ingresa al club hasta regularizar la cuota.",
+  "Tampoco se puede pagar pileta hasta estar al día.",
+];
+const AMET_MORA_CONSEQUENCES = [
+  "La cuota AMET vence el día 18. El 2,5 % es la tarifa, no un recargo de mora.",
   "En mora no se ingresa al club hasta regularizar la cuota.",
   "Tampoco se puede pagar pileta hasta estar al día.",
 ];
@@ -80,12 +86,14 @@ function longDate(iso: string) {
   return `${d} de ${months[m - 1]} de ${y}`;
 }
 
-function noticeCopy(name: string, dueOn: string, stage: string) {
+function noticeCopy(name: string, dueOn: string, stage: string, amet = false) {
   const who = name || "socio";
   const when = longDate(dueOn);
-  const consequences = MORA_CONSEQUENCES.join(" ");
+  const consequences = (amet ? AMET_MORA_CONSEQUENCES : MORA_CONSEQUENCES).join(" ");
   let subject = "Hoy vence tu cuota";
-  let lead = `Hoy, ${when}, vence la cuota social del Jockey Club San Juan. Si abonás hoy no lleva recargo.`;
+  let lead = amet
+    ? `Hoy, ${when}, vence la cuota AMET del Jockey Club San Juan.`
+    : `Hoy, ${when}, vence la cuota social del Jockey Club San Juan. Si abonás hoy no lleva recargo.`;
   if (stage === "upcoming") {
     subject = `Tu cuota vence el ${when}`;
     lead = `Faltan 5 días: el ${when} vence la cuota social del Jockey Club San Juan.`;
@@ -221,7 +229,8 @@ async function prepareNotice(
     rowId = inserted.data.id;
   }
 
-  const copy = noticeCopy(member.full_name || "", dueOn, stage);
+  const amet = Number(dueOn.slice(8, 10)) === AMET_DUE_DAY;
+  const copy = noticeCopy(member.full_name || "", dueOn, stage, amet);
   const messageId = await ensureMemberMessage(admin, member, copy, dueOn, stage, existing?.message_id);
   if (messageId && messageId !== existing?.message_id) {
     await admin.from("dues_notice_sends").update({ message_id: messageId }).eq("id", rowId);
@@ -321,44 +330,56 @@ Deno.serve(async (req) => {
 
     const today = arISODate();
     const clock = await loadDuesClock(admin);
-    const dueOn = cycleDueOn(today, clock.dueDay);
-    const stages = stagesForDay(today, clock.dueDay, clock.advanceDays);
-    if (!stages.length) return json(200, { ok: true, sent: 0, already: 0, failed: 0, skipped: "fuera de fecha" });
+    const clocks = [{ dueDay: clock.dueDay, advanceDays: clock.advanceDays }];
+    if (clock.dueDay !== AMET_DUE_DAY) {
+      clocks.push({ dueDay: AMET_DUE_DAY, advanceDays: clock.advanceDays });
+    }
+    const cycles = clocks.map((row) => ({
+      dueOn: cycleDueOn(today, row.dueDay),
+      stages: stagesForDay(today, row.dueDay, row.advanceDays),
+    })).filter((row) => row.stages.length);
+    if (!cycles.length) return json(200, { ok: true, sent: 0, already: 0, failed: 0, skipped: "fuera de fecha" });
 
     const from = Deno.env.get("RESEND_FROM") || DEFAULT_FROM;
     const counts = { sent: 0, already: 0, failed: 0, messaged: 0 };
     const pageSize = profileId ? 1 : 100;
     const maxPages = profileId ? 1 : 6;
+    const dueOns: string[] = [];
+    const allStages: string[] = [];
 
-    for (const stage of stages) {
-      for (let page = 0; page < maxPages; page += 1) {
-        const { data, error } = await admin.rpc("members_pending_due_notice", {
-          due_on: dueOn,
-          stage,
-          lim: pageSize,
-          profile_filter: profileId,
-        });
-        if (error) return json(500, { error: error.message });
-        const members = (data || []) as MemberRow[];
-        if (!members.length) break;
+    for (const cycle of cycles) {
+      dueOns.push(cycle.dueOn);
+      for (const stage of cycle.stages) {
+        allStages.push(stage);
+        for (let page = 0; page < maxPages; page += 1) {
+          const { data, error } = await admin.rpc("members_pending_due_notice", {
+            due_on: cycle.dueOn,
+            stage,
+            lim: pageSize,
+            profile_filter: profileId,
+          });
+          if (error) return json(500, { error: error.message });
+          const members = (data || []) as MemberRow[];
+          if (!members.length) break;
 
-        const ready: Prepared[] = [];
-        for (const member of members) {
-          const result = await prepareNotice(admin, member, dueOn, stage);
-          if (result.status === "already") counts.already += 1;
-          else if (result.status === "ready") {
-            if (result.messaged) counts.messaged += 1;
-            if (result.prepared) ready.push(result.prepared);
+          const ready: Prepared[] = [];
+          for (const member of members) {
+            const result = await prepareNotice(admin, member, cycle.dueOn, stage);
+            if (result.status === "already") counts.already += 1;
+            else if (result.status === "ready") {
+              if (result.messaged) counts.messaged += 1;
+              if (result.prepared) ready.push(result.prepared);
+            }
           }
+          const batch = await sendEmailBatch(ready, apiKey, from, admin);
+          counts.sent += batch.sent;
+          counts.failed += batch.failed;
+          if (members.length < pageSize) break;
         }
-        const batch = await sendEmailBatch(ready, apiKey, from, admin);
-        counts.sent += batch.sent;
-        counts.failed += batch.failed;
-        if (members.length < pageSize) break;
       }
     }
 
-    return json(200, { ok: true, dueOn, stages, ...counts });
+    return json(200, { ok: true, dueOn: dueOns[0], dueOns, stages: allStages, ...counts });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Error interno";
     return json(500, { error: message });

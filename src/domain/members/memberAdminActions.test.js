@@ -7,6 +7,7 @@ import {
   memberAppAccess,
   memberHasSocietasApp,
   splitMemberName,
+  bajaEffectiveOn,
 } from './memberAdminActions.js';
 
 describe('memberAdminActions', () => {
@@ -28,6 +29,12 @@ describe('memberAdminActions', () => {
     expect(meta.bajaDetail).toBe('Nota de prueba');
     expect(meta.lifecycleHistory).toHaveLength(1);
     expect(meta.lastLifecycle.actorName).toBe('Admin');
+    expect(meta.bajaFecha).toMatch(/^\d{4}-\d{2}-01$/);
+  });
+
+  it('la baja rige el 1.º del mes siguiente si se presenta después', () => {
+    expect(bajaEffectiveOn('2026-10-20')).toBe('2026-11-01');
+    expect(bajaEffectiveOn('2026-11-01')).toBe('2026-11-01');
   });
 
   it('splitMemberName y collectMemberMeta', () => {

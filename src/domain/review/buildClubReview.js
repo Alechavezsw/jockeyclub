@@ -13,6 +13,8 @@ import {
 } from '../members/households';
 import { uniqueBajas } from '../members/membershipMoves';
 import { memberHasPortalAccess } from '../members/memberAdminActions';
+import { familyChildStanding } from '../members/familyStanding';
+import { shouldOfferVitalicio } from '../members/membership';
 import { latestMemberPaymentDate } from '../accounting/currentAccountBalances';
 import { MAILBOX } from '../messaging/messages';
 import { getMedicalStatus, listDayAccesses } from '../pool/poolAccess';
@@ -722,7 +724,7 @@ export function buildClubReview({
     title: noBirth.length === 1
       ? '1 familiar activo sin fecha de nacimiento'
       : `${noBirth.length} familiares activos sin fecha de nacimiento`,
-    detail: 'Sin esa fecha no se puede saber si ya cumplió 26.',
+    detail: 'Sin esa fecha no se puede saber si ya cumplió 19 o 26.',
     why: 'El número de socios queda a ciegas en ese grupo.',
     tab: 'members',
     samples: take(noBirth, memberSample),
@@ -743,6 +745,39 @@ export function buildClubReview({
     why: 'Cambian el número de socios.',
     tab: 'members',
     samples: take(tooOld, memberSample),
+  });
+
+  const leaveYoung = live.filter((member) => {
+    if (!isFamilyDependent(member)) return false;
+    const standing = familyChildStanding(member, todayIso);
+    return standing.kind === 'leave' && standing.reason === 'regularidad';
+  });
+  leaveYoung.forEach(stain);
+  row(items, {
+    id: 'age-19-regularidad',
+    tier: 'conteo',
+    count: leaveYoung.length,
+    title: leaveYoung.length === 1
+      ? '1 hijo de 19 a 25 sin certificado de regularidad'
+      : `${leaveYoung.length} hijos de 19 a 25 sin certificado de regularidad`,
+    detail: 'Salen del grupo familiar salvo que presenten regularidad al inicio y al fin de año.',
+    why: 'El grupo no puede seguir cargándolos como integrantes.',
+    tab: 'members',
+    samples: take(leaveYoung, memberSample),
+  });
+
+  const vitalicioReady = live.filter((member) => shouldOfferVitalicio(member, todayIso));
+  row(items, {
+    id: 'vitalicio-ready',
+    tier: 'ficha',
+    count: vitalicioReady.length,
+    title: vitalicioReady.length === 1
+      ? '1 socio para pasar a vitalicio'
+      : `${vitalicioReady.length} socios para pasar a vitalicio`,
+    detail: 'Cumplieron 25 años en el club y todavía no son vitalicio, fundador ni comisión.',
+    why: 'Hay que avisar y cambiar la categoría.',
+    tab: 'members',
+    samples: take(vitalicioReady, memberSample),
   });
 
   const orphanGroups = groups.filter((group) => {

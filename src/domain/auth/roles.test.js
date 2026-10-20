@@ -7,6 +7,8 @@ import {
   canPostJournal,
   canTakeAttendance,
   canLiquidateDues,
+  canWaiveDuesSurcharge,
+  canVoidDuesPayment,
   canManageProfiles,
   canManageTeachers,
   isSuperAdmin,
@@ -61,6 +63,17 @@ describe('allowedAdminTabs', () => {
     expect(canLiquidateDues('admin')).toBe(false);
     expect(canLiquidateDues('admin_employee')).toBe(false);
     expect(canLiquidateDues('gate_operator')).toBe(false);
+  });
+
+  it('tesorería, contador y superadmin pueden perdonar el recargo', () => {
+    expect(canWaiveDuesSurcharge({ roles: [{ roleKey: 'tesorero' }] })).toBe(true);
+    expect(canWaiveDuesSurcharge('accountant')).toBe(true);
+    expect(canWaiveDuesSurcharge('superadmin')).toBe(true);
+    expect(canWaiveDuesSurcharge('cashier')).toBe(false);
+    expect(canWaiveDuesSurcharge('admin')).toBe(false);
+    expect(canVoidDuesPayment('cashier')).toBe(false);
+    expect(canVoidDuesPayment('admin_employee')).toBe(false);
+    expect(canVoidDuesPayment('superadmin')).toBe(true);
   });
 
   it('saldos lo ven caja y administración', () => {

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  billingAccountMember,
   isFamilyDependent,
   isTitularMember,
+  memberMayOperateAccount,
   buildPadronHouseholdStats,
   attachHouseholdToMembers,
   resolveFamilyForDisplay,
@@ -54,6 +56,9 @@ describe('households', () => {
     expect(isTitularMember(titular)).toBe(true);
     expect(isFamilyDependent(hijo)).toBe(true);
     expect(isTitularMember(individual)).toBe(true);
+    expect(memberMayOperateAccount(hijo)).toBe(false);
+    expect(billingAccountMember(hijo, [titular, hijo])).toEqual(titular);
+    expect(billingAccountMember(titular, [titular, hijo])).toEqual(titular);
   });
 
   it('resume padrón por hogares', () => {

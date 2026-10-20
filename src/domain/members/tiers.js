@@ -38,8 +38,25 @@ export const DUES_TARIFF_FROM = '2026-10-01';
 export const DUES_LATE_RATE = 0.1;
 /** Lila aplica el 10 % solo a estas dos categorías, desde el día 11. */
 export const DUES_LATE_TIER_IDS = new Set(['socio_familiar', 'socio_individual']);
+/** Cuota social del titular: un valor por grupo, no se suma por adherente. */
+export const DUES_SOCIAL_QUOTA_TIER_IDS = new Set([
+  'socio_familiar',
+  'socio_familiar_amet',
+  'socio_individual',
+  'socio_individual_amet',
+]);
+/** Conceptos que un adherente sí puede llevar a la cuenta del titular. */
+export const DUES_ADD_ON_TIER_IDS = new Set(['abono_tenis']);
 /** La cuota AMET es la base menos 2,5 %. Ese 2,5 % va en la línea de interés. */
 export const DUES_AMET_RATE = 0.025;
+
+export function isSocialQuotaTierId(id) {
+  return DUES_SOCIAL_QUOTA_TIER_IDS.has(String(id || '').trim().toLowerCase());
+}
+
+export function isAddOnDuesTierId(id) {
+  return DUES_ADD_ON_TIER_IDS.has(String(id || '').trim().toLowerCase());
+}
 
 const SEP_FAMILIAR = 60000;
 const SEP_INDIVIDUAL = 36000;

@@ -451,6 +451,76 @@ async function afterApprovedPayment(admin: Admin, intentId: string) {
   }
 }
 
+async function notifyDebitFailed(
+  admin: Admin,
+  sub: { member_id?: string | null; member_number?: string | null; payer_email?: string | null },
+  { status, amount }: { status: string; amount: number },
+) {
+  const memberId = String(sub.member_id || "");
+  let email = mpReceiptDeliverableEmail(sub.payer_email);
+  let name = "socio";
+  let memberNumber = String(sub.member_number || "");
+
+  if (memberId) {
+    const { data: member } = await admin
+      .from("members")
+      .select("id, member_number, full_name, email, meta")
+      .eq("id", memberId)
+      .maybeSingle();
+    if (member) {
+      name = String(member.full_name || name);
+      memberNumber = String(member.member_number || memberNumber);
+      email = mpReceiptDeliverableEmail(member.email) || email;
+      const meta = { ...((member.meta || {}) as Record<string, unknown>) };
+      meta.lastDebitFailedAt = new Date().toISOString();
+      meta.lastDebitStatus = status;
+      await admin.from("members").update({ meta }).eq("id", member.id);
+    }
+  }
+
+  const money = amount ? mpReceiptMoney(amount) : "";
+  const subject = "No pasó el débito de tu cuota";
+  const text = [
+    `Hola ${name},`,
+    "",
+    "No pasó el débito automático de tu cuota.",
+    money ? `Importe: ${money}` : "",
+    memberNumber ? `Socio Nº ${memberNumber}` : "",
+    "",
+    "Entrá a Mi cuenta para regularizarlo:",
+    PORTAL_ACCOUNT,
+  ].filter(Boolean).join("\n");
+
+  const recipient = memberNumber.replace(/[^a-zA-Z0-9._-]/g, "");
+  if (recipient) {
+    await admin.from("messages").insert({
+      sender_name: "Secretaría del Jockey Club",
+      sender_key: "ops",
+      recipient_key: recipient,
+      subject,
+      body: text,
+      is_read: false,
+      meta: { kind: "dues_debit_failed", status },
+    });
+  }
+
+  const apiKey = Deno.env.get("RESEND_API_KEY") || "";
+  const from = Deno.env.get("RESEND_FROM") || DEFAULT_FROM;
+  if (email && apiKey) {
+    await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": `mp-debit-failed/${memberId || memberNumber}/${arISODate()}`,
+      },
+      body: JSON.stringify({ from, to: [email], subject, text }),
+    });
+  }
+
+  return { emailed: Boolean(email && apiKey), memberNumber };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS" || req.method === "GET" || req.method === "HEAD") {
     return json(200, { ok: true });
@@ -572,6 +642,13 @@ Deno.serve(async (req) => {
         p_paid_amount: amount || sub.amount,
       });
       if (error) return json(500, { error: error.message });
+      if (!/approv|authoriz/i.test(status || "")) {
+        const notice = await notifyDebitFailed(admin, sub, {
+          status: status || "rejected",
+          amount: amount || Number(sub.amount) || 0,
+        });
+        return json(200, { ok: true, kind: "subscription_charge_failed", status, notice });
+      }
       const receipt = await afterApprovedPayment(admin, charge.id);
       return json(200, { ok: true, kind: "subscription_charge", receipt });
     }

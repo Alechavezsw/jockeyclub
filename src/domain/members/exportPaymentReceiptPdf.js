@@ -88,17 +88,28 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
     y += 6;
   });
 
-  autoTable(doc, {
-    startY: y + 4,
-    head: [['FECHA', 'ENTRADA', 'MONTO', 'ABONADO']],
-    body: [[
+  const quota = Number(payment.quota);
+  const surcharge = Number(payment.surcharge);
+  const hasSplit = Number.isFinite(quota) && quota > 0;
+  const bodyRows = hasSplit
+    ? [
+      [formatShortDateAr(payment.date), 'Cuota social', formatCurrency(quota), formatCurrency(quota)],
+      ...(Number.isFinite(surcharge) && surcharge > 0
+        ? [['', 'Interés', formatCurrency(surcharge), formatCurrency(surcharge)]]
+        : []),
+    ]
+    : [[
       formatShortDateAr(payment.date),
       payment.concept || 'Cuota social',
       formatCurrency(payment.amount),
       formatCurrency(payment.amount),
-    ]],
+    ]];
+
+  autoTable(doc, {
+    startY: y + 4,
+    head: [['FECHA', 'ENTRADA', 'MONTO', 'ABONADO']],
+    body: bodyRows,
     foot: [
-      ['', '', 'EXCEDENTE', formatCurrency(0)],
       ['', '', 'TOTAL PAGO', formatCurrency(payment.amount)],
     ],
     styles: { fontSize: 9, cellPadding: 2.4 },

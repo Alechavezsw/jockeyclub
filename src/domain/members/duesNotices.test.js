@@ -5,6 +5,7 @@ import {
   duesNoticeCopy,
   duesNoticeKind,
   duesNoticeStagesForDay,
+  duesNoticeStagesForMember,
   shouldSendDuesNotice,
 } from './duesNotices';
 
@@ -40,6 +41,24 @@ describe('duesNotices', () => {
     expect(mora.lead).toMatch(/venció/i);
     expect(mora.greeting).toMatch(/Alejandro/);
     expect(mora.accountUrl).toBe('https://www.jockeyclubsj.com.ar/cuenta');
+  });
+
+  it('AMET avisa el 13, vence el 18 y mora el 19, sin recargo del 10 %', () => {
+    expect(duesNoticeCalendar(18)).toEqual({
+      dueDay: 18,
+      advanceDays: 5,
+      upcomingDay: 13,
+      moraDay: 19,
+    });
+    const amet = { status: 'active', tier: 'socio_familiar_amet', cuotaCategories: ['SOCIO FAMILIAR (AMET)'] };
+    expect(duesNoticeStagesForMember(amet, '2026-10-13')).toEqual(['upcoming']);
+    expect(duesNoticeStagesForMember(amet, '2026-10-18')).toEqual(['due']);
+    expect(duesNoticeStagesForMember(amet, '2026-10-19')).toEqual(['mora']);
+    expect(duesNoticeStagesForMember(amet, '2026-10-11')).toEqual([]);
+    const copy = duesNoticeCopy({ name: 'Paula', dueOn: '2026-10-18', stage: 'due', amet: true });
+    expect(copy.lead).toMatch(/AMET/i);
+    expect(copy.consequences).not.toMatch(/día 11/);
+    expect(copy.consequences).toMatch(/18/);
   });
 
   it('vitalicio, fundador y comisión no reciben aviso de cuota', () => {

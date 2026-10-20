@@ -9,7 +9,7 @@
 import { padMember } from './accountEntries';
 import {
   duesAmountForMember,
-  duesDueDay,
+  duesDueDayForMember,
   duesPayableForMember,
   firstUnpaidDuesDate,
   isMemberBillingActive,
@@ -57,26 +57,26 @@ function periodFromDueOn(dueOn) {
   };
 }
 
-function shiftDue(iso, monthDelta) {
+function shiftDue(iso, monthDelta, member) {
   const stamp = asIsoDate(iso);
   const d = new Date(`${stamp}T12:00:00`);
   if (Number.isNaN(d.getTime())) return stamp;
   d.setMonth(d.getMonth() + monthDelta);
-  return pinDuesDueDate(d) || stamp;
+  return pinDuesDueDate(d, member) || stamp;
 }
 
-function nextDueAfter(iso) {
-  return shiftDue(iso, 1);
+function nextDueAfter(iso, member) {
+  return shiftDue(iso, 1, member);
 }
 
-function prevDueBefore(iso) {
-  return shiftDue(iso, -1);
+function prevDueBefore(iso, member) {
+  return shiftDue(iso, -1, member);
 }
 
-function latestOccurredDue(todayIso) {
-  const pinned = pinDuesDueDate(todayIso);
+function latestOccurredDue(todayIso, member) {
+  const pinned = pinDuesDueDate(todayIso, member);
   if (pinned && pinned <= todayIso) return pinned;
-  return prevDueBefore(todayIso);
+  return prevDueBefore(todayIso, member);
 }
 
 function monthCharge(member, dueOn, { today, applyLate }) {
@@ -124,7 +124,7 @@ function standingLabel(member, { todayIso, monthsBehind }) {
   const balance = Number(member?.outstandingBalance) || 0;
   if (monthsBehind <= 0 && balance <= 0) return 'Al día';
   if (monthsBehind >= 2) return 'En mora';
-  const stages = duesNoticeStagesForDay(todayIso, duesDueDay());
+  const stages = duesNoticeStagesForDay(todayIso, duesDueDayForMember(member));
   if (monthsBehind === 1 && stages.includes('mora')) return 'En mora';
   if (monthsBehind === 1 && stages.includes('due')) return 'Vencida';
   if (balance > 0) return 'Con saldo';
@@ -137,7 +137,7 @@ function syntheticUnpaidAmount(member, firstUnpaid, monthsBehind, today) {
   const n = Math.min(Math.max(monthsBehind, 0), MAX_MONTHS);
   for (let i = 0; i < n; i += 1) {
     total += duesPayableForMember(member, { paidOn: today, dueOn, on: dueOn });
-    dueOn = nextDueAfter(dueOn);
+    dueOn = nextDueAfter(dueOn, member);
   }
   return Math.round(total);
 }
@@ -172,20 +172,20 @@ function allocateMonths(member, { remaining, firstUnpaid, lastPaymentDate, today
     const taken = takeMonth(current, member, dueOn, leftover, { today, applyLate: true });
     leftover = taken.leftover;
     if (taken.status === 'zero') break;
-    dueOn = nextDueAfter(dueOn);
+    dueOn = nextDueAfter(dueOn, member);
   }
 
-  const lastPaidDue = pinDuesDueDate(lastPaymentDate);
+  const lastPaidDue = pinDuesDueDate(lastPaymentDate, member);
   let olderDue = lastPaidDue
-    ? prevDueBefore(lastPaidDue)
-    : prevDueBefore(current[0]?.dueOn || latestOccurredDue(todayIso));
+    ? prevDueBefore(lastPaidDue, member)
+    : prevDueBefore(current[0]?.dueOn || latestOccurredDue(todayIso, member), member);
 
   for (let i = 0; i < MAX_MONTHS && leftover > EPS; i += 1) {
     if (!olderDue || current.length + older.length >= MAX_MONTHS) break;
     const taken = takeMonth(older, member, olderDue, leftover, { today, applyLate: false });
     leftover = taken.leftover;
     if (taken.status === 'zero') break;
-    olderDue = prevDueBefore(olderDue);
+    olderDue = prevDueBefore(olderDue, member);
   }
 
   const months = [...older.reverse(), ...current];
@@ -212,6 +212,7 @@ export function appMonthlyDebtForMember(member, { today = new Date(), entries = 
     lastPaymentDate: member.lastPaymentDate,
     nextDueDate: member.nextDueDate,
     today,
+    member,
   });
 
   if (persisted <= EPS) {
@@ -222,6 +223,7 @@ export function appMonthlyDebtForMember(member, { today = new Date(), entries = 
     lastPaymentDate: member.lastPaymentDate,
     nextDueDate: member.nextDueDate,
     today,
+    member,
   });
 
   let remaining = persisted;
@@ -243,7 +245,7 @@ export function appMonthlyDebtForMember(member, { today = new Date(), entries = 
   const totalDebt = Math.round((capital + interest + unallocated) * 100) / 100;
   if (totalDebt <= EPS) return null;
 
-  const cal = duesNoticeCalendar(duesDueDay());
+  const cal = duesNoticeCalendar(duesDueDayForMember(member));
 
   return {
     memberNumber,

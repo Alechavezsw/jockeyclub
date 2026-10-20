@@ -19,6 +19,13 @@ export const MERCADO_PAGO = {
   journalAccount: 'Banco Nación',
 };
 
+export const AMET_CASH_ACCOUNT = {
+  id: 'amet',
+  name: 'AMET',
+  accountName: 'AMET',
+  journalAccount: 'AMET',
+};
+
 export const CASH_JOURNAL_ACCOUNT = 'Caja General';
 
 /** Payload de respaldo (alias) si el checkout todavía no está habilitado. */

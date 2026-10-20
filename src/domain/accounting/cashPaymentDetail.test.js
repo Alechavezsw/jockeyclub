@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCashPaymentDetail, cashPaymentShareTargets, currentMonthFeeCollected, liveMonthFeeCollected } from './cashPaymentDetail';
+import { buildCashPaymentDetail, cashPaymentShareTargets, currentMonthFeeCollected, liveMonthFeeCollected, splitMonthDuesCollection } from './cashPaymentDetail';
 
 const macro = {
   id: 'acm-603050',
@@ -184,5 +184,30 @@ describe('recaudado en vivo, como ingresos de expensas', () => {
         { accessinId: 1, date: '2026-10-01', amount: 70000, memberNumber: '10567', movementType: 'income' },
       ],
     })).toBe(70000);
+  });
+});
+
+describe('liquidado / recaudado de tesorería', () => {
+  const members = [
+    { memberId: '10567', tier: 'socio_familiar', cuotaCategories: ['SOCIO FAMILIAR'] },
+    { memberId: '10676', tier: 'socio_familiar', cuotaCategories: ['SOCIO FAMILIAR'] },
+  ];
+
+  it('separa cuota del mes, atrasadas, recargos y reservas, y deja afuera portería', () => {
+    expect(splitMonthDuesCollection({
+      monthKey: '2026-10',
+      members,
+      movements: [
+        { accessinId: 1, date: '2026-10-15', amount: 77000, memberNumber: '10567', movementType: 'income' },
+        { accessinId: 2, date: '2026-10-01', amount: 66000, memberNumber: '10676', movementType: 'income' },
+        { accessinId: 3, date: '2026-10-02', amount: 22000, typeLabel: 'RENDICION PORTERIA', movementType: 'income' },
+        { accessinId: 4, date: '2026-10-03', amount: 150000, typeLabel: 'Reserva salón', movementType: 'income' },
+      ],
+    })).toEqual({
+      cuotaMes: 70000,
+      atrasadas: 60000,
+      recargos: 13000,
+      reservas: 150000,
+    });
   });
 });

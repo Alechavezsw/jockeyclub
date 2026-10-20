@@ -238,7 +238,7 @@ export default function DuesControlTab({
   const handleConfirmCollect = async (payload) => {
     if (!collectMember) return;
     try {
-      const result = recordDuesCollection(collectMember, payload);
+      const result = recordDuesCollection(collectMember, { ...payload, members });
       await persistDuesCollection(result, {
         setMembers,
         addJournalEntry,
@@ -328,7 +328,8 @@ export default function DuesControlTab({
         <div>
           <h2 className="serif-font">Control de Cuotas</h2>
           <p>
-            Cuota social viva sobre el padrón: el 10 vence sin recargo, desde el 11 está en mora.
+            Cuota social viva sobre el padrón: el 10 vence sin recargo, desde el 11 está en mora
+            (familiar e individual, recargo 10 %). AMET vence el 18; el 2,5 % es tarifa, no mora.
             El saldo de cuota del padrón entra acá. Un alquiler queda afuera si el mes ya está pago. Cobrar usa el recaudo de caja.
           </p>
         </div>
@@ -534,6 +535,7 @@ export default function DuesControlTab({
       {collectMember ? (
         <CollectDuesModal
           member={collectMember}
+          members={members}
           formatCurrency={formatCurrency}
           onClose={() => setCollectMember(null)}
           onConfirm={handleConfirmCollect}

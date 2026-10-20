@@ -134,6 +134,18 @@ describe('validateMemberBooking', () => {
     expect(result.error).toMatch(/vigente/);
   });
 
+  it('un adherente no reserva: lo hace el titular', () => {
+    const result = validateMemberBooking({
+      facility: anhelo,
+      member: { memberId: '3501', familyPrincipalNumber: '10009', tier: 'grupo_familiar_familiar' },
+      date: '2026-10-11',
+      time: '11:00',
+      now,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/titular/i);
+  });
+
   it('un turno rechazado no ocupa el horario', () => {
     const result = validateMemberBooking({
       facility: verde,

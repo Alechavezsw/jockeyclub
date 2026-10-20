@@ -1,4 +1,4 @@
-/** Clasificación de cuotas sociales: en mora (después del 10) vs próximas a vencer. */
+/** Clasificación de cuotas sociales: en mora (después del vencimiento) vs próximas a vencer. */
 
 import {
   DUES_LATE_RATE,
@@ -6,17 +6,23 @@ import {
   DUES_TARIFF_FROM,
   getTierDisplayName,
   getTierMonthlyDues,
+  isAddOnDuesTierId,
+  isSocialQuotaTierId,
   MONTHLY_DUES_FROM_OCTOBER_2026,
   MONTHLY_DUES_THROUGH_SEPTEMBER_2026,
   parseCuotaCategories,
   slugifyTierId,
 } from './tiers';
 import { discountOnAmount, resolveDiscountRules } from '../accounting/discountApplication';
+import { isFamilyDependent, isTitularMember } from './households';
+import { familyDependentShouldLeave } from './familyStanding';
 
 const DAY_MS = 86400000;
 
-/** Día de vencimiento de todas las cuotas sociales. */
+/** Día de vencimiento de la cuota social (familiar e individual). */
 export const DUES_DUE_DAY = 10;
+/** AMET vence el 18. El 2,5 % es tarifa, no recargo de mora. */
+export const DUES_AMET_DUE_DAY = 18;
 
 let runtimeDueDay = null;
 
@@ -27,6 +33,25 @@ export function setRuntimeDueDay(day) {
 
 export function duesDueDay() {
   return runtimeDueDay ?? DUES_DUE_DAY;
+}
+
+function billedTierIds(member) {
+  const fromCategories = parseCuotaCategories(member?.cuotaCategories).map((name) => slugifyTierId(name));
+  if (fromCategories.length) return [...new Set(fromCategories)];
+  const tier = String(member?.tier || '').trim().toLowerCase();
+  return tier ? [tier] : [];
+}
+
+/** SOCIO FAMILIAR (AMET) y SOCIO INDIVIDUAL (AMET). */
+export function isAmetDuesMember(member) {
+  const ids = billedTierIds(member);
+  const pool = ids.length ? ids : [String(member?.tier || '').trim().toLowerCase()].filter(Boolean);
+  return pool.some((id) => isSocialQuotaTierId(id) && id.includes('amet'));
+}
+
+export function duesDueDayForMember(member) {
+  if (isAmetDuesMember(member)) return DUES_AMET_DUE_DAY;
+  return duesDueDay();
 }
 
 const DUE_MONTHS = [
@@ -81,8 +106,8 @@ function startOfDay(date) {
   return d;
 }
 
-function duesDateOnTenth(year, monthIndex) {
-  return new Date(year, monthIndex, duesDueDay(), 12, 0, 0, 0);
+function duesDateOnDueDay(year, monthIndex, day = duesDueDay()) {
+  return new Date(year, monthIndex, day, 12, 0, 0, 0);
 }
 
 function asDueAnchor(value) {
@@ -90,54 +115,63 @@ function asDueAnchor(value) {
   return parseDate(value) || startOfDay(new Date());
 }
 
-/** Fija cualquier fecha al día 10 de ese mes. */
-export function pinDuesDueDate(value) {
+/**
+ * Fija la fecha al día de vencimiento del socio.
+ * Sin ficha, el 18 queda AMET; cualquier otro día va al 10.
+ */
+export function pinDuesDueDate(value, member) {
   if (!value && !(value instanceof Date)) return null;
   const d = value instanceof Date ? startOfDay(value) : parseDate(value);
   if (!d) return null;
-  return toISODate(duesDateOnTenth(d.getFullYear(), d.getMonth()));
+  const day = member
+    ? duesDueDayForMember(member)
+    : (d.getDate() === DUES_AMET_DUE_DAY ? DUES_AMET_DUE_DAY : duesDueDay());
+  return toISODate(duesDateOnDueDay(d.getFullYear(), d.getMonth(), day));
 }
 
-function parseDueDate(value) {
-  const pinned = pinDuesDueDate(value);
+function parseDueDate(value, member) {
+  const pinned = pinDuesDueDate(value, member);
   return pinned ? parseDate(pinned) : null;
 }
 
 /**
- * Próximo vencimiento: el 10 de este mes, o el 10 del siguiente si ya pasó.
+ * Próximo vencimiento: el día de cuota de este mes, o el del siguiente si ya pasó.
  */
-export function nextDuesDueDate(from = new Date()) {
+export function nextDuesDueDate(from = new Date(), member) {
   const d = asDueAnchor(from);
-  if (d.getDate() <= duesDueDay()) {
-    return toISODate(duesDateOnTenth(d.getFullYear(), d.getMonth()));
+  const day = duesDueDayForMember(member);
+  if (d.getDate() <= day) {
+    return toISODate(duesDateOnDueDay(d.getFullYear(), d.getMonth(), day));
   }
-  return toISODate(duesDateOnTenth(d.getFullYear(), d.getMonth() + 1));
+  return toISODate(duesDateOnDueDay(d.getFullYear(), d.getMonth() + 1, day));
 }
 
 /**
- * Un pago cubre el mes en que se hizo. El próximo vencimiento es el 10 del mes siguiente.
- * Último pago 13/08 → cubre agosto → vence 10/09. El 21/09 ya hay 1 mes atrasado.
+ * Un pago cubre el mes en que se hizo. El próximo vencimiento es el día de cuota del mes siguiente.
+ * Último pago 13/08 → cubre agosto → vence 10/09 (o 18/09 si es AMET).
  */
-export function firstUnpaidDuesDate({ lastPaymentDate, nextDueDate, today = new Date() } = {}) {
+export function firstUnpaidDuesDate({ lastPaymentDate, nextDueDate, today = new Date(), member } = {}) {
+  const day = duesDueDayForMember(member);
   const paid = parseDate(lastPaymentDate);
   if (paid) {
-    return toISODate(duesDateOnTenth(paid.getFullYear(), paid.getMonth() + 1));
+    return toISODate(duesDateOnDueDay(paid.getFullYear(), paid.getMonth() + 1, day));
   }
-  const pinned = pinDuesDueDate(nextDueDate);
+  const pinned = pinDuesDueDate(nextDueDate, member);
   if (pinned) return pinned;
-  return nextDuesDueDate(today);
+  return nextDuesDueDate(today, member);
 }
 
-/** Cuántos vencimientos del día 10 quedaron sin pagar desde el último cobro. */
-export function monthsBehindOnDues({ lastPaymentDate, nextDueDate, today = new Date() } = {}) {
-  const firstUnpaid = parseDate(firstUnpaidDuesDate({ lastPaymentDate, nextDueDate, today }));
+/** Cuántos vencimientos quedaron sin pagar desde el último cobro. */
+export function monthsBehindOnDues({ lastPaymentDate, nextDueDate, today = new Date(), member } = {}) {
+  const day = duesDueDayForMember(member);
+  const firstUnpaid = parseDate(firstUnpaidDuesDate({ lastPaymentDate, nextDueDate, today, member }));
   if (!firstUnpaid) return 0;
   const todayStart = startOfDay(today);
   let months = 0;
   let cursor = firstUnpaid;
   while (cursor < todayStart) {
     months += 1;
-    cursor = duesDateOnTenth(cursor.getFullYear(), cursor.getMonth() + 1);
+    cursor = duesDateOnDueDay(cursor.getFullYear(), cursor.getMonth() + 1, day);
     if (months > 120) break;
   }
   return months;
@@ -150,9 +184,15 @@ export function formatMonthsBehind(months) {
 }
 
 /** Solo activos operan cuota / mora. Baja, suspensión y pendiente no generan ni figuran. */
-export function isMemberBillingActive(member) {
+export function isMemberBillingActive(member, today = new Date()) {
   const s = String(member?.status || 'active').toLowerCase();
-  return s === 'active';
+  if (s !== 'active') return false;
+  const baja = String(member?.bajaFecha || member?.meta?.bajaFecha || '').slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(baja)) {
+    const iso = today instanceof Date ? toISODate(startOfDay(today)) : String(today).slice(0, 10);
+    if (baja <= iso) return false;
+  }
+  return true;
 }
 
 function isExemptDuesTierId(id) {
@@ -181,9 +221,9 @@ export function isDuesExemptMember(member) {
   return pool.every((id) => isExemptDuesTierId(id));
 }
 
-/** Activo y con categoría que liquida. Vitalicio / fundador / comisión nunca. */
+/** Activo y con categoría que liquida. Vitalicio / fundador / comisión nunca. El adherente no tiene cuenta. */
 export function canChargeSocialDues(member) {
-  return isMemberBillingActive(member) && !isDuesExemptMember(member);
+  return isMemberBillingActive(member) && isTitularMember(member) && !isDuesExemptMember(member);
 }
 
 function duesExemptHeadline(member) {
@@ -212,6 +252,15 @@ export function quotaHeadline(member) {
       kind: 'off',
       title: copy.title,
       hint: copy.hint,
+      billing: false,
+    };
+  }
+
+  if (isFamilyDependent(member)) {
+    return {
+      kind: 'off',
+      title: 'Grupo familiar',
+      hint: 'La cuenta la lleva el titular',
       billing: false,
     };
   }
@@ -276,13 +325,6 @@ export function duesAmountForTier(tier, catalog, on = new Date()) {
   return catalogAmount;
 }
 
-function billedTierIds(member) {
-  const fromCategories = parseCuotaCategories(member?.cuotaCategories).map((name) => slugifyTierId(name));
-  if (fromCategories.length) return [...new Set(fromCategories)];
-  const tier = String(member?.tier || '').trim().toLowerCase();
-  return tier ? [tier] : [];
-}
-
 function asDiscountPerson(row, titular) {
   if (!row) return titular;
   return {
@@ -305,6 +347,30 @@ function discountedTierAmount(member, id, on, rules) {
   }).net;
 }
 
+function amountForTierIds(person, ids, on, rules, { addOnsOnly = false } = {}) {
+  return (ids || []).reduce((sum, id) => {
+    if (addOnsOnly && !isAddOnDuesTierId(id)) return sum;
+    return sum + discountedTierAmount(person, id, on, rules);
+  }, 0);
+}
+
+function payableForTierIds(person, ids, { paidOn, dueOn, on, rules, addOnsOnly = false } = {}) {
+  return (ids || []).reduce((sum, id) => {
+    if (addOnsOnly && !isAddOnDuesTierId(id)) return sum;
+    return sum + duesPayableAmount(
+      discountedTierAmount(person, id, on, rules),
+      { paidOn, dueOn, tier: id },
+    );
+  }, 0);
+}
+
+function activeAdherentsOf(member, today = new Date()) {
+  return (member?.adherents || []).filter((row) => {
+    if (!row || row.status === 'inactive') return false;
+    return !familyDependentShouldLeave(row, today);
+  });
+}
+
 export function memberDuesTierIds(member) {
   return billedTierIds(member);
 }
@@ -317,10 +383,14 @@ export function memberMatchesDuesTier(member, tierId) {
   return billedTierIds(member).includes(want);
 }
 
-/** Días hasta el 10 de este mes. Después del 10 no hay “a vencer” hasta el aviso del mes siguiente. */
-export function upcomingDuesHorizonDays(today = new Date()) {
-  const moment = duesDueMoment(today);
-  if (moment.phase === 'before') return Math.max(0, moment.daysUntil);
+/** Días hasta el vencimiento de este mes. Después de ese día no hay “a vencer” hasta el mes siguiente. */
+export function upcomingDuesHorizonDays(today = new Date(), member) {
+  const d = today instanceof Date
+    ? today
+    : new Date(`${String(today).slice(0, 10)}T12:00:00`);
+  const dueDay = duesDueDayForMember(member);
+  const day = d.getDate();
+  if (day < dueDay) return dueDay - day;
   return 0;
 }
 
@@ -328,10 +398,12 @@ export function upcomingDuesHorizonDays(today = new Date()) {
 export function unpaidSocialDuesAmount(member, today = new Date()) {
   if (isDuesExemptMember(member)) return 0;
   const todayStart = startOfDay(today);
+  const day = duesDueDayForMember(member);
   const first = parseDate(firstUnpaidDuesDate({
     lastPaymentDate: member?.lastPaymentDate,
     nextDueDate: member?.nextDueDate,
     today: todayStart,
+    member,
   }));
   if (!first || first >= todayStart) return 0;
   let total = 0;
@@ -339,7 +411,7 @@ export function unpaidSocialDuesAmount(member, today = new Date()) {
   let months = 0;
   while (cursor < todayStart && months < 24) {
     total += duesPayableForMember(member, { paidOn: todayStart, dueOn: cursor, on: cursor });
-    cursor = duesDateOnTenth(cursor.getFullYear(), cursor.getMonth() + 1);
+    cursor = duesDateOnDueDay(cursor.getFullYear(), cursor.getMonth() + 1, day);
     months += 1;
   }
   return total;
@@ -354,13 +426,14 @@ function socialDuesAmountDue(member, todayStart) {
 }
 
 function isSocialDuesMora(member, todayStart) {
-  if (!isMemberBillingActive(member) || isDuesExemptMember(member)) return false;
-  const due = parseDueDate(member?.nextDueDate);
+  if (!isMemberBillingActive(member) || isDuesExemptMember(member) || isFamilyDependent(member)) return false;
+  const due = parseDueDate(member?.nextDueDate, member);
   if (due && due < todayStart) return true;
   if (monthsBehindOnDues({
     lastPaymentDate: member?.lastPaymentDate,
     nextDueDate: member?.nextDueDate,
     today: todayStart,
+    member,
   }) > 0) return true;
   const stored = Number(member?.outstandingBalance) || 0;
   if (stored <= 0) return false;
@@ -376,9 +449,9 @@ function isSocialDuesMora(member, todayStart) {
 }
 
 function isSocialDuesDueToday(member, todayStart) {
-  if (!isMemberBillingActive(member) || isDuesExemptMember(member)) return false;
+  if (!isMemberBillingActive(member) || isDuesExemptMember(member) || isFamilyDependent(member)) return false;
   if (isSocialDuesMora(member, todayStart)) return false;
-  const due = parseDueDate(member?.nextDueDate);
+  const due = parseDueDate(member?.nextDueDate, member);
   return Boolean(due && toISODate(due) === toISODate(todayStart));
 }
 
@@ -391,7 +464,7 @@ export function duesPayableAmount(base, { paidOn = new Date(), dueOn, tier } = {
   const amount = Math.round(Number(base) || 0);
   if (amount <= 0) return 0;
   const paid = asDueAnchor(paidOn);
-  const due = parseDueDate(dueOn) || duesDateOnTenth(paid.getFullYear(), paid.getMonth());
+  const due = parseDueDate(dueOn) || duesDateOnDueDay(paid.getFullYear(), paid.getMonth());
   if (paid <= due) return amount;
   const id = String(tier || '').trim().toLowerCase();
   if (id && !DUES_LATE_TIER_IDS.has(id)) return amount;
@@ -400,55 +473,73 @@ export function duesPayableAmount(base, { paidOn = new Date(), dueOn, tier } = {
 
 /** Suma cada categoría del socio y aplica el recargo solo donde corresponde. */
 export function duesPayableForMember(member, { paidOn = new Date(), dueOn, on, rules } = {}) {
-  if (isDuesExemptMember(member)) return 0;
+  if (isDuesExemptMember(member) || isFamilyDependent(member)) return 0;
   const when = on || dueOn || paidOn;
   const discountRules = resolveDiscountRules(rules);
-  const ids = billedTierIds(member);
-  const own = ids.reduce(
-    (sum, id) => sum + duesPayableAmount(
-      discountedTierAmount(member, id, when, discountRules),
-      { paidOn, dueOn, tier: id },
-    ),
-    0,
-  );
-  const family = (member?.adherents || []).filter((row) => row && row.status !== 'inactive');
-  const extra = family.reduce((sum, row) => {
-    const id = row?.tier || member?.tier;
+  const own = payableForTierIds(member, billedTierIds(member), {
+    paidOn, dueOn, on: when, rules: discountRules,
+  });
+  const extra = activeAdherentsOf(member).reduce((sum, row) => {
     const person = asDiscountPerson(row, member);
-    return sum + duesPayableAmount(
-      discountedTierAmount(person, id, when, discountRules),
-      { paidOn, dueOn, tier: id },
-    );
+    return sum + payableForTierIds(person, billedTierIds(person), {
+      paidOn, dueOn, on: when, rules: discountRules, addOnsOnly: true,
+    });
   }, 0);
   return own + extra;
 }
 
 /**
- * Cuota del grupo familiar al alta: titular + cada adherente según su categoría.
+ * Cuota del grupo al alta: valor único del titular, más abonos (tenis) de integrantes.
  */
 export function duesAmountForHousehold(titularTier, familyGroup = [], on = new Date()) {
   const titular = duesAmountForTier(titularTier, undefined, on);
-  const family = (familyGroup || []).reduce(
-    (sum, row) => sum + duesAmountForTier(row?.tier || titularTier, undefined, on),
-    0
-  );
-  return titular + family;
+  const addOns = (familyGroup || []).reduce((sum, row) => {
+    const ids = billedTierIds(row);
+    const pool = ids.length ? ids : [row?.tier];
+    return sum + pool.reduce((inner, id) => (
+      isAddOnDuesTierId(id) ? inner + duesAmountForTier(id, undefined, on) : inner
+    ), 0);
+  }, 0);
+  return titular + addOns;
 }
 
-/** Cuota vigente del socio: cada categoría, más adherentes activos. `on` es el mes que se cobra. */
+/** Cuota vigente: titular (estatuto + abonos propios) + tenis de adherentes. El grupo no suma cuota social. */
 export function duesAmountForMember(member, on = new Date(), options = {}) {
   if (isDuesExemptMember(member)) return 0;
+  if (isFamilyDependent(member)) return 0;
   const rules = resolveDiscountRules(options?.rules);
-  const own = billedTierIds(member).reduce(
-    (sum, id) => sum + discountedTierAmount(member, id, on, rules),
-    0,
-  );
-  const family = (member?.adherents || []).filter((a) => a && a.status !== 'inactive');
-  const extra = family.reduce((sum, row) => {
-    const id = row?.tier || member?.tier;
-    return sum + discountedTierAmount(asDiscountPerson(row, member), id, on, rules);
+  const own = amountForTierIds(member, billedTierIds(member), on, rules);
+  const extra = activeAdherentsOf(member).reduce((sum, row) => {
+    const person = asDiscountPerson(row, member);
+    return sum + amountForTierIds(person, billedTierIds(person), on, rules, { addOnsOnly: true });
   }, 0);
   return own + extra;
+}
+
+/** Cuota, recargo del 10 % (si corre) y total a cobrar. */
+export function duesChargeBreakdown(member, { paidOn = new Date(), dueOn, on, amount, waiveSurcharge = false } = {}) {
+  const when = on || dueOn || paidOn;
+  const capital = Math.round(duesAmountForMember(member, when) || 0);
+  const payable = Math.round(duesPayableForMember(member, { paidOn, dueOn, on: when }) || 0);
+  const stored = Number(amount != null ? amount : member?.outstandingBalance);
+  const hasStored = Number.isFinite(stored) && stored > 0;
+  const rounded = hasStored ? Math.round(stored) : 0;
+  const total = hasStored
+    ? (rounded + 0.01 >= capital ? Math.max(rounded, payable) : rounded)
+    : payable;
+  const surcharge = Math.max(0, total - capital);
+  const quota = Math.max(0, total - surcharge);
+  if (waiveSurcharge && surcharge > 0) {
+    return {
+      quota,
+      surcharge: 0,
+      total: quota,
+      capital,
+      payable: quota,
+      waivedSurcharge: surcharge,
+    };
+  }
+  return { quota, surcharge, total, capital, payable, waivedSurcharge: 0 };
 }
 
 /**
@@ -465,7 +556,7 @@ export function toWhatsAppPhone(phone) {
 }
 
 /**
- * Socios en mora de cuota social: vencimiento ya pasado (después del 10)
+ * Socios en mora de cuota social: vencimiento ya pasado
  * o meses impagos. Un saldo de salón/alquiler no alcanza para entrar acá.
  */
 export function getOverdueMembers(members, today = new Date()) {
@@ -474,12 +565,13 @@ export function getOverdueMembers(members, today = new Date()) {
   return members
     .filter((m) => isSocialDuesMora(m, todayStart))
     .map((m) => {
-      const due = parseDueDate(m.nextDueDate);
+      const due = parseDueDate(m.nextDueDate, m);
       const since = parseDate(m.overdueSince);
       const firstUnpaid = parseDate(firstUnpaidDuesDate({
         lastPaymentDate: m.lastPaymentDate,
         nextDueDate: m.nextDueDate,
         today: todayStart,
+        member: m,
       }));
       const anchor = (firstUnpaid && firstUnpaid < todayStart)
         ? firstUnpaid
@@ -493,7 +585,7 @@ export function getOverdueMembers(members, today = new Date()) {
         ...m,
         duesStatus: 'mora',
         daysOverdue,
-        dueDate: pinDuesDueDate(m.nextDueDate) || pinDuesDueDate(firstUnpaid) || m.overdueSince || null,
+        dueDate: pinDuesDueDate(m.nextDueDate, m) || pinDuesDueDate(firstUnpaid, m) || m.overdueSince || null,
         amountDue,
       };
     })
@@ -501,13 +593,13 @@ export function getOverdueMembers(members, today = new Date()) {
     .sort((a, b) => (b.amountDue || 0) - (a.amountDue || 0));
 }
 
-/** El día 10: vence hoy, todavía sin recargo ni mora. */
+/** El día de vencimiento de cada socio: vence hoy, todavía sin recargo ni mora. */
 export function getDueTodayMembers(members, today = new Date()) {
   const todayStart = startOfDay(today);
   return members
     .filter((m) => isSocialDuesDueToday(m, todayStart))
     .map((m) => {
-      const due = parseDueDate(m.nextDueDate) || todayStart;
+      const due = parseDueDate(m.nextDueDate, m) || todayStart;
       const dueIso = toISODate(due);
       return {
         ...m,
@@ -523,19 +615,19 @@ export function getDueTodayMembers(members, today = new Date()) {
 }
 
 /**
- * Socios al día cuya cuota vence dentro del horizonte (hasta el 10 de este mes).
+ * Socios al día cuya cuota vence dentro del horizonte de su categoría.
  */
 export function getUpcomingDuesMembers(members, { withinDays, today = new Date() } = {}) {
   const todayStart = startOfDay(today);
-  const horizonDays = withinDays == null ? upcomingDuesHorizonDays(todayStart) : withinDays;
-  const horizon = new Date(todayStart.getTime() + horizonDays * DAY_MS);
 
   return members
     .filter((m) => isMemberBillingActive(m) && !isDuesExemptMember(m))
     .filter((m) => !isSocialDuesMora(m, todayStart) && !isSocialDuesDueToday(m, todayStart))
     .map((m) => {
-      const due = parseDueDate(m.nextDueDate);
+      const due = parseDueDate(m.nextDueDate, m);
       if (!due) return null;
+      const horizonDays = withinDays == null ? upcomingDuesHorizonDays(todayStart, m) : withinDays;
+      const horizon = new Date(todayStart.getTime() + horizonDays * DAY_MS);
       if (due <= todayStart || due > horizon) return null;
       const daysUntil = Math.round((due - todayStart) / DAY_MS);
       const dueIso = toISODate(due);
@@ -582,15 +674,17 @@ export function applyAutomaticDues(members, today = new Date()) {
   const todayStart = startOfDay(today);
 
   return members.map((m) => {
-    const pinnedDue = pinDuesDueDate(m.nextDueDate);
+    const pinnedDue = pinDuesDueDate(m.nextDueDate, m);
     const normalized = pinnedDue && pinnedDue !== m.nextDueDate
       ? { ...m, nextDueDate: pinnedDue }
       : m;
 
-    if (!isMemberBillingActive(normalized) || isDuesExemptMember(normalized)) return normalized;
+    if (!isMemberBillingActive(normalized) || isDuesExemptMember(normalized) || isFamilyDependent(normalized)) {
+      return normalized;
+    }
     if ((Number(normalized.outstandingBalance) || 0) > 0) return normalized;
 
-    const due = parseDueDate(normalized.nextDueDate);
+    const due = parseDueDate(normalized.nextDueDate, normalized);
     if (!due || due >= todayStart) return normalized;
 
     const tariffFrom = parseDate(DUES_TARIFF_FROM);
@@ -624,16 +718,35 @@ export function diffAutomaticDues(before = [], after = []) {
   });
 }
 
-/** Tras cobrar, deja al día y programa el próximo vencimiento (siempre el día 10). */
+/**
+ * Alta a mitad de mes: paga el mes entero.
+ * Si entra antes del vencimiento, vence ese mes; si entra después, cobra el mes
+ * en curso sin recargo y el próximo vencimiento es el del mes siguiente.
+ */
+export function duesOnJoin(member, joinDate = new Date()) {
+  const join = asDueAnchor(joinDate);
+  const fromHousehold = Array.isArray(member?.familyGroup) && member.familyGroup.length
+    ? duesAmountForHousehold(member.tier, member.familyGroup, join)
+    : duesAmountForMember(member, join);
+  const outstandingBalance = isDuesExemptMember(member) ? 0 : Math.round(fromHousehold || 0);
+  const dueDay = duesDueDayForMember(member);
+  const nextDueDate = join.getDate() <= dueDay
+    ? pinDuesDueDate(join, member)
+    : nextDuesDueDate(join, member);
+  return { outstandingBalance, nextDueDate };
+}
+
+/** Tras cobrar, deja al día y programa el próximo vencimiento (10 o 18 si es AMET). */
 export function afterCollectDues(member, today = new Date()) {
+  const day = duesDueDayForMember(member);
   const base = parseDate(member.nextDueDate) || startOfDay(today);
-  let next = duesDateOnTenth(base.getFullYear(), base.getMonth());
+  let next = duesDateOnDueDay(base.getFullYear(), base.getMonth(), day);
   if (next <= base) {
-    next = duesDateOnTenth(base.getFullYear(), base.getMonth() + 1);
+    next = duesDateOnDueDay(base.getFullYear(), base.getMonth() + 1, day);
   }
   const todayStart = startOfDay(today);
   while (next <= todayStart) {
-    next = duesDateOnTenth(next.getFullYear(), next.getMonth() + 1);
+    next = duesDateOnDueDay(next.getFullYear(), next.getMonth() + 1, day);
   }
   return {
     ...member,

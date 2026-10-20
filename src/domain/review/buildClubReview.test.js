@@ -69,6 +69,27 @@ describe('buildClubReview', () => {
     expect(review.items.find((item) => item.id === 'age-26').samples[0].href).toBe('/panel/members/101?editar=1');
   });
 
+  it('marca al hijo de 19 a 25 sin certificado de regularidad', () => {
+    const review = buildClubReview({
+      today: '2026-10-20',
+      members: [
+        { memberId: '100', name: 'Titular', documentNumber: '20111000', tier: 'socio_familiar', status: 'active' },
+        {
+          memberId: '102',
+          name: 'Hijo Estudiante',
+          documentNumber: '45111002',
+          tier: 'grupo_familiar_familiar',
+          status: 'active',
+          birthDate: '2005-01-01',
+          familyPrincipalNumber: '100',
+        },
+      ],
+    });
+    const item = review.items.find((row) => row.id === 'age-19-regularidad');
+    expect(item.count).toBe(1);
+    expect(item.samples[0].label).toMatch(/Hijo Estudiante/);
+  });
+
   it('deja un enlace de edición en cada muestra de ficha, proveedor y concesión', () => {
     const review = buildClubReview({
       today: TODAY,

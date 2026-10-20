@@ -6,6 +6,7 @@ import {
   payMemberDues,
   persistDuesCollection,
   recordDuesCollection,
+  voidMemberDuesPayment,
 } from './memberPayments';
 
 describe('journal de cuota en la ficha', () => {
@@ -120,6 +121,80 @@ describe('payMemberDues', () => {
     expect(result.payment.receiptName).toBe('comprobante.pdf');
     expect(result.journalEntry.lines[0].account).toBe('Banco Nación');
     expect(result.journalEntry.description).toMatch(/Comp: comprobante.pdf/);
+  });
+
+  it('tesorería puede perdonar el recargo y cobrar solo la cuota', () => {
+    const member = {
+      memberId: '1004',
+      name: 'Paula',
+      tier: 'socio_familiar',
+      cuotaCategories: ['SOCIO FAMILIAR'],
+      outstandingBalance: 77000,
+      nextDueDate: '2026-10-10',
+      paymentHistory: [],
+    };
+    const result = recordDuesCollection(member, {
+      method: 'efectivo',
+      waiveSurcharge: true,
+      today: new Date('2026-10-20T12:00:00'),
+    });
+    expect(result.payment.quota).toBe(70000);
+    expect(result.payment.surcharge).toBe(0);
+    expect(result.payment.waivedSurcharge).toBe(7000);
+    expect(result.payment.amount).toBe(70000);
+    expect(result.member.outstandingBalance).toBe(0);
+  });
+
+  it('si cobra un adherente, baja el saldo del titular', () => {
+    const titular = {
+      memberId: '10009',
+      name: 'Titular',
+      tier: 'socio_familiar',
+      outstandingBalance: 70000,
+      paymentHistory: [],
+    };
+    const hijo = {
+      memberId: '3501',
+      name: 'Hijo',
+      familyPrincipalNumber: '10009',
+      tier: 'grupo_familiar_familiar',
+      outstandingBalance: 0,
+      paymentHistory: [],
+    };
+    const result = recordDuesCollection(hijo, {
+      method: 'efectivo',
+      members: [titular, hijo],
+      today: new Date('2026-10-20T12:00:00'),
+    });
+    expect(result.member.memberId).toBe('10009');
+    expect(result.member.outstandingBalance).toBe(0);
+    expect(result.payment.collectedFromMemberId).toBe('3501');
+    expect(result.payment.quota).toBe(70000);
+    expect(result.payment.amount).toBe(77000);
+  });
+
+  it('anula un cobro y deja el rastro', () => {
+    const member = {
+      memberId: '11017',
+      name: 'Socio',
+      outstandingBalance: 40000,
+      nextDueDate: '2026-10-10',
+      paymentHistory: [],
+    };
+    const charged = recordDuesCollection(member, {
+      method: 'efectivo',
+      today: new Date('2026-10-20T12:00:00'),
+    });
+    const voided = voidMemberDuesPayment(charged.member, charged.payment.id, {
+      voidedBy: 'Paula',
+      reason: 'Carga duplicada',
+      today: new Date('2026-10-20T15:00:00'),
+    });
+    expect(voided.payment.status).toBe('void');
+    expect(voided.payment.voidedBy).toBe('Paula');
+    expect(voided.member.outstandingBalance).toBe(40000);
+    expect(voided.member.paymentHistory[0].status).toBe('void');
+    expect(voided.journalEntry.description).toMatch(/Anulación/);
   });
 
   it('persistDuesCollection actualiza padrón, ledger y diario', async () => {

@@ -9,6 +9,7 @@ import { getFacilityLiveStatus } from '../domain/reservations/availability';
 import { useMemberDuesStanding } from '../hooks/useMemberDuesStanding';
 import { findTier } from '../domain/members/tiers';
 import { quotaHeadline } from '../domain/members/dues';
+import { memberMayOperateAccount } from '../domain/members/households';
 import {
   membershipCaption,
   prettyMembershipName,
@@ -120,6 +121,7 @@ export default function DashboardView({
     return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 }).format(amount);
   };
   const quota = quotaHeadline(profile);
+  const canOperateAccount = memberMayOperateAccount(profile);
   const duesValue = !membersCanViewCurrentAccounts
     ? 'En administración'
     : duesPending
@@ -672,7 +674,7 @@ export default function DashboardView({
               ? `${duesLateLabel ? `${duesLateLabel}. ` : ''}Cuota pendiente: ${formatCurrency(duesStanding.outstanding)}. Vence el 10 de cada mes.`
               : 'Hay un pendiente de cuota. Regularizalo en administración.'}
           </span>
-          {membersCanViewCurrentAccounts ? (
+          {membersCanViewCurrentAccounts && canOperateAccount ? (
           <button type="button" className="btn btn-primary btn-sm" onClick={() => setCurrentView('payments')}>
             Pagar ahora
           </button>
@@ -682,7 +684,7 @@ export default function DashboardView({
 
       {/* ===== QUICK ACTIONS ===== */}
       <div className="db-quick-bar">
-        <div className="db-quick-btn" onClick={() => setCurrentView('reservations')}>
+        <div className="db-quick-btn" onClick={() => canOperateAccount && setCurrentView('reservations')} style={canOperateAccount ? undefined : { opacity: 0.45, pointerEvents: 'none' }}>
           <div className="db-quick-btn-icon" style={{ background: 'rgba(var(--primary-gold-rgb),0.12)', color: 'var(--primary-gold)' }}>
             <Calendar size={22} />
           </div>
@@ -1002,9 +1004,11 @@ export default function DashboardView({
                 </div>
                 Mis Reservas
               </div>
+              {canOperateAccount ? (
               <button onClick={() => setCurrentView('reservations')} className="btn btn-primary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}>
                 + Nueva <ArrowRight size={12} />
               </button>
+              ) : null}
             </div>
 
             {upcomingBookings.length === 0 ? (
@@ -1014,9 +1018,13 @@ export default function DashboardView({
                   <p style={{ fontWeight: '600', marginBottom: '0.25rem' }}>Sin reservas programadas</p>
                   <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Reservá tus instalaciones favoritas</p>
                 </div>
+                {canOperateAccount ? (
                 <button onClick={() => setCurrentView('reservations')} className="btn btn-primary" style={{ marginTop: '0.25rem' }}>
                   Hacer una Reserva
                 </button>
+                ) : (
+                <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Las reservas las hace el titular.</p>
+                )}
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>

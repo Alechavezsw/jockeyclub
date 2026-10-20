@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MAILBOX } from '../messaging/messages';
-import { bookingPaymentNotice, duesBoletoMessage, duesPaymentNotice } from './duesPaymentNotice';
+import { bookingPaymentNotice, duesBoletoMessage, duesDebitFailedMessage, duesPaymentNotice, duesReceiptMessage } from './duesPaymentNotice';
 import { buildOnlineDuesBoleto } from './duesReceiptDelivery';
 import { paymentBoletoPdfFile } from './exportPaymentReceiptPdf';
 
@@ -74,6 +74,27 @@ describe('duesPaymentNotice', () => {
     expect(msg.subject).toBe('Comprobante de transferencia');
     expect(msg.content).toMatch(/recibo.jpg/);
     expect(msg.meta.attachment.path).toBe('uid/recibo.jpg');
+  });
+
+  it('el recibo dice cuota e interés y no el saldo que queda', () => {
+    const msg = duesReceiptMessage({
+      member: { name: 'Ana', memberId: '111' },
+      payment: { concept: 'cuota social', quota: 40000, surcharge: 4000, amount: 44000, date: '2026-10-20', receiptNumber: 'R-1' },
+    });
+    expect(msg.content).toMatch(/Cuota:/);
+    expect(msg.content).toMatch(/Interés:/);
+    expect(msg.content).toMatch(/Total:/);
+    expect(msg.content).not.toMatch(/saldo/i);
+  });
+
+  it('avisa al socio si no pasó el débito', () => {
+    const msg = duesDebitFailedMessage({
+      member: { name: 'Ana', memberId: '111' },
+      amount: 40000,
+    });
+    expect(msg.subject).toMatch(/débito/i);
+    expect(msg.content).toMatch(/jockeyclubsj\.com\.ar\/cuenta/);
+    expect(msg.meta.kind).toBe('dues_debit_failed');
   });
 
   it('la reserva avisa el salón y el horario', () => {

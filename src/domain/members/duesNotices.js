@@ -1,6 +1,6 @@
-/** Avisos reales de cuota: 5 días antes, el 10 (vence) y el 11 (mora). Mensaje interno + mail. */
+/** Avisos reales de cuota: 5 días antes, el día de vencimiento y el siguiente (mora). */
 
-import { canChargeSocialDues } from './dues';
+import { canChargeSocialDues, duesDueDayForMember } from './dues';
 import { portalAccountUrl } from './selfService';
 
 export const DUES_NOTICE_ACCOUNT_URL = portalAccountUrl();
@@ -16,6 +16,12 @@ export const DUES_NOTICE_ADVANCE_DAYS = 5;
 
 export const MORA_CONSEQUENCES = [
   'A partir del día 11, socio familiar y socio individual pagan un recargo del 10 %.',
+  'En mora no se ingresa al club hasta regularizar la cuota.',
+  'Tampoco se puede pagar pileta hasta estar al día.',
+];
+
+export const AMET_MORA_CONSEQUENCES = [
+  'La cuota AMET vence el día 18. El 2,5 % es la tarifa, no un recargo de mora.',
   'En mora no se ingresa al club hasta regularizar la cuota.',
   'Tampoco se puede pagar pileta hasta estar al día.',
 ];
@@ -54,6 +60,10 @@ export function duesNoticeStagesForDay(todayIso, dueDay = 10, advanceDays = DUES
   return stages;
 }
 
+export function duesNoticeStagesForMember(member, todayIso, advanceDays = DUES_NOTICE_ADVANCE_DAYS) {
+  return duesNoticeStagesForDay(todayIso, duesDueDayForMember(member), advanceDays);
+}
+
 export function duesNoticeKind(stage) {
   if (stage === 'upcoming') return 'dues_upcoming';
   if (stage === 'mora') return 'dues_mora';
@@ -71,9 +81,9 @@ export function longDueDate(iso) {
   return `${d} de ${MONTHS[m - 1]} de ${y}`;
 }
 
-export function duesNoticeCopy({ name, dueOn, stage }) {
+export function duesNoticeCopy({ name, dueOn, stage, amet = false }) {
   const when = longDueDate(dueOn);
-  const consequences = MORA_CONSEQUENCES.join(' ');
+  const consequences = (amet ? AMET_MORA_CONSEQUENCES : MORA_CONSEQUENCES).join(' ');
   const greeting = `Hola ${String(name || '').trim() || 'socio'},`;
   const accountUrl = DUES_NOTICE_ACCOUNT_URL;
   if (stage === 'upcoming') {
@@ -97,7 +107,9 @@ export function duesNoticeCopy({ name, dueOn, stage }) {
   return {
     greeting,
     subject: 'Hoy vence tu cuota',
-    lead: `Hoy, ${when}, vence la cuota social del Jockey Club San Juan. Si abonás hoy no lleva recargo.`,
+    lead: amet
+      ? `Hoy, ${when}, vence la cuota AMET del Jockey Club San Juan.`
+      : `Hoy, ${when}, vence la cuota social del Jockey Club San Juan. Si abonás hoy no lleva recargo.`,
     consequences,
     accountUrl,
   };

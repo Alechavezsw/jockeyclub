@@ -1,6 +1,7 @@
 /** Reglas de reserva tal como están configuradas en Lila para cada espacio. */
 
 import { findTier } from '../members/tiers.js';
+import { memberMayOperateAccount } from '../members/households.js';
 import { todayISODateAR } from '../../lib/arDate.js';
 import { hasReservationConflict } from './conflicts.js';
 
@@ -84,6 +85,9 @@ export function validateMemberBooking({
   now = new Date(),
 } = {}) {
   if (!facility) return { ok: false, error: 'Elegí un espacio.' };
+  if (member && !memberMayOperateAccount(member)) {
+    return { ok: false, error: 'Las reservas las hace el titular de la cuenta.' };
+  }
   const adminStatus = String(facility.status || 'disponible');
   if (adminStatus === 'suspendido' || adminStatus === 'no_disponible' || adminStatus === 'mantenimiento') {
     return { ok: false, error: 'Ese espacio no está disponible.' };

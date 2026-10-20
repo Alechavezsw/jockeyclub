@@ -5,7 +5,7 @@ import { REVIEW_TIERS, reviewItemsForAccess } from '../../domain/review/buildClu
 import { exportTableExcel } from '../../domain/reports/exportTableExcel';
 import { resolveFeePeriods } from '../../domain/accounting/feeBilling';
 import { liquidatedTotalForMonth } from '../../domain/accounting/feePeriodLiquidation';
-import { appFinanceSinceHandoff, collectionForCalendarMonth } from '../../domain/accounting/opsFinanceSnapshot';
+import { splitMonthDuesCollection } from '../../domain/accounting/cashPaymentDetail';
 import { cashMovementsSeed, cashSeed } from '../../domain/accounting/cashLedger';
 import { useSnapshotSeed } from '../../hooks/useSnapshots';
 import { buildJevBrief } from '../../domain/assistant/clubGuide';
@@ -275,25 +275,17 @@ export default function JevReviewTab({
     const periods = resolveFeePeriods(feePeriods);
     const liquidated = liquidatedTotalForMonth(periods, monthKey, { members, tierCatalog });
     const cashMoves = [...(cashCut.recent || []), ...(cashCut.all || [])];
-    const monthFlow = appFinanceSinceHandoff({
-      members,
-      journalEntries,
-      chartOfAccounts,
-      feePeriods,
-      since: `${monthKey}-01`,
-      today,
-    });
-    const calendar = collectionForCalendarMonth({
+    const split = splitMonthDuesCollection({
       monthKey,
-      monthFlow,
-      cashMovements: cashMoves,
+      members,
+      movements: cashMoves,
     });
     const [year, month] = monthKey.split('-').map(Number);
     const monthLabel = new Date(year, month - 1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
     return buildJevBrief({
       today,
       monthLabel,
-      collected: calendar.collected,
+      collected: split.cuotaMes,
       liquidated,
       counts,
       members,
@@ -311,7 +303,7 @@ export default function JevReviewTab({
       concessions,
     });
   }, [
-    feePeriods, members, tierCatalog, journalEntries, chartOfAccounts, cashCut, counts,
+    feePeriods, members, tierCatalog, cashCut, counts,
     reservations, entryLogs, poolAccesses, claims, messages, surveys, staffMembers,
     events, alerts, applications, portalRequests, concessions,
   ]);

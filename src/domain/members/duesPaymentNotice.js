@@ -88,13 +88,24 @@ export function duesBoletoMessage({ member, boleto, attachment }) {
   return msg;
 }
 
+function moneyLine(label, value) {
+  if (value == null || value === '') return '';
+  const n = Number(value);
+  if (!Number.isFinite(n)) return `${label}: ${value}`;
+  return `${label}: $ ${n.toLocaleString('es-AR')}`;
+}
+
 /** Recibo de cuota cobrada por administración, al buzón del socio. */
 export function duesReceiptMessage({ member, payment, attachment }) {
   const who = String(member?.name || 'Socio').trim();
-  const money = payment?.amount != null ? `Importe: $ ${Number(payment.amount).toLocaleString('es-AR')}` : '';
+  const quota = Number(payment?.quota);
+  const surcharge = Number(payment?.surcharge);
+  const total = payment?.amount != null ? payment.amount : (Number.isFinite(quota) ? quota + (Number.isFinite(surcharge) ? surcharge : 0) : null);
   const lines = [
     `Hola ${who}, registramos tu pago de ${payment?.concept || 'cuota social'}.`,
-    money,
+    Number.isFinite(quota) && quota > 0 ? moneyLine('Cuota', quota) : '',
+    Number.isFinite(surcharge) && surcharge > 0 ? moneyLine('Interés', surcharge) : '',
+    total != null ? moneyLine('Total', total) : '',
     payment?.date ? `Fecha: ${payment.date}` : '',
     payment?.receiptNumber || payment?.receipt ? `Comprobante: ${payment.receiptNumber || payment.receipt}` : '',
   ];
@@ -110,6 +121,27 @@ export function duesReceiptMessage({ member, payment, attachment }) {
     kind: 'dues_receipt',
     ...(attachment ? { attachment } : {}),
   };
+  return msg;
+}
+
+/** Aviso al socio cuando el débito de Mercado Pago no se acreditó. */
+export function duesDebitFailedMessage({ member, date, amount }) {
+  const who = String(member?.name || 'Socio').trim();
+  const money = amount != null ? moneyLine('Importe', amount) : '';
+  const lines = [
+    `Hola ${who}, no pasó el débito automático de tu cuota.`,
+    money,
+    date ? `Intento: ${date}` : '',
+    'Entrá a Mi cuenta para regularizarlo: https://www.jockeyclubsj.com.ar/cuenta',
+  ];
+  const msg = createMessage({
+    sender: 'Administración',
+    senderId: MAILBOX.OPERATIONS,
+    recipientId: member?.memberId,
+    subject: 'No pasó el débito de tu cuota',
+    content: lines.filter(Boolean).join('\n'),
+  });
+  msg.meta = { kind: 'dues_debit_failed' };
   return msg;
 }
 

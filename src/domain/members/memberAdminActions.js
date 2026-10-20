@@ -1,5 +1,30 @@
 /** Acciones administrativas sobre socios: motivos trazables. */
 
+/** Las bajas rigen el 1.º del mes. Si se presenta después, queda para el mes siguiente. */
+export function bajaEffectiveOn(presentedOn = new Date()) {
+  const d = presentedOn instanceof Date
+    ? presentedOn
+    : new Date(`${String(presentedOn).slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  const y = d.getFullYear();
+  const m = d.getMonth();
+  if (d.getDate() === 1) {
+    return `${y}-${String(m + 1).padStart(2, '0')}-01`;
+  }
+  const next = new Date(y, m + 1, 1);
+  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-01`;
+}
+
+export function isPendingBaja(member, today = new Date()) {
+  const fecha = String(member?.bajaFecha || member?.meta?.bajaFecha || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return false;
+  const iso = today instanceof Date
+    ? today.toISOString().slice(0, 10)
+    : String(today).slice(0, 10);
+  const status = String(member?.status || 'active').toLowerCase();
+  return status === 'active' && fecha > iso;
+}
+
 export const MEMBER_STATUS_REASONS = {
   suspend: [
     { id: 'mora', label: 'Mora / deuda de cuotas' },
@@ -71,9 +96,12 @@ export function buildLifecycleMeta(prevMeta = {}, {
   };
 
   if (action === 'delete') {
+    const presented = now.slice(0, 10);
+    const effective = bajaEffectiveOn(presented) || presented;
     next.bajaMotivo = entry.reason;
-    next.bajaFecha = now.slice(0, 10);
+    next.bajaFecha = effective;
     next.bajaDetail = entry.detail;
+    next.pendingBaja = effective > presented;
   }
   if (action === 'suspend') {
     next.suspendMotivo = entry.reason;
@@ -137,6 +165,7 @@ export function collectMemberMeta(member = {}) {
     'documents',
     'poolMedicalExpiresAt', 'poolMedicalFileName', 'poolMedicalUploadedAt',
     'poolMedicalStatus', 'poolMedicalNote',
+    'regularidadCertificates',
   ];
   for (const k of keys) {
     if (member[k] != null && member[k] !== '' && base[k] == null) base[k] = member[k];

@@ -6,8 +6,10 @@ import {
   CLUB_BANK_ACCOUNTS,
   journalAccountForPayment,
 } from '../../domain/members/clubBanks';
-import { duesAmountForMember, isDuesExemptMember } from '../../domain/members/dues';
-import { mpPayNowAmount } from '../../domain/payments/mercadoPago';
+import { duesChargeBreakdown, isDuesExemptMember } from '../../domain/members/dues';
+import { billingAccountMember } from '../../domain/members/households';
+import { canWaiveDuesSurcharge } from '../../domain/auth/roles';
+import { useAuth } from '../../context/AuthContext';
 
 const METHODS = [
   { id: 'efectivo', label: 'Efectivo', icon: Banknote, hint: 'Cobro en sede / caja' },
@@ -43,14 +45,28 @@ function CopyBtn({ value }) {
 /** Modal de cobro de cuota: efectivo, transferencia o Mercado Pago (QR). */
 export default function CollectDuesModal({
   member,
+  members = [],
   formatCurrency,
   onClose,
   onConfirm,
 }) {
-  const duesExempt = isDuesExemptMember(member);
-  const amount = duesExempt
-    ? 0
-    : mpPayNowAmount(member?.outstandingBalance, duesAmountForMember(member) || member?.amountDue);
+  const account = (() => {
+    try {
+      return billingAccountMember(member, members);
+    } catch {
+      return member;
+    }
+  })();
+  const { roles, role } = useAuth();
+  const canWaive = canWaiveDuesSurcharge({ roles, role });
+  const duesExempt = isDuesExemptMember(account);
+  const rawSplit = duesExempt ? { quota: 0, surcharge: 0, total: 0 } : duesChargeBreakdown(account);
+  const [waiveSurcharge, setWaiveSurcharge] = useState(false);
+  const split = duesExempt
+    ? rawSplit
+    : duesChargeBreakdown(account, { waiveSurcharge: canWaive && waiveSurcharge });
+  const amount = duesExempt ? 0 : split.total;
+  const routed = account?.memberId && member?.memberId && account.memberId !== member.memberId;
   const methods = duesExempt ? METHODS.filter((row) => row.id !== 'mercadopago') : METHODS;
   const [method, setMethod] = useState('efectivo');
   const [bankId, setBankId] = useState(CLUB_BANK_ACCOUNTS[0]?.id || '');
@@ -80,7 +96,7 @@ export default function CollectDuesModal({
 
   const handleConfirm = () => {
     setError('');
-    if (isDuesExemptMember(member)) {
+    if (isDuesExemptMember(account)) {
       setError('Esta categoría no abona cuota social.');
       return;
     }
@@ -98,6 +114,7 @@ export default function CollectDuesModal({
       journalAccount,
       receiptName: method === 'transferencia' ? receiptName : null,
       amount,
+      waiveSurcharge: canWaive && waiveSurcharge && rawSplit.surcharge > 0,
     });
     setSubmitting(false);
   };
@@ -125,8 +142,13 @@ export default function CollectDuesModal({
               Cobrar cuota
             </h4>
             <p style={{ margin: '0.3rem 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-              {member.name} · {formatCurrency(amount)}
+              {account.name} · {formatCurrency(amount)}
             </p>
+            {routed ? (
+              <p style={{ margin: '0.35rem 0 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                El pago de {member.name} entra en la cuenta del titular.
+              </p>
+            ) : null}
           </div>
           <button
             type="button"
@@ -138,6 +160,46 @@ export default function CollectDuesModal({
             <X size={14} aria-hidden="true" /> Cerrar
           </button>
         </div>
+
+        {amount > 0 ? (
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: rawSplit.surcharge > 0 ? 'repeat(3, minmax(0, 1fr))' : '1fr',
+            gap: '0.45rem',
+            marginBottom: '1rem',
+          }}>
+            <div style={{ padding: '0.55rem 0.65rem', borderRadius: 8, border: '1px solid var(--border-glass)' }}>
+              <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Cuota</div>
+              <div className="tabular-nums" style={{ fontWeight: 700 }}>{formatCurrency(split.quota)}</div>
+            </div>
+            {rawSplit.surcharge > 0 ? (
+              <div style={{ padding: '0.55rem 0.65rem', borderRadius: 8, border: '1px solid var(--border-glass)' }}>
+                <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Recargo</div>
+                <div className="tabular-nums" style={{ fontWeight: 700, textDecoration: split.surcharge > 0 ? 'none' : 'line-through' }}>
+                  {formatCurrency(rawSplit.surcharge)}
+                </div>
+              </div>
+            ) : null}
+            {rawSplit.surcharge > 0 ? (
+              <div style={{ padding: '0.55rem 0.65rem', borderRadius: 8, border: '1px solid var(--border-glass)' }}>
+                <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Total</div>
+                <div className="tabular-nums" style={{ fontWeight: 700, color: 'var(--text-gold)' }}>{formatCurrency(split.total)}</div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {canWaive && rawSplit.surcharge > 0 ? (
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, margin: '0 0 1rem', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+            <input
+              type="checkbox"
+              checked={waiveSurcharge}
+              onChange={(event) => setWaiveSurcharge(event.target.checked)}
+              style={{ marginTop: 2 }}
+            />
+            <span>Perdonar recargo. Tesorería cobra solo la cuota.</span>
+          </label>
+        ) : null}
 
         <p style={{ margin: '0 0 0.65rem', fontSize: '0.78rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-gold)' }}>
           Método de pago
@@ -258,14 +320,15 @@ export default function CollectDuesModal({
               kind="dues"
               mode="qr"
               amount={amount}
-              memberNumber={member.memberId}
-              concept={`Cuota social · ${member.name || 'socio'}`}
+              memberNumber={account.memberId}
+              concept={`Cuota social · ${account.name || 'socio'}`}
               disabled={duesExempt || amount <= 0}
               onApproved={() => {
                 onConfirm({
                   method: 'mercadopago',
                   alreadyApplied: true,
                   amount,
+                  waiveSurcharge: canWaive && waiveSurcharge && rawSplit.surcharge > 0,
                 });
               }}
             />
