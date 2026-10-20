@@ -14,19 +14,63 @@ beforeAll(async () => {
   ({ ACCESSIN_COBRANZAS, ACCESSIN_COBRANZAS_SNAPSHOT } = cobranzasSeed());
 });
 
+// Expected totals from Lila October cobranzas file
+const EXPECTED_TOTAL_PERCIBIDO = 60782873.34;
+const EXPECTED_BY_TYPE = {
+  Cuotas: 53974732.94,
+  Recargos: 589000.03,
+  Varios: 4590140.37,
+  Eventos: 1629000,
+};
+
 describe('cobranzas Accessin', () => {
-  it('carga el reporte real', () => {
-    expect(ACCESSIN_COBRANZAS_SNAPSHOT.asOf).toBe('2026-10-13');
-    expect(ACCESSIN_COBRANZAS.length).toBe(1740);
-    expect(ACCESSIN_COBRANZAS_SNAPSHOT.totalAmount).toBeCloseTo(83215757.39, 2);
+  it('carga el reporte real de Octubre 2026', () => {
+    expect(ACCESSIN_COBRANZAS_SNAPSHOT.asOf).toBe('2026-10-19');
+    expect(ACCESSIN_COBRANZAS.length).toBe(1122);
+    expect(ACCESSIN_COBRANZAS_SNAPSHOT.totalAmount).toBeCloseTo(EXPECTED_TOTAL_PERCIBIDO, 2);
   });
 
-  it('resume por tipo', () => {
+  it('resume por tipo coincide con archivo Lila', () => {
     const summary = cobranzasSummary();
-    expect(summary.byType.Cuotas).toBeGreaterThan(40_000_000);
+    expect(summary.byType.Cuotas).toBeCloseTo(EXPECTED_BY_TYPE.Cuotas, 2);
+    expect(summary.byType.Recargos).toBeCloseTo(EXPECTED_BY_TYPE.Recargos, 2);
+    expect(summary.byType.Varios).toBeCloseTo(EXPECTED_BY_TYPE.Varios, 2);
+    expect(summary.byType.Eventos).toBeCloseTo(EXPECTED_BY_TYPE.Eventos, 2);
     expect(summary.count).toBe(ACCESSIN_COBRANZAS.length);
     const typed = Object.values(summary.byType).reduce((sum, value) => sum + value, 0);
     expect(Math.round(typed * 100) / 100).toBeCloseTo(summary.totalAmount, 2);
+  });
+
+  it('desglose de líneas suma al total percibido', () => {
+    const summary = cobranzasSummary();
+    const breakdownSum = Math.round((
+      summary.cuotasDelMes +
+      summary.cuotasAtrasadas +
+      summary.cuotasAdelantadas +
+      summary.recargos +
+      summary.reservasEventos +
+      summary.varios +
+      summary.alquileresATerceros +
+      summary.porteriaEstacionamiento
+    ) * 100) / 100;
+
+    // CRITICAL: breakdown must sum to exactly the total
+    expect(breakdownSum).toBeCloseTo(summary.totalAmount, 2);
+    expect(summary.totalAmount).toBeCloseTo(EXPECTED_TOTAL_PERCIBIDO, 2);
+  });
+
+  it('cuotas se clasifican en del mes, atrasadas, adelantadas', () => {
+    const summary = cobranzasSummary();
+    const cuotasSum = summary.cuotasDelMes + summary.cuotasAtrasadas + summary.cuotasAdelantadas;
+    // cuotasSinClasificar may exist for edge cases
+    const allCuotas = cuotasSum + (summary.cuotasSinClasificar || 0);
+    expect(allCuotas).toBeCloseTo(EXPECTED_BY_TYPE.Cuotas, 2);
+  });
+
+  it('alquileres a terceros incluye no-socios', () => {
+    const summary = cobranzasSummary();
+    // From Lila: ~$2.19M for Alameda Padel, La Kelita, Colegio Fanzolato
+    expect(summary.alquileresATerceros).toBeGreaterThan(2_000_000);
   });
 
   it('filtra por tipo y texto', () => {

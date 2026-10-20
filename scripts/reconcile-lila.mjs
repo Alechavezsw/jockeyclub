@@ -417,6 +417,30 @@ async function main() {
       console.log(`    ─────────────────────────────────────────────`);
       console.log(`    TOTAL PERCIBIDO:             ${formatMoney(summary.totalImporteTotal).padStart(16)}`);
 
+      // ASSERTION: Breakdown lines must sum to total
+      const breakdownSum = Math.round((
+        summary.cuotasDelMes +
+        summary.cuotasAtrasadas +
+        summary.cuotasAdelantadas +
+        summary.recargos +
+        summary.reservasEventos +
+        summary.varios +
+        summary.alquileresATerceros +
+        summary.porteriaEstacionamiento
+      ) * 100) / 100;
+
+      console.log('');
+      console.log('  📊 VERIFICACIÓN DESGLOSE:');
+      console.log(`    Suma de líneas:          ${formatMoney(breakdownSum).padStart(16)}`);
+      console.log(`    Total percibido:         ${formatMoney(summary.totalImporteTotal).padStart(16)}`);
+      const breakdownMatch = centsMatch(breakdownSum, summary.totalImporteTotal);
+      if (breakdownMatch) {
+        console.log('    ✅ DESGLOSE SUMA CORRECTAMENTE');
+      } else {
+        console.log(`    ❌ DESGLOSE NO SUMA: diferencia ${formatMoney(breakdownSum - summary.totalImporteTotal)}`);
+        totalMismatches++;
+      }
+
       // Check exact total percibido against expected
       const totalMatch = centsMatch(summary.totalImporteTotal, EXPECTED_TOTAL_PERCIBIDO);
       console.log('');
