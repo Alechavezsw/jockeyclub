@@ -30,6 +30,7 @@ export function applyMemberProfileUpdate(member, patch = {}) {
   next.notifyDues = next.notifyDues !== false;
   next.notifyReservations = next.notifyReservations !== false;
   next.notifyEvents = next.notifyEvents !== false;
+  next.recordScope = 'full';
   next.updatedAt = new Date().toISOString();
   return next;
 }

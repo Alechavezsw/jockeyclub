@@ -95,14 +95,14 @@ export default function CurrentAccountCutNote({ members = [] }) {
             style={{ top: box.top, left: box.left, width: box.width }}
           >
             <p>
-              Estos datos salieron de Lila el {date} y quedaron en esta app.
-              A partir de ese corte, el padrón y los saldos se usan acá.
+              Corte de cuentas corrientes al {date}.
+              Desde entonces el padrón y los saldos se mueven acá.
               Hay {summary.members.toLocaleString('es-AR')} socios.
               Hoy, {summary.withBalance.toLocaleString('es-AR')} deben y el total es {pesos(summary.total)}.
             </p>
             {sameCut && omittedRows.length > 0 ? (
               <p>
-                El archivo de Lila sumaba {pesos(LILA_BALANCE_CUT.filePositiveTotal)}.
+                El archivo sumaba {pesos(LILA_BALANCE_CUT.filePositiveTotal)}.
                 La diferencia de {pesos(LILA_BALANCE_CUT.omittedTotal)} son los números {omitted}, que no vinieron en el padrón.
               </p>
             ) : null}

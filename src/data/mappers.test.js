@@ -48,6 +48,20 @@ describe('mappers', () => {
     expect(back.full_name).toBe('Alejandro Chávez');
   });
 
+  it('conserva la adhesión de Mercado Pago al guardar la ficha', () => {
+    const ui = memberFromRow({
+      member_number: '1001',
+      full_name: 'Socio Adherido',
+      tier: 'socio_familiar',
+      status: 'active',
+      outstanding_balance: 0,
+      joined_at: '2020-01-01',
+      meta: { mpAdhesion: 'authorized' },
+    }, []);
+    expect(ui.mpAdhesion).toBe('authorized');
+    expect(memberToRow(ui).meta.mpAdhesion).toBe('authorized');
+  });
+
   it('reescribe tiers inventados usando cuotaCategories', () => {
     const ui = memberFromRow({
       id: '11111111-1111-1111-1111-111111111112',

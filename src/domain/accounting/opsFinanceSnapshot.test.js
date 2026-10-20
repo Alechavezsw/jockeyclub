@@ -4,6 +4,7 @@ import {
   cashDeltaAfterDate,
   collectionForCalendarMonth,
   composeClubFinance,
+  duesStandingRate,
   financeFromMonthlySummary,
   financeFromSummary,
   lilaContabilidadFromSnapshots,
@@ -46,7 +47,17 @@ describe('buildOpsFinanceSnapshot', () => {
     expect(snap.debtors).toBe(1);
     expect(snap.collectedMonth).toBe(32000);
     expect(snap.collectionRate).toBe(50);
+    expect(snap.alDia).toBe(1);
+    expect(snap.activeMembers).toBe(2);
     expect(snap.recentIncomes).toHaveLength(1);
+  });
+
+  it('el anillo de cuota ignora vitalicios y no mezcla un corte ajeno', () => {
+    expect(duesStandingRate([
+      { status: 'active', tier: 'gold', outstandingBalance: 0 },
+      { status: 'active', tier: 'gold', outstandingBalance: 40000 },
+      { status: 'active', tier: 'vitalicio', outstandingBalance: 0 },
+    ])).toEqual({ billing: 2, alDia: 1, debtors: 1, rate: 50 });
   });
 
   it('separa ingresos de hoy del resto del mes', () => {
@@ -199,12 +210,12 @@ describe('financeFromMonthlySummary', () => {
     ], '2026-09-30')).toBe(65000);
   });
 
-  it('en el mes del corte usa ese recaudado', () => {
+  it('un corte del mes en curso no sustituye la recaudación propia', () => {
     expect(collectionForCalendarMonth({
       monthKey: '2026-10',
       money: { periodKey: '2026-10', recaudado: 15000, liquidado: 20000 },
       monthFlow: { collectedSince: 0, liquidatedSince: 0 },
-    })).toEqual({ collected: 15000, liquidated: 20000 });
+    })).toEqual({ collected: 0, liquidated: 0 });
   });
 
   it('el último corte sigue disponible aunque el calendario haya cambiado de mes', () => {

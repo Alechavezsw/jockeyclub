@@ -1,24 +1,21 @@
-/** Saldos de cuentas corrientes Accessin/LILA aplicados al padrón. */
+/** Saldos de cuentas corrientes aplicados al padrón. */
 
 import { readSnapshot } from '../../data/snapshots';
+import { isDuesExemptMember } from '../members/dues';
 import { memberNumberOf } from '../members/households';
 
 /**
- * Corte de Lila del 13 de octubre de 2026, cargado en public.members.
+ * Corte de Lila del 20 de octubre de 2026, cargado en public.members.
  * El total positivo es el del Excel de saldos.
  */
 export const LILA_BALANCE_CUT = Object.freeze({
-  asOf: '2026-10-13',
-  filePositiveTotal: 354715661.09,
-  omittedTotal: 568000.45,
-  omitted: Object.freeze([
-    Object.freeze({ memberNumber: '2656', amount: 78000 }),
-    Object.freeze({ memberNumber: '10815', amount: 460000.45 }),
-    Object.freeze({ memberNumber: '11153', amount: 30000 }),
-  ]),
-  previousAsOf: '2026-10-06',
+  asOf: '2026-10-20',
+  filePositiveTotal: 346295200.69,
+  omittedTotal: 0,
+  omitted: Object.freeze([]),
+  previousAsOf: '2026-10-13',
   previousWithBalance: 1097,
-  previousTotal: 360449461.84,
+  previousTotal: 354715661.09,
 });
 
 const EMPTY_CURRENT_ACCOUNT_BALANCES_SEED = Object.freeze({
@@ -107,6 +104,10 @@ export function applyCurrentAccountBalances(members = [], {
     const nro = padMember(memberNumberOf(m) || m.memberId);
     const hit = nro ? byNumber[nro] : null;
     if (!hit) return m;
+    if (isDuesExemptMember(m)) {
+      if (m.currentAccountAsOf === asOf && !(Number(m.outstandingBalance) > 0)) return m;
+      return { ...m, outstandingBalance: 0, currentAccountAsOf: asOf || m.currentAccountAsOf };
+    }
     if (m.currentAccountAsOf === asOf) return m;
 
     const hasOperational = m.outstandingBalance != null

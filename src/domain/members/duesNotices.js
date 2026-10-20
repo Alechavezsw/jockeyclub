@@ -1,8 +1,15 @@
 /** Avisos reales de cuota: 5 días antes, el 10 (vence) y el 11 (mora). Mensaje interno + mail. */
 
+import { canChargeSocialDues } from './dues';
 import { portalAccountUrl } from './selfService';
 
 export const DUES_NOTICE_ACCOUNT_URL = portalAccountUrl();
+
+/** Vitalicio, fundador y comisión no reciben aviso de cuota. */
+export function shouldSendDuesNotice(member) {
+  if (!member || member.notifyDues === false) return false;
+  return canChargeSocialDues(member);
+}
 
 export const DUES_NOTICE_STAGES = ['upcoming', 'due', 'mora'];
 export const DUES_NOTICE_ADVANCE_DAYS = 5;

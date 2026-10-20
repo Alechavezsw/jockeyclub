@@ -170,6 +170,7 @@ export function isVitalicioMember(member) {
 /**
  * No abonan cuota social: vitalicio, fundador y comisión (presidente / comisión directiva).
  * Si además tienen una categoría que sí liquida (p. ej. socio familiar), no están exentos.
+ * Vale para todo el padrón: no es un caso puntual.
  */
 export function isDuesExemptMember(member) {
   if (isVitalicioMember(member)) return true;
@@ -178,6 +179,11 @@ export function isDuesExemptMember(member) {
   const pool = ids.length ? ids : (tier ? [tier] : []);
   if (!pool.length) return false;
   return pool.every((id) => isExemptDuesTierId(id));
+}
+
+/** Activo y con categoría que liquida. Vitalicio / fundador / comisión nunca. */
+export function canChargeSocialDues(member) {
+  return isMemberBillingActive(member) && !isDuesExemptMember(member);
 }
 
 function duesExemptHeadline(member) {
@@ -394,6 +400,7 @@ export function duesPayableAmount(base, { paidOn = new Date(), dueOn, tier } = {
 
 /** Suma cada categoría del socio y aplica el recargo solo donde corresponde. */
 export function duesPayableForMember(member, { paidOn = new Date(), dueOn, on, rules } = {}) {
+  if (isDuesExemptMember(member)) return 0;
   const when = on || dueOn || paidOn;
   const discountRules = resolveDiscountRules(rules);
   const ids = billedTierIds(member);
@@ -430,6 +437,7 @@ export function duesAmountForHousehold(titularTier, familyGroup = [], on = new D
 
 /** Cuota vigente del socio: cada categoría, más adherentes activos. `on` es el mes que se cobra. */
 export function duesAmountForMember(member, on = new Date(), options = {}) {
+  if (isDuesExemptMember(member)) return 0;
   const rules = resolveDiscountRules(options?.rules);
   const own = billedTierIds(member).reduce(
     (sum, id) => sum + discountedTierAmount(member, id, on, rules),
@@ -553,6 +561,7 @@ export function formatShortDate(iso) {
 
 /** Link de recordatorio de cuota por WhatsApp. Null si no hay teléfono válido. */
 export function buildWhatsAppDuesUrl(member, formatCurrency) {
+  if (isDuesExemptMember(member)) return null;
   const cleanPhone = toWhatsAppPhone(member?.phone);
   if (!cleanPhone) return null;
   const dueLabel = formatShortDate(member.dueDate || member.nextDueDate);

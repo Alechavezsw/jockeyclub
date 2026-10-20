@@ -1,3 +1,5 @@
+import { isDuesExemptMember } from '../members/dues';
+
 /** Asistencia de disciplinas — toma simple por clase / día. */
 
 export const ATTENDANCE_STATUSES = [
@@ -25,6 +27,9 @@ export function duesStatus(member) {
   }
   if (status === 'pending') {
     return { id: 'pending', label: 'Pendiente', ok: false };
+  }
+  if (isDuesExemptMember(member)) {
+    return { id: 'ok', label: 'Al día', ok: true, balance: 0 };
   }
   if (balance > 0) {
     return { id: 'debt', label: 'Con deuda', ok: false, balance };

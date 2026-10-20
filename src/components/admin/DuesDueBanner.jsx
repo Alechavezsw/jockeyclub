@@ -209,7 +209,6 @@ export default function DuesDueBanner({
     [members, journalEntries, chartOfAccounts, feePeriods, monthKey, today],
   );
   const calendar = collectionForCalendarMonth({
-    money,
     monthFlow,
     monthKey,
     cashMovements: cashMoves,

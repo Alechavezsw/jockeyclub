@@ -87,6 +87,16 @@ describe('payMemberDues', () => {
     expect(result.payment.receiptNumber).toMatch(/^RC-/);
   });
 
+  it('no cobra cuota a vitalicio', () => {
+    expect(() => recordDuesCollection({
+      memberId: '1622',
+      name: 'Vitalicia',
+      tier: 'socio_vitalicio',
+      outstandingBalance: 32000,
+      paymentHistory: [],
+    }, { method: 'efectivo' })).toThrow(/no abona cuota social/i);
+  });
+
   it('recordDuesCollection exige comprobante en transferencia', () => {
     const member = { memberId: '11017', name: 'Socio', outstandingBalance: 1000, paymentHistory: [] };
     expect(() => recordDuesCollection(member, { method: 'transferencia' }))

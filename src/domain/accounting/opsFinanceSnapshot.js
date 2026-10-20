@@ -1,5 +1,5 @@
 import { todayISODateAR } from '../../lib/arDate';
-import { duesAmountForMember } from '../members/dues';
+import { canChargeSocialDues, duesAmountForMember, isDuesExemptMember } from '../members/dues';
 import { normalizeLines } from './journal';
 import { getAccountById } from './chartOfAccounts';
 
@@ -29,6 +29,21 @@ function entryDate(entry) {
 }
 
 /**
+ * % al día del padrón que abona cuota. Vitalicio / fundador / comisión no entran.
+ * No mezcla liquidaciones ni cobros de un corte ajeno.
+ */
+export function duesStandingRate(members = []) {
+  const billing = (members || []).filter((m) => canChargeSocialDues(m));
+  const alDia = billing.filter((m) => (Number(m.outstandingBalance) || 0) <= 0).length;
+  return {
+    billing: billing.length,
+    alDia,
+    debtors: billing.length - alDia,
+    rate: billing.length ? Math.round((alDia / billing.length) * 100) : 0,
+  };
+}
+
+/**
  * Snapshot financiero real para el tablero operativo.
  * Prioriza pagos de socios + asientos del mes; no inventa montos.
  */
@@ -41,14 +56,13 @@ export function buildOpsFinanceSnapshot({
 } = {}) {
   const ym = monthPrefix(today);
   const day = dayKey(today);
+  const standing = duesStandingRate(members);
   const activeMembers = members.filter((m) => m.status !== 'inactive');
-  const alDia = activeMembers.filter((m) => (Number(m.outstandingBalance) || 0) <= 0).length;
-  const debtors = activeMembers.filter((m) => (Number(m.outstandingBalance) || 0) > 0);
+  const debtors = activeMembers.filter((m) => !isDuesExemptMember(m) && (Number(m.outstandingBalance) || 0) > 0);
   const debtTotal = debtors.reduce((s, m) => s + (Number(m.outstandingBalance) || 0), 0);
   const expectedMonth = activeMembers.reduce((s, m) => s + duesAmountForMember(m), 0);
-  const collectionRate = activeMembers.length
-    ? Math.round((alDia / activeMembers.length) * 100)
-    : 0;
+  const collectionRate = standing.rate;
+  const alDia = standing.alDia;
 
   const paymentRows = [];
   activeMembers.forEach((m) => {
@@ -140,7 +154,7 @@ export function buildOpsFinanceSnapshot({
     dayKey: day,
     collectionRate,
     alDia,
-    activeMembers: activeMembers.length,
+    activeMembers: standing.billing,
     debtors: debtors.length,
     debtTotal,
     expectedMonth,
@@ -459,20 +473,12 @@ export function composeClubFinance({
   };
 }
 
-/** Recaudado y liquidado del mes calendario. Un corte de otro mes no cuenta. */
+/** Recaudado y liquidado del mes calendario, solo con lo cargado en esta app. */
 export function collectionForCalendarMonth({
-  money = null,
   monthFlow = null,
   monthKey = '',
   cashMovements = [],
 } = {}) {
-  const cutKey = String(money?.periodKey || money?.periodTo || '').slice(0, 7);
-  if (monthKey && cutKey === monthKey) {
-    return {
-      collected: Number(money?.recaudado) || 0,
-      liquidated: Number(money?.liquidado) || 0,
-    };
-  }
   return {
     collected: (Number(monthFlow?.collectedSince) || 0) + collectedFromCashMovements(cashMovements, monthKey),
     liquidated: Number(monthFlow?.liquidatedSince) || 0,

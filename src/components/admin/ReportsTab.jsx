@@ -25,6 +25,7 @@ import {
   setDailyBackupEnabled,
 } from '../../domain/reports/dailyBackupStore';
 import { getTierDisplayName, TIER_COLORS } from '../../domain/members/tiers';
+import { isDuesExemptMember } from '../../domain/members/dues';
 import { membershipMoveExportRows, membershipMovesSeed } from '../../domain/members/membershipMoves';
 import { supplierRunningBalance } from '../../domain/accounting/suppliers';
 import { useSnapshotSeed } from '../../hooks/useSnapshots';
@@ -364,7 +365,7 @@ export default function ReportsTab({
   };
 
   const handleExportDebtorsCSV = () => {
-    const debtors = members.filter((mem) => (Number(mem.outstandingBalance) || 0) > 0);
+    const debtors = members.filter((mem) => !isDuesExemptMember(mem) && (Number(mem.outstandingBalance) || 0) > 0);
     downloadCsv(
       `jockey_club_deudores_${stampDate()}.csv`,
       ['Nombre', 'Credencial', 'Categoria', 'Telefono', 'Saldo', 'Estado'],
@@ -638,7 +639,7 @@ export default function ReportsTab({
   };
 
   const handleExportDebtorsPDF = () => {
-    const debtors = members.filter((mem) => (Number(mem.outstandingBalance) || 0) > 0);
+    const debtors = members.filter((mem) => !isDuesExemptMember(mem) && (Number(mem.outstandingBalance) || 0) > 0);
     void exportMembersPdf(debtors, {
       formatCurrency,
       filterLabel: 'Deudores',

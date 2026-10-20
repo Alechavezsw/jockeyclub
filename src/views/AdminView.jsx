@@ -521,15 +521,9 @@ export default function AdminView({
   const activeBookingsCount = reservations.filter(res => res.status === 'confirmed').length;
   const pendingBookingsCount = reservations.filter(res => res.status === 'pending').length;
 
-  const paidMembers = liveTitulares.filter((m) => (Number(m.outstandingBalance) || 0) === 0).length;
   const overdueMembers = getOverdueMembers(members);
   const overdueMembersCount = overdueMembers.length;
   const upcomingDuesCount = getUpcomingDuesMembers(members).length;
-  const paymentCollectionRate = lilaMoney
-    ? lilaMoney.rate
-    : (liveTitulares.length
-      ? Math.round((paidMembers / liveTitulares.length) * 100)
-      : 0);
   const totalOutstanding = liveTitulares.reduce(
     (sum, member) => sum + Math.max(0, Number(member.outstandingBalance) || 0),
     0,
@@ -783,7 +777,6 @@ export default function AdminView({
           isZondaActive={isZondaActive}
           tierCatalog={tierCatalog}
           totalMembers={totalMembers}
-          paymentCollectionRate={paymentCollectionRate}
           totalActivos={totalActivos}
           totalIngresos={totalIngresos}
           overdueMembersCount={overdueMembersCount}

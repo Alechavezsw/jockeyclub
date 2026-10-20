@@ -16,14 +16,14 @@ beforeAll(async () => {
 });
 
 describe('detalle cta cte liquidación', () => {
-  it('carga el snapshot LILA de septiembre 2026', () => {
+  it('carga el snapshot LILA de octubre 2026', () => {
     const summary = liquidationCcSummary();
-    expect(ACCESSIN_LIQUIDATION_CC_AS_OF).toBe('2026-09-26');
-    expect(summary.periodLabel).toMatch(/septiembre del 2026/i);
-    expect(summary.liquidation).toBe(57567000);
-    expect(summary.previousBalance).toBe(330678400.75);
+    expect(ACCESSIN_LIQUIDATION_CC_AS_OF).toBe('2026-10-20');
+    expect(summary.periodLabel).toMatch(/octubre del 2026/i);
+    expect(summary.liquidation).toBe(62843000);
+    expect(summary.previousBalance).toBe(335253434.28);
     expect(ACCESSIN_LIQUIDATION_CC.length).toBe(summary.listedCount);
-    expect(summary.withLiquidation).toBeGreaterThan(1000);
+    expect(summary.withLiquidation).toBe(965);
   });
 
   it('parsea y filtra filas del export LILA', () => {

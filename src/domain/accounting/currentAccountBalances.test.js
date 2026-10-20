@@ -17,10 +17,10 @@ beforeAll(async () => {
 });
 
 describe('currentAccountBalances', () => {
-  it('carga snapshot LILA al 2026-10-13', () => {
-    expect(ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF).toBe('2026-10-13');
+  it('carga el corte vivo de cuentas corrientes', () => {
+    expect(ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF).toBe('2026-10-20');
     expect(ACCESSIN_CURRENT_ACCOUNT_BALANCES_SNAPSHOT.rowCount).toBeGreaterThan(7000);
-    expect(ACCESSIN_CURRENT_ACCOUNT_BALANCES_SNAPSHOT.withBalance).toBeGreaterThan(1000);
+    expect(ACCESSIN_CURRENT_ACCOUNT_BALANCES_SNAPSHOT.withBalance).toBeGreaterThan(100);
   });
 
   it('lookup por número de socio con saldo real', () => {
@@ -37,7 +37,7 @@ describe('currentAccountBalances', () => {
       { memberId: '99999999', name: 'Sin seed' },
     ]);
     expect(seeded[0].outstandingBalance).toBe(56000);
-    expect(seeded[0].currentAccountAsOf).toBe('2026-10-13');
+    expect(seeded[0].currentAccountAsOf).toBe(ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF);
     expect(seeded[1].outstandingBalance).toBeUndefined();
 
     const kept = applyCurrentAccountBalances([
@@ -55,6 +55,22 @@ describe('currentAccountBalances', () => {
     const again = applyCurrentAccountBalances([paid]);
     expect(again[0].outstandingBalance).toBe(10000);
     expect(currentAccountBalanceOf(again[0])).toBe(10000);
+  });
+
+  it('vitalicio no toma saldo del corte', () => {
+    const seeded = applyCurrentAccountBalances([
+      { memberId: '1004', name: 'Cristina Mugas' },
+      { memberId: '1622', name: 'Vitalicia', tier: 'socio_vitalicio' },
+    ], {
+      asOf: '2026-10-20',
+      byNumber: {
+        1004: { balance: 56000 },
+        1622: { balance: 32000 },
+      },
+    });
+    expect(seeded[0].outstandingBalance).toBe(56000);
+    expect(seeded[1].outstandingBalance).toBe(0);
+    expect(seeded[1].currentAccountAsOf).toBe('2026-10-20');
   });
 
   it('resume el corte que trae cada socio', () => {

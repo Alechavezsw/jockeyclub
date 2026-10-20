@@ -1,7 +1,7 @@
 import { filterAlertsForRole, isAlertAcknowledged } from '../alerts/alerts';
 import { MAILBOX } from '../messaging/messages';
 import { allowedAdminTabs } from '../auth/roles';
-import { isDuesExemptMember, isMemberBillingActive, nextDuesDueDate, pinDuesDueDate } from '../members/dues';
+import { canChargeSocialDues, isDuesExemptMember, nextDuesDueDate, pinDuesDueDate } from '../members/dues';
 import { formatISODateLongAR, todayISODateAR } from '../../lib/arDate';
 
 /**
@@ -22,7 +22,7 @@ function daysUntil(fromIso, toIso) {
 /** Día de cuota que corresponde avisar: el de la ficha, o el 10 si todavía no hay fecha. */
 export function memberDueOn(member, todayIso = todayISODateAR()) {
   if (!member || member.notifyDues === false) return null;
-  if (!isMemberBillingActive(member) || isDuesExemptMember(member)) return null;
+  if (!canChargeSocialDues(member)) return null;
   if (member.nextDueDate) return pinDuesDueDate(member.nextDueDate);
   return nextDuesDueDate(`${todayIso}T12:00:00`);
 }

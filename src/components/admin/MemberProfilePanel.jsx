@@ -1039,6 +1039,7 @@ export default function MemberProfilePanel({
                 updated.birthDate = editForm.birthDate || '';
                 if (editForm.tier) updated.tier = editForm.tier;
               }
+              updated.recordScope = 'full';
               updateMember(updated);
               setEditMsg('Datos actualizados correctamente.');
             }}

@@ -10,6 +10,7 @@ import {
   duesAmountForTier,
   duesPayableAmount,
   firstUnpaidDuesDate,
+  isDuesExemptMember,
   isMemberBillingActive,
   monthsBehindOnDues,
   pinDuesDueDate,
@@ -335,6 +336,7 @@ function allocateCategoryMonths(member, categoryName, { today = new Date() } = {
 }
 
 function memberMayAppear(member) {
+  if (isDuesExemptMember(member)) return false;
   const balance = Number(member?.outstandingBalance) || 0;
   if (balance > EPS) return true;
   return isMemberBillingActive(member);
@@ -422,7 +424,7 @@ export function periodLedgerLines(account, members = [], period) {
   const dueOn = `${stamp.key}-10`;
   const lines = [];
   for (const member of members || []) {
-    if (!isMemberBillingActive(member)) continue;
+    if (!isMemberBillingActive(member) || isDuesExemptMember(member)) continue;
     const names = memberBillingCategories(member);
     for (const name of names) {
       if (!categories.has(categoryKey(name))) continue;

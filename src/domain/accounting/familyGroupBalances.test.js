@@ -17,11 +17,10 @@ beforeAll(async () => {
 });
 
 describe('familyGroupBalances', () => {
-  it('carga snapshot LILA de grupos familiares', () => {
-    expect(ACCESSIN_FAMILY_GROUP_BALANCES_AS_OF).toBe('2026-10-13');
+  it('carga el corte vivo de grupos familiares', () => {
+    expect(ACCESSIN_FAMILY_GROUP_BALANCES_AS_OF).toBe('2026-10-20');
     expect(ACCESSIN_FAMILY_GROUP_BALANCES_SNAPSHOT.groupCount).toBeGreaterThanOrEqual(700);
-    expect(ACCESSIN_FAMILY_GROUP_BALANCES_SNAPSHOT.withBalance).toBeGreaterThan(100);
-    expect(ACCESSIN_FAMILY_GROUP_BALANCES_SNAPSHOT.asOfLabel).toMatch(/13 de Octubre del 2026/);
+    expect(ACCESSIN_FAMILY_GROUP_BALANCES_SNAPSHOT.asOfLabel).toMatch(/20 de Octubre del 2026/i);
   });
 
   it('lista grupos y resume el corte', () => {

@@ -1,0 +1,18 @@
+---
+description: Cuota social — exentos, mora, Mi cuenta www
+alwaysApply: true
+---
+
+# Cuota social
+
+Vence el **10**. Desde el **11** es mora. Recargo 10 % solo `socio_familiar` y `socio_individual`.
+
+**Vitalicio, fundador y comisión no abonan cuota.** Para todo el padrón, no un socio:
+
+- Nunca mora, saldo inventado ni $ 32.000 de fallback
+- Nunca MD, mail ni WhatsApp de cuota
+- Nunca Mercado Pago de cuota ni suscripción
+- Nunca cobro en caja / portal
+- Usar `isDuesExemptMember` / `member_is_dues_exempt` / `member_id_is_dues_exempt`
+
+Mi cuenta en avisos y checkout: **https://www.jockeyclubsj.com.ar/cuenta** (nunca `jockeyclubsj.org`).

@@ -1,4 +1,4 @@
-import { afterCollectDues, duesPayableForMember, nextDuesDueDate } from './dues';
+import { afterCollectDues, duesPayableForMember, isDuesExemptMember, nextDuesDueDate } from './dues';
 import { referenceMonthlyDues } from './paymentHistory';
 import { createAccountEntry } from '../accounting/accountEntries';
 import { journalAccountForPayment } from './clubBanks';
@@ -183,6 +183,7 @@ export function payMemberDues(member, {
   today = new Date(),
 } = {}) {
   if (!member) throw new Error('Socio no encontrado.');
+  if (isDuesExemptMember(member)) throw new Error('Esta categoría no abona cuota social.');
   const requested = amount != null ? Number(amount) : 0;
   const due = Number(member.outstandingBalance) || requested;
   if (due <= 0) throw new Error('No hay saldo pendiente para abonar.');
@@ -244,6 +245,7 @@ export function payMemberDues(member, {
 /** Anticipo de cuota cuando está al día (paga el próximo período). */
 export function payUpcomingDues(member, { method = 'transferencia', today = new Date() } = {}) {
   if (!member) throw new Error('Socio no encontrado.');
+  if (isDuesExemptMember(member)) throw new Error('Esta categoría no abona cuota social.');
   if ((Number(member.outstandingBalance) || 0) > 0) {
     return payMemberDues(member, { method, today });
   }
@@ -295,6 +297,7 @@ export function recordDuesCollection(member, {
   today = new Date(),
 } = {}) {
   if (!member) throw new Error('Socio no encontrado.');
+  if (isDuesExemptMember(member)) throw new Error('Esta categoría no abona cuota social.');
   if (method === 'transferencia' && !receiptName) {
     throw new Error('Adjunte el comprobante de la transferencia.');
   }

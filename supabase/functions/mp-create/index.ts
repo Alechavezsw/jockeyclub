@@ -32,9 +32,18 @@ function moneyText(value: number) {
   return value.toFixed(2);
 }
 
+const PORTAL_WWW = "https://www.jockeyclubsj.com.ar";
+const PORTAL_APEX = "https://jockeyclubsj.com.ar";
+
 function originOf(raw: unknown, fallback: string) {
   const next = String(raw || "").trim().replace(/\/+$/, "");
+  if (/jockeyclubsj\.org/i.test(next)) return PORTAL_WWW;
   return ALLOWED_ORIGINS.has(next) ? next : fallback.replace(/\/+$/, "");
+}
+
+function accountOrigin(origin: string) {
+  if (origin === PORTAL_APEX) return PORTAL_WWW;
+  return origin;
 }
 
 function titleOf(kind: string) {
@@ -48,6 +57,28 @@ function channelOf(kind: string, raw: unknown) {
   if (kind === "subscription" || next === "subscription") return "subscription";
   if (next === "onsite") return "onsite";
   return "online";
+}
+
+function isDeliverableEmail(value: unknown) {
+  const email = String(value || "").trim();
+  if (!email.includes("@")) return false;
+  const lower = email.toLowerCase();
+  if (lower.includes("@lila-jockey")) return false;
+  if (lower.endsWith("@jockeyclubsj.com")) return false;
+  return true;
+}
+
+function firstDeliverableEmail(...candidates: unknown[]) {
+  return String(candidates.find((value) => isDeliverableEmail(value)) || "").trim();
+}
+
+function dniOf(value: unknown) {
+  const digits = String(value || "").replace(/\D/g, "");
+  return digits.length >= 7 && digits.length <= 11 ? digits : "";
+}
+
+function memberSelect() {
+  return "id, member_number, full_name, email, profile_id, outstanding_balance, document_number, tier, meta";
 }
 
 async function mpJson(path: string, token: string, init: { method?: string; body?: Record<string, unknown> } = {}) {
@@ -146,7 +177,7 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY") || "";
     const token = Deno.env.get("MP_ACCESS_TOKEN") || "";
-    const site = Deno.env.get("SITE_URL") || "https://jockeyclubsj.com.ar";
+    const site = Deno.env.get("SITE_URL") || PORTAL_WWW;
     if (!supabaseUrl || !serviceKey || !anonKey) return json(500, { error: "Falta la configuración de Supabase." });
     if (!token) return json(503, { error: "Falta MP_ACCESS_TOKEN en las secretas de Supabase." });
 
@@ -181,7 +212,7 @@ Deno.serve(async (req) => {
     if (wantedNumber && isStaff) {
       const { data } = await admin
         .from("members")
-        .select("id, member_number, full_name, email, profile_id, outstanding_balance")
+        .select(memberSelect())
         .eq("member_number", wantedNumber)
         .maybeSingle();
       member = data;
@@ -189,7 +220,7 @@ Deno.serve(async (req) => {
     if (!member) {
       const { data } = await admin
         .from("members")
-        .select("id, member_number, full_name, email, profile_id, outstanding_balance")
+        .select(memberSelect())
         .eq("profile_id", user.id)
         .maybeSingle();
       member = data;
@@ -200,7 +231,7 @@ Deno.serve(async (req) => {
       if (dni) {
         const { data } = await admin
           .from("members")
-          .select("id, member_number, full_name, email, profile_id, outstanding_balance")
+          .select(memberSelect())
           .eq("document_number", dni)
           .maybeSingle();
         member = data;
@@ -208,13 +239,22 @@ Deno.serve(async (req) => {
     }
     if (!member) return json(400, { error: "No encontramos la ficha del socio." });
 
-    const origin = originOf(body?.origin, site);
+    if (kind === "dues" || kind === "subscription") {
+      const { data: exempt } = await admin.rpc("member_id_is_dues_exempt", { mid: member.id });
+      if (exempt === true) {
+        return json(400, { error: "Esta categoría no abona cuota social." });
+      }
+    }
+
+    const origin = kind === "pool" ? originOf(body?.origin, site) : accountOrigin(originOf(body?.origin, site));
     const backPath = kind === "pool" ? "/entrada-pileta" : "/cuenta";
     const success = `${origin}${backPath}?mp=ok`;
     const failure = `${origin}${backPath}?mp=fail`;
     const pending = `${origin}${backPath}?mp=pending`;
     const notify = `${supabaseUrl}/functions/v1/mp-webhook`;
-    const email = String(member.email || user.email || "").trim();
+    const { data: profile } = await admin.from("profiles").select("document_number, email").eq("id", user.id).maybeSingle();
+    const email = firstDeliverableEmail(member.email, profile?.email, user.email);
+    const dni = dniOf(member.document_number) || dniOf(profile?.document_number);
     const concept = String(body?.concept || titleOf(kind)).slice(0, 240);
     const guestName = String(body?.guestName || "").trim().slice(0, 80);
     const posId = String(mpSet.posId || "jcsj-caja").trim().slice(0, 40) || "jcsj-caja";
@@ -239,6 +279,9 @@ Deno.serve(async (req) => {
     if (intentErr || !intent) return json(500, { error: intentErr?.message || "No se pudo abrir el cobro." });
 
     if (channel === "subscription") {
+      if (!email) {
+        return json(400, { error: "Para el débito mensual hace falta un mail real del socio." });
+      }
       const created = await mpJson("/preapproval", token, {
         method: "POST",
         body: {
@@ -250,8 +293,10 @@ Deno.serve(async (req) => {
             frequency_type: "months",
             transaction_amount: amount,
             currency_id: "ARS",
+            billing_day: 10,
+            billing_day_proportional: false,
           },
-          back_url: `${origin}/cuenta?mp=sub`,
+          back_url: `${accountOrigin(origin)}/cuenta?mp=sub`,
           status: "pending",
           notification_url: notify,
         },
@@ -310,9 +355,16 @@ Deno.serve(async (req) => {
         external_reference: intent.id,
         notification_url: notify,
         statement_descriptor: "JOCKEY CLUB SJ",
+        binary_mode: true,
         metadata: { kind, member_number: member.member_number, channel },
+        payment_methods: { installments: 1, default_installments: 1 },
         back_urls: { success, failure, pending },
-        ...(email.includes("@") ? { payer: { email } } : {}),
+        ...(email ? {
+          payer: {
+            email,
+            ...(dni ? { identification: { type: "DNI", number: dni } } : {}),
+          },
+        } : {}),
         ...(origin.startsWith("https://") ? { auto_return: "approved" } : {}),
       },
     });

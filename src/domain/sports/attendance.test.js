@@ -12,6 +12,7 @@ describe('duesStatus', () => {
   it('marca al día o con deuda', () => {
     expect(duesStatus({ outstandingBalance: 0 }).ok).toBe(true);
     expect(duesStatus({ outstandingBalance: 12000 }).id).toBe('debt');
+    expect(duesStatus({ outstandingBalance: 32000, tier: 'socio_vitalicio' }).ok).toBe(true);
     expect(duesStatus({ status: 'suspended' }).id).toBe('suspended');
     expect(duesStatus({ status: 'inactive', outstandingBalance: 0 }).id).toBe('inactive');
     expect(duesStatus({ status: 'inactive', outstandingBalance: 0 }).ok).toBe(false);

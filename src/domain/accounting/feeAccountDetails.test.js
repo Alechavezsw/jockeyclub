@@ -16,11 +16,12 @@ beforeAll(async () => {
 });
 
 describe('feeAccountDetails', () => {
-  it('carga detalle real septiembre 2026', () => {
-    expect(ACCESSIN_FEE_ACCOUNT_DETAILS).toHaveLength(3);
-    expect(ACCESSIN_FEE_ACCOUNT_DETAILS_SNAPSHOT.asOf).toBe('2026-09-26');
-    expect(ACCESSIN_FEE_ACCOUNT_DETAILS_SNAPSHOT.totalAmount).toBeCloseTo(173261004.44, 2);
-    expect(ACCESSIN_FEE_ACCOUNT_DETAILS_SNAPSHOT.lineCount).toBe(3532);
+  it('carga detalle real de octubre 2026, y conserva septiembre', () => {
+    expect(ACCESSIN_FEE_ACCOUNT_DETAILS).toHaveLength(6);
+    expect(ACCESSIN_FEE_ACCOUNT_DETAILS_SNAPSHOT.asOf).toBe('2026-10-20');
+    expect(ACCESSIN_FEE_ACCOUNT_DETAILS_SNAPSHOT.periodKey).toBe('2026-10');
+    expect(ACCESSIN_FEE_ACCOUNT_DETAILS_SNAPSHOT.totalAmount).toBeCloseTo(267885237.41, 2);
+    expect(ACCESSIN_FEE_ACCOUNT_DETAILS_SNAPSHOT.lineCount).toBe(5197);
   });
 
   it('filtra por período y texto', () => {

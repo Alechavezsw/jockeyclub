@@ -44,10 +44,26 @@ export function isMpPaidStatus(status) {
   return next === 'approved' || next === 'authorized';
 }
 
-export function sanitizeMpOrigin(origin, fallback = PORTAL_PUBLIC_ORIGIN) {
+/** Adhesión de débito confirmada por Mercado Pago. No alcanza con “débito” en la ficha. */
+export function isMpAdhered(member) {
+  const status = String(member?.mpAdhesion || member?.mercadoPagoAdhesion || '')
+    .toLowerCase()
+    .trim();
+  return status === 'authorized' || status === 'active' || status === 'adherido';
+}
+
+export function sanitizeMpOrigin(origin, fallback = PORTAL_WWW_ORIGIN) {
   const raw = String(origin || '').trim().replace(/\/+$/, '');
+  if (/jockeyclubsj\.org/i.test(raw)) return PORTAL_WWW_ORIGIN;
   if (ALLOWED_ORIGINS.has(raw)) return raw;
-  return String(fallback || PORTAL_PUBLIC_ORIGIN).replace(/\/+$/, '');
+  return String(fallback || PORTAL_WWW_ORIGIN).replace(/\/+$/, '');
+}
+
+/** Avisos y vuelta de cuota van a www/cuenta, no al .org ni al apex. */
+export function mpAccountOrigin(origin) {
+  const next = sanitizeMpOrigin(origin, PORTAL_WWW_ORIGIN);
+  if (next === PORTAL_PUBLIC_ORIGIN) return PORTAL_WWW_ORIGIN;
+  return next;
 }
 
 export function mpBackPath(kind) {
@@ -65,4 +81,30 @@ export function mpMoney(value) {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return 0;
   return Math.round(n * 100) / 100;
+}
+
+/** Mail que Mercado Pago puede usar. Descarta alias de rebote del padrón. */
+export function isMpDeliverableEmail(value) {
+  const email = String(value || '').trim();
+  if (!email.includes('@')) return false;
+  const lower = email.toLowerCase();
+  if (lower.includes('@lila-jockey')) return false;
+  if (lower.endsWith('@jockeyclubsj.com')) return false;
+  return true;
+}
+
+export function firstMpDeliverableEmail(...candidates) {
+  return candidates.find((value) => isMpDeliverableEmail(value)) || '';
+}
+
+/** Un cobro: la deuda de la ficha, o la cuota del mes si está al día. */
+export function mpPayNowAmount(outstanding, monthly) {
+  const due = mpMoney(outstanding);
+  if (due > 0) return due;
+  return mpMoney(monthly);
+}
+
+/** El débito mensual cobra la cuota del mes, nunca el saldo atrasado. */
+export function mpSubscribeAmount(monthly) {
+  return mpMoney(monthly);
 }

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Search, Filter, Plus, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Trash2, Users, UserPlus, X, CreditCard, Camera, FileDown, FileSpreadsheet, Pencil, KeyRound, MoreVertical } from 'lucide-react';
-import { duesAmountForHousehold, duesAmountForTier, nextDuesDueDate, pinDuesDueDate, quotaHeadline, toWhatsAppPhone } from '../../domain/members/dues';
+import { duesAmountForHousehold, duesAmountForTier, isDuesExemptMember, nextDuesDueDate, pinDuesDueDate, quotaHeadline, toWhatsAppPhone } from '../../domain/members/dues';
 import { persistDuesCollection, recordDuesCollection } from '../../domain/members/memberPayments';
 import { sendDuesReceiptMessage } from '../../domain/members/duesReceiptDelivery';
 import { exportMembersExcel } from '../../domain/members/exportMembersExcel';
@@ -2094,15 +2094,17 @@ export default function MembersTab({
                   <td data-label="Cuota">
                     <span style={{
                       fontWeight: '600',
-                      color: (Number(m.outstandingBalance) || 0) > 0
-                        ? 'var(--warning-accent)'
-                        : quotaHeadline(m).kind === 'clear'
-                          ? 'var(--emerald-accent)'
-                          : 'var(--text-secondary)'
+                      color: isDuesExemptMember(m)
+                        ? 'var(--text-secondary)'
+                        : (Number(m.outstandingBalance) || 0) > 0
+                          ? 'var(--warning-accent)'
+                          : quotaHeadline(m).kind === 'clear'
+                            ? 'var(--emerald-accent)'
+                            : 'var(--text-secondary)'
                      }}>
-                      {(Number(m.outstandingBalance) || 0) > 0
-                        ? formatCurrency(m.outstandingBalance)
-                        : quotaHeadline(m).title}
+                      {isDuesExemptMember(m) || (Number(m.outstandingBalance) || 0) <= 0
+                        ? quotaHeadline(m).title
+                        : formatCurrency(m.outstandingBalance)}
                     </span>
                   </td>
                   <td data-label="Acciones" className="members-padron-actions">
@@ -2142,7 +2144,7 @@ export default function MembersTab({
                           >
                             <CreditCard size={13} /> Tarjeta
                           </button>
-                          {m.outstandingBalance > 0 && (
+                          {m.outstandingBalance > 0 && !isDuesExemptMember(m) && (
                             <button
                               type="button"
                               role="menuitem"

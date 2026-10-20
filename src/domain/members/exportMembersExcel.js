@@ -1,4 +1,4 @@
-import { quotaHeadline } from './dues';
+import { isDuesExemptMember, quotaHeadline } from './dues';
 import { buildPadronPdfModel } from './exportMembersPdf';
 import { getTierDisplayName } from './tiers';
 
@@ -22,6 +22,7 @@ function documentLabel(member) {
 }
 
 function saldoValue(member) {
+  if (isDuesExemptMember(member)) return 0;
   const amount = Number(member?.outstandingBalance) || 0;
   return amount > 0 ? amount : 0;
 }

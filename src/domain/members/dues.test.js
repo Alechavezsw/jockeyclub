@@ -22,6 +22,7 @@ import {
   firstUnpaidDuesDate,
   formatMonthsBehind,
   unpaidSocialDuesAmount,
+  canChargeSocialDues,
 } from './dues';
 import { setRuntimeTierCatalog } from './tiers';
 import { setRuntimeDiscountRules } from '../accounting/discountApplication';
@@ -131,21 +132,30 @@ describe('dues classification', () => {
   });
 
   it('suma cuota del titular y adherentes al alta', () => {
-    expect(duesAmountForHousehold('socio_individual', [])).toBe(32000);
+    const october = new Date('2026-10-20T12:00:00');
+    expect(duesAmountForHousehold('socio_individual', [], october)).toBe(40000);
     expect(duesAmountForHousehold('socio_individual', [
       { tier: 'socio_individual' },
       { tier: 'grupo_familiar_familiar' },
-    ])).toBe(32000 + 32000 + 38000);
+    ], october)).toBe(40000 + 40000);
   });
 
   it('calcula cuota del socio con adherentes activos', () => {
+    const october = new Date('2026-10-20T12:00:00');
     expect(duesAmountForMember({
       tier: 'socio_vitalicio',
       adherents: [
         { tier: 'socio_vitalicio', status: 'active' },
         { tier: 'socio_individual', status: 'inactive' },
       ],
-    })).toBe(45000 + 45000);
+    }, october)).toBe(0);
+    expect(duesAmountForMember({
+      tier: 'socio_individual',
+      adherents: [
+        { tier: 'socio_individual', status: 'active' },
+        { tier: 'socio_individual', status: 'inactive' },
+      ],
+    }, october)).toBe(80000);
   });
 
   it('excluye suspended y pending de mora y cuota automática', () => {
@@ -226,6 +236,18 @@ describe('dues classification', () => {
       status: 'active',
       nextDueDate: '2026-08-10',
     }], new Date('2026-10-20T12:00:00'))).toHaveLength(0);
+    expect(canChargeSocialDues({ status: 'active', tier: 'socio_vitalicio' })).toBe(false);
+    expect(canChargeSocialDues({ status: 'active', tier: 'socio_individual' })).toBe(true);
+    expect(duesAmountForMember({
+      tier: 'socio_vitalicio',
+      outstandingBalance: 32000,
+      adherents: [{ tier: 'socio_familiar', status: 'active' }],
+    }, new Date('2026-10-20T12:00:00'))).toBe(0);
+    expect(buildWhatsAppDuesUrl({
+      tier: 'socio_vitalicio',
+      phone: '2645551234',
+      amountDue: 32000,
+    })).toBeNull();
   });
 
   it('un saldo de cuenta no es mora si la cuota todavía no venció', () => {

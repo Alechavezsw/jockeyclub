@@ -113,6 +113,7 @@ export function memberToRow(member) {
       ...(Array.isArray(member.documents) ? { documents: member.documents } : {}),
       ...(member.currentAccountAsOf ? { currentAccountAsOf: member.currentAccountAsOf } : {}),
       ...(member.lastPaymentDate ? { lastPaymentDate: member.lastPaymentDate } : {}),
+      ...(member.mpAdhesion ? { mpAdhesion: member.mpAdhesion } : {}),
       ...(member.unpaidCapital != null ? { unpaidCapital: member.unpaidCapital } : {}),
       ...(member.unpaidSurcharges != null ? { unpaidSurcharges: member.unpaidSurcharges } : {}),
       ...(member.unpaidInterest != null ? { unpaidInterest: member.unpaidInterest } : {}),

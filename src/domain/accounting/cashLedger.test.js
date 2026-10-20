@@ -32,15 +32,16 @@ beforeAll(async () => {
 
 describe('cashLedger Accessin', () => {
   it('carga el seed de movimientos reales', () => {
-    expect(ACCESSIN_CASH_MOVEMENTS.length).toBe(2039);
-    expect(ACCESSIN_CASH_SNAPSHOT.asOf).toBe('2026-10-13');
+    expect(ACCESSIN_CASH_MOVEMENTS.length).toBe(2098);
+    expect(ACCESSIN_CASH_SNAPSHOT.asOf).toBe('2026-10-20');
     expect(ACCESSIN_CASH_SNAPSHOT.openingBalance).toBeCloseTo(715570159.84, 2);
-    expect(ACCESSIN_CASH_SNAPSHOT.closingBalance).toBeCloseTo(868476635.75, 2);
+    expect(ACCESSIN_CASH_SNAPSHOT.closingBalance).toBeCloseTo(875250413.99, 2);
   });
 
-  it('recalcula el total = apertura + movimientos del Excel', () => {
+  it('los movimientos del Excel cierran en 875.290.413,99 y las tarjetas muestran la caja de Lila', () => {
     const total = recalculateAccessinCashTotal(ACCESSIN_CASH_SNAPSHOT, ACCESSIN_CASH_MOVEMENTS);
-    expect(total).toBeCloseTo(ACCESSIN_CASH_SNAPSHOT.closingBalance, 2);
+    expect(total).toBeCloseTo(875290413.99, 2);
+    expect(ACCESSIN_CASH_SNAPSHOT.closingBalance).toBeCloseTo(875250413.99, 2);
   });
 
   it('tarjetas usan el saldo lógico: efectivo = total − bancos − cheques', () => {
@@ -49,13 +50,13 @@ describe('cashLedger Accessin', () => {
     const bancos = cards.find((c) => c.id === 'bancos')?.value;
     const cheques = cards.find((c) => c.id === 'cheques')?.value;
     const total = cards.find((c) => c.id === 'total')?.value;
-    expect(bancos).toBeCloseTo(138813235.91, 2);
+    expect(bancos).toBeCloseTo(685497111.24, 2);
     expect(cheques).toBe(0);
-    expect(total).toBeCloseTo(868476635.75, 2);
-    expect(efectivo).toBeCloseTo(729663399.84, 2);
+    expect(total).toBeCloseTo(875250413.99, 2);
+    expect(efectivo).toBeCloseTo(189753302.75, 2);
     expect(efectivo).not.toBeCloseTo(14093240, 0);
-    expect(efectivo).not.toBeCloseTo(179794062.75, 0);
-    expect(cards.find((c) => c.id === 'efectivo')?.caption).toContain('13 de Octubre del 2026');
+    expect(efectivo).not.toBeCloseTo(144970014.15, 0);
+    expect(cards.find((c) => c.id === 'efectivo')?.caption).toContain('20 de Octubre del 2026');
     expect(cards.find((c) => c.id === 'efectivo')?.caption).not.toMatch(/no es el saldo/i);
     expect(Math.round((efectivo + bancos + cheques) * 100) / 100).toBeCloseTo(total, 2);
   });
@@ -72,10 +73,10 @@ describe('cashLedger Accessin', () => {
     const bancos = cards.find((c) => c.id === 'bancos')?.value;
     const cheques = cards.find((c) => c.id === 'cheques')?.value;
     const total = cards.find((c) => c.id === 'total')?.value;
-    expect(bancos).toBeCloseTo(668037170.87, 2);
-    expect(efectivo).toBeCloseTo(200439464.88, 2);
+    expect(bancos).toBeCloseTo(685497111.24, 2);
+    expect(efectivo).toBeCloseTo(189753302.75, 2);
     expect(cheques).toBe(0);
-    expect(total).toBeCloseTo(868476635.75, 2);
+    expect(total).toBeCloseTo(875250413.99, 2);
     expect(Math.round((efectivo + bancos + cheques) * 100) / 100).toBeCloseTo(total, 2);
     expect(cards.find((c) => c.id === 'bancos')?.filter?.view).toBe('bank_accounts');
   });

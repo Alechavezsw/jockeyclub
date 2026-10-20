@@ -27,6 +27,7 @@ function paidThisMonth(member, today) {
 
 /** True si, llegado el 10, el socio no cubrió la cuota de este mes. */
 export function isCurrentMonthDuesUnpaid(member, today = new Date()) {
+  if (isDuesExemptMember(member)) return false;
   const when = asDay(today);
   if (duesDueMoment(when).phase === 'before') return false;
   if (duesAmountForMember(member, when) <= 0) return false;

@@ -1,3 +1,5 @@
+import { isDuesExemptMember } from '../members/dues';
+
 /** Agrega KPIs económicos y operativos para la consola de reportes. */
 
 function sum(arr, pick) {
@@ -30,9 +32,9 @@ export function buildClubReportStats({
 } = {}) {
   const activeMembers = members.filter((m) => m.status === 'active');
   const suspendedMembers = members.filter((m) => m.status !== 'active');
-  const debtors = members.filter((m) => (Number(m.outstandingBalance) || 0) > 0);
+  const debtors = members.filter((m) => !isDuesExemptMember(m) && (Number(m.outstandingBalance) || 0) > 0);
   const debtTotal = sum(debtors, (m) => m.outstandingBalance);
-  const alDia = members.filter((m) => (Number(m.outstandingBalance) || 0) <= 0).length;
+  const alDia = members.filter((m) => isDuesExemptMember(m) || (Number(m.outstandingBalance) || 0) <= 0).length;
 
   const byTier = {};
   for (const m of members) {

@@ -17,16 +17,19 @@ beforeAll(async () => {
 });
 
 describe('supplierPaymentsReport snapshot', () => {
-  it('el corte de septiembre no trae pagos históricos', () => {
-    expect(ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT.asOf).toBe('2026-09-26');
-    expect(ACCESSIN_SUPPLIER_PAYMENTS).toEqual([]);
-    expect(ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT.totalAmount).toBe(0);
-    expect(ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT.count).toBe(0);
+  it('el corte al 20 de octubre trae los pagos de 2026 que Lila exporta', () => {
+    expect(ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT.asOf).toBe('2026-10-20');
+    expect(ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT.periodFrom).toBe('2026-01-01');
+    expect(ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT.periodTo).toBe('2026-03-27');
+    expect(ACCESSIN_SUPPLIER_PAYMENTS).toHaveLength(170);
+    expect(ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT.totalAmount).toBeCloseTo(62936763.56, 2);
+    expect(ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT.count).toBe(170);
   });
 
-  it('resume y filtra sin errores con lista vacía', () => {
+  it('resume el listado cargado', () => {
     const summary = supplierPaymentsSummary();
-    expect(summary.count).toBe(0);
+    expect(summary.count).toBe(170);
+    expect(summary.totalAmount).toBeCloseTo(62936763.56, 2);
     expect(filterAccessinSupplierPayments([])).toEqual([]);
   });
 });

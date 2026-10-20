@@ -446,12 +446,14 @@ export default function SystemSettingsTab({
             />
           </Field>
           <ul className="sys-set-hint">
-            <li><strong>Online.</strong> Checkout Pro: el socio paga en el portal y vuelve a su cuenta.</li>
+            <li><strong>Online.</strong> Checkout Pro: el socio paga en Mi cuenta y vuelve a https://www.jockeyclubsj.com.ar/cuenta.</li>
             <li><strong>En el lugar.</strong> QR dinámico en caja y pileta. El socio escanea con la app.</li>
-            <li><strong>Suscripción.</strong> Débito mensual de la cuota desde Mercado Pago.</li>
+            <li><strong>Suscripción.</strong> Débito de la cuota del mes, el día 10. Vitalicio, fundador y comisión no se pueden adherir.</li>
           </ul>
           <p className="sys-set-hint">
-            SITE_URL: https://jockeyclubsj.com.ar o https://www.jockeyclubsj.com.ar. Webhook: mp-webhook, con los tópicos payment, merchant_order, order, preapproval y subscription_authorized_payment.
+            Token de la cuenta del club: secreta MP_ACCESS_TOKEN. Webhook: https://papdsxgcvyncdxdvbdaa.supabase.co/functions/v1/mp-webhook
+            (tópicos payment, merchant_order, order, subscription_preapproval y subscription_authorized_payment).
+            Opcional: MP_WEBHOOK_SECRET para validar la firma.
           </p>
           <button type="button" className="jev-slip-go" onClick={saveMp} disabled={saving === 'mp'}>
             {saving === 'mp' ? 'Guardando…' : 'Guardar Mercado Pago'}

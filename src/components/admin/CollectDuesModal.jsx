@@ -6,6 +6,8 @@ import {
   CLUB_BANK_ACCOUNTS,
   journalAccountForPayment,
 } from '../../domain/members/clubBanks';
+import { duesAmountForMember, isDuesExemptMember } from '../../domain/members/dues';
+import { mpPayNowAmount } from '../../domain/payments/mercadoPago';
 
 const METHODS = [
   { id: 'efectivo', label: 'Efectivo', icon: Banknote, hint: 'Cobro en sede / caja' },
@@ -45,9 +47,11 @@ export default function CollectDuesModal({
   onClose,
   onConfirm,
 }) {
-  const amount = (Number(member?.outstandingBalance) || 0) > 0
-    ? Number(member.outstandingBalance)
-    : (Number(member?.amountDue) || 0);
+  const duesExempt = isDuesExemptMember(member);
+  const amount = duesExempt
+    ? 0
+    : mpPayNowAmount(member?.outstandingBalance, duesAmountForMember(member) || member?.amountDue);
+  const methods = duesExempt ? METHODS.filter((row) => row.id !== 'mercadopago') : METHODS;
   const [method, setMethod] = useState('efectivo');
   const [bankId, setBankId] = useState(CLUB_BANK_ACCOUNTS[0]?.id || '');
   const [receiptName, setReceiptName] = useState('');
@@ -76,6 +80,10 @@ export default function CollectDuesModal({
 
   const handleConfirm = () => {
     setError('');
+    if (isDuesExemptMember(member)) {
+      setError('Esta categoría no abona cuota social.');
+      return;
+    }
     if (method === 'transferencia' && !receiptName) {
       setError('Adjunte el comprobante de la transferencia.');
       return;
@@ -134,13 +142,13 @@ export default function CollectDuesModal({
         <p style={{ margin: '0 0 0.65rem', fontSize: '0.78rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-gold)' }}>
           Método de pago
         </p>
-        <div className="collect-methods-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '0.5rem', marginBottom: '1.1rem' }}>
+        <div className="collect-methods-grid" style={{ display: 'grid', gridTemplateColumns: `repeat(${methods.length}, minmax(0, 1fr))`, gap: '0.5rem', marginBottom: '1.1rem' }}>
           <style>{`
             @media (max-width: 480px) {
               .collect-methods-grid { grid-template-columns: 1fr !important; }
             }
           `}</style>
-          {METHODS.map((m) => {
+          {methods.map((m) => {
             const Icon = m.icon;
             const active = method === m.id;
             return (
@@ -252,6 +260,7 @@ export default function CollectDuesModal({
               amount={amount}
               memberNumber={member.memberId}
               concept={`Cuota social · ${member.name || 'socio'}`}
+              disabled={duesExempt || amount <= 0}
               onApproved={() => {
                 onConfirm({
                   method: 'mercadopago',

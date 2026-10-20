@@ -5,6 +5,7 @@ import {
   duesNoticeCopy,
   duesNoticeKind,
   duesNoticeStagesForDay,
+  shouldSendDuesNotice,
 } from './duesNotices';
 
 describe('duesNotices', () => {
@@ -39,5 +40,12 @@ describe('duesNotices', () => {
     expect(mora.lead).toMatch(/venció/i);
     expect(mora.greeting).toMatch(/Alejandro/);
     expect(mora.accountUrl).toBe('https://www.jockeyclubsj.com.ar/cuenta');
+  });
+
+  it('vitalicio, fundador y comisión no reciben aviso de cuota', () => {
+    expect(shouldSendDuesNotice({ status: 'active', tier: 'socio_vitalicio', notifyDues: true })).toBe(false);
+    expect(shouldSendDuesNotice({ status: 'active', tier: 'socio_fundador', notifyDues: true })).toBe(false);
+    expect(shouldSendDuesNotice({ status: 'active', tier: 'comision', cuotaCategories: ['COMISION'], notifyDues: true })).toBe(false);
+    expect(shouldSendDuesNotice({ status: 'active', tier: 'socio_individual', notifyDues: true })).toBe(true);
   });
 });

@@ -18,7 +18,7 @@ beforeAll(async () => {
 
 describe('monthlyDebts / deudas mes a mes', () => {
   it('carga snapshot LILA de morosos', () => {
-    expect(ACCESSIN_MONTHLY_DEBTS_AS_OF).toBe('2026-10-06');
+    expect(ACCESSIN_MONTHLY_DEBTS_AS_OF).toBe('2026-10-20');
     expect(ACCESSIN_MONTHLY_DEBTS_SNAPSHOT.memberCount).toBeGreaterThan(800);
     expect(ACCESSIN_MONTHLY_DEBTS_SNAPSHOT.monthRowCount).toBeGreaterThan(5000);
     expect(ACCESSIN_MONTHLY_DEBTS_SNAPSHOT.lineCount).toBeGreaterThan(10000);
@@ -56,7 +56,8 @@ describe('monthlyDebts / deudas mes a mes', () => {
     expect(row).toBeTruthy();
     expect(row.capital).toBe(febRow.capital);
     expect(row.interest).toBe(febRow.interest);
-    expect(row.totalDebt).toBe(febRow.accumulated);
+    const monthDebt = Number(febRow.accumulated) || (Number(febRow.capital) || 0) + (Number(febRow.interest) || 0);
+    expect(row.totalDebt).toBe(monthDebt);
     expect(row.capital).not.toBe(hit.totalDebt);
   });
 

@@ -32,6 +32,41 @@ function topicOf(body: Record<string, unknown>, url: URL) {
   return String(body.type || body.topic || url.searchParams.get("type") || url.searchParams.get("topic") || "").toLowerCase();
 }
 
+function hexOf(buffer: ArrayBuffer) {
+  return [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function mpSignatureOk(req: Request, rawBody: string, secret: string) {
+  const header = String(req.headers.get("x-signature") || "");
+  const requestId = String(req.headers.get("x-request-id") || "");
+  if (!header || !secret) return true;
+  const parts: Record<string, string> = {};
+  for (const chunk of header.split(",")) {
+    const [key, ...rest] = chunk.split("=");
+    if (key) parts[key.trim()] = rest.join("=").trim();
+  }
+  const ts = parts.ts || "";
+  const hash = String(parts.v1 || "").toLowerCase();
+  if (!ts || !hash) return false;
+  let dataId = "";
+  try {
+    const parsed = JSON.parse(rawBody) as { data?: { id?: string }; id?: string };
+    dataId = String(parsed?.data?.id || parsed?.id || "");
+  } catch {
+    dataId = "";
+  }
+  const manifest = `id:${dataId};request-id:${requestId};ts:${ts};`;
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signed = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(manifest));
+  return hexOf(signed) === hash;
+}
+
 function idOf(body: Record<string, unknown>, url: URL) {
   const data = body.data as { id?: string } | undefined;
   return String(data?.id || body.id || url.searchParams.get("id") || url.searchParams.get("data.id") || "");
@@ -194,7 +229,7 @@ function receiptCopy(input: {
 </body>
 </html>`;
 
-  return { subject, text, html, kind: "dues_receipt", receiptNumber: receipt, money, via };
+  return { subject, text, html, kind: "dues_receipt", receiptNumber: receipt, money, via, lead };
 }
 
 function buildReceiptPdf(lines: string[]) {
@@ -426,10 +461,19 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
     const token = Deno.env.get("MP_ACCESS_TOKEN") || "";
-    if (!supabaseUrl || !serviceKey || !token) return json(500, { error: "Falta la configuración." });
+    if (!supabaseUrl || !serviceKey) return json(500, { error: "Falta la configuración de Supabase." });
+    if (!token) return json(503, { error: "Falta MP_ACCESS_TOKEN en las secretas de Supabase." });
 
     const url = new URL(req.url);
-    const body = await req.json().catch(() => ({})) as Record<string, unknown>;
+    const rawBody = await req.text();
+    const secret = Deno.env.get("MP_WEBHOOK_SECRET") || "";
+    if (secret && !(await mpSignatureOk(req, rawBody, secret))) {
+      return json(401, { error: "Firma inválida." });
+    }
+    const body = (() => {
+      try { return JSON.parse(rawBody || "{}") as Record<string, unknown>; }
+      catch { return {} as Record<string, unknown>; }
+    })();
     const topic = topicOf(body, url);
     const remoteId = idOf(body, url);
     if (!remoteId) return json(200, { ok: true, ignored: true });
@@ -476,6 +520,13 @@ Deno.serve(async (req) => {
       const amount = Number(pay.transaction_amount || payment?.transaction_amount || 0);
       if (!preapprovalId) return json(200, { ok: true, ignored: true });
 
+      const { data: already } = await admin
+        .from("mp_intents")
+        .select("id, applied_at")
+        .contains("meta", { authorized_payment_id: remoteId })
+        .maybeSingle();
+      if (already?.applied_at) return json(200, { ok: true, kind: "subscription_charge", already: true });
+
       const { data: sub } = await admin
         .from("mp_intents")
         .select("*")
@@ -485,27 +536,33 @@ Deno.serve(async (req) => {
         .maybeSingle();
 
       if (!sub) return json(200, { ok: true, ignored: true });
+      if (sub.member_id) {
+        const { data: exempt } = await admin.rpc("member_id_is_dues_exempt", { mid: sub.member_id });
+        if (exempt === true) return json(200, { ok: true, ignored: true, reason: "exempt" });
+      }
 
-      const { data: charge, error: chargeErr } = await admin
-        .from("mp_intents")
-        .insert({
-          kind: "dues",
-          status: "pending",
-          member_id: sub.member_id,
-          member_number: sub.member_number,
-          amount: amount || sub.amount,
-          concept: "Cuota social · débito Mercado Pago",
-          payer_email: sub.payer_email,
-          external_reference: crypto.randomUUID(),
-          preapproval_id: preapprovalId,
-          meta: {
-            from_subscription: sub.id,
-            authorized_payment_id: remoteId,
-            channel: "subscription",
-          },
-        })
-        .select("id")
-        .single();
+      const { data: charge, error: chargeErr } = already?.id
+        ? { data: { id: already.id }, error: null }
+        : await admin
+          .from("mp_intents")
+          .insert({
+            kind: "dues",
+            status: "pending",
+            member_id: sub.member_id,
+            member_number: sub.member_number,
+            amount: amount || sub.amount,
+            concept: "Cuota social · débito Mercado Pago",
+            payer_email: sub.payer_email,
+            external_reference: crypto.randomUUID(),
+            preapproval_id: preapprovalId,
+            meta: {
+              from_subscription: sub.id,
+              authorized_payment_id: remoteId,
+              channel: "subscription",
+            },
+          })
+          .select("id")
+          .single();
       if (chargeErr || !charge) return json(500, { error: chargeErr?.message || "No se pudo anotar el débito." });
 
       const { error } = await admin.rpc("apply_mp_approved_payment", {

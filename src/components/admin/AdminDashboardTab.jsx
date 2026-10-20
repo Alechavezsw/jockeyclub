@@ -12,13 +12,11 @@ import { canAccessConcessions, canAccessQrGate } from '../../domain/auth/roles';
 import { reviewItemsForAccess } from '../../domain/review/buildClubReview';
 import { isAlertVisible, ALERT_SEVERITY } from '../../domain/alerts/alerts';
 import { isPoolDayCashOpen, poolCanonByDay } from '../../domain/pool/poolAccess';
-import { liquidatedTotalForMonth } from '../../domain/accounting/feePeriodLiquidation';
-import { appFinanceSinceHandoff, buildOpsFinanceSnapshot, cashDeltaAfterDate, collectionForCalendarMonth, composeClubFinance, financeFromSummary, lilaContabilidadFromSnapshots } from '../../domain/accounting/opsFinanceSnapshot';
+import { buildOpsFinanceSnapshot, cashDeltaAfterDate, composeClubFinance, financeFromSummary, lilaContabilidadFromSnapshots } from '../../domain/accounting/opsFinanceSnapshot';
 import { monthlyBalanceSeed } from '../../domain/accounting/monthlyBalance';
 import { monthlyBalanceSummarySeed } from '../../domain/accounting/monthlyBalanceSummary';
 import { detailedCcSeed } from '../../domain/accounting/detailedCurrentAccounts';
 import { cashMovementsSeed, cashSeed, mergeAccessinCashMovements } from '../../domain/accounting/cashLedger';
-import { liveMonthFeeCollected } from '../../domain/accounting/cashPaymentDetail';
 import { cobranzasSeed } from '../../domain/accounting/cobranzas';
 import { buildPadronHouseholdStats } from '../../domain/members/households';
 import { getOverdueMembers } from '../../domain/members/dues';
@@ -173,7 +171,6 @@ export default function AdminDashboardTab({
   isZondaActive = false,
   tierCatalog = [],
   totalMembers,
-  paymentCollectionRate,
   totalActivos,
   overdueMembersCount = 0,
   upcomingDuesCount = 0,
@@ -346,23 +343,6 @@ export default function AdminDashboardTab({
     ),
     [seededMoves, seededRecent, accessinCashMovements],
   );
-  const monthFlow = useMemo(
-    () => appFinanceSinceHandoff({
-      members,
-      journalEntries,
-      chartOfAccounts,
-      feePeriods,
-      since: `${monthKey}-01`,
-      today: todayKey,
-    }),
-    [members, journalEntries, chartOfAccounts, feePeriods, monthKey, todayKey],
-  );
-  const calendarMonth = collectionForCalendarMonth({
-    money: lilaMoney,
-    monthFlow,
-    monthKey,
-    cashMovements: cashMoves,
-  });
   const cutKey = String(lilaMoney?.periodKey || lilaMoney?.periodTo || '').slice(0, 7);
   const cutIsThisMonth = Boolean(cutKey) && cutKey === monthKey;
 
@@ -379,18 +359,8 @@ export default function AdminDashboardTab({
   const cashToday = (lilaMoney?.cash ?? finance.cashToday) + (
     lilaMoney && !cutIsThisMonth ? cashDeltaAfterDate(cashMoves, lilaMoney.periodTo) : 0
   );
-  const sheetLiquidated = liquidatedTotalForMonth(feePeriods, monthKey, { members, tierCatalog });
-  const feeCollected = useMemo(
-    () => liveMonthFeeCollected({ movements: cashMoves, members, monthKey }),
-    [cashMoves, members, monthKey],
-  );
-  const collectedMonth = lilaMoney ? feeCollected : finance.collectedMonth;
-  const expectedMonth = sheetLiquidated != null
-    ? sheetLiquidated
-    : (lilaMoney ? calendarMonth.liquidated : finance.expectedMonth);
-  const liveCollectionRate = expectedMonth > 0
-    ? Math.round((collectedMonth / expectedMonth) * 100)
-    : (lilaMoney ? 0 : (finance.collectionRate || paymentCollectionRate || 0));
+  const liveCollectionRate = finance.collectionRate || 0;
+  const standingCaption = `${finance.alDia} de ${finance.activeMembers} socios al día`;
   const collectionTone = liveCollectionRate >= 80 ? 'ok' : liveCollectionRate >= 50 ? 'mid' : 'low';
   const debtTotal = finance.debtTotal || totalOutstanding || 0;
   const todayIncomes = useMemo(() => {
@@ -1091,25 +1061,17 @@ export default function AdminDashboardTab({
                   <OpsProgressRing
                     value={liveCollectionRate}
                     tone={collectionTone}
-                    title={lilaMoney
-                      ? `${liveCollectionRate}% recaudado de lo liquidado`
-                      : `${finance.alDia} de ${finance.activeMembers} socios al día`}
+                    title={standingCaption}
                   />
                   <div>
                     <div className="ops-money-big">{liveCollectionRate}%</div>
-                    <div className="ops-muted">
-                      {lilaMoney
-                        ? `Avance de ${moneyMonthLabel}`
-                        : `${finance.alDia} de ${finance.activeMembers} socios al día`}
+                    <div className="ops-muted">{standingCaption}</div>
+                    <div className="ops-muted" style={{ marginTop: '0.25rem', fontSize: '0.78rem' }}>
+                      Hoy:{' '}
+                      <strong style={{ color: finance.collectedToday > 0 ? 'var(--emerald-accent)' : 'inherit' }}>
+                        {formatCurrency(finance.collectedToday || 0)}
+                      </strong>
                     </div>
-                    {!lilaMoney ? (
-                      <div className="ops-muted" style={{ marginTop: '0.25rem', fontSize: '0.78rem' }}>
-                        Hoy:{' '}
-                        <strong style={{ color: finance.collectedToday > 0 ? 'var(--emerald-accent)' : 'inherit' }}>
-                          {formatCurrency(finance.collectedToday || 0)}
-                        </strong>
-                      </div>
-                    ) : null}
                   </div>
                 </div>
 

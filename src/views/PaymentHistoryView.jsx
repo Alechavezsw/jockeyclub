@@ -14,11 +14,12 @@ import {
 import { downloadPaymentReceiptPdf } from '../domain/members/exportPaymentReceiptPdf';
 import { useMemberDuesStanding } from '../hooks/useMemberDuesStanding';
 import { CLUB_BANK_ACCOUNTS } from '../domain/members/clubBanks';
-import { isDuesExemptMember, quotaHeadline } from '../domain/members/dues';
+import { duesAmountForMember, isDuesExemptMember, quotaHeadline } from '../domain/members/dues';
 import { duesPaymentNotice } from '../domain/members/duesPaymentNotice';
 import { uploadDuesReceipt } from '../data/storage';
 import MercadoPagoCheckout from '../components/MercadoPagoCheckout';
 import { formatPaymentWhen } from '../domain/members/paymentHistory';
+import { isMpAdhered, mpPayNowAmount, mpSubscribeAmount } from '../domain/payments/mercadoPago';
 
 function formatCurrency(amount) {
   return new Intl.NumberFormat('es-AR', {
@@ -38,7 +39,7 @@ function formatDate(iso) {
 }
 
 export default function PaymentHistoryView({ member, user, setCurrentView, sendMessage, membersCanViewCurrentAccounts = true }) {
-  const [method, setMethod] = useState('mercadopago');
+  const [method, setMethod] = useState('transferencia');
   const [paying, setPaying] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -60,7 +61,9 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
   const quota = quotaHeadline(profile);
   const duesExempt = isDuesExemptMember(profile) || !quota.billing;
   const alDia = !standingPending && !behind;
-  const payable = duesExempt ? 0 : (alDia ? summary.nextAmount : summary.outstanding);
+  const monthly = duesExempt ? 0 : duesAmountForMember(profile);
+  const payable = duesExempt ? 0 : mpPayNowAmount(summary.outstanding, monthly);
+  const subscribeAmount = duesExempt ? 0 : mpSubscribeAmount(monthly);
 
   const noticeKey = `${method}:${profile?.memberId || ''}:${payable}:${receiptFile?.name || ''}`;
 
@@ -132,8 +135,7 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
   };
 
   const actionLabel = method === 'transferencia' ? 'Enviar comprobante' : 'Avisar a administración';
-  const subscribed = String(profile?.mpAdhesion || '').toLowerCase() === 'authorized'
-    || profile?.paymentMethod === 'debito';
+  const subscribed = isMpAdhered(profile);
 
   if (!membersCanViewCurrentAccounts) {
     return (
@@ -210,7 +212,7 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
               ? `${formatCurrency(summary.lastPayment.amount)} · ${summary.lastPayment.methodLabel || summary.lastPayment.method}`
               : 'Sin movimientos'}
           </small>
-          {lateLabel ? (
+          {!duesExempt && lateLabel ? (
             <small className="pay-hist-kpi-late">
               {lateLabel} · la cuota vence el 10 de cada mes
             </small>
@@ -240,45 +242,48 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
         </p>
         {!duesExempt ? (
           <>
-        <div className="pay-hist-payrow">
-          <select
-            className="form-input"
-            value={method}
-            onChange={(e) => {
-              setMethod(e.target.value);
-              setMessage('');
-              setError('');
-              setNotifiedKey('');
-            }}
-            disabled={standingPending || paying}
-          >
-            <option value="mercadopago">Pagar online (Mercado Pago)</option>
-            <option value="transferencia">Transferencia</option>
-            <option value="debito">Suscripción mensual</option>
-          </select>
-          {method === 'transferencia' ? (
-            <button
-              type="button"
-              className="btn btn-primary"
-              disabled={standingPending || paying || payable <= 0 || notifiedKey === noticeKey}
-              onClick={handleNotify}
-            >
-              {paying ? 'Enviando…' : notifiedKey === noticeKey ? 'Avisado' : actionLabel}
-            </button>
-          ) : null}
+        <div className="pay-hist-mp-grid">
+          <article className="pay-hist-mp-card">
+            <h3>Pagar ahora</h3>
+            <p>
+              {alDia
+                ? `Adelantás ${formatCurrency(payable)} de la cuota.`
+                : `Regularizás ${formatCurrency(payable)} en un solo cobro.`}
+            </p>
+            <MercadoPagoCheckout
+              kind="dues"
+              amount={payable}
+              memberNumber={profile?.memberId}
+              concept={`Cuota social · ${profile?.name || 'socio'}`}
+              disabled={standingPending || payable <= 0}
+              onApproved={() => setMessage('Pago acreditado. Ya figura en tu cuenta.')}
+            />
+          </article>
+          <article className="pay-hist-mp-card">
+            <h3>Débito cada mes</h3>
+            <p>
+              {subscribed
+                ? 'Ya estás adherido. Mercado Pago cobra la cuota el día 10.'
+                : `${formatCurrency(subscribeAmount)} el día 10. La deuda anterior se paga aparte.`}
+            </p>
+            {subscribed ? (
+              <p className="pay-hist-note">Adhesión activa.</p>
+            ) : (
+              <MercadoPagoCheckout
+                kind="subscription"
+                subscribe
+                amount={subscribeAmount}
+                memberNumber={profile?.memberId}
+                concept={`Suscripción cuota social · ${profile?.name || 'socio'}`}
+                disabled={standingPending || subscribeAmount <= 0}
+                onApproved={() => setMessage('Adhesión lista. Mercado Pago debitará la cuota cada mes, el día 10.')}
+              />
+            )}
+          </article>
         </div>
-        {method === 'mercadopago' ? (
-          <MercadoPagoCheckout
-            kind="dues"
-            amount={payable}
-            memberNumber={profile?.memberId}
-            concept={`Cuota social · ${profile?.name || 'socio'}`}
-            disabled={standingPending || payable <= 0}
-            onApproved={() => setMessage('Pago acreditado. Ya figura en tu cuenta.')}
-          />
-        ) : null}
-        {method === 'transferencia' && bank ? (
+        {bank ? (
           <div className="pay-hist-transfer">
+            <h3>Transferencia al club</h3>
             <p><strong>{bank.name}</strong> · {bank.accountName}</p>
             <p>CBU {bank.cbu}</p>
             <p>Alias {bank.alias}</p>
@@ -288,22 +293,20 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
               <input type="file" accept="image/jpeg,image/png,application/pdf,.jpg,.jpeg,.png,.pdf" onChange={handleReceipt} />
             </label>
             {receiptPreview ? <img src={receiptPreview} alt="Vista previa del comprobante" /> : null}
+            <div className="pay-hist-payrow">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={standingPending || paying || payable <= 0 || notifiedKey === noticeKey}
+                onClick={() => {
+                  setMethod('transferencia');
+                  void handleNotify();
+                }}
+              >
+                {paying ? 'Enviando…' : notifiedKey === noticeKey ? 'Avisado' : actionLabel}
+              </button>
+            </div>
           </div>
-        ) : null}
-        {method === 'debito' ? (
-          subscribed ? (
-            <p className="pay-hist-note">Ya estás adherido al débito automático de Mercado Pago. Cada mes se cobra la cuota.</p>
-          ) : (
-            <MercadoPagoCheckout
-              kind="subscription"
-              subscribe
-              amount={payable || summary.nextAmount}
-              memberNumber={profile?.memberId}
-              concept={`Suscripción cuota social · ${profile?.name || 'socio'}`}
-              disabled={standingPending || (payable || summary.nextAmount) <= 0}
-              onApproved={() => setMessage('Adhesión lista. Mercado Pago debitará la cuota cada mes.')}
-            />
-          )
         ) : null}
         <div className="pay-hist-feedback" aria-live="polite">
           {message ? <div className="pay-hist-ok">{message}</div> : null}
