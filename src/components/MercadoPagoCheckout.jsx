@@ -75,9 +75,6 @@ export default function MercadoPagoCheckout({
         channel: mpChannelFor({ kind: nextKind, mode, subscribe }),
       });
       setCheckout(created);
-      if (mode === 'redirect' && created.initPoint) {
-        window.location.assign(created.initPoint);
-      }
     } catch (err) {
       setError(err.message || 'No se pudo abrir Mercado Pago.');
     } finally {
@@ -104,7 +101,7 @@ export default function MercadoPagoCheckout({
           onClick={() => { void start(subscribe ? 'subscription' : kind); }}
         >
           {busy ? <Loader2 size={16} className="mp-spin" /> : <CreditCard size={16} />}
-          {busy ? (onsite ? 'Generando QR…' : 'Abriendo Mercado Pago…') : action}
+          {busy ? 'Generando código…' : action}
         </button>
       ) : null}
 
@@ -117,14 +114,14 @@ export default function MercadoPagoCheckout({
             <strong><QrCode size={14} /> {onsite ? 'QR de mostrador' : 'Mercado Pago'}</strong>
             <p>
               {subscribe
-                ? 'El socio autoriza el débito mensual. Queda adherido cuando Mercado Pago confirma.'
+                ? 'Escaneá el código o abrí Mercado Pago. El débito queda cuando confirma, el día 10.'
                 : onsite
                   ? `${formatCurrency(amount)}. El socio escanea con la app de Mercado Pago. El cobro se acredita solo cuando confirma.`
-                  : `${formatCurrency(amount)}. El cobro se acredita solo cuando Mercado Pago confirma.`}
+                  : `${formatCurrency(amount)}. Escaneá el código o abrí Mercado Pago. El cobro se acredita cuando confirma.`}
             </p>
-            {checkout.initPoint && !onsite && mode !== 'redirect' ? (
+            {checkout.initPoint && !onsite ? (
               <a className="btn btn-secondary btn-sm" href={checkout.initPoint} target="_blank" rel="noreferrer">
-                Abrir pago
+                {subscribe ? 'Abrir adhesión' : 'Abrir pago'}
               </a>
             ) : null}
           </div>
