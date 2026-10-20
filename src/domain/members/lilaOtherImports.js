@@ -416,114 +416,239 @@ export function computeFamilyGroupTotals(balances) {
 }
 
 // =============================================================================
-// COBRANZAS (RECAUDADO) - Hook for future import
+// COBRANZAS (RECAUDADO) - Lila "Reporte de Cobranzas" import
 // =============================================================================
 
 /**
- * Parse cobranzas (payment receipts) export.
- *
- * Expected file: cobranzas_octubre_2026.csv or .xlsx
- * Expected format (TBD - will be defined when owner provides export):
- *   - Date/Fecha
- *   - NRO DE SOCIO
- *   - NOMBRE/APELLIDO
- *   - MONTO
- *   - MEDIO DE PAGO (Efectivo, Transferencia, Débito, Crédito, MercadoPago, etc.)
- *   - CONCEPTO (Cuota Social, Cuota Deportiva, etc.)
- *
- * @param {Array} rows - Parsed CSV/XLSX rows
- * @param {Object} options - { periodKey: '2026-10', asOfDate: '2026-10-20' }
- * @returns {{ payments: Array, totals: Object, droppedRows: Array }}
+ * Find header row in cobranzas sheet.
+ * Header is "Tipo | ID Recibo | Fecha | Mes | Año | NRO DE SOCIO | ..."
  */
-export function parseCobranzas(rows, options = {}) {
+export function findCobranzasHeaderRow(aoa) {
+  for (let i = 0; i < Math.min(aoa?.length || 0, 15); i++) {
+    const row = aoa[i] || [];
+    const col0 = String(row[0] || '').trim();
+    const col1 = String(row[1] || '').trim();
+    if (col0 === 'Tipo' && col1 === 'ID Recibo') {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Parse Lila "Reporte de Cobranzas" export (XLSX).
+ *
+ * File format (header on row 8, 0-indexed):
+ *   Col 0: Tipo (Cuotas, Recargos, Varios, Eventos)
+ *   Col 1: ID Recibo
+ *   Col 2: Fecha (Excel serial date)
+ *   Col 3: Mes
+ *   Col 4: Año
+ *   Col 5: NRO DE SOCIO
+ *   Col 6: NOMBRE
+ *   Col 7: APELLIDO
+ *   Col 8: DNI
+ *   Col 9: Concepto
+ *   Col 10-16: Payment method columns (do not sum - repeat per receipt line)
+ *   Col 17: Importe total
+ *
+ * @param {Array} aoa - Array of arrays from XLSX
+ * @param {Object} options - { targetPeriodKey: '2026-10' }
+ * @returns {{ payments: Array, droppedRows: Array, summary: Object, dateRange: Object }}
+ */
+export function parseCobranzas(aoa, options = {}) {
+  const { targetPeriodKey = '2026-10' } = options;
+  const headerIdx = findCobranzasHeaderRow(aoa);
+
+  if (headerIdx < 0) {
+    return {
+      payments: [],
+      droppedRows: [],
+      summary: null,
+      dateRange: null,
+      error: 'No se encontró la fila de encabezado (Tipo | ID Recibo)',
+    };
+  }
+
   const payments = [];
   const droppedRows = [];
-  // Options will be used when implementation is complete
-  void options;
+  let minDate = null;
+  let maxDate = null;
 
-  // TODO: Implement when owner provides cobranzas export format
-  // This is a placeholder structure for the expected data
+  // Extract target month/year for period matching
+  const [targetYear, targetMonth] = targetPeriodKey.split('-');
+  const targetMonthName = {
+    '01': 'Enero', '02': 'Febrero', '03': 'Marzo', '04': 'Abril',
+    '05': 'Mayo', '06': 'Junio', '07': 'Julio', '08': 'Agosto',
+    '09': 'Septiembre', '10': 'Octubre', '11': 'Noviembre', '12': 'Diciembre',
+  }[targetMonth] || '';
+  const targetPeriodPrefix = `${targetMonthName} del ${targetYear}`;
 
-  /*
-  Example expected implementation:
+  for (let i = headerIdx + 1; i < aoa.length; i++) {
+    const row = aoa[i] || [];
+    const tipo = String(row[0] || '').trim();
 
-  for (let idx = 0; idx < rows.length; idx++) {
-    const row = rows[idx];
-    if (!row) continue;
+    if (!tipo) continue;
 
-    const memberNumber = row['NRO DE SOCIO'] || row.nro_socio;
-    if (!memberNumber || !/^\d+$/.test(String(memberNumber).trim())) {
-      droppedRows.push({ ...row, reason: 'invalid member number', rowIndex: idx });
+    const reciboId = String(row[1] || '').trim();
+    const excelDate = row[2];
+    const mes = row[3];
+    const anio = row[4];
+    const memberNumber = row[5] != null ? String(row[5]).trim() : '';
+    const nombre = String(row[6] || '').trim();
+    const apellido = String(row[7] || '').trim();
+    const dni = row[8] != null ? String(row[8]).replace(/\D/g, '') : null;
+    const concepto = String(row[9] || '').trim();
+    const importeTotal = parseFloat(row[17]) || 0;
+
+    // Parse Excel date
+    let fecha = null;
+    if (typeof excelDate === 'number') {
+      const date = new Date((excelDate - 25569) * 86400 * 1000);
+      if (!Number.isNaN(date.getTime())) {
+        fecha = date.toISOString().slice(0, 10);
+        if (!minDate || date < minDate) minDate = date;
+        if (!maxDate || date > maxDate) maxDate = date;
+      }
+    }
+
+    // Check if member number is valid
+    if (!memberNumber || !/^\d+$/.test(memberNumber)) {
+      if (tipo && importeTotal !== 0) {
+        droppedRows.push({
+          rowIndex: i,
+          tipo,
+          reciboId,
+          rawMemberNumber: memberNumber,
+          nombre,
+          apellido,
+          concepto,
+          importeTotal,
+          reason: 'non-numeric nro_socio',
+        });
+      }
       continue;
     }
 
-    const monto = parseFloat(row.monto || row.MONTO) || 0;
-    const medioPago = String(row.medio_pago || row['MEDIO DE PAGO'] || '').trim();
-    const concepto = String(row.concepto || row.CONCEPTO || '').trim();
+    // Determine if this payment counts toward target period recaudado
+    // Rule: Cuotas where concepto starts with "Octubre del 2026" (or target period)
+    //       + Recargos where concepto contains "Octubre del 2026"
+    const isTargetPeriodCuota = tipo === 'Cuotas' && concepto.startsWith(targetPeriodPrefix);
+    const isTargetPeriodRecargo = tipo === 'Recargos' && concepto.includes(targetPeriodPrefix);
+    const countsForRecaudado = isTargetPeriodCuota || isTargetPeriodRecargo;
 
     payments.push({
-      memberNumber: String(memberNumber).trim(),
-      nombre: row.nombre || row.NOMBRE,
-      apellido: row.apellido || row.APELLIDO,
-      monto,
-      medioPago,
+      tipo,
+      reciboId,
+      fecha,
+      mes,
+      anio,
+      memberNumber,
+      nombre,
+      apellido,
+      dni,
       concepto,
-      fecha: row.fecha || row.FECHA,
-      periodKey,
-      asOfDate,
+      importeTotal,
+      countsForRecaudado,
+      isTargetPeriodCuota,
+      isTargetPeriodRecargo,
     });
   }
-  */
+
+  // Compute summary by tipo and recaudado
+  const summary = {
+    byTipo: {},
+    recaudado: 0,
+    recaudadoCuotas: 0,
+    recaudadoRecargos: 0,
+    totalImporteTotal: 0,
+    paymentsCount: payments.length,
+    receiptsCount: new Set(payments.map(p => p.reciboId)).size,
+  };
+
+  for (const p of payments) {
+    summary.byTipo[p.tipo] = (summary.byTipo[p.tipo] || 0) + p.importeTotal;
+    summary.totalImporteTotal += p.importeTotal;
+
+    if (p.countsForRecaudado) {
+      summary.recaudado += p.importeTotal;
+      if (p.isTargetPeriodCuota) summary.recaudadoCuotas += p.importeTotal;
+      if (p.isTargetPeriodRecargo) summary.recaudadoRecargos += p.importeTotal;
+    }
+  }
+
+  // Round to avoid floating point issues
+  summary.recaudado = Math.round(summary.recaudado * 100) / 100;
+  summary.recaudadoCuotas = Math.round(summary.recaudadoCuotas * 100) / 100;
+  summary.recaudadoRecargos = Math.round(summary.recaudadoRecargos * 100) / 100;
+  summary.totalImporteTotal = Math.round(summary.totalImporteTotal * 100) / 100;
+
+  const dateRange = {
+    from: minDate ? minDate.toISOString().slice(0, 10) : null,
+    to: maxDate ? maxDate.toISOString().slice(0, 10) : null,
+  };
 
   return {
     payments,
     droppedRows,
-    error: 'parseCobranzas() not yet implemented - awaiting Lila cobranzas export format',
+    summary,
+    dateRange,
+    targetPeriodKey,
+    targetPeriodPrefix,
+    error: null,
   };
 }
 
 /**
- * Compute cobranzas totals.
+ * Compute cobranzas totals with dropped rows analysis.
  */
-export function computeCobranzasTotals(payments, droppedRows = []) {
-  let sumRecaudado = 0;
-  const byMedioPago = {};
-  const byConcepto = {};
+export function computeCobranzasTotals(summary, droppedRows = []) {
+  let droppedRecaudado = 0;
+  let droppedCuotas = 0;
+  let droppedRecargos = 0;
 
-  for (const p of payments) {
-    sumRecaudado += p.monto || 0;
-    byMedioPago[p.medioPago] = (byMedioPago[p.medioPago] || 0) + (p.monto || 0);
-    byConcepto[p.concepto] = (byConcepto[p.concepto] || 0) + (p.monto || 0);
-  }
-
-  let droppedTotal = 0;
   for (const d of droppedRows) {
-    droppedTotal += d.monto || 0;
+    const concepto = d.concepto || '';
+    const importe = d.importeTotal || 0;
+
+    // Check if dropped row would have counted for recaudado
+    // (same logic as in parseCobranzas)
+    if (d.tipo === 'Cuotas' && concepto.match(/^(Enero|Febrero|Marzo|Abril|Mayo|Junio|Julio|Agosto|Septiembre|Octubre|Noviembre|Diciembre) del \d{4}/)) {
+      droppedRecaudado += importe;
+      droppedCuotas += importe;
+    }
+    if (d.tipo === 'Recargos' && concepto.match(/Recargo:.*del \d{4}/)) {
+      droppedRecaudado += importe;
+      droppedRecargos += importe;
+    }
   }
 
   return {
-    recaudado: Math.round(sumRecaudado * 100) / 100,
-    paymentsCount: payments.length,
+    ...summary,
     droppedRowsCount: droppedRows.length,
-    droppedTotal: Math.round(droppedTotal * 100) / 100,
-    byMedioPago,
-    byConcepto,
+    droppedRecaudado: Math.round(droppedRecaudado * 100) / 100,
+    droppedCuotas: Math.round(droppedCuotas * 100) / 100,
+    droppedRecargos: Math.round(droppedRecargos * 100) / 100,
   };
 }
 
 /**
- * Transform cobranza to DB row.
+ * Transform cobranza payment to DB row.
  */
-export function cobranzaToDbRow(payment) {
+export function cobranzaToDbRow(payment, asOfDate) {
   return {
+    tipo: payment.tipo,
+    recibo_id: payment.reciboId,
+    fecha: payment.fecha,
+    mes: payment.mes,
+    anio: payment.anio,
     member_number: payment.memberNumber,
     nombre: payment.nombre,
     apellido: payment.apellido,
-    monto: payment.monto,
-    medio_pago: payment.medioPago,
+    dni: payment.dni,
     concepto: payment.concepto,
-    fecha: payment.fecha,
-    period_key: payment.periodKey,
-    as_of_date: payment.asOfDate,
+    importe_total: payment.importeTotal,
+    counts_for_recaudado: payment.countsForRecaudado,
+    as_of_date: asOfDate,
   };
 }

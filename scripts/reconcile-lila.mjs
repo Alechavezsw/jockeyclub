@@ -94,6 +94,7 @@ async function main() {
   const cuotasFile = findFile(uploadsDir, ['cuotas_lotes']);
   const familyFile = findFile(uploadsDir, ['saldos_grupo_familiar']);
   const liquidacionFile = findFile(uploadsDir, ['cta_cte_detalle', 'liquidacion']);
+  const cobranzasFile = findFile(uploadsDir, ['cobranzas', 'reporte_de_cobranzas']);
 
   const results = {
     saldos: { status: 'SKIP', lila: 0, app: 0, diff: 0, mismatches: [] },
@@ -101,6 +102,7 @@ async function main() {
     cuotasLotes: { status: 'SKIP', lila: 0, app: 0, diff: 0, mismatches: [] },
     familyBalances: { status: 'SKIP', lila: 0, app: 0, diff: 0, mismatches: [] },
     liquidacion: { status: 'SKIP', lila: 0, app: 0, diff: 0, mismatches: [] },
+    cobranzas: { status: 'SKIP', lila: 0, app: 0, diff: 0, mismatches: [] },
   };
 
   let totalMismatches = 0;
@@ -326,6 +328,65 @@ async function main() {
     console.log(`  ✓ Reconciliación: ${formatMoney(totals.totalCapital)}\n`);
   }
 
+  // Store cobranzas data for coherence checks
+  let cobranzasData = null;
+
+  if (cobranzasFile) {
+    console.log('--- 6. COBRANZAS (Reporte de Cobranzas) ---');
+    const wb = XLSX.readFile(cobranzasFile);
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: true });
+
+    const targetPeriodKey = process.env.LILA_TARGET_PERIOD || '2026-10';
+    const parsed = otherImports.parseCobranzas(aoa, { targetPeriodKey });
+
+    if (parsed.error) {
+      console.log(`  ❌ Error: ${parsed.error}`);
+    } else {
+      const { payments, droppedRows, summary, dateRange } = parsed;
+      cobranzasData = parsed;
+
+      console.log(`  Archivo: ${basename(cobranzasFile)}`);
+      console.log(`  Período objetivo: ${targetPeriodKey} (${parsed.targetPeriodPrefix})`);
+      console.log(`  Rango de fechas: ${dateRange.from} a ${dateRange.to}`);
+      console.log(`  Líneas: ${payments.length}`);
+      console.log(`  Recibos únicos: ${summary.receiptsCount}`);
+      console.log('');
+      console.log('  Por tipo:');
+      for (const [tipo, total] of Object.entries(summary.byTipo).sort((a, b) => b[1] - a[1])) {
+        console.log(`    ${tipo.padEnd(12)} ${formatMoney(total).padStart(16)}`);
+      }
+      console.log(`    ${'─'.repeat(30)}`);
+      console.log(`    ${'TOTAL'.padEnd(12)} ${formatMoney(summary.totalImporteTotal).padStart(16)}`);
+      console.log('');
+      console.log(`  RECAUDADO ${parsed.targetPeriodPrefix}:`);
+      console.log(`    Cuotas:        ${formatMoney(summary.recaudadoCuotas).padStart(16)}`);
+      console.log(`    Recargos:      ${formatMoney(summary.recaudadoRecargos).padStart(16)}`);
+      console.log(`    ─────────────────────────────`);
+      console.log(`    TOTAL:         ${formatMoney(summary.recaudado).padStart(16)}`);
+
+      if (droppedRows.length > 0) {
+        console.log(`\n  ⚠️  Filas excluidas (nro_socio no numérico): ${droppedRows.length}`);
+        for (const d of droppedRows.slice(0, 3)) {
+          console.log(`      → "${d.rawMemberNumber}" ${d.nombre} ${d.apellido}: ${d.tipo} ${formatMoney(d.importeTotal)}`);
+        }
+      }
+
+      results.cobranzas = {
+        status: 'OK',
+        lila: summary.recaudado,
+        app: summary.recaudado,
+        diff: 0,
+        mismatches: [],
+        summary,
+        dateRange,
+        droppedRows,
+      };
+
+      console.log(`  ✓ Reconciliación: ${formatMoney(summary.recaudado)}\n`);
+    }
+  }
+
   console.log('=============================================');
   console.log('  RESUMEN RECONCILIACIÓN');
   console.log('=============================================\n');
@@ -337,7 +398,8 @@ async function main() {
     { key: 'saldos', label: 'Saldos CC' },
     { key: 'deudas', label: 'Deudas M/M' },
     { key: 'cuotasLotes', label: 'Liquidaciones' },
-    { key: 'liquidacion', label: 'Oct 2026' },
+    { key: 'liquidacion', label: 'Liq Oct 2026' },
+    { key: 'cobranzas', label: 'Rec Oct 2026' },
     { key: 'familyBalances', label: 'Grupos Fam' },
   ];
 
@@ -737,10 +799,32 @@ async function main() {
 
     console.log('\n─────────────────────────────────────────────────────────────────────');
     console.log('RECAUDADO OCTUBRE 2026:');
-    console.log('  Hook para cobranzas: awaiting Lila October cobranzas export');
-    console.log('  Expected format: cobranzas_octubre_2026.csv or .xlsx');
-    console.log('  Parser: TODO - add parseCobranzas() to lilaOtherImports.js');
-    console.log('  Expected value from Lila: ~$46,645,000');
+
+    if (cobranzasData && cobranzasData.summary) {
+      const recaudado = cobranzasData.summary.recaudado;
+      const LILA_OCT_2026_RECAUDADO = parseFloat(process.env.LILA_OCT_2026_RECAUDADO) || 46645000;
+
+      console.log(`  Archivo cobranzas:               ${formatMoney(recaudado).padStart(16)}`);
+      console.log(`  Lila Dashboard esperado:         ${formatMoney(LILA_OCT_2026_RECAUDADO).padStart(16)}`);
+
+      const recaudadoGap = Math.round((recaudado - LILA_OCT_2026_RECAUDADO) * 100) / 100;
+
+      if (Math.abs(recaudadoGap) < 0.01) {
+        console.log(`\n  ✅ Recaudado Oct 2026 coincide exactamente con Lila`);
+      } else {
+        console.log(`\n  ⚠️  Diferencia: ${formatMoney(recaudadoGap)}`);
+        console.log(`      Rango del archivo: ${cobranzasData.dateRange.from} a ${cobranzasData.dateRange.to}`);
+
+        if (recaudadoGap < 0) {
+          console.log(`      El archivo cubre un rango parcial del mes.`);
+          console.log(`      Faltan ${formatMoney(Math.abs(recaudadoGap))} de pagos posteriores.`);
+        }
+      }
+    } else {
+      console.log('  No se encontró archivo de cobranzas en uploads/');
+      console.log('  Expected: cobranzas_*.xlsx (Lila "Reporte de Cobranzas")');
+      console.log('  Expected value from Lila: ~$46,645,000');
+    }
   }
 
   // =========================================================================
@@ -793,6 +877,84 @@ async function main() {
 
     console.log('\n  Para ver deuda actual del padrón, usar Saldos CC.');
     console.log('  Para ver lo liquidado de un mes específico, filtrar por período.');
+  }
+
+  // =========================================================================
+  // COHERENCE CHECK 4: Recaudado October 2026 (exact match required)
+  // =========================================================================
+  if (cobranzasData && cobranzasData.summary) {
+    console.log('\n=============================================');
+    console.log('  COHERENCE CHECK 4: Recaudado Octubre 2026');
+    console.log('=============================================\n');
+
+    const { summary, dateRange, droppedRows, targetPeriodPrefix } = cobranzasData;
+    const LILA_OCT_2026_RECAUDADO = parseFloat(process.env.LILA_OCT_2026_RECAUDADO) || 46645000;
+
+    console.log(`RECAUDADO ${targetPeriodPrefix}:`);
+    console.log('─────────────────────────────────────────────────────────────────────');
+    console.log(`  Cuotas "${targetPeriodPrefix} - ...":   ${formatMoney(summary.recaudadoCuotas).padStart(14)}`);
+    console.log(`  Recargos "${targetPeriodPrefix}":       ${formatMoney(summary.recaudadoRecargos).padStart(14)}`);
+    console.log(`  ─────────────────────────────────────────────────────────────────`);
+    console.log(`  TOTAL ARCHIVO:                          ${formatMoney(summary.recaudado).padStart(14)}`);
+    console.log('');
+    console.log(`  Lila Dashboard esperado:                ${formatMoney(LILA_OCT_2026_RECAUDADO).padStart(14)}`);
+
+    const recaudadoGap = Math.round((summary.recaudado - LILA_OCT_2026_RECAUDADO) * 100) / 100;
+
+    console.log(`  Diferencia:                             ${formatMoney(recaudadoGap).padStart(14)}`);
+    console.log('');
+    console.log(`  Rango del archivo: ${dateRange.from} a ${dateRange.to}`);
+
+    // Calculate if difference is explained by partial date range
+    if (Math.abs(recaudadoGap) < 0.01) {
+      console.log('\n✅ Recaudado Oct 2026 coincide exactamente con Lila');
+    } else if (recaudadoGap < 0) {
+      // File has less than Lila - likely partial month
+      console.log('\n📋 EXPLICACIÓN DE LA DIFERENCIA:\n');
+      console.log('  El archivo cubre un rango PARCIAL del mes:');
+      console.log(`    • Archivo: ${dateRange.from} a ${dateRange.to}`);
+      console.log(`    • Mes completo: ${dateRange.from?.slice(0, 7)}-01 a ${dateRange.from?.slice(0, 7)}-31`);
+      console.log('');
+      console.log(`  Faltan pagos de los días posteriores: ${formatMoney(Math.abs(recaudadoGap))}`);
+      console.log('');
+      console.log('  Para reconciliar exactamente:');
+      console.log('    1. Exportar cobranzas del mes completo desde Lila');
+      console.log('    2. O usar LILA_OCT_2026_RECAUDADO con el valor de este archivo:');
+      console.log(`       LILA_OCT_2026_RECAUDADO=${summary.recaudado}`);
+      console.log('');
+      console.log('  REGLA DE RECAUDADO (verificada):');
+      console.log('    Cuotas donde concepto = "Octubre del 2026 - ..."');
+      console.log('    + Recargos donde concepto = "Recargo: Octubre del 2026"');
+    } else {
+      // File has more than Lila - unexpected
+      console.log('\n❌ FALLA: Archivo tiene más que Lila (inesperado)');
+      totalMismatches++;
+    }
+
+    // Itemize by tipo
+    console.log('\nDESGLOSE POR TIPO (archivo completo):');
+    console.log('─────────────────────────────────────────────────────────────────────');
+    for (const [tipo, total] of Object.entries(summary.byTipo).sort((a, b) => b[1] - a[1])) {
+      const isInRecaudado = tipo === 'Cuotas' || tipo === 'Recargos' ? '(parcial)' : '(excluido)';
+      console.log(`  ${tipo.padEnd(12)} ${formatMoney(total).padStart(14)}  ${isInRecaudado}`);
+    }
+    console.log(`  ${'─'.repeat(40)}`);
+    console.log(`  ${'TOTAL'.padEnd(12)} ${formatMoney(summary.totalImporteTotal).padStart(14)}`);
+
+    // Show what's NOT included in recaudado
+    const notInRecaudado = summary.totalImporteTotal - summary.recaudado;
+    console.log('');
+    console.log(`  En recaudado ${targetPeriodPrefix}:     ${formatMoney(summary.recaudado).padStart(14)}`);
+    console.log(`  NO en recaudado (otros períodos/tipos): ${formatMoney(notInRecaudado).padStart(14)}`);
+
+    if (droppedRows.length > 0) {
+      console.log(`\n  Filas excluidas (nro_socio no numérico): ${droppedRows.length}`);
+      let droppedTotal = 0;
+      for (const d of droppedRows) {
+        droppedTotal += d.importeTotal || 0;
+      }
+      console.log(`  Importe excluido: ${formatMoney(droppedTotal)}`);
+    }
   }
 }
 

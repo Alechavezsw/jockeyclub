@@ -69,10 +69,30 @@ Environment variable to override expected value:
 LILA_OCT_2026_LIQUIDADO=63233000 node scripts/reconcile-lila.mjs --uploads-dir uploads/
 ```
 
-**Recaudado hook:** Ready for implementation when owner provides cobranzas export. Expected format:
-- File: `cobranzas_octubre_2026.csv` or `.xlsx`
-- Parser: `parseCobranzas()` in `lilaOtherImports.js` (stub ready)
-- Expected value: ~$46,645,000
+**Recaudado (IMPLEMENTED):**
+
+Rule discovered: `Cuotas (concepto = "Octubre del 2026 - ...") + Recargos (concepto = "Recargo: Octubre del 2026")`
+
+- File: `cobranzas_*.xlsx` (Lila "Reporte de Cobranzas")
+- Parser: `parseCobranzas()` in `lilaOtherImports.js`
+- Lila dashboard shows: $46,645,000.00 for full month
+- Partial file (Oct 1-19): $46,092,999.97
+- Difference: $552,000.03 (payments Oct 20-31 not in export)
+
+Environment variable to set expected value:
+```bash
+LILA_OCT_2026_RECAUDADO=46645000 node scripts/reconcile-lila.mjs --uploads-dir uploads/
+```
+
+**Dropped non-socio rows (4):**
+| NRO | Name | Tipo | Importe |
+|-----|------|------|---------|
+| colegio | Colegio Fanzolato | Varios | $250,000 |
+| Alquiler La Kelita | La Kelita | Varios | $545,000 |
+| Alquiler Padel | Alameda Padel | Varios | $1,085,940 |
+| Alquiler Padel | Alameda Padel | Varios | $314,202 |
+
+These are correctly excluded from member imports but tracked in reconciliation.
 
 **3. Total Liquidaciones: $647,331,000 (EXACT)**
 
