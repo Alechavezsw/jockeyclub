@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { formatMonthsBehind } from '../domain/members/dues';
+import { formatMonthsBehind, isDuesExemptMember } from '../domain/members/dues';
 import {
   getMemberPaymentHistory,
   summarizePaymentHistory,
@@ -103,6 +103,13 @@ export function useMemberDuesStanding(member) {
   const memberForHistory = useMemo(() => {
     if (!member) return member;
     const base = remoteFicha ? { ...member, ...remoteFicha } : member;
+    if (isDuesExemptMember(base)) {
+      return {
+        ...base,
+        paymentHistory: remoteHistory.length ? remoteHistory : (base.paymentHistory || []),
+        outstandingBalance: 0,
+      };
+    }
     if (isSupabaseConfigured) {
       return {
         ...base,
@@ -126,7 +133,7 @@ export function useMemberDuesStanding(member) {
   );
   const summary = useMemo(() => {
     const fromHistory = summarizePaymentHistory(history, memberForHistory, { today });
-    if (history.length > 0 || !persisted) return fromHistory;
+    if (isDuesExemptMember(memberForHistory) || history.length > 0 || !persisted) return fromHistory;
     const outstanding = Number(persisted.outstanding) || 0;
     const monthsBehind = Number(persisted.monthsBehind) || 0;
     return {
@@ -155,6 +162,8 @@ export function useMemberDuesStanding(member) {
     loading,
     pending,
     lateLabel: formatMonthsBehind(summary.monthsBehind),
-    behind: !pending && ((summary.monthsBehind || 0) > 0 || (summary.outstanding || 0) > 0),
+    behind: !pending
+      && !isDuesExemptMember(memberForHistory)
+      && ((summary.monthsBehind || 0) > 0 || (summary.outstanding || 0) > 0),
   };
 }

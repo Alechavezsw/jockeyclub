@@ -1,6 +1,8 @@
 /** Comprobante automático cuando Mercado Pago acredita la cuota. */
 
-export const PORTAL_ACCOUNT = 'https://jockeyclubsj.com.ar/cuenta';
+import { portalAccountUrl } from './selfService';
+
+export const PORTAL_ACCOUNT = portalAccountUrl();
 
 export function shouldIssueMpDuesReceipt(kind) {
   const next = String(kind || '').toLowerCase();

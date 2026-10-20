@@ -320,6 +320,7 @@ export function upcomingDuesHorizonDays(today = new Date()) {
 
 /** Cuota social impaga (con recargo desde el 11), sin mezclar alquiler ni otros cargos. */
 export function unpaidSocialDuesAmount(member, today = new Date()) {
+  if (isDuesExemptMember(member)) return 0;
   const todayStart = startOfDay(today);
   const first = parseDate(firstUnpaidDuesDate({
     lastPaymentDate: member?.lastPaymentDate,

@@ -7,7 +7,7 @@ const corsHeaders = {
 };
 
 const AR_TZ = "America/Argentina/San_Juan";
-const PORTAL_ACCOUNT = "https://jockeyclubsj.com.ar/cuenta";
+const PORTAL_ACCOUNT = "https://www.jockeyclubsj.com.ar/cuenta";
 const DEFAULT_FROM = "Jockey Club San Juan <socios@jockeyclubsj.com.ar>";
 const MORA_CONSEQUENCES = [
   "A partir del día 11, socio familiar y socio individual pagan un recargo del 10 %.",

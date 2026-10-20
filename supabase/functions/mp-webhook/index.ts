@@ -7,7 +7,7 @@ const corsHeaders = {
 };
 
 const AR_TZ = "America/Argentina/San_Juan";
-const PORTAL_ACCOUNT = "https://jockeyclubsj.com.ar/cuenta";
+const PORTAL_ACCOUNT = "https://www.jockeyclubsj.com.ar/cuenta";
 const DEFAULT_FROM = "Jockey Club San Juan <socios@jockeyclubsj.com.ar>";
 
 type Admin = ReturnType<typeof createClient>;

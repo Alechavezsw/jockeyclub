@@ -21,6 +21,7 @@ import {
   monthsBehindOnDues,
   firstUnpaidDuesDate,
   formatMonthsBehind,
+  unpaidSocialDuesAmount,
 } from './dues';
 import { setRuntimeTierCatalog } from './tiers';
 import { setRuntimeDiscountRules } from '../accounting/discountApplication';
@@ -211,6 +212,20 @@ describe('dues classification', () => {
     expect(quota.title).toBe('Vitalicio');
     expect(quota.billing).toBe(false);
     expect(quota.kind).toBe('off');
+    expect(unpaidSocialDuesAmount({
+      tier: 'socio_vitalicio',
+      lastPaymentDate: '2026-07-13',
+      nextDueDate: '2026-08-10',
+      outstandingBalance: 32000,
+    }, new Date('2026-10-20T12:00:00'))).toBe(0);
+    expect(getOverdueMembers([{
+      memberId: 'v1',
+      name: 'Vitalicia',
+      tier: 'socio_vitalicio',
+      outstandingBalance: 32000,
+      status: 'active',
+      nextDueDate: '2026-08-10',
+    }], new Date('2026-10-20T12:00:00'))).toHaveLength(0);
   });
 
   it('un saldo de cuenta no es mora si la cuota todavía no venció', () => {

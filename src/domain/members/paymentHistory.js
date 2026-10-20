@@ -3,6 +3,7 @@ import {
   duesAmountForMember,
   duesAmountForTier,
   firstUnpaidDuesDate,
+  isDuesExemptMember,
   monthsBehindOnDues,
 } from './dues';
 
@@ -53,6 +54,7 @@ function paymentAmount(row) {
  * El grupo familiar se liquida aparte en administración.
  */
 export function referenceMonthlyDues(member, history = [], on = new Date()) {
+  if (isDuesExemptMember(member)) return 0;
   const fromPay = (history || []).find((p) => paymentAmount(p) > 0);
   if (fromPay) return paymentAmount(fromPay);
   const fromTier = duesAmountForTier(member?.tier, undefined, on);
@@ -173,6 +175,19 @@ export function summarizePaymentHistory(history = [], member, { today = new Date
   const totalPaid = paid.reduce((s, p) => s + (Number(p.amount) || 0), 0);
   const last = paid[0] || null;
   const lastDuesDate = latestDuesPaymentDate(paid, member);
+  if (isDuesExemptMember(member)) {
+    return {
+      totalPaid,
+      paymentsCount: paid.length,
+      lastPayment: last,
+      lastDuesDate,
+      monthsBehind: 0,
+      outstanding: 0,
+      nextDue: null,
+      nextAmount: 0,
+      monthlyReference: 0,
+    };
+  }
   const monthsBehind = monthsBehindOnDues({
     lastPaymentDate: lastDuesDate,
     nextDueDate: member?.nextDueDate,

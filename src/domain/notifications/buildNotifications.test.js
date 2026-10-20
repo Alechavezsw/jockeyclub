@@ -118,6 +118,23 @@ describe('buildNotifications', () => {
     expect(list[0].id).toBe('dues-overdue-111-2026-07-10');
   });
 
+  it('vitalicio no recibe aviso de mora ni de cuota pendiente', () => {
+    const list = buildNotifications({
+      role: 'member',
+      memberId: '111',
+      member: {
+        memberId: '111',
+        status: 'active',
+        tier: 'socio_vitalicio',
+        nextDueDate: '2026-07-10',
+        outstandingBalance: 32000,
+        notifyDues: true,
+      },
+      todayIso: '2026-10-20',
+    });
+    expect(list.some((n) => n.kind === 'dues')).toBe(false);
+  });
+
   it('cinco días antes avisa que está por vencer', () => {
     const list = buildNotifications({
       role: 'member',

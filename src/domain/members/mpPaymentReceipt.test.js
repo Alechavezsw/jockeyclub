@@ -42,6 +42,7 @@ describe('mpPaymentReceipt', () => {
     expect(copy.text).toMatch(/70\.000/);
     expect(copy.html).toMatch(/Comprobante de pago/);
     expect(copy.html).toMatch(/MP-a1b2c3d4/);
+    expect(copy.html).toMatch(/https:\/\/www\.jockeyclubsj\.com\.ar\/cuenta/);
   });
 
   it('no manda mail a alias que rebotan', () => {

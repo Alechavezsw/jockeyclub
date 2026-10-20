@@ -1,5 +1,9 @@
 /** Avisos reales de cuota: 5 días antes, el 10 (vence) y el 11 (mora). Mensaje interno + mail. */
 
+import { portalAccountUrl } from './selfService';
+
+export const DUES_NOTICE_ACCOUNT_URL = portalAccountUrl();
+
 export const DUES_NOTICE_STAGES = ['upcoming', 'due', 'mora'];
 export const DUES_NOTICE_ADVANCE_DAYS = 5;
 
@@ -64,12 +68,14 @@ export function duesNoticeCopy({ name, dueOn, stage }) {
   const when = longDueDate(dueOn);
   const consequences = MORA_CONSEQUENCES.join(' ');
   const greeting = `Hola ${String(name || '').trim() || 'socio'},`;
+  const accountUrl = DUES_NOTICE_ACCOUNT_URL;
   if (stage === 'upcoming') {
     return {
       greeting,
       subject: `Tu cuota vence el ${when}`,
       lead: `Faltan 5 días: el ${when} vence la cuota social del Jockey Club San Juan.`,
       consequences,
+      accountUrl,
     };
   }
   if (stage === 'mora') {
@@ -78,6 +84,7 @@ export function duesNoticeCopy({ name, dueOn, stage }) {
       subject: 'Tu cuota está en mora',
       lead: `El ${when} venció la cuota social y seguís sin regularizar. Ya estás en mora.`,
       consequences,
+      accountUrl,
     };
   }
   return {
@@ -85,5 +92,6 @@ export function duesNoticeCopy({ name, dueOn, stage }) {
     subject: 'Hoy vence tu cuota',
     lead: `Hoy, ${when}, vence la cuota social del Jockey Club San Juan. Si abonás hoy no lleva recargo.`,
     consequences,
+    accountUrl,
   };
 }

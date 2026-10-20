@@ -1,7 +1,7 @@
 import { filterAlertsForRole, isAlertAcknowledged } from '../alerts/alerts';
 import { MAILBOX } from '../messaging/messages';
 import { allowedAdminTabs } from '../auth/roles';
-import { isMemberBillingActive, nextDuesDueDate, pinDuesDueDate } from '../members/dues';
+import { isDuesExemptMember, isMemberBillingActive, nextDuesDueDate, pinDuesDueDate } from '../members/dues';
 import { formatISODateLongAR, todayISODateAR } from '../../lib/arDate';
 
 /**
@@ -22,7 +22,7 @@ function daysUntil(fromIso, toIso) {
 /** Día de cuota que corresponde avisar: el de la ficha, o el 10 si todavía no hay fecha. */
 export function memberDueOn(member, todayIso = todayISODateAR()) {
   if (!member || member.notifyDues === false) return null;
-  if (!isMemberBillingActive(member)) return null;
+  if (!isMemberBillingActive(member) || isDuesExemptMember(member)) return null;
   if (member.nextDueDate) return pinDuesDueDate(member.nextDueDate);
   return nextDuesDueDate(`${todayIso}T12:00:00`);
 }
@@ -144,7 +144,7 @@ export function buildNotifications({
         push(out, membersCanViewCurrentAccounts
           ? dueItem
           : { ...dueItem, view: 'profile', path: '/perfil' });
-      } else if (!dueItem && member.notifyDues !== false && (Number(member.outstandingBalance) || 0) > 0) {
+      } else if (!dueItem && member.notifyDues !== false && !isDuesExemptMember(member) && (Number(member.outstandingBalance) || 0) > 0) {
         const bal = Number(member.outstandingBalance) || 0;
         push(out, {
           id: `dues-debt-${member.memberId}-${bal}`,

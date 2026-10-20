@@ -14,6 +14,7 @@ import {
 import { downloadPaymentReceiptPdf } from '../domain/members/exportPaymentReceiptPdf';
 import { useMemberDuesStanding } from '../hooks/useMemberDuesStanding';
 import { CLUB_BANK_ACCOUNTS } from '../domain/members/clubBanks';
+import { isDuesExemptMember, quotaHeadline } from '../domain/members/dues';
 import { duesPaymentNotice } from '../domain/members/duesPaymentNotice';
 import { uploadDuesReceipt } from '../data/storage';
 import MercadoPagoCheckout from '../components/MercadoPagoCheckout';
@@ -56,8 +57,10 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
   } = useMemberDuesStanding(member);
   const profile = duesMember || member;
   const monthsLate = summary.monthsBehind || 0;
+  const quota = quotaHeadline(profile);
+  const duesExempt = isDuesExemptMember(profile) || !quota.billing;
   const alDia = !standingPending && !behind;
-  const payable = alDia ? summary.nextAmount : summary.outstanding;
+  const payable = duesExempt ? 0 : (alDia ? summary.nextAmount : summary.outstanding);
 
   const noticeKey = `${method}:${profile?.memberId || ''}:${payable}:${receiptFile?.name || ''}`;
 
@@ -179,17 +182,19 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
       </header>
 
       <section className="pay-hist-summary">
-        <article className={`pay-hist-kpi${standingPending ? '' : alDia ? ' is-ok' : ' is-debt'}`}>
+        <article className={`pay-hist-kpi${standingPending ? '' : (duesExempt || alDia) ? ' is-ok' : ' is-debt'}`}>
           <span>Situación actual</span>
           <strong>
-            {standingPending ? '…' : alDia ? 'Al día' : (lateLabel || formatCurrency(summary.outstanding))}
+            {standingPending ? '…' : duesExempt ? quota.title : alDia ? 'Al día' : (lateLabel || formatCurrency(summary.outstanding))}
           </strong>
           <small>
             {standingPending
               ? 'Confirmando vencimientos'
-              : alDia
-                ? `Próximo cobro ${formatDate(summary.nextDue)} · ${formatCurrency(summary.nextAmount)}`
-                : `Venció el ${formatDate(summary.nextDue)} · ${formatCurrency(summary.outstanding)}`}
+              : duesExempt
+                ? (quota.hint || 'No abona cuota social')
+                : alDia
+                  ? `Próximo cobro ${formatDate(summary.nextDue)} · ${formatCurrency(summary.nextAmount)}`
+                  : `Venció el ${formatDate(summary.nextDue)} · ${formatCurrency(summary.outstanding)}`}
           </small>
         </article>
         <article className="pay-hist-kpi">
@@ -213,22 +218,28 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
         </article>
       </section>
 
-      <section className={`glass-card pay-hist-paybox${standingPending ? '' : alDia ? ' is-ok' : ' is-debt'}`}>
+      <section className={`glass-card pay-hist-paybox${standingPending ? '' : (duesExempt || alDia) ? ' is-ok' : ' is-debt'}`}>
         <h2>
           <Banknote size={16} />
           {standingPending
             ? 'Estado de la cuota'
-            : alDia
-              ? 'Pagar cuota anticipada'
-              : 'Pagar cuota pendiente'}
+            : duesExempt
+              ? quota.title
+              : alDia
+                ? 'Pagar cuota anticipada'
+                : 'Pagar cuota pendiente'}
         </h2>
         <p>
           {standingPending
             ? 'Confirmando el estado de tu cuota…'
-            : alDia
-              ? `Podés adelantar ${formatCurrency(payable)} y quedar al día hasta ${formatDate(summary.nextDue)}.`
-              : `${lateLabel ? `${lateLabel}. ` : ''}Saldo a abonar: ${formatCurrency(payable)}. La cuota vence el 10 de cada mes.`}
+            : duesExempt
+              ? (quota.hint || 'Esta categoría no liquida cuota social.')
+              : alDia
+                ? `Podés adelantar ${formatCurrency(payable)} y quedar al día hasta ${formatDate(summary.nextDue)}.`
+                : `${lateLabel ? `${lateLabel}. ` : ''}Saldo a abonar: ${formatCurrency(payable)}. La cuota vence el 10 de cada mes.`}
         </p>
+        {!duesExempt ? (
+          <>
         <div className="pay-hist-payrow">
           <select
             className="form-input"
@@ -304,6 +315,8 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
             </div>
           ) : null}
         </div>
+          </>
+        ) : null}
       </section>
 
       <section className="glass-card pay-hist-list-card">

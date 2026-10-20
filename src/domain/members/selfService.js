@@ -339,6 +339,10 @@ export function portalLoginUrl() {
   return `${PORTAL_PUBLIC_ORIGIN}/`;
 }
 
+export function portalAccountUrl() {
+  return `${PORTAL_WWW_ORIGIN}/cuenta`;
+}
+
 export function publicJoinUrl() {
   return `${PORTAL_PUBLIC_ORIGIN}/registro?tramite=alta`;
 }

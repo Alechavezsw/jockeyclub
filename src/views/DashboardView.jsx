@@ -664,7 +664,7 @@ export default function DashboardView({
         </div>
       </div>
 
-      {duesBehind && profile.notifyDues !== false && (
+      {duesBehind && quota.billing && profile.notifyDues !== false && (
         <div className="dues-banner">
           <span>
             <ShieldAlert size={16} style={{ verticalAlign: -3, marginRight: 6 }} />

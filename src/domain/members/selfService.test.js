@@ -14,6 +14,7 @@ import {
   oneAccessRequestTrail,
   splitAccessRequestInbox,
   portalLoginUrl,
+  portalAccountUrl,
   requestStatusLabel,
   buildRequestDetail,
   requestPdfFileName,
@@ -184,6 +185,7 @@ describe('selfService', () => {
 
   it('al aprobar dice Aprobado y no muestra la secreta de Resend', () => {
     expect(portalLoginUrl()).toBe('https://jockeyclubsj.com.ar/');
+    expect(portalAccountUrl()).toBe('https://www.jockeyclubsj.com.ar/cuenta');
     expect(requestStatusLabel('approved')).toBe('Aprobado');
     expect(requestStatusLabel('pending')).toBe('Pendiente');
     expect(requestStatusLabel('done')).toBe('Listo');

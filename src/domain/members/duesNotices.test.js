@@ -38,5 +38,6 @@ describe('duesNotices', () => {
     expect(mora.subject).toMatch(/mora/i);
     expect(mora.lead).toMatch(/venció/i);
     expect(mora.greeting).toMatch(/Alejandro/);
+    expect(mora.accountUrl).toBe('https://www.jockeyclubsj.com.ar/cuenta');
   });
 });

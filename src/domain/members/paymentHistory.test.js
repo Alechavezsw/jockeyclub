@@ -54,6 +54,19 @@ describe('summarizePaymentHistory', () => {
     expect(summary.outstanding).toBe(32000);
   });
 
+  it('vitalicio no genera meses atrasados ni cuota de $ 32.000', () => {
+    const summary = summarizePaymentHistory([], {
+      tier: 'socio_vitalicio',
+      outstandingBalance: 32000,
+      nextDueDate: '2026-08-10',
+      lastPaymentDate: '2026-07-13',
+    }, { today });
+    expect(summary.monthsBehind).toBe(0);
+    expect(summary.outstanding).toBe(0);
+    expect(summary.nextAmount).toBe(0);
+    expect(summary.nextDue).toBeNull();
+  });
+
   it('junio 14 → 3 meses atrasados el 22/09, sin multiplicar adherentes', () => {
     const today = new Date('2026-09-22T12:00:00');
     const summary = summarizePaymentHistory([
