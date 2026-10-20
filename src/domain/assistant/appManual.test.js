@@ -40,6 +40,21 @@ describe('appManual', () => {
     expect(shot.caption).toMatch(/Cuotas/);
   });
 
+  it('explica la cuota vigente: reglas, anulación y Mercado Pago', () => {
+    const ids = new Set(APP_MANUAL.map((lesson) => lesson.id));
+    expect(ids.has('reglas-cuota')).toBe(true);
+    expect(ids.has('anular-cobro')).toBe(true);
+    expect(ids.has('mercado-pago')).toBe(true);
+    expect(matchManualLessons('anular un cobro mal cargado')[0].id).toBe('anular-cobro');
+    expect(matchManualLessons('mercado pago suscripción')[0].id).toBe('mercado-pago');
+    expect(matchManualLessons('cuota amet vence mora recargo')[0].id).toBe('reglas-cuota');
+    const reglas = APP_MANUAL.find((lesson) => lesson.id === 'reglas-cuota');
+    const text = reglas.steps.join(' ');
+    expect(text).toMatch(/día 10/);
+    expect(text).toMatch(/18/);
+    expect(text).toMatch(/Vitalicio, fundador y comisión/);
+  });
+
   it('si pedís el manual entero, te lleva a la sala', () => {
     const overview = manualOverview();
     expect(overview.room).toBe('manual');
