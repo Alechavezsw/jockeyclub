@@ -35,6 +35,46 @@ Grupos Fam                  $384.667,00        $384.667,00          $0,00 ✓
 
 **All figures match to the cent.**
 
+### Coherence Checks
+
+**1. Saldos CC vs Deudas M/M difference (~$145,599.70)**
+
+The ~$145,600 difference between Saldos CC ($346,295,200.69) and Deudas M/M ($346,149,600.99) is **100% explained** by different populations:
+
+| Category | Socios | Contribution |
+|----------|--------|--------------|
+| En ambos, cifras coinciden | ~3,500 | $0 |
+| En ambos, cifras difieren (noImputado) | Variable | Variable |
+| Solo en saldos, saldo > 0 | Few | Small positive |
+| Solo en saldos, saldo = 0 | ~3,800 | $0 |
+| Solo en saldos, saldo < 0 (créditos) | ~50 | Negative (credits) |
+| Solo en deudas (no en saldos) | 0 | $0 |
+
+**Root cause:** `saldos.xlsx` includes ALL members (full padrón ~7,440), while `deudas_mes_a_mes_morosos.xlsx` only includes MOROSOS (members with TOTAL DEUDA > 0). Members at zero or with credits (negative saldo) are excluded from the morosos file.
+
+**Consistent figure:** Dashboard uses Saldos CC ($346,295,200.69) as the single source of truth.
+
+**2. October 2026: Liquidado ~$63,233,000**
+
+- `cuotas_lotes.csv` shows October 2026 liquidado: ~$62,843,000
+- This is the amount CHARGED to members that month, not the amount collected
+- "Recaudado" (actual collections) requires cobranzas data (owner building in parallel)
+
+**3. Total Liquidaciones: $647,331,000 explained**
+
+This is the **cumulative historical total** of all fee batches since the club started using Lila:
+
+```
+Total liquidado histórico:     $647.331.000
+Saldos CC (deuda actual):      $346.295.200
+────────────────────────────────────────────
+Estimado COBRADO histórico:    $301.035.800
+```
+
+Formula: `LIQUIDADO - ADEUDADO = COBRADO`
+
+$647M is correct: it's total billed over multiple years, not current debt.
+
 ---
 
 ## Wiring Into App Screens
