@@ -35,7 +35,9 @@ Grupos Fam                  $384.667,00        $384.667,00          $0,00 ✓
 
 **All figures match to the cent.**
 
-### Coherence Checks
+### Coherence Checks (Exact Match Required)
+
+All coherence checks require **exact match to the cent**. Range checks are not acceptable.
 
 **1. Saldos CC vs Deudas M/M difference (~$145,599.70)**
 
@@ -54,16 +56,34 @@ The ~$145,600 difference between Saldos CC ($346,295,200.69) and Deudas M/M ($34
 
 **Consistent figure:** Dashboard uses Saldos CC ($346,295,200.69) as the single source of truth.
 
-**2. October 2026: Liquidado ~$63,233,000**
+**2. October 2026: Liquidado $63,233,000 (EXACT)**
 
-- `cuotas_lotes.csv` shows October 2026 liquidado: ~$62,843,000
-- This is the amount CHARGED to members that month, not the amount collected
-- "Recaudado" (actual collections) requires cobranzas data (owner building in parallel)
+The reconciliation compares against Lila's exact value:
 
-**3. Total Liquidaciones: $647,331,000 explained**
+- `cta_cte_detalle_liquidacion.xlsx` columns: LIQUIDACIÓN + OTROS
+- Dropped rows (non-numeric nro_socio) are tracked separately
+- Any non-zero difference **fails** the reconciliation
 
-This is the **cumulative historical total** of all fee batches since the club started using Lila:
+Environment variable to override expected value:
+```bash
+LILA_OCT_2026_LIQUIDADO=63233000 node scripts/reconcile-lila.mjs --uploads-dir uploads/
+```
 
+**Recaudado hook:** Ready for implementation when owner provides cobranzas export. Expected format:
+- File: `cobranzas_octubre_2026.csv` or `.xlsx`
+- Parser: `parseCobranzas()` in `lilaOtherImports.js` (stub ready)
+- Expected value: ~$46,645,000
+
+**3. Total Liquidaciones: $647,331,000 (EXACT)**
+
+Must match Lila's exact cumulative total. Any difference **fails** the reconciliation.
+
+Environment variable to override expected value:
+```bash
+LILA_TOTAL_LIQUIDADO=647331000 node scripts/reconcile-lila.mjs --uploads-dir uploads/
+```
+
+Relationship between figures:
 ```
 Total liquidado histórico:     $647.331.000
 Saldos CC (deuda actual):      $346.295.200
@@ -72,8 +92,6 @@ Estimado COBRADO histórico:    $301.035.800
 ```
 
 Formula: `LIQUIDADO - ADEUDADO = COBRADO`
-
-$647M is correct: it's total billed over multiple years, not current debt.
 
 ---
 

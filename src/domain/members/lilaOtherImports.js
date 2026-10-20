@@ -30,23 +30,49 @@ export function periodLabelToKey(label) {
 /**
  * Parse cuotas_lotes.csv data.
  * Format: id,periodo,monto,fecha_generacion,estado
+ *
+ * Returns { batches, skippedRows } where skippedRows contains rows that were
+ * filtered out (for diagnostic purposes).
  */
 export function parseCuotasLotes(rows) {
   const batches = [];
+  const skippedRows = [];
 
-  for (const row of rows) {
+  for (let idx = 0; idx < rows.length; idx++) {
+    const row = rows[idx];
     if (!row || row.id === 'id') continue;
 
     const lilaId = row.id !== '-' ? parseInt(row.id, 10) || null : null;
     const periodLabel = String(row.periodo || '').trim();
     const periodKey = periodLabelToKey(periodLabel);
 
-    if (!periodKey) continue;
+    if (!periodKey) {
+      if (periodLabel) {
+        skippedRows.push({
+          rowIndex: idx,
+          reason: 'invalid period',
+          periodLabel,
+          monto: row.monto,
+          raw: row,
+        });
+      }
+      continue;
+    }
 
-    const montoStr = String(row.monto || '').replace(/[^\d.,\-]/g, '');
+    const montoStr = String(row.monto || '').replace(/[^\d.,-]/g, '');
     const monto = parseFloat(montoStr.replace(',', '.')) || 0;
 
-    if (monto <= 0 || montoStr.includes('no liquidado')) continue;
+    if (monto <= 0 || montoStr.includes('no liquidado')) {
+      skippedRows.push({
+        rowIndex: idx,
+        reason: monto <= 0 ? 'zero/negative monto' : 'no liquidado',
+        periodLabel,
+        periodKey,
+        monto,
+        raw: row,
+      });
+      continue;
+    }
 
     const fechaGen = row.fecha_generacion || null;
     const estado = String(row.estado || 'Procesada').trim();
@@ -61,7 +87,7 @@ export function parseCuotasLotes(rows) {
     });
   }
 
-  return batches;
+  return { batches, skippedRows };
 }
 
 /**
@@ -133,20 +159,24 @@ export function findLiquidacionHeaderRow(aoa) {
 /**
  * Parse liquidación detail sheet.
  * Columns: NRO DE SOCIO, NOMBRE, APELLIDO, DNI, SALDO ANTERIOR, LIQUIDACIÓN, OTROS, INTERESES, SIN RECARGOS, RECARGO1, RECARGO2
+ *
+ * Returns details (valid rows), droppedRows (non-numeric nro_socio), and error.
  */
 export function parseLiquidacionDetail(aoa, meta) {
   const headerIdx = findLiquidacionHeaderRow(aoa);
   if (headerIdx < 0) {
-    return { details: [], error: 'No se encontró la fila de encabezado' };
+    return { details: [], droppedRows: [], error: 'No se encontró la fila de encabezado' };
   }
 
   const details = [];
+  const droppedRows = [];
 
   for (let i = headerIdx + 1; i < aoa.length; i++) {
     const row = aoa[i] || [];
-    const memberNumber = row[0] != null ? String(row[0]).trim() : '';
+    const rawMemberNumber = row[0] != null ? String(row[0]).trim() : '';
 
-    if (!memberNumber || !/^\d+$/.test(memberNumber)) {
+    // Skip empty rows
+    if (!rawMemberNumber) {
       continue;
     }
 
@@ -162,8 +192,28 @@ export function parseLiquidacionDetail(aoa, meta) {
     const recargo1 = parseFloat(row[9]) || 0;
     const recargo2 = parseFloat(row[10]) || 0;
 
+    // Check if this is a non-numeric member number (non-socio row)
+    if (!/^\d+$/.test(rawMemberNumber)) {
+      droppedRows.push({
+        rawMemberNumber,
+        nombre,
+        apellido,
+        dni,
+        saldoAnterior,
+        liquidacion,
+        otros,
+        intereses,
+        sinRecargos,
+        recargo1,
+        recargo2,
+        reason: 'non-numeric nro_socio',
+        rowIndex: i,
+      });
+      continue;
+    }
+
     details.push({
-      memberNumber,
+      memberNumber: rawMemberNumber,
       nombre,
       apellido,
       dni,
@@ -179,7 +229,7 @@ export function parseLiquidacionDetail(aoa, meta) {
     });
   }
 
-  return { details, error: null };
+  return { details, droppedRows, error: null };
 }
 
 /**
@@ -206,7 +256,7 @@ export function liquidacionDetailToDbRow(record) {
 /**
  * Compute liquidación totals.
  */
-export function computeLiquidacionTotals(details) {
+export function computeLiquidacionTotals(details, droppedRows = []) {
   let sumLiquidacion = 0;
   let sumSaldoAnterior = 0;
   let sumOtros = 0;
@@ -223,6 +273,14 @@ export function computeLiquidacionTotals(details) {
     if (d.liquidacion !== 0) countWithLiquidacion++;
   }
 
+  // Also compute dropped rows totals
+  let droppedLiquidacion = 0;
+  let droppedOtros = 0;
+  for (const d of droppedRows) {
+    droppedLiquidacion += d.liquidacion || 0;
+    droppedOtros += d.otros || 0;
+  }
+
   return {
     saldoAnterior: Math.round(sumSaldoAnterior * 100) / 100,
     liquidacion: Math.round(sumLiquidacion * 100) / 100,
@@ -231,6 +289,9 @@ export function computeLiquidacionTotals(details) {
     recargos: Math.round(sumRecargos * 100) / 100,
     sociosCount: details.length,
     sociosWithLiquidacion: countWithLiquidacion,
+    droppedRowsCount: droppedRows.length,
+    droppedLiquidacion: Math.round(droppedLiquidacion * 100) / 100,
+    droppedOtros: Math.round(droppedOtros * 100) / 100,
   };
 }
 
@@ -351,5 +412,118 @@ export function computeFamilyGroupTotals(balances) {
     totalCapital: Math.round(sumCapital * 100) / 100,
     countPositive,
     countNegative,
+  };
+}
+
+// =============================================================================
+// COBRANZAS (RECAUDADO) - Hook for future import
+// =============================================================================
+
+/**
+ * Parse cobranzas (payment receipts) export.
+ *
+ * Expected file: cobranzas_octubre_2026.csv or .xlsx
+ * Expected format (TBD - will be defined when owner provides export):
+ *   - Date/Fecha
+ *   - NRO DE SOCIO
+ *   - NOMBRE/APELLIDO
+ *   - MONTO
+ *   - MEDIO DE PAGO (Efectivo, Transferencia, Débito, Crédito, MercadoPago, etc.)
+ *   - CONCEPTO (Cuota Social, Cuota Deportiva, etc.)
+ *
+ * @param {Array} rows - Parsed CSV/XLSX rows
+ * @param {Object} options - { periodKey: '2026-10', asOfDate: '2026-10-20' }
+ * @returns {{ payments: Array, totals: Object, droppedRows: Array }}
+ */
+export function parseCobranzas(rows, options = {}) {
+  const payments = [];
+  const droppedRows = [];
+  // Options will be used when implementation is complete
+  void options;
+
+  // TODO: Implement when owner provides cobranzas export format
+  // This is a placeholder structure for the expected data
+
+  /*
+  Example expected implementation:
+
+  for (let idx = 0; idx < rows.length; idx++) {
+    const row = rows[idx];
+    if (!row) continue;
+
+    const memberNumber = row['NRO DE SOCIO'] || row.nro_socio;
+    if (!memberNumber || !/^\d+$/.test(String(memberNumber).trim())) {
+      droppedRows.push({ ...row, reason: 'invalid member number', rowIndex: idx });
+      continue;
+    }
+
+    const monto = parseFloat(row.monto || row.MONTO) || 0;
+    const medioPago = String(row.medio_pago || row['MEDIO DE PAGO'] || '').trim();
+    const concepto = String(row.concepto || row.CONCEPTO || '').trim();
+
+    payments.push({
+      memberNumber: String(memberNumber).trim(),
+      nombre: row.nombre || row.NOMBRE,
+      apellido: row.apellido || row.APELLIDO,
+      monto,
+      medioPago,
+      concepto,
+      fecha: row.fecha || row.FECHA,
+      periodKey,
+      asOfDate,
+    });
+  }
+  */
+
+  return {
+    payments,
+    droppedRows,
+    error: 'parseCobranzas() not yet implemented - awaiting Lila cobranzas export format',
+  };
+}
+
+/**
+ * Compute cobranzas totals.
+ */
+export function computeCobranzasTotals(payments, droppedRows = []) {
+  let sumRecaudado = 0;
+  const byMedioPago = {};
+  const byConcepto = {};
+
+  for (const p of payments) {
+    sumRecaudado += p.monto || 0;
+    byMedioPago[p.medioPago] = (byMedioPago[p.medioPago] || 0) + (p.monto || 0);
+    byConcepto[p.concepto] = (byConcepto[p.concepto] || 0) + (p.monto || 0);
+  }
+
+  let droppedTotal = 0;
+  for (const d of droppedRows) {
+    droppedTotal += d.monto || 0;
+  }
+
+  return {
+    recaudado: Math.round(sumRecaudado * 100) / 100,
+    paymentsCount: payments.length,
+    droppedRowsCount: droppedRows.length,
+    droppedTotal: Math.round(droppedTotal * 100) / 100,
+    byMedioPago,
+    byConcepto,
+  };
+}
+
+/**
+ * Transform cobranza to DB row.
+ */
+export function cobranzaToDbRow(payment) {
+  return {
+    member_number: payment.memberNumber,
+    nombre: payment.nombre,
+    apellido: payment.apellido,
+    monto: payment.monto,
+    medio_pago: payment.medioPago,
+    concepto: payment.concepto,
+    fecha: payment.fecha,
+    period_key: payment.periodKey,
+    as_of_date: payment.asOfDate,
   };
 }

@@ -207,19 +207,29 @@ async function main() {
     console.log(`  ✓ Reconciliación: ${formatMoney(grandTotals.totalDeuda)}\n`);
   }
 
+  let cuotasLotesSkipped = [];
+
   if (cuotasFile) {
     console.log('--- 3. CUOTAS LOTES (Liquidaciones) ---');
     const csvContent = readFileSync(cuotasFile, 'utf8');
     const parsed = Papa.parse(csvContent, { header: true, skipEmptyLines: true });
-    const batches = otherImports.parseCuotasLotes(parsed.data);
+    const { batches, skippedRows } = otherImports.parseCuotasLotes(parsed.data);
+    cuotasLotesSkipped = skippedRows || [];
 
     const totalLiquidado = batches.reduce((sum, b) => sum + b.monto, 0);
     const oct2026 = batches.find((b) => b.periodKey === '2026-10');
 
     console.log(`  Archivo: ${basename(cuotasFile)}`);
-    console.log(`  Períodos: ${batches.length}`);
+    console.log(`  Períodos importados: ${batches.length}`);
     console.log(`  TOTAL LIQUIDADO: ${formatMoney(totalLiquidado)}`);
     console.log(`  Octubre 2026: ${formatMoney(oct2026?.monto || 0)}`);
+
+    if (skippedRows.length > 0) {
+      console.log(`\n  ⚠️  Filas omitidas: ${skippedRows.length}`);
+      for (const s of skippedRows.slice(0, 5)) {
+        console.log(`      → ${s.periodLabel || '(vacío)'}: ${s.reason}, monto=${s.monto}`);
+      }
+    }
 
     results.cuotasLotes = {
       status: 'OK',
@@ -229,10 +239,14 @@ async function main() {
       mismatches: [],
       periodCount: batches.length,
       oct2026: oct2026?.monto || 0,
+      batches,
+      skippedRows,
     };
 
     console.log(`  ✓ Reconciliación: ${formatMoney(totalLiquidado)}\n`);
   }
+
+  let liquidacionDroppedRows = [];
 
   if (liquidacionFile) {
     console.log('--- 4. LIQUIDACIÓN OCTUBRE 2026 ---');
@@ -241,15 +255,27 @@ async function main() {
     const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: true });
 
     const meta = otherImports.extractLiquidacionMeta(aoa);
-    const { details } = otherImports.parseLiquidacionDetail(aoa, meta);
-    const totals = otherImports.computeLiquidacionTotals(details);
+    const { details, droppedRows } = otherImports.parseLiquidacionDetail(aoa, meta);
+    liquidacionDroppedRows = droppedRows || [];
+    const totals = otherImports.computeLiquidacionTotals(details, droppedRows);
 
     console.log(`  Archivo: ${basename(liquidacionFile)}`);
     console.log(`  Período: ${meta.periodLabel || meta.periodKey}`);
-    console.log(`  Socios: ${totals.sociosCount}`);
+    console.log(`  Socios importados: ${totals.sociosCount}`);
     console.log(`  LIQUIDACIÓN: ${formatMoney(totals.liquidacion)}`);
     console.log(`  Saldo anterior: ${formatMoney(totals.saldoAnterior)}`);
     console.log(`  Recargos: ${formatMoney(totals.recargos)}`);
+    console.log(`  Otros: ${formatMoney(totals.otros)}`);
+    console.log(`  Total (liquidación + otros): ${formatMoney(totals.liquidacion + totals.otros)}`);
+
+    if (totals.droppedRowsCount > 0) {
+      console.log(`\n  ⚠️  Filas excluidas (nro_socio no numérico): ${totals.droppedRowsCount}`);
+      console.log(`      Liquidación excluida: ${formatMoney(totals.droppedLiquidacion)}`);
+      console.log(`      Otros excluidos: ${formatMoney(totals.droppedOtros)}`);
+      for (const d of droppedRows.slice(0, 5)) {
+        console.log(`      → "${d.rawMemberNumber}" ${d.nombre} ${d.apellido}: liq=${formatMoney(d.liquidacion)} otros=${formatMoney(d.otros)}`);
+      }
+    }
 
     results.liquidacion = {
       status: 'OK',
@@ -259,6 +285,13 @@ async function main() {
       mismatches: [],
       sociosCount: totals.sociosCount,
       saldoAnterior: totals.saldoAnterior,
+      otros: totals.otros,
+      intereses: totals.intereses,
+      recargos: totals.recargos,
+      details,
+      droppedRows,
+      droppedLiquidacion: totals.droppedLiquidacion,
+      droppedOtros: totals.droppedOtros,
     };
 
     console.log(`  ✓ Reconciliación: ${formatMoney(totals.liquidacion)}\n`);
@@ -564,7 +597,7 @@ async function main() {
   }
 
   // =========================================================================
-  // COHERENCE CHECK 2: October 2026 figures
+  // COHERENCE CHECK 2: October 2026 figures (EXACT match required)
   // =========================================================================
   if (results.cuotasLotes.status !== 'SKIP' || results.liquidacion.status !== 'SKIP') {
     console.log('\n=============================================');
@@ -573,43 +606,145 @@ async function main() {
 
     const oct2026Liquidado = results.cuotasLotes.oct2026 || 0;
     const liquidacionOct = results.liquidacion.lila || 0;
+    const liquidacionOtros = results.liquidacion.otros || 0;
+    const droppedLiq = results.liquidacion.droppedLiquidacion || 0;
+    const droppedOtros = results.liquidacion.droppedOtros || 0;
 
-    console.log('LIQUIDADO OCTUBRE 2026:');
-    console.log(`  • cuotas_lotes.csv (oct 2026):              ${formatMoney(oct2026Liquidado).padStart(16)}`);
-    console.log(`  • cta_cte_detalle_liquidacion (LIQUIDACIÓN): ${formatMoney(liquidacionOct).padStart(16)}`);
+    // Total from cta_cte_detalle INCLUDING dropped rows (to match Lila exactly)
+    const liquidacionTotalImported = liquidacionOct + liquidacionOtros;
+    const liquidacionTotalWithDropped = liquidacionOct + liquidacionOtros + droppedLiq + droppedOtros;
 
-    // Expected from user: liquidado ~$63,233,000 (user said this is correct)
-    // Note: The actual file shows $62,843,000 - user may have rounded
-    const expectedLiquidadoApprox = 63233000;
-    const expectedRecaudado = 46645000;
+    // User-provided expected value from Lila (exact, to the cent)
+    // This should be set via --lila-oct-2026=63233000 or environment variable
+    const LILA_OCT_2026_LIQUIDADO = parseFloat(process.env.LILA_OCT_2026_LIQUIDADO) || 63233000;
 
-    // Accept values in range $62-64M as matching user expectation
-    if (oct2026Liquidado > 62000000 && oct2026Liquidado < 64000000) {
-      console.log(`  ✅ Liquidado Oct 2026 está en rango esperado (~$63.233.000)`);
-      console.log(`     Valor exacto del archivo: ${formatMoney(oct2026Liquidado)}`);
-    } else if (oct2026Liquidado > 0) {
-      console.log(`  ⚠️  Esperado ~$63.233.000, encontrado: ${formatMoney(oct2026Liquidado)}`);
+    console.log('LIQUIDADO OCTUBRE 2026 (desglose completo):');
+    console.log('─────────────────────────────────────────────────────────────────────');
+    console.log(`  cta_cte_detalle - LIQUIDACIÓN (importado):   ${formatMoney(liquidacionOct).padStart(14)}`);
+    console.log(`  cta_cte_detalle - OTROS (importado):         ${formatMoney(liquidacionOtros).padStart(14)}`);
+    console.log(`  ─────────────────────────────────────────────────────────────────`);
+    console.log(`  SUBTOTAL IMPORTADO:                          ${formatMoney(liquidacionTotalImported).padStart(14)}`);
+    console.log('');
+    console.log(`  Filas excluidas - LIQUIDACIÓN:               ${formatMoney(droppedLiq).padStart(14)}`);
+    console.log(`  Filas excluidas - OTROS:                     ${formatMoney(droppedOtros).padStart(14)}`);
+    console.log(`  ─────────────────────────────────────────────────────────────────`);
+    console.log(`  TOTAL CON EXCLUIDAS:                         ${formatMoney(liquidacionTotalWithDropped).padStart(14)}`);
+    console.log('');
+    console.log(`  cuotas_lotes.csv (oct 2026):                 ${formatMoney(oct2026Liquidado).padStart(14)}`);
+    console.log(`  Lila Dashboard esperado:                     ${formatMoney(LILA_OCT_2026_LIQUIDADO).padStart(14)}`);
+
+    // Calculate gaps
+    const gapImportedVsLila = Math.round((liquidacionTotalImported - LILA_OCT_2026_LIQUIDADO) * 100) / 100;
+    const gapWithDroppedVsLila = Math.round((liquidacionTotalWithDropped - LILA_OCT_2026_LIQUIDADO) * 100) / 100;
+    const gapLotesVsLila = Math.round((oct2026Liquidado - LILA_OCT_2026_LIQUIDADO) * 100) / 100;
+
+    console.log('\nANÁLISIS DE DIFERENCIAS:');
+    console.log(`  Importado vs Lila:                           ${formatMoney(gapImportedVsLila).padStart(14)}`);
+    console.log(`  Con excluidas vs Lila:                       ${formatMoney(gapWithDroppedVsLila).padStart(14)}`);
+    console.log(`  cuotas_lotes vs Lila:                        ${formatMoney(gapLotesVsLila).padStart(14)}`);
+
+    // Determine which source matches Lila
+    let bestMatch = null;
+    let bestGap = Infinity;
+
+    if (Math.abs(gapWithDroppedVsLila) < Math.abs(bestGap)) {
+      bestGap = gapWithDroppedVsLila;
+      bestMatch = 'cta_cte_detalle (con excluidas)';
+    }
+    if (Math.abs(gapImportedVsLila) < Math.abs(bestGap)) {
+      bestGap = gapImportedVsLila;
+      bestMatch = 'cta_cte_detalle (solo importado)';
+    }
+    if (Math.abs(gapLotesVsLila) < Math.abs(bestGap)) {
+      bestGap = gapLotesVsLila;
+      bestMatch = 'cuotas_lotes.csv';
     }
 
-    // Cross-check: liquidacion detail should match cuotas_lotes
-    if (liquidacionOct > 0 && oct2026Liquidado > 0) {
-      const crossDiff = Math.abs(liquidacionOct - oct2026Liquidado);
-      if (crossDiff < 1000) {
-        console.log(`  ✅ Coherencia: cuotas_lotes ≈ liquidacion_detail`);
-      } else {
-        console.log(`  ⚠️  Diferencia entre fuentes: ${formatMoney(crossDiff)}`);
+    // Fail on ANY non-zero difference vs Lila expected value
+    if (Math.abs(bestGap) > 0.01) {
+      console.log(`\n❌ FALLA: Ninguna fuente coincide exactamente con Lila`);
+      console.log(`   Mejor aproximación: ${bestMatch} (diferencia: ${formatMoney(bestGap)})`);
+      console.log('');
+      console.log('   POSIBLES CAUSAS DE LA DIFERENCIA:');
+      if (droppedLiq > 0 || droppedOtros > 0) {
+        console.log(`   • Filas excluidas (nro_socio no numérico): ${formatMoney(droppedLiq + droppedOtros)}`);
+      }
+      console.log('   • Cuota deportiva en archivo/hoja separada');
+      console.log('   • Conceptos especiales (pileta, eventos) no incluidos');
+      console.log('   • Descuentos/bonificaciones no parseados');
+      console.log('   • Duplicados de nro_socio con diferentes montos');
+      totalMismatches++;
+    } else {
+      console.log(`\n✅ Liquidado Oct 2026 coincide exactamente con Lila`);
+      console.log(`   Fuente: ${bestMatch}`);
+    }
+
+    // Detailed breakdown of liquidación detail by member status
+    if (results.liquidacion.details && results.liquidacion.details.length > 0) {
+      const details = results.liquidacion.details;
+      const saldosByNro = new Map();
+      for (const b of saldosBalances) {
+        saldosByNro.set(b.memberNumber, b);
+      }
+
+      let inSaldos = { count: 0, liquidacion: 0, otros: 0 };
+      let notInSaldos = { count: 0, liquidacion: 0, otros: 0, examples: [] };
+
+      for (const d of details) {
+        if (saldosByNro.has(d.memberNumber)) {
+          inSaldos.count++;
+          inSaldos.liquidacion += d.liquidacion;
+          inSaldos.otros += d.otros;
+        } else {
+          notInSaldos.count++;
+          notInSaldos.liquidacion += d.liquidacion;
+          notInSaldos.otros += d.otros;
+          if (notInSaldos.examples.length < 5) {
+            notInSaldos.examples.push({
+              nro: d.memberNumber,
+              nombre: `${d.nombre} ${d.apellido}`.trim(),
+              liquidacion: d.liquidacion,
+              otros: d.otros,
+            });
+          }
+        }
+      }
+
+      console.log('\nDESGLOSE POR ESTADO DE SOCIO (en saldos.xlsx):');
+      console.log(`  Socios en padrón:     ${inSaldos.count.toLocaleString('es-AR').padStart(8)} → liquidación: ${formatMoney(inSaldos.liquidacion).padStart(14)}, otros: ${formatMoney(inSaldos.otros).padStart(12)}`);
+      console.log(`  NO en padrón:         ${notInSaldos.count.toLocaleString('es-AR').padStart(8)} → liquidación: ${formatMoney(notInSaldos.liquidacion).padStart(14)}, otros: ${formatMoney(notInSaldos.otros).padStart(12)}`);
+
+      if (notInSaldos.examples.length > 0) {
+        console.log('\n  Ejemplos NO en padrón (posibles non-socio rows):');
+        for (const ex of notInSaldos.examples) {
+          console.log(`    #${ex.nro} ${ex.nombre}: liq=${formatMoney(ex.liquidacion)} otros=${formatMoney(ex.otros)}`);
+        }
       }
     }
 
-    console.log('\nRECAUDADO OCTUBRE 2026:');
-    console.log(`  Valor esperado según Lila: ~${formatMoney(expectedRecaudado)}`);
-    console.log('  NOTA: "Recaudado" (cobros efectivos) requiere el archivo de cobranzas');
-    console.log('        o los movimientos de caja del mes. Fuera del alcance de este import.');
-    console.log('        El owner construye cobros-online en paralelo.');
+    // Show dropped rows analysis
+    if (liquidacionDroppedRows.length > 0) {
+      console.log('\nFILAS EXCLUIDAS (nro_socio no numérico):');
+      let droppedLiq = 0;
+      let droppedOtros = 0;
+      for (const d of liquidacionDroppedRows) {
+        droppedLiq += d.liquidacion || 0;
+        droppedOtros += d.otros || 0;
+        console.log(`  "${d.rawMemberNumber}" ${d.nombre} ${d.apellido}: liq=${formatMoney(d.liquidacion)} otros=${formatMoney(d.otros)}`);
+      }
+      console.log(`  TOTAL EXCLUIDO: liq=${formatMoney(droppedLiq)} otros=${formatMoney(droppedOtros)} = ${formatMoney(droppedLiq + droppedOtros)}`);
+    }
+
+    console.log('\n─────────────────────────────────────────────────────────────────────');
+    console.log('RECAUDADO OCTUBRE 2026:');
+    console.log('  Hook para cobranzas: awaiting Lila October cobranzas export');
+    console.log('  Expected format: cobranzas_octubre_2026.csv or .xlsx');
+    console.log('  Parser: TODO - add parseCobranzas() to lilaOtherImports.js');
+    console.log('  Expected value from Lila: ~$46,645,000');
   }
 
   // =========================================================================
-  // COHERENCE CHECK 3: Total liquidaciones ($647.331.000 explicado)
+  // COHERENCE CHECK 3: Total liquidaciones (exact match required)
   // =========================================================================
   if (results.cuotasLotes.status !== 'SKIP') {
     console.log('\n=============================================');
@@ -619,18 +754,23 @@ async function main() {
     const totalLiquidaciones = results.cuotasLotes.lila;
     const periodCount = results.cuotasLotes.periodCount || 0;
 
-    console.log(`TOTAL LIQUIDADO (${periodCount} períodos): ${formatMoney(totalLiquidaciones)}`);
+    // User-provided expected value from Lila (exact, to the cent)
+    // Can be overridden via environment variable
+    const LILA_TOTAL_LIQUIDADO = parseFloat(process.env.LILA_TOTAL_LIQUIDADO) || 647331000;
 
-    // Expected ~$647,331,000 from user
-    const expected = 647331000;
-    const liquidDiff = Math.abs(totalLiquidaciones - expected);
-    if (liquidDiff < 1000000) {
-      console.log(`  ✅ Coincide con valor esperado (~${formatMoney(expected)})`);
-    } else if (totalLiquidaciones > 0) {
-      console.log(`  ⚠️  Esperado ~${formatMoney(expected)}, encontrado: ${formatMoney(totalLiquidaciones)}`);
+    console.log(`TOTAL LIQUIDADO (${periodCount} períodos): ${formatMoney(totalLiquidaciones)}`);
+    console.log(`Lila Dashboard esperado:                ${formatMoney(LILA_TOTAL_LIQUIDADO)}`);
+
+    const liquidDiff = Math.round((totalLiquidaciones - LILA_TOTAL_LIQUIDADO) * 100) / 100;
+
+    if (Math.abs(liquidDiff) < 0.01) {
+      console.log(`\n✅ Total liquidaciones coincide exactamente con Lila`);
+    } else {
+      console.log(`\n❌ FALLA: Diferencia de ${formatMoney(liquidDiff)} con Lila`);
+      totalMismatches++;
     }
 
-    console.log('\n📋 EXPLICACIÓN DEL TOTAL $647.331.000:\n');
+    console.log('\n📋 EXPLICACIÓN DEL TOTAL LIQUIDACIONES:\n');
     console.log('Este es el ACUMULADO HISTÓRICO de todas las liquidaciones de cuota');
     console.log('desde que el club usa Lila (múltiples años). Incluye:');
     console.log('  • Cuotas sociales mensuales de todas las categorías');
@@ -651,9 +791,8 @@ async function main() {
       console.log(`           ${formatMoney(totalLiquidaciones)} - ${formatMoney(saldosCC)} = ${formatMoney(cobrado)}`);
     }
 
-    console.log('\n  ✅ $647.331.000 es correcto: es el total facturado, no la deuda actual.');
-    console.log('     Para ver deuda actual del padrón, usar Saldos CC.');
-    console.log('     Para ver lo liquidado de un mes específico, filtrar por período.');
+    console.log('\n  Para ver deuda actual del padrón, usar Saldos CC.');
+    console.log('  Para ver lo liquidado de un mes específico, filtrar por período.');
   }
 }
 

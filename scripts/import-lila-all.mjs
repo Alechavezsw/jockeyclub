@@ -120,11 +120,15 @@ async function main() {
     console.log('\n--- Cuotas Lotes ---');
     const csvContent = readFileSync(cuotasFile, 'utf8');
     const parsed = Papa.parse(csvContent, { header: true, skipEmptyLines: true });
-    const batches = otherImports.parseCuotasLotes(parsed.data);
+    const { batches, skippedRows } = otherImports.parseCuotasLotes(parsed.data);
 
     const totalLiquidado = batches.reduce((sum, b) => sum + b.monto, 0);
     console.log(`Períodos: ${batches.length}`);
     console.log(`Total liquidado: ${formatMoney(totalLiquidado)}`);
+
+    if (skippedRows && skippedRows.length > 0) {
+      console.log(`Filas omitidas: ${skippedRows.length}`);
+    }
 
     const oct2026 = batches.find((b) => b.periodKey === '2026-10');
     if (oct2026) {
@@ -133,6 +137,7 @@ async function main() {
 
     results.cuotasLotes = {
       batches,
+      skippedRows,
       totalLiquidado,
       oct2026Monto: oct2026?.monto || 0,
     };
@@ -145,20 +150,28 @@ async function main() {
     const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: true });
 
     const meta = otherImports.extractLiquidacionMeta(aoa);
-    const { details, error } = otherImports.parseLiquidacionDetail(aoa, meta);
+    const { details, droppedRows, error } = otherImports.parseLiquidacionDetail(aoa, meta);
 
     if (error) {
       console.log(`❌ Error: ${error}`);
     } else {
-      const totals = otherImports.computeLiquidacionTotals(details);
+      const totals = otherImports.computeLiquidacionTotals(details, droppedRows);
       console.log(`Período: ${meta.periodLabel || meta.periodKey}`);
       console.log(`Socios: ${totals.sociosCount}`);
       console.log(`Total liquidación: ${formatMoney(totals.liquidacion)}`);
+      console.log(`Total otros: ${formatMoney(totals.otros)}`);
       console.log(`Total saldo anterior: ${formatMoney(totals.saldoAnterior)}`);
       console.log(`Total recargos: ${formatMoney(totals.recargos)}`);
 
+      if (totals.droppedRowsCount > 0) {
+        console.log(`\n⚠️  Filas excluidas (nro_socio no numérico): ${totals.droppedRowsCount}`);
+        console.log(`   Liquidación excluida: ${formatMoney(totals.droppedLiquidacion)}`);
+        console.log(`   Otros excluidos: ${formatMoney(totals.droppedOtros)}`);
+      }
+
       results.liquidacion = {
         details,
+        droppedRows,
         meta,
         totals,
       };
