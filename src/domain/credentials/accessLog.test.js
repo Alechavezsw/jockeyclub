@@ -7,6 +7,8 @@ import {
   dedupeAccessLogs,
   mergeAccessLogsWithPool,
   poolIngressToAccessLog,
+  recentEntryFor,
+  recentEntryLabel,
   tierToGroup,
 } from './accessLog';
 
@@ -175,5 +177,56 @@ describe('accessCountsByDay', () => {
     expect(map['2026-08-11'].granted).toBe(1);
     expect(map['2026-08-11'].denied).toBe(1);
     expect(map['2026-07-01']).toBeUndefined();
+  });
+});
+
+describe('recentEntryFor: ya ingresó hace poco', () => {
+  const t0 = new Date('2026-10-20T15:00:00-03:00');
+  const minutesAfter = (min) => new Date(t0.getTime() + min * 60_000);
+  const entry = (extra = {}) => buildAccessLogEntry({
+    memberName: 'Ana Pérez',
+    memberId: '1001',
+    status: 'granted',
+    activity: 'Ingreso sede',
+    at: t0,
+    ...extra,
+  });
+
+  it('avisa si la misma credencial ya entró dentro de la ventana', () => {
+    const hit = recentEntryFor([entry()], '1001', { now: minutesAfter(7) });
+    expect(hit.minutesAgo).toBe(7);
+    expect(recentEntryLabel(hit)).toBe('Ya ingresó hace 7 min');
+  });
+
+  it('no avisa pasada la ventana, ni de otro socio, ni si fue denegado o de pileta', () => {
+    expect(recentEntryFor([entry()], '1001', { now: minutesAfter(25) })).toBeNull();
+    expect(recentEntryFor([entry()], '2002', { now: minutesAfter(3) })).toBeNull();
+    expect(recentEntryFor([entry({ status: 'denied', activity: 'Acceso denegado' })], '1001', { now: minutesAfter(3) })).toBeNull();
+    expect(recentEntryFor([entry({ activity: 'Ingreso pileta' })], '1001', { now: minutesAfter(3) })).toBeNull();
+  });
+
+  it('cuenta también el ingreso con deuda', () => {
+    expect(recentEntryFor([entry({ activity: 'Ingreso con deuda' })], '1001', { now: minutesAfter(2) }).minutesAgo).toBe(2);
+  });
+
+  it('toma la lectura más reciente', () => {
+    const logs = [entry({ at: new Date(t0.getTime() + 60_000) }), entry()];
+    expect(recentEntryFor(logs, '1001', { now: minutesAfter(5) }).minutesAgo).toBe(4);
+  });
+
+  it('segundos después se dice «hace instantes»', () => {
+    const hit = recentEntryFor([entry()], '1001', { now: new Date(t0.getTime() + 20_000) });
+    expect(recentEntryLabel(hit)).toBe('Ya ingresó hace instantes');
+  });
+
+  it('sin socio o sin logs no rompe', () => {
+    expect(recentEntryFor([], '1001')).toBeNull();
+    expect(recentEntryFor([entry()], '')).toBeNull();
+    expect(recentEntryLabel(null)).toBe('');
+  });
+
+  it('el operador queda anotado en la lectura', () => {
+    expect(entry({ operator: 'Marta Gómez' }).operator).toBe('Marta Gómez');
+    expect(entry().operator).toBeUndefined();
   });
 });

@@ -275,7 +275,7 @@ function CardFace({
           <QRCodeSVG
             value={buildCredentialQRPayload(member)}
             size={isFull ? 80 : 38}
-            level="H"
+            level="M"
             includeMargin={isFull}
             bgColor="#ffffff"
             fgColor="#060e0a"
@@ -557,8 +557,8 @@ export default function VirtualCard({ member }) {
               <div className="vc-secure-scan" aria-label="Código QR para acceso">
                 <QRCodeSVG
                   value={buildCredentialQRPayload(member)}
-                  size={168}
-                  level="H"
+                  size={196}
+                  level="M"
                   includeMargin
                   bgColor="#ffffff"
                   fgColor="#000000"

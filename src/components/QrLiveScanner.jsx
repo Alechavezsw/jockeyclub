@@ -1,27 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Aperture, Flashlight, FlashlightOff, ImagePlus, RefreshCw } from 'lucide-react';
 
+import { fitSize, JSQR_MAX_SIDE, planDecode } from '../lib/qrDecode';
+import { loadWasmReader } from '../lib/qrWasm';
+
 let jsQRPromise = null;
-let zxingReaderPromise = null;
 
 function loadJsQR() {
   if (!jsQRPromise) {
     jsQRPromise = import('jsqr').then((m) => m.default || m);
   }
   return jsQRPromise;
-}
-
-function loadZxingReader() {
-  if (!zxingReaderPromise) {
-    zxingReaderPromise = import('@zxing/browser').then(({ BrowserQRCodeReader }) => {
-      // TRY_HARDER + pure barcode improves phone-screen reads
-      return new BrowserQRCodeReader(undefined, {
-        delayBetweenScanAttempts: 0,
-        delayBetweenScanSuccess: 0,
-      });
-    });
-  }
-  return zxingReaderPromise;
 }
 
 function capAt(range, t) {
@@ -41,11 +30,11 @@ async function detectNative(detector, source) {
   }
 }
 
-async function decodeJsQR(imageData) {
+async function decodeJsQR(imageData, inversion = 'dontInvert') {
   try {
     const jsQR = await loadJsQR();
     const code = jsQR(imageData.data, imageData.width, imageData.height, {
-      inversionAttempts: 'attemptBoth',
+      inversionAttempts: inversion,
     });
     return code?.data || '';
   } catch {
@@ -53,19 +42,10 @@ async function decodeJsQR(imageData) {
   }
 }
 
-async function decodeZxingCanvas(canvas) {
-  try {
-    const reader = await loadZxingReader();
-    const result = await reader.decodeFromCanvas(canvas);
-    return result?.getText?.() || result?.text || '';
-  } catch {
-    return '';
-  }
-}
-
 /**
- * Lector QR optimizado para credencial en pantalla de celular a corta distancia.
- * Prioridad: BarcodeDetector nativo → ZXing → jsQR (con downscale si el QR está muy cerca).
+ * Lector QR para la credencial en pantalla de celular.
+ * Orden: BarcodeDetector nativo (si el navegador lo trae) → lector WebAssembly en un solo
+ * cuadro de ~720 px → jsQR de respaldo. Ver src/lib/qrDecode.js.
  */
 export default function QrLiveScanner({
   active = false,
@@ -76,8 +56,7 @@ export default function QrLiveScanner({
 }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
-  const cropCanvasRef = useRef(null);
-  const scaleCanvasRef = useRef(null);
+  const wasmReadRef = useRef(null);
   const streamRef = useRef(null);
   const trackRef = useRef(null);
   const detectorRef = useRef(null);
@@ -185,100 +164,62 @@ export default function QrLiveScanner({
     return () => onLiveChange?.(false);
   }, [live, onLiveChange]);
 
-  const drawVideo = useCallback((video, canvas, ctx, maxW) => {
-    const scale = Math.min(1, maxW / video.videoWidth);
-    const w = Math.max(1, Math.floor(video.videoWidth * scale));
-    const h = Math.max(1, Math.floor(video.videoHeight * scale));
+  /**
+   * Dibuja el cuadro de video (o el centro, si `crop` < 1) a `maxSide` px, suavizado por el navegador,
+   * y devuelve sus píxeles.
+   */
+  const grabFrame = useCallback((video, canvas, ctx, maxSide, crop = 1) => {
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    const sw = Math.max(1, Math.round(vw * crop));
+    const sh = Math.max(1, Math.round(vh * crop));
+    const { w, h } = fitSize(sw, sh, maxSide);
+    if (!w || !h) return null;
     if (canvas.width !== w || canvas.height !== h) {
       canvas.width = w;
       canvas.height = h;
     }
-    ctx.drawImage(video, 0, 0, w, h);
-    return { w, h };
+    ctx.drawImage(video, Math.floor((vw - sw) / 2), Math.floor((vh - sh) / 2), sw, sh, 0, 0, w, h);
+    return ctx.getImageData(0, 0, w, h);
   }, []);
 
-  const cropCenter = useCallback((sourceCanvas, ratio) => {
-    if (!cropCanvasRef.current) cropCanvasRef.current = document.createElement('canvas');
-    const crop = cropCanvasRef.current;
-    const sw = sourceCanvas.width;
-    const sh = sourceCanvas.height;
-    const cw = Math.max(32, Math.floor(sw * ratio));
-    const ch = Math.max(32, Math.floor(sh * ratio));
-    const cx = Math.floor((sw - cw) / 2);
-    const cy = Math.floor((sh - ch) / 2);
-    if (crop.width !== cw || crop.height !== ch) {
-      crop.width = cw;
-      crop.height = ch;
-    }
-    const cctx = crop.getContext('2d', { willReadFrequently: true });
-    cctx.drawImage(sourceCanvas, cx, cy, cw, ch, 0, 0, cw, ch);
-    return crop;
-  }, []);
-
-  const downscaleCanvas = useCallback((source, maxSide) => {
-    const longest = Math.max(source.width, source.height);
-    if (longest <= maxSide) return source;
-    if (!scaleCanvasRef.current) scaleCanvasRef.current = document.createElement('canvas');
-    const out = scaleCanvasRef.current;
-    const scale = maxSide / longest;
-    out.width = Math.max(32, Math.floor(source.width * scale));
-    out.height = Math.max(32, Math.floor(source.height * scale));
-    const ctx = out.getContext('2d', { willReadFrequently: true });
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(source, 0, 0, out.width, out.height);
-    return out;
-  }, []);
-
+  /** Un cuadro: el plan dice qué decodificador toca (lib/qrDecode.js). El nativo ya se probó sobre el video. */
   const tryDecodeFrame = useCallback(async (video, canvas, ctx) => {
     if (!video.videoWidth) return '';
-
-    // Frame a 960px + nativo (el caller ya probó detect sobre el <video>)
-    drawVideo(video, canvas, ctx, 960);
-    let text = await detectNative(detectorRef.current, canvas);
-    if (text) return text;
-
     tickRef.current += 1;
-    // En cercanía el QR llena el marco: probar ROI chicos primero
-    const ratios = tickRef.current % 2 === 0
-      ? [0.48, 0.62, 0.8]
-      : [0.55, 0.72, 1];
+    const plan = planDecode(tickRef.current, {
+      hasNative: Boolean(detectorRef.current),
+      wasmReady: Boolean(wasmReadRef.current),
+    });
 
-    for (const ratio of ratios) {
-      const roi = ratio >= 0.999 ? canvas : cropCenter(canvas, ratio);
-
-      text = await detectNative(detectorRef.current, roi);
-      if (text) return text;
-
-      // ZXing sobre ROI (muy bueno con pantallas)
-      text = await decodeZxingCanvas(roi);
-      if (text) return text;
-
-      // Si el QR está muy cerca, downscale ayuda a jsQR/ZXing
-      const small = downscaleCanvas(roi, 420);
-      if (small !== roi) {
-        text = await detectNative(detectorRef.current, small);
-        if (text) return text;
-        text = await decodeZxingCanvas(small);
-        if (text) return text;
+    if (plan.wasm) {
+      const frame = grabFrame(video, canvas, ctx, plan.wasm.maxSide, plan.wasm.crop);
+      if (frame) {
+        try {
+          const text = await wasmReadRef.current(frame, { invert: plan.wasm.invert });
+          if (text) return text;
+        } catch {
+          /* el lector WebAssembly falló: queda jsQR de respaldo */
+          wasmReadRef.current = null;
+        }
       }
-
-      // jsQR solo en ROI reducido (caro)
-      const target = small !== roi ? small : downscaleCanvas(roi, 480);
-      const tctx = target.getContext('2d', { willReadFrequently: true });
-      text = await decodeJsQR(tctx.getImageData(0, 0, target.width, target.height));
-      if (text) return text;
     }
 
+    if (plan.jsqr) {
+      const frame = grabFrame(video, canvas, ctx, plan.jsqr.maxSide);
+      if (frame) {
+        const text = await decodeJsQR(frame, plan.jsqr.inversion);
+        if (text) return text;
+      }
+    }
     return '';
-  }, [cropCenter, downscaleCanvas, drawVideo]);
+  }, [grabFrame]);
 
   const startWithDevice = useCallback(async (deviceId) => {
     stopStream();
     setStarting(true);
     setHint('Iniciando cámara…');
     void loadJsQR();
-    void loadZxingReader();
 
     const attempts = [
       {
@@ -288,12 +229,14 @@ export default function QrLiveScanner({
               deviceId: { exact: deviceId },
               width: { ideal: 1280 },
               height: { ideal: 720 },
+              frameRate: { ideal: 30 },
               facingMode: { ideal: 'environment' },
             }
           : {
               facingMode: { ideal: 'environment' },
               width: { ideal: 1280 },
               height: { ideal: 720 },
+              frameRate: { ideal: 30 },
             },
       },
       {
@@ -476,17 +419,35 @@ export default function QrLiveScanner({
       ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
       bmp.close?.();
 
-      let text = await detectNative(
-        detectorRef.current || ('BarcodeDetector' in window
-          ? new window.BarcodeDetector({ formats: ['qr_code'] })
-          : null),
-        canvas,
-      );
-      if (!text) text = await decodeZxingCanvas(canvas);
+      let text = '';
+      try {
+        const read = wasmReadRef.current || await loadWasmReader();
+        text = await read(ctx.getImageData(0, 0, canvas.width, canvas.height), { invert: true });
+      } catch {
+        /* sin WebAssembly: sigue el nativo y jsQR */
+      }
       if (!text) {
-        const small = downscaleCanvas(canvas, 480);
-        const sctx = small.getContext('2d', { willReadFrequently: true });
-        text = await decodeJsQR(sctx.getImageData(0, 0, small.width, small.height));
+        text = await detectNative(
+          detectorRef.current || ('BarcodeDetector' in window
+            ? new window.BarcodeDetector({ formats: ['qr_code'] })
+            : null),
+          canvas,
+        );
+      }
+      if (!text) {
+        const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const longest = Math.max(frame.width, frame.height);
+        if (longest <= JSQR_MAX_SIDE * 2) {
+          text = await decodeJsQR(frame, 'attemptBoth');
+        } else {
+          const small = document.createElement('canvas');
+          const { w, h } = fitSize(canvas.width, canvas.height, JSQR_MAX_SIDE * 2);
+          small.width = w;
+          small.height = h;
+          const sctx = small.getContext('2d', { willReadFrequently: true });
+          sctx.drawImage(canvas, 0, 0, w, h);
+          text = await decodeJsQR(sctx.getImageData(0, 0, w, h), 'attemptBoth');
+        }
       }
 
       if (text) {
@@ -498,9 +459,18 @@ export default function QrLiveScanner({
     } catch {
       onError?.('No se pudo leer la imagen del QR.');
     }
-  }, [downscaleCanvas, emitDecode, onError]);
+  }, [emitDecode, onError]);
 
-  // Loop rápido: BarcodeDetector casi cada frame; ZXing/jsQR intercalados
+  // El lector WebAssembly baja al abrir la pantalla, no al primer QR.
+  useEffect(() => {
+    let alive = true;
+    loadWasmReader()
+      .then((read) => { if (alive) wasmReadRef.current = read; })
+      .catch(() => { /* queda jsQR de respaldo */ });
+    return () => { alive = false; };
+  }, []);
+
+  // Loop: un intento por cada cuadro nuevo de la cámara (~30 por segundo), sin repetir el mismo cuadro.
   useEffect(() => {
     if (!active || paused || starting || !live) return undefined;
 
@@ -513,7 +483,7 @@ export default function QrLiveScanner({
 
     const schedule = (fn, ms) => {
       if (cancelled || loopTokenRef.current !== token) return;
-      if (typeof video.requestVideoFrameCallback === 'function' && ms < 20) {
+      if (typeof video.requestVideoFrameCallback === 'function' && ms < 60) {
         video.requestVideoFrameCallback(() => { void fn(); });
       } else {
         setTimeout(() => { void fn(); }, ms);
@@ -529,7 +499,7 @@ export default function QrLiveScanner({
 
       const t0 = performance.now();
       try {
-        // Camino ultrarrápido: solo nativo sobre el video
+        // Camino más rápido: el lector nativo directo sobre el video
         let text = await detectNative(detectorRef.current, video);
         if (!text) text = await tryDecodeFrame(video, canvas, ctx);
         if (text) emitDecode(text);
@@ -537,10 +507,9 @@ export default function QrLiveScanner({
         /* frame fallido */
       }
 
+      // Si el intento fue lento (equipo flojo), se deja respirar al navegador entre cuadros.
       const spent = performance.now() - t0;
-      // ~15–25 intentos/seg cuando el nativo responde rápido
-      const wait = spent < 40 ? 24 : Math.max(36, 100 - spent);
-      schedule(tick, wait);
+      schedule(tick, spent < 45 ? 0 : Math.min(80, spent));
     };
 
     void tick();

@@ -11,12 +11,25 @@ describe('credential QR payload', () => {
       memberId: '2026887744320988',
       credentialToken: 'aabbccddeeff00112233445566778899',
     });
-    expect(payload).toBe('JCSJ:2026887744320988.aabbccddeeff00112233445566778899');
+    expect(payload).toBe('JCSJ:2026887744320988.AABBCCDDEEFF00112233445566778899');
     expect(parseCredentialQRPayload(payload)).toEqual({
       memberId: '2026887744320988',
       token: 'aabbccddeeff00112233445566778899',
       signed: true,
     });
+  });
+
+  it('los QR viejos, en minúsculas, siguen valiendo', () => {
+    const parsed = parseCredentialQRPayload('JCSJ:2026887744320988.aabbccddeeff00112233445566778899');
+    expect(parsed.token).toBe('aabbccddeeff00112233445566778899');
+    const member = { credentialToken: 'aabbccddeeff00112233445566778899' };
+    expect(credentialTokenMatches(member, parsed)).toBe(true);
+    expect(credentialTokenMatches(member, parseCredentialQRPayload(buildCredentialQRPayload({ memberId: '2026887744320988', ...member })))).toBe(true);
+  });
+
+  it('el QR en mayúsculas es solo letras, números y : . (modo alfanumérico)', () => {
+    const payload = buildCredentialQRPayload({ memberId: '12345', credentialToken: '3f9a0c7be21d4c55a8b6e0f1d29c7a44' });
+    expect(payload).toMatch(/^[0-9A-Z:.]+$/);
   });
 
   it('acepta solo el número de credencial (sin firma)', () => {

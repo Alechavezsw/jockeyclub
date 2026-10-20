@@ -1,6 +1,7 @@
 /** En temporada, desde el 10, sin la cuota del mes no se entra al club. */
 
-import { duesAmountForMember, duesDueMoment, isDuesExemptMember, pinDuesDueDate } from '../members/dues';
+import { duesAmountForMember, duesDueDayForMember, isDuesExemptMember, pinDuesDueDate } from '../members/dues';
+import { familyPrincipalOf, isFamilyDependent, memberNumberOf } from '../members/households';
 import { isPoolSeasonLive } from './poolSeason';
 
 export const SEASON_DUES_GATE_COPY = {
@@ -9,6 +10,22 @@ export const SEASON_DUES_GATE_COPY = {
 };
 
 export const SEASON_DUES_BLOCK_REASON = 'En mora · no abonó la cuota del mes. No ingresa hasta regularizar.';
+export const SEASON_DUES_BLOCK_REASON_GROUP = 'El titular está en mora · no abonó la cuota del mes. No ingresa hasta regularizar.';
+
+/**
+ * El adherente no tiene cuenta propia: la mora es la del titular del grupo.
+ * Si el titular no está en la lista, se evalúa la ficha tal cual (no se inventa una mora).
+ */
+export function accountHolderOf(member, members = []) {
+  if (!member || !isFamilyDependent(member)) return member;
+  const key = familyPrincipalOf(member);
+  const holder = (members || []).find((row) => memberNumberOf(row) === key);
+  return holder || member;
+}
+
+function dependsOnHolder(member, holder) {
+  return Boolean(member && holder && holder !== member);
+}
 
 function asDay(value) {
   if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
@@ -25,23 +42,24 @@ function paidThisMonth(member, today) {
   return paid.getFullYear() === today.getFullYear() && paid.getMonth() === today.getMonth();
 }
 
-/** True si, llegado el 10, el socio no cubrió la cuota de este mes. */
+/** True si, llegado el día de vencimiento (el 10; AMET, el 18), el socio no cubrió la cuota de este mes. */
 export function isCurrentMonthDuesUnpaid(member, today = new Date()) {
   if (isDuesExemptMember(member)) return false;
   const when = asDay(today);
-  if (duesDueMoment(when).phase === 'before') return false;
+  if (when.getDate() < duesDueDayForMember(member)) return false;
   if (duesAmountForMember(member, when) <= 0) return false;
   if ((Number(member?.outstandingBalance) || 0) > 0) return true;
   if (paidThisMonth(member, when)) return false;
-  const nextDue = pinDuesDueDate(member?.nextDueDate);
+  const nextDue = pinDuesDueDate(member?.nextDueDate, member);
   if (!nextDue) return false;
-  const thisDue = pinDuesDueDate(when);
+  const thisDue = pinDuesDueDate(when, member);
   return Boolean(thisDue && nextDue <= thisDue);
 }
 
 export function seasonDuesGate(member, {
   today = new Date(),
   settings = {},
+  members = [],
 } = {}) {
   if (!member) {
     return { blocked: false, inSeason: false, mora: false, reason: '' };
@@ -53,7 +71,8 @@ export function seasonDuesGate(member, {
   if (!inSeason) {
     return { blocked: false, inSeason: false, mora: false, reason: '' };
   }
-  const unpaid = isCurrentMonthDuesUnpaid(member, today);
+  const holder = accountHolderOf(member, members);
+  const unpaid = isCurrentMonthDuesUnpaid(holder, today);
   if (!unpaid) {
     return { blocked: false, inSeason: true, mora: false, reason: '' };
   }
@@ -61,7 +80,7 @@ export function seasonDuesGate(member, {
     blocked: true,
     inSeason: true,
     mora: true,
-    reason: SEASON_DUES_BLOCK_REASON,
+    reason: dependsOnHolder(member, holder) ? SEASON_DUES_BLOCK_REASON_GROUP : SEASON_DUES_BLOCK_REASON,
   };
 }
 
@@ -69,19 +88,20 @@ export function seasonDuesGate(member, {
  * Mora de pileta: desde el 10 de cada mes, o con saldo, no paga hasta regularizar.
  * No espera a la temporada dic–mar.
  */
-export function isPiletaMora(member, { today = new Date(), settings = {} } = {}) {
+export function isPiletaMora(member, { today = new Date(), settings = {}, members = [] } = {}) {
   if (!member) return false;
   if (settings?.seasonBlocksUnpaidDues === false) return false;
-  if (isDuesExemptMember(member)) return false;
-  if ((Number(member?.outstandingBalance) || 0) > 0) return true;
-  return isCurrentMonthDuesUnpaid(member, today);
+  const holder = accountHolderOf(member, members);
+  if (isDuesExemptMember(holder)) return false;
+  if ((Number(holder?.outstandingBalance) || 0) > 0) return true;
+  return isCurrentMonthDuesUnpaid(holder, today);
 }
 
 /**
  * Si el socio puede pagar pileta: mora del 10 en adelante, hasta regularizar.
  */
-export function piletaPayAccess(member, { today = new Date(), settings = {} } = {}) {
-  const gate = seasonDuesGate(member, { today, settings });
+export function piletaPayAccess(member, { today = new Date(), settings = {}, members = [] } = {}) {
+  const gate = seasonDuesGate(member, { today, settings, members });
   const status = member?.status;
   if (status && status !== 'active') {
     const detail = status === 'suspended'
@@ -91,11 +111,12 @@ export function piletaPayAccess(member, { today = new Date(), settings = {} } = 
         : 'Cuenta no habilitada';
     return { canPay: false, label: 'No puede pagar pileta', detail, gate, mora: false };
   }
-  if (isPiletaMora(member, { today, settings })) {
+  if (isPiletaMora(member, { today, settings, members })) {
+    const group = dependsOnHolder(member, accountHolderOf(member, members));
     return {
       canPay: false,
       label: 'No puede pagar pileta',
-      detail: 'En mora · regularizá la cuota',
+      detail: group ? 'El titular está en mora · regularizá la cuota' : 'En mora · regularizá la cuota',
       gate: { ...gate, mora: true },
       mora: true,
     };

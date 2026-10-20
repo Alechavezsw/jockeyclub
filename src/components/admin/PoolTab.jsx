@@ -93,14 +93,14 @@ export default function PoolTab({
   const searchHits = useMemo(() => {
     return searchPoolMembers(members, query, { limit: 50 }).map((member) => ({
       member,
-      snap: evaluatePoolAccess(member, { accesses: poolAccesses, today, settings }),
+      snap: evaluatePoolAccess(member, { accesses: poolAccesses, today, settings, members }),
       dues: Number(member.outstandingBalance) || 0,
     }));
   }, [members, query, poolAccesses, today, settings]);
 
   const eval_ = useMemo(
-    () => evaluatePoolAccess(selected, { accesses: poolAccesses, today, settings }),
-    [selected, poolAccesses, today, settings]
+    () => evaluatePoolAccess(selected, { accesses: poolAccesses, today, settings, members }),
+    [selected, poolAccesses, today, settings, members]
   );
 
   const dayList = useMemo(() => listDayAccesses(poolAccesses, today), [poolAccesses, today]);
@@ -171,7 +171,7 @@ export default function PoolTab({
 
   const handleEnableMember = async (member = selected) => {
     if (!member) return;
-    const snap = evaluatePoolAccess(member, { accesses: poolAccesses, today, settings });
+    const snap = evaluatePoolAccess(member, { accesses: poolAccesses, today, settings, members });
     if (snap.payBlocked) {
       setError('En mora · regularizá la cuota para pagar pileta.');
       return;
@@ -191,6 +191,7 @@ export default function PoolTab({
         today,
         settings,
         actorName,
+        members,
       });
       const charged = await chargePoolCanon({ entry, member, recordPoolCanon });
       setPoolAccesses(withChargedPoolEntry(accesses, entry, charged));

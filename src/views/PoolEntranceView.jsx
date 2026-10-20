@@ -91,8 +91,8 @@ export default function PoolEntranceView({
       || (picked && String(picked.memberId) === id ? picked : null);
   }, [directory, members, remoteHits, picked, selectedId]);
   const eval_ = useMemo(
-    () => evaluatePoolAccess(selected, { accesses: poolAccesses, today, settings }),
-    [selected, poolAccesses, today, settings],
+    () => evaluatePoolAccess(selected, { accesses: poolAccesses, today, settings, members: directory }),
+    [selected, poolAccesses, today, settings, directory],
   );
   const dues = Number(selected?.outstandingBalance) || 0;
   const verdict = poolEntranceVerdict(selected, eval_, dues);
@@ -103,7 +103,7 @@ export default function PoolEntranceView({
     const local = searchPoolMembers(directory, query, { limit: 30 });
     return mergePoolSearchHits(local, remoteHits, { limit: 30 }).map((member) => ({
       member,
-      snap: evaluatePoolAccess(member, { accesses: poolAccesses, today, settings }),
+      snap: evaluatePoolAccess(member, { accesses: poolAccesses, today, settings, members: directory }),
       dues: Number(member.outstandingBalance) || 0,
     }));
   }, [directory, remoteHits, query, poolAccesses, today, settings]);
@@ -152,6 +152,7 @@ export default function PoolEntranceView({
         today,
         settings,
         actorName,
+        members: directory,
       });
       const charged = await chargePoolCanon({ entry, member: selected, recordPoolCanon });
       setPoolAccesses(withChargedPoolEntry(accesses, entry, charged));
@@ -176,6 +177,7 @@ export default function PoolEntranceView({
         accesses: poolAccesses,
         today,
         actorName,
+        members: directory,
       });
       const charged = await chargePoolCanon({ entry, member: selected, recordPoolCanon });
       setPoolAccesses(withChargedPoolEntry(accesses, entry, charged));

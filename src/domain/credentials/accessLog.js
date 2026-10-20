@@ -11,6 +11,7 @@ export const ACCESS_ACTIVITIES = [
   'Pase invitado',
   'QR inválido',
   'No empadronado',
+  'Sin verificar',
 ];
 
 export const ACCESS_GROUPS = ['Socio', 'Invitado', '—'];
@@ -82,6 +83,7 @@ export function buildAccessLogEntry({
   group = '',
   activity = '',
   source = 'access_gate',
+  operator = '',
   at = new Date(),
 } = {}) {
   const resolvedGroup = group || groupFromRoleLabel(role);
@@ -101,7 +103,52 @@ export function buildAccessLogEntry({
     status,
     notes,
     source,
+    ...(operator ? { operator } : {}),
   };
+}
+
+/** Lecturas de portería que cuentan como «ya entró»: las de la sede, no pileta ni denegados. */
+const GATE_IN_ACTIVITIES = new Set(['Ingreso sede', 'Ingreso con deuda']);
+
+function secondsOfDay(time) {
+  const m = String(time || '').match(/^(\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) return null;
+  return Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3] || 0);
+}
+
+/**
+ * ¿Este socio ya pasó hace poco? Sirve para avisar en el molinete («ya ingresó hace 7 min»):
+ * un QR mandado por WhatsApp o prestado se nota porque la misma credencial entra dos veces.
+ * Solo avisa: quien decide es el portero (puede haber salido y vuelto).
+ * @returns {{ secondsAgo: number, minutesAgo: number, time: string } | null}
+ */
+export function recentEntryFor(logs = [], memberId, { now = new Date(), windowMinutes = 20 } = {}) {
+  const key = String(memberId || '').trim();
+  if (!key) return null;
+  const day = todayIso(now);
+  const nowSec = secondsOfDay(clockTime(now));
+  let best = null;
+  for (const raw of logs || []) {
+    const log = normalizeAccessLog(raw);
+    if (String(log.memberId || '').trim() !== key || log.status !== 'granted') continue;
+    if (!GATE_IN_ACTIVITIES.has(log.activity)) continue;
+    if (clubDayOfAccessLog(log) !== day) continue;
+    const sec = secondsOfDay(log.time);
+    if (sec == null || nowSec == null) continue;
+    const ago = Math.max(0, nowSec - sec);
+    if (ago > windowMinutes * 60) continue;
+    if (!best || ago < best.secondsAgo) {
+      best = { secondsAgo: ago, minutesAgo: Math.floor(ago / 60), time: log.time };
+    }
+  }
+  return best;
+}
+
+export function recentEntryLabel(hit) {
+  if (!hit) return '';
+  if (hit.secondsAgo < 45) return 'Ya ingresó hace instantes';
+  if (hit.minutesAgo < 1) return 'Ya ingresó hace menos de 1 min';
+  return `Ya ingresó hace ${hit.minutesAgo} min`;
 }
 
 /** Normaliza logs viejos que no traían group/activity. */

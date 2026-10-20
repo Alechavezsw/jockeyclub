@@ -115,13 +115,15 @@ export function buildBody(m) {
   ]);
   m.h2('Por qué a veces no anda');
   m.bullets([
-    'Foto de un QR viejo o impreso: el sistema exige un QR “firmado” de la app. Una imagen copiada o un carnet anterior puede ser rechazada.',
+    'Un carnet impreso de antes de la firma no vale: el sistema exige el QR firmado de la app.',
     'Pantalla sucia, brillo bajo o el protector tapando el código.',
     'Cuenta suspendida: el ingreso se deniega hasta que Administración rehabilite.',
-    'En temporada de pileta, cuota del mes sin pagar desde el día 10: aparece ACCESO DENEGADO por mora.',
-    'Sin internet en portería: el personal puede escribir tu número de socio a mano.',
+    'En temporada de pileta, cuota del mes sin pagar desde el día 10: aparece ACCESO DENEGADO por mora. En un grupo familiar, la mora del titular alcanza a todos.',
+    'Sin internet en portería: el cartel dice NO SE PUDO VERIFICAR y el personal busca tu número o tu DNI a mano. No es un rechazo.',
   ]);
-  m.box('tip', 'Si tu QR es viejo', 'Abrí la app de nuevo para generar uno nuevo. Si el lector no lo toma, decile a portería tu número de socio: ellos lo cargan a mano y el sistema te reconoce igual.');
+  m.p('El QR ahora tiene menos puntos que antes: se lee más rápido y desde más lejos. Si tenés el anterior guardado, también funciona.');
+  m.box('tip', 'Si el lector no toma tu QR', 'Subí el brillo del celular, acercalo un poco o abrí la app de nuevo. Si no lo toma, decile a portería tu número de socio o tu DNI: ellos lo cargan a mano y el sistema te reconoce igual.');
+  m.box('warn', 'No mandes tu QR por WhatsApp', 'Nadie puede inventar tu QR con tu número, pero una captura se puede copiar y usar. Por eso, si tu credencial entra dos veces en poco rato, portería ve un aviso amarillo: “Ya ingresó hace N min”. Tu credencial es personal.');
 
   /* ------------------------------------------------------------------ 5 */
   m.h1('5.  Cómo reservar un turno', { n: '05' });
@@ -212,7 +214,7 @@ export function buildBody(m) {
       ['Recargo', '10 % sobre la cuota, desde el día siguiente al vencimiento. Solo en socio familiar y socio individual.'],
       ['AMET', 'Socio familiar (AMET) y socio individual (AMET) vencen el 18, su mora empieza el 19 y no llevan recargo. Su cuota es la base menos 2,5 %; ese 2,5 % es tarifa, no mora.'],
       ['Exentos', 'Vitalicio, fundador y comisión no abonan cuota: sin mora, sin saldo, sin avisos, sin Mercado Pago y sin cobro en caja ni en el portal.'],
-      ['Grupo familiar', 'Una sola cuota por grupo, la del titular. El adherente no tiene cuenta propia. Un abono de tenis de un integrante sí se suma a la cuenta del titular.'],
+      ['Grupo familiar', 'Una sola cuota por grupo, la del titular. El adherente no tiene cuenta propia. Un abono de tenis de un integrante sí se suma a la cuenta del titular. La mora del titular alcanza al grupo: en temporada, el adherente no ingresa ni paga pileta.'],
       ['Un pago cubre el mes', 'El pago cubre el mes en que se hizo. Último pago en agosto: el próximo vencimiento es el 10 de septiembre.'],
       ['Descuentos', 'Los descuentos y bonificaciones se aplican sobre la cuota antes del recargo.'],
       ['Perdonar el recargo', 'Lo pueden hacer, al cobrar, Tesorería (cargo de Tesorero), el contador y el superadministrador. Se cobra solo la cuota y queda anotado el recargo perdonado.'],
@@ -257,16 +259,20 @@ export function buildBody(m) {
     'Andá a Acceso QR. Permití la cámara cuando el navegador lo pida. En celulares hace falta HTTPS (el enlace seguro del club).',
     'Pedile al socio que abra su tarjeta en la app, a pantalla completa.',
     'Si la cámara falla: usá “Leer QR desde foto” o escribí DNI, apellido, número de socio o código JCSJ en “Código manual” y tocá Leer.',
-    'Mirá el resultado grande: autorizado, con deuda, denegado, invitado o QR inválido.',
+    'Mirá el resultado grande: autorizado, con deuda, denegado, invitado o QR inválido. No hace falta esperar a que se vaya el cartel: la credencial siguiente lo reemplaza al instante.',
+    'Si aparece un aviso amarillo “Ya ingresó hace N min”, esa misma credencial entró hace poco. Puede haber salido y vuelto, pero también puede ser un QR prestado: mirá que la persona sea el socio. El aviso no bloquea; decidís vos.',
     'Si dice QR no válido o no firmado: pedí que abra la app, o cargá el número a mano.',
+    'Si dice NO SE PUDO VERIFICAR (cartel amarillo): se cortó la conexión. No es un rechazo: buscá al socio por DNI o número y dejalo pasar a mano. Queda anotado como “Sin verificar”.',
   ]);
+  m.p('La pantalla de la tablet no se apaga mientras Acceso QR está abierto. Si se corta internet, las lecturas se guardan en la tablet y se envían solas cuando vuelve la conexión. Cada lectura guarda también quién la hizo.');
   m.h2('Qué hacer en cada caso');
   m.table(
     ['Pantalla', 'Significa', 'Qué hacer'],
     [
       ['ACCESO AUTORIZADO', 'Socio activo, sin deuda', 'Dejar pasar'],
       ['ACCESO CON DEUDA', 'Socio activo con saldo, sin bloqueo por mora', 'Dejar pasar e invitar a regularizar en Caja'],
-      ['ACCESO DENEGADO · MORA', 'En temporada de pileta, desde el 10, sin cuota del mes', 'No dejar pasar; que regularice en Caja o en Mi Cuenta'],
+      ['ACCESO DENEGADO · MORA', 'En temporada de pileta, desde el 10, sin cuota del mes (o el titular del grupo, si es adherente)', 'No dejar pasar; que regularice en Caja o en Mi Cuenta'],
+      ['NO SE PUDO VERIFICAR', 'Sin conexión: no se pudo comprobar la firma del QR', 'No es un rechazo: buscar al socio por DNI o número y dejarlo pasar a mano'],
       ['ACCESO DENEGADO', 'Cuenta suspendida u otro bloqueo', 'No dejar pasar; derivar a Administración'],
       ['INVITADO AUTORIZADO', 'Pase del día válido', 'Dejar pasar al invitado'],
       ['ANFITRIÓN EN MORA', 'El pase es del día, pero el socio anfitrión está bloqueado por mora (en temporada)', 'No dejar pasar al invitado; que el socio regularice'],
@@ -278,7 +284,7 @@ export function buildBody(m) {
   );
   m.box('ok', 'Deuda no es rechazo', 'La deuda se informa pero no cierra la puerta, salvo en temporada de pileta desde el día 10. Suspendido siempre cierra la puerta. No discutas el monto en el molinete: eso es de Caja.');
   m.h2('Ingresos (historial)');
-  m.p('En el panel, Operación > Ingresos es el libro de la puerta: las lecturas del día (quién pasó, a qué hora, si fue invitado, con deuda o denegado y por qué). Sirve si hay una duda o un incidente. Ingresos solo lee lo que ya pasó; no escanea.');
+  m.p('En el panel, Operación > Ingresos es el libro de la puerta: las lecturas del día (quién pasó, a qué hora, quién la leyó, si fue invitado, con deuda o denegado y por qué). Sirve si hay una duda o un incidente. Ingresos solo lee lo que ya pasó; no escanea.');
 
   /* ----------------------------------------------------------------- 11 */
   m.h1('11.  Pileta', { n: '11' });
@@ -496,7 +502,9 @@ export function buildBody(m) {
       ['No tenés usuario o olvidaste la clave', 'Falta el alta o la recuperación', 'En el ingreso, “Ya soy socio…”. Secretaría te contacta'],
       ['Padrón en 0 y “actualizando”', 'Está bajando los socios', 'Esperar; son miles de fichas'],
       ['La cámara del QR no inicia', 'El navegador bloqueó el permiso o no hay HTTPS', 'Permitir cámara, usar el enlace seguro, o código manual'],
-      ['QR rechazado', 'Credencial vieja o foto', 'Abrir la app de nuevo o tipear el número'],
+      ['QR rechazado', 'Credencial sin firma, QR cortado o que no es del club', 'Abrir la app de nuevo o tipear el número'],
+      ['NO SE PUDO VERIFICAR', 'Se cortó internet y no se puede comprobar la firma', 'Buscar al socio por DNI o número; al volver la conexión todo se sincroniza solo'],
+      ['“Ya ingresó hace N min”', 'La misma credencial entró hace poco', 'Mirar que la persona sea el socio. Puede haber salido y vuelto'],
       ['ACCESO DENEGADO · MORA', 'Temporada de pileta, cuota del mes sin pagar desde el 10', 'Pagar en Mi Cuenta o en Caja; al acreditarse, vuelve a pasar'],
       ['“No puede pagar pileta”', 'Mora desde el 10 o saldo pendiente', 'Regularizar la cuota'],
       ['“Las reservas las hace el titular”', 'Sos adherente', 'Que reserve el titular de la cuenta'],
@@ -589,7 +597,10 @@ export function buildBody(m) {
       ['Exentos', 'Casos sueltos', 'Vitalicio, fundador y comisión: nunca cuota, aviso ni Mercado Pago'],
       ['Grupo familiar', 'Cada integrante sumaba cuota', 'Una cuota por grupo (titular); el adherente no paga ni reserva'],
       ['Avisos', 'Manuales', 'Mensaje y mail reales: por vencer, vence y mora'],
-      ['Puerta y mora', 'La deuda nunca cerraba la puerta', 'En temporada de pileta, desde el 10 sin cuota, cierra; y en mora no se paga pileta'],
+      ['Puerta y mora', 'La deuda nunca cerraba la puerta', 'En temporada de pileta, desde el 10 sin cuota, cierra; y en mora no se paga pileta. En un grupo, vale la mora del titular'],
+      ['Lector de QR', 'Lento sin lector nativo; un corte de internet decía “QR adulterado”', 'Lee en una fracción de segundo; sin conexión dice NO SE PUDO VERIFICAR; la credencial siguiente reemplaza el cartel'],
+      ['Credencial QR', 'QR más denso', 'Menos puntos: se lee más rápido y desde más lejos. Los QR viejos siguen valiendo'],
+      ['Portería', 'Sin aviso de uso repetido', 'Aviso amarillo si la misma credencial entra dos veces en 20 minutos; cada lectura guarda quién la hizo'],
       ['Alta y clave', 'Solo por Secretaría', 'Pantalla pública /registro: Quiero asociarme y Ya soy socio'],
       ['Pileta', 'Sin capítulo', 'Caja del día, apto, invitados y canon con Mercado Pago'],
       ['Contabilidad', 'Cortes de LILA', 'Libro vivo del club: diario, mayor, informes, tesorería e impuestos'],

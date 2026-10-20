@@ -173,11 +173,13 @@ export const APP_MANUAL = [
     who: 'Portería, caja, personal, admin, superadmin.',
     steps: [
       'Acceso QR abre /acceso: es el molinete de la sede, no el libro.',
-      'Escaneá la credencial o buscá DNI / apellido / número a mano.',
+      'Escaneá la credencial o buscá DNI / apellido / número a mano. No hace falta esperar a que se vaya el cartel: la credencial siguiente lo reemplaza al instante.',
       'ACCESO AUTORIZADO: dejalo pasar. ACCESO CON DEUDA: pasa igual; invitalo a regularizar en Caja.',
-      'ACCESO DENEGADO · MORA aparece solo en temporada de pileta (diciembre a marzo), desde el 10, si no pagó la cuota del mes. Fuera de temporada la deuda se informa pero no cierra la puerta.',
+      'Si aparece un aviso amarillo «Ya ingresó hace N min», esa misma credencial entró hace poco. Puede haber salido y vuelto, pero también puede ser un QR prestado o mandado por WhatsApp: mirá que la persona sea el socio. El aviso no bloquea; decidís vos.',
+      'ACCESO DENEGADO · MORA aparece solo en temporada de pileta (diciembre a marzo), desde el 10, si no pagó la cuota del mes. Fuera de temporada la deuda se informa pero no cierra la puerta. Un adherente queda igual que su titular: si el titular está en mora, el grupo también.',
+      'NO SE PUDO VERIFICAR (cartel amarillo): se cortó la conexión y no se puede comprobar la firma. No es un rechazo ni una acusación: buscá al socio por DNI o número y dejalo pasar a mano. La lectura queda anotada como «Sin verificar».',
       'Suspendido siempre se deniega. Si niega, el motivo queda en Ingresos. No inventes un pase.',
-      'El libro del día se lee en Operación → Ingresos.',
+      'El libro del día se lee en Operación → Ingresos. Cada lectura guarda quién la hizo. Si falla la conexión, las lecturas se guardan en la tablet y se envían solas cuando vuelve internet.',
     ],
     dont: 'No uses Pileta para la puerta de la sede. Pileta es otra caja.',
   },
@@ -243,10 +245,13 @@ export const APP_MANUAL = [
     steps: [
       'Leé el título del resultado: dice el motivo.',
       'ACCESO DENEGADO · MORA: es temporada de pileta (diciembre a marzo), pasó el 10 y no pagó la cuota del mes. Que regularice en Caja o en Mi Cuenta; cuando se acredita, pasa. Fuera de temporada, la deuda no cierra la puerta.',
+      'En un adherente, la mora es la de su titular: si el titular no pagó, el grupo no ingresa en temporada. Regulariza el titular.',
       'ACCESO DENEGADO: cuenta suspendida u otro bloqueo. Se rehabilita en la ficha, con motivo, desde Socios.',
-      'QR no válido o adulterado: es una foto o un carnet viejo. Que abra la app de nuevo, o buscalo por DNI, apellido o número.',
+      'NO SE PUDO VERIFICAR (amarillo): no hay conexión para comprobar la firma. No es un rechazo: buscá al socio por DNI o número y dejalo pasar a mano.',
+      'QR no válido o adulterado: es un QR que no es del club, uno cortado, o de un carnet viejo sin firma. Que abra la app de nuevo, o buscalo por DNI, apellido o número.',
       'Socio no encontrado: el número no está en el padrón. Avisá a Secretaría; no improvises un pase.',
       'Invitado: ANFITRIÓN EN MORA significa que el socio que lo invitó está bloqueado; PASE INVÁLIDO es un pase vencido, anulado o con anfitrión suspendido. Los pases valen solo el día.',
+      'Aviso amarillo «Ya ingresó hace N min» sobre un ACCESO AUTORIZADO: la misma credencial entró hace poco. Puede ser un QR prestado; confirmá que sea el socio.',
       'El motivo de cada lectura queda en Operación → Ingresos.',
     ],
     dont: 'No dejes pasar a un denegado por mora “por esta vez” ni inventes un pase. La regla de mora se prende o apaga en Configuración → Pileta, no en la puerta.',
@@ -260,11 +265,13 @@ export const APP_MANUAL = [
     who: 'Portería, caja, personal y atención al socio.',
     steps: [
       'La credencial del socio es la tarjeta virtual de su Inicio: nombre, número y un QR firmado. El personal también la ve en la ficha, sección Tarjeta.',
-      'Si el lector no toma el QR: que el socio abra la app de nuevo (una foto o un carnet viejo no sirve), subir el brillo, o buscarlo por DNI, apellido o número en Acceso QR.',
+      'El QR no se puede inventar con el número, pero sí se puede copiar: una captura del QR vigente pasa. Por eso el molinete avisa en amarillo «Ya ingresó hace N min» si la misma credencial entra dos veces en 20 minutos.',
+      'Si el lector no toma el QR: subir el brillo del celular, acercarlo, o buscarlo por DNI, apellido o número en Acceso QR. Un carnet impreso de antes de la firma no vale.',
+      'El QR es más simple que antes (menos puntos) y se lee más rápido y desde más lejos. Los QR de antes que un socio tenga guardados siguen valiendo.',
       'Socio sin carnet ni celular: en Acceso QR escribí el DNI, el apellido, el número o el código JCSJ en Código manual. Se aplican las mismas reglas que con el QR.',
       'Un QR no válido o adulterado queda registrado en Ingresos.',
     ],
-    dont: 'No dejes pasar sin buscar al socio. Si no figura en el padrón, que lo resuelva Secretaría.',
+    dont: 'No dejes pasar sin buscar al socio. Si no figura en el padrón, que lo resuelva Secretaría. Pedile al socio que no mande su QR por WhatsApp.',
   },
   {
     id: 'no-puede-pagar',
@@ -517,6 +524,7 @@ export const APP_MANUAL = [
       'El recargo es del 10 %, corre desde el día siguiente al vencimiento y solo en socio familiar e individual. AMET no lleva recargo.',
       'Vitalicio, fundador y comisión no abonan cuota. Para todo el padrón: sin mora, sin saldo, sin avisos, sin Mercado Pago y sin cobro en caja ni en el portal.',
       'En un grupo familiar la cuota es una sola, la del titular. El adherente no tiene cuenta propia. Un abono de tenis de un integrante sí se suma a la cuenta del titular.',
+      'La mora del titular alcanza al grupo: en temporada el adherente no ingresa ni paga pileta si el titular está en mora.',
       'Un pago cubre el mes en que se hizo: si el último pago fue en agosto, el próximo vencimiento es el 10 de septiembre.',
       'Tesorería, contador y superadmin pueden perdonar el recargo al cobrar.',
       'La tarifa vigente desde octubre de 2026 y la liquidación de cada mes están en Cuotas; el día de vencimiento se ve en Configuración.',
@@ -548,7 +556,7 @@ export const APP_MANUAL = [
     keywords: 'ingresos porteria lecturas denegados credencial libro',
     who: 'Portería y administración.',
     steps: [
-      'Operación → Ingresos es el libro: lecturas, denegados y el día.',
+      'Operación → Ingresos es el libro: lecturas, denegados y el día. Cada lectura guarda quién la hizo; las «Sin verificar» son las que se leyeron sin conexión.',
       'Para controlar la puerta usá Acceso QR (/acceso).',
       'Jev cruza portería, reservas y pileta del día si se lo pedís.',
     ],
@@ -562,9 +570,12 @@ export const APP_MANUAL = [
     keywords: 'acceso qr molinete escaner control sede jcsj',
     who: 'Portería, caja, personal, admin, superadmin.',
     steps: [
-      'Rail Acceso QR o /acceso.',
-      'Escaneá o escribí DNI, apellido, número o código JCSJ.',
-      'Los pases y denegados quedan anotados. El detalle se ve en Ingresos.',
+      'Rail Acceso QR o /acceso. La pantalla de la tablet queda encendida mientras está abierta.',
+      'Escaneá o escribí DNI, apellido, número o código JCSJ. El lector sigue leyendo mientras se muestra el cartel: pasá la credencial siguiente sin esperar.',
+      'Resultados: ACCESO AUTORIZADO, ACCESO CON DEUDA, ACCESO DENEGADO (suspendido o mora en temporada), INVITADO AUTORIZADO, ANFITRIÓN EN MORA, PASE INVÁLIDO, QR no válido, QR adulterado, Socio no encontrado y NO SE PUDO VERIFICAR (sin conexión).',
+      'El adherente se evalúa con su titular: si el titular está en mora, el grupo no ingresa en temporada.',
+      'Los pases de invitado se consultan en el momento: uno que el socio generó hace un rato vale aunque la tablet haya abierto antes.',
+      'Los pases y denegados quedan anotados, con quién los leyó. El detalle se ve en Ingresos.',
     ],
     dont: 'No es la entrada de pileta.',
   },
@@ -1113,34 +1124,39 @@ const CORE_LESSON_IDS = ['reglas-cuota', 'roles'];
 
 /**
  * El manual que ve Gemini para una pregunta: las lecciones que corresponden, completas,
- * más las reglas fijas, y un índice de una línea por el resto para que sepa adónde mandar.
+ * más las reglas fijas, y un índice de títulos del resto para que sepa adónde mandar.
  * Entra en `limit` caracteres, así que nunca se corta a la mitad de una lección.
  */
 export function manualPromptFor(query = '', { limit = 9000, top = 4 } = {}) {
-  const picked = [];
+  const matches = matchManualLessons(query).slice(0, top);
+  const core = CORE_LESSON_IDS.map((id) => APP_MANUAL.find((lesson) => lesson.id === id));
+  // Prioridad: las dos que mejor calzan, las reglas fijas (cuota y roles) y recién después el resto.
+  const wanted = [];
   const seen = new Set();
-  const take = (lesson) => {
+  [...matches.slice(0, 2), ...core, ...matches.slice(2)].forEach((lesson) => {
     if (lesson && !seen.has(lesson.id)) {
       seen.add(lesson.id);
-      picked.push(lesson);
+      wanted.push(lesson);
     }
+  });
+
+  const indexOf = (included) => {
+    const rest = APP_MANUAL.filter((lesson) => !included.has(lesson.id)).map((lesson) => lesson.title);
+    return rest.length
+      ? `\nTAMBIÉN EN EL MANUAL (solo el título; para el detalle, mandá a esa sección): ${rest.join(' · ')}`
+      : '';
   };
-  matchManualLessons(query).slice(0, top).forEach(take);
-  CORE_LESSON_IDS.forEach((id) => take(APP_MANUAL.find((lesson) => lesson.id === id)));
-
-  const index = APP_MANUAL
-    .filter((lesson) => !seen.has(lesson.id))
-    .map((lesson) => `- ${lesson.title}: ${lesson.who}`);
-  const indexText = index.length ? `\nTAMBIÉN EN EL MANUAL (una línea por sección; si hace falta el detalle, mandá a esa sección):\n${index.join('\n')}` : '';
-
-  const budget = Math.max(0, limit - indexText.length);
+  // El índice es corto (solo títulos): se reserva su lugar primero y lo que sobra es para las lecciones.
+  const budget = Math.max(0, limit - indexOf(new Set()).length);
+  const included = new Set();
   const lines = [];
   let used = 0;
-  for (const lesson of picked) {
+  for (const lesson of wanted) {
     const line = lessonForPrompt(lesson);
     if (used + line.length + 1 > budget) continue;
     lines.push(line);
+    included.add(lesson.id);
     used += line.length + 1;
   }
-  return `${lines.join('\n')}${indexText}`.slice(0, limit);
+  return `${lines.join('\n')}${indexOf(included)}`.slice(0, limit);
 }

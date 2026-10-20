@@ -804,7 +804,7 @@ export default function MemberProfilePanel({
   const duesExempt = isDuesExemptMember(member);
   const hasDebt = balance > 0 && !duesExempt;
   const quota = quotaHeadline(member);
-  const poolPay = piletaPayAccess(member, { settings: poolSettings });
+  const poolPay = piletaPayAccess(member, { settings: poolSettings, members });
   const tierName = getTierDisplayName(member.tier, tierCatalog);
   const age = ageFromBirth(member.birthDate);
   const tenure = membershipTenure(member);

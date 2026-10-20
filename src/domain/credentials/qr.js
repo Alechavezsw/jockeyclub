@@ -8,13 +8,18 @@ export function randomCredentialToken() {
   return `${Date.now().toString(16)}${Math.random().toString(16).slice(2, 18)}`;
 }
 
-/** Payload del QR de credencial. Con token no se puede falsificar solo con el número. */
+/**
+ * Payload del QR de credencial. Con token no se puede falsificar solo con el número.
+ * Va en MAYÚSCULAS a propósito: así el QR usa el modo alfanumérico, que es más corto que el de
+ * bytes (29 módulos por lado en vez de 37) y el celular lo lee más rápido y desde más lejos.
+ * Al leerlo se vuelve a minúsculas, así que los QR viejos (en minúsculas) siguen valiendo.
+ */
 export function buildCredentialQRPayload(member) {
   const id = String(member?.memberId || '').trim();
   const token = String(member?.credentialToken || '').trim();
   if (!id) return '';
   if (!token) return `JCSJ:${id}`;
-  return `JCSJ:${id}.${token}`;
+  return `JCSJ:${id}.${token.toUpperCase()}`;
 }
 
 /**
@@ -44,7 +49,7 @@ export function parseCredentialQRPayload(raw) {
     const memberId = body.slice(0, dot);
     const token = body.slice(dot + 1);
     if (!memberId || !/^[a-f0-9]{16,64}$/i.test(token)) return null;
-    return { memberId, token, signed: true };
+    return { memberId, token: token.toLowerCase(), signed: true };
   }
 
   if (!body) return null;
@@ -53,11 +58,12 @@ export function parseCredentialQRPayload(raw) {
 
 export function credentialTokenMatches(member, parsed) {
   if (!member || !parsed?.signed || !parsed.token) return false;
-  const expected = String(member.credentialToken || '');
-  if (!expected || expected.length !== parsed.token.length) return false;
+  const expected = String(member.credentialToken || '').toLowerCase();
+  const got = String(parsed.token).toLowerCase();
+  if (!expected || expected.length !== got.length) return false;
   let diff = 0;
   for (let i = 0; i < expected.length; i += 1) {
-    diff |= expected.charCodeAt(i) ^ parsed.token.charCodeAt(i);
+    diff |= expected.charCodeAt(i) ^ got.charCodeAt(i);
   }
   return diff === 0;
 }

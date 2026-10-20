@@ -3,22 +3,54 @@ import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, CheckCircle2, AlertCircle, Camera, CameraOff, History, QrCode,
 } from 'lucide-react';
-import { credentialTokenMatches, parseCredentialQRPayload } from '../domain/credentials/qr';
+import { parseCredentialQRPayload } from '../domain/credentials/qr';
+import { createCredentialVerifier } from '../domain/credentials/credentialCheck';
 import { parseGuestPassPayload, isGuestPassValid } from '../domain/credentials/guestPass';
-import { accessLogsForClubDay, buildAccessLogEntry, GATE_HISTORY_PAGE, tierToGroup } from '../domain/credentials/accessLog';
+import {
+  accessLogsForClubDay,
+  buildAccessLogEntry,
+  GATE_HISTORY_PAGE,
+  recentEntryFor,
+  recentEntryLabel,
+  tierToGroup,
+} from '../domain/credentials/accessLog';
 import { todayISODateAR } from '../lib/arDate';
 import { mergePoolSearchHits, mergePoolSettings, searchPoolMembers } from '../domain/pool/poolAccess';
 import { isPoolSeasonLive } from '../domain/pool/poolSeason';
-import { SEASON_DUES_GATE_COPY, seasonDuesGate } from '../domain/pool/seasonDuesGate';
-import { getMemberByNumber, searchMembersDirectory } from '../data/repos';
+import { accountHolderOf, SEASON_DUES_GATE_COPY, seasonDuesGate } from '../domain/pool/seasonDuesGate';
+import {
+  getGuestPassById,
+  getMemberByNumber,
+  searchMembersDirectory,
+  verifyMemberCredential,
+} from '../data/repos';
 import { isSupabaseConfigured } from '../lib/supabase';
+import { useWakeLock } from '../hooks/useWakeLock';
 import QrLiveScanner from '../components/QrLiveScanner';
 
+/** Cuánto queda el cartel. Una credencial distinta lo reemplaza al instante; la misma no se vuelve a leer. */
 const COOLDOWN_MS = 2200;
+
+let sharedAudioCtx = null;
+
+/** Un solo AudioContext para todo el turno: crear uno por lectura los acumulaba hasta que el navegador dejaba de sonar. */
+function audioContext() {
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return null;
+  if (!sharedAudioCtx || sharedAudioCtx.state === 'closed') sharedAudioCtx = new Ctx();
+  if (sharedAudioCtx.state === 'suspended') void sharedAudioCtx.resume();
+  return sharedAudioCtx;
+}
 
 function playBeep(success) {
   try {
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    navigator.vibrate?.(success ? 40 : [60, 40, 60]);
+  } catch {
+    /* sin vibración */
+  }
+  try {
+    const audioCtx = audioContext();
+    if (!audioCtx) return;
     if (success) {
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
@@ -62,10 +94,12 @@ export default function AccessControlView({
   formatCurrency,
   guestPasses = [],
   poolSettings,
+  operatorName = '',
 }) {
   const navigate = useNavigate();
-  const processingRef = useRef(false);
   const cooldownTimerRef = useRef(null);
+  const lastPayloadRef = useRef({ raw: '', at: 0 });
+  const lastAdmitRef = useRef({ id: '', at: 0 });
   const [cameraOn, setCameraOn] = useState(true);
   const [cameraError, setCameraError] = useState('');
   const [result, setResult] = useState(null);
@@ -85,15 +119,22 @@ export default function AccessControlView({
   const manualRef = useRef(null);
   const poolCfg = mergePoolSettings(poolSettings);
 
+  // Cuánto dura el cartel. No frena la cámara: la credencial siguiente lo reemplaza al instante.
   const beginCooldown = useCallback((ms = COOLDOWN_MS) => {
-    processingRef.current = true;
     if (cooldownTimerRef.current) clearTimeout(cooldownTimerRef.current);
     cooldownTimerRef.current = setTimeout(() => {
-      processingRef.current = false;
       setResult(null);
       cooldownTimerRef.current = null;
     }, ms);
   }, []);
+
+  const [verifier] = useState(() => createCredentialVerifier({
+    verifyRemote: verifyMemberCredential,
+    fetchMember: getMemberByNumber,
+  }));
+
+  // La pantalla de la tablet no se duerme mientras el molinete está abierto.
+  useWakeLock(true);
 
   const stopCamera = useCallback(() => {
     setCameraOn(false);
@@ -102,24 +143,39 @@ export default function AccessControlView({
   }, []);
 
   const admitMember = useCallback((member) => {
-    if (!member || processingRef.current) return;
+    if (!member) return;
+    // La misma ficha dos veces en un instante (doble toque, doble lectura) cuenta una sola vez.
+    const nowMs = Date.now();
+    if (lastAdmitRef.current.id === member.memberId && nowMs - lastAdmitRef.current.at < 1500) return;
+    lastAdmitRef.current = { id: member.memberId, at: nowMs };
+
     const isSuspended = member.status !== 'active';
-    const duesGate = seasonDuesGate(member, { today: clubDay, settings: poolCfg });
-    const hasDebt = (member.outstandingBalance || 0) > 0;
+    const duesGate = seasonDuesGate(member, { today: clubDay, settings: poolCfg, members });
+    // El adherente no tiene cuenta propia: la deuda y la mora son las del titular.
+    const holder = accountHolderOf(member, members);
+    const owed = Number(holder?.outstandingBalance) || 0;
+    const hasDebt = owed > 0;
     const isAllowed = !isSuspended && !duesGate.blocked;
     const status = isAllowed ? 'granted' : 'denied';
+    const debtNote = holder !== member ? 'Deuda del titular' : 'Deuda';
     const notes = isSuspended
       ? 'Cuenta suspendida'
       : duesGate.blocked
         ? duesGate.reason
         : hasDebt
-          ? `Ingreso OK · Deuda ${formatCurrency(member.outstandingBalance)}`
+          ? `Ingreso OK · ${debtNote} ${formatCurrency(owed)}`
           : 'Acceso aprobado · Sin deuda pendiente';
+
+    // Misma credencial dos veces en poco rato: un QR prestado o mandado por WhatsApp se nota así.
+    // Solo avisa; quien decide es el portero (puede haber salido y vuelto).
+    const repeat = isAllowed ? recentEntryFor(entryLogs, member.memberId) : null;
+    const warning = repeat ? recentEntryLabel(repeat) : '';
 
     setResult({
       status,
       title: isAllowed ? (hasDebt ? 'ACCESO CON DEUDA' : 'ACCESO AUTORIZADO') : (duesGate.blocked ? 'ACCESO DENEGADO · MORA' : 'ACCESO DENEGADO'),
       detail: `${member.name} · ${isAllowed ? (member.tier?.toUpperCase() || 'SOCIO') : notes}`,
+      warning,
       memberName: member.name,
       photo: member.photo,
     });
@@ -138,25 +194,80 @@ export default function AccessControlView({
               ? 'Ingreso con deuda'
               : 'Ingreso sede',
         status,
-        notes,
+        notes: warning ? `${notes} · ${warning}` : notes,
+        operator: operatorName,
       }),
       ...(prev || []),
     ]);
     setManualCode('');
     setManualHint('');
     setRemoteHits([]);
-    beginCooldown();
-  }, [formatCurrency, setEntryLogs, beginCooldown, clubDay, poolCfg]);
+    beginCooldown(warning ? COOLDOWN_MS + 1200 : COOLDOWN_MS);
+  }, [formatCurrency, setEntryLogs, beginCooldown, clubDay, poolCfg, members, entryLogs, operatorName]);
+
+  /** Lectura que no se pudo resolver por falta de conexión: no es un rechazo, y se anota aparte. */
+  const showUnverified = useCallback((who, detail, notes) => {
+    setResult({
+      status: 'denied',
+      tone: 'warn',
+      title: 'NO SE PUDO VERIFICAR',
+      detail,
+      memberName: null,
+    });
+    playBeep(false);
+    setEntryLogs((prev) => [
+      buildAccessLogEntry({
+        memberName: who,
+        memberId: null,
+        role: '—',
+        group: '—',
+        activity: 'Sin verificar',
+        status: 'denied',
+        notes,
+        operator: operatorName,
+      }),
+      ...(prev || []),
+    ]);
+    beginCooldown(4000);
+  }, [setEntryLogs, beginCooldown, operatorName]);
 
   const processPayload = useCallback(async (raw, { allowUnsignedNumber = false } = {}) => {
-    if (processingRef.current) return;
+    const text = String(raw || '');
+    // La misma credencial todavía frente a la cámara no se procesa de nuevo; una distinta sí, al instante.
+    const nowMs = Date.now();
+    if (lastPayloadRef.current.raw === text && nowMs - lastPayloadRef.current.at < COOLDOWN_MS) return;
+    lastPayloadRef.current = { raw: text, at: nowMs };
 
-    const guestParsed = parseGuestPassPayload(raw);
+    const guestParsed = parseGuestPassPayload(text);
     if (guestParsed) {
-      const pass = (guestPasses || []).find((p) => p.id === guestParsed.id);
-      const host = members.find((m) => m.memberId === guestParsed.hostMemberId);
+      let pass = (guestPasses || []).find((p) => p.id === guestParsed.id);
+      let lookupFailed = false;
+      if (!pass && isSupabaseConfigured) {
+        // La lista de pases se carga al entrar: uno que el socio generó después no está. Se pide a la base.
+        try {
+          pass = await getGuestPassById(guestParsed.id);
+        } catch {
+          lookupFailed = true;
+        }
+      }
+      let host = members.find((m) => m.memberId === guestParsed.hostMemberId);
+      if (!host && isSupabaseConfigured && pass) {
+        try {
+          host = await getMemberByNumber(guestParsed.hostMemberId);
+        } catch {
+          lookupFailed = true;
+        }
+      }
+      if (!pass && lookupFailed) {
+        showUnverified(
+          'Invitado',
+          'Sin conexión para consultar el pase. Reintentá en unos segundos o dejalo pasar con el socio anfitrión.',
+          'Pase de invitado sin verificar: sin conexión',
+        );
+        return;
+      }
       const hostBlocked = host
-        ? seasonDuesGate(host, { today: clubDay, settings: poolCfg }).blocked
+        ? seasonDuesGate(host, { today: clubDay, settings: poolCfg, members }).blocked
         : false;
       const valid = pass && isGuestPassValid(pass, { parsed: guestParsed }) && host?.status === 'active' && !hostBlocked;
       setResult({
@@ -183,6 +294,7 @@ export default function AccessControlView({
             : hostBlocked
               ? 'Anfitrión en mora'
               : 'Pase vencido, revocado o no registrado',
+          operator: operatorName,
         }),
         ...(prev || []),
       ]);
@@ -190,7 +302,7 @@ export default function AccessControlView({
       return;
     }
 
-    const parsed = parseCredentialQRPayload(raw);
+    const parsed = parseCredentialQRPayload(text);
     const memberId = parsed?.memberId || null;
     if (!memberId || (!parsed.signed && !allowUnsignedNumber)) {
       setResult({
@@ -211,6 +323,7 @@ export default function AccessControlView({
           activity: 'QR inválido',
           status: 'denied',
           notes: 'QR no válido / no es credencial Jockey Club',
+          operator: operatorName,
         }),
         ...(prev || []),
       ]);
@@ -219,38 +332,51 @@ export default function AccessControlView({
     }
 
     let member = members.find((m) => m.memberId === memberId);
-    if (parsed.signed && isSupabaseConfigured) {
-      try {
-        const full = await getMemberByNumber(memberId);
-        if (full?.credentialToken) {
-          member = { ...(member || full), credentialToken: full.credentialToken };
-        }
-      } catch {
-        /* el padrón en memoria no trae la firma */
+
+    if (parsed.signed) {
+      // El servidor dice si la firma es la de este socio (y se acuerda un turno). Nunca se baja la firma.
+      const check = await verifier.verify(memberId, parsed.token, { member });
+      if (check.status === 'unreachable') {
+        showUnverified(
+          'Sin verificar',
+          'Sin conexión con el padrón: no se pudo comprobar la firma. Buscá al socio por DNI o número y dejalo pasar a mano.',
+          `Credencial ${memberId}: no se pudo verificar la firma (sin conexión)`,
+        );
+        return;
+      }
+      if (check.status === 'invalid') {
+        setResult({
+          status: 'denied',
+          title: 'QR adulterado',
+          detail: 'La firma de la credencial no coincide con el padrón.',
+          memberName: null,
+        });
+        playBeep(false);
+        setEntryLogs((prev) => [
+          buildAccessLogEntry({
+            memberName: 'Firma inválida',
+            memberId,
+            role: '—',
+            group: '—',
+            activity: 'QR adulterado',
+            status: 'denied',
+            notes: 'Token de credencial no coincide',
+            operator: operatorName,
+          }),
+          ...(prev || []),
+        ]);
+        beginCooldown();
+        return;
       }
     }
-    if (parsed.signed && member && !credentialTokenMatches(member, parsed)) {
-      setResult({
-        status: 'denied',
-        title: 'QR adulterado',
-        detail: 'La firma de la credencial no coincide con el padrón.',
-        memberName: null,
-      });
-      playBeep(false);
-      setEntryLogs((prev) => [
-        buildAccessLogEntry({
-          memberName: 'Firma inválida',
-          memberId,
-          role: '—',
-          group: '—',
-          activity: 'QR adulterado',
-          status: 'denied',
-          notes: 'Token de credencial no coincide',
-        }),
-        ...(prev || []),
-      ]);
-      beginCooldown();
-      return;
+
+    if (!member && isSupabaseConfigured) {
+      // El padrón en memoria todavía no lo tiene (carga de a poco): se pide solo ese socio.
+      try {
+        member = await getMemberByNumber(memberId);
+      } catch {
+        /* sin red: queda como no encontrado */
+      }
     }
     if (!member) {
       setResult({
@@ -269,6 +395,7 @@ export default function AccessControlView({
           activity: 'No empadronado',
           status: 'denied',
           notes: `Credencial ${memberId} no figura en el padrón`,
+          operator: operatorName,
         }),
         ...(prev || []),
       ]);
@@ -277,7 +404,16 @@ export default function AccessControlView({
     }
 
     admitMember(member);
-  }, [members, guestPasses, formatCurrency, setEntryLogs, beginCooldown, admitMember, clubDay, poolCfg]);
+  }, [members, guestPasses, setEntryLogs, beginCooldown, admitMember, showUnverified, verifier, clubDay, poolCfg, operatorName]);
+
+  // El lector llama siempre a la versión más nueva sin reiniciar la cámara cada vez que cambia algo.
+  const processRef = useRef(processPayload);
+  useEffect(() => {
+    processRef.current = processPayload;
+  }, [processPayload]);
+  const handleDecode = useCallback((raw) => {
+    void processRef.current?.(raw);
+  }, []);
 
   const startCamera = useCallback(() => {
     setCameraError('');
@@ -473,6 +609,21 @@ export default function AccessControlView({
         .access-result-overlay.denied {
           background: rgba(40, 10, 10, 0.9);
           color: var(--danger-accent);
+        }
+        .access-result-overlay.denied.warn {
+          background: rgba(52, 36, 6, 0.92);
+          color: #f4c15d;
+        }
+        .access-result-warning {
+          margin: 0.6rem 0 0;
+          padding: 0.3rem 0.8rem;
+          border-radius: 999px;
+          background: rgba(244, 193, 93, 0.18);
+          border: 1px solid rgba(244, 193, 93, 0.55);
+          color: #f4c15d;
+          font-size: 0.82rem;
+          font-weight: 700;
+          letter-spacing: 0.02em;
         }
         .access-idle-hint {
           position: absolute;
@@ -683,8 +834,7 @@ export default function AccessControlView({
             <QrLiveScanner
               key={scannerGen}
               active={cameraOn}
-              paused={Boolean(result)}
-              onDecode={(raw) => processPayload(raw)}
+              onDecode={handleDecode}
               onError={setCameraError}
               onLiveChange={setCameraLive}
             />
@@ -703,7 +853,7 @@ export default function AccessControlView({
           )}
 
           {result && (
-            <div className={`access-result-overlay ${result.status}`} role="status" aria-live="assertive">
+            <div className={`access-result-overlay ${result.status}${result.tone ? ` ${result.tone}` : ''}`} role="status" aria-live="assertive">
               {result.photo && (
                 <img
                   src={result.photo}
@@ -722,6 +872,9 @@ export default function AccessControlView({
               <p style={{ margin: '0.45rem 0 0', fontSize: '0.9rem', color: '#fff', opacity: 0.9 }}>
                 {result.detail}
               </p>
+              {result.warning ? (
+                <p className="access-result-warning">{result.warning}</p>
+              ) : null}
             </div>
           )}
         </div>

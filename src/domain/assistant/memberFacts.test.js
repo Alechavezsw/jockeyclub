@@ -96,6 +96,18 @@ describe('memberFacts', () => {
     expect(facts.charge).toBeNull();
   });
 
+  it('la mora del titular alcanza al adherente: en temporada no ingresa ni paga pileta', () => {
+    const facts = memberFacts(adherente, {
+      today: '2026-12-15',
+      members: [{ ...titular, nextDueDate: '2026-12-10' }, adherente],
+    });
+    expect(facts.dependent).toBe(true);
+    expect(facts.canEnterToday).toBe(false);
+    expect(facts.entryReason).toMatch(/titular/i);
+    expect(facts.canPayPool).toBe(false);
+    expect(facts.poolReason).toMatch(/titular/i);
+  });
+
   it('el exento nunca está en mora ni paga cuota', () => {
     const facts = memberFacts({ ...vitalicio, outstandingBalance: 5000 }, opts);
     expect(facts.exempt).toBe(true);

@@ -116,12 +116,12 @@ export function memberFacts(member, { today = new Date(), poolSettings = {}, mem
     ? duesChargeBreakdown(member, { paidOn: when })
     : null;
 
-  const gate = seasonDuesGate(member, { today: when, settings });
+  const gate = seasonDuesGate(member, { today: when, settings, members });
   const entryBlocked = status !== 'active' || gate.blocked;
   const entryReason = status !== 'active'
     ? `cuenta ${STATUS_LABEL[status] || status}`
     : (gate.blocked ? gate.reason : '');
-  const pool = piletaPayAccess(member, { today: when, settings });
+  const pool = piletaPayAccess(member, { today: when, settings, members });
 
   let titularNumber = null;
   let titularName = null;

@@ -898,6 +898,7 @@ export async function insertAccessLog(log, memberDbId = null) {
       source: log.source || 'access_gate',
       group: log.group || '',
       activity: log.activity || '',
+      ...(log.operator ? { operator: String(log.operator) } : {}),
     },
   };
   const saved = await unwrap(
@@ -1011,6 +1012,34 @@ export async function listGuestPasses() {
     'No se pudieron cargar pases'
   );
   return (rows || []).map(M.guestPassFromRow);
+}
+
+/** Un pase por su id: el molinete lo pide si el que escaneó no está en la lista cargada al entrar. */
+export async function getGuestPassById(passId) {
+  const id = String(passId || '').trim();
+  if (!id) return null;
+  const row = await unwrap(
+    sb().from('guest_passes').select('*').eq('id', id).maybeSingle(),
+    'No se pudo cargar el pase'
+  );
+  return row ? M.guestPassFromRow(row) : null;
+}
+
+/**
+ * ¿La firma del QR es la de este socio? El servidor contesta sí o no (y si el socio existe):
+ * el secreto no viaja al navegador del portero. Ver la migración verify_member_credential.
+ */
+export async function verifyMemberCredential(memberNumber, token) {
+  const { data, error } = await sb().rpc('verify_member_credential', {
+    p_member_number: String(memberNumber),
+    p_token: String(token),
+  });
+  if (error) {
+    const failure = new Error(error.message || 'No se pudo verificar la credencial');
+    failure.code = error.code;
+    throw failure;
+  }
+  return { found: Boolean(data?.found), valid: Boolean(data?.valid) };
 }
 
 export async function upsertGuestPass(pass, hostDbId = null) {

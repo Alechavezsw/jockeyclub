@@ -45,6 +45,7 @@ import { isProductionWithoutBackend, isSupabaseConfigured, supabase } from './li
 import ConfigError from './components/ConfigError';
 import { notifyNextOnWaitlist } from './domain/reservations/waitlist';
 import { bootstrapShellFromDb, bootstrapDeferredFromDb, bootstrapMembersFromDb, bootstrapErpFromDb, repos } from './data/bootstrap';
+import { drainAccessOutbox, enqueueAccessLog } from './domain/credentials/accessOutbox';
 import { useDailyBackup } from './hooks/useDailyBackup';
 
 // Seed opcional (generado por npm run import:reservas; puede faltar en clones limpios).
@@ -1799,6 +1800,8 @@ function ClubPortal() {
             repos.insertAccessLog(newest, dbId).then((saved) => {
               setEntryLogs((cur) => [saved, ...cur.filter((x) => x !== newest && String(x.id) !== String(newest.id))]);
             }).then(() => undefined, (err) => {
+              // La lectura no se pierde: queda en el equipo y se reintenta sola (ver el efecto de la cola).
+              enqueueAccessLog(window.localStorage, newest, dbId);
               setDbError(err?.message || 'No se pudo guardar la lectura de acceso en la base de datos');
               throw err;
             }));
@@ -1807,6 +1810,26 @@ function ClubPortal() {
       return next;
     });
   };
+
+  // Lecturas de portería que no llegaron a la base (sin señal): se reintentan cada 20 s y al volver internet.
+  useEffect(() => {
+    if (!cloudMode || !isAuthenticated) return undefined;
+    let alive = true;
+    const flush = () => {
+      if (!alive || (typeof navigator !== 'undefined' && navigator.onLine === false)) return;
+      void drainAccessOutbox(window.localStorage, (log, dbId) => repos.insertAccessLog(log, dbId)).then(({ sent }) => {
+        if (alive && sent > 0) setDbError('');
+      });
+    };
+    flush();
+    const timer = window.setInterval(flush, 20000);
+    window.addEventListener('online', flush);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+      window.removeEventListener('online', flush);
+    };
+  }, [cloudMode, isAuthenticated]);
 
   const setPoolAccessesDb = (updater) => {
     setPoolAccesses((prev) => {
@@ -2639,6 +2662,7 @@ function ClubPortal() {
       formatCurrency={formatCurrency}
       guestPasses={guestPasses}
       poolSettings={poolSettings}
+      operatorName={user?.fullName || user?.name || user?.email || ''}
     />
   ) : (
     <Navigate to="/panel" replace />

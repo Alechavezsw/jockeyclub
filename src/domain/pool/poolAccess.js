@@ -133,6 +133,7 @@ export function evaluatePoolAccess(member, {
   accesses = [],
   today = todayISO(),
   settings = DEFAULT_POOL_SETTINGS,
+  members = [],
 } = {}) {
   const cfg = mergePoolSettings(settings);
   if (!member) {
@@ -155,9 +156,9 @@ export function evaluatePoolAccess(member, {
   const medical = getMedicalStatus(member, { today, validityDays: cfg.medicalValidityDays });
   if (!medical.ok) blockers.push(medical.label);
 
-  const duesGate = seasonDuesGate(member, { today, settings: cfg });
+  const duesGate = seasonDuesGate(member, { today, settings: cfg, members });
   if (duesGate.blocked) blockers.push(duesGate.reason);
-  const payAccess = piletaPayAccess(member, { today, settings: cfg });
+  const payAccess = piletaPayAccess(member, { today, settings: cfg, members });
   if (!duesGate.blocked && payAccess.mora) blockers.push(payAccess.detail);
 
   const alreadyIn = Boolean(memberDayAccess(accesses, member.memberId, today));
@@ -229,8 +230,9 @@ export function enableMemberPoolAccess({
   today = todayISO(),
   settings = DEFAULT_POOL_SETTINGS,
   paymentRef = '',
+  members = [],
 }) {
-  const eval_ = evaluatePoolAccess(member, { accesses, today, settings });
+  const eval_ = evaluatePoolAccess(member, { accesses, today, settings, members });
   if (eval_.alreadyIn) throw new Error('El socio ya tiene acceso habilitado hoy.');
   if (eval_.payBlocked) throw new Error('En mora · regularizá la cuota para pagar pileta.');
   if (eval_.duesBlocked) throw new Error(eval_.duesGate?.reason || 'En mora · no ingresa hasta regularizar.');
@@ -270,9 +272,10 @@ export function recordPoolAttendance({
   accesses = [],
   actorName = '',
   today = todayISO(),
+  members = [],
 } = {}) {
   if (!member?.memberId) throw new Error('Seleccioná un socio.');
-  const duesGate = seasonDuesGate(member, { today });
+  const duesGate = seasonDuesGate(member, { today, members });
   if (duesGate.blocked) throw new Error(duesGate.reason);
   if (memberDayAccess(accesses, member.memberId, today)) {
     throw new Error('El socio ya está anotado hoy.');
