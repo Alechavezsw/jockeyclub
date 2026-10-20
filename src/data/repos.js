@@ -787,6 +787,41 @@ export async function updateReservation(id, patch) {
   return M.reservationFromRow(saved);
 }
 
+/**
+ * Upsert reservation by external ID (Lila import idempotent).
+ * If a reservation with the same externalId exists, update it; otherwise insert.
+ */
+export async function upsertReservationByExternalId(res, memberDbId) {
+  const externalId = res.externalId || res.meta?.externalId;
+  if (!externalId) {
+    return createReservation(res, memberDbId);
+  }
+
+  const { data: existing } = await sb()
+    .from('reservations')
+    .select('id')
+    .eq('meta->>externalId', String(externalId))
+    .maybeSingle();
+
+  const row = M.reservationToRow(res, memberDbId);
+  row.meta = { ...row.meta, externalId: String(externalId) };
+
+  if (existing?.id) {
+    const saved = await unwrap(
+      sb().from('reservations').update(row).eq('id', existing.id).select().single(),
+      'No se pudo actualizar reserva existente'
+    );
+    return { reservation: M.reservationFromRow(saved), action: 'updated' };
+  }
+
+  const saved = await unwrap(
+    sb().from('reservations').insert(row).select().single(),
+    'No se pudo crear reserva'
+  );
+  await audit('create', 'reservations', saved.id);
+  return { reservation: M.reservationFromRow(saved), action: 'inserted' };
+}
+
 export async function listWaitlist() {
   const rows = await unwrap(
     sb().from('reservation_waitlist').select('*').order('created_at'),
@@ -3857,4 +3892,161 @@ export async function upsertFeePeriodClosure(period) {
     sb().from('fee_period_closures').upsert(row, { onConflict: 'id' }).select().single(),
   );
   return feePeriodClosureFromRow(saved);
+}
+
+function lilaDebtTotalFromRow(row) {
+  if (!row) return null;
+  return {
+    memberNumber: row.member_number,
+    lilaRowId: row.lila_row_id,
+    nombre: row.nombre,
+    apellido: row.apellido,
+    dni: row.dni,
+    cuotaSocial: row.cuota_social,
+    categoriaDivision: row.categoria_division,
+    periodosAdeudados: Number(row.periodos_adeudados) || 0,
+    capital: Number(row.capital) || 0,
+    recargos: Number(row.recargos) || 0,
+    intereses: Number(row.intereses) || 0,
+    saldoSinImputar: Number(row.saldo_sin_imputar) || 0,
+    totalDeuda: Number(row.total_deuda) || 0,
+    asOfDate: row.as_of_date,
+  };
+}
+
+function lilaPeriodDebtFromRow(row) {
+  if (!row) return null;
+  return {
+    memberNumber: row.member_number,
+    periodKey: row.period_key,
+    periodLabel: row.period_label,
+    capital: Number(row.capital) || 0,
+    recargos: Number(row.recargos) || 0,
+    intereses: Number(row.intereses) || 0,
+    deudaAcumulada: Number(row.deuda_acumulada) || 0,
+  };
+}
+
+function lilaDebtMovementFromRow(row) {
+  if (!row) return null;
+  return {
+    memberNumber: row.member_number,
+    lilaRowId: row.lila_row_id,
+    typeLabel: row.type_label,
+    description: row.description,
+    movementDate: row.movement_date,
+    monto: Number(row.monto) || 0,
+    adeudado: Number(row.adeudado) || 0,
+  };
+}
+
+function lilaFeeBatchFromRow(row) {
+  if (!row) return null;
+  return {
+    lilaBatchId: row.lila_batch_id,
+    periodKey: row.period_key,
+    periodLabel: row.period_label,
+    monto: Number(row.monto) || 0,
+    fechaGeneracion: row.fecha_generacion,
+    estado: row.estado,
+  };
+}
+
+function lilaFamilyBalanceFromRow(row) {
+  if (!row) return null;
+  return {
+    groupName: row.group_name,
+    periodKey: row.period_key,
+    periodLabel: row.period_label,
+    capital: Number(row.capital) || 0,
+    isTotal: row.is_total === true,
+  };
+}
+
+export async function listLilaDebtTotals() {
+  const rows = [];
+  const pageSize = 1000;
+  for (let from = 0; ; from += pageSize) {
+    const batch = await unwrap(
+      sb()
+        .from('lila_member_debt_totals')
+        .select('*')
+        .order('member_number', { ascending: true })
+        .range(from, from + pageSize - 1),
+      'No se pudieron leer los totales de deuda Lila',
+    );
+    rows.push(...(batch || []).map(lilaDebtTotalFromRow).filter(Boolean));
+    if (!batch || batch.length < pageSize) break;
+  }
+  return rows;
+}
+
+export async function listLilaPeriodDebts(memberNumber) {
+  const q = sb()
+    .from('lila_member_period_debts')
+    .select('*')
+    .order('period_key', { ascending: true });
+  if (memberNumber) q.eq('member_number', String(memberNumber));
+  const rows = await unwrap(q, 'No se pudieron leer las deudas por período');
+  return (rows || []).map(lilaPeriodDebtFromRow).filter(Boolean);
+}
+
+export async function listLilaDebtMovements(memberNumber) {
+  const q = sb()
+    .from('lila_member_debt_movements')
+    .select('*')
+    .order('movement_date', { ascending: true });
+  if (memberNumber) q.eq('member_number', String(memberNumber));
+  const rows = await unwrap(q, 'No se pudieron leer los movimientos de deuda');
+  return (rows || []).map(lilaDebtMovementFromRow).filter(Boolean);
+}
+
+export async function listLilaFeeBatches() {
+  const rows = await unwrap(
+    sb()
+      .from('lila_fee_batches')
+      .select('*')
+      .order('period_key', { ascending: true }),
+    'No se pudieron leer los lotes de cuotas Lila',
+  );
+  return (rows || []).map(lilaFeeBatchFromRow).filter(Boolean);
+}
+
+export async function listLilaFamilyBalances() {
+  const rows = await unwrap(
+    sb()
+      .from('lila_family_group_balances')
+      .select('*')
+      .order('group_name', { ascending: true })
+      .order('period_key', { ascending: true }),
+    'No se pudieron leer los saldos grupo familiar Lila',
+  );
+  return (rows || []).map(lilaFamilyBalanceFromRow).filter(Boolean);
+}
+
+export async function getLilaMemberBalance(memberNumber) {
+  const { data } = await sb()
+    .from('lila_member_balances')
+    .select('*')
+    .eq('member_number', String(memberNumber))
+    .maybeSingle();
+  if (!data) return null;
+  return {
+    memberNumber: data.member_number,
+    capital: Number(data.capital_no_pagado) || 0,
+    recargos: Number(data.recargos_no_pagados) || 0,
+    intereses: Number(data.intereses_no_pagados) || 0,
+    saldoNoImputado: Number(data.saldo_no_imputado) || 0,
+    saldoResultante: Number(data.saldo_resultante) || 0,
+    asOfDate: data.as_of_date,
+  };
+}
+
+export async function getLilaDebtTotal(memberNumber) {
+  const { data } = await sb()
+    .from('lila_member_debt_totals')
+    .select('*')
+    .eq('member_number', String(memberNumber))
+    .maybeSingle();
+  return data ? lilaDebtTotalFromRow(data) : null;
 }

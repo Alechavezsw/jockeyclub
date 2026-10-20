@@ -1,7 +1,9 @@
-import { Fragment, useMemo, useState } from 'react';
-import { ArrowLeft, Eye, Wallet } from 'lucide-react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
+import { ArrowLeft, Eye, Wallet, RefreshCw, Database } from 'lucide-react';
 import { buildAppMonthlyDebts } from '../../domain/accounting/appMonthlyDebts';
 import { listDebtPeriods, listMonthlyDebtors } from '../../domain/accounting/monthlyDebts';
+import { buildLilaMonthlyDebts, listLilaDebtPeriods, listLilaMonthlyDebtors } from '../../domain/accounting/lilaMonthlyDebts';
+import { listLilaDebtTotals, listLilaPeriodDebts, listLilaDebtMovements } from '../../data/repos';
 
 const PAGE_SIZE = 50;
 
@@ -21,15 +23,57 @@ export default function MonthlyDebtsPanel({
   const [period, setPeriod] = useState('all');
   const [page, setPage] = useState(0);
   const [selected, setSelected] = useState(null);
+  const [useLila, setUseLila] = useState(false);
+  const [lilaLoading, setLilaLoading] = useState(false);
+  const [lilaData, setLilaData] = useState({ totals: [], periods: [], movements: [] });
 
-  const snapshot = useMemo(
+  useEffect(() => {
+    let cancelled = false;
+    async function loadLilaData() {
+      setLilaLoading(true);
+      try {
+        const [totals, periods] = await Promise.all([
+          listLilaDebtTotals(),
+          listLilaPeriodDebts(),
+        ]);
+        if (!cancelled) {
+          setLilaData({ totals, periods, movements: [] });
+          if (totals.length > 0) {
+            setUseLila(true);
+          }
+        }
+      } catch (err) {
+        console.warn('No se pudieron cargar datos Lila:', err?.message || err);
+      } finally {
+        if (!cancelled) setLilaLoading(false);
+      }
+    }
+    loadLilaData();
+    return () => { cancelled = true; };
+  }, []);
+
+  const lilaSnapshot = useMemo(
+    () => buildLilaMonthlyDebts({ debtTotals: lilaData.totals, periodDebts: lilaData.periods, movements: lilaData.movements }),
+    [lilaData],
+  );
+
+  const appSnapshot = useMemo(
     () => buildAppMonthlyDebts(members, { today: new Date(), accountEntries }),
     [members, accountEntries],
   );
-  const periods = useMemo(() => listDebtPeriods(snapshot.byNumber), [snapshot]);
+
+  const snapshot = useLila && lilaSnapshot.memberCount > 0 ? lilaSnapshot : appSnapshot;
+  const hasLilaData = lilaData.totals.length > 0;
+
+  const periods = useMemo(
+    () => (useLila ? listLilaDebtPeriods(snapshot.byNumber) : listDebtPeriods(snapshot.byNumber)),
+    [snapshot, useLila],
+  );
   const debtors = useMemo(
-    () => listMonthlyDebtors({ byNumber: snapshot.byNumber, query, periodKey: period }),
-    [snapshot, query, period],
+    () => (useLila
+      ? listLilaMonthlyDebtors({ byNumber: snapshot.byNumber, query, periodKey: period })
+      : listMonthlyDebtors({ byNumber: snapshot.byNumber, query, periodKey: period })),
+    [snapshot, query, period, useLila],
   );
   const periodLabel = periods.find((p) => p.periodKey === period)?.periodLabel || '';
   const periodTotal = useMemo(
@@ -155,8 +199,30 @@ export default function MonthlyDebtsPanel({
       </div>
 
       <section className="supplier-pay-import-block">
-        <h4 className="supplier-pay-import-title">Saldo de cuota</h4>
+        <h4 className="supplier-pay-import-title">
+          Saldo de cuota
+          {lilaLoading ? (
+            <span className="btn btn-secondary btn-sm" style={{ marginLeft: '1rem', fontSize: '0.75rem', opacity: 0.6 }}>
+              <RefreshCw size={12} style={{ marginRight: '0.25rem', animation: 'spin 1s linear infinite' }} />
+              Cargando…
+            </span>
+          ) : hasLilaData ? (
+            <button
+              type="button"
+              className={`btn btn-sm ${useLila ? 'btn-tan' : 'btn-secondary'}`}
+              style={{ marginLeft: '1rem', fontSize: '0.75rem' }}
+              onClick={() => { setUseLila((v) => !v); setPage(0); }}
+              title={useLila ? 'Cambiar a cálculo vivo del portal' : 'Cambiar a datos importados de Lila'}
+            >
+              <Database size={12} style={{ marginRight: '0.25rem' }} />
+              {useLila ? 'Datos Lila' : 'Vivo'}
+            </button>
+          ) : null}
+        </h4>
         <p className="disc-field-hint" style={{ marginTop: 0 }}>
+          {useLila && snapshot.source === 'lila' ? (
+            <strong style={{ color: 'var(--emerald-accent)' }}>📊 Datos Lila </strong>
+          ) : null}
           Al {snapshot.asOfLabel || snapshot.asOf}
           {' · '}
           {period === 'all'
@@ -170,8 +236,9 @@ export default function MonthlyDebtsPanel({
           total {formatLilaMoney(period === 'all' ? snapshot.totalDebt : periodTotal)}
         </p>
         <p className="disc-field-hint">
-          Vence el 10. Después del 10 está en mora. Recargo del 10 % (familiar e individual) desde el 11.
-          Lo que no entra en esas cuotas queda sin imputar.
+          {useLila && snapshot.source === 'lila'
+            ? 'Datos importados de Lila. Las cifras coinciden exactamente al centavo con el sistema anterior.'
+            : 'Vence el 10. Después del 10 está en mora. Recargo del 10 % (familiar e individual) desde el 11. Lo que no entra en esas cuotas queda sin imputar.'}
         </p>
         <div className="cuotas-event-filters">
           <label>

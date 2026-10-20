@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Database, CloudUpload, Users, Play, Eye, RefreshCw, CalendarDays } from 'lucide-react';
+import { Database, CloudUpload, Users, Play, Eye, RefreshCw, CalendarDays, DollarSign } from 'lucide-react';
 import { isSupabaseConfigured, supabase } from '../../lib/supabase';
 import { repos } from '../../data/bootstrap';
 import {
@@ -11,6 +11,12 @@ import {
   rowsToReservations,
   summarizeReservations,
 } from '../../domain/reservations/datitaReservasImport';
+import {
+  aoaToSaldosBalances,
+  summarizeSaldos,
+  balanceToDbRow,
+  prepareImportLog,
+} from '../../domain/members/lilaSaldosImport';
 
 const LOCAL_KEYS = [
   'jockey-members',
@@ -45,8 +51,11 @@ export default function MigrationTab({ setMembers, setReservations }) {
   const sociosFileRef = useRef(null);
   const cuotasFileRef = useRef(null);
   const reservasFileRef = useRef(null);
+  const saldosFileRef = useRef(null);
   const preparedRef = useRef(null);
   const preparedReservasRef = useRef(null);
+  const preparedSaldosRef = useRef(null);
+  const [saldosSummary, setSaldosSummary] = useState(null);
 
   const pushLog = (text) => setMigrationLogs((prev) => [...prev, text]);
   const busy = migrationState === 'running';
@@ -321,6 +330,7 @@ export default function MigrationTab({ setMembers, setReservations }) {
       }
       let ok = 0;
       let skip = 0;
+      let updated = 0;
       let fail = 0;
       for (const r of list) {
         if (r.status === 'cancelled') {
@@ -329,17 +339,167 @@ export default function MigrationTab({ setMembers, setReservations }) {
         }
         try {
           const dbId = await repos.findMemberDbIdByNumber(r.memberId);
-          await repos.createReservation(r, dbId);
-          ok += 1;
+          const result = await repos.upsertReservationByExternalId(r, dbId);
+          if (result.action === 'updated') updated += 1;
+          else ok += 1;
         } catch (err) {
           fail += 1;
           if (fail <= 12) pushLog(`[WARN] ${r.id}: ${err.message}`);
         }
       }
-      pushLog(`COMPLETADO reservas → BD · ok=${ok} canceladas omitidas=${skip} fallos=${fail}`);
+      pushLog(`COMPLETADO reservas → BD · insertadas=${ok} actualizadas=${updated} canceladas omitidas=${skip} fallos=${fail}`);
       setMigrationState('completed');
     } catch (err) {
       pushLog(`FALLO push reservas: ${err.message}`);
+      setMigrationState('idle');
+    }
+  };
+
+  const loadSaldosXlsx = async () => {
+    const file = saldosFileRef.current?.files?.[0];
+    if (!file) {
+      throw new Error('Seleccioná saldos.xlsx (export Lila "Saldos").');
+    }
+    pushLog(`Leyendo ${file.name}…`);
+    const buf = await file.arrayBuffer();
+    const XLSX = await import('xlsx');
+    const wb = XLSX.read(buf, { type: 'array', raw: true });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: true });
+    const result = aoaToSaldosBalances(aoa);
+    if (result.error) throw new Error(result.error);
+    const summary = summarizeSaldos(result);
+    preparedSaldosRef.current = { result, summary, fileName: file.name };
+    setSaldosSummary(summary);
+    return preparedSaldosRef.current;
+  };
+
+  const handleSaldosDryRun = async () => {
+    if (busy) return;
+    setMigrationState('running');
+    setMigrationLogs([]);
+    try {
+      const prep = await loadSaldosXlsx();
+      const { summary } = prep;
+      pushLog(`Fecha de corte: ${summary.asOfDate}`);
+      pushLog(`Total socios: ${summary.totalRows}`);
+      pushLog(`  Con saldo > 0: ${summary.withBalance}`);
+      pushLog(`  Con saldo = 0: ${summary.withZero}`);
+      pushLog(`  Con saldo < 0: ${summary.withNegative}`);
+      pushLog(`  Nros duplicados: ${summary.duplicateNros}`);
+      pushLog(`Totales:`);
+      pushLog(`  Capital: $${summary.totals.capital.toLocaleString('es-AR')}`);
+      pushLog(`  Recargos: $${summary.totals.recargos.toLocaleString('es-AR')}`);
+      pushLog(`  Intereses: $${summary.totals.intereses.toLocaleString('es-AR')}`);
+      pushLog(`  No imputado: $${summary.totals.noImputado.toLocaleString('es-AR')}`);
+      pushLog(`  SALDO RESULTANTE: $${summary.totals.saldoResultante.toLocaleString('es-AR')}`);
+      if (summary.sampleWithBalance.length > 0) {
+        pushLog(`Muestra con saldo:`);
+        summary.sampleWithBalance.forEach((s) => {
+          pushLog(`  #${s.nro} ${s.nombre} - $${s.saldo.toLocaleString('es-AR')}`);
+        });
+      }
+      if (summary.sampleDuplicates.length > 0) {
+        pushLog(`Nros duplicados:`);
+        summary.sampleDuplicates.forEach((d) => {
+          pushLog(`  #${d.memberNumber}: ${d.entries.map((e) => `${e.nombre} ${e.apellido}`).join(' / ')}`);
+        });
+      }
+      pushLog('DRY-RUN listo (sin escribir en BD).');
+      setMigrationState('completed');
+    } catch (err) {
+      pushLog(`FALLO dry-run saldos: ${err.message}`);
+      setMigrationState('idle');
+    }
+  };
+
+  const handleSaldosImport = async () => {
+    if (!isSupabaseConfigured) {
+      pushLog('Supabase no configurado.');
+      return;
+    }
+    if (busy) return;
+    setMigrationState('running');
+    setMigrationLogs([]);
+    try {
+      let prep = preparedSaldosRef.current;
+      if (!prep) {
+        prep = await loadSaldosXlsx();
+      }
+      const { result, summary, fileName } = prep;
+      const { balances, duplicates, totals, asOfDate } = result;
+
+      pushLog(`Buscando socios en la base (${balances.length} nros)…`);
+      const memberNumbers = balances.map((b) => b.memberNumber);
+      const memberByNro = new Map();
+      for (let i = 0; i < memberNumbers.length; i += 500) {
+        const chunk = memberNumbers.slice(i, i + 500);
+        const { data, error } = await supabase
+          .from('members')
+          .select('id, member_number, outstanding_balance')
+          .in('member_number', chunk);
+        if (error) throw new Error(`Lookup: ${error.message}`);
+        for (const m of data || []) {
+          memberByNro.set(m.member_number, m);
+        }
+      }
+
+      const matched = balances.filter((b) => memberByNro.has(b.memberNumber));
+      const unmatched = balances.filter((b) => !memberByNro.has(b.memberNumber));
+      pushLog(`Encontrados: ${matched.length} / No encontrados: ${unmatched.length}`);
+
+      pushLog('Guardando en lila_member_balances…');
+      let balancesSaved = 0;
+      for (let i = 0; i < balances.length; i += BATCH) {
+        const chunk = balances.slice(i, i + BATCH);
+        const rows = chunk.map(balanceToDbRow);
+        const { error: upsertErr } = await supabase
+          .from('lila_member_balances')
+          .upsert(rows, { onConflict: 'member_number' });
+        if (upsertErr) throw new Error(`Upsert balances: ${upsertErr.message}`);
+        balancesSaved += chunk.length;
+      }
+      pushLog(`  Guardados: ${balancesSaved}`);
+
+      pushLog('Actualizando members.outstanding_balance…');
+      let membersUpdated = 0;
+      for (const balance of matched) {
+        const member = memberByNro.get(balance.memberNumber);
+        if (!member) continue;
+        const { error } = await supabase
+          .from('members')
+          .update({
+            outstanding_balance: Math.max(0, balance.saldoResultante),
+            lila_balance_at: new Date().toISOString(),
+          })
+          .eq('id', member.id);
+        if (!error) membersUpdated += 1;
+      }
+      pushLog(`  Actualizados: ${membersUpdated}`);
+
+      const importLog = prepareImportLog({
+        sourceFile: fileName,
+        asOfDate,
+        processed: balances.length,
+        matched: matched.length,
+        unmatched: unmatched.length,
+        duplicates: duplicates.length,
+        totals,
+        unmatchedSocios: unmatched.length > 0
+          ? unmatched.slice(0, 30).map((u) => ({ nro: u.memberNumber, nombre: `${u.nombre} ${u.apellido}` }))
+          : null,
+        duplicateSocios: duplicates.length > 0 ? duplicates.slice(0, 10) : null,
+      });
+      await supabase.from('lila_import_logs').insert(importLog);
+
+      pushLog(`COMPLETADO saldos → BD`);
+      pushLog(`  lila_member_balances: ${balancesSaved}`);
+      pushLog(`  members actualizados: ${membersUpdated}`);
+      pushLog(`  Sin match: ${unmatched.length}`);
+      pushLog(`  Duplicados: ${duplicates.length}`);
+      setMigrationState('completed');
+    } catch (err) {
+      pushLog(`FALLO import saldos: ${err.message}`);
       setMigrationState('idle');
     }
   };
@@ -568,6 +728,48 @@ export default function MigrationTab({ setMembers, setReservations }) {
             Último lote: {reservasSummary.total} reservas · {JSON.stringify(reservasSummary.byStatus)}
             {reservasSummary.skipped != null ? ` · omitidas ${reservasSummary.skipped}` : ''}
           </p>
+        )}
+      </section>
+
+      <section
+        className="glass-panel"
+        style={{ padding: '1rem 1.1rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}
+      >
+        <h4 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-gold)' }}>
+          <DollarSign size={18} /> Importar saldos Lila (cuenta corriente)
+        </h4>
+        <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+          Export Lila &quot;Saldos&quot; (.xlsx). Importa capital/recargos/intereses/saldo por socio.
+          También: <code>node scripts/import-lila-saldos.mjs --file saldos.xlsx --dry-run</code>
+        </p>
+        <label style={{ fontSize: '0.78rem', display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 360 }}>
+          saldos.xlsx
+          <input ref={saldosFileRef} type="file" accept=".xlsx,.xls" disabled={busy} />
+        </label>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem' }}>
+          <button type="button" className="btn btn-secondary" disabled={busy} onClick={handleSaldosDryRun} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Eye size={15} /> Dry-run
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={busy || !isSupabaseConfigured}
+            onClick={handleSaldosImport}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            <Play size={15} /> Importar → BD
+          </button>
+        </div>
+        {saldosSummary && (
+          <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <div>
+              Corte: {saldosSummary.asOfDate} · {saldosSummary.totalRows} socios ·
+              con saldo: {saldosSummary.withBalance} · duplicados: {saldosSummary.duplicateNros}
+            </div>
+            <div>
+              SALDO TOTAL: ${saldosSummary.totals.saldoResultante?.toLocaleString('es-AR', { minimumFractionDigits: 2 }) || '0'}
+            </div>
+          </div>
         )}
       </section>
 
