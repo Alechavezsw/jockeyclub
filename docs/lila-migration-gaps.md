@@ -56,33 +56,51 @@ The ~$145,600 difference between Saldos CC ($346,295,200.69) and Deudas M/M ($34
 
 **Consistent figure:** Dashboard uses Saldos CC ($346,295,200.69) as the single source of truth.
 
-**2. October 2026: Liquidado $63,233,000 (EXACT)**
+**2. October 2026: Liquidado and Recaudado Gaps (UNRESOLVED)**
 
-The reconciliation compares against Lila's exact value:
+### Liquidado Gap: $390,000
 
-- `cta_cte_detalle_liquidacion.xlsx` columns: LIQUIDACIÓN + OTROS
-- Dropped rows (non-numeric nro_socio) are tracked separately
-- Any non-zero difference **fails** the reconciliation
+| Source | Value | Gap from Lila |
+|--------|-------|---------------|
+| `cta_cte_detalle` LIQUIDACIÓN column | $62,843,000 | -$390,000 |
+| Lila dashboard | $63,233,000 | (target) |
 
-Environment variable to override expected value:
-```bash
-LILA_OCT_2026_LIQUIDADO=63233000 node scripts/reconcile-lila.mjs --uploads-dir uploads/
-```
+**Analysis performed:**
+- The LIQUIDACIÓN column sums exactly to $62,843,000
+- Non-numeric rows (alquileres, colegio) have $0 in LIQUIDACIÓN
+- The gap of $390,000 is NOT explained by dropped rows
 
-**Recaudado (IMPLEMENTED):**
+**Hypotheses pending verification:**
+- Lila includes concepts from another sheet/file (e.g., cuota deportiva)
+- The dashboard uses a different column (SIN RECARGOS vs LIQUIDACIÓN)
+- There are adjustments/credits applied that don't appear in the export
 
-Rule discovered: `Cuotas (concepto = "Octubre del 2026 - ...") + Recargos (concepto = "Recargo: Octubre del 2026")`
+### Recaudado Gap: $552,000.03 (or $95,000)
 
-- File: `cobranzas_*.xlsx` (Lila "Reporte de Cobranzas")
-- Parser: `parseCobranzas()` in `lilaOtherImports.js`
-- Lila dashboard shows: $46,645,000.00 for full month
-- Partial file (Oct 1-19): $46,092,999.97
-- Difference: $552,000.03 (payments Oct 20-31 not in export)
+| Rule | Computed | Gap from Lila |
+|------|----------|---------------|
+| Rule 1: Cuotas Oct + Recargos Oct | $46,092,999.97 | -$552,000.03 |
+| Rule 2: Cuotas Oct + ALL Recargos | $46,550,000.00 | -$95,000.00 |
+| Lila dashboard | $46,645,000.00 | (target) |
 
-Environment variable to set expected value:
-```bash
-LILA_OCT_2026_RECAUDADO=46645000 node scripts/reconcile-lila.mjs --uploads-dir uploads/
-```
+**Analysis performed:**
+- **DISPROVEN HYPOTHESIS**: The gap is NOT from missing days (Oct 20-31).
+  The full-month export (2026-10-01..31) has the same 1,122 rows as the
+  partial export (2026-10-01..19), max Fecha 2026-10-19.
+- Varios entries with "octubre" + "cuota/mes/familiar" total $1,100,000
+  which EXCEEDS the gap, so it's not "include all Varios October cuotas"
+- $95,000 cannot be formed from $70,000 and $40,000 (the only Varios amounts)
+
+**Rules tested:**
+- `Cuotas "Octubre del 2026 - ..." + Recargos "Octubre del 2026"` → $46,092,999.97
+- `Cuotas "Octubre del 2026 - ..." + ALL Recargos` → $46,550,000.00
+- Neither produces exactly $46,645,000.00
+
+### Required Additional Exports
+
+To resolve these gaps, request from Lila:
+1. **For liquidado**: The exact algorithm Lila uses to calculate "liquidado" on the dashboard, or an export showing ALL concepts included
+2. **For recaudado**: The exact algorithm Lila uses to calculate "recaudado", or a cobranzas export with a flag indicating which payments "impute to cuenta corriente"
 
 **Dropped non-socio rows (4):**
 | NRO | Name | Tipo | Importe |
@@ -94,24 +112,9 @@ LILA_OCT_2026_RECAUDADO=46645000 node scripts/reconcile-lila.mjs --uploads-dir u
 
 These are correctly excluded from member imports but tracked in reconciliation.
 
-**3. Total Liquidaciones: $647,331,000 (EXACT)**
+**3. Total Liquidaciones (Informational)**
 
-Must match Lila's exact cumulative total. Any difference **fails** the reconciliation.
-
-Environment variable to override expected value:
-```bash
-LILA_TOTAL_LIQUIDADO=647331000 node scripts/reconcile-lila.mjs --uploads-dir uploads/
-```
-
-Relationship between figures:
-```
-Total liquidado histórico:     $647.331.000
-Saldos CC (deuda actual):      $346.295.200
-────────────────────────────────────────────
-Estimado COBRADO histórico:    $301.035.800
-```
-
-Formula: `LIQUIDADO - ADEUDADO = COBRADO`
+The total historical liquidaciones is tracked for reference but requires Lila dashboard confirmation to verify.
 
 ---
 
