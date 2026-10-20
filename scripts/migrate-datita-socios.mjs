@@ -115,32 +115,30 @@ async function upsertStagingBatch(sb, items) {
 }
 
 async function upsertMembersBatch(sb, members) {
-  const rows = members.map(memberToDbRow);
-  // Prefer bulk upsert by unique member_number
-  const { error } = await sb.from('members').upsert(rows, {
-    onConflict: 'member_number',
-    ignoreDuplicates: false,
-  });
-  if (!error) {
-    // Approximate: we don't know insert vs update without a prior select
-    return { inserted: 0, updated: rows.length };
-  }
+  // memberToDbRow with preserveBalance: true omits outstanding_balance
+  // so updates don't overwrite existing balances.
+  // For inserts, we explicitly set outstanding_balance = 0 as the default.
+  const rows = members.map((m) => memberToDbRow(m, { preserveBalance: true }));
 
-  // Fallback: select then insert/update (handles older schemas / RLS quirks)
+  // Determine which members exist (insert vs update) to handle balance correctly
   const numbers = rows.map((r) => r.member_number);
   const { data: existing, error: findErr } = await sb
     .from('members')
     .select('id, member_number')
     .in('member_number', numbers);
-  if (findErr) throw new Error(findErr.message || error.message);
+  if (findErr) throw new Error(`lookup members: ${findErr.message}`);
 
   const byNumber = new Map((existing || []).map((e) => [e.member_number, e.id]));
   const toInsert = [];
   const toUpdate = [];
   for (const row of rows) {
     const id = byNumber.get(row.member_number);
-    if (id) toUpdate.push({ ...row, id });
-    else toInsert.push(row);
+    if (id) {
+      toUpdate.push({ ...row, id });
+    } else {
+      // New members: initialize outstanding_balance = 0
+      toInsert.push({ ...row, outstanding_balance: 0 });
+    }
   }
 
   let inserted = 0;
@@ -153,7 +151,7 @@ async function upsertMembersBatch(sb, members) {
   }
 
   if (toUpdate.length) {
-    // Parallel updates in small chunks
+    // Parallel updates in small chunks - outstanding_balance NOT included
     const chunkSize = 25;
     for (let i = 0; i < toUpdate.length; i += chunkSize) {
       const slice = toUpdate.slice(i, i + chunkSize);

@@ -787,6 +787,41 @@ export async function updateReservation(id, patch) {
   return M.reservationFromRow(saved);
 }
 
+/**
+ * Upsert reservation by external ID (Lila import idempotent).
+ * If a reservation with the same externalId exists, update it; otherwise insert.
+ */
+export async function upsertReservationByExternalId(res, memberDbId) {
+  const externalId = res.externalId || res.meta?.externalId;
+  if (!externalId) {
+    return createReservation(res, memberDbId);
+  }
+
+  const { data: existing } = await sb()
+    .from('reservations')
+    .select('id')
+    .eq('meta->>externalId', String(externalId))
+    .maybeSingle();
+
+  const row = M.reservationToRow(res, memberDbId);
+  row.meta = { ...row.meta, externalId: String(externalId) };
+
+  if (existing?.id) {
+    const saved = await unwrap(
+      sb().from('reservations').update(row).eq('id', existing.id).select().single(),
+      'No se pudo actualizar reserva existente'
+    );
+    return { reservation: M.reservationFromRow(saved), action: 'updated' };
+  }
+
+  const saved = await unwrap(
+    sb().from('reservations').insert(row).select().single(),
+    'No se pudo crear reserva'
+  );
+  await audit('create', 'reservations', saved.id);
+  return { reservation: M.reservationFromRow(saved), action: 'inserted' };
+}
+
 export async function listWaitlist() {
   const rows = await unwrap(
     sb().from('reservation_waitlist').select('*').order('created_at'),

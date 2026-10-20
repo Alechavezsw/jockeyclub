@@ -229,14 +229,17 @@ export function socioToMember(row, categories = []) {
     tier: deriveTier(cats),
     status: mapStatus(row.socio_activo, fechaBaja),
     yearsActive: yearsFromJoin(joinDateRaw),
-    outstandingBalance: 0,
     meta,
   };
 }
 
-/** Fila DB public.members (upsert). */
-export function memberToDbRow(member) {
-  return {
+/**
+ * Fila DB public.members (upsert).
+ * Note: outstanding_balance is NOT set here to avoid overwriting existing balances
+ * during socio import. Balance updates should go through dedicated balance import.
+ */
+export function memberToDbRow(member, { preserveBalance = true } = {}) {
+  const row = {
     member_number: member.memberId,
     full_name: member.name,
     phone: member.phone || null,
@@ -251,11 +254,14 @@ export function memberToDbRow(member) {
     emergency_phone: member.emergencyPhone || null,
     tier: member.tier || DEFAULT_MEMBER_TIER,
     status: member.status || 'active',
-    outstanding_balance: 0,
     years_active: Number(member.yearsActive) || 0,
     card_number: member.cardNumber || null,
     meta: member.meta || {},
   };
+  if (!preserveBalance && member.outstandingBalance != null) {
+    row.outstanding_balance = Number(member.outstandingBalance) || 0;
+  }
+  return row;
 }
 
 export function summarizeMembers(members) {
