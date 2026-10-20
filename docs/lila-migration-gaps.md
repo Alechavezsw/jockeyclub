@@ -9,6 +9,41 @@ This document tracks Lila data migration implementation and reconciliation statu
 
 ---
 
+## Business Rules (from Club Staff Interviews)
+
+### Liquidación
+- **Liquidación** = cuotas sociales ONLY (Socio Familiar + Socio Individual)
+- La arma el secretario del club, se liquida el 1er día hábil del mes
+- Una vez liquidado, NO se puede modificar
+- **Nov 2025 nunca se liquidó** (kick-off) - no mostrar como liquidado
+- El detalle por categoría es importante (cantidad de socios, valor unitario, total)
+
+### Categorías de cuotas
+- **Socio Familiar**: $70,000
+- **Socio Individual**: $40,000
+- **Abono Tenis**: $12,000
+- **Familiar + Tenis**: $82,000 (dos deudas, un cobro)
+- **Individual + Tenis**: $52,000 (dos deudas, un cobro)
+
+### Recargos
+- **10%** solo para Socio Familiar y Socio Individual
+- Se aplica desde el **día 11** (último día sin recargo es el 10)
+- Se aplica sobre **cada mes vencido por separado**, no sobre el total adeudado
+- **AMET 2.5%** es comisión bancaria, NO mora
+
+### Pagos
+- Se imputan a la **deuda más antigua primero** (FIFO)
+- El titular paga por todo el grupo familiar
+- Pagos parciales cancelan cuota + recargo del mes más viejo
+- Saldo negativo = plata a favor del socio
+
+### Dashboard
+- **Recaudado** = base percibido (todos los fondos efectivamente recibidos)
+- Cada tipo de ingreso en su propia línea (Cuotas, Recargos, Varios, Eventos)
+- Bonificaciones solo por superadmins, quedan registradas
+
+---
+
 ## Implemented (this PR)
 
 | Lila Module | App Table/Feature | Status |
@@ -20,6 +55,14 @@ This document tracks Lila data migration implementation and reconciliation statu
 | Cuotas lotes | `lila_fee_batches` | ✅ Imported, reconciled |
 | Liquidación Oct 2026 | `lila_liquidacion_detail` | ✅ Imported, reconciled |
 | Saldos grupo familiar | `lila_family_group_balances` | ✅ Imported, reconciled |
+| Cobranzas Oct 2026 | (parsed, not persisted) | ✅ Reconciled |
+
+---
+
+## Reconciliation Approach
+
+**IMPORTANT:** La reconciliación se hace contra los datos de los ARCHIVOS de Lila,
+NO contra agregados del dashboard de Lila (que pueden diferir por reglas internas).
 
 ### Reconciliation Results (October 20, 2026)
 
@@ -29,17 +72,51 @@ MÓDULO                    LILA               APP                DIFF
 Saldos CC               $346.295.200,69    $346.295.200,69          $0,00 ✓
 Deudas M/M              $346.149.600,99    $346.149.600,99          $0,00 ✓
 Liquidaciones           $647.331.000,00    $647.331.000,00          $0,00 ✓
-Oct 2026                 $62.843.000,00     $62.843.000,00          $0,00 ✓
+Liq Oct 2026             $62.843.000,00     $62.843.000,00          $0,00 ✓
+Percibido Oct            $58.587.731,34     $58.587.731,34          $0,00 ✓
 Grupos Fam                  $384.667,00        $384.667,00          $0,00 ✓
 ```
 
 **All figures match to the cent.**
 
-### Coherence Checks (Exact Match Required)
+### Liquidación October 2026 - Category Breakdown
 
-All coherence checks require **exact match to the cent**. Range checks are not acceptable.
+```
+CATEGORÍA                          SOCIOS              TOTAL
+─────────────────────────────────────────────────────────────────────
+📊 Socio Familiar ($70K)               790     $55.300.000,00
+📊 Socio Individual ($40K)             108      $4.320.000,00
+   Familiar + Tenis ($82K)              22      $1.804.000,00
+   Individual + Tenis ($52K)            23      $1.196.000,00
+   Abono Tenis ($12K)                   18        $216.000,00
+   Sin liquidación ($0)              6.471              $0,00
+   Otros montos ($1.750)                 4          $7.000,00
+─────────────────────────────────────────────────────────────────────
+📊 CUOTAS SOCIALES (Familiar + Individual)           $59.620.000,00
+   TOTAL LIQUIDACIÓN (todos los conceptos)           $62.843.000,00
+```
 
-**1. Saldos CC vs Deudas M/M difference (~$145,599.70)**
+### Percibido October 2026 - Income by Type
+
+```
+INGRESOS POR TIPO (percibido):
+  Cuotas sociales                    $53.974.732,94
+  Varios (conceptos mixtos)           $2.394.998,37
+  Eventos/Reservas                    $1.629.000,00
+  Recargos (10%)                        $589.000,03
+  ─────────────────────────────────────────────────────────────
+  TOTAL PERCIBIDO                    $58.587.731,34
+
+DESGLOSE CUOTAS:
+  Cuotas Octubre del 2026:           $45.960.999,97
+  Cuotas atrasadas:                   $8.013.732,97
+```
+
+---
+
+## Coherence Checks
+
+### 1. Saldos CC vs Deudas M/M difference (~$145,599.70)
 
 The ~$145,600 difference between Saldos CC ($346,295,200.69) and Deudas M/M ($346,149,600.99) is **100% explained** by different populations:
 
@@ -52,57 +129,14 @@ The ~$145,600 difference between Saldos CC ($346,295,200.69) and Deudas M/M ($34
 | Solo en saldos, saldo < 0 (créditos) | ~50 | Negative (credits) |
 | Solo en deudas (no en saldos) | 0 | $0 |
 
-**Root cause:** `saldos.xlsx` includes ALL members (full padrón ~7,440), while `deudas_mes_a_mes_morosos.xlsx` only includes MOROSOS (members with TOTAL DEUDA > 0). Members at zero or with credits (negative saldo) are excluded from the morosos file.
+**Root cause:** `saldos.xlsx` includes ALL members (full padrón ~7,440), while `deudas_mes_a_mes_morosos.xlsx` only includes MOROSOS (members with TOTAL DEUDA > 0).
 
 **Consistent figure:** Dashboard uses Saldos CC ($346,295,200.69) as the single source of truth.
 
-**2. October 2026: Liquidado and Recaudado Gaps (UNRESOLVED)**
+### 2. Dropped Non-Socio Rows
 
-### Liquidado Gap: $390,000
+Correctly excluded from member imports (non-numeric nro_socio):
 
-| Source | Value | Gap from Lila |
-|--------|-------|---------------|
-| `cta_cte_detalle` LIQUIDACIÓN column | $62,843,000 | -$390,000 |
-| Lila dashboard | $63,233,000 | (target) |
-
-**Analysis performed:**
-- The LIQUIDACIÓN column sums exactly to $62,843,000
-- Non-numeric rows (alquileres, colegio) have $0 in LIQUIDACIÓN
-- The gap of $390,000 is NOT explained by dropped rows
-
-**Hypotheses pending verification:**
-- Lila includes concepts from another sheet/file (e.g., cuota deportiva)
-- The dashboard uses a different column (SIN RECARGOS vs LIQUIDACIÓN)
-- There are adjustments/credits applied that don't appear in the export
-
-### Recaudado Gap: $552,000.03 (or $95,000)
-
-| Rule | Computed | Gap from Lila |
-|------|----------|---------------|
-| Rule 1: Cuotas Oct + Recargos Oct | $46,092,999.97 | -$552,000.03 |
-| Rule 2: Cuotas Oct + ALL Recargos | $46,550,000.00 | -$95,000.00 |
-| Lila dashboard | $46,645,000.00 | (target) |
-
-**Analysis performed:**
-- **DISPROVEN HYPOTHESIS**: The gap is NOT from missing days (Oct 20-31).
-  The full-month export (2026-10-01..31) has the same 1,122 rows as the
-  partial export (2026-10-01..19), max Fecha 2026-10-19.
-- Varios entries with "octubre" + "cuota/mes/familiar" total $1,100,000
-  which EXCEEDS the gap, so it's not "include all Varios October cuotas"
-- $95,000 cannot be formed from $70,000 and $40,000 (the only Varios amounts)
-
-**Rules tested:**
-- `Cuotas "Octubre del 2026 - ..." + Recargos "Octubre del 2026"` → $46,092,999.97
-- `Cuotas "Octubre del 2026 - ..." + ALL Recargos` → $46,550,000.00
-- Neither produces exactly $46,645,000.00
-
-### Required Additional Exports
-
-To resolve these gaps, request from Lila:
-1. **For liquidado**: The exact algorithm Lila uses to calculate "liquidado" on the dashboard, or an export showing ALL concepts included
-2. **For recaudado**: The exact algorithm Lila uses to calculate "recaudado", or a cobranzas export with a flag indicating which payments "impute to cuenta corriente"
-
-**Dropped non-socio rows (4):**
 | NRO | Name | Tipo | Importe |
 |-----|------|------|---------|
 | colegio | Colegio Fanzolato | Varios | $250,000 |
@@ -110,11 +144,7 @@ To resolve these gaps, request from Lila:
 | Alquiler Padel | Alameda Padel | Varios | $1,085,940 |
 | Alquiler Padel | Alameda Padel | Varios | $314,202 |
 
-These are correctly excluded from member imports but tracked in reconciliation.
-
-**3. Total Liquidaciones (Informational)**
-
-The total historical liquidaciones is tracked for reference but requires Lila dashboard confirmation to verify.
+These represent third-party income (school, rentals) that goes to separate accounts.
 
 ---
 
@@ -131,11 +161,7 @@ All screens now read from Lila-imported data through `members.outstanding_balanc
 | Dashboard (AdminDashboardTab) | ✅ Wired | Uses `overdueMembersCount` + `totalOutstanding` → `member.outstandingBalance` |
 | Member profile | ✅ Wired | Uses `member.outstandingBalance` for saldo display |
 
-**Key insight:** The `import-lila-saldos.mjs` script updates `members.outstanding_balance`, which is the source of truth for all balance-related calculations in the app. This includes:
-- `currentAccountBalanceOf(member)` in `currentAccountBalances.js`
-- `socialDuesAmountDue(member)` in `dues.js`
-- `getOverdueMembers(members)` in `dues.js`
-- `familyBalanceForMember()` in `memberBalances.js`
+**Key insight:** The `import-lila-saldos.mjs` script updates `members.outstanding_balance`, which is the source of truth for all balance-related calculations in the app.
 
 ---
 

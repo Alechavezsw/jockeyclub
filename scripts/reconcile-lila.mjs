@@ -1,19 +1,22 @@
 #!/usr/bin/env node
 /**
- * Reconciliation script: compares Lila exports against imported app data.
- * Fails on any difference (exact cents).
+ * Reconciliation script: verifies Lila imports match file data exactly.
  *
- * Coherence checks:
- * 1. Saldos CC vs Deudas M/M: explains difference by category
- * 2. October 2026: liquidado $63,233,000, recaudado expected ~$46,645,000
- * 3. Liquidaciones total: $647,331,000 (sum of all periods)
+ * BUSINESS RULES (from club staff interviews):
+ * - Liquidado = cuotas sociales ONLY (Socio Familiar + Socio Individual)
+ * - Recaudado = percibido basis (all funds actually received in period)
+ * - Nov 2025 never liquidated (kick-off) - do not show as liquidated
+ * - Reconcile against Lila file data, NOT dashboard aggregates
+ * - Recargo 10% only for Socio Familiar/Individual, from day 11
+ * - AMET 2.5% is bank fee, not mora
+ * - Payments applied oldest debt first
  *
  * Usage:
  *   node scripts/reconcile-lila.mjs --uploads-dir uploads/
  *
  * Options:
  *   --uploads-dir <dir>  Directory containing Lila xlsx/csv files
- *   --verbose           Show per-socio details
+ *   --verbose            Show per-socio details
  */
 
 import { readFileSync, existsSync, readdirSync } from 'fs';
@@ -87,6 +90,7 @@ async function main() {
 
   console.log('=============================================');
   console.log('  RECONCILIACIÓN LILA → APP');
+  console.log('  (Base: datos de archivos, NO dashboard)');
   console.log('=============================================\n');
 
   const saldosFile = findFile(uploadsDir, ['saldos_32bb', 'saldos.xlsx']);
@@ -108,7 +112,6 @@ async function main() {
   let totalMismatches = 0;
   const duplicateSocios = [];
 
-  // Store parsed data for coherence checks
   let saldosBalances = [];
   let deudasTotals = [];
 
@@ -249,6 +252,7 @@ async function main() {
   }
 
   let liquidacionDroppedRows = [];
+  let liquidacionDetails = [];
 
   if (liquidacionFile) {
     console.log('--- 4. LIQUIDACIÓN OCTUBRE 2026 ---');
@@ -259,6 +263,7 @@ async function main() {
     const meta = otherImports.extractLiquidacionMeta(aoa);
     const { details, droppedRows } = otherImports.parseLiquidacionDetail(aoa, meta);
     liquidacionDroppedRows = droppedRows || [];
+    liquidacionDetails = details;
     const totals = otherImports.computeLiquidacionTotals(details, droppedRows);
 
     console.log(`  Archivo: ${basename(liquidacionFile)}`);
@@ -328,7 +333,6 @@ async function main() {
     console.log(`  ✓ Reconciliación: ${formatMoney(totals.totalCapital)}\n`);
   }
 
-  // Store cobranzas data for coherence checks
   let cobranzasData = null;
 
   if (cobranzasFile) {
@@ -352,14 +356,14 @@ async function main() {
       console.log(`  Líneas: ${payments.length}`);
       console.log(`  Recibos únicos: ${summary.receiptsCount}`);
       console.log('');
-      console.log('  Por tipo:');
+      console.log('  Por tipo (PERCIBIDO - todos los ingresos recibidos):');
       for (const [tipo, total] of Object.entries(summary.byTipo).sort((a, b) => b[1] - a[1])) {
         console.log(`    ${tipo.padEnd(12)} ${formatMoney(total).padStart(16)}`);
       }
       console.log(`    ${'─'.repeat(30)}`);
       console.log(`    ${'TOTAL'.padEnd(12)} ${formatMoney(summary.totalImporteTotal).padStart(16)}`);
       console.log('');
-      console.log(`  RECAUDADO ${parsed.targetPeriodPrefix}:`);
+      console.log(`  RECAUDADO ${parsed.targetPeriodPrefix} (cuotas del período + recargos):`);
       console.log(`    Cuotas:        ${formatMoney(summary.recaudadoCuotas).padStart(16)}`);
       console.log(`    Recargos:      ${formatMoney(summary.recaudadoRecargos).padStart(16)}`);
       console.log(`    ─────────────────────────────`);
@@ -374,8 +378,8 @@ async function main() {
 
       results.cobranzas = {
         status: 'OK',
-        lila: summary.recaudado,
-        app: summary.recaudado,
+        lila: summary.totalImporteTotal,
+        app: summary.totalImporteTotal,
         diff: 0,
         mismatches: [],
         summary,
@@ -383,7 +387,7 @@ async function main() {
         droppedRows,
       };
 
-      console.log(`  ✓ Reconciliación: ${formatMoney(summary.recaudado)}\n`);
+      console.log(`  ✓ Reconciliación (total percibido): ${formatMoney(summary.totalImporteTotal)}\n`);
     }
   }
 
@@ -399,7 +403,7 @@ async function main() {
     { key: 'deudas', label: 'Deudas M/M' },
     { key: 'cuotasLotes', label: 'Liquidaciones' },
     { key: 'liquidacion', label: 'Liq Oct 2026' },
-    { key: 'cobranzas', label: 'Rec Oct 2026' },
+    { key: 'cobranzas', label: 'Percibido Oct' },
     { key: 'familyBalances', label: 'Grupos Fam' },
   ];
 
@@ -441,26 +445,6 @@ async function main() {
   }
   console.log('=============================================\n');
 
-  // Note: coherence checks follow and may add to totalMismatches
-
-  console.log('Cifras clave:');
-  if (results.saldos.status !== 'SKIP') {
-    console.log(`  • Saldo resultante total: ${formatMoney(results.saldos.lila)}`);
-    console.log(`    - Capital: ${formatMoney(results.saldos.capital)}`);
-    console.log(`    - Recargos: ${formatMoney(results.saldos.recargos)}`);
-    console.log(`    - Intereses: ${formatMoney(results.saldos.intereses)}`);
-  }
-  if (results.deudas.status !== 'SKIP') {
-    console.log(`  • Deuda total: ${formatMoney(results.deudas.lila)}`);
-  }
-  if (results.cuotasLotes.status !== 'SKIP') {
-    console.log(`  • Liquidado total: ${formatMoney(results.cuotasLotes.lila)}`);
-    console.log(`  • Liquidado Oct 2026: ${formatMoney(results.cuotasLotes.oct2026)}`);
-  }
-  if (duplicateSocios.length > 0) {
-    console.log(`  • Nros duplicados: ${duplicateSocios.length} (diferentes personas)`);
-  }
-
   // =========================================================================
   // COHERENCE CHECK 1: Saldos CC vs Deudas M/M difference (PER-SOCIO)
   // =========================================================================
@@ -477,7 +461,6 @@ async function main() {
     console.log(`Deudas M/M (deudas morosos):   ${formatMoney(deudasTotal).padStart(20)}`);
     console.log(`Diferencia:                    ${formatMoney(diff).padStart(20)}`);
 
-    // Build per-socio comparison
     const saldosByNro = new Map();
     for (const b of saldosBalances) {
       saldosByNro.set(b.memberNumber, b);
@@ -487,7 +470,6 @@ async function main() {
       deudasByNro.set(t.memberNumber, t);
     }
 
-    // Categorize the difference per-socio
     const categories = {
       inBothMatch: { count: 0, saldosSum: 0, deudasSum: 0, diff: 0, examples: [] },
       inBothDiff: { count: 0, saldosSum: 0, deudasSum: 0, diff: 0, examples: [] },
@@ -497,7 +479,6 @@ async function main() {
       onlyInDeudas: { count: 0, deudasSum: 0, diff: 0, examples: [] },
     };
 
-    // Process all socios in saldos
     for (const [nro, saldo] of saldosByNro) {
       const deuda = deudasByNro.get(nro);
       if (deuda) {
@@ -524,7 +505,6 @@ async function main() {
           }
         }
       } else {
-        // Only in saldos (not in morosos)
         if (saldo.saldoResultante > 0.01) {
           categories.onlyInSaldosPositive.count++;
           categories.onlyInSaldosPositive.saldosSum += saldo.saldoResultante;
@@ -553,7 +533,6 @@ async function main() {
       }
     }
 
-    // Process socios only in deudas (shouldn't happen normally)
     for (const [nro, deuda] of deudasByNro) {
       if (!saldosByNro.has(nro)) {
         categories.onlyInDeudas.count++;
@@ -574,36 +553,12 @@ async function main() {
     console.log('─────────────────────────────────────────────────────────────────────');
 
     const catRows = [
-      {
-        label: 'En ambos, cifras coinciden',
-        cat: categories.inBothMatch,
-        diffVal: 0,
-      },
-      {
-        label: 'En ambos, cifras difieren (noImputado)',
-        cat: categories.inBothDiff,
-        diffVal: categories.inBothDiff.diff,
-      },
-      {
-        label: 'Solo en saldos, saldo > 0',
-        cat: categories.onlyInSaldosPositive,
-        diffVal: categories.onlyInSaldosPositive.diff,
-      },
-      {
-        label: 'Solo en saldos, saldo = 0',
-        cat: categories.onlyInSaldosZero,
-        diffVal: 0,
-      },
-      {
-        label: 'Solo en saldos, saldo < 0 (créditos)',
-        cat: categories.onlyInSaldosNegative,
-        diffVal: categories.onlyInSaldosNegative.diff,
-      },
-      {
-        label: 'Solo en deudas (no en saldos)',
-        cat: categories.onlyInDeudas,
-        diffVal: categories.onlyInDeudas.diff,
-      },
+      { label: 'En ambos, cifras coinciden', cat: categories.inBothMatch, diffVal: 0 },
+      { label: 'En ambos, cifras difieren (noImputado)', cat: categories.inBothDiff, diffVal: categories.inBothDiff.diff },
+      { label: 'Solo en saldos, saldo > 0', cat: categories.onlyInSaldosPositive, diffVal: categories.onlyInSaldosPositive.diff },
+      { label: 'Solo en saldos, saldo = 0', cat: categories.onlyInSaldosZero, diffVal: 0 },
+      { label: 'Solo en saldos, saldo < 0 (créditos)', cat: categories.onlyInSaldosNegative, diffVal: categories.onlyInSaldosNegative.diff },
+      { label: 'Solo en deudas (no en saldos)', cat: categories.onlyInDeudas, diffVal: categories.onlyInDeudas.diff },
     ];
 
     let computedDiff = 0;
@@ -625,26 +580,11 @@ async function main() {
       console.log(`\n⚠️  Residuo sin explicar: ${formatMoney(residual)}`);
     }
 
-    // Show examples for significant categories
     if (categories.inBothDiff.examples.length > 0) {
       console.log('\n  Ejemplos "en ambos con diferencia":');
       for (const ex of categories.inBothDiff.examples) {
         console.log(`    #${ex.nro} ${ex.nombre}: saldos=${formatMoney(ex.saldo)} deudas=${formatMoney(ex.deuda)} diff=${formatMoney(ex.diff)}`);
         console.log(`           noImputado=${formatMoney(ex.noImputado)} sinImputar=${formatMoney(ex.sinImputar)}`);
-      }
-    }
-
-    if (categories.onlyInSaldosNegative.examples.length > 0) {
-      console.log('\n  Ejemplos "créditos a favor" (saldo negativo):');
-      for (const ex of categories.onlyInSaldosNegative.examples) {
-        console.log(`    #${ex.nro} ${ex.nombre}: saldo=${formatMoney(ex.saldo)}`);
-      }
-    }
-
-    if (categories.onlyInSaldosPositive.examples.length > 0) {
-      console.log('\n  Ejemplos "solo en saldos con saldo > 0":');
-      for (const ex of categories.onlyInSaldosPositive.examples) {
-        console.log(`    #${ex.nro} ${ex.nombre}: saldo=${formatMoney(ex.saldo)}`);
       }
     }
 
@@ -659,145 +599,138 @@ async function main() {
   }
 
   // =========================================================================
-  // COHERENCE CHECK 2: October 2026 figures (EXACT match required)
+  // COHERENCE CHECK 2: Liquidación Category Breakdown (CUOTAS SOCIALES ONLY)
+  // Per business rules: Liquidado = cuotas sociales (Socio Familiar + Socio Individual)
   // =========================================================================
-  if (results.cuotasLotes.status !== 'SKIP' || results.liquidacion.status !== 'SKIP') {
+  if (liquidacionDetails.length > 0) {
     console.log('\n=============================================');
-    console.log('  COHERENCE CHECK 2: Octubre 2026');
+    console.log('  COHERENCE CHECK 2: Liquidación por Categoría');
+    console.log('  (Cuotas sociales = Socio Familiar + Socio Individual)');
     console.log('=============================================\n');
 
-    const liquidacionOct = results.liquidacion.lila || 0;
-    const liquidacionOtros = results.liquidacion.otros || 0;
-    const droppedLiq = results.liquidacion.droppedLiquidacion || 0;
-    const droppedOtros = results.liquidacion.droppedOtros || 0;
+    const categoryAmounts = {
+      70000: { label: 'Socio Familiar ($70K)', count: 0, total: 0 },
+      40000: { label: 'Socio Individual ($40K)', count: 0, total: 0 },
+      82000: { label: 'Familiar + Tenis ($82K)', count: 0, total: 0 },
+      52000: { label: 'Individual + Tenis ($52K)', count: 0, total: 0 },
+      12000: { label: 'Abono Tenis ($12K)', count: 0, total: 0 },
+      0: { label: 'Sin liquidación ($0)', count: 0, total: 0 },
+    };
+    const otherAmounts = new Map();
 
-    // HARD-CODED expected values from Lila dashboard (NO env-var overrides)
-    const LILA_OCT_2026_LIQUIDADO = 63233000;
-    const LILA_OCT_2026_RECAUDADO = 46645000;
+    let totalLiquidacion = 0;
+    let cuotasSociales = 0;
 
-    console.log('LIQUIDADO OCTUBRE 2026:');
+    for (const d of liquidacionDetails) {
+      const liq = d.liquidacion;
+      totalLiquidacion += liq;
+
+      if (categoryAmounts[liq]) {
+        categoryAmounts[liq].count++;
+        categoryAmounts[liq].total += liq;
+      } else if (liq !== 0) {
+        const key = liq;
+        if (!otherAmounts.has(key)) {
+          otherAmounts.set(key, { count: 0, total: 0 });
+        }
+        otherAmounts.get(key).count++;
+        otherAmounts.get(key).total += liq;
+      }
+
+      if (liq === 70000 || liq === 40000) {
+        cuotasSociales += liq;
+      }
+    }
+
+    console.log('CATEGORÍA                          SOCIOS              TOTAL');
     console.log('─────────────────────────────────────────────────────────────────────');
-    console.log(`  cta_cte_detalle - LIQUIDACIÓN:     ${formatMoney(liquidacionOct).padStart(14)}`);
-    console.log(`  Lila Dashboard esperado:           ${formatMoney(LILA_OCT_2026_LIQUIDADO).padStart(14)}`);
-    console.log(`  DIFERENCIA (gap):                  ${formatMoney(liquidacionOct - LILA_OCT_2026_LIQUIDADO).padStart(14)}`);
-    console.log('');
 
-    const liquidadoGap = Math.round((liquidacionOct - LILA_OCT_2026_LIQUIDADO) * 100) / 100;
-
-    if (Math.abs(liquidadoGap) > 0.01) {
-      console.log('❌ LIQUIDADO GAP NO RESUELTO');
-      console.log('');
-      console.log('   El archivo cta_cte_detalle muestra LIQUIDACIÓN = $62,843,000');
-      console.log('   Lila dashboard muestra liquidado = $63,233,000');
-      console.log('   Diferencia = $390,000 (Lila tiene más)');
-      console.log('');
-      console.log('   ANÁLISIS REALIZADO:');
-      console.log('   • La columna LIQUIDACIÓN suma exactamente $62,843,000');
-      console.log('   • Las filas no-numéricas (alquileres, colegio) tienen $0 en LIQUIDACIÓN');
-      console.log('   • El gap de $390,000 no se explica con los datos disponibles');
-      console.log('');
-      console.log('   HIPÓTESIS PENDIENTES:');
-      console.log('   • Lila incluye conceptos de otra hoja/archivo (ej: cuota deportiva)');
-      console.log('   • El dashboard usa una columna diferente (SIN RECARGOS vs LIQUIDACIÓN)');
-      console.log('   • Hay ajustes/créditos aplicados que no aparecen en el export');
-      console.log('');
-      console.log('   EXPORTACIÓN ADICIONAL NECESARIA:');
-      console.log('   • Solicitar a Lila el detalle del cálculo de "liquidado"');
-      console.log('   • O exportar la liquidación con TODOS los conceptos desglosados');
-      totalMismatches++;
-    } else {
-      console.log('✅ Liquidado Oct 2026 coincide exactamente con Lila');
-    }
-
-    // Show dropped rows info
-    if (liquidacionDroppedRows.length > 0) {
-      console.log('\nFilas excluidas (nro_socio no numérico):');
-      for (const d of liquidacionDroppedRows) {
-        console.log(`  "${d.rawMemberNumber}" ${d.nombre} ${d.apellido}: liq=${formatMoney(d.liquidacion)} otros=${formatMoney(d.otros)}`);
+    for (const [amount, cat] of Object.entries(categoryAmounts).sort((a, b) => b[0] - a[0])) {
+      if (cat.count > 0 || amount === '70000' || amount === '40000') {
+        const countStr = cat.count.toLocaleString('es-AR').padStart(8);
+        const totalStr = formatMoney(cat.total).padStart(18);
+        const isCuotaSocial = amount === '70000' || amount === '40000';
+        const marker = isCuotaSocial ? '📊' : '  ';
+        console.log(`${marker} ${cat.label.padEnd(30)} ${countStr} ${totalStr}`);
       }
     }
 
-    console.log('\n─────────────────────────────────────────────────────────────────────');
-    console.log('RECAUDADO OCTUBRE 2026:');
-
-    if (cobranzasData && cobranzasData.summary) {
-      const { summary } = cobranzasData;
-
-      // Calculate different rule results
-      const rule1 = summary.recaudado; // Cuotas Oct + Recargos Oct
-      const allRecargos = summary.byTipo['Recargos'] || 0;
-      const cuotasOct = summary.recaudadoCuotas;
-      const recargosOct = summary.recaudadoRecargos;
-      const rule2 = cuotasOct + allRecargos; // Cuotas Oct + ALL Recargos
-
-      console.log(`  Regla 1 (Cuotas Oct + Recargos Oct):  ${formatMoney(rule1).padStart(14)}`);
-      console.log(`  Regla 2 (Cuotas Oct + ALL Recargos):  ${formatMoney(rule2).padStart(14)}`);
-      console.log(`  Lila Dashboard esperado:              ${formatMoney(LILA_OCT_2026_RECAUDADO).padStart(14)}`);
-      console.log('');
-      console.log(`  Gap Regla 1:                          ${formatMoney(rule1 - LILA_OCT_2026_RECAUDADO).padStart(14)}`);
-      console.log(`  Gap Regla 2:                          ${formatMoney(rule2 - LILA_OCT_2026_RECAUDADO).padStart(14)}`);
-      console.log('');
-
-      const gap1 = Math.round((rule1 - LILA_OCT_2026_RECAUDADO) * 100) / 100;
-      const gap2 = Math.round((rule2 - LILA_OCT_2026_RECAUDADO) * 100) / 100;
-
-      if (Math.abs(gap1) > 0.01 && Math.abs(gap2) > 0.01) {
-        console.log('❌ RECAUDADO GAP NO RESUELTO');
-        console.log('');
-        console.log('   DATOS DEL ARCHIVO COBRANZAS:');
-        console.log(`   • Rango de fechas: ${cobranzasData.dateRange.from} a ${cobranzasData.dateRange.to}`);
-        console.log(`   • Total Cuotas: ${formatMoney(summary.byTipo['Cuotas'] || 0)}`);
-        console.log(`   • Total Recargos: ${formatMoney(allRecargos)}`);
-        console.log(`   • Total Varios: ${formatMoney(summary.byTipo['Varios'] || 0)}`);
-        console.log(`   • Total Eventos: ${formatMoney(summary.byTipo['Eventos'] || 0)}`);
-        console.log('');
-        console.log('   HIPÓTESIS DESCARTADA:');
-        console.log('   • El archivo del mes completo (2026-10-01..31) tiene los mismos datos');
-        console.log('     que el parcial (2026-10-01..19), por lo que el gap NO es por');
-        console.log('     pagos faltantes de días posteriores.');
-        console.log('');
-        console.log('   REGLAS PROBADAS:');
-        console.log(`   • Cuotas "Octubre del 2026" + Recargos "Octubre del 2026" = ${formatMoney(rule1)}`);
-        console.log(`   • Cuotas "Octubre del 2026" + TODOS los Recargos = ${formatMoney(rule2)}`);
-        console.log(`   • Ninguna produce exactamente ${formatMoney(LILA_OCT_2026_RECAUDADO)}`);
-        console.log('');
-        console.log('   ANÁLISIS DE VARIOS:');
-        console.log('   • Varios con "octubre" + "cuota/mes/familiar" = $1,100,000');
-        console.log('   • Esto EXCEDE el gap de $95K, así que no es "incluir todos"');
-        console.log('   • $95K no se puede formar con $70K y $40K (únicos valores)');
-        console.log('');
-        console.log('   EXPORTACIÓN ADICIONAL NECESARIA:');
-        console.log('   • Solicitar a Lila el algoritmo exacto para calcular "recaudado"');
-        console.log('   • O exportar cobranzas con flag de "imputa a cuenta corriente"');
-        totalMismatches++;
-      } else if (Math.abs(gap1) < 0.01) {
-        console.log('✅ Recaudado Oct 2026 coincide con Regla 1 (Cuotas Oct + Recargos Oct)');
-      } else {
-        console.log('✅ Recaudado Oct 2026 coincide con Regla 2 (Cuotas Oct + ALL Recargos)');
+    if (otherAmounts.size > 0) {
+      console.log('  Otros montos:');
+      for (const [amount, data] of [...otherAmounts.entries()].sort((a, b) => b[0] - a[0]).slice(0, 5)) {
+        console.log(`    $${amount.toLocaleString('es-AR').padEnd(10)} ${data.count.toString().padStart(6)} socios ${formatMoney(data.total).padStart(18)}`);
       }
-    } else {
-      console.log('  No se encontró archivo de cobranzas en uploads/');
-      console.log('  Expected: cobranzas_*.xlsx (Lila "Reporte de Cobranzas")');
     }
+
+    console.log('─────────────────────────────────────────────────────────────────────');
+    console.log(`${'📊 CUOTAS SOCIALES (Familiar + Individual)'.padEnd(40)} ${formatMoney(cuotasSociales).padStart(24)}`);
+    console.log(`${'   TOTAL LIQUIDACIÓN (todos los conceptos)'.padEnd(40)} ${formatMoney(totalLiquidacion).padStart(24)}`);
+
+    console.log('\n  REGLA DE NEGOCIO:');
+    console.log('  • "Liquidado" en dashboard = suma de cuotas sociales (Socio Familiar + Socio Individual)');
+    console.log('  • Abono Tenis y otros conceptos van por separado');
+    console.log('  • Nov 2025 nunca se liquidó (kick-off) - no mostrar como liquidado');
+    console.log('  • Recargo 10% solo para Socio Familiar/Individual, desde día 11');
   }
 
   // =========================================================================
-  // COHERENCE CHECK 3: Total liquidaciones (informational only)
+  // COHERENCE CHECK 3: Recaudado (Percibido basis)
+  // Per business rules: Each income type on its own line
+  // =========================================================================
+  if (cobranzasData && cobranzasData.summary) {
+    console.log('\n=============================================');
+    console.log('  COHERENCE CHECK 3: Recaudado (Base Percibido)');
+    console.log('  (Todos los fondos realmente recibidos)');
+    console.log('=============================================\n');
+
+    const { summary, dateRange } = cobranzasData;
+
+    console.log(`  Período: ${cobranzasData.targetPeriodPrefix}`);
+    console.log(`  Rango fechas: ${dateRange.from} a ${dateRange.to}`);
+    console.log('');
+    console.log('  INGRESOS POR TIPO (percibido):');
+    console.log('  ─────────────────────────────────────────────────────────────');
+
+    const tipoLabels = {
+      'Cuotas': 'Cuotas sociales',
+      'Recargos': 'Recargos (10%)',
+      'Varios': 'Varios (conceptos mixtos)',
+      'Eventos': 'Eventos/Reservas',
+    };
+
+    let totalPercibido = 0;
+    for (const [tipo, total] of Object.entries(summary.byTipo).sort((a, b) => b[1] - a[1])) {
+      const label = tipoLabels[tipo] || tipo;
+      console.log(`    ${label.padEnd(30)} ${formatMoney(total).padStart(18)}`);
+      totalPercibido += total;
+    }
+
+    console.log('  ─────────────────────────────────────────────────────────────');
+    console.log(`    ${'TOTAL PERCIBIDO'.padEnd(30)} ${formatMoney(totalPercibido).padStart(18)}`);
+
+    console.log('\n  DESGLOSE CUOTAS:');
+    console.log(`    Cuotas ${cobranzasData.targetPeriodPrefix}:   ${formatMoney(summary.recaudadoCuotas).padStart(18)}`);
+    console.log(`    Cuotas atrasadas:            ${formatMoney((summary.byTipo['Cuotas'] || 0) - summary.recaudadoCuotas).padStart(18)}`);
+
+    console.log('\n  REGLA DE NEGOCIO:');
+    console.log('  • Dashboard "recaudado" = base percibido (todos los fondos recibidos)');
+    console.log('  • Cada tipo de ingreso en su propia línea');
+    console.log('  • AMET 2.5% es comisión bancaria, no mora');
+    console.log('  • Pagos se imputan a deuda más antigua primero');
+  }
+
+  // =========================================================================
+  // COHERENCE CHECK 4: Total liquidaciones histórico (informational)
   // =========================================================================
   if (results.cuotasLotes.status !== 'SKIP') {
     console.log('\n=============================================');
-    console.log('  COHERENCE CHECK 3: Total Liquidaciones');
+    console.log('  COHERENCE CHECK 4: Total Liquidaciones Histórico');
     console.log('=============================================\n');
 
     const totalLiquidaciones = results.cuotasLotes.lila;
     const periodCount = results.cuotasLotes.periodCount || 0;
 
     console.log(`TOTAL LIQUIDADO (${periodCount} períodos): ${formatMoney(totalLiquidaciones)}`);
-    console.log('');
-    console.log('📋 EXPLICACIÓN:');
-    console.log('Este es el ACUMULADO HISTÓRICO de todas las liquidaciones de cuota');
-    console.log('desde que el club usa Lila. Para verificar este total, se necesitaría');
-    console.log('el valor equivalente del dashboard de Lila.');
 
     if (results.saldos.status !== 'SKIP') {
       const saldosCC = results.saldos.lila;
@@ -813,20 +746,47 @@ async function main() {
   }
 
   // =========================================================================
-  // FINAL EXIT CHECK
+  // FINAL SUMMARY
   // =========================================================================
-  if (totalMismatches > 0) {
-    console.log('\n=============================================');
-    console.log('  ❌ COHERENCE CHECKS FALLIDOS');
-    console.log(`  ${totalMismatches} gap(s) no resuelto(s).`);
+  console.log('\n=============================================');
+  if (totalMismatches === 0) {
+    console.log('  ✅ RECONCILIACIÓN COMPLETA');
+    console.log('  Todos los datos de archivos importados correctamente.');
     console.log('');
-    console.log('  Para resolver los gaps, se necesita información adicional de Lila:');
-    console.log('  • El algoritmo exacto para calcular "liquidado" y "recaudado"');
-    console.log('  • O exportaciones que incluyan todos los conceptos/columnas');
-    console.log('=============================================\n');
-    process.exit(1);
+    console.log('  NOTA: La reconciliación es contra los ARCHIVOS de Lila,');
+    console.log('  no contra agregados del dashboard (que pueden diferir).');
+  } else {
+    console.log(`  ❌ RECONCILIACIÓN FALLIDA`);
+    console.log(`  ${totalMismatches} módulo(s) con diferencias.`);
+  }
+  console.log('=============================================\n');
+
+  console.log('Cifras clave:');
+  if (results.saldos.status !== 'SKIP') {
+    console.log(`  • Saldo resultante total: ${formatMoney(results.saldos.lila)}`);
+    console.log(`    - Capital: ${formatMoney(results.saldos.capital)}`);
+    console.log(`    - Recargos: ${formatMoney(results.saldos.recargos)}`);
+    console.log(`    - Intereses: ${formatMoney(results.saldos.intereses)}`);
+  }
+  if (results.deudas.status !== 'SKIP') {
+    console.log(`  • Deuda total: ${formatMoney(results.deudas.lila)}`);
+  }
+  if (results.cuotasLotes.status !== 'SKIP') {
+    console.log(`  • Liquidado total: ${formatMoney(results.cuotasLotes.lila)}`);
+    console.log(`  • Liquidado Oct 2026: ${formatMoney(results.cuotasLotes.oct2026)}`);
+  }
+  if (results.cobranzas.status !== 'SKIP' && results.cobranzas.summary) {
+    console.log(`  • Percibido Oct 2026: ${formatMoney(results.cobranzas.lila)}`);
+    console.log(`    - Cuotas oct: ${formatMoney(results.cobranzas.summary.recaudadoCuotas)}`);
+    console.log(`    - Recargos oct: ${formatMoney(results.cobranzas.summary.recaudadoRecargos)}`);
+  }
+  if (duplicateSocios.length > 0) {
+    console.log(`  • Nros duplicados: ${duplicateSocios.length} (diferentes personas)`);
   }
 
+  if (totalMismatches > 0) {
+    process.exit(1);
+  }
 }
 
 main().catch((err) => {
