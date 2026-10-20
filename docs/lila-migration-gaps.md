@@ -39,14 +39,22 @@ Grupos Fam                  $384.667,00        $384.667,00          $0,00 ✓
 
 ## Wiring Into App Screens
 
-| Screen | Status | Notes |
-|--------|--------|-------|
-| Deudas mes a mes (MonthlyDebtsPanel) | ✅ Wired | Auto-loads Lila data, toggle to switch to live calculation |
-| Saldos (CuotasPanel) | ⏳ Pending | Uses members.outstanding_balance which is updated by saldos import |
-| CC detalladas (DetailedCurrentAccountsPanel) | ⏳ Pending | |
-| Control de mora (DuesControlTab) | ⏳ Pending | |
-| Dashboard (AdminDashboardTab) | ⏳ Pending | |
-| Member profile | ⏳ Pending | |
+All screens now read from Lila-imported data through `members.outstanding_balance` (updated by `import-lila-saldos.mjs`).
+
+| Screen | Status | How Lila data flows |
+|--------|--------|---------------------|
+| Deudas mes a mes (MonthlyDebtsPanel) | ✅ Wired | Reads from `lila_member_debt_totals` + `lila_member_period_debts` via DB |
+| Saldos (MemberBalancesPanel) | ✅ Wired | Uses `currentAccountBalanceOf()` → `member.outstandingBalance` → Lila import |
+| CC detalladas (DetailedCurrentAccountsPanel) | ✅ Uses snapshots | Pre-exported Lila data in static JSON snapshots |
+| Control de mora (DuesControlTab) | ✅ Wired | Uses `getOverdueMembers()` → `member.outstandingBalance` → Lila import |
+| Dashboard (AdminDashboardTab) | ✅ Wired | Uses `overdueMembersCount` + `totalOutstanding` → `member.outstandingBalance` |
+| Member profile | ✅ Wired | Uses `member.outstandingBalance` for saldo display |
+
+**Key insight:** The `import-lila-saldos.mjs` script updates `members.outstanding_balance`, which is the source of truth for all balance-related calculations in the app. This includes:
+- `currentAccountBalanceOf(member)` in `currentAccountBalances.js`
+- `socialDuesAmountDue(member)` in `dues.js`
+- `getOverdueMembers(members)` in `dues.js`
+- `familyBalanceForMember()` in `memberBalances.js`
 
 ---
 
