@@ -436,7 +436,7 @@ export const APP_MANUAL = [
       'Socio: portal (Inicio, Reservar Canchas, Mi Cuenta, Novedades). No ve el rail. Si es adherente, no paga ni reserva: lo hace el titular.',
       'Profesor: /asistencia. Marca presentes. No entra al panel.',
       'Portería (operador de portería): puerta, Ingresos, pileta, padrón y la caja. Cajero: padrón, Saldos, pileta, ingresos, Fiestas y Caja. Ninguno de los dos ve los libros enteros.',
-      'Empleado de administración: padrón, saldos, reservas y atención (reclamos, mensajería, novedades, encuestas). No liquida. Operario de pileta: Inicio, Jev, /pileta y /entrada-pileta. Cobra el canon y carga el apto. No ve padrón, saldos ni reservas.',
+      'Empleado de administración y Operario de pileta ven lo mismo: padrón, saldos, reservas, pileta y atención (reclamos, mensajería, novedades, encuestas). No liquidan. El operario de pileta además abre en la puerta (/entrada-pileta) y cobra el canon.',
       'Personal: reservas, disciplinas, pileta, ingresos, personal, fiestas, alertas, reclamos y novedades. Recursos humanos: Personal y Alertas.',
       'Administrador: el club entero, sin Contabilidad.',
       'Contador: Cuotas (liquida), Contabilidad, Reportes y Fiestas. Superadmin: todo, y es el único que crea usuarios y perfiles.',
@@ -497,7 +497,7 @@ export const APP_MANUAL = [
     title: 'Cuotas y saldos',
     tab: 'dues',
     keywords: 'cuota saldos mora excel pdf whatsapp importar cobranza',
-    who: 'Saldos (solo consulta): caja y administración. Operar y liquidar: contador y superadmin.',
+    who: 'Saldos (solo consulta): caja, administración y pileta. Operar y liquidar: contador y superadmin.',
     steps: [
       'Si tu perfil no liquida, la sección se llama Saldos y es solo de consulta.',
       'Consultar: Saldos, CC detalladas, Créditos, Deudas mes a mes.',

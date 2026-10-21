@@ -225,8 +225,8 @@ create policy fee_period_closures_update
   using (public.has_capability('dues.liquidate'))
   with check (public.has_capability('dues.liquidate'));
 
--- Cuentas de cuotas: leen contabilidad, administrador y empleado de administración.
--- El operario de pileta no las lee. Escribe quien liquida.
+-- Cuentas de cuotas: leen contabilidad, administrador, empleado de administración y pileta
+-- (mismo mostrador). Escribe quien liquida.
 drop policy if exists fee_ledger_accounts_access on public.fee_ledger_accounts;
 drop policy if exists fee_ledger_accounts_read on public.fee_ledger_accounts;
 create policy fee_ledger_accounts_read
@@ -236,6 +236,7 @@ create policy fee_ledger_accounts_read
     public.has_accounting_access()
     or public.has_admin_access()
     or public.user_has_role('admin_employee')
+    or public.user_has_role('pool_operator')
   );
 
 drop policy if exists fee_ledger_accounts_write on public.fee_ledger_accounts;
@@ -254,6 +255,7 @@ create policy fee_ledger_lines_read
     public.has_accounting_access()
     or public.has_admin_access()
     or public.user_has_role('admin_employee')
+    or public.user_has_role('pool_operator')
   );
 
 drop policy if exists fee_ledger_lines_write on public.fee_ledger_lines;

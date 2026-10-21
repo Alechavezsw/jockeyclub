@@ -139,9 +139,8 @@ export const ALL_ADMIN_TABS = [
 const ADMIN_TABS_NO_ACCOUNTING = ALL_ADMIN_TABS.filter((t) => t !== 'accounting');
 
 /**
- * Mostrador de administración: padrón, saldos y atención.
- * El operario de pileta no entra acá: cobra canon y apto en /pileta.
- * La liquidación queda en contador y superadmin.
+ * Mostrador del club: Empleado de administración y Operario de pileta ven lo mismo.
+ * Padrón, saldos y atención; la liquidación queda en contador y superadmin.
  */
 const FRONT_DESK_TABS = [
   'dashboard',
@@ -234,10 +233,8 @@ export function allowedAdminTabs(role) {
   if (role === 'cashier') {
     return ['dashboard', 'jev', 'members', 'dues', 'pool', 'access', 'accounting', 'events'];
   }
-  if (role === 'pool_operator') {
-    return ['dashboard', 'jev', 'pool'];
-  }
-  if (role === 'admin_employee') {
+  // Empleado de administración y operario de pileta: mismo mostrador.
+  if (role === 'admin_employee' || role === 'pool_operator') {
     return [...FRONT_DESK_TABS];
   }
   // Recursos humanos: personal y novedades RR.HH.
