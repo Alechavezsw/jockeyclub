@@ -12,6 +12,11 @@ export default function PoolControlView({
   updateMember = null,
   formatCurrency,
   recordPoolCanon,
+  cashSessions = [],
+  cashRegisters = [],
+  onOpenDayCash,
+  dayCashOpen = null,
+  onRefreshDayCash,
   poolAccesses = [],
   setPoolAccesses,
   setEntryLogs,
@@ -33,7 +38,7 @@ export default function PoolControlView({
         <button
           type="button"
           className="btn btn-secondary btn-sm"
-          onClick={() => navigate('/panel')}
+          onClick={() => navigate('/panel/dashboard')}
         >
           <ArrowLeft size={14} /> Panel
         </button>
@@ -44,6 +49,11 @@ export default function PoolControlView({
         updateMember={updateMember}
         formatCurrency={formatCurrency}
         recordPoolCanon={recordPoolCanon}
+        cashSessions={cashSessions}
+        cashRegisters={cashRegisters}
+        onOpenDayCash={onOpenDayCash}
+        dayCashOpen={dayCashOpen}
+        onRefreshDayCash={onRefreshDayCash}
         poolAccesses={poolAccesses}
         setPoolAccesses={setPoolAccesses}
         setEntryLogs={setEntryLogs}

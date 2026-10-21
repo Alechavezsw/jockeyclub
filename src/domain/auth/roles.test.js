@@ -13,6 +13,7 @@ import {
   canManageTeachers,
   isSuperAdmin,
   allowedAdminTabs,
+  allowedAdminTabsForRoles,
   allowedAccountingSubtabs,
   navItemsForRole,
   primaryRoleFromList,
@@ -101,12 +102,18 @@ describe('allowedAdminTabs', () => {
     expect(tabs).not.toContain('migration');
   });
 
-  it('el operario de pileta cobra en la puerta y no entra a libros', () => {
+  it('el operario de pileta ve lo mismo que el empleado de administración', () => {
+    expect(allowedAdminTabs('pool_operator')).toEqual(allowedAdminTabs('admin_employee'));
+    expect(allowedAdminTabsForRoles(['pool_operator'])).toEqual(allowedAdminTabsForRoles(['admin_employee']));
+  });
+
+  it('el operario de pileta cobra en la puerta y no entra a libros contables', () => {
     const tabs = allowedAdminTabs('pool_operator');
     expect(tabs).toContain('pool');
+    expect(tabs).toContain('members');
+    expect(tabs).toContain('dues');
     expect(tabs).not.toContain('accounting');
-    expect(tabs).not.toContain('members');
-    expect(tabs).not.toContain('dues');
+    expect(tabs).not.toContain('system');
     expect(tabs).not.toContain('migration');
     expect(canAccessAdmin('pool_operator')).toBe(true);
     expect(canAccessPool('pool_operator')).toBe(true);

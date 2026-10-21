@@ -33,6 +33,8 @@ export default function PoolEntranceView({
   members = [],
   formatCurrency,
   recordPoolCanon,
+  dayCashOpen = null,
+  onRefreshDayCash,
   poolAccesses = [],
   setPoolAccesses,
   setEntryLogs,
@@ -54,6 +56,12 @@ export default function PoolEntranceView({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [payMethod, setPayMethod] = useState('efectivo');
+  // false = la base dice que no hay caja del día abierta; null = todavía no se sabe.
+  const cashClosed = dayCashOpen === false;
+
+  useEffect(() => {
+    if (typeof onRefreshDayCash === 'function') void onRefreshDayCash();
+  }, [onRefreshDayCash]);
 
   useEffect(() => {
     if (members.length > directory.length) setDirectory(members);
@@ -240,7 +248,7 @@ export default function PoolEntranceView({
             </div>
           </div>
         </div>
-        <button type="button" className="btn btn-secondary btn-sm" onClick={() => navigate('/panel')}>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={() => navigate('/panel/dashboard')}>
           <ArrowLeft size={14} /> Panel
         </button>
       </header>
@@ -284,6 +292,15 @@ export default function PoolEntranceView({
           {' '}
           {SEASON_DUES_GATE_COPY.mora}
           {isPoolSeasonLive(today) ? '' : ' Rige en temporada, diciembre a marzo.'}
+        </p>
+      ) : null}
+
+      {cashClosed ? (
+        <p className="conc-error" role="status" style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          La caja del día está cerrada: no se puede cobrar el canon en efectivo hasta abrirla en Pileta.
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => navigate('/pileta')}>
+            Ir a Pileta
+          </button>
         </p>
       ) : null}
 
@@ -368,7 +385,7 @@ export default function PoolEntranceView({
                 <button
                   type="button"
                   className="btn btn-primary pool-entrance-pay"
-                  disabled={busy || !eval_.canEnable}
+                  disabled={busy || !eval_.canEnable || cashClosed}
                   onClick={handleEnable}
                 >
                   Cobrar canon e ingresar · {formatCurrency(settings.memberDayFee)}

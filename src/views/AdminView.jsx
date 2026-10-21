@@ -182,10 +182,14 @@ export default function AdminView({
   const balancesSeed = useSnapshotSeed(['accessinCurrentAccountBalances'], currentAccountBalancesSeed);
   const feeDetailsSeed = useSnapshotSeed(['accessinFeeAccountDetails'], feeAccountDetailsSeed);
   const [ledgerCount, setLedgerCount] = useState(0);
+  const roleSource = user?.roles?.length ? user.roles : userRole;
+  const liquidateDues = canLiquidateDues(roleSource);
   useEffect(() => {
-    if (membersLoading || !members?.length || !erp.ensureProcessedFeeLedger) return;
+    // Completa los meses de las cuentas de cuotas: es una escritura del que liquida. Para el
+    // resto la base la rechaza, y reintentarla en cada carga del padrón solo hace ruido.
+    if (!liquidateDues || membersLoading || !members?.length || !erp.ensureProcessedFeeLedger) return;
     void erp.ensureProcessedFeeLedger(members);
-  }, [membersLoading, members, erp.ensureProcessedFeeLedger]);
+  }, [liquidateDues, membersLoading, members, erp.ensureProcessedFeeLedger]);
   useEffect(() => {
     let cancelled = false;
     repos.countGroupAccountLedgers()
@@ -212,9 +216,7 @@ export default function AdminView({
     }
     return [...ids];
   }, [feeDetailsSeed]);
-  const roleSource = user?.roles?.length ? user.roles : userRole;
   const permittedTabs = allowedAdminTabsForRoles(roleSource);
-  const liquidateDues = canLiquidateDues(roleSource);
   const clubReview = useMemo(() => buildClubReview({
     members,
     journalEntries,

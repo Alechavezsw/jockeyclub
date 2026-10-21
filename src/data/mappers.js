@@ -2,6 +2,7 @@
 
 import { resolveStoredMemberTier } from '../domain/members/tiers';
 import { pinDuesDueDate } from '../domain/members/dues';
+import { roleRank } from '../domain/auth/roles';
 
 function canonicalMemberTier(tier, meta) {
   return resolveStoredMemberTier(tier, meta?.cuotaCategories);
@@ -503,20 +504,6 @@ export function profileFromRow(row) {
     identifiers,
     meta,
   };
-}
-
-function roleRank(roleKey) {
-  const map = {
-    superadmin: 60,
-    admin: 50,
-    accountant: 40,
-    cashier: 30,
-    pool_operator: 28,
-    staff: 20,
-    teacher: 15,
-    member: 10,
-  };
-  return map[String(roleKey || '').toLowerCase()] || 0;
 }
 
 export function surveyFromRow(row) {

@@ -992,6 +992,18 @@ export async function openPoolDayCash() {
   };
 }
 
+/**
+ * ¿Hay una caja del día abierta? Lo responde la base: el operario de pileta y el empleado de
+ * administración no pueden leer cash_sessions, así que no se puede deducir de las sesiones.
+ */
+export async function getPoolDayCashOpen() {
+  const data = await unwrap(
+    sb().rpc('is_pool_day_cash_open'),
+    'No se pudo consultar la caja del día',
+  );
+  return data === true;
+}
+
 export async function revokePoolAccess(id) {
   if (!isUuid(id)) return null;
   const saved = await unwrap(

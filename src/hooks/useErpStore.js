@@ -13,6 +13,7 @@ import {
   pickGeneralCashRegister,
 } from '../domain/accounting/cash';
 import { loadSnapshots } from '../data/snapshots';
+import { isPoolDayCashOpen } from '../domain/pool/poolAccess';
 import { cashMovementsSeed, cashSeed, chequesSeed, mergeAccessinCashMovements } from '../domain/accounting/cashLedger';
 import { cobranzasSeed } from '../domain/accounting/cobranzas';
 import { seedDiscounts } from '../domain/accounting/discountsSeed';
@@ -212,6 +213,8 @@ export default function useErpStore({
     return seed.length ? seed : DEFAULT_CASH_REGISTERS;
   });
   const [cashSessions, setCashSessions] = useState(() => load('jockey-cash-sessions', []));
+  /** null = todavía no se consultó. En la nube lo responde la base (is_pool_day_cash_open). */
+  const [cloudPoolDayCashOpen, setCloudPoolDayCashOpen] = useState(null);
   const [cashMovements, setCashMovements] = useState(() => load('jockey-cash-movements', []));
   const [accessinCashMovements, setAccessinCashMovements] = useState(() => {
     const loaded = load('jockey-accessin-cash-movements-v1', null);
@@ -734,8 +737,20 @@ export default function useErpStore({
     setCashSessions((prev) => (
       prev.some((row) => row.id === session.id) ? prev : [session, ...prev]
     ));
+    setCloudPoolDayCashOpen(true);
     return session;
   }, [cashRegisters, cashSessions, chartOfAccounts, userId]);
+
+  const refreshPoolDayCash = useCallback(async () => {
+    if (!cloud()) return null;
+    try {
+      const open = await repos.getPoolDayCashOpen();
+      setCloudPoolDayCashOpen(open);
+      return open;
+    } catch {
+      return null;
+    }
+  }, []);
 
   const transferCash = useCallback(
     async ({ fromRegisterId, toAccountId, amount, concept }) => {
@@ -1794,6 +1809,10 @@ export default function useErpStore({
     addCashMovement,
     recordPoolCanon,
     openPoolDayCash,
+    refreshPoolDayCash,
+    poolDayCashOpen: cloud()
+      ? cloudPoolDayCashOpen
+      : isPoolDayCashOpen(cashSessions, cashRegisters),
     transferCash,
     submitExpense,
     setExpenseApproved,

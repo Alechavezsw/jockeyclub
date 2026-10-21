@@ -2677,6 +2677,11 @@ function ClubPortal() {
       updateMember={updateMember}
       formatCurrency={formatCurrency}
       recordPoolCanon={erp.recordPoolCanon}
+      cashSessions={erp.cashSessions || []}
+      cashRegisters={erp.cashRegisters || []}
+      onOpenDayCash={erp.openPoolDayCash}
+      dayCashOpen={erp.poolDayCashOpen}
+      onRefreshDayCash={erp.refreshPoolDayCash}
       poolAccesses={poolAccesses}
       setPoolAccesses={setPoolAccessesDb}
       setEntryLogs={setEntryLogsDb}
@@ -2694,6 +2699,8 @@ function ClubPortal() {
       membersCount={membersCount}
       formatCurrency={formatCurrency}
       recordPoolCanon={erp.recordPoolCanon}
+      dayCashOpen={erp.poolDayCashOpen}
+      onRefreshDayCash={erp.refreshPoolDayCash}
       poolAccesses={poolAccesses}
       setPoolAccesses={setPoolAccessesDb}
       setEntryLogs={setEntryLogsDb}

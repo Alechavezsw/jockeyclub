@@ -53,6 +53,8 @@ export default function PoolTab({
   cashSessions = [],
   cashRegisters = [],
   onOpenDayCash,
+  dayCashOpen: dayCashOpenProp = null,
+  onRefreshDayCash,
   poolAccesses = [],
   setPoolAccesses,
   setEntryLogs,
@@ -113,7 +115,15 @@ export default function PoolTab({
     [poolAccesses, selected],
   );
   const selectedDues = Number(selected?.outstandingBalance) || 0;
-  const dayCashOpen = isPoolDayCashOpen(cashSessions, cashRegisters);
+  // Lo que dice la base manda: el operario de pileta no puede leer las sesiones de caja y
+  // deducirlo de ellas lo mostraría cerrado después de recargar.
+  const dayCashOpen = typeof dayCashOpenProp === 'boolean'
+    ? dayCashOpenProp
+    : isPoolDayCashOpen(cashSessions, cashRegisters);
+
+  useEffect(() => {
+    if (typeof onRefreshDayCash === 'function') void onRefreshDayCash();
+  }, [onRefreshDayCash]);
 
   const openDayCash = async () => {
     if (dayCashOpen || openingCash || typeof onOpenDayCash !== 'function') return;

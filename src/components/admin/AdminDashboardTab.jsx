@@ -577,7 +577,7 @@ export default function AdminDashboardTab({
       icon: Waves,
       title: 'Puerta pileta',
       hint: 'Buscar socio, cobrar canon y habilitar',
-      roles: ['pool_operator'],
+      roles: ['pool_operator', 'admin_employee'],
     },
     {
       tab: 'accounting',

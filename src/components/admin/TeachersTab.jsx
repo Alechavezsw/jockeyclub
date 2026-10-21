@@ -203,7 +203,15 @@ export default function TeachersTab({
 
     setSaving(true);
     try {
-      const roles = [{ roleKey: 'teacher', label: ROLE_LABELS.teacher, kind: 'system' }];
+      const teacherRole = { roleKey: 'teacher', label: ROLE_LABELS.teacher, kind: 'system' };
+      // Al editar se conservan los otros oficios de la persona (por ejemplo cajero): reemplazar
+      // todo se los quitaría, y la base solo deja al administrador tocar el rol de profesor.
+      const otherRoles = editingId
+        ? (teachers.find((t) => t.id === editingId)?.roles || [])
+          .filter((r) => String(r.roleKey || r.key || '').toLowerCase() !== 'teacher')
+          .map((r) => ({ roleKey: r.roleKey || r.key, label: r.label, kind: r.kind }))
+        : [];
+      const roles = [...otherRoles, teacherRole];
       if (editingId) {
         let saved = await repos.updateProfile(editingId, {
           firstName,
