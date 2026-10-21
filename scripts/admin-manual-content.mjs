@@ -3,7 +3,8 @@
  * Lo dibuja scripts/generate-admin-manual.mjs con la misma clase que el manual general.
  *
  * Para quién: Empleado/a de administración (admin_employee) y Operario/a de pileta
- * (pool_operator). Los dos ven las mismas pestañas del panel (roles.js, FRONT_DESK_TABS).
+ * (pool_operator). No ven lo mismo: administración tiene el mostrador (padrón, saldos,
+ * reservas, atención); pileta tiene Inicio, Jev, /pileta y /entrada-pileta.
  *
  * Reglas de redacción:
  * - El PDF usa Helvetica estándar: nada de flechas ni símbolos fuera de Latin-1.
@@ -18,10 +19,10 @@ export const ADMIN_MANUAL_TEXTS = {
   chromeRight: 'Manual de Administración y Pileta',
   coverTitle: 'Administración y Pileta',
   coverSubtitle: 'Manual paso a paso del mostrador del club',
-  coverBlurb: 'Cómo trabajan el Empleado de administración y el Operario de pileta: buscar y cobrar a un socio, dar altas y bajas, atender solicitudes, reservas, la puerta y la caja de la pileta. Cada tarea, en el orden en que se hace.',
-  coverEdition: 'Versión 1.0',
+  coverBlurb: 'Cómo trabaja el Empleado de administración (padrón, cobro, altas, reservas, atención) y el Operario de pileta (puerta, canon, apto y caja del día). Cada uno en su puesto; no comparten el mismo menú.',
+  coverEdition: 'Versión 1.1',
   coverNote: 'Uso interno del club  ·  No compartir claves',
-  tocIntro: 'Los dos puestos ven lo mismo en el panel. Si trabajás en la pileta, empezá por el capítulo 13; si trabajás en administración, por el 3. El capítulo 16 dice qué cosas NO se pueden hacer con este perfil y a quién pedirlas.',
+  tocIntro: 'Administración y pileta no ven lo mismo. Si trabajás en la pileta, empezá por el capítulo 13. Si trabajás en administración, por el 3. El capítulo 16 dice qué cosas NO se pueden hacer con cada perfil y a quién pedirlas.',
 };
 
 export function buildBody(m) {
@@ -31,17 +32,17 @@ export function buildBody(m) {
 
   /* ------------------------------------------------------------------ 1 */
   m.h1('1.  Antes de empezar', { n: '01' });
-  m.p('Este manual es para dos puestos del club que ven exactamente lo mismo en el sistema: el Empleado o Empleada de administración y el Operario u Operaria de pileta. Los dos entran al panel del personal y tienen las mismas 13 secciones. Lo único que cambia es por dónde arrancan el día.');
+  m.p('Este manual cubre dos puestos distintos. El Empleado o Empleada de administración atiende el mostrador (padrón, cobro, reservas, reclamos). El Operario u Operaria de pileta controla la puerta y cobra el canon. No comparten el mismo menú.');
   m.table(
-    ['Puesto', 'Al entrar abre en…', 'Para qué se lo usa sobre todo'],
+    ['Puesto', 'Al entrar abre en…', 'Qué secciones tiene'],
     [
-      ['Empleado/a de administración', 'Inicio (Panel de administración)', 'Padrón, cobro de cuotas, altas y bajas, reservas, atención al socio'],
-      ['Operario/a de pileta', 'Entrada pileta (la puerta de la pileta)', 'Controlar el ingreso, cobrar el canon, invitados y apto médico'],
+      ['Empleado/a de administración', 'Inicio (Panel de administración)', 'Padrón, saldos, reservas, pileta, profesores (solo mira), fiestas y atención al socio'],
+      ['Operario/a de pileta', 'Entrada pileta (la puerta de la pileta)', 'Inicio, Jev, Pileta y Entrada pileta. No ve padrón, saldos ni reservas'],
     ],
     [50, 56, 72]
   );
-  m.p('Cualquiera de los dos puede ir a cualquier sección de la lista de abajo. El operario de pileta vuelve al resto del panel con el botón Panel, que está arriba a la derecha de la puerta y de la caja de la pileta.');
-  m.h2('Qué secciones ves');
+  m.p('El operario de pileta vuelve al Inicio con el botón Panel, arriba a la derecha de la puerta y de la caja. Desde ahí no entra a Socios ni a Saldos: eso es de administración.');
+  m.h2('Qué secciones ves (administración)');
   m.table(
     ['Grupo del menú', 'Secciones', 'Capítulo'],
     [
@@ -408,7 +409,7 @@ export function buildBody(m) {
       ['“Adjunte el comprobante de la transferencia”', 'Transferencia sin comprobante', 'Adjuntá la foto o el PDF'],
       ['Mercado Pago no acredita', 'Mercado Pago todavía no confirmó', 'Esperá la confirmación. No cobres de nuevo. Avisá a Tesorería si pasan los minutos'],
       ['El número de un saldo no coincide', 'Es un Corte LILA de otra fecha', 'Mirá la fecha del corte. El saldo vivo está en la ficha'],
-      ['Entrás al panel y caés en la puerta de la pileta', 'Es el comportamiento del Operario de pileta', 'Tocá Panel o usá el menú para ir a otra sección'],
+      ['Entrás al panel y caés en la puerta de la pileta', 'Es el comportamiento del Operario de pileta', 'Tocá Panel para ir al Inicio. Socios y Saldos no están en este perfil'],
       ['Una pantalla no aparece en el menú', 'Tu perfil no la abre', 'Capítulo 16. Pedí el permiso a quien corresponda; no uses el usuario de otra persona'],
       ['La pantalla queda “Cargando…”', 'Internet o sesión colgada', 'Recargá. Si sigue, Salir y volver a entrar'],
     ],

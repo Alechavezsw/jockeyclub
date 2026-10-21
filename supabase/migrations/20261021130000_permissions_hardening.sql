@@ -13,8 +13,7 @@
 --      leer cash_sessions, que estos roles no pueden ver.
 --
 -- Orden: aplicar DESPUÉS de 20261021120000_pool_operator_front_desk.sql.
--- Idempotente: se puede volver a correr. No hay psql en el entorno de desarrollo, así que
--- NO se probó contra una base: aplicarla primero en una copia.
+-- Idempotente. Aplicada en vivo (permissions_hardening).
 --
 -- Marcha atrás: ver el final del archivo.
 --
@@ -62,6 +61,7 @@ insert into public.role_capabilities (capability, role_key) values
   ('members.write', 'cashier'),
   ('members.write', 'gate_operator'),
   ('members.write', 'admin_employee'),
+  -- Pileta escribe el apto médico en la ficha; no ve la pestaña Socios.
   ('members.write', 'pool_operator'),
   ('members.write', 'staff'),
   ('pool.operate', 'superadmin'),
@@ -225,8 +225,8 @@ create policy fee_period_closures_update
   using (public.has_capability('dues.liquidate'))
   with check (public.has_capability('dues.liquidate'));
 
--- Cuentas de cuotas: leen contabilidad, administrador y empleado de administración (más la
--- lectura de pileta de la migración anterior); escribe quien liquida.
+-- Cuentas de cuotas: leen contabilidad, administrador y empleado de administración.
+-- El operario de pileta no las lee. Escribe quien liquida.
 drop policy if exists fee_ledger_accounts_access on public.fee_ledger_accounts;
 drop policy if exists fee_ledger_accounts_read on public.fee_ledger_accounts;
 create policy fee_ledger_accounts_read
