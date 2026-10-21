@@ -39,6 +39,7 @@
     "remap:tiers": "node scripts/remap-member-tiers.mjs",
     "remap:tiers:dry": "node scripts/remap-member-tiers.mjs --dry-run",
     "manual:pdf": "node scripts/generate-user-manual.mjs",
+    "manual:admin": "node scripts/generate-admin-manual.mjs",
     "sync:saldos": "node scripts/sync-accessin-balances.mjs",
     "sync:saldos:dry": "node scripts/sync-accessin-balances.mjs --dry-run",
     "upload:snapshots": "node scripts/upload-snapshots.mjs",

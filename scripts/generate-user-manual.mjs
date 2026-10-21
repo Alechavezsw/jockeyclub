@@ -1,10 +1,13 @@
 /**
  * Manual de uso en PDF — Jockey Club San Juan, Sede Rivadavia.
  * Uso: node scripts/generate-user-manual.mjs
+ *
+ * La clase Manual y renderManual() los reutilizan los manuales por oficio
+ * (por ejemplo scripts/generate-admin-manual.mjs).
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { buildBody, CHAPTER_COUNT } from './user-manual-content.mjs';
@@ -34,7 +37,7 @@ const CONTENT_W = PAGE_W - MARGIN * 2;
 const FOOTER_Y = PAGE_H - 14;
 const CONTENT_BOTTOM = PAGE_H - 20;
 
-function loadLogo() {
+export function loadLogo() {
   // El PNG tiene fondo transparente y va sobre una pastilla blanca. El JPG de impresión trae un cuadrado negro.
   const file = fs.existsSync(LOGO_PNG) ? LOGO_PNG : LOGO_JPG;
   if (!fs.existsSync(file)) return null;
@@ -50,10 +53,22 @@ function todayLabel() {
   });
 }
 
-class Manual {
-  constructor(logoDataUrl) {
+/** Textos de la tapa, la cabecera y el índice. Cada manual pisa los que necesite. */
+const DEFAULT_TEXTS = {
+  chromeRight: 'Manual de uso del portal',
+  coverTitle: 'Manual de uso',
+  coverSubtitle: 'Portal de socios, personal y administración',
+  coverBlurb: 'Una guía clara, en español, para que cualquier persona del club pueda entrar al sistema, usar su credencial, reservar, cobrar o atender sin tener que ser experta en computación.',
+  coverEdition: 'Versión 2.0',
+  coverNote: 'Uso interno del club  ·  No compartir claves',
+  tocIntro: 'Empezá por el capítulo de tu rol. Si no sabés cuál es, leé primero “Antes de empezar” y “Cómo entrar”. Si ya conocías la edición 1.0, mirá el último capítulo: resume qué cambió.',
+};
+
+export class Manual {
+  constructor(logoDataUrl, texts = {}) {
     this.doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     this.logo = logoDataUrl;
+    this.texts = { ...DEFAULT_TEXTS, ...texts };
     this.y = MARGIN;
     this.toc = [];
   }
@@ -82,7 +97,7 @@ class Manual {
     d.text('Jockey Club San Juan  ·  Sede Rivadavia', MARGIN, 8);
     d.setFont('helvetica', 'normal');
     d.setTextColor(230, 230, 220);
-    d.text('Manual de uso del portal', PAGE_W - MARGIN, 8, { align: 'right' });
+    d.text(this.texts.chromeRight, PAGE_W - MARGIN, 8, { align: 'right' });
   }
 
   cover() {
@@ -121,25 +136,22 @@ class Manual {
     d.setFont('helvetica', 'bold');
     d.setFontSize(26);
     d.setTextColor(255, 255, 255);
-    d.text('Manual de uso', PAGE_W / 2, 142, { align: 'center' });
+    d.text(this.texts.coverTitle, PAGE_W / 2, 142, { align: 'center' });
     d.setFontSize(14);
     d.setTextColor(...CREAM);
-    d.text('Portal de socios, personal y administración', PAGE_W / 2, 154, { align: 'center' });
+    d.text(this.texts.coverSubtitle, PAGE_W / 2, 154, { align: 'center' });
 
     d.setFont('helvetica', 'normal');
     d.setFontSize(11);
     d.setTextColor(220, 220, 210);
-    const blurb = d.splitTextToSize(
-      'Una guía clara, en español, para que cualquier persona del club pueda entrar al sistema, usar su credencial, reservar, cobrar o atender sin tener que ser experta en computación.',
-      150
-    );
+    const blurb = d.splitTextToSize(this.texts.coverBlurb, 150);
     d.text(blurb, PAGE_W / 2, 172, { align: 'center' });
 
     d.setFontSize(9);
     d.setTextColor(...CREAM);
-    d.text(`Edición ${todayLabel()}  ·  Versión 2.0`, PAGE_W / 2, 250, { align: 'center' });
+    d.text(`Edición ${todayLabel()}  ·  ${this.texts.coverEdition}`, PAGE_W / 2, 250, { align: 'center' });
     d.setTextColor(200, 200, 190);
-    d.text('Uso interno del club  ·  No compartir claves', PAGE_W / 2, 258, { align: 'center' });
+    d.text(this.texts.coverNote, PAGE_W / 2, 258, { align: 'center' });
   }
 
   writeToc(entries) {
@@ -147,7 +159,7 @@ class Manual {
     this.drawChrome();
     this.y = 24;
     this.h1('Índice', { toc: false });
-    this.p('Empezá por el capítulo de tu rol. Si no sabés cuál es, leé primero “Antes de empezar” y “Cómo entrar”. Si ya conocías la edición 1.0, mirá el último capítulo: resume qué cambió.');
+    this.p(this.texts.tocIntro);
 
     autoTable(this.doc, {
       startY: this.y,
@@ -314,35 +326,46 @@ class Manual {
 }
 
 
-function placeholderToc() {
-  return Array.from({ length: CHAPTER_COUNT }, (_, i) => ({
+function placeholderToc(count) {
+  return Array.from({ length: count }, (_, i) => ({
     n: String(i + 1).padStart(2, '0'),
     title: 'Capítulo',
     page: 0,
   }));
 }
 
-function main() {
+/**
+ * Arma el PDF en dos pasadas (la primera mide en qué página cae cada capítulo
+ * para escribir el índice) y lo guarda en cada ruta de `outputs`.
+ */
+export function renderManual({ buildBody: build, chapterCount, texts, outputs }) {
   const logo = loadLogo();
-  const draft = new Manual(logo);
+  const draft = new Manual(logo, texts);
   draft.cover();
-  draft.writeToc(placeholderToc());
-  buildBody(draft);
+  draft.writeToc(placeholderToc(chapterCount));
+  build(draft);
 
-  const final = new Manual(logo);
+  const final = new Manual(logo, texts);
   final.cover();
   final.writeToc(draft.toc);
-  buildBody(final);
-  if (final.toc.length !== CHAPTER_COUNT) {
-    throw new Error(`El índice tiene ${final.toc.length} capítulos y CHAPTER_COUNT es ${CHAPTER_COUNT}.`);
+  build(final);
+  if (final.toc.length !== chapterCount) {
+    throw new Error(`El índice tiene ${final.toc.length} capítulos y CHAPTER_COUNT es ${chapterCount}.`);
   }
   final.footer();
-  final.save(OUT_DOCS);
-  final.save(OUT_PUBLIC);
-  const pages = final.doc.getNumberOfPages();
-  console.log(`OK ${pages} páginas`);
-  console.log(OUT_DOCS);
-  console.log(OUT_PUBLIC);
+  for (const file of outputs) final.save(file);
+  console.log(`OK ${final.doc.getNumberOfPages()} páginas`);
+  for (const file of outputs) console.log(file);
 }
 
-main();
+function main() {
+  renderManual({
+    buildBody,
+    chapterCount: CHAPTER_COUNT,
+    outputs: [OUT_DOCS, OUT_PUBLIC],
+  });
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  main();
+}
