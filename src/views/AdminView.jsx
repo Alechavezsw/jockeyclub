@@ -764,6 +764,7 @@ export default function AdminView({
           permittedTabs={permittedTabs}
           goToTab={goToTab}
           members={members}
+          membersLoading={membersLoading}
           reservations={reservations}
           claims={claims}
           messages={messages}

@@ -1,7 +1,7 @@
-import { useDeferredValue, useMemo, useState } from 'react';
+import { useDeferredValue, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Banknote, ChevronDown } from 'lucide-react';
-import { buildWhatsAppDuesUrl, DUES_AMET_DUE_DAY, duesDueMoment } from '../../domain/members/dues';
+import { buildWhatsAppDuesUrl, duesDueMoment } from '../../domain/members/dues';
 import { memberNumberOf } from '../../domain/members/households';
 import { todayISODateAR } from '../../lib/arDate';
 import { formatCurrency } from '../../domain/accounting/journal';
@@ -171,6 +171,7 @@ export default function DuesDueBanner({
   enabled = true,
   today = todayISODateAR(),
   members = [],
+  membersLoading = false,
   journalEntries = [],
   chartOfAccounts = [],
   feePeriods = [],
@@ -198,34 +199,55 @@ export default function DuesDueBanner({
     return [...recent, ...all];
   }, [lilaCut]);
   const cashMoves = cashMovements || seededMoves;
-  const monthFlow = useMemo(
-    () => appFinanceSinceHandoff({
+  const periods = useMemo(() => resolveFeePeriods(feePeriods), [feePeriods]);
+  const liveMoney = useMemo(() => {
+    if (membersLoading) return null;
+    const monthFlow = appFinanceSinceHandoff({
       members,
       journalEntries,
       chartOfAccounts,
       feePeriods,
       since: `${monthKey}-01`,
       today,
-    }),
-    [members, journalEntries, chartOfAccounts, feePeriods, monthKey, today],
-  );
-  const split = useMemo(
-    () => splitMonthDuesCollection({
+    });
+    const split = splitMonthDuesCollection({
       movements: cashMoves,
       members,
       monthKey,
-    }),
-    [cashMoves, members, monthKey],
-  );
-  const periods = useMemo(() => resolveFeePeriods(feePeriods), [feePeriods]);
-  const sheetLiquidated = liquidatedTotalForMonth(periods, monthKey, { members, tierCatalog });
-  const collected = split.cuotaMes;
-  const liquidated = sheetLiquidated != null ? sheetLiquidated : (Number(monthFlow?.liquidatedSince) || 0);
+    });
+    const sheetLiquidated = liquidatedTotalForMonth(periods, monthKey, { members, tierCatalog });
+    const collected = split.cuotaMes;
+    const liquidated = sheetLiquidated != null ? sheetLiquidated : (Number(monthFlow?.liquidatedSince) || 0);
+    return {
+      collected,
+      liquidated,
+      atrasadas: split.atrasadas,
+      recargos: split.recargos,
+      reservas: split.reservas,
+    };
+  }, [
+    membersLoading,
+    members,
+    journalEntries,
+    chartOfAccounts,
+    feePeriods,
+    cashMoves,
+    monthKey,
+    today,
+    periods,
+    tierCatalog,
+  ]);
+  const paintedMoney = useRef(null);
+  if (liveMoney) paintedMoney.current = liveMoney;
+  const board = paintedMoney.current;
+  const collected = board?.collected ?? 0;
+  const liquidated = board?.liquidated ?? 0;
+  const moneyReady = Boolean(board);
   const periodKey = periodKeyFromDate(money?.periodTo) || periodKeyFromDate(money?.periodKey);
   const cutIsThisMonth = String(periodKey || '').slice(0, 7) === monthKey;
   const unpaidRows = useMemo(
-    () => (enabled && cutIsThisMonth ? listUnpaidFeeMembersForPeriod(periodKey) : []),
-    [enabled, cutIsThisMonth, periodKey],
+    () => (enabled && cutIsThisMonth && !membersLoading ? listUnpaidFeeMembersForPeriod(periodKey) : []),
+    [enabled, cutIsThisMonth, periodKey, membersLoading],
   );
   if (!enabled) return null;
 
@@ -233,40 +255,41 @@ export default function DuesDueBanner({
   const rate = liquidated > 0 ? Math.min(100, Math.round((collected / liquidated) * 100)) : 0;
   const monthName = moment.monthName.charAt(0).toUpperCase() + moment.monthName.slice(1);
   const monthLabel = `${monthName} de ${moment.year}`;
-  const urgent = moment.phase === 'today' || moment.phase === 'after';
 
-  const ametNote = `AMET vence el ${DUES_AMET_DUE_DAY}.`;
-  let headline = `El vencimiento es el ${moment.dueLabel}`;
-  let detail = moment.daysUntil === 1
-    ? `Falta 1 día. ${ametNote}`
-    : `Faltan ${moment.daysUntil} días. ${ametNote}`;
+  let titleLead = 'Faltan';
+  let titleWhen = moment.daysUntil === 1 ? '1 día' : `${moment.daysUntil} días`;
+  let detail = `Vence el ${moment.dueDay}. Recargo desde el 11.`;
   if (moment.phase === 'today') {
-    headline = 'Hoy vencen las cuotas';
-    detail = `El vencimiento es el ${moment.dueLabel}. ${ametNote}`;
+    titleLead = 'Hoy';
+    titleWhen = 'vence';
+    detail = 'Recargo 10% desde mañana.';
   } else if (moment.phase === 'after') {
-    headline = `Vencieron el ${moment.dueLabel}`;
-    detail = moment.daysSince === 1
-      ? `Pasó 1 día del vencimiento. ${ametNote}`
-      : `Pasaron ${moment.daysSince} días del vencimiento. ${ametNote}`;
+    titleLead = 'En mora';
+    titleWhen = moment.daysSince === 1 ? '1 día' : `${moment.daysSince} días`;
+    detail = `Venció el ${moment.dueDay}. Recargo 10%.`;
   }
 
   return (
     <div className="due-collect-stack">
       <section className={`due-collect phase-${moment.phase}`} aria-label="Vencimiento y recaudación">
         <div className="due-collect-copy">
-          <p className="due-collect-kicker">Vencimiento · día {moment.dueDay}</p>
-          <h2>{headline}</h2>
-          <p>{detail}</p>
+          <p className="due-collect-kicker">{titleLead}</p>
+          <h2 className="due-collect-amount">{titleWhen}</h2>
+          <p className="due-collect-rest">{detail}</p>
         </div>
         <div className="due-collect-money">
           <p className="due-collect-kicker">Recaudado del mes · {monthLabel}</p>
           <p className="due-collect-amount tabular-nums">
-            {formatCurrency(collected)}
+            {moneyReady ? formatCurrency(collected) : '\u00a0'}
           </p>
           <p className="due-collect-rest">
-            de {formatCurrency(liquidated)} liquidado
-            {liquidated > 0 ? ` · ${rate}% cobrabilidad` : ''}
-            {pending > 0 ? ` · falta ${formatCurrency(pending)}` : (liquidated > 0 && pending === 0 ? ' · cubierto' : '')}
+            {moneyReady ? (
+              <>
+                de {formatCurrency(liquidated)} liquidado
+                {liquidated > 0 ? ` · ${rate}% cobrabilidad` : ''}
+                {pending > 0 ? ` · falta ${formatCurrency(pending)}` : (liquidated > 0 && pending === 0 ? ' · cubierto' : '')}
+              </>
+            ) : '\u00a0'}
           </p>
           <div
             className="due-collect-track"
@@ -278,21 +301,20 @@ export default function DuesDueBanner({
           >
             <span style={{ width: `${rate}%` }} />
           </div>
-          {(split.atrasadas > 0 || split.recargos > 0 || split.reservas > 0) ? (
+          {moneyReady && (board.atrasadas > 0 || board.recargos > 0 || board.reservas > 0) ? (
             <ul className="due-collect-lines">
-              {split.atrasadas > 0 ? (
-                <li><span>Atrasadas cobradas</span><b className="tabular-nums">{formatCurrency(split.atrasadas)}</b></li>
+              {board.atrasadas > 0 ? (
+                <li><span>Atrasadas</span><b className="tabular-nums">{formatCurrency(board.atrasadas)}</b></li>
               ) : null}
-              {split.recargos > 0 ? (
-                <li><span>Recargos</span><b className="tabular-nums">{formatCurrency(split.recargos)}</b></li>
+              {board.recargos > 0 ? (
+                <li><span>Recargos</span><b className="tabular-nums">{formatCurrency(board.recargos)}</b></li>
               ) : null}
-              {split.reservas > 0 ? (
-                <li><span>Reservas</span><b className="tabular-nums">{formatCurrency(split.reservas)}</b></li>
+              {board.reservas > 0 ? (
+                <li><span>Reservas</span><b className="tabular-nums">{formatCurrency(board.reservas)}</b></li>
               ) : null}
             </ul>
           ) : null}
         </div>
-        {urgent ? <span className="due-collect-mark" aria-hidden="true">{moment.dueDay}</span> : null}
       </section>
       {afterCollect}
       <DueUnpaidMonthList rows={unpaidRows} monthLabel={monthLabel} members={members} />

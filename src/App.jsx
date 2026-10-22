@@ -2794,17 +2794,9 @@ function ClubPortal() {
             />
             {dbSyncing || membersLoading ? (
               <p
+                className="club-load-status"
                 role="status"
                 aria-live="polite"
-                style={{
-                  margin: '0 0 0.75rem',
-                  padding: '0.55rem 0.85rem',
-                  borderRadius: 8,
-                  border: '1px solid var(--border-glass)',
-                  background: 'rgba(var(--primary-gold-rgb), 0.08)',
-                  color: 'var(--text-secondary)',
-                  fontSize: '0.82rem',
-                }}
               >
                 {membersLoading && !dbSyncing
                   ? (membersProgress.total

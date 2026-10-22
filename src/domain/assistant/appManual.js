@@ -467,7 +467,7 @@ export const APP_MANUAL = [
     who: 'Todo el personal.',
     steps: [
       'Vencimiento del mes (10; AMET, 18), recaudado del mes con su cobrabilidad, caja y alertas vivas.',
-      'Si hoy es el vencimiento o ya pasó, la franja se pinta urgente con el día grande.',
+      'Si hoy es el vencimiento o ya pasó, la franja marca mora o que vence hoy.',
       'La semana está abajo. Un click te lleva a Reservas o a la ficha.',
       'Las altas pendientes del padrón también se acusan acá.',
     ],

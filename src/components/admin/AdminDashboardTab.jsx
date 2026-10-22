@@ -159,6 +159,7 @@ export default function AdminDashboardTab({
   permittedTabs,
   goToTab,
   members = [],
+  membersLoading = false,
   reservations = [],
   messages = [],
   entryLogs = [],
@@ -740,6 +741,7 @@ export default function AdminDashboardTab({
             <DuesDueBanner
               today={todayKey}
               members={members}
+              membersLoading={membersLoading}
               journalEntries={journalEntries}
               chartOfAccounts={chartOfAccounts}
               feePeriods={feePeriods}
@@ -1233,118 +1235,9 @@ export default function AdminDashboardTab({
           )}
         </div>
 
-        {/* DERECHA — Padrón (compacto, apilado) */}
+        {(!hasMembers || showGate || (permittedTabs.includes('surveys') && surveys.length > 0)) ? (
         <div className="ops-dash-col ops-dash-col--right">
-          {hasMembers ? (
-            <>
-              <article className="glass-card ops-card ops-padron-card ops-tile ops-tile--padron">
-                <header className="ops-card-head ops-card-head--split">
-                  <div>
-                    <Users size={16} color="var(--primary-gold)" />
-                    <h3>Padrón</h3>
-                  </div>
-                  <span className="ops-padron-total">{household.titularesActivos.toLocaleString('es-AR')}</span>
-                </header>
-                <div className="ops-padron-kpis" aria-label="Resumen de hogares">
-                  <div>
-                    <b>{household.titularesActivos.toLocaleString('es-AR')}</b>
-                    <span>Titulares</span>
-                  </div>
-                  <div>
-                    <b>{household.gruposFamiliares.toLocaleString('es-AR')}</b>
-                    <span>Grupos</span>
-                  </div>
-                  <div>
-                    <b>{household.integrantesActivos.toLocaleString('es-AR')}</b>
-                    <span>Integrantes</span>
-                  </div>
-                </div>
-                <p className="ops-muted ops-padron-caption">
-                  Categorías de socios titulares (sin contar el grupo familiar debajo).
-                </p>
-                <ul className="ops-padron-bars" aria-label="Titulares por categoría">
-                  {padronTop.top.map((t) => (
-                    <li key={t.id}>
-                      <div className="ops-padron-bar-meta">
-                        <span className="ops-padron-bar-name" title={t.name}>{t.name}</span>
-                        <b style={{ color: t.color }}>{t.count.toLocaleString('es-AR')}</b>
-                      </div>
-                      <div className="ops-padron-bar-track" aria-hidden="true">
-                        <span
-                          className="ops-padron-bar-fill"
-                          style={{
-                            width: `${Math.max(8, Math.round((t.count / padronTop.max) * 100))}%`,
-                            background: t.color,
-                          }}
-                        />
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-                {padronTop.rest.length > 0 ? (
-                  <ul className="ops-padron-rest" aria-label="Resto de categorías">
-                    {padronTop.rest.map((t) => (
-                      <li key={t.id} style={{ '--chip-color': t.color }}>
-                        <b className="tabular-nums">{t.count}</b>
-                        <span title={t.name}>{t.name}</span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-                <div className="ops-padron-status" aria-label="Estado del padrón">
-                  <div>
-                    <b className="tabular-nums">{padronStatus.active.toLocaleString('es-AR')}</b>
-                    <span>Activos</span>
-                  </div>
-                  <div>
-                    <b className="tabular-nums">{padronStatus.inactive.toLocaleString('es-AR')}</b>
-                    <span>Inactivos</span>
-                  </div>
-                  {overdueMembersCount > 0 ? (
-                    <button type="button" className="ops-padron-mora-btn" onClick={() => goToTab('dues')}>
-                      <b className="tabular-nums">{overdueMembersCount.toLocaleString('es-AR')}</b>
-                      <span>En mora</span>
-                    </button>
-                  ) : (
-                    <div>
-                      <b className="tabular-nums">{padronStatus.suspended.toLocaleString('es-AR')}</b>
-                      <span>Suspendidos</span>
-                    </div>
-                  )}
-                </div>
-                <div className="ops-padron-moves">
-                  <p className="ops-today-next-label">Altas y bajas</p>
-                  <p className="ops-muted ops-padron-moves-sum">
-                    {movePulse.altas.toLocaleString('es-AR')} altas · {movePulse.bajas.toLocaleString('es-AR')} bajas
-                    {' · '}
-                    {formatMoveDay(movePulse.from)}–{formatMoveDay(movePulse.to)}
-                  </p>
-                  <ul>
-                    {movePulse.recent.map((row) => (
-                      <li key={`${row.move}-${row.memberId}-${row.date}-${row.motivo || row.movimiento}`}>
-                        <Link
-                          to={`/panel/members/${encodeURIComponent(row.memberId)}`}
-                          className={`ops-padron-move ops-padron-move--${row.move}`}
-                        >
-                          <em>{row.move === 'alta' ? 'Alta' : 'Baja'}</em>
-                          <strong>{row.name || `Nº ${row.memberId}`}</strong>
-                          <small>{formatMoveDay(row.date)}</small>
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                <button
-                  type="button"
-                  className="ops-padron-cta"
-                  onClick={() => goToTab('members')}
-                >
-                  <span>Ver padrón</span>
-                  <ChevronRight size={16} strokeWidth={2.25} />
-                </button>
-              </article>
-            </>
-          ) : (
+          {hasMembers ? null : (
             <article className="glass-card ops-card ops-tile ops-tile--padron">
               <header className="ops-card-head">
                 <Activity size={16} color="var(--primary-gold)" />
@@ -1413,6 +1306,122 @@ export default function AdminDashboardTab({
           )}
 
         </div>
+        ) : null}
+
+        {hasMembers ? (
+          <article className="glass-card ops-card ops-padron-card ops-tile ops-tile--padron">
+            <header className="ops-card-head ops-card-head--split">
+              <div>
+                <Users size={16} color="var(--primary-gold)" />
+                <h3>Padrón</h3>
+              </div>
+              <span className="ops-padron-total">{household.titularesActivos.toLocaleString('es-AR')}</span>
+            </header>
+            <div className="ops-padron-kpis" aria-label="Resumen de hogares">
+              <div>
+                <b>{household.titularesActivos.toLocaleString('es-AR')}</b>
+                <span>Titulares</span>
+              </div>
+              <div>
+                <b>{household.gruposFamiliares.toLocaleString('es-AR')}</b>
+                <span>Grupos</span>
+              </div>
+              <div>
+                <b>{household.integrantesActivos.toLocaleString('es-AR')}</b>
+                <span>Integrantes</span>
+              </div>
+            </div>
+            <div className="ops-padron-board">
+              <div className="ops-padron-cats">
+                <p className="ops-muted ops-padron-caption">
+                  Categorías de socios titulares (sin contar el grupo familiar debajo).
+                </p>
+                <ul className="ops-padron-bars" aria-label="Titulares por categoría">
+                  {padronTop.top.map((t) => (
+                    <li key={t.id}>
+                      <div className="ops-padron-bar-meta">
+                        <span className="ops-padron-bar-name" title={t.name}>{t.name}</span>
+                        <b style={{ color: t.color }}>{t.count.toLocaleString('es-AR')}</b>
+                      </div>
+                      <div className="ops-padron-bar-track" aria-hidden="true">
+                        <span
+                          className="ops-padron-bar-fill"
+                          style={{
+                            width: `${Math.max(8, Math.round((t.count / padronTop.max) * 100))}%`,
+                            background: t.color,
+                          }}
+                        />
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+                {padronTop.rest.length > 0 ? (
+                  <ul className="ops-padron-rest" aria-label="Resto de categorías">
+                    {padronTop.rest.map((t) => (
+                      <li key={t.id} style={{ '--chip-color': t.color }}>
+                        <b className="tabular-nums">{t.count}</b>
+                        <span title={t.name}>{t.name}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+              <div className="ops-padron-side">
+                <div className="ops-padron-status" aria-label="Estado del padrón">
+                  <div>
+                    <b className="tabular-nums">{padronStatus.active.toLocaleString('es-AR')}</b>
+                    <span>Activos</span>
+                  </div>
+                  <div>
+                    <b className="tabular-nums">{padronStatus.inactive.toLocaleString('es-AR')}</b>
+                    <span>Inactivos</span>
+                  </div>
+                  {overdueMembersCount > 0 ? (
+                    <button type="button" className="ops-padron-mora-btn" onClick={() => goToTab('dues')}>
+                      <b className="tabular-nums">{overdueMembersCount.toLocaleString('es-AR')}</b>
+                      <span>En mora</span>
+                    </button>
+                  ) : (
+                    <div>
+                      <b className="tabular-nums">{padronStatus.suspended.toLocaleString('es-AR')}</b>
+                      <span>Suspendidos</span>
+                    </div>
+                  )}
+                </div>
+                <div className="ops-padron-moves">
+                  <p className="ops-today-next-label">Altas y bajas</p>
+                  <p className="ops-muted ops-padron-moves-sum">
+                    {movePulse.altas.toLocaleString('es-AR')} altas · {movePulse.bajas.toLocaleString('es-AR')} bajas
+                    {' · '}
+                    {formatMoveDay(movePulse.from)}–{formatMoveDay(movePulse.to)}
+                  </p>
+                  <ul>
+                    {movePulse.recent.map((row) => (
+                      <li key={`${row.move}-${row.memberId}-${row.date}-${row.motivo || row.movimiento}`}>
+                        <Link
+                          to={`/panel/members/${encodeURIComponent(row.memberId)}`}
+                          className={`ops-padron-move ops-padron-move--${row.move}`}
+                        >
+                          <em>{row.move === 'alta' ? 'Alta' : 'Baja'}</em>
+                          <strong>{row.name || `Nº ${row.memberId}`}</strong>
+                          <small>{formatMoveDay(row.date)}</small>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <button
+                  type="button"
+                  className="ops-padron-cta"
+                  onClick={() => goToTab('members')}
+                >
+                  <span>Ver padrón</span>
+                  <ChevronRight size={16} strokeWidth={2.25} />
+                </button>
+              </div>
+            </div>
+          </article>
+        ) : null}
       </section>
 
     </div>
