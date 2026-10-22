@@ -34,7 +34,7 @@ import JevReviewTab from '../components/admin/JevReviewTab';
 import { DEFAULT_POOL_SETTINGS } from '../domain/pool/poolAccess';
 import { DEFAULT_CHART_OF_ACCOUNTS, resolveAccountId } from '../domain/accounting/chartOfAccounts';
 import { getAccountBalance as domainAccountBalance } from '../domain/accounting/journal';
-import { allowedAdminTabsForRoles, canAccessConcessions, canAccessQrGate, canLiquidateDues, ROLE_LABELS, ROLE_PANEL_META } from '../domain/auth/roles';
+import { allowedAdminTabsForRoles, canAccessConcessions, canAccessQrGate, canLiquidateDues, canManageMembers, ROLE_LABELS, ROLE_PANEL_META } from '../domain/auth/roles';
 import { keepPageAtTop, preventButtonScroll } from '../lib/scrollPage';
 import { getOverdueMembers, getUpcomingDuesMembers } from '../domain/members/dues';
 import { isLiveMember, isTitularMember, mergeMemberRecord } from '../domain/members/households';
@@ -184,6 +184,9 @@ export default function AdminView({
   const [ledgerCount, setLedgerCount] = useState(0);
   const roleSource = user?.roles?.length ? user.roles : userRole;
   const liquidateDues = canLiquidateDues(roleSource);
+  const manageMembers = canManageMembers(roleSource);
+  const memberWrite = manageMembers ? updateMember : null;
+  const memberSet = manageMembers ? setMembers : null;
   useEffect(() => {
     // Completa los meses de las cuentas de cuotas: es una escritura del que liquida. Para el
     // resto la base la rechaza, y reintentarla en cada carga del padrón solo hace ruido.
@@ -891,8 +894,8 @@ export default function AdminView({
             messages={messages}
             tierCatalog={tierCatalog}
             disciplineCatalog={disciplineCatalog}
-            updateMember={updateMember}
-            setMembers={setMembers}
+            updateMember={memberWrite}
+            setMembers={memberSet}
             addJournalEntry={addJournalEntry}
             onAccountEntry={erp.upsertMemberAccountEntryRecord}
             onSendMessage={sendMessage}
@@ -905,7 +908,7 @@ export default function AdminView({
             membersCount={membersCount}
             membersLoading={membersLoading}
             membersProgress={membersProgress}
-            setMembers={setMembers}
+            setMembers={memberSet}
             addJournalEntry={addJournalEntry}
             onAccountEntry={erp.upsertMemberAccountEntryRecord}
             formatCurrency={formatCurrency}
@@ -913,7 +916,7 @@ export default function AdminView({
             disciplineOptions={(disciplineCatalog || []).filter((d) => d.isActive !== false).map((d) => d.name)}
             tierCatalog={tierCatalog}
             setTierCatalog={setTierCatalog}
-            updateMember={updateMember}
+            updateMember={memberWrite}
             membershipApplications={membershipApplications}
             setMembershipApplications={setMembershipApplications}
             portalAccessRequests={portalAccessRequests}
@@ -930,7 +933,7 @@ export default function AdminView({
       {activeTab === 'disciplines' && (
         <DisciplinesTab
           members={members}
-          setMembers={setMembers}
+          setMembers={memberSet}
           reservations={reservations}
           staffMembers={staffMembers}
           catalog={disciplineCatalog}
@@ -942,8 +945,8 @@ export default function AdminView({
       {activeTab === 'pool' && (
         <PoolTab
           members={members}
-          setMembers={setMembers}
-          updateMember={updateMember}
+          setMembers={memberSet}
+          updateMember={memberWrite}
           formatCurrency={formatCurrency}
           recordPoolCanon={recordPoolCanon}
           cashSessions={erp.cashSessions || []}

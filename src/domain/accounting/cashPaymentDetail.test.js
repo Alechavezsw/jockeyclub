@@ -193,7 +193,7 @@ describe('liquidado / recaudado de tesorería', () => {
     { memberId: '10676', tier: 'socio_familiar', cuotaCategories: ['SOCIO FAMILIAR'] },
   ];
 
-  it('separa cuota del mes, atrasadas, recargos y reservas, y deja afuera portería', () => {
+  it('recaudado suma cuota, atrasadas, adelantos, recargos y salón; deja afuera portería, estacionamiento y sin imputar', () => {
     expect(splitMonthDuesCollection({
       monthKey: '2026-10',
       members,
@@ -202,12 +202,36 @@ describe('liquidado / recaudado de tesorería', () => {
         { accessinId: 2, date: '2026-10-01', amount: 66000, memberNumber: '10676', movementType: 'income' },
         { accessinId: 3, date: '2026-10-02', amount: 22000, typeLabel: 'RENDICION PORTERIA', movementType: 'income' },
         { accessinId: 4, date: '2026-10-03', amount: 150000, typeLabel: 'Reserva salón', movementType: 'income' },
+        { accessinId: 5, date: '2026-10-04', amount: 8000, typeLabel: 'Estacionamiento', movementType: 'income' },
+        { accessinId: 6, date: '2026-10-05', amount: 50000, typeLabel: 'Transferencia', movementType: 'income' },
+        // Después del 10, $70.000 no cierra octubre (iría con recargo); imputa noviembre (adelanto).
+        { accessinId: 7, date: '2026-10-16', amount: 70000, memberNumber: '10567', movementType: 'income' },
       ],
     })).toEqual({
       cuotaMes: 70000,
       atrasadas: 60000,
+      posteriores: 70000,
       recargos: 13000,
       reservas: 150000,
+      porteria: 30000,
+      recaudado: 363000,
+    });
+  });
+
+  it('cuota + recargo entran al recaudado; el sobrante no', () => {
+    const split = splitMonthDuesCollection({
+      monthKey: '2026-10',
+      members: [{ memberId: '10567', tier: 'socio_familiar', cuotaCategories: ['SOCIO FAMILIAR'] }],
+      movements: [
+        // Octubre con mora = 77.000; paga 80.000 → 3.000 saldo a favor fuera del recaudado.
+        { accessinId: 1, date: '2026-10-15', amount: 80000, memberNumber: '10567', movementType: 'income' },
+      ],
+    });
+    expect(split).toMatchObject({
+      cuotaMes: 70000,
+      recargos: 7000,
+      recaudado: 77000,
+      porteria: 0,
     });
   });
 });

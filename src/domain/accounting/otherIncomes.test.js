@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_CHART_OF_ACCOUNTS } from './chartOfAccounts';
+import { sumCredits, sumDebits } from './journal';
 import {
   createOtherIncome,
+  journalForOtherIncome,
   lineTotal,
   linesTotal,
   validateOtherIncomeAttachment,
@@ -41,5 +44,20 @@ describe('otherIncomes', () => {
   it('exige nombre y concepto', () => {
     expect(() => createOtherIncome({ concept: 'X', amount: 10 })).toThrow(/nombre/);
     expect(() => createOtherIncome({ payerName: 'A', amount: 10 })).toThrow(/concepto/);
+  });
+
+  it('asienta contra caja o banco según el medio', () => {
+    const income = createOtherIncome({
+      date: '2026-10-15',
+      payerName: 'Quinta',
+      concept: 'Salón',
+      group: 'eventos',
+      paymentMethod: 'transferencia',
+      amount: 500,
+    });
+    const entry = journalForOtherIncome(income, DEFAULT_CHART_OF_ACCOUNTS);
+    expect(entry.sourceModule).toBe('otros_ingresos');
+    expect(sumDebits(entry.lines)).toBeCloseTo(sumCredits(entry.lines), 2);
+    expect(entry.lines.some((line) => line.accountId === 'coa-1.1.03' && line.debit === 500)).toBe(true);
   });
 });

@@ -285,7 +285,7 @@ export default function JevReviewTab({
     return buildJevBrief({
       today,
       monthLabel,
-      collected: split.cuotaMes,
+      collected: split.recaudado,
       liquidated,
       counts,
       members,

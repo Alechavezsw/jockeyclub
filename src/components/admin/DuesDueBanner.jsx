@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo, useRef, useState } from 'react';
+import { useDeferredValue, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Banknote, ChevronDown } from 'lucide-react';
 import { buildWhatsAppDuesUrl, duesDueMoment } from '../../domain/members/dues';
@@ -200,7 +200,8 @@ export default function DuesDueBanner({
   }, [lilaCut]);
   const cashMoves = cashMovements || seededMoves;
   const periods = useMemo(() => resolveFeePeriods(feePeriods), [feePeriods]);
-  const liveMoney = useMemo(() => {
+  // Mientras carga el padrón no imputamos: sin ficha el cobro no entra al recaudado.
+  const board = useMemo(() => {
     if (membersLoading) return null;
     const monthFlow = appFinanceSinceHandoff({
       members,
@@ -216,14 +217,16 @@ export default function DuesDueBanner({
       monthKey,
     });
     const sheetLiquidated = liquidatedTotalForMonth(periods, monthKey, { members, tierCatalog });
-    const collected = split.cuotaMes;
     const liquidated = sheetLiquidated != null ? sheetLiquidated : (Number(monthFlow?.liquidatedSince) || 0);
     return {
-      collected,
+      collected: split.recaudado,
+      cuotaMes: split.cuotaMes,
       liquidated,
       atrasadas: split.atrasadas,
+      posteriores: split.posteriores,
       recargos: split.recargos,
       reservas: split.reservas,
+      porteria: split.porteria,
     };
   }, [
     membersLoading,
@@ -237,9 +240,6 @@ export default function DuesDueBanner({
     periods,
     tierCatalog,
   ]);
-  const paintedMoney = useRef(null);
-  if (liveMoney) paintedMoney.current = liveMoney;
-  const board = paintedMoney.current;
   const collected = board?.collected ?? 0;
   const liquidated = board?.liquidated ?? 0;
   const moneyReady = Boolean(board);
@@ -251,8 +251,9 @@ export default function DuesDueBanner({
   );
   if (!enabled) return null;
 
+  // Anillo = recaudado / liquidado (misma regla del monto grande).
   const pending = Math.max(0, liquidated - collected);
-  const rate = liquidated > 0 ? Math.min(100, Math.round((collected / liquidated) * 100)) : 0;
+  const rate = liquidated > 0 ? Math.round((collected / liquidated) * 100) : 0;
   const monthName = moment.monthName.charAt(0).toUpperCase() + moment.monthName.slice(1);
   const monthLabel = `${monthName} de ${moment.year}`;
 
@@ -286,7 +287,7 @@ export default function DuesDueBanner({
             {moneyReady ? (
               <>
                 de {formatCurrency(liquidated)} liquidado
-                {liquidated > 0 ? ` · ${rate}% cobrabilidad` : ''}
+                {liquidated > 0 ? ` · ${rate}%` : ''}
                 {pending > 0 ? ` · falta ${formatCurrency(pending)}` : (liquidated > 0 && pending === 0 ? ' · cubierto' : '')}
               </>
             ) : '\u00a0'}
@@ -294,24 +295,21 @@ export default function DuesDueBanner({
           <div
             className="due-collect-track"
             role="meter"
-            aria-valuenow={rate}
+            aria-valuenow={Math.min(100, Math.max(0, rate))}
             aria-valuemin={0}
             aria-valuemax={100}
-            aria-label={`${rate}% de cuota del mes sobre lo liquidado`}
+            aria-label={`${rate}% recaudado sobre lo liquidado`}
           >
-            <span style={{ width: `${rate}%` }} />
+            <span style={{ width: `${Math.min(100, Math.max(0, rate))}%` }} />
           </div>
-          {moneyReady && (board.atrasadas > 0 || board.recargos > 0 || board.reservas > 0) ? (
-            <ul className="due-collect-lines">
-              {board.atrasadas > 0 ? (
-                <li><span>Atrasadas</span><b className="tabular-nums">{formatCurrency(board.atrasadas)}</b></li>
-              ) : null}
-              {board.recargos > 0 ? (
-                <li><span>Recargos</span><b className="tabular-nums">{formatCurrency(board.recargos)}</b></li>
-              ) : null}
-              {board.reservas > 0 ? (
-                <li><span>Reservas</span><b className="tabular-nums">{formatCurrency(board.reservas)}</b></li>
-              ) : null}
+          {moneyReady ? (
+            <ul className="due-collect-lines" aria-label="Desglose del recaudado">
+              <li><span>Cuota del mes</span><b className="tabular-nums">{formatCurrency(board.cuotaMes)}</b></li>
+              <li><span>Atrasadas</span><b className="tabular-nums">{formatCurrency(board.atrasadas)}</b></li>
+              <li><span>Adelantos</span><b className="tabular-nums">{formatCurrency(board.posteriores)}</b></li>
+              <li><span>Recargos</span><b className="tabular-nums">{formatCurrency(board.recargos)}</b></li>
+              <li><span>Salón</span><b className="tabular-nums">{formatCurrency(board.reservas)}</b></li>
+              <li><span>Portería</span><b className="tabular-nums">{formatCurrency(board.porteria)}</b></li>
             </ul>
           ) : null}
         </div>

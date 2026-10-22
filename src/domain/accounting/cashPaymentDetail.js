@@ -83,7 +83,7 @@ function periodKeyOf(year, month) {
   return `${year}-${String(month).padStart(2, '0')}`;
 }
 
-/** Cuota del período y, si el pago cae después del 10, el recargo del 10 %. */
+/** Cuota del período y, si el pago cae después del 10, el recargo del 10 %. Incluye adelantos (mes siguiente). */
 export function feeImputationLines(movement, member) {
   const paidOn = String(movement?.date || '').slice(0, 10);
   const amount = Math.round((Number(movement?.amount) || 0) * 100) / 100;
@@ -94,10 +94,21 @@ export function feeImputationLines(movement, member) {
   const day = Number(match[3]);
   const current = { year, month };
   const previous = shiftMonth(year, month, -1);
+  const next = shiftMonth(year, month, 1);
+  const next2 = shiftMonth(year, month, 2);
   const dueDay = duesDueDayForMember(member);
-  const order = day <= dueDay ? [previous, current] : [current, previous];
+  // Primero mes/atrasada; después adelantos (posteriores).
+  const order = day <= dueDay
+    ? [previous, current, next, next2]
+    : [current, previous, next, next2];
+  // Exacto primero (evita que un adelanto se coma una atrasada más barata).
   for (const period of order) {
-    const lines = linesForFeePeriod(member, period, paidOn, amount);
+    const lines = linesForFeePeriod(member, period, paidOn, amount, 'exact');
+    if (lines.length) return lines;
+  }
+  // De más: cubre el período; el sobrante es saldo a favor (no va al recaudado).
+  for (const period of order) {
+    const lines = linesForFeePeriod(member, period, paidOn, amount, 'overpay');
     if (lines.length) return lines;
   }
   return [];
@@ -207,18 +218,24 @@ function movementBlob(row) {
   return `${row?.typeLabel || ''} ${row?.description || ''} ${row?.note || ''} ${row?.concept || ''}`;
 }
 
-function isPorteriaMovement(row) {
-  return /porter[ií]a/i.test(movementBlob(row));
+/** Portería y estacionamiento no entran al recaudado. */
+function isExcludedOpsMovement(row) {
+  return /porter[ií]a|estacionamiento|playa\s*(de\s*)?estac/i.test(movementBlob(row));
 }
 
 function isReservationMovement(row) {
   const blob = movementBlob(row);
-  return /reserva|sal[oó]n|alquiler/i.test(blob) && !isPorteriaMovement(row);
+  return /reserva|sal[oó]n|alquiler/i.test(blob) && !isExcludedOpsMovement(row);
 }
 
-function collectWindowMoves({ movements = [], members = [], monthKey = '', afterDate = '' } = {}) {
+function collectWindowMoves({ movements = [], members = [], monthKey = '', afterDate = '', onDate = '' } = {}) {
   const cut = String(afterDate || '').slice(0, 10);
-  const inWindow = (date) => Boolean(monthKey) && date.startsWith(monthKey) && (!cut || date > cut);
+  const day = String(onDate || '').slice(0, 10);
+  const inWindow = (date) => {
+    if (!monthKey || !date.startsWith(monthKey)) return false;
+    if (day) return date === day;
+    return !cut || date > cut;
+  };
   const covered = new Set();
   const windowMoves = [];
   for (const row of movements || []) {
@@ -256,14 +273,17 @@ function collectWindowMoves({ movements = [], members = [], monthKey = '', after
 }
 
 /**
- * Tesorería: cuota del mes, atrasadas cobradas, recargos y reservas.
- * Portería no entra. El % de cobrabilidad usa solo cuota del mes / liquidado.
+ * Recaudado del mes (tesorería):
+ * ENTRA: cuota del mes + atrasadas + posteriores (adelantos) + recargos + reservas de salón.
+ * NO ENTRA: portería, estacionamiento, transferencias u otros cobros sin imputar.
+ * El % de cobrabilidad del tablero usa cuota del mes / liquidado.
  */
 export function splitMonthDuesCollection({
   movements = [],
   members = [],
   monthKey = '',
   afterDate = '',
+  onDate = '',
 } = {}) {
   const byNumber = new Map();
   for (const member of members || []) {
@@ -273,18 +293,24 @@ export function splitMonthDuesCollection({
   const seen = new Set();
   let cuotaMes = 0;
   let atrasadas = 0;
+  let posteriores = 0;
   let recargos = 0;
   let reservas = 0;
-  for (const row of collectWindowMoves({ movements, members, monthKey, afterDate })) {
+  let porteria = 0;
+  for (const row of collectWindowMoves({ movements, members, monthKey, afterDate, onDate })) {
     const movementType = String(row?.movementType || 'income');
     if (movementType === 'expense' || movementType === 'transfer_out') continue;
     if (row?.status === 'void' || row?.status === 'cancelled') continue;
-    if (isPorteriaMovement(row)) continue;
     const amount = Number(row?.amount) || 0;
     if (amount <= 0) continue;
     const id = String(row?.accessinId ?? row?.id ?? '');
     if (id && seen.has(id)) continue;
     if (id) seen.add(id);
+    // Portería / estacionamiento: se muestran aparte, no suman al recaudado.
+    if (isExcludedOpsMovement(row)) {
+      porteria += amount;
+      continue;
+    }
     const member = byNumber.get(memberDigits(row));
     const lines = member ? feeImputationLines(row, member) : [];
     if (lines.length) {
@@ -297,27 +323,42 @@ export function splitMonthDuesCollection({
         const lineMonth = String(line.date || '').slice(0, 7);
         if (lineMonth === monthKey) cuotaMes += value;
         else if (lineMonth && lineMonth < monthKey) atrasadas += value;
+        else if (lineMonth && lineMonth > monthKey) posteriores += value;
       }
       continue;
     }
+    // Sin imputación a cuota: solo reserva de salón. Transferencias sin socio no entran.
     if (isReservationMovement(row)) reservas += amount;
   }
+  const cuotaMesR = roundCollected(cuotaMes);
+  const atrasadasR = roundCollected(atrasadas);
+  const posterioresR = roundCollected(posteriores);
+  const recargosR = roundCollected(recargos);
+  const reservasR = roundCollected(reservas);
+  const porteriaR = roundCollected(porteria);
   return {
-    cuotaMes: roundCollected(cuotaMes),
-    atrasadas: roundCollected(atrasadas),
-    recargos: roundCollected(recargos),
-    reservas: roundCollected(reservas),
+    cuotaMes: cuotaMesR,
+    atrasadas: atrasadasR,
+    posteriores: posterioresR,
+    recargos: recargosR,
+    reservas: reservasR,
+    porteria: porteriaR,
+    recaudado: roundCollected(cuotaMesR + atrasadasR + posterioresR + recargosR + reservasR),
   };
 }
 
-function linesForFeePeriod(member, period, paidOn, amount) {
+function linesForFeePeriod(member, period, paidOn, amount, mode = 'exact') {
   const key = periodKeyOf(period.year, period.month);
   const on = new Date(period.year, period.month - 1, 1);
   const dueOn = `${key}-${String(duesDueDayForMember(member)).padStart(2, '0')}`;
   const cuota = Math.round((Number(duesAmountForMember(member, on)) || 0) * 100) / 100;
   if (!(cuota > 0)) return [];
   const payable = Math.round((Number(duesPayableForMember(member, { paidOn, dueOn, on })) || 0) * 100) / 100;
-  if (Math.abs(payable - amount) > 0.009) return [];
+  if (mode === 'exact') {
+    if (Math.abs(payable - amount) > 0.009) return [];
+  } else if (amount <= payable + 0.009) {
+    return [];
+  }
   const label = periodLabelFromKey(key);
   const recargo = Math.round((payable - cuota) * 100) / 100;
   const rows = [{

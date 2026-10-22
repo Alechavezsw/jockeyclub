@@ -1,5 +1,7 @@
 /** Otros ingresos / cobros manuales (estilo LILA). */
 
+import { buildPostedEntry } from './journal';
+
 export const OTHER_INCOME_PAYERS = {
   manual: { label: 'Otro (carga manual)' },
   member: { label: 'Socio' },
@@ -124,6 +126,59 @@ export function createOtherIncome({
     signatureLegend: String(signatureLegend || '').trim(),
     attachments: Array.isArray(attachments) ? attachments : [],
     status: 'posted',
+    journalEntryId: null,
     createdAt: new Date().toISOString(),
   };
+}
+
+const INCOME_ACCOUNT_BY_GROUP = {
+  cuotas: 'coa-4.1.01',
+  eventos: 'coa-4.1.03',
+  deportes: 'coa-4.1.02',
+  alquileres: 'coa-4.1.02',
+  canon: 'coa-4.1.04',
+  varios: 'coa-4.1.03',
+  uncategorized: 'coa-4.1.03',
+};
+
+const TREASURY_ACCOUNT_BY_METHOD = {
+  efectivo: 'coa-1.1.01',
+  cheque: 'coa-1.1.01',
+  tarjeta: 'coa-1.1.01',
+  transferencia: 'coa-1.1.03',
+  mercadopago: 'coa-1.1.03',
+  debito: 'coa-1.1.03',
+  otro: 'coa-1.1.01',
+};
+
+export function incomeAccountIdForGroup(group) {
+  return INCOME_ACCOUNT_BY_GROUP[group] || INCOME_ACCOUNT_BY_GROUP.uncategorized;
+}
+
+export function treasuryAccountIdForMethod(paymentMethod) {
+  return TREASURY_ACCOUNT_BY_METHOD[paymentMethod] || TREASURY_ACCOUNT_BY_METHOD.efectivo;
+}
+
+/** Debe caja/banco y acredita el ingreso. Fuente distinta de cobranzas de cuota. */
+export function journalForOtherIncome(item, chart) {
+  if (!item || String(item.status || 'posted').toLowerCase() === 'void') {
+    throw new Error('Ingreso no encontrado.');
+  }
+  const amount = Math.round((Number(item.amount) || 0) * 100) / 100;
+  if (amount <= 0) throw new Error('El importe debe ser mayor a cero.');
+
+  const treasuryId = treasuryAccountIdForMethod(item.paymentMethod);
+  const incomeId = incomeAccountIdForGroup(item.group);
+
+  return buildPostedEntry({
+    date: String(item.date || '').slice(0, 10),
+    description: `Otro ingreso: ${item.concept}${item.payerName ? ` — ${item.payerName}` : ''}`,
+    lines: [
+      { accountId: treasuryId, debit: amount, credit: 0 },
+      { accountId: incomeId, debit: 0, credit: amount },
+    ],
+    sourceModule: 'otros_ingresos',
+    sourceId: item.id,
+    chart,
+  });
 }

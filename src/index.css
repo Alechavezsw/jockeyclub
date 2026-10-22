@@ -7309,6 +7309,29 @@ a.ops-outline-btn {
   flex-wrap: wrap;
 }
 
+.ops-dues-lines {
+  list-style: none;
+  margin: 0 0 0 auto;
+  padding: 0.35rem 0 0.35rem 0.85rem;
+  min-width: 11.5rem;
+  border-left: 1px solid color-mix(in srgb, var(--primary-gold) 35%, transparent);
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.ops-dues-lines li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.85rem;
+}
+
+.ops-dues-lines b {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
 .ops-gauge {
   --gauge-fill: #096755;
   position: relative;
@@ -23281,9 +23304,9 @@ ul.sys-set-hint {
 .due-collect {
   position: relative;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: auto auto auto;
-  column-gap: 1.6rem;
+  grid-template-columns: 1fr 1fr minmax(10.5rem, 0.85fr);
+  grid-template-rows: auto auto auto auto;
+  column-gap: 1.35rem;
   row-gap: 0;
   align-items: start;
   overflow-anchor: none;
@@ -23299,7 +23322,7 @@ ul.sys-set-hint {
 .due-collect::after {
   content: "";
   position: absolute;
-  left: 50%;
+  left: 33.5%;
   top: 1.35rem;
   height: 5.6rem;
   width: 1px;
@@ -23329,9 +23352,19 @@ ul.sys-set-hint {
 .due-collect-money > .due-collect-kicker { grid-column: 2; grid-row: 1; }
 .due-collect-money > .due-collect-amount { grid-column: 2; grid-row: 2; }
 .due-collect-money > .due-collect-rest { grid-column: 2; grid-row: 3; }
-.due-collect-money > .due-collect-track,
-.due-collect-money > .due-collect-lines {
+.due-collect-money > .due-collect-track {
   grid-column: 2;
+  grid-row: 4;
+}
+.due-collect-money > .due-collect-lines {
+  grid-column: 3;
+  grid-row: 1 / span 4;
+  align-self: center;
+  justify-self: stretch;
+  margin: 0;
+  padding-left: 0.85rem;
+  border-left: 1px solid color-mix(in srgb, var(--primary-gold) 35%, transparent);
+  text-align: left;
 }
 .due-collect-kicker,
 .due-collect-rest,
@@ -23815,9 +23848,23 @@ details[open] > summary .due-fold-arrow {
     padding: 0.75rem 0 0;
     border-top: 1px solid color-mix(in srgb, var(--primary-gold) 42%, transparent);
   }
+  .due-collect-money > .due-collect-lines {
+    width: min(100%, 16.5rem);
+    margin-top: 0.65rem;
+    padding-left: 0;
+    border-left: none;
+  }
   .due-collect-money > .due-collect-amount {
     font-size: 2.35rem;
     min-height: 2.35rem;
+  }
+  .ops-dues-lines {
+    margin-left: 0;
+    width: 100%;
+    border-left: none;
+    padding-left: 0;
+    padding-top: 0.55rem;
+    border-top: 1px solid color-mix(in srgb, var(--primary-gold) 28%, transparent);
   }
   .jev-open {
     justify-self: start;

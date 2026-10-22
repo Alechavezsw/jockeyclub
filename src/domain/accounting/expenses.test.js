@@ -11,7 +11,7 @@ const TODAY = new Date('2026-10-19T15:00:00-03:00');
 describe('gastos vivos', () => {
   it('pagar con solo admite caja y bancos', () => {
     const ids = expensePaymentAccounts(DEFAULT_CHART_OF_ACCOUNTS).map((account) => account.code);
-    expect(ids).toEqual(['1.1.01', '1.1.02', '1.1.03']);
+    expect(ids).toEqual(['1.1.01', '1.1.02', '1.1.03', '1.1.07']);
   });
 
   it('a desembolsar es pendientes más aprobados', () => {

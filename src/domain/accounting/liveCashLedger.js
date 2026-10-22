@@ -193,7 +193,8 @@ export function asLedgerRowsFromJournal(entries = [], chart = DEFAULT_CHART_OF_A
     const date = journalDateKey(entry);
     if (!date || (after && date <= after)) return;
     const source = String(entry.sourceModule || '');
-    if (source && !['cuotas', 'caja', 'gastos', 'pileta', 'eventos'].includes(source)) return;
+    // Impuestos / otros ingresos también mueven tesorería cuando asientan contra caja o banco.
+    if (source && !['cuotas', 'caja', 'gastos', 'pileta', 'eventos', 'otros_ingresos', 'impuestos'].includes(source)) return;
     normalizeLines(entry.lines || [], list).forEach((line) => {
       const accountId = resolveAccountId(list, line.accountId) || line.accountId;
       const account = getAccountById(list, accountId);

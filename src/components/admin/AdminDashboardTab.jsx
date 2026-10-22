@@ -18,6 +18,9 @@ import { monthlyBalanceSummarySeed } from '../../domain/accounting/monthlyBalanc
 import { detailedCcSeed } from '../../domain/accounting/detailedCurrentAccounts';
 import { cashMovementsSeed, cashSeed, mergeAccessinCashMovements } from '../../domain/accounting/cashLedger';
 import { cobranzasSeed } from '../../domain/accounting/cobranzas';
+import { splitMonthDuesCollection } from '../../domain/accounting/cashPaymentDetail';
+import { liquidatedTotalForMonth } from '../../domain/accounting/feePeriodLiquidation';
+import { resolveFeePeriods } from '../../domain/accounting/feeBilling';
 import { buildPadronHouseholdStats } from '../../domain/members/households';
 import { getOverdueMembers } from '../../domain/members/dues';
 import { membershipMovesSeed, uniqueBajas } from '../../domain/members/membershipMoves';
@@ -360,8 +363,39 @@ export default function AdminDashboardTab({
   const cashToday = (lilaMoney?.cash ?? finance.cashToday) + (
     lilaMoney && !cutIsThisMonth ? cashDeltaAfterDate(cashMoves, lilaMoney.periodTo) : 0
   );
-  const liveCollectionRate = finance.collectionRate || 0;
-  const standingCaption = `${finance.alDia} de ${finance.activeMembers} socios al día`;
+  const duesBoard = useMemo(() => {
+    if (membersLoading) return null;
+    const periods = resolveFeePeriods(feePeriods);
+    const liquidated = Number(liquidatedTotalForMonth(periods, monthKey, { members, tierCatalog })) || 0;
+    const split = splitMonthDuesCollection({
+      movements: cashMoves,
+      members,
+      monthKey,
+    });
+    const todaySplit = splitMonthDuesCollection({
+      movements: cashMoves,
+      members,
+      monthKey,
+      onDate: todayKey,
+    });
+    const rate = liquidated > 0 ? Math.round((split.recaudado / liquidated) * 100) : 0;
+    return {
+      recaudado: split.recaudado,
+      liquidated,
+      rate,
+      today: todaySplit.recaudado,
+      cuotaMes: split.cuotaMes,
+      atrasadas: split.atrasadas,
+      posteriores: split.posteriores,
+      recargos: split.recargos,
+      reservas: split.reservas,
+      porteria: split.porteria,
+    };
+  }, [membersLoading, feePeriods, monthKey, members, tierCatalog, cashMoves, todayKey]);
+  const liveCollectionRate = duesBoard?.rate ?? 0;
+  const standingCaption = duesBoard
+    ? `${formatCurrency(duesBoard.recaudado)} de ${formatCurrency(duesBoard.liquidated)} liquidado`
+    : '\u00a0';
   const collectionTone = liveCollectionRate >= 80 ? 'ok' : liveCollectionRate >= 50 ? 'mid' : 'low';
   const debtTotal = finance.debtTotal || totalOutstanding || 0;
   const todayIncomes = useMemo(() => {
@@ -1061,20 +1095,30 @@ export default function AdminDashboardTab({
 
                 <div className="ops-money-hero">
                   <OpsProgressRing
-                    value={liveCollectionRate}
+                    value={Math.min(100, Math.max(0, liveCollectionRate))}
                     tone={collectionTone}
                     title={standingCaption}
                   />
                   <div>
-                    <div className="ops-money-big">{liveCollectionRate}%</div>
+                    <div className="ops-money-big">{duesBoard ? `${liveCollectionRate}%` : '\u00a0'}</div>
                     <div className="ops-muted">{standingCaption}</div>
                     <div className="ops-muted" style={{ marginTop: '0.25rem', fontSize: '0.78rem' }}>
                       Hoy:{' '}
-                      <strong style={{ color: finance.collectedToday > 0 ? 'var(--emerald-accent)' : 'inherit' }}>
-                        {formatCurrency(finance.collectedToday || 0)}
+                      <strong style={{ color: (duesBoard?.today || 0) > 0 ? 'var(--emerald-accent)' : 'inherit' }}>
+                        {duesBoard ? formatCurrency(duesBoard.today || 0) : '\u00a0'}
                       </strong>
                     </div>
                   </div>
+                  {duesBoard ? (
+                    <ul className="ops-dues-lines" aria-label="Desglose del mes">
+                      <li><span>Cuota del mes</span><b className="tabular-nums">{formatCurrency(duesBoard.cuotaMes)}</b></li>
+                      <li><span>Atrasadas</span><b className="tabular-nums">{formatCurrency(duesBoard.atrasadas)}</b></li>
+                      <li><span>Adelantos</span><b className="tabular-nums">{formatCurrency(duesBoard.posteriores)}</b></li>
+                      <li><span>Recargos</span><b className="tabular-nums">{formatCurrency(duesBoard.recargos)}</b></li>
+                      <li><span>Salón</span><b className="tabular-nums">{formatCurrency(duesBoard.reservas)}</b></li>
+                      <li><span>Portería</span><b className="tabular-nums">{formatCurrency(duesBoard.porteria)}</b></li>
+                    </ul>
+                  ) : null}
                 </div>
 
                 <button type="button" className="ops-cash-banner" onClick={() => goToTab('accounting', 'cash')}>

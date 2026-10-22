@@ -11,6 +11,7 @@ import {
   canVoidDuesPayment,
   canManageProfiles,
   canManageTeachers,
+  canManageMembers,
   isSuperAdmin,
   allowedAdminTabs,
   allowedAdminTabsForRoles,
@@ -155,6 +156,16 @@ describe('canManageProfiles', () => {
     expect(canManageProfiles('staff')).toBe(false);
     expect(canManageProfiles([{ roleKey: 'superadmin' }, { roleKey: 'member' }])).toBe(true);
     expect(canManageProfiles([{ roleKey: 'admin' }, { roleKey: 'presidente' }])).toBe(false);
+  });
+});
+
+describe('canManageMembers', () => {
+  it('solo administrador y superadministrador editan el padrón', () => {
+    expect(canManageMembers('superadmin')).toBe(true);
+    expect(canManageMembers('admin')).toBe(true);
+    for (const role of ['accountant', 'cashier', 'gate_operator', 'admin_employee', 'pool_operator', 'staff', 'hr', 'teacher', 'member']) {
+      expect(canManageMembers(role)).toBe(false);
+    }
   });
 });
 

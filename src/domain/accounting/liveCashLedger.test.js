@@ -91,6 +91,49 @@ describe('liveCashLedger', () => {
     expect(live.cobranzas[0]).toMatchObject({ type: 'Eventos', amount: 25 });
   });
 
+  it('el asiento de otro ingreso mueve bancos en el saldo vivo', () => {
+    const live = buildLiveCashLedger({
+      snapshot: SNAPSHOT,
+      bankAccounts: BANKS,
+      journalEntries: [{
+        id: 'je-oi-1',
+        date: '2026-10-17',
+        status: 'posted',
+        sourceModule: 'otros_ingresos',
+        origin: 'app',
+        description: 'Otro ingreso: Salón',
+        lines: [
+          { accountId: 'coa-1.1.03', debit: 25, credit: 0 },
+          { accountId: 'coa-4.1.03', debit: 0, credit: 25 },
+        ],
+      }],
+      today: TODAY,
+    });
+    expect(live.bancos).toBeCloseTo(425, 2);
+    expect(live.extraCount).toBe(1);
+  });
+
+  it('el pago de impuestos baja caja viva', () => {
+    const live = buildLiveCashLedger({
+      snapshot: SNAPSHOT,
+      bankAccounts: BANKS,
+      journalEntries: [{
+        id: 'je-tax-1',
+        date: '2026-10-18',
+        status: 'posted',
+        sourceModule: 'impuestos',
+        origin: 'app',
+        description: 'Pago IVA 2026-10',
+        lines: [
+          { accountId: 'coa-2.1.05', debit: 40, credit: 0 },
+          { accountId: 'coa-1.1.01', debit: 0, credit: 40 },
+        ],
+      }],
+      today: TODAY,
+    });
+    expect(live.efectivo).toBeCloseTo(560, 2);
+  });
+
   it('no duplica un movimiento de caja que ya tiene asiento', () => {
     const live = buildLiveCashLedger({
       snapshot: SNAPSHOT,

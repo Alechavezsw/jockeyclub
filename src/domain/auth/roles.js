@@ -323,8 +323,10 @@ export function canVoidDuesPayment(roleOrRolesOrProfile) {
   return canWaiveDuesSurcharge(roleOrRolesOrProfile);
 }
 
-export function canManageMembers(role) {
-  return ['cashier', 'gate_operator', 'admin_employee', 'admin', 'superadmin'].includes(role);
+/** Editar ficha / padrón: solo administrador y superadministrador. */
+export function canManageMembers(roleOrRoles) {
+  const keys = collectRoleKeys(roleOrRoles).map((key) => String(key || '').toLowerCase());
+  return keys.includes('admin') || keys.includes('superadmin');
 }
 
 export function canPostJournal(role) {

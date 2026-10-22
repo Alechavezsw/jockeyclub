@@ -118,6 +118,7 @@ import {
   journalForLiquidacion,
   journalForTaxPayment,
 } from '../domain/accounting/impuestos';
+import { journalForOtherIncome } from '../domain/accounting/otherIncomes';
 
 const cloud = () => isSupabaseConfigured;
 
@@ -1220,17 +1221,32 @@ export default function useErpStore({
   }, []);
 
   const createOtherIncomeRecord = useCallback(async (item) => {
-    let saved = item;
+    let entry = null;
+    if (!item?.journalEntryId) {
+      try {
+        entry = journalForOtherIncome(item, chartOfAccounts);
+      } catch {
+        entry = null;
+      }
+    }
+    let saved = entry ? { ...item, journalEntryId: entry.id } : item;
     if (cloud()) {
       try {
-        saved = await repos.upsertOtherIncome(item);
+        if (entry) {
+          const savedEntry = await repos.insertJournalEntry(entry, { createdBy: userId });
+          saved = { ...saved, journalEntryId: savedEntry.id };
+          setJournalEntries((prev) => [savedEntry, ...prev]);
+        }
+        saved = await repos.upsertOtherIncome(saved);
       } catch {
-        /* local fallback */
+        if (entry) setJournalEntries((prev) => [entry, ...prev]);
       }
+    } else if (entry) {
+      setJournalEntries((prev) => [entry, ...prev]);
     }
     setOtherIncomes((prev) => [saved, ...prev]);
     return saved;
-  }, []);
+  }, [chartOfAccounts, setJournalEntries, userId]);
 
   const upsertAccessinBankAccount = useCallback((input) => {
     setAccessinBankAccounts((prev) => upsertBankAccount(prev, input));
