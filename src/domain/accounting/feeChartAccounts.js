@@ -498,7 +498,14 @@ export function ledgerLinesFromCharges(accounts = [], members = [], charges = []
   for (const charge of charges || []) {
     const member = byMember.get(String(charge.memberId));
     if (!member) continue;
-    const slices = categoryChargesForMember(member, { paidOn: date || dueOn, dueOn, on });
+    const explicit = charge.tierId || charge.category;
+    const slices = explicit
+      ? [{
+        name: charge.category || charge.tierId,
+        slug: charge.tierId || categoryKey(charge.category),
+        amount: Math.round(Number(charge.addAmount ?? charge.amount) || 0),
+      }].filter((slice) => slice.amount > 0)
+      : categoryChargesForMember(member, { paidOn: date || dueOn, dueOn, on });
     for (const slice of slices) {
       const account = matchFeeLedgerAccountForCategory(accounts, slice.name);
       if (!account) continue;

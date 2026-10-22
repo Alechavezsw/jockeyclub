@@ -43,7 +43,7 @@ import {
   softDeleteFeeExpense,
   upsertFeeExpense,
 } from '../domain/accounting/feeExpenses';
-import { feePeriodNeedsClosure, periodLabel, resolveFeePeriods } from '../domain/accounting/feeBilling';
+import { feePeriodNeedsClosure, periodLabel, reopenFeePeriod, resolveFeePeriods } from '../domain/accounting/feeBilling';
 import {
   createFeeChartAccount,
   ledgerLinesFromCharges,
@@ -1328,6 +1328,38 @@ export default function useErpStore({
     return period;
   }, []);
 
+  const reopenProcessedFeePeriod = useCallback(async (period, reason, members = []) => {
+    const result = reopenFeePeriod(period, reason);
+    const built = ledgerLinesFromCharges(
+      feeChartAccounts,
+      members,
+      result.reversals,
+      { ...period, label: periodLabel(period) },
+    );
+    if (cloud()) {
+      await repos.voidFeePeriodLedger(period.id);
+      if (result.reversals.length) {
+        await repos.reverseMemberBalanceDeltas(result.reversals.map((row) => ({
+          memberId: row.memberId,
+          amount: -Number(row.addAmount),
+        })));
+      }
+      if (feePeriodNeedsClosure(result.period)) await repos.upsertFeePeriodClosure(result.period);
+    }
+    setFeePeriods((prev) => (prev || []).map((item) => (
+      item.id === result.period.id ? result.period : item
+    )));
+    setFeeChartAccounts((prev) => prev.map((account) => {
+      const sub = built.deltas.get(account.id) || 0;
+      if (!sub) return account;
+      return {
+        ...account,
+        balance: Math.round((Number(account.balance) - sub) * 100) / 100,
+      };
+    }));
+    return result;
+  }, [feeChartAccounts]);
+
   const applyMemberBalanceDeltas = useCallback(async (deltas) => {
     if (!cloud()) return;
     await repos.applyMemberBalanceDeltas(deltas);
@@ -1854,6 +1886,7 @@ export default function useErpStore({
     deleteFeeExpenseRecord,
     setFeePeriodsList,
     persistFeePeriod,
+    reopenProcessedFeePeriod,
     applyMemberBalanceDeltas,
     importMemberCollections,
     deleteMemberCollectionImport,

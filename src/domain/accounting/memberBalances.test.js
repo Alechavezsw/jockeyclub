@@ -47,7 +47,7 @@ describe('memberBalances / saldos', () => {
       familyPrincipalNumber: '100',
       outstandingBalance: 200,
     };
-    expect(familyBalanceForMember(titular, [titular, dep]).amount).toBe(1200);
+    expect(familyBalanceForMember(titular, [titular, dep]).amount).toBe(1000);
     expect(familyBalanceForMember(dep, [titular, dep]).isTitular).toBe(false);
   });
 

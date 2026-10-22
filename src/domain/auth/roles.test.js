@@ -7,6 +7,7 @@ import {
   canPostJournal,
   canTakeAttendance,
   canLiquidateDues,
+  canRemoveDuesSurcharge,
   canWaiveDuesSurcharge,
   canVoidDuesPayment,
   canManageProfiles,
@@ -67,14 +68,20 @@ describe('allowedAdminTabs', () => {
     expect(canLiquidateDues('gate_operator')).toBe(false);
   });
 
-  it('tesorería, contador y superadmin pueden perdonar el recargo', () => {
-    expect(canWaiveDuesSurcharge({ roles: [{ roleKey: 'tesorero' }] })).toBe(true);
-    expect(canWaiveDuesSurcharge('accountant')).toBe(true);
-    expect(canWaiveDuesSurcharge('superadmin')).toBe(true);
-    expect(canWaiveDuesSurcharge('cashier')).toBe(false);
+  it('el recargo se cobra siempre y solo un administrador puede borrarlo', () => {
+    expect(canWaiveDuesSurcharge({ roles: [{ roleKey: 'tesorero' }] })).toBe(false);
+    expect(canWaiveDuesSurcharge('accountant')).toBe(false);
+    expect(canWaiveDuesSurcharge('superadmin')).toBe(false);
     expect(canWaiveDuesSurcharge('admin')).toBe(false);
+    expect(canRemoveDuesSurcharge('admin')).toBe(true);
+    expect(canRemoveDuesSurcharge('superadmin')).toBe(true);
+    expect(canRemoveDuesSurcharge('cashier')).toBe(false);
+    expect(canRemoveDuesSurcharge('accountant')).toBe(false);
+    expect(canRemoveDuesSurcharge({ roles: [{ roleKey: 'tesorero' }] })).toBe(false);
     expect(canVoidDuesPayment('cashier')).toBe(false);
+    expect(canVoidDuesPayment('admin')).toBe(false);
     expect(canVoidDuesPayment('admin_employee')).toBe(false);
+    expect(canVoidDuesPayment({ roles: [{ roleKey: 'tesorero' }] })).toBe(true);
     expect(canVoidDuesPayment('superadmin')).toBe(true);
   });
 

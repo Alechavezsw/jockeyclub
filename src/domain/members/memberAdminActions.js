@@ -1,17 +1,12 @@
 /** Acciones administrativas sobre socios: motivos trazables. */
 
-/** Las bajas rigen el 1.º del mes. Si se presenta después, queda para el mes siguiente. */
+/** La nota se presenta con un mes de anticipación. El mes en curso se cobra y la baja rige el 1.º del mes siguiente. */
 export function bajaEffectiveOn(presentedOn = new Date()) {
   const d = presentedOn instanceof Date
     ? presentedOn
     : new Date(`${String(presentedOn).slice(0, 10)}T12:00:00`);
   if (Number.isNaN(d.getTime())) return null;
-  const y = d.getFullYear();
-  const m = d.getMonth();
-  if (d.getDate() === 1) {
-    return `${y}-${String(m + 1).padStart(2, '0')}-01`;
-  }
-  const next = new Date(y, m + 1, 1);
+  const next = new Date(d.getFullYear(), d.getMonth() + 1, 1);
   return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-01`;
 }
 

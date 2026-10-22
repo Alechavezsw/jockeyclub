@@ -9,6 +9,7 @@ import {
   feePeriodNeedsClosure,
   liquidateFeePeriod,
   packEditorFromPeriod,
+  reopenFeePeriod,
   resolveFeePeriods,
 } from './feeBilling';
 
@@ -56,8 +57,8 @@ describe('liquidateFeePeriod', () => {
 
     expect(result.period.status).toBe('processed');
     expect(result.memberUpdates).toEqual([
-      { memberId: '10', addAmount: 70000 },
-      { memberId: '11', addAmount: 40000 },
+      { memberId: '10', addAmount: 70000, tierId: 'socio_familiar', category: 'SOCIO FAMILIAR' },
+      { memberId: '11', addAmount: 40000, tierId: 'socio_individual', category: 'SOCIO INDIVIDUAL' },
     ]);
     expect(result.period.amount).toBe(110000);
     expect(result.period.generatedAt).toBe('2026-11-15');
@@ -83,7 +84,10 @@ describe('liquidateFeePeriod', () => {
       ],
       new Date('2026-11-02T15:00:00.000Z'),
     );
-    expect(result.memberUpdates).toEqual([{ memberId: '10', addAmount: 80000 }]);
+    expect(result.memberUpdates).toEqual([
+      { memberId: '10', addAmount: 10000, tierId: 'abono_tenis', category: 'ABONO TENIS' },
+      { memberId: '10', addAmount: 70000, tierId: 'socio_familiar', category: 'SOCIO FAMILIAR' },
+    ]);
     expect(result.period.amount).toBe(80000);
   });
 
@@ -98,7 +102,9 @@ describe('liquidateFeePeriod', () => {
       { memberId: '10485', status: 'active', tier: 'socio_familiar', cuotaCategories: ['SOCIO FAMILIAR'] },
     ], new Date('2026-11-02T15:00:00.000Z'));
 
-    expect(result.memberUpdates).toEqual([{ memberId: '10485', addAmount: 70000 }]);
+    expect(result.memberUpdates).toEqual([
+      { memberId: '10485', addAmount: 70000, tierId: 'socio_familiar', category: 'SOCIO FAMILIAR' },
+    ]);
     expect(result.period.status).toBe('processed');
     expect(result.period.amount).toBe(70000);
   });
@@ -116,6 +122,26 @@ describe('liquidateFeePeriod', () => {
       period.month === 9 ? { ...period, status: 'draft' } : period
     ));
     expect(() => liquidateFeePeriod(opened, 'fp-1311', [], new Date('2026-09-01T15:00:00')))
+      .toThrow(/LILA/);
+  });
+
+  it('un error grave reabre un mes de la app y devuelve las deudas', () => {
+    const closed = liquidateFeePeriod(
+      ACCESSIN_FEE_PERIODS,
+      'fp-2026-11',
+      [{ memberId: '10', status: 'active', tier: 'socio_familiar', cuotaCategories: ['SOCIO FAMILIAR', 'ABONO TENIS'] }],
+      new Date('2026-11-15T12:00:00'),
+    );
+    expect(closed.period.pack.charges).toEqual(closed.memberUpdates);
+    expect(closed.memberUpdates.map((row) => row.tierId)).toEqual(['abono_tenis', 'socio_familiar']);
+    const reopened = reopenFeePeriod(closed.period, 'Se liquidó con la tarifa vieja');
+    expect(reopened.period.status).toBe('draft');
+    expect(reopened.period.amount).toBe(0);
+    expect(reopened.period.generatedAt).toBeNull();
+    expect(reopened.reversals).toEqual(closed.memberUpdates);
+    expect(reopened.period.pack.reopens).toHaveLength(1);
+    expect(() => reopenFeePeriod(closed.period, 'corto')).toThrow(/error grave/);
+    expect(() => reopenFeePeriod(ACCESSIN_FEE_PERIODS.find((p) => p.id === 'fp-1382'), 'Error grave de octubre'))
       .toThrow(/LILA/);
   });
 

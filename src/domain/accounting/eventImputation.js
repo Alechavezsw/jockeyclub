@@ -1,4 +1,4 @@
-/** Imputación de reservas de salón / espacio a la cuenta viva del socio. */
+/** Registro contable de un alquiler. No suma la deuda de cuota del socio. */
 
 import { FACILITIES, getFacilityById } from '../reservations/facilities';
 import { createAccountEntry } from './accountEntries';
@@ -14,10 +14,6 @@ const EVENT_FACILITY_IDS = new Set([
   'salon_refugio',
   'espacio_verde',
 ]);
-
-function roundMoney(n) {
-  return Math.round((Number(n) || 0) * 100) / 100;
-}
 
 function spaceLabel(reservation) {
   return reservation?.facilityName || reservation?.facilityId || reservation?.space || 'Evento';
@@ -156,11 +152,7 @@ export function applyEventImputation(reservation, members = []) {
   const amount = reservationChargeAmount(reservation);
   if (!(amount > 0)) throw new Error('La reserva no tiene importe para imputar.');
   const entry = buildEventImputationEntry(reservation, { member });
-  const nextMember = {
-    ...member,
-    outstandingBalance: roundMoney((Number(member.outstandingBalance) || 0) + amount),
-    updatedAt: new Date().toISOString(),
-  };
+  const nextMember = member;
   const nextReservation = {
     ...reservation,
     imputed: true,
@@ -185,13 +177,7 @@ export function revertEventImputation(reservation, members = []) {
   if (!isReservationImputed(reservation)) throw new Error('Esta reserva no está imputada.');
   const member = matchReservationMember(members, reservation);
   const amount = reservationChargeAmount(reservation, FACILITIES, { includeCharged: true });
-  const nextMember = member
-    ? {
-      ...member,
-      outstandingBalance: roundMoney((Number(member.outstandingBalance) || 0) - amount),
-      updatedAt: new Date().toISOString(),
-    }
-    : null;
+  const nextMember = member || null;
   const nextReservation = {
     ...reservation,
     imputed: false,

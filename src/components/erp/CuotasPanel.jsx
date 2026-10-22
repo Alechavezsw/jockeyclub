@@ -5,6 +5,7 @@ import {
 import { formatCurrency } from '../../domain/accounting/journal';
 import {
   applyFeePackEdit,
+  appOwnsFeePeriod,
   feePeriodIsClosed,
   feePeriodsForYear,
   formatPeriodGeneratedAt,
@@ -89,6 +90,7 @@ export default function CuotasPanel({
   feePeriods = [],
   onUpsertFeePeriods,
   onPersistFeePeriod,
+  onReopenFeePeriod,
   onApplyBalanceDeltas,
   collectionImports = [],
   onImportCollections,
@@ -276,7 +278,7 @@ export default function CuotasPanel({
       }
       await onImputeReservation?.(result.reservation);
       setDetailEvent(null);
-      setOk(`Imputado ${result.member.name || reservation.memberName}: ${fmt(result.amount)}. Queda en la cuenta y no se vuelve a cargar al recargar.`);
+      setOk(`Registrado ${result.member.name || reservation.memberName}: ${fmt(result.amount)}. El alquiler no queda en la deuda de cuota.`);
     } catch (err) {
       setError(err?.message || 'No se pudo imputar el evento.');
     } finally {
@@ -333,21 +335,29 @@ export default function CuotasPanel({
       }
       if (charges.length && typeof setMembers === 'function') {
         const chargeDate = result.period.generatedAt || new Date().toISOString().slice(0, 10);
-        const byId = new Map(charges.map((u) => [String(u.memberId), u]));
+        const periodName = periodLabel(result.period);
+        const byId = new Map();
+        for (const charge of charges) {
+          const key = String(charge.memberId);
+          if (!byId.has(key)) byId.set(key, []);
+          byId.get(key).push(charge);
+        }
         setMembers((prev) => prev.map((m) => {
-          const u = byId.get(String(m.memberId));
-          if (!u) return m;
-          const entry = createAccountEntry({
-            type: 'cuota',
-            memberNumber: m.memberId,
-            memberName: m.name,
-            value: u.addAmount,
-            date: chargeDate,
-            source: 'fee_liquidation',
-            description: periodLabel(result.period),
-          });
-          onUpsertMemberAccountEntry?.(entry);
-          return applyAccountEntryToMember(m, entry);
+          const rows = byId.get(String(m.memberId));
+          if (!rows?.length) return m;
+          return rows.reduce((member, charge) => {
+            const entry = createAccountEntry({
+              type: 'cuota',
+              memberNumber: m.memberId,
+              memberName: m.name,
+              value: charge.addAmount,
+              date: chargeDate,
+              source: 'fee_liquidation',
+              description: charge.category ? `${periodName} · ${charge.category}` : periodName,
+            });
+            onUpsertMemberAccountEntry?.(entry);
+            return applyAccountEntryToMember(member, entry);
+          }, m);
         }));
       }
       setSelectedPeriod(null);
@@ -355,6 +365,46 @@ export default function CuotasPanel({
       setFlash(`Liquidado ${periodLabel(result.period)}.`);
     } catch (err) {
       setError(err.message || 'No se pudo liquidar.');
+    }
+  };
+
+  const reopen = async (period) => {
+    const reason = window.prompt(
+      `Error grave en ${periodLabel(period)}. Describí qué salió mal. Se anulan las deudas de esa liquidación y el mes vuelve a borrador.`,
+    );
+    if (reason == null) return;
+    try {
+      const result = onReopenFeePeriod
+        ? await onReopenFeePeriod(period, reason, members)
+        : null;
+      if (!result) throw new Error('No se puede corregir esta liquidación.');
+      const reversals = result.reversals || [];
+      if (reversals.length && typeof setMembers === 'function') {
+        const byId = new Map();
+        for (const row of reversals) {
+          const key = String(row.memberId);
+          byId.set(key, (byId.get(key) || 0) + (Number(row.addAmount) || 0));
+        }
+        setMembers((prev) => prev.map((member) => {
+          const amount = byId.get(String(member.memberId));
+          if (!amount) return member;
+          return {
+            ...member,
+            outstandingBalance: Math.round((Number(member.outstandingBalance) - amount) * 100) / 100,
+          };
+        }));
+      }
+      const label = periodLabel(period);
+      for (const entry of memberAccountEntries) {
+        if (entry.source === 'fee_liquidation'
+          && entry.isActive !== false
+          && String(entry.description || '').startsWith(label)) {
+          onDeleteMemberAccountEntry?.(entry.id);
+        }
+      }
+      setFlash(`${label} volvió a borrador. Revisá y liquidá de nuevo.`);
+    } catch (err) {
+      setError(err.message || 'No se pudo reabrir el mes.');
     }
   };
 
@@ -1125,6 +1175,17 @@ export default function CuotasPanel({
                           >
                             <FileDown size={14} />
                           </button>
+                          {!balancesOnly && appOwnsFeePeriod(p) ? (
+                            <button
+                              type="button"
+                              className="cash-lila-icon-btn is-del"
+                              title="Corregir error grave"
+                              aria-label="Corregir error grave"
+                              onClick={() => reopen(p)}
+                            >
+                              <RotateCcw size={14} />
+                            </button>
+                          ) : null}
                           {p.month === 9 && p.year === 2026 ? (
                             <>
                               <button type="button" className="cash-lila-icon-btn is-del" title="Anular" disabled>

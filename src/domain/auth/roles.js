@@ -312,15 +312,20 @@ export function canLiquidateDues(roleOrRoles) {
   return keys.includes('superadmin') || keys.includes('accountant');
 }
 
-/** Tesorería perdona el recargo del 10 %. Contador y superadmin también. */
-export function canWaiveDuesSurcharge(roleOrRolesOrProfile) {
+/** El recargo se cobra siempre. Nadie lo perdona en el mostrador. */
+export function canWaiveDuesSurcharge() {
+  return false;
+}
+
+/** Anular un cobro: solo tesorería, contador y superadmin. */
+export function canVoidDuesPayment(roleOrRolesOrProfile) {
   const keys = collectRoleKeys(roleOrRolesOrProfile).map((key) => String(key || '').toLowerCase());
   return keys.includes('tesorero') || keys.includes('accountant') || keys.includes('superadmin');
 }
 
-/** Anular un cobro: solo tesorería / Cristian. Administración de mostrador no. */
-export function canVoidDuesPayment(roleOrRolesOrProfile) {
-  return canWaiveDuesSurcharge(roleOrRolesOrProfile);
+/** Borrar un recargo ya cobrado: administrador y superadmin. */
+export function canRemoveDuesSurcharge(roleOrRolesOrProfile) {
+  return canManageMembers(roleOrRolesOrProfile);
 }
 
 /** Editar ficha / padrón: solo administrador y superadministrador. */

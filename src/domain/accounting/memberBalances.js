@@ -120,9 +120,6 @@ export function familyBalanceForMember(member, allMembers = []) {
   }
   const family = resolveFamilyForDisplay(member, allMembers);
   const official = familyGroupBalanceOf(member);
-  const adherents = family?.members || [];
-  const summed = currentAccountBalanceOf(member)
-    + adherents.reduce((s, m) => s + currentAccountBalanceOf(m), 0);
   const groupName = official?.name
     || member.familyGroupName
     || family?.titular?.familyGroupName
@@ -130,7 +127,7 @@ export function familyBalanceForMember(member, allMembers = []) {
   return {
     isTitular: true,
     label: groupName || null,
-    amount: summed,
+    amount: currentAccountBalanceOf(member),
     officialAmount: official ? Number(official.total) || 0 : null,
     months: official?.months || [],
     source: 'ledger',

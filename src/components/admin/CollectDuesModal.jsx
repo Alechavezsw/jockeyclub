@@ -6,10 +6,9 @@ import {
   CLUB_BANK_ACCOUNTS,
   journalAccountForPayment,
 } from '../../domain/members/clubBanks';
-import { duesChargeBreakdown, isDuesExemptMember } from '../../domain/members/dues';
+import { isDuesExemptMember } from '../../domain/members/dues';
+import { collectionPreview } from '../../domain/members/memberPayments';
 import { billingAccountMember } from '../../domain/members/households';
-import { canWaiveDuesSurcharge } from '../../domain/auth/roles';
-import { useAuth } from '../../context/AuthContext';
 
 const METHODS = [
   { id: 'efectivo', label: 'Efectivo', icon: Banknote, hint: 'Cobro en sede / caja' },
@@ -57,15 +56,11 @@ export default function CollectDuesModal({
       return member;
     }
   })();
-  const { roles, role } = useAuth();
-  const canWaive = canWaiveDuesSurcharge({ roles, role });
   const duesExempt = isDuesExemptMember(account);
-  const rawSplit = duesExempt ? { quota: 0, surcharge: 0, total: 0 } : duesChargeBreakdown(account);
-  const [waiveSurcharge, setWaiveSurcharge] = useState(false);
   const split = duesExempt
-    ? rawSplit
-    : duesChargeBreakdown(account, { waiveSurcharge: canWaive && waiveSurcharge });
-  const amount = duesExempt ? 0 : split.total;
+    ? { quota: 0, surcharge: 0, gross: 0, creditApplied: 0, cash: 0, leftover: 0 }
+    : collectionPreview(account);
+  const amount = duesExempt ? 0 : split.cash;
   const routed = account?.memberId && member?.memberId && account.memberId !== member.memberId;
   const methods = duesExempt ? METHODS.filter((row) => row.id !== 'mercadopago') : METHODS;
   const [method, setMethod] = useState('efectivo');
@@ -114,7 +109,6 @@ export default function CollectDuesModal({
       journalAccount,
       receiptName: method === 'transferencia' ? receiptName : null,
       amount,
-      waiveSurcharge: canWaive && waiveSurcharge && rawSplit.surcharge > 0,
     });
     setSubmitting(false);
   };
@@ -161,10 +155,10 @@ export default function CollectDuesModal({
           </button>
         </div>
 
-        {amount > 0 ? (
+        {split.gross > 0 ? (
           <div style={{
             display: 'grid',
-            gridTemplateColumns: rawSplit.surcharge > 0 ? 'repeat(3, minmax(0, 1fr))' : '1fr',
+            gridTemplateColumns: `repeat(${1 + (split.surcharge > 0 ? 1 : 0) + (split.creditApplied > 0 ? 1 : 0) + (split.surcharge > 0 || split.creditApplied > 0 ? 1 : 0)}, minmax(0, 1fr))`,
             gap: '0.45rem',
             marginBottom: '1rem',
           }}>
@@ -172,33 +166,29 @@ export default function CollectDuesModal({
               <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Cuota</div>
               <div className="tabular-nums" style={{ fontWeight: 700 }}>{formatCurrency(split.quota)}</div>
             </div>
-            {rawSplit.surcharge > 0 ? (
+            {split.surcharge > 0 ? (
               <div style={{ padding: '0.55rem 0.65rem', borderRadius: 8, border: '1px solid var(--border-glass)' }}>
                 <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Recargo</div>
-                <div className="tabular-nums" style={{ fontWeight: 700, textDecoration: split.surcharge > 0 ? 'none' : 'line-through' }}>
-                  {formatCurrency(rawSplit.surcharge)}
+                <div className="tabular-nums" style={{ fontWeight: 700 }}>
+                  {formatCurrency(split.surcharge)}
                 </div>
               </div>
             ) : null}
-            {rawSplit.surcharge > 0 ? (
+            {split.creditApplied > 0 ? (
+              <div style={{ padding: '0.55rem 0.65rem', borderRadius: 8, border: '1px solid var(--border-glass)' }}>
+                <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>A favor</div>
+                <div className="tabular-nums" style={{ fontWeight: 700, color: 'var(--emerald-accent)' }}>
+                  {formatCurrency(split.creditApplied)}
+                </div>
+              </div>
+            ) : null}
+            {split.surcharge > 0 || split.creditApplied > 0 ? (
               <div style={{ padding: '0.55rem 0.65rem', borderRadius: 8, border: '1px solid var(--border-glass)' }}>
                 <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Total</div>
-                <div className="tabular-nums" style={{ fontWeight: 700, color: 'var(--text-gold)' }}>{formatCurrency(split.total)}</div>
+                <div className="tabular-nums" style={{ fontWeight: 700, color: 'var(--text-gold)' }}>{formatCurrency(split.cash)}</div>
               </div>
             ) : null}
           </div>
-        ) : null}
-
-        {canWaive && rawSplit.surcharge > 0 ? (
-          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, margin: '0 0 1rem', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-            <input
-              type="checkbox"
-              checked={waiveSurcharge}
-              onChange={(event) => setWaiveSurcharge(event.target.checked)}
-              style={{ marginTop: 2 }}
-            />
-            <span>Perdonar recargo. Tesorería cobra solo la cuota.</span>
-          </label>
         ) : null}
 
         <p style={{ margin: '0 0 0.65rem', fontSize: '0.78rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-gold)' }}>
@@ -328,7 +318,6 @@ export default function CollectDuesModal({
                   method: 'mercadopago',
                   alreadyApplied: true,
                   amount,
-                  waiveSurcharge: canWaive && waiveSurcharge && rawSplit.surcharge > 0,
                 });
               }}
             />

@@ -82,7 +82,7 @@ const MEMBER_REPORTS = [
   {
     id: 'family_balances',
     title: 'Saldo de grupo familiar',
-    copy: 'Suma el saldo vivo de cada familia del padrón.',
+    copy: 'Saldo de cuota del socio titular de cada grupo.',
     formats: ['pdf'],
     opens: 'family_balances',
   },

@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyImportedMemberPayment,
+  collectionPreview,
   isDuesCollectionJournal,
   journalEntryBelongsToMember,
   payMemberDues,
   persistDuesCollection,
   recordDuesCollection,
+  removeDuesSurcharge,
   voidMemberDuesPayment,
 } from './memberPayments';
 
@@ -123,26 +125,93 @@ describe('payMemberDues', () => {
     expect(result.journalEntry.description).toMatch(/Comp: comprobante.pdf/);
   });
 
-  it('tesorería puede perdonar el recargo y cobrar solo la cuota', () => {
+  it('el recargo se cobra siempre', () => {
     const member = {
       memberId: '1004',
       name: 'Paula',
       tier: 'socio_familiar',
       cuotaCategories: ['SOCIO FAMILIAR'],
-      outstandingBalance: 77000,
+      outstandingBalance: 70000,
       nextDueDate: '2026-10-10',
       paymentHistory: [],
     };
     const result = recordDuesCollection(member, {
       method: 'efectivo',
-      waiveSurcharge: true,
       today: new Date('2026-10-20T12:00:00'),
     });
     expect(result.payment.quota).toBe(70000);
-    expect(result.payment.surcharge).toBe(0);
-    expect(result.payment.waivedSurcharge).toBe(7000);
-    expect(result.payment.amount).toBe(70000);
+    expect(result.payment.surcharge).toBe(7000);
+    expect(result.payment.amount).toBe(77000);
     expect(result.member.outstandingBalance).toBe(0);
+  });
+
+  it('un administrador borra el recargo cobrado y queda a favor', () => {
+    const member = {
+      memberId: '1004',
+      name: 'Paula',
+      tier: 'socio_familiar',
+      cuotaCategories: ['SOCIO FAMILIAR'],
+      outstandingBalance: 70000,
+      nextDueDate: '2026-10-10',
+      paymentHistory: [],
+    };
+    const charged = recordDuesCollection(member, {
+      method: 'efectivo',
+      today: new Date('2026-10-20T12:00:00'),
+    });
+    const removed = removeDuesSurcharge(charged.member, charged.payment.id, {
+      removedBy: 'Administración',
+    });
+    expect(removed.payment.amount).toBe(77000);
+    expect(removed.payment.surcharge).toBe(0);
+    expect(removed.payment.removedSurcharge).toBe(7000);
+    expect(removed.payment.surchargeRemovedBy).toBe('Administración');
+    expect(removed.member.outstandingBalance).toBe(-7000);
+  });
+
+  it('el saldo a favor se imputa al próximo pago', () => {
+    const member = {
+      memberId: '1005',
+      name: 'Nora',
+      tier: 'socio_familiar',
+      cuotaCategories: ['SOCIO FAMILIAR'],
+      outstandingBalance: -7000,
+      nextDueDate: '2026-11-10',
+      lastPaymentDate: '2026-10-13',
+      paymentHistory: [],
+    };
+    const preview = collectionPreview(member, new Date('2026-10-22T12:00:00'));
+    const result = recordDuesCollection(member, {
+      method: 'efectivo',
+      today: new Date('2026-10-22T12:00:00'),
+    });
+    expect(preview.creditApplied).toBe(7000);
+    expect(result.payment.creditApplied).toBe(7000);
+    expect(result.payment.amount).toBe(preview.cash);
+    expect(result.payment.amount).toBe(preview.gross - 7000);
+    expect(result.member.outstandingBalance).toBe(0);
+    expect(result.journalEntry.lines[0].amount).toBe(result.payment.amount);
+  });
+
+  it('si el saldo a favor cubre la cuota, el resto queda', () => {
+    const member = {
+      memberId: '1006',
+      name: 'Luis',
+      tier: 'socio_familiar',
+      cuotaCategories: ['SOCIO FAMILIAR'],
+      outstandingBalance: -100000,
+      nextDueDate: '2026-11-10',
+      lastPaymentDate: '2026-10-13',
+      paymentHistory: [],
+    };
+    const result = recordDuesCollection(member, {
+      method: 'efectivo',
+      today: new Date('2026-10-22T12:00:00'),
+    });
+    expect(result.payment.amount).toBe(0);
+    expect(result.payment.creditApplied).toBeGreaterThan(0);
+    expect(result.member.outstandingBalance).toBe(-(100000 - result.payment.creditApplied));
+    expect(result.journalEntry).toBeNull();
   });
 
   it('si cobra un adherente, baja el saldo del titular', () => {

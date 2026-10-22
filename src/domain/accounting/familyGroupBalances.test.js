@@ -41,7 +41,7 @@ describe('familyGroupBalances', () => {
     expect(byNumber?.months.length).toBeGreaterThanOrEqual(2);
   });
 
-  it('el balance familiar operativo suma saldos vivos del grupo', () => {
+  it('el balance familiar operativo es el saldo del titular', () => {
     const titular = {
       memberId: '11017',
       name: 'Rodríguez Mariana Andrea',
@@ -55,13 +55,13 @@ describe('familyGroupBalances', () => {
     expect(fam.officialAmount).toBe(-60000);
   });
 
-  it('si no hay grupo LILA, suma saldos individuales', () => {
+  it('el balance familiar es el saldo del titular', () => {
     const titular = {
       memberId: '100',
       name: 'Titular Demo',
       outstandingBalance: 1000,
       adherents: [{ memberId: '101', name: 'Hijo', outstandingBalance: 200, fromPadron: true }],
     };
-    expect(familyBalanceForMember(titular, [titular]).amount).toBe(1200);
+    expect(familyBalanceForMember(titular, [titular]).amount).toBe(1000);
   });
 });

@@ -844,6 +844,7 @@ export default function AdminView({
           feePeriods={erp.feePeriods}
           onUpsertFeePeriods={erp.setFeePeriodsList}
           onPersistFeePeriod={erp.persistFeePeriod}
+          onReopenFeePeriod={erp.reopenProcessedFeePeriod}
           onApplyBalanceDeltas={erp.applyMemberBalanceDeltas}
           collectionImports={erp.memberCollectionImports}
           onImportCollections={erp.importMemberCollections}

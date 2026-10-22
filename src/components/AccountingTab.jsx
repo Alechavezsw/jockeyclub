@@ -1682,6 +1682,7 @@ export default function AccountingTab({
           onCancelRun={async (runId) => {
             const run = (interestRuns || []).find((r) => r.id === runId);
             await onCancelInterestRun?.(runId);
+            if (run?.postsToDues === false) return;
             if (typeof setMembers === 'function' && run?.status === 'completed' && run?.entries?.length) {
               const deltaById = new Map();
               run.entries.forEach((e) => {

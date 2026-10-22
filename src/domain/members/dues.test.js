@@ -346,6 +346,46 @@ describe('tarifa desde octubre 2026', () => {
     }, new Date('2026-09-29T12:00:00'))).toBe(32000);
   });
 
+  it('el recargo es el 10 % de cada mes vencido, por separado', () => {
+    setRuntimeTierCatalog(null);
+    const member = {
+      memberId: '10',
+      tier: 'socio_familiar',
+      cuotaCategories: ['SOCIO FAMILIAR'],
+      status: 'active',
+      outstandingBalance: 130000,
+      lastPaymentDate: '2026-08-13',
+      nextDueDate: '2026-09-10',
+      adherents: [],
+    };
+    expect(duesChargeBreakdown(member, { paidOn: '2026-10-22' })).toMatchObject({
+      quota: 130000,
+      surcharge: 13000,
+      total: 143000,
+    });
+    expect(duesChargeBreakdown({
+      ...member,
+      outstandingBalance: 143000,
+    }, { paidOn: '2026-10-22' })).toMatchObject({
+      quota: 130000,
+      surcharge: 13000,
+      total: 143000,
+    });
+    expect(duesChargeBreakdown({
+      ...member,
+      outstandingBalance: 200000,
+    }, { paidOn: '2026-10-22' }).surcharge).toBe(13000);
+    expect(duesChargeBreakdown({
+      ...member,
+      cuotaCategories: ['SOCIO FAMILIAR', 'ABONO TENIS'],
+      outstandingBalance: 150000,
+    }, { paidOn: '2026-10-22' })).toMatchObject({
+      quota: 150000,
+      surcharge: 13000,
+      total: 163000,
+    });
+  });
+
   it('después del 10 suma el 10 % y el día 10 no', () => {
     const member = {
       memberId: '8',

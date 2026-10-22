@@ -182,7 +182,6 @@ export function payMemberDues(member, {
   method = 'transferencia',
   amount = null,
   today = new Date(),
-  waiveSurcharge = false,
 } = {}) {
   if (!member) throw new Error('Socio no encontrado.');
   if (isFamilyDependent(member)) throw new Error('El cobro va a la cuenta del titular.');
@@ -191,17 +190,10 @@ export function payMemberDues(member, {
   const stored = Number(member.outstandingBalance) || 0;
   const split = duesChargeBreakdown(member, {
     paidOn: today,
-    amount: stored > 0 ? stored : requested,
-    waiveSurcharge,
+    ...(stored > 0 || !(requested > 0) ? {} : { amount: requested }),
   });
-  let due = requested;
-  if (waiveSurcharge) {
-    due = split.quota;
-  } else if (stored > 0) {
-    if (stored + 0.01 >= split.payable) due = stored;
-    else if (stored + 0.01 >= split.capital) due = split.payable;
-    else due = stored;
-  }
+  let due = split.total;
+  if (!(stored > 0) && requested > 0) due = requested;
   if (due <= 0) throw new Error('No hay saldo pendiente para abonar.');
 
   const paidAmount = requested > 0 ? requested : due;
@@ -211,7 +203,9 @@ export function payMemberDues(member, {
   const date = todayISODateAR(today);
   const time = nowTimeAR(today);
   const paidAt = today.toISOString();
-  const lines = duesChargeBreakdown(member, { paidOn: today, amount: paidAmount, waiveSurcharge });
+  const lines = paidAmount + 0.01 >= due
+    ? split
+    : duesChargeBreakdown(member, { paidOn: today, amount: paidAmount });
   const payment = {
     id: `pay-${member.memberId}-${Date.now()}`,
     date,
@@ -265,6 +259,41 @@ export function payMemberDues(member, {
   };
 }
 
+/**
+ * Próximo cobro. Si hay saldo a favor, se descuenta en este pago.
+ * Lo que sobra queda a favor para el siguiente.
+ */
+export function collectionPreview(member, today = new Date()) {
+  const stored = Number(member?.outstandingBalance) || 0;
+  if (stored > 0) {
+    const split = duesChargeBreakdown(member, { paidOn: today });
+    return {
+      quota: split.quota,
+      surcharge: split.surcharge,
+      gross: split.total,
+      creditApplied: 0,
+      cash: split.total,
+      leftover: 0,
+    };
+  }
+  const dueOn = member?.nextDueDate || nextDuesDueDate(today);
+  const gross = roundMoney(
+    duesPayableForMember(member, { paidOn: today, dueOn, on: dueOn })
+    || referenceMonthlyDues(member, member?.paymentHistory),
+  );
+  const split = duesChargeBreakdown(member, { paidOn: today, dueOn, on: dueOn, amount: gross });
+  const credit = stored < 0 ? roundMoney(-stored) : 0;
+  const creditApplied = roundMoney(Math.min(credit, gross));
+  return {
+    quota: split.quota,
+    surcharge: split.surcharge,
+    gross,
+    creditApplied,
+    cash: roundMoney(gross - creditApplied),
+    leftover: roundMoney(credit - creditApplied),
+  };
+}
+
 /** Anticipo de cuota cuando está al día (paga el próximo período). */
 export function payUpcomingDues(member, { method = 'transferencia', today = new Date() } = {}) {
   if (!member) throw new Error('Socio no encontrado.');
@@ -273,13 +302,10 @@ export function payUpcomingDues(member, { method = 'transferencia', today = new 
   if ((Number(member.outstandingBalance) || 0) > 0) {
     return payMemberDues(member, { method, today });
   }
-  const dueOn = member.nextDueDate || nextDuesDueDate(today);
-  const amount = duesPayableForMember(member, { paidOn: today, dueOn, on: dueOn })
-    || referenceMonthlyDues(member, member.paymentHistory);
+  const preview = collectionPreview(member, today);
   const date = todayISODateAR(today);
   const time = nowTimeAR(today);
   const paidAt = today.toISOString();
-  const split = duesChargeBreakdown(member, { paidOn: today, dueOn, on: dueOn, amount });
   const payment = {
     id: `pay-${member.memberId}-${Date.now()}`,
     date,
@@ -287,9 +313,10 @@ export function payUpcomingDues(member, { method = 'transferencia', today = new 
     paidAt,
     createdAt: paidAt,
     concept: `Cuota social anticipada · ${duesMethodLabel(method)}`,
-    amount,
-    quota: split.quota,
-    surcharge: split.surcharge,
+    amount: preview.cash,
+    quota: preview.quota,
+    surcharge: preview.surcharge,
+    creditApplied: preview.creditApplied,
     method,
     status: 'paid',
     receipt: receiptNumberFor(member, date),
@@ -299,9 +326,14 @@ export function payUpcomingDues(member, { method = 'transferencia', today = new 
     nextDueBefore: member.nextDueDate || null,
     lastPaymentBefore: member.lastPaymentDate || null,
   };
-  const advanced = afterCollectDues({ ...member, outstandingBalance: amount, nextDueDate: member.nextDueDate }, today);
+  const advanced = afterCollectDues({
+    ...member,
+    outstandingBalance: preview.gross,
+    nextDueDate: member.nextDueDate,
+  }, today);
   const next = {
     ...advanced,
+    outstandingBalance: preview.leftover > 0 ? -preview.leftover : 0,
     lastPaymentDate: date,
     paymentHistory: [payment, ...(member.paymentHistory || [])],
   };
@@ -309,7 +341,7 @@ export function payUpcomingDues(member, { method = 'transferencia', today = new 
     member: next,
     payment,
     fullyPaid: true,
-    ledgerEntry: ledgerPago(next, payment),
+    ledgerEntry: preview.cash > 0 ? ledgerPago(next, payment) : null,
   };
 }
 
@@ -326,7 +358,6 @@ export function recordDuesCollection(member, {
   amount = null,
   today = new Date(),
   members = [],
-  waiveSurcharge = false,
 } = {}) {
   if (!member) throw new Error('Socio no encontrado.');
   const account = billingAccountMember(member, members);
@@ -337,7 +368,7 @@ export function recordDuesCollection(member, {
 
   const due = Number(account.outstandingBalance) || 0;
   const paid = due > 0
-    ? payMemberDues(account, { method, amount, today, waiveSurcharge })
+    ? payMemberDues(account, { method, amount, today })
     : payUpcomingDues(account, { method, today });
 
   const label = duesMethodLabel(method, bankName);
@@ -362,12 +393,8 @@ export function recordDuesCollection(member, {
     paymentHistory: [payment, ...(paid.member.paymentHistory || []).filter((row) => row.id !== paid.payment.id)],
   };
 
-  return {
-    member: memberNext,
-    payment,
-    fullyPaid: paid.fullyPaid,
-    ledgerEntry: ledgerPago(memberNext, payment),
-    journalEntry: {
+  const journalEntry = payment.amount > 0
+    ? {
       date: payment.date,
       description: `Cobro cuota social (${label}) - Socio: ${account.name} (Cred. ${account.memberId})${receiptNote}`,
       lines: [
@@ -377,7 +404,15 @@ export function recordDuesCollection(member, {
       sourceModule: 'cuotas',
       sourceId: payment.id,
       memberId: account.memberId,
-    },
+    }
+    : null;
+
+  return {
+    member: memberNext,
+    payment,
+    fullyPaid: paid.fullyPaid,
+    ledgerEntry: paid.ledgerEntry ? ledgerPago(memberNext, payment) : null,
+    journalEntry,
   };
 }
 
@@ -385,6 +420,40 @@ export function recordDuesCollection(member, {
  * Anula un cobro de cuota: deja el rastro y restaura el saldo.
  * No borra el movimiento.
  */
+/**
+ * Borra el recargo de un cobro ya registrado. El importe cobrado queda.
+ * El recargo pasa a saldo a favor. No se perdona en el mostrador.
+ */
+export function removeDuesSurcharge(member, paymentId, {
+  removedBy = 'Administración',
+  today = new Date(),
+} = {}) {
+  if (!member) throw new Error('Socio no encontrado.');
+  const history = member.paymentHistory || [];
+  const payment = history.find((row) => row && String(row.id) === String(paymentId));
+  if (!payment) throw new Error('No se encontró el cobro.');
+  if (payment.status === 'void' || payment.status === 'cancelled') {
+    throw new Error('Ese cobro está anulado.');
+  }
+  const surcharge = roundMoney(payment.surcharge);
+  if (surcharge <= 0) throw new Error('Este cobro no tiene recargo.');
+  const removedAt = today instanceof Date ? today.toISOString() : String(today);
+  const nextPayment = {
+    ...payment,
+    surcharge: 0,
+    removedSurcharge: surcharge,
+    surchargeRemovedBy: removedBy,
+    surchargeRemovedAt: removedAt,
+  };
+  const next = {
+    ...member,
+    outstandingBalance: roundMoney((Number(member.outstandingBalance) || 0) - surcharge),
+    paymentHistory: history.map((row) => (row.id === payment.id ? nextPayment : row)),
+    updatedAt: removedAt,
+  };
+  return { member: next, payment: nextPayment };
+}
+
 export function voidMemberDuesPayment(member, paymentId, {
   voidedBy = 'Administración',
   reason = '',

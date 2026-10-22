@@ -192,12 +192,12 @@ export function runInterestGenerator({
     separateEntries: Boolean(generator.separateEntries),
   };
 
-  const memberBalancePatches = entries.map((e) => ({
-    memberId: e.memberId,
-    delta: e.amount,
-  }));
+  const runWithRule = {
+    ...run,
+    postsToDues: false,
+  };
 
-  return { run, entries, memberBalancePatches };
+  return { run: runWithRule, entries, memberBalancePatches: [] };
 }
 
 export function cancelInterestRun(runs = [], runId) {

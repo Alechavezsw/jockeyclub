@@ -14,7 +14,7 @@ import ModalDialog from '../ModalDialog';
 import { formatShortDate, isDuesExemptMember, quotaHeadline } from '../../domain/members/dues';
 import { familyChildStanding, regularidadOf, upsertRegularidad } from '../../domain/members/familyStanding';
 import { shouldOfferVitalicio } from '../../domain/members/membership';
-import { canVoidDuesPayment } from '../../domain/auth/roles';
+import { canRemoveDuesSurcharge, canVoidDuesPayment } from '../../domain/auth/roles';
 import { useAuth } from '../../context/AuthContext';
 import { formatDateTimeAR, todayISODateAR } from '../../lib/arDate';
 import { formatPaymentWhen, paymentWhenStamp } from '../../domain/members/paymentHistory';
@@ -39,7 +39,7 @@ import {
   upsertMemberDocument,
   DOCUMENT_TYPES,
 } from '../../domain/members/profileEdit';
-import { duesMethodLabel, isDuesCollectionJournal, journalEntryBelongsToMember, persistDuesCollection, persistDuesVoid, recordDuesCollection, voidMemberDuesPayment } from '../../domain/members/memberPayments';
+import { duesMethodLabel, isDuesCollectionJournal, journalEntryBelongsToMember, persistDuesCollection, persistDuesVoid, recordDuesCollection, removeDuesSurcharge, voidMemberDuesPayment } from '../../domain/members/memberPayments';
 import { sendDuesReceiptMessage } from '../../domain/members/duesReceiptDelivery';
 import { repos } from '../../data/bootstrap';
 import CurrentAccountCutNote from '../erp/CurrentAccountCutNote';
@@ -355,6 +355,7 @@ export default function MemberProfilePanel({
 }) {
   const { roles, role, user } = useAuth();
   const canVoid = canVoidDuesPayment({ roles, role });
+  const canRemoveSurcharge = canRemoveDuesSurcharge({ roles, role });
   const [section, setSection] = useState('ficha');
   const [editForm, setEditForm] = useState(null);
   const [editMsg, setEditMsg] = useState('');
@@ -382,7 +383,7 @@ export default function MemberProfilePanel({
 
   useEffect(() => {
     if (selfService || !member || searchParams.get('cobrar') !== '1') return undefined;
-    if (!isDuesExemptMember(member)) setCollectOpen(true);
+    if (!isDuesExemptMember(member) && !isFamilyDependent(member)) setCollectOpen(true);
     setSearchParams((prev) => {
       if (prev.get('cobrar') !== '1') return prev;
       const next = new URLSearchParams(prev);
@@ -800,7 +801,7 @@ export default function MemberProfilePanel({
 
   const status = STATUS_COPY[member.status] || STATUS_COPY.pending;
   const appAccess = memberAppAccess(member);
-  const balance = Number(member.outstandingBalance) || 0;
+  const balance = isFamilyDependent(member) ? 0 : (Number(member.outstandingBalance) || 0);
   const duesExempt = isDuesExemptMember(member);
   const hasDebt = balance > 0 && !duesExempt;
   const quota = quotaHeadline(member);
@@ -926,7 +927,7 @@ export default function MemberProfilePanel({
         <div className="mp-ops-notes">
           {pendingBaja ? (
             <p className="mp-ops-note">
-              Baja programada el {member.bajaFecha || member.meta?.bajaFecha}. Hasta ese día se cobra el mes.
+              Baja programada el {member.bajaFecha || member.meta?.bajaFecha}. La nota es con un mes de anticipación: el mes en curso se cobra.
             </p>
           ) : null}
           {vitalicioOffer ? (
@@ -1409,6 +1410,8 @@ export default function MemberProfilePanel({
                         <div className="mp-list-sub">Anulado{p.voidedBy ? ` · ${p.voidedBy}` : ''}</div>
                       ) : p.surcharge > 0 ? (
                         <div className="mp-list-sub">Cuota {formatCurrency(p.quota)} · Recargo {formatCurrency(p.surcharge)}</div>
+                      ) : p.removedSurcharge > 0 ? (
+                        <div className="mp-list-sub">Recargo borrado{p.surchargeRemovedBy ? ` · ${p.surchargeRemovedBy}` : ''}</div>
                       ) : null}
                       {p.receiptName ? (
                         <div className="mp-list-sub">Comprobante: {p.receiptName}</div>
@@ -1417,6 +1420,33 @@ export default function MemberProfilePanel({
                     <strong className="mp-list-amount" style={p.status === 'void' ? { textDecoration: 'line-through', opacity: 0.6 } : undefined}>
                       {formatCurrency(p.amount)}
                     </strong>
+                    {canCollect && p.status !== 'void' && p.id && canRemoveSurcharge && p.surcharge > 0 ? (
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={async () => {
+                          if (!window.confirm('¿Borrar el recargo de este cobro? El importe cobrado queda y el recargo pasa a saldo a favor.')) return;
+                          try {
+                            const result = removeDuesSurcharge(member, p.id, {
+                              removedBy: user?.name || 'Administración',
+                            });
+                            await persistDuesCollection(result, {
+                              setMembers,
+                              updateMember,
+                              addJournalEntry,
+                              onAccountEntry,
+                            });
+                            setCollectFlash(`Recargo borrado · ${formatCurrency(p.surcharge)}`);
+                            window.setTimeout(() => setCollectFlash(''), 5000);
+                          } catch (err) {
+                            setCollectFlash(err.message || 'No se pudo borrar el recargo.');
+                            window.setTimeout(() => setCollectFlash(''), 5000);
+                          }
+                        }}
+                      >
+                        Borrar recargo
+                      </button>
+                    ) : null}
                     {canCollect && p.status !== 'void' && p.id && canVoid ? (
                       <button
                         type="button"

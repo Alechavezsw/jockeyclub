@@ -23,16 +23,17 @@ const hijo = {
 };
 
 describe('liveFamilyGroupBalances', () => {
-  it('suma el saldo vivo del titular y los integrantes', () => {
+  it('el saldo del grupo es el del titular', () => {
     const book = buildLiveFamilyGroupBalances([titular, hijo], { today: '2026-10-19' });
     expect(book.groups).toHaveLength(1);
-    expect(book.groups[0].total).toBe(55000);
+    expect(book.groups[0].total).toBe(40000);
     expect(book.groups[0].size).toBe(2);
   });
 
-  it('marca titular con el saldo del grupo', () => {
+  it('marca titular con su saldo, sin sumar al adherente', () => {
     const family = liveFamilyBalanceForMember(titular, [titular, hijo]);
     expect(family.isTitular).toBe(true);
-    expect(family.amount).toBe(55000);
+    expect(family.amount).toBe(40000);
+    expect(liveFamilyBalanceForMember(hijo, [titular, hijo]).amount).toBe(null);
   });
 });

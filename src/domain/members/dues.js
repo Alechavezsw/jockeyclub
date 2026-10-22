@@ -418,11 +418,7 @@ export function unpaidSocialDuesAmount(member, today = new Date()) {
 }
 
 function socialDuesAmountDue(member, todayStart) {
-  const synthetic = unpaidSocialDuesAmount(member, todayStart);
-  const stored = Number(member?.outstandingBalance) || 0;
-  if (synthetic > 0 && stored > synthetic) return synthetic;
-  if (stored > 0) return stored;
-  return synthetic;
+  return duesChargeBreakdown(member, { paidOn: todayStart }).total;
 }
 
 function isSocialDuesMora(member, todayStart) {
@@ -503,32 +499,148 @@ export function duesAmountForHousehold(titularTier, familyGroup = [], on = new D
   return titular + addOns;
 }
 
-/** Cuota vigente: titular (estatuto + abonos propios) + tenis de adherentes. El grupo no suma cuota social. */
-export function duesAmountForMember(member, on = new Date(), options = {}) {
-  if (isDuesExemptMember(member)) return 0;
-  if (isFamilyDependent(member)) return 0;
-  const rules = resolveDiscountRules(options?.rules);
-  const own = amountForTierIds(member, billedTierIds(member), on, rules);
-  const extra = activeAdherentsOf(member).reduce((sum, row) => {
-    const person = asDiscountPerson(row, member);
-    return sum + amountForTierIds(person, billedTierIds(person), on, rules, { addOnsOnly: true });
-  }, 0);
-  return own + extra;
+function pushChargeSlice(slices, person, id, on, rules) {
+  const amount = Math.round(discountedTierAmount(person, id, on, rules) || 0);
+  if (amount <= 0) return;
+  const prev = slices.get(id);
+  if (prev) {
+    prev.amount += amount;
+    return;
+  }
+  slices.set(id, {
+    tierId: id,
+    category: getTierDisplayName(id),
+    amount,
+  });
 }
 
-/** Cuota, recargo del 10 % (si corre) y total a cobrar. */
+/**
+ * Una deuda por categoría con importe. Familiar y abono de tenis no se mezclan.
+ * El tenis de un adherente entra en la deuda de tenis del titular.
+ */
+export function duesChargeSlicesForMember(member, on = new Date(), options = {}) {
+  if (isDuesExemptMember(member) || isFamilyDependent(member)) return [];
+  const rules = resolveDiscountRules(options?.rules);
+  const slices = new Map();
+  for (const id of billedTierIds(member)) pushChargeSlice(slices, member, id, on, rules);
+  for (const row of activeAdherentsOf(member)) {
+    const person = asDiscountPerson(row, member);
+    for (const id of billedTierIds(person)) {
+      if (!isAddOnDuesTierId(id)) continue;
+      pushChargeSlice(slices, person, id, on, rules);
+    }
+  }
+  return [...slices.values()].toSorted((a, b) => a.category.localeCompare(b.category, 'es'));
+}
+
+/** Cuota vigente: titular (estatuto + abonos propios) + tenis de adherentes. El grupo no suma cuota social. */
+export function duesAmountForMember(member, on = new Date(), options = {}) {
+  return duesChargeSlicesForMember(member, on, options)
+    .reduce((sum, slice) => sum + slice.amount, 0);
+}
+
+/**
+ * Meses vencidos y todavía impagos. Cada uno trae su cuota y su propio 10 %.
+ * El mes que todavía no venció no entra.
+ */
+function overdueSocialMonths(member, paidOn) {
+  const todayStart = startOfDay(paidOn);
+  const day = duesDueDayForMember(member);
+  const first = parseDate(firstUnpaidDuesDate({
+    lastPaymentDate: member?.lastPaymentDate,
+    nextDueDate: member?.nextDueDate,
+    today: todayStart,
+    member,
+  }));
+  if (!first || first >= todayStart) return [];
+  const months = [];
+  let cursor = first;
+  while (cursor < todayStart && months.length < 24) {
+    const capital = Math.round(duesAmountForMember(member, cursor) || 0);
+    const payable = Math.round(duesPayableForMember(member, {
+      paidOn: todayStart,
+      dueOn: cursor,
+      on: cursor,
+    }) || 0);
+    months.push({
+      dueOn: toISODate(cursor),
+      capital,
+      payable,
+      surcharge: Math.max(0, payable - capital),
+    });
+    cursor = duesDateOnDueDay(cursor.getFullYear(), cursor.getMonth() + 1, day);
+  }
+  return months;
+}
+
+function roundMoney(value) {
+  return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+/**
+ * Cuota, recargo y total a cobrar.
+ * El 10 % es el de cada mes vencido, por separado: no es un 10 % de todo el saldo
+ * y un mes anterior no se anota como recargo del mes que se está cobrando.
+ */
 export function duesChargeBreakdown(member, { paidOn = new Date(), dueOn, on, amount, waiveSurcharge = false } = {}) {
   const when = on || dueOn || paidOn;
-  const capital = Math.round(duesAmountForMember(member, when) || 0);
-  const payable = Math.round(duesPayableForMember(member, { paidOn, dueOn, on: when }) || 0);
+  const paid = paidOn || when;
+  const months = dueOn ? [] : overdueSocialMonths(member, paid);
+  const singleCapital = Math.round(duesAmountForMember(member, when) || 0);
+  const singlePayable = Math.round(duesPayableForMember(member, { paidOn: paid, dueOn, on: when }) || 0);
+  const useMonths = !dueOn && months.some((row) => row.capital > 0);
+  let capital = useMonths
+    ? months.reduce((sum, row) => sum + row.capital, 0)
+    : singleCapital;
+  let payable = useMonths
+    ? months.reduce((sum, row) => sum + row.payable, 0)
+    : singlePayable;
+  const monthSurcharge = Math.max(0, payable - capital);
   const stored = Number(amount != null ? amount : member?.outstandingBalance);
   const hasStored = Number.isFinite(stored) && stored > 0;
   const rounded = hasStored ? Math.round(stored) : 0;
-  const total = hasStored
-    ? (rounded + 0.01 >= capital ? Math.max(rounded, payable) : rounded)
-    : payable;
-  const surcharge = Math.max(0, total - capital);
-  const quota = Math.max(0, total - surcharge);
+
+  let total;
+  let surcharge;
+  if (!hasStored) {
+    total = payable;
+    surcharge = monthSurcharge;
+  } else if (capital <= 0) {
+    total = rounded;
+    surcharge = 0;
+  } else if (rounded + 0.01 < capital) {
+    let left = rounded;
+    surcharge = 0;
+    const rows = useMonths ? months : [{ capital, surcharge: monthSurcharge }];
+    for (const row of rows) {
+      if (left <= 0) break;
+      const take = Math.min(left, row.capital);
+      if (row.capital > 0) surcharge += Math.round(row.surcharge * take / row.capital);
+      left -= take;
+    }
+    total = rounded + surcharge;
+    capital = rounded;
+    payable = total;
+  } else {
+    const excess = rounded - capital;
+    const surchargeAlreadyInBalance = Math.abs(excess - monthSurcharge) <= 1;
+    if (surchargeAlreadyInBalance) {
+      surcharge = monthSurcharge;
+      total = rounded;
+    } else if (excess > monthSurcharge + 1) {
+      surcharge = monthSurcharge;
+      total = rounded + monthSurcharge;
+    } else {
+      surcharge = monthSurcharge;
+      total = rounded + Math.max(0, monthSurcharge - excess);
+    }
+    payable = total;
+  }
+  total = roundMoney(total);
+  surcharge = roundMoney(surcharge);
+  capital = roundMoney(capital);
+  payable = roundMoney(payable);
+  const quota = Math.max(0, roundMoney(total - surcharge));
   if (waiveSurcharge && surcharge > 0) {
     return {
       quota,

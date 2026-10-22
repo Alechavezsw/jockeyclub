@@ -106,7 +106,7 @@ export default function FamilyGroupBalancesPanel({
                 </tr>
               ))}
               <tr>
-                <td><strong>Total grupo familiar</strong></td>
+                <td><strong>Saldo del titular</strong></td>
                 <td style={{ textAlign: 'right', fontWeight: 800 }}>{money(selected.total)}</td>
               </tr>
             </tbody>
@@ -131,7 +131,7 @@ export default function FamilyGroupBalancesPanel({
           <p className="mb-folio-kicker">Contabilidad</p>
           <h3 className="mb-folio-title">Saldos de grupo familiar</h3>
           <p className="mb-folio-meta">
-            Saldo vivo de cada familia al {summary.asOfLabel || 'hoy'}.
+            Saldo del socio titular al {summary.asOfLabel || 'hoy'}.
           </p>
         </div>
         <span className="mb-folio-seal">{summary.groupCount.toLocaleString('es-AR')} grupos</span>

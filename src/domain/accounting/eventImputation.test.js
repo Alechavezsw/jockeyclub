@@ -70,7 +70,7 @@ describe('eventImputation', () => {
       estimatedPrice: 170000,
     };
     const applied = applyEventImputation(reservation, members);
-    expect(applied.member.outstandingBalance).toBe(171000);
+    expect(applied.member.outstandingBalance).toBe(1000);
     expect(applied.entry.value).toBe(170000);
     expect(applied.reservation.imputed).toBe(true);
     expect(applied.reservation.chargedPrice).toBe(170000);

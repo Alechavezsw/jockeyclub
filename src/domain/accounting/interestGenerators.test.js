@@ -41,6 +41,7 @@ describe('interestGenerators', () => {
     const { run, memberBalancePatches } = runInterestGenerator({ generator, members });
     expect(run.entriesCreated).toBe(2);
     expect(run.totalAmount).toBe(2500);
-    expect(memberBalancePatches).toHaveLength(2);
+    expect(memberBalancePatches).toHaveLength(0);
+    expect(run.postsToDues).toBe(false);
   });
 });

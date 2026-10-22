@@ -893,7 +893,7 @@ export default function MembersTab({
       setActionFlash(
         action === 'delete'
           ? (nextMeta.pendingBaja
-            ? `Baja el ${nextMeta.bajaFecha}: ${member.name}. Hasta entonces se cobra el mes.`
+            ? `Baja el ${nextMeta.bajaFecha}: ${member.name}. El mes en curso se cobra.`
             : `Baja registrada: ${member.name}`)
           : action === 'suspend'
             ? `Suspensión registrada: ${member.name}`
@@ -2104,7 +2104,7 @@ export default function MembersTab({
                   <td data-label="Cuota">
                     <span style={{
                       fontWeight: '600',
-                      color: isDuesExemptMember(m)
+                      color: isFamilyDependent(m) || isDuesExemptMember(m)
                         ? 'var(--text-secondary)'
                         : (Number(m.outstandingBalance) || 0) > 0
                           ? 'var(--warning-accent)'
@@ -2112,7 +2112,7 @@ export default function MembersTab({
                             ? 'var(--emerald-accent)'
                             : 'var(--text-secondary)'
                      }}>
-                      {isDuesExemptMember(m) || (Number(m.outstandingBalance) || 0) <= 0
+                      {isFamilyDependent(m) || isDuesExemptMember(m) || (Number(m.outstandingBalance) || 0) <= 0
                         ? quotaHeadline(m).title
                         : formatCurrency(m.outstandingBalance)}
                     </span>
@@ -2154,7 +2154,7 @@ export default function MembersTab({
                           >
                             <CreditCard size={13} /> Tarjeta
                           </button>
-                          {m.outstandingBalance > 0 && !isDuesExemptMember(m) && (
+                          {!isFamilyDependent(m) && m.outstandingBalance > 0 && !isDuesExemptMember(m) && (
                             <button
                               type="button"
                               role="menuitem"

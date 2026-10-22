@@ -160,11 +160,60 @@ export function memberFacts(member, { today = new Date(), poolSettings = {}, mem
     canPayPool: pool.canPay,
     poolReason: pool.canPay ? '' : pool.detail,
     hasPortal: memberHasPortalAccess(member),
+    notice: balanceNotice({ saldo, inMora, exempt, dependent, billing }),
   };
 }
 
 function pesos(value) {
-  return `$ ${Math.round(Number(value) || 0).toLocaleString('es-AR')}`;
+  return `$ ${Math.abs(Math.round(Number(value) || 0)).toLocaleString('es-AR')}`;
+}
+
+function saldoFigure(saldo) {
+  return { label: 'Saldo', value: pesos(saldo) };
+}
+
+/** Etiqueta solo si pagó de más, o si el número no cierra. */
+function balanceNotice({ saldo, inMora, exempt, dependent, billing }) {
+  const n = Math.round(Number(saldo) || 0);
+  if (n === 0) return null;
+  if (exempt || dependent) {
+    return {
+      kind: 'error',
+      label: 'Error',
+      value: pesos(n),
+      tone: 'error',
+      sentence: dependent
+        ? `Figura ${pesos(n)} en el adherente. La cuenta es del titular.`
+        : `Figura un saldo de ${pesos(n)} y esta categoría no abona cuota.`,
+    };
+  }
+  if (n < 0 && inMora) {
+    return {
+      kind: 'error',
+      label: 'Error',
+      value: pesos(n),
+      tone: 'error',
+      sentence: `Figura ${pesos(n)} a favor y sigue en mora.`,
+    };
+  }
+  if (n < 0 && billing) {
+    return {
+      kind: 'overpay',
+      label: 'De más',
+      value: pesos(n),
+      tone: 'credit',
+      sentence: `Pagó de más: ${pesos(n)} a favor.`,
+    };
+  }
+  return null;
+}
+
+function saldoSentence(facts) {
+  if (facts.notice) return facts.notice.sentence;
+  if (facts.inMora) {
+    return `Está en mora${facts.monthsBehindLabel ? ` (${facts.monthsBehindLabel})` : ''} y debe ${pesos(facts.saldo)}.`;
+  }
+  return `No está en mora. Saldo ${pesos(facts.saldo)}.`;
 }
 
 /** Líneas para el prompt de Gemini. Sin DNI, teléfono ni domicilio. */
@@ -176,14 +225,17 @@ export function memberFactsForPrompt(facts) {
       ? `Es ADHERENTE: la cuenta, el pago y las reservas son del titular${facts.titularNumber ? ` (Nº ${facts.titularNumber}${facts.titularName ? ` · ${facts.titularName}` : ''})` : ''}.`
       : 'Es titular: lleva su propia cuenta.',
   ];
+  if (facts.notice && (facts.exempt || facts.dependent)) lines.push(facts.notice.sentence);
   if (facts.exempt) {
     lines.push('Es EXENTO (vitalicio, fundador o comisión): no abona cuota, no entra en mora, no recibe avisos ni paga con Mercado Pago.');
   } else if (facts.billing) {
     lines.push(`Cuota: ${facts.quota}. Vence el día ${facts.dueDay}${facts.amet ? ' (AMET: sin recargo, el 2,5 % es tarifa)' : ''}.`);
-    lines.push(facts.inMora
-      ? `EN MORA${facts.monthsBehindLabel ? `: ${facts.monthsBehindLabel}` : ''}. Saldo en ficha ${pesos(facts.saldo)}.`
-      : `No está en mora. Saldo en ficha ${pesos(facts.saldo)}.`);
-    if (facts.charge) {
+    lines.push(facts.notice
+      ? facts.notice.sentence
+      : facts.inMora
+        ? `EN MORA${facts.monthsBehindLabel ? `: ${facts.monthsBehindLabel}` : ''}. Saldo en ficha ${pesos(facts.saldo)}.`
+        : `No está en mora. Saldo en ficha ${pesos(facts.saldo)}.`);
+    if (facts.charge && !facts.notice) {
       lines.push(`A cobrar hoy: cuota ${pesos(facts.charge.quota)} + recargo ${pesos(facts.charge.surcharge)} = ${pesos(facts.charge.total)}.`);
     }
   } else if (!facts.dependent) {
@@ -206,14 +258,14 @@ export function memberInsight(facts) {
   parts.push(`${facts.name}, categoría ${facts.tier}, cuenta ${facts.statusLabel}.`);
   if (facts.dependent) {
     parts.push(`Es adherente: paga y reserva el titular${facts.titularNumber ? ` (Nº ${facts.titularNumber}${facts.titularName ? ` · ${facts.titularName}` : ''})` : ''}.`);
+    if (facts.notice) parts.push(facts.notice.sentence);
   } else if (facts.exempt) {
     parts.push('No abona cuota (vitalicio, fundador o comisión): no hay mora, ni avisos, ni Mercado Pago.');
+    if (facts.notice) parts.push(facts.notice.sentence);
   } else if (facts.billing) {
-    parts.push(facts.inMora
-      ? `Está en mora${facts.monthsBehindLabel ? ` (${facts.monthsBehindLabel})` : ''} y debe ${pesos(facts.saldo)}.`
-      : `No está en mora. Saldo ${pesos(facts.saldo)}.`);
+    parts.push(saldoSentence(facts));
     parts.push(`Vence el día ${facts.dueDay}${facts.amet ? ' (AMET, sin recargo)' : ''}.`);
-    if (facts.charge?.surcharge > 0) {
+    if (facts.charge?.surcharge > 0 && facts.notice?.kind !== 'overpay' && !(facts.saldo < 0)) {
       parts.push(`Hoy se cobra ${pesos(facts.charge.quota)} de cuota más ${pesos(facts.charge.surcharge)} de recargo (total ${pesos(facts.charge.total)}).`);
     }
   } else {
@@ -238,12 +290,14 @@ export function memberInsight(facts) {
     verdict,
     text: parts.join(' '),
     figures: [
-      { label: 'Saldo', value: pesos(facts.saldo) },
+      facts.notice
+        ? { label: facts.notice.label, value: facts.notice.value, tone: facts.notice.tone }
+        : saldoFigure(facts.saldo),
       facts.billing ? { label: 'Vence', value: `día ${facts.dueDay}` } : null,
       facts.monthsBehind > 0 ? { label: 'Atraso', value: facts.monthsBehindLabel } : null,
     ].filter(Boolean),
     next: facts.inMora
-      ? 'Se regulariza cobrando en la ficha. Tesorería puede perdonar el recargo.'
+      ? 'Se regulariza cobrando en la ficha. El recargo se cobra siempre.'
       : null,
     go: 'members',
   };

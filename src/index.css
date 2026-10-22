@@ -22989,6 +22989,16 @@ ul.sys-set-hint {
   font-weight: 600;
   color: var(--text-strong);
 }
+.jev-slip-figures div.is-credit dt {
+  color: var(--emerald-accent);
+}
+.jev-slip-figures div.is-credit dd {
+  color: var(--emerald-accent);
+}
+.jev-slip-figures div.is-error dt,
+.jev-slip-figures div.is-error dd {
+  color: var(--danger-accent);
+}
 .jev-slip-go,
 .jev-desk-starters button,
 .jev-desk-send {

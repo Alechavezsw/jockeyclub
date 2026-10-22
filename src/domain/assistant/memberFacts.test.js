@@ -145,6 +145,35 @@ describe('memberInsight', () => {
     expect(insight.go).toBe('members');
   });
 
+  it('etiqueta de más cuando el saldo es a favor y está al día', () => {
+    const insight = memberInsight(memberFacts(
+      { ...titular, outstandingBalance: -7000, lastPaymentDate: '2026-10-13', nextDueDate: '2026-11-10' },
+      { today: '2026-10-22', members: all },
+    ));
+    const tag = insight.figures.find((row) => row.label === 'De más');
+    expect(tag?.value).toBe('$ 7.000');
+    expect(tag?.tone).toBe('credit');
+    expect(insight.text).toMatch(/de más/i);
+  });
+
+  it('etiqueta error si figura a favor y sigue en mora', () => {
+    const insight = memberInsight(memberFacts(
+      { ...titular, outstandingBalance: -7000 },
+      { today: '2026-10-20', members: all },
+    ));
+    const tag = insight.figures.find((row) => row.label === 'Error');
+    expect(tag?.tone).toBe('error');
+    expect(insight.text).toMatch(/mora/i);
+  });
+
+  it('etiqueta error si un exento tiene saldo', () => {
+    const insight = memberInsight(memberFacts(
+      { ...vitalicio, outstandingBalance: 5000 },
+      { today: '2026-10-22', members: all },
+    ));
+    expect(insight.figures.find((row) => row.label === 'Error')?.tone).toBe('error');
+  });
+
   it('explica al adherente sin inventarle una deuda', () => {
     const insight = memberInsight(memberFacts(adherente, { today: '2026-10-20', members: all }));
     expect(insight.verdict).toMatch(/adherente/);

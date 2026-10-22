@@ -1,4 +1,4 @@
-import { duesAmountForMember, duesAmountForTier, isDuesExemptMember, isMemberBillingActive, memberDuesTierIds } from '../members/dues';
+import { duesAmountForTier, duesChargeSlicesForMember, isDuesExemptMember, isMemberBillingActive, memberDuesTierIds } from '../members/dues';
 import { attachHouseholdToMembers, isTitularMember } from '../members/households';
 import { getTierDisplayName } from '../members/tiers';
 import { feePackForPeriod } from './feePackConcepts';
@@ -138,9 +138,9 @@ export function feePeriodNeedsClosure(period) {
 
 /**
  * Cierra un período de la app (desde noviembre 2026).
- * Imputa la cuota viva a titulares activos (sin recargo: el 10 % es al pagar después del 10).
+ * Imputa una deuda por categoría a titulares activos (sin recargo: el 10 % es al pagar después del 10).
  * Comisión, vitalicio, fundador e integrantes del grupo no se cobran.
- * El tenis del adherente entra en la cuenta del titular.
+ * El tenis del adherente entra en la deuda de tenis del titular.
  */
 export function liquidateFeePeriod(list = [], periodId, members = [], today = new Date()) {
   const period = (list || []).find((p) => p.id === periodId);
@@ -157,9 +157,12 @@ export function liquidateFeePeriod(list = [], periodId, members = [], today = ne
   const memberUpdates = billed.flatMap((member) => {
     if (!member || !isMemberBillingActive(member, today) || !isTitularMember(member)) return [];
     if (isDuesExemptMember(member)) return [];
-    const amount = Math.round(duesAmountForMember(member, periodDate) || 0);
-    if (amount <= 0) return [];
-    return [{ memberId: member.memberId, addAmount: amount }];
+    return duesChargeSlicesForMember(member, periodDate).map((slice) => ({
+      memberId: member.memberId,
+      addAmount: slice.amount,
+      tierId: slice.tierId,
+      category: slice.category,
+    }));
   });
   const chargedTotal = memberUpdates.reduce((sum, row) => sum + row.addAmount, 0);
   const packLines = feePackLinesFromMembers(billed, periodDate, today);
@@ -176,6 +179,7 @@ export function liquidateFeePeriod(list = [], periodId, members = [], today = ne
       title: period.pack?.title || `Liquidación - ${periodLabel(period)}`,
       total: chargedTotal,
       concepts: packLines,
+      charges: memberUpdates,
     },
     lines: packLines.map((row) => ({
       identifier: row.id,
@@ -267,6 +271,47 @@ function roundUnit(amount, draft) {
 
 export function feePeriodIsClosed(period) {
   return period?.status === 'processed' || period?.status === 'cancelled';
+}
+
+/**
+ * Anula una liquidación de la app por un error grave.
+ * Devuelve el mes a borrador y las deudas que hay que restar.
+ * Octubre y lo anterior quedó en Lila y no se reabre.
+ */
+export function reopenFeePeriod(period, reason) {
+  const note = String(reason || '').trim();
+  if (note.length < 8) throw new Error('Describí el error grave.');
+  if (!period) throw new Error('Período no encontrado.');
+  if (period.status !== 'processed') throw new Error('Solo se reabre un período ya liquidado.');
+  if (!appOwnsFeePeriod(period)) throw new Error('Hasta octubre de 2026 la liquidación quedó en LILA.');
+  const charges = Array.isArray(period.pack?.charges) ? period.pack.charges : [];
+  if (!charges.length && Number(period.amount) > 0) {
+    throw new Error('Esta liquidación no guarda el detalle por socio, así que no se puede anular.');
+  }
+  const reopens = Array.isArray(period.pack?.reopens) ? period.pack.reopens : [];
+  return {
+    reversals: charges,
+    period: {
+      ...period,
+      status: 'draft',
+      amount: 0,
+      generatedAt: null,
+      lines: [],
+      updatedAt: new Date().toISOString(),
+      pack: {
+        ...(period.pack || {}),
+        charges: [],
+        total: 0,
+        reopens: [...reopens, {
+          at: new Date().toISOString(),
+          reason: note,
+          amount: Number(period.amount) || 0,
+          generatedAt: period.generatedAt || null,
+          charges,
+        }],
+      },
+    },
+  };
 }
 
 /** Borrador del formulario de edición, igual para cualquier período abierto. */

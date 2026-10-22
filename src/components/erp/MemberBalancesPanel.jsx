@@ -6,7 +6,7 @@ import CuotasDeskToolbar, { CuotasTool } from './CuotasDeskToolbar';
 import { exportAccountPaymentPdf } from '../../domain/accounting/exportAccountPaymentPdf';
 import { exportPaymentBoletoPdf } from '../../domain/accounting/exportPaymentBoleto';
 import { DUES_LATE_RATE, getActiveTiers } from '../../domain/members/tiers';
-import { memberNumberOf, resolveFamilyForDisplay } from '../../domain/members/households';
+import { isFamilyDependent, memberNumberOf, resolveFamilyForDisplay } from '../../domain/members/households';
 import {
   ACCOUNT_ENTRY_TYPES,
   accountSummaryMeta,
@@ -974,6 +974,7 @@ function MemberBalancesContent({
             ) : pageRows.map((m) => {
               const fam = familyBalanceForMember(m, members);
               const balance = currentAccountBalanceOf(m);
+              const dependent = isFamilyDependent(m);
               return (
                 <tr key={m.memberId || m.id}>
                   <td>{m.accessinId || ''}</td>
@@ -983,8 +984,10 @@ function MemberBalancesContent({
                       {m.name}
                     </button>
                   </td>
-                  <td className="tabular-nums" style={{ fontWeight: 700, color: balance > 0 ? 'var(--emerald-accent)' : undefined }}>
-                    {formatLilaListMoney(balance)}
+                  <td className="tabular-nums" style={{ fontWeight: 700, color: !dependent && balance > 0 ? 'var(--emerald-accent)' : undefined }}>
+                    {dependent
+                      ? <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>Cuenta del titular</span>
+                      : formatLilaListMoney(balance)}
                   </td>
                   <td>
                     {fam.isTitular

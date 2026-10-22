@@ -444,7 +444,9 @@ export default function InterestGeneratorPanel({
                         type="button"
                         className="btn btn-secondary btn-sm"
                         onClick={async () => {
-                          if (!window.confirm('¿Anular esta generación? Se revertirá el saldo imputado.')) return;
+                          if (!window.confirm(r.postsToDues === false
+                            ? '¿Anular esta generación? No toca la deuda de cuota.'
+                            : '¿Anular esta generación? Se revertirá el saldo imputado.')) return;
                           try {
                             await onCancelRun?.(r.id);
                           } catch (err) {

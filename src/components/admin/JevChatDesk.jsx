@@ -54,7 +54,10 @@ function JevSlip({ row, goToTab }) {
       {row.figures?.length ? (
         <dl className="jev-slip-figures">
           {row.figures.map((item) => (
-            <div key={`${item.label}-${item.value}`}>
+            <div
+              key={`${item.label}-${item.value}`}
+              className={item.tone === 'credit' ? 'is-credit' : item.tone === 'error' ? 'is-error' : undefined}
+            >
               <dt>{item.label}</dt>
               <dd className="tabular-nums">{item.value}</dd>
             </div>

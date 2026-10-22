@@ -3703,6 +3703,28 @@ export async function cancelInterestRunRecord(runId) {
   );
 }
 
+export async function reverseMemberBalanceDeltas(deltas = []) {
+  const rows = (deltas || [])
+    .map((row) => ({
+      memberId: String(row.memberId || row.memberNumber || '').trim(),
+      amount: Number(row.amount ?? row.addAmount) || 0,
+    }))
+    .filter((row) => row.memberId && row.amount);
+  if (!rows.length) return;
+  await unwrap(
+    sb().rpc('reverse_member_balance_deltas', { p_deltas: rows }),
+    'No se pudieron devolver las deudas de la liquidación',
+  );
+}
+
+export async function voidFeePeriodLedger(periodId) {
+  if (!periodId) return;
+  await unwrap(
+    sb().rpc('void_fee_period_ledger', { p_period_id: periodId }),
+    'No se pudo anular la liquidación en las cuentas',
+  );
+}
+
 export async function applyMemberBalanceDeltas(deltas = []) {
   const rows = (deltas || [])
     .map((row) => ({

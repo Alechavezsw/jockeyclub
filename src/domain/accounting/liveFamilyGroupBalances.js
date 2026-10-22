@@ -1,4 +1,4 @@
-/** Saldos de grupo familiar desde el padrón y el saldo de cuota vivo. */
+/** Saldo de grupo familiar: el que se muestra es el del socio titular. */
 
 import { appMonthlyDebtForMember, formatMonthlyDebtsAsOf } from './appMonthlyDebts';
 import {
@@ -36,12 +36,7 @@ export function liveFamilyBalanceForMember(member, allMembers = [], { today } = 
   if (!isTitularMember(member)) {
     return { isTitular: false, belongs: true, label: 'No es titular de un grupo familiar', amount: null };
   }
-  const titularBalance = Number(member.outstandingBalance) || 0;
-  const others = people.reduce((sum, row) => {
-    if (String(row.memberId || '') === String(memberNumberOf(member))) return sum;
-    return sum + (Number(row.outstandingBalance) || 0);
-  }, 0);
-  const amount = roundMoney(titularBalance + others);
+  const amount = roundMoney(Number(member.outstandingBalance) || 0);
   const groupName = member.familyGroupName || family?.titular?.familyGroupName || '';
   return {
     isTitular: true,
@@ -71,7 +66,7 @@ export function buildLiveFamilyGroupBalances(members = [], {
     const titular = group.titular;
     const liveTitular = byNumber.get(String(titular?.memberId || group.id).replace(/\D/g, '')) || titular;
     const people = group.members || [];
-    const total = roundMoney(people.reduce((sum, row) => sum + (Number(row.outstandingBalance) || 0), 0));
+    const total = roundMoney(Number(liveTitular?.outstandingBalance) || 0);
     const row = {
       key: group.id,
       name: group.name,
