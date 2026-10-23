@@ -42,6 +42,25 @@ export function getOpenSession(sessions, cashRegisterId) {
   return sessions.find((s) => s.cashRegisterId === cashRegisterId && s.status === 'open') || null;
 }
 
+/**
+ * La caja del club queda siempre abierta: reusa la sesión viva o crea una.
+ * @returns {{ session: object, created: boolean }}
+ */
+export function ensureOpenCashSession(sessions, cashRegisterId, {
+  openingBalance = 0,
+  openedBy = 'admin-local',
+  notes = 'Caja permanente (siempre abierta)',
+} = {}) {
+  if (!cashRegisterId) throw new Error('Caja no indicada.');
+  const existing = getOpenSession(sessions, cashRegisterId);
+  if (existing) return { session: existing, created: false };
+  const session = {
+    ...openCashSession({ cashRegisterId, openingBalance, openedBy }),
+    notes,
+  };
+  return { session, created: true };
+}
+
 export function sessionExpectedBalance(session, movements) {
   const sessionMoves = movements.filter((m) => m.cashSessionId === session.id);
   let balance = Number(session.openingBalance) || 0;

@@ -125,15 +125,27 @@ export default function PoolTab({
     if (typeof onRefreshDayCash === 'function') void onRefreshDayCash();
   }, [onRefreshDayCash]);
 
+  useEffect(() => {
+    if (dayCashOpen || typeof onOpenDayCash !== 'function') return undefined;
+    let cancelled = false;
+    setOpeningCash(true);
+    void onOpenDayCash()
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setOpeningCash(false);
+      });
+    return () => { cancelled = true; };
+  }, [dayCashOpen, onOpenDayCash]);
+
   const openDayCash = async () => {
     if (dayCashOpen || openingCash || typeof onOpenDayCash !== 'function') return;
     setOpeningCash(true);
     setError('');
     try {
-      const session = await onOpenDayCash();
-      showFlash(session?.openedNow ? 'Caja del día abierta.' : 'La caja del día ya estaba abierta.');
+      await onOpenDayCash();
+      showFlash('Caja abierta.');
     } catch (err) {
-      setError(err?.message || 'No se pudo abrir la caja del día.');
+      setError(err?.message || 'No se pudo asegurar la caja.');
     } finally {
       setOpeningCash(false);
     }
@@ -186,10 +198,6 @@ export default function PoolTab({
       setError('En mora · regularizá la cuota para pagar pileta.');
       return;
     }
-    if (!dayCashOpen) {
-      setError('Abrí la caja del día antes de habilitar.');
-      return;
-    }
     setSelectedId(member.memberId);
     setBusy(true);
     setError('');
@@ -219,10 +227,6 @@ export default function PoolTab({
 
   const handleEnableGuest = async () => {
     if (!selected) return;
-    if (!dayCashOpen) {
-      setError('Abrí la caja del día antes de habilitar.');
-      return;
-    }
     setBusy(true);
     setError('');
     try {
@@ -266,16 +270,16 @@ export default function PoolTab({
           <p className="pool-kicker"><Waves size={14} aria-hidden="true" /> Pileta</p>
           <h2 className="serif-font">{settings.seasonLabel}</h2>
           <p>
-            Un botón abre la caja para todo el día. Después, cada Habilitar solo anota el ingreso y el canon.
+            La caja permanece siempre abierta. Cada Habilitar anota el ingreso y cobra el canon.
           </p>
         </div>
         <button
           type="button"
           className="btn btn-primary pool-day-cash"
-          disabled={openingCash || dayCashOpen || typeof onOpenDayCash !== 'function'}
+          disabled={dayCashOpen || openingCash || typeof onOpenDayCash !== 'function'}
           onClick={openDayCash}
         >
-          {dayCashOpen ? 'Caja del día abierta' : (openingCash ? 'Abriendo caja…' : 'Abrir caja del día')}
+          {dayCashOpen ? 'Caja abierta' : (openingCash ? 'Asegurando caja…' : 'Asegurar caja')}
         </button>
         <div className="pool-hero-kpis">
           <div><strong>{stats.members}</strong><span>Socios hoy</span></div>

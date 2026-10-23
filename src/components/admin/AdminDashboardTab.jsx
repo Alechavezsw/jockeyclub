@@ -454,15 +454,27 @@ export default function AdminDashboardTab({
     return poolToday ? [poolToday, ...base] : base;
   }, [poolMonthRows, todayKey, todayIncomes]);
 
+  useEffect(() => {
+    if (dayCashOpen || typeof onOpenDayCash !== 'function') return undefined;
+    let cancelled = false;
+    setOpeningCash(true);
+    void onOpenDayCash()
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setOpeningCash(false);
+      });
+    return () => { cancelled = true; };
+  }, [dayCashOpen, onOpenDayCash]);
+
   const openDayCash = async () => {
     if (dayCashOpen || openingCash || typeof onOpenDayCash !== 'function') return;
     setOpeningCash(true);
     setCashFlash('');
     try {
-      const session = await onOpenDayCash();
-      setCashFlash(session?.openedNow ? 'Caja del día abierta.' : 'La caja del día ya estaba abierta.');
+      await onOpenDayCash();
+      setCashFlash('Caja abierta.');
     } catch (err) {
-      setCashFlash(err?.message || 'No se pudo abrir la caja del día.');
+      setCashFlash(err?.message || 'No se pudo asegurar la caja.');
     } finally {
       setOpeningCash(false);
     }
@@ -1173,7 +1185,7 @@ export default function AdminDashboardTab({
                       disabled={openingCash || dayCashOpen || typeof onOpenDayCash !== 'function'}
                       onClick={openDayCash}
                     >
-                      {dayCashOpen ? 'Caja del día abierta' : (openingCash ? 'Abriendo…' : 'Abrir caja del día')}
+                      {dayCashOpen ? 'Caja abierta' : (openingCash ? 'Asegurando…' : 'Asegurar caja')}
                     </button>
                   </div>
                   {cashFlash ? <p className="ops-muted" style={{ margin: '0.35rem 0 0' }}>{cashFlash}</p> : null}

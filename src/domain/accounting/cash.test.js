@@ -4,6 +4,8 @@ import {
   buildCashTransferEntry,
   counterpartAccountsForMovement,
   closedSessions,
+  ensureOpenCashSession,
+  getOpenSession,
   pickGeneralCashRegister,
   sessionStatusLabel,
   DEFAULT_CASH_REGISTERS,
@@ -72,5 +74,25 @@ describe('pickGeneralCashRegister', () => {
   it('elige la caja imputada a Caja General', () => {
     const picked = pickGeneralCashRegister(DEFAULT_CASH_REGISTERS, DEFAULT_CHART_OF_ACCOUNTS);
     expect(picked?.id).toBe('cash-gen');
+  });
+});
+
+describe('ensureOpenCashSession', () => {
+  it('reusa la sesión abierta y crea una si no hay', () => {
+    const open = {
+      id: 'cs-1',
+      cashRegisterId: 'cash-gen',
+      status: 'open',
+      openingBalance: 100,
+    };
+    const reuse = ensureOpenCashSession([open], 'cash-gen');
+    expect(reuse.created).toBe(false);
+    expect(reuse.session).toBe(open);
+
+    const created = ensureOpenCashSession([], 'cash-gen', { openingBalance: 0 });
+    expect(created.created).toBe(true);
+    expect(created.session.status).toBe('open');
+    expect(created.session.cashRegisterId).toBe('cash-gen');
+    expect(getOpenSession([created.session], 'cash-gen')).toBe(created.session);
   });
 });

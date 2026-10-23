@@ -382,8 +382,8 @@ export function buildClubReview({
     title: pendingPay.length === 1
       ? '1 cobranza sin identificar'
       : `${pendingPay.length} cobranzas sin identificar`,
-    detail: 'Siguen fuera de la cuenta de un socio.',
-    why: 'La más vieja va primero.',
+    detail: 'Sin número de socio, o con un número que no está en el padrón.',
+    why: 'Jev las avisa hasta que se imputen o se rechacen. La más vieja va primero.',
     tab: 'accounting',
     focus: 'unidentified',
     samples: take(pendingPay, (item) => {
@@ -1211,27 +1211,7 @@ export function buildClubReview({
     )),
   });
 
-  const staleOpenSessions = (cashSessions || []).filter((session) => {
-    if (session.status !== 'open') return false;
-    const opened = String(session.openedAt || '').slice(0, 10);
-    return /^\d{4}-\d{2}-\d{2}$/.test(opened) && opened < todayIso;
-  });
-  row(items, {
-    id: 'cash-still-open',
-    tier: 'cierre',
-    count: staleOpenSessions.length,
-    title: staleOpenSessions.length === 1
-      ? '1 caja sigue abierta de un día anterior'
-      : `${staleOpenSessions.length} cajas siguen abiertas de un día anterior`,
-    detail: 'El arqueo de ese día no se cerró.',
-    why: 'El cierre de caja queda colgado.',
-    tab: 'accounting',
-    focus: 'cash',
-    samples: take(staleOpenSessions, (session) => asSample(
-      String(session.openedAt).slice(0, 10),
-      '/panel/accounting?sub=cash',
-    )),
-  });
+  // La caja del club permanece siempre abierta: no alertar por sesiones abiertas de días previos.
 
   const [periodYear, periodMonth] = month.split('-').map(Number);
   const currentFeePeriod = (feePeriods || []).find((period) => (

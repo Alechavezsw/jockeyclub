@@ -715,6 +715,25 @@ export async function insertMemberPayment(memberDbId, payment) {
       ...(payment.paidAt ? { paidAt: payment.paidAt } : {}),
       ...(payment.time ? { time: payment.time } : {}),
       ...(payment.bankName ? { bank: payment.bankName } : {}),
+      ...(payment.bankId ? { bankId: payment.bankId } : {}),
+      ...(payment.receiptName ? { receiptName: payment.receiptName } : {}),
+      ...(payment.receiptPath ? { receiptPath: payment.receiptPath } : {}),
+      ...(payment.receiptBucket ? { receiptBucket: payment.receiptBucket } : {}),
+      ...(payment.receiptMime ? { receiptMime: payment.receiptMime } : {}),
+      ...(payment.receiptSize != null ? { receiptSize: payment.receiptSize } : {}),
+      ...(Array.isArray(payment.periodDueOns) && payment.periodDueOns.length
+        ? { periodDueOns: payment.periodDueOns }
+        : {}),
+      ...(payment.quota != null ? { quota: payment.quota } : {}),
+      ...(payment.surcharge != null ? { surcharge: payment.surcharge } : {}),
+      ...(payment.paymentPlanId ? { paymentPlanId: payment.paymentPlanId } : {}),
+      ...(payment.paymentPlanLabel ? { paymentPlanLabel: payment.paymentPlanLabel } : {}),
+      ...(payment.receiptParse && typeof payment.receiptParse === 'object'
+        ? { receiptParse: payment.receiptParse }
+        : {}),
+      ...(Array.isArray(payment.paymentSplits) && payment.paymentSplits.length
+        ? { paymentSplits: payment.paymentSplits }
+        : {}),
     },
   };
   const saved = await unwrap(
@@ -1437,6 +1456,9 @@ export async function insertCashSession(session) {
 }
 
 export async function updateCashSession(id, patch) {
+  if (patch?.status === 'closed' || patch?.status === 'discrepancy') {
+    throw new Error('La caja permanece abierta: no se cierra.');
+  }
   const row = {};
   if (patch.status != null) row.status = patch.status;
   if (patch.countedBalance != null) row.counted_balance = patch.countedBalance;

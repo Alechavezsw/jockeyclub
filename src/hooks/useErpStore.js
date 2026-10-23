@@ -5,8 +5,7 @@ import * as repos from '../data/repos';
 import { DEFAULT_CHART_OF_ACCOUNTS, resolveAccountId } from '../domain/accounting/chartOfAccounts';
 import {
   DEFAULT_CASH_REGISTERS,
-  openCashSession,
-  closeCashSession,
+  ensureOpenCashSession,
   buildCashMovementEntry,
   buildCashTransferEntry,
   getOpenSession,
@@ -583,10 +582,11 @@ export default function useErpStore({
 
   const openRegister = useCallback(
     async (cashRegisterId, openingBalance) => {
-      if (getOpenSession(cashSessions, cashRegisterId)) {
-        throw new Error('Ya hay una sesión abierta en esta caja.');
-      }
-      const session = openCashSession({ cashRegisterId, openingBalance });
+      const { session, created } = ensureOpenCashSession(cashSessions, cashRegisterId, {
+        openingBalance: Number(openingBalance) || 0,
+        openedBy: userId || 'admin-local',
+      });
+      if (!created) return session;
       if (cloud()) {
         if (!userId) throw new Error('Sesión de usuario requerida para abrir caja.');
         const saved = await repos.insertCashSession({ ...session, openedBy: userId });
@@ -599,30 +599,20 @@ export default function useErpStore({
     [cashSessions, userId]
   );
 
+  /** La caja del club no se cierra: queda siempre operativa. */
   const closeRegister = useCallback(
-    async (sessionId, countedBalance) => {
-      const current = cashSessions.find((s) => s.id === sessionId);
-      if (!current) return;
-      const closed = closeCashSession(current, { countedBalance, movements: cashMovements });
-      if (cloud()) {
-        const saved = await repos.updateCashSession(sessionId, {
-          status: closed.status,
-          countedBalance: closed.countedBalance,
-          closedAt: closed.closedAt || new Date().toISOString(),
-          closedBy: userId,
-        });
-        setCashSessions((prev) => prev.map((s) => (s.id === sessionId ? saved : s)));
-        return;
-      }
-      setCashSessions((prev) => prev.map((s) => (s.id === sessionId ? closed : s)));
+    async () => {
+      throw new Error('La caja permanece abierta: no se cierra.');
     },
-    [cashMovements, cashSessions, userId]
+    []
   );
 
   const addCashMovement = useCallback(
     async ({ cashRegisterId, movementType, amount, concept, relatedAccountId, memberId }) => {
-      const session = getOpenSession(cashSessions, cashRegisterId);
-      if (!session) throw new Error('Debe abrir la caja antes de registrar movimientos.');
+      let session = getOpenSession(cashSessions, cashRegisterId);
+      if (!session) {
+        session = await openRegister(cashRegisterId, 0);
+      }
       const register = cashRegisters.find((r) => r.id === cashRegisterId);
       if (!register) throw new Error('Caja no encontrada.');
 
@@ -668,7 +658,7 @@ export default function useErpStore({
       setJournalEntries((prev) => [entry, ...prev]);
       return movement;
     },
-    [cashSessions, cashRegisters, chartOfAccounts, setJournalEntries, userId]
+    [cashSessions, cashRegisters, chartOfAccounts, setJournalEntries, userId, openRegister]
   );
 
   const recordPoolCanon = useCallback(
@@ -689,8 +679,10 @@ export default function useErpStore({
       if (!incomeAccountId) throw new Error('Falta la cuenta Reservas e Instalaciones en el plan.');
       const register = pickGeneralCashRegister(cashRegisters, chartOfAccounts);
       if (!register) throw new Error('No hay Caja General configurada.');
-      const session = getOpenSession(cashSessions, register.id);
-      if (!session) throw new Error('Abrí la Caja General para cobrar el canon de pileta.');
+      let session = getOpenSession(cashSessions, register.id);
+      if (!session) {
+        session = await openRegister(register.id, 0);
+      }
       const entry = buildPostedEntry({
         date: when,
         description,
@@ -716,23 +708,16 @@ export default function useErpStore({
       setJournalEntries((prev) => [entry, ...prev]);
       return { journalEntry: entry, movement };
     },
-    [cashRegisters, cashSessions, chartOfAccounts, setJournalEntries, userId]
+    [cashRegisters, cashSessions, chartOfAccounts, setJournalEntries, userId, openRegister]
   );
 
   const openPoolDayCash = useCallback(async () => {
     if (!cloud()) {
       const register = pickGeneralCashRegister(cashRegisters, chartOfAccounts);
       if (!register) throw new Error('No hay Caja General configurada.');
-      const existing = getOpenSession(cashSessions, register.id);
-      if (existing) return { ...existing, openedNow: false };
-      const session = openCashSession({
-        cashRegisterId: register.id,
-        openingBalance: 0,
-        openedBy: userId || 'admin-local',
-      });
-      const next = { ...session, notes: 'Abierta al habilitar pileta' };
-      setCashSessions((prev) => [next, ...prev]);
-      return { ...next, openedNow: true };
+      const alreadyOpen = Boolean(getOpenSession(cashSessions, register.id));
+      const session = await openRegister(register.id, 0);
+      return { ...session, openedNow: !alreadyOpen };
     }
     const session = await repos.openPoolDayCash();
     setCashSessions((prev) => (
@@ -740,12 +725,16 @@ export default function useErpStore({
     ));
     setCloudPoolDayCashOpen(true);
     return session;
-  }, [cashRegisters, cashSessions, chartOfAccounts, userId]);
+  }, [cashRegisters, cashSessions, chartOfAccounts, openRegister]);
 
   const refreshPoolDayCash = useCallback(async () => {
-    if (!cloud()) return null;
+    if (!cloud()) return true;
     try {
-      const open = await repos.getPoolDayCashOpen();
+      let open = await repos.getPoolDayCashOpen();
+      if (!open) {
+        await repos.openPoolDayCash();
+        open = true;
+      }
       setCloudPoolDayCashOpen(open);
       return open;
     } catch {
@@ -753,12 +742,43 @@ export default function useErpStore({
     }
   }, []);
 
+  /** Garantiza sesión abierta en cada caja activa: la caja del club no se cierra. */
+  const ensuringCashRef = useRef(false);
+  useEffect(() => {
+    const missing = (cashRegisters || []).filter(
+      (reg) => reg?.isActive !== false && reg?.id && !getOpenSession(cashSessions, reg.id),
+    );
+    if (!missing.length || ensuringCashRef.current) return undefined;
+    ensuringCashRef.current = true;
+    let cancelled = false;
+    Promise.all(missing.map((reg) => openRegister(reg.id, 0).catch(() => null)))
+      .then(async () => {
+        if (cancelled || !cloud()) return;
+        try {
+          let open = await repos.getPoolDayCashOpen();
+          if (!open) {
+            await repos.openPoolDayCash();
+            open = true;
+          }
+          setCloudPoolDayCashOpen(open);
+        } catch {
+          /* sin permiso de pileta / caja: se ignora */
+        }
+      })
+      .finally(() => {
+        ensuringCashRef.current = false;
+      });
+    return () => { cancelled = true; };
+  }, [cashRegisters, cashSessions, openRegister]);
+
   const transferCash = useCallback(
     async ({ fromRegisterId, toAccountId, amount, concept }) => {
       const fromRegister = cashRegisters.find((r) => r.id === fromRegisterId);
       if (!fromRegister) throw new Error('Caja origen no encontrada.');
-      const fromSession = getOpenSession(cashSessions, fromRegisterId);
-      if (!fromSession) throw new Error('Abra la caja origen antes de traspasar.');
+      let fromSession = getOpenSession(cashSessions, fromRegisterId);
+      if (!fromSession) {
+        fromSession = await openRegister(fromRegisterId, 0);
+      }
       if (!toAccountId) throw new Error('Seleccione destino del traspaso.');
       if (toAccountId === fromRegister.accountId) {
         throw new Error('El destino no puede ser la misma cuenta de origen.');
@@ -808,7 +828,7 @@ export default function useErpStore({
       setJournalEntries((prev) => [entry, ...prev]);
       return { entry, movements: [outMove] };
     },
-    [cashRegisters, cashSessions, chartOfAccounts, setJournalEntries, userId]
+    [cashRegisters, cashSessions, chartOfAccounts, setJournalEntries, userId, openRegister]
   );
 
   const submitExpense = useCallback(async (payload) => {
@@ -1502,7 +1522,8 @@ export default function useErpStore({
   const upsertUnidentifiedCollection = useCallback((item) => {
     const run = async () => {
       let nextItem = item;
-      if (item.status === 'matched' && !item.journalEntryId) {
+      // Si ya se aplicó como cuota (Cobrar / match con recordDuesCollection), no duplicar asiento.
+      if (item.status === 'matched' && !item.journalEntryId && !item.duesApplied) {
         try {
           const entry = buildUnidentifiedMatchEntry(item, chartOfAccounts);
           if (entry) {

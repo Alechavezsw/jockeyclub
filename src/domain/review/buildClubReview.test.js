@@ -232,8 +232,8 @@ describe('buildClubReview', () => {
     const ids = review.items.map((item) => item.id);
     expect(ids.indexOf('expenses-pending')).toBeLessThan(ids.indexOf('discount-expired'));
     expect(ids.indexOf('discount-expired')).toBeLessThan(ids.indexOf('dup-email'));
-    expect(ids.indexOf('dup-email')).toBeLessThan(ids.indexOf('cash-still-open'));
-    expect(ids.indexOf('fee-month')).toBeGreaterThan(ids.indexOf('cash-still-open'));
+    expect(ids.indexOf('dup-email')).toBeLessThan(ids.indexOf('fee-month'));
+    expect(ids).not.toContain('cash-still-open');
     expect(ids).toContain('join-pending');
     expect(ids).toContain('claims-old');
     expect(review.counts.bien).toBe(0);
