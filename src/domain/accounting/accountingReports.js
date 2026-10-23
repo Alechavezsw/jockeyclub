@@ -9,6 +9,7 @@ export const ACCOUNTING_REPORT_TYPES = [
   { id: 'balance_sheet', label: 'Balance patrimonial' },
   { id: 'trial', label: 'Balance de comprobación' },
   { id: 'gestion', label: 'Gestión del ejercicio' },
+  { id: 'cierre', label: 'Informe de cierre' },
   { id: 'recargos', label: 'Composición de recargos' },
   { id: 'libre_deuda', label: 'Libre deuda' },
   { id: 'detailed_cc', label: 'Cuentas corrientes detalladas' },

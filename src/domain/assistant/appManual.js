@@ -664,7 +664,7 @@ export const APP_MANUAL = [
     steps: [
       'Gestión → Contabilidad. Cajero y portería entran directo a Cajas.',
       'Libros: Libro Diario, Libro Mayor y Crear asiento legal.',
-      'Informes: Balance (mensual, resumido, cuenta corriente, patrimonial), Estado de resultados, Reportes y gráficos, Reportes.',
+      'Informes: Balance (mensual, resumido, cuenta corriente, patrimonial), Estado de resultados, Reportes y gráficos, Reportes. El informe de cierre está en Reportes y sigue este orden: fecha de corte, imputar pagos pendientes, cajas y medios de cobro, cuentas corrientes, resumen mensual y saldos al mes siguiente.',
       'Padrón: Libre deuda, Grupo familiar, Descuentos extras, Bonificaciones, SIAP e Impuestos.',
       'Operación → Tesorería: Cajas, Gastos, Proveedores, Retenciones, Otros ingresos, Intereses, Sin identificar, Galicia, Gastos fijos, Saldos, Órdenes y Créditos socios.',
       'Catálogo: Plan de cuentas.',

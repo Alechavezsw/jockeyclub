@@ -12,7 +12,7 @@ describe('accountingReports', () => {
   it('incluye libros, estados y reportes de socios', () => {
     const ids = ACCOUNTING_REPORT_TYPES.map((t) => t.id);
     expect(ids).toEqual([
-      'diary', 'mayor', 'results', 'balance_sheet', 'trial', 'gestion',
+      'diary', 'mayor', 'results', 'balance_sheet', 'trial', 'gestion', 'cierre',
       'recargos', 'libre_deuda', 'detailed_cc', 'family_balances',
     ]);
   });

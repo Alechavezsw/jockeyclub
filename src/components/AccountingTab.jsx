@@ -1497,6 +1497,9 @@ export default function AccountingTab({
           onRecordReport={onRecordAccountingReport}
           journalEntries={officialJournal}
           chartOfAccounts={chartOfAccounts}
+          feePeriods={feePeriods}
+          cashMovements={cashMovements}
+          pendingCollections={unidentifiedCollections}
           onOpenLibreDeuda={() => setSubTab('libre_deuda')}
           onOpenFamilyBalances={() => setSubTab('family_balances')}
         />

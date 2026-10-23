@@ -16,6 +16,7 @@ import { buildLiveFamilyGroupBalances } from '../../domain/accounting/liveFamily
 import { exportFamilyGroupBalancesPdf } from '../../domain/accounting/exportFamilyGroupBalancesPdf';
 import { exportAccountingReport, buildAccountingPack } from '../../domain/accounting/exportAccountingPack';
 import { exportJournalPdf } from '../../domain/accounting/exportJournalPdf';
+import MonthClosePanel from './MonthClosePanel';
 import { exportJournalExcel } from '../../domain/accounting/exportJournalExcel';
 import { DEFAULT_CHART_OF_ACCOUNTS } from '../../domain/accounting/chartOfAccounts';
 import { formatCurrency } from '../../domain/accounting/journal';
@@ -96,6 +97,9 @@ export default function AccountingReportsPanel({
   chartOfAccounts = DEFAULT_CHART_OF_ACCOUNTS,
   onOpenLibreDeuda,
   onOpenFamilyBalances,
+  feePeriods = [],
+  cashMovements = [],
+  pendingCollections = [],
 }) {
   const [reportType, setReportType] = useState('results');
   const [memberQuery, setMemberQuery] = useState('');
@@ -322,6 +326,16 @@ export default function AccountingReportsPanel({
       </dl>
 
       {error ? <p className="mb-folio-status is-error" role="alert">{error}</p> : null}
+
+      <MonthClosePanel
+        journalEntries={journalEntries}
+        chartOfAccounts={chartOfAccounts}
+        members={members}
+        feePeriods={feePeriods}
+        cashMovements={cashMovements}
+        pendingCollections={pendingCollections}
+        onRecordReport={onRecordReport}
+      />
 
       <section className="er-block">
         <div className="er-block-head">

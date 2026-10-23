@@ -13390,6 +13390,133 @@ a.ops-outline-btn {
   gap: 0.9rem;
 }
 
+.mc-close {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.mc-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
+.mc-tools label {
+  min-width: 16rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.mc-block h5 {
+  margin: 0 0 0.35rem;
+  font-size: 0.95rem;
+}
+
+.mc-steps {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+}
+
+.mc-step h5 {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+}
+
+.mc-step h5 span {
+  font-variant-numeric: tabular-nums;
+  color: var(--primary-gold);
+}
+
+.mc-step p {
+  margin: 0 0 0.55rem;
+  color: var(--text-secondary);
+}
+
+.mc-checks {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+}
+
+.mc-check {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--border-glass);
+}
+
+.mc-check strong {
+  flex: 0 0 9rem;
+}
+
+.mc-check span {
+  color: var(--text-secondary);
+  text-align: right;
+}
+
+.mc-check.is-ok {
+  border-color: color-mix(in srgb, var(--emerald-accent) 45%, var(--border-glass));
+}
+
+.mc-check.is-pending {
+  border-color: color-mix(in srgb, var(--danger-accent) 45%, var(--border-glass));
+}
+
+.mc-check.is-watch {
+  border-color: color-mix(in srgb, var(--primary-gold) 45%, var(--border-glass));
+}
+
+.mc-signs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 0.4rem;
+}
+
+.mc-sign {
+  min-height: 4.5rem;
+  padding-top: 2.2rem;
+  border-top: 1px solid color-mix(in srgb, var(--primary-gold) 55%, var(--border-glass));
+}
+
+.mc-sign strong,
+.mc-sign span {
+  display: block;
+}
+
+.mc-sign span {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
+@media (max-width: 720px) {
+  .mc-check {
+    flex-direction: column;
+  }
+
+  .mc-check span {
+    text-align: left;
+  }
+
+  .mc-signs {
+    grid-template-columns: 1fr;
+  }
+}
+
 .ar-card {
   display: flex;
   flex-direction: column;

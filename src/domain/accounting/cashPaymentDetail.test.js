@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCashPaymentDetail, cashPaymentShareTargets, currentMonthFeeCollected, liveMonthFeeCollected, splitMonthDuesCollection } from './cashPaymentDetail';
+import { buildCashPaymentDetail, cashPaymentShareTargets, currentMonthFeeCollected, feeImputationLines, liveMonthFeeCollected, splitMonthDuesCollection } from './cashPaymentDetail';
 
 const macro = {
   id: 'acm-603050',
@@ -252,5 +252,30 @@ describe('liquidado / recaudado de tesorería', () => {
       recaudado: 77000,
       porteria: 0,
     });
+  });
+
+  it('el 2 de marzo que paga febrero imputa esa deuda y la caja queda en marzo', () => {
+    const member = { memberId: '10567', tier: 'socio_familiar', cuotaCategories: ['SOCIO FAMILIAR'] };
+    const movement = {
+      accessinId: 9,
+      date: '2026-03-02',
+      amount: 66000,
+      memberNumber: '10567',
+      movementType: 'income',
+    };
+    expect(feeImputationLines(movement, member).map((line) => String(line.date).slice(0, 7))).toEqual([
+      '2026-02',
+      '2026-02',
+    ]);
+    expect(splitMonthDuesCollection({
+      monthKey: '2026-03',
+      members: [member],
+      movements: [movement],
+    })).toMatchObject({ cuotaMes: 0, atrasadas: 60000, recargos: 6000 });
+    expect(splitMonthDuesCollection({
+      monthKey: '2026-02',
+      members: [member],
+      movements: [movement],
+    }).recaudado).toBe(0);
   });
 });
