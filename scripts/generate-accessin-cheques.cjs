@@ -1,15 +1,22 @@
 /**
  * Genera seed de cheques en cartera Accessin/LILA.
- * Source: datita/contabilidad/caja/Cheques/LILA - Cheques en cartera 2026-09-02.xlsx
+ * Toma el Excel más nuevo de datita/contabilidad/caja/Cheques.
  */
 const XLSX = require('xlsx');
 const fs = require('fs');
 const path = require('path');
 
-const excelPath = path.join(
-  __dirname,
-  '../datita/contabilidad/caja/Cheques/LILA - Cheques en cartera 2026-09-02.xlsx'
-);
+const chequesDir = path.join(__dirname, '../datita/contabilidad/caja/Cheques');
+const chequesFiles = fs.readdirSync(chequesDir)
+  .filter((name) => name.endsWith('.xlsx') && !name.startsWith('~$') && /cheques en cartera/i.test(name))
+  .map((name) => {
+    const dated = name.match(/(\d{4}-\d{2}-\d{2})/);
+    return { name, date: dated ? dated[1] : '', mtime: fs.statSync(path.join(chequesDir, name)).mtimeMs };
+  })
+  .toSorted((a, b) => b.date.localeCompare(a.date) || b.mtime - a.mtime);
+if (!chequesFiles.length) throw new Error('No hay Excel de cheques en cartera');
+const excelPath = path.join(chequesDir, chequesFiles[0].name);
+const asOf = chequesFiles[0].date || '2026-10-20';
 const outDir = path.join(__dirname, '../src/data/seed');
 const outFile = path.join(outDir, 'accessinCheques.js');
 
@@ -71,16 +78,16 @@ const inPortfolio = cheques.filter((c) => c.status === 'in_portfolio');
 const total = Math.round(inPortfolio.reduce((s, c) => s + (Number(c.amount) || 0), 0) * 100) / 100;
 
 const snapshot = {
-  asOf: '2026-09-02',
-  generatedAt: '2026-09-02T20:40:00.000Z',
+  asOf,
+  generatedAt: new Date().toISOString(),
   count: inPortfolio.length,
   total,
   allCount: cheques.length,
 };
 
 fs.mkdirSync(outDir, { recursive: true });
-const js = `/** Cheques en cartera Accessin/LILA (al 2026-09-02). Auto-generado — no editar a mano. */
-export const ACCESSIN_CHEQUES_AS_OF = '2026-09-02';
+const js = `/** Cheques en cartera Accessin/LILA (al ${asOf}). Auto-generado — no editar a mano. */
+export const ACCESSIN_CHEQUES_AS_OF = '${asOf}';
 export const ACCESSIN_CHEQUES_SNAPSHOT = ${JSON.stringify(snapshot, null, 2)};
 export const ACCESSIN_CHEQUES = ${JSON.stringify(cheques, null, 2)};
 `;

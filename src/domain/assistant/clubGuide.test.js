@@ -7,6 +7,8 @@ import {
   matchGuideTopics,
   mergeJevReply,
   monthReading,
+  openingReviewBriefing,
+  reviewQueueForPrompt,
   teachFromQuery,
 } from './clubGuide';
 import { memberFacts } from './memberFacts';
@@ -130,6 +132,19 @@ describe('clubGuide', () => {
     expect(guide).toMatch(/ADHERENTE/);
     expect(guide).toMatch(/reservas las hace el titular/);
     expect(guideForPrompt('cobrar').length).toBeLessThanOrEqual(12000);
+  });
+
+  it('el prompt de Revisión incluye la cola para que Gemini priorice', () => {
+    const items = [
+      { id: 'unidentified', title: '2 cobranzas sin identificar', detail: 'Sin socio', why: 'Imputar', tab: 'accounting', focus: 'unidentified', count: 2 },
+      { id: 'no-name', title: '1 ficha sin nombre', detail: 'Falta el apellido', tab: 'members', count: 1 },
+    ];
+    expect(reviewQueueForPrompt(items)).toMatch(/REVISIÓN PENDIENTE/);
+    expect(reviewQueueForPrompt(items)).toMatch(/sin identificar/i);
+    const withReview = guideForPrompt('priorizá la revisión', { reviewItems: items });
+    expect(withReview).toMatch(/REVISIÓN PENDIENTE/);
+    expect(withReview.length).toBeLessThanOrEqual(12000);
+    expect(openingReviewBriefing({}, items).verdict).toMatch(/2 bloques/);
   });
 
   it('si Gemini contestó bien, manda su respuesta; si no, queda la del libro', () => {

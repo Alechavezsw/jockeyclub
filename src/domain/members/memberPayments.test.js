@@ -71,6 +71,39 @@ describe('payMemberDues', () => {
     expect(ledgerEntry.value).toBe(-32000);
   });
 
+  it('cobra solo los meses marcados y deja el resto pendiente', () => {
+    const member = {
+      memberId: '8801',
+      name: 'Con mora',
+      tier: 'socio_familiar',
+      outstandingBalance: 210000,
+      nextDueDate: '2026-08-10',
+      lastPaymentDate: '2026-07-08',
+      paymentHistory: [],
+    };
+    const today = new Date('2026-10-22T12:00:00');
+    const preview = collectionPreview(member, today);
+    expect(preview.choices.length).toBeGreaterThan(1);
+    const first = preview.choices[0];
+    const rest = preview.choices.slice(1);
+    const marked = collectionPreview(member, today, { periodDueOns: [first.dueOn] });
+    expect(marked.cash).toBe(first.payable);
+    expect(marked.periods).toHaveLength(1);
+
+    const { member: next, payment, fullyPaid } = payMemberDues(member, {
+      method: 'efectivo',
+      today,
+      periodDueOns: [first.dueOn],
+    });
+    expect(fullyPaid).toBe(false);
+    expect(payment.amount).toBe(first.payable);
+    expect(payment.periodDueOns).toEqual([first.dueOn]);
+    expect(next.outstandingBalance).toBe(
+      rest.reduce((sum, row) => sum + row.capital, 0),
+    );
+    expect(next.nextDueDate).toBe(rest[0].dueOn);
+  });
+
   it('recordDuesCollection acredita efectivo y deja asiento + diario', () => {
     const member = {
       memberId: '1004',
@@ -106,6 +139,83 @@ describe('payMemberDues', () => {
       .toThrow(/comprobante/i);
   });
 
+  it('recordDuesCollection registra pago mixto con dos asientos de débito', () => {
+    const member = {
+      memberId: '11017',
+      name: 'Socio',
+      outstandingBalance: 39600,
+      paymentHistory: [],
+    };
+    const result = recordDuesCollection(member, {
+      method: 'mixto',
+      amount: 39600,
+      paymentSplits: [
+        { method: 'efectivo', amount: 20000 },
+        {
+          method: 'transferencia',
+          amount: 19600,
+          bankId: 'nacion',
+          bankName: 'Banco Nación',
+          receiptName: 'tr.pdf',
+          receiptAttachment: {
+            path: '11017/tr.pdf',
+            bucket: 'dues-receipts',
+            name: 'tr.pdf',
+            mimeType: 'application/pdf',
+            size: 400,
+          },
+        },
+      ],
+      today: new Date('2026-09-05T12:00:00'),
+    });
+    expect(result.payment.method).toBe('mixto');
+    expect(result.payment.paymentSplits).toHaveLength(2);
+    expect(result.journalEntry.lines.filter((l) => l.type === 'debit')).toEqual([
+      { account: 'Caja General', type: 'debit', amount: 20000 },
+      { account: 'Banco Nación', type: 'debit', amount: 19600 },
+    ]);
+    expect(result.journalEntry.lines.find((l) => l.type === 'credit')?.amount).toBe(39600);
+  });
+
+  it('pago mixto rechaza suma distinta al cobro', () => {
+    const member = { memberId: '11017', name: 'Socio', outstandingBalance: 1000, paymentHistory: [] };
+    expect(() => recordDuesCollection(member, {
+      method: 'mixto',
+      amount: 1000,
+      paymentSplits: [
+        { method: 'efectivo', amount: 400 },
+        { method: 'efectivo', amount: 400 },
+      ],
+    })).toThrow(/suman/i);
+  });
+
+  it('recordDuesCollection exige comprobante en tarjeta y asienta en Caja General', () => {
+    const member = { memberId: '11017', name: 'Socio', outstandingBalance: 1000, paymentHistory: [] };
+    expect(() => recordDuesCollection(member, { method: 'tarjeta' }))
+      .toThrow(/comprobante/i);
+    const result = recordDuesCollection(member, {
+      method: 'tarjeta',
+      receiptName: 'voucher.jpg',
+      receiptAttachment: {
+        path: '11017/voucher.jpg',
+        bucket: 'dues-receipts',
+        name: 'voucher.jpg',
+        mimeType: 'image/jpeg',
+        size: 1200,
+      },
+      paymentPlanId: 'visa-3',
+      paymentPlanLabel: 'Visa 3 cuotas',
+      receiptParse: { amount: 1000, bankOrCard: 'Visa', reference: 'OP-1' },
+      today: new Date('2026-09-05T12:00:00'),
+    });
+    expect(result.payment.method).toBe('tarjeta');
+    expect(result.payment.paymentPlanId).toBe('visa-3');
+    expect(result.payment.paymentPlanLabel).toBe('Visa 3 cuotas');
+    expect(result.payment.receiptParse?.reference).toBe('OP-1');
+    expect(result.journalEntry.lines[0].account).toBe('Caja General');
+    expect(result.payment.concept).toMatch(/Plan: Visa 3 cuotas/);
+  });
+
   it('recordDuesCollection registra transferencia con banco y comprobante', () => {
     const member = {
       memberId: '11017',
@@ -118,11 +228,49 @@ describe('payMemberDues', () => {
       bankId: 'nacion',
       bankName: 'Banco Nación',
       receiptName: 'comprobante.pdf',
+      receiptAttachment: {
+        path: '11017/abc.pdf',
+        bucket: 'dues-receipts',
+        name: 'comprobante.pdf',
+        mimeType: 'application/pdf',
+        size: 900,
+      },
       today: new Date('2026-09-05T12:00:00'),
     });
     expect(result.payment.receiptName).toBe('comprobante.pdf');
+    expect(result.payment.receiptPath).toBe('11017/abc.pdf');
     expect(result.journalEntry.lines[0].account).toBe('Banco Nación');
     expect(result.journalEntry.description).toMatch(/Comp: comprobante.pdf/);
+  });
+
+  it('transferencia sin archivo en Supabase no registra el cobro', () => {
+    const member = { memberId: '11017', name: 'Socio', outstandingBalance: 1000, paymentHistory: [] };
+    expect(() => recordDuesCollection(member, {
+      method: 'transferencia',
+      receiptName: 'solo-nombre.pdf',
+    })).toThrow(/supabase/i);
+  });
+
+  it('transferencia desde Sin identificar entra directo como cuota', () => {
+    const member = {
+      memberId: '11017',
+      name: 'Socio',
+      outstandingBalance: 32000,
+      paymentHistory: [],
+    };
+    const result = recordDuesCollection(member, {
+      method: 'transferencia',
+      bankId: 'nacion',
+      bankName: 'Banco Nación',
+      receiptName: 'REF-BANCO',
+      treasuryMatch: true,
+      amount: 32000,
+      today: new Date('2026-09-05T12:00:00'),
+    });
+    expect(result.member.outstandingBalance).toBe(0);
+    expect(result.payment.method).toBe('transferencia');
+    expect(result.journalEntry.lines[0].account).toBe('Banco Nación');
+    expect(result.journalEntry.lines[1].account).toBe('Cuotas Sociales');
   });
 
   it('el recargo se cobra siempre', () => {

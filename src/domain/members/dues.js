@@ -573,6 +573,56 @@ function overdueSocialMonths(member, paidOn) {
   return months;
 }
 
+function periodChoiceLabel(dueOn) {
+  const iso = String(dueOn || '').slice(0, 10);
+  const match = iso.match(/^(\d{4})-(\d{2})/);
+  if (!match) return iso;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, 1);
+  const label = date.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+/**
+ * Meses que se pueden marcar en el cobro (atrasados, o el próximo si está al día).
+ */
+export function collectionPeriodChoices(member, today = new Date()) {
+  if (!member || isDuesExemptMember(member) || isFamilyDependent(member)) return [];
+  const paidOn = startOfDay(today);
+  const overdue = overdueSocialMonths(member, paidOn)
+    .filter((row) => row.capital > 0)
+    .map((row) => ({
+      id: row.dueOn,
+      dueOn: row.dueOn,
+      monthKey: String(row.dueOn).slice(0, 7),
+      label: periodChoiceLabel(row.dueOn),
+      capital: row.capital,
+      surcharge: row.surcharge,
+      payable: row.payable,
+      kind: 'overdue',
+    }));
+  if (overdue.length) return overdue;
+
+  const dueOn = pinDuesDueDate(member.nextDueDate, member) || nextDuesDueDate(today, member);
+  const on = parseDate(dueOn) || paidOn;
+  const capital = Math.round(duesAmountForMember(member, on) || 0);
+  if (!(capital > 0)) return [];
+  const payable = Math.round(duesPayableForMember(member, {
+    paidOn,
+    dueOn,
+    on,
+  }) || 0);
+  return [{
+    id: dueOn,
+    dueOn,
+    monthKey: String(dueOn).slice(0, 7),
+    label: periodChoiceLabel(dueOn),
+    capital,
+    surcharge: Math.max(0, payable - capital),
+    payable,
+    kind: 'upcoming',
+  }];
+}
+
 function roundMoney(value) {
   return Math.round((Number(value) || 0) * 100) / 100;
 }
@@ -582,10 +632,23 @@ function roundMoney(value) {
  * El 10 % es el de cada mes vencido, por separado: no es un 10 % de todo el saldo
  * y un mes anterior no se anota como recargo del mes que se está cobrando.
  */
-export function duesChargeBreakdown(member, { paidOn = new Date(), dueOn, on, amount, waiveSurcharge = false } = {}) {
+export function duesChargeBreakdown(member, {
+  paidOn = new Date(),
+  dueOn,
+  on,
+  amount,
+  waiveSurcharge = false,
+  periodDueOns = null,
+} = {}) {
   const when = on || dueOn || paidOn;
   const paid = paidOn || when;
-  const months = dueOn ? [] : overdueSocialMonths(member, paid);
+  const selected = Array.isArray(periodDueOns)
+    ? new Set(periodDueOns.map((value) => String(value || '').slice(0, 10)).filter(Boolean))
+    : null;
+  let months = dueOn ? [] : overdueSocialMonths(member, paid);
+  if (selected?.size) {
+    months = months.filter((row) => selected.has(String(row.dueOn).slice(0, 10)));
+  }
   const singleCapital = Math.round(duesAmountForMember(member, when) || 0);
   const singlePayable = Math.round(duesPayableForMember(member, { paidOn: paid, dueOn, on: when }) || 0);
   const useMonths = !dueOn && months.some((row) => row.capital > 0);

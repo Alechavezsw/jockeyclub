@@ -11,7 +11,13 @@ function recentQuestions(messages = []) {
     .join(' ');
 }
 
-export async function askJevChat({ messages = [], brief = {}, guide = '', member = null } = {}) {
+export async function askJevChat({
+  messages = [],
+  brief = {},
+  guide = '',
+  member = null,
+  reviewItems = null,
+} = {}) {
   if (!isSupabaseConfigured || !supabase) {
     throw new Error('Jev necesita la sesión del club para leer el libro.');
   }
@@ -19,8 +25,13 @@ export async function askJevChat({ messages = [], brief = {}, guide = '', member
   if (!sessionData?.session?.access_token) {
     throw new Error('Volvé a entrar para hablar con Jev.');
   }
+  const queue = reviewItems || brief.reviewItems || null;
   const { data, error } = await supabase.functions.invoke('jev-chat', {
-    body: { messages, brief, guide: guide || guideForPrompt(recentQuestions(messages), { member }) },
+    body: {
+      messages,
+      brief,
+      guide: guide || guideForPrompt(recentQuestions(messages), { member, reviewItems: queue }),
+    },
   });
   if (error) {
     let detail = error.message || 'Jev no pudo responder';

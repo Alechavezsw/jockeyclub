@@ -56,9 +56,9 @@ describe('memberBalances / saldos', () => {
     const types = new Set(entries.map((e) => e.type));
     expect(types.has('pago')).toBe(true);
     expect(types.has('recargo') || types.has('cuota')).toBe(true);
-    const pago = entries.find((e) => e.type === 'pago' && String(e.accessinId).includes('3343943'));
+    const pago = entries.find((e) => e.type === 'pago' && String(e.accessinId).includes('3548634'));
     expect(pago?.value).toBeLessThan(0);
-    expect(Math.abs(pago.value)).toBe(76000);
+    expect(Math.abs(pago.value)).toBe(39600);
   });
 
   it('agrupa por mes con saldo de apertura', () => {

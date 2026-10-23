@@ -66,6 +66,12 @@ import {
   journalMixChips,
   journalMonthLabel,
 } from '../domain/accounting/officialJournal';
+import {
+  collectionPreview,
+  persistDuesCollection,
+  recordDuesCollection,
+} from '../domain/members/memberPayments';
+import { billingAccountMember } from '../domain/members/households';
 
 const TREASURY_TABS = new Set([
   'cash', 'expenses', 'suppliers', 'retenciones', 'other_incomes', 'interest_generators',
@@ -1712,7 +1718,41 @@ export default function AccountingTab({
           items={unidentifiedCollections}
           members={members}
           onAdd={upsertUnidentifiedCollection}
-          onMatch={upsertUnidentifiedCollection}
+          onMatch={async (matched) => {
+            const member = (members || []).find(
+              (row) => String(row.memberId) === String(matched.matchedMemberId),
+            );
+            if (!member || typeof setMembers !== 'function') {
+              upsertUnidentifiedCollection(matched);
+              return;
+            }
+            const account = billingAccountMember(member, members);
+            const due = Number(collectionPreview(account).cash) || 0;
+            const transferAmt = Number(matched.amount) || 0;
+            const payAmt = due > 0 ? Math.min(transferAmt, due) : transferAmt;
+            const result = recordDuesCollection(member, {
+              method: 'transferencia',
+              amount: payAmt > 0 ? payAmt : null,
+              bankId: 'nacion',
+              bankName: 'Banco Nación',
+              receiptName: matched.bankRef || matched.originLabel || 'Cobranza identificada',
+              treasuryMatch: true,
+              members,
+              today: matched.date
+                ? new Date(`${String(matched.date).slice(0, 10)}T12:00:00`)
+                : new Date(),
+            });
+            const saved = await persistDuesCollection(result, {
+              setMembers,
+              addJournalEntry,
+            });
+            upsertUnidentifiedCollection({
+              ...matched,
+              duesApplied: true,
+              paymentId: saved?.payment?.id || result.payment?.id || null,
+              journalEntryId: saved?.journalEntry?.id || null,
+            });
+          }}
           onReject={upsertUnidentifiedCollection}
         />
       )}

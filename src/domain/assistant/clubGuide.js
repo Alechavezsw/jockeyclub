@@ -207,9 +207,9 @@ export const CLUB_TOOLS = [
   { id: 'impuestos', tab: 'accounting', focus: 'impuestos', title: 'Impuestos', keywords: 'impuestos iva iibb liquidacion comprobante', teach: 'Impuestos está en Contabilidad → Padrón. Muestra la posición viva de IVA e IIBB del mes: gastos, otros ingresos y retenciones. Las cuotas no se facturan. No presenta nada ante ARCA.' },
   { id: 'plan', tab: 'accounting', focus: 'plan', title: 'Plan de cuentas', keywords: 'plan cuentas catalogo', teach: 'El plan de cuentas está en Contabilidad → Catálogo.' },
   { id: 'retenciones', tab: 'accounting', focus: 'retenciones', title: 'Retenciones', keywords: 'retencion impuesto', teach: 'Retenciones está en Contabilidad → Operación. Es el registro vivo de Ganancias, IVA o IIBB practicados sobre órdenes de pago a proveedores. Entra en Impuestos del mes.' },
-  { id: 'otros-ingresos', tab: 'accounting', focus: 'other_incomes', title: 'Otros ingresos', keywords: 'otros ingresos extra', teach: 'Otros ingresos está en Contabilidad → Operación. Cajero también lo ve.' },
+  { id: 'otros-ingresos', tab: 'accounting', focus: 'other_incomes', title: 'Otros ingresos', keywords: 'otros ingresos extra porteria estacionamiento rendicion', teach: 'Otros ingresos está en Contabilidad → Operación. Ahí rinde portería y estacionamiento (atajos). Entra a Caja General; no suma al recaudado. Cajero y portería también lo ven.' },
   { id: 'intereses', tab: 'accounting', focus: 'interest_generators', title: 'Intereses', keywords: 'interes recargo mora generador', teach: 'Intereses está en Contabilidad → Operación. No se corre solo: se genera y se imputa.' },
-  { id: 'sin-identificar', tab: 'accounting', focus: 'unidentified', title: 'Sin identificar', keywords: 'sin identificar cobranza desconocida', teach: 'Cobranzas sin identificar está en Contabilidad → Operación. Ahí se imputa lo que no tiene socio.' },
+  { id: 'sin-identificar', tab: 'accounting', focus: 'unidentified', title: 'Sin identificar', keywords: 'sin identificar cobranza desconocida transferencia sin socio', teach: 'Cobranzas sin identificar está en Contabilidad → Operación. Ahí entra lo que no tiene socio o trae un número que no existe. Jev lo avisa en Revisión y en la campanita hasta imputar o rechazar.' },
   { id: 'galicia', tab: 'accounting', focus: 'galicia', title: 'Galicia', keywords: 'galicia banco debito automatico', teach: 'Galicia está en Contabilidad → Operación: débitos automáticos.' },
   { id: 'gastos-fijos', tab: 'accounting', focus: 'fixed_expenses', title: 'Gastos fijos', keywords: 'gastos fijos recurrente', teach: 'Gastos fijos está en Contabilidad → Operación.' },
   { id: 'saldos-cta', tab: 'accounting', focus: 'balances', title: 'Saldos', keywords: 'saldos cuentas corrientes', teach: 'Saldos está en Contabilidad → Operación. Resume tesorería (igual que Cajas), la deuda de socios y lo que el club debe a proveedores. El detalle del socio está en Cuotas y en la ficha.' },
@@ -691,16 +691,73 @@ Portal socio: / /reservas /cuenta /revista /perfil /mensajes /registro
 Profesor: /asistencia
 Portería QR: /acceso · Pileta: /pileta · Entrada pileta: /entrada-pileta · Concesiones: /concesiones`;
 
+/** Cola de Revisión para el prompt de Gemini (prioridad del club). */
+export function reviewQueueForPrompt(items = [], { limit = 2200 } = {}) {
+  const rows = (items || [])
+    .filter((item) => Number(item?.count) > 0 || item?.title)
+    .slice(0, 14)
+    .map((item, index) => {
+      const where = [item.tab, item.focus].filter(Boolean).join('/');
+      const bits = [
+        `${index + 1}. ${item.title || 'Pendiente'}`,
+        item.detail || '',
+        item.why || '',
+        where ? `→ ${where}` : '',
+      ].filter(Boolean);
+      return bits.join(' — ');
+    });
+  if (!rows.length) return '';
+  let out = 'REVISIÓN PENDIENTE (prioridad del club; usala para priorizar, no inventes ítems):\n';
+  for (const row of rows) {
+    if (out.length + row.length + 1 > limit) break;
+    out += `${row}\n`;
+  }
+  return out.trim();
+}
+
 /**
  * Lo que Gemini lee para esta pregunta: cómo contestar, el socio consultado (si hay),
- * las reglas fijas y las lecciones del manual que corresponden. Entra en `limit` caracteres
- * (la función del servidor corta en 12.000).
+ * la cola de revisión (si hay), las reglas fijas y las lecciones del manual.
+ * Entra en `limit` caracteres (la función del servidor corta en 12.000).
  */
-export function guideForPrompt(query = '', { member = null, limit = 11800 } = {}) {
+export function guideForPrompt(query = '', { member = null, reviewItems = null, limit = 11800 } = {}) {
   const facts = member ? `SOCIO CONSULTADO (ya calculado):\n${memberFactsForPrompt(member)}` : '';
-  const head = [ANSWER_RULES, facts, FIXED_FACTS].filter(Boolean).join('\n');
-  const room = Math.max(3000, limit - head.length - 40);
+  const review = reviewQueueForPrompt(reviewItems);
+  const head = [ANSWER_RULES, facts, review, FIXED_FACTS].filter(Boolean).join('\n');
+  const room = Math.max(2800, limit - head.length - 40);
   return `${head}\nMANUAL DE USO (pasos concretos):\n${manualPromptFor(query, { limit: room })}`;
+}
+
+/** Apertura de la mesa cuando estás en Revisión. */
+export function openingReviewBriefing(brief = {}, reviewItems = []) {
+  const queue = (reviewItems || []).filter((item) => Number(item?.count) > 0 || item?.title);
+  const first = queue[0];
+  const total = queue.length;
+  if (!total) {
+    return {
+      verdict: 'Nada pendiente en lo que podés ver.',
+      text: 'La revisión está limpia. Si aparece algo nuevo, Gemini lo lee acá igual que en Consulta.',
+      figures: [],
+      next: 'Podés preguntarme por un socio o volver a Consulta.',
+      go: null,
+    };
+  }
+  return {
+    verdict: total === 1 ? 'Hay 1 bloque para revisar.' : `Hay ${total} bloques para revisar.`,
+    text: [
+      first ? `Primero: ${first.title}. ${first.detail || ''}`.trim() : '',
+      'Pedime priorizar o preguntame por un ítem: Gemini lee esta cola y el libro.',
+    ].filter(Boolean).join(' '),
+    figures: [
+      { label: 'Bloques', value: formatGuideCount(total) },
+      first?.count != null ? { label: 'En el 1.º', value: formatGuideCount(first.count) } : null,
+    ].filter(Boolean),
+    next: first?.tab
+      ? `Abrí la lista de abajo o pedime el orden. Ir a ${first.tab}${first.focus ? ` · ${first.focus}` : ''}.`
+      : 'Abrí la lista de abajo o pedime el orden.',
+    go: first?.tab || 'jev',
+    focus: first?.focus || null,
+  };
 }
 
 function dayOf(value) {

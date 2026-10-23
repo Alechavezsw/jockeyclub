@@ -5,6 +5,7 @@ import {
   OTHER_INCOME_GROUPS,
   OTHER_INCOME_PAYERS,
   OTHER_INCOME_PAYMENT_METHODS,
+  PORTERIA_INCOME_PRESETS,
   createOtherIncome,
   linesTotal,
   validateOtherIncomeAttachment,
@@ -366,12 +367,40 @@ export default function OtherIncomePanel({ items = [], onCreate }) {
             <Banknote size={18} /> Otros ingresos
           </h4>
           <p style={{ margin: '0.35rem 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-            Cobros manuales con recibo, desglose y adjuntos.
+            Cobros manuales con recibo. La rendición de portería / estacionamiento va acá (no es cuota).
           </p>
         </div>
         <button type="button" className="btn btn-primary btn-sm" onClick={() => setView('form')}>
           <Plus size={14} /> Cargar otro ingreso
         </button>
+      </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Atajos portería:</span>
+        {PORTERIA_INCOME_PRESETS.map((preset) => (
+          <button
+            key={preset.id}
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => {
+              setForm({
+                ...EMPTY_FORM,
+                date: new Date().toISOString().slice(0, 10),
+                payerType: 'manual',
+                payerName: preset.payerName,
+                concept: preset.concept,
+                group: preset.group,
+                paymentMethod: preset.paymentMethod,
+              });
+              setLines([]);
+              setFileSlots([null]);
+              setError('');
+              setView('form');
+            }}
+          >
+            {preset.label}
+          </button>
+        ))}
       </div>
 
       {ok ? <p style={{ color: 'var(--emerald-accent)', margin: 0 }}>{ok}</p> : null}

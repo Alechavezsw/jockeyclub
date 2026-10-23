@@ -60,4 +60,19 @@ describe('otherIncomes', () => {
     expect(sumDebits(entry.lines)).toBeCloseTo(sumCredits(entry.lines), 2);
     expect(entry.lines.some((line) => line.accountId === 'coa-1.1.03' && line.debit === 500)).toBe(true);
   });
+
+  it('la rendición de portería entra a caja como otro ingreso, no como cuota', () => {
+    const income = createOtherIncome({
+      date: '2026-10-22',
+      payerName: 'Portería',
+      concept: 'Rendición portería',
+      group: 'porteria',
+      paymentMethod: 'efectivo',
+      amount: 45000,
+    });
+    expect(income.group).toBe('porteria');
+    const entry = journalForOtherIncome(income, DEFAULT_CHART_OF_ACCOUNTS);
+    expect(entry.description).toMatch(/Rendición portería/i);
+    expect(entry.lines.some((line) => line.accountId === 'coa-1.1.01' && line.debit === 45000)).toBe(true);
+  });
 });

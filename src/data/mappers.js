@@ -130,6 +130,8 @@ export function paymentFromRow(row) {
   const receipt = row.receipt_number || row.receipt || '';
   const meta = row.meta && typeof row.meta === 'object' ? row.meta : {};
   const paidAt = row.paid_at || row.date || null;
+  const receiptPath = meta.receiptPath || null;
+  const receiptName = meta.receiptName || null;
   return {
     id: row.id,
     memberDbId: row.member_id,
@@ -139,11 +141,33 @@ export function paymentFromRow(row) {
     paidAt: meta.paidAt || null,
     createdAt: row.created_at || row.createdAt || null,
     method: row.method || '',
+    bankId: meta.bankId || null,
     bankName: meta.bank || row.bankName || '',
     concept: row.concept || '',
     period: row.period_label || row.period || '',
+    periodDueOns: Array.isArray(meta.periodDueOns) ? meta.periodDueOns : [],
+    quota: meta.quota != null ? Number(meta.quota) : undefined,
+    surcharge: meta.surcharge != null ? Number(meta.surcharge) : undefined,
     receipt,
     receiptNumber: receipt,
+    receiptName,
+    receiptPath,
+    receiptBucket: meta.receiptBucket || (receiptPath ? 'dues-receipts' : null),
+    receiptMime: meta.receiptMime || null,
+    receiptSize: meta.receiptSize != null ? Number(meta.receiptSize) : null,
+    receiptAttachment: receiptPath
+      ? {
+        path: receiptPath,
+        bucket: meta.receiptBucket || 'dues-receipts',
+        name: receiptName || receiptPath.split('/').pop(),
+        mimeType: meta.receiptMime || '',
+        size: Number(meta.receiptSize) || 0,
+      }
+      : null,
+    paymentPlanId: meta.paymentPlanId || null,
+    paymentPlanLabel: meta.paymentPlanLabel || null,
+    receiptParse: meta.receiptParse && typeof meta.receiptParse === 'object' ? meta.receiptParse : null,
+    paymentSplits: Array.isArray(meta.paymentSplits) ? meta.paymentSplits : null,
     status: 'paid',
     journalEntryId: row.journal_entry_id || null,
   };

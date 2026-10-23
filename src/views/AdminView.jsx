@@ -172,6 +172,8 @@ export default function AdminView({
   setDuesSettings,
   systemRules,
   setSystemRules,
+  paymentPlans = [],
+  setPaymentPlans,
   facilityCatalog = null,
   setFacilityCatalog = null,
 }) {
@@ -873,6 +875,7 @@ export default function AdminView({
           onSendMessage={sendMessage}
           duesSettings={duesSettings}
           setDuesSettings={setDuesSettings}
+          paymentPlans={paymentPlans}
         />
       )}
 
@@ -902,6 +905,8 @@ export default function AdminView({
             onSendMessage={sendMessage}
             accessinCobranzas={erp.accessinCobranzas}
             poolSettings={poolSettings}
+            paymentPlans={paymentPlans}
+            paymentTolerance={duesSettings?.paymentTolerance}
           />
         ) : (
           <MembersTab
@@ -923,6 +928,8 @@ export default function AdminView({
             portalAccessRequests={portalAccessRequests}
             setPortalAccessRequests={setPortalAccessRequests}
             onSendMessage={sendMessage}
+            paymentPlans={paymentPlans}
+            paymentTolerance={duesSettings?.paymentTolerance}
           />
         )
       )}
@@ -1196,6 +1203,8 @@ export default function AdminView({
           setDuesSettings={setDuesSettings}
           systemRules={systemRules}
           setSystemRules={setSystemRules}
+          paymentPlans={paymentPlans}
+          setPaymentPlans={setPaymentPlans}
           poolSettings={poolSettings}
           setPoolSettings={setPoolSettings}
           isZondaActive={isZondaActive}

@@ -377,9 +377,18 @@ export default function JevReviewTab({
 
           <p className="jev-note">
             El orden es plata, número de socios, ficha, puerta de hoy, cierre del mes y notas.
-            Jev queda activo siempre que el panel está abierto: relee los datos y no escribe nada.
-            Abrir muestra la lista. Cada nombre abre la ficha para editarla.
+            Gemini también lee esta cola: pedile priorizar arriba. Abrir muestra la lista; cada nombre abre la ficha.
           </p>
+
+          <JevChatDesk
+            variant="revision"
+            brief={{ ...brief, reviewItems: items }}
+            reviewItems={items}
+            goToTab={goToTab}
+            onOpenManual={() => setRoom('manual')}
+            members={members}
+            poolSettings={poolSettings}
+          />
 
           {items.length === 0 ? (
             <p className="jev-empty">

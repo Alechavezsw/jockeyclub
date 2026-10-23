@@ -16,6 +16,7 @@ export const SETTINGS_KEYS = {
   zonda: 'zonda',
   system: 'system',
   mercadopago: 'mercadopago',
+  paymentPlans: 'paymentPlans',
 };
 
 export const DEFAULT_CLUB_SETTINGS = {

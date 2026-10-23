@@ -296,4 +296,68 @@ describe('mappers', () => {
     expect(pay.createdAt).toBe('2026-10-01T17:57:51.952Z');
     expect(pay.bankName).toBe('Banco de San Juan');
   });
+
+  it('paymentFromRow conserva el comprobante de Storage', () => {
+    const pay = paymentFromRow({
+      id: 'p3',
+      member_id: 'm1',
+      amount: 70000,
+      paid_at: '2026-10-22',
+      method: 'transferencia',
+      concept: 'Cuota social',
+      receipt_number: 'RC-2',
+      period_label: 'Agosto de 2026',
+      meta: {
+        receiptName: 'transfer.jpg',
+        receiptPath: '8801/xyz.jpg',
+        receiptBucket: 'dues-receipts',
+        receiptMime: 'image/jpeg',
+        receiptSize: 2048,
+        periodDueOns: ['2026-08-10'],
+      },
+    });
+    expect(pay.receiptName).toBe('transfer.jpg');
+    expect(pay.receiptPath).toBe('8801/xyz.jpg');
+    expect(pay.receiptAttachment.path).toBe('8801/xyz.jpg');
+    expect(pay.periodDueOns).toEqual(['2026-08-10']);
+  });
+
+  it('paymentFromRow conserva plan de tarjeta y desglose Gemini', () => {
+    const pay = paymentFromRow({
+      id: 'p4',
+      member_id: 'm1',
+      amount: 39600,
+      paid_at: '2026-10-22',
+      method: 'tarjeta',
+      concept: 'Cuota social',
+      receipt_number: 'RC-3',
+      meta: {
+        paymentPlanId: 'visa-3',
+        paymentPlanLabel: 'Visa 3 cuotas',
+        receiptParse: { amount: 39600, bankOrCard: 'Visa', reference: 'OP-9' },
+      },
+    });
+    expect(pay.paymentPlanId).toBe('visa-3');
+    expect(pay.paymentPlanLabel).toBe('Visa 3 cuotas');
+    expect(pay.receiptParse.reference).toBe('OP-9');
+  });
+
+  it('paymentFromRow conserva líneas de pago mixto', () => {
+    const pay = paymentFromRow({
+      id: 'p5',
+      member_id: 'm1',
+      amount: 50000,
+      paid_at: '2026-10-22',
+      method: 'mixto',
+      concept: 'Cuota social',
+      meta: {
+        paymentSplits: [
+          { method: 'efectivo', amount: 20000 },
+          { method: 'transferencia', amount: 30000, bankName: 'Banco Nación' },
+        ],
+      },
+    });
+    expect(pay.paymentSplits).toHaveLength(2);
+    expect(pay.paymentSplits[1].amount).toBe(30000);
+  });
 });

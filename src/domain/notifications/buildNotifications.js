@@ -1,6 +1,6 @@
 import { filterAlertsForRole, isAlertAcknowledged } from '../alerts/alerts';
 import { MAILBOX } from '../messaging/messages';
-import { allowedAdminTabs } from '../auth/roles';
+import { allowedAccountingSubtabs, allowedAdminTabs } from '../auth/roles';
 import { canChargeSocialDues, isDuesExemptMember, nextDuesDueDate, pinDuesDueDate } from '../members/dues';
 import { formatISODateLongAR, todayISODateAR } from '../../lib/arDate';
 
@@ -93,6 +93,7 @@ export function buildNotifications({
   claims = [],
   reservations = [],
   membershipApplications = [],
+  unidentifiedCollections = [],
   alerts = [],
   alertAcks = [],
   dismissedIds = [],
@@ -280,6 +281,30 @@ export function buildNotifications({
           path: '/panel/members?solicitudes=alta',
         });
       });
+  }
+
+  // Transferencias / cobranzas sin socio (o con número que no existe): Jev avisa.
+  if (allowedAccountingSubtabs(role).includes('unidentified')) {
+    const pendingUnidentified = (unidentifiedCollections || []).filter((row) => row.status === 'pending');
+    if (pendingUnidentified.length) {
+      const stamp = pendingUnidentified.map((row) => row.id).filter(Boolean).sort().join(',')
+        || String(pendingUnidentified.length);
+      const oldest = pendingUnidentified
+        .toSorted((a, b) => String(a.date || '').localeCompare(String(b.date || '')))[0];
+      const hint = oldest
+        ? [oldest.date, oldest.originLabel || oldest.bankRef || oldest.note].filter(Boolean).join(' · ')
+        : 'Sin socio ni número válido.';
+      push(out, {
+        id: `unidentified-${stamp}`,
+        kind: 'unidentified',
+        title: pendingUnidentified.length === 1
+          ? '1 cobranza sin identificar'
+          : `${pendingUnidentified.length} cobranzas sin identificar`,
+        detail: hint || 'Jev las marcó: hay que imputarlas o rechazarlas.',
+        view: 'accounting',
+        path: '/panel/accounting?sub=unidentified',
+      });
+    }
   }
 
   return out;

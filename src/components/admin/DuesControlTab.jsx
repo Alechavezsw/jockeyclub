@@ -166,6 +166,8 @@ export default function DuesControlTab({
   onSendMessage,
   formatCurrency,
   tierCatalog = [],
+  paymentPlans = [],
+  paymentTolerance = 1000,
 }) {
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
@@ -539,6 +541,8 @@ export default function DuesControlTab({
           formatCurrency={formatCurrency}
           onClose={() => setCollectMember(null)}
           onConfirm={handleConfirmCollect}
+          paymentPlans={paymentPlans}
+          paymentTolerance={paymentTolerance}
         />
       ) : null}
     </div>

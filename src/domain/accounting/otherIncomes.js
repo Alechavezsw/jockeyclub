@@ -15,8 +15,30 @@ export const OTHER_INCOME_GROUPS = {
   deportes: 'Actividades deportivas',
   alquileres: 'Alquileres / salones',
   canon: 'Canon / concesiones',
+  /** Rendición del portero: no es cuota ni entra al recaudado. */
+  porteria: 'Portería / estacionamiento',
   varios: 'Varios',
 };
+
+/** Atajos de carga para la rendición de puerta. */
+export const PORTERIA_INCOME_PRESETS = [
+  {
+    id: 'rendicion-porteria',
+    label: 'Rendición portería',
+    group: 'porteria',
+    payerName: 'Portería',
+    concept: 'Rendición portería',
+    paymentMethod: 'efectivo',
+  },
+  {
+    id: 'estacionamiento',
+    label: 'Estacionamiento',
+    group: 'porteria',
+    payerName: 'Portería',
+    concept: 'Rendición estacionamiento',
+    paymentMethod: 'efectivo',
+  },
+];
 
 export const OTHER_INCOME_PAYMENT_METHODS = {
   efectivo: 'Efectivo',
@@ -137,6 +159,7 @@ const INCOME_ACCOUNT_BY_GROUP = {
   deportes: 'coa-4.1.02',
   alquileres: 'coa-4.1.02',
   canon: 'coa-4.1.04',
+  porteria: 'coa-4.1.03',
   varios: 'coa-4.1.03',
   uncategorized: 'coa-4.1.03',
 };
@@ -170,9 +193,12 @@ export function journalForOtherIncome(item, chart) {
   const treasuryId = treasuryAccountIdForMethod(item.paymentMethod);
   const incomeId = incomeAccountIdForGroup(item.group);
 
+  const isPorteria = item.group === 'porteria'
+    || /porter[ií]a|estacionamiento/i.test(String(item.concept || ''));
+  const prefix = isPorteria ? 'Rendición portería' : 'Otro ingreso';
   return buildPostedEntry({
     date: String(item.date || '').slice(0, 10),
-    description: `Otro ingreso: ${item.concept}${item.payerName ? ` — ${item.payerName}` : ''}`,
+    description: `${prefix}: ${item.concept}${item.payerName ? ` — ${item.payerName}` : ''}`,
     lines: [
       { accountId: treasuryId, debit: amount, credit: 0 },
       { accountId: incomeId, debit: 0, credit: amount },

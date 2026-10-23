@@ -131,6 +131,7 @@ export function asCobranzaFromJournal(entry, chart = DEFAULT_CHART_OF_ACCOUNTS, 
 const OTHER_INCOME_COBRANZA_TYPE = {
   cuotas: 'Cuotas',
   eventos: 'Eventos',
+  porteria: 'Portería',
   varios: 'Varios',
 };
 
@@ -140,16 +141,21 @@ export function asCobranzaFromOtherIncome(item) {
   if (!date) return null;
   const amount = roundMoney(item.amount);
   if (!amount) return null;
+  const porteria = item.group === 'porteria'
+    || /porter[ií]a|estacionamiento/i.test(String(item.concept || ''));
   return {
     id: `live-oi-${item.id}`,
     date,
     amount,
-    type: OTHER_INCOME_COBRANZA_TYPE[item.group] || 'Varios',
+    type: porteria ? 'Portería' : (OTHER_INCOME_COBRANZA_TYPE[item.group] || 'Varios'),
+    typeLabel: porteria ? 'RENDICION PORTERIA' : undefined,
     paymentMethod: item.paymentMethod || 'efectivo',
     paymentMethodLabel: item.paymentMethodLabel || 'Efectivo',
     memberNumber: item.payerType === 'member' ? (item.documentId || '') : '',
     memberName: item.payerName || '',
-    concept: item.concept || 'Otro ingreso',
+    concept: item.concept || (porteria ? 'Rendición portería' : 'Otro ingreso'),
+    description: item.concept || (porteria ? 'Rendición portería' : 'Otro ingreso'),
+    group: item.group || null,
     receiptId: item.documentId || item.id,
     origin: 'app',
   };

@@ -248,4 +248,28 @@ describe('buildNotifications', () => {
     expect(list.find((n) => n.messageId === 'pay')?.title).toBe('Comprobante de transferencia');
     expect(list.find((n) => n.kind === 'reservation')?.title).toBe('Reserva pendiente');
   });
+
+  it('Jev avisa cobranzas sin identificar al contador', () => {
+    const list = buildNotifications({
+      role: 'accountant',
+      unidentifiedCollections: [
+        { id: 'u1', status: 'pending', date: '2026-10-20', originLabel: 'Galicia', bankRef: 'X1', note: 'sin socio' },
+        { id: 'u2', status: 'matched', date: '2026-10-19' },
+      ],
+    });
+    const notice = list.find((n) => n.kind === 'unidentified');
+    expect(notice?.title).toBe('1 cobranza sin identificar');
+    expect(notice?.path).toBe('/panel/accounting?sub=unidentified');
+    expect(notice?.detail).toMatch(/2026-10-20/);
+  });
+
+  it('admin de operación no ve Sin identificar en la campanita', () => {
+    const list = buildNotifications({
+      role: 'admin',
+      unidentifiedCollections: [
+        { id: 'u1', status: 'pending', date: '2026-10-20', note: 'suelta' },
+      ],
+    });
+    expect(list.some((n) => n.kind === 'unidentified')).toBe(false);
+  });
 });

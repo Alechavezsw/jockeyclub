@@ -34,6 +34,7 @@ import {
   DEFAULT_SYSTEM_RULES,
   mergeSystemRules,
 } from './domain/system/clubSettings';
+import { DEFAULT_PAYMENT_PLANS, mergePaymentPlans } from './domain/system/paymentPlans';
 import { applyMemberListRefresh, attachHouseholdToMembers } from './domain/members/households';
 // Los saldos de cuenta corriente vienen de la base: public.members.outstanding_balance
 // más el desglose en members.meta (ver scripts/sync-accessin-balances.mjs). El snapshot
@@ -984,6 +985,14 @@ function ClubPortal() {
     }
   });
 
+  const [paymentPlans, setPaymentPlans] = useState(() => {
+    try {
+      return mergePaymentPlans(JSON.parse(localStorage.getItem('jockey-payment-plans') || 'null'));
+    } catch {
+      return DEFAULT_PAYMENT_PLANS;
+    }
+  });
+
   const [facilityCatalog, setFacilityCatalog] = useState(() => {
     try {
       const raw = JSON.parse(localStorage.getItem('jockey-facility-catalog') || 'null');
@@ -1156,6 +1165,13 @@ function ClubPortal() {
       repos.setSetting(SETTINGS_KEYS.system, systemRules, user?.id).catch(() => {});
     }
   }, [systemRules, cloudMode, dbReady, user?.id]);
+
+  useEffect(() => {
+    localStorage.setItem('jockey-payment-plans', JSON.stringify(paymentPlans));
+    if (cloudMode && dbReady) {
+      repos.setSetting(SETTINGS_KEYS.paymentPlans, paymentPlans, user?.id).catch(() => {});
+    }
+  }, [paymentPlans, cloudMode, dbReady, user?.id]);
   useEffect(() => {
     if (facilityCatalog) {
       localStorage.setItem('jockey-facility-catalog', JSON.stringify(facilityCatalog));
@@ -1473,6 +1489,9 @@ function ClubPortal() {
       }
       if (app.systemRules) {
         setSystemRules(mergeSystemRules(app.systemRules));
+      }
+      if (Array.isArray(app.paymentPlans)) {
+        setPaymentPlans(mergePaymentPlans(app.paymentPlans));
       }
       if (Array.isArray(app.tierCatalog) && app.tierCatalog.length) {
         const cleaned = mergeOfficialTiers(stripExampleTiers(app.tierCatalog));
@@ -2353,6 +2372,7 @@ function ClubPortal() {
         claims,
         reservations,
         membershipApplications,
+        unidentifiedCollections: erp.unidentifiedCollections || [],
         alerts: erp.alerts || [],
         alertAcks: erp.alertAcks || [],
         dismissedIds: dismissedNotifIds,
@@ -2360,7 +2380,8 @@ function ClubPortal() {
       })
   ), [
     isAuthenticated, cloudMode, dbSyncing, dbHydrated, userRole, user?.id, user?.memberId,
-    sessionMember, messages, waitlist, claims, reservations, membershipApplications, erp.alerts, erp.alertAcks, dismissedNotifIds,
+    sessionMember, messages, waitlist, claims, reservations, membershipApplications,
+    erp.unidentifiedCollections, erp.alerts, erp.alertAcks, dismissedNotifIds,
     memberSeesCurrentAccount,
   ]);
 
@@ -2521,6 +2542,8 @@ function ClubPortal() {
         setDuesSettings={setDuesSettings}
         systemRules={systemRules}
         setSystemRules={setSystemRules}
+        paymentPlans={paymentPlans}
+        setPaymentPlans={setPaymentPlans}
         facilityCatalog={facilityCatalog}
         setFacilityCatalog={setFacilityCatalog}
       />

@@ -21,6 +21,25 @@ function formatShortDateAr(iso) {
   return m ? `${m[2]}/${m[1]}` : raw || '—';
 }
 
+function periodLabelFromDueOn(dueOn) {
+  const iso = String(dueOn || '').slice(0, 10);
+  const match = iso.match(/^(\d{4})-(\d{2})/);
+  if (!match) return iso || '';
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, 1);
+  const label = date.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+/** Período cubierto por el cobro (meses marcados o texto guardado). */
+function paymentPeriodLabel(payment) {
+  const stored = String(payment?.period || '').trim();
+  if (stored) return stored;
+  const dueOns = Array.isArray(payment?.periodDueOns) ? payment.periodDueOns.filter(Boolean) : [];
+  if (!dueOns.length) return '—';
+  if (dueOns.length === 1) return periodLabelFromDueOn(dueOns[0]);
+  return `${periodLabelFromDueOn(dueOns[0])} · ${periodLabelFromDueOn(dueOns[dueOns.length - 1])}`;
+}
+
 const METHOD = {
   transferencia: 'Transferencia bancaria',
   efectivo: 'Efectivo',
@@ -75,7 +94,9 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
   doc.setFontSize(9);
   doc.setTextColor(60, 60, 60);
   const infoRows = [
-    ['SOCIO', String(member?.memberId || '—')],
+    ['SOCIO', String(member?.name || '—').toUpperCase()],
+    ['N° SOCIO', String(member?.memberId || '—')],
+    ['PERÍODO', paymentPeriodLabel(payment)],
     ['FECHA', formatLongDateAr(payment.date)],
     ['DESCRIPCIÓN', String(payment.concept || 'Cuota social').toUpperCase()],
     ['COMPROBANTE', String(receiptNo)],

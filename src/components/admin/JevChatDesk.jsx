@@ -7,6 +7,7 @@ import {
   mergeJevReply,
   monthReading,
   openingBriefing,
+  openingReviewBriefing,
 } from '../../domain/assistant/clubGuide';
 import { findMemberInQuery, memberFacts } from '../../domain/assistant/memberFacts';
 import { todayISODateAR } from '../../lib/arDate';
@@ -16,6 +17,13 @@ const STARTERS = [
   { id: 'mirar', label: 'Qué conviene', ask: '¿Qué conviene mirar ahora en el club?' },
   { id: 'puerta', label: 'La puerta', ask: '¿Qué pasó hoy en portería y pileta?' },
   { id: 'usar', label: 'Enseñame', ask: 'Enseñame a cobrar, liquidar y usar la puerta.' },
+  { id: 'manual', label: 'Manual', ask: null, room: 'manual' },
+];
+
+const REVIEW_STARTERS = [
+  { id: 'prioriza', label: 'Priorizá', ask: 'Con la revisión pendiente, ¿por dónde conviene empezar hoy?' },
+  { id: 'plata', label: 'La plata', ask: 'En la revisión, qué hay de plata, sin identificar y cuotas.' },
+  { id: 'fichas', label: 'Las fichas', ask: 'Qué fichas del padrón hay que corregir primero.' },
   { id: 'manual', label: 'Manual', ask: null, room: 'manual' },
 ];
 
@@ -80,7 +88,19 @@ export default function JevChatDesk({
   onOpenManual,
   members = [],
   poolSettings = {},
+  variant = 'consulta',
+  reviewItems = null,
 }) {
+  const isReview = variant === 'revision';
+  const queue = useMemo(
+    () => reviewItems || brief.reviewItems || [],
+    [reviewItems, brief.reviewItems],
+  );
+  const queueKey = useMemo(
+    () => queue.map((item) => `${item.id}:${item.count || 0}`).join('|'),
+    [queue],
+  );
+  const starters = isReview ? REVIEW_STARTERS : STARTERS;
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -90,43 +110,72 @@ export default function JevChatDesk({
       role: 'assistant',
       source: 'libro',
       at: new Date().toISOString(),
-      ...openingBriefing({ ...brief, today: todayISODateAR() }),
+      ...(isReview
+        ? openingReviewBriefing({ ...brief, today: todayISODateAR() }, queue)
+        : openingBriefing({ ...brief, today: todayISODateAR() })),
     },
   ]);
   const scroller = useRef(null);
   const lastMember = useRef({ member: null, at: -99 });
   const reading = useMemo(() => monthReading({ ...brief, today: brief.today || todayISODateAR() }), [brief]);
-  const tiles = useMemo(() => ([
-    {
-      label: 'El mes',
-      value: `${reading.pct}%`,
-      hint: `${formatGuideMoney(reading.collected)} de ${formatGuideMoney(reading.liquidated)}`,
-      meter: reading.pct,
-    },
-    {
-      label: reading.due.phase === 'after' ? 'Venció' : 'Vence',
-      value: reading.due.dueLabel,
-      hint: reading.due.phase === 'before'
-        ? `Faltan ${reading.due.daysUntil} días`
-        : reading.due.phase === 'today'
-          ? 'Es hoy'
-          : `Hace ${reading.due.daysSince} días`,
-    },
-    {
-      label: 'Padrón',
-      value: brief.bien != null ? formatGuideCount(brief.bien) : '—',
-      hint: brief.activos != null ? `${formatGuideCount(brief.activos)} activos` : 'Leyendo fichas',
-    },
-  ]), [brief.activos, brief.bien, reading]);
+  const tiles = useMemo(() => {
+    if (isReview) {
+      const first = queue[0];
+      return [
+        {
+          label: 'Pendientes',
+          value: formatGuideCount(queue.length),
+          hint: queue.length ? 'bloques en la cola' : 'nada para mirar',
+        },
+        {
+          label: 'Primero',
+          value: first ? String(first.title || '—').slice(0, 22) : '—',
+          hint: first?.detail ? String(first.detail).slice(0, 40) : 'Sin prioridad',
+        },
+        {
+          label: 'Padrón',
+          value: brief.bien != null ? formatGuideCount(brief.bien) : '—',
+          hint: brief.activos != null ? `${formatGuideCount(brief.activos)} activos` : 'Leyendo fichas',
+        },
+      ];
+    }
+    return [
+      {
+        label: 'El mes',
+        value: `${reading.pct}%`,
+        hint: `${formatGuideMoney(reading.collected)} de ${formatGuideMoney(reading.liquidated)}`,
+        meter: reading.pct,
+      },
+      {
+        label: reading.due.phase === 'after' ? 'Venció' : 'Vence',
+        value: reading.due.dueLabel,
+        hint: reading.due.phase === 'before'
+          ? `Faltan ${reading.due.daysUntil} días`
+          : reading.due.phase === 'today'
+            ? 'Es hoy'
+            : `Hace ${reading.due.daysSince} días`,
+      },
+      {
+        label: 'Padrón',
+        value: brief.bien != null ? formatGuideCount(brief.bien) : '—',
+        hint: brief.activos != null ? `${formatGuideCount(brief.activos)} activos` : 'Leyendo fichas',
+      },
+    ];
+  }, [brief.activos, brief.bien, isReview, queue, reading]);
 
   useEffect(() => {
-    const open = openingBriefing({ ...brief, today: brief.today || todayISODateAR() });
+    const open = isReview
+      ? openingReviewBriefing({ ...brief, today: brief.today || todayISODateAR() }, queue)
+      : openingBriefing({ ...brief, today: brief.today || todayISODateAR() });
     setMessages((curr) => curr.map((row) => (
       row.id === 'open'
         ? { ...row, ...open, source: 'libro' }
         : row
     )));
-  }, [brief.activos, brief.bien, brief.collected, brief.deudores, brief.fichas, brief.liquidated, brief.monthLabel, brief.today]);
+  }, [
+    brief.activos, brief.bien, brief.collected, brief.deudores, brief.fichas, brief.liquidated,
+    brief.monthLabel, brief.today, isReview, queueKey,
+  ]);
 
   useEffect(() => {
     const node = scroller.current;
@@ -154,7 +203,12 @@ export default function JevChatDesk({
     const facts = asked ? memberFacts(asked, { today, poolSettings, members }) : null;
     const local = composeInsight(text, { ...brief, today }, { member: facts });
     try {
-      const reply = await askJevChat({ messages: history, brief, member: facts });
+      const reply = await askJevChat({
+        messages: history,
+        brief: { ...brief, reviewItems: queue },
+        member: facts,
+        reviewItems: queue,
+      });
       const merged = mergeJevReply(local, reply);
       setMessages((curr) => [...curr, {
         id: `a-${Date.now()}`,
@@ -180,12 +234,16 @@ export default function JevChatDesk({
   };
 
   return (
-    <section className="jev-desk" aria-label="Jev, consulta del club">
+    <section className="jev-desk" aria-label={isReview ? 'Jev, revisión con Gemini' : 'Jev, consulta del club'}>
       <header className="jev-desk-plate">
         <div>
-          <p className="jev-desk-kicker">Consulta</p>
+          <p className="jev-desk-kicker">{isReview ? 'Revisión' : 'Consulta'}</p>
           <h2 className="jev-desk-name">Jev</h2>
-          <p className="jev-desk-sub">Lee el club entero. Dice qué falta. El Manual de al lado tiene cada oficio.</p>
+          <p className="jev-desk-sub">
+            {isReview
+              ? 'Gemini lee la cola de revisión y el libro. Prioriza y te lleva a la sección.'
+              : 'Lee el club entero. Dice qué falta. El Manual de al lado tiene cada oficio.'}
+          </p>
         </div>
         <p className="jev-desk-live" aria-live="polite">
           <i />
@@ -207,7 +265,7 @@ export default function JevChatDesk({
       </div>
 
       <div className="jev-desk-starters">
-        {STARTERS.map((item) => (
+        {starters.map((item) => (
           <button
             key={item.id}
             type="button"
@@ -244,7 +302,9 @@ export default function JevChatDesk({
               }
             }}
             rows={2}
-            placeholder="Número de socio, el mes, o cómo se hace algo"
+            placeholder={isReview
+              ? 'Priorizá, sin identificar, fichas…'
+              : 'Número de socio, el mes, o cómo se hace algo'}
             disabled={busy}
           />
         </label>

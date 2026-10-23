@@ -193,6 +193,25 @@ describe('liquidado / recaudado de tesorería', () => {
     { memberId: '10676', tier: 'socio_familiar', cuotaCategories: ['SOCIO FAMILIAR'] },
   ];
 
+  it('una rendición cargada como otro ingreso de portería tampoco entra al recaudado', () => {
+    const split = splitMonthDuesCollection({
+      monthKey: '2026-10',
+      members: [],
+      movements: [{
+        accessinId: 'oi-1',
+        date: '2026-10-05',
+        amount: 28000,
+        movementType: 'income',
+        group: 'porteria',
+        typeLabel: 'RENDICION PORTERIA',
+        description: 'Rendición portería',
+        concept: 'Rendición portería',
+      }],
+    });
+    expect(split.porteria).toBe(28000);
+    expect(split.recaudado).toBe(0);
+  });
+
   it('recaudado suma cuota, atrasadas, adelantos, recargos y salón; deja afuera portería, estacionamiento y sin imputar', () => {
     expect(splitMonthDuesCollection({
       monthKey: '2026-10',

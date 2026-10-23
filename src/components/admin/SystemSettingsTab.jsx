@@ -14,10 +14,13 @@ import {
   setRuntimeClubSettings,
   SETTINGS_KEYS,
 } from '../../domain/system/clubSettings';
+import { DEFAULT_PAYMENT_PLANS, mergePaymentPlans } from '../../domain/system/paymentPlans';
 import { DEFAULT_POOL_SETTINGS } from '../../domain/pool/poolAccess';
 import { SEASON_DUES_GATE_COPY } from '../../domain/pool/seasonDuesGate';
 import { setRuntimeDueDay } from '../../domain/members/dues';
 import { duesNoticeCalendar } from '../../domain/members/duesNotices';
+import { useAuth } from '../../context/AuthContext';
+import { isSuperAdmin } from '../../domain/auth/roles';
 
 function Field({ label, hint, children }) {
   return (
@@ -53,14 +56,19 @@ export default function SystemSettingsTab({
   setIsZondaActive,
   systemRules = DEFAULT_SYSTEM_RULES,
   setSystemRules,
+  paymentPlans = DEFAULT_PAYMENT_PLANS,
+  setPaymentPlans,
   goToTab,
 }) {
+  const { roles, role } = useAuth();
+  const canEditPlans = isSuperAdmin(roles?.length ? roles : role);
   const club = mergeClubSettings(clubSettings);
   const dues = mergeDuesSettings(duesSettings);
   const noticeCal = duesNoticeCalendar(dues.dueDay, dues.noticeAdvanceDays);
   const pool = mergePoolSettings(poolSettings);
   const [clubDraft, setClubDraft] = useState(club);
   const [duesDraft, setDuesDraft] = useState(dues);
+  const [plansDraft, setPlansDraft] = useState(() => mergePaymentPlans(paymentPlans));
   const [poolDraft, setPoolDraft] = useState({
     memberDayFee: pool.memberDayFee,
     guestDayFee: pool.guestDayFee,
@@ -100,6 +108,10 @@ export default function SystemSettingsTab({
   useEffect(() => {
     setRulesDraft(mergeSystemRules(systemRules));
   }, [systemRules]);
+
+  useEffect(() => {
+    setPlansDraft(mergePaymentPlans(paymentPlans));
+  }, [paymentPlans]);
 
   useEffect(() => {
     let live = true;
@@ -210,6 +222,26 @@ export default function SystemSettingsTab({
       setNote('Reglas del club guardadas en el libro.');
     } catch (err) {
       setNote(err.message || 'No se pudieron guardar las reglas.');
+    } finally {
+      setSaving('');
+    }
+  };
+
+  const savePlans = async () => {
+    if (!canEditPlans) {
+      setNote('Solo el superadministrador edita los planes con tarjetas.');
+      return;
+    }
+    const next = mergePaymentPlans(plansDraft);
+    setSaving('plans');
+    setNote('');
+    try {
+      setPaymentPlans?.(next);
+      setPlansDraft(next);
+      await persist(SETTINGS_KEYS.paymentPlans, next);
+      setNote('Planes con tarjetas guardados. Al cobrar con tarjeta solo se registran.');
+    } catch (err) {
+      setNote(err.message || 'No se pudieron guardar los planes.');
     } finally {
       setSaving('');
     }
@@ -653,6 +685,98 @@ export default function SystemSettingsTab({
           <button type="button" className="jev-slip-go" onClick={saveRules} disabled={saving === 'rules'}>
             {saving === 'rules' ? 'Guardando…' : 'Guardar reglas'}
           </button>
+        </article>
+
+        <article className="sys-set-card is-wide">
+          <header>
+            <p>Planes con tarjetas</p>
+            <b>Acuerdos con las tarjetas (Visa 3 cuotas, etc.). Al cobrar solo se elige y se registra. Edita el superadmin.</b>
+          </header>
+          {!canEditPlans ? (
+            <p className="sys-set-hint">Solo lectura para tu perfil. Pedile el cambio a un superadministrador.</p>
+          ) : null}
+          <div className="sys-set-rows" style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+            {(plansDraft || []).map((row, index) => (
+              <div
+                key={row.id || `plan-${index}`}
+                className="sys-set-row"
+                style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.4fr) minmax(0,1fr) 88px 88px auto', gap: '0.45rem', alignItems: 'center' }}
+              >
+                <input
+                  className="form-input"
+                  placeholder="Etiqueta"
+                  value={row.label}
+                  disabled={!canEditPlans}
+                  onChange={(e) => setPlansDraft((prev) => prev.map((item, i) => (
+                    i === index ? { ...item, label: e.target.value } : item
+                  )))}
+                />
+                <input
+                  className="form-input"
+                  placeholder="Marca"
+                  value={row.cardBrand}
+                  disabled={!canEditPlans}
+                  onChange={(e) => setPlansDraft((prev) => prev.map((item, i) => (
+                    i === index ? { ...item, cardBrand: e.target.value } : item
+                  )))}
+                />
+                <input
+                  className="form-input"
+                  type="number"
+                  min={1}
+                  title="Cuotas"
+                  value={row.installments}
+                  disabled={!canEditPlans}
+                  onChange={(e) => setPlansDraft((prev) => prev.map((item, i) => (
+                    i === index ? { ...item, installments: e.target.value } : item
+                  )))}
+                />
+                <select
+                  className="form-input"
+                  value={row.active !== false ? 'si' : 'no'}
+                  disabled={!canEditPlans}
+                  onChange={(e) => setPlansDraft((prev) => prev.map((item, i) => (
+                    i === index ? { ...item, active: e.target.value === 'si' } : item
+                  )))}
+                >
+                  <option value="si">Activo</option>
+                  <option value="no">Off</option>
+                </select>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  disabled={!canEditPlans}
+                  onClick={() => setPlansDraft((prev) => prev.filter((_, i) => i !== index))}
+                >
+                  Quitar
+                </button>
+              </div>
+            ))}
+          </div>
+          {canEditPlans ? (
+            <div style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap', marginTop: '0.75rem' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setPlansDraft((prev) => [
+                  ...prev,
+                  {
+                    id: `plan-${Date.now().toString(36)}`,
+                    label: 'Nuevo plan',
+                    cardBrand: 'Visa',
+                    installments: 1,
+                    active: true,
+                    notes: '',
+                  },
+                ])}
+              >
+                Agregar plan
+              </button>
+              <button type="button" className="jev-slip-go" onClick={savePlans} disabled={saving === 'plans'}>
+                {saving === 'plans' ? 'Guardando…' : 'Guardar planes'}
+              </button>
+            </div>
+          ) : null}
         </article>
 
         <article className="sys-set-card is-wide is-zonda">

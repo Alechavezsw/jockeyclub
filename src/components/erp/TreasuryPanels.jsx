@@ -92,7 +92,7 @@ export function UnidentifiedCollectionsPanel({ items = [], members = [], onAdd, 
           <span className="suppliers-accessin-badge">Al {live.asOfLabel}</span>
         </>
       )}
-      subtitle="Transferencias o Mercado Pago que todavía no tienen socio. Al identificarla, baja la cuenta corriente."
+      subtitle="Solo sin socio o con número inválido. Al identificar, entra directo como cuota (baja la cuenta corriente). Si ya sabés el socio, cobrá en la ficha."
     >
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.75rem' }}>
         <MiniStat label="Pendientes" value={live.pendingCount} color="#f59e0b" />
@@ -144,7 +144,17 @@ export function UnidentifiedCollectionsPanel({ items = [], members = [], onAdd, 
                         <option value="">Socio…</option>
                         {members.map((m) => <option key={m.memberId} value={m.memberId}>{m.name}</option>)}
                       </select>
-                      <button type="button" className="btn btn-sm" style={{ color: 'var(--emerald-accent)' }} onClick={() => { try { onMatch(matchUnidentifiedCollection(item, matchMap[item.id])); } catch (err) { setError(err.message); } }}>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        style={{ color: 'var(--emerald-accent)' }}
+                        onClick={() => {
+                          setError('');
+                          Promise.resolve()
+                            .then(() => onMatch(matchUnidentifiedCollection(item, matchMap[item.id])))
+                            .catch((err) => setError(err?.message || 'No se pudo imputar como cuota.'));
+                        }}
+                      >
                         <Check size={13} />
                       </button>
                       <button type="button" className="btn btn-sm" style={{ color: '#fca5a5' }} onClick={() => onReject(rejectUnidentifiedCollection(item, 'No identificable'))}>

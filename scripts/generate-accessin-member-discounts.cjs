@@ -68,7 +68,7 @@ function collectExcels() {
   sourceDirs.forEach((dir) => {
     if (!fs.existsSync(dir)) return;
     fs.readdirSync(dir).forEach((name) => {
-      if (!name.endsWith('.xlsx') || !/Descuentos/i.test(name)) return;
+      if (!name.endsWith('.xlsx') || !/Descuentos y extras/i.test(name)) return;
       const full = path.join(dir, name);
       const asOf = (name.match(/(\d{4}-\d{2}-\d{2})/) || [])[1] || '';
       files.push({ name, full, asOf, mtime: fs.statSync(full).mtimeMs });

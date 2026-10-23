@@ -220,7 +220,9 @@ function movementBlob(row) {
 
 /** Portería y estacionamiento no entran al recaudado. */
 function isExcludedOpsMovement(row) {
-  return /porter[ií]a|estacionamiento|playa\s*(de\s*)?estac/i.test(movementBlob(row));
+  if (row?.group === 'porteria' || row?.incomeGroup === 'porteria') return true;
+  if (/^porter[ií]a$/i.test(String(row?.type || ''))) return true;
+  return /porter[ií]a|estacionamiento|playa\s*(de\s*)?estac|rendici[oó]n\s+porter/i.test(movementBlob(row));
 }
 
 function isReservationMovement(row) {

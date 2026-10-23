@@ -1,4 +1,11 @@
-import { afterCollectDues, duesChargeBreakdown, duesPayableForMember, isDuesExemptMember, nextDuesDueDate } from './dues';
+import {
+  afterCollectDues,
+  collectionPeriodChoices,
+  duesChargeBreakdown,
+  duesPayableForMember,
+  isDuesExemptMember,
+  nextDuesDueDate,
+} from './dues';
 import { billingAccountMember, isFamilyDependent } from './households';
 import { referenceMonthlyDues } from './paymentHistory';
 import { createAccountEntry } from '../accounting/accountEntries';
@@ -8,9 +15,19 @@ import { nowTimeAR, todayISODateAR } from '../../lib/arDate';
 export const DUES_METHOD_LABELS = {
   efectivo: 'Efectivo',
   transferencia: 'Transferencia',
+  tarjeta: 'Tarjeta',
+  mixto: 'Pago mixto',
   mercadopago: 'Mercado Pago',
   caja: 'Efectivo',
 };
+
+/** Medios que se pueden combinar en un pago mixto (sin QR async). */
+export const MIXED_DUES_METHODS = ['efectivo', 'transferencia', 'tarjeta'];
+
+/** Transferencia y tarjeta exigen comprobante guardado. */
+export function duesMethodNeedsReceipt(method) {
+  return method === 'transferencia' || method === 'tarjeta';
+}
 
 export function duesMethodLabel(method, bankName) {
   if (method === 'transferencia') {
@@ -19,15 +36,96 @@ export function duesMethodLabel(method, bankName) {
   return DUES_METHOD_LABELS[method] || method || 'Pago';
 }
 
-function receiptNumberFor(member, date) {
-  return `RC-${String(member.memberId).slice(-6)}-${String(date).replace(/-/g, '')}`;
-}
-
 function roundMoney(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+/** Normaliza líneas de un pago mixto. */
+export function normalizePaymentSplits(raw = []) {
+  return (Array.isArray(raw) ? raw : [])
+    .map((row, index) => {
+      const method = String(row?.method || '').trim();
+      if (!MIXED_DUES_METHODS.includes(method)) return null;
+      const amount = roundMoney(row?.amount);
+      if (!(amount > 0)) return null;
+      const attachment = row?.receiptAttachment && row.receiptAttachment.path
+        ? {
+          path: row.receiptAttachment.path,
+          bucket: row.receiptAttachment.bucket || 'dues-receipts',
+          name: row.receiptAttachment.name || row.receiptName || '',
+          mimeType: row.receiptAttachment.mimeType || '',
+          size: Number(row.receiptAttachment.size) || 0,
+        }
+        : null;
+      const receiptName = attachment?.name || row?.receiptName || null;
+      const bankId = method === 'transferencia' ? (row.bankId || null) : null;
+      const bankName = method === 'transferencia' ? (row.bankName || null) : null;
+      const paymentPlanId = method === 'tarjeta' ? (row.paymentPlanId || null) : null;
+      const paymentPlanLabel = method === 'tarjeta' ? (String(row.paymentPlanLabel || '').trim() || null) : null;
+      const journalAccount = row.journalAccount || journalAccountForPayment(method, bankId);
+      return {
+        id: row.id || `split-${index + 1}`,
+        method,
+        amount,
+        bankId,
+        bankName,
+        journalAccount,
+        paymentPlanId,
+        paymentPlanLabel,
+        receiptName,
+        receiptPath: attachment?.path || row.receiptPath || null,
+        receiptBucket: attachment?.bucket || row.receiptBucket || null,
+        receiptMime: attachment?.mimeType || row.receiptMime || null,
+        receiptSize: attachment?.size ?? row.receiptSize ?? null,
+        receiptAttachment: attachment,
+        receiptParse: row.receiptParse && typeof row.receiptParse === 'object' ? row.receiptParse : null,
+        label: duesMethodLabel(method, bankName)
+          + (paymentPlanLabel ? ` · ${paymentPlanLabel}` : ''),
+      };
+    })
+    .filter(Boolean);
+}
+
+/**
+ * Valida splits: ≥2 líneas, suma = total, comprobantes donde corresponde.
+ * @returns {{ splits: object[], total: number }}
+ */
+export function validatePaymentSplits(rawSplits, expectedAmount, { treasuryMatch = false } = {}) {
+  const splits = normalizePaymentSplits(rawSplits);
+  if (splits.length < 2) {
+    throw new Error('El pago mixto necesita al menos dos medios con importe.');
+  }
+  const total = roundMoney(splits.reduce((sum, row) => sum + row.amount, 0));
+  const expected = roundMoney(expectedAmount);
+  if (expected > 0 && Math.abs(total - expected) > 0.009) {
+    throw new Error(`Los medios suman ${total} y el cobro es ${expected}.`);
+  }
+  splits.forEach((row) => {
+    if (!duesMethodNeedsReceipt(row.method)) return;
+    if (!row.receiptName) {
+      throw new Error(row.method === 'tarjeta'
+        ? 'Adjunte el comprobante de la tarjeta en el pago mixto.'
+        : 'Adjunte el comprobante de la transferencia en el pago mixto.');
+    }
+    if (!row.receiptPath && !treasuryMatch) {
+      throw new Error('No se pudo guardar un comprobante del pago mixto en Supabase.');
+    }
+  });
+  return { splits, total };
+}
+
+function receiptNumberFor(member, date) {
+  return `RC-${String(member.memberId).slice(-6)}-${String(date).replace(/-/g, '')}`;
+}
+
 function ledgerPago(member, payment) {
+  const methods = Array.isArray(payment.paymentSplits) && payment.paymentSplits.length
+    ? payment.paymentSplits.map((row) => ({
+      method: row.label || duesMethodLabel(row.method, row.bankName),
+      amount: row.amount,
+      reference: row.receiptName || row.paymentPlanLabel || '',
+    }))
+    : (payment.method ? [{ method: payment.method, amount: payment.amount }] : []);
   return createAccountEntry({
     id: payment.ledgerId,
     type: 'pago',
@@ -38,7 +136,7 @@ function ledgerPago(member, payment) {
     voucher: payment.receiptNumber || payment.receipt || payment.voucher,
     source: payment.source || 'dues_payment',
     description: payment.concept,
-    paymentMethods: payment.method ? [payment.method] : [],
+    paymentMethods: methods,
   });
 }
 
@@ -182,18 +280,32 @@ export function payMemberDues(member, {
   method = 'transferencia',
   amount = null,
   today = new Date(),
+  periodDueOns = null,
 } = {}) {
   if (!member) throw new Error('Socio no encontrado.');
   if (isFamilyDependent(member)) throw new Error('El cobro va a la cuenta del titular.');
   if (isDuesExemptMember(member)) throw new Error('Esta categoría no abona cuota social.');
   const requested = amount != null ? Number(amount) : 0;
   const stored = Number(member.outstandingBalance) || 0;
+  const selected = Array.isArray(periodDueOns) && periodDueOns.length
+    ? periodDueOns.map((value) => String(value || '').slice(0, 10)).filter(Boolean)
+    : null;
+  const choices = collectionPeriodChoices(member, today);
+  const selectedChoices = selected
+    ? choices.filter((row) => selected.includes(String(row.dueOn).slice(0, 10)))
+    : choices;
+  if (selected && !selectedChoices.length) {
+    throw new Error('Marcá al menos un mes a cobrar.');
+  }
   const split = duesChargeBreakdown(member, {
     paidOn: today,
+    periodDueOns: selected,
     ...(stored > 0 || !(requested > 0) ? {} : { amount: requested }),
   });
-  let due = split.total;
-  if (!(stored > 0) && requested > 0) due = requested;
+  let due = selected
+    ? selectedChoices.reduce((sum, row) => sum + (Number(row.payable) || 0), 0)
+    : split.total;
+  if (!(stored > 0) && requested > 0 && !selected) due = requested;
   if (due <= 0) throw new Error('No hay saldo pendiente para abonar.');
 
   const paidAmount = requested > 0 ? requested : due;
@@ -204,8 +316,19 @@ export function payMemberDues(member, {
   const time = nowTimeAR(today);
   const paidAt = today.toISOString();
   const lines = paidAmount + 0.01 >= due
-    ? split
-    : duesChargeBreakdown(member, { paidOn: today, amount: paidAmount });
+    ? (selected
+      ? {
+        quota: roundMoney(selectedChoices.reduce((sum, row) => sum + (Number(row.capital) || 0), 0)),
+        surcharge: roundMoney(selectedChoices.reduce((sum, row) => sum + (Number(row.surcharge) || 0), 0)),
+        waivedSurcharge: 0,
+      }
+      : split)
+    : duesChargeBreakdown(member, { paidOn: today, amount: paidAmount, periodDueOns: selected });
+  const periodLabel = selectedChoices.length === 1
+    ? selectedChoices[0].label
+    : (selectedChoices.length > 1
+      ? `${selectedChoices[0].label} · ${selectedChoices[selectedChoices.length - 1].label}`
+      : today.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' }));
   const payment = {
     id: `pay-${member.memberId}-${Date.now()}`,
     date,
@@ -221,19 +344,42 @@ export function payMemberDues(member, {
     status: 'paid',
     receipt: receiptNumberFor(member, date),
     receiptNumber: receiptNumberFor(member, date),
-    period: today.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' }),
+    period: periodLabel,
+    periodDueOns: selectedChoices.map((row) => row.dueOn),
     balanceBefore: Number(member.outstandingBalance) || 0,
     nextDueBefore: member.nextDueDate || null,
     lastPaymentBefore: member.lastPaymentDate || null,
   };
 
   const history = [payment, ...(member.paymentHistory || [])];
-  const remaining = due - paidAmount;
+  const remainingCash = due - paidAmount;
+  const remainingChoices = selected
+    ? choices.filter((row) => !selected.includes(String(row.dueOn).slice(0, 10)))
+    : [];
 
-  if (remaining > 0.01) {
+  if (remainingCash > 0.01) {
     const next = {
       ...member,
-      outstandingBalance: Math.round(remaining * 100) / 100,
+      outstandingBalance: Math.round(remainingCash * 100) / 100,
+      lastPaymentDate: date,
+      paymentHistory: history,
+    };
+    return {
+      member: next,
+      payment,
+      fullyPaid: false,
+      ledgerEntry: ledgerPago(next, payment),
+    };
+  }
+
+  if (remainingChoices.length) {
+    const remainingCapital = roundMoney(
+      remainingChoices.reduce((sum, row) => sum + (Number(row.capital) || 0), 0),
+    );
+    const next = {
+      ...member,
+      outstandingBalance: remainingCapital,
+      nextDueDate: remainingChoices[0].dueOn,
       lastPaymentDate: date,
       paymentHistory: history,
     };
@@ -262,23 +408,36 @@ export function payMemberDues(member, {
 /**
  * Próximo cobro. Si hay saldo a favor, se descuenta en este pago.
  * Lo que sobra queda a favor para el siguiente.
+ * `periodDueOns` marca qué meses entran en el recibo.
  */
-export function collectionPreview(member, today = new Date()) {
+export function collectionPreview(member, today = new Date(), { periodDueOns = null } = {}) {
+  const choices = collectionPeriodChoices(member, today);
+  const selected = Array.isArray(periodDueOns) && periodDueOns.length
+    ? periodDueOns.map((value) => String(value || '').slice(0, 10)).filter(Boolean)
+    : choices.map((row) => row.dueOn);
+  const selectedChoices = choices.filter((row) => selected.includes(String(row.dueOn).slice(0, 10)));
   const stored = Number(member?.outstandingBalance) || 0;
-  if (stored > 0) {
-    const split = duesChargeBreakdown(member, { paidOn: today });
+
+  if (selectedChoices.some((row) => row.kind === 'overdue') || stored > 0) {
+    const quota = roundMoney(selectedChoices.reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
+    const surcharge = roundMoney(selectedChoices.reduce((sum, row) => sum + (Number(row.surcharge) || 0), 0));
+    const gross = roundMoney(quota + surcharge);
     return {
-      quota: split.quota,
-      surcharge: split.surcharge,
-      gross: split.total,
+      quota,
+      surcharge,
+      gross,
       creditApplied: 0,
-      cash: split.total,
+      cash: gross,
       leftover: 0,
+      periods: selectedChoices,
+      choices,
     };
   }
-  const dueOn = member?.nextDueDate || nextDuesDueDate(today);
+
+  const dueOn = selectedChoices[0]?.dueOn || member?.nextDueDate || nextDuesDueDate(today, member);
   const gross = roundMoney(
-    duesPayableForMember(member, { paidOn: today, dueOn, on: dueOn })
+    selectedChoices[0]?.payable
+    || duesPayableForMember(member, { paidOn: today, dueOn, on: dueOn })
     || referenceMonthlyDues(member, member?.paymentHistory),
   );
   const split = duesChargeBreakdown(member, { paidOn: today, dueOn, on: dueOn, amount: gross });
@@ -291,6 +450,8 @@ export function collectionPreview(member, today = new Date()) {
     creditApplied,
     cash: roundMoney(gross - creditApplied),
     leftover: roundMoney(credit - creditApplied),
+    periods: selectedChoices,
+    choices,
   };
 }
 
@@ -347,7 +508,7 @@ export function payUpcomingDues(member, { method = 'transferencia', today = new 
 
 /**
  * Cobro operativo único: saldo vivo + historial + asiento de cuenta + diario.
- * Efectivo acredita; transferencia exige comprobante en el modal; MP deja QR.
+ * Efectivo acredita; transferencia y tarjeta exigen comprobante; MP deja QR.
  */
 export function recordDuesCollection(member, {
   method = 'efectivo',
@@ -355,37 +516,101 @@ export function recordDuesCollection(member, {
   bankName = null,
   journalAccount = null,
   receiptName = null,
+  receiptAttachment = null,
   amount = null,
   today = new Date(),
   members = [],
+  periodDueOns = null,
+  /** Cobranza ya en banco (Sin identificar / Galicia): entra directo a cuota sin re-subir archivo. */
+  treasuryMatch = false,
+  paymentPlanId = null,
+  paymentPlanLabel = null,
+  receiptParse = null,
+  paymentSplits = null,
 } = {}) {
   if (!member) throw new Error('Socio no encontrado.');
   const account = billingAccountMember(member, members);
   if (isDuesExemptMember(account)) throw new Error('Esta categoría no abona cuota social.');
-  if (method === 'transferencia' && !receiptName) {
-    throw new Error('Adjunte el comprobante de la transferencia.');
+
+  const wantsMixed = method === 'mixto'
+    || (Array.isArray(paymentSplits) && paymentSplits.filter((row) => Number(row?.amount) > 0).length >= 2);
+  let mixed = null;
+  if (wantsMixed) {
+    const previewCash = amount != null
+      ? roundMoney(amount)
+      : collectionPreview(account, today, { periodDueOns }).cash;
+    mixed = validatePaymentSplits(paymentSplits, previewCash > 0 ? previewCash : amount, { treasuryMatch });
   }
 
-  const due = Number(account.outstandingBalance) || 0;
-  const paid = due > 0
-    ? payMemberDues(account, { method, amount, today })
-    : payUpcomingDues(account, { method, today });
+  const resolvedMethod = mixed ? 'mixto' : method;
+  const attachmentName = receiptAttachment?.name || receiptName || null;
+  const attachmentPath = receiptAttachment?.path || null;
+  if (!mixed) {
+    const needsReceipt = duesMethodNeedsReceipt(resolvedMethod);
+    if (needsReceipt && !attachmentName) {
+      throw new Error(resolvedMethod === 'tarjeta'
+        ? 'Adjunte el comprobante de la tarjeta.'
+        : 'Adjunte el comprobante de la transferencia.');
+    }
+    if (needsReceipt && !attachmentPath && !treasuryMatch) {
+      throw new Error('No se pudo guardar el comprobante en Supabase.');
+    }
+  }
 
-  const label = duesMethodLabel(method, bankName);
-  const cashAccount = journalAccount || journalAccountForPayment(method, bankId);
-  const receiptNote = receiptName ? ` · Comp: ${receiptName}` : '';
+  const choices = collectionPeriodChoices(account, today);
+  const hasOverdue = choices.some((row) => row.kind === 'overdue');
+  const due = Number(account.outstandingBalance) || 0;
+  const collectAmount = mixed ? mixed.total : amount;
+  const paid = (due > 0 || hasOverdue)
+    ? payMemberDues(account, { method: resolvedMethod, amount: collectAmount, today, periodDueOns })
+    : payUpcomingDues(account, { method: resolvedMethod, today });
+
+  const label = mixed
+    ? `Pago mixto (${mixed.splits.map((row) => row.label).join(' + ')})`
+    : duesMethodLabel(resolvedMethod, bankName);
+  const cashAccount = mixed
+    ? null
+    : (journalAccount || journalAccountForPayment(resolvedMethod, bankId));
+  const receiptNote = !mixed && attachmentName ? ` · Comp: ${attachmentName}` : '';
+  const planLabel = String(paymentPlanLabel || '').trim();
+  const planNote = !mixed && resolvedMethod === 'tarjeta' && planLabel ? ` · Plan: ${planLabel}` : '';
+  const mixedNote = mixed
+    ? ` · ${mixed.splits.map((row) => `${row.label} ${row.amount}`).join(' + ')}`
+    : '';
+  const primarySplit = mixed?.splits[0] || null;
   const payment = {
     ...paid.payment,
-    method,
-    bankId: method === 'transferencia' ? bankId : null,
-    bankName: method === 'transferencia' ? bankName : null,
+    method: resolvedMethod,
+    bankId: mixed ? null : (resolvedMethod === 'transferencia' ? bankId : null),
+    bankName: mixed ? null : (resolvedMethod === 'transferencia' ? bankName : null),
     journalAccount: cashAccount,
-    receiptName: receiptName || null,
+    receiptName: mixed ? (primarySplit?.receiptName || null) : attachmentName,
+    receiptPath: mixed ? (primarySplit?.receiptPath || null) : attachmentPath,
+    receiptBucket: mixed
+      ? (primarySplit?.receiptBucket || null)
+      : (receiptAttachment?.bucket || (attachmentPath ? 'dues-receipts' : null)),
+    receiptMime: mixed ? (primarySplit?.receiptMime || null) : (receiptAttachment?.mimeType || null),
+    receiptSize: mixed ? (primarySplit?.receiptSize ?? null) : (receiptAttachment?.size || null),
+    receiptAttachment: mixed
+      ? (primarySplit?.receiptAttachment || null)
+      : (attachmentPath
+        ? {
+          path: attachmentPath,
+          bucket: receiptAttachment?.bucket || 'dues-receipts',
+          name: attachmentName,
+          mimeType: receiptAttachment?.mimeType || '',
+          size: receiptAttachment?.size || 0,
+        }
+        : null),
     receiptNumber: paid.payment.receiptNumber || paid.payment.receipt,
     receipt: paid.payment.receiptNumber || paid.payment.receipt,
-    concept: `${paid.payment.concept}${receiptNote}`,
+    concept: `${paid.payment.concept}${receiptNote}${planNote}${mixedNote}`,
     collectedFromMemberId: account.memberId !== member.memberId ? member.memberId : null,
     collectedFromName: account.memberId !== member.memberId ? member.name : null,
+    paymentPlanId: mixed ? null : (resolvedMethod === 'tarjeta' ? (paymentPlanId || null) : null),
+    paymentPlanLabel: mixed ? null : (resolvedMethod === 'tarjeta' ? (planLabel || null) : null),
+    receiptParse: mixed ? null : (receiptParse && typeof receiptParse === 'object' ? receiptParse : null),
+    paymentSplits: mixed ? mixed.splits : null,
   };
 
   const memberNext = {
@@ -393,19 +618,43 @@ export function recordDuesCollection(member, {
     paymentHistory: [payment, ...(paid.member.paymentHistory || []).filter((row) => row.id !== paid.payment.id)],
   };
 
-  const journalEntry = payment.amount > 0
-    ? {
-      date: payment.date,
-      description: `Cobro cuota social (${label}) - Socio: ${account.name} (Cred. ${account.memberId})${receiptNote}`,
-      lines: [
-        { account: cashAccount, type: 'debit', amount: payment.amount },
-        { account: 'Cuotas Sociales', type: 'credit', amount: payment.amount },
-      ],
-      sourceModule: 'cuotas',
-      sourceId: payment.id,
-      memberId: account.memberId,
+  let journalEntry = null;
+  if (payment.amount > 0) {
+    if (mixed) {
+      const byAccount = new Map();
+      mixed.splits.forEach((row) => {
+        const key = row.journalAccount || 'Caja General';
+        byAccount.set(key, roundMoney((byAccount.get(key) || 0) + row.amount));
+      });
+      journalEntry = {
+        date: payment.date,
+        description: `Cobro cuota social (${label}) - Socio: ${account.name} (Cred. ${account.memberId})`,
+        lines: [
+          ...[...byAccount.entries()].map(([accountName, value]) => ({
+            account: accountName,
+            type: 'debit',
+            amount: value,
+          })),
+          { account: 'Cuotas Sociales', type: 'credit', amount: payment.amount },
+        ],
+        sourceModule: 'cuotas',
+        sourceId: payment.id,
+        memberId: account.memberId,
+      };
+    } else {
+      journalEntry = {
+        date: payment.date,
+        description: `Cobro cuota social (${label}) - Socio: ${account.name} (Cred. ${account.memberId})${receiptNote}${planNote}`,
+        lines: [
+          { account: cashAccount, type: 'debit', amount: payment.amount },
+          { account: 'Cuotas Sociales', type: 'credit', amount: payment.amount },
+        ],
+        sourceModule: 'cuotas',
+        sourceId: payment.id,
+        memberId: account.memberId,
+      };
     }
-    : null;
+  }
 
   return {
     member: memberNext,

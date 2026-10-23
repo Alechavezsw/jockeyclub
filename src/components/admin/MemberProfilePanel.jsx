@@ -41,6 +41,7 @@ import {
 } from '../../domain/members/profileEdit';
 import { duesMethodLabel, isDuesCollectionJournal, journalEntryBelongsToMember, persistDuesCollection, persistDuesVoid, recordDuesCollection, removeDuesSurcharge, voidMemberDuesPayment } from '../../domain/members/memberPayments';
 import { sendDuesReceiptMessage } from '../../domain/members/duesReceiptDelivery';
+import { signedDuesReceiptUrl } from '../../data/storage';
 import { repos } from '../../data/bootstrap';
 import CurrentAccountCutNote from '../erp/CurrentAccountCutNote';
 
@@ -352,6 +353,8 @@ export default function MemberProfilePanel({
   onSendMessage,
   accessinCobranzas = [],
   poolSettings = DEFAULT_POOL_SETTINGS,
+  paymentPlans = [],
+  paymentTolerance = 1000,
 }) {
   const { roles, role, user } = useAuth();
   const canVoid = canVoidDuesPayment({ roles, role });
@@ -1413,8 +1416,28 @@ export default function MemberProfilePanel({
                       ) : p.removedSurcharge > 0 ? (
                         <div className="mp-list-sub">Recargo borrado{p.surchargeRemovedBy ? ` · ${p.surchargeRemovedBy}` : ''}</div>
                       ) : null}
-                      {p.receiptName ? (
-                        <div className="mp-list-sub">Comprobante: {p.receiptName}</div>
+                      {p.receiptName || p.receiptPath ? (
+                        <div className="mp-list-sub">
+                          Comprobante: {p.receiptName || 'adjunto'}
+                          {p.receiptPath ? (
+                            <>
+                              {' · '}
+                              <button
+                                type="button"
+                                className="link-button"
+                                style={{ background: 'none', border: 0, padding: 0, color: 'var(--text-gold)', cursor: 'pointer', textDecoration: 'underline' }}
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  const url = await signedDuesReceiptUrl(p.receiptPath);
+                                  if (url) window.open(url, '_blank', 'noopener,noreferrer');
+                                  else setCollectFlash('No se pudo abrir el comprobante.');
+                                }}
+                              >
+                                Abrir
+                              </button>
+                            </>
+                          ) : null}
+                        </div>
                       ) : null}
                     </span>
                     <strong className="mp-list-amount" style={p.status === 'void' ? { textDecoration: 'line-through', opacity: 0.6 } : undefined}>
@@ -1600,6 +1623,8 @@ export default function MemberProfilePanel({
           formatCurrency={formatCurrency}
           onClose={() => setCollectOpen(false)}
           onConfirm={handleConfirmCollect}
+          paymentPlans={paymentPlans}
+          paymentTolerance={paymentTolerance}
         />
       ) : null}
 

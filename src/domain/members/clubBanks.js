@@ -42,7 +42,7 @@ export function buildMercadoPagoQrPayload({ amount, memberId, memberName, concep
 }
 
 export function journalAccountForPayment(method, bankId) {
-  if (method === 'efectivo') return CASH_JOURNAL_ACCOUNT;
+  if (method === 'efectivo' || method === 'tarjeta') return CASH_JOURNAL_ACCOUNT;
   if (method === 'mercadopago') return MERCADO_PAGO.journalAccount;
   const bank = CLUB_BANK_ACCOUNTS.find((b) => b.id === bankId) || CLUB_BANK_ACCOUNTS[0];
   return bank.journalAccount;

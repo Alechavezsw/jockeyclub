@@ -113,6 +113,7 @@ export default function CuotasPanel({
   initialView = 'hub',
   balancesOnly = false,
   duesSettings,
+  paymentPlans = [],
   setDuesSettings,
 }) {
   const fmt = formatCurrencyProp || formatCurrency;
@@ -704,6 +705,8 @@ export default function CuotasPanel({
           onSendMessage={onSendMessage}
           formatCurrency={fmt}
           tierCatalog={tierCatalog}
+          paymentPlans={paymentPlans}
+          paymentTolerance={duesSettings?.paymentTolerance}
         />
       </div>
     );

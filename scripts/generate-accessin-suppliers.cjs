@@ -24,19 +24,44 @@ const MONTHS = {
   diciembre: 12,
 };
 
-function latestWorkbook() {
+function collectWorkbooks(regex) {
   const found = [];
   for (const dir of sourceDirs) {
     if (!fs.existsSync(dir)) continue;
     for (const name of fs.readdirSync(dir)) {
       if (!name.endsWith('.xlsx') || name.startsWith('~$')) continue;
-      if (!/cuenta corriente de proveedores/i.test(name)) continue;
-      found.push(path.join(dir, name));
+      if (!regex.test(name)) continue;
+      const dated = name.match(/(\d{4}-\d{2}-\d{2})/);
+      found.push({ full: path.join(dir, name), name, date: dated ? dated[1] : '' });
     }
   }
-  found.sort((a, b) => path.basename(a).localeCompare(path.basename(b)));
-  if (!found.length) throw new Error('No hay Excel de cuenta corriente de proveedores');
-  return found[found.length - 1];
+  found.sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
+  return found;
+}
+
+function contactByCode(filePath) {
+  const map = new Map();
+  if (!filePath) return map;
+  const wb = XLSX.readFile(filePath);
+  const sheet = wb.Sheets['Balance de proveedores'];
+  if (!sheet) return map;
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+  const headerIdx = rows.findIndex((r) => r && r[1] === 'PROVEEDOR');
+  if (headerIdx < 0) return map;
+  for (let i = headerIdx + 1; i < rows.length; i += 1) {
+    const r = rows[i];
+    if (!r || r[0] == null) continue;
+    const code = String(r[0]).trim();
+    if (!code) continue;
+    let phone = r[4] != null && r[4] !== '' ? String(r[4]).trim() : '';
+    if (/^\d+\.0$/.test(phone)) phone = phone.replace(/\.0$/, '');
+    map.set(code, {
+      email: r[3] ? String(r[3]).trim() : '',
+      phone,
+      contact: r[5] ? String(r[5]).trim() : '',
+    });
+  }
+  return map;
 }
 
 function parseGenerated(rows, fallbackDate) {
@@ -76,49 +101,103 @@ function guessCategory(name) {
   return 'general';
 }
 
-const excelPath = latestWorkbook();
-const fileDate = (path.basename(excelPath).match(/(\d{4}-\d{2}-\d{2})/) || [])[1] || '';
-const wb = XLSX.readFile(excelPath);
-const rows = XLSX.utils.sheet_to_json(wb.Sheets['Balance de proveedores'], { header: 1, defval: null });
-const generated = parseGenerated(rows, fileDate);
-const asOf = generated.isoDate || fileDate;
-const asOfAr = formatAr(asOf);
-const headerIdx = rows.findIndex((r) => r && r[1] === 'PROVEEDOR');
-if (headerIdx < 0) throw new Error('No se encontró encabezado PROVEEDOR');
+const saldosFiles = collectWorkbooks(/saldos de proveedores/i);
+const detailFiles = collectWorkbooks(/cuenta corriente de proveedores/i);
+const saldosFile = saldosFiles.at(-1);
+const detailFile = detailFiles.at(-1);
+if (!saldosFile && !detailFile) throw new Error('No hay Excel de proveedores');
 
 const out = [];
-for (let i = headerIdx + 1; i < rows.length; i += 1) {
-  const r = rows[i];
-  if (!r || r[1] == null || String(r[1]).trim() === '') continue;
-  const code = r[0] == null ? '' : String(r[0]).trim();
-  const name = String(r[1]).trim().replace(/\s+/g, ' ');
-  if (!name) continue;
-  const cuit = r[2] ? String(r[2]).trim() : '';
-  const email = r[3] ? String(r[3]).trim() : '';
-  let phone = r[4] != null && r[4] !== '' ? String(r[4]).trim() : '';
-  if (/^\d+\.0$/.test(phone)) phone = phone.replace(/\.0$/, '');
-  const contact = r[5] ? String(r[5]).trim() : '';
-  const balance = Number(r[6]) || 0;
+let asOf = '';
+let asOfAr = '';
+let createdAt = '';
+let sourceName = '';
 
-  out.push({
-    id: `sup-acc-${code || `x${out.length}`}`,
-    legalName: name,
-    tradeName: contact,
-    cuit,
-    category: guessCategory(name),
-    email,
-    phone,
-    address: '',
-    payableAccountId: 'coa-2.1.01',
-    notes: code
-      ? `Accessin #${code}${balance ? ` · saldo al ${asOfAr}: ${balance}` : ''}`
-      : '',
-    status: 'active',
-    accessinCode: code,
-    openingBalance: balance,
-    asOf,
-    createdAt: generated.createdAt,
-  });
+if (saldosFile && (!detailFile || saldosFile.date >= detailFile.date)) {
+  const contacts = contactByCode(detailFile?.full);
+  const wb = XLSX.readFile(saldosFile.full);
+  const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: null });
+  const generated = parseGenerated(
+    rows.map((row) => [null, (row || []).filter((cell) => cell != null && cell !== '').join(' ')]),
+    saldosFile.date,
+  );
+  asOf = generated.isoDate || saldosFile.date;
+  asOfAr = formatAr(asOf);
+  createdAt = generated.createdAt;
+  sourceName = saldosFile.name;
+  const headerIdx = rows.findIndex((r) => r && String(r[1] || '').trim() === 'PROVEEDOR');
+  if (headerIdx < 0) throw new Error('No se encontró encabezado PROVEEDOR');
+  for (let i = headerIdx + 1; i < rows.length; i += 1) {
+    const r = rows[i];
+    if (!r || r[1] == null || String(r[1]).trim() === '') continue;
+    const code = r[0] == null ? '' : String(r[0]).trim();
+    const name = String(r[1]).trim().replace(/\s+/g, ' ');
+    if (!name || name === 'PROVEEDOR') continue;
+    const extra = contacts.get(code) || {};
+    const balance = Number(r[3]) || 0;
+    out.push({
+      id: `sup-acc-${code || `x${out.length}`}`,
+      legalName: name,
+      tradeName: extra.contact || '',
+      cuit: r[2] ? String(r[2]).trim() : '',
+      category: guessCategory(name),
+      email: extra.email || '',
+      phone: extra.phone || '',
+      address: '',
+      payableAccountId: 'coa-2.1.01',
+      notes: code
+        ? `Accessin #${code}${balance ? ` · saldo al ${asOfAr}: ${balance}` : ''}`
+        : '',
+      status: 'active',
+      accessinCode: code,
+      openingBalance: balance,
+      asOf,
+      createdAt,
+    });
+  }
+} else {
+  const excelPath = detailFile.full;
+  const wb = XLSX.readFile(excelPath);
+  const rows = XLSX.utils.sheet_to_json(wb.Sheets['Balance de proveedores'], { header: 1, defval: null });
+  const generated = parseGenerated(rows, detailFile.date);
+  asOf = generated.isoDate || detailFile.date;
+  asOfAr = formatAr(asOf);
+  createdAt = generated.createdAt;
+  sourceName = detailFile.name;
+  const headerIdx = rows.findIndex((r) => r && r[1] === 'PROVEEDOR');
+  if (headerIdx < 0) throw new Error('No se encontró encabezado PROVEEDOR');
+  for (let i = headerIdx + 1; i < rows.length; i += 1) {
+    const r = rows[i];
+    if (!r || r[1] == null || String(r[1]).trim() === '') continue;
+    const code = r[0] == null ? '' : String(r[0]).trim();
+    const name = String(r[1]).trim().replace(/\s+/g, ' ');
+    if (!name) continue;
+    const cuit = r[2] ? String(r[2]).trim() : '';
+    const email = r[3] ? String(r[3]).trim() : '';
+    let phone = r[4] != null && r[4] !== '' ? String(r[4]).trim() : '';
+    if (/^\d+\.0$/.test(phone)) phone = phone.replace(/\.0$/, '');
+    const contact = r[5] ? String(r[5]).trim() : '';
+    const balance = Number(r[6]) || 0;
+    out.push({
+      id: `sup-acc-${code || `x${out.length}`}`,
+      legalName: name,
+      tradeName: contact,
+      cuit,
+      category: guessCategory(name),
+      email,
+      phone,
+      address: '',
+      payableAccountId: 'coa-2.1.01',
+      notes: code
+        ? `Accessin #${code}${balance ? ` · saldo al ${asOfAr}: ${balance}` : ''}`
+        : '',
+      status: 'active',
+      accessinCode: code,
+      openingBalance: balance,
+      asOf,
+      createdAt,
+    });
+  }
 }
 
 fs.mkdirSync(outDir, { recursive: true });
@@ -130,4 +209,4 @@ const js = [
   '',
 ].join('\n');
 fs.writeFileSync(outFile, js);
-console.log(`Wrote ${out.length} suppliers al ${asOf} desde ${path.basename(excelPath)}`);
+console.log(`Wrote ${out.length} suppliers al ${asOf} desde ${sourceName}`);

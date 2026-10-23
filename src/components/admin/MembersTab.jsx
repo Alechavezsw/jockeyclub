@@ -294,6 +294,8 @@ export default function MembersTab({
   portalAccessRequests = [],
   setPortalAccessRequests,
   onSendMessage,
+  paymentPlans = [],
+  paymentTolerance = 1000,
 }) {
   const { user } = useAuth();
   const actorName = user?.fullName || user?.name || user?.email || '';
@@ -2473,6 +2475,8 @@ export default function MembersTab({
           formatCurrency={formatCurrency}
           onClose={() => setCollectMember(null)}
           onConfirm={handleConfirmCollect}
+          paymentPlans={paymentPlans}
+          paymentTolerance={paymentTolerance}
         />
       )}
 
