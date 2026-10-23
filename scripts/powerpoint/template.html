@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#0b3b2e">
+<title>{{TITLE}}</title>
+<link rel="icon" type="image/png" href="/logo-jockey-club.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400..700&family=Playfair+Display:ital,wght@0,600..800;1,600..800&display=swap" rel="stylesheet">
+<style>
+/* Generado por scripts/build-powerpoint.mjs: no editar a mano. */
+html,body{margin:0;height:100%;background:#050807;overflow:hidden;font-family:'Outfit',Arial,sans-serif;-webkit-font-smoothing:antialiased}
+#viewport{position:fixed;left:0;top:0;right:0;bottom:0;overflow:hidden}
+#stage{position:absolute;left:50%;top:50%;width:1920px;height:1080px;margin:-540px 0 0 -960px;transform-origin:center center}
+#stage section{position:absolute;left:0;top:0;width:1920px;height:1080px;box-sizing:border-box;overflow:hidden;visibility:hidden}
+#stage section.on{visibility:visible}
+#stage section *{box-sizing:border-box;margin:0}
+#stage h1{font-size:96px;font-weight:600;line-height:1.1}
+#stage h2{font-size:64px;font-weight:600;line-height:1.15}
+#stage h3{font-size:44px;font-weight:600;line-height:1.2}
+#stage p{font-size:32px;line-height:1.4}
+.ico{display:inline-block;flex:none}
+.ico svg{display:block;width:100%;height:100%}
+.shape{display:block}
+.shape.arrow-right{clip-path:polygon(0 28%,60% 28%,60% 0,100% 50%,60% 100%,60% 72%,0 72%)}
+.embed{display:block;border:0;background:transparent;pointer-events:none}
+#bar{position:fixed;left:0;right:0;bottom:0;height:3px;background:rgba(255,255,255,.08);z-index:5}
+#bar i{display:block;height:100%;width:0;background:#f08a5d;transition:width .4s ease}
+#ui{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:40px;background:rgba(7,15,12,.72);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);color:#f6eedd;font:500 14px/1 'Outfit',Arial,sans-serif;z-index:6;transition:opacity .4s}
+#ui .ub{appearance:none;border:0;background:transparent;color:inherit;font:inherit;padding:10px 14px;border-radius:30px;cursor:pointer;text-decoration:none}
+#ui .ub:hover,#ui .ub:focus-visible{background:rgba(246,238,221,.14);outline:none}
+#ui #count{min-width:64px;text-align:center;font-variant-numeric:tabular-nums;color:#bcd3c8}
+body.idle #ui{opacity:0;pointer-events:none}
+body.idle{cursor:none}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+noscript{position:fixed;left:0;right:0;top:40%;text-align:center;color:#f6eedd;font:24px 'Outfit',Arial,sans-serif}
+@media (max-width:640px){#ui .hide-sm{display:none}}
+</style>
+</head>
+<body>
+<div id="viewport">
+<div id="stage">
+<!--SLIDES-->
+</div>
+</div>
+<div id="bar"><i></i></div>
+<div id="ui" role="toolbar" aria-label="Controles de la presentación">
+<a class="ub hide-sm" href="/" title="Volver al portal">Portal</a>
+<button class="ub" id="prev" type="button" aria-label="Diapositiva anterior">&#8249;</button>
+<span id="count">1 / 1</span>
+<button class="ub" id="next" type="button" aria-label="Diapositiva siguiente">&#8250;</button>
+<button class="ub hide-sm" id="full" type="button">Pantalla completa</button>
+</div>
+<div class="sr" id="live" aria-live="polite"></div>
+<noscript>Esta presentación necesita JavaScript.</noscript>
+<script>
+(function () {
+  var stage = document.getElementById('stage');
+  var slides = Array.prototype.slice.call(stage.children).filter(function (n) { return n.tagName === 'SECTION'; });
+  var count = document.getElementById('count');
+  var bar = document.querySelector('#bar i');
+  var live = document.getElementById('live');
+  var reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  var cur = -1;
+
+  var FX = {
+    fade: [{ opacity: 0 }, { opacity: 1 }],
+    rise: [{ opacity: 0, translate: '0 48px' }, { opacity: 1, translate: '0 0' }],
+    drop: [{ opacity: 0, translate: '0 -48px' }, { opacity: 1, translate: '0 0' }],
+    left: [{ opacity: 0, translate: '-60px 0' }, { opacity: 1, translate: '0 0' }],
+    right: [{ opacity: 0, translate: '60px 0' }, { opacity: 1, translate: '0 0' }],
+    pop: [{ opacity: 0, scale: '0.86' }, { opacity: 1, scale: '1' }],
+    scale: [{ opacity: 0, scale: '0.7' }, { opacity: 1, scale: '1' }]
+  };
+
+  function fit() {
+    var s = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+    stage.style.transform = 'scale(' + s + ')';
+  }
+
+  function embeds(sec, on) {
+    Array.prototype.forEach.call(sec.querySelectorAll('iframe.embed'), function (f) {
+      f.srcdoc = on ? f.getAttribute('data-srcdoc') : '';
+    });
+  }
+
+  function spec(el) {
+    var p = el.getAttribute('data-build-in').split(/\s+/);
+    return { kind: p[0], order: parseInt(p[1], 10) || 1 };
+  }
+
+  function build(sec) {
+    var els = Array.prototype.slice.call(sec.querySelectorAll('[data-build-in]'));
+    var orders = [];
+    els.forEach(function (e) {
+      var o = spec(e).order;
+      if (orders.indexOf(o) === -1) orders.push(o);
+    });
+    orders.sort(function (a, b) { return a - b; });
+    els.forEach(function (e) {
+      var sp = spec(e);
+      if (!e.animate) return;
+      e.animate(FX[sp.kind] || FX.fade, {
+        duration: reduce ? 1 : 650,
+        delay: reduce ? 0 : 280 + orders.indexOf(sp.order) * 300,
+        easing: 'cubic-bezier(.2,.8,.2,1)',
+        fill: 'backwards'
+      });
+    });
+  }
+
+  function hide(s) {
+    if (s.getAnimations) s.getAnimations().forEach(function (a) { a.cancel(); });
+    s.classList.remove('on');
+    s.style.zIndex = '';
+    embeds(s, false);
+  }
+
+  function show(n) {
+    if (n < 0 || n >= slides.length || n === cur) return;
+    var fwd = n > cur;
+    var prev = cur >= 0 ? slides[cur] : null;
+    var next = slides[n];
+    slides.forEach(function (s, i) { if (i !== cur && i !== n && s.classList.contains('on')) hide(s); });
+    cur = n;
+    if (prev) prev.style.zIndex = '1';
+    next.style.zIndex = '2';
+    next.classList.add('on');
+    embeds(next, true);
+    build(next);
+
+    var kind = next.getAttribute('data-transition') || 'fade';
+    if (prev && !reduce && next.animate) {
+      var ease = 'cubic-bezier(.2,.8,.2,1)';
+      var done = function () { if (slides[cur] !== prev) hide(prev); };
+      setTimeout(done, 750);
+      if (kind === 'push') {
+        var d = fwd ? 1 : -1;
+        next.animate([{ translate: (d * 1920) + 'px 0' }, { translate: '0 0' }], { duration: 650, easing: ease });
+        var a = prev.animate([{ translate: '0 0', opacity: 1 }, { translate: (-d * 480) + 'px 0', opacity: 0.4 }], { duration: 650, easing: ease, fill: 'forwards' });
+        a.onfinish = done;
+      } else {
+        var b = next.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 450, easing: 'ease-out' });
+        b.onfinish = done;
+      }
+    } else if (prev) {
+      hide(prev);
+    }
+
+    count.textContent = (n + 1) + ' / ' + slides.length;
+    bar.style.width = ((n + 1) / slides.length * 100) + '%';
+    live.textContent = 'Diapositiva ' + (n + 1) + ' de ' + slides.length;
+    if (window.history && history.replaceState) history.replaceState(null, '', '#' + (n + 1));
+  }
+
+  function step(d) { show(Math.max(0, Math.min(slides.length - 1, cur + d))); }
+
+  function toggleFull() {
+    var el = document.documentElement;
+    if (document.fullscreenElement) { document.exitFullscreen(); return; }
+    if (el.requestFullscreen) el.requestFullscreen();
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    var k = e.key;
+    var onControl = e.target && /^(BUTTON|A)$/.test(e.target.tagName);
+    if ((k === 'Enter' || k === ' ') && onControl) return;
+    if (k === 'ArrowRight' || k === 'PageDown' || k === ' ' || k === 'Enter' || k === 'n') { e.preventDefault(); step(1); }
+    else if (k === 'ArrowLeft' || k === 'PageUp' || k === 'Backspace' || k === 'p') { e.preventDefault(); step(-1); }
+    else if (k === 'Home') { show(0); }
+    else if (k === 'End') { show(slides.length - 1); }
+    else if (k === 'f' || k === 'F') { toggleFull(); }
+  });
+
+  document.getElementById('viewport').addEventListener('click', function (e) {
+    step(e.clientX / window.innerWidth < 0.25 ? -1 : 1);
+  });
+  document.getElementById('prev').addEventListener('click', function (e) { e.currentTarget.blur(); step(-1); });
+  document.getElementById('next').addEventListener('click', function (e) { e.currentTarget.blur(); step(1); });
+  document.getElementById('full').addEventListener('click', function (e) { e.currentTarget.blur(); toggleFull(); });
+
+  var tx = 0;
+  document.addEventListener('touchstart', function (e) { tx = e.changedTouches[0].clientX; }, { passive: true });
+  document.addEventListener('touchend', function (e) {
+    var dx = e.changedTouches[0].clientX - tx;
+    if (Math.abs(dx) > 50) step(dx < 0 ? 1 : -1);
+  }, { passive: true });
+
+  var idle;
+  function wake() {
+    document.body.classList.remove('idle');
+    clearTimeout(idle);
+    idle = setTimeout(function () { document.body.classList.add('idle'); }, 2600);
+  }
+  ['mousemove', 'mousedown', 'keydown', 'touchstart'].forEach(function (ev) { document.addEventListener(ev, wake, { passive: true }); });
+
+  window.addEventListener('resize', fit);
+  window.addEventListener('hashchange', function () {
+    var n = (parseInt(location.hash.slice(1), 10) || 1) - 1;
+    show(Math.max(0, Math.min(slides.length - 1, n)));
+  });
+
+  fit();
+  wake();
+  show(Math.max(0, Math.min(slides.length - 1, (parseInt(location.hash.slice(1), 10) || 1) - 1)));
+})();
+</script>
+</body>
+</html>

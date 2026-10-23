@@ -1,0 +1,104 @@
+<section id="admin-alta" data-transition="fade" style="background:#faf5ec;color:#1d2a25;font-family:'Outfit', Arial, sans-serif;padding:128px 128px 160px 1160px;display:flex;flex-direction:column;gap:12px">
+<p style="width:632px;font-size:24px;font-weight:600;letter-spacing:4px;color:#14624d">ADMINISTRACIÓN · ALTA</p>
+<h2 style="width:632px;font-family:'Playfair Display', Georgia, serif;font-size:72px;font-weight:700;line-height:1.1;color:#1d2a25">Alta de un socio nuevo</h2>
+<div style="width:632px;display:flex;flex-direction:column;gap:28px;padding:36px 0px 0px">
+<div style="display:flex;align-items:flex-start;gap:20px"><x-icon name="CheckCircle" style="width:40px;height:40px;color:#14624d"></x-icon><p style="width:572px;font-size:32px;line-height:1.4;color:#3d4a43">El socio pide asociarse en la pantalla pública</p></div>
+<div style="display:flex;align-items:flex-start;gap:20px"><x-icon name="CheckCircle" style="width:40px;height:40px;color:#14624d"></x-icon><p style="width:572px;font-size:32px;line-height:1.4;color:#3d4a43">Llega a Solicitudes, en Socios</p></div>
+<div style="display:flex;align-items:flex-start;gap:20px"><x-icon name="CheckCircle" style="width:40px;height:40px;color:#14624d"></x-icon><p style="width:572px;font-size:32px;line-height:1.4;color:#3d4a43">Se compara nombre, DNI y celular con la ficha</p></div>
+<div style="display:flex;align-items:flex-start;gap:20px"><x-icon name="CheckCircle" style="width:40px;height:40px;color:#14624d"></x-icon><p style="width:572px;font-size:32px;line-height:1.4;color:#3d4a43">El acceso lo entrega el personal: la clave se muestra una sola vez</p></div>
+</div>
+<x-embed style="position:absolute;left:128px;top:150px;width:992px;height:770px">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:992px;height:770px;overflow:hidden;background:transparent;font-family:'Trebuchet MS','Segoe UI',Verdana,sans-serif;color:#1d2a25}
+.win{position:absolute;left:0;top:0;width:992px;height:770px;background:#fffdf8;border:1px solid #e6dcc8;border-radius:28px;box-shadow:0 24px 60px rgba(29,42,37,.18);overflow:hidden}
+.top{height:76px;display:flex;align-items:center;justify-content:space-between;padding:0 32px;background:#faf5ec;border-bottom:1px solid #eee4d2}
+.brand{font-family:Georgia,serif;font-weight:700;font-size:28px;letter-spacing:3px}
+.tag{font-size:22px;color:#5f6b64;border:1px solid #d9ccb2;border-radius:30px;padding:5px 18px}
+.stage{position:absolute;left:0;top:76px;width:992px;height:694px;transition:opacity .6s}
+.a{position:absolute;left:32px}
+.tb{top:16px;width:928px;display:flex;gap:10px}
+.tb span{font-size:24px;font-weight:700;padding:10px 20px;border-radius:30px;background:#f3ebdc;color:#5f6b64}
+.tb .on{background:#14624d;color:#fff8ee}
+.rq{top:84px;width:928px;height:170px;border:1px solid #eadfca;border-radius:20px;background:#fff;padding:20px 26px;opacity:0;transform:translateY(14px);transition:.5s}
+.r1 .rq{opacity:1;transform:none}
+.r1l{display:flex;align-items:center;gap:18px}
+.av{width:60px;height:60px;border-radius:50%;background:#dff0e6;color:#0f4f3d;font-weight:700;font-size:24px;display:flex;align-items:center;justify-content:center}
+.nm{flex:1;font-family:Georgia,serif;font-size:30px;font-weight:700}
+.nm small{display:block;font-family:'Trebuchet MS',sans-serif;font-weight:400;font-size:22px;color:#5f6b64;margin-top:2px}
+.ch{font-size:22px;font-weight:700;padding:6px 16px;border-radius:30px;background:#fdecc8;color:#6b4410}
+.ck{margin-top:16px;font-size:24px;color:#3d4a43;background:#faf5ec;border-radius:12px;padding:10px 16px}
+.bs{top:274px;width:928px;display:flex;gap:14px}
+.b1{font-size:26px;font-weight:700;color:#fff8ee;background:#14624d;border-radius:16px;padding:18px 0;width:520px;text-align:center;transition:transform .15s}
+.b2{font-size:26px;font-weight:700;color:#6b4410;background:#fff;border:2px solid #c2761a;border-radius:16px;padding:16px 0;width:220px;text-align:center}
+.hn{top:364px;font-size:22px;color:#5f6b64}
+.mo{position:absolute;left:0;top:0;width:992px;height:694px;background:rgba(11,59,46,.5);opacity:0;transition:.4s}
+.m1 .mo{opacity:1}
+.mc{position:absolute;left:96px;top:40px;width:800px;height:470px;background:#fffdf8;border-radius:24px;padding:28px 32px;box-shadow:0 20px 50px rgba(0,0,0,.3);transform:translateY(40px) scale(.97);transition:.5s}
+.m1 .mc{transform:none}
+.mc h4{font-family:Georgia,serif;font-size:32px}
+.fr{display:flex;justify-content:space-between;align-items:center;height:54px;border-bottom:1px solid #eee4d2;font-size:22px;color:#5f6b64}
+.fr b{font-size:25px;color:#1d2a25}
+.pwv,.lkv{opacity:0;transition:.4s}
+.pw .pwv,.pw .lkv{opacity:1}
+.nt{margin-top:12px;background:#fff3b8;border:2px solid #a88a00;color:#4a3d08;border-radius:12px;padding:12px 16px;font-size:24px;font-weight:700;opacity:0;transition:.4s}
+.n1 .nt{opacity:1}
+.bb{display:flex;gap:14px;margin-top:14px}
+.wa{background:#14624d;color:#fff8ee;font-size:24px;font-weight:700;border-radius:14px;padding:15px 0;width:300px;text-align:center;transition:transform .15s}
+.ol{font-size:24px;font-weight:700;color:#14624d;background:#fff;border:2px solid #14624d;border-radius:14px;padding:13px 0;width:200px;text-align:center}
+.tt{top:622px;width:928px;height:52px;background:#dff0e6;border:2px solid #14624d;border-radius:14px;color:#0f4f3d;font-size:24px;font-weight:700;display:flex;align-items:center;justify-content:center;opacity:0;transform:translateY(8px);transition:.4s}
+.ok .tt{opacity:1;transform:none}
+.cur{position:absolute;left:560px;top:520px;width:34px;height:34px;transition:left .9s ease,top .9s ease,transform .15s}
+.cur.p{transform:scale(.8)}
+.win.fade .stage{opacity:0}
+.p{transform:scale(.96)}
+</style>
+<div class="win" id="w">
+<div class="top"><span class="brand">SOCIOS · SOLICITUDES</span><span class="tag">Datos de ejemplo</span></div>
+<div class="stage">
+<div class="a tb"><span>Acceso al portal</span><span class="on">Quiero asociarme</span><span>Listos</span></div>
+<div class="a rq"><div class="r1l"><div class="av">MQ</div><div class="nm">Mariana Quiroga<small>Pidió: Socio familiar · Hace 2 h</small></div><span class="ch">Quiero asociarme</span></div><div class="ck">Comparar nombre, DNI y celular con la solicitud</div></div>
+<div class="a bs"><span class="b1" id="b1">Dar de alta y enviar usuario</span><span class="b2">Rechazar</span></div>
+<div class="a hn">Antes de dar de alta, verificá que la persona es quien dice ser.</div>
+<div class="mo"><div class="mc">
+<h4>Acceso entregado</h4>
+<div class="fr"><span>Usuario</span><b id="uV"></b></div>
+<div class="fr"><span>Email de ingreso</span><b id="eV"></b></div>
+<div class="fr"><span>Contraseña</span><b class="pwv">••••••••••</b></div>
+<div class="fr"><span>Link del portal</span><b class="lkv">www.jockeyclubsj.com.ar</b></div>
+<div class="nt">Anotá la contraseña: solo se muestra ahora.</div>
+<div class="bb"><span class="wa" id="wa">Enviar por WhatsApp</span><span class="ol">Abrir mail</span><span class="ol">Descargar PDF</span></div>
+</div></div>
+<div class="a tt">Socia dada de alta: ya figura en el padrón.</div>
+</div>
+<div class="cur" id="c"><svg width="34" height="34" viewBox="0 0 24 24"><path d="M4 2l15 10-6.5 1.2L9.5 20z" fill="#1d2a25" stroke="#ffffff" stroke-width="1.6" stroke-linejoin="round"/></svg></div>
+</div>
+<script>
+var $=function(i){return document.getElementById(i)};
+var w=$('w'),c=$('c'),T=[];
+function at(ms,f){T.push(setTimeout(f,ms))}
+function go(x,y){c.style.left=x+'px';c.style.top=y+'px'}
+function press(el){el.classList.add('p');c.classList.add('p');at(150,function(){el.classList.remove('p');c.classList.remove('p')})}
+function type(id,s,t0,dt){for(var i=0;i!==s.length;i++){(function(i){at(t0+i*dt,function(){$(id).textContent=s.slice(0,i+1)})})(i)}}
+function run(){
+T.forEach(function(t){clearTimeout(t)});T=[];w.className='win';$('uV').textContent='';$('eV').textContent='';go(560,520);
+at(500,function(){w.classList.add('r1')});
+at(1800,function(){go(266,364)});
+at(3000,function(){press($('b1'))});
+at(3150,function(){w.classList.add('m1')});
+type('uV','mquiroga',3700,70);
+type('eV','m.quiroga@ejemplo.com',4400,40);
+at(5500,function(){w.classList.add('pw')});
+at(6000,function(){w.classList.add('n1')});
+at(7000,function(){go(272,504)});
+at(8200,function(){press($('wa'))});
+at(8350,function(){w.classList.add('ok')});
+at(12800,function(){w.classList.add('fade')});
+at(13600,run);
+}
+run();
+</script>
+</x-embed>
+<p style="position:absolute;left:128px;bottom:64px;width:900px;font-size:24px;color:#5f6b64">Pantalla recreada con datos de ejemplo</p>
+<p style="position:absolute;left:1392px;bottom:64px;width:400px;font-size:24px;color:#5f6b64;text-align:right">08 / 28</p>
+</section>

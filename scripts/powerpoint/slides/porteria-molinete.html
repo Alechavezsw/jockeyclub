@@ -1,0 +1,98 @@
+<section id="porteria-molinete" data-transition="fade" style="background:#faf5ec;color:#1d2a25;font-family:'Outfit', Arial, sans-serif;padding:128px 128px 160px;display:flex;flex-direction:column;gap:12px">
+<p style="width:600px;font-size:24px;font-weight:600;letter-spacing:4px;color:#b93d14">PORTERÍA · MOLINETE</p>
+<h2 style="width:620px;font-family:'Playfair Display', Georgia, serif;font-size:72px;font-weight:700;line-height:1.1;color:#1d2a25">El molinete de la sede</h2>
+<div style="width:600px;display:flex;flex-direction:column;gap:28px;padding:36px 0px 0px">
+<div style="display:flex;align-items:flex-start;gap:20px"><x-icon name="CheckCircle" style="width:40px;height:40px;color:#b93d14"></x-icon><p style="width:540px;font-size:32px;line-height:1.4;color:#3d4a43">Escanea el QR o busca por DNI, apellido o número</p></div>
+<div style="display:flex;align-items:flex-start;gap:20px"><x-icon name="CheckCircle" style="width:40px;height:40px;color:#b93d14"></x-icon><p style="width:540px;font-size:32px;line-height:1.4;color:#3d4a43">No espera al cartel: la credencial siguiente lo reemplaza</p></div>
+<div style="display:flex;align-items:flex-start;gap:20px"><x-icon name="CheckCircle" style="width:40px;height:40px;color:#b93d14"></x-icon><p style="width:540px;font-size:32px;line-height:1.4;color:#3d4a43">Sin internet, las lecturas se guardan y se envían solas</p></div>
+<div style="display:flex;align-items:flex-start;gap:20px"><x-icon name="CheckCircle" style="width:40px;height:40px;color:#b93d14"></x-icon><p style="width:540px;font-size:32px;line-height:1.4;color:#3d4a43">Cada lectura queda anotada con quién la hizo</p></div>
+</div>
+<x-embed style="position:absolute;left:800px;top:150px;width:992px;height:770px">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:992px;height:770px;overflow:hidden;background:transparent;font-family:'Trebuchet MS','Segoe UI',Verdana,sans-serif;color:#1d2a25}
+.win{position:absolute;left:0;top:0;width:992px;height:770px;background:#fffdf8;border:1px solid #e6dcc8;border-radius:28px;box-shadow:0 24px 60px rgba(29,42,37,.18);overflow:hidden}
+.top{height:76px;display:flex;align-items:center;justify-content:space-between;padding:0 32px;background:#faf5ec;border-bottom:1px solid #eee4d2}
+.brand{font-family:Georgia,serif;font-weight:700;font-size:28px;letter-spacing:3px}
+.tag{font-size:22px;color:#5f6b64;border:1px solid #d9ccb2;border-radius:30px;padding:5px 18px}
+.stage{position:absolute;left:0;top:76px;width:992px;height:598px;transition:opacity .6s}
+.rail{position:absolute;left:0;top:674px;width:992px;height:96px;background:#faf5ec;border-top:1px solid #eee4d2;display:flex;align-items:center;justify-content:space-around;transition:opacity .6s}
+.lg{font-size:22px;font-weight:700;padding:8px 18px;border-radius:30px;border:2px solid transparent;opacity:.5;transition:.3s}
+.lg.on{opacity:1;border-color:currentColor}
+.lg.a,.c.cg{background:#dff0e6;color:#0f4f3d}
+.lg.d,.c.cy{background:#fdecc8;color:#6b4410}
+.lg.x,.c.cr{background:#fbe0d8;color:#8a2c0a}
+.lg.u,.c.cu{background:#fff3b8;color:#5c4a00}
+.cam{position:absolute;left:32px;top:24px;width:520px;height:300px;border-radius:24px;background:radial-gradient(circle at 50% 40%,#1c2a25,#0b1310);overflow:hidden}
+.qf{position:absolute;left:160px;top:50px;width:200px;height:200px;background:#fff;border-radius:14px;padding:12px}
+#qg{display:grid;grid-template-columns:repeat(11,16px);grid-auto-rows:16px}
+#qg i.k{background:#1d2a25}
+.sl{position:absolute;left:-20px;width:240px;height:4px;top:0;background:#5ee0a6;box-shadow:0 0 18px #5ee0a6;opacity:0}
+.scan .sl{animation:sc 1s ease-in-out}
+@keyframes sc{0%{top:4px;opacity:1}100%{top:192px;opacity:1}}
+.br{position:absolute;width:34px;height:34px;border:5px solid #f08a5d}
+.b1{left:136px;top:26px;border-right:0;border-bottom:0;border-radius:10px 0 0 0}
+.b2{left:350px;top:26px;border-left:0;border-bottom:0;border-radius:0 10px 0 0}
+.b3{left:136px;top:240px;border-right:0;border-top:0;border-radius:0 0 0 10px}
+.b4{left:350px;top:240px;border-left:0;border-top:0;border-radius:0 0 10px 0}
+.cart{position:absolute;left:32px;top:340px;width:520px;height:246px;border-radius:24px;border:3px solid;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;opacity:0;transform:scale(.97);transition:.35s;padding:0 18px}
+.cart.show{opacity:1;transform:none}
+.cart.a{background:#dff0e6;border-color:#14624d;color:#0f4f3d}
+.cart.d{background:#fdecc8;border-color:#c2761a;color:#6b4410}
+.cart.x{background:#fbe0d8;border-color:#b93d14;color:#8a2c0a}
+.cart.u{background:#fff3b8;border-color:#a88a00;color:#5c4a00}
+.ct{font-family:Georgia,serif;font-weight:700;font-size:30px;letter-spacing:1px}
+.cn{font-size:26px;font-weight:700;margin-top:12px}
+.cs{font-size:24px;margin-top:8px;line-height:1.3}
+.lp{position:absolute;left:576px;top:24px;width:384px;height:562px;border:1px solid #eadfca;border-radius:24px;background:#fff;padding:20px 22px;overflow:hidden}
+.lh{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid #eee4d2;padding-bottom:12px}
+.lh b{font-family:Georgia,serif;font-size:28px}
+.lh span{font-size:22px;color:#5f6b64}
+.em{font-size:24px;color:#5f6b64;margin-top:22px;line-height:1.35}
+.has .em{display:none}
+.lr{padding:12px 0;border-bottom:1px solid #f1e8d6;animation:in .4s}
+@keyframes in{0%{opacity:0;transform:translateY(-12px)}100%{opacity:1;transform:none}}
+.l1{display:flex;justify-content:space-between;align-items:baseline;font-size:25px;margin-bottom:6px}
+.l1 span{font-size:22px;color:#5f6b64}
+.c{display:inline-block;font-size:22px;font-weight:700;padding:3px 14px;border-radius:30px}
+.win.fade .stage,.win.fade .rail{opacity:0}
+</style>
+<div class="win" id="w">
+<div class="top"><span class="brand">ACCESO QR · MOLINETE</span><span class="tag">Datos de ejemplo</span></div>
+<div class="stage">
+<div class="cam" id="cam"><div class="qf"><div id="qg"></div><div class="sl" id="sl"></div></div><div class="br b1"></div><div class="br b2"></div><div class="br b3"></div><div class="br b4"></div></div>
+<div class="cart" id="cart"><div class="ct" id="ct"></div><div class="cn" id="cn"></div><div class="cs" id="cs"></div></div>
+<div class="lp"><div class="lh"><b>Lecturas de hoy</b><span><span id="lc">0</span> lecturas</span></div><div class="em">Sin lecturas todavía. Mañana la lista empieza de nuevo.</div><div id="ls"></div></div>
+</div>
+<div class="rail"><div class="lg a" data-k="a">Autorizado</div><div class="lg d" data-k="d">Con deuda</div><div class="lg x" data-k="x">Denegado</div><div class="lg u" data-k="u">Sin verificar</div></div>
+</div>
+<script>
+var $=function(i){return document.getElementById(i)};
+var w=$('w'),qg=$('qg'),sl=$('sl'),cam=$('cam'),cart=$('cart'),ct=$('ct'),cn=$('cn'),cs=$('cs'),ls=$('ls'),lc=$('lc'),lg=document.querySelectorAll('.lg'),T=[];
+var R=[['a','ACCESO AUTORIZADO','Camila Rojas · N° 1873','Pasa al club','09:41','Camila Rojas','Autorizado','cg',7],
+['d','ACCESO CON DEUDA','Héctor Molina · N° 2650','Pasa igual · invitalo a regularizar en Caja','09:43','Héctor Molina','Con deuda','cy',11],
+['x','ACCESO DENEGADO · MORA','Paula Suárez · N° 4012','Temporada de pileta: no pagó la cuota del mes','09:46','Paula Suárez','Denegado','cr',5],
+['u','NO SE PUDO VERIFICAR','Juan Ferrero · N° 3306','Sin conexión · buscalo por DNI o número','09:48','Juan Ferrero','Sin verificar','cu',9]];
+function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x)e.textContent=x;return e}
+function at(ms,f){T.push(setTimeout(f,ms))}
+function lo(n){return n===0||n===1||n===2}
+function hi(n){return n===8||n===9||n===10}
+function qr(s){qg.textContent='';for(var r=0;r!==11;r++)for(var k=0;k!==11;k++){var f=(lo(r)&&lo(k))||(lo(r)&&hi(k))||(hi(r)&&lo(k));var v=(r*s+k*13+r*k*3+s)%5;var on=f?!(r%8===1&&k%8===1):(v===0||v===1);var e=el('i',on?'k':'');qg.appendChild(e)}}
+function scan(){cam.className='cam';void cam.offsetWidth;cam.className='cam scan'}
+function mark(k){for(var i=0;i!==lg.length;i++){var d=lg[i].getAttribute('data-k');lg[i].className='lg '+d+(d===k?' on':'')}}
+function addRow(r){var row=el('div','lr');var l1=el('div','l1');l1.appendChild(el('b','',r[5]));l1.appendChild(el('span','',r[4]));row.appendChild(l1);row.appendChild(el('span','c '+r[7],r[6]));ls.insertBefore(row,ls.firstChild)}
+function run(){
+T.forEach(function(t){clearTimeout(t)});T=[];w.className='win';ls.textContent='';lc.textContent='0';cart.className='cart';mark('');qr(7);
+for(var i=0;i!==4;i++){(function(i){var b=600+i*3500,r=R[i];
+at(b,function(){qr(r[8]);cart.className='cart';scan()});
+at(b+1100,function(){cart.className='cart show '+r[0];ct.textContent=r[1];cn.textContent=r[2];cs.textContent=r[3];addRow(r);lc.textContent=String(i+1);w.classList.add('has');mark(r[0])});
+})(i)}
+at(15200,function(){w.classList.add('fade')});
+at(16100,run);
+}
+run();
+</script>
+</x-embed>
+<p style="position:absolute;left:128px;bottom:64px;width:900px;font-size:24px;color:#5f6b64">Pantalla recreada con datos de ejemplo</p>
+<p style="position:absolute;left:1392px;bottom:64px;width:400px;font-size:24px;color:#5f6b64;text-align:right">17 / 28</p>
+</section>

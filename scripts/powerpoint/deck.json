@@ -1,0 +1,55 @@
+{
+  "v": 4,
+  "createdOnFiles": { "v": 1, "at": "2026-10-22T15:00:00Z" },
+  "lists": "css",
+  "title": "Cómo funciona el mostrador del Jockey Club",
+  "order": [
+    "cover",
+    "agenda",
+    "tres-puestos",
+    "quien-ve-que",
+    "admin-intro",
+    "admin-cobro",
+    "admin-reglas",
+    "admin-alta",
+    "admin-baja",
+    "admin-comunicacion",
+    "admin-envios",
+    "admin-reclamo",
+    "pileta-intro",
+    "pileta-puerta",
+    "pileta-caja",
+    "porteria-intro",
+    "porteria-molinete",
+    "porteria-resultados",
+    "porteria-caja",
+    "credencial",
+    "jev-intro",
+    "jev-consulta",
+    "jev-usos",
+    "jev-gemini",
+    "jev-redactar",
+    "reglas-comunes",
+    "un-dia",
+    "cierre"
+  ],
+  "sections": {
+    "intro": { "description": "Tres puestos del club, una sola plataforma, y qué ve cada uno.", "start": "cover" },
+    "administracion": { "description": "Administración: padrón, cobro de cuotas, alta y baja de socios, comunicación y atención al socio.", "start": "admin-intro" },
+    "pileta": { "description": "Pileta: la puerta, la caja del día, el apto médico y los invitados.", "start": "pileta-intro" },
+    "porteria": { "description": "Portería: el molinete de la sede, los carteles de acceso, la rendición de caja y la credencial del socio.", "start": "porteria-intro" },
+    "ia": { "description": "IA: Jev lee el club y dice qué falta; Gemini responde y redacta comunicados.", "start": "jev-intro" },
+    "cierre": { "description": "Reglas comunes, la jornada tipo y el cierre.", "start": "reglas-comunes" }
+  },
+  "faces": {
+    "playfair-display": {
+      "family": "Playfair Display",
+      "href": "https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600..800;1,600..800&display=swap"
+    },
+    "outfit": {
+      "family": "Outfit",
+      "href": "https://fonts.googleapis.com/css2?family=Outfit:wght@400..700&display=swap"
+    }
+  },
+  "designSystems": []
+}

@@ -1,0 +1,98 @@
+<section id="admin-reclamo" data-transition="fade" style="background:#faf5ec;color:#1d2a25;font-family:'Outfit', Arial, sans-serif;padding:128px 128px 160px;display:flex;flex-direction:column;gap:12px">
+<p style="width:600px;font-size:24px;font-weight:600;letter-spacing:4px;color:#14624d">ADMINISTRACIÓN · RECLAMOS</p>
+<h2 style="width:620px;font-family:'Playfair Display', Georgia, serif;font-size:72px;font-weight:700;line-height:1.1;color:#1d2a25">Resolver un reclamo</h2>
+<div style="width:600px;display:flex;flex-direction:column;gap:28px;padding:36px 0px 0px">
+<div style="display:flex;align-items:flex-start;gap:20px"><x-icon name="CheckCircle" style="width:40px;height:40px;color:#14624d"></x-icon><p style="width:540px;font-size:32px;line-height:1.4;color:#3d4a43">Estados: Pendiente, En proceso y Resuelto</p></div>
+<div style="display:flex;align-items:flex-start;gap:20px"><x-icon name="CheckCircle" style="width:40px;height:40px;color:#14624d"></x-icon><p style="width:540px;font-size:32px;line-height:1.4;color:#3d4a43">Se puede asignar a un empleado de guardia</p></div>
+<div style="display:flex;align-items:flex-start;gap:20px"><x-icon name="CheckCircle" style="width:40px;height:40px;color:#14624d"></x-icon><p style="width:540px;font-size:32px;line-height:1.4;color:#3d4a43">La respuesta oficial le llega al socio por mensaje</p></div>
+<div style="display:flex;align-items:flex-start;gap:20px"><x-icon name="CheckCircle" style="width:40px;height:40px;color:#14624d"></x-icon><p style="width:540px;font-size:32px;line-height:1.4;color:#3d4a43">El reclamo también se ve en la ficha del socio</p></div>
+</div>
+<x-embed style="position:absolute;left:800px;top:150px;width:992px;height:770px">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:992px;height:770px;overflow:hidden;background:transparent;font-family:'Trebuchet MS','Segoe UI',Verdana,sans-serif;color:#1d2a25}
+.win{position:absolute;left:0;top:0;width:992px;height:770px;background:#fffdf8;border:1px solid #e6dcc8;border-radius:28px;box-shadow:0 24px 60px rgba(29,42,37,.18);overflow:hidden}
+.top{height:76px;display:flex;align-items:center;justify-content:space-between;padding:0 32px;background:#faf5ec;border-bottom:1px solid #eee4d2}
+.brand{font-family:Georgia,serif;font-weight:700;font-size:28px;letter-spacing:3px}
+.tag{font-size:22px;color:#5f6b64;border:1px solid #d9ccb2;border-radius:30px;padding:5px 18px}
+.stage{position:absolute;left:0;top:76px;width:992px;height:694px;transition:opacity .6s}
+.a{position:absolute;left:32px}
+.pr{top:16px;width:928px;display:flex;gap:12px}
+.sp{flex:1;text-align:center;font-size:24px;font-weight:700;padding:10px 0;border-radius:14px;background:#f3ebdc;color:#5f6b64;transition:.3s}
+.s1.on{background:#b93d14;color:#fff8ee}
+.s2.on{background:#8f5a0e;color:#fff8ee}
+.s3.on{background:#14624d;color:#fff8ee}
+.sp.done{background:#dff0e6;color:#0f4f3d}
+.cc{top:80px;width:928px;height:190px;border:1px solid #eadfca;border-radius:20px;padding:20px 26px;background:#fff}
+.hd{display:flex;justify-content:space-between;align-items:center;font-size:24px;color:#5f6b64}
+.hd b{font-size:27px;color:#1d2a25}
+.tx{font-size:27px;line-height:1.35;margin-top:14px}
+.ch{display:inline-block;margin-top:14px;font-size:22px;font-weight:700;padding:4px 14px;border-radius:30px;background:#f3ebdc;color:#3d4a43}
+.ch.cr{background:#fbe0d8;color:#8a2c0a}
+.ch.cy{background:#fdecc8;color:#6b4410}
+.ch.cg{background:#dff0e6;color:#0f4f3d}
+.lb{font-size:22px;font-weight:700;color:#5f6b64}
+.la{top:288px}
+.sel{top:318px;width:560px;height:56px;border:2px solid #d9ccb2;border-radius:14px;padding:0 20px;display:flex;align-items:center;font-size:26px;background:#fff;transition:.3s}
+.sel.f{border-color:#14624d;background:#f1f8f4}
+#as:empty:before{content:'Elegir empleado…';color:#9a9f98}
+.lr{top:392px}
+.ta{top:420px;width:928px;height:124px;border:2px solid #d9ccb2;border-radius:14px;padding:16px 22px;font-size:25px;line-height:1.4;background:#fff}
+.cb{display:inline-block;width:3px;height:28px;background:#14624d;margin-left:2px;vertical-align:-5px;animation:bl 1s steps(2) infinite}
+@keyframes bl{50%{opacity:0}}
+.ac{top:564px;width:928px;display:flex;justify-content:space-between}
+.b1{font-size:24px;font-weight:700;color:#6b4410;background:#fff;border:2px solid #c2761a;border-radius:14px;padding:14px 0;width:300px;text-align:center;transition:transform .15s}
+.b2{font-size:24px;font-weight:700;color:#fff8ee;background:#14624d;border-radius:14px;padding:16px 0;width:340px;text-align:center;transition:transform .15s}
+.p{transform:scale(.96)}
+.tt{top:636px;width:928px;height:52px;background:#dff0e6;border:2px solid #14624d;border-radius:14px;color:#0f4f3d;font-size:24px;font-weight:700;display:flex;align-items:center;justify-content:center;opacity:0;transform:translateY(8px);transition:.4s}
+.tt.on{opacity:1;transform:none}
+.cur{position:absolute;left:560px;top:300px;width:34px;height:34px;transition:left .9s ease,top .9s ease,transform .15s}
+.cur.p{transform:scale(.8)}
+.win.fade .stage{opacity:0}
+</style>
+<div class="win" id="w">
+<div class="top"><span class="brand">RECLAMOS</span><span class="tag">Datos de ejemplo</span></div>
+<div class="stage">
+<div class="a pr"><div class="sp s1 on" id="r1">Pendiente</div><div class="sp s2" id="r2">En proceso</div><div class="sp s3" id="r3">Resuelto</div></div>
+<div class="a cc"><div class="hd"><b>Lucía Domínguez · N° 3188</b><span>Hoy, 09:12</span></div><div class="tx">La luz de la cancha 3 no enciende desde el martes.</div><span class="ch cr" id="stt">Pendiente</span><span class="ch" style="margin-left:10px">Instalaciones</span></div>
+<div class="a lb la">Asignar tarea a empleado de guardia</div>
+<div class="a sel" id="se"><span id="as"></span></div>
+<div class="a lb lr">Respuesta oficial del club</div>
+<div class="a ta"><span id="ta"></span><span class="cb"></span></div>
+<div class="a ac"><span class="b1" id="b1">Marcar En Proceso</span><span class="b2" id="b2">Resolver e Informar</span></div>
+<div class="a tt" id="tt">El socio recibió la respuesta por mensaje.</div>
+</div>
+<div class="cur" id="c"><svg width="34" height="34" viewBox="0 0 24 24"><path d="M4 2l15 10-6.5 1.2L9.5 20z" fill="#1d2a25" stroke="#ffffff" stroke-width="1.6" stroke-linejoin="round"/></svg></div>
+</div>
+<script>
+var $=function(i){return document.getElementById(i)};
+var w=$('w'),c=$('c'),T=[];
+var R='Gracias por avisar. Mantenimiento cambió la lámpara hoy.';
+function at(ms,f){T.push(setTimeout(f,ms))}
+function go(x,y){c.style.left=x+'px';c.style.top=y+'px'}
+function press(el){el.classList.add('p');c.classList.add('p');at(150,function(){el.classList.remove('p');c.classList.remove('p')})}
+function type(s,t0,dt){for(var i=0;i!==s.length;i++){(function(i){at(t0+i*dt,function(){$('ta').textContent=s.slice(0,i+1)})})(i)}}
+function run(){
+T.forEach(function(t){clearTimeout(t)});T=[];w.className='win';
+$('r1').className='sp s1 on';$('r2').className='sp s2';$('r3').className='sp s3';
+$('stt').className='ch cr';$('stt').textContent='Pendiente';
+$('as').textContent='';$('se').className='a sel';$('ta').textContent='';$('tt').className='a tt';go(560,300);
+at(1000,function(){go(296,416)});
+at(2000,function(){press($('se'))});
+at(2150,function(){$('as').textContent='Juan Pérez · guardia';$('se').className='a sel f'});
+at(3000,function(){go(180,664)});
+at(3900,function(){press($('b1'))});
+at(4050,function(){$('r1').className='sp s1 done';$('r2').className='sp s2 on';$('stt').className='ch cy';$('stt').textContent='En proceso'});
+type(R,4800,55);
+at(8200,function(){go(788,664)});
+at(9200,function(){press($('b2'))});
+at(9350,function(){$('r2').className='sp s2 done';$('r3').className='sp s3 on';$('stt').className='ch cg';$('stt').textContent='Resuelto';$('tt').className='a tt on'});
+at(14000,function(){w.classList.add('fade')});
+at(14800,run);
+}
+run();
+</script>
+</x-embed>
+<p style="position:absolute;left:128px;bottom:64px;width:900px;font-size:24px;color:#5f6b64">Pantalla recreada con datos de ejemplo</p>
+<p style="position:absolute;left:1392px;bottom:64px;width:400px;font-size:24px;color:#5f6b64;text-align:right">12 / 28</p>
+</section>

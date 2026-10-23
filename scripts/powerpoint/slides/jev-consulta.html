@@ -1,0 +1,89 @@
+<section id="jev-consulta" data-transition="fade" style="background:#faf5ec;color:#1d2a25;font-family:'Outfit', Arial, sans-serif;padding:128px 128px 160px 1160px;display:flex;flex-direction:column;gap:12px">
+<p style="width:632px;font-size:24px;font-weight:600;letter-spacing:4px;color:#b93d14">IA · CONSULTA</p>
+<h2 style="width:632px;font-family:'Playfair Display', Georgia, serif;font-size:72px;font-weight:700;line-height:1.1;color:#1d2a25">Preguntarle a Jev</h2>
+<div style="width:632px;display:flex;flex-direction:column;gap:28px;padding:36px 0px 0px">
+<div style="display:flex;align-items:flex-start;gap:20px"><x-icon name="CheckCircle" style="width:40px;height:40px;color:#b93d14"></x-icon><p style="width:572px;font-size:32px;line-height:1.4;color:#3d4a43">Consulta por número de socio</p></div>
+<div style="display:flex;align-items:flex-start;gap:20px"><x-icon name="CheckCircle" style="width:40px;height:40px;color:#b93d14"></x-icon><p style="width:572px;font-size:32px;line-height:1.4;color:#3d4a43">Contesta con las mismas reglas que la caja y la puerta</p></div>
+<div style="display:flex;align-items:flex-start;gap:20px"><x-icon name="CheckCircle" style="width:40px;height:40px;color:#b93d14"></x-icon><p style="width:572px;font-size:32px;line-height:1.4;color:#3d4a43">Se puede repreguntar sobre el mismo socio</p></div>
+<div style="display:flex;align-items:flex-start;gap:20px"><x-icon name="CheckCircle" style="width:40px;height:40px;color:#b93d14"></x-icon><p style="width:572px;font-size:32px;line-height:1.4;color:#3d4a43">Si el manual no lo cubre, lo dice: no inventa</p></div>
+</div>
+<div style="position:absolute;left:1160px;top:796px;width:632px;height:124px;background:#fff3b8;border:2px solid #a88a00;border-radius:20px;padding:22px 28px;display:flex;align-items:center" data-build-in="rise 1 auto">
+<p style="font-size:28px;line-height:1.35;color:#4a3d08"><b>Usá el número de socio.</b> Un DNI escrito en la pregunta llega a Gemini.</p>
+</div>
+<x-embed style="position:absolute;left:128px;top:150px;width:992px;height:770px">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:992px;height:770px;overflow:hidden;background:transparent;font-family:'Trebuchet MS','Segoe UI',Verdana,sans-serif;color:#1d2a25}
+.win{position:absolute;left:0;top:0;width:992px;height:770px;background:#fffdf8;border:1px solid #e6dcc8;border-radius:28px;box-shadow:0 24px 60px rgba(29,42,37,.18);overflow:hidden}
+.top{height:76px;display:flex;align-items:center;justify-content:space-between;padding:0 32px;background:#faf5ec;border-bottom:1px solid #eee4d2}
+.brand{font-family:Georgia,serif;font-weight:700;font-size:28px;letter-spacing:3px}
+.tag{font-size:22px;color:#5f6b64;border:1px solid #d9ccb2;border-radius:30px;padding:5px 18px}
+.stage{position:absolute;left:0;top:76px;width:992px;height:694px;transition:opacity .6s}
+.log{position:absolute;left:32px;top:8px;width:928px;height:462px;display:flex;flex-direction:column;justify-content:flex-end;gap:14px;overflow:hidden}
+.ub{align-self:flex-end;max-width:720px;background:#f3ebdc;border-radius:20px 20px 4px 20px;padding:14px 22px;font-size:26px;line-height:1.3;animation:in .4s}
+.wt{font-size:24px;color:#5f6b64;animation:in .3s}
+.dc{background:#fff;border:1px solid #e6dcc8;border-radius:20px;padding:20px 26px;animation:in .5s;box-shadow:0 8px 24px rgba(29,42,37,.08)}
+.dk{font-size:22px;letter-spacing:2px;color:#b93d14;font-weight:700}
+.dt{font-family:Georgia,serif;font-weight:700;font-size:30px;margin-top:6px}
+.dp{font-size:24px;line-height:1.3;color:#3d4a43;margin-top:8px}
+.df{display:flex;gap:12px;margin-top:12px}
+.df div{flex:1;background:#faf5ec;border-radius:12px;padding:8px 14px;font-size:22px;color:#5f6b64}
+.df b{display:block;font-size:26px;color:#1d2a25}
+.da{font-size:24px;font-weight:700;color:#0f4f3d;margin-top:12px}
+@keyframes in{0%{opacity:0;transform:translateY(10px)}100%{opacity:1;transform:none}}
+.sr{position:absolute;left:32px;top:482px;width:928px;display:flex;gap:10px}
+.sc{font-size:22px;color:#b93d14;border:2px solid #e2a58e;border-radius:30px;padding:7px 18px;background:#fff}
+.fm{position:absolute;left:32px;top:548px;width:928px}
+.fl{font-size:22px;color:#5f6b64;margin-bottom:6px}
+.fr{display:flex;gap:14px}
+.ib{flex:1;height:68px;border:2px solid #c8481d;border-radius:16px;padding:0 20px;display:flex;align-items:center;font-size:26px;background:#fff;overflow:hidden;white-space:nowrap}
+#ty:empty:before{content:'Número de socio, el mes, o cómo se hace algo';color:#9a9f98}
+.cb{display:inline-block;width:3px;height:32px;background:#c8481d;margin-left:3px;animation:bl 1s steps(2) infinite}
+@keyframes bl{50%{opacity:0}}
+.bt{width:190px;height:68px;border-radius:16px;background:#c8481d;color:#fff8ee;font-size:26px;font-weight:700;display:flex;align-items:center;justify-content:center;transition:transform .15s}
+.bt.p{transform:scale(.96)}
+.cur{position:absolute;left:560px;top:610px;width:34px;height:34px;transition:left .9s ease,top .9s ease,transform .15s}
+.cur.p{transform:scale(.8)}
+.win.fade .stage{opacity:0}
+</style>
+<div class="win" id="w">
+<div class="top"><span class="brand">IA · JEV · CONSULTA</span><span class="tag">Datos de ejemplo</span></div>
+<div class="stage">
+<div class="log" id="lg"></div>
+<div class="sr"><span class="sc">El mes</span><span class="sc">Qué conviene</span><span class="sc">La puerta</span><span class="sc">Enseñame</span><span class="sc">Manual</span></div>
+<div class="fm"><div class="fl">Consultá el libro</div><div class="fr"><div class="ib"><span id="ty"></span><span class="cb"></span></div><div class="bt" id="bt">Dictaminar</div></div></div>
+</div>
+<div class="cur" id="c"><svg width="34" height="34" viewBox="0 0 24 24"><path d="M4 2l15 10-6.5 1.2L9.5 20z" fill="#1d2a25" stroke="#ffffff" stroke-width="1.6" stroke-linejoin="round"/></svg></div>
+</div>
+<div hidden id="d1"><div class="dc"><div class="dk">DICTAMEN · DEL LIBRO · SOLO LECTURA</div><div class="dt">No ingresó: mora en temporada.</div><div class="dp">Paula Suárez, N° 4012, titular. Pasó el 10 sin pagar la cuota del mes y en temporada de pileta no ingresa.</div><div class="df"><div>Debe<b>$ 41.800</b></div><div>Molinete<b>Denegado · mora</b></div><div>Pileta<b>No puede pagar</b></div></div><div class="da">Que regularice en Administración.</div></div></div>
+<div hidden id="d2"><div class="dc"><div class="dk">DICTAMEN · DEL LIBRO · SOLO LECTURA</div><div class="dt">Vale la mora del titular.</div><div class="dp">En un grupo familiar, si el titular está en mora el grupo queda igual: sus adherentes tampoco ingresan en temporada.</div></div></div>
+<script>
+var $=function(i){return document.getElementById(i)};
+var w=$('w'),lg=$('lg'),ty=$('ty'),bt=$('bt'),c=$('c'),T=[];
+var Q1='¿Por qué Paula Suárez no pudo entrar hoy?',Q2='¿Y si fuera adherente?';
+function el(t,k,x){var e=document.createElement(t);if(k)e.className=k;if(x)e.textContent=x;return e}
+function at(ms,f){T.push(setTimeout(f,ms))}
+function type(s,t0){for(var i=0;i!==s.length;i++){(function(i){at(t0+i*60,function(){ty.textContent=s.slice(0,i+1)})})(i)}}
+function say(x){lg.appendChild(el('div','ub',x));ty.textContent='';var p=el('div','wt','Jev está cruzando el libro…');p.id='wt';lg.appendChild(p)}
+function dict(id){var p=$('wt');if(p)lg.removeChild(p);lg.appendChild($(id).firstElementChild.cloneNode(true))}
+function press(){bt.classList.add('p');c.classList.add('p');at(150,function(){bt.classList.remove('p');c.classList.remove('p')})}
+function run(){
+T.forEach(function(t){clearTimeout(t)});T=[];w.className='win';lg.textContent='';ty.textContent='';c.style.left='560px';c.style.top='610px';
+type(Q1,500);
+at(3200,function(){c.style.left='860px';c.style.top='686px'});
+at(4200,press);
+at(4350,function(){say(Q1)});
+at(5900,function(){dict('d1')});
+type(Q2,10400);
+at(12000,press);
+at(12150,function(){say(Q2)});
+at(13500,function(){dict('d2')});
+at(18000,function(){w.classList.add('fade')});
+at(18800,run);
+}
+run();
+</script>
+</x-embed>
+<p style="position:absolute;left:128px;bottom:64px;width:900px;font-size:24px;color:#5f6b64">Pantalla recreada con datos de ejemplo</p>
+<p style="position:absolute;left:1392px;bottom:64px;width:400px;font-size:24px;color:#5f6b64;text-align:right">22 / 28</p>
+</section>

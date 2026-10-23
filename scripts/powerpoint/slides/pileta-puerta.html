@@ -1,0 +1,105 @@
+<section id="pileta-puerta" data-transition="fade" style="background:#faf5ec;color:#1d2a25;font-family:'Outfit', Arial, sans-serif;padding:128px 128px 160px 1160px;display:flex;flex-direction:column;gap:12px">
+<p style="width:632px;font-size:24px;font-weight:600;letter-spacing:4px;color:#17708f">PILETA · PUERTA</p>
+<h2 style="width:632px;font-family:'Playfair Display', Georgia, serif;font-size:72px;font-weight:700;line-height:1.1;color:#1d2a25">La puerta de la pileta</h2>
+<div style="width:632px;display:flex;flex-direction:column;gap:28px;padding:36px 0px 0px">
+<div style="display:flex;align-items:flex-start;gap:20px"><x-icon name="CheckCircle" style="width:40px;height:40px;color:#17708f"></x-icon><p style="width:572px;font-size:32px;line-height:1.4;color:#3d4a43">Un cartel grande dice si entra y por qué</p></div>
+<div style="display:flex;align-items:flex-start;gap:20px"><x-icon name="CheckCircle" style="width:40px;height:40px;color:#17708f"></x-icon><p style="width:572px;font-size:32px;line-height:1.4;color:#3d4a43">Sin canon pago, se cobra ahí mismo</p></div>
+<div style="display:flex;align-items:flex-start;gap:20px"><x-icon name="CheckCircle" style="width:40px;height:40px;color:#17708f"></x-icon><p style="width:572px;font-size:32px;line-height:1.4;color:#3d4a43">En mora no paga pileta hasta regularizar</p></div>
+<div style="display:flex;align-items:flex-start;gap:20px"><x-icon name="CheckCircle" style="width:40px;height:40px;color:#17708f"></x-icon><p style="width:572px;font-size:32px;line-height:1.4;color:#3d4a43">Para cobrar, la caja del día tiene que estar abierta</p></div>
+</div>
+<x-embed style="position:absolute;left:128px;top:150px;width:992px;height:770px">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:992px;height:770px;overflow:hidden;background:transparent;font-family:'Trebuchet MS','Segoe UI',Verdana,sans-serif;color:#1d2a25}
+.win{position:absolute;left:0;top:0;width:992px;height:770px;background:#fffdf8;border:1px solid #e6dcc8;border-radius:28px;box-shadow:0 24px 60px rgba(29,42,37,.18);overflow:hidden}
+.top{height:76px;display:flex;align-items:center;justify-content:space-between;padding:0 32px;background:#faf5ec;border-bottom:1px solid #eee4d2}
+.brand{font-family:Georgia,serif;font-weight:700;font-size:28px;letter-spacing:3px}
+.cnt{font-size:22px;color:#3d4a43;margin-right:14px}
+.cnt b{font-size:28px;color:#0e4c63}
+.tag{font-size:22px;color:#5f6b64;border:1px solid #d9ccb2;border-radius:30px;padding:5px 18px}
+.stage{position:absolute;left:0;top:76px;width:992px;height:598px;transition:opacity .6s}
+.rail{position:absolute;left:0;top:674px;width:992px;height:96px;background:#faf5ec;border-top:1px solid #eee4d2;display:flex;align-items:center;justify-content:space-around;transition:opacity .6s}
+.st{display:flex;align-items:center;gap:12px;font-size:22px;color:#5f6b64;font-weight:600}
+.st b{width:38px;height:38px;border-radius:50%;border:2px solid #cdbf9f;display:flex;align-items:center;justify-content:center;font-size:22px;background:#fffdf8;transition:.3s}
+.st.done b{background:#d9edf4;border-color:#17708f;color:#17708f}
+.st.act{color:#0e4c63}
+.st.act b{background:#17708f;border-color:#17708f;color:#fff8ee}
+.search{margin:24px 32px 0;height:72px;border:2px solid #17708f;border-radius:18px;display:flex;align-items:center;padding:0 24px;font-size:30px;background:#fff}
+.cb{display:inline-block;width:3px;height:34px;background:#17708f;margin-left:3px;animation:bl 1s steps(2) infinite}
+@keyframes bl{50%{opacity:0}}
+#ty:empty:before{content:'Nombre, DNI o N° de socio…';color:#9a9f98}
+.rw{margin:16px 32px 0;height:120px;border:1px solid #eadfca;border-radius:18px;display:flex;align-items:center;padding:0 24px;gap:20px;font-size:30px;background:#fff;opacity:0;transform:translateY(14px);transition:.5s}
+.r1 .rw{opacity:1;transform:none}
+.hl .rw{border-color:#17708f;box-shadow:0 0 0 5px rgba(23,112,143,.18)}
+.rw small{display:block;font-size:22px;color:#5f6b64;margin-top:2px}
+.av{width:60px;height:60px;border-radius:50%;background:#d9edf4;color:#0e4c63;font-weight:700;font-size:24px;display:flex;align-items:center;justify-content:center}
+.nm{flex:1}
+.chips{display:flex;gap:8px;margin-top:8px}
+.c{font-size:22px;font-weight:700;padding:3px 14px;border-radius:30px}
+.cr{background:#fbe0d8;color:#8a2c0a}
+.cg{background:#dff0e6;color:#0f4f3d}
+.cart{position:absolute;left:32px;top:248px;width:928px;height:240px;border-radius:24px;border:3px solid #b93d14;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;opacity:0;transform:scale(.97);transition:.4s}
+.cr1 .cart{opacity:1;transform:none}
+.cart.no{background:#fbe0d8;border-color:#b93d14;color:#8a2c0a}
+.cart.ok{background:#dff0e6;border-color:#14624d;color:#0f4f3d}
+.ct{font-family:Georgia,serif;font-weight:700;font-size:64px;letter-spacing:2px}
+.cs{font-size:28px;margin-top:10px}
+.pay{position:absolute;left:32px;top:504px;width:928px;height:86px;display:flex;gap:14px;opacity:0;transition:.4s}
+.pay1 .pay{opacity:1}
+.m{display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;border:2px solid #cdbf9f;border-radius:14px;color:#3d4a43;padding:0 26px;background:#fff}
+.m.on{border-color:#17708f;background:#d9edf4;color:#0e4c63}
+.go{flex:1;display:flex;align-items:center;justify-content:center;font-size:25px;font-weight:700;color:#fff8ee;background:#17708f;border-radius:14px;transition:transform .15s}
+.go.p{transform:scale(.97)}
+.note{position:absolute;left:32px;top:504px;width:928px;height:86px;display:flex;align-items:center;font-size:26px;color:#3d4a43;background:#f3ebdc;border-radius:16px;padding:0 28px;opacity:0;transition:.4s}
+.note1 .note{opacity:1}
+.cur{position:absolute;left:600px;top:500px;width:34px;height:34px;transition:left .9s ease,top .9s ease,opacity .4s,transform .15s}
+.cur.p{transform:scale(.8)}
+.win.fade .stage,.win.fade .rail{opacity:0}
+</style>
+<div class="win" id="w">
+<div class="top"><span class="brand">ENTRADA PILETA</span><span><span class="cnt">Socios hoy <b id="cnt">12</b></span><span class="tag">Datos de ejemplo</span></span></div>
+<div class="stage">
+<div class="search"><span id="ty"></span><span class="cb"></span></div>
+<div class="rw" id="rw"></div>
+<div class="cart" id="cart"><div class="ct" id="ct"></div><div class="cs" id="cs"></div></div>
+<div class="pay"><div class="m on">Efectivo</div><div class="m">Mercado Pago</div><div class="go" id="go">Cobrar canon e ingresar · $ 5.000</div></div>
+<div class="note">Derivalo a Administración: no paga pileta hasta regularizar la cuota.</div>
+</div>
+<div class="rail"><div class="st"><b>1</b>Buscá al socio</div><div class="st"><b>2</b>Mirá el cartel</div><div class="st"><b>3</b>Cobrá el canon</div><div class="st"><b>4</b>Anotado</div></div>
+<div class="cur" id="c"><svg width="34" height="34" viewBox="0 0 24 24"><path d="M4 2l15 10-6.5 1.2L9.5 20z" fill="#1d2a25" stroke="#ffffff" stroke-width="1.6" stroke-linejoin="round"/></svg></div>
+</div>
+<div hidden id="tA"><div class="av">MG</div><div class="nm">Marcos González<small>Socio familiar · N° 2290</small><div class="chips"><span class="c cr">Canon impago</span><span class="c cg">Apto médico</span><span class="c cg">Cuota al día</span></div></div></div>
+<div hidden id="tB"><div class="av">SO</div><div class="nm">Silvia Ortega<small>Socia familiar · N° 3417</small><div class="chips"><span class="c cr">En mora · no paga pileta</span><span class="c cg">Apto médico</span></div></div></div>
+<script>
+var $=function(i){return document.getElementById(i)};
+var w=$('w'),c=$('c'),ty=$('ty'),rw=$('rw'),ct=$('ct'),cs=$('cs'),cart=$('cart'),cnt=$('cnt'),go=$('go'),T=[],st=document.querySelectorAll('.st');
+function at(ms,f){T.push(setTimeout(f,ms))}
+function step(n){for(var i=0;i!==st.length;i++){var j=i+1;st[i].className='st'+(j===n?' act':'')+(n>j?' done':'')}}
+function type(s,t0){for(var i=0;i!==s.length;i++){(function(i){at(t0+i*170,function(){ty.textContent=s.slice(0,i+1)})})(i)}}
+function reset(){w.className='win';ty.textContent='';step(1);cart.className='cart';c.style.left='600px';c.style.top='500px';go.className='go'}
+function run(){
+T.forEach(function(t){clearTimeout(t)});T=[];reset();cnt.textContent='12';
+type('Gonz',500);
+at(1500,function(){rw.innerHTML=$('tA').innerHTML;w.classList.add('r1')});
+at(2400,function(){c.style.left='700px';c.style.top='240px'});
+at(3300,function(){c.classList.add('p')});
+at(3450,function(){c.classList.remove('p');w.classList.add('hl','cr1','pay1');step(2);cart.className='cart no';ct.textContent='NO INGRESA';cs.textContent='No pagó el canon de pileta'});
+at(4800,function(){c.style.left='704px';c.style.top='612px';step(3)});
+at(6000,function(){go.classList.add('p')});
+at(6150,function(){go.classList.remove('p');w.classList.remove('pay1');cart.className='cart ok';ct.textContent='ASISTIÓ';cs.textContent='Anotado en ingresos de hoy · Canon $ 5.000';cnt.textContent='13';step(4)});
+at(9200,function(){w.classList.add('fade')});
+at(10000,function(){reset()});
+type('Orte',10500);
+at(11500,function(){rw.innerHTML=$('tB').innerHTML;w.classList.add('r1')});
+at(12400,function(){c.style.left='700px';c.style.top='240px'});
+at(13300,function(){c.classList.add('p')});
+at(13450,function(){c.classList.remove('p');w.classList.add('hl','cr1','note1');step(2);cart.className='cart no';ct.textContent='NO INGRESA';cs.textContent='En mora · no abonó la cuota del mes'});
+at(16200,function(){w.classList.add('fade')});
+at(17000,run);
+}
+run();
+</script>
+</x-embed>
+<p style="position:absolute;left:128px;bottom:64px;width:900px;font-size:24px;color:#5f6b64">Pantalla recreada con datos de ejemplo</p>
+<p style="position:absolute;left:1392px;bottom:64px;width:400px;font-size:24px;color:#5f6b64;text-align:right">14 / 28</p>
+</section>

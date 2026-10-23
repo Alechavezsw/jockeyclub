@@ -1,0 +1,102 @@
+<section id="jev-redactar" data-transition="fade" style="background:#faf5ec;color:#1d2a25;font-family:'Outfit', Arial, sans-serif;padding:128px 128px 160px;display:flex;flex-direction:column;gap:12px">
+<p style="width:600px;font-size:24px;font-weight:600;letter-spacing:4px;color:#b93d14">IA · MENSAJERÍA</p>
+<h2 style="width:620px;font-family:'Playfair Display', Georgia, serif;font-size:72px;font-weight:700;line-height:1.1;color:#1d2a25">Redactar con IA</h2>
+<div style="width:600px;display:flex;flex-direction:column;gap:28px;padding:36px 0px 0px">
+<div style="display:flex;align-items:flex-start;gap:20px"><x-icon name="CheckCircle" style="width:40px;height:40px;color:#b93d14"></x-icon><p style="width:540px;font-size:32px;line-height:1.4;color:#3d4a43">En Mensajería: Redactar con IA o Mejorar con IA</p></div>
+<div style="display:flex;align-items:flex-start;gap:20px"><x-icon name="CheckCircle" style="width:40px;height:40px;color:#b93d14"></x-icon><p style="width:540px;font-size:32px;line-height:1.4;color:#3d4a43">Escribís de qué se trata y Gemini arma asunto y mensaje</p></div>
+<div style="display:flex;align-items:flex-start;gap:20px"><x-icon name="CheckCircle" style="width:40px;height:40px;color:#b93d14"></x-icon><p style="width:540px;font-size:32px;line-height:1.4;color:#3d4a43">No inventa fechas ni montos: deja un hueco, como [mes]</p></div>
+<div style="display:flex;align-items:flex-start;gap:20px"><x-icon name="CheckCircle" style="width:40px;height:40px;color:#b93d14"></x-icon><p style="width:540px;font-size:32px;line-height:1.4;color:#3d4a43">Una persona lo relee y lo envía</p></div>
+</div>
+<x-embed style="position:absolute;left:800px;top:150px;width:992px;height:770px">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:992px;height:770px;overflow:hidden;background:transparent;font-family:'Trebuchet MS','Segoe UI',Verdana,sans-serif;color:#1d2a25}
+.win{position:absolute;left:0;top:0;width:992px;height:770px;background:#fffdf8;border:1px solid #e6dcc8;border-radius:28px;box-shadow:0 24px 60px rgba(29,42,37,.18);overflow:hidden}
+.top{height:76px;display:flex;align-items:center;justify-content:space-between;padding:0 32px;background:#faf5ec;border-bottom:1px solid #eee4d2}
+.brand{font-family:Georgia,serif;font-weight:700;font-size:28px;letter-spacing:3px}
+.tag{font-size:22px;color:#5f6b64;border:1px solid #d9ccb2;border-radius:30px;padding:5px 18px}
+.stage{position:absolute;left:0;top:76px;width:992px;height:694px;transition:opacity .6s}
+.a{position:absolute;left:32px}
+.f1{top:16px;width:928px;display:flex;gap:12px}
+.pill{font-size:22px;color:#3d4a43;background:#f3ebdc;border-radius:30px;padding:8px 20px}
+.pill b{color:#1d2a25}
+.lb{font-size:22px;color:#5f6b64;font-weight:700}
+.ai{top:76px}
+.ar{top:108px;width:928px;display:flex;gap:14px}
+.ib{flex:1;height:64px;border:2px solid #c8481d;border-radius:16px;padding:0 20px;display:flex;align-items:center;font-size:25px;background:#fff;overflow:hidden;white-space:nowrap}
+#ty:empty:before{content:'¿De qué se trata el comunicado?';color:#9a9f98}
+.cb{display:inline-block;width:3px;height:30px;background:#c8481d;margin-left:3px;animation:bl 1s steps(2) infinite}
+@keyframes bl{50%{opacity:0}}
+.bt{width:250px;height:64px;border-radius:16px;background:#c8481d;color:#fff8ee;font-size:24px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:10px;transition:transform .15s}
+.bt.p{transform:scale(.96)}
+.sp{display:none;width:20px;height:20px;border:3px solid #f6c9b4;border-top-color:#fff8ee;border-radius:50%;animation:rot .9s linear infinite}
+.busy .sp{display:inline-block}
+.busy .st1{display:none}
+@keyframes rot{to{transform:rotate(360deg)}}
+.sl{top:186px}
+.sb{top:214px;width:928px;height:56px;border:2px solid #e2d6bd;border-radius:14px;padding:0 20px;display:flex;align-items:center;font-size:26px;font-weight:700;background:#fff}
+.ml{top:284px}
+.mb{top:312px;width:928px;height:280px;border:2px solid #e2d6bd;border-radius:14px;padding:18px 24px;background:#fff;font-size:25px;line-height:1.4}
+.mb p{margin-bottom:14px;min-height:35px}
+.w{opacity:0;transition:opacity .25s}
+.w.on{opacity:1}
+.hole.on{background:#fde7a8;border-radius:6px;padding:0 6px;font-weight:700;color:#6b4410}
+.hint{position:absolute;left:700px;top:268px;font-size:22px;font-weight:700;color:#6b4410;background:#fff3b8;border:2px solid #a88a00;border-radius:30px;padding:6px 16px;opacity:0;transform:translateY(8px);transition:.4s}
+.h1 .hint{opacity:1;transform:none}
+.bm{top:608px;width:928px;height:60px;display:flex;align-items:center;justify-content:space-between}
+.nt{font-size:22px;color:#5f6b64;transition:.3s}
+.h2 .nt{color:#8a2c0a;font-weight:700}
+.sd{font-size:24px;font-weight:700;color:#fff8ee;background:#14624d;border-radius:14px;padding:14px 28px}
+.cur{position:absolute;left:560px;top:420px;width:34px;height:34px;transition:left .9s ease,top .9s ease,transform .15s}
+.cur.p{transform:scale(.8)}
+.win.fade .stage{opacity:0}
+</style>
+<div class="win" id="w">
+<div class="top"><span class="brand">MENSAJERÍA · COMUNICADO</span><span class="tag">Datos de ejemplo</span></div>
+<div class="stage">
+<div class="a f1"><span class="pill">Para: <b>Todos los socios</b></span><span class="pill">Canal: <b>mensaje interno y mail</b></span></div>
+<div class="a ai lb">Redactar con IA</div>
+<div class="a ar"><div class="ib"><span id="ty"></span><span class="cb"></span></div><div class="bt" id="bt"><span class="sp"></span><svg class="st1" width="26" height="26" viewBox="0 0 24 24" fill="#fff8ee"><path d="M12 2l2.2 6.3L21 10l-6.8 1.7L12 18l-2.2-6.3L3 10l6.8-1.7z"/></svg><span id="bl">Redactar con IA</span></div></div>
+<div class="a sl lb">Asunto</div>
+<div class="a sb" id="sb"></div>
+<div class="a ml lb">Mensaje</div>
+<div class="a mb" id="mb"><p id="p1"></p><p id="p2"></p><p id="p3"></p></div>
+<div class="hint" id="hn">Hueco para completar</div>
+<div class="a bm"><span class="nt">Releé antes de enviar: un mensaje a todos no se puede retirar.</span><span class="sd">Enviar mensaje</span></div>
+</div>
+<div class="cur" id="c"><svg width="34" height="34" viewBox="0 0 24 24"><path d="M4 2l15 10-6.5 1.2L9.5 20z" fill="#1d2a25" stroke="#ffffff" stroke-width="1.6" stroke-linejoin="round"/></svg></div>
+</div>
+<script>
+var $=function(i){return document.getElementById(i)};
+var w=$('w'),c=$('c'),ty=$('ty'),bt=$('bt'),bl=$('bl'),sb=$('sb'),p1=$('p1'),p2=$('p2'),p3=$('p3'),T=[];
+var Q='Recordar que la cuota vence el 10 y cómo pagar';
+var S='Recordatorio: vencimiento de la cuota social';
+var P1='Estimado socio: le recordamos que la cuota social de [mes] vence el día 10.';
+var P2='Puede abonarla en Secretaría o desde Mi Cuenta, en el portal, con Mercado Pago. Ante cualquier duda, escríbanos.';
+var P3='Secretaría del Jockey Club San Juan';
+function el(t,k,x){var e=document.createElement(t);if(k)e.className=k;if(x)e.textContent=x;return e}
+function at(ms,f){T.push(setTimeout(f,ms))}
+function type(s,t0,dt,box){for(var i=0;i!==s.length;i++){(function(i){at(t0+i*dt,function(){box.textContent=s.slice(0,i+1)})})(i)}}
+function words(p,s,t0,dt){var a=s.split(' ');for(var i=0;i!==a.length;i++){(function(i){var sp=el('span','w'+(a[i]==='[mes]'?' hole':''),a[i]+(i===a.length-1?'':' '));p.appendChild(sp);at(t0+i*dt,function(){sp.classList.add('on')})})(i)}}
+function run(){
+T.forEach(function(t){clearTimeout(t)});T=[];w.className='win';ty.textContent='';sb.textContent='';p1.textContent='';p2.textContent='';p3.textContent='';bl.textContent='Redactar con IA';bt.className='bt';c.style.left='560px';c.style.top='420px';
+type(Q,500,60,ty);
+at(3600,function(){c.style.left='840px';c.style.top='214px'});
+at(4700,function(){bt.classList.add('p');c.classList.add('p')});
+at(4850,function(){bt.classList.remove('p');c.classList.remove('p');bt.classList.add('busy');bl.textContent='Redactando…'});
+at(6200,function(){bt.classList.remove('busy');bl.textContent='Mejorar con IA'});
+type(S,6300,28,sb);
+words(p1,P1,7600,75);
+words(p2,P2,8800,70);
+words(p3,P3,10300,80);
+at(11800,function(){w.classList.add('h1')});
+at(12800,function(){w.classList.add('h2')});
+at(16500,function(){w.classList.add('fade')});
+at(17300,run);
+}
+run();
+</script>
+</x-embed>
+<p style="position:absolute;left:128px;bottom:64px;width:900px;font-size:24px;color:#5f6b64">Pantalla recreada con datos de ejemplo</p>
+<p style="position:absolute;left:1392px;bottom:64px;width:400px;font-size:24px;color:#5f6b64;text-align:right">25 / 28</p>
+</section>
