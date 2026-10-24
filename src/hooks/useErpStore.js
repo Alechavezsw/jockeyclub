@@ -6,6 +6,7 @@ import { DEFAULT_CHART_OF_ACCOUNTS, resolveAccountId } from '../domain/accountin
 import {
   DEFAULT_CASH_REGISTERS,
   ensureOpenCashSession,
+  refuseCashSessionClose,
   buildCashMovementEntry,
   buildCashTransferEntry,
   getOpenSession,
@@ -602,7 +603,7 @@ export default function useErpStore({
   /** La caja del club no se cierra: queda siempre operativa. */
   const closeRegister = useCallback(
     async () => {
-      throw new Error('La caja permanece abierta: no se cierra.');
+      refuseCashSessionClose();
     },
     []
   );

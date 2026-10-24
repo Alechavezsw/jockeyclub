@@ -334,6 +334,29 @@ export function canManageMembers(roleOrRoles) {
   return keys.includes('admin') || keys.includes('superadmin');
 }
 
+/** Cobrar cuota en la ficha: caja, portería, pileta, contador y administración. */
+export function canCollectDues(roleOrRoles) {
+  if (canManageMembers(roleOrRoles)) return true;
+  const keys = collectRoleKeys(roleOrRoles).map((key) => String(key || '').toLowerCase());
+  return keys.some((key) => (
+    key === 'cashier'
+    || key === 'accountant'
+    || key === 'gate_operator'
+    || key === 'pool_operator'
+    || key === 'admin_employee'
+    || key === 'tesorero'
+  ));
+}
+
+/**
+ * Escribir ficha al cobrar o cargar apto/canon: no implica editar padrón.
+ * Alta / baja / editar datos siguen en canManageMembers.
+ */
+export function canWriteMemberLedger(roleOrRoles) {
+  if (canCollectDues(roleOrRoles)) return true;
+  return collectRoleKeys(roleOrRoles).some((key) => canAccessPool(String(key || '').toLowerCase()));
+}
+
 export function canPostJournal(role) {
   return ['cashier', 'gate_operator', 'pool_operator', 'accountant', 'superadmin'].includes(role);
 }

@@ -1,12 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CHART_OF_ACCOUNTS } from './chartOfAccounts';
 import {
+  buildCashMovementEntry,
   buildCashTransferEntry,
+  closeCashSession,
   counterpartAccountsForMovement,
   closedSessions,
+  CASH_ALWAYS_OPEN_MESSAGE,
   ensureOpenCashSession,
   getOpenSession,
   pickGeneralCashRegister,
+  refuseCashSessionClose,
+  sessionExpectedBalance,
   sessionStatusLabel,
   DEFAULT_CASH_REGISTERS,
 } from './cash';
@@ -93,6 +98,71 @@ describe('ensureOpenCashSession', () => {
     expect(created.created).toBe(true);
     expect(created.session.status).toBe('open');
     expect(created.session.cashRegisterId).toBe('cash-gen');
+    expect(created.session.notes).toMatch(/siempre abierta/i);
     expect(getOpenSession([created.session], 'cash-gen')).toBe(created.session);
+  });
+
+  it('exige caja indicada', () => {
+    expect(() => ensureOpenCashSession([], '')).toThrow(/caja no indicada/i);
+    expect(() => ensureOpenCashSession([], null)).toThrow(/caja no indicada/i);
+  });
+
+  it('el cierre operativo de caja está bloqueado', () => {
+    expect(() => refuseCashSessionClose()).toThrow(CASH_ALWAYS_OPEN_MESSAGE);
+  });
+});
+
+describe('sessionExpectedBalance y cierre', () => {
+  const session = { id: 'cs-1', openingBalance: 1000, status: 'open' };
+
+  it('suma ingresos y resta egresos y traspasos', () => {
+    const balance = sessionExpectedBalance(session, [
+      { cashSessionId: 'cs-1', movementType: 'income', amount: 500 },
+      { cashSessionId: 'cs-1', movementType: 'expense', amount: 200 },
+      { cashSessionId: 'cs-1', movementType: 'transfer_out', amount: 100 },
+      { cashSessionId: 'cs-1', movementType: 'transfer_in', amount: 50 },
+      { cashSessionId: 'cs-1', movementType: 'adjustment', amount: -25 },
+      { cashSessionId: 'other', movementType: 'income', amount: 999 },
+    ]);
+    expect(balance).toBe(1225);
+  });
+
+  it('marca discrepancia si el conteo no cierra', () => {
+    const closed = closeCashSession(session, {
+      countedBalance: 1100,
+      movements: [
+        { cashSessionId: 'cs-1', movementType: 'income', amount: 200 },
+      ],
+    });
+    expect(closed.expectedBalance).toBe(1200);
+    expect(closed.difference).toBe(-100);
+    expect(closed.status).toBe('discrepancy');
+  });
+
+  it('cierra limpio cuando el conteo coincide', () => {
+    const closed = closeCashSession(session, {
+      countedBalance: 1000,
+      movements: [],
+    });
+    expect(closed.status).toBe('closed');
+    expect(closed.difference).toBe(0);
+  });
+});
+
+describe('buildCashMovementEntry', () => {
+  it('asienta ingreso debitando caja', () => {
+    const entry = buildCashMovementEntry({
+      date: '2026-10-20',
+      concept: 'Cobro varios',
+      cashAccountId: 'coa-1.1.01',
+      relatedAccountId: 'coa-4.1.01',
+      amount: 1500,
+      movementType: 'income',
+      chart: DEFAULT_CHART_OF_ACCOUNTS,
+    });
+    expect(entry.sourceModule).toBe('caja');
+    const cash = entry.lines.find((l) => l.accountId === 'coa-1.1.01');
+    expect(cash.debit).toBe(1500);
+    expect(cash.credit).toBe(0);
   });
 });

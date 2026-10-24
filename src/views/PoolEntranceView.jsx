@@ -24,6 +24,12 @@ import MercadoPagoCheckout from '../components/MercadoPagoCheckout';
 import { listPoolAccesses } from '../data/repos';
 import { isPoolSeasonLive } from '../domain/pool/poolSeason';
 import { SEASON_DUES_GATE_COPY } from '../domain/pool/seasonDuesGate';
+import { isDuesExemptMember } from '../domain/members/dues';
+
+function poolDuesOwed(member) {
+  if (!member || isDuesExemptMember(member)) return 0;
+  return Number(member.outstandingBalance) || 0;
+}
 
 /**
  * Entrada de pileta: página de puerta, como /acceso.
@@ -34,6 +40,7 @@ export default function PoolEntranceView({
   formatCurrency,
   recordPoolCanon,
   dayCashOpen = null,
+  onOpenDayCash,
   onRefreshDayCash,
   poolAccesses = [],
   setPoolAccesses,
@@ -62,6 +69,15 @@ export default function PoolEntranceView({
   useEffect(() => {
     if (typeof onRefreshDayCash === 'function') void onRefreshDayCash();
   }, [onRefreshDayCash]);
+
+  useEffect(() => {
+    if (!cashClosed || typeof onOpenDayCash !== 'function') return undefined;
+    let cancelled = false;
+    void onOpenDayCash().catch(() => {
+      if (!cancelled) setError('No se pudo asegurar la caja para cobrar el canon.');
+    });
+    return () => { cancelled = true; };
+  }, [cashClosed, onOpenDayCash]);
 
   useEffect(() => {
     if (members.length > directory.length) setDirectory(members);
@@ -102,7 +118,7 @@ export default function PoolEntranceView({
     () => evaluatePoolAccess(selected, { accesses: poolAccesses, today, settings, members: directory }),
     [selected, poolAccesses, today, settings, directory],
   );
-  const dues = Number(selected?.outstandingBalance) || 0;
+  const dues = poolDuesOwed(selected);
   const verdict = poolEntranceVerdict(selected, eval_, dues);
   const guests = selected ? guestDayAccessesForHost(poolAccesses, selected.memberId, today) : [];
   const dayStats = poolDayStats(poolAccesses, today);
@@ -112,7 +128,7 @@ export default function PoolEntranceView({
     return mergePoolSearchHits(local, remoteHits, { limit: 30 }).map((member) => ({
       member,
       snap: evaluatePoolAccess(member, { accesses: poolAccesses, today, settings, members: directory }),
-      dues: Number(member.outstandingBalance) || 0,
+      dues: poolDuesOwed(member),
     }));
   }, [directory, remoteHits, query, poolAccesses, today, settings]);
 
@@ -296,10 +312,10 @@ export default function PoolEntranceView({
       ) : null}
 
       {cashClosed ? (
-        <p className="conc-error" role="status" style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          La caja del día está cerrada: no se puede cobrar el canon en efectivo hasta abrirla en Pileta.
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => navigate('/pileta')}>
-            Ir a Pileta
+        <p className="ops-muted" role="status" style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          Asegurando la caja para cobrar el canon…
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => { void onOpenDayCash?.(); }}>
+            Reintentar
           </button>
         </p>
       ) : null}

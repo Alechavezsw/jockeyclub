@@ -666,10 +666,6 @@ export function recordDuesCollection(member, {
 }
 
 /**
- * Anula un cobro de cuota: deja el rastro y restaura el saldo.
- * No borra el movimiento.
- */
-/**
  * Borra el recargo de un cobro ya registrado. El importe cobrado queda.
  * El recargo pasa a saldo a favor. No se perdona en el mostrador.
  */
@@ -703,6 +699,10 @@ export function removeDuesSurcharge(member, paymentId, {
   return { member: next, payment: nextPayment };
 }
 
+/**
+ * Anula un cobro de cuota: deja el rastro y restaura el saldo.
+ * No borra el movimiento. En pago mixto revierte cada medio a su cuenta.
+ */
 export function voidMemberDuesPayment(member, paymentId, {
   voidedBy = 'Administración',
   reason = '',
@@ -737,6 +737,27 @@ export function voidMemberDuesPayment(member, paymentId, {
     updatedAt: voidedAt,
   };
 
+  const splits = normalizePaymentSplits(payment.paymentSplits);
+  let creditLines;
+  if (splits.length >= 2) {
+    const byAccount = new Map();
+    splits.forEach((row) => {
+      const key = row.journalAccount || 'Caja General';
+      byAccount.set(key, roundMoney((byAccount.get(key) || 0) + row.amount));
+    });
+    creditLines = [...byAccount.entries()].map(([accountName, value]) => ({
+      account: accountName,
+      type: 'credit',
+      amount: value,
+    }));
+  } else {
+    creditLines = [{
+      account: payment.journalAccount || 'Caja General',
+      type: 'credit',
+      amount,
+    }];
+  }
+
   return {
     member: next,
     payment: nextPayment,
@@ -745,7 +766,7 @@ export function voidMemberDuesPayment(member, paymentId, {
       description: `Anulación cobro cuota social - Socio: ${member.name} (Cred. ${member.memberId}) · ${nextPayment.receiptNumber || nextPayment.receipt || paymentId}`,
       lines: [
         { account: 'Cuotas Sociales', type: 'debit', amount },
-        { account: payment.journalAccount || 'Caja General', type: 'credit', amount },
+        ...creditLines,
       ],
       sourceModule: 'cuotas',
       sourceId: payment.id,

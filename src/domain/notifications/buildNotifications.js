@@ -1,7 +1,8 @@
 import { filterAlertsForRole, isAlertAcknowledged } from '../alerts/alerts';
 import { MAILBOX } from '../messaging/messages';
 import { allowedAccountingSubtabs, allowedAdminTabs } from '../auth/roles';
-import { canChargeSocialDues, isDuesExemptMember, nextDuesDueDate, pinDuesDueDate } from '../members/dues';
+import { canChargeSocialDues, nextDuesDueDate, pinDuesDueDate } from '../members/dues';
+import { isFamilyDependent } from '../members/households';
 import { formatISODateLongAR, todayISODateAR } from '../../lib/arDate';
 
 /**
@@ -145,7 +146,13 @@ export function buildNotifications({
         push(out, membersCanViewCurrentAccounts
           ? dueItem
           : { ...dueItem, view: 'profile', path: '/perfil' });
-      } else if (!dueItem && member.notifyDues !== false && !isDuesExemptMember(member) && (Number(member.outstandingBalance) || 0) > 0) {
+      } else if (
+        !dueItem
+        && member.notifyDues !== false
+        && canChargeSocialDues(member)
+        && !isFamilyDependent(member)
+        && (Number(member.outstandingBalance) || 0) > 0
+      ) {
         const bal = Number(member.outstandingBalance) || 0;
         push(out, {
           id: `dues-debt-${member.memberId}-${bal}`,

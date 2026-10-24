@@ -19,7 +19,7 @@ export async function chargePoolCanon({ entry, member, recordPoolCanon }) {
     throw new Error('Cobrá el canon en efectivo para que entre en la caja.');
   }
   if (typeof recordPoolCanon !== 'function') {
-    throw new Error('Abrí la Caja General para cobrar el canon de pileta.');
+    throw new Error('No se pudo registrar el canon en caja. Reintentá en unos segundos.');
   }
   const who = entry.kind === 'guest'
     ? `${entry.guestName || 'invitado'} (anfitrión ${member?.name || entry.memberName || 'socio'})`

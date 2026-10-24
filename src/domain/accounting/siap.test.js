@@ -12,8 +12,8 @@ beforeAll(async () => {
 });
 
 describe('padrón SIAP LILA', () => {
-  it('carga el corte del 26 de septiembre (sin ocupantes)', () => {
-    expect(ACCESSIN_SIAP_AS_OF).toBe('2026-09-26');
+  it('carga el corte del 22 de octubre (sin ocupantes)', () => {
+    expect(ACCESSIN_SIAP_AS_OF).toBe('2026-10-22');
     expect(ACCESSIN_SIAP_SNAPSHOT.fileName).toMatch(/SIAP/i);
     expect(ACCESSIN_SIAP).toEqual([]);
     expect(ACCESSIN_SIAP_SNAPSHOT.count).toBe(0);

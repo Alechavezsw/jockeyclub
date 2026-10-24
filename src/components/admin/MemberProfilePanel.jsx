@@ -44,6 +44,7 @@ import { sendDuesReceiptMessage } from '../../domain/members/duesReceiptDelivery
 import { signedDuesReceiptUrl } from '../../data/storage';
 import { repos } from '../../data/bootstrap';
 import CurrentAccountCutNote from '../erp/CurrentAccountCutNote';
+import { isMpAdhered } from '../../domain/payments/mercadoPago';
 
 const SECTIONS = [
   { id: 'ficha', label: 'Ficha', icon: User },
@@ -71,8 +72,10 @@ const PAYMENT_LABELS = {
   transferencia: 'Transferencia bancaria',
   efectivo: 'Efectivo',
   mercadopago: 'Mercado Pago',
-  debito: 'Débito automático',
-  debito_automatico: 'Débito automático',
+  /** Preferencia LILA / Galicia: no es la adhesión de MP en Mi cuenta. */
+  debito: 'Débito Galicia',
+  debito_automatico: 'Débito Galicia',
+  galicia: 'Débito Galicia',
 };
 
 const TAX_LABELS = {
@@ -255,7 +258,7 @@ function editFormFromMember(member, disciplineOptions) {
       member.disciplines?.length ? member.disciplines : (member.preferredSports || []),
       disciplineOptions
     ),
-    notifyDues: member.notifyDues !== false,
+    notifyDues: isDuesExemptMember(member) ? false : member.notifyDues !== false,
     notifyReservations: member.notifyReservations !== false,
     notifyEvents: member.notifyEvents !== false,
   };
@@ -342,6 +345,8 @@ export default function MemberProfilePanel({
   messages = [],
   updateMember = null,
   setMembers = null,
+  /** false = solo cobro (caja); true = editar ficha / grupo familiar. */
+  canEditMember = true,
   addJournalEntry = null,
   onAccountEntry = null,
   guestPasses = [],
@@ -373,9 +378,11 @@ export default function MemberProfilePanel({
     selfService ? [] : ['accessinCobranzas', 'accessinDetailedCurrentAccounts']
   );
   const hideCurrentAccount = selfService && !showCurrentAccounts;
+  const allowEdit = canEditMember && Boolean(updateMember || setMembers);
   const visibleSections = SECTIONS.filter((s) => {
     if (s.memberOnly && !selfService) return false;
     if (hideCurrentAccount && s.id === 'movimientos') return false;
+    if (!allowEdit && (s.id === 'editar' || s.id === 'familia')) return false;
     return true;
   });
   const canCollect = !selfService && Boolean(setMembers || updateMember);
@@ -386,7 +393,9 @@ export default function MemberProfilePanel({
 
   useEffect(() => {
     if (selfService || !member || searchParams.get('cobrar') !== '1') return undefined;
-    if (!isDuesExemptMember(member) && !isFamilyDependent(member)) setCollectOpen(true);
+    if (canCollect && !isDuesExemptMember(member) && !isFamilyDependent(member)) {
+      setCollectOpen(true);
+    }
     setSearchParams((prev) => {
       if (prev.get('cobrar') !== '1') return prev;
       const next = new URLSearchParams(prev);
@@ -394,7 +403,7 @@ export default function MemberProfilePanel({
       return next;
     }, { replace: true });
     return undefined;
-  }, [member?.memberId, selfService, searchParams, setSearchParams]);
+  }, [member?.memberId, selfService, searchParams, setSearchParams, canCollect]);
 
   useEffect(() => {
     if (selfService || !member || searchParams.get('editar') !== '1') return undefined;
@@ -426,7 +435,7 @@ export default function MemberProfilePanel({
     }
     return list;
   }, [familyGroup.members, member]);
-  const canEditFamily = !selfService && Boolean(updateMember || setMembers);
+  const canEditFamily = !selfService && allowEdit;
   const tiers = useMemo(() => getActiveTiers(tierCatalog), [tierCatalog]);
   const defaultFamilyTier = useMemo(() => {
     const fromGroup = familyRows.find((row) => row.relationship !== 'Titular')?.tier;
@@ -804,9 +813,11 @@ export default function MemberProfilePanel({
 
   const status = STATUS_COPY[member.status] || STATUS_COPY.pending;
   const appAccess = memberAppAccess(member);
-  const balance = isFamilyDependent(member) ? 0 : (Number(member.outstandingBalance) || 0);
   const duesExempt = isDuesExemptMember(member);
-  const hasDebt = balance > 0 && !duesExempt;
+  const balance = (isFamilyDependent(member) || duesExempt)
+    ? 0
+    : (Number(member.outstandingBalance) || 0);
+  const hasDebt = balance > 0;
   const quota = quotaHeadline(member);
   const poolPay = piletaPayAccess(member, { settings: poolSettings, members });
   const tierName = getTierDisplayName(member.tier, tierCatalog);
@@ -1042,6 +1053,16 @@ export default function MemberProfilePanel({
                   label="Medio de pago"
                   value={PAYMENT_LABELS[member.paymentMethod] || titleCase(member.paymentMethod)}
                 />
+                <Fact
+                  icon={Banknote}
+                  label="Débito Mercado Pago"
+                  value={duesExempt
+                    ? 'No aplica'
+                    : (isMpAdhered(member)
+                      ? 'Adherido (día 10)'
+                      : (debitFailed ? 'Falló el último cobro' : 'Sin adhesión'))}
+                  hint="Se gestiona en Mi cuenta, no en la ficha."
+                />
                 <Fact icon={Building2} label="Facturar a" value={member.billingName || member.name} />
                 <Fact icon={IdCard} label="CUIT / CUIL" value={member.cuitCuil} />
                 <Fact
@@ -1099,6 +1120,7 @@ export default function MemberProfilePanel({
                 updated.birthDate = editForm.birthDate || '';
                 if (editForm.tier) updated.tier = editForm.tier;
               }
+              if (isDuesExemptMember(updated)) updated.notifyDues = false;
               updated.recordScope = 'full';
               updateMember(updated);
               setEditMsg('Datos actualizados correctamente.');
@@ -1215,10 +1237,10 @@ export default function MemberProfilePanel({
             ) : null}
             <div className="mp-edit-notices">
               {[
-                ['notifyDues', 'Avisos de cuota'],
+                !isDuesExemptMember({ ...member, ...editForm }) ? ['notifyDues', 'Avisos de cuota'] : null,
                 ['notifyReservations', 'Avisos de reservas'],
                 ['notifyEvents', 'Avisos de eventos'],
-              ].map(([key, label]) => (
+              ].filter(Boolean).map(([key, label]) => (
                 <label key={key} className="mp-edit-check">
                   <input
                     type="checkbox"

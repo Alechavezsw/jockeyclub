@@ -18,10 +18,10 @@ beforeAll(async () => {
 describe('detalle cta cte liquidación', () => {
   it('carga el snapshot LILA de octubre 2026', () => {
     const summary = liquidationCcSummary();
-    expect(ACCESSIN_LIQUIDATION_CC_AS_OF).toBe('2026-10-20');
+    expect(ACCESSIN_LIQUIDATION_CC_AS_OF).toBe('2026-10-22');
     expect(summary.periodLabel).toMatch(/octubre del 2026/i);
     expect(summary.liquidation).toBe(62843000);
-    expect(summary.previousBalance).toBe(335253434.28);
+    expect(summary.previousBalance).toBe(335271434.28);
     expect(ACCESSIN_LIQUIDATION_CC.length).toBe(summary.listedCount);
     expect(summary.withLiquidation).toBe(965);
   });

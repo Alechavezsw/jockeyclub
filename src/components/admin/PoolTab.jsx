@@ -26,6 +26,12 @@ import { todayISODateAR } from '../../lib/arDate';
 import MercadoPagoCheckout from '../MercadoPagoCheckout';
 import ModalDialog from '../ModalDialog';
 import { listPoolAccesses } from '../../data/repos';
+import { isDuesExemptMember } from '../../domain/members/dues';
+
+function poolDuesOwed(member) {
+  if (!member || isDuesExemptMember(member)) return 0;
+  return Number(member.outstandingBalance) || 0;
+}
 
 function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -96,7 +102,7 @@ export default function PoolTab({
     return searchPoolMembers(members, query, { limit: 50 }).map((member) => ({
       member,
       snap: evaluatePoolAccess(member, { accesses: poolAccesses, today, settings, members }),
-      dues: Number(member.outstandingBalance) || 0,
+      dues: poolDuesOwed(member),
     }));
   }, [members, query, poolAccesses, today, settings]);
 
@@ -114,7 +120,7 @@ export default function PoolTab({
     () => (selected ? memberPoolHistory(poolAccesses, selected.memberId).slice(0, 12) : []),
     [poolAccesses, selected],
   );
-  const selectedDues = Number(selected?.outstandingBalance) || 0;
+  const selectedDues = poolDuesOwed(selected);
   // Lo que dice la base manda: el operario de pileta no puede leer las sesiones de caja y
   // deducirlo de ellas lo mostraría cerrado después de recargar.
   const dayCashOpen = typeof dayCashOpenProp === 'boolean'
@@ -364,7 +370,7 @@ export default function PoolTab({
                       type="button"
                       className="btn btn-primary pool-hit-enable"
                       disabled={busy || !dayCashOpen || !snap.canEnable}
-                      title={dayCashOpen ? (snap.blockers[0] || 'Habilitar ingreso de hoy') : 'Abrí la caja del día'}
+                      title={dayCashOpen ? (snap.blockers[0] || 'Habilitar ingreso de hoy') : 'Esperando caja…'}
                       onClick={() => handleEnableMember(m)}
                     >
                       <UserCheck size={15} /> Habilitar

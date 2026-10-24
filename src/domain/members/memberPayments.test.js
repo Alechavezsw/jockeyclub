@@ -4,10 +4,12 @@ import {
   collectionPreview,
   isDuesCollectionJournal,
   journalEntryBelongsToMember,
+  normalizePaymentSplits,
   payMemberDues,
   persistDuesCollection,
   recordDuesCollection,
   removeDuesSurcharge,
+  validatePaymentSplits,
   voidMemberDuesPayment,
 } from './memberPayments';
 
@@ -131,6 +133,74 @@ describe('payMemberDues', () => {
       outstandingBalance: 32000,
       paymentHistory: [],
     }, { method: 'efectivo' })).toThrow(/no abona cuota social/i);
+  });
+
+  it('no cobra cuota a fundador ni a comisión', () => {
+    expect(() => recordDuesCollection({
+      memberId: '9001',
+      name: 'Fundador',
+      tier: 'fundador',
+      outstandingBalance: 1000,
+      paymentHistory: [],
+    }, { method: 'efectivo' })).toThrow(/no abona cuota social/i);
+    expect(() => recordDuesCollection({
+      memberId: '8377',
+      name: 'Presidente',
+      tier: 'comision',
+      outstandingBalance: 1000,
+      paymentHistory: [],
+    }, { method: 'efectivo' })).toThrow(/no abona cuota social/i);
+  });
+
+  it('validatePaymentSplits exige dos medios, suma y comprobantes', () => {
+    expect(() => validatePaymentSplits(
+      [{ method: 'efectivo', amount: 1000 }],
+      1000,
+    )).toThrow(/al menos dos medios/i);
+
+    expect(() => validatePaymentSplits([
+      { method: 'efectivo', amount: 400 },
+      { method: 'efectivo', amount: 400 },
+    ], 1000)).toThrow(/suman/i);
+
+    expect(() => validatePaymentSplits([
+      { method: 'efectivo', amount: 500 },
+      { method: 'transferencia', amount: 500, bankId: 'nacion', bankName: 'Banco Nación' },
+    ], 1000)).toThrow(/comprobante de la transferencia/i);
+
+    const ok = validatePaymentSplits([
+      { method: 'efectivo', amount: 500 },
+      {
+        method: 'transferencia',
+        amount: 500,
+        bankId: 'nacion',
+        bankName: 'Banco Nación',
+        receiptName: 'tr.pdf',
+        receiptAttachment: { path: '1/tr.pdf', bucket: 'dues-receipts', name: 'tr.pdf' },
+      },
+    ], 1000);
+    expect(ok.splits).toHaveLength(2);
+    expect(ok.total).toBe(1000);
+
+    const treasury = validatePaymentSplits([
+      { method: 'efectivo', amount: 400 },
+      {
+        method: 'tarjeta',
+        amount: 600,
+        receiptName: 'voucher.jpg',
+      },
+    ], 1000, { treasuryMatch: true });
+    expect(treasury.total).toBe(1000);
+  });
+
+  it('normalizePaymentSplits descarta medios inválidos e importe 0', () => {
+    const splits = normalizePaymentSplits([
+      { method: 'efectivo', amount: 100 },
+      { method: 'mercado_pago', amount: 50 },
+      { method: 'transferencia', amount: 0 },
+      { method: 'tarjeta', amount: 200, receiptName: 'v.jpg', receiptAttachment: { path: 'x', name: 'v.jpg' } },
+    ]);
+    expect(splits.map((s) => s.method)).toEqual(['efectivo', 'tarjeta']);
   });
 
   it('recordDuesCollection exige comprobante en transferencia', () => {
@@ -412,6 +482,47 @@ describe('payMemberDues', () => {
     expect(voided.member.outstandingBalance).toBe(40000);
     expect(voided.member.paymentHistory[0].status).toBe('void');
     expect(voided.journalEntry.description).toMatch(/Anulación/);
+  });
+
+  it('anula un pago mixto revirtiendo cada medio a su cuenta', () => {
+    const member = {
+      memberId: '11017',
+      name: 'Socio',
+      outstandingBalance: 39600,
+      paymentHistory: [],
+    };
+    const charged = recordDuesCollection(member, {
+      method: 'mixto',
+      amount: 39600,
+      paymentSplits: [
+        { method: 'efectivo', amount: 20000 },
+        {
+          method: 'transferencia',
+          amount: 19600,
+          bankId: 'nacion',
+          bankName: 'Banco Nación',
+          receiptName: 'tr.pdf',
+          receiptAttachment: {
+            path: '11017/tr.pdf',
+            bucket: 'dues-receipts',
+            name: 'tr.pdf',
+            mimeType: 'application/pdf',
+            size: 400,
+          },
+        },
+      ],
+      today: new Date('2026-09-05T12:00:00'),
+    });
+    const voided = voidMemberDuesPayment(charged.member, charged.payment.id, {
+      voidedBy: 'Paula',
+      today: new Date('2026-09-05T15:00:00'),
+    });
+    expect(voided.member.outstandingBalance).toBe(39600);
+    expect(voided.journalEntry.lines.filter((l) => l.type === 'credit')).toEqual([
+      { account: 'Caja General', type: 'credit', amount: 20000 },
+      { account: 'Banco Nación', type: 'credit', amount: 19600 },
+    ]);
+    expect(voided.journalEntry.lines.find((l) => l.type === 'debit')?.amount).toBe(39600);
   });
 
   it('persistDuesCollection actualiza padrón, ledger y diario', async () => {

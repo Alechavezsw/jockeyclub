@@ -22,17 +22,17 @@ beforeAll(async () => {
 
 describe('memberDiscounts', () => {
   it('carga el corte LILA de descuentos extras', () => {
-    expect(ACCESSIN_MEMBER_DISCOUNTS_AS_OF).toBe('2026-10-20');
-    expect(ACCESSIN_MEMBER_DISCOUNTS.length).toBe(19);
+    expect(ACCESSIN_MEMBER_DISCOUNTS_AS_OF).toBe('2026-10-22');
+    expect(ACCESSIN_MEMBER_DISCOUNTS.length).toBe(18);
     expect(ACCESSIN_MEMBER_DISCOUNTS_SNAPSHOT.activeCount).toBe(14);
-    expect(ACCESSIN_MEMBER_DISCOUNTS_SNAPSHOT.expiredCount).toBe(5);
-    expect(ACCESSIN_MEMBER_DISCOUNTS_SNAPSHOT.asOfLabel).toMatch(/20 de Octubre del 2026/);
+    expect(ACCESSIN_MEMBER_DISCOUNTS_SNAPSHOT.expiredCount).toBe(4);
+    expect(ACCESSIN_MEMBER_DISCOUNTS_SNAPSHOT.asOfLabel).toMatch(/22 de Octubre del 2026/);
   });
 
   it('filtra vigentes, vencidos y por socio', () => {
     const summary = memberDiscountsSummary();
     expect(listMemberDiscounts({ status: 'active' })).toHaveLength(summary.activeCount);
-    expect(listMemberDiscounts({ status: 'expired' })).toHaveLength(5);
+    expect(listMemberDiscounts({ status: 'expired' })).toHaveLength(4);
     expect(listMemberDiscounts({ query: '9216' })[0]?.memberName).toMatch(/Puyg/i);
     expect(listMemberDiscounts({ scope: 'fee_category' }).every((r) => r.scope === 'fee_category')).toBe(true);
   });

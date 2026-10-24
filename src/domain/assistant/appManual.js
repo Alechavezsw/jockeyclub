@@ -591,7 +591,7 @@ export const APP_MANUAL = [
     who: 'Control de pileta.',
     steps: [
       'Rail Entrada pileta o /entrada-pileta.',
-      'Controla apto médico, canon e invitados. Distinto de la caja del día.',
+      'Controla apto médico, canon e invitados. Distinto de la puerta QR de Entrada pileta.',
       'En temporada (diciembre a marzo), desde el 10, sin la cuota del mes no entra al club: aparece “En mora · no abonó la cuota del mes”. La regla está en Configuración → Pileta.',
       'Un socio en mora tampoco puede pagar pileta, esté o no en temporada, hasta regularizar.',
       'La temporada y los montos se editan en Configuración → Pileta.',

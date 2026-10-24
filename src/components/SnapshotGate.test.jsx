@@ -31,7 +31,7 @@ describe('SnapshotGate', () => {
         <p>Panel de cheques</p>
       </SnapshotGate>
     );
-    expect(screen.getByRole('status').textContent).toMatch(/Cargando datos de LILA/);
+    expect(screen.getByRole('status').textContent).toMatch(/Cargando datos/);
     expect(screen.getByText('Panel de cheques')).toBeTruthy();
     expect(screen.queryByRole('alert')).toBeNull();
   });

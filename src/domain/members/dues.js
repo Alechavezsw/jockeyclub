@@ -796,7 +796,11 @@ export function getUpcomingDuesMembers(members, { withinDays, today = new Date()
   const todayStart = startOfDay(today);
 
   return members
-    .filter((m) => isMemberBillingActive(m) && !isDuesExemptMember(m))
+    .filter((m) => (
+      isMemberBillingActive(m)
+      && !isDuesExemptMember(m)
+      && !isFamilyDependent(m)
+    ))
     .filter((m) => !isSocialDuesMora(m, todayStart) && !isSocialDuesDueToday(m, todayStart))
     .map((m) => {
       const due = parseDueDate(m.nextDueDate, m);
@@ -806,12 +810,14 @@ export function getUpcomingDuesMembers(members, { withinDays, today = new Date()
       if (due <= todayStart || due > horizon) return null;
       const daysUntil = Math.round((due - todayStart) / DAY_MS);
       const dueIso = toISODate(due);
+      const amountDue = duesAmountForMember(m, due);
+      if (!(amountDue > 0)) return null;
       return {
         ...m,
         duesStatus: 'upcoming',
         daysUntil,
         dueDate: dueIso,
-        amountDue: duesAmountForMember(m, due),
+        amountDue,
         nextDueDate: dueIso,
       };
     })
@@ -828,7 +834,7 @@ export function formatShortDate(iso) {
 
 /** Link de recordatorio de cuota por WhatsApp. Null si no hay teléfono válido. */
 export function buildWhatsAppDuesUrl(member, formatCurrency) {
-  if (isDuesExemptMember(member)) return null;
+  if (isDuesExemptMember(member) || isFamilyDependent(member)) return null;
   const cleanPhone = toWhatsAppPhone(member?.phone);
   if (!cleanPhone) return null;
   const dueLabel = formatShortDate(member.dueDate || member.nextDueDate);

@@ -285,6 +285,8 @@ export default function MembersTab({
   tierCatalog = [],
   setTierCatalog,
   updateMember = null,
+  /** false = solo cobro (caja); true = alta / baja / editar padrón. */
+  canEditMember = true,
   onAccountEntry = null,
   membersCount = 0,
   membersLoading = false,
@@ -299,6 +301,7 @@ export default function MembersTab({
 }) {
   const { user } = useAuth();
   const actorName = user?.fullName || user?.name || user?.email || '';
+  const allowPadronWrite = canEditMember && Boolean(setMembers || updateMember);
   const {
     SOCIETAS_MEMBERSHIP_ALTAS,
     SOCIETAS_MEMBERSHIP_BAJAS,
@@ -669,6 +672,10 @@ export default function MembersTab({
   const handleAddMember = async (e) => {
     e.preventDefault();
     setFormError('');
+    if (!allowPadronWrite) {
+      setFormError('Tu rol no puede dar de alta socios.');
+      return;
+    }
     if (!form.name.trim()) {
       setFormError('El nombre completo es obligatorio.');
       return;
@@ -829,8 +836,8 @@ export default function MembersTab({
       });
       void sendDuesReceiptMessage({ member: result.member, payment: result.payment, onSendMessage });
       setCollectMember(null);
-    } catch {
-      /* el modal ya valida comprobante / importe */
+    } catch (err) {
+      window.alert(err?.message || 'No se pudo registrar el cobro.');
     }
   };
 
@@ -843,6 +850,7 @@ export default function MembersTab({
   };
 
   const openLifecycle = (member, action) => {
+    if (!allowPadronWrite) return;
     setLifecycleError('');
     setLifecycleTarget({ member, action });
   };
@@ -1148,6 +1156,7 @@ export default function MembersTab({
   };
 
   const handleAddAdherent = (memberId) => {
+    if (!allowPadronWrite) return;
     if (!adhName.trim()) return;
     if (!adhDisciplines.length) return;
     const newAdherent = {
@@ -1295,20 +1304,22 @@ export default function MembersTab({
           <FileSpreadsheet size={16} /> {exportingExcel ? 'Generando…' : 'Exportar Excel'}
         </button>
 
-        <button
-          type="button"
-          onClick={() => {
-            if (showAddForm) {
-              setShowAddForm(false);
-              return;
-            }
-            resetForm();
-            setShowAddForm(true);
-          }}
-          className="btn btn-emerald"
-        >
-          <Plus size={16} /> Registrar Socio
-        </button>
+        {allowPadronWrite ? (
+          <button
+            type="button"
+            onClick={() => {
+              if (showAddForm) {
+                setShowAddForm(false);
+                return;
+              }
+              resetForm();
+              setShowAddForm(true);
+            }}
+            className="btn btn-emerald"
+          >
+            <Plus size={16} /> Registrar Socio
+          </button>
+        ) : null}
       </div>
 
       <div className="members-stat-cards" aria-label="Resumen del padrón">

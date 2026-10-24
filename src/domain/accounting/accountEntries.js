@@ -59,7 +59,7 @@ export function upsertAccountEntry(list = [], input = {}) {
     ...existing,
     ...input,
     id: existing?.id || input.id,
-    createdAt: existing?.createdAt,
+    createdAt: existing?.createdAt || input.createdAt,
     source: existing?.source || input.source || 'manual',
   });
   if (existing) return (list || []).map((e) => (e.id === existing.id ? next : e));

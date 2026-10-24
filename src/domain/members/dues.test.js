@@ -46,7 +46,7 @@ afterEach(() => {
 
 const members = [
   { memberId: '1', name: 'A', tier: 'socio_individual', outstandingBalance: 32000, status: 'active', nextDueDate: '2026-06-10' },
-  { memberId: '2', name: 'B', tier: 'grupo_familiar_familiar', outstandingBalance: 0, status: 'active', nextDueDate: '2026-08-10' },
+  { memberId: '2', name: 'B', tier: 'socio_familiar', outstandingBalance: 0, status: 'active', nextDueDate: '2026-08-10' },
   { memberId: '3', name: 'C', tier: 'socio_vitalicio', outstandingBalance: 0, status: 'active', nextDueDate: '2026-09-10' },
   { memberId: '4', name: 'D', tier: 'socio_individual', outstandingBalance: 0, status: 'active', nextDueDate: '2026-07-10' },
 ];
@@ -306,6 +306,54 @@ describe('dues classification', () => {
       phone: '2645551234',
       amountDue: 32000,
     })).toBeNull();
+  });
+
+  it('fundador no abona cuota ni entra en mora', () => {
+    expect(isDuesExemptMember({ tier: 'fundador' })).toBe(true);
+    expect(isDuesExemptMember({ tier: 'grupo_familiar_fundador' })).toBe(true);
+    expect(isDuesExemptMember({ cuotaCategories: ['FUNDADOR'] })).toBe(true);
+    expect(isDuesExemptMember({
+      tier: 'fundador',
+      cuotaCategories: ['FUNDADOR', 'SOCIO FAMILIAR'],
+    })).toBe(false);
+    expect(canChargeSocialDues({ status: 'active', tier: 'fundador' })).toBe(false);
+    const quota = quotaHeadline({
+      status: 'active',
+      outstandingBalance: 50000,
+      tier: 'fundador',
+    });
+    expect(quota.title).toBe('Fundador');
+    expect(quota.hint).toMatch(/no abona cuota social/i);
+    expect(quota.billing).toBe(false);
+    expect(unpaidSocialDuesAmount({
+      tier: 'fundador',
+      outstandingBalance: 50000,
+      nextDueDate: '2026-08-10',
+    }, new Date('2026-10-20T12:00:00'))).toBe(0);
+    expect(getOverdueMembers([{
+      memberId: 'f1',
+      name: 'Fundador',
+      tier: 'fundador',
+      outstandingBalance: 50000,
+      status: 'active',
+      nextDueDate: '2026-08-10',
+    }], new Date('2026-10-20T12:00:00'))).toHaveLength(0);
+    expect(duesAmountForMember({ tier: 'fundador', adherents: [] }, new Date('2026-10-20T12:00:00'))).toBe(0);
+    expect(buildWhatsAppDuesUrl({
+      tier: 'fundador',
+      phone: '2645551234',
+      amountDue: 50000,
+    })).toBeNull();
+    const before = {
+      memberId: 'f2',
+      name: 'Fundador',
+      tier: 'fundador',
+      status: 'active',
+      outstandingBalance: 0,
+      nextDueDate: '2026-09-10',
+    };
+    const after = applyAutomaticDues([before], new Date('2026-10-20T12:00:00'));
+    expect(after[0].outstandingBalance).toBe(0);
   });
 
   it('un saldo de cuenta no es mora si la cuota todavía no venció', () => {

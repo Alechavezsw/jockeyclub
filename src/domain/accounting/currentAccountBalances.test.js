@@ -18,7 +18,7 @@ beforeAll(async () => {
 
 describe('currentAccountBalances', () => {
   it('carga el corte vivo de cuentas corrientes', () => {
-    expect(ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF).toBe('2026-10-20');
+    expect(ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF).toBe('2026-10-22');
     expect(ACCESSIN_CURRENT_ACCOUNT_BALANCES_SNAPSHOT.rowCount).toBeGreaterThan(7000);
     expect(ACCESSIN_CURRENT_ACCOUNT_BALANCES_SNAPSHOT.withBalance).toBeGreaterThan(100);
   });
@@ -62,7 +62,7 @@ describe('currentAccountBalances', () => {
       { memberId: '1004', name: 'Cristina Mugas' },
       { memberId: '1622', name: 'Vitalicia', tier: 'socio_vitalicio' },
     ], {
-      asOf: '2026-10-20',
+      asOf: '2026-10-22',
       byNumber: {
         1004: { balance: 56000 },
         1622: { balance: 32000 },
@@ -70,7 +70,7 @@ describe('currentAccountBalances', () => {
     });
     expect(seeded[0].outstandingBalance).toBe(56000);
     expect(seeded[1].outstandingBalance).toBe(0);
-    expect(seeded[1].currentAccountAsOf).toBe('2026-10-20');
+    expect(seeded[1].currentAccountAsOf).toBe('2026-10-22');
   });
 
   it('resume el corte que trae cada socio', () => {

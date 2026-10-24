@@ -9,7 +9,7 @@ import useErpStore from './hooks/useErpStore';
 import { AlertsBanner } from './components/erp/AlertsPanel';
 import SessionStatusBar from './components/SessionStatusBar';
 import { useAuth } from './context/AuthContext';
-import { canAccessAdmin, canAccessQrGate, canAccessPool, canAccessConcessions, canTakeAttendance, canManageMembers, allowedAdminTabs } from './domain/auth/roles';
+import { canAccessAdmin, canAccessQrGate, canAccessPool, canAccessConcessions, canTakeAttendance, canManageMembers, canWriteMemberLedger, allowedAdminTabs } from './domain/auth/roles';
 import { isDemoFacilityId, isRealBookableSpace, OFFICIAL_FACILITY_IDS, RETIRED_FACILITY_IDS, FACILITIES } from './domain/reservations/facilities';
 import { accountEntriesFromImputedReservations } from './domain/accounting/eventImputation';
 import { buildFacilityCatalog } from './domain/reservations/facilityConfig';
@@ -2693,11 +2693,12 @@ function ClubPortal() {
 
   const canOpenPool = canAccessPool(userRole)
     || (user?.roles || []).some((r) => canAccessPool(r.roleKey || r.key || r));
+  const poolMemberWriter = canWriteMemberLedger(user?.roles?.length ? user.roles : userRole);
   const poolGateView = canOpenPool ? (
     <PoolControlView
       members={members}
-      setMembers={canManageMembers(userRole) ? setMembersDb : null}
-      updateMember={canManageMembers(userRole) ? updateMember : null}
+      setMembers={poolMemberWriter ? setMembersDb : null}
+      updateMember={poolMemberWriter ? updateMember : null}
       formatCurrency={formatCurrency}
       recordPoolCanon={erp.recordPoolCanon}
       cashSessions={erp.cashSessions || []}
@@ -2723,6 +2724,7 @@ function ClubPortal() {
       formatCurrency={formatCurrency}
       recordPoolCanon={erp.recordPoolCanon}
       dayCashOpen={erp.poolDayCashOpen}
+      onOpenDayCash={erp.openPoolDayCash}
       onRefreshDayCash={erp.refreshPoolDayCash}
       poolAccesses={poolAccesses}
       setPoolAccesses={setPoolAccessesDb}

@@ -42,6 +42,14 @@ export function getOpenSession(sessions, cashRegisterId) {
   return sessions.find((s) => s.cashRegisterId === cashRegisterId && s.status === 'open') || null;
 }
 
+/** Mensaje de negocio: la caja operativa no se cierra por turno. */
+export const CASH_ALWAYS_OPEN_MESSAGE = 'La caja permanece abierta: no se cierra.';
+
+/** Rechaza un cierre operativo (histórico vía closeCashSession sigue permitido). */
+export function refuseCashSessionClose() {
+  throw new Error(CASH_ALWAYS_OPEN_MESSAGE);
+}
+
 /**
  * La caja del club queda siempre abierta: reusa la sesión viva o crea una.
  * @returns {{ session: object, created: boolean }}

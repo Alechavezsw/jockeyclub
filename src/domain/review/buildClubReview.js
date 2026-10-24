@@ -1176,7 +1176,7 @@ export function buildClubReview({
       ? '1 arqueo con diferencia'
       : `${openDiscrepancy.length} arqueos con diferencia`,
     detail: 'Lo contado no coincide con lo registrado.',
-    why: 'La caja del día no cierra.',
+    why: 'El arqueo no cuadra: contado ≠ registrado.',
     tab: 'accounting',
     focus: 'cash',
     samples: take(openDiscrepancy, (session) => asSample(

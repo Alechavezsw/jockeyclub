@@ -5,15 +5,15 @@ import { isDuesExemptMember } from '../members/dues';
 import { memberNumberOf } from '../members/households';
 
 /**
- * Corte de Lila del 20 de octubre de 2026, cargado en public.members.
+ * Corte de Lila del 22 de octubre de 2026, cargado en public.members.
  * El total positivo es el del Excel de saldos.
  */
 export const LILA_BALANCE_CUT = Object.freeze({
-  asOf: '2026-10-20',
+  asOf: '2026-10-22',
   filePositiveTotal: 346295200.69,
   omittedTotal: 0,
   omitted: Object.freeze([]),
-  previousAsOf: '2026-10-13',
+  previousAsOf: '2026-10-20',
   previousWithBalance: 1097,
   previousTotal: 354715661.09,
 });

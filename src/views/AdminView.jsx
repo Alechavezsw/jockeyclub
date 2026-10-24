@@ -34,7 +34,7 @@ import JevReviewTab from '../components/admin/JevReviewTab';
 import { DEFAULT_POOL_SETTINGS } from '../domain/pool/poolAccess';
 import { DEFAULT_CHART_OF_ACCOUNTS, resolveAccountId } from '../domain/accounting/chartOfAccounts';
 import { getAccountBalance as domainAccountBalance } from '../domain/accounting/journal';
-import { allowedAdminTabsForRoles, canAccessConcessions, canAccessQrGate, canLiquidateDues, canManageMembers, ROLE_LABELS, ROLE_PANEL_META } from '../domain/auth/roles';
+import { allowedAdminTabsForRoles, canAccessConcessions, canAccessQrGate, canLiquidateDues, canManageMembers, canWriteMemberLedger, ROLE_LABELS, ROLE_PANEL_META } from '../domain/auth/roles';
 import { keepPageAtTop, preventButtonScroll } from '../lib/scrollPage';
 import { getOverdueMembers, getUpcomingDuesMembers } from '../domain/members/dues';
 import { isLiveMember, isTitularMember, mergeMemberRecord } from '../domain/members/households';
@@ -187,8 +187,10 @@ export default function AdminView({
   const roleSource = user?.roles?.length ? user.roles : userRole;
   const liquidateDues = canLiquidateDues(roleSource);
   const manageMembers = canManageMembers(roleSource);
-  const memberWrite = manageMembers ? updateMember : null;
-  const memberSet = manageMembers ? setMembers : null;
+  const writeMemberLedger = canWriteMemberLedger(roleSource);
+  // Cobrar / pileta escriben saldo sin poder editar padrón (canEditMember).
+  const memberWrite = (manageMembers || writeMemberLedger) ? updateMember : null;
+  const memberSet = (manageMembers || writeMemberLedger) ? setMembers : null;
   useEffect(() => {
     // Completa los meses de las cuentas de cuotas: es una escritura del que liquida. Para el
     // resto la base la rechaza, y reintentarla en cada carga del padrón solo hace ruido.
@@ -842,7 +844,7 @@ export default function AdminView({
           initialView={!liquidateDues || searchParams.get('vista') === 'saldos' ? 'balances' : 'hub'}
           balancesOnly={!liquidateDues}
           members={members}
-          setMembers={setMembers}
+          setMembers={memberSet}
           feePeriods={erp.feePeriods}
           onUpsertFeePeriods={erp.setFeePeriodsList}
           onPersistFeePeriod={erp.persistFeePeriod}
@@ -900,6 +902,7 @@ export default function AdminView({
             disciplineCatalog={disciplineCatalog}
             updateMember={memberWrite}
             setMembers={memberSet}
+            canEditMember={manageMembers}
             addJournalEntry={addJournalEntry}
             onAccountEntry={erp.upsertMemberAccountEntryRecord}
             onSendMessage={sendMessage}
@@ -915,18 +918,19 @@ export default function AdminView({
             membersLoading={membersLoading}
             membersProgress={membersProgress}
             setMembers={memberSet}
+            canEditMember={manageMembers}
             addJournalEntry={addJournalEntry}
             onAccountEntry={erp.upsertMemberAccountEntryRecord}
             formatCurrency={formatCurrency}
             onOpenProfile={(id) => navigate(`/panel/members/${id}`)}
             disciplineOptions={(disciplineCatalog || []).filter((d) => d.isActive !== false).map((d) => d.name)}
             tierCatalog={tierCatalog}
-            setTierCatalog={setTierCatalog}
+            setTierCatalog={manageMembers ? setTierCatalog : null}
             updateMember={memberWrite}
             membershipApplications={membershipApplications}
-            setMembershipApplications={setMembershipApplications}
+            setMembershipApplications={manageMembers ? setMembershipApplications : null}
             portalAccessRequests={portalAccessRequests}
-            setPortalAccessRequests={setPortalAccessRequests}
+            setPortalAccessRequests={manageMembers ? setPortalAccessRequests : null}
             onSendMessage={sendMessage}
             paymentPlans={paymentPlans}
             paymentTolerance={duesSettings?.paymentTolerance}
@@ -941,11 +945,11 @@ export default function AdminView({
       {activeTab === 'disciplines' && (
         <DisciplinesTab
           members={members}
-          setMembers={memberSet}
+          setMembers={manageMembers ? setMembers : null}
           reservations={reservations}
           staffMembers={staffMembers}
           catalog={disciplineCatalog}
-          setCatalog={setDisciplineCatalog}
+          setCatalog={manageMembers ? setDisciplineCatalog : null}
           onOpenMember={(id) => navigate(`/panel/members/${id}`)}
         />
       )}
@@ -1019,7 +1023,7 @@ export default function AdminView({
           onDeleteInterestGenerator={erp.deleteInterestGeneratorRecord}
           onRecordInterestRun={erp.recordInterestRun}
           onCancelInterestRun={erp.cancelInterestRunRecord}
-          setMembers={setMembers}
+          setMembers={memberSet}
           expenseImports={erp.expenseImports}
           onImportExpenses={erp.importExpenses}
           retenciones={erp.retenciones}
@@ -1144,7 +1148,7 @@ export default function AdminView({
           messages={messages}
           entryLogs={entryLogs}
           surveys={surveys}
-          setMembers={setMembers}
+          setMembers={manageMembers || liquidateDues ? setMembers : null}
           setReservations={setReservations}
           setJournalEntries={setJournalEntries}
           setStaffMembers={setStaffMembers}
@@ -1214,7 +1218,7 @@ export default function AdminView({
       )}
 
       {activeTab === 'migration' && (
-        <MigrationTab setMembers={setMembers} setReservations={setReservations} />
+        <MigrationTab setMembers={manageMembers ? setMembers : null} setReservations={setReservations} />
       )}
 
       {activeTab === 'bookings' && (

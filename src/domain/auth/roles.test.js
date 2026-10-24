@@ -13,6 +13,8 @@ import {
   canManageProfiles,
   canManageTeachers,
   canManageMembers,
+  canCollectDues,
+  canWriteMemberLedger,
   isSuperAdmin,
   allowedAdminTabs,
   allowedAdminTabsForRoles,
@@ -90,6 +92,20 @@ describe('allowedAdminTabs', () => {
     expect(allowedAdminTabs('admin')).toContain('dues');
     expect(allowedAdminTabs('admin_employee')).toContain('dues');
     expect(allowedAdminTabs('gate_operator')).not.toContain('dues');
+  });
+
+  it('caja cobra cuota sin editar el padrón', () => {
+    expect(canCollectDues('cashier')).toBe(true);
+    expect(canCollectDues('accountant')).toBe(true);
+    expect(canCollectDues('gate_operator')).toBe(true);
+    expect(canCollectDues('pool_operator')).toBe(true);
+    expect(canCollectDues('admin')).toBe(true);
+    expect(canCollectDues('member')).toBe(false);
+    expect(canCollectDues('teacher')).toBe(false);
+    expect(canManageMembers('cashier')).toBe(false);
+    expect(canWriteMemberLedger('cashier')).toBe(true);
+    expect(canWriteMemberLedger('pool_operator')).toBe(true);
+    expect(canWriteMemberLedger('member')).toBe(false);
   });
 
   it('el admin inicia en dashboard, no ve contabilidad, ni QR/concesiones como pestaña', () => {

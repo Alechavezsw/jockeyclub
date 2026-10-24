@@ -59,14 +59,14 @@ export const CLUB_GUIDE = [
     tab: 'pool_gate',
     title: 'Entrada pileta',
     keywords: 'entrada pileta ticket invitado pase',
-    teach: 'Entrada pileta abre /entrada-pileta: el control de ingreso a pileta, distinto de la caja del día. En temporada, desde el 10, sin la cuota del mes no entra.',
+    teach: 'Entrada pileta abre /entrada-pileta: el control de ingreso a pileta (la caja del club queda siempre abierta). En temporada, desde el 10, sin la cuota del mes no entra.',
   },
   {
     id: 'pileta',
     tab: 'pool',
     title: 'Pileta',
     keywords: 'pileta canon natacion caja dia',
-    teach: 'Pileta abre /pileta: caja del día y canon. El ingreso se lee con QR en Entrada pileta.',
+    teach: 'Pileta abre /pileta: la caja queda abierta y cobrás el canon. El ingreso se lee con QR en Entrada pileta.',
   },
   {
     id: 'disciplinas',

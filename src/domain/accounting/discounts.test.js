@@ -26,10 +26,10 @@ beforeAll(async () => {
 describe('discounts / bonificaciones', () => {
   it('carga seed Accessin real + regla COMISION', () => {
     const all = resolveDiscounts(null, seedDiscounts());
-    expect(ACCESSIN_BONIFICACIONES_AS_OF).toBe('2026-10-20');
-    expect(ACCESSIN_BONIFICACIONES_SNAPSHOT.asOfLabel).toMatch(/20 de Octubre del 2026/);
-    expect(ACCESSIN_BONIFICACIONES.length).toBe(412);
-    expect(ACCESSIN_BONIFICACIONES_SNAPSHOT.totalAmount).toBeCloseTo(12029928.73, 2);
+    expect(ACCESSIN_BONIFICACIONES_AS_OF).toBe('2026-10-22');
+    expect(ACCESSIN_BONIFICACIONES_SNAPSHOT.asOfLabel).toMatch(/22 de Octubre del 2026/);
+    expect(ACCESSIN_BONIFICACIONES.length).toBe(410);
+    expect(ACCESSIN_BONIFICACIONES_SNAPSHOT.totalAmount).toBeCloseTo(12025928.73, 2);
     expect(ACCESSIN_DISCOUNT_RULES).toHaveLength(1);
     expect(discountCategoryCounts(all).find((c) => c.id === 'fee_category')?.count).toBe(1);
   });
@@ -111,11 +111,11 @@ describe('discounts / bonificaciones', () => {
     const merged = resolveDiscounts([stale, local], seedDiscounts());
     expect(merged.some((d) => d.id === 'abon-viejo-1')).toBe(false);
     expect(merged.some((d) => d.id === local.id)).toBe(true);
-    expect(merged.filter((d) => String(d.id || '').startsWith('abon-'))).toHaveLength(412);
+    expect(merged.filter((d) => String(d.id || '').startsWith('abon-'))).toHaveLength(410);
   });
 
   it('lista el corte y encuentra a Laciar', () => {
-    expect(listBonificaciones({ items: ACCESSIN_BONIFICACIONES })).toHaveLength(412);
+    expect(listBonificaciones({ items: ACCESSIN_BONIFICACIONES })).toHaveLength(410);
     expect(listBonificaciones({ items: ACCESSIN_BONIFICACIONES, query: '11495' }).some((r) => r.memberNumber === '11495')).toBe(true);
     expect(listBonificaciones({ items: ACCESSIN_BONIFICACIONES, query: 'Ferrer' })[0]?.memberName).toMatch(/Ferrer/);
   });

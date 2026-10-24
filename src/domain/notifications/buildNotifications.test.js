@@ -135,6 +135,25 @@ describe('buildNotifications', () => {
     expect(list.some((n) => n.kind === 'dues')).toBe(false);
   });
 
+  it('fundador y comisión no reciben aviso de cuota aunque tengan saldo', () => {
+    for (const tier of ['fundador', 'comision']) {
+      const list = buildNotifications({
+        role: 'member',
+        memberId: '111',
+        member: {
+          memberId: '111',
+          status: 'active',
+          tier,
+          nextDueDate: '2026-07-10',
+          outstandingBalance: 50000,
+          notifyDues: true,
+        },
+        todayIso: '2026-10-20',
+      });
+      expect(list.some((n) => n.kind === 'dues')).toBe(false);
+    }
+  });
+
   it('cinco días antes avisa que está por vencer', () => {
     const list = buildNotifications({
       role: 'member',
