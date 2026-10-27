@@ -23,11 +23,11 @@ describe('balance mensual resumido LILA', () => {
     expect(ACCESSIN_MONTHLY_BALANCE_SUMMARY_AS_OF).toBe('2026-10-31');
     expect(cards.periodFrom).toBe('2026-10-01');
     expect(cards.periodTo).toBe('2026-10-31');
-    expect(cards.totalIncome).toBeCloseTo(62625473.37, 2);
-    expect(cards.totalIncomeCash).toBeCloseTo(65265473.37, 2);
+    expect(cards.totalIncome).toBeCloseTo(63925674.34, 2);
+    expect(cards.totalIncomeCash).toBeCloseTo(68218674.34, 2);
     expect(cards.totalExpenses).toBe(0);
     expect(cards.cashOnHand).toBeCloseTo(820341100.27, 2);
-    expect(cards.closingCash).toBeCloseTo(885606573.64, 2);
+    expect(cards.closingCash).toBeCloseTo(888559774.61, 2);
     expect(cards.summarized).toBe(true);
     expect(cards.sourceFolder).toMatch(/resumido/i);
   });

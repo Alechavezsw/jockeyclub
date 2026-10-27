@@ -17,8 +17,8 @@ beforeAll(async () => {
 });
 
 describe('supplierPaymentsReport snapshot', () => {
-  it('el corte al 22 de octubre trae los pagos de 2026 que Lila exporta', () => {
-    expect(ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT.asOf).toBe('2026-10-22');
+  it('el corte al 26 de octubre trae los pagos de 2026 que Lila exporta', () => {
+    expect(ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT.asOf).toBe('2026-10-26');
     expect(ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT.periodFrom).toBe('2026-01-01');
     expect(ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT.periodTo).toBe('2026-03-27');
     expect(ACCESSIN_SUPPLIER_PAYMENTS).toHaveLength(170);

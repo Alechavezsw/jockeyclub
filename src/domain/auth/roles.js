@@ -288,7 +288,7 @@ export function allowedAccountingSubtabs(role) {
     return [
       'diary', 'mayor', 'create', 'balance', 'balance_monthly', 'balance_summary', 'balance_liquidation', 'balance_patrimonial', 'results', 'charts', 'acct_reports', 'libre_deuda', 'family_balances', 'member_discounts', 'bonificaciones', 'siap', 'impuestos', 'plan',
       'cash', 'expenses', 'suppliers', 'retenciones', 'other_incomes', 'interest_generators',
-      'unidentified', 'galicia', 'fixed_expenses', 'balances', 'payment_orders',
+      'unidentified', 'galicia', 'prisma', 'fixed_expenses', 'balances', 'payment_orders',
       'credit_purchases',
     ];
   }

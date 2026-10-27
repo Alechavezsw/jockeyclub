@@ -1,8 +1,8 @@
-/** Cheques en cartera Accessin/LILA (al 2026-10-22). Auto-generado — no editar a mano. */
-export const ACCESSIN_CHEQUES_AS_OF = '2026-10-22';
+/** Cheques en cartera Accessin/LILA (al 2026-10-26). Auto-generado — no editar a mano. */
+export const ACCESSIN_CHEQUES_AS_OF = '2026-10-26';
 export const ACCESSIN_CHEQUES_SNAPSHOT = {
-  "asOf": "2026-10-22",
-  "generatedAt": "2026-10-22T21:59:28.824Z",
+  "asOf": "2026-10-26",
+  "generatedAt": "2026-10-27T00:45:52.240Z",
   "count": 0,
   "total": 0,
   "allCount": 0

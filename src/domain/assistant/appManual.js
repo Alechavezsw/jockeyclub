@@ -810,6 +810,22 @@ export const APP_MANUAL = [
     dont: 'No dejes un débito Galicia sin socio si ya sabés el número. No dejes una cobranza sin identificar colgada: o se imputa o se rechaza.',
   },
   {
+    id: 'prisma',
+    group: 'conta',
+    title: 'Débitos Prisma',
+    tab: 'accounting',
+    focus: 'prisma',
+    keywords: 'prisma debito automatico visa mastercard archivo respuesta',
+    who: 'Contador y superadmin.',
+    steps: [
+      'Contabilidad → Operación → Prisma.',
+      'Cada marca tiene su identificador de establecimiento y su cuenta. Sin identificador, el TXT solo lleva encabezado y cierre.',
+      'Generar archivo baja DEBLIQC.txt, DEBLIQD.txt o DEBLIMC.txt. El importe es el saldo de cuenta corriente.',
+      'Cuando Prisma devuelve la rendición, se carga en Archivo de respuesta.',
+    ],
+    dont: 'Vitalicio, fundador y comisión no entran. No generes dos veces el mismo mes: Prisma imputa de nuevo.',
+  },
+  {
     id: 'novedades',
     group: 'com',
     title: 'Novedades / Revista',

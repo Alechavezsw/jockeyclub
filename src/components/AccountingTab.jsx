@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import {
   BookOpen, Plus, DollarSign, PieChart, ShieldAlert, CheckCircle2, Trash2, Printer, Search,
   TrendingUp, Book, ListTree, Wallet, Receipt, Truck, HelpCircle, Building2, Repeat, Percent,
-  Scale, FileSpreadsheet, Banknote, FileText, Ticket, CalendarDays, ChevronDown, BadgeCheck, Users,
+  Scale, FileSpreadsheet, Banknote, FileText, Ticket, CalendarDays, ChevronDown, BadgeCheck, Users, CreditCard,
 } from 'lucide-react';
 import {
   DEFAULT_CHART_OF_ACCOUNTS,
@@ -47,6 +47,7 @@ import BonificacionesPanel from './erp/BonificacionesPanel';
 import SiapPanel from './erp/SiapPanel';
 import ImpuestosPanel from './erp/ImpuestosPanel';
 import MemberCreditPurchasesPanel from './erp/MemberCreditPurchasesPanel';
+import PrismaDebitsPanel from './erp/PrismaDebitsPanel';
 import MonthlyBalancePanel from './erp/MonthlyBalancePanel';
 import MonthlyBalanceSummaryPanel from './erp/MonthlyBalanceSummaryPanel';
 import LiquidationCcPanel from './erp/LiquidationCcPanel';
@@ -75,7 +76,7 @@ import { billingAccountMember } from '../domain/members/households';
 
 const TREASURY_TABS = new Set([
   'cash', 'expenses', 'suppliers', 'retenciones', 'other_incomes', 'interest_generators',
-  'unidentified', 'galicia', 'fixed_expenses', 'balances', 'payment_orders',
+  'unidentified', 'galicia', 'prisma', 'fixed_expenses', 'balances', 'payment_orders',
   'credit_purchases',
 ]);
 
@@ -170,6 +171,7 @@ const TREASURY_HUB_TABS = [
   { key: 'interest_generators', icon: Percent, label: 'Intereses' },
   { key: 'unidentified', icon: HelpCircle, label: 'Sin identificar' },
   { key: 'galicia', icon: Building2, label: 'Galicia' },
+  { key: 'prisma', icon: CreditCard, label: 'Prisma' },
   { key: 'fixed_expenses', icon: Repeat, label: 'Gastos fijos' },
   { key: 'balances', icon: Scale, label: 'Saldos' },
   { key: 'payment_orders', icon: FileSpreadsheet, label: 'Órdenes' },
@@ -1767,6 +1769,10 @@ export default function AccountingTab({
           onAdd={upsertGaliciaDebit}
           onSetStatus={upsertGaliciaDebit}
         />
+      )}
+
+      {subTab === 'prisma' && (
+        <PrismaDebitsPanel members={members} />
       )}
 
       {subTab === 'fixed_expenses' && addFixedExpense && (

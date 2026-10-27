@@ -18,7 +18,7 @@ beforeAll(async () => {
 
 describe('monthlyDebts / deudas mes a mes', () => {
   it('carga snapshot LILA de morosos', () => {
-    expect(ACCESSIN_MONTHLY_DEBTS_AS_OF).toBe('2026-10-22');
+    expect(ACCESSIN_MONTHLY_DEBTS_AS_OF).toBe('2026-10-26');
     expect(ACCESSIN_MONTHLY_DEBTS_SNAPSHOT.memberCount).toBeGreaterThan(800);
     expect(ACCESSIN_MONTHLY_DEBTS_SNAPSHOT.monthRowCount).toBeGreaterThan(5000);
     expect(ACCESSIN_MONTHLY_DEBTS_SNAPSHOT.lineCount).toBeGreaterThan(10000);

@@ -11,7 +11,7 @@ import {
 
 const orders = [
   {
-    id: '1', orderKind: 'member', number: '100', date: '2026-10-23',
+    id: '1', orderKind: 'member', number: '100', date: '2026-10-27',
     memberNumber: '10377', responsible: 'Yubel Fabio Rafael', status: 'imputed',
     amount: 70000, balanceApplied: true,
   },
@@ -63,7 +63,7 @@ describe('member payment orders', () => {
 
   it('descuenta en la carga solo lo imputado después del corte', () => {
     expect(importBalanceDelta(orders[0])).toBe(-70000);
-    expect(importBalanceDelta({ ...orders[0], date: '2026-10-22' })).toBe(0);
+    expect(importBalanceDelta({ ...orders[0], date: '2026-10-26' })).toBe(0);
     expect(importBalanceDelta(orders[1])).toBe(0);
   });
 
@@ -75,7 +75,7 @@ describe('member payment orders', () => {
     });
     expect(memberPaymentOrderDeleteEffect({
       ...orders[0],
-      date: '2026-10-23',
+      date: '2026-10-27',
       balanceApplied: false,
     }).reversesBalance).toBe(false);
     expect(memberPaymentOrderDeleteEffect({

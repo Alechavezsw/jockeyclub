@@ -69,6 +69,8 @@ const candidates = [];
 for (const dir of sourceDirs) {
   if (!fs.existsSync(dir)) continue;
   for (const name of fs.readdirSync(dir)) {
+    // Formato esperado: "LILA - Detalle YYYY-MM-DD". El Accessin "Cuenta Corriente al …"
+    // es otro layout (Balances + movimientos) y lo maneja import:saldos.
     if (!name.endsWith('.xlsx') || !/Detalle/i.test(name)) continue;
     const full = path.join(dir, name);
     const dated = name.match(/(\d{4}-\d{2}-\d{2})/);

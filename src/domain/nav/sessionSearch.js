@@ -47,6 +47,7 @@ const ACCOUNTING_TOOLS = [
   { key: 'interest_generators', title: 'Intereses', keywords: 'intereses recargos' },
   { key: 'unidentified', title: 'Sin identificar', keywords: 'cobranzas sin identificar' },
   { key: 'galicia', title: 'Galicia', keywords: 'galicia banco debitos' },
+  { key: 'prisma', title: 'Prisma', keywords: 'prisma debito automatico visa mastercard debliq' },
   { key: 'fixed_expenses', title: 'Gastos fijos', keywords: 'gastos fijos recurrentes' },
   { key: 'balances', title: 'Saldos', keywords: 'saldos socios cuentas' },
   { key: 'payment_orders', title: 'Órdenes de pago', keywords: 'ordenes pago' },

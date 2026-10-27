@@ -1,5 +1,5 @@
-/** Proveedores reales Accessin (CC al 22/10/2026). Auto-generado — no editar a mano. */
-export const ACCESSIN_SUPPLIERS_AS_OF = '2026-10-22';
+/** Proveedores reales Accessin (CC al 26/10/2026). Auto-generado — no editar a mano. */
+export const ACCESSIN_SUPPLIERS_AS_OF = '2026-10-26';
 
 export const ACCESSIN_SUPPLIERS = [
   {
@@ -16,8 +16,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1292",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1298",
@@ -33,8 +33,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1298",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1299",
@@ -50,12 +50,12 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1299",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1300",
-    "legalName": "SUPER NET - Internet",
+    "legalName": "SUPER NET Internet",
     "tradeName": "Martin Espinosa",
     "cuit": "20-29481382-0",
     "category": "gastronomia",
@@ -63,12 +63,12 @@ export const ACCESSIN_SUPPLIERS = [
     "phone": "2645620000",
     "address": "",
     "payableAccountId": "coa-2.1.01",
-    "notes": "Accessin #1300 · saldo al 22/10/2026: -21000",
+    "notes": "Accessin #1300 · saldo al 26/10/2026: -21000",
     "status": "active",
     "accessinCode": "1300",
     "openingBalance": -21000,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1301",
@@ -84,12 +84,12 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1301",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1302",
-    "legalName": "MeDyC S.R.L. - SMI -",
+    "legalName": "MeDyC SRL SMI",
     "tradeName": "Juan Leglisse",
     "cuit": "30-70818302-0",
     "category": "general",
@@ -101,8 +101,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1302",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1303",
@@ -118,8 +118,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1303",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1304",
@@ -135,12 +135,12 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1304",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1306",
-    "legalName": "UTTA. Cuotas Sindicales",
+    "legalName": "UTTA Cuotas Sindicales",
     "tradeName": "",
     "cuit": "30-71070241-8",
     "category": "servicios",
@@ -152,12 +152,12 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1306",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1307",
-    "legalName": "O.S.P.A.T. (Obra Social)",
+    "legalName": "OSPAT Obra Social",
     "tradeName": "",
     "cuit": "30-67911343-3",
     "category": "mantenimiento",
@@ -169,8 +169,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1307",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1309",
@@ -186,8 +186,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1309",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1339",
@@ -203,8 +203,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1339",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1340",
@@ -220,8 +220,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1340",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1341",
@@ -237,8 +237,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1341",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1342",
@@ -254,8 +254,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1342",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1343",
@@ -271,8 +271,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1343",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1344",
@@ -288,8 +288,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1344",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1345",
@@ -305,8 +305,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1345",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1346",
@@ -322,12 +322,12 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1346",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1347",
-    "legalName": "MERCADO D. Victor Hugo",
+    "legalName": "MERCADO D Victor Hugo",
     "tradeName": "",
     "cuit": "20-17173195-0",
     "category": "general",
@@ -339,12 +339,12 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1347",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1348",
-    "legalName": "QUIROGA C. Rodrigo Osvaldo",
+    "legalName": "QUIROGA C Rodrigo Osvaldo",
     "tradeName": "",
     "cuit": "20-25823316-7",
     "category": "general",
@@ -352,12 +352,12 @@ export const ACCESSIN_SUPPLIERS = [
     "phone": "",
     "address": "",
     "payableAccountId": "coa-2.1.01",
-    "notes": "Accessin #1348 · saldo al 22/10/2026: 500000",
+    "notes": "Accessin #1348 · saldo al 26/10/2026: 500000",
     "status": "active",
     "accessinCode": "1348",
     "openingBalance": 500000,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1349",
@@ -373,8 +373,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1349",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1350",
@@ -390,8 +390,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1350",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1351",
@@ -407,8 +407,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1351",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1352",
@@ -424,8 +424,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1352",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1353",
@@ -441,12 +441,12 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1353",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1354",
-    "legalName": "ORTEGA C. Maria Jose",
+    "legalName": "ORTEGA C Maria Jose",
     "tradeName": "",
     "cuit": "27-33542508-2",
     "category": "general",
@@ -458,12 +458,12 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1354",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1356",
-    "legalName": "Colegio Santa Teresita del Niño Jesus",
+    "legalName": "Colegio Santa Teresita del Niño",
     "tradeName": "Jose Luis Oribe",
     "cuit": "20-29426627-0",
     "category": "general",
@@ -475,8 +475,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1356",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1357",
@@ -492,8 +492,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1357",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1591",
@@ -509,8 +509,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1591",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1592",
@@ -522,12 +522,12 @@ export const ACCESSIN_SUPPLIERS = [
     "phone": "",
     "address": "",
     "payableAccountId": "coa-2.1.01",
-    "notes": "Accessin #1592 · saldo al 22/10/2026: 290000",
+    "notes": "Accessin #1592 · saldo al 26/10/2026: 290000",
     "status": "active",
     "accessinCode": "1592",
     "openingBalance": 290000,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1593",
@@ -543,8 +543,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1593",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1594",
@@ -556,16 +556,16 @@ export const ACCESSIN_SUPPLIERS = [
     "phone": "",
     "address": "",
     "payableAccountId": "coa-2.1.01",
-    "notes": "Accessin #1594 · saldo al 22/10/2026: 147000",
+    "notes": "Accessin #1594 · saldo al 26/10/2026: 147000",
     "status": "active",
     "accessinCode": "1594",
     "openingBalance": 147000,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1596",
-    "legalName": "Cecilia del Valle Aballay Castro",
+    "legalName": "Cecilia del Valle Aballay Castr",
     "tradeName": "",
     "cuit": "27-29796517-8",
     "category": "general",
@@ -577,8 +577,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1596",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1597",
@@ -594,8 +594,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1597",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1598",
@@ -611,8 +611,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1598",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1599",
@@ -628,8 +628,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1599",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1600",
@@ -641,16 +641,16 @@ export const ACCESSIN_SUPPLIERS = [
     "phone": "",
     "address": "",
     "payableAccountId": "coa-2.1.01",
-    "notes": "Accessin #1600 · saldo al 22/10/2026: -15000",
+    "notes": "Accessin #1600 · saldo al 26/10/2026: -15000",
     "status": "active",
     "accessinCode": "1600",
     "openingBalance": -15000,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1610",
-    "legalName": "Nestor Garcia Articulos de Limpieza",
+    "legalName": "Nestor Garcia Articulos de Limp",
     "tradeName": "",
     "cuit": "27-16865071-5",
     "category": "general",
@@ -662,8 +662,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1610",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1613",
@@ -679,8 +679,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1613",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1614",
@@ -696,8 +696,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1614",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1615",
@@ -713,8 +713,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1615",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1616",
@@ -730,8 +730,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1616",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1617",
@@ -747,12 +747,12 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1617",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1618",
-    "legalName": "Ministerio de trabajo empleo y seg social",
+    "legalName": "Ministerio de trabajo empleo y",
     "tradeName": "",
     "cuit": "20-54104543-7",
     "category": "general",
@@ -760,16 +760,16 @@ export const ACCESSIN_SUPPLIERS = [
     "phone": "",
     "address": "",
     "payableAccountId": "coa-2.1.01",
-    "notes": "Accessin #1618 · saldo al 22/10/2026: 23890.6",
+    "notes": "Accessin #1618 · saldo al 26/10/2026: 23890.6",
     "status": "active",
     "accessinCode": "1618",
     "openingBalance": 23890.6,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1619",
-    "legalName": "Deuda municipalidad de rivadavia",
+    "legalName": "Deuda municipalidad de rivadavi",
     "tradeName": "",
     "cuit": "",
     "category": "servicios",
@@ -777,12 +777,12 @@ export const ACCESSIN_SUPPLIERS = [
     "phone": "",
     "address": "",
     "payableAccountId": "coa-2.1.01",
-    "notes": "Accessin #1619 · saldo al 22/10/2026: 84000",
+    "notes": "Accessin #1619 · saldo al 26/10/2026: 84000",
     "status": "active",
     "accessinCode": "1619",
     "openingBalance": 84000,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1620",
@@ -794,12 +794,12 @@ export const ACCESSIN_SUPPLIERS = [
     "phone": "",
     "address": "",
     "payableAccountId": "coa-2.1.01",
-    "notes": "Accessin #1620 · saldo al 22/10/2026: -52000",
+    "notes": "Accessin #1620 · saldo al 26/10/2026: -52000",
     "status": "active",
     "accessinCode": "1620",
     "openingBalance": -52000,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1621",
@@ -815,8 +815,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1621",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1623",
@@ -828,12 +828,12 @@ export const ACCESSIN_SUPPLIERS = [
     "phone": "",
     "address": "",
     "payableAccountId": "coa-2.1.01",
-    "notes": "Accessin #1623 · saldo al 22/10/2026: 85000",
+    "notes": "Accessin #1623 · saldo al 26/10/2026: 85000",
     "status": "active",
     "accessinCode": "1623",
     "openingBalance": 85000,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1769",
@@ -849,12 +849,12 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1769",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1770",
-    "legalName": "Carmela SRL (ITONUEL)",
+    "legalName": "Carmela SRL ITONUEL",
     "tradeName": "",
     "cuit": "",
     "category": "general",
@@ -866,8 +866,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1770",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1771",
@@ -883,8 +883,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1771",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1772",
@@ -900,12 +900,12 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1772",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1773",
-    "legalName": "Gobierno de la provincia de San Juan",
+    "legalName": "Gobierno de la provincia de San",
     "tradeName": "",
     "cuit": "30-99901516-2",
     "category": "servicios",
@@ -917,8 +917,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1773",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1776",
@@ -934,8 +934,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1776",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1778",
@@ -947,12 +947,12 @@ export const ACCESSIN_SUPPLIERS = [
     "phone": "",
     "address": "",
     "payableAccountId": "coa-2.1.01",
-    "notes": "Accessin #1778 · saldo al 22/10/2026: 117612",
+    "notes": "Accessin #1778 · saldo al 26/10/2026: 117612",
     "status": "active",
     "accessinCode": "1778",
     "openingBalance": 117612,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1779",
@@ -964,12 +964,12 @@ export const ACCESSIN_SUPPLIERS = [
     "phone": "",
     "address": "",
     "payableAccountId": "coa-2.1.01",
-    "notes": "Accessin #1779 · saldo al 22/10/2026: 25200",
+    "notes": "Accessin #1779 · saldo al 26/10/2026: 25200",
     "status": "active",
     "accessinCode": "1779",
     "openingBalance": 25200,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1780",
@@ -985,8 +985,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1780",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1781",
@@ -1002,8 +1002,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1781",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1782",
@@ -1019,8 +1019,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1782",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1783",
@@ -1036,8 +1036,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1783",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1789",
@@ -1053,8 +1053,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1789",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1791",
@@ -1070,8 +1070,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1791",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1792",
@@ -1087,8 +1087,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1792",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1793",
@@ -1104,8 +1104,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1793",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1794",
@@ -1121,8 +1121,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1794",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1795",
@@ -1138,8 +1138,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1795",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1803",
@@ -1155,8 +1155,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1803",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1804",
@@ -1172,8 +1172,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1804",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1805",
@@ -1189,8 +1189,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1805",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1806",
@@ -1206,8 +1206,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1806",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1807",
@@ -1223,8 +1223,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1807",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1808",
@@ -1240,8 +1240,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1808",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1809",
@@ -1257,8 +1257,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1809",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1814",
@@ -1274,8 +1274,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1814",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1815",
@@ -1291,8 +1291,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1815",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1816",
@@ -1308,8 +1308,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1816",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1817",
@@ -1325,8 +1325,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1817",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1818",
@@ -1342,8 +1342,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1818",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1820",
@@ -1359,8 +1359,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1820",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1822",
@@ -1376,8 +1376,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1822",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1823",
@@ -1393,8 +1393,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1823",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1833",
@@ -1410,8 +1410,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1833",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1834",
@@ -1427,8 +1427,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1834",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1835",
@@ -1444,8 +1444,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1835",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1837",
@@ -1461,8 +1461,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1837",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1838",
@@ -1478,8 +1478,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1838",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1839",
@@ -1495,12 +1495,12 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1839",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1843",
-    "legalName": "Trombotto Alejandro (TURF)",
+    "legalName": "Trombotto Alejandro TURF",
     "tradeName": "",
     "cuit": "20-18528049-8",
     "category": "general",
@@ -1512,8 +1512,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1843",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1844",
@@ -1529,8 +1529,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1844",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1848",
@@ -1546,8 +1546,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1848",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1902",
@@ -1563,8 +1563,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1902",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1903",
@@ -1580,8 +1580,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1903",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1904",
@@ -1597,8 +1597,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1904",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1905",
@@ -1614,8 +1614,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1905",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1906",
@@ -1631,8 +1631,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1906",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1908",
@@ -1648,8 +1648,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1908",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1909",
@@ -1665,8 +1665,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1909",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1910",
@@ -1682,12 +1682,12 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1910",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1946",
-    "legalName": "Carolina Isabel Cabrera Martinez",
+    "legalName": "Carolina Isabel Cabrera Martine",
     "tradeName": "",
     "cuit": "",
     "category": "general",
@@ -1699,8 +1699,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1946",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1947",
@@ -1716,8 +1716,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1947",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1948",
@@ -1733,8 +1733,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1948",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1971",
@@ -1750,12 +1750,12 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1971",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1973",
-    "legalName": "Karina Vanesa Fernandez Brizuela",
+    "legalName": "Karina Vanesa Fernandez Brizuel",
     "tradeName": "",
     "cuit": "27-25573052-0",
     "category": "general",
@@ -1767,8 +1767,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1973",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1974",
@@ -1784,8 +1784,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1974",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1975",
@@ -1801,8 +1801,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1975",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-1976",
@@ -1818,8 +1818,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "1976",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-2083",
@@ -1835,8 +1835,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "2083",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-2084",
@@ -1852,8 +1852,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "2084",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-2085",
@@ -1869,12 +1869,12 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "2085",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-2124",
-    "legalName": "Gustavo Marcelo Olivares Sanchez",
+    "legalName": "Gustavo Marcelo Olivares Sanche",
     "tradeName": "",
     "cuit": "20-22658699-8",
     "category": "general",
@@ -1886,8 +1886,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "2124",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-2126",
@@ -1903,8 +1903,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "2126",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-2127",
@@ -1920,12 +1920,12 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "2127",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-2136",
-    "legalName": "Carlos Martin e Hijos Sa CAR MAR",
+    "legalName": "Carlos Martin e Hijos Sa CAR MA",
     "tradeName": "",
     "cuit": "30-71145270-9",
     "category": "general",
@@ -1937,8 +1937,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "2136",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-2137",
@@ -1954,8 +1954,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "2137",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-2138",
@@ -1971,8 +1971,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "2138",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-2142",
@@ -1988,8 +1988,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "2142",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-2143",
@@ -2005,8 +2005,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "2143",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-2144",
@@ -2022,8 +2022,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "2144",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-2190",
@@ -2039,8 +2039,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "2190",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-2191",
@@ -2056,8 +2056,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "2191",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-2203",
@@ -2073,8 +2073,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "2203",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-2205",
@@ -2090,8 +2090,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "2205",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-2206",
@@ -2107,8 +2107,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "2206",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-2214",
@@ -2124,8 +2124,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "2214",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-2215",
@@ -2141,8 +2141,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "2215",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-2216",
@@ -2158,8 +2158,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "2216",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-2217",
@@ -2171,12 +2171,12 @@ export const ACCESSIN_SUPPLIERS = [
     "phone": "",
     "address": "",
     "payableAccountId": "coa-2.1.01",
-    "notes": "Accessin #2217 · saldo al 22/10/2026: -862000",
+    "notes": "Accessin #2217 · saldo al 26/10/2026: -862000",
     "status": "active",
     "accessinCode": "2217",
     "openingBalance": -862000,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-2232",
@@ -2192,8 +2192,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "2232",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-2233",
@@ -2209,8 +2209,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "2233",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-2235",
@@ -2226,8 +2226,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "2235",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-2238",
@@ -2243,8 +2243,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "2238",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-2247",
@@ -2260,8 +2260,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "2247",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-2258",
@@ -2277,8 +2277,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "2258",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-2276",
@@ -2294,8 +2294,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "2276",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-2277",
@@ -2311,8 +2311,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "2277",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3289",
@@ -2328,8 +2328,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3289",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3292",
@@ -2345,8 +2345,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3292",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3303",
@@ -2362,8 +2362,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3303",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3335",
@@ -2379,8 +2379,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3335",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3342",
@@ -2396,8 +2396,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3342",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3373",
@@ -2413,8 +2413,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3373",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3374",
@@ -2430,8 +2430,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3374",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3382",
@@ -2447,8 +2447,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3382",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3384",
@@ -2464,8 +2464,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3384",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3389",
@@ -2481,8 +2481,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3389",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3390",
@@ -2498,8 +2498,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3390",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3403",
@@ -2515,8 +2515,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3403",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3404",
@@ -2532,8 +2532,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3404",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3406",
@@ -2549,8 +2549,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3406",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3407",
@@ -2566,12 +2566,12 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3407",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3408",
-    "legalName": "Tuerca Oeste Ferreteria Industrial",
+    "legalName": "Tuerca Oeste Ferreteria Industr",
     "tradeName": "",
     "cuit": "20-17243856-4",
     "category": "mantenimiento",
@@ -2583,8 +2583,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3408",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3409",
@@ -2600,8 +2600,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3409",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3410",
@@ -2617,8 +2617,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3410",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3411",
@@ -2634,8 +2634,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3411",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3412",
@@ -2651,8 +2651,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3412",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3413",
@@ -2668,8 +2668,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3413",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3414",
@@ -2685,8 +2685,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3414",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3415",
@@ -2702,8 +2702,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3415",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3416",
@@ -2719,8 +2719,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3416",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3417",
@@ -2736,8 +2736,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3417",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3420",
@@ -2753,8 +2753,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3420",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3421",
@@ -2770,12 +2770,12 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3421",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3424",
-    "legalName": "ESTACIONES DE SERVICIO RUIZ HERMANOS",
+    "legalName": "ESTACIONES DE SERVICIO RUIZ HER",
     "tradeName": "",
     "cuit": "30-71421563-5",
     "category": "servicios",
@@ -2787,8 +2787,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3424",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3426",
@@ -2804,8 +2804,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3426",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3427",
@@ -2821,12 +2821,12 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3427",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3442",
-    "legalName": "Benavidez Materiales de Construccion",
+    "legalName": "Benavidez Materiales de Constru",
     "tradeName": "",
     "cuit": "",
     "category": "mantenimiento",
@@ -2838,12 +2838,12 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3442",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3446",
-    "legalName": "Contenedores \"Los mellis\"",
+    "legalName": "Contenedores Los mellis",
     "tradeName": "",
     "cuit": "20-31442265-2",
     "category": "general",
@@ -2855,12 +2855,12 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3446",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3447",
-    "legalName": "Ruiz Veronica del Valle- Libreria Sarmiento",
+    "legalName": "Ruiz Veronica del Valle Libreri",
     "tradeName": "",
     "cuit": "27-23638516-2",
     "category": "general",
@@ -2872,8 +2872,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3447",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3448",
@@ -2885,12 +2885,12 @@ export const ACCESSIN_SUPPLIERS = [
     "phone": "4201419",
     "address": "",
     "payableAccountId": "coa-2.1.01",
-    "notes": "Accessin #3448 · saldo al 22/10/2026: -488200",
+    "notes": "Accessin #3448 · saldo al 26/10/2026: -488200",
     "status": "active",
     "accessinCode": "3448",
     "openingBalance": -488200,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3457",
@@ -2906,8 +2906,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3457",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3458",
@@ -2923,8 +2923,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3458",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3459",
@@ -2940,8 +2940,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3459",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3460",
@@ -2957,8 +2957,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3460",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3461",
@@ -2974,8 +2974,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3461",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3463",
@@ -2991,8 +2991,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3463",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3464",
@@ -3008,8 +3008,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3464",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3465",
@@ -3025,8 +3025,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3465",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3466",
@@ -3042,8 +3042,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3466",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3513",
@@ -3059,12 +3059,12 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3513",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3514",
-    "legalName": "Hormigones de Cuyo S.A.",
+    "legalName": "Hormigones de Cuyo SA",
     "tradeName": "0264 425-0585",
     "cuit": "33-71032412-9",
     "category": "mantenimiento",
@@ -3072,12 +3072,12 @@ export const ACCESSIN_SUPPLIERS = [
     "phone": "",
     "address": "",
     "payableAccountId": "coa-2.1.01",
-    "notes": "Accessin #3514 · saldo al 22/10/2026: 483999.67",
+    "notes": "Accessin #3514 · saldo al 26/10/2026: 483999.67",
     "status": "active",
     "accessinCode": "3514",
     "openingBalance": 483999.67,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3515",
@@ -3093,8 +3093,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3515",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3524",
@@ -3110,8 +3110,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3524",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3543",
@@ -3127,8 +3127,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3543",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3544",
@@ -3144,12 +3144,12 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3544",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3553",
-    "legalName": "Alejandro Ezequiel Checcarelli Pintor",
+    "legalName": "Alejandro Ezequiel Checcarelli",
     "tradeName": "",
     "cuit": "20-32860452-4",
     "category": "general",
@@ -3161,8 +3161,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3553",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3554",
@@ -3178,12 +3178,12 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3554",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3555",
-    "legalName": "Ayelen de Fatima Lucero Castellucci",
+    "legalName": "Ayelen de Fatima Lucero Castell",
     "tradeName": "",
     "cuit": "27-36034956-5",
     "category": "general",
@@ -3195,8 +3195,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3555",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3556",
@@ -3212,8 +3212,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3556",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3557",
@@ -3229,8 +3229,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3557",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3558",
@@ -3246,8 +3246,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3558",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3563",
@@ -3263,12 +3263,12 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3563",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3564",
-    "legalName": "SOMOS comunicacion social (Chacon)",
+    "legalName": "SOMOS comunicacion social Chaco",
     "tradeName": "",
     "cuit": "27-17865689-4",
     "category": "general",
@@ -3280,8 +3280,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3564",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3567",
@@ -3297,8 +3297,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3567",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3571",
@@ -3314,8 +3314,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3571",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3572",
@@ -3331,8 +3331,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3572",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3585",
@@ -3348,8 +3348,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3585",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3600",
@@ -3365,8 +3365,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3600",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3615",
@@ -3382,12 +3382,12 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3615",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3620",
-    "legalName": "REY DAVID S.A.S.",
+    "legalName": "REY DAVID SAS",
     "tradeName": "",
     "cuit": "30-71836590-9",
     "category": "general",
@@ -3399,8 +3399,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3620",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3622",
@@ -3416,8 +3416,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3622",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3623",
@@ -3433,8 +3433,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3623",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3624",
@@ -3450,8 +3450,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3624",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3637",
@@ -3467,8 +3467,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3637",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3712",
@@ -3484,8 +3484,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3712",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3713",
@@ -3501,8 +3501,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3713",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3797",
@@ -3518,12 +3518,12 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3797",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3798",
-    "legalName": "Relincho S.A.S.",
+    "legalName": "Relincho SAS",
     "tradeName": "",
     "cuit": "33-71885232-9",
     "category": "general",
@@ -3535,8 +3535,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3798",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3803",
@@ -3552,8 +3552,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3803",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3804",
@@ -3569,8 +3569,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3804",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3805",
@@ -3586,8 +3586,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3805",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3810",
@@ -3603,12 +3603,12 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3810",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3822",
-    "legalName": "Luciana Stella Ontiveros Serafini",
+    "legalName": "Luciana Stella Ontiveros Serafi",
     "tradeName": "",
     "cuit": "27-35509362-5",
     "category": "general",
@@ -3616,12 +3616,12 @@ export const ACCESSIN_SUPPLIERS = [
     "phone": "",
     "address": "",
     "payableAccountId": "coa-2.1.01",
-    "notes": "Accessin #3822 · saldo al 22/10/2026: -200000",
+    "notes": "Accessin #3822 · saldo al 26/10/2026: -200000",
     "status": "active",
     "accessinCode": "3822",
     "openingBalance": -200000,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3823",
@@ -3637,12 +3637,12 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3823",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3831",
-    "legalName": "VIVERO Yamanouchi Hnos.",
+    "legalName": "VIVERO Yamanouchi Hnos",
     "tradeName": "",
     "cuit": "23-15272837-9",
     "category": "general",
@@ -3654,8 +3654,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3831",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3842",
@@ -3671,8 +3671,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3842",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3843",
@@ -3688,8 +3688,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3843",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3844",
@@ -3705,8 +3705,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3844",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3846",
@@ -3722,8 +3722,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3846",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3847",
@@ -3739,8 +3739,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3847",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3849",
@@ -3756,12 +3756,12 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3849",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3902",
-    "legalName": "Alejandro Amilcar Zalazar Brizzio",
+    "legalName": "Alejandro Amilcar Zalazar Brizz",
     "tradeName": "",
     "cuit": "20-12169850-2",
     "category": "general",
@@ -3769,16 +3769,16 @@ export const ACCESSIN_SUPPLIERS = [
     "phone": "",
     "address": "",
     "payableAccountId": "coa-2.1.01",
-    "notes": "Accessin #3902 · saldo al 22/10/2026: 721966.67",
+    "notes": "Accessin #3902 · saldo al 26/10/2026: 721966.67",
     "status": "active",
     "accessinCode": "3902",
     "openingBalance": 721966.67,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3903",
-    "legalName": "Sancor cooperativa de seguros limitada",
+    "legalName": "Sancor cooperativa de seguros l",
     "tradeName": "",
     "cuit": "30-50004956-0",
     "category": "general",
@@ -3790,8 +3790,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3903",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3904",
@@ -3807,8 +3807,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3904",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3908",
@@ -3824,8 +3824,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3908",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3909",
@@ -3841,8 +3841,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3909",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-3910",
@@ -3858,8 +3858,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "3910",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-6718",
@@ -3875,8 +3875,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "6718",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-6728",
@@ -3892,8 +3892,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "6728",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-6729",
@@ -3909,8 +3909,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "6729",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-6732",
@@ -3926,8 +3926,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "6732",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-6793",
@@ -3943,8 +3943,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "6793",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-6806",
@@ -3960,8 +3960,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "6806",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-6832",
@@ -3977,8 +3977,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "6832",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-6833",
@@ -3994,8 +3994,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "6833",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-6848",
@@ -4011,8 +4011,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "6848",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-6855",
@@ -4028,8 +4028,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "6855",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-6856",
@@ -4045,8 +4045,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "6856",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-6866",
@@ -4062,8 +4062,8 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "6866",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   },
   {
     "id": "sup-acc-6867",
@@ -4079,7 +4079,7 @@ export const ACCESSIN_SUPPLIERS = [
     "status": "active",
     "accessinCode": "6867",
     "openingBalance": 0,
-    "asOf": "2026-10-22",
-    "createdAt": "2026-10-22T21:54:00.000Z"
+    "asOf": "2026-10-26",
+    "createdAt": "2026-10-27T00:39:00.000Z"
   }
 ];
