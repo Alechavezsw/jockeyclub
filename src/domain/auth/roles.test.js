@@ -61,13 +61,14 @@ describe('allowedAdminTabs', () => {
     expect(tabs).not.toContain('members');
   });
 
-  it('la liquidación de cuotas es de contador y superadministrador', () => {
+  it('la liquidación de cuotas es de contador, superadministrador y administración', () => {
     expect(canLiquidateDues('superadmin')).toBe(true);
     expect(canLiquidateDues('accountant')).toBe(true);
+    expect(canLiquidateDues('admin')).toBe(true);
+    expect(canLiquidateDues('admin_employee')).toBe(true);
     expect(canLiquidateDues('cashier')).toBe(false);
-    expect(canLiquidateDues('admin')).toBe(false);
-    expect(canLiquidateDues('admin_employee')).toBe(false);
     expect(canLiquidateDues('gate_operator')).toBe(false);
+    expect(canLiquidateDues('pool_operator')).toBe(false);
   });
 
   it('el recargo se cobra siempre y solo un administrador puede borrarlo', () => {
@@ -108,10 +109,11 @@ describe('allowedAdminTabs', () => {
     expect(canWriteMemberLedger('member')).toBe(false);
   });
 
-  it('el admin inicia en dashboard, no ve contabilidad, ni QR/concesiones como pestaña', () => {
+  it('el admin inicia en dashboard y entra a débitos, no a QR como pestaña', () => {
     const tabs = allowedAdminTabs('admin');
     expect(tabs[0]).toBe('dashboard');
-    expect(tabs).not.toContain('accounting');
+    expect(tabs).toContain('accounting');
+    expect(allowedAccountingSubtabs('admin')).toEqual(['prisma', 'galicia']);
     expect(tabs).not.toContain('qr_control');
     expect(tabs).not.toContain('concessions');
     expect(tabs).toContain('disciplines');
@@ -126,9 +128,11 @@ describe('allowedAdminTabs', () => {
     expect(tabs).not.toContain('migration');
   });
 
-  it('el operario de pileta ve lo mismo que el empleado de administración', () => {
-    expect(allowedAdminTabs('pool_operator')).toEqual(allowedAdminTabs('admin_employee'));
-    expect(allowedAdminTabsForRoles(['pool_operator'])).toEqual(allowedAdminTabsForRoles(['admin_employee']));
+  it('el operario de pileta ve el mostrador, sin los débitos de administración', () => {
+    expect(allowedAdminTabs('admin_employee').filter((tab) => tab !== 'accounting'))
+      .toEqual(allowedAdminTabs('pool_operator'));
+    expect(allowedAdminTabs('admin_employee')).toContain('accounting');
+    expect(allowedAdminTabs('pool_operator')).not.toContain('accounting');
   });
 
   it('el operario de pileta cobra en la puerta y no entra a libros contables', () => {
@@ -146,10 +150,11 @@ describe('allowedAdminTabs', () => {
     expect(canPostJournal('pool_operator')).toBe(true);
   });
 
-  it('empleado de administración no ve contabilidad ni sistema', () => {
+  it('empleado de administración arma débitos y no ve sistema', () => {
     const tabs = allowedAdminTabs('admin_employee');
     expect(tabs).toContain('members');
-    expect(tabs).not.toContain('accounting');
+    expect(tabs).toContain('accounting');
+    expect(allowedAccountingSubtabs('admin_employee')).toEqual(['prisma', 'galicia']);
     expect(tabs).not.toContain('system');
   });
 
@@ -167,7 +172,7 @@ describe('allowedAdminTabs', () => {
     expect(tabs).toContain('settings');
     expect(tabs).toContain('migration');
     expect(tabs).toContain('accounting');
-    expect(tabs.length).toBeGreaterThan(allowedAdminTabs('admin').length);
+    expect(allowedAccountingSubtabs('superadmin').length).toBeGreaterThan(allowedAccountingSubtabs('admin').length);
   });
 });
 
@@ -231,8 +236,11 @@ describe('allowedAccountingSubtabs', () => {
     expect(allowedAccountingSubtabs('gate_operator')).toEqual(['cash', 'other_incomes']);
   });
 
-  it('el administrador no ve subtabs de contabilidad', () => {
-    expect(allowedAccountingSubtabs('admin')).toEqual([]);
+  it('administración ve Prisma y Galicia, no los libros', () => {
+    expect(allowedAccountingSubtabs('admin')).toEqual(['prisma', 'galicia']);
+    expect(allowedAccountingSubtabs('admin_employee')).toEqual(['prisma', 'galicia']);
+    expect(allowedAccountingSubtabs('admin')).not.toContain('diary');
+    expect(allowedAccountingSubtabs('pool_operator')).toEqual([]);
   });
 
   it('el contador emite libre deuda y ve grupos familiares', () => {

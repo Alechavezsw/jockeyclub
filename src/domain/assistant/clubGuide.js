@@ -31,7 +31,7 @@ export const CLUB_GUIDE = [
     tab: 'dues',
     title: 'Cuotas',
     keywords: 'cuota liquidar periodo vencimiento mora saldos',
-    teach: 'En Cuotas se arma el borrador el mes anterior y se liquida el mes en curso. Hasta octubre de 2026 el corte es el de LILA. Desde noviembre liquida esta app. Solo liquidan superadmin y contador. El resto ve Saldos.',
+    teach: 'En Cuotas se arma el borrador el mes anterior y se liquida el mes en curso. Hasta octubre de 2026 el corte es el de LILA. Desde noviembre liquida esta app. Liquidan administración, superadmin y contador. Caja y pileta ven Saldos.',
   },
   {
     id: 'reservas',
@@ -94,7 +94,7 @@ export const CLUB_GUIDE = [
     tab: 'accounting',
     title: 'Contabilidad',
     keywords: 'contabilidad tesoreria libros asiento',
-    teach: 'Contabilidad (Gestión) tiene libros, tesorería, proveedores y órdenes. Cajero y portería solo ven caja. Administrador no entra.',
+    teach: 'Contabilidad (Gestión) tiene libros, tesorería, proveedores y órdenes. Cajero y portería solo ven caja. Administración entra a Débitos: Prisma y Galicia.',
   },
   {
     id: 'personal',
@@ -212,7 +212,7 @@ export const CLUB_TOOLS = [
   { id: 'intereses', tab: 'accounting', focus: 'interest_generators', title: 'Intereses', keywords: 'interes recargo mora generador', teach: 'Intereses está en Contabilidad → Operación. No se corre solo: se genera y se imputa.' },
   { id: 'sin-identificar', tab: 'accounting', focus: 'unidentified', title: 'Sin identificar', keywords: 'sin identificar cobranza desconocida transferencia sin socio', teach: 'Cobranzas sin identificar está en Contabilidad → Operación. Ahí entra lo que no tiene socio o trae un número que no existe. Jev lo avisa en Revisión y en la campanita hasta imputar o rechazar.' },
   { id: 'galicia', tab: 'accounting', focus: 'galicia', title: 'Galicia', keywords: 'galicia banco debito automatico', teach: 'Galicia está en Contabilidad → Operación: débitos automáticos.' },
-  { id: 'prisma', tab: 'accounting', focus: 'prisma', title: 'Prisma', keywords: 'prisma debito automatico visa mastercard debliqc', teach: 'Prisma está en Contabilidad → Operación. Arma el TXT de débito automático (Visa crédito, Visa débito, Mastercard crédito) y carga el archivo de respuesta.' },
+  { id: 'prisma', tab: 'accounting', focus: 'prisma', title: 'Prisma', keywords: 'prisma debito automatico visa mastercard debliqc', teach: 'Prisma está en Débitos para administración, y en Contabilidad → Operación para contador y superadmin. Arma el TXT (Visa crédito, Visa débito, Mastercard crédito) y carga el archivo de respuesta.' },
   { id: 'gastos-fijos', tab: 'accounting', focus: 'fixed_expenses', title: 'Gastos fijos', keywords: 'gastos fijos recurrente', teach: 'Gastos fijos está en Contabilidad → Operación.' },
   { id: 'saldos-cta', tab: 'accounting', focus: 'balances', title: 'Saldos', keywords: 'saldos cuentas corrientes', teach: 'Saldos está en Contabilidad → Operación. Resume tesorería (igual que Cajas), la deuda de socios y lo que el club debe a proveedores. El detalle del socio está en Cuotas y en la ficha.' },
   { id: 'creditos', tab: 'accounting', focus: 'credit_purchases', title: 'Créditos socios', keywords: 'credito socio compra', teach: 'Créditos socios está en Contabilidad → Operación.' },

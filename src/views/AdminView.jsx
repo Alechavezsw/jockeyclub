@@ -3,7 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Users, Calendar, DollarSign, Activity, ShieldAlert,
   BookOpen, ClipboardList, MessageSquare, Phone,
-  FileSpreadsheet, Radio, Database, BellRing, PartyPopper, Trophy, Store, DoorOpen, QrCode, Newspaper,
+  FileSpreadsheet, Radio, Database, BellRing, PartyPopper, Trophy, Store, DoorOpen, QrCode, Newspaper, CreditCard,
   LayoutDashboard, ChevronRight, Briefcase, Headset, Settings, SlidersHorizontal, Building2, Waves, GraduationCap, Sparkles, TicketCheck,
 } from 'lucide-react';
 import AccountingTab from '../components/AccountingTab';
@@ -368,8 +368,16 @@ export default function AdminView({
           { key: 'concessions', icon: Store, label: 'Concesiones' },
           {
             key: 'accounting',
-            icon: userRole === 'cashier' ? DollarSign : BookOpen,
-            label: userRole === 'cashier' ? 'Caja' : 'Contabilidad',
+            icon: userRole === 'cashier'
+              ? DollarSign
+              : (userRole === 'admin' || userRole === 'admin_employee')
+                ? CreditCard
+                : BookOpen,
+            label: userRole === 'cashier'
+              ? 'Caja'
+              : (userRole === 'admin' || userRole === 'admin_employee')
+                ? 'Débitos'
+                : 'Contabilidad',
           },
           { key: 'reports', icon: FileSpreadsheet, label: 'Reportes' },
         ],

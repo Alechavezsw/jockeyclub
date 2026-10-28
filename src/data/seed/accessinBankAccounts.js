@@ -1,6 +1,6 @@
 /** Cuentas bancarias Accessin/LILA (saldos reales del listado Cuentas Bancarias). */
 
-export const ACCESSIN_BANK_ACCOUNTS_AS_OF = '2026-10-22';
+export const ACCESSIN_BANK_ACCOUNTS_AS_OF = '2026-10-27';
 
 export const ACCESSIN_BANK_ACCOUNTS = [
   {
@@ -10,12 +10,12 @@ export const ACCESSIN_BANK_ACCOUNTS = [
     bankName: 'Banco Macro',
     subtitle: '',
     cbu: '2850410430094216236961',
-    balance: 359421206.09,
+    balance: 359491206.09,
     currency: 'ARS',
     currencyLabel: 'Pesos argentinos',
     isActive: true,
     source: 'accessin',
-    updatedAt: '2026-10-22T21:55:00.000Z',
+    updatedAt: '2026-10-27T22:10:00.000Z',
   },
   {
     id: 'bank-68',
@@ -24,12 +24,12 @@ export const ACCESSIN_BANK_ACCOUNTS = [
     bankName: 'Mercado Pago',
     subtitle: '',
     cbu: '0000003100002002267621',
-    balance: 181477334.37,
+    balance: 183207834.37,
     currency: 'ARS',
     currencyLabel: 'Pesos argentinos',
     isActive: true,
     source: 'accessin',
-    updatedAt: '2026-10-22T21:55:00.000Z',
+    updatedAt: '2026-10-27T22:10:00.000Z',
   },
   {
     id: 'bank-89',
@@ -38,12 +38,12 @@ export const ACCESSIN_BANK_ACCOUNTS = [
     bankName: 'Banco de San Juan',
     subtitle: '',
     cbu: '0450500602800018533145',
-    balance: 116876452.89,
+    balance: 117423153.86,
     currency: 'ARS',
     currencyLabel: 'Pesos argentinos',
     isActive: true,
     source: 'accessin',
-    updatedAt: '2026-10-22T21:55:00.000Z',
+    updatedAt: '2026-10-27T22:10:00.000Z',
   },
   {
     id: 'bank-101',
@@ -57,6 +57,6 @@ export const ACCESSIN_BANK_ACCOUNTS = [
     currencyLabel: 'Pesos argentinos',
     isActive: true,
     source: 'accessin',
-    updatedAt: '2026-10-22T21:55:00.000Z',
+    updatedAt: '2026-10-27T22:10:00.000Z',
   },
 ];

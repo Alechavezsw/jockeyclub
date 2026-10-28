@@ -18,7 +18,7 @@ beforeAll(async () => {
 
 describe('currentAccountBalances', () => {
   it('carga el corte vivo de cuentas corrientes', () => {
-    expect(ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF).toBe('2026-10-26');
+    expect(ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF).toBe('2026-10-27');
     expect(ACCESSIN_CURRENT_ACCOUNT_BALANCES_SNAPSHOT.rowCount).toBeGreaterThan(7000);
     expect(ACCESSIN_CURRENT_ACCOUNT_BALANCES_SNAPSHOT.withBalance).toBeGreaterThan(100);
   });

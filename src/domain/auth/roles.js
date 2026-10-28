@@ -135,12 +135,12 @@ export const ALL_ADMIN_TABS = [
   'migration',
 ];
 
-/** Tabs sin contabilidad (Administrador operativo). Ve saldos, no el módulo contable. */
+/** Pestañas del administrador sin el módulo contable. Los débitos se suman aparte. */
 const ADMIN_TABS_NO_ACCOUNTING = ALL_ADMIN_TABS.filter((t) => t !== 'accounting');
 
 /**
- * Mostrador del club: Empleado de administración y Operario de pileta ven lo mismo.
- * Padrón, saldos y atención; la liquidación queda en contador y superadmin.
+ * Mostrador del club: padrón, saldos y atención.
+ * El empleado de administración suma los débitos y la liquidación de cuotas. Pileta no.
  */
 const FRONT_DESK_TABS = [
   'dashboard',
@@ -219,9 +219,9 @@ export function allowedAdminTabs(role) {
   if (role === 'superadmin') {
     return [...ALL_ADMIN_TABS];
   }
-  // Administrador: opera el club pero sin contabilidad.
+  // Administrador: opera el club. En contabilidad solo entra a los débitos.
   if (role === 'admin') {
-    return [...ADMIN_TABS_NO_ACCOUNTING];
+    return [...ADMIN_TABS_NO_ACCOUNTING, 'accounting'];
   }
   if (role === 'accountant') {
     return ['dashboard', 'jev', 'dues', 'accounting', 'reports', 'events'];
@@ -233,8 +233,11 @@ export function allowedAdminTabs(role) {
   if (role === 'cashier') {
     return ['dashboard', 'jev', 'members', 'dues', 'pool', 'access', 'accounting', 'events'];
   }
-  // Empleado de administración y operario de pileta: mismo mostrador.
-  if (role === 'admin_employee' || role === 'pool_operator') {
+  // Empleado de administración: el mostrador, más los débitos. Pileta no arma archivos.
+  if (role === 'admin_employee') {
+    return [...FRONT_DESK_TABS, 'accounting'];
+  }
+  if (role === 'pool_operator') {
     return [...FRONT_DESK_TABS];
   }
   // Recursos humanos: personal y novedades RR.HH.
@@ -292,9 +295,9 @@ export function allowedAccountingSubtabs(role) {
       'credit_purchases',
     ];
   }
-  // Administrador: sin contabilidad.
-  if (role === 'admin') {
-    return [];
+  // Administración arma los débitos (Prisma y Galicia). No ve libros ni tesorería.
+  if (role === 'admin' || role === 'admin_employee') {
+    return ['prisma', 'galicia'];
   }
   if (role === 'cashier' || role === 'gate_operator') {
     // Solo operación de caja; gastos/proveedores/diario viven en Contabilidad (contador/superadmin).
@@ -303,13 +306,16 @@ export function allowedAccountingSubtabs(role) {
   return [];
 }
 
-/** Liquidar períodos de cuotas: superadministrador y contador. */
+/** Liquidar períodos de cuotas: superadministrador, contador y administración. */
 export function canLiquidateDues(roleOrRoles) {
   const keys = (Array.isArray(roleOrRoles) ? roleOrRoles : [roleOrRoles])
     .map((role) => (typeof role === 'string' ? role : role?.roleKey || role?.key))
     .filter(Boolean)
     .map((key) => String(key).toLowerCase());
-  return keys.includes('superadmin') || keys.includes('accountant');
+  return keys.includes('superadmin')
+    || keys.includes('accountant')
+    || keys.includes('admin')
+    || keys.includes('admin_employee');
 }
 
 /** El recargo se cobra siempre. Nadie lo perdona en el mostrador. */
