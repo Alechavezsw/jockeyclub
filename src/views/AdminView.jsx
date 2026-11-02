@@ -1178,6 +1178,7 @@ export default function AdminView({
           updateMember={memberWrite}
           formatCurrency={formatCurrency}
           recordPoolCanon={recordPoolCanon}
+          onUpsertMemberAccountEntry={erp.upsertMemberAccountEntryRecord}
           cashSessions={erp.cashSessions || []}
           cashRegisters={erp.cashRegisters || []}
           onOpenDayCash={erp.openPoolDayCash}

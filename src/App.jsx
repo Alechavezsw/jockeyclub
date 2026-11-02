@@ -2731,6 +2731,7 @@ function ClubPortal() {
       updateMember={poolMemberWriter ? updateMember : null}
       formatCurrency={formatCurrency}
       recordPoolCanon={erp.recordPoolCanon}
+      onUpsertMemberAccountEntry={erp.upsertMemberAccountEntryRecord}
       cashSessions={erp.cashSessions || []}
       cashRegisters={erp.cashRegisters || []}
       onOpenDayCash={erp.openPoolDayCash}
@@ -2749,10 +2750,12 @@ function ClubPortal() {
   const poolEntranceView = canOpenPool ? (
     <PoolEntranceView
       members={members}
+      setMembers={poolMemberWriter ? setMembersDb : null}
       membersLoading={membersLoading}
       membersCount={membersCount}
       formatCurrency={formatCurrency}
       recordPoolCanon={erp.recordPoolCanon}
+      onUpsertMemberAccountEntry={erp.upsertMemberAccountEntryRecord}
       dayCashOpen={erp.poolDayCashOpen}
       onOpenDayCash={erp.openPoolDayCash}
       onRefreshDayCash={erp.refreshPoolDayCash}

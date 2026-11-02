@@ -12,6 +12,7 @@ export default function PoolControlView({
   updateMember = null,
   formatCurrency,
   recordPoolCanon,
+  onUpsertMemberAccountEntry = null,
   cashSessions = [],
   cashRegisters = [],
   onOpenDayCash,
@@ -49,6 +50,7 @@ export default function PoolControlView({
         updateMember={updateMember}
         formatCurrency={formatCurrency}
         recordPoolCanon={recordPoolCanon}
+        onUpsertMemberAccountEntry={onUpsertMemberAccountEntry}
         cashSessions={cashSessions}
         cashRegisters={cashRegisters}
         onOpenDayCash={onOpenDayCash}

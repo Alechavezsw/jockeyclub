@@ -19,7 +19,11 @@ import { todayISODateAR } from '../lib/arDate';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { searchMembersDirectory, listMembersGateIndex, getMemberByNumber } from '../data/repos';
 import { poolIngressToAccessLog } from '../domain/credentials/accessLog';
-import { chargePoolCanon, withChargedPoolEntry } from '../domain/pool/poolCheckout';
+import {
+  applyPoolAccountPass,
+  chargePoolCanon,
+  withChargedPoolEntry,
+} from '../domain/pool/poolCheckout';
 import MercadoPagoCheckout from '../components/MercadoPagoCheckout';
 import { listPoolAccesses } from '../data/repos';
 import { isPoolSeasonLive } from '../domain/pool/poolSeason';
@@ -37,8 +41,10 @@ function poolDuesOwed(member) {
  */
 export default function PoolEntranceView({
   members = [],
+  setMembers = null,
   formatCurrency,
   recordPoolCanon,
+  onUpsertMemberAccountEntry = null,
   dayCashOpen = null,
   onOpenDayCash,
   onRefreshDayCash,
@@ -180,6 +186,10 @@ export default function PoolEntranceView({
       });
       const charged = await chargePoolCanon({ entry, member: selected, recordPoolCanon });
       setPoolAccesses(withChargedPoolEntry(accesses, entry, charged));
+      for (const row of charged.accountEntries || []) onUpsertMemberAccountEntry?.(row);
+      if (typeof setMembers === 'function' && charged.accountEntries?.length) {
+        setMembers((prev) => applyPoolAccountPass(prev, charged.accountEntries));
+      }
       if (typeof setEntryLogs === 'function') {
         const log = poolIngressToAccessLog(charged);
         if (log) setEntryLogs((prev) => [log, ...(prev || [])]);
@@ -205,6 +215,10 @@ export default function PoolEntranceView({
       });
       const charged = await chargePoolCanon({ entry, member: selected, recordPoolCanon });
       setPoolAccesses(withChargedPoolEntry(accesses, entry, charged));
+      for (const row of charged.accountEntries || []) onUpsertMemberAccountEntry?.(row);
+      if (typeof setMembers === 'function' && charged.accountEntries?.length) {
+        setMembers((prev) => applyPoolAccountPass(prev, charged.accountEntries));
+      }
       if (typeof setEntryLogs === 'function') {
         const log = poolIngressToAccessLog(charged);
         if (log) setEntryLogs((prev) => [log, ...(prev || [])]);

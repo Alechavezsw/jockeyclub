@@ -20,7 +20,11 @@ import {
   memberPoolHistory,
   isPoolDayCashOpen,
 } from '../../domain/pool/poolAccess';
-import { chargePoolCanon, withChargedPoolEntry } from '../../domain/pool/poolCheckout';
+import {
+  applyPoolAccountPass,
+  chargePoolCanon,
+  withChargedPoolEntry,
+} from '../../domain/pool/poolCheckout';
 import { poolIngressToAccessLog } from '../../domain/credentials/accessLog';
 import { todayISODateAR } from '../../lib/arDate';
 import MercadoPagoCheckout from '../MercadoPagoCheckout';
@@ -56,6 +60,7 @@ export default function PoolTab({
   updateMember = null,
   formatCurrency,
   recordPoolCanon,
+  onUpsertMemberAccountEntry = null,
   cashSessions = [],
   cashRegisters = [],
   onOpenDayCash,
@@ -219,6 +224,10 @@ export default function PoolTab({
       });
       const charged = await chargePoolCanon({ entry, member, recordPoolCanon });
       setPoolAccesses(withChargedPoolEntry(accesses, entry, charged));
+      for (const row of charged.accountEntries || []) onUpsertMemberAccountEntry?.(row);
+      if (typeof setMembers === 'function' && charged.accountEntries?.length) {
+        setMembers((prev) => applyPoolAccountPass(prev, charged.accountEntries));
+      }
       if (typeof setEntryLogs === 'function') {
         const log = poolIngressToAccessLog(charged);
         if (log) setEntryLogs((prev) => [log, ...(prev || [])]);
@@ -247,6 +256,10 @@ export default function PoolTab({
       });
       const charged = await chargePoolCanon({ entry, member: selected, recordPoolCanon });
       setPoolAccesses(withChargedPoolEntry(accesses, entry, charged));
+      for (const row of charged.accountEntries || []) onUpsertMemberAccountEntry?.(row);
+      if (typeof setMembers === 'function' && charged.accountEntries?.length) {
+        setMembers((prev) => applyPoolAccountPass(prev, charged.accountEntries));
+      }
       setGuestName('');
       if (typeof setEntryLogs === 'function') {
         const log = poolIngressToAccessLog(charged);
@@ -276,7 +289,7 @@ export default function PoolTab({
           <p className="pool-kicker"><Waves size={14} aria-hidden="true" /> Pileta</p>
           <h2 className="serif-font">{settings.seasonLabel}</h2>
           <p>
-            La caja permanece siempre abierta. Cada Habilitar anota el ingreso y cobra el canon.
+            La caja permanece siempre abierta. Cada Habilitar cobra el canon en caja y lo anota en la cuenta del socio.
           </p>
         </div>
         <button
