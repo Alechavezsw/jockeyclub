@@ -278,7 +278,7 @@ describe('buildNotifications', () => {
     });
     const notice = list.find((n) => n.kind === 'unidentified');
     expect(notice?.title).toBe('1 cobranza sin identificar');
-    expect(notice?.path).toBe('/panel/accounting?sub=unidentified');
+    expect(notice?.path).toBe('/panel/operation?sub=unidentified');
     expect(notice?.detail).toMatch(/2026-10-20/);
   });
 

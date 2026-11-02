@@ -13,7 +13,7 @@ import {
   memberAppAccess,
   reasonLabel as lifecycleReasonLabel,
 } from '../../domain/members/memberAdminActions';
-import { attachHouseholdToMembers, assignDistinctStatColors, buildPadronHouseholdStats, familyGroupMatchesQuery, isFamilyDependent, isLiveMember, isTitularMember, listFamilyGroups, memberMatchesDirectoryQuery, mergeMemberRecord, mergeMembersById, rankMemberSearchHit, resolveFamilyForDisplay } from '../../domain/members/households';
+import { allocateNextMemberNumber, attachHouseholdToMembers, assignDistinctStatColors, buildPadronHouseholdStats, familyGroupMatchesQuery, isFamilyDependent, isLiveMember, isTitularMember, listFamilyGroups, memberMatchesDirectoryQuery, mergeMemberRecord, mergeMembersById, rankMemberSearchHit, resolveFamilyForDisplay } from '../../domain/members/households';
 import { portalLoginFromEmail } from '../../domain/auth/credentials';
 import {
   accessInviteMailError,
@@ -704,7 +704,14 @@ export default function MembersTab({
       return;
     }
 
-    const randomNum = Math.floor(1000000000000000 + Math.random() * 9000000000000000);
+    let memberId = allocateNextMemberNumber(members);
+    if (isSupabaseConfigured && typeof repos.nextClubMemberNumber === 'function') {
+      try {
+        memberId = await repos.nextClubMemberNumber(members);
+      } catch {
+        /* correlativo local si falla la RPC */
+      }
+    }
     const joinDate = form.joinDate || todayISODateAR();
     const joinTime = form.joinTime || nowTimeAR();
     const dues = duesOnJoin({
@@ -732,7 +739,7 @@ export default function MembersTab({
     const newMember = {
       name: form.name.trim(),
       photo: form.photo || '',
-      memberId: randomNum.toString(),
+      memberId,
       documentType: form.documentType,
       documentNumber: form.documentNumber.trim(),
       birthDate: form.birthDate || null,
@@ -1076,8 +1083,19 @@ export default function MembersTab({
       memberNumber: item.memberNumber,
       documentNumber: item.documentNumber,
     });
+    let nextId = null;
+    if (kind === 'alta' && !matched) {
+      nextId = allocateNextMemberNumber(members);
+      if (isSupabaseConfigured && typeof repos.nextClubMemberNumber === 'function') {
+        try {
+          nextId = await repos.nextClubMemberNumber(members);
+        } catch {
+          /* correlativo local */
+        }
+      }
+    }
     let member = kind === 'alta'
-      ? applyJoinApplicationToMember(item, matched)
+      ? applyJoinApplicationToMember(item, matched, { members, memberId: nextId })
       : matched;
     if (!member) {
       throw new Error('No hay ficha para vincular. Revisá DNI o Nº de socio.');

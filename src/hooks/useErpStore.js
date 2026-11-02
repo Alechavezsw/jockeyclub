@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { todayISODateAR } from '../lib/arDate';
 import * as repos from '../data/repos';
@@ -122,6 +122,7 @@ import { journalForOtherIncome } from '../domain/accounting/otherIncomes';
 
 const cloud = () => isSupabaseConfigured;
 
+/** En cloud, el ERP no lee ni escribe negocio en localStorage (regla absoluta → Supabase). */
 function load(key, fallback) {
   if (cloud()) return Array.isArray(fallback) ? [] : (fallback ?? null);
   try {
@@ -135,6 +136,32 @@ function load(key, fallback) {
 function persist(key, value) {
   if (cloud()) return;
   localStorage.setItem(key, JSON.stringify(value));
+}
+
+/** Keys de UX de dispositivo que sí pueden quedar en el browser. */
+const LOCAL_UX_KEYS = new Set([
+  'jockey-theme',
+  'jockey-alert-acks',
+  'jockey-notif-dismissed-v2',
+  'padronFold:v1',
+]);
+
+function clearStaleBusinessLocalCache() {
+  if (!cloud() || typeof localStorage === 'undefined') return;
+  try {
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (!key) continue;
+      if (LOCAL_UX_KEYS.has(key)) continue;
+      if (key.startsWith('sb-') || key.includes('supabase')) continue;
+      if (key.startsWith('jockey-read-messages:')) continue;
+      if (key.startsWith('jockey-')) keys.push(key);
+    }
+    keys.forEach((key) => localStorage.removeItem(key));
+  } catch {
+    /* private mode / quota */
+  }
 }
 
 const ALERT_ACKS_KEY = 'jockey-alert-acks';
@@ -253,9 +280,11 @@ export default function useErpStore({
   const [feeExpenses, setFeeExpenses] = useState(() =>
     resolveFeeExpenses(load('jockey-fee-expenses-v1', null))
   );
-  const [feePeriods, setFeePeriods] = useState(() =>
-    resolveFeePeriods(load('jockey-fee-periods-v2', null) || load('jockey-fee-periods-v1', null))
-  );
+  // En cloud el padrón de períodos vive en fee_period_closures (Supabase), no en localStorage.
+  const [feePeriods, setFeePeriods] = useState(() => resolveFeePeriods(cloud() ? null : (
+    load('jockey-fee-periods-v2', null) || load('jockey-fee-periods-v1', null)
+  )));
+  const [feePeriodsReady, setFeePeriodsReady] = useState(() => !cloud());
   const [memberCollectionImports, setMemberCollectionImports] = useState(() =>
     load('jockey-member-collection-imports-v1', [])
   );
@@ -335,44 +364,60 @@ export default function useErpStore({
     load('jockey-canon-payments', DEFAULT_CANON_PAYMENTS)
   );
 
-  // Respaldos de snapshots: se piden con la sesión operativa y solo completan lo que la
-  // base (o localStorage) no trajo. La hidratación puede llegar antes o después.
+  // Respaldos LILA: diferidos al idle para no competir con el bootstrap del panel
+  // (padrón + tablas ERP). Solo rellenan huecos que la base/localStorage no trajeron.
   useEffect(() => {
     if (!canLoadSeeds) return undefined;
     let cancelled = false;
-    void loadSnapshots(ERP_SNAPSHOTS).then(() => {
+    const applySeeds = () => {
       if (cancelled) return;
-      const registers = cashSeed().ACCESSIN_CASH_REGISTERS;
-      if (registers.length) {
-        setCashRegisters((cur) => (isFallbackCashRegisters(cur) ? registers : cur));
+      void loadSnapshots(ERP_SNAPSHOTS).then(() => {
+        if (cancelled) return;
+        const registers = cashSeed().ACCESSIN_CASH_REGISTERS;
+        if (registers.length) {
+          setCashRegisters((cur) => (isFallbackCashRegisters(cur) ? registers : cur));
+        }
+        const movements = cashMovementsSeed().ACCESSIN_CASH_MOVEMENTS;
+        const recent = cashSeed().ACCESSIN_CASH_SNAPSHOT?.recentMovements || [];
+        if (movements.length || recent.length) {
+          setAccessinCashMovements((cur) => mergeAccessinCashMovements(
+            mergeAccessinCashMovements(cur, movements),
+            recent,
+          ));
+        }
+        const cheques = chequesSeed().ACCESSIN_CHEQUES;
+        if (cheques.length) setAccessinCheques((cur) => (cur?.length ? cur : cheques));
+        const cobranzas = cobranzasSeed().ACCESSIN_COBRANZAS;
+        if (cobranzas.length) setAccessinCobranzas((cur) => (cur?.length >= 200 ? cur : cobranzas));
+        const payments = supplierPaymentsSeed().ACCESSIN_SUPPLIER_PAYMENTS;
+        if (payments.length) setAccessinSupplierPayments((cur) => (cur?.length ? cur : payments));
+        const banks = bankAccountsSeed().ACCESSIN_BANK_ACCOUNTS;
+        if (banks.length) setAccessinBankAccounts((cur) => applySnapshotBankBalances(cur, banks));
+        const retencionesList = retencionesSeed().ACCESSIN_RETENCIONES;
+        if (retencionesList.length) setRetenciones((cur) => (cur?.length ? cur : retencionesList));
+        const suppliersList = suppliersSeed().ACCESSIN_SUPPLIERS;
+        if (suppliersList.length) setSuppliers((cur) => (cur?.length >= 50 ? cur : suppliersList));
+        setDiscounts((cur) => resolveDiscounts(cur?.length ? cur : null, seedDiscounts()));
+        void repos.listDiscountRules().then((rows) => {
+          if (cancelled || !Array.isArray(rows) || !rows.length) return;
+          setDiscounts(rows);
+        }).catch(() => {});
+      });
+    };
+    let idleId = 0;
+    let timeoutId = 0;
+    if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+      idleId = window.requestIdleCallback(applySeeds, { timeout: 2500 });
+    } else {
+      timeoutId = window.setTimeout(applySeeds, 1800);
+    }
+    return () => {
+      cancelled = true;
+      if (idleId && typeof window.cancelIdleCallback === 'function') {
+        window.cancelIdleCallback(idleId);
       }
-      const movements = cashMovementsSeed().ACCESSIN_CASH_MOVEMENTS;
-      const recent = cashSeed().ACCESSIN_CASH_SNAPSHOT?.recentMovements || [];
-      if (movements.length || recent.length) {
-        setAccessinCashMovements((cur) => mergeAccessinCashMovements(
-          mergeAccessinCashMovements(cur, movements),
-          recent,
-        ));
-      }
-      const cheques = chequesSeed().ACCESSIN_CHEQUES;
-      if (cheques.length) setAccessinCheques((cur) => (cur?.length ? cur : cheques));
-      const cobranzas = cobranzasSeed().ACCESSIN_COBRANZAS;
-      if (cobranzas.length) setAccessinCobranzas((cur) => (cur?.length >= 200 ? cur : cobranzas));
-      const payments = supplierPaymentsSeed().ACCESSIN_SUPPLIER_PAYMENTS;
-      if (payments.length) setAccessinSupplierPayments((cur) => (cur?.length ? cur : payments));
-      const banks = bankAccountsSeed().ACCESSIN_BANK_ACCOUNTS;
-      if (banks.length) setAccessinBankAccounts((cur) => applySnapshotBankBalances(cur, banks));
-      const retencionesList = retencionesSeed().ACCESSIN_RETENCIONES;
-      if (retencionesList.length) setRetenciones((cur) => (cur?.length ? cur : retencionesList));
-      const suppliersList = suppliersSeed().ACCESSIN_SUPPLIERS;
-      if (suppliersList.length) setSuppliers((cur) => (cur?.length >= 50 ? cur : suppliersList));
-      setDiscounts((cur) => resolveDiscounts(cur?.length ? cur : null, seedDiscounts()));
-      void repos.listDiscountRules().then((rows) => {
-        if (cancelled || !Array.isArray(rows) || !rows.length) return;
-        setDiscounts(rows);
-      }).catch(() => {});
-    });
-    return () => { cancelled = true; };
+      if (timeoutId) window.clearTimeout(timeoutId);
+    };
   }, [canLoadSeeds]);
 
   const applyErpHydration = useCallback((erp) => {
@@ -440,10 +485,9 @@ export default function useErpStore({
       setFeeExpenses(resolveFeeExpenses(null));
     }
     if (Array.isArray(erp.feePeriods) && erp.feePeriods.length) {
-      setFeePeriods(resolveFeePeriods(erp.feePeriods));
-    } else {
-      setFeePeriods(resolveFeePeriods(null));
+      setFeePeriods((cur) => resolveFeePeriods([...(cur || []), ...erp.feePeriods]));
     }
+    // Si la nube aún no trajo cierres, no pisar localStorage / seed con un resolve vacío.
     if (Array.isArray(erp.memberCollectionImports)) {
       setMemberCollectionImports(erp.memberCollectionImports);
     }
@@ -527,8 +571,15 @@ export default function useErpStore({
   useEffect(() => {
     setFeePeriods((current) => resolveFeePeriods(current));
   }, []);
+  useEffect(() => {
+    clearStaleBusinessLocalCache();
+  }, []);
   useEffect(() => persist('jockey-fee-expenses-v1', feeExpenses), [feeExpenses]);
-  useEffect(() => persist('jockey-fee-periods-v2', resolveFeePeriods(feePeriods)), [feePeriods]);
+  useEffect(() => {
+    if (cloud()) return undefined;
+    persist('jockey-fee-periods-v2', resolveFeePeriods(feePeriods));
+    return undefined;
+  }, [feePeriods]);
   useEffect(() => persist('jockey-member-collection-imports-v1', memberCollectionImports), [memberCollectionImports]);
   useEffect(() => persist('jockey-fee-chart-accounts-v1', feeChartAccounts), [feeChartAccounts]);
   useEffect(() => persist('jockey-member-account-entries-v1', memberAccountEntries), [memberAccountEntries]);
@@ -1339,18 +1390,25 @@ export default function useErpStore({
   }, []);
 
   const setFeePeriodsList = useCallback((next) => {
-    setFeePeriods(Array.isArray(next) ? next : []);
+    setFeePeriods(resolveFeePeriods(Array.isArray(next) ? next : []));
   }, []);
 
   const persistFeePeriod = useCallback(async (period) => {
     if (!period) return null;
-    if (!cloud() || !feePeriodNeedsClosure(period)) return period;
-    await repos.upsertFeePeriodClosure(period);
-    return period;
+    if (!cloud()) return period;
+    // Todo cambio de liquidación (borrador con pack, pendiente, procesada) va a Supabase.
+    if (!feePeriodNeedsClosure(period)) return period;
+    const saved = await repos.upsertFeePeriodClosure(period);
+    if (saved?.id) {
+      setFeePeriods((cur) => resolveFeePeriods(
+        (cur || []).map((item) => (item.id === saved.id ? { ...item, ...saved } : item)),
+      ));
+    }
+    return saved || period;
   }, []);
 
-  const reopenProcessedFeePeriod = useCallback(async (period, reason, members = []) => {
-    const result = reopenFeePeriod(period, reason);
+  const reopenProcessedFeePeriod = useCallback(async (period, reason, members = [], meta = {}) => {
+    const result = reopenFeePeriod(period, reason, meta);
     const built = ledgerLinesFromCharges(
       feeChartAccounts,
       members,
@@ -1419,12 +1477,17 @@ export default function useErpStore({
   useEffect(() => {
     if (!cloud() || !userId) return undefined;
     let cancelled = false;
+    setFeePeriodsReady(false);
     repos.listFeePeriodClosures()
       .then((rows) => {
-        if (cancelled || !rows?.length) return;
-        setFeePeriods((cur) => resolveFeePeriods([...(cur || []), ...rows]));
+        if (cancelled) return;
+        // Supabase es la fuente de verdad; el seed solo completa meses sin fila.
+        setFeePeriods(resolveFeePeriods(rows || []));
+        setFeePeriodsReady(true);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) setFeePeriodsReady(true);
+      });
     return () => { cancelled = true; };
   }, [userId]);
 
@@ -1824,6 +1887,24 @@ export default function useErpStore({
     setEventRegistrations((prev) => revokeEventRegistrationDomain(prev, registrationId));
   }, []);
 
+  const comprobantes = useMemo(
+    () => fiscalDocuments.filter((row) => row.docKind === 'comprobante'),
+    [fiscalDocuments],
+  );
+  const liquidaciones = useMemo(
+    () => fiscalDocuments.filter((row) => row.docKind === 'liquidacion'),
+    [fiscalDocuments],
+  );
+  const perfilFiscal = useMemo(
+    () => fiscalDocuments.find((row) => row.docKind === 'perfil') || DEFAULT_FISCAL_PROFILE,
+    [fiscalDocuments],
+  );
+  const poolDayCashOpen = useMemo(() => (
+    cloud()
+      ? cloudPoolDayCashOpen
+      : isPoolDayCashOpen(cashSessions, cashRegisters)
+  ), [cloudPoolDayCashOpen, cashSessions, cashRegisters]);
+
   return {
     chartOfAccounts,
     setChartOfAccounts,
@@ -1841,6 +1922,7 @@ export default function useErpStore({
     discounts,
     feeExpenses,
     feePeriods,
+    feePeriodsReady,
     memberCollectionImports,
     feeChartAccounts,
     memberAccountEntries,
@@ -1848,9 +1930,9 @@ export default function useErpStore({
     expenses,
     suppliers,
     retenciones,
-    comprobantes: fiscalDocuments.filter((row) => row.docKind === 'comprobante'),
-    liquidaciones: fiscalDocuments.filter((row) => row.docKind === 'liquidacion'),
-    perfilFiscal: fiscalDocuments.find((row) => row.docKind === 'perfil') || DEFAULT_FISCAL_PROFILE,
+    comprobantes,
+    liquidaciones,
+    perfilFiscal,
     saveComprobante,
     voidComprobanteRecord,
     saveFiscalProfile,
@@ -1880,9 +1962,7 @@ export default function useErpStore({
     recordPoolCanon,
     openPoolDayCash,
     refreshPoolDayCash,
-    poolDayCashOpen: cloud()
-      ? cloudPoolDayCashOpen
-      : isPoolDayCashOpen(cashSessions, cashRegisters),
+    poolDayCashOpen,
     transferCash,
     submitExpense,
     setExpenseApproved,

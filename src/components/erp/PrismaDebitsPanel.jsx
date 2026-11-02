@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { CreditCard, Download } from 'lucide-react';
 import { formatCurrency } from '../../domain/accounting/journal';
+import { isSupabaseConfigured } from '../../lib/supabase';
 import {
   LILA_PRISMA_FILE_707,
   PRISMA_FILE_TYPES,
@@ -21,8 +22,8 @@ const BANKS = [
 
 const EMPTY_CONFIG = { establishment: '', bank: '' };
 
-function loadState() {
-  const base = {
+function emptyPrismaState() {
+  return {
     configs: {
       DEBLIQC: { ...EMPTY_CONFIG },
       DEBLIQD: { ...EMPTY_CONFIG },
@@ -31,6 +32,12 @@ function loadState() {
     files: [LILA_PRISMA_FILE_707],
     responses: [],
   };
+}
+
+function loadState() {
+  const base = emptyPrismaState();
+  // Cloud: no espejar presentaciones Prisma en localStorage (falta tabla dedicada).
+  if (isSupabaseConfigured) return base;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return base;
@@ -46,6 +53,7 @@ function loadState() {
 }
 
 function saveState(state) {
+  if (isSupabaseConfigured) return;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       configs: state.configs,

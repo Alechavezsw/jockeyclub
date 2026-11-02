@@ -1,4 +1,5 @@
 import { duesOnJoin, toWhatsAppPhone } from './dues';
+import { allocateNextMemberNumber } from './households';
 import { todayISODateAR } from '../../lib/arDate';
 import { loginEmailFromUsername } from '../auth/credentials';
 import { buildAccessInviteEmail } from './accessInviteEmail';
@@ -358,11 +359,11 @@ export function joinDateFromApplication(app, fallback = null) {
 }
 
 /** Alta mínima desde una solicitud pública (sin disciplinas obligatorias). */
-export function memberDraftFromApplication(app) {
+export function memberDraftFromApplication(app, { members = [], memberId = null } = {}) {
   const joinDate = joinDateFromApplication(app);
   const draft = {
     name: String(app?.fullName || '').trim(),
-    memberId: String(Math.floor(1000000000000000 + Math.random() * 9000000000000000)),
+    memberId: String(memberId || '').replace(/\D/g, '') || allocateNextMemberNumber(members),
     documentType: app?.documentType || 'DNI',
     documentNumber: String(app?.documentNumber || '').trim(),
     birthDate: app?.birthDate || null,
@@ -390,8 +391,8 @@ export function memberDraftFromApplication(app) {
  * Alta desde el formulario: si el DNI ya está en el padrón, no se deja
  * la ficha vieja. Se pisan nombre, contacto y la categoría pedida.
  */
-export function applyJoinApplicationToMember(app, existing = null) {
-  const draft = memberDraftFromApplication(app);
+export function applyJoinApplicationToMember(app, existing = null, options = {}) {
+  const draft = memberDraftFromApplication(app, options);
   if (!existing) return draft;
   return {
     ...existing,

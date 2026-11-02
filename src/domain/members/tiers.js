@@ -1,5 +1,7 @@
 /** Categorías de socios del club (padrón / cuotas datita). Sin Gold/Platinum. */
 
+import { isSupabaseConfigured } from '../../lib/supabase';
+
 export const DEFAULT_MEMBER_TIER = 'socio_individual';
 export const SIN_CATEGORIA_TIER = 'sin_categoria';
 
@@ -62,7 +64,9 @@ const SEP_FAMILIAR = 60000;
 const SEP_INDIVIDUAL = 36000;
 const OCT_FAMILIAR = 70000;
 const OCT_INDIVIDUAL = 40000;
-const ABONO_TENIS = 10000;
+/** Abono tenis: $10.000 hasta sept 2026; $12.000 desde la liquidación de octubre (LILA). */
+const ABONO_TENIS_SEP = 10000;
+const ABONO_TENIS_OCT = 12000;
 
 function ametDue(base) {
   return Math.round(base * (1 - DUES_AMET_RATE));
@@ -78,7 +82,7 @@ export const MONTHLY_DUES_THROUGH_SEPTEMBER_2026 = Object.freeze({
   socio_individual_amet: ametDue(SEP_INDIVIDUAL),
   socio_familiar: SEP_FAMILIAR,
   socio_familiar_amet: ametDue(SEP_FAMILIAR),
-  abono_tenis: ABONO_TENIS,
+  abono_tenis: ABONO_TENIS_SEP,
   interes_por_transaccion_25_grupo_familiar_amet: ametInterest(SEP_FAMILIAR),
   interes_por_transaccion_25_socio_individual_amet: ametInterest(SEP_INDIVIDUAL),
   grupo_familiar_familiar: 0,
@@ -96,7 +100,7 @@ export const MONTHLY_DUES_FROM_OCTOBER_2026 = Object.freeze({
   socio_individual_amet: ametDue(OCT_INDIVIDUAL),
   socio_familiar: OCT_FAMILIAR,
   socio_familiar_amet: ametDue(OCT_FAMILIAR),
-  abono_tenis: ABONO_TENIS,
+  abono_tenis: ABONO_TENIS_OCT,
   interes_por_transaccion_25_grupo_familiar_amet: ametInterest(OCT_FAMILIAR),
   interes_por_transaccion_25_socio_individual_amet: ametInterest(OCT_INDIVIDUAL),
   grupo_familiar_familiar: 0,
@@ -115,12 +119,12 @@ const TIER_SEED = [
   { name: 'GRUPO FAMILIAR (Vitalicio)', label: '2294', color: '#818cf8', sortOrder: 4 },
   { name: 'SOCIO FAMILIAR', label: '2268', color: '#cfa13a', sortOrder: 5 },
   { name: 'SOCIO FAMILIAR (AMET)', label: '6146', color: '#d4a574', sortOrder: 6 },
-  { name: 'GRUPO FAMILIAR (Familiar)', label: '2269', color: '#f59e0b', sortOrder: 7 },
-  { name: 'GRUPO FAMILIAR (AMET)', label: '6147', color: '#fbbf24', sortOrder: 8 },
+  { name: 'GRUPO FAMILIAR (Familiar)', label: '2269', color: '#6d9a8c', sortOrder: 7 },
+  { name: 'GRUPO FAMILIAR (AMET)', label: '6147', color: '#8aafa3', sortOrder: 8 },
   { name: 'SOCIO INDIVIDUAL', label: '2270', color: '#10b981', sortOrder: 9 },
   { name: 'SOCIO INDIVIDUAL (AMET)', label: '6149', color: '#34d399', sortOrder: 10 },
   { name: 'TURF', label: '3523', color: '#3b82f6', sortOrder: 11 },
-  { name: 'ABONO TENIS', label: '2394', color: '#06b6d4', sortOrder: 12 },
+  { name: 'ABONO TENIS', label: '2272', color: '#06b6d4', sortOrder: 12 },
   { name: 'COMISION', label: '—', color: '#e11d48', sortOrder: 90 },
   {
     name: 'INTERES POR TRANSACCIÓN 2,5% GRUPO FAMILIAR (AMET)',
@@ -192,6 +196,9 @@ export function isGeneratedTierId(id = '') {
   return /^tier_\d+$/i.test(String(id || '').trim());
 }
 
+/** Amarillos viejos de grupo familiar → se reemplazan por la paleta oficial. */
+const LEGACY_GRUPO_FAMILIAR_COLORS = new Set(['#f59e0b', '#fbbf24']);
+
 /** Completa el catálogo guardado con categorías oficiales que falten. */
 export function mergeOfficialTiers(catalog = []) {
   const byId = new Map(
@@ -203,9 +210,17 @@ export function mergeOfficialTiers(catalog = []) {
       byId.set(official.id, { ...official });
       continue;
     }
+    let next = current;
     if (!(Number(current.monthlyDues) > 0) && official.monthlyDues > 0) {
-      byId.set(official.id, { ...current, monthlyDues: official.monthlyDues });
+      next = { ...next, monthlyDues: official.monthlyDues };
     }
+    if (
+      (official.id === 'grupo_familiar_familiar' || official.id === 'grupo_familiar_amet')
+      && LEGACY_GRUPO_FAMILIAR_COLORS.has(String(current.color || '').toLowerCase())
+    ) {
+      next = { ...next, color: official.color };
+    }
+    if (next !== current) byId.set(official.id, next);
   }
   return [...byId.values()].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, 'es'));
 }
@@ -267,6 +282,8 @@ export function normalizeTier(input = {}) {
 
 export function loadTierCatalog(fallback = MEMBER_TIER_CATALOG) {
   try {
+    // Cloud: el catálogo vive en app_settings / estado React, no en localStorage.
+    if (isSupabaseConfigured) return mergeOfficialTiers(fallback);
     const raw = localStorage.getItem('jockey-member-tiers');
     if (!raw) return mergeOfficialTiers(fallback);
     const parsed = JSON.parse(raw);
@@ -299,6 +316,25 @@ export function getTierMonthlyDues(tier, catalog = getTierCatalog()) {
   if (found) return found.monthlyDues;
   const fallback = findTier(DEFAULT_MEMBER_TIER, catalog);
   return fallback?.monthlyDues || 0;
+}
+
+/** Nº de categoría Accessin/LILA (columna # de liquidación), p. ej. 2272 = ABONO TENIS. */
+export function getTierAccessinCategoryId(tier, catalog = getTierCatalog()) {
+  const found = findTier(tier, catalog);
+  const code = String(found?.label || '').trim();
+  return /^\d+$/.test(code) ? code : '';
+}
+
+/**
+ * Líneas del formulario Generar cuotas: cuota social / abono / grupo (incluso en $0).
+ * Actividades tipo COLONIA/LIGA/KARATE (No socio) quedan afuera por ahora.
+ */
+export function isFeePackLiquidationTier(tier, catalog = getTierCatalog()) {
+  const id = String(typeof tier === 'object' ? tier?.id : tier || '').trim().toLowerCase();
+  if (!id || id === SIN_CATEGORIA_TIER) return false;
+  if (Object.prototype.hasOwnProperty.call(MONTHLY_DUES_FROM_OCTOBER_2026, id)) return true;
+  if (Object.prototype.hasOwnProperty.call(MONTHLY_DUES_THROUGH_SEPTEMBER_2026, id)) return true;
+  return Boolean(getTierAccessinCategoryId(id, catalog));
 }
 
 export function getTierDisplayName(tier, catalog = getTierCatalog()) {

@@ -1,0 +1,35 @@
+---
+description: Supabase es la única fuente de verdad de datos de la app
+alwaysApply: true
+---
+
+# Supabase = fuente de verdad (regla absoluta)
+
+Con `isSupabaseConfigured` / cloud mode activo, **todo dato de negocio vive en Supabase**. No es opcional ni por módulo.
+
+## Obligatorio
+
+- **Leer** de tablas / RPCs / `app_settings` (repos + bootstrap).
+- **Escribir** con `repos.*` / upsert / edge: socios, cuotas (`fee_period_closures`), caja, contabilidad, reservas, mensajes, settings, etc.
+- Tras mutar, el estado React refleja lo **persistido** (o el row devuelto), no un invento solo en memoria/local.
+
+## Prohibido en cloud
+
+- Usar `localStorage` / `sessionStorage` como fuente o espejo de padrón, cuotas, saldos, liquidaciones, journal, reservas, settings de club/dues/pool/system, catalogs, imports, etc.
+- “Arreglar” UI pisando montos/titulares desde un recuento local si el valor canónico ya está en Supabase.
+- Semillas Accessin / demo como verdad por encima de filas en DB (solo rellenan meses/catálogos **sin** fila).
+
+## Excepciones (solo UX de dispositivo)
+
+- Tema (`jockey-theme`)
+- Sesión Auth de Supabase (keys del cliente)
+- UI efímera: folds, dismiss de notificaciones, leídos de mensajes
+
+Si no está en esa lista, **va a Supabase**.
+
+## Al agregar features
+
+1. Tabla o `app_settings` + `repos` list/upsert.
+2. Hydrate desde bootstrap / `list*`.
+3. Mutación → await persist → actualizar estado con respuesta.
+4. Nunca `localStorage.setItem('jockey-…')` para ese dominio en cloud.

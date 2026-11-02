@@ -67,6 +67,19 @@ export function nowTimeAR(date = new Date()) {
   return `${hour}:${minute}`;
 }
 
+/** Suma días a una fecha ISO (calendario local, mediodía). */
+export function addDaysISODate(iso, days = 1) {
+  const raw = String(iso || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return todayISODateAR();
+  const [y, m, d] = raw.split('-').map(Number);
+  const next = new Date(y, m - 1, d, 12, 0, 0, 0);
+  next.setDate(next.getDate() + (Number(days) || 0));
+  const yy = next.getFullYear();
+  const mm = String(next.getMonth() + 1).padStart(2, '0');
+  const dd = String(next.getDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+
 /** Suma meses a una fecha ISO (calendario local, mediodía). */
 export function addMonthsISODate(iso, months = 1) {
   const raw = String(iso || '').slice(0, 10);

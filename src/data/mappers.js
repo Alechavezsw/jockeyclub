@@ -118,6 +118,7 @@ export function memberToRow(member) {
       ...(member.currentAccountAsOf ? { currentAccountAsOf: member.currentAccountAsOf } : {}),
       ...(member.lastPaymentDate ? { lastPaymentDate: member.lastPaymentDate } : {}),
       ...(member.mpAdhesion ? { mpAdhesion: member.mpAdhesion } : {}),
+      ...(Array.isArray(member.debitMoves) ? { debitMoves: member.debitMoves } : {}),
       ...(member.unpaidCapital != null ? { unpaidCapital: member.unpaidCapital } : {}),
       ...(member.unpaidSurcharges != null ? { unpaidSurcharges: member.unpaidSurcharges } : {}),
       ...(member.unpaidInterest != null ? { unpaidInterest: member.unpaidInterest } : {}),

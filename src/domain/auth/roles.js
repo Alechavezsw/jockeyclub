@@ -121,6 +121,9 @@ export const ALL_ADMIN_TABS = [
   'pool',
   'access',
   'accounting',
+  'books',
+  'informes',
+  'operation',
   'staff',
   'teachers',
   'events',
@@ -135,8 +138,47 @@ export const ALL_ADMIN_TABS = [
   'migration',
 ];
 
-/** Pestañas del administrador sin el módulo contable. Los débitos se suman aparte. */
-const ADMIN_TABS_NO_ACCOUNTING = ALL_ADMIN_TABS.filter((t) => t !== 'accounting');
+/** Subpestañas del módulo Libros (partida doble), aparte de Contabilidad general. */
+export const ACCOUNTING_BOOK_SUBTABS = ['diary', 'mayor', 'create'];
+export const ACCOUNTING_BOOK_SUBTAB_SET = new Set(ACCOUNTING_BOOK_SUBTABS);
+
+export function isAccountingBookSubtab(subTab) {
+  return ACCOUNTING_BOOK_SUBTAB_SET.has(String(subTab || ''));
+}
+
+/** Subpestañas del módulo Informes (balances, resultados, reportes). */
+export const ACCOUNTING_REPORT_SUBTABS = [
+  'balance',
+  'balance_monthly',
+  'balance_summary',
+  'balance_liquidation',
+  'balance_patrimonial',
+  'results',
+  'charts',
+  'acct_reports',
+];
+export const ACCOUNTING_REPORT_SUBTAB_SET = new Set(ACCOUNTING_REPORT_SUBTABS);
+
+export function isAccountingReportSubtab(subTab) {
+  return ACCOUNTING_REPORT_SUBTAB_SET.has(String(subTab || ''));
+}
+
+/** Subpestañas del módulo Operación (tesorería), aparte de Contabilidad general. */
+export const ACCOUNTING_TREASURY_SUBTABS = [
+  'cash', 'expenses', 'suppliers', 'retenciones', 'other_incomes', 'interest_generators',
+  'unidentified', 'galicia', 'prisma', 'debit_moves', 'fixed_expenses', 'balances', 'payment_orders',
+  'credit_purchases',
+];
+export const ACCOUNTING_TREASURY_SUBTAB_SET = new Set(ACCOUNTING_TREASURY_SUBTABS);
+
+export function isAccountingTreasurySubtab(subTab) {
+  return ACCOUNTING_TREASURY_SUBTAB_SET.has(String(subTab || ''));
+}
+
+/** Pestañas del administrador sin contabilidad, libros, informes ni operación. Los débitos se suman aparte. */
+const ADMIN_TABS_NO_ACCOUNTING = ALL_ADMIN_TABS.filter(
+  (t) => t !== 'accounting' && t !== 'books' && t !== 'informes' && t !== 'operation',
+);
 
 /**
  * Mostrador del club: padrón, saldos y atención.
@@ -219,23 +261,23 @@ export function allowedAdminTabs(role) {
   if (role === 'superadmin') {
     return [...ALL_ADMIN_TABS];
   }
-  // Administrador: opera el club. En contabilidad solo entra a los débitos.
+  // Administrador: opera el club. En Operación solo entra a los débitos.
   if (role === 'admin') {
-    return [...ADMIN_TABS_NO_ACCOUNTING, 'accounting'];
+    return [...ADMIN_TABS_NO_ACCOUNTING, 'operation'];
   }
   if (role === 'accountant') {
-    return ['dashboard', 'jev', 'dues', 'accounting', 'reports', 'events'];
+    return ['dashboard', 'jev', 'dues', 'accounting', 'books', 'informes', 'operation', 'reports', 'events'];
   }
   // Operador de portería: caja + portería / ingresos.
   if (role === 'gate_operator') {
-    return ['dashboard', 'jev', 'members', 'pool', 'access', 'accounting'];
+    return ['dashboard', 'jev', 'members', 'pool', 'access', 'operation'];
   }
   if (role === 'cashier') {
-    return ['dashboard', 'jev', 'members', 'dues', 'pool', 'access', 'accounting', 'events'];
+    return ['dashboard', 'jev', 'members', 'dues', 'pool', 'access', 'operation', 'events'];
   }
   // Empleado de administración: el mostrador, más los débitos. Pileta no arma archivos.
   if (role === 'admin_employee') {
-    return [...FRONT_DESK_TABS, 'accounting'];
+    return [...FRONT_DESK_TABS, 'operation'];
   }
   if (role === 'pool_operator') {
     return [...FRONT_DESK_TABS];
@@ -291,13 +333,13 @@ export function allowedAccountingSubtabs(role) {
     return [
       'diary', 'mayor', 'create', 'balance', 'balance_monthly', 'balance_summary', 'balance_liquidation', 'balance_patrimonial', 'results', 'charts', 'acct_reports', 'libre_deuda', 'family_balances', 'member_discounts', 'bonificaciones', 'siap', 'impuestos', 'plan',
       'cash', 'expenses', 'suppliers', 'retenciones', 'other_incomes', 'interest_generators',
-      'unidentified', 'galicia', 'prisma', 'fixed_expenses', 'balances', 'payment_orders',
+      'unidentified', 'galicia', 'prisma', 'debit_moves', 'fixed_expenses', 'balances', 'payment_orders',
       'credit_purchases',
     ];
   }
-  // Administración arma los débitos (Prisma y Galicia). No ve libros ni tesorería.
+  // Administración arma los débitos (Prisma, Galicia y altas/bajas). No ve libros ni tesorería.
   if (role === 'admin' || role === 'admin_employee') {
-    return ['prisma', 'galicia'];
+    return ['prisma', 'galicia', 'debit_moves'];
   }
   if (role === 'cashier' || role === 'gate_operator') {
     // Solo operación de caja; gastos/proveedores/diario viven en Contabilidad (contador/superadmin).
@@ -316,6 +358,11 @@ export function canLiquidateDues(roleOrRoles) {
     || keys.includes('accountant')
     || keys.includes('admin')
     || keys.includes('admin_employee');
+}
+
+/** Cambiar montos de categorías en el armado de liquidación: solo superadmin. */
+export function canEditFeePackAmounts(roleOrRoles) {
+  return isSuperAdmin(roleOrRoles);
 }
 
 /** El recargo se cobra siempre. Nadie lo perdona en el mostrador. */

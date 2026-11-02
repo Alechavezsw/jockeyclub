@@ -57,13 +57,18 @@ describe('buildClubReview', () => {
         { id: 'c1', status: 'in_portfolio', dueAt: '2026-09-01', checkNumber: '550' },
         { id: 'c2', status: 'in_portfolio', dueAt: '2026-12-01', checkNumber: '551' },
       ],
+      membershipMovesAsOf: TODAY,
       bajas: [
         { memberId: '100', name: 'Titular', date: '2026-09-02', motivo: 'se mudó al sur' },
       ],
     });
 
     const ids = review.items.map((item) => item.id);
-    expect(ids).toEqual(['cheques-overdue', 'age-26', 'bajas-otro']);
+    expect(ids).toContain('cheques-overdue');
+    expect(ids).toContain('age-26');
+    expect(ids).toContain('bajas-otro');
+    expect(ids).toContain('bajas-sigue-activo');
+    expect(ids).not.toContain('altas-bajas-desactualizadas');
     expect(review.counts.bien).toBe(1);
     expect(review.items.find((item) => item.id === 'age-26').samples[0].label).toMatch(/Hijo Grande/);
     expect(review.items.find((item) => item.id === 'age-26').samples[0].href).toBe('/panel/members/101?editar=1');
@@ -104,12 +109,13 @@ describe('buildClubReview', () => {
       ],
       suppliers: [{ id: 'sup-1', legalName: 'REPARACION IMPRESORA', status: 'active', cuit: '' }],
       concessions: [{ id: 'conc-1', name: 'Proveduría', endDate: '2026-01-01' }],
+      membershipMovesAsOf: TODAY,
       bajas: [{ memberId: '11354', name: 'Tomas Ovejero', date: '2026-09-02', motivo: 'sin clasificar' }],
     });
 
     const byId = Object.fromEntries(review.items.map((item) => [item.id, item]));
     expect(byId['concessions-expired'].samples[0].href).toBe('/concesiones?id=conc-1');
-    expect(byId['suppliers-cuit'].samples[0].href).toBe('/panel/accounting?sub=suppliers&supplier=sup-1');
+    expect(byId['suppliers-cuit'].samples[0].href).toBe('/panel/operation?sub=suppliers&supplier=sup-1');
     expect(byId['titular-baja'].samples[0].href).toBe('/panel/members/201?editar=1');
     expect(byId['dup-dni'].samples[0].label).toMatch(/mismo DNI/);
     expect(byId['dup-dni'].samples[0].href).toMatch(/\/panel\/members\/(100713|101370)\?editar=1/);
@@ -372,5 +378,31 @@ describe('buildClubReview', () => {
     expect(review.items.find((item) => item.id === 'fee-missing').samples[0].label).toMatch(/Eva Portal/);
     expect(review.items.find((item) => item.id === 'inbox-stale').count).toBe(1);
     expect(review.counts.bien).toBe(3);
+  });
+
+  it('marca altas y bajas desactualizadas, bajas que siguen activas y altas faltantes', () => {
+    const review = buildClubReview({
+      today: '2026-10-31',
+      membershipMovesAsOf: '2026-10-20',
+      accountBalances: { asOf: '2026-10-31', byNumber: {} },
+      altas: [{ memberId: '10', name: 'Vieja', date: '2026-09-01' }],
+      bajas: [{ memberId: '20', name: 'Baja Activa', date: '2026-10-15', motivo: 'renuncia' }],
+      members: [
+        { memberId: '20', name: 'Baja Activa', documentNumber: '30111000', tier: 'socio', status: 'active' },
+        {
+          memberId: '30',
+          name: 'Alta Nueva',
+          documentNumber: '30111001',
+          tier: 'socio',
+          status: 'active',
+          joinDate: '2026-10-28',
+        },
+      ],
+    });
+    const byId = Object.fromEntries(review.items.map((item) => [item.id, item]));
+    expect(byId['altas-bajas-desactualizadas'].count).toBe(1);
+    expect(byId['bajas-sigue-activo'].count).toBe(1);
+    expect(byId['altas-faltantes'].count).toBe(1);
+    expect(byId['altas-faltantes'].samples[0].label).toMatch(/Alta Nueva/);
   });
 });

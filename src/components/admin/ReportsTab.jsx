@@ -195,15 +195,8 @@ export default function ReportsTab({
     setEntryLogs(data.entryLogs);
     if (data.surveys && setSurveys) {
       setSurveys(data.surveys);
-      localStorage.setItem('jockey-surveys', JSON.stringify(data.surveys));
     }
-    localStorage.setItem('jockey-members', JSON.stringify(data.members));
-    localStorage.setItem('jockey-reservations', JSON.stringify(data.reservations));
-    localStorage.setItem('jockey-journal-entries', JSON.stringify(data.journalEntries));
-    localStorage.setItem('jockey-staff-members', JSON.stringify(data.staffMembers));
-    localStorage.setItem('jockey-claims', JSON.stringify(data.claims));
-    localStorage.setItem('jockey-messages', JSON.stringify(data.messages));
-    localStorage.setItem('jockey-access-logs', JSON.stringify(data.entryLogs));
+    // Cloud: el backup restaura estado React; la persistencia va por Supabase/repos, no localStorage.
   };
 
   const stats = useMemo(

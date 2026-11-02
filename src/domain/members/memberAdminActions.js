@@ -154,6 +154,7 @@ export function collectMemberMeta(member = {}) {
     'prismaSuspectBloodType', 'familyPrincipalNumber', 'familyGroupName', 'cuotaCategories',
     'cuotaMissing', 'bajaFecha', 'bajaMotivo', 'bajaDetail', 'socioActivoRaw',
     'joinedAtFallback', 'fechaAltaRaw', 'joinTime', 'lifecycleHistory', 'lastLifecycle',
+    'profileEditHistory', 'lastProfileEdit',
     'suspendMotivo', 'suspendAt', 'suspendDetail', 'reactivateMotivo', 'reactivateAt',
     'reactivateDetail', 'portalUsername', 'portalProvisionedAt', 'portalProvisionedBy',
     'hasSocietasApp', 'societasAppAsOf', 'societasEmail',
@@ -161,6 +162,7 @@ export function collectMemberMeta(member = {}) {
     'poolMedicalExpiresAt', 'poolMedicalFileName', 'poolMedicalUploadedAt',
     'poolMedicalStatus', 'poolMedicalNote',
     'regularidadCertificates',
+    'automaticDebitKind', 'debitMoves', 'mpAdhesion', 'cardExpiry', 'lastDebitCardNumber',
   ];
   for (const k of keys) {
     if (member[k] != null && member[k] !== '' && base[k] == null) base[k] = member[k];

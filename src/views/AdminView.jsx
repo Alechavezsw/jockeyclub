@@ -1,42 +1,29 @@
-import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useDeferredValue, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Users, Calendar, DollarSign, Activity, ShieldAlert,
-  BookOpen, ClipboardList, MessageSquare, Phone,
+  BookOpen, Book, ClipboardList, MessageSquare, Phone, Wallet, PieChart,
   FileSpreadsheet, Radio, Database, BellRing, PartyPopper, Trophy, Store, DoorOpen, QrCode, Newspaper, CreditCard,
   LayoutDashboard, ChevronRight, Briefcase, Headset, Settings, SlidersHorizontal, Building2, Waves, GraduationCap, Sparkles, TicketCheck,
 } from 'lucide-react';
-import AccountingTab from '../components/AccountingTab';
-import StaffTab from '../components/StaffTab';
-import AlertsPanel from '../components/erp/AlertsPanel';
-import ClubEventsPanel from '../components/erp/ClubEventsPanel';
-import AdminDashboardTab from '../components/admin/AdminDashboardTab';
-import MembersTab from '../components/admin/MembersTab';
-import MemberProfilePanel from '../components/admin/MemberProfilePanel';
-import StaffProfilePanel from '../components/admin/StaffProfilePanel';
-import BookingsTab from '../components/admin/BookingsTab';
-import ClaimsTab from '../components/admin/ClaimsTab';
-import MessagingTab from '../components/admin/MessagingTab';
-import ReportsTab from '../components/admin/ReportsTab';
-import SurveysTab from '../components/admin/SurveysTab';
-import MigrationTab from '../components/admin/MigrationTab';
-import SystemSettingsTab from '../components/admin/SystemSettingsTab';
-import CuotasPanel from '../components/erp/CuotasPanel';
-import DisciplinesTab from '../components/admin/DisciplinesTab';
-import AccessLogsTab from '../components/admin/AccessLogsTab';
-import ClubFacilitiesPanel from '../components/admin/ClubFacilitiesPanel';
-import NewsCmsTab from '../components/admin/NewsCmsTab';
-import SystemAdminTab from '../components/admin/SystemAdminTab';
-import PortalUserProfilePanel from '../components/admin/PortalUserProfilePanel';
-import TeachersTab from '../components/admin/TeachersTab';
-import PoolTab from '../components/admin/PoolTab';
-import JevReviewTab from '../components/admin/JevReviewTab';
 import { DEFAULT_POOL_SETTINGS } from '../domain/pool/poolAccess';
 import { DEFAULT_CHART_OF_ACCOUNTS, resolveAccountId } from '../domain/accounting/chartOfAccounts';
 import { getAccountBalance as domainAccountBalance } from '../domain/accounting/journal';
-import { allowedAdminTabsForRoles, canAccessConcessions, canAccessQrGate, canLiquidateDues, canManageMembers, canWriteMemberLedger, ROLE_LABELS, ROLE_PANEL_META } from '../domain/auth/roles';
+import {
+  allowedAdminTabsForRoles,
+  canAccessConcessions,
+  canAccessQrGate,
+  canLiquidateDues,
+  canManageMembers,
+  canWriteMemberLedger,
+  isAccountingBookSubtab,
+  isAccountingReportSubtab,
+  isAccountingTreasurySubtab,
+  ROLE_LABELS,
+  ROLE_PANEL_META,
+} from '../domain/auth/roles';
 import { keepPageAtTop, preventButtonScroll } from '../lib/scrollPage';
-import { getOverdueMembers, getUpcomingDuesMembers } from '../domain/members/dues';
+import { countOverdueMembers, getUpcomingDuesMembers } from '../domain/members/dues';
 import { isLiveMember, isTitularMember, mergeMemberRecord } from '../domain/members/households';
 import { useAuth } from '../context/AuthContext';
 import { repos } from '../data/bootstrap';
@@ -52,6 +39,52 @@ import { cobranzasSeed } from '../domain/accounting/cobranzas';
 import { composeClubFinance, financeFromMonthlySummary, financeFromSummary, lilaContabilidadFromSnapshots } from '../domain/accounting/opsFinanceSnapshot';
 import { useSnapshotSeed } from '../hooks/useSnapshots';
 import { todayISODateAR } from '../lib/arDate';
+
+const AccountingTab = lazy(() => import('../components/AccountingTab'));
+const StaffTab = lazy(() => import('../components/StaffTab'));
+const AlertsPanel = lazy(() => import('../components/erp/AlertsPanel'));
+const ClubEventsPanel = lazy(() => import('../components/erp/ClubEventsPanel'));
+const AdminDashboardTab = lazy(() => import('../components/admin/AdminDashboardTab'));
+const MembersTab = lazy(() => import('../components/admin/MembersTab'));
+const MemberProfilePanel = lazy(() => import('../components/admin/MemberProfilePanel'));
+const StaffProfilePanel = lazy(() => import('../components/admin/StaffProfilePanel'));
+const BookingsTab = lazy(() => import('../components/admin/BookingsTab'));
+const ClaimsTab = lazy(() => import('../components/admin/ClaimsTab'));
+const MessagingTab = lazy(() => import('../components/admin/MessagingTab'));
+const ReportsTab = lazy(() => import('../components/admin/ReportsTab'));
+const SurveysTab = lazy(() => import('../components/admin/SurveysTab'));
+const MigrationTab = lazy(() => import('../components/admin/MigrationTab'));
+const SystemSettingsTab = lazy(() => import('../components/admin/SystemSettingsTab'));
+const CuotasPanel = lazy(() => import('../components/erp/CuotasPanel'));
+const DisciplinesTab = lazy(() => import('../components/admin/DisciplinesTab'));
+const AccessLogsTab = lazy(() => import('../components/admin/AccessLogsTab'));
+const ClubFacilitiesPanel = lazy(() => import('../components/admin/ClubFacilitiesPanel'));
+const NewsCmsTab = lazy(() => import('../components/admin/NewsCmsTab'));
+const SystemAdminTab = lazy(() => import('../components/admin/SystemAdminTab'));
+const PortalUserProfilePanel = lazy(() => import('../components/admin/PortalUserProfilePanel'));
+const TeachersTab = lazy(() => import('../components/admin/TeachersTab'));
+const PoolTab = lazy(() => import('../components/admin/PoolTab'));
+const JevReviewTab = lazy(() => import('../components/admin/JevReviewTab'));
+
+const TAB_FALLBACK = (
+  <article className="glass-card fade-in" style={{ padding: '1.25rem' }}>
+    <p className="ops-muted" style={{ margin: 0 }}>Cargando módulo…</p>
+  </article>
+);
+
+/** Prefetch de pestañas pesadas al pasar el mouse por el rail. */
+const TAB_PREFETCH = {
+  accounting: () => import('../components/AccountingTab'),
+  books: () => import('../components/AccountingTab'),
+  informes: () => import('../components/AccountingTab'),
+  operation: () => import('../components/AccountingTab'),
+  members: () => import('../components/admin/MembersTab'),
+  dues: () => import('../components/erp/CuotasPanel'),
+  dashboard: () => import('../components/admin/AdminDashboardTab'),
+  reports: () => import('../components/admin/ReportsTab'),
+  pool: () => import('../components/admin/PoolTab'),
+  jev: () => import('../components/admin/JevReviewTab'),
+};
 
 const LILA_METRIC_SNAPSHOTS = [
   'accessinMonthlyBalance',
@@ -179,10 +212,6 @@ export default function AdminView({
 }) {
   const { user } = useAuth();
   const chartOfAccounts = erp.chartOfAccounts || DEFAULT_CHART_OF_ACCOUNTS;
-  const lilaMetrics = useSnapshotSeed(LILA_METRIC_SNAPSHOTS, readLilaMetrics);
-  const movesSeed = useSnapshotSeed(['societasMembershipMoves'], membershipMovesSeed);
-  const balancesSeed = useSnapshotSeed(['accessinCurrentAccountBalances'], currentAccountBalancesSeed);
-  const feeDetailsSeed = useSnapshotSeed(['accessinFeeAccountDetails'], feeAccountDetailsSeed);
   const [ledgerCount, setLedgerCount] = useState(0);
   const roleSource = user?.roles?.length ? user.roles : userRole;
   const liquidateDues = canLiquidateDues(roleSource);
@@ -191,12 +220,39 @@ export default function AdminView({
   // Cobrar / pileta escriben saldo sin poder editar padrón (canEditMember).
   const memberWrite = (manageMembers || writeMemberLedger) ? updateMember : null;
   const memberSet = (manageMembers || writeMemberLedger) ? setMembers : null;
+  const permittedTabs = allowedAdminTabsForRoles(roleSource);
+
+  // La pestaña activa vive en la URL (/panel/:tab); perfiles en /panel/members|:staff/:id
+  // Subtabs: /panel/accounting|books|informes|operation?sub=…
+  const { tab: routeTab, memberId: routeEntityId } = useParams();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const activeTab = routeTab && permittedTabs.includes(routeTab) ? routeTab : permittedTabs[0] || 'dashboard';
+  const accountingSubTabFocus = (
+    activeTab === 'accounting'
+    || activeTab === 'books'
+    || activeTab === 'informes'
+    || activeTab === 'operation'
+  )
+    ? (searchParams.get('sub') || (
+      activeTab === 'operation' && (userRole === 'cashier' || userRole === 'gate_operator') ? 'cash' : null
+    ))
+    : null;
+
+  // Dumps LILA multi‑MB solo cuando el dashboard/JEV los necesita.
+  const needClubReviewSeeds = activeTab === 'dashboard' || activeTab === 'jev';
+  const lilaMetrics = useSnapshotSeed(needClubReviewSeeds ? LILA_METRIC_SNAPSHOTS : [], readLilaMetrics);
+  const movesSeed = useSnapshotSeed(needClubReviewSeeds ? ['societasMembershipMoves'] : [], membershipMovesSeed);
+  const balancesSeed = useSnapshotSeed(needClubReviewSeeds ? ['accessinCurrentAccountBalances'] : [], currentAccountBalancesSeed);
+  const feeDetailsSeed = useSnapshotSeed(needClubReviewSeeds ? ['accessinFeeAccountDetails'] : [], feeAccountDetailsSeed);
+
+  const membersSettled = !membersLoading && (members?.length || 0) > 0;
   useEffect(() => {
     // Completa los meses de las cuentas de cuotas: es una escritura del que liquida. Para el
-    // resto la base la rechaza, y reintentarla en cada carga del padrón solo hace ruido.
-    if (!liquidateDues || membersLoading || !members?.length || !erp.ensureProcessedFeeLedger) return;
+    // resto la base la rechaza, y reintentarla en cada batch del padrón solo hace ruido.
+    if (!liquidateDues || !membersSettled || !erp.ensureProcessedFeeLedger) return;
     void erp.ensureProcessedFeeLedger(members);
-  }, [liquidateDues, membersLoading, members, erp.ensureProcessedFeeLedger]);
+  }, [liquidateDues, membersSettled, erp.ensureProcessedFeeLedger]);
   useEffect(() => {
     let cancelled = false;
     repos.countGroupAccountLedgers()
@@ -211,6 +267,7 @@ export default function AdminView({
     };
   }, []);
   const feeChargedNumbers = useMemo(() => {
+    if (!needClubReviewSeeds) return [];
     const now = new Date();
     const key = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     const accounts = feeAccountDetailsForPeriod(key, feeDetailsSeed?.ACCESSIN_FEE_ACCOUNT_DETAILS || []);
@@ -222,9 +279,10 @@ export default function AdminView({
       }
     }
     return [...ids];
-  }, [feeDetailsSeed]);
-  const permittedTabs = allowedAdminTabsForRoles(roleSource);
-  const clubReview = useMemo(() => buildClubReview({
+  }, [needClubReviewSeeds, feeDetailsSeed]);
+  const clubReview = useMemo(() => {
+    if (!needClubReviewSeeds) return null;
+    return buildClubReview({
     members,
     journalEntries,
     chartOfAccounts,
@@ -241,6 +299,10 @@ export default function AdminView({
     interestGenerators: erp.interestGenerators || [],
     interestRuns: erp.interestRuns || [],
     bajas: movesSeed?.SOCIETAS_MEMBERSHIP_BAJAS || [],
+    altas: movesSeed?.SOCIETAS_MEMBERSHIP_ALTAS || [],
+    membershipMovesAsOf: movesSeed?.SOCIETAS_MEMBERSHIP_MOVES_AS_OF
+      || movesSeed?.SOCIETAS_MEMBERSHIP_MOVES_SNAPSHOT?.asOf
+      || '',
     expenses: erp.expenses || [],
     paymentOrders: erp.paymentOrders || [],
     galiciaDebits: erp.galiciaDebits || [],
@@ -255,7 +317,9 @@ export default function AdminView({
     feeChargedNumbers,
     accountLedgers: { loaded: ledgerCount },
     loading: membersLoading && !(members || []).length,
-  }), [
+  });
+  }, [
+    needClubReviewSeeds,
     members,
     journalEntries,
     chartOfAccounts,
@@ -287,22 +351,65 @@ export default function AdminView({
   const panelMeta = ROLE_PANEL_META[userRole] || ROLE_PANEL_META.admin;
   const [openGroups, setOpenGroups] = useState(() => new Set());
 
-  // La pestaña activa vive en la URL (/panel/:tab); perfiles en /panel/members|:staff/:id
-  // Subtabs de contabilidad: /panel/accounting?sub=cash
-  const { tab: routeTab, memberId: routeEntityId } = useParams();
-  const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const activeTab = routeTab && permittedTabs.includes(routeTab) ? routeTab : permittedTabs[0] || 'dashboard';
-  const accountingSubTabFocus = activeTab === 'accounting'
-    ? (searchParams.get('sub') || (userRole === 'cashier' ? 'cash' : null))
-    : null;
-
   useEffect(() => {
     if (userRole !== 'pool_operator' || routeTab) return;
     navigate('/entrada-pileta', { replace: true });
   }, [userRole, routeTab, navigate]);
 
+  // Libros, Informes y Operación desprendidos de Contabilidad: redirige enlaces viejos.
+  useEffect(() => {
+    const sub = searchParams.get('sub');
+    if (!sub) return;
+    if (activeTab === 'accounting' && isAccountingBookSubtab(sub) && permittedTabs.includes('books')) {
+      navigate(`/panel/books?sub=${encodeURIComponent(sub)}`, { replace: true });
+      return;
+    }
+    if (activeTab === 'accounting' && isAccountingReportSubtab(sub) && permittedTabs.includes('informes')) {
+      navigate(`/panel/informes?sub=${encodeURIComponent(sub)}`, { replace: true });
+      return;
+    }
+    if (activeTab === 'accounting' && isAccountingTreasurySubtab(sub) && permittedTabs.includes('operation')) {
+      navigate(`/panel/operation?sub=${encodeURIComponent(sub)}`, { replace: true });
+      return;
+    }
+    if (activeTab === 'books' && !isAccountingBookSubtab(sub)) {
+      if (isAccountingReportSubtab(sub) && permittedTabs.includes('informes')) {
+        navigate(`/panel/informes?sub=${encodeURIComponent(sub)}`, { replace: true });
+      } else if (isAccountingTreasurySubtab(sub) && permittedTabs.includes('operation')) {
+        navigate(`/panel/operation?sub=${encodeURIComponent(sub)}`, { replace: true });
+      } else if (permittedTabs.includes('accounting')) {
+        navigate(`/panel/accounting?sub=${encodeURIComponent(sub)}`, { replace: true });
+      }
+      return;
+    }
+    if (activeTab === 'informes' && !isAccountingReportSubtab(sub)) {
+      if (isAccountingBookSubtab(sub) && permittedTabs.includes('books')) {
+        navigate(`/panel/books?sub=${encodeURIComponent(sub)}`, { replace: true });
+      } else if (isAccountingTreasurySubtab(sub) && permittedTabs.includes('operation')) {
+        navigate(`/panel/operation?sub=${encodeURIComponent(sub)}`, { replace: true });
+      } else if (permittedTabs.includes('accounting')) {
+        navigate(`/panel/accounting?sub=${encodeURIComponent(sub)}`, { replace: true });
+      }
+      return;
+    }
+    if (activeTab === 'operation' && !isAccountingTreasurySubtab(sub)) {
+      if (isAccountingBookSubtab(sub) && permittedTabs.includes('books')) {
+        navigate(`/panel/books?sub=${encodeURIComponent(sub)}`, { replace: true });
+      } else if (isAccountingReportSubtab(sub) && permittedTabs.includes('informes')) {
+        navigate(`/panel/informes?sub=${encodeURIComponent(sub)}`, { replace: true });
+      } else if (permittedTabs.includes('accounting')) {
+        navigate(`/panel/accounting?sub=${encodeURIComponent(sub)}`, { replace: true });
+      }
+    }
+  }, [activeTab, searchParams, navigate, permittedTabs]);
+
+  const prefetchTab = (tabKey) => {
+    const load = TAB_PREFETCH[tabKey];
+    if (load) void load();
+  };
+
   const goToTab = (tabKey, focus = null) => {
+    prefetchTab(tabKey);
     if (tabKey === 'concessions') {
       navigate('/concesiones');
       return;
@@ -320,11 +427,53 @@ export default function AdminView({
       return;
     }
     if (tabKey === 'accounting') {
-      const nextFocus = focus || (userRole === 'cashier' ? 'cash' : null);
-      if (nextFocus) {
-        navigate(`/panel/accounting?sub=${encodeURIComponent(nextFocus)}`);
+      if (focus && isAccountingBookSubtab(focus)) {
+        navigate(`/panel/books?sub=${encodeURIComponent(focus)}`);
+        return;
+      }
+      if (focus && isAccountingReportSubtab(focus)) {
+        navigate(`/panel/informes?sub=${encodeURIComponent(focus)}`);
+        return;
+      }
+      if (focus && isAccountingTreasurySubtab(focus)) {
+        navigate(`/panel/operation?sub=${encodeURIComponent(focus)}`);
+        return;
+      }
+      if (focus) {
+        navigate(`/panel/accounting?sub=${encodeURIComponent(focus)}`);
       } else {
         navigate('/panel/accounting');
+      }
+      return;
+    }
+    if (tabKey === 'books') {
+      const nextFocus = focus && isAccountingBookSubtab(focus) ? focus : null;
+      if (nextFocus) {
+        navigate(`/panel/books?sub=${encodeURIComponent(nextFocus)}`);
+      } else {
+        navigate('/panel/books');
+      }
+      return;
+    }
+    if (tabKey === 'informes') {
+      const nextFocus = focus && isAccountingReportSubtab(focus) ? focus : null;
+      if (nextFocus) {
+        navigate(`/panel/informes?sub=${encodeURIComponent(nextFocus)}`);
+      } else {
+        navigate('/panel/informes');
+      }
+      return;
+    }
+    if (tabKey === 'operation') {
+      const nextFocus = focus && isAccountingTreasurySubtab(focus)
+        ? focus
+        : (userRole === 'cashier' || userRole === 'gate_operator'
+          ? 'cash'
+          : (userRole === 'admin' || userRole === 'admin_employee' ? 'debit_moves' : null));
+      if (nextFocus) {
+        navigate(`/panel/operation?sub=${encodeURIComponent(nextFocus)}`);
+      } else {
+        navigate('/panel/operation');
       }
       return;
     }
@@ -366,18 +515,21 @@ export default function AdminView({
         label: 'Gestión',
         tabs: [
           { key: 'concessions', icon: Store, label: 'Concesiones' },
+          { key: 'accounting', icon: BookOpen, label: 'Contabilidad' },
+          { key: 'books', icon: Book, label: 'Libros' },
+          { key: 'informes', icon: PieChart, label: 'Informes' },
           {
-            key: 'accounting',
-            icon: userRole === 'cashier'
+            key: 'operation',
+            icon: (userRole === 'cashier' || userRole === 'gate_operator')
               ? DollarSign
               : (userRole === 'admin' || userRole === 'admin_employee')
                 ? CreditCard
-                : BookOpen,
-            label: userRole === 'cashier'
+                : Wallet,
+            label: (userRole === 'cashier' || userRole === 'gate_operator')
               ? 'Caja'
               : (userRole === 'admin' || userRole === 'admin_employee')
                 ? 'Débitos'
-                : 'Contabilidad',
+                : 'Operación',
           },
           { key: 'reports', icon: FileSpreadsheet, label: 'Reportes' },
         ],
@@ -507,9 +659,10 @@ export default function AdminView({
   const totalIngresos = getCategoryTotal(['Cuotas Sociales', 'Reservas e Instalaciones', 'Concesión Gastronómica', 'Eventos y Fiestas']);
   const totalGastos = getCategoryTotal(['Sueldos y Jornales', 'Mantenimiento de Canchas', 'Alimento Equino', 'Servicios e Insumos']);
   const journalUtilidad = totalIngresos - totalGastos;
-  const lilaCards = lilaMetrics.cards || {};
-  const clubFinance = useMemo(
-    () => composeClubFinance({
+  const lilaCards = needClubReviewSeeds ? (lilaMetrics.cards || {}) : {};
+  const clubFinance = useMemo(() => {
+    if (!needClubReviewSeeds) return null;
+    return composeClubFinance({
       lila: lilaMetrics.money,
       lilaCards,
       members,
@@ -517,10 +670,9 @@ export default function AdminView({
       chartOfAccounts,
       feePeriods: erp.feePeriods || [],
       today: todayISODateAR(),
-    }),
-    [lilaMetrics.money, lilaCards, members, journalEntries, chartOfAccounts, erp.feePeriods],
-  );
-  const lilaMoney = clubFinance || lilaMetrics.money;
+    });
+  }, [needClubReviewSeeds, lilaMetrics.money, lilaCards, members, journalEntries, chartOfAccounts, erp.feePeriods]);
+  const lilaMoney = clubFinance || (needClubReviewSeeds ? lilaMetrics.money : null);
   const hasLilaMonth = Boolean(lilaCards.totalIncome || lilaCards.totalExpenses || lilaMoney?.income);
   const totalActivos = lilaMoney?.cash || lilaCards.closingCash || journalCash;
   const resultadoAcumulado = lilaMoney?.result != null
@@ -538,12 +690,22 @@ export default function AdminView({
   const activeBookingsCount = reservations.filter(res => res.status === 'confirmed').length;
   const pendingBookingsCount = reservations.filter(res => res.status === 'pending').length;
 
-  const overdueMembers = getOverdueMembers(members);
-  const overdueMembersCount = overdueMembers.length;
-  const upcomingDuesCount = getUpcomingDuesMembers(members).length;
-  const totalOutstanding = liveTitulares.reduce(
-    (sum, member) => sum + Math.max(0, Number(member.outstandingBalance) || 0),
-    0,
+  const deferredMembers = useDeferredValue(members);
+  const duesStatsReady = activeTab === 'dashboard' && !membersLoading && (deferredMembers?.length || 0) > 0;
+  const overdueMembersCount = useMemo(
+    () => (duesStatsReady ? countOverdueMembers(deferredMembers) : 0),
+    [duesStatsReady, deferredMembers],
+  );
+  const upcomingDuesCount = useMemo(
+    () => (duesStatsReady ? getUpcomingDuesMembers(deferredMembers).length : 0),
+    [duesStatsReady, deferredMembers],
+  );
+  const totalOutstanding = useMemo(
+    () => liveTitulares.reduce(
+      (sum, member) => sum + Math.max(0, Number(member.outstandingBalance) || 0),
+      0,
+    ),
+    [liveTitulares],
   );
 
   const pendingClaimsCount = claims.filter(c => c.status !== 'resolved').length;
@@ -676,37 +838,50 @@ export default function AdminView({
       `}</style>
 
       <aside className="admin-rail" aria-label="Secciones del panel">
+        <div className="admin-rail-brand" aria-hidden="true">
+          <span className="admin-rail-brand-mark" />
+          <span className="admin-rail-brand-text">Panel</span>
+        </div>
         <nav className="admin-rail-nav">
-          {permittedTabs.includes('dashboard') && (
-            <button
-              type="button"
-              className={`admin-rail-item${activeTab === 'dashboard' ? ' is-active' : ''}`}
-              onMouseDown={preventButtonScroll}
-              onClick={() => setActiveTab('dashboard')}
-              aria-current={activeTab === 'dashboard' ? 'page' : undefined}
-              title="Inicio"
-            >
-              <span className="admin-rail-icon" aria-hidden="true">
-                <LayoutDashboard size={18} strokeWidth={activeTab === 'dashboard' ? 2.4 : 2} />
-              </span>
-              <span className="admin-rail-label">Inicio</span>
-            </button>
-          )}
-          {permittedTabs.includes('jev') && (
-            <button
-              type="button"
-              className={`admin-rail-item${activeTab === 'jev' ? ' is-active' : ''}`}
-              onMouseDown={preventButtonScroll}
-              onClick={() => setActiveTab('jev')}
-              aria-current={activeTab === 'jev' ? 'page' : undefined}
-              title="IA"
-            >
-              <span className="admin-rail-icon" aria-hidden="true">
-                <Sparkles size={18} strokeWidth={activeTab === 'jev' ? 2.4 : 2} />
-              </span>
-              <span className="admin-rail-label">IA</span>
-            </button>
-          )}
+          <div className="admin-rail-pin">
+            {permittedTabs.includes('dashboard') && (
+              <button
+                type="button"
+                className={`admin-rail-item is-pin${activeTab === 'dashboard' ? ' is-active' : ''}`}
+                onMouseDown={preventButtonScroll}
+                onMouseEnter={() => prefetchTab('dashboard')}
+                onFocus={() => prefetchTab('dashboard')}
+                onClick={() => setActiveTab('dashboard')}
+                aria-current={activeTab === 'dashboard' ? 'page' : undefined}
+                title="Inicio"
+              >
+                <span className="admin-rail-icon" aria-hidden="true">
+                  <LayoutDashboard size={18} strokeWidth={activeTab === 'dashboard' ? 2.4 : 2} />
+                </span>
+                <span className="admin-rail-label">Inicio</span>
+              </button>
+            )}
+            {permittedTabs.includes('jev') && (
+              <button
+                type="button"
+                className={`admin-rail-item is-pin is-ai${activeTab === 'jev' ? ' is-active' : ''}`}
+                onMouseDown={preventButtonScroll}
+                onMouseEnter={() => prefetchTab('jev')}
+                onFocus={() => prefetchTab('jev')}
+                onClick={() => setActiveTab('jev')}
+                aria-current={activeTab === 'jev' ? 'page' : undefined}
+                title="IA Jockey"
+                aria-label="IA Jockey"
+              >
+                <span className="admin-rail-icon" aria-hidden="true">
+                  <Sparkles size={18} strokeWidth={activeTab === 'jev' ? 2.4 : 2} />
+                </span>
+                <span className="admin-rail-label">IA Jockey</span>
+              </button>
+            )}
+          </div>
+
+          <div className="admin-rail-divider" aria-hidden="true" />
 
           {navGroups.map((group) => {
             const GroupIcon = GROUP_ICONS[group.id] || LayoutDashboard;
@@ -716,6 +891,7 @@ export default function AdminView({
               <div
                 key={group.id}
                 className={`admin-rail-group${isOpen ? ' is-open' : ''}${hasActive ? ' has-active' : ''}`}
+                data-group={group.id}
               >
                 <button
                   type="button"
@@ -725,9 +901,12 @@ export default function AdminView({
                   title={group.label}
                 >
                   <span className="admin-rail-icon" aria-hidden="true">
-                    <GroupIcon size={18} strokeWidth={hasActive ? 2.4 : 2} />
+                    <GroupIcon size={17} strokeWidth={hasActive ? 2.4 : 2} />
                   </span>
-                  <span className="admin-rail-label">{group.label}</span>
+                  <span className="admin-rail-label">
+                    <span className="admin-rail-group-name">{group.label}</span>
+                    <span className="admin-rail-group-count">{group.tabs.length}</span>
+                  </span>
                   <ChevronRight size={14} className="admin-rail-chevron" aria-hidden="true" />
                 </button>
                 <div className="admin-rail-submenu" hidden={!isOpen}>
@@ -739,13 +918,15 @@ export default function AdminView({
                         key={tab.key}
                         type="button"
                         onMouseDown={preventButtonScroll}
+                        onMouseEnter={() => prefetchTab(tab.key)}
+                        onFocus={() => prefetchTab(tab.key)}
                         onClick={() => setActiveTab(tab.key)}
                         className={`admin-rail-item is-sub${isActive ? ' is-active' : ''}`}
                         aria-current={isActive ? 'page' : undefined}
                         title={tab.label}
                       >
                         <span className="admin-rail-icon" aria-hidden="true">
-                          <Icon size={16} strokeWidth={isActive ? 2.4 : 2} />
+                          <Icon size={15} strokeWidth={isActive ? 2.4 : 2} />
                         </span>
                         <span className="admin-rail-label">{tab.label}</span>
                       </button>
@@ -761,7 +942,7 @@ export default function AdminView({
       <div className="admin-main">
       <div className="page-stage">
       {/* Cabecera solo fuera del Inicio (el dashboard ya trae su propia intro) */}
-      {activeTab !== 'dashboard' && activeTab !== 'events' && activeTab !== 'accounting' && activeTab !== 'jev' && (
+      {activeTab !== 'dashboard' && activeTab !== 'events' && activeTab !== 'accounting' && activeTab !== 'books' && activeTab !== 'informes' && activeTab !== 'operation' && activeTab !== 'jev' && (
         <div className="page-header">
           <div>
             <h1 className="page-title">{panelMeta.title}</h1>
@@ -771,6 +952,7 @@ export default function AdminView({
       )}
 
       {/* --- CONTENIDO DE CADA TAB --- */}
+      <Suspense fallback={TAB_FALLBACK}>
 
       {activeTab === 'dashboard' && (
         <AdminDashboardTab
@@ -886,6 +1068,7 @@ export default function AdminView({
           duesSettings={duesSettings}
           setDuesSettings={setDuesSettings}
           paymentPlans={paymentPlans}
+          membersLoading={membersLoading}
         />
       )}
 
@@ -988,8 +1171,17 @@ export default function AdminView({
         />
       )}
 
-      {activeTab === 'accounting' && (
+      {(activeTab === 'accounting' || activeTab === 'books' || activeTab === 'informes' || activeTab === 'operation') && (
         <AccountingTab
+          section={
+            activeTab === 'books'
+              ? 'books'
+              : activeTab === 'informes'
+                ? 'informes'
+                : activeTab === 'operation'
+                  ? 'operation'
+                  : 'general'
+          }
           initialSubTab={accountingSubTabFocus}
           journalEntries={journalEntries}
           addJournalEntry={addJournalEntry}
@@ -1237,6 +1429,7 @@ export default function AdminView({
           setFacilityCatalog={setFacilityCatalog}
         />
       )}
+      </Suspense>
       </div>
       </div>
     </div>

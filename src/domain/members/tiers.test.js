@@ -34,7 +34,7 @@ describe('tiers catalog', () => {
     expect(slugifyTierId('INTERES POR TRANSACCIÓN 2,5% GRUPO FAMILIAR (AMET)'))
       .toBe('interes_por_transaccion_25_grupo_familiar_amet');
     expect(MEMBER_TIER_CATALOG.find((t) => t.id === 'socio_familiar_amet')?.monthlyDues).toBe(68250);
-    expect(MEMBER_TIER_CATALOG.find((t) => t.id === 'abono_tenis')?.monthlyDues).toBe(10000);
+    expect(MEMBER_TIER_CATALOG.find((t) => t.id === 'abono_tenis')?.monthlyDues).toBe(12000);
     expect(slugifyTierId('–')).toBe(SIN_CATEGORIA_TIER);
   });
 

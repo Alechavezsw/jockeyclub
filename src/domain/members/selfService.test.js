@@ -107,7 +107,7 @@ describe('selfService', () => {
       createdAt: '2026-09-23T00:26:09.717Z',
     }, {
       id: 'bd6a7348-94a8-4fee-8eff-03dd56fd9c78',
-      memberId: '4240955017912629',
+      memberId: '111591',
       name: 'Ale Chavez',
       documentNumber: '31888184',
       tier: 'grupo_familiar_familiar',
@@ -116,12 +116,30 @@ describe('selfService', () => {
       status: 'active',
     });
     expect(next.id).toBe('bd6a7348-94a8-4fee-8eff-03dd56fd9c78');
-    expect(next.memberId).toBe('4240955017912629');
+    expect(next.memberId).toBe('111591');
     expect(next.name).toBe('manuel alejandro Chávez');
     expect(next.tier).toBe('socio_individual');
     expect(next.email).toBe('alechavez@cosechacreativa.com.ar');
     expect(next.joinDate).toBe('2026-09-22');
     expect(joinDateFromApplication({ createdAt: '2026-09-23T00:26:09.717Z' })).toBe('2026-09-22');
+  });
+
+  it('alta nueva usa correlativo corto, no un random de 16 dígitos', () => {
+    const next = applyJoinApplicationToMember({
+      fullName: 'Nuevo Socio',
+      documentNumber: '40111222',
+      phone: '2644000000',
+      email: 'nuevo@example.com',
+      requestedTier: 'socio_individual',
+      createdAt: '2026-11-01T12:00:00.000Z',
+    }, null, {
+      members: [
+        { memberId: '111590' },
+        { memberId: '4240955017912629' },
+      ],
+    });
+    expect(next.memberId).toBe('111591');
+    expect(next.memberId.length).toBeLessThanOrEqual(6);
   });
 
   it('etiqueta el motivo', () => {

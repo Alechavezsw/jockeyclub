@@ -1,11 +1,11 @@
 /** Liquidación mensual de cuotas: detalle de gastos por categoría (Accessin / LILA). */
 
-import { isMemberBillingActive } from '../members/dues';
+import { isDuesExemptMember, isMemberBillingActive } from '../members/dues';
 import { isTitularMember } from '../members/households';
 import {
   findTier,
   getActiveTiers,
-  getTierDisplayName,
+  getTierAccessinCategoryId,
   parseCuotaCategories,
 } from '../members/tiers';
 import { periodLabel } from './feeBilling';
@@ -30,16 +30,16 @@ function moneyAmount(value) {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
-export function memberCuotaCategoryNames(member, catalog = []) {
-  const cats = parseCuotaCategories(member?.cuotaCategories || member?.meta?.cuotaCategories);
-  if (cats.length) return cats;
-  const fromTier = getTierDisplayName(member?.tier, catalog);
-  if (fromTier && fromTier !== '—') return [fromTier];
-  return [];
+/** Solo categorías Accessin asignadas (como LILA). Sin fallback al tier del padrón. */
+export function memberCuotaCategoryNames(member, _catalog = []) {
+  return parseCuotaCategories(member?.cuotaCategories || member?.meta?.cuotaCategories);
 }
 
 export function isLiquidationTitular(member) {
-  return Boolean(member) && isMemberBillingActive(member) && isTitularMember(member);
+  return Boolean(member)
+    && isMemberBillingActive(member)
+    && isTitularMember(member)
+    && !isDuesExemptMember(member);
 }
 
 /** Cuántos socios activos hay en cada categoría. Una persona puede contar en varias. */
@@ -62,13 +62,18 @@ export function holderCountsFromMembers(members = [], catalog = []) {
 function conceptRows(concepts = [], counts = null) {
   return (concepts || []).map((row) => {
     const unit = Number(row.amount ?? row.unit) || 0;
-    const key = fold(row.label || row.name);
+    const name = row.label || row.name;
+    const key = fold(name);
     const holders = counts
       ? (counts.get(key) || 0)
       : (Number(row.holders) || 0);
+    const rawId = String(row.id ?? row.identifier ?? '').trim();
+    const accessinId = /^\d+$/.test(rawId)
+      ? rawId
+      : (getTierAccessinCategoryId(row.tierId || name) || rawId);
     return {
-      identifier: String(row.id ?? row.identifier ?? ''),
-      name: row.label || row.name,
+      identifier: accessinId,
+      name,
       holders,
       unit,
       total: holders * unit,
@@ -102,12 +107,25 @@ function applyDiscountsToPackRows(rows, members, rules, on, catalog) {
 
 /**
  * Detalle de una liquidación con pack de cuotas.
- * Si el período no está cerrado y hay padrón, los titulares salen del padrón
- * y el total es la suma de titulares × valor, menos descuentos extras vigentes.
+ * Pack preparado: titulares × valor de las filas (Monto año = TOTAL detalle = LILA).
+ * recountHolders=true solo al rearmar desde padrón (Actualizar padrón).
  */
-export function liquidationFromPack(period, pack, { members = [], tierCatalog = [], discountRules } = {}) {
-  const frozen = Array.isArray(period?.lines) && period.lines.length > 0;
-  const counts = !frozen && period?.status !== 'processed'
+export function liquidationFromPack(period, pack, {
+  members = [],
+  tierCatalog = [],
+  discountRules,
+  recountHolders = false,
+} = {}) {
+  const frozen = (period?.status === 'processed' || period?.status === 'pending')
+    && Array.isArray(period?.lines)
+    && period.lines.length > 0;
+  const concepts = pack?.concepts || [];
+  const packHasHolders = concepts.some((row) => Number(row.holders) > 0);
+  const counts = !frozen
+    && period?.status !== 'processed'
+    && period?.status !== 'pending'
+    && (recountHolders || !packHasHolders)
+    && members?.length
     ? holderCountsFromMembers(members, tierCatalog)
     : null;
   const source = frozen
@@ -117,17 +135,23 @@ export function liquidationFromPack(period, pack, { members = [], tierCatalog = 
       holders: row.holders,
       amount: row.unit,
     }))
-    : pack?.concepts;
-  const baseRows = conceptRows(source, frozen ? null : counts);
-  const rows = frozen
-    ? baseRows
-    : applyDiscountsToPackRows(
+    : concepts;
+  const baseRows = conceptRows(source, counts).map((row) => ({
+    ...row,
+    total: (Number(row.holders) || 0) * (Number(row.unit) || 0),
+  }));
+  // Descuentos de ficha solo con reglas explícitas: no bajan la grilla LILA por default.
+  const priced = !frozen && discountRules
+    ? applyDiscountsToPackRows(
       baseRows,
       members,
       resolveDiscountRules(discountRules),
       packImputationDay(period),
       tierCatalog,
-    );
+    )
+    : baseRows;
+  // Borrador: no listar conceptos sin cobro (fundador, vitalicio, comisión, actividades $0).
+  const rows = frozen ? priced : priced.filter((row) => Number(row.unit) > 0);
   const total = rows.reduce((sum, row) => sum + row.total, 0);
   return {
     period,
@@ -233,7 +257,8 @@ export function buildFeePeriodLiquidation(period, {
         unit,
         total: row.holders * unit,
       };
-    });
+    })
+    .filter((row) => Number(row.unit) > 0);
 
   const computedTotal = rows.reduce((sum, row) => sum + row.total, 0);
   const official = Number(period?.amount);
@@ -259,6 +284,58 @@ export function liquidationFromPeriod(period, { members = [], tierCatalog = [], 
   return buildFeePeriodLiquidation(period, { members, tierCatalog });
 }
 
+/** Suma titulares × valor de las filas del pack (mismo TOTAL CUOTAS que Generar / LILA). */
+export function feeConceptRowsTotal(rows = []) {
+  return (rows || []).reduce((sum, row) => {
+    const holders = Number(row.holders) || 0;
+    const unit = Number(row.unit ?? row.amount) || 0;
+    if (!(unit > 0) || !(holders > 0)) return sum;
+    return sum + (holders * unit);
+  }, 0);
+}
+
+/**
+ * Total para la tabla de períodos: idéntico al TOTAL del detalle Generar.
+ * Prioridad: titulares × valor del pack preparado (misma grilla LILA).
+ */
+export function periodDisplayTotal(period, context = {}) {
+  if (!period || period.status === 'cancelled') return null;
+  const official = Number(period.amount);
+  if (period.status === 'processed' || period.status === 'pending') {
+    // Pendiente/procesada sin monto ni pack no inventa un recuento de padrón
+    // (p. ej. fila fantasma pending con amount 0 → no mostrar $91 M con exentos).
+    if (Number.isFinite(official) && official > 0) {
+      return Math.round(official * 100) / 100;
+    }
+    const fromConcepts = feeConceptRowsTotal(period.pack?.concepts);
+    if (fromConcepts > 0) return Math.round(fromConcepts * 100) / 100;
+    const fromLines = feeConceptRowsTotal(period.lines);
+    if (fromLines > 0) return Math.round(fromLines * 100) / 100;
+    const prepared = Number(period.pack?.total);
+    if (Number.isFinite(prepared) && prepared > 0) {
+      return Math.round(prepared * 100) / 100;
+    }
+    return null;
+  }
+  if (period.status === 'draft') {
+    const fromConcepts = feeConceptRowsTotal(period.pack?.concepts);
+    if (fromConcepts > 0) return Math.round(fromConcepts * 100) / 100;
+    const fromLines = feeConceptRowsTotal(period.lines);
+    if (fromLines > 0) return Math.round(fromLines * 100) / 100;
+    if (Number.isFinite(official) && official > 0) {
+      return Math.round(official * 100) / 100;
+    }
+    const prepared = Number(period.pack?.total);
+    if (Number.isFinite(prepared) && prepared > 0) {
+      return Math.round(prepared * 100) / 100;
+    }
+    // Sin pack cargado: no estimar padrón en la grilla (evita montos inflados
+    // con vitalicio/fundador/comisión). «Cargar borrador» / día 1 escriben concepts.
+    return null;
+  }
+  return null;
+}
+
 /** Liquidado del mes calendario: el monto de esa fila, borrador incluido. */
 export function liquidatedTotalForMonth(feePeriods = [], monthKey = '', context = {}) {
   const [year, month] = String(monthKey || '').split('-').map(Number);
@@ -268,12 +345,8 @@ export function liquidatedTotalForMonth(feePeriods = [], monthKey = '', context 
     && Number(row.month) === month
     && row.status !== 'cancelled'
   ));
-  if (!period || (period.status !== 'processed' && period.status !== 'draft')) return null;
-  const official = Number(period.amount) || 0;
-  if (period.status === 'processed' && official > 0) {
-    return Math.round(official * 100) / 100;
+  if (!period || (period.status !== 'processed' && period.status !== 'pending' && period.status !== 'draft')) {
+    return null;
   }
-  const computed = Number(liquidationFromPeriod(period, context).total) || 0;
-  const total = computed > 0 ? computed : official;
-  return total > 0 ? Math.round(total * 100) / 100 : null;
+  return periodDisplayTotal(period, context);
 }

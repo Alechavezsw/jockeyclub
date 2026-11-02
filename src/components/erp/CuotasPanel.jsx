@@ -1,26 +1,36 @@
-import { useMemo, useRef, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowLeft, ChevronDown, Download, Eye, FileDown, FileSpreadsheet, Pencil, Plus, RotateCcw, Trash2, Upload, Wallet,
+  ArrowLeft, ChevronDown, Download, Eye, FileDown, FileSpreadsheet, History, Loader2, Pencil, Play, RotateCcw, Sparkles, Trash2, Upload, Wallet, X,
 } from 'lucide-react';
+import ModalDialog from '../ModalDialog';
+import { useAuth } from '../../context/AuthContext';
+import { canEditFeePackAmounts } from '../../domain/auth/roles';
 import { formatCurrency } from '../../domain/accounting/journal';
 import {
   applyFeePackEdit,
   appOwnsFeePeriod,
+  autoLiquidateFeePeriodOnMonthStart,
+  feePeriodActionHistory,
   feePeriodIsClosed,
   feePeriodsForYear,
   formatPeriodGeneratedAt,
   feePeriodLiquidateBlock,
+  feePeriodPrepareBlock,
+  isFeePeriodAutoDay,
   liquidateFeePeriod,
   packEditorFromPeriod,
   periodLabel,
   periodStatusLabel,
+  prepareFeePeriodDraft,
+  promotePendingFeePeriods,
   resolveFeePeriods,
 } from '../../domain/accounting/feeBilling';
+import { todayISODateAR } from '../../lib/arDate';
 import FeePackEditor from './FeePackEditor';
 import { feePackForPeriod } from '../../domain/accounting/feePackConcepts';
 import DuesDueBanner from '../admin/DuesDueBanner';
 import { exportFeePeriodExcel, exportFeePeriodPdf } from '../../domain/accounting/exportFeePeriodDetails';
-import { liquidationFromPeriod } from '../../domain/accounting/feePeriodLiquidation';
+import { liquidationFromPeriod, periodDisplayTotal } from '../../domain/accounting/feePeriodLiquidation';
 import {
   LISTA_BASE_COBRANZAS_FILENAME,
   LISTA_BASE_COBRANZAS_URL,
@@ -46,7 +56,7 @@ import {
   reservationStatusBucket,
   revertEventImputation,
 } from '../../domain/accounting/eventImputation';
-import { getOverdueMembers } from '../../domain/members/dues';
+import { countOverdueMembers, getOverdueMembers } from '../../domain/members/dues';
 import DuesControlTab from '../admin/DuesControlTab';
 import OverdueDuesStrip from '../admin/OverdueDuesStrip';
 import FeeChartAccountsPanel from './FeeChartAccountsPanel';
@@ -55,6 +65,7 @@ import MonthlyDebtsPanel from './MonthlyDebtsPanel';
 import DetailedCurrentAccountsPanel from './DetailedCurrentAccountsPanel';
 import MemberCreditPurchasesPanel from './MemberCreditPurchasesPanel';
 import CuotasDeskToolbar from './CuotasDeskToolbar';
+import CuotasIaReviewModal from './CuotasIaReviewModal';
 import { mergeDuesSettings } from '../../domain/system/clubSettings';
 
 const MONTHS_ES = [
@@ -79,8 +90,8 @@ function formatLilaDateTime(iso) {
 
 function statusTone(status) {
   if (status === 'completed' || status === 'processed') return 'confirmed';
-  if (status === 'deleted' || status === 'failed') return 'cancelled';
-  if (status === 'partial') return 'pending';
+  if (status === 'deleted' || status === 'failed' || status === 'cancelled') return 'cancelled';
+  if (status === 'pending' || status === 'partial') return 'pending';
   return 'pending';
 }
 
@@ -115,17 +126,34 @@ export default function CuotasPanel({
   duesSettings,
   paymentPlans = [],
   setDuesSettings,
+  membersLoading = false,
 }) {
+  const { user } = useAuth();
+  const roleSource = user?.roles?.length ? user.roles : user?.role;
+  const actorName = String(user?.fullName || user?.name || user?.email || '').trim() || 'Usuario';
+  const actorMeta = { by: actorName, byId: user?.id || null };
+  const editFeeAmounts = canEditFeePackAmounts(roleSource);
   const fmt = formatCurrencyProp || formatCurrency;
   const [view, setView] = useState(() => (balancesOnly ? 'balances' : initialView)); // hub | import_collections | import_debts | impute_events | mora | period_detail | accounts | balances | monthly_debts | detailed_cc | credit_purchases
   const [year, setYear] = useState(2026);
   const ccEnabled = duesSettings?.showCurrentAccountsToMembers !== false;
   const [flash, setFlash] = useState('');
+  const [successBanner, setSuccessBanner] = useState('');
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
   const [busy, setBusy] = useState(false);
+  /** null | 'procesando' | 'revirtiendo' | 'generando' | 'actualizando' */
+  const [busyPhase, setBusyPhase] = useState(null);
   const [selectedPeriod, setSelectedPeriod] = useState(null);
   const [editingPeriod, setEditingPeriod] = useState(false);
+  const [iaReviewOpen, setIaReviewOpen] = useState(false);
+  const [historyPeriod, setHistoryPeriod] = useState(null);
+
+  useEffect(() => {
+    if (!successBanner) return undefined;
+    const t = window.setTimeout(() => setSuccessBanner(''), 7000);
+    return () => window.clearTimeout(t);
+  }, [successBanner]);
 
   const [entity, setEntity] = useState('excel_manual');
   const [forceDate, setForceDate] = useState('');
@@ -140,6 +168,11 @@ export default function CuotasPanel({
   const [evList, setEvList] = useState('pending');
   const [detailEvent, setDetailEvent] = useState(null);
   const [exportBusy, setExportBusy] = useState(null);
+  const [liquidateConfirmId, setLiquidateConfirmId] = useState(null);
+  const [liquidateDraft, setLiquidateDraft] = useState(null);
+
+  const deferredMembers = useDeferredValue(members);
+  const membersReady = !membersLoading && (deferredMembers?.length || 0) > 0;
 
   const periods = useMemo(
     () => feePeriodsForYear(resolveFeePeriods(feePeriods), year),
@@ -151,7 +184,27 @@ export default function CuotasPanel({
     set.add(new Date().getFullYear());
     return [...set].toSorted((a, b) => b - a);
   }, [feePeriods, year]);
-  const overdueMembers = useMemo(() => getOverdueMembers(members), [members]);
+  // Lista completa solo en Mora o al abrir el strip; el hub cerrado solo necesita el conteo.
+  const [overdueOpen, setOverdueOpen] = useState(false);
+  const needOverdueList = membersReady && (view === 'mora' || overdueOpen);
+  const overdueMembers = useMemo(
+    () => (needOverdueList ? getOverdueMembers(deferredMembers) : []),
+    [needOverdueList, deferredMembers],
+  );
+  const overdueCount = useMemo(() => {
+    if (!membersReady) return 0;
+    if (needOverdueList) return overdueMembers.length;
+    return countOverdueMembers(deferredMembers);
+  }, [membersReady, needOverdueList, overdueMembers, deferredMembers]);
+  const periodAmounts = useMemo(() => {
+    const ctx = membersReady ? { members: deferredMembers, tierCatalog } : {};
+    return new Map(
+      periods.map((period) => [
+        period.id,
+        periodDisplayTotal(period, ctx),
+      ]),
+    );
+  }, [periods, membersReady, deferredMembers, tierCatalog]);
   const goHome = () => {
     setSelectedPeriod(null);
     setEditingPeriod(false);
@@ -167,15 +220,106 @@ export default function CuotasPanel({
   };
 
   const periodLiquidation = useMemo(
-    () => (selectedPeriod ? liquidationFromPeriod(selectedPeriod, { members, tierCatalog }) : null),
-    [selectedPeriod, members, tierCatalog],
+    () => (selectedPeriod && membersReady
+      ? liquidationFromPeriod(selectedPeriod, { members: deferredMembers, tierCatalog })
+      : null),
+    [selectedPeriod, membersReady, deferredMembers, tierCatalog],
   );
-
   const openPeriodDetail = (period, edit = false) => {
     setSelectedPeriod(period);
     setEditingPeriod(edit && !feePeriodIsClosed(period));
     setFlash('');
     setView('period_detail');
+  };
+
+  /**
+   * Ver/editar borrador.
+   * Si ya hay pack preparado (p. ej. LILA), no recuenta el padrón: eso pisa montos.
+   * Recuento solo con «Cargar borrador» / «Actualizar padrón».
+   */
+  const openDraftDetail = async (period, edit = false) => {
+    if (!period) return;
+    const hasPreparedPack = Boolean(
+      period.pack?.concepts?.length
+      || period.lines?.length
+      || (Number(period.amount) > 0 && Number(period.pack?.total) > 0),
+    );
+    if (
+      period.status === 'draft'
+      && !balancesOnly
+      && !feePeriodPrepareBlock(period)
+      && !hasPreparedPack
+    ) {
+      setBusy(true);
+      setBusyPhase('procesando');
+      setError('');
+      try {
+        const prepared = await refreshDraftFromPadron(period.id);
+        openPeriodDetail(prepared, edit);
+        return;
+      } catch (err) {
+        setError(err?.message || 'No se pudo actualizar el padrón (altas/bajas).');
+      } finally {
+        setBusy(false);
+        setBusyPhase(null);
+      }
+    }
+    openPeriodDetail(period, edit);
+  };
+
+  /** Recarga titulares desde el padrón vivo: entran altas, salen bajas. */
+  const refreshDraftFromPadron = async (periodId) => {
+    const block = feePeriodPrepareBlock(
+      (feePeriods || []).find((p) => p.id === periodId)
+        || selectedPeriod
+        || { id: periodId },
+    );
+    if (block) throw new Error(block);
+    const result = prepareFeePeriodDraft(feePeriods, periodId, members);
+    const model = liquidationFromPeriod(result.period, { members, tierCatalog });
+    const prepared = {
+      ...result.period,
+      amount: model.total,
+      lines: model.rows,
+      pack: {
+        ...(result.period.pack || {}),
+        total: model.total,
+        concepts: result.period.pack?.concepts || model.rows,
+      },
+    };
+    // Fuente de verdad: Supabase (fee_period_closures).
+    const saved = onPersistFeePeriod ? await onPersistFeePeriod(prepared) : prepared;
+    const next = saved || prepared;
+    onUpsertFeePeriods?.(result.periods.map((p) => (p.id === periodId ? next : p)));
+    return next;
+  };
+
+  const persistPackEdit = async (draft) => {
+    if (!selectedPeriod || feePeriodIsClosed(selectedPeriod)) {
+      throw new Error('Período no editable.');
+    }
+    let safeDraft = draft;
+    if (!editFeeAmounts) {
+      const locked = packEditorFromPeriod(selectedPeriod);
+      const byId = new Map((locked.concepts || []).map((row) => [String(row.id), row.amount]));
+      safeDraft = {
+        ...draft,
+        concepts: (draft.concepts || []).map((row) => ({
+          ...row,
+          amount: byId.has(String(row.id)) ? byId.get(String(row.id)) : row.amount,
+        })),
+      };
+    }
+    const edited = applyFeePackEdit(selectedPeriod, safeDraft);
+    const saved = onPersistFeePeriod ? await onPersistFeePeriod(edited) : edited;
+    const next = saved || edited;
+    const source = feePeriods?.length ? feePeriods : [selectedPeriod];
+    const nextList = source.some((p) => p.id === next.id)
+      ? source.map((p) => (p.id === next.id ? next : p))
+      : [...source, next];
+    onUpsertFeePeriods?.(nextList);
+    setSelectedPeriod(next);
+    return { next, nextList };
   };
 
   const savePackEdit = async (draft) => {
@@ -184,14 +328,7 @@ export default function CuotasPanel({
     setOk('');
     setBusy(true);
     try {
-      const next = applyFeePackEdit(selectedPeriod, draft);
-      const source = feePeriods?.length ? feePeriods : [selectedPeriod];
-      const nextList = source.some((p) => p.id === next.id)
-        ? source.map((p) => (p.id === next.id ? next : p))
-        : [...source, next];
-      onUpsertFeePeriods?.(nextList);
-      if (onPersistFeePeriod) await onPersistFeePeriod(next);
-      setSelectedPeriod(next);
+      await persistPackEdit(draft);
       setEditingPeriod(false);
       setOk('Cambios guardados. No se imputó una cuota a los socios.');
     } catch (err) {
@@ -199,6 +336,67 @@ export default function CuotasPanel({
     } finally {
       setBusy(false);
     }
+  };
+
+  /**
+   * Botón verde Generar (tabla año): abre la pantalla de liquidación (editar / liquidar).
+   * Conserva el borrador preparado; no recuenta padrón (montos LILA).
+   */
+  const openGenerateScreen = async (periodId) => {
+    setError('');
+    setOk('');
+    const period = (feePeriods || []).find((p) => p.id === periodId) || selectedPeriod;
+    if (!period) {
+      setError('Período no encontrado.');
+      return;
+    }
+    if (feePeriodIsClosed(period) || period.status === 'pending') {
+      openPeriodDetail(period, false);
+      return;
+    }
+    openPeriodDetail(period, true);
+  };
+
+  /**
+   * Confirmar generación: modal → Pendiente hasta las 00 h; después Procesada e imputa.
+   * No recuenta padrón si ya hay borrador preparado (conserva montos LILA).
+   */
+  const openGenerate = async (periodId) => {
+    setError('');
+    setOk('');
+    let period = (feePeriods || []).find((p) => p.id === periodId) || selectedPeriod;
+    if (!period) {
+      setError('Período no encontrado.');
+      return;
+    }
+    if (feePeriodIsClosed(period) || period.status === 'pending') {
+      openPeriodDetail(period, false);
+      return;
+    }
+    const block = feePeriodLiquidateBlock(period);
+    if (block) {
+      setError(block);
+      return;
+    }
+    const hasPreparedPack = Boolean(
+      period.pack?.concepts?.length
+      || period.lines?.length
+      || (Number(period.amount) > 0 && Number(period.pack?.total) > 0),
+    );
+    if (!balancesOnly && !feePeriodPrepareBlock(period) && !hasPreparedPack) {
+      setBusy(true);
+      setBusyPhase('procesando');
+      try {
+        period = await refreshDraftFromPadron(periodId);
+      } catch (err) {
+        setError(err.message || 'No se pudo actualizar el padrón (altas/bajas).');
+        return;
+      } finally {
+        setBusy(false);
+        setBusyPhase(null);
+      }
+    }
+    requestLiquidate(period.id || periodId);
   };
 
   const downloadPeriod = async (period, kind, visibleModel) => {
@@ -310,43 +508,121 @@ export default function CuotasPanel({
     }
   };
 
-  const liquidate = async (periodId) => {
+  const prepareDraft = async (periodId) => {
     try {
-      const result = liquidateFeePeriod(feePeriods, periodId, members);
-      const open = (feePeriods || []).find((p) => p.id === periodId);
-      const model = liquidationFromPeriod(open, { members, tierCatalog });
-      const closed = {
+      setBusy(true);
+      setBusyPhase('procesando');
+      const prepared = await refreshDraftFromPadron(periodId);
+      if (selectedPeriod?.id === periodId) setSelectedPeriod(prepared);
+      setFlash(`Padrón de ${periodLabel(prepared)} actualizado (${fmt(prepared.amount)}). Altas incluidas, bajas fuera.`);
+      setError('');
+    } catch (err) {
+      setError(err.message || 'No se pudo actualizar el padrón.');
+    } finally {
+      setBusy(false);
+      setBusyPhase(null);
+    }
+  };
+
+  const requestLiquidate = (periodId, draft = null) => {
+    const period = (feePeriods || []).find((p) => p.id === periodId) || selectedPeriod;
+    if (!period) {
+      setError('Período no encontrado.');
+      return;
+    }
+    const block = feePeriodLiquidateBlock(period);
+    if (block) {
+      setError(block);
+      setOk('');
+      return;
+    }
+    setError('');
+    setOk('');
+    setLiquidateDraft(draft || null);
+    setLiquidateConfirmId(period.id || periodId);
+  };
+
+  const liquidate = async (periodId) => {
+    const draftToApply = liquidateDraft;
+    // Cerrar el modal al tocar Continuar; el proceso sigue en background.
+    setLiquidateConfirmId(null);
+    setLiquidateDraft(null);
+    setBusy(true);
+    setBusyPhase('procesando');
+    setError('');
+    try {
+      let list = feePeriods;
+      let open = (list || []).find((p) => p.id === periodId) || selectedPeriod;
+      if (draftToApply && open) {
+        const saved = applyFeePackEdit(open, draftToApply);
+        list = (list?.length ? list : [open]).map((p) => (p.id === periodId ? saved : p));
+        open = saved;
+        onUpsertFeePeriods?.(list);
+        if (onPersistFeePeriod) await onPersistFeePeriod(saved);
+        setSelectedPeriod(saved);
+      }
+      const result = liquidateFeePeriod(list, periodId, members, new Date(), actorMeta);
+      const model = liquidationFromPeriod(result.period, { members, tierCatalog });
+      const generated = {
         ...result.period,
         amount: model.total,
         lines: model.rows,
+        pack: {
+          ...(result.period.pack || {}),
+          total: model.total,
+          concepts: result.period.pack?.concepts || model.rows,
+          charges: result.period.pack?.charges || result.pendingCharges || [],
+          availableAt: result.period.availableAt,
+        },
       };
-      result.period = closed;
-      result.periods = result.periods.map((p) => (p.id === periodId ? closed : p));
-      if (onPersistFeePeriod) await onPersistFeePeriod(result.period);
+      result.period = generated;
+      result.periods = result.periods.map((p) => (p.id === periodId ? generated : p));
+      const saved = onPersistFeePeriod ? await onPersistFeePeriod(result.period) : result.period;
+      const persisted = saved || result.period;
+      result.period = persisted;
+      result.periods = result.periods.map((p) => (p.id === periodId ? persisted : p));
       onUpsertFeePeriods?.(result.periods);
-      const charges = (result.memberUpdates || []).filter((u) => (Number(u.addAmount) || 0) > 0);
-      if (charges.length && onApplyBalanceDeltas) {
-        await onApplyBalanceDeltas(charges.map((u) => ({
-          memberId: u.memberId,
-          amount: u.addAmount,
-        })));
+      // Pendiente: no imputa deudas ni ledger hasta las 00 h (promotePendingFeePeriods).
+      setSelectedPeriod(null);
+      goHome();
+      const available = persisted.availableAt
+        ? formatPeriodGeneratedAt(persisted.availableAt)
+        : 'las 00 h de mañana';
+      const label = periodLabel(persisted);
+      setFlash(
+        `Generado ${label} en Pendiente. Disponible desde ${available} (Procesada).`,
+      );
+      setSuccessBanner(`Liquidación de ${label} generada exitosamente.`);
+    } catch (err) {
+      setError(err.message || 'No se pudo liquidar.');
+    } finally {
+      setBusy(false);
+      setBusyPhase(null);
+    }
+  };
+
+  const applyPromotedCharges = async (promotedPeriods = []) => {
+    const allCharges = [];
+    for (const period of promotedPeriods) {
+      const periodCharges = (period.pack?.charges || [])
+        .filter((u) => (Number(u.addAmount) || 0) > 0);
+      allCharges.push(...periodCharges);
+      if (periodCharges.length && onPostFeeLedger) {
+        await onPostFeeLedger({ charges: periodCharges, period, members });
       }
-      if (charges.length && onPostFeeLedger) {
-        await onPostFeeLedger({ charges, period: result.period, members });
-      }
-      if (charges.length && typeof setMembers === 'function') {
-        const chargeDate = result.period.generatedAt || new Date().toISOString().slice(0, 10);
-        const periodName = periodLabel(result.period);
+      if (periodCharges.length && typeof setMembers === 'function') {
+        const chargeDate = period.availableAt || period.generatedAt || new Date().toISOString().slice(0, 10);
+        const periodName = periodLabel(period);
         const byId = new Map();
-        for (const charge of charges) {
+        for (const charge of periodCharges) {
           const key = String(charge.memberId);
           if (!byId.has(key)) byId.set(key, []);
           byId.get(key).push(charge);
         }
         setMembers((prev) => prev.map((m) => {
-          const rows = byId.get(String(m.memberId));
-          if (!rows?.length) return m;
-          return rows.reduce((member, charge) => {
+          const memberCharges = byId.get(String(m.memberId));
+          if (!memberCharges?.length) return m;
+          return memberCharges.reduce((member, charge) => {
             const entry = createAccountEntry({
               type: 'cuota',
               memberNumber: m.memberId,
@@ -361,22 +637,129 @@ export default function CuotasPanel({
           }, m);
         }));
       }
-      setSelectedPeriod(null);
-      goHome();
-      setFlash(`Liquidado ${periodLabel(result.period)}.`);
-    } catch (err) {
-      setError(err.message || 'No se pudo liquidar.');
+    }
+    if (allCharges.length && onApplyBalanceDeltas) {
+      await onApplyBalanceDeltas(allCharges.map((u) => ({
+        memberId: u.memberId,
+        amount: u.addAmount,
+      })));
     }
   };
 
-  const reopen = async (period) => {
-    const reason = window.prompt(
+  const pendingPromotionKey = useMemo(
+    () => (feePeriods || [])
+      .filter((period) => period.status === 'pending')
+      .map((period) => `${period.id}:${period.availableAt || period.pack?.availableAt || ''}`)
+      .join('|'),
+    [feePeriods],
+  );
+
+  useEffect(() => {
+    if (balancesOnly || !pendingPromotionKey) return undefined;
+    let cancelled = false;
+    const run = async () => {
+      const result = promotePendingFeePeriods(feePeriods);
+      if (cancelled || !result.promoted?.length) return;
+      onUpsertFeePeriods?.(result.periods);
+      for (const period of result.promoted) {
+        if (onPersistFeePeriod) await onPersistFeePeriod(period);
+      }
+      await applyPromotedCharges(result.promoted);
+      if (!cancelled) {
+        setFlash(
+          result.promoted.length === 1
+            ? `${periodLabel(result.promoted[0])} pasó a Procesada (00 h).`
+            : `${result.promoted.length} liquidaciones pasaron a Procesada (00 h).`,
+        );
+      }
+    };
+    void run();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [balancesOnly, pendingPromotionKey]);
+
+  /** Día 1: liquidación automática desde el padrón (altas/bajas). Manual sigue disponible. */
+  const autoMonthKey = useMemo(() => {
+    if (!isFeePeriodAutoDay()) return '';
+    return todayISODateAR().slice(0, 7);
+  }, []);
+  const autoRanRef = useRef('');
+
+  useEffect(() => {
+    if (balancesOnly || !autoMonthKey || !membersReady) return undefined;
+    if (!feePeriods?.length || !deferredMembers?.length) return undefined;
+    const [yearKey, monthKey] = autoMonthKey.split('-').map(Number);
+    const current = (feePeriods || []).find((p) => (
+      Number(p.year) === yearKey && Number(p.month) === monthKey
+    ));
+    if (current && (current.status === 'pending' || current.status === 'processed')) return undefined;
+    const runKey = `${autoMonthKey}:${current?.id || 'new'}:${current?.status || 'missing'}`;
+    if (autoRanRef.current === runKey) return undefined;
+    autoRanRef.current = runKey;
+
+    let cancelled = false;
+    const run = async () => {
+      try {
+        const result = autoLiquidateFeePeriodOnMonthStart(
+          feePeriods,
+          deferredMembers,
+          new Date(),
+          { ...actorMeta, by: `${actorName} · automático día 1` },
+        );
+        if (cancelled || !result.ran) return;
+        const model = liquidationFromPeriod(result.period, {
+          members: deferredMembers,
+          tierCatalog,
+        });
+        const generated = {
+          ...result.period,
+          amount: model.total,
+          lines: model.rows,
+          pack: {
+            ...(result.period.pack || {}),
+            total: model.total,
+            concepts: result.period.pack?.concepts || model.rows,
+            charges: result.period.pack?.charges || result.pendingCharges || [],
+          },
+        };
+        const saved = onPersistFeePeriod ? await onPersistFeePeriod(generated) : generated;
+        const persisted = saved || generated;
+        const nextList = (result.periods || []).map((p) => (
+          p.id === persisted.id ? persisted : p
+        ));
+        onUpsertFeePeriods?.(nextList);
+        if (!cancelled) {
+          const available = persisted.availableAt
+            ? formatPeriodGeneratedAt(persisted.availableAt)
+            : 'las 00 h de mañana';
+          setFlash(
+            `${periodLabel(persisted)} se generó sola el día 1 (padrón con altas/bajas). Pendiente hasta ${available}.`,
+          );
+          setSuccessBanner(`Liquidación automática de ${periodLabel(persisted)} generada.`);
+        }
+      } catch (err) {
+        autoRanRef.current = '';
+        if (!cancelled) {
+          setError(err?.message || 'No se pudo generar la liquidación automática del día 1.');
+        }
+      }
+    };
+    void run();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [balancesOnly, autoMonthKey, membersReady, feePeriods, deferredMembers]);
+
+  const reopen = async (period, reasonOverride = null) => {
+    const reason = reasonOverride || window.prompt(
       `Error grave en ${periodLabel(period)}. Describí qué salió mal. Se anulan las deudas de esa liquidación y el mes vuelve a borrador.`,
     );
     if (reason == null) return;
+    setBusy(true);
+    setBusyPhase('revirtiendo');
+    setError('');
     try {
       const result = onReopenFeePeriod
-        ? await onReopenFeePeriod(period, reason, members)
+        ? await onReopenFeePeriod(period, reason, members, actorMeta)
         : null;
       if (!result) throw new Error('No se puede corregir esta liquidación.');
       const reversals = result.reversals || [];
@@ -404,9 +787,19 @@ export default function CuotasPanel({
         }
       }
       setFlash(`${label} volvió a borrador. Revisá y liquidá de nuevo.`);
+      setSuccessBanner(`Liquidación de ${label} revertida exitosamente.`);
     } catch (err) {
       setError(err.message || 'No se pudo reabrir el mes.');
+    } finally {
+      setBusy(false);
+      setBusyPhase(null);
     }
+  };
+
+  /** Pendiente aún no imputó: vuelve a Borrador como en LILA (No liquidado + Generar). */
+  const cancelPendingGeneration = async (period) => {
+    if (!period || period.status !== 'pending') return;
+    await reopen(period, 'Cancelar generación pendiente: vuelve a borrador sin imputar.');
   };
 
   const processCollections = async () => {
@@ -551,6 +944,7 @@ export default function CuotasPanel({
     const liquidation = periodLiquidation || liquidationFromPeriod(selectedPeriod, { members, tierCatalog });
     return (
       <div className="fade-in cuotas-panel">
+        <CuotasBusyOverlay phase={busyPhase} />
         <div className="cuotas-toolbar cuotas-toolbar--local">
           <button
             type="button"
@@ -568,16 +962,48 @@ export default function CuotasPanel({
                 <button
                   type="button"
                   className="btn btn-secondary btn-sm"
-                  onClick={() => setEditingPeriod(true)}
+                  disabled={busy}
+                  onClick={() => openDraftDetail(selectedPeriod, true)}
                 >
                   <Pencil size={14} /> Editar
                 </button>
+                {!balancesOnly && !feePeriodPrepareBlock(selectedPeriod) ? (
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={busy}
+                    onClick={async () => {
+                      try {
+                        setBusy(true);
+                        const prepared = await refreshDraftFromPadron(selectedPeriod.id);
+                        setSelectedPeriod(prepared);
+                        setOk('Padrón actualizado: altas incluidas, bajas fuera.');
+                      } catch (err) {
+                        setError(err.message || 'No se pudo actualizar el padrón.');
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    <Upload size={14} /> Actualizar padrón
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className="btn btn-emerald btn-sm"
-                  onClick={() => liquidate(selectedPeriod.id)}
+                  title="Revisar altas, bajas y fichas en IA Jockey"
+                  onClick={() => setIaReviewOpen(true)}
                 >
-                  <Plus size={14} /> Liquidar
+                  <Sparkles size={14} /> Revisar IA
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  title="Generar liquidación"
+                  disabled={busy}
+                  onClick={() => openGenerate(selectedPeriod.id)}
+                >
+                  <History size={14} /> Generar
                 </button>
               </>
             ) : null}
@@ -600,26 +1026,35 @@ export default function CuotasPanel({
           </div>
         </div>
 
-        {error ? <p className="ig-error">{error}</p> : null}
+        {error ? <p className="ig-error" role="alert">{error}</p> : null}
         {ok ? <p className="ig-ok">{ok}</p> : null}
+        {flash && editingPeriod ? <p className="ig-ok">{flash}</p> : null}
 
         {editingPeriod && !feePeriodIsClosed(selectedPeriod) ? (
           <FeePackEditor
-            key={selectedPeriod.id}
+            key={`${selectedPeriod.id}-${selectedPeriod.updatedAt || selectedPeriod.pack?.preparedAt || 'edit'}`}
             period={selectedPeriod}
             draft={packEditorFromPeriod(
               selectedPeriod,
-              feePackForPeriod(selectedPeriod) ? liquidation : null,
+              // Borrador con pack: no pasar liquidación viva (recuenta y cambia montos LILA).
+              (selectedPeriod.status === 'draft' && selectedPeriod.pack?.concepts?.length)
+                ? null
+                : (liquidation?.rows?.length ? liquidation : null),
             )}
             formatCurrency={fmt}
             busy={busy}
+            liquidateBlocked={feePeriodLiquidateBlock(selectedPeriod)}
+            canEditAmounts={editFeeAmounts}
             onSave={savePackEdit}
+            onLiquidate={(draft) => {
+              requestLiquidate(selectedPeriod.id, draft);
+            }}
             onCancel={() => setEditingPeriod(false)}
           />
         ) : (
         <>
         <div className="cuotas-cc-banner">
-          <span>Detalle de gastos · total {fmt(liquidation.total)}</span>
+          <span>Detalle de cuotas · total {fmt(liquidation.total)}</span>
         </div>
 
         <div className="table-responsive">
@@ -685,6 +1120,26 @@ export default function CuotasPanel({
         ) : null}
         </>
         )}
+
+        <LiquidateNowDialog
+          open={Boolean(liquidateConfirmId)}
+          period={(feePeriods || []).find((p) => p.id === liquidateConfirmId) || selectedPeriod}
+          busy={busy}
+          onClose={() => {
+            setLiquidateConfirmId(null);
+            setLiquidateDraft(null);
+          }}
+          onConfirm={() => liquidate(liquidateConfirmId)}
+        />
+
+        <CuotasIaReviewModal
+          open={iaReviewOpen}
+          onClose={() => setIaReviewOpen(false)}
+          members={deferredMembers}
+          membersLoading={membersLoading}
+          feePeriods={feePeriods}
+          period={selectedPeriod}
+        />
       </div>
     );
   }
@@ -1072,8 +1527,10 @@ export default function CuotasPanel({
   // HUB
   return (
     <div className="fade-in cuotas-panel">
+      <CuotasBusyOverlay phase={busyPhase} />
       <DuesDueBanner
-        members={members}
+        members={deferredMembers}
+        membersLoading={membersLoading || !membersReady}
         journalEntries={journalEntries}
         chartOfAccounts={chartOfAccounts}
         feePeriods={feePeriods}
@@ -1082,10 +1539,26 @@ export default function CuotasPanel({
       />
       <OverdueDuesStrip
         members={overdueMembers}
+        count={overdueCount}
         formatCurrency={fmt}
+        loading={membersLoading || !membersReady}
+        onOpenChange={setOverdueOpen}
         onOpenAll={() => setView('mora')}
       />
 
+      {successBanner ? (
+        <div className="cuotas-success-banner" role="status" aria-live="polite">
+          <span>{successBanner}</span>
+          <button
+            type="button"
+            className="cuotas-success-banner-close"
+            aria-label="Cerrar aviso"
+            onClick={() => setSuccessBanner('')}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      ) : null}
       {flash ? <p className="ig-ok">{flash}</p> : null}
       {error ? <p className="ig-error">{error}</p> : null}
 
@@ -1110,6 +1583,10 @@ export default function CuotasPanel({
               ))}
             </select>
           </label>
+          <p className="cuotas-year-auto-hint">
+            El día 1 de cada mes se genera sola desde el padrón (altas incluidas, bajas fuera).
+            Cargar borrador y Generar siguen disponibles a mano.
+          </p>
           <div className="table-responsive">
             <table className="admin-table">
           <thead>
@@ -1128,22 +1605,59 @@ export default function CuotasPanel({
                 <td colSpan={6} style={{ color: 'var(--text-muted)' }}>No hay períodos para {year}.</td>
               </tr>
             ) : (
-              periods.map((p) => {
+              periods.map((p, idx) => {
                 const liquidateBlock = feePeriodLiquidateBlock(p);
+                const prepareBlock = feePeriodPrepareBlock(p);
+                const nextPeriod = periods[idx + 1];
+                const canSeedNext = p.status === 'processed'
+                  && nextPeriod
+                  && nextPeriod.status === 'draft'
+                  && appOwnsFeePeriod(nextPeriod)
+                  && !feePeriodPrepareBlock(nextPeriod);
+                const historyBtn = appOwnsFeePeriod(p) ? (
+                  <button
+                    type="button"
+                    className="cash-lila-icon-btn is-hist"
+                    title="Historial de generación / reversión"
+                    aria-label="Historial"
+                    onClick={() => setHistoryPeriod(p)}
+                  >
+                    <History size={14} />
+                  </button>
+                ) : null;
                 return (
                 <tr key={p.id}>
                   <td>{p.accessinId || '—'}</td>
                   <td style={{ fontWeight: 600 }}>{periodLabel(p)}</td>
                   <td className="tabular-nums">
-                    {p.status === 'processed' || p.status === 'draft'
-                      ? fmt(liquidationFromPeriod(p, { members, tierCatalog }).total)
+                    {p.status === 'processed' || p.status === 'pending' || p.status === 'draft'
+                      ? (periodAmounts.get(p.id) != null
+                        ? fmt(periodAmounts.get(p.id))
+                        : (membersReady ? '—' : '…'))
                       : 'Cuotas no liquidados'}
                   </td>
-                  <td>{p.status === 'draft' ? 'No liquidado' : formatPeriodGeneratedAt(p.generatedAt)}</td>
+                  <td>
+                    {p.status === 'draft'
+                      ? 'No liquidado'
+                      : (
+                        <>
+                          {formatPeriodGeneratedAt(p.generatedAt)}
+                          {p.status === 'pending' && p.availableAt
+                            ? ` · disponible ${formatPeriodGeneratedAt(p.availableAt)}`
+                            : null}
+                        </>
+                      )}
+                  </td>
                   <td>
                     <span className={`status-badge ${statusTone(p.status)}`}>
                       {periodStatusLabel(p.status)}
                     </span>
+                    {p.status === 'draft' && appOwnsFeePeriod(p) ? (
+                      <div className="cuotas-year-auto-tag">Automática el día 1</div>
+                    ) : null}
+                    {p.pack?.autoFromPadronAt ? (
+                      <div className="cuotas-year-auto-tag is-done">Generada el día 1</div>
+                    ) : null}
                   </td>
                   <td>
                     <div className="cash-lila-row-actions">
@@ -1158,6 +1672,7 @@ export default function CuotasPanel({
                           >
                             <Eye size={14} />
                           </button>
+                          {historyBtn}
                           <button
                             type="button"
                             className="cash-lila-icon-btn is-edit"
@@ -1178,6 +1693,17 @@ export default function CuotasPanel({
                           >
                             <FileDown size={14} />
                           </button>
+                          {canSeedNext && !balancesOnly ? (
+                            <button
+                              type="button"
+                              className="cash-lila-icon-btn is-edit"
+                              title={`Cargar borrador de ${periodLabel(nextPeriod)} desde el padrón`}
+                              aria-label={`Cargar borrador de ${periodLabel(nextPeriod)}`}
+                              onClick={() => prepareDraft(nextPeriod.id)}
+                            >
+                              <Upload size={14} />
+                            </button>
+                          ) : null}
                           {!balancesOnly && appOwnsFeePeriod(p) ? (
                             <button
                               type="button"
@@ -1200,6 +1726,39 @@ export default function CuotasPanel({
                             </>
                           ) : null}
                         </>
+                      ) : p.status === 'pending' ? (
+                        <>
+                          <button
+                            type="button"
+                            className="cash-lila-icon-btn is-edit"
+                            title="Ver liquidación"
+                            aria-label="Ver liquidación"
+                            onClick={() => openDraftDetail(p)}
+                          >
+                            <Eye size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            className="cash-lila-icon-btn is-edit"
+                            title="Editar (hasta Procesada)"
+                            aria-label="Editar liquidación"
+                            onClick={() => openDraftDetail(p, true)}
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          {historyBtn}
+                          {!balancesOnly && appOwnsFeePeriod(p) ? (
+                            <button
+                              type="button"
+                              className="cash-lila-icon-btn is-del"
+                              title="Volver a borrador (aún no imputó)"
+                              aria-label="Volver a borrador"
+                              onClick={() => cancelPendingGeneration(p)}
+                            >
+                              <RotateCcw size={14} />
+                            </button>
+                          ) : null}
+                        </>
                       ) : p.status === 'draft' ? (
                         <>
                           <button
@@ -1207,7 +1766,7 @@ export default function CuotasPanel({
                             className="cash-lila-icon-btn is-edit"
                             title="Ver liquidación"
                             aria-label="Ver liquidación"
-                            onClick={() => openPeriodDetail(p)}
+                            onClick={() => openDraftDetail(p)}
                           >
                             <Eye size={14} />
                           </button>
@@ -1216,20 +1775,36 @@ export default function CuotasPanel({
                             className="cash-lila-icon-btn is-edit"
                             title="Editar"
                             aria-label="Editar liquidación"
-                            onClick={() => openPeriodDetail(p, true)}
+                            onClick={() => openDraftDetail(p, true)}
                           >
                             <Pencil size={14} />
                           </button>
-                          <button
-                            type="button"
-                            className="cash-lila-icon-btn is-edit"
-                            title={liquidateBlock || 'Liquidar período'}
-                            aria-label="Liquidar período"
-                            disabled={Boolean(liquidateBlock)}
-                            onClick={() => liquidate(p.id)}
-                          >
-                            <Plus size={13} />
-                          </button>
+                          {historyBtn}
+                          {!balancesOnly ? (
+                            <button
+                              type="button"
+                              className="cash-lila-icon-btn is-edit"
+                              title={prepareBlock || 'Cargar / actualizar borrador desde el padrón (también automático el día 1)'}
+                              aria-label="Cargar borrador"
+                              disabled={Boolean(prepareBlock)}
+                              onClick={() => prepareDraft(p.id)}
+                            >
+                              <Upload size={14} />
+                            </button>
+                          ) : null}
+                          {!balancesOnly ? (
+                            <button
+                              type="button"
+                              className="cash-lila-icon-btn is-gen"
+                              title={prepareBlock || 'Generar liquidación (también automática el día 1)'}
+                              aria-label="Generar"
+                              disabled={Boolean(prepareBlock) && Boolean(liquidateBlock)
+                                && !(p.pack?.concepts?.length || p.lines?.length)}
+                              onClick={() => openGenerateScreen(p.id)}
+                            >
+                              <Play size={14} />
+                            </button>
+                          ) : null}
                         </>
                       ) : (
                         <>
@@ -1238,7 +1813,7 @@ export default function CuotasPanel({
                             className="cash-lila-icon-btn is-edit"
                             title="Ver liquidación"
                             aria-label="Ver liquidación"
-                            onClick={() => openPeriodDetail(p)}
+                            onClick={() => openDraftDetail(p)}
                           >
                             <Eye size={14} />
                           </button>
@@ -1247,20 +1822,36 @@ export default function CuotasPanel({
                             className="cash-lila-icon-btn is-edit"
                             title="Editar"
                             aria-label="Editar liquidación"
-                            onClick={() => openPeriodDetail(p, true)}
+                            onClick={() => openDraftDetail(p, true)}
                           >
                             <Pencil size={14} />
                           </button>
-                          <button
-                            type="button"
-                            className="cash-lila-icon-btn is-edit"
-                            title={liquidateBlock || 'Liquidar período'}
-                            aria-label="Liquidar período"
-                            disabled={Boolean(liquidateBlock)}
-                            onClick={() => liquidate(p.id)}
-                          >
-                            <Plus size={13} />
-                          </button>
+                          {historyBtn}
+                          {!balancesOnly ? (
+                            <button
+                              type="button"
+                              className="cash-lila-icon-btn is-edit"
+                              title={prepareBlock || 'Cargar / actualizar borrador desde el padrón (también automático el día 1)'}
+                              aria-label="Cargar borrador"
+                              disabled={Boolean(prepareBlock)}
+                              onClick={() => prepareDraft(p.id)}
+                            >
+                              <Upload size={14} />
+                            </button>
+                          ) : null}
+                          {!balancesOnly ? (
+                            <button
+                              type="button"
+                              className="cash-lila-icon-btn is-gen"
+                              title={prepareBlock || 'Generar liquidación (también automática el día 1)'}
+                              aria-label="Generar"
+                              disabled={Boolean(prepareBlock) && Boolean(liquidateBlock)
+                                && !(p.pack?.concepts?.length || p.lines?.length)}
+                              onClick={() => openGenerateScreen(p.id)}
+                            >
+                              <Play size={14} />
+                            </button>
+                          ) : null}
                         </>
                       )}
                     </div>
@@ -1293,6 +1884,180 @@ export default function CuotasPanel({
           {ccEnabled ? 'Desactivar cuentas corrientes' : 'Activar cuentas corrientes'}
         </button>
       </div>
+
+      <LiquidateNowDialog
+        open={Boolean(liquidateConfirmId)}
+        period={(feePeriods || []).find((p) => p.id === liquidateConfirmId) || selectedPeriod}
+        busy={busy}
+        onClose={() => {
+          setLiquidateConfirmId(null);
+          setLiquidateDraft(null);
+        }}
+        onConfirm={() => liquidate(liquidateConfirmId)}
+      />
+
+      <FeePeriodHistoryDialog
+        open={Boolean(historyPeriod)}
+        period={
+          historyPeriod
+            ? ((feePeriods || []).find((p) => p.id === historyPeriod.id) || historyPeriod)
+            : null
+        }
+        formatCurrency={fmt}
+        onClose={() => setHistoryPeriod(null)}
+      />
+
+      <CuotasIaReviewModal
+        open={iaReviewOpen}
+        onClose={() => setIaReviewOpen(false)}
+        members={deferredMembers}
+        membersLoading={membersLoading}
+        feePeriods={feePeriods}
+        period={selectedPeriod}
+      />
     </div>
+  );
+}
+
+function busyPhaseLabel(phase) {
+  if (phase === 'revirtiendo') return 'Revirtiendo…';
+  if (phase === 'generando') return 'Generando…';
+  if (phase === 'actualizando') return 'Actualizando padrón…';
+  if (phase === 'procesando') return 'Procesando…';
+  return null;
+}
+
+function CuotasBusyOverlay({ phase = null }) {
+  const label = busyPhaseLabel(phase);
+  if (!label) return null;
+  return (
+    <div className="cuotas-busy-overlay" role="status" aria-live="polite" aria-busy="true">
+      <div className="cuotas-busy-card">
+        <Loader2 size={28} className="spin" aria-hidden="true" />
+        <p>{label}</p>
+      </div>
+    </div>
+  );
+}
+
+function LiquidateNowDialog({ open = false, period, busy, onClose, onConfirm }) {
+  if (!open || !period) return null;
+  return (
+    <ModalDialog
+      open={open}
+      onClose={onClose}
+      labelledBy="cuotas-gen-title"
+      describedBy="cuotas-gen-body"
+      contentClassName="modal-content cuotas-liq-ahora"
+    >
+      <header className="cuotas-liq-ahora-head">
+        <h4 id="cuotas-gen-title">Generar cuotas</h4>
+        <button type="button" className="cuotas-liq-ahora-close" onClick={onClose} aria-label="Cerrar">
+          <X size={16} />
+        </button>
+      </header>
+      <p id="cuotas-gen-body" className="cuotas-liq-ahora-copy">
+        Las cuotas no estarán disponibles hasta las 00&nbsp;h de mañana. La cuota quedará en estado{' '}
+        <strong>Pendiente</strong>. Una vez que la misma pase a estado <strong>Procesada</strong> no podrá
+        ser editada ni eliminada. ¿Está seguro que desea continuar?
+      </p>
+      <footer className="cuotas-liq-ahora-foot">
+        <button type="button" className="btn btn-secondary btn-sm" onClick={onClose} disabled={busy}>
+          Cancelar
+        </button>
+        <button
+          type="button"
+          className="btn btn-primary btn-sm"
+          disabled={busy}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onConfirm?.();
+          }}
+        >
+          {busy ? 'Procesando…' : 'Generar'}
+        </button>
+      </footer>
+    </ModalDialog>
+  );
+}
+
+function formatHistoryAt(iso) {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return formatPeriodGeneratedAt(iso);
+    return d.toLocaleString('es-AR', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return formatPeriodGeneratedAt(iso);
+  }
+}
+
+function FeePeriodHistoryDialog({ open = false, period, formatCurrency: fmt = formatCurrency, onClose }) {
+  if (!open || !period) return null;
+  const rows = feePeriodActionHistory(period);
+  return (
+    <ModalDialog
+      open={open}
+      onClose={onClose}
+      labelledBy="cuotas-hist-title"
+      describedBy="cuotas-hist-body"
+      contentClassName="modal-content cuotas-hist-dialog"
+    >
+      <header className="cuotas-hist-head">
+        <h4 id="cuotas-hist-title">
+          Historial · {periodLabel(period)}
+        </h4>
+        <button type="button" className="cuotas-liq-ahora-close" onClick={onClose} aria-label="Cerrar">
+          <X size={16} />
+        </button>
+      </header>
+      <div id="cuotas-hist-body" className="cuotas-hist-body">
+        {rows.length === 0 ? (
+          <p className="cuotas-hist-empty">Sin generación ni reversión registrada aún.</p>
+        ) : (
+          <ul className="cuotas-hist-list">
+            {rows.map((row) => {
+              const generated = row.type === 'generated';
+              return (
+                <li
+                  key={`${row.type}-${row.at}`}
+                  className={`cuotas-hist-item ${generated ? 'is-gen' : 'is-rev'}`}
+                >
+                  <div className="cuotas-hist-item-top">
+                    <span className={`cuotas-hist-badge ${generated ? 'is-gen' : 'is-rev'}`}>
+                      {generated ? 'Generada' : 'Revertida'}
+                    </span>
+                    <time dateTime={row.at}>{formatHistoryAt(row.at)}</time>
+                  </div>
+                  <p className="cuotas-hist-user">
+                    Usuario: {row.by || '—'}
+                  </p>
+                  <p className="cuotas-hist-meta">
+                    {generated
+                      ? `Monto ${fmt(row.amount || 0)}${row.availableAt ? ` · disponible ${formatPeriodGeneratedAt(row.availableAt)}` : ''}`
+                      : `Monto ${fmt(row.amount || 0)}${row.statusWas ? ` · era ${periodStatusLabel(row.statusWas)}` : ''}`}
+                  </p>
+                  {!generated && row.reason ? (
+                    <p className="cuotas-hist-reason">{row.reason}</p>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+      <footer className="cuotas-hist-foot">
+        <button type="button" className="btn btn-secondary btn-sm" onClick={onClose}>
+          Cerrar
+        </button>
+      </footer>
+    </ModalDialog>
   );
 }

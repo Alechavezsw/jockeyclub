@@ -926,6 +926,7 @@ function ClubPortal() {
   });
 
   const [guestPasses, setGuestPasses] = useState(() => {
+    if (isSupabaseConfigured) return [];
     try {
       return JSON.parse(localStorage.getItem('jockey-guest-passes') || '[]');
     } catch {
@@ -934,6 +935,7 @@ function ClubPortal() {
   });
 
   const [attendanceSessions, setAttendanceSessions] = useState(() => {
+    if (isSupabaseConfigured) return [];
     try {
       return JSON.parse(localStorage.getItem('jockey-attendance') || '[]');
     } catch {
@@ -942,6 +944,7 @@ function ClubPortal() {
   });
 
   const [poolAccesses, setPoolAccesses] = useState(() => {
+    if (isSupabaseConfigured) return [];
     try {
       return JSON.parse(localStorage.getItem('jockey-pool-access') || '[]');
     } catch {
@@ -950,6 +953,7 @@ function ClubPortal() {
   });
 
   const [poolSettings, setPoolSettings] = useState(() => {
+    if (isSupabaseConfigured) return mergePoolSettings();
     try {
       return mergePoolSettings(JSON.parse(localStorage.getItem('jockey-pool-settings') || '{}'));
     } catch {
@@ -958,6 +962,10 @@ function ClubPortal() {
   });
 
   const [clubSettings, setClubSettings] = useState(() => {
+    if (isSupabaseConfigured) {
+      setRuntimeClubSettings(DEFAULT_CLUB_SETTINGS);
+      return DEFAULT_CLUB_SETTINGS;
+    }
     try {
       const next = mergeClubSettings(JSON.parse(localStorage.getItem('jockey-club-settings') || '{}'));
       setRuntimeClubSettings(next);
@@ -968,6 +976,7 @@ function ClubPortal() {
   });
 
   const [systemRules, setSystemRules] = useState(() => {
+    if (isSupabaseConfigured) return DEFAULT_SYSTEM_RULES;
     try {
       return mergeSystemRules(JSON.parse(localStorage.getItem('jockey-system-rules') || '{}'));
     } catch {
@@ -976,6 +985,10 @@ function ClubPortal() {
   });
 
   const [duesSettings, setDuesSettings] = useState(() => {
+    if (isSupabaseConfigured) {
+      setRuntimeDueDay(DEFAULT_DUES_SETTINGS.dueDay);
+      return DEFAULT_DUES_SETTINGS;
+    }
     try {
       const next = mergeDuesSettings(JSON.parse(localStorage.getItem('jockey-dues-settings') || '{}'));
       setRuntimeDueDay(next.dueDay);
@@ -986,6 +999,7 @@ function ClubPortal() {
   });
 
   const [paymentPlans, setPaymentPlans] = useState(() => {
+    if (isSupabaseConfigured) return DEFAULT_PAYMENT_PLANS;
     try {
       return mergePaymentPlans(JSON.parse(localStorage.getItem('jockey-payment-plans') || 'null'));
     } catch {
@@ -994,6 +1008,7 @@ function ClubPortal() {
   });
 
   const [facilityCatalog, setFacilityCatalog] = useState(() => {
+    if (isSupabaseConfigured) return null;
     try {
       const raw = JSON.parse(localStorage.getItem('jockey-facility-catalog') || 'null');
       if (!Array.isArray(raw) || !raw.length) return null;
@@ -1011,6 +1026,7 @@ function ClubPortal() {
 
   const [registeredUsersCount, setRegisteredUsersCount] = useState(0);
   const [membershipApplications, setMembershipApplications] = useState(() => {
+    if (isSupabaseConfigured) return [];
     try {
       return JSON.parse(localStorage.getItem('jockey-membership-applications') || '[]');
     } catch {
@@ -1018,6 +1034,7 @@ function ClubPortal() {
     }
   });
   const [portalAccessRequests, setPortalAccessRequests] = useState(() => {
+    if (isSupabaseConfigured) return [];
     try {
       return JSON.parse(localStorage.getItem('jockey-portal-access-requests') || '[]');
     } catch {
@@ -1029,6 +1046,7 @@ function ClubPortal() {
   const [membersProgress, setMembersProgress] = useState({ loaded: 0, total: 0 });
 
   const [waitlist, setWaitlist] = useState(() => {
+    if (isSupabaseConfigured) return [];
     try {
       return JSON.parse(localStorage.getItem('jockey-waitlist') || '[]');
     } catch {
@@ -1037,12 +1055,14 @@ function ClubPortal() {
   });
 
   const [isZondaActive, setIsZondaActive] = useState(() => {
+    if (isSupabaseConfigured) return false;
     return localStorage.getItem('jockey-zonda') === 'true';
   });
 
   // NUEVO: Estado Offline/Online y Cola de Sincronización
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [syncQueue, setSyncQueue] = useState(() => {
+    if (isSupabaseConfigured) return [];
     const local = localStorage.getItem('jockey-sync-queue');
     return local ? JSON.parse(local) : [];
   });
@@ -1134,49 +1154,54 @@ function ClubPortal() {
     if (!cloudMode) localStorage.setItem('jockey-guest-passes', JSON.stringify(guestPasses));
   }, [guestPasses, cloudMode]);
   useEffect(() => {
-    localStorage.setItem('jockey-attendance', JSON.stringify(attendanceSessions));
-  }, [attendanceSessions]);
+    if (!cloudMode) localStorage.setItem('jockey-attendance', JSON.stringify(attendanceSessions));
+  }, [attendanceSessions, cloudMode]);
   useEffect(() => {
     if (!cloudMode) localStorage.setItem('jockey-pool-access', JSON.stringify(poolAccesses));
   }, [poolAccesses, cloudMode]);
   useEffect(() => {
-    localStorage.setItem('jockey-pool-settings', JSON.stringify(poolSettings));
+    if (!cloudMode) localStorage.setItem('jockey-pool-settings', JSON.stringify(poolSettings));
     if (cloudMode && hydratedRef.current && dbReady) {
       repos.setSetting(SETTINGS_KEYS.pool, poolSettings, user?.id).catch(() => {});
     }
   }, [poolSettings, cloudMode, dbReady, user?.id]);
   useEffect(() => {
     setRuntimeClubSettings(clubSettings);
-    localStorage.setItem('jockey-club-settings', JSON.stringify(clubSettings));
+    if (!cloudMode) localStorage.setItem('jockey-club-settings', JSON.stringify(clubSettings));
     if (cloudMode && hydratedRef.current && dbReady) {
       repos.setSetting(SETTINGS_KEYS.club, clubSettings, user?.id).catch(() => {});
     }
   }, [clubSettings, cloudMode, dbReady, user?.id]);
   useEffect(() => {
     setRuntimeDueDay(duesSettings.dueDay);
-    localStorage.setItem('jockey-dues-settings', JSON.stringify(duesSettings));
+    if (!cloudMode) localStorage.setItem('jockey-dues-settings', JSON.stringify(duesSettings));
     if (cloudMode && hydratedRef.current && dbReady) {
       repos.setSetting(SETTINGS_KEYS.dues, duesSettings, user?.id).catch(() => {});
     }
   }, [duesSettings, cloudMode, dbReady, user?.id]);
   useEffect(() => {
-    localStorage.setItem('jockey-system-rules', JSON.stringify(systemRules));
+    if (!cloudMode) localStorage.setItem('jockey-system-rules', JSON.stringify(systemRules));
     if (cloudMode && hydratedRef.current && dbReady) {
       repos.setSetting(SETTINGS_KEYS.system, systemRules, user?.id).catch(() => {});
     }
   }, [systemRules, cloudMode, dbReady, user?.id]);
 
   useEffect(() => {
-    localStorage.setItem('jockey-payment-plans', JSON.stringify(paymentPlans));
+    if (!cloudMode) localStorage.setItem('jockey-payment-plans', JSON.stringify(paymentPlans));
     if (cloudMode && dbReady) {
       repos.setSetting(SETTINGS_KEYS.paymentPlans, paymentPlans, user?.id).catch(() => {});
     }
   }, [paymentPlans, cloudMode, dbReady, user?.id]);
   useEffect(() => {
-    if (facilityCatalog) {
+    if (!facilityCatalog) return;
+    if (!cloudMode) {
       localStorage.setItem('jockey-facility-catalog', JSON.stringify(facilityCatalog));
+      return;
     }
-  }, [facilityCatalog]);
+    if (hydratedRef.current && dbReady) {
+      repos.setSetting('facility_catalog', facilityCatalog, user?.id).catch(() => {});
+    }
+  }, [facilityCatalog, cloudMode, dbReady, user?.id]);
   useEffect(() => {
     if (!cloudMode) localStorage.setItem('jockey-waitlist', JSON.stringify(waitlist));
   }, [waitlist, cloudMode]);

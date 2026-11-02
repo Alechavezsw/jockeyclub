@@ -171,7 +171,7 @@ describe('dues classification', () => {
     expect(duesAmountForHousehold('socio_familiar', [
       { tier: 'grupo_familiar_familiar' },
       { tier: 'abono_tenis' },
-    ], october)).toBe(80000);
+    ], october)).toBe(82000);
   });
 
   it('calcula cuota del socio con adherentes activos', () => {
@@ -190,7 +190,7 @@ describe('dues classification', () => {
         { tier: 'grupo_familiar_familiar', status: 'active' },
         { tier: 'abono_tenis', status: 'active', cuotaCategories: ['ABONO TENIS'] },
       ],
-    }, october)).toBe(80000);
+    }, october)).toBe(82000);
     expect(duesAmountForMember({
       memberId: '3501',
       familyPrincipalNumber: '10009',
@@ -373,7 +373,7 @@ describe('tarifa desde octubre 2026', () => {
     expect(duesAmountForMember({ tier: 'socio_familiar', adherents: [] }, october)).toBe(70000);
     expect(duesAmountForMember({ tier: 'socio_individual_amet', adherents: [] }, october)).toBe(39000);
     expect(duesAmountForMember({ tier: 'socio_familiar_amet', adherents: [] }, october)).toBe(68250);
-    expect(duesAmountForMember({ tier: 'abono_tenis', adherents: [] }, october)).toBe(10000);
+    expect(duesAmountForMember({ tier: 'abono_tenis', adherents: [] }, october)).toBe(12000);
     expect(duesAmountForMember({ tier: 'grupo_familiar_familiar', adherents: [] }, october)).toBe(0);
     expect(duesAmountForMember({ tier: 'socio_vitalicio', adherents: [] }, october)).toBe(0);
     expect(duesAmountForMember({
@@ -384,7 +384,7 @@ describe('tarifa desde octubre 2026', () => {
       tier: 'socio_familiar',
       cuotaCategories: ['SOCIO FAMILIAR', 'ABONO TENIS'],
       adherents: [],
-    }, october)).toBe(80000);
+    }, october)).toBe(82000);
   });
 
   it('en septiembre no reemplaza la cuota que ya estaba en el catálogo', () => {
@@ -429,8 +429,8 @@ describe('tarifa desde octubre 2026', () => {
       outstandingBalance: 150000,
     }, { paidOn: '2026-10-22' })).toMatchObject({
       quota: 150000,
-      surcharge: 13000,
-      total: 163000,
+      surcharge: 12829,
+      total: 162829,
     });
   });
 

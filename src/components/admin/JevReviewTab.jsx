@@ -24,6 +24,16 @@ function formatCount(value) {
 
 function fallbackHref(item) {
   if (item?.tab === 'concessions') return '/concesiones';
+  if (item?.tab === 'books') {
+    return item.focus
+      ? `/panel/books?sub=${encodeURIComponent(item.focus)}`
+      : '/panel/books';
+  }
+  if (item?.tab === 'operation') {
+    return item.focus
+      ? `/panel/operation?sub=${encodeURIComponent(item.focus)}`
+      : '/panel/operation';
+  }
   if (item?.tab === 'accounting') {
     return item.focus
       ? `/panel/accounting?sub=${encodeURIComponent(item.focus)}`
@@ -52,7 +62,7 @@ function JevSampleLink({ sample, item, onNavigate, className }) {
 
 function JevRooms({ room, onChange }) {
   return (
-    <div className="jev-rooms" role="tablist" aria-label="Salas de Jev">
+    <div className="jev-rooms" role="tablist" aria-label="Salas de IA Jockey">
       <button
         type="button"
         role="tab"
@@ -264,7 +274,9 @@ export default function JevReviewTab({
     if (typeof goToTab === 'function') goToTab(item.tab, item.focus || null);
   };
 
-  const showCollection = permittedTabs.includes('dues') || permittedTabs.includes('accounting');
+  const showCollection = permittedTabs.includes('dues')
+    || permittedTabs.includes('accounting')
+    || permittedTabs.includes('operation');
   const cashCut = useSnapshotSeed(['accessinCashSnapshot', 'accessinCashMovements'], () => ({
     recent: cashSeed().ACCESSIN_CASH_SNAPSHOT?.recentMovements || [],
     all: cashMovementsSeed().ACCESSIN_CASH_MOVEMENTS || [],
@@ -309,7 +321,7 @@ export default function JevReviewTab({
   ]);
 
   return (
-    <section className="jev" aria-label="Jev, consulta y revisión del club">
+    <section className="jev" aria-label="IA Jockey, consulta y revisión del club">
       <JevRooms room={room} onChange={setRoom} />
       <div hidden={room !== 'consulta'}>
         <JevChatDesk
@@ -346,7 +358,7 @@ export default function JevReviewTab({
         <>
           <header className="jev-hero">
             <div>
-              <p className="jev-kicker">Jev</p>
+              <p className="jev-kicker">IA Jockey</p>
               <h1 className="jev-hero-label">Socios con la ficha bien</h1>
               <p className="jev-hero-num tabular-nums">{ready ? formatCount(counts.bien) : '…'}</p>
               <p className="jev-hero-sub">

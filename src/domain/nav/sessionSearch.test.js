@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { searchSession } from './sessionSearch';
 
-const tabs = ['members', 'dues', 'accounting', 'staff'];
+const tabs = ['members', 'dues', 'accounting', 'operation', 'staff'];
 const accountingTabs = ['expenses', 'fixed_expenses', 'member_discounts', 'suppliers', 'cash'];
 
 describe('searchSession', () => {

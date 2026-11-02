@@ -198,22 +198,29 @@ export function filterMembersForBalances(members = [], filters = {}) {
       const qFold = foldText(q);
       const qDigits = q.replace(/\D/g, '');
       const nro = padMember(memberNumberOf(m) || m.memberId);
+      const lilaNro = lilaClubNumber(m);
       const doc = String(m.documentNumber || m.dni || '').replace(/\D/g, '');
       const hay = foldText([
         m.name,
         m.memberId,
-        lilaClubNumber(m),
+        lilaNro,
         m.documentNumber,
         m.dni,
         m.familyGroupName,
         m.familyPrincipalNumber,
         m.phone,
         m.email,
+        statusLabel,
         getTierDisplayName(m.tier),
         ...(parseCuotaCategories(m.cuotaCategories)),
       ].join(' '));
-      const textHit = hay.includes(qFold);
-      const digitHit = qDigits.length >= 3 && (nro.includes(qDigits) || doc.includes(qDigits) || sameClubNumber(m, qDigits));
+      const textHit = nameCoversWords(hay, qFold) || hay.includes(qFold);
+      const digitHit = qDigits.length >= 3 && (
+        nro.includes(qDigits)
+        || lilaNro.includes(qDigits)
+        || doc.includes(qDigits)
+        || sameClubNumber(m, qDigits)
+      );
       if (!textHit && !digitHit) return false;
     }
     return true;

@@ -731,6 +731,19 @@ export function toWhatsAppPhone(phone) {
 }
 
 /**
+ * Conteo de mora sin clonar ni ordenar el padrón (badge / resumen).
+ */
+export function countOverdueMembers(members, today = new Date()) {
+  const todayStart = startOfDay(today);
+  let count = 0;
+  for (const member of members || []) {
+    if (!isSocialDuesMora(member, todayStart)) continue;
+    if ((Number(socialDuesAmountDue(member, todayStart)) || 0) > 0) count += 1;
+  }
+  return count;
+}
+
+/**
  * Socios en mora de cuota social: vencimiento ya pasado
  * o meses impagos. Un saldo de salón/alquiler no alcanza para entrar acá.
  */

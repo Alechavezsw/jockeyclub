@@ -39,7 +39,7 @@ describe('clubGuide', () => {
 
   it('lleva reclamos y caja a su sección', () => {
     expect(composeInsight('cuántos reclamos hay', { reclamosAbiertos: 4 }).go).toBe('claims');
-    expect(composeInsight('dónde está la tesorería de caja', {}).go).toBe('accounting');
+    expect(composeInsight('dónde está la tesorería de caja', {}).go).toBe('operation');
     expect(composeInsight('dónde está la tesorería de caja', {}).focus).toBe('cash');
     expect(composeInsight('dónde está la tesorería de caja', {}).text).toMatch(/1\./);
   });
@@ -136,7 +136,7 @@ describe('clubGuide', () => {
 
   it('el prompt de Revisión incluye la cola para que Gemini priorice', () => {
     const items = [
-      { id: 'unidentified', title: '2 cobranzas sin identificar', detail: 'Sin socio', why: 'Imputar', tab: 'accounting', focus: 'unidentified', count: 2 },
+      { id: 'unidentified', title: '2 cobranzas sin identificar', detail: 'Sin socio', why: 'Imputar', tab: 'operation', focus: 'unidentified', count: 2 },
       { id: 'no-name', title: '1 ficha sin nombre', detail: 'Falta el apellido', tab: 'members', count: 1 },
     ];
     expect(reviewQueueForPrompt(items)).toMatch(/REVISIÓN PENDIENTE/);

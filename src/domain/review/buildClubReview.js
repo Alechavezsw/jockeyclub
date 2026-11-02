@@ -11,7 +11,7 @@ import {
   normalizePersonName,
   buildPadronHouseholdStats,
 } from '../members/households';
-import { uniqueBajas } from '../members/membershipMoves';
+import { memberMoveKey, uniqueBajas } from '../members/membershipMoves';
 import { memberHasPortalAccess } from '../members/memberAdminActions';
 import { familyChildStanding } from '../members/familyStanding';
 import { shouldOfferVitalicio } from '../members/membership';
@@ -314,6 +314,8 @@ export function buildClubReview({
   interestGenerators = [],
   interestRuns = [],
   bajas = [],
+  altas = [],
+  membershipMovesAsOf = '',
   expenses = [],
   paymentOrders = [],
   galiciaDebits = [],
@@ -364,11 +366,11 @@ export function buildClubReview({
       : `${unbalanced.length} asientos con el debe distinto del haber`,
     detail: 'El libro no cierra mientras estos asientos sigan así.',
     why: 'Primero, porque es plata.',
-    tab: 'accounting',
+    tab: 'books',
     focus: 'diary',
     samples: take(unbalanced, (entry) => asSample(
       entry.description || entry.concept || entry.date || 'Asiento',
-      '/panel/accounting?sub=diary',
+      '/panel/books?sub=diary',
     )),
   });
 
@@ -384,14 +386,14 @@ export function buildClubReview({
       : `${pendingPay.length} cobranzas sin identificar`,
     detail: 'Sin número de socio, o con un número que no está en el padrón.',
     why: 'Jev las avisa hasta que se imputen o se rechacen. La más vieja va primero.',
-    tab: 'accounting',
+    tab: 'operation',
     focus: 'unidentified',
     samples: take(pendingPay, (item) => {
       const guess = guessMember(`${item.note || ''} ${item.originLabel || ''} ${item.bankRef || ''}`, list);
       const base = `${item.date || 'sin fecha'} · ${item.originLabel || item.bankRef || 'cobranza'}`;
       return asSample(
         guess ? `${base} · parece ${labelOf(guess)}` : base,
-        guess ? memberHref(guess) : '/panel/accounting?sub=unidentified',
+        guess ? memberHref(guess) : '/panel/operation?sub=unidentified',
       );
     }),
   });
@@ -420,7 +422,7 @@ export function buildClubReview({
       : `${balanceGap.length} saldos de socio no coinciden con la cuenta corriente`,
     detail: 'La ficha dice una cifra y el libro otra, y no hay un cobro posterior que lo explique.',
     why: 'Hasta mirarlo, no se sabe cuál de las dos cifras es la deuda.',
-    tab: 'accounting',
+    tab: 'operation',
     focus: 'balances',
     samples: take(balanceGap, (member) => {
       const key = numberKey(memberNumberOf(member));
@@ -484,11 +486,11 @@ export function buildClubReview({
       : `${badJournalDates.length} asientos sin fecha o con fecha futura`,
     detail: 'El libro diario no puede ordenarlos.',
     why: 'Una fecha mal puesta desordena el mes.',
-    tab: 'accounting',
+    tab: 'books',
     focus: 'diary',
     samples: take(badJournalDates, (entry) => asSample(
       entry.description || entry.concept || 'Asiento',
-      '/panel/accounting?sub=diary',
+      '/panel/books?sub=diary',
     )),
   });
 
@@ -504,11 +506,11 @@ export function buildClubReview({
       : `${pendingExpenses.length} gastos sin aprobar`,
     detail: 'Siguen en borrador o esperando aprobación.',
     why: 'No entran al libro hasta que alguien los aprueba.',
-    tab: 'accounting',
+    tab: 'operation',
     focus: 'expenses',
     samples: take(pendingExpenses, (expense) => asSample(
       expense.concept || expense.vendorName || 'Gasto',
-      '/panel/accounting?sub=expenses',
+      '/panel/operation?sub=expenses',
     )),
   });
 
@@ -526,11 +528,11 @@ export function buildClubReview({
       : `${openOrders.length} órdenes de pago sin imputar`,
     detail: 'El cobro del socio todavía está pendiente o en proceso.',
     why: 'Hasta que se impute, la cuota sigue impaga.',
-    tab: 'accounting',
+    tab: 'operation',
     focus: 'payment_orders',
     samples: take(openOrders, (order) => asSample(
       order.responsible || order.memberNumber || 'Orden de pago',
-      '/panel/accounting?sub=payment_orders',
+      '/panel/operation?sub=payment_orders',
     )),
   });
   const overdueCheques = (cheques || []).filter((c) => (
@@ -547,11 +549,11 @@ export function buildClubReview({
     title: overdueCheques.length === 1 ? '1 cheque vencido en cartera' : `${overdueCheques.length} cheques vencidos en cartera`,
     detail: 'Siguen en cartera con la fecha de pago pasada.',
     why: 'Cobrar o depositar antes de mirar los que todavía vencen.',
-    tab: 'accounting',
+    tab: 'operation',
     focus: 'cash',
     samples: take(overdueCheques, (c) => asSample(
       `${c.checkNumber || c.drawer || 'Cheque'} · ${String(c.dueAt).slice(0, 10)}`,
-      '/panel/accounting?sub=cash',
+      '/panel/operation?sub=cash',
     )),
   });
   row(items, {
@@ -561,11 +563,11 @@ export function buildClubReview({
     title: soonCheques.length === 1 ? '1 cheque vence en 7 días' : `${soonCheques.length} cheques vencen en 7 días`,
     detail: 'Están en cartera y la fecha cae esta semana.',
     why: 'Después de los ya vencidos.',
-    tab: 'accounting',
+    tab: 'operation',
     focus: 'cash',
     samples: take(soonCheques, (c) => asSample(
       `${c.checkNumber || c.drawer || 'Cheque'} · ${String(c.dueAt).slice(0, 10)}`,
-      '/panel/accounting?sub=cash',
+      '/panel/operation?sub=cash',
     )),
   });
 
@@ -579,11 +581,11 @@ export function buildClubReview({
       : `${undatedCheques.length} cheques en cartera sin fecha de pago`,
     detail: 'No se puede saber si ya vencieron.',
     why: 'Sin fecha quedan fuera del orden de cobro.',
-    tab: 'accounting',
+    tab: 'operation',
     focus: 'cash',
     samples: take(undatedCheques, (c) => asSample(
       c.checkNumber || c.drawer || 'Cheque',
-      '/panel/accounting?sub=cash',
+      '/panel/operation?sub=cash',
     )),
   });
 
@@ -630,11 +632,11 @@ export function buildClubReview({
     title: suppliersNoCuit.length === 1 ? '1 proveedor sin CUIT' : `${suppliersNoCuit.length} proveedores sin CUIT`,
     detail: 'Sin CUIT no se puede cerrar la retención ni el SIAP.',
     why: 'El dato fiscal falta en la ficha del proveedor.',
-    tab: 'accounting',
+    tab: 'operation',
     focus: 'suppliers',
     samples: take(suppliersNoCuit, (s) => asSample(
       s.legalName || s.tradeName || 'Proveedor',
-      s.id ? `/panel/accounting?sub=suppliers&supplier=${encodeURIComponent(s.id)}` : '/panel/accounting?sub=suppliers',
+      s.id ? `/panel/operation?sub=suppliers&supplier=${encodeURIComponent(s.id)}` : '/panel/operation?sub=suppliers',
     )),
   });
 
@@ -659,7 +661,7 @@ export function buildClubReview({
       : `${retencionesSinCuit.length} retenciones de proveedores sin CUIT`,
     detail: 'La retención está cargada y el CUIT del proveedor no.',
     why: 'El SIAP las va a rechazar.',
-    tab: 'accounting',
+    tab: 'operation',
     focus: 'retenciones',
     samples: take(retencionesSinCuit, (r) => {
       const key = normalizePersonName(r.supplierName || r.clientName);
@@ -667,8 +669,8 @@ export function buildClubReview({
       return asSample(
         r.supplierName || r.clientName || 'Retención',
         supplier?.id
-          ? `/panel/accounting?sub=suppliers&supplier=${encodeURIComponent(supplier.id)}`
-          : '/panel/accounting?sub=retenciones',
+          ? `/panel/operation?sub=suppliers&supplier=${encodeURIComponent(supplier.id)}`
+          : '/panel/operation?sub=retenciones',
       );
     }),
   });
@@ -701,14 +703,14 @@ export function buildClubReview({
       : `${rejectedCount} cobros de Mercado Pago rechazados`,
     detail: 'El débito no entró. Hay que volver a pasarlo por Mercado Pago.',
     why: 'Esa cuota sigue sin entrar.',
-    tab: 'accounting',
+    tab: 'operation',
     focus: 'galicia',
     samples: [
       ...take(rejectedDebits, (debit) => asSample(
         debit.memberName || debit.memberId || 'Débito',
         debit.memberId
           ? `/panel/members/${encodeURIComponent(debit.memberId)}?editar=1`
-          : '/panel/accounting?sub=galicia',
+          : '/panel/operation?sub=galicia',
       )),
       ...take(rejectedAdhesion, memberSample),
     ],
@@ -1177,11 +1179,11 @@ export function buildClubReview({
       : `${openDiscrepancy.length} arqueos con diferencia`,
     detail: 'Lo contado no coincide con lo registrado.',
     why: 'El arqueo no cuadra: contado ≠ registrado.',
-    tab: 'accounting',
+    tab: 'operation',
     focus: 'cash',
     samples: take(openDiscrepancy, (session) => asSample(
       session.closedAt ? String(session.closedAt).slice(0, 10) : 'Arqueo',
-      '/panel/accounting?sub=cash',
+      '/panel/operation?sub=cash',
     )),
   });
 
@@ -1203,11 +1205,11 @@ export function buildClubReview({
       : `${interestPending.length} intereses del mes sin generar`,
     detail: 'Hay socios por encima de la tolerancia y la corrida de este mes no está.',
     why: 'El cierre del mes queda incompleto.',
-    tab: 'accounting',
+    tab: 'operation',
     focus: 'interest_generators',
     samples: take(interestPending, (generator) => asSample(
       generator.identifier || 'Interés',
-      '/panel/accounting?sub=interest_generators',
+      '/panel/operation?sub=interest_generators',
     )),
   });
 
@@ -1219,13 +1221,14 @@ export function buildClubReview({
   ));
   const feeMonthOpen = currentFeePeriod
     && currentFeePeriod.status !== 'processed'
+    && currentFeePeriod.status !== 'pending'
     && currentFeePeriod.status !== 'cancelled';
   row(items, {
     id: 'fee-month',
     tier: 'cierre',
     count: feeMonthOpen ? 1 : 0,
     title: 'Las cuotas de este mes no están liquidadas',
-    detail: 'El período del mes sigue pendiente.',
+    detail: 'El período del mes sigue sin generar.',
     why: 'Sin liquidar, el padrón activo no tiene la cuota del mes.',
     tab: 'dues',
     samples: feeMonthOpen
@@ -1234,7 +1237,9 @@ export function buildClubReview({
   });
 
   const chargedKeys = new Set((feeChargedNumbers || []).map(numberKey).filter(Boolean));
-  const feeClosed = currentFeePeriod && currentFeePeriod.status === 'processed' && chargedKeys.size > 0;
+  const feeClosed = currentFeePeriod
+    && currentFeePeriod.status === 'processed'
+    && chargedKeys.size > 0;
   const titularesToCharge = feeClosed
     ? live.filter((member) => isTitularMember(member) && numberKey(memberNumberOf(member)))
     : [];
@@ -1267,15 +1272,104 @@ export function buildClubReview({
       : `${unclearPays.length} cobranzas sin un socio claro`,
     detail: 'El texto no nombra a un solo socio.',
     why: 'Hay que leerla. No se asigna sola.',
-    tab: 'accounting',
+    tab: 'operation',
     focus: 'unidentified',
     samples: take(unclearPays, (item) => asSample(
       item.note || item.originLabel || item.bankRef || 'Sin nota',
-      '/panel/accounting?sub=unidentified',
+      '/panel/operation?sub=unidentified',
     )),
   });
 
-  const otrasBajas = uniqueBajas(bajas).filter((baja) => baja.kind === 'otro');
+  const movesAsOf = String(membershipMovesAsOf || '').slice(0, 10);
+  const hasMovesList = (altas || []).length > 0 || (bajas || []).length > 0;
+  const movesStale = Boolean(
+    hasMovesList
+    && (
+      !movesAsOf
+      || (balanceAsOf && movesAsOf < balanceAsOf)
+      || (todayIso && movesAsOf < addIsoDays(todayIso, -3))
+    ),
+  );
+  row(items, {
+    id: 'altas-bajas-desactualizadas',
+    tier: 'cierre',
+    count: movesStale ? 1 : 0,
+    title: movesStale
+      ? (movesAsOf
+        ? `Altas y bajas del padrón cortan el ${movesAsOf.slice(8, 10)}/${movesAsOf.slice(5, 7)}`
+        : 'Altas y bajas del padrón sin fecha de corte')
+      : 'Altas y bajas al día',
+    detail: movesStale
+      ? (balanceAsOf && movesAsOf && movesAsOf < balanceAsOf
+        ? `El corte de saldos es ${balanceAsOf}. Hay que volver a cargar altas y bajas.`
+        : 'El listado de altas y bajas no está al día con el padrón vivo.')
+      : 'El corte de altas y bajas acompaña el padrón.',
+    why: 'Sin altas y bajas al día, el borrador de cuotas liquida de más o de menos.',
+    tab: 'members',
+    samples: movesStale ? [asSample(
+      movesAsOf ? `Corte altas/bajas · ${movesAsOf}` : 'Sin corte de altas/bajas',
+      '/panel/members',
+    )] : [],
+  });
+
+  const bajaRows = uniqueBajas(bajas);
+  const bajaIds = new Set(bajaRows.map((baja) => memberMoveKey(baja.memberId)).filter(Boolean));
+  const altaIds = new Set((altas || []).map((alta) => memberMoveKey(alta.memberId)).filter(Boolean));
+  const byMemberId = new Map(
+    (members || [])
+      .map((member) => [memberMoveKey(member.memberId || member.memberNumber), member])
+      .filter(([id]) => id),
+  );
+
+  const bajasStillActive = bajaRows.filter((baja) => {
+    const member = byMemberId.get(memberMoveKey(baja.memberId));
+    return member && isLiveMember(member);
+  });
+  row(items, {
+    id: 'bajas-sigue-activo',
+    tier: 'conteo',
+    count: bajasStillActive.length,
+    title: bajasStillActive.length === 1
+      ? '1 baja figura en Societas pero la ficha sigue activa'
+      : `${bajasStillActive.length} bajas figuran en Societas pero la ficha sigue activa`,
+    detail: 'La planilla de bajas no coincide con el estado del padrón.',
+    why: 'Esa ficha entraría en la liquidación aunque Societas la dio de baja.',
+    tab: 'members',
+    samples: take(bajasStillActive, (baja) => asSample(
+      `${baja.name || baja.memberId || 'Socio'} · ${baja.motivo || 'baja'}`,
+      baja.memberId ? `/panel/members/${encodeURIComponent(baja.memberId)}?editar=1` : '/panel/members',
+    )),
+  });
+
+  const altasMissing = (members || []).filter((member) => {
+    if (!isLiveMember(member)) return false;
+    const id = memberMoveKey(member.memberId || member.memberNumber);
+    if (!id || altaIds.has(id)) return false;
+    const joined = String(member.joinDate || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(joined)) return false;
+    if (movesAsOf && joined <= movesAsOf) return false;
+    if (!movesAsOf && balanceAsOf && joined <= balanceAsOf) return false;
+    return true;
+  });
+  row(items, {
+    id: 'altas-faltantes',
+    tier: 'conteo',
+    count: altasMissing.length,
+    title: altasMissing.length === 1
+      ? '1 alta del padrón no está en el listado de altas'
+      : `${altasMissing.length} altas del padrón no están en el listado de altas`,
+    detail: movesAsOf
+      ? `Ingresaron después del corte ${movesAsOf} y no aparecen en Societas.`
+      : 'Ingresaron al padrón y no están en la planilla de altas.',
+    why: 'Hay que actualizar altas y bajas antes de armar el borrador de cuotas.',
+    tab: 'members',
+    samples: take(altasMissing, (member) => asSample(
+      `${member.name || member.memberId || 'Socio'} · alta ${String(member.joinDate || '').slice(0, 10)}`,
+      member.memberId ? `/panel/members/${encodeURIComponent(member.memberId)}?editar=1` : '/panel/members',
+    )),
+  });
+
+  const otrasBajas = bajaRows.filter((baja) => baja.kind === 'otro');
   row(items, {
     id: 'bajas-otro',
     tier: 'nota',

@@ -8,7 +8,10 @@ const ADMIN_SECTIONS = [
   { key: 'disciplines', title: 'Disciplinas', keywords: 'disciplinas deportes' },
   { key: 'pool', title: 'Pileta', keywords: 'pileta natacion' },
   { key: 'access', title: 'Ingresos', keywords: 'ingresos porteria acceso' },
-  { key: 'accounting', title: 'Contabilidad', keywords: 'contabilidad caja tesoreria libros' },
+  { key: 'accounting', title: 'Contabilidad', keywords: 'contabilidad padron catalogo' },
+  { key: 'books', title: 'Libros', keywords: 'libros diario mayor asientos contabilidad partida doble' },
+  { key: 'informes', title: 'Informes', keywords: 'informes balance resultados graficos reportes contables' },
+  { key: 'operation', title: 'Operación', keywords: 'operacion caja tesoreria gastos proveedores debitos' },
   { key: 'staff', title: 'Personal', keywords: 'personal empleados rrhh' },
   { key: 'teachers', title: 'Profesores', keywords: 'profesores docentes' },
   { key: 'events', title: 'Fiestas', keywords: 'fiestas eventos' },
@@ -16,7 +19,7 @@ const ADMIN_SECTIONS = [
   { key: 'claims', title: 'Reclamos', keywords: 'reclamos' },
   { key: 'messaging', title: 'Mensajería', keywords: 'mensajeria mensajes mail md whatsapp comunicado masivo ia redactar' },
   { key: 'news', title: 'Novedades', keywords: 'novedades revista' },
-  { key: 'reports', title: 'Reportes', keywords: 'reportes informes' },
+  { key: 'reports', title: 'Reportes', keywords: 'reportes exportaciones estadisticas' },
   { key: 'surveys', title: 'Encuestas', keywords: 'encuestas' },
   { key: 'system', title: 'Usuarios y altas', keywords: 'usuarios altas permisos' },
   { key: 'settings', title: 'Configuración', keywords: 'configuracion sistema sede pileta zonda vencimiento' },
@@ -48,6 +51,7 @@ const ACCOUNTING_TOOLS = [
   { key: 'unidentified', title: 'Sin identificar', keywords: 'cobranzas sin identificar' },
   { key: 'galicia', title: 'Galicia', keywords: 'galicia banco debitos' },
   { key: 'prisma', title: 'Prisma', keywords: 'prisma debito automatico visa mastercard debliq' },
+  { key: 'debit_moves', title: 'Listados de débitos', keywords: 'altas bajas debito automatico cuota mes adhesion prisma argencard visa planilla' },
   { key: 'fixed_expenses', title: 'Gastos fijos', keywords: 'gastos fijos recurrentes' },
   { key: 'balances', title: 'Saldos', keywords: 'saldos socios cuentas' },
   { key: 'payment_orders', title: 'Órdenes de pago', keywords: 'ordenes pago' },
@@ -103,17 +107,41 @@ export function searchSession({
     }, tokens);
   });
 
-  if (allowed.has('accounting')) {
+  if (allowed.has('accounting') || allowed.has('books') || allowed.has('informes') || allowed.has('operation')) {
     const accountingAllowed = new Set(accountingTabs);
+    const bookKeys = new Set(['diary', 'mayor', 'create']);
+    const reportKeys = new Set([
+      'balance', 'balance_monthly', 'balance_summary', 'balance_liquidation', 'balance_patrimonial',
+      'results', 'charts', 'acct_reports',
+    ]);
+    const treasuryKeys = new Set([
+      'cash', 'expenses', 'suppliers', 'retenciones', 'other_incomes', 'interest_generators',
+      'unidentified', 'galicia', 'prisma', 'debit_moves', 'fixed_expenses', 'balances', 'payment_orders',
+      'credit_purchases',
+    ]);
     ACCOUNTING_TOOLS.forEach((tool) => {
       if (!accountingAllowed.has(tool.key)) return;
+      const isBook = bookKeys.has(tool.key);
+      const isReport = reportKeys.has(tool.key);
+      const isTreasury = treasuryKeys.has(tool.key);
+      if (isBook && !allowed.has('books') && !allowed.has('accounting')) return;
+      if (isReport && !allowed.has('informes') && !allowed.has('accounting')) return;
+      if (isTreasury && !allowed.has('operation') && !allowed.has('accounting')) return;
+      if (!isBook && !isReport && !isTreasury && !allowed.has('accounting')) return;
+      const path = isBook && allowed.has('books')
+        ? `/panel/books?sub=${tool.key}`
+        : isReport && allowed.has('informes')
+          ? `/panel/informes?sub=${tool.key}`
+          : isTreasury && allowed.has('operation')
+            ? `/panel/operation?sub=${tool.key}`
+            : `/panel/accounting?sub=${tool.key}`;
       pushRanked(items, {
         id: `tool-${tool.key}`,
         kind: 'tool',
         title: tool.title,
         keywords: tool.keywords,
-        subtitle: 'Contabilidad',
-        path: `/panel/accounting?sub=${tool.key}`,
+        subtitle: isBook ? 'Libros' : isReport ? 'Informes' : isTreasury ? 'Operación' : 'Contabilidad',
+        path,
       }, tokens);
     });
   }

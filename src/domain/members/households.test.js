@@ -19,7 +19,7 @@ import {
 
 const catalog = [
   { id: 'socio_familiar', name: 'SOCIO FAMILIAR', color: '#cfa13a' },
-  { id: 'grupo_familiar_familiar', name: 'GRUPO FAMILIAR (Familiar)', color: '#f59e0b' },
+  { id: 'grupo_familiar_familiar', name: 'GRUPO FAMILIAR (Familiar)', color: '#6d9a8c' },
   { id: 'socio_individual', name: 'SOCIO INDIVIDUAL', color: '#10b981' },
 ];
 

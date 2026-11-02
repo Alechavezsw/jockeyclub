@@ -1,11 +1,11 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import {
-  ArrowLeft, Eye, FileDown, LifeBuoy, List, Lock, Plus, Printer, RefreshCw, Search, Share2, Trash2, Users,
+  ArrowLeft, Eye, FileDown, LifeBuoy, List, Lock, Plus, Printer, RefreshCw, Search, Share2, Trash2, Users, X,
 } from 'lucide-react';
 import CuotasDeskToolbar, { CuotasTool } from './CuotasDeskToolbar';
 import { exportAccountPaymentPdf } from '../../domain/accounting/exportAccountPaymentPdf';
 import { exportPaymentBoletoPdf } from '../../domain/accounting/exportPaymentBoleto';
-import { DUES_LATE_RATE, getActiveTiers } from '../../domain/members/tiers';
+import { DUES_LATE_RATE } from '../../domain/members/tiers';
 import { isFamilyDependent, memberNumberOf, resolveFamilyForDisplay } from '../../domain/members/households';
 import {
   ACCOUNT_ENTRY_TYPES,
@@ -60,16 +60,6 @@ function pageWindow(current, total) {
   return Array.from({ length: Math.max(0, end - start) }, (_, i) => start + i);
 }
 
-const EMPTY_FILTERS = {
-  firstName: '',
-  lastName: '',
-  dni: '',
-  memberNumber: '',
-  familyId: '',
-  status: 'habilitado',
-  tier: 'all',
-};
-
 export default function MemberBalancesPanel(props) {
   return (
     <SnapshotGate names={SNAPSHOTS}>
@@ -89,13 +79,9 @@ function MemberBalancesContent({
   onGoImportCollections,
   onGoImportDebts,
   onGoImputeEvents,
-  tierCatalog = [],
 }) {
-  const tiers = useMemo(() => getActiveTiers(tierCatalog), [tierCatalog]);
-
   const [view, setView] = useState('list'); // list | summary | payment | boleto | entry
-  const [draft, setDraft] = useState(EMPTY_FILTERS);
-  const [applied, setApplied] = useState(EMPTY_FILTERS);
+  const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(0);
   const [selectedMember, setSelectedMember] = useState(null);
   const [selectedEntry, setSelectedEntry] = useState(null);
@@ -135,20 +121,19 @@ function MemberBalancesContent({
     return filterMembersForBalances(members, { query: q, status: 'all' }).slice(0, 12);
   }, [members, entryQuery, entryForm.memberNumber, entryForm.memberName]);
 
-  const setDraftField = (key, value) => {
-    setDraft((current) => ({ ...current, [key]: value }));
-  };
+  const filtered = useMemo(() => {
+    const q = searchQuery.trim();
+    return filterMembersForBalances(members, {
+      query: q,
+      // Sin texto: habilitados. Con búsqueda: todo el padrón (nombre, DNI, Nº, grupo, categoría, estado).
+      status: q ? 'all' : 'habilitado',
+      tier: 'all',
+    }).toSorted(compareBalanceRows);
+  }, [members, searchQuery]);
 
-  const submitSearch = (event) => {
-    event.preventDefault();
-    setApplied(draft);
+  useEffect(() => {
     setPage(0);
-  };
-
-  const filtered = useMemo(
-    () => filterMembersForBalances(members, applied).toSorted(compareBalanceRows),
-    [members, applied]
-  );
+  }, [searchQuery]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages - 1);
@@ -839,92 +824,42 @@ function MemberBalancesContent({
         }]}
       />
 
-      <section className="supplier-pay-import-block">
-        <h4 className="supplier-pay-import-title">
-          Buscar por
-          <CurrentAccountCutNote members={members} />
-        </h4>
-        <form className="member-balances-search" onSubmit={submitSearch}>
-          <label>
-            <span className="form-label member-balances-search-label">Nombre del socio</span>
-            <input
-              id="balance-first-name"
-              className="form-input"
-              value={draft.firstName}
-              onChange={(e) => setDraftField('firstName', e.target.value)}
-              autoComplete="off"
-            />
-          </label>
-          <label>
-            <span className="form-label member-balances-search-label">Apellido del socio</span>
-            <input
-              id="balance-last-name"
-              className="form-input"
-              value={draft.lastName}
-              onChange={(e) => setDraftField('lastName', e.target.value)}
-              autoComplete="off"
-            />
-          </label>
-          <label>
-            <span className="form-label member-balances-search-label">Dni del socio</span>
-            <input
-              id="balance-dni"
-              className="form-input"
-              inputMode="numeric"
-              value={draft.dni}
-              onChange={(e) => setDraftField('dni', e.target.value)}
-              autoComplete="off"
-            />
-          </label>
-          <label>
-            <span className="form-label member-balances-search-label">Número de socio</span>
-            <input
-              id="balance-member-number"
-              className="form-input"
-              inputMode="numeric"
-              value={draft.memberNumber}
-              onChange={(e) => setDraftField('memberNumber', e.target.value)}
-              autoComplete="off"
-            />
-          </label>
-          <label>
-            <span className="form-label member-balances-search-label">Identificador grupo familiar</span>
-            <input
-              id="balance-family"
-              className="form-input"
-              value={draft.familyId}
-              onChange={(e) => setDraftField('familyId', e.target.value)}
-              autoComplete="off"
-            />
-          </label>
-          <label>
-            <span className="form-label member-balances-search-label">Estado</span>
-            <select
-              id="balance-status"
-              className="form-input"
-              value={draft.status}
-              onChange={(e) => setDraftField('status', e.target.value)}
-            >
-              <option value="habilitado">Habilitado</option>
-              <option value="deshabilitado">Deshabilitado</option>
-            </select>
-          </label>
-          <label>
-            <span className="form-label member-balances-search-label">Categoria de cuota</span>
-            <select
-              id="balance-tier"
-              className="form-input"
-              value={draft.tier}
-              onChange={(e) => setDraftField('tier', e.target.value)}
-            >
-              <option value="all" />
-              {tiers.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
-          </label>
-          <div className="member-balances-search-actions">
-            <button type="submit" className="btn btn-tan">Buscar</button>
+      <section className="supplier-pay-import-block member-balances-smart-search">
+        <div className="members-search-hero">
+          <div className="member-balances-smart-search-head">
+            <label className="members-search-label" htmlFor="balance-smart-search">
+              Buscar socio
+            </label>
+            <CurrentAccountCutNote members={members} />
           </div>
-        </form>
+          <div className="members-search-field">
+            <Search size={20} aria-hidden="true" className="members-search-icon" />
+            <input
+              id="balance-smart-search"
+              type="search"
+              className="members-search-input"
+              placeholder="Nombre, apellido, DNI, Nº de socio, grupo familiar, categoría o estado…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              autoComplete="off"
+            />
+            {searchQuery ? (
+              <button
+                type="button"
+                className="members-search-clear"
+                onClick={() => setSearchQuery('')}
+                aria-label="Limpiar búsqueda"
+              >
+                <X size={16} />
+              </button>
+            ) : null}
+          </div>
+          <p className="members-search-hint">
+            {searchQuery.trim()
+              ? `${filtered.length.toLocaleString('es-AR')} resultado${filtered.length === 1 ? '' : 's'}`
+              : 'Nombre, DNI, número, grupo, categoría o estado. Sin texto, muestra habilitados.'}
+          </p>
+        </div>
       </section>
 
       <h4 className="supplier-pay-import-title">Socios</h4>

@@ -1,9 +1,8 @@
 /**
  * Seed de altas y bajas Societas.
- * Une todos los Excel de datita/societas/bajas y de
- * datita/Avtualizacion/Socios/Altas y bajas. Cada export de Societas es una
- * ventana (no un acumulado): el archivo más nuevo pisa la fila repetida y los
- * movimientos que solo están en un corte viejo se conservan.
+ * Toma solo el Excel más reciente (por fecha en el nombre) entre
+ * datita/societas/bajas y datita/Avtualizacion/Socios/Altas y bajas.
+ * Cada export es una ventana del período del Resumen, no un acumulado histórico.
  */
 const XLSX = require('xlsx');
 const fs = require('fs');
@@ -91,10 +90,6 @@ function parseSheet(wb, name, dateKeys, extra = {}) {
   return items;
 }
 
-function rowKey(row) {
-  return [row.type, row.memberId, row.date, row.motivo, row.movimiento].join('|');
-}
-
 function isoFromParts(day, month, year) {
   return `${year}-${String(Number(month)).padStart(2, '0')}-${String(Number(day)).padStart(2, '0')}`;
 }
@@ -131,34 +126,37 @@ function collectFiles() {
     .map(([, full]) => full);
 }
 
+function pickLatestFile(files) {
+  const dated = (name) => (name.match(/(\d{4}-\d{2}-\d{2})/) || [])[1] || '';
+  return [...files].sort((a, b) => {
+    const baseA = path.basename(a);
+    const baseB = path.basename(b);
+    const dateCmp = dated(baseB).localeCompare(dated(baseA));
+    if (dateCmp !== 0) return dateCmp;
+    return fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs;
+  })[0];
+}
+
 const files = collectFiles();
 if (!files.length) throw new Error('No hay Excel de altas y bajas');
 
-const merged = new Map();
-let periodFrom = '';
-let periodTo = '';
-for (const filePath of files) {
-  const wb = XLSX.readFile(filePath);
-  const period = parsePeriod(wb);
-  if (period.from && (!periodFrom || period.from < periodFrom)) periodFrom = period.from;
-  if (period.to && (!periodTo || period.to > periodTo)) periodTo = period.to;
-  const rows = [
-    ...parseSheet(wb, 'Altas', ['fecha de alta'], { type: 'alta' }),
-    ...parseSheet(wb, 'Bajas', ['fecha de baja'], { type: 'baja' }),
-  ];
-  for (const row of rows) merged.set(rowKey(row), row);
-}
+const filePath = pickLatestFile(files);
+const wb = XLSX.readFile(filePath);
+const { from: periodFrom, to: periodTo } = parsePeriod(wb);
+const rows = [
+  ...parseSheet(wb, 'Altas', ['fecha de alta'], { type: 'alta' }),
+  ...parseSheet(wb, 'Bajas', ['fecha de baja'], { type: 'baja' }),
+];
 
-const fileName = path.basename(files[files.length - 1]);
+const fileName = path.basename(filePath);
 const asOf = (fileName.match(/(\d{4}-\d{2}-\d{2})/) || [])[1] || periodTo;
-const rows = [...merged.values()];
 const altas = rows.filter((row) => row.type === 'alta');
 const bajas = rows.filter((row) => row.type === 'baja');
 
 const snapshot = {
   asOf,
   fileName,
-  sources: files.map((filePath) => path.basename(filePath)),
+  sources: [fileName],
   periodFrom,
   periodTo,
   altas: altas.length,
@@ -172,4 +170,4 @@ export const SOCIETAS_MEMBERSHIP_ALTAS = ${JSON.stringify(altas)};
 export const SOCIETAS_MEMBERSHIP_BAJAS = ${JSON.stringify(bajas)};
 `;
 fs.writeFileSync(outFile, js);
-console.log(`Wrote ${altas.length} altas y ${bajas.length} bajas (${periodFrom} a ${periodTo}) desde ${snapshot.sources.join(' + ')}`);
+console.log(`Wrote ${altas.length} altas y ${bajas.length} bajas (${periodFrom} a ${periodTo}) desde ${fileName}`);

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   BookOpen, Plus, DollarSign, PieChart, ShieldAlert, CheckCircle2, Trash2, Printer, Search,
@@ -25,34 +25,12 @@ import {
   normalizeLines,
   buildMayorLedger,
 } from '../domain/accounting/journal';
-import ChartOfAccountsPanel from './erp/ChartOfAccountsPanel';
-import CashRegistersPanel from './erp/CashRegistersPanel';
-import ExpensesPanel from './erp/ExpensesPanel';
-import SuppliersPanel from './erp/SuppliersPanel';
-import RetencionesPanel from './erp/RetencionesPanel';
-import OtherIncomePanel from './erp/OtherIncomePanel';
-import InterestGeneratorPanel from './erp/InterestGeneratorPanel';
 import {
-  UnidentifiedCollectionsPanel,
-  GaliciaDebitsPanel,
-  FixedExpensesPanel,
-  BalancesPanel,
-} from './erp/TreasuryPanels';
-import PaymentOrdersPanel from './erp/PaymentOrdersPanel';
-import AccountingReportsPanel from './erp/AccountingReportsPanel';
-import LibreDeudaPanel from './erp/LibreDeudaPanel';
-import FamilyGroupBalancesPanel from './erp/FamilyGroupBalancesPanel';
-import MemberDiscountsPanel from './erp/MemberDiscountsPanel';
-import BonificacionesPanel from './erp/BonificacionesPanel';
-import SiapPanel from './erp/SiapPanel';
-import ImpuestosPanel from './erp/ImpuestosPanel';
-import MemberCreditPurchasesPanel from './erp/MemberCreditPurchasesPanel';
-import PrismaDebitsPanel from './erp/PrismaDebitsPanel';
-import MonthlyBalancePanel from './erp/MonthlyBalancePanel';
-import MonthlyBalanceSummaryPanel from './erp/MonthlyBalanceSummaryPanel';
-import LiquidationCcPanel from './erp/LiquidationCcPanel';
-import ResultsChartsPanel from './erp/ResultsChartsPanel';
-import { allowedAccountingSubtabsForRoles } from '../domain/auth/roles';
+  ACCOUNTING_BOOK_SUBTAB_SET,
+  ACCOUNTING_REPORT_SUBTAB_SET,
+  ACCOUNTING_TREASURY_SUBTAB_SET,
+  allowedAccountingSubtabsForRoles,
+} from '../domain/auth/roles';
 import { useAuth } from '../context/AuthContext';
 import { formatISODateLongAR, todayISODateAR } from '../lib/arDate';
 import { keepPageAtTop, preventButtonScroll } from '../lib/scrollPage';
@@ -74,11 +52,48 @@ import {
 } from '../domain/members/memberPayments';
 import { billingAccountMember } from '../domain/members/households';
 
-const TREASURY_TABS = new Set([
-  'cash', 'expenses', 'suppliers', 'retenciones', 'other_incomes', 'interest_generators',
-  'unidentified', 'galicia', 'prisma', 'fixed_expenses', 'balances', 'payment_orders',
-  'credit_purchases',
-]);
+const ChartOfAccountsPanel = lazy(() => import('./erp/ChartOfAccountsPanel'));
+const CashRegistersPanel = lazy(() => import('./erp/CashRegistersPanel'));
+const ExpensesPanel = lazy(() => import('./erp/ExpensesPanel'));
+const SuppliersPanel = lazy(() => import('./erp/SuppliersPanel'));
+const RetencionesPanel = lazy(() => import('./erp/RetencionesPanel'));
+const OtherIncomePanel = lazy(() => import('./erp/OtherIncomePanel'));
+const InterestGeneratorPanel = lazy(() => import('./erp/InterestGeneratorPanel'));
+const UnidentifiedCollectionsPanel = lazy(() =>
+  import('./erp/TreasuryPanels').then((m) => ({ default: m.UnidentifiedCollectionsPanel })),
+);
+const GaliciaDebitsPanel = lazy(() =>
+  import('./erp/TreasuryPanels').then((m) => ({ default: m.GaliciaDebitsPanel })),
+);
+const FixedExpensesPanel = lazy(() =>
+  import('./erp/TreasuryPanels').then((m) => ({ default: m.FixedExpensesPanel })),
+);
+const BalancesPanel = lazy(() =>
+  import('./erp/TreasuryPanels').then((m) => ({ default: m.BalancesPanel })),
+);
+const PaymentOrdersPanel = lazy(() => import('./erp/PaymentOrdersPanel'));
+const AccountingReportsPanel = lazy(() => import('./erp/AccountingReportsPanel'));
+const LibreDeudaPanel = lazy(() => import('./erp/LibreDeudaPanel'));
+const FamilyGroupBalancesPanel = lazy(() => import('./erp/FamilyGroupBalancesPanel'));
+const MemberDiscountsPanel = lazy(() => import('./erp/MemberDiscountsPanel'));
+const BonificacionesPanel = lazy(() => import('./erp/BonificacionesPanel'));
+const SiapPanel = lazy(() => import('./erp/SiapPanel'));
+const ImpuestosPanel = lazy(() => import('./erp/ImpuestosPanel'));
+const MemberCreditPurchasesPanel = lazy(() => import('./erp/MemberCreditPurchasesPanel'));
+const PrismaDebitsPanel = lazy(() => import('./erp/PrismaDebitsPanel'));
+const DebitMovesPanel = lazy(() => import('./erp/DebitMovesPanel'));
+const MonthlyBalancePanel = lazy(() => import('./erp/MonthlyBalancePanel'));
+const MonthlyBalanceSummaryPanel = lazy(() => import('./erp/MonthlyBalanceSummaryPanel'));
+const LiquidationCcPanel = lazy(() => import('./erp/LiquidationCcPanel'));
+const ResultsChartsPanel = lazy(() => import('./erp/ResultsChartsPanel'));
+
+const PANEL_FALLBACK = (
+  <div className="glass-card fade-in" style={{ padding: '1.25rem' }}>
+    <p className="ops-muted" style={{ margin: 0 }}>Cargando panel…</p>
+  </div>
+);
+
+const TREASURY_TABS = ACCOUNTING_TREASURY_SUBTAB_SET;
 
 const BALANCE_TABS = new Set(['balance', 'balance_monthly', 'balance_summary', 'balance_liquidation', 'balance_patrimonial']);
 
@@ -94,29 +109,29 @@ const ACCOUNTING_HUBS = {
   balance: { tabs: BALANCE_TABS, fallback: 'balance' },
 };
 
-function buildAccountingNavGroups(accountingTabs) {
-  return [
-    {
-      id: 'books',
-      label: 'Libros',
-      tabs: [
-        { key: 'diary', icon: BookOpen, label: 'Libro Diario', short: 'Diario' },
-        { key: 'mayor', icon: Book, label: 'Libro Mayor', short: 'Mayor' },
-        { key: 'create', icon: Plus, label: 'Crear Asiento Legal', short: 'Nuevo asiento', accent: 'create' },
-      ],
-    },
-    {
-      id: 'reports',
-      label: 'Informes',
-      tabs: [
-        ...(accountingTabs.some((k) => BALANCE_TABS.has(k))
-          ? [{ key: 'balance', icon: PieChart, label: 'Balance', short: 'Balance', hub: 'balance' }]
-          : []),
-        { key: 'results', icon: DollarSign, label: 'Estado de Resultados', short: 'Resultados' },
-        { key: 'charts', icon: TrendingUp, label: 'Reportes y gráficos', short: 'Gráficos', accent: 'charts' },
-        { key: 'acct_reports', icon: FileText, label: 'Reportes', short: 'Reportes' },
-      ],
-    },
+function buildAccountingNavGroups(accountingTabs, section = 'all') {
+  const booksGroup = {
+    id: 'books',
+    label: 'Libros',
+    tabs: [
+      { key: 'diary', icon: BookOpen, label: 'Libro Diario', short: 'Diario' },
+      { key: 'mayor', icon: Book, label: 'Libro Mayor', short: 'Mayor' },
+      { key: 'create', icon: Plus, label: 'Crear Asiento Legal', short: 'Nuevo asiento', accent: 'create' },
+    ],
+  };
+  const informesGroup = {
+    id: 'reports',
+    label: 'Informes',
+    tabs: [
+      ...(accountingTabs.some((k) => BALANCE_TABS.has(k))
+        ? [{ key: 'balance', icon: PieChart, label: 'Balance', short: 'Balance', hub: 'balance' }]
+        : []),
+      { key: 'results', icon: DollarSign, label: 'Estado de Resultados', short: 'Resultados' },
+      { key: 'charts', icon: TrendingUp, label: 'Reportes y gráficos', short: 'Gráficos', accent: 'charts' },
+      { key: 'acct_reports', icon: FileText, label: 'Reportes', short: 'Reportes' },
+    ],
+  };
+  const generalGroups = [
     {
       id: 'padron',
       label: 'Padrón',
@@ -130,25 +145,60 @@ function buildAccountingNavGroups(accountingTabs) {
       ],
     },
     {
-      id: 'treasury',
-      label: 'Operación',
-      tabs: accountingTabs.some((k) => TREASURY_TABS.has(k))
-        ? [{ key: 'cash', icon: Wallet, label: 'Tesorería', short: 'Tesorería', hub: 'treasury' }]
-        : [],
-    },
-    {
       id: 'catalog',
       label: 'Catálogo',
       tabs: [
         { key: 'plan', icon: ListTree, label: 'Plan de Cuentas', short: 'Plan' },
       ],
     },
-  ]
+  ];
+  const operationGroup = {
+    id: 'treasury',
+    label: 'Operación',
+    tabs: accountingTabs.some((k) => TREASURY_TABS.has(k))
+      ? [{ key: 'cash', icon: Wallet, label: 'Tesorería', short: 'Tesorería', hub: 'treasury' }]
+      : [],
+  };
+  const groups = section === 'books'
+    ? [booksGroup]
+    : section === 'informes'
+      ? [informesGroup]
+      : section === 'operation'
+        ? [operationGroup]
+        : section === 'general'
+          ? generalGroups
+          : [booksGroup, informesGroup, ...generalGroups, operationGroup];
+  return groups
     .map((group) => ({
       ...group,
       tabs: group.tabs.filter((t) => t.hub || accountingTabs.includes(t.key)),
     }))
     .filter((group) => group.tabs.length > 0);
+}
+
+function sectionAllowedTabs(allTabs, section) {
+  if (section === 'books') {
+    return allTabs.filter((key) => ACCOUNTING_BOOK_SUBTAB_SET.has(key));
+  }
+  if (section === 'informes') {
+    return allTabs.filter((key) => (
+      ACCOUNTING_REPORT_SUBTAB_SET.has(key) || BALANCE_TABS.has(key)
+    ));
+  }
+  if (section === 'operation') {
+    return allTabs.filter((key) => TREASURY_TABS.has(key));
+  }
+  if (section === 'general') {
+    return allTabs.filter(
+      (key) => (
+        !ACCOUNTING_BOOK_SUBTAB_SET.has(key)
+        && !ACCOUNTING_REPORT_SUBTAB_SET.has(key)
+        && !BALANCE_TABS.has(key)
+        && !TREASURY_TABS.has(key)
+      ),
+    );
+  }
+  return allTabs;
 }
 
 function isNavTabActive(tab, subTab) {
@@ -163,6 +213,7 @@ function resolveNavTabKey(tab, subTab) {
 }
 
 const TREASURY_HUB_TABS = [
+  { key: 'debit_moves', icon: CreditCard, label: 'Listados débitos', accent: 'debits' },
   { key: 'cash', icon: Wallet, label: 'Cajas' },
   { key: 'expenses', icon: Receipt, label: 'Gastos' },
   { key: 'suppliers', icon: Truck, label: 'Proveedores' },
@@ -342,9 +393,23 @@ export default function AccountingTab({
   feePeriods = [],
   reservations = [],
   initialSubTab = null,
+  /** 'books' | 'informes' | 'operation' | 'general' | 'all' — módulos aparte en el rail. */
+  section = 'all',
 }) {
   const { role, roles } = useAuth();
-  const accountingTabs = allowedAccountingSubtabsForRoles(roles?.length ? roles : (role || 'admin'));
+  const allAccountingTabs = allowedAccountingSubtabsForRoles(roles?.length ? roles : (role || 'admin'));
+  const accountingTabs = useMemo(
+    () => sectionAllowedTabs(allAccountingTabs, section),
+    [allAccountingTabs, section],
+  );
+  const defaultSubTab = accountingTabs[0]
+    || (section === 'books'
+      ? 'diary'
+      : section === 'informes'
+        ? 'balance'
+        : section === 'operation'
+          ? 'cash'
+          : 'libre_deuda');
   const [searchParams, setSearchParams] = useSearchParams();
   const subFromUrl = searchParams.get('sub');
   const importFromUrl = searchParams.get('import');
@@ -353,13 +418,13 @@ export default function AccountingTab({
       ? initialSubTab
       : subFromUrl && accountingTabs.includes(subFromUrl)
         ? subFromUrl
-        : accountingTabs[0] || 'diary')
+        : defaultSubTab)
   );
 
   const setSubTab = (key, opts = {}) => {
     setSubTabState(key);
     const next = new URLSearchParams(searchParams);
-    if (key && key !== (accountingTabs[0] || 'diary')) {
+    if (key && key !== defaultSubTab) {
       next.set('sub', key);
     } else {
       next.delete('sub');
@@ -378,20 +443,18 @@ export default function AccountingTab({
   const ACCOUNT_PLAN = useMemo(() => accountsByTypeFromChart(chartOfAccounts), [chartOfAccounts]);
 
   useEffect(() => {
-    const tabs = allowedAccountingSubtabsForRoles(roles?.length ? roles : (role || 'admin'));
     if (subTab === 'fixed_discounts') {
-      setSubTab(tabs.includes('member_discounts') ? 'member_discounts' : (tabs[0] || 'diary'));
+      setSubTab(accountingTabs.includes('member_discounts') ? 'member_discounts' : defaultSubTab);
       return;
     }
-    if (!tabs.includes(subTab)) setSubTabState(tabs[0] || 'diary');
-  }, [role, roles, subTab]);
+    if (!accountingTabs.includes(subTab)) setSubTabState(defaultSubTab);
+  }, [role, roles, subTab, section, accountingTabs, defaultSubTab]);
 
   useEffect(() => {
-    const tabs = allowedAccountingSubtabsForRoles(roles?.length ? roles : (role || 'admin'));
-    if (subFromUrl && tabs.includes(subFromUrl) && subFromUrl !== subTab) {
+    if (subFromUrl && accountingTabs.includes(subFromUrl) && subFromUrl !== subTab) {
       setSubTabState(subFromUrl);
     }
-  }, [subFromUrl, role, roles, subTab]);
+  }, [subFromUrl, role, roles, subTab, accountingTabs]);
   const defaultDebitAccount = postableAccounts.find((a) => a.isCashAccount)?.name
     || postableAccounts[0]?.name
     || 'Caja General';
@@ -620,8 +683,8 @@ export default function AccountingTab({
   }, [mayorDayKeys]);
 
   const acctNavGroups = useMemo(
-    () => buildAccountingNavGroups(accountingTabs),
-    [accountingTabs],
+    () => buildAccountingNavGroups(accountingTabs, section),
+    [accountingTabs, section],
   );
   const activeNavGroup = acctNavGroups.find((group) =>
     group.tabs.some((tab) => isNavTabActive(tab, subTab)),
@@ -667,9 +730,16 @@ export default function AccountingTab({
         </div>
       </div>
 
-      {accountingTabs.length > 1 && (
-        <nav className="acct-subnav" aria-label="Secciones de contabilidad">
+      {accountingTabs.length > 1 && section !== 'operation' && (
+        <nav className="acct-subnav" aria-label={
+          section === 'books'
+            ? 'Libros contables'
+            : section === 'informes'
+              ? 'Informes contables'
+              : 'Secciones de contabilidad'
+        }>
           <div className="acct-subnav-index">
+            {section === 'books' || section === 'informes' || acctNavGroups.length <= 1 ? null : (
             <div className="acct-subnav-families" role="tablist" aria-label="Familias contables">
               {acctNavGroups.map((group) => {
                 const isFamilyActive = group.id === activeNavGroup?.id;
@@ -692,6 +762,7 @@ export default function AccountingTab({
                 );
               })}
             </div>
+            )}
             {showAcctExport ? (
               <div className="acct-subnav-export">
                 <button
@@ -716,8 +787,14 @@ export default function AccountingTab({
             ) : null}
           </div>
 
-          {activeNavGroup && activeNavGroup.tabs.length > 1 ? (
-            <div className="acct-subnav-pages" role="tablist" aria-label={activeNavGroup.label}>
+          {activeNavGroup && (section === 'books' || section === 'informes' || activeNavGroup.tabs.length > 1) ? (
+            <div className="acct-subnav-pages" role="tablist" aria-label={
+              section === 'books'
+                ? 'Libros'
+                : section === 'informes'
+                  ? 'Informes'
+                  : activeNavGroup.label
+            }>
               {activeNavGroup.tabs.map((tab) => {
                 const Icon = tab.icon;
                 const isActive = isNavTabActive(tab, subTab);
@@ -750,7 +827,7 @@ export default function AccountingTab({
         </nav>
       )}
 
-      {accountingTabs.length === 1 && (
+      {accountingTabs.length === 1 && section === 'operation' && (
         <div className="acct-cashier-bar" role="status">
           <Wallet size={16} aria-hidden="true" />
           <div>
@@ -769,7 +846,11 @@ export default function AccountingTab({
               <button
                 key={tab.key}
                 type="button"
-                className={`acct-treasury-hub-item${isActive ? ' is-active' : ''}`}
+                className={[
+                  'acct-treasury-hub-item',
+                  isActive ? 'is-active' : '',
+                  tab.accent === 'debits' ? 'is-debits' : '',
+                ].filter(Boolean).join(' ')}
                 aria-current={isActive ? 'page' : undefined}
                 onMouseDown={preventButtonScroll}
                 onClick={() => setSubTab(tab.key)}
@@ -1271,6 +1352,7 @@ export default function AccountingTab({
         </div>
       )}
 
+      <Suspense fallback={PANEL_FALLBACK}>
       {subTab === 'balance' && (
         <MonthlyBalancePanel
           journalEntries={officialJournal}
@@ -1775,6 +1857,10 @@ export default function AccountingTab({
         <PrismaDebitsPanel members={members} />
       )}
 
+      {subTab === 'debit_moves' && (
+        <DebitMovesPanel members={members} setMembers={setMembers} />
+      )}
+
       {subTab === 'fixed_expenses' && addFixedExpense && (
         <FixedExpensesPanel
           items={fixedExpenses}
@@ -1832,6 +1918,7 @@ export default function AccountingTab({
       {subTab === 'balance_liquidation' && (
         <LiquidationCcPanel members={members} />
       )}
+      </Suspense>
       </div>
     </div>
   );

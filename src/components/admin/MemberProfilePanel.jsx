@@ -38,6 +38,7 @@ import {
   applyMemberProfileUpdate,
   upsertMemberDocument,
   DOCUMENT_TYPES,
+  withProfileEditTrace,
 } from '../../domain/members/profileEdit';
 import { duesMethodLabel, isDuesCollectionJournal, journalEntryBelongsToMember, persistDuesCollection, persistDuesVoid, recordDuesCollection, removeDuesSurcharge, voidMemberDuesPayment } from '../../domain/members/memberPayments';
 import { sendDuesReceiptMessage } from '../../domain/members/duesReceiptDelivery';
@@ -304,13 +305,24 @@ function readMemberPhoto(file) {
   });
 }
 
-function TimelineItem({ when, title, detail, tone = 'neutral' }) {
+function TimelineItem({ when, title, detail, actorName = '', tone = 'neutral' }) {
+  const actor = String(actorName || '').trim();
   return (
     <div className={`mp-timeline-item tone-${tone}`}>
       <div className="mp-timeline-when">{when}</div>
       <div>
         <div className="mp-timeline-title">{title}</div>
-        {detail && <div className="mp-timeline-detail">{detail}</div>}
+        {(detail || actor) ? (
+          <div className="mp-timeline-detail">
+            {detail || null}
+            {actor ? (
+              <>
+                {detail ? ' · ' : null}
+                por <strong className="mp-timeline-actor">{actor}</strong>
+              </>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -362,6 +374,8 @@ export default function MemberProfilePanel({
   paymentTolerance = 1000,
 }) {
   const { roles, role, user } = useAuth();
+  const actorId = user?.id || null;
+  const actorName = user?.fullName || user?.email || 'Usuario';
   const canVoid = canVoidDuesPayment({ roles, role });
   const canRemoveSurcharge = canRemoveDuesSurcharge({ roles, role });
   const [section, setSection] = useState('ficha');
@@ -467,11 +481,18 @@ export default function MemberProfilePanel({
     });
   };
 
-  const persistNewFamilyMember = (form) => {
+  const persistNewFamilyMember = async (form) => {
     const host = familyGroup.titular || member;
     const principalId = familyPrincipalOf(host) || memberNumberOf(host);
     const requested = String(form.memberId || '').replace(/\D/g, '');
-    const memberId = requested || allocateNextMemberNumber(members);
+    let memberId = requested || allocateNextMemberNumber(members);
+    if (!requested && typeof repos.nextClubMemberNumber === 'function') {
+      try {
+        memberId = await repos.nextClubMemberNumber(members);
+      } catch {
+        /* correlativo local */
+      }
+    }
     if (findMemberByNumber(members, memberId)) {
       return 'Ya existe un socio con esa credencial.';
     }
@@ -732,7 +753,7 @@ export default function MemberProfilePanel({
       });
     });
 
-    const history = member.meta?.lifecycleHistory || [];
+    const history = member.meta?.lifecycleHistory || member.lifecycleHistory || [];
     history.forEach((h) => {
       const titles = {
         suspend: 'Suspensión de cuenta',
@@ -743,8 +764,28 @@ export default function MemberProfilePanel({
       items.push({
         when: at ? formatDateTimeAR(at.slice(0, 10), at.slice(11, 16)) || formatShortDate(at.slice(0, 10)) : '—',
         title: titles[h.action] || `Cambio de estado (${h.action})`,
-        detail: [h.reason, h.detail, h.actorName ? `por ${h.actorName}` : null].filter(Boolean).join(' · '),
+        detail: [h.reason, h.detail].filter(Boolean).join(' · ') || null,
+        actorName: h.actorName || '',
         tone: h.action === 'activate' ? 'ok' : 'danger',
+        sort: at || '1970-01-01',
+      });
+    });
+
+    const profileEdits = member.meta?.profileEditHistory || member.profileEditHistory || [];
+    profileEdits.forEach((h) => {
+      const at = h.at || '';
+      const fieldBits = (h.changes || []).slice(0, 4).map((c) => (
+        `${c.label}: ${c.from} → ${c.to}`
+      ));
+      const extra = (h.changes || []).length > 4
+        ? `+${(h.changes || []).length - 4} más`
+        : null;
+      items.push({
+        when: at ? formatDateTimeAR(at.slice(0, 10), at.slice(11, 16)) || formatShortDate(at.slice(0, 10)) : '—',
+        title: h.source === 'portal' ? 'Edición desde el portal' : 'Edición de ficha',
+        detail: [fieldBits.join(' · ') || 'Datos actualizados', extra].filter(Boolean).join(' · '),
+        actorName: h.actorName || '',
+        tone: 'ok',
         sort: at || '1970-01-01',
       });
     });
@@ -754,10 +795,8 @@ export default function MemberProfilePanel({
       items.push({
         when: formatDateTimeAR(at.slice(0, 10), at.slice(11, 16)) || formatShortDate(at.slice(0, 10)),
         title: 'Acceso portal generado',
-        detail: [
-          member.meta.portalUsername ? `usuario ${member.meta.portalUsername}` : null,
-          member.meta.portalProvisionedBy ? `por ${member.meta.portalProvisionedBy}` : null,
-        ].filter(Boolean).join(' · ') || null,
+        detail: member.meta.portalUsername ? `usuario ${member.meta.portalUsername}` : null,
+        actorName: member.meta.portalProvisionedBy || '',
         tone: 'ok',
         sort: at,
       });
@@ -1109,7 +1148,7 @@ export default function MemberProfilePanel({
               e.preventDefault();
               if (!updateMember) return;
               const sports = canonDisciplineList(editForm.disciplines || [], disciplineOptions);
-              const updated = applyMemberProfileUpdate(member, {
+              let updated = applyMemberProfileUpdate(member, {
                 ...editForm,
                 preferredSports: sports,
                 disciplines: sports,
@@ -1122,8 +1161,15 @@ export default function MemberProfilePanel({
               }
               if (isDuesExemptMember(updated)) updated.notifyDues = false;
               updated.recordScope = 'full';
+              updated = withProfileEditTrace(member, updated, {
+                actorId,
+                actorName,
+                source: selfService ? 'portal' : 'panel',
+              });
               updateMember(updated);
-              setEditMsg('Datos actualizados correctamente.');
+              setEditMsg(updated.meta?.lastProfileEdit
+                ? `Guardado · ${updated.meta.lastProfileEdit.actorName || actorName}`
+                : 'Datos actualizados correctamente.');
             }}
             className="mp-edit-form"
           >
@@ -1631,7 +1677,14 @@ export default function MemberProfilePanel({
               <Empty text="Sin eventos de trazabilidad." />
             ) : (
               timeline.map((item, idx) => (
-                <TimelineItem key={`${item.sort}-${idx}`} when={item.when} title={item.title} detail={item.detail} tone={item.tone} />
+                <TimelineItem
+                  key={`${item.sort}-${idx}`}
+                  when={item.when}
+                  title={item.title}
+                  detail={item.detail}
+                  actorName={item.actorName}
+                  tone={item.tone}
+                />
               ))
             )}
           </div>
@@ -1715,28 +1768,34 @@ export default function MemberProfilePanel({
                 return;
               }
               if (familyEdit.isNew) {
-                const error = persistNewFamilyMember({ ...form, name });
-                if (error) {
-                  setFamilyEditMsg(error);
-                  return;
-                }
-                setFamilyEdit(null);
+                void (async () => {
+                  const error = await persistNewFamilyMember({ ...form, name });
+                  if (error) {
+                    setFamilyEditMsg(error);
+                    return;
+                  }
+                  setFamilyEdit(null);
+                })();
                 return;
               }
               if (familyEdit.source) {
-                const nextPerson = applyRegularidadForm({
-                  ...familyEdit.source,
-                  name,
-                  documentNumber: form.documentNumber || '',
-                  birthDate: form.birthDate || '',
-                  phone: form.phone || '',
-                  email: form.email || '',
-                  tier: form.tier || familyEdit.source.tier,
-                  disciplines: form.disciplines || [],
-                  photo: form.photo || '',
-                  relationship: form.relationship || familyEdit.source.relationship,
-                  updatedAt: new Date().toISOString(),
-                }, form);
+                const nextPerson = withProfileEditTrace(
+                  familyEdit.source,
+                  applyRegularidadForm({
+                    ...familyEdit.source,
+                    name,
+                    documentNumber: form.documentNumber || '',
+                    birthDate: form.birthDate || '',
+                    phone: form.phone || '',
+                    email: form.email || '',
+                    tier: form.tier || familyEdit.source.tier,
+                    disciplines: form.disciplines || [],
+                    photo: form.photo || '',
+                    relationship: form.relationship || familyEdit.source.relationship,
+                    updatedAt: new Date().toISOString(),
+                  }, form),
+                  { actorId, actorName, source: 'familia' },
+                );
                 updateMember(nextPerson);
               } else {
                 const host = familyGroup.titular && memberNumberOf(familyGroup.titular) === memberNumberOf(member)

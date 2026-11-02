@@ -16,7 +16,7 @@ beforeAll(async () => {
 
 describe('cobranzas Accessin', () => {
   it('carga el reporte real', () => {
-    expect(ACCESSIN_COBRANZAS_SNAPSHOT.asOf).toBe('2026-10-26');
+    expect(ACCESSIN_COBRANZAS_SNAPSHOT.asOf).toBe('2026-10-31');
     expect(ACCESSIN_COBRANZAS.length).toBe(1941);
     expect(ACCESSIN_COBRANZAS_SNAPSHOT.totalAmount).toBeCloseTo(91965336.6, 2);
   });

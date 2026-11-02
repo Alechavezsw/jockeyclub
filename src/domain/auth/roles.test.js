@@ -15,6 +15,7 @@ import {
   canManageMembers,
   canCollectDues,
   canWriteMemberLedger,
+  canEditFeePackAmounts,
   isSuperAdmin,
   allowedAdminTabs,
   allowedAdminTabsForRoles,
@@ -46,10 +47,11 @@ describe('allowedAdminTabs', () => {
     expect(tabs).toContain('access');
   });
 
-  it('el cajero ve socios y módulo de caja (accounting) pero no migración', () => {
+  it('el cajero ve socios y módulo de caja (operation) pero no migración', () => {
     const tabs = allowedAdminTabs('cashier');
     expect(tabs).toContain('members');
-    expect(tabs).toContain('accounting');
+    expect(tabs).toContain('operation');
+    expect(tabs).not.toContain('accounting');
     expect(tabs).toContain('access');
     expect(tabs).not.toContain('migration');
   });
@@ -58,6 +60,9 @@ describe('allowedAdminTabs', () => {
     const tabs = allowedAdminTabs('accountant');
     expect(tabs).toContain('reports');
     expect(tabs).toContain('dues');
+    expect(tabs).toContain('books');
+    expect(tabs).toContain('informes');
+    expect(tabs).toContain('operation');
     expect(tabs).not.toContain('members');
   });
 
@@ -112,8 +117,9 @@ describe('allowedAdminTabs', () => {
   it('el admin inicia en dashboard y entra a débitos, no a QR como pestaña', () => {
     const tabs = allowedAdminTabs('admin');
     expect(tabs[0]).toBe('dashboard');
-    expect(tabs).toContain('accounting');
-    expect(allowedAccountingSubtabs('admin')).toEqual(['prisma', 'galicia']);
+    expect(tabs).toContain('operation');
+    expect(tabs).not.toContain('accounting');
+    expect(allowedAccountingSubtabs('admin')).toEqual(['prisma', 'galicia', 'debit_moves']);
     expect(tabs).not.toContain('qr_control');
     expect(tabs).not.toContain('concessions');
     expect(tabs).toContain('disciplines');
@@ -123,16 +129,16 @@ describe('allowedAdminTabs', () => {
 
   it('operador de portería ve caja e ingresos', () => {
     const tabs = allowedAdminTabs('gate_operator');
-    expect(tabs).toContain('accounting');
+    expect(tabs).toContain('operation');
     expect(tabs).toContain('access');
     expect(tabs).not.toContain('migration');
   });
 
   it('el operario de pileta ve el mostrador, sin los débitos de administración', () => {
-    expect(allowedAdminTabs('admin_employee').filter((tab) => tab !== 'accounting'))
+    expect(allowedAdminTabs('admin_employee').filter((tab) => tab !== 'operation'))
       .toEqual(allowedAdminTabs('pool_operator'));
-    expect(allowedAdminTabs('admin_employee')).toContain('accounting');
-    expect(allowedAdminTabs('pool_operator')).not.toContain('accounting');
+    expect(allowedAdminTabs('admin_employee')).toContain('operation');
+    expect(allowedAdminTabs('pool_operator')).not.toContain('operation');
   });
 
   it('el operario de pileta cobra en la puerta y no entra a libros contables', () => {
@@ -141,6 +147,7 @@ describe('allowedAdminTabs', () => {
     expect(tabs).toContain('members');
     expect(tabs).toContain('dues');
     expect(tabs).not.toContain('accounting');
+    expect(tabs).not.toContain('operation');
     expect(tabs).not.toContain('system');
     expect(tabs).not.toContain('migration');
     expect(canAccessAdmin('pool_operator')).toBe(true);
@@ -153,8 +160,8 @@ describe('allowedAdminTabs', () => {
   it('empleado de administración arma débitos y no ve sistema', () => {
     const tabs = allowedAdminTabs('admin_employee');
     expect(tabs).toContain('members');
-    expect(tabs).toContain('accounting');
-    expect(allowedAccountingSubtabs('admin_employee')).toEqual(['prisma', 'galicia']);
+    expect(tabs).toContain('operation');
+    expect(allowedAccountingSubtabs('admin_employee')).toEqual(['prisma', 'galicia', 'debit_moves']);
     expect(tabs).not.toContain('system');
   });
 
@@ -172,7 +179,25 @@ describe('allowedAdminTabs', () => {
     expect(tabs).toContain('settings');
     expect(tabs).toContain('migration');
     expect(tabs).toContain('accounting');
+    expect(tabs).toContain('books');
+    expect(tabs).toContain('informes');
+    expect(tabs).toContain('operation');
     expect(allowedAccountingSubtabs('superadmin').length).toBeGreaterThan(allowedAccountingSubtabs('admin').length);
+  });
+
+  it('admin y cajero ven Operación (débitos/caja), no Libros ni Contabilidad general', () => {
+    expect(allowedAdminTabs('admin')).toContain('operation');
+    expect(allowedAdminTabs('admin')).not.toContain('books');
+    expect(allowedAdminTabs('admin')).not.toContain('informes');
+    expect(allowedAdminTabs('admin')).not.toContain('accounting');
+    expect(allowedAdminTabs('cashier')).toContain('operation');
+    expect(allowedAdminTabs('cashier')).not.toContain('books');
+    expect(allowedAdminTabs('cashier')).not.toContain('informes');
+    expect(allowedAdminTabs('cashier')).not.toContain('accounting');
+    expect(allowedAdminTabs('admin_employee')).toContain('operation');
+    expect(allowedAdminTabs('admin_employee')).not.toContain('books');
+    expect(allowedAdminTabs('admin_employee')).not.toContain('informes');
+    expect(allowedAdminTabs('admin_employee')).not.toContain('accounting');
   });
 });
 
@@ -184,6 +209,16 @@ describe('canManageProfiles', () => {
     expect(canManageProfiles('staff')).toBe(false);
     expect(canManageProfiles([{ roleKey: 'superadmin' }, { roleKey: 'member' }])).toBe(true);
     expect(canManageProfiles([{ roleKey: 'admin' }, { roleKey: 'presidente' }])).toBe(false);
+  });
+});
+
+describe('canEditFeePackAmounts', () => {
+  it('solo el superadministrador cambia valores de categoría en liquidación', () => {
+    expect(canEditFeePackAmounts('superadmin')).toBe(true);
+    expect(canEditFeePackAmounts([{ roleKey: 'superadmin' }])).toBe(true);
+    for (const role of ['admin', 'accountant', 'admin_employee', 'cashier', 'staff']) {
+      expect(canEditFeePackAmounts(role)).toBe(false);
+    }
   });
 });
 
@@ -237,8 +272,8 @@ describe('allowedAccountingSubtabs', () => {
   });
 
   it('administración ve Prisma y Galicia, no los libros', () => {
-    expect(allowedAccountingSubtabs('admin')).toEqual(['prisma', 'galicia']);
-    expect(allowedAccountingSubtabs('admin_employee')).toEqual(['prisma', 'galicia']);
+    expect(allowedAccountingSubtabs('admin')).toEqual(['prisma', 'galicia', 'debit_moves']);
+    expect(allowedAccountingSubtabs('admin_employee')).toEqual(['prisma', 'galicia', 'debit_moves']);
     expect(allowedAccountingSubtabs('admin')).not.toContain('diary');
     expect(allowedAccountingSubtabs('pool_operator')).toEqual([]);
   });

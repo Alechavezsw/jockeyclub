@@ -309,7 +309,7 @@ export function buildNotifications({
           : `${pendingUnidentified.length} cobranzas sin identificar`,
         detail: hint || 'Jev las marcó: hay que imputarlas o rechazarlas.',
         view: 'accounting',
-        path: '/panel/accounting?sub=unidentified',
+        path: '/panel/operation?sub=unidentified',
       });
     }
   }

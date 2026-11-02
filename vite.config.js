@@ -18,6 +18,20 @@ const powerpointRoute = () => {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), powerpointRoute()],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined;
+          if (id.includes('lucide-react')) return 'lucide';
+          if (id.includes('@supabase')) return 'supabase';
+          if (id.includes('xlsx')) return 'xlsx';
+          if (id.includes('jspdf')) return 'jspdf';
+          return 'vendor';
+        },
+      },
+    },
+  },
   test: {
     environment: 'node',
     include: ['src/**/*.test.{js,jsx}'],

@@ -12,7 +12,7 @@ import { canAccessConcessions, canAccessQrGate } from '../../domain/auth/roles';
 import { reviewItemsForAccess } from '../../domain/review/buildClubReview';
 import { isAlertVisible, ALERT_SEVERITY } from '../../domain/alerts/alerts';
 import { isPoolDayCashOpen, poolCanonByDay } from '../../domain/pool/poolAccess';
-import { buildOpsFinanceSnapshot, cashDeltaAfterDate, composeClubFinance, financeFromSummary, lilaContabilidadFromSnapshots } from '../../domain/accounting/opsFinanceSnapshot';
+import { buildOpsFinanceSnapshot, composeClubFinance, financeFromSummary, lilaContabilidadFromSnapshots } from '../../domain/accounting/opsFinanceSnapshot';
 import { monthlyBalanceSeed } from '../../domain/accounting/monthlyBalance';
 import { monthlyBalanceSummarySeed } from '../../domain/accounting/monthlyBalanceSummary';
 import { detailedCcSeed } from '../../domain/accounting/detailedCurrentAccounts';
@@ -208,7 +208,9 @@ export default function AdminDashboardTab({
     [membershipApplications, portalAccessRequests]
   );
   const todayKey = todayISODateAR();
-  const hasAccounting = permittedTabs.includes('accounting');
+  const hasAccounting = permittedTabs.includes('accounting')
+    || permittedTabs.includes('operation')
+    || permittedTabs.includes('books');
   const lilaCut = useSnapshotSeed(
     hasAccounting ? LILA_MONEY_SNAPSHOTS : NO_SNAPSHOTS,
     () => {
@@ -347,9 +349,6 @@ export default function AdminDashboardTab({
     ),
     [seededMoves, seededRecent, accessinCashMovements],
   );
-  const cutKey = String(lilaMoney?.periodKey || lilaMoney?.periodTo || '').slice(0, 7);
-  const cutIsThisMonth = Boolean(cutKey) && cutKey === monthKey;
-
   const finance = useMemo(
     () => buildOpsFinanceSnapshot({
       members,
@@ -360,9 +359,6 @@ export default function AdminDashboardTab({
     [members, journalEntries, chartOfAccounts, getAccountBalance]
   );
 
-  const cashToday = (lilaMoney?.cash ?? finance.cashToday) + (
-    lilaMoney && !cutIsThisMonth ? cashDeltaAfterDate(cashMoves, lilaMoney.periodTo) : 0
-  );
   const duesBoard = useMemo(() => {
     if (membersLoading) return null;
     const periods = resolveFeePeriods(feePeriods);
@@ -479,15 +475,6 @@ export default function AdminDashboardTab({
       setOpeningCash(false);
     }
   };
-
-  const cashSplit = useMemo(() => {
-    if (typeof getAccountBalance !== 'function') return [];
-    return [
-      { id: 'caja', label: 'Caja', amount: Number(getAccountBalance('Caja General')) || 0 },
-      { id: 'cantina', label: 'Cantina', amount: Number(getAccountBalance('Caja Cantina')) || 0 },
-      { id: 'banco', label: 'Banco', amount: Number(getAccountBalance('Banco Nación')) || 0 },
-    ];
-  }, [getAccountBalance, cashToday]);
 
   const overdueTop = useMemo(
     () => getOverdueMembers(members).slice(0, 5),
@@ -627,7 +614,7 @@ export default function AdminDashboardTab({
       roles: ['pool_operator', 'admin_employee'],
     },
     {
-      tab: 'accounting',
+      tab: 'operation',
       focus: 'cash',
       tone: 'emerald',
       icon: DollarSign,
@@ -783,7 +770,7 @@ export default function AdminDashboardTab({
               {userName} · {formatLongDate()}
             </p>
           ) : null}
-          {(permittedTabs.includes('dues') || permittedTabs.includes('accounting')) ? (
+          {(permittedTabs.includes('dues') || permittedTabs.includes('accounting') || permittedTabs.includes('operation')) ? (
             <DuesDueBanner
               today={todayKey}
               members={members}
@@ -1132,32 +1119,6 @@ export default function AdminDashboardTab({
                     </ul>
                   ) : null}
                 </div>
-
-                <button type="button" className="ops-cash-banner" onClick={() => goToTab('accounting', 'cash')}>
-                  <span className="ops-cash-ico"><DollarSign size={20} /></span>
-                  <span>
-                    <strong>{formatCurrency(cashToday)}</strong>
-                    <small>
-                      {lilaMoney
-                        ? (cutIsThisMonth
-                          ? `Total en caja al corte ${lilaMoney.periodTo?.slice(8, 10) || ''}/${lilaMoney.periodTo?.slice(5, 7) || ''}`
-                          : `Total en caja · ${moneyMonthLabel}`)
-                        : 'Saldo Caja + Cantina + Banco (asientos)'}
-                    </small>
-                  </span>
-                  <span className="ops-cash-go">Ver</span>
-                </button>
-
-                {!lilaMoney && cashSplit.length > 0 ? (
-                  <div className="ops-cash-split" aria-label="Saldos por caja">
-                    {cashSplit.map((row) => (
-                      <div key={row.id}>
-                        <b className="tabular-nums">{formatCurrency(row.amount)}</b>
-                        <span>{row.label}</span>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
 
                 {todayIncomeRows.length > 0 ? (
                   <div className="ops-block" style={{ marginTop: '0.85rem' }}>

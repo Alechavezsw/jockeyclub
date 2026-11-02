@@ -47,9 +47,12 @@ export default function MembershipMovesSection({ members = [] }) {
         documentNumber: m.documentNumber,
         date: m.joinDate,
         movimiento: 'Solicitud aprobada',
-      }))
-      .sort((a, b) => String(b.date).localeCompare(String(a.date)));
-    return [...liveAltas, ...societasAltas];
+      }));
+    // Más recientes primero (el Excel de Societas viene en otro orden).
+    return [...liveAltas, ...societasAltas].toSorted((a, b) => (
+      String(b.date || '').localeCompare(String(a.date || ''))
+      || String(b.memberId || '').localeCompare(String(a.memberId || ''))
+    ));
   }, [societasAltas, members, snap.periodTo]);
   const summary = useMemo(() => summarizeBajas(bajas), [bajas]);
   const rows = view === 'altas'
@@ -61,8 +64,8 @@ export default function MembershipMovesSection({ members = [] }) {
       className="membership-moves"
       id="membership-moves-title"
       title="Altas y bajas"
-      subtitle={`Corte Societas ${formatAr(snap.periodFrom)} al ${formatAr(snap.periodTo)}`}
-      count={`${altas.length.toLocaleString('es-AR')} · ${bajas.length.toLocaleString('es-AR')}`}
+      subtitle={`${altas.length.toLocaleString('es-AR')} altas · ${bajas.length.toLocaleString('es-AR')} bajas`}
+      count={null}
       defaultOpen={false}
       storageKey="altasBajas"
       extra={(

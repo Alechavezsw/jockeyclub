@@ -13,6 +13,12 @@ import {
   JoinIdentityTakenError,
   mergeOpenAccessRequest,
 } from '../domain/members/selfService';
+import { allocateNextMemberNumber } from '../domain/members/households';
+import {
+  debitListingPeriodOptions,
+  previousDebitListingPeriod,
+  remapDebitListingsToPeriod,
+} from '../domain/accounting/debitListings';
 
 const FISCAL_2026 = '11111111-1111-1111-1111-111111111111';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -512,6 +518,17 @@ export async function listMemberAdherents(memberDbId) {
   return (rows || []).map(M.adherentFromRow);
 }
 
+/** Próximo Nº de socio (1–6 dígitos). RPC en cloud; correlativo local como respaldo. */
+export async function nextClubMemberNumber(members = []) {
+  if (supabase) {
+    const { data, error } = await sb().rpc('next_club_member_number');
+    if (!error && data != null && String(data).trim()) {
+      return String(data).replace(/\D/g, '') || String(data);
+    }
+  }
+  return allocateNextMemberNumber(members);
+}
+
 export async function upsertMember(member) {
   invalidateMembersListCache();
   const row = M.memberToRow(member);
@@ -577,7 +594,22 @@ export async function upsertMember(member) {
       );
     }
   }
-  await audit('upsert', 'members', saved.id, { member_number: saved.member_number });
+  const lastEdit = row.meta?.lastProfileEdit;
+  await audit(
+    lastEdit ? 'member.profile_update' : 'upsert',
+    'members',
+    saved.id,
+    {
+      member_number: saved.member_number,
+      ...(lastEdit ? {
+        actor_name: lastEdit.actorName || null,
+        actor_id: lastEdit.actorId || null,
+        source: lastEdit.source || null,
+        at: lastEdit.at || null,
+        changes: lastEdit.changes || [],
+      } : {}),
+    },
+  );
   const full = await unwrap(
     sb().from('members').select('*, member_adherents(*)').eq('id', saved.id).single()
   );
@@ -3571,6 +3603,7 @@ export async function listMemberAccountSupport(memberNumber) {
 
 function feePeriodClosureFromRow(row) {
   if (!row) return null;
+  const pack = row.pack && typeof row.pack === 'object' ? row.pack : null;
   return {
     id: row.id,
     accessinId: row.accessin_id == null ? null : Number(row.accessin_id),
@@ -3578,9 +3611,12 @@ function feePeriodClosureFromRow(row) {
     month: Number(row.month),
     amount: Number(row.amount) || 0,
     generatedAt: row.generated_at || null,
-    status: row.status,
+    // available_at vive en pack (no hay columna en fee_period_closures).
+    availableAt: pack?.availableAt || null,
+    status: row.status || 'draft',
     lines: Array.isArray(row.lines) ? row.lines : [],
-    pack: row.pack && typeof row.pack === 'object' ? row.pack : null,
+    pack,
+    source: 'app',
   };
 }
 
@@ -3926,7 +3962,369 @@ export async function listFeePeriodClosures() {
   return (rows || []).map(feePeriodClosureFromRow).filter(Boolean);
 }
 
+function debitListingFromRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    year: Number(row.year),
+    month: Number(row.month),
+    sheetKind: row.sheet_kind || 'credito',
+    brand: row.brand || '',
+    section: row.section || 'padron',
+    sortOrder: Number(row.sort_order) || 0,
+    cardNumber: row.card_number || null,
+    receipt: row.receipt || null,
+    dueDate: row.due_date || null,
+    duesAmount: Number(row.dues_amount) || 0,
+    abonoAmount: Number(row.abono_amount) || 0,
+    totalAmount: Number(row.total_amount) || 0,
+    memberId: row.member_id || null,
+    statusCode: row.status_code || null,
+    holderName: row.holder_name || '',
+    note: row.note || '',
+    sourceSheet: row.source_sheet || null,
+    cardEdits: Array.isArray(row.card_edits) ? row.card_edits : [],
+  };
+}
+
+/** Listados mensuales de débitos (planilla Argencard/Visa). Por período para no bajar 14k filas. */
+export async function listDebitListings({ year, month, sheetKind } = {}) {
+  let q = sb()
+    .from('debit_listings')
+    .select('*')
+    .order('sort_order', { ascending: true });
+  if (year) q = q.eq('year', Number(year));
+  if (month) q = q.eq('month', Number(month));
+  if (sheetKind) q = q.eq('sheet_kind', sheetKind);
+  const rows = await unwrap(q);
+  return (rows || []).map(debitListingFromRow).filter(Boolean);
+}
+
+/** Totales livianos del mes (crédito / débito) sin bajar la planilla completa. */
+export async function sumDebitListingAmounts({ year, month } = {}) {
+  const y = Number(year);
+  const m = Number(month);
+  if (!y || !m) return { credito: 0, debito: 0 };
+  let credito = 0;
+  let debito = 0;
+  let from = 0;
+  const page = 1000;
+  for (;;) {
+    const { data, error } = await sb()
+      .from('debit_listings')
+      .select('sheet_kind, total_amount')
+      .eq('year', y)
+      .eq('month', m)
+      .range(from, from + page - 1);
+    throwOnError(error, 'No se pudieron sumar los listados de débitos');
+    const rows = data || [];
+    for (const row of rows) {
+      const amount = Number(row.total_amount) || 0;
+      if (row.sheet_kind === 'debito') debito += amount;
+      else credito += amount;
+    }
+    if (rows.length < page) break;
+    from += page;
+  }
+  return {
+    credito: Math.round(credito * 100) / 100,
+    debito: Math.round(debito * 100) / 100,
+  };
+}
+
+/** Guarda un cambio de N° tarjeta en el listado (Supabase = fuente de verdad). */
+export async function updateDebitListingCard(row) {
+  if (!row?.id) throw new Error('Falta el id de la fila del listado.');
+  const saved = await unwrap(
+    sb()
+      .from('debit_listings')
+      .update({
+        card_number: row.cardNumber || null,
+        note: row.note || '',
+        card_edits: Array.isArray(row.cardEdits) ? row.cardEdits : [],
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', row.id)
+      .select('*')
+      .single(),
+  );
+  const mapped = debitListingFromRow(saved);
+  const last = mapped.cardEdits?.[mapped.cardEdits.length - 1];
+  await audit('update', 'debit_listing', saved.id, {
+    field: 'card_number',
+    from: last?.from || null,
+    to: last?.to || mapped.cardNumber,
+    memberId: mapped.memberId,
+  });
+  return mapped;
+}
+
+function debitMoveEventFromRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    year: Number(row.year),
+    month: Number(row.month),
+    moveType: row.move_type,
+    cardKind: row.card_kind || 'credito',
+    brand: row.brand || '',
+    memberId: row.member_id || null,
+    memberDbId: row.member_db_id || null,
+    holderName: row.holder_name || '',
+    cardNumber: row.card_number || null,
+    receipt: row.receipt || null,
+    dueDate: row.due_date || null,
+    duesAmount: Number(row.dues_amount) || 0,
+    abonoAmount: Number(row.abono_amount) || 0,
+    totalAmount: Number(row.total_amount) || 0,
+    statusCode: row.status_code || null,
+    note: row.note || '',
+    listingId: row.listing_id || null,
+    actorId: row.actor_id || null,
+    actorName: row.actor_name || '',
+    actorEmail: row.actor_email || '',
+    createdAt: row.created_at || null,
+    payload: row.payload && typeof row.payload === 'object' ? row.payload : {},
+  };
+}
+
+/** Historial de altas/bajas del mes (Supabase). */
+export async function listDebitMoveEvents({ year, month } = {}) {
+  let q = sb()
+    .from('debit_move_events')
+    .select('*')
+    .order('created_at', { ascending: false });
+  if (year) q = q.eq('year', Number(year));
+  if (month) q = q.eq('month', Number(month));
+  const rows = await unwrap(q);
+  return (rows || []).map(debitMoveEventFromRow).filter(Boolean);
+}
+
+/**
+ * Alta/baja en planilla + historial trazable.
+ * Inserta fila en debit_listings (sección altas/bajas) y evento en debit_move_events.
+ */
+export async function registerDebitMove({
+  draft,
+  member = null,
+  actor = null,
+} = {}) {
+  const year = Number(draft?.year);
+  const month = Number(draft?.month);
+  const moveType = draft?.moveType === 'baja' ? 'baja' : 'alta';
+  const sheetKind = draft?.cardKind === 'debito' ? 'debito' : 'credito';
+  const section = moveType === 'baja' ? 'bajas' : 'altas';
+  if (!year || !month) throw new Error('Falta el período de la planilla.');
+
+  const maxRows = await unwrap(
+    sb()
+      .from('debit_listings')
+      .select('sort_order')
+      .eq('year', year)
+      .eq('month', month)
+      .eq('sheet_kind', sheetKind)
+      .order('sort_order', { ascending: false })
+      .limit(1),
+  );
+  const sortOrder = (Number(maxRows?.[0]?.sort_order) || 0) + 1;
+  const listingId = `dl-${year}${String(month).padStart(2, '0')}-${sheetKind}-${section}-${Date.now()}`;
+  const listingRow = {
+    id: listingId,
+    year,
+    month,
+    sheet_kind: sheetKind,
+    brand: draft.brand || (sheetKind === 'debito' ? 'VISA DEBITO' : 'VISA'),
+    section,
+    sort_order: sortOrder,
+    card_number: draft.cardNumber || null,
+    receipt: draft.receipt || null,
+    due_date: draft.dueDate || null,
+    dues_amount: Number(draft.duesAmount) || 0,
+    abono_amount: Number(draft.abonoAmount) || 0,
+    total_amount: Number(draft.totalAmount) || 0,
+    member_id: draft.memberId || null,
+    status_code: draft.statusCode || 'N',
+    holder_name: draft.holderName || '',
+    note: draft.note || '',
+    source_sheet: 'operacion',
+    card_edits: [],
+  };
+
+  const savedListing = await unwrap(
+    sb().from('debit_listings').insert(listingRow).select('*').single(),
+    'No se pudo guardar la fila en el listado de débitos',
+  );
+
+  const eventRow = {
+    year,
+    month,
+    move_type: moveType,
+    card_kind: sheetKind,
+    brand: listingRow.brand,
+    member_id: draft.memberId || null,
+    member_db_id: member?.id || null,
+    holder_name: draft.holderName || '',
+    card_number: draft.cardNumber || null,
+    receipt: draft.receipt || null,
+    due_date: draft.dueDate || null,
+    dues_amount: Number(draft.duesAmount) || 0,
+    abono_amount: Number(draft.abonoAmount) || 0,
+    total_amount: Number(draft.totalAmount) || 0,
+    status_code: draft.statusCode || 'N',
+    note: draft.note || '',
+    listing_id: savedListing.id,
+    actor_id: actor?.id || null,
+    actor_name: actor?.name || '',
+    actor_email: actor?.email || '',
+    payload: {
+      fichaMemberId: member?.memberId || null,
+      channel: sheetKind === 'debito' ? 'Visa Débito / ficha' : 'Crédito / ficha',
+      cardExpiry: draft.cardExpiry || null,
+    },
+  };
+
+  const savedEvent = await unwrap(
+    sb().from('debit_move_events').insert(eventRow).select('*').single(),
+    'No se pudo registrar el historial de alta/baja',
+  );
+
+  await audit(moveType, 'debit_move_event', savedEvent.id, {
+    memberId: draft.memberId,
+    cardNumber: draft.cardNumber,
+    holderName: draft.holderName,
+    listingId: savedListing.id,
+    actor: actor?.email || actor?.name || null,
+  });
+
+  return {
+    listing: debitListingFromRow(savedListing),
+    event: debitMoveEventFromRow(savedEvent),
+  };
+}
+
+export async function listDebitListingPeriods() {
+  // No pedimos el histórico completo: el selector arranca en oct-2026.
+  return debitListingPeriodOptions([]);
+}
+
+function debitListingToRow(row) {
+  return {
+    id: row.id,
+    year: Number(row.year),
+    month: Number(row.month),
+    sheet_kind: row.sheetKind === 'debito' ? 'debito' : 'credito',
+    brand: row.brand || '',
+    section: row.section || 'padron',
+    sort_order: Number(row.sortOrder) || 0,
+    card_number: row.cardNumber || null,
+    receipt: row.receipt || null,
+    due_date: row.dueDate || null,
+    dues_amount: Number(row.duesAmount) || 0,
+    abono_amount: Number(row.abonoAmount) || 0,
+    total_amount: Number(row.totalAmount) || 0,
+    member_id: row.memberId || null,
+    status_code: row.statusCode || null,
+    holder_name: row.holderName || '',
+    note: row.note || '',
+    source_sheet: row.sourceSheet || null,
+    card_edits: Array.isArray(row.cardEdits) ? row.cardEdits : [],
+  };
+}
+
+/**
+ * Carga el listado del mes anterior sobre el período elegido (crédito + débito).
+ * Reemplaza las hojas del mes destino.
+ */
+export async function copyDebitListingsFromPreviousMonth({ year, month } = {}) {
+  const y = Number(year);
+  const m = Number(month);
+  if (!y || !m) throw new Error('Falta el período destino.');
+  const prev = previousDebitListingPeriod(y, m);
+  const [credito, debito] = await Promise.all([
+    listDebitListings({ year: prev.year, month: prev.month, sheetKind: 'credito' }),
+    listDebitListings({ year: prev.year, month: prev.month, sheetKind: 'debito' }),
+  ]);
+  const source = [...(credito || []), ...(debito || [])];
+  if (!source.length) {
+    throw new Error(`No hay planilla en ${prev.key} para copiar.`);
+  }
+  const rows = remapDebitListingsToPeriod(source, { year: y, month: m });
+  const result = await importDebitListings(rows, {
+    fileName: `mes-anterior:${prev.key}→${y}-${String(m).padStart(2, '0')}`,
+  });
+  return {
+    ...result,
+    from: prev,
+    to: { year: y, month: m, key: `${y}-${String(m).padStart(2, '0')}` },
+  };
+}
+
+/**
+ * Importa planilla Excel (misma estructura de export) a debit_listings.
+ * Reemplaza por completo cada (año, mes, hoja) presente en el archivo.
+ */
+export async function importDebitListings(rows = [], { fileName = '' } = {}) {
+  if (!Array.isArray(rows) || !rows.length) {
+    throw new Error('El Excel no trajo filas para importar.');
+  }
+  const groups = new Map();
+  for (const row of rows) {
+    const year = Number(row.year);
+    const month = Number(row.month);
+    const sheetKind = row.sheetKind === 'debito' ? 'debito' : 'credito';
+    if (!year || !month) continue;
+    const key = `${year}-${month}-${sheetKind}`;
+    if (!groups.has(key)) groups.set(key, { year, month, sheetKind, rows: [] });
+    groups.get(key).rows.push(row);
+  }
+  if (!groups.size) throw new Error('No hay períodos válidos en el Excel.');
+
+  let inserted = 0;
+  for (const group of groups.values()) {
+    await unwrap(
+      sb()
+        .from('debit_listings')
+        .delete()
+        .eq('year', group.year)
+        .eq('month', group.month)
+        .eq('sheet_kind', group.sheetKind),
+      `No se pudo limpiar ${group.year}-${group.month} (${group.sheetKind})`,
+    );
+    const payload = group.rows.map(debitListingToRow);
+    const BATCH = 500;
+    for (let i = 0; i < payload.length; i += BATCH) {
+      const chunk = payload.slice(i, i + BATCH);
+      await unwrap(
+        sb().from('debit_listings').insert(chunk),
+        `No se pudo importar el lote de ${group.year}-${group.month}`,
+      );
+      inserted += chunk.length;
+    }
+  }
+
+  await audit('import', 'debit_listings', null, {
+    fileName: fileName || null,
+    periods: [...groups.keys()],
+    count: inserted,
+  });
+
+  return {
+    count: inserted,
+    periods: [...groups.values()].map((g) => ({
+      year: g.year,
+      month: g.month,
+      sheetKind: g.sheetKind,
+      count: g.rows.length,
+      key: `${g.year}-${String(g.month).padStart(2, '0')}`,
+    })),
+  };
+}
+
 export async function upsertFeePeriodClosure(period) {
+  const availableAt = period.availableAt || period.pack?.availableAt || null;
+  const pack = period.pack && typeof period.pack === 'object'
+    ? { ...period.pack, availableAt: availableAt || period.pack.availableAt || null }
+    : null;
   const row = {
     id: period.id,
     accessin_id: period.accessinId ?? null,
@@ -3936,7 +4334,7 @@ export async function upsertFeePeriodClosure(period) {
     generated_at: period.generatedAt || null,
     status: period.status || 'processed',
     lines: Array.isArray(period.lines) ? period.lines : [],
-    pack: period.pack && typeof period.pack === 'object' ? period.pack : null,
+    pack,
   };
   const saved = await unwrap(
     sb().from('fee_period_closures').upsert(row, { onConflict: 'id' }).select().single(),
