@@ -1688,7 +1688,12 @@ function ClubPortal() {
         // Ops: padrón y ERP en paralelo. El dump no debe tapar cajas ni reportes.
         if (isOps) {
           runDeferred();
-          const erpJob = bootstrapErpFromDb()
+          const erpJob = bootstrapErpFromDb({
+            onPartial: (partial) => {
+              if (cancelled || !partial) return;
+              erp.applyErpHydration(partial);
+            },
+          })
             .then((heavy) => {
               if (cancelled || !heavy) return;
               if (Array.isArray(heavy.journalEntries) && heavy.journalEntries.length) {

@@ -47,6 +47,7 @@ export default function FoldableSection({
   defaultOpen = true,
   storageKey,
   openToken = 0,
+  onOpen,
   forceOpen = false,
   extra = null,
   className = '',
@@ -58,6 +59,9 @@ export default function FoldableSection({
     setOpen(true);
   }, [openToken, setOpen]);
   const visible = forceOpen || open;
+  useEffect(() => {
+    if (visible && typeof onOpen === 'function') onOpen();
+  }, [visible, onOpen]);
 
   const bodyId = id ? `${id}-body` : undefined;
 

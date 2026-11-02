@@ -141,6 +141,6 @@ describe('movementsForBankAccount / snapshot / resolve', () => {
       balance: 50,
       updatedAt: '2026-10-21T12:00:00.000Z',
     }];
-    expect(applySnapshotBankBalances(olderLocal, snap)[0].balance).toBe(100);
+    expect(applySnapshotBankBalances(olderLocal, snap)[0].balance).toBe(0);
   });
 });

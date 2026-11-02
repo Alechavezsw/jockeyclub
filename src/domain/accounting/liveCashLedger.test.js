@@ -58,9 +58,9 @@ describe('liveCashLedger', () => {
     });
     expect(live.asOf).toBe('2026-10-19');
     expect(live.cutoff).toBe('2026-10-13');
-    expect(live.efectivo).toBeCloseTo(650, 2);
-    expect(live.bancos).toBeCloseTo(480, 2);
-    expect(live.total).toBeCloseTo(1130, 2);
+    expect(live.efectivo).toBeCloseTo(50, 2);
+    expect(live.bancos).toBeCloseTo(80, 2);
+    expect(live.total).toBeCloseTo(130, 2);
     expect(live.extraCount).toBe(2);
     expect(live.cards.find((c) => c.id === 'efectivo')?.caption).toContain('19 de Octubre del 2026');
     expect(live.cards.find((c) => c.id === 'efectivo')?.caption).not.toMatch(/no es el saldo/i);
@@ -109,7 +109,7 @@ describe('liveCashLedger', () => {
       }],
       today: TODAY,
     });
-    expect(live.bancos).toBeCloseTo(425, 2);
+    expect(live.bancos).toBeCloseTo(25, 2);
     expect(live.extraCount).toBe(1);
   });
 
@@ -131,7 +131,7 @@ describe('liveCashLedger', () => {
       }],
       today: TODAY,
     });
-    expect(live.efectivo).toBeCloseTo(560, 2);
+    expect(live.efectivo).toBeCloseTo(-40, 2);
   });
 
   it('no duplica un movimiento de caja que ya tiene asiento', () => {
@@ -162,7 +162,7 @@ describe('liveCashLedger', () => {
       today: TODAY,
     });
     expect(live.extraCount).toBe(1);
-    expect(live.efectivo).toBeCloseTo(620, 2);
+    expect(live.efectivo).toBeCloseTo(20, 2);
   });
 
   it('omite asientos agrupados del libro importado', () => {
@@ -183,6 +183,6 @@ describe('liveCashLedger', () => {
       today: TODAY,
     });
     expect(live.extraCount).toBe(0);
-    expect(live.efectivo).toBeCloseTo(600, 2);
+    expect(live.efectivo).toBeCloseTo(0, 2);
   });
 });

@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Banknote, ChevronDown } from 'lucide-react';
 import { buildWhatsAppDuesUrl, duesDueMoment } from '../../domain/members/dues';
@@ -20,11 +20,14 @@ import { cashSeed, cashMovementsSeed } from '../../domain/accounting/cashLedger'
 import { cobranzasSeed } from '../../domain/accounting/cobranzas';
 import { useSnapshotSeed } from '../../hooks/useSnapshots';
 
-const LILA_MONEY_SNAPSHOTS = [
+const LILA_MONEY_LIGHT = [
   'accessinMonthlyBalance',
   'accessinMonthlyBalanceSummary',
-  'accessinDetailedCurrentAccounts',
   'accessinCashSnapshot',
+];
+const LILA_MONEY_SNAPSHOTS = [
+  ...LILA_MONEY_LIGHT,
+  'accessinDetailedCurrentAccounts',
   'accessinCashMovements',
   'accessinCobranzas',
 ];
@@ -212,8 +215,22 @@ export default function DuesDueBanner({
 }) {
   const moment = duesDueMoment(today);
   const deferredMembers = useDeferredValue(members);
-  const rosterReady = !membersLoading && (deferredMembers?.length || 0) > 0;
-  const lilaCut = useSnapshotSeed(enabled ? LILA_MONEY_SNAPSHOTS : [], readLilaMoney);
+  const [heavyMoney, setHeavyMoney] = useState(false);
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const arm = () => setHeavyMoney(true);
+    if (typeof window.requestIdleCallback === 'function') {
+      const id = window.requestIdleCallback(arm, { timeout: 1200 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const id = window.setTimeout(arm, 500);
+    return () => window.clearTimeout(id);
+  }, [enabled]);
+  const rosterReady = (deferredMembers?.length || 0) > 0;
+  const lilaCut = useSnapshotSeed(
+    enabled ? (heavyMoney ? LILA_MONEY_SNAPSHOTS : LILA_MONEY_LIGHT) : [],
+    readLilaMoney,
+  );
   const money = useMemo(
     () => composeClubFinance({
       lila: lilaCut,
@@ -286,8 +303,10 @@ export default function DuesDueBanner({
   const periodKey = periodKeyFromDate(money?.periodTo) || periodKeyFromDate(money?.periodKey);
   const cutIsThisMonth = String(periodKey || '').slice(0, 7) === monthKey;
   const unpaidRows = useMemo(
-    () => (enabled && cutIsThisMonth && rosterReady ? listUnpaidFeeMembersForPeriod(periodKey) : []),
-    [enabled, cutIsThisMonth, periodKey, rosterReady],
+    () => (enabled && cutIsThisMonth && rosterReady && !membersLoading
+      ? listUnpaidFeeMembersForPeriod(periodKey)
+      : []),
+    [enabled, cutIsThisMonth, periodKey, rosterReady, membersLoading],
   );
   if (!enabled) return null;
 

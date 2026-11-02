@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Search, Filter, Plus, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Trash2, Users, UserPlus, X, CreditCard, Camera, FileDown, FileSpreadsheet, Pencil, KeyRound, MoreVertical } from 'lucide-react';
 import { duesAmountForHousehold, duesAmountForTier, duesOnJoin, isDuesExemptMember, pinDuesDueDate, quotaHeadline, toWhatsAppPhone } from '../../domain/members/dues';
 import { persistDuesCollection, recordDuesCollection } from '../../domain/members/memberPayments';
@@ -311,6 +311,9 @@ export default function MembersTab({
   const [tierFilter, setTierFilter] = useState('todos');
   const [quickFilter, setQuickFilter] = useState(null);
   const [inactiveOpenToken, setInactiveOpenToken] = useState(0);
+  const [inactiveCount, setInactiveCount] = useState(null);
+  const [inactiveReady, setInactiveReady] = useState(false);
+  const [inactiveLoading, setInactiveLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [remoteHits, setRemoteHits] = useState([]);
   const [remoteSearching, setRemoteSearching] = useState(false);
@@ -478,6 +481,35 @@ export default function MembersTab({
     () => mergeMembersById(members, remoteHits),
     [members, remoteHits],
   );
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return undefined;
+    let cancelled = false;
+    repos.countMembers('inactive')
+      .then((count) => {
+        if (!cancelled) setInactiveCount(count);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const loadInactiveMembers = useCallback(() => {
+    if (inactiveReady || inactiveLoading || !isSupabaseConfigured || typeof setMembers !== 'function') return;
+    setInactiveLoading(true);
+    repos.listMembers({ scope: 'inactive' })
+      .then((rows) => {
+        setMembers((prev) => mergeMembersById(prev, rows || []));
+        setInactiveReady(true);
+      })
+      .catch(() => {})
+      .finally(() => setInactiveLoading(false));
+  }, [inactiveReady, inactiveLoading, setMembers]);
+
+  useEffect(() => {
+    if (quickFilter === 'bajas') loadInactiveMembers();
+  }, [quickFilter, loadInactiveMembers]);
 
   useEffect(() => {
     const raw = searchQuery.trim();
@@ -1383,7 +1415,9 @@ export default function MembersTab({
         />
         <PadronStatCard
           label="Inactivos"
-          value={members.filter((m) => (m.status || '') === 'inactive').length}
+          value={(inactiveReady
+            ? members.filter((m) => (m.status || '') === 'inactive').length
+            : inactiveCount) ?? 0}
           color={PADRON_FIXED_CARD_COLORS.inactivos}
           active={false}
           onClick={() => {
@@ -1426,7 +1460,12 @@ export default function MembersTab({
 
       <MembershipMovesSection members={members} />
 
-      <InactiveMembersSection members={members} openToken={inactiveOpenToken} />
+      <InactiveMembersSection
+        members={members}
+        openToken={inactiveOpenToken}
+        loading={inactiveLoading}
+        onRequestLoad={loadInactiveMembers}
+      />
 
       <MemberTiersPanel
         catalog={tierCatalog}

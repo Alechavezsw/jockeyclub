@@ -86,11 +86,15 @@ const TAB_PREFETCH = {
   jev: () => import('../components/admin/JevReviewTab'),
 };
 
-const LILA_METRIC_SNAPSHOTS = [
+const LILA_METRIC_SNAPSHOTS_LIGHT = [
   'accessinMonthlyBalance',
   'accessinMonthlyBalanceSummary',
-  'accessinDetailedCurrentAccounts',
   'accessinCashSnapshot',
+];
+
+const LILA_METRIC_SNAPSHOTS = [
+  ...LILA_METRIC_SNAPSHOTS_LIGHT,
+  'accessinDetailedCurrentAccounts',
   'accessinCobranzas',
 ];
 
@@ -239,12 +243,34 @@ export default function AdminView({
     ))
     : null;
 
-  // Dumps LILA multi‑MB solo cuando el dashboard/JEV los necesita.
+  // El inicio pinta con el resumen y la caja. Los cortes de varios MB entran después,
+  // o al abrir JEV, para no trabar el primer render.
   const needClubReviewSeeds = activeTab === 'dashboard' || activeTab === 'jev';
-  const lilaMetrics = useSnapshotSeed(needClubReviewSeeds ? LILA_METRIC_SNAPSHOTS : [], readLilaMetrics);
+  const [idleHeavy, setIdleHeavy] = useState(false);
+  useEffect(() => {
+    if (activeTab !== 'dashboard') return undefined;
+    const arm = () => setIdleHeavy(true);
+    if (typeof window.requestIdleCallback === 'function') {
+      const id = window.requestIdleCallback(arm, { timeout: 1500 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const id = window.setTimeout(arm, 700);
+    return () => window.clearTimeout(id);
+  }, [activeTab]);
+  const heavySeeds = activeTab === 'jev' || idleHeavy;
+  const lilaMetrics = useSnapshotSeed(
+    needClubReviewSeeds ? (heavySeeds ? LILA_METRIC_SNAPSHOTS : LILA_METRIC_SNAPSHOTS_LIGHT) : [],
+    readLilaMetrics,
+  );
   const movesSeed = useSnapshotSeed(needClubReviewSeeds ? ['societasMembershipMoves'] : [], membershipMovesSeed);
-  const balancesSeed = useSnapshotSeed(needClubReviewSeeds ? ['accessinCurrentAccountBalances'] : [], currentAccountBalancesSeed);
-  const feeDetailsSeed = useSnapshotSeed(needClubReviewSeeds ? ['accessinFeeAccountDetails'] : [], feeAccountDetailsSeed);
+  const balancesSeed = useSnapshotSeed(
+    heavySeeds && needClubReviewSeeds ? ['accessinCurrentAccountBalances'] : [],
+    currentAccountBalancesSeed,
+  );
+  const feeDetailsSeed = useSnapshotSeed(
+    heavySeeds && needClubReviewSeeds ? ['accessinFeeAccountDetails'] : [],
+    feeAccountDetailsSeed,
+  );
 
   const membersSettled = !membersLoading && (members?.length || 0) > 0;
   useEffect(() => {
@@ -280,10 +306,11 @@ export default function AdminView({
     }
     return [...ids];
   }, [needClubReviewSeeds, feeDetailsSeed]);
+  const deferredMembers = useDeferredValue(members);
   const clubReview = useMemo(() => {
     if (!needClubReviewSeeds) return null;
     return buildClubReview({
-    members,
+    members: deferredMembers,
     journalEntries,
     chartOfAccounts,
     unidentifiedCollections: erp.unidentifiedCollections || [],
@@ -320,7 +347,7 @@ export default function AdminView({
   });
   }, [
     needClubReviewSeeds,
-    members,
+    deferredMembers,
     journalEntries,
     chartOfAccounts,
     erp.unidentifiedCollections,
@@ -665,13 +692,13 @@ export default function AdminView({
     return composeClubFinance({
       lila: lilaMetrics.money,
       lilaCards,
-      members,
+      members: deferredMembers,
       journalEntries,
       chartOfAccounts,
       feePeriods: erp.feePeriods || [],
       today: todayISODateAR(),
     });
-  }, [needClubReviewSeeds, lilaMetrics.money, lilaCards, members, journalEntries, chartOfAccounts, erp.feePeriods]);
+  }, [needClubReviewSeeds, lilaMetrics.money, lilaCards, deferredMembers, journalEntries, chartOfAccounts, erp.feePeriods]);
   const lilaMoney = clubFinance || (needClubReviewSeeds ? lilaMetrics.money : null);
   const hasLilaMonth = Boolean(lilaCards.totalIncome || lilaCards.totalExpenses || lilaMoney?.income);
   const totalActivos = lilaMoney?.cash || lilaCards.closingCash || journalCash;
@@ -683,15 +710,14 @@ export default function AdminView({
   const totalPatrimonioNetoTotal = totalPatrimonioNetoBase + resultadoAcumulado;
 
   const liveTitulares = useMemo(
-    () => (members || []).filter((member) => isLiveMember(member) && isTitularMember(member)),
-    [members],
+    () => (deferredMembers || []).filter((member) => isLiveMember(member) && isTitularMember(member)),
+    [deferredMembers],
   );
   const totalMembers = liveTitulares.length;
   const activeBookingsCount = reservations.filter(res => res.status === 'confirmed').length;
   const pendingBookingsCount = reservations.filter(res => res.status === 'pending').length;
 
-  const deferredMembers = useDeferredValue(members);
-  const duesStatsReady = activeTab === 'dashboard' && !membersLoading && (deferredMembers?.length || 0) > 0;
+  const duesStatsReady = activeTab === 'dashboard' && (deferredMembers?.length || 0) > 0;
   const overdueMembersCount = useMemo(
     () => (duesStatsReady ? countOverdueMembers(deferredMembers) : 0),
     [duesStatsReady, deferredMembers],

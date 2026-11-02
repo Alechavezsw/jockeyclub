@@ -108,11 +108,19 @@ function listRowToMember(row) {
   return { ...mapped, recordScope: 'list' };
 }
 
-let membersListInflight = null;
-let membersListCache = null;
+const membersListInflight = { active: null, inactive: null };
+const membersListCache = { active: null, inactive: null };
 
 export function invalidateMembersListCache() {
-  membersListCache = null;
+  membersListCache.active = null;
+  membersListCache.inactive = null;
+}
+
+/** Activos en el arranque. Inactivos, suspendidos y bajas solo si se piden. */
+function applyMemberScope(req, scope) {
+  if (scope === 'inactive') return req.neq('status', 'active');
+  if (scope === 'active') return req.eq('status', 'active');
+  return req;
 }
 
 async function fetchAllRows(queryFactory, fallback, pageSize = PAGE_SIZE) {
@@ -155,11 +163,12 @@ async function fetchAllRowsParallel(
   return all;
 }
 
-/** Conteo exacto de socios (sin descargar filas). */
-export async function countMembers() {
-  const { count, error } = await sb()
-    .from('members')
-    .select('*', { count: 'exact', head: true });
+/** Conteo exacto de socios (sin descargar filas). status: 'active' | 'inactive' | otro valor. */
+export async function countMembers(status) {
+  let req = sb().from('members').select('id', { count: 'exact', head: true });
+  if (status === 'rest') req = req.neq('status', 'active');
+  else if (status) req = req.eq('status', status);
+  const { count, error } = await req;
   throwOnError(error, 'No se pudo contar socios');
   return count || 0;
 }
@@ -184,33 +193,41 @@ async function audit(action, entityType, entityId, payload = {}) {
  * Padrón por páginas. onBatch se llama tras cada lote para pintar la UI
  * sin esperar los ~5k socios ni pagos/adherentes.
  */
-export async function listMembers({ onBatch } = {}) {
-  if (membersListCache?.length) {
-    onBatch?.(membersListCache, {
-      loaded: membersListCache.length,
-      total: membersListCache.length,
+export async function listMembers({ onBatch, scope = 'active' } = {}) {
+  const key = scope === 'inactive' ? 'inactive' : 'active';
+  if (scope === 'all') {
+    const active = await listMembers({ onBatch, scope: 'active' });
+    const inactive = await listMembers({ scope: 'inactive' });
+    const rows = [...(active || []), ...(inactive || [])];
+    onBatch?.(rows, { loaded: rows.length, total: rows.length, done: true });
+    return rows;
+  }
+  if (membersListCache[key]?.length) {
+    onBatch?.(membersListCache[key], {
+      loaded: membersListCache[key].length,
+      total: membersListCache[key].length,
       done: true,
     });
-    return membersListCache;
+    return membersListCache[key];
   }
-  if (membersListInflight) {
-    const shared = await membersListInflight;
+  if (membersListInflight[key]) {
+    const shared = await membersListInflight[key];
     onBatch?.(shared, { loaded: shared.length, total: shared.length, done: true });
     return shared;
   }
 
-  membersListInflight = downloadMembersList({ onBatch })
+  membersListInflight[key] = downloadMembersList({ onBatch, scope: key })
     .then((rows) => {
-      membersListCache = rows;
+      membersListCache[key] = rows;
       return rows;
     })
     .finally(() => {
-      membersListInflight = null;
+      membersListInflight[key] = null;
     });
-  return membersListInflight;
+  return membersListInflight[key];
 }
 
-async function downloadMembersList({ onBatch } = {}) {
+async function downloadMembersList({ onBatch, scope = 'active' } = {}) {
   const mapped = [];
   let listSelect = MEMBERS_LIST_SELECT;
   let knownTotal = 0;
@@ -228,9 +245,10 @@ async function downloadMembersList({ onBatch } = {}) {
 
   // El conteo no bloquea la primera página: antes el padrón no pintaba
   // hasta que el count exacto (con RLS) terminaba.
-  void sb()
-    .from('members')
-    .select('id', { count: 'exact', head: true })
+  void applyMemberScope(
+    sb().from('members').select('id', { count: 'exact', head: true }),
+    scope,
+  )
     .then(({ count, error }) => {
       if (error || !count) return;
       knownTotal = count;
@@ -241,9 +259,10 @@ async function downloadMembersList({ onBatch } = {}) {
   const fetchPage = async (from) => {
     try {
       return await unwrap(
-        sb()
-          .from('members')
-          .select(listSelect)
+        applyMemberScope(
+          sb().from('members').select(listSelect),
+          scope,
+        )
           .order('id')
           .range(from, from + MEMBERS_PAGE_SIZE - 1),
         'No se pudieron cargar socios'
@@ -257,9 +276,10 @@ async function downloadMembersList({ onBatch } = {}) {
           .replace(', cuota_categories:meta->cuotaCategories', '')
           .replace(', current_account_as_of:meta->>currentAccountAsOf', '');
         return unwrap(
-          sb()
-            .from('members')
-            .select(listSelect)
+          applyMemberScope(
+            sb().from('members').select(listSelect),
+            scope,
+          )
             .order('id')
             .range(from, from + MEMBERS_PAGE_SIZE - 1),
           'No se pudieron cargar socios'
@@ -1410,18 +1430,54 @@ export async function listChartOfAccounts() {
   return (rows || []).map(M.accountFromRow);
 }
 
+function mapJournalPage(entries) {
+  return (entries || []).map((entry) => M.journalFromRow(entry, entry.journal_lines || []));
+}
+
+/** Asientos con líneas en la misma respuesta. Antes eran dos viajes (cabecera y un IN enorme). */
+async function listJournalEntriesNested() {
+  const pageSize = 400;
+  const pageCount = 15;
+  const pages = [];
+  for (let start = 0; start < pageCount; start += 2) {
+    const batch = await Promise.all(
+      [0, 1].map((offset) => {
+        const index = start + offset;
+        const from = index * pageSize;
+        return unwrap(
+          sb()
+            .from('journal_entries')
+            .select('*, journal_lines(*)')
+            .order('entry_date', { ascending: false })
+            .range(from, from + pageSize - 1),
+          'No se pudo cargar el libro diario',
+        );
+      }),
+    );
+    pages.push(...batch);
+    const short = batch.some((rows) => (rows || []).length < pageSize);
+    if (short) break;
+  }
+  return pages.flatMap(mapJournalPage);
+}
+
 export async function listJournalEntries() {
-  const entries = await unwrap(
-    sb().from('journal_entries').select('*').order('entry_date', { ascending: false }).limit(5000)
-  );
-  if (!entries?.length) return [];
-  const ids = entries.map((e) => e.id);
-  const lines = await unwrap(sb().from('journal_lines').select('*').in('journal_entry_id', ids));
-  const byEntry = {};
-  (lines || []).forEach((l) => {
-    (byEntry[l.journal_entry_id] ||= []).push(l);
-  });
-  return entries.map((e) => M.journalFromRow(e, byEntry[e.id] || []));
+  try {
+    return await listJournalEntriesNested();
+  } catch {
+    const entries = await unwrap(
+      sb().from('journal_entries').select('*').order('entry_date', { ascending: false }).limit(5000),
+      'No se pudo cargar el libro diario',
+    );
+    if (!entries?.length) return [];
+    const ids = entries.map((entry) => entry.id);
+    const lines = await unwrap(sb().from('journal_lines').select('*').in('journal_entry_id', ids));
+    const byEntry = {};
+    (lines || []).forEach((line) => {
+      (byEntry[line.journal_entry_id] ||= []).push(line);
+    });
+    return entries.map((entry) => M.journalFromRow(entry, byEntry[entry.id] || []));
+  }
 }
 
 export async function insertJournalEntry(entry, { createdBy } = {}) {

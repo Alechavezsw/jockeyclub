@@ -31,8 +31,8 @@ const EMPTY_ERP = {
 const CRITICAL_TIMEOUT_MS = 8_000;
 const DEFERRED_TIMEOUT_MS = 15_000;
 const ERP_TIMEOUT_MS = 20_000;
-/** Evita saturar el pool de Supabase (free/small). */
-const QUERY_CONCURRENCY = 4;
+/** El shell pide pocas filas: 6 en paralelo abre el panel antes. */
+const QUERY_CONCURRENCY = 6;
 
 function withTimeout(promise, ms, label = 'operación') {
   let timer;
@@ -210,7 +210,7 @@ export async function bootstrapOpsCriticalFromDb() {
     alertAcks,
     zondaSetting,
   ] = await mapLimit([
-    () => soft(repos.countMembers(), 0, 'countMembers'),
+    () => soft(repos.countMembers('active'), 0, 'countMembers'),
     () => soft(repos.listReservations({ limit: 150 }), [], 'reservations'),
     () => soft(repos.listNews({ limit: 40 }), [], 'news'),
     () => soft(repos.listMessages({ limit: 100, forStaff: true }), [], 'messages'),
@@ -318,7 +318,7 @@ export async function bootstrapOpsDeferredFromDb() {
 }
 
 /** Contabilidad / tesorería / concesiones — después de pintar el shell. */
-export async function bootstrapErpFromDb() {
+export async function bootstrapErpFromDb({ onPartial } = {}) {
   if (!isSupabaseConfigured) return { ...EMPTY_ERP };
 
   const softErp = (p, fb, label) => soft(p, fb, label, ERP_TIMEOUT_MS);
@@ -327,17 +327,45 @@ export async function bootstrapErpFromDb() {
     chartOfAccounts,
     cashRegisters,
     cashSessions,
-    cashMovements,
-    expenses,
-    suppliers,
     unidentifiedCollections,
     galiciaDebits,
     fixedExpenses,
     fixedDiscounts,
     paymentOrders,
-    journalEntries,
     concessions,
     canonPayments,
+  ] = await mapLimit([
+    () => softErp(repos.listChartOfAccounts(), [], 'coa'),
+    () => softErp(repos.listCashRegisters(), [], 'cashRegisters'),
+    () => softErp(repos.listCashSessions(), [], 'cashSessions'),
+    () => softErp(repos.listUnidentifiedCollections(), [], 'unidentified'),
+    () => softErp(repos.listGaliciaDebits(), [], 'galicia'),
+    () => softErp(repos.listFixedExpenses(), [], 'fixedExpenses'),
+    () => softErp(repos.listFixedDiscounts(), [], 'fixedDiscounts'),
+    () => softErp(repos.listPaymentOrders(), [], 'paymentOrders'),
+    () => softErp(repos.listConcessions(), [], 'concessions'),
+    () => softErp(repos.listCanonPayments(), [], 'canon'),
+  ], QUERY_CONCURRENCY);
+
+  const partial = {
+    chartOfAccounts: chartOfAccounts || [],
+    cashRegisters: cashRegisters || [],
+    cashSessions: cashSessions || [],
+    unidentifiedCollections: unidentifiedCollections || [],
+    galiciaDebits: galiciaDebits || [],
+    fixedExpenses: fixedExpenses || [],
+    fixedDiscounts: fixedDiscounts || [],
+    paymentOrders: paymentOrders || [],
+    concessions: concessions || [],
+    canonPayments: canonPayments || [],
+  };
+  onPartial?.(partial);
+
+  const [
+    cashMovements,
+    expenses,
+    suppliers,
+    journalEntries,
     retenciones,
     supplierPaymentImports,
     expenseImports,
@@ -345,20 +373,10 @@ export async function bootstrapErpFromDb() {
     otherIncomes,
     fiscalDocuments,
   ] = await mapLimit([
-    () => softErp(repos.listChartOfAccounts(), [], 'coa'),
-    () => softErp(repos.listCashRegisters(), [], 'cashRegisters'),
-    () => softErp(repos.listCashSessions(), [], 'cashSessions'),
     () => softErp(repos.listCashMovements(), [], 'cashMovements'),
     () => softErp(repos.listExpenses(), [], 'expenses'),
     () => softErp(repos.listSuppliers(), [], 'suppliers'),
-    () => softErp(repos.listUnidentifiedCollections(), [], 'unidentified'),
-    () => softErp(repos.listGaliciaDebits(), [], 'galicia'),
-    () => softErp(repos.listFixedExpenses(), [], 'fixedExpenses'),
-    () => softErp(repos.listFixedDiscounts(), [], 'fixedDiscounts'),
-    () => softErp(repos.listPaymentOrders(), [], 'paymentOrders'),
     () => softErp(repos.listJournalEntries(), [], 'journal'),
-    () => softErp(repos.listConcessions(), [], 'concessions'),
-    () => softErp(repos.listCanonPayments(), [], 'canon'),
     () => softErp(repos.listRetenciones(), [], 'retenciones'),
     () => softErp(repos.listSupplierPaymentImports(), [], 'supplierPaymentImports'),
     () => softErp(repos.listExpenseImports(), [], 'expenseImports'),

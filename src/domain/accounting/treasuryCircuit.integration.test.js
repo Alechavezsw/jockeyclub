@@ -144,14 +144,14 @@ describe('circuito tesorería + impuestos (integrado)', () => {
       today: TODAY,
     });
 
-    // Efectivo base 600
+    // La caja no arrastra el corte de Lila.
     // +10000 otro ingreso
     // -2500 gasto
     // +venta.total (débito caja)
     // -compra.total (crédito caja)
     // -iva.aPagar (pago liquidación)
     const expectedEfectivo = Math.round((
-      600
+      0
       + 10000
       - 2500
       + venta.totals.total

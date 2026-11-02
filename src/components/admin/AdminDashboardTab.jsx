@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Users, Calendar, DollarSign, Activity, MessageSquare, ClipboardList,
@@ -26,6 +26,7 @@ import { getOverdueMembers } from '../../domain/members/dues';
 import { membershipMovesSeed, uniqueBajas } from '../../domain/members/membershipMoves';
 import { accessRequestIsOpen } from '../../domain/members/selfService';
 import { useSnapshotSeed } from '../../hooks/useSnapshots';
+import { countMembers } from '../../data/repos';
 import { formatISODateLongAR, todayISODateAR } from '../../lib/arDate';
 import { dedupeAccessLogs } from '../../domain/credentials/accessLog';
 import { OpsProgressRing } from './OpsGauge';
@@ -33,11 +34,14 @@ import DuesDueBanner from './DuesDueBanner';
 import CurrentAccountCutNote from '../erp/CurrentAccountCutNote';
 
 const MOVES_SNAPSHOTS = ['societasMembershipMoves'];
-const LILA_MONEY_SNAPSHOTS = [
+const LILA_MONEY_LIGHT = [
   'accessinMonthlyBalance',
   'accessinMonthlyBalanceSummary',
-  'accessinDetailedCurrentAccounts',
   'accessinCashSnapshot',
+];
+const LILA_MONEY_SNAPSHOTS = [
+  ...LILA_MONEY_LIGHT,
+  'accessinDetailedCurrentAccounts',
   'accessinCashMovements',
   'accessinCobranzas',
 ];
@@ -211,8 +215,19 @@ export default function AdminDashboardTab({
   const hasAccounting = permittedTabs.includes('accounting')
     || permittedTabs.includes('operation')
     || permittedTabs.includes('books');
+  const [heavyMoney, setHeavyMoney] = useState(false);
+  useEffect(() => {
+    if (!hasAccounting) return undefined;
+    const arm = () => setHeavyMoney(true);
+    if (typeof window.requestIdleCallback === 'function') {
+      const id = window.requestIdleCallback(arm, { timeout: 1200 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const id = window.setTimeout(arm, 500);
+    return () => window.clearTimeout(id);
+  }, [hasAccounting]);
   const lilaCut = useSnapshotSeed(
-    hasAccounting ? LILA_MONEY_SNAPSHOTS : NO_SNAPSHOTS,
+    hasAccounting ? (heavyMoney ? LILA_MONEY_SNAPSHOTS : LILA_MONEY_LIGHT) : NO_SNAPSHOTS,
     () => {
       const summary = monthlyBalanceSummarySeed();
       const latestCut = financeFromSummary({
@@ -316,9 +331,10 @@ export default function AdminDashboardTab({
     [staffHrRecords],
   );
 
+  const deferredMembers = useDeferredValue(members);
   const household = useMemo(
-    () => buildPadronHouseholdStats(members, { tierCatalog }),
-    [members, tierCatalog]
+    () => buildPadronHouseholdStats(deferredMembers, { tierCatalog }),
+    [deferredMembers, tierCatalog]
   );
   const padronTop = useMemo(() => {
     const top = household.byTier.slice(0, 5);
@@ -335,11 +351,11 @@ export default function AdminDashboardTab({
     .toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
   const moneyMonthLabel = monthRaw.charAt(0).toUpperCase() + monthRaw.slice(1);
   const seededMoves = useSnapshotSeed(
-    hasAccounting ? CASH_MOVE_SNAPSHOTS : NO_SNAPSHOTS,
+    hasAccounting && heavyMoney ? CASH_MOVE_SNAPSHOTS : NO_SNAPSHOTS,
     () => cashMovementsSeed().ACCESSIN_CASH_MOVEMENTS,
   );
   const seededRecent = useSnapshotSeed(
-    hasAccounting ? CASH_MOVE_SNAPSHOTS : NO_SNAPSHOTS,
+    hasAccounting ? ['accessinCashSnapshot'] : NO_SNAPSHOTS,
     () => cashSeed().ACCESSIN_CASH_SNAPSHOT?.recentMovements || [],
   );
   const cashMoves = useMemo(
@@ -351,26 +367,26 @@ export default function AdminDashboardTab({
   );
   const finance = useMemo(
     () => buildOpsFinanceSnapshot({
-      members,
+      members: deferredMembers,
       journalEntries,
       chartOfAccounts,
       getAccountBalance,
     }),
-    [members, journalEntries, chartOfAccounts, getAccountBalance]
+    [deferredMembers, journalEntries, chartOfAccounts, getAccountBalance]
   );
 
   const duesBoard = useMemo(() => {
-    if (membersLoading) return null;
+    if (membersLoading && !(deferredMembers?.length)) return null;
     const periods = resolveFeePeriods(feePeriods);
-    const liquidated = Number(liquidatedTotalForMonth(periods, monthKey, { members, tierCatalog })) || 0;
+    const liquidated = Number(liquidatedTotalForMonth(periods, monthKey, { members: deferredMembers, tierCatalog })) || 0;
     const split = splitMonthDuesCollection({
       movements: cashMoves,
-      members,
+      members: deferredMembers,
       monthKey,
     });
     const todaySplit = splitMonthDuesCollection({
       movements: cashMoves,
-      members,
+      members: deferredMembers,
       monthKey,
       onDate: todayKey,
     });
@@ -387,7 +403,7 @@ export default function AdminDashboardTab({
       reservas: split.reservas,
       porteria: split.porteria,
     };
-  }, [membersLoading, feePeriods, monthKey, members, tierCatalog, cashMoves, todayKey]);
+  }, [membersLoading, feePeriods, monthKey, deferredMembers, tierCatalog, cashMoves, todayKey]);
   const liveCollectionRate = duesBoard?.rate ?? 0;
   const standingCaption = duesBoard
     ? `${formatCurrency(duesBoard.recaudado)} de ${formatCurrency(duesBoard.liquidated)} liquidado`
@@ -477,21 +493,34 @@ export default function AdminDashboardTab({
   };
 
   const overdueTop = useMemo(
-    () => getOverdueMembers(members).slice(0, 5),
-    [members],
+    () => getOverdueMembers(deferredMembers).slice(0, 5),
+    [deferredMembers],
   );
 
+  const [offRoster, setOffRoster] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      countMembers('inactive'),
+      countMembers('suspended'),
+    ]).then(([inactive, suspended]) => {
+      if (!cancelled) setOffRoster({ inactive, suspended });
+    }).catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const padronStatus = useMemo(() => {
     let active = 0;
-    let inactive = 0;
-    let suspended = 0;
-    for (const m of members) {
-      if (m.status === 'inactive') inactive += 1;
-      else if (m.status === 'suspended') suspended += 1;
-      else active += 1;
+    for (const m of deferredMembers) {
+      if (m.status !== 'inactive' && m.status !== 'suspended') active += 1;
     }
-    return { active, inactive, suspended };
-  }, [members]);
+    return {
+      active,
+      inactive: offRoster?.inactive ?? 0,
+      suspended: offRoster?.suspended ?? 0,
+    };
+  }, [deferredMembers, offRoster]);
 
   // Altas y bajas de Societas (nombre y DNI): solo se piden si se ve el padrón.
   const movesSeed = useSnapshotSeed(hasMembers ? MOVES_SNAPSHOTS : NO_SNAPSHOTS, membershipMovesSeed);

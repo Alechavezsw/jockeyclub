@@ -16,7 +16,12 @@ function categoryOf(member) {
   return '';
 }
 
-export default function InactiveMembersSection({ members = [], openToken = 0 }) {
+export default function InactiveMembersSection({
+  members = [],
+  openToken = 0,
+  loading = false,
+  onRequestLoad,
+}) {
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
   const [remoteHits, setRemoteHits] = useState([]);
@@ -70,7 +75,10 @@ export default function InactiveMembersSection({ members = [], openToken = 0 }) 
       className="membership-moves inactive-members"
       id="socios-inactivos-title"
       title="Socios inactivos"
-      subtitle="Fichas dadas de baja. No entran en el padrón vigente."
+      subtitle={loading
+        ? 'Cargando fichas dadas de baja…'
+        : 'Fichas dadas de baja. No entran en el padrón vigente.'}
+      onOpen={onRequestLoad}
       count={inactive.length.toLocaleString('es-AR')}
       defaultOpen={false}
       storageKey="sociosInactivos"
