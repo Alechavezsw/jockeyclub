@@ -1,3 +1,4 @@
+import { loadXlsx, loadAutoTable, loadJsPdf } from '../../lib/office.js';
 import { ACCOUNT_TYPES, getPostableAccounts } from './chartOfAccounts';
 import {
   BRAND,
@@ -111,7 +112,7 @@ function stampName(slug) {
 }
 
 async function writeExcel(sheets, fileName) {
-  const XLSX = await import('xlsx');
+  const XLSX = await loadXlsx();
   const wb = XLSX.utils.book_new();
   sheets.forEach((sheet) => {
     const ws = XLSX.utils.aoa_to_sheet(sheet.aoa);
@@ -127,8 +128,8 @@ async function writeExcel(sheets, fileName) {
 
 async function writePdf({ title, subtitle, columns, body, foot, fileName, landscape = false }) {
   const [{ jsPDF }, autoTableMod, logoDataUrl] = await Promise.all([
-    import('jspdf'),
-    import('jspdf-autotable'),
+    loadJsPdf(),
+    loadAutoTable(),
     loadClubLogoDataUrl(),
   ]);
   const autoTable = autoTableMod.default;

@@ -1,6 +1,9 @@
+import { loadXlsx } from '../../lib/office.js';
 import { isDuesExemptMember, quotaHeadline } from './dues';
 import { buildPadronPdfModel } from './exportMembersPdf';
 import { getTierDisplayName } from './tiers';
+import { todayAR } from '../../lib/arDate';
+
 
 function statusLabel(status) {
   if (status === 'inactive') return 'Baja del padrón';
@@ -89,9 +92,9 @@ export async function exportMembersExcel(members = [], {
   fileName,
   tierCatalog,
 } = {}) {
-  const XLSX = await import('xlsx');
+  const XLSX = await loadXlsx();
   const built = buildPadronExcelAoA(members, { tierCatalog });
-  const stamp = new Date().toISOString().slice(0, 10);
+  const stamp = todayAR();
   const downloadName = fileName || `jockey_club_padron_socios_${stamp}.xlsx`;
   const generatedAt = new Date().toLocaleString('es-AR');
 

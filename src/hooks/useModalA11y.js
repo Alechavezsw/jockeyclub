@@ -8,7 +8,9 @@ const FOCUSABLE =
  */
 export function useModalA11y({ open, onClose, containerRef }) {
   const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (!open) return undefined;

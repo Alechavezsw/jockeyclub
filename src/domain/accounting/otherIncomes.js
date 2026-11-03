@@ -1,6 +1,8 @@
 /** Otros ingresos / cobros manuales (estilo LILA). */
 
 import { buildPostedEntry } from './journal';
+import { todayAR } from '../../lib/arDate';
+
 
 export const OTHER_INCOME_PAYERS = {
   manual: { label: 'Otro (carga manual)' },
@@ -84,7 +86,7 @@ export function linesTotal(lines = []) {
 }
 
 export function createOtherIncome({
-  date = new Date().toISOString().slice(0, 10),
+  date = todayAR(),
   payerType = 'manual',
   payerName = '',
   concept = '',

@@ -1,3 +1,4 @@
+import { loadJsPdf } from '../../lib/office.js';
 import {
   BRAND,
   CLUB_NAME,
@@ -11,7 +12,7 @@ import { requestPdfFileName } from './selfService';
 /** PDF de una solicitud pública (ingreso o acceso). */
 export async function exportMembershipRequestPdf(detail) {
   const [{ jsPDF }, logoDataUrl] = await Promise.all([
-    import('jspdf'),
+    loadJsPdf(),
     loadClubLogoDataUrl(),
   ]);
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });

@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { loadSnapshots } from '../../data/snapshots';
+import { hasLocalSnapshot, loadSnapshots } from '../../data/snapshots';
 import {
   buildLiveSupplierPayments,
   filterAccessinSupplierPayments,
@@ -17,8 +17,8 @@ beforeAll(async () => {
 });
 
 describe('supplierPaymentsReport snapshot', () => {
-  it('el corte al 26 de octubre trae los pagos de 2026 que Lila exporta', () => {
-    expect(ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT.asOf).toBe('2026-10-26');
+  it.skipIf(!hasLocalSnapshot('accessinSupplierPayments'))('el corte al 2 de noviembre trae los pagos de 2026 que Lila exporta', () => {
+    expect(ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT.asOf).toBe('2026-11-02');
     expect(ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT.periodFrom).toBe('2026-01-01');
     expect(ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT.periodTo).toBe('2026-03-27');
     expect(ACCESSIN_SUPPLIER_PAYMENTS).toHaveLength(170);
@@ -26,7 +26,7 @@ describe('supplierPaymentsReport snapshot', () => {
     expect(ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT.count).toBe(170);
   });
 
-  it('resume el listado cargado', () => {
+  it.skipIf(!hasLocalSnapshot('accessinSupplierPayments'))('resume el listado cargado', () => {
     const summary = supplierPaymentsSummary();
     expect(summary.count).toBe(170);
     expect(summary.totalAmount).toBeCloseTo(62936763.56, 2);

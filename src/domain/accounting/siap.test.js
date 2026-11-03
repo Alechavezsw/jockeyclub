@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { loadSnapshots } from '../../data/snapshots';
+import { hasLocalSnapshot, loadSnapshots } from '../../data/snapshots';
 import { listSiapOccupants, siapSeed, siapSummary } from './siap';
 
 let ACCESSIN_SIAP;
@@ -12,7 +12,7 @@ beforeAll(async () => {
 });
 
 describe('padrón SIAP LILA', () => {
-  it('carga el corte del 26 de octubre (sin ocupantes)', () => {
+  it.skipIf(!hasLocalSnapshot('accessinSiap'))('carga el corte del 26 de octubre (sin ocupantes)', () => {
     expect(ACCESSIN_SIAP_AS_OF).toBe('2026-10-26');
     expect(ACCESSIN_SIAP_SNAPSHOT.fileName).toMatch(/SIAP/i);
     expect(ACCESSIN_SIAP).toEqual([]);

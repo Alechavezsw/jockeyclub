@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { canAccessAdmin } from '../domain/auth/roles';
 import { ensureTodayDailyBackup } from '../domain/reports/dailyBackupStore';
+import { todayAR } from '../lib/arDate';
+
 
 /**
  * Crea automáticamente el backup del día (una vez por jornada) cuando hay
@@ -25,7 +27,7 @@ export function useDailyBackup({
     if (!enabled || !isAuthenticated || !dbReady) return undefined;
     if (!canAccessAdmin(role)) return undefined;
 
-    const day = new Date().toISOString().slice(0, 10);
+    const day = todayAR();
     if (ranDayRef.current === day) return undefined;
     ranDayRef.current = day;
 

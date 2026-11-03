@@ -8,6 +8,7 @@ import {
   canTakeAttendance,
   canLiquidateDues,
   canRemoveDuesSurcharge,
+  canReopenFeePeriod,
   canWaiveDuesSurcharge,
   canVoidDuesPayment,
   canManageProfiles,
@@ -18,7 +19,6 @@ import {
   canEditFeePackAmounts,
   isSuperAdmin,
   allowedAdminTabs,
-  allowedAdminTabsForRoles,
   allowedAccountingSubtabs,
   navItemsForRole,
   primaryRoleFromList,
@@ -85,10 +85,13 @@ describe('allowedAdminTabs', () => {
     expect(canWaiveDuesSurcharge('admin')).toBe(false);
     expect(canRemoveDuesSurcharge('admin')).toBe(false);
     expect(canRemoveDuesSurcharge('superadmin')).toBe(true);
+    expect(canReopenFeePeriod('admin')).toBe(false);
+    expect(canReopenFeePeriod('accountant')).toBe(false);
+    expect(canReopenFeePeriod('superadmin')).toBe(true);
     expect(canRemoveDuesSurcharge('cashier')).toBe(false);
     expect(canRemoveDuesSurcharge('accountant')).toBe(false);
     expect(canRemoveDuesSurcharge({ roles: [{ roleKey: 'tesorero' }] })).toBe(false);
-    expect(canVoidDuesPayment('cashier')).toBe(false);
+    expect(canVoidDuesPayment('cashier')).toBe(true);
     expect(canVoidDuesPayment('admin')).toBe(false);
     expect(canVoidDuesPayment('admin_employee')).toBe(false);
     expect(canVoidDuesPayment({ roles: [{ roleKey: 'tesorero' }] })).toBe(true);

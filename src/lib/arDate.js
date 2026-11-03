@@ -55,10 +55,34 @@ export function formatISODateLongAR(iso) {
   return `${day} de ${monthLabel} de ${year}`;
 }
 
+const AR_BUENOS_AIRES = 'America/Argentina/Buenos_Aires';
+
+/**
+ * YYYY-MM-DD en Argentina.
+ * A las 23:30 del día 10 sigue siendo el 10, aunque el servidor esté en UTC.
+ * @param {Date | string | number} [date]
+ */
+export function todayAR(date = new Date()) {
+  if (typeof date === 'string' || typeof date === 'number') {
+    const raw = String(date).trim();
+    const day = raw.slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(day) && !/[T\s]\d{2}:\d{2}/.test(raw)) return day;
+  }
+  const when = date instanceof Date ? date : new Date(date);
+  const safe = Number.isNaN(when.getTime()) ? new Date() : when;
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: AR_BUENOS_AIRES,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(safe);
+  const get = (type) => parts.find((part) => part.type === type)?.value || '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
 /** YYYY-MM-DD en Argentina. */
 export function todayISODateAR(date = new Date()) {
-  const { year, month, day } = arParts(date);
-  return `${year}-${month}-${day}`;
+  return todayAR(date);
 }
 
 /** HH:mm en Argentina (input type="time"). */

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { money } from '../money';
 import {
   applyImportedMemberPayment,
   collectionPreview,
@@ -87,7 +88,6 @@ describe('payMemberDues', () => {
     const preview = collectionPreview(member, today);
     expect(preview.choices.length).toBeGreaterThan(1);
     const first = preview.choices[0];
-    const rest = preview.choices.slice(1);
     const marked = collectionPreview(member, today, { periodDueOns: [first.dueOn] });
     expect(marked.cash).toBe(first.payable);
     expect(marked.periods).toHaveLength(1);
@@ -99,11 +99,10 @@ describe('payMemberDues', () => {
     });
     expect(fullyPaid).toBe(false);
     expect(payment.amount).toBe(first.payable);
-    expect(payment.periodDueOns).toEqual([first.dueOn]);
-    expect(next.outstandingBalance).toBe(
-      rest.reduce((sum, row) => sum + row.capital, 0),
-    );
-    expect(next.nextDueDate).toBe(rest[0].dueOn);
+    expect(payment.imputations[0].dueOn < payment.imputations.at(-1).dueOn).toBe(true);
+    expect(payment.imputations[0].dueOn).toBe('1900-01-10');
+    expect(payment.quota + payment.surcharge).toBe(payment.amount);
+    expect(next.outstandingBalance).toBe(money(member.outstandingBalance - payment.quota));
   });
 
   it('recordDuesCollection acredita efectivo y deja asiento + diario', () => {
@@ -516,6 +515,7 @@ describe('payMemberDues', () => {
     });
     const voided = voidMemberDuesPayment(charged.member, charged.payment.id, {
       voidedBy: 'Paula',
+      reason: 'Pago mixto duplicado',
       today: new Date('2026-09-05T15:00:00'),
     });
     expect(voided.member.outstandingBalance).toBe(39600);

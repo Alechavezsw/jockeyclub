@@ -14,6 +14,8 @@ import {
 } from '../../domain/concessions/concessions';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { uploadConcessionDocument, validateConcessionDocFile } from '../../data/storage';
+import { todayAR } from '../../lib/arDate';
+
 
 const EMPTY_FORM = {
   name: '',
@@ -26,7 +28,7 @@ const EMPTY_FORM = {
   contactEmail: '',
   location: '',
   spaceId: 'space-proshop',
-  startDate: new Date().toISOString().slice(0, 10),
+  startDate: todayAR(),
   endDate: '',
   noticeDays: '30',
   monthlyFee: '',

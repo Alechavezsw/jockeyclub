@@ -490,8 +490,8 @@ describe('tarifa desde octubre 2026', () => {
       outstandingBalance: 150000,
     }, { paidOn: '2026-10-22' })).toMatchObject({
       quota: 150000,
-      surcharge: 12829,
-      total: 162829,
+      surcharge: 12829.27,
+      total: 162829.27,
     });
   });
 
@@ -507,6 +507,9 @@ describe('tarifa desde octubre 2026', () => {
     };
     expect(duesPayableAmount(40000, { paidOn: '2026-10-10', dueOn: '2026-10-10' })).toBe(40000);
     expect(duesPayableAmount(70000, { paidOn: '2026-10-11', dueOn: '2026-10-10', tier: 'socio_familiar' })).toBe(77000);
+    const nightOfTheTenth = new Date('2026-11-10T23:30:00-03:00');
+    expect(duesPayableAmount(70000, { paidOn: nightOfTheTenth, dueOn: '2026-11-10', tier: 'socio_familiar' })).toBe(70000);
+    expect(duesPayableAmount(70000, { paidOn: nightOfTheTenth, tier: 'socio_familiar' })).toBe(70000);
     expect(duesPayableAmount(68250, { paidOn: '2026-10-11', dueOn: '2026-10-10', tier: 'socio_familiar_amet' })).toBe(68250);
     expect(duesPayableAmount(10000, { paidOn: '2026-10-11', dueOn: '2026-10-10', tier: 'abono_tenis' })).toBe(10000);
     expect(applyAutomaticDues([member], new Date('2026-10-10T12:00:00'))[0].outstandingBalance).toBe(0);

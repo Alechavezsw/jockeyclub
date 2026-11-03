@@ -46,25 +46,33 @@ describe('feeChartAccounts', () => {
     expect(matchFeeLedgerAccountForCategory(accounts, 'ABONO TENIS')).toBeTruthy();
   });
 
-  it('parte la liquidación por categoría, con recargo solo en familiar e individual', () => {
+  it('parte la liquidación por categoría, sin recargo aunque se genere después del 10', () => {
     const accounts = defaultFeeChartAccounts(TODAY);
     const member = {
       memberId: '10',
       name: 'Ana',
       cuotaCategories: ['SOCIO FAMILIAR', 'ABONO TENIS'],
     };
-    const { lines, deltas } = ledgerLinesFromCharges(
+    const early = ledgerLinesFromCharges(
+      accounts,
+      [member],
+      [{ memberId: '10', addAmount: 80000 }],
+      { id: 'fp-2026-11', year: 2026, month: 11, generatedAt: '2026-11-02', label: 'Noviembre del 2026' },
+    );
+    const late = ledgerLinesFromCharges(
       accounts,
       [member],
       [{ memberId: '10', addAmount: 80000 }],
       { id: 'fp-2026-11', year: 2026, month: 11, generatedAt: '2026-11-11', label: 'Noviembre del 2026' },
     );
-    expect(lines).toHaveLength(2);
-    const familiar = lines.find((line) => line.accountId === 'fca-31');
-    const tenis = lines.find((line) => line.type.includes('ABONO TENIS'));
-    expect(familiar.pending).toBe(77000);
-    expect(tenis.pending).toBe(10000);
-    expect(deltas.get('fca-31')).toBe(77000);
+    for (const { lines, deltas } of [early, late]) {
+      expect(lines).toHaveLength(2);
+      const familiar = lines.find((line) => line.accountId === 'fca-31');
+      const tenis = lines.find((line) => line.type.includes('ABONO TENIS'));
+      expect(familiar.pending).toBe(70000);
+      expect(tenis.pending).toBe(12000);
+      expect(deltas.get('fca-31')).toBe(70000);
+    }
   });
 
   it('completa sola cada mes liquidado que todavía no está en la cuenta', () => {

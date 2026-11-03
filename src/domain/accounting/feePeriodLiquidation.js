@@ -300,7 +300,7 @@ export function feeConceptRowsTotal(rows = []) {
  * Total para la tabla de períodos: idéntico al TOTAL del detalle Generar.
  * Prioridad: titulares × valor del pack preparado (misma grilla LILA).
  */
-export function periodDisplayTotal(period, context = {}) {
+export function periodDisplayTotal(period, _context = {}) {
   if (!period || period.status === 'cancelled') return null;
   const official = Number(period.amount);
   if (period.status === 'processed' || period.status === 'pending') {

@@ -9,7 +9,7 @@ import { liveFamilyBalanceForMember } from './liveFamilyGroupBalances';
 import { pinDuesDueDate } from '../members/dues';
 import { memberNumberOf } from '../members/households';
 import { getTierDisplayName } from '../members/tiers';
-import { arParts } from '../../lib/arDate';
+import { arParts, todayAR } from '../../lib/arDate';
 import { getClubSettings } from '../system/clubSettings';
 
 export const LIBRE_DEUDA_SNAPSHOTS = [];
@@ -274,7 +274,7 @@ export function buildLibreDeudaLetter(certificate) {
 }
 
 export function buildLibreDeudaCertificate(member, {
-  asOf = new Date().toISOString().slice(0, 10),
+  asOf = todayAR(),
   extraInfo = '',
   allMembers = [],
   issuedAt = new Date(),

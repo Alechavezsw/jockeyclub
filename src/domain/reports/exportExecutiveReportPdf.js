@@ -1,4 +1,6 @@
+import { loadAutoTable, loadJsPdf } from '../../lib/office.js';
 import {
+
   BRAND,
   CLUB_NAME,
   CLUB_SEDE,
@@ -6,6 +8,7 @@ import {
   drawReportHeader,
   loadClubLogoDataUrl,
 } from './pdfBrand';
+import { todayAR } from '../../lib/arDate';
 
 function money(n, formatCurrency) {
   if (typeof formatCurrency === 'function') return formatCurrency(n);
@@ -19,14 +22,14 @@ function money(n, formatCurrency) {
 /** Informe ejecutivo PDF: resumen económico + operativo del club. */
 export async function exportExecutiveReportPdf(stats, { formatCurrency } = {}) {
   const [{ jsPDF }, autoTableMod, logoDataUrl] = await Promise.all([
-    import('jspdf'),
-    import('jspdf-autotable'),
+    loadJsPdf(),
+    loadAutoTable(),
     loadClubLogoDataUrl(),
   ]);
   const autoTable = autoTableMod.default;
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const generatedAt = new Date().toLocaleString('es-AR');
-  const stamp = new Date().toISOString().slice(0, 10);
+  const stamp = todayAR();
   const m = stats.members;
   const e = stats.economic;
   const o = stats.operations;

@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { loadSnapshots } from '../../data/snapshots';
+import { hasLocalSnapshot, loadSnapshots } from '../../data/snapshots';
 import {
   familyGroupBalancesSeed,
   familyGroupBalancesSummary,
@@ -17,13 +17,13 @@ beforeAll(async () => {
 });
 
 describe('familyGroupBalances', () => {
-  it('carga el corte vivo de grupos familiares', () => {
-    expect(ACCESSIN_FAMILY_GROUP_BALANCES_AS_OF).toBe('2026-10-31');
+  it.skipIf(!hasLocalSnapshot('accessinFamilyGroupBalances'))('carga el corte vivo de grupos familiares', () => {
+    expect(ACCESSIN_FAMILY_GROUP_BALANCES_AS_OF).toBe('2026-11-02');
     expect(ACCESSIN_FAMILY_GROUP_BALANCES_SNAPSHOT.groupCount).toBeGreaterThanOrEqual(700);
-    expect(ACCESSIN_FAMILY_GROUP_BALANCES_SNAPSHOT.asOfLabel).toMatch(/26 de Octubre del 2026/i);
+    expect(ACCESSIN_FAMILY_GROUP_BALANCES_SNAPSHOT.asOfLabel).toMatch(/2 de Noviembre del 2026/i);
   });
 
-  it('lista grupos y resume el corte', () => {
+  it.skipIf(!hasLocalSnapshot('accessinFamilyGroupBalances'))('lista grupos y resume el corte', () => {
     const all = listFamilyGroupBalances();
     const debt = listFamilyGroupBalances({ sign: 'debt' });
     const summary = familyGroupBalancesSummary();
@@ -33,15 +33,15 @@ describe('familyGroupBalances', () => {
     expect(listFamilyGroupBalances({ query: '11017' })[0]?.name).toMatch(/11017/);
   });
 
-  it('lookup por nombre y por nro de socio 11017', () => {
+  it.skipIf(!hasLocalSnapshot('accessinFamilyGroupBalances'))('lookup por nombre y por nro de socio 11017', () => {
     const byName = lookupFamilyGroupBalance({ name: 'GF - Rodriguez 11017' });
     const byNumber = lookupFamilyGroupBalance({ memberNumber: '11017' });
-    expect(byName?.total).toBe(0);
+    expect(byName?.total).toBe(10000);
     expect(byNumber?.name).toMatch(/11017/);
     expect(byNumber?.months.length).toBeGreaterThanOrEqual(2);
   });
 
-  it('el balance familiar operativo es el saldo del titular', () => {
+  it.skipIf(!hasLocalSnapshot('accessinFamilyGroupBalances'))('el balance familiar operativo es el saldo del titular', () => {
     const titular = {
       memberId: '11017',
       name: 'Rodríguez Mariana Andrea',
@@ -52,7 +52,7 @@ describe('familyGroupBalances', () => {
     expect(fam.isTitular).toBe(true);
     expect(fam.source).toBe('ledger');
     expect(fam.amount).toBe(60000);
-    expect(fam.officialAmount).toBe(0);
+    expect(fam.officialAmount).toBe(10000);
   });
 
   it('el balance familiar es el saldo del titular', () => {

@@ -1,4 +1,6 @@
+import { loadAutoTable, loadJsPdf } from '../../lib/office.js';
 import {
+
   BRAND,
   CLUB_NAME,
   CLUB_SEDE,
@@ -6,6 +8,7 @@ import {
   drawReportHeader,
   loadClubLogoDataUrl,
 } from '../reports/pdfBrand';
+import { todayAR } from '../../lib/arDate';
 
 function money(n) {
   return `$ ${Number(n || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -13,14 +16,14 @@ function money(n) {
 
 export async function exportSurchargeCompositionPdf(report) {
   const [{ jsPDF }, autoTableMod, logoDataUrl] = await Promise.all([
-    import('jspdf'),
-    import('jspdf-autotable'),
+    loadJsPdf(),
+    loadAutoTable(),
     loadClubLogoDataUrl(),
   ]);
   const autoTable = autoTableMod.default;
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
   const generatedAt = new Date().toLocaleString('es-AR');
-  const stamp = new Date().toISOString().slice(0, 10);
+  const stamp = todayAR();
 
   const startY = drawReportHeader(doc, {
     title: 'Composición de recargos',

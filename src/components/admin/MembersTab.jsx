@@ -36,7 +36,7 @@ import MembershipMovesSection from './MembershipMovesSection';
 import InactiveMembersSection from './InactiveMembersSection';
 import MemberRequestsSection from './MemberRequestsSection';
 import { MemberLifecycleModal, MemberCredentialsModal } from './MemberAdminModals';
-import { nowTimeAR, todayISODateAR } from '../../lib/arDate';
+import { nowTimeAR, todayISODateAR, todayAR } from '../../lib/arDate';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { repos } from '../../data/bootstrap';
 import { useAuth } from '../../context/AuthContext';
@@ -675,7 +675,7 @@ export default function MembersTab({
       await exportMembersPdf(await loadPadronForExport(), {
         formatCurrency,
         filterLabel: exportTierLabel,
-        fileName: `jockey_club_padron_${exportTierSlug}_${new Date().toISOString().slice(0, 10)}.pdf`,
+        fileName: `jockey_club_padron_${exportTierSlug}_${todayAR()}.pdf`,
         tierCatalog,
       });
     } catch (err) {
@@ -691,7 +691,7 @@ export default function MembersTab({
     try {
       await exportMembersExcel(await loadPadronForExport(), {
         filterLabel: exportTierLabel,
-        fileName: `jockey_club_padron_${exportTierSlug}_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        fileName: `jockey_club_padron_${exportTierSlug}_${todayAR()}.xlsx`,
         tierCatalog,
       });
     } catch (err) {

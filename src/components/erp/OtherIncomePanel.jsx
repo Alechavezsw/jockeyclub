@@ -13,9 +13,11 @@ import {
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { uploadOtherIncomeAttachment } from '../../data/storage';
 import { deliverPaymentReceipt } from '../../domain/payments/deliverPaymentReceipt';
+import { todayAR } from '../../lib/arDate';
+
 
 const EMPTY_FORM = {
-  date: new Date().toISOString().slice(0, 10),
+  date: todayAR(),
   payerType: 'manual',
   payerName: '',
   concept: '',
@@ -62,7 +64,7 @@ export default function OtherIncomePanel({ items = [], onCreate, members = [], o
 
   useEffect(() => {
     if (view === 'form') {
-      setForm({ ...EMPTY_FORM, date: new Date().toISOString().slice(0, 10) });
+      setForm({ ...EMPTY_FORM, date: todayAR() });
       setLines([]);
       setFileSlots([null]);
       setError('');
@@ -408,7 +410,7 @@ export default function OtherIncomePanel({ items = [], onCreate, members = [], o
             onClick={() => {
               setForm({
                 ...EMPTY_FORM,
-                date: new Date().toISOString().slice(0, 10),
+                date: todayAR(),
                 payerType: 'manual',
                 payerName: preset.payerName,
                 concept: preset.concept,

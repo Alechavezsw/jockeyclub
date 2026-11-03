@@ -1,4 +1,6 @@
 import { buildPostedEntry } from '../accounting/journal';
+import { todayAR } from '../../lib/arDate';
+
 
 export const DEFAULT_CLUB_EVENTS = [];
 
@@ -170,7 +172,7 @@ export function registerForEvent({
       ? `${guestName} (invitado de ${memberName || memberId})`
       : (memberName || memberId);
     journalEntry = buildPostedEntry({
-      date: new Date().toISOString().slice(0, 10),
+      date: todayAR(),
       description: `Entrada evento: ${event.title} — ${who} (${method === 'mercadopago' ? 'MP QR' : 'Efectivo'})`,
       lines: [
         { accountId: debitAccount, debit: amount, credit: 0 },

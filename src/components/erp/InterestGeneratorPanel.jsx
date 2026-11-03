@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Percent, Plus, Play, Trash2, X } from 'lucide-react';
 import { formatCurrency } from '../../domain/accounting/journal';
 import {
+
   INTEREST_PERIODS,
   INTEREST_RUN_STATUS,
   activeInterestGenerators,
@@ -11,6 +12,7 @@ import {
   runInterestGenerator,
   selectMembersForInterest,
 } from '../../domain/accounting/interestGenerators';
+import { todayAR } from '../../lib/arDate';
 
 const EMPTY_FORM = {
   identifier: '',
@@ -66,7 +68,7 @@ export default function InterestGeneratorPanel({
   const [form, setForm] = useState(EMPTY_FORM);
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
-  const [runDate, setRunDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [runDate, setRunDate] = useState(() => todayAR());
   const [runningId, setRunningId] = useState(null);
   const [busy, setBusy] = useState(false);
 

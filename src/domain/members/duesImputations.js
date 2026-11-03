@@ -1,0 +1,116 @@
+import { money } from '../money';
+
+/** Deuda anterior al detalle por mes. Se cobra primero y no inventa un vencimiento. */
+export const OPENING_DUE_ON = '1900-01-10';
+
+const MONTHS_ES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+];
+
+export function imputationPeriodLabel(dueOn) {
+  const iso = String(dueOn || '').slice(0, 10);
+  if (!iso || iso <= OPENING_DUE_ON) return 'Saldo anterior';
+  const month = Number(iso.slice(5, 7));
+  const name = MONTHS_ES[month - 1] || iso;
+  return `${name} ${iso.slice(0, 4)}`;
+}
+
+export function imputationSummary(rows = []) {
+  return (rows || [])
+    .filter((row) => (Number(row.capital) || 0) > 0 || (Number(row.surcharge) || 0) > 0)
+    .map((row) => imputationPeriodLabel(row.dueOn))
+    .join(', ');
+}
+
+function byDue(a, b) {
+  return String(a.dueOn).localeCompare(String(b.dueOn));
+}
+
+/**
+ * Parte el saldo de capital entre los meses, del más viejo al más nuevo.
+ * Lo que no entra en ningún mes queda como saldo anterior, sin recargo.
+ */
+export function openPeriodsFromChoices(choices = [], balance = 0) {
+  let left = money(balance);
+  if (!(left > 0)) return [];
+  const rows = [];
+  const sorted = [...(choices || [])].filter((row) => row?.dueOn).toSorted(byDue);
+  for (const row of sorted) {
+    if (!(left > 0.009)) break;
+    const full = money(row.capital);
+    if (!(full > 0)) continue;
+    const capital = money(Math.min(full, left));
+    const lateFull = money(row.lateBase != null ? row.lateBase : full);
+    const lateBase = money(lateFull * (capital / full));
+    rows.push({
+      dueOn: String(row.dueOn).slice(0, 10),
+      capital,
+      lateBase,
+    });
+    left = money(left - capital);
+  }
+  if (left > 0.009) {
+    rows.unshift({
+      dueOn: OPENING_DUE_ON,
+      capital: left,
+      lateBase: 0,
+    });
+  }
+  return rows.toSorted(byDue);
+}
+
+/**
+ * Aplica un cobro del mes más viejo al más nuevo.
+ * En cada mes la plata entra a la vez en la cuota y en su 10 %, en la misma proporción.
+ */
+export function imputeDuesPayment(periods = [], cash, paidOn) {
+  let left = money(cash);
+  const paid = String(paidOn || '').slice(0, 10);
+  const allocations = [];
+  for (const period of [...(periods || [])].toSorted(byDue)) {
+    if (!(left > 0.009)) break;
+    const capitalOpen = money(period.capitalOpen ?? period.capital);
+    const lateBase = money(period.lateBase);
+    if (!(capitalOpen > 0)) continue;
+    const overdue = paid > String(period.dueOn).slice(0, 10) && String(period.dueOn) > OPENING_DUE_ON;
+    const surchargeOpen = overdue ? money(lateBase * 0.1) : 0;
+    const total = money(capitalOpen + surchargeOpen);
+    if (!(total > 0)) continue;
+    const take = money(Math.min(left, total));
+    const capital = surchargeOpen > 0 ? money((take * capitalOpen) / total) : take;
+    const surcharge = money(take - capital);
+    const nextCapital = money(capitalOpen - capital);
+    const nextLate = capitalOpen > 0 ? money((lateBase * nextCapital) / capitalOpen) : 0;
+    const surchargeLeft = overdue ? money(nextLate * 0.1) : 0;
+    allocations.push({
+      dueOn: String(period.dueOn).slice(0, 10),
+      capital,
+      surcharge,
+      capitalOpen: nextCapital,
+      surchargeOpen: surchargeLeft,
+      lateBase: nextLate,
+      lateBaseTaken: money(lateBase - nextLate),
+    });
+    left = money(left - take);
+  }
+  return {
+    allocations,
+    capital: money(allocations.reduce((sum, row) => sum + row.capital, 0)),
+    surcharge: money(allocations.reduce((sum, row) => sum + row.surcharge, 0)),
+    unapplied: left,
+  };
+}
+
+/** Primer vencimiento real que sigue con capital. */
+export function nextOpenDue(periods = [], allocations = []) {
+  const taken = new Map((allocations || []).map((row) => [String(row.dueOn).slice(0, 10), row]));
+  for (const period of [...(periods || [])].toSorted(byDue)) {
+    const dueOn = String(period.dueOn || '').slice(0, 10);
+    if (!dueOn || dueOn <= OPENING_DUE_ON) continue;
+    const hit = taken.get(dueOn);
+    const open = hit ? money(hit.capitalOpen) : money(period.capitalOpen ?? period.capital);
+    if (open > 0.009) return dueOn;
+  }
+  return null;
+}

@@ -16,6 +16,7 @@ import { billingAccountMember } from '../../domain/members/households';
 import { activePaymentPlans } from '../../domain/system/paymentPlans';
 import { uploadDuesReceipt } from '../../data/storage';
 import { parseDuesReceipt } from '../../data/parseDuesReceipt';
+import { money } from '../../domain/money';
 
 const METHODS = [
   { id: 'efectivo', label: 'Efectivo', icon: Banknote, hint: 'Cobro en sede / caja' },
@@ -238,10 +239,10 @@ export default function CollectDuesModal({
       if (prev.length < 2) return prev;
       const first = Number(prev[0].amount);
       if (Number.isFinite(first) && first > 0) return prev;
-      const half = Math.round((amount / 2) * 100) / 100;
+      const half = money(amount / 2);
       return prev.map((row, index) => {
         if (index === 0) return { ...row, amount: String(half) };
-        if (index === 1) return { ...row, amount: String(Math.round((amount - half) * 100) / 100) };
+        if (index === 1) return { ...row, amount: String(money(amount - half)) };
         return row;
       });
     });
@@ -581,8 +582,8 @@ export default function CollectDuesModal({
                   setError('');
                   if (!duesMethodNeedsReceipt(m.id)) clearReceipt();
                   if (m.id === 'mixto') {
-                    const half = amount > 0 ? Math.round((amount / 2) * 100) / 100 : '';
-                    const rest = amount > 0 ? Math.round((amount - Number(half || 0)) * 100) / 100 : '';
+                    const half = amount > 0 ? money(amount / 2) : '';
+                    const rest = amount > 0 ? money(amount - Number(half || 0)) : '';
                     setMixLines([
                       emptyMixLine('efectivo', half === '' ? '' : String(half)),
                       emptyMixLine('transferencia', rest === '' ? '' : String(rest)),

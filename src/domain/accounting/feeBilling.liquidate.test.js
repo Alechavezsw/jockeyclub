@@ -104,8 +104,8 @@ describe('liquidateFeePeriod', () => {
     expect(result.period.availableAt).toBe('2026-11-16');
     expect(result.memberUpdates).toEqual([]);
     expect(result.pendingCharges).toEqual([
-      { memberId: '10', addAmount: 70000, tierId: 'socio_familiar', category: 'SOCIO FAMILIAR' },
-      { memberId: '11', addAmount: 40000, tierId: 'socio_individual', category: 'SOCIO INDIVIDUAL' },
+      { memberId: '10', addAmount: 70000, tierId: 'socio_familiar', category: 'SOCIO FAMILIAR', dueOn: '2026-11-10' },
+      { memberId: '11', addAmount: 40000, tierId: 'socio_individual', category: 'SOCIO INDIVIDUAL', dueOn: '2026-11-10' },
     ]);
     expect(result.period.amount).toBe(110000);
     expect(result.period.generatedAt).toBe('2026-11-15');
@@ -134,7 +134,7 @@ describe('liquidateFeePeriod', () => {
     expect(nextDay.promoted).toHaveLength(1);
     expect(nextDay.promoted[0].status).toBe('processed');
     expect(nextDay.memberUpdates).toEqual([
-      { memberId: '10', addAmount: 70000, tierId: 'socio_familiar', category: 'SOCIO FAMILIAR' },
+      { memberId: '10', addAmount: 70000, tierId: 'socio_familiar', category: 'SOCIO FAMILIAR', dueOn: '2026-11-10' },
     ]);
   });
 
@@ -156,8 +156,8 @@ describe('liquidateFeePeriod', () => {
       new Date('2026-11-02T15:00:00.000Z'),
     );
     expect(result.pendingCharges).toEqual([
-      { memberId: '10', addAmount: 12000, tierId: 'abono_tenis', category: 'ABONO TENIS' },
-      { memberId: '10', addAmount: 70000, tierId: 'socio_familiar', category: 'SOCIO FAMILIAR' },
+      { memberId: '10', addAmount: 12000, tierId: 'abono_tenis', category: 'ABONO TENIS', dueOn: '2026-11-10' },
+      { memberId: '10', addAmount: 70000, tierId: 'socio_familiar', category: 'SOCIO FAMILIAR', dueOn: '2026-11-10' },
     ]);
     expect(result.memberUpdates).toEqual([]);
     expect(result.period.status).toBe('pending');
@@ -176,7 +176,7 @@ describe('liquidateFeePeriod', () => {
     ], new Date('2026-11-02T15:00:00.000Z'));
 
     expect(result.pendingCharges).toEqual([
-      { memberId: '10485', addAmount: 70000, tierId: 'socio_familiar', category: 'SOCIO FAMILIAR' },
+      { memberId: '10485', addAmount: 70000, tierId: 'socio_familiar', category: 'SOCIO FAMILIAR', dueOn: '2026-11-10' },
     ]);
     expect(result.memberUpdates).toEqual([]);
     expect(result.period.status).toBe('pending');
@@ -434,7 +434,7 @@ describe('liquidateFeePeriod', () => {
       { discountRules },
     );
     expect(result.pendingCharges).toEqual([
-      { memberId: '11', addAmount: 40000, tierId: 'socio_individual', category: 'SOCIO INDIVIDUAL' },
+      { memberId: '11', addAmount: 40000, tierId: 'socio_individual', category: 'SOCIO INDIVIDUAL', dueOn: '2026-11-10' },
     ]);
     expect(result.period.amount).toBe(40000);
     expect(result.period.pack.charges).toEqual(result.pendingCharges);
@@ -475,7 +475,7 @@ describe('liquidateFeePeriod', () => {
       pack: {
         charges: [
           { memberId: '9216', addAmount: 70000, tierId: 'socio_familiar', category: 'SOCIO FAMILIAR' },
-          { memberId: '11', addAmount: 40000, tierId: 'socio_individual', category: 'SOCIO INDIVIDUAL' },
+          { memberId: '11', addAmount: 40000, tierId: 'socio_individual', category: 'SOCIO INDIVIDUAL', dueOn: '2026-11-10' },
         ],
         total: 110000,
         history: [],
@@ -490,7 +490,7 @@ describe('liquidateFeePeriod', () => {
     expect(refreshed.changed).toBe(true);
     expect(refreshed.period.amount).toBe(40000);
     expect(refreshed.period.pack.charges).toEqual([
-      { memberId: '11', addAmount: 40000, tierId: 'socio_individual', category: 'SOCIO INDIVIDUAL' },
+      { memberId: '11', addAmount: 40000, tierId: 'socio_individual', category: 'SOCIO INDIVIDUAL', dueOn: '2026-11-10' },
     ]);
     expect(refreshed.deltas).toEqual([]);
 
@@ -501,6 +501,8 @@ describe('liquidateFeePeriod', () => {
       { discountRules },
       new Date('2026-11-02T12:00:00'),
     );
-    expect(adjusted.deltas).toEqual([{ memberId: '9216', amount: -70000 }]);
+    expect(adjusted.changed).toBe(false);
+    expect(adjusted.reason).toBe('processed_locked');
+    expect(adjusted.deltas).toEqual([]);
   });
 });

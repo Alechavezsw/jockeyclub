@@ -1,3 +1,5 @@
+import { loadXlsx } from '../../lib/office.js';
+import { todayAR } from '../../lib/arDate';
 function fileSlug(text) {
   return String(text || 'lista')
     .normalize('NFD')
@@ -18,8 +20,8 @@ export async function exportTableExcel({
   rows = [],
   fileName,
 } = {}) {
-  const XLSX = await import('xlsx');
-  const stamp = new Date().toISOString().slice(0, 10);
+  const XLSX = await loadXlsx();
+  const stamp = todayAR();
   const downloadName = fileName || `jockey_club_${fileSlug(title)}_${stamp}.xlsx`;
   const aoa = [headers, ...rows.map((row) => headers.map((_, index) => (
     Array.isArray(row) ? (row[index] ?? '') : ''

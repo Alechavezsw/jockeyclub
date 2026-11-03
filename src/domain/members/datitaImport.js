@@ -1,9 +1,11 @@
 /**
  * Transformación padrón datita (CSV/staging) → shape de members del portal.
- * Usado por scripts/migrate-datita-socios.mjs y MigrationTab (dry-run / lote).
+ * Usado por scripts/archive/migrate-datita-socios.mjs y MigrationTab (dry-run / lote).
  */
 
 import { DEFAULT_MEMBER_TIER, deriveMemberTier } from './tiers.js';
+import { todayAR } from '../../lib/arDate';
+
 
 export function emptyToNull(v) {
   const s = String(v ?? '').trim();
@@ -30,7 +32,7 @@ export function parseDate(v) {
   }
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return null;
-  return d.toISOString().slice(0, 10);
+  return todayAR(d);
 }
 
 export function mapGender(sexo) {

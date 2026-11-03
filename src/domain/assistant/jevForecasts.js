@@ -130,11 +130,13 @@ export function buildMonthHorizon({
   const pctDue = liquidated > 0 ? Math.round((atDue / liquidated) * 100) : 0;
   const pctNow = liquidated > 0 ? Math.round((collected / liquidated) * 100) : 0;
 
-  let verdict = `${pctNow}% cobrado. Al ${dueDay} irías al ${pctDue}%.`;
-  if (liquidated <= 0) verdict = 'Todavía no hay liquidación para proyectar el mes.';
-  else if (pctDue >= 90) verdict = `El ritmo cubre el ${dueDay}: ${pctDue}% proyectado.`;
-  else if (pctDue >= 70) verdict = `Vas a llegar justo: ${pctDue}% al vencimiento.`;
-  else verdict = `El ritmo no cierra el ${dueDay}: ${pctDue}% si seguís igual.`;
+  const verdict = liquidated <= 0
+    ? 'Todavía no hay liquidación para proyectar el mes.'
+    : pctDue >= 90
+      ? `El ritmo cubre el ${dueDay}: ${pctDue}% proyectado.`
+      : pctDue >= 70
+        ? `Vas a llegar justo: ${pctDue}% al vencimiento.`
+        : `El ritmo no cierra el ${dueDay}: ${pctDue}% si seguís igual.`;
 
   return {
     monthKey,

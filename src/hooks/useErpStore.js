@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { isSupabaseConfigured } from '../lib/supabase';
-import { todayISODateAR } from '../lib/arDate';
+import { todayISODateAR, todayAR } from '../lib/arDate';
 import * as repos from '../data/repos';
 import { DEFAULT_CHART_OF_ACCOUNTS, resolveAccountId } from '../domain/accounting/chartOfAccounts';
 import {
@@ -371,7 +371,9 @@ export default function useErpStore({
     });
   });
   const concessionsRef = useRef(concessions);
-  concessionsRef.current = concessions;
+  useEffect(() => {
+    concessionsRef.current = concessions;
+  }, [concessions]);
   const [canonPayments, setCanonPayments] = useState(() =>
     load('jockey-canon-payments', DEFAULT_CANON_PAYMENTS)
   );
@@ -730,7 +732,7 @@ export default function useErpStore({
       const fee = Number(amount);
       if (!fee || fee <= 0) throw new Error('Importe de canon inválido.');
       const description = String(concept || 'Canon pileta').trim();
-      const when = date || new Date().toISOString().slice(0, 10);
+      const when = date || todayAR();
       if (cloud()) {
         return repos.recordPoolCanon({
           amount: fee,
@@ -1259,7 +1261,7 @@ export default function useErpStore({
       payment = {
         id: `po-ent-${stamp.getTime()}`,
         number: `OP-ENT-${stamp.getFullYear()}${String(stamp.getMonth() + 1).padStart(2, '0')}${String(stamp.getDate()).padStart(2, '0')}-${String(stamp.getHours()).padStart(2, '0')}${String(stamp.getMinutes()).padStart(2, '0')}`,
-        date: entry.date || stamp.toISOString().slice(0, 10),
+        date: entry.date || todayAR(stamp),
         payee: entry.supplierName,
         concept: entry.concept || entry.typeLabel || 'Pago',
         amount: Number(entry.amount) || 0,
@@ -1420,23 +1422,27 @@ export default function useErpStore({
   }, []);
 
   const reopenProcessedFeePeriod = useCallback(async (period, reason, members = [], meta = {}) => {
-    const result = reopenFeePeriod(period, reason, meta);
+    const preview = reopenFeePeriod(period, reason, meta);
+    let result = preview;
+    if (cloud()) {
+      const saved = await repos.reopenFeePeriodRecord(period.id, reason);
+      const balances = new Map(
+        (saved.reversals || []).map((row) => [String(row.memberId), row.outstandingBalance]),
+      );
+      result = {
+        period: saved.period,
+        reversals: preview.reversals.map((row) => ({
+          ...row,
+          outstandingBalance: balances.get(String(row.memberId)),
+        })),
+      };
+    }
     const built = ledgerLinesFromCharges(
       feeChartAccounts,
       members,
-      result.reversals,
+      preview.reversals,
       { ...period, label: periodLabel(period) },
     );
-    if (cloud()) {
-      await repos.voidFeePeriodLedger(period.id);
-      if (result.reversals.length) {
-        await repos.reverseMemberBalanceDeltas(result.reversals.map((row) => ({
-          memberId: row.memberId,
-          amount: -Number(row.addAmount),
-        })));
-      }
-      if (feePeriodNeedsClosure(result.period)) await repos.upsertFeePeriodClosure(result.period);
-    }
     setFeePeriods((prev) => (prev || []).map((item) => (
       item.id === result.period.id ? result.period : item
     )));
@@ -1729,7 +1735,6 @@ export default function useErpStore({
    */
   const ensureCurrentFeePeriodDiscounts = useCallback(async ({
     members = [],
-    tierCatalog = [],
     discounts: discountProp = null,
     setMembers = null,
     actor = 'Bonificaciones · mes vigente',

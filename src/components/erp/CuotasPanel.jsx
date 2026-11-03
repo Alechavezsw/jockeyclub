@@ -1,10 +1,13 @@
+import { loadXlsx } from '../../lib/office.js';
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft, ChevronDown, Download, Eye, FileDown, FileSpreadsheet, History, Loader2, Pencil, Play, RotateCcw, Sparkles, Trash2, Upload, Wallet, X,
 } from 'lucide-react';
 import ModalDialog from '../ModalDialog';
 import { useAuth } from '../../context/AuthContext';
-import { canEditFeePackAmounts } from '../../domain/auth/roles';
+import { canEditFeePackAmounts, canReopenFeePeriod } from '../../domain/auth/roles';
+import { notaAjusteCuota, revertDuesPayment } from '../../data/repos';
+import { isSupabaseConfigured } from '../../lib/supabase';
 import { formatCurrency } from '../../domain/accounting/journal';
 import {
   applyFeePackEdit,
@@ -25,9 +28,10 @@ import {
   promotePendingFeePeriods,
   resolveFeePeriods,
 } from '../../domain/accounting/feeBilling';
-import { todayISODateAR } from '../../lib/arDate';
+import { todayISODateAR, todayAR } from '../../lib/arDate';
+import { persistImportedCollectionPayments } from '../../domain/members/memberPayments';
+import { money } from '../../domain/money';
 import FeePackEditor from './FeePackEditor';
-import { feePackForPeriod } from '../../domain/accounting/feePackConcepts';
 import DuesDueBanner from '../admin/DuesDueBanner';
 import { exportFeePeriodExcel, exportFeePeriodPdf } from '../../domain/accounting/exportFeePeriodDetails';
 import { liquidationFromPeriod, periodDisplayTotal } from '../../domain/accounting/feePeriodLiquidation';
@@ -134,6 +138,8 @@ export default function CuotasPanel({
   const actorName = String(user?.fullName || user?.name || user?.email || '').trim() || 'Usuario';
   const actorMeta = { by: actorName, byId: user?.id || null };
   const editFeeAmounts = canEditFeePackAmounts(roleSource);
+  const reopenPeriods = canReopenFeePeriod(roleSource);
+  const [notePeriod, setNotePeriod] = useState(null);
   const fmt = formatCurrencyProp || formatCurrency;
   const [view, setView] = useState(() => (balancesOnly ? 'balances' : initialView)); // hub | import_collections | import_debts | impute_events | mora | period_detail | accounts | balances | monthly_debts | detailed_cc | credit_purchases
   const [year, setYear] = useState(2026);
@@ -621,7 +627,7 @@ export default function CuotasPanel({
         await onPostFeeLedger({ charges: periodCharges, period, members });
       }
       if (periodCharges.length && typeof setMembers === 'function') {
-        const chargeDate = period.availableAt || period.generatedAt || new Date().toISOString().slice(0, 10);
+        const chargeDate = period.availableAt || period.generatedAt || todayAR();
         const periodName = periodLabel(period);
         const byId = new Map();
         for (const charge of periodCharges) {
@@ -778,15 +784,20 @@ export default function CuotasPanel({
         const byId = new Map();
         for (const row of reversals) {
           const key = String(row.memberId);
-          byId.set(key, (byId.get(key) || 0) + (Number(row.addAmount) || 0));
+          const prev = byId.get(key) || { amount: 0, outstandingBalance: null };
+          prev.amount += Number(row.addAmount) || 0;
+          if (row.outstandingBalance != null && Number.isFinite(Number(row.outstandingBalance))) {
+            prev.outstandingBalance = Number(row.outstandingBalance);
+          }
+          byId.set(key, prev);
         }
         setMembers((prev) => prev.map((member) => {
-          const amount = byId.get(String(member.memberId));
-          if (!amount) return member;
-          return {
-            ...member,
-            outstandingBalance: Math.round((Number(member.outstandingBalance) - amount) * 100) / 100,
-          };
+          const hit = byId.get(String(member.memberId));
+          if (!hit) return member;
+          const outstandingBalance = hit.outstandingBalance != null
+            ? hit.outstandingBalance
+            : money(Number(member.outstandingBalance) - hit.amount);
+          return { ...member, outstandingBalance };
         }));
       }
       const label = periodLabel(period);
@@ -822,7 +833,7 @@ export default function CuotasPanel({
     }
     setBusy(true);
     try {
-      const XLSX = await import('xlsx');
+      const XLSX = await loadXlsx();
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf, { type: 'array', cellDates: true });
       const sheet = wb.Sheets.Socios || wb.Sheets.SOCIOS || wb.Sheets[wb.SheetNames[0]];
@@ -840,8 +851,11 @@ export default function CuotasPanel({
       if (!built.payments.length) {
         throw new Error('No hay filas con MONTO > 0 para importar. Completá la lista base y volvé a subirla.');
       }
-      let appliedResult = { members, applied: [], ledgerEntries: [], fullyPaidCount: 0, creditCount: 0 };
-      if (typeof setMembers === 'function') {
+      let appliedResult = { members, applied: [], ledgerEntries: [], fullyPaidCount: 0, creditCount: 0, skipped: 0 };
+      if (isSupabaseConfigured) {
+        appliedResult = await persistImportedCollectionPayments(members, built.payments);
+        if (typeof setMembers === 'function') setMembers(appliedResult.members);
+      } else if (typeof setMembers === 'function') {
         setMembers((prev) => {
           appliedResult = applyMemberCollectionPayments(prev, built.payments);
           return appliedResult.members;
@@ -849,6 +863,10 @@ export default function CuotasPanel({
       } else {
         appliedResult = applyMemberCollectionPayments(members, built.payments);
       }
+      const postedAmount = (appliedResult.applied || []).reduce(
+        (sum, row) => sum + (Number(row.amount) || 0),
+        0,
+      );
       const batch = {
         ...built.batch,
         applied: appliedResult.applied,
@@ -861,19 +879,20 @@ export default function CuotasPanel({
       collectionPaymentsToEntries(built.payments, appliedResult.ledgerEntries).forEach((entry) => {
         onUpsertMemberAccountEntry?.(entry);
       });
-      if (typeof addJournalEntry === 'function' && built.batch.totalAmount > 0) {
+      if (typeof addJournalEntry === 'function' && postedAmount > 0) {
         await addJournalEntry({
-          date: forceDate || new Date().toISOString().slice(0, 10),
+          date: forceDate || todayAR(),
           description: `Importación cobranzas socios (${built.batch.fileName || 'Excel Manual'})`,
           sourceModule: 'cuotas',
           lines: [
-            { account: 'Caja General', type: 'debit', amount: built.batch.totalAmount },
-            { account: 'Cuotas Sociales', type: 'credit', amount: built.batch.totalAmount },
+            { account: 'Caja General', type: 'debit', amount: postedAmount },
+            { account: 'Cuotas Sociales', type: 'credit', amount: postedAmount },
           ],
         });
       }
       setOk(
-        `Importados ${built.batch.importedCount} de ${built.batch.totalRows} pagos · ${fmt(built.batch.totalAmount)}`
+        `Importados ${appliedResult.applied.length} de ${built.batch.totalRows} pagos · ${fmt(postedAmount)}`
+        + (appliedResult.skipped ? ` · ${appliedResult.skipped} ya estaban cargados` : '')
         + (appliedResult.fullyPaidCount ? ` · ${appliedResult.fullyPaidCount} socio(s) al día` : '')
         + (appliedResult.creditCount ? ` · ${appliedResult.creditCount} con crédito a favor` : '')
         + (built.errors.length ? ` · ${built.errors.length} aviso(s)` : '')
@@ -1309,7 +1328,7 @@ export default function CuotasPanel({
                             type="button"
                             className="cash-lila-icon-btn is-del"
                             title="Revertir e eliminar"
-                            onClick={() => {
+                            onClick={async () => {
                               const canRevert = Array.isArray(batch.applied) && batch.applied.length > 0;
                               const okDelete = window.confirm(
                                 canRevert
@@ -1317,8 +1336,30 @@ export default function CuotasPanel({
                                   : '¿Marcar esta importación como eliminada? Los saldos no se revierten (lote anterior).',
                               );
                               if (!okDelete) return;
+                              const voided = new Map();
+                              let voidReason = '';
+                              if (canRevert && isSupabaseConfigured) {
+                                voidReason = window.prompt('Motivo para anular estos cobros (mínimo 8 caracteres)') || '';
+                                if (voidReason.trim().length < 8) {
+                                  setError('Falta el motivo de la anulación (mínimo 8 caracteres).');
+                                  return;
+                                }
+                                for (const row of [...batch.applied].reverse()) {
+                                  if (!row.paymentDbId) continue;
+                                  const balance = await revertDuesPayment(row.paymentDbId, voidReason.trim());
+                                  voided.set(String(row.memberId), balance);
+                                }
+                              }
                               if (canRevert && typeof setMembers === 'function') {
-                                setMembers((prev) => revertMemberCollectionPayments(prev, batch.applied));
+                                setMembers((prev) => {
+                                  const restored = revertMemberCollectionPayments(prev, batch.applied);
+                                  if (!voided.size) return restored;
+                                  return restored.map((member) => (
+                                    voided.has(String(member.memberId))
+                                      ? { ...member, outstandingBalance: voided.get(String(member.memberId)) }
+                                      : member
+                                  ));
+                                });
                               }
                               (batch.applied || []).forEach((row) => {
                                 if (row.paymentId) onDeleteMemberAccountEntry?.(row.paymentId);
@@ -1715,15 +1756,26 @@ export default function CuotasPanel({
                               <Upload size={14} />
                             </button>
                           ) : null}
-                          {!balancesOnly && appOwnsFeePeriod(p) ? (
+                          {!balancesOnly && appOwnsFeePeriod(p) && reopenPeriods ? (
                             <button
                               type="button"
                               className="cash-lila-icon-btn is-del"
-                              title="Corregir error grave"
-                              aria-label="Corregir error grave"
+                              title="Reabrir (solo superadmin)"
+                              aria-label="Reabrir liquidación"
                               onClick={() => reopen(p)}
                             >
                               <RotateCcw size={14} />
+                            </button>
+                          ) : null}
+                          {!balancesOnly && appOwnsFeePeriod(p) && reopenPeriods ? (
+                            <button
+                              type="button"
+                              className="cash-lila-icon-btn is-edit"
+                              title="Nota de crédito o débito"
+                              aria-label="Nota de crédito o débito"
+                              onClick={() => setNotePeriod(p)}
+                            >
+                              <Wallet size={14} />
                             </button>
                           ) : null}
                           {p.month === 9 && p.year === 2026 ? (
@@ -1758,7 +1810,7 @@ export default function CuotasPanel({
                             <Pencil size={14} />
                           </button>
                           {historyBtn}
-                          {!balancesOnly && appOwnsFeePeriod(p) ? (
+                          {!balancesOnly && appOwnsFeePeriod(p) && reopenPeriods ? (
                             <button
                               type="button"
                               className="cash-lila-icon-btn is-del"
@@ -1905,6 +1957,33 @@ export default function CuotasPanel({
           setLiquidateDraft(null);
         }}
         onConfirm={() => liquidate(liquidateConfirmId)}
+      />
+
+      <FeeAdjustmentNoteDialog
+        open={Boolean(notePeriod)}
+        period={notePeriod}
+        busy={busy}
+        onClose={() => setNotePeriod(null)}
+        onSubmit={async (input) => {
+          setBusy(true);
+          setError('');
+          try {
+            const balance = await notaAjusteCuota(input);
+            if (typeof setMembers === 'function') {
+              setMembers((prev) => (prev || []).map((member) => (
+                String(member.memberId) === String(input.memberNumber)
+                  ? { ...member, outstandingBalance: balance }
+                  : member
+              )));
+            }
+            setFlash(`Nota de ${input.kind === 'credito' ? 'crédito' : 'débito'} registrada. La liquidación no se modificó.`);
+            setNotePeriod(null);
+          } catch (err) {
+            setError(err.message || 'No se pudo registrar la nota.');
+          } finally {
+            setBusy(false);
+          }
+        }}
       />
 
       <FeePeriodHistoryDialog
@@ -2069,6 +2148,96 @@ function FeePeriodHistoryDialog({ open = false, period, formatCurrency: fmt = fo
           Cerrar
         </button>
       </footer>
+    </ModalDialog>
+  );
+}
+
+function FeeAdjustmentNoteDialog({ open, period, busy, onClose, onSubmit }) {
+  const [memberNumber, setMemberNumber] = useState('');
+  const [kind, setKind] = useState('credito');
+  const [amount, setAmount] = useState('');
+  const [reason, setReason] = useState('');
+  const [localError, setLocalError] = useState('');
+
+  useEffect(() => {
+    if (!open) return;
+    setMemberNumber('');
+    setKind('credito');
+    setAmount('');
+    setReason('');
+    setLocalError('');
+  }, [open, period?.id]);
+
+  if (!open || !period) return null;
+
+  const submit = (event) => {
+    event.preventDefault();
+    const why = reason.trim();
+    const value = Number(amount);
+    if (!String(memberNumber).trim()) {
+      setLocalError('Indicá el número de socio.');
+      return;
+    }
+    if (!Number.isFinite(value) || value <= 0) {
+      setLocalError('El importe tiene que ser mayor a cero.');
+      return;
+    }
+    if (why.length < 8) {
+      setLocalError('Falta el motivo de la nota (mínimo 8 caracteres).');
+      return;
+    }
+    setLocalError('');
+    onSubmit?.({
+      memberNumber: String(memberNumber).trim(),
+      kind,
+      amount: value,
+      reason: why,
+    });
+  };
+
+  return (
+    <ModalDialog
+      open={open}
+      onClose={onClose}
+      labelledBy="cuotas-nota-title"
+      describedBy="cuotas-nota-body"
+      contentClassName="modal-content cuotas-liq-ahora"
+    >
+      <header className="cuotas-liq-ahora-head">
+        <h4 id="cuotas-nota-title">Nota de crédito o débito</h4>
+        <button type="button" className="cuotas-liq-ahora-close" onClick={onClose} aria-label="Cerrar">
+          <X size={16} />
+        </button>
+      </header>
+      <form id="cuotas-nota-body" onSubmit={submit} style={{ display: 'grid', gap: '0.75rem' }}>
+        <p className="cuotas-liq-ahora-copy" style={{ margin: 0 }}>
+          {periodLabel(period)} queda como se liquidó. La nota mueve solo el saldo de ese socio.
+        </p>
+        <label className="form-label">
+          Número de socio
+          <input className="form-input" value={memberNumber} onChange={(e) => setMemberNumber(e.target.value)} required />
+        </label>
+        <label className="form-label">
+          Tipo
+          <select className="form-input" value={kind} onChange={(e) => setKind(e.target.value)}>
+            <option value="credito">Crédito (baja el saldo)</option>
+            <option value="debito">Débito (sube el saldo)</option>
+          </select>
+        </label>
+        <label className="form-label">
+          Importe
+          <input className="form-input" type="number" min="0.01" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} required />
+        </label>
+        <label className="form-label">
+          Motivo
+          <input className="form-input" minLength={8} value={reason} onChange={(e) => setReason(e.target.value)} required />
+        </label>
+        {localError ? <p role="alert" style={{ color: '#ef4444', margin: 0 }}>{localError}</p> : null}
+        <footer className="cuotas-liq-ahora-foot">
+          <button type="button" className="btn btn-secondary btn-sm" onClick={onClose} disabled={busy}>Cancelar</button>
+          <button type="submit" className="btn btn-primary btn-sm" disabled={busy}>{busy ? 'Guardando…' : 'Registrar nota'}</button>
+        </footer>
+      </form>
     </ModalDialog>
   );
 }

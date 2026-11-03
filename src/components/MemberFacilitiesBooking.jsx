@@ -307,8 +307,8 @@ export default function MemberFacilitiesBooking({
   const depositDue = reservationDepositAmount(bookingPrice);
   const balanceAfterDeposit = reservationBalanceAfterDeposit(bookingPrice);
   const bank = CLUB_BANK_ACCOUNTS[0];
-  const bookingQr = useMemo(() => {
-    if (payMethod !== 'mercadopago' || depositDue <= 0 || !member) return null;
+  let bookingQr = null;
+  if (payMethod === 'mercadopago' && depositDue > 0 && member) {
     const payload = buildMercadoPagoQrPayload({
       amount: depositDue,
       memberId: member.memberId,
@@ -316,8 +316,8 @@ export default function MemberFacilitiesBooking({
       concept: `Seña 50% ${selectedFacility?.name || 'Reserva'} ${selectedDate || ''} ${time || ''}`.trim(),
     });
     const ref = payload.split('|').find((part) => part.startsWith('ref='))?.slice(4) || '';
-    return { payload, ref };
-  }, [payMethod, depositDue, member, selectedFacility?.name, selectedDate, time]);
+    bookingQr = { payload, ref };
+  }
 
   const handleReceipt = (event) => {
     const file = event.target.files?.[0];

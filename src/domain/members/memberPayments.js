@@ -11,6 +11,13 @@ import { referenceMonthlyDues } from './paymentHistory';
 import { createAccountEntry } from '../accounting/accountEntries';
 import { journalAccountForPayment } from './clubBanks';
 import { nowTimeAR, todayISODateAR } from '../../lib/arDate';
+import { money } from '../money';
+import {
+  imputationSummary,
+  imputeDuesPayment,
+  nextOpenDue,
+  openPeriodsFromChoices,
+} from './duesImputations';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { quitarRecargoCuota, registrarCobro, revertDuesPayment } from '../../data/repos';
 
@@ -38,17 +45,13 @@ export function duesMethodLabel(method, bankName) {
   return DUES_METHOD_LABELS[method] || method || 'Pago';
 }
 
-function roundMoney(n) {
-  return Math.round((Number(n) || 0) * 100) / 100;
-}
-
 /** Normaliza líneas de un pago mixto. */
 export function normalizePaymentSplits(raw = []) {
   return (Array.isArray(raw) ? raw : [])
     .map((row, index) => {
       const method = String(row?.method || '').trim();
       if (!MIXED_DUES_METHODS.includes(method)) return null;
-      const amount = roundMoney(row?.amount);
+      const amount = money(row?.amount);
       if (!(amount > 0)) return null;
       const attachment = row?.receiptAttachment && row.receiptAttachment.path
         ? {
@@ -97,8 +100,8 @@ export function validatePaymentSplits(rawSplits, expectedAmount, { treasuryMatch
   if (splits.length < 2) {
     throw new Error('El pago mixto necesita al menos dos medios con importe.');
   }
-  const total = roundMoney(splits.reduce((sum, row) => sum + row.amount, 0));
-  const expected = roundMoney(expectedAmount);
+  const total = money(splits.reduce((sum, row) => sum + row.amount, 0));
+  const expected = money(expectedAmount);
   if (expected > 0 && Math.abs(total - expected) > 0.009) {
     throw new Error(`Los medios suman ${total} y el cobro es ${expected}.`);
   }
@@ -151,6 +154,33 @@ function duesSnapshot(member) {
   };
 }
 
+/**
+ * Identidad de un cobro importado. No usa la hora: la misma fila del Excel
+ * vuelve a dar la misma clave, y la base rechaza el segundo insert.
+ */
+export function importedCollectionKey({
+  memberId,
+  date,
+  amount,
+  voucher = '',
+  cbu = '',
+} = {}) {
+  const who = String(memberId || '').trim();
+  const receipt = String(voucher || '').trim().toUpperCase().replace(/\s+/g, '');
+  if (receipt) return `import:${who}:rc:${receipt}`;
+  const day = String(date || '').slice(0, 10);
+  const cents = Math.round(money(amount) * 100);
+  const bank = String(cbu || '').replace(/\D/g, '');
+  return `import:${who}:${day}:${cents}${bank ? `:${bank}` : ''}`;
+}
+
+export function memberAlreadyHasCollection(member, key) {
+  if (!key) return false;
+  return (member?.paymentHistory || []).some((row) => (
+    row?.id === key || row?.idempotencyKey === key || row?.ledgerId === key
+  ));
+}
+
 function asPaymentDate(date) {
   const iso = String(date || todayISODateAR()).slice(0, 10);
   const when = new Date(`${iso}T12:00:00`);
@@ -170,12 +200,33 @@ export function applyImportedMemberPayment(member, {
   source = 'collection_import',
 } = {}) {
   if (!member) throw new Error('Socio no encontrado.');
-  const paid = roundMoney(amount);
+  const paid = money(amount);
   if (paid <= 0) throw new Error('Importe inválido.');
   const { iso, when } = asPaymentDate(date);
   const before = duesSnapshot(member);
+  const key = id || importedCollectionKey({
+    memberId: member.memberId,
+    date: iso,
+    amount: paid,
+    voucher,
+  });
+  if (memberAlreadyHasCollection(member, key)) {
+    const balance = money(member.outstandingBalance);
+    return {
+      member,
+      payment: (member.paymentHistory || []).find((row) => (
+        row?.id === key || row?.idempotencyKey === key || row?.ledgerId === key
+      )),
+      fullyPaid: balance <= 0.01,
+      credit: balance < -0.01 ? Math.abs(balance) : 0,
+      before,
+      ledgerEntry: null,
+      duplicate: true,
+    };
+  }
   const payment = {
-    id: id || `pay-${member.memberId}-${Date.now()}`,
+    id: key,
+    idempotencyKey: key,
     date: iso,
     time: nowTimeAR(when),
     paidAt: when.toISOString(),
@@ -188,23 +239,38 @@ export function applyImportedMemberPayment(member, {
     receiptNumber: voucher || receiptNumberFor(member, iso),
     voucher,
     source,
-    ledgerId: id,
+    ledgerId: key,
+    balanceBefore: before.outstandingBalance,
+    nextDueBefore: before.nextDueDate,
+    lastPaymentBefore: before.lastPaymentDate,
     period: when.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' }),
   };
 
   let current = member;
   let leftover = paid;
-  const due = roundMoney(member.outstandingBalance);
+  const due = money(member.outstandingBalance);
 
   if (due > 0.01) {
-    const take = Math.min(due, leftover);
-    leftover = roundMoney(leftover - take);
-    if (take + 0.01 >= due) {
+    const schedule = openPeriodsFromChoices(collectionPeriodChoices(member, when), due);
+    const imputed = imputeDuesPayment(schedule, paid, iso);
+    payment.imputations = imputed.allocations;
+    payment.quota = imputed.capital;
+    payment.surcharge = imputed.surcharge;
+    if (imputed.allocations.length) {
+      payment.period = imputationSummary(imputed.allocations);
+      payment.periodDueOns = imputed.allocations.map((row) => row.dueOn);
+    }
+    const capitalLeft = money(due - imputed.capital);
+    leftover = imputed.unapplied;
+    const openDue = nextOpenDue(schedule, imputed.allocations);
+    if (capitalLeft <= 0.01) {
       current = afterCollectDues(member, when);
+      current = { ...current, outstandingBalance: capitalLeft };
     } else {
       current = {
         ...member,
-        outstandingBalance: roundMoney(due - take),
+        outstandingBalance: capitalLeft,
+        nextDueDate: openDue || member.nextDueDate,
       };
     }
   }
@@ -213,17 +279,17 @@ export function applyImportedMemberPayment(member, {
   while (leftover > 0.01 && months < 24) {
     months += 1;
     const dueOn = current.nextDueDate || nextDuesDueDate(when);
-    const monthAmount = roundMoney(duesPayableForMember(current, { paidOn: when, dueOn, on: dueOn }));
+    const monthAmount = money(duesPayableForMember(current, { paidOn: when, dueOn, on: dueOn }));
     if (monthAmount <= 0.01) {
       current = {
         ...current,
-        outstandingBalance: roundMoney((Number(current.outstandingBalance) || 0) - leftover),
+        outstandingBalance: money((Number(current.outstandingBalance) || 0) - leftover),
       };
       leftover = 0;
       break;
     }
     if (leftover + 0.01 >= monthAmount) {
-      leftover = roundMoney(leftover - monthAmount);
+      leftover = money(leftover - monthAmount);
       current = afterCollectDues({
         ...current,
         outstandingBalance: monthAmount,
@@ -232,7 +298,7 @@ export function applyImportedMemberPayment(member, {
     } else {
       current = {
         ...current,
-        outstandingBalance: roundMoney((Number(current.outstandingBalance) || 0) - leftover),
+        outstandingBalance: money((Number(current.outstandingBalance) || 0) - leftover),
       };
       leftover = 0;
     }
@@ -240,7 +306,7 @@ export function applyImportedMemberPayment(member, {
   if (leftover > 0.01) {
     current = {
       ...current,
-      outstandingBalance: roundMoney((Number(current.outstandingBalance) || 0) - leftover),
+      outstandingBalance: money((Number(current.outstandingBalance) || 0) - leftover),
     };
   }
 
@@ -250,7 +316,7 @@ export function applyImportedMemberPayment(member, {
     paymentHistory: [payment, ...(member.paymentHistory || [])],
     updatedAt: new Date().toISOString(),
   };
-  const balance = roundMoney(next.outstandingBalance);
+  const balance = money(next.outstandingBalance);
   return {
     member: next,
     payment,
@@ -313,6 +379,12 @@ export function payMemberDues(member, {
   const paidAmount = requested > 0 ? requested : due;
   if (!paidAmount || paidAmount <= 0) throw new Error('Importe inválido.');
   if (paidAmount > due + 0.01) throw new Error('El importe supera el saldo pendiente.');
+  const schedule = stored > 0
+    ? openPeriodsFromChoices(choices, stored)
+    : [];
+  const imputed = schedule.length
+    ? imputeDuesPayment(schedule, paidAmount, todayISODateAR(today))
+    : null;
 
   const date = todayISODateAR(today);
   const time = nowTimeAR(today);
@@ -320,8 +392,8 @@ export function payMemberDues(member, {
   const lines = paidAmount + 0.01 >= due
     ? (selected
       ? {
-        quota: roundMoney(selectedChoices.reduce((sum, row) => sum + (Number(row.capital) || 0), 0)),
-        surcharge: roundMoney(selectedChoices.reduce((sum, row) => sum + (Number(row.surcharge) || 0), 0)),
+        quota: money(selectedChoices.reduce((sum, row) => sum + (Number(row.capital) || 0), 0)),
+        surcharge: money(selectedChoices.reduce((sum, row) => sum + (Number(row.surcharge) || 0), 0)),
         waivedSurcharge: 0,
       }
       : split)
@@ -339,15 +411,18 @@ export function payMemberDues(member, {
     createdAt: paidAt,
     concept: `Cuota social · ${duesMethodLabel(method)}`,
     amount: paidAmount,
-    quota: lines.quota,
-    surcharge: lines.surcharge,
+    quota: imputed ? imputed.capital : lines.quota,
+    surcharge: imputed ? imputed.surcharge : lines.surcharge,
     waivedSurcharge: lines.waivedSurcharge || 0,
     method,
     status: 'paid',
     receipt: receiptNumberFor(member, date),
     receiptNumber: receiptNumberFor(member, date),
-    period: periodLabel,
-    periodDueOns: selectedChoices.map((row) => row.dueOn),
+    period: imputed?.allocations?.length ? imputationSummary(imputed.allocations) : periodLabel,
+    periodDueOns: imputed?.allocations?.length
+      ? imputed.allocations.map((row) => row.dueOn)
+      : selectedChoices.map((row) => row.dueOn),
+    imputations: imputed?.allocations || [],
     balanceBefore: Number(member.outstandingBalance) || 0,
     nextDueBefore: member.nextDueDate || null,
     lastPaymentBefore: member.lastPaymentDate || null,
@@ -359,10 +434,37 @@ export function payMemberDues(member, {
     ? choices.filter((row) => !selected.includes(String(row.dueOn).slice(0, 10)))
     : [];
 
+  if (imputed && stored > 0) {
+    const capitalLeft = money(stored - imputed.capital);
+    const openDue = nextOpenDue(schedule, imputed.allocations);
+    if (capitalLeft <= 0.01 && !openDue) {
+      const cleared = afterCollectDues(member, today);
+      return {
+        member: { ...cleared, outstandingBalance: capitalLeft, lastPaymentDate: date, paymentHistory: history },
+        payment,
+        fullyPaid: true,
+        ledgerEntry: ledgerPago({ ...cleared, outstandingBalance: capitalLeft }, payment),
+      };
+    }
+    const next = {
+      ...member,
+      outstandingBalance: capitalLeft,
+      nextDueDate: openDue || member.nextDueDate,
+      lastPaymentDate: date,
+      paymentHistory: history,
+    };
+    return {
+      member: next,
+      payment,
+      fullyPaid: capitalLeft <= 0.01,
+      ledgerEntry: ledgerPago(next, payment),
+    };
+  }
+
   if (remainingCash > 0.01) {
     const next = {
       ...member,
-      outstandingBalance: Math.round(remainingCash * 100) / 100,
+      outstandingBalance: money(remainingCash),
       lastPaymentDate: date,
       paymentHistory: history,
     };
@@ -375,7 +477,7 @@ export function payMemberDues(member, {
   }
 
   if (remainingChoices.length) {
-    const remainingCapital = roundMoney(
+    const remainingCapital = money(
       remainingChoices.reduce((sum, row) => sum + (Number(row.capital) || 0), 0),
     );
     const next = {
@@ -421,9 +523,9 @@ export function collectionPreview(member, today = new Date(), { periodDueOns = n
   const stored = Number(member?.outstandingBalance) || 0;
 
   if (selectedChoices.some((row) => row.kind === 'overdue') || stored > 0) {
-    const quota = roundMoney(selectedChoices.reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
-    const surcharge = roundMoney(selectedChoices.reduce((sum, row) => sum + (Number(row.surcharge) || 0), 0));
-    const gross = roundMoney(quota + surcharge);
+    const quota = money(selectedChoices.reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
+    const surcharge = money(selectedChoices.reduce((sum, row) => sum + (Number(row.surcharge) || 0), 0));
+    const gross = money(quota + surcharge);
     return {
       quota,
       surcharge,
@@ -437,21 +539,21 @@ export function collectionPreview(member, today = new Date(), { periodDueOns = n
   }
 
   const dueOn = selectedChoices[0]?.dueOn || member?.nextDueDate || nextDuesDueDate(today, member);
-  const gross = roundMoney(
+  const gross = money(
     selectedChoices[0]?.payable
     || duesPayableForMember(member, { paidOn: today, dueOn, on: dueOn })
     || referenceMonthlyDues(member, member?.paymentHistory),
   );
   const split = duesChargeBreakdown(member, { paidOn: today, dueOn, on: dueOn, amount: gross });
-  const credit = stored < 0 ? roundMoney(-stored) : 0;
-  const creditApplied = roundMoney(Math.min(credit, gross));
+  const credit = stored < 0 ? money(-stored) : 0;
+  const creditApplied = money(Math.min(credit, gross));
   return {
     quota: split.quota,
     surcharge: split.surcharge,
     gross,
     creditApplied,
-    cash: roundMoney(gross - creditApplied),
-    leftover: roundMoney(credit - creditApplied),
+    cash: money(gross - creditApplied),
+    leftover: money(credit - creditApplied),
     periods: selectedChoices,
     choices,
   };
@@ -540,7 +642,7 @@ export function recordDuesCollection(member, {
   let mixed = null;
   if (wantsMixed) {
     const previewCash = amount != null
-      ? roundMoney(amount)
+      ? money(amount)
       : collectionPreview(account, today, { periodDueOns }).cash;
     mixed = validatePaymentSplits(paymentSplits, previewCash > 0 ? previewCash : amount, { treasuryMatch });
   }
@@ -627,7 +729,7 @@ export function recordDuesCollection(member, {
       const byAccount = new Map();
       mixed.splits.forEach((row) => {
         const key = row.journalAccount || 'Caja General';
-        byAccount.set(key, roundMoney((byAccount.get(key) || 0) + row.amount));
+        byAccount.set(key, money((byAccount.get(key) || 0) + row.amount));
       });
       journalEntry = {
         date: payment.date,
@@ -688,7 +790,7 @@ export function removeDuesSurcharge(member, paymentId, {
   if (payment.status === 'void' || payment.status === 'cancelled') {
     throw new Error('Ese cobro está anulado.');
   }
-  const surcharge = roundMoney(payment.surcharge);
+  const surcharge = money(payment.surcharge);
   if (surcharge <= 0) throw new Error('Este cobro no tiene recargo.');
   const removedAt = today instanceof Date ? today.toISOString() : String(today);
   const nextPayment = {
@@ -701,7 +803,7 @@ export function removeDuesSurcharge(member, paymentId, {
   };
   const next = {
     ...member,
-    outstandingBalance: roundMoney((Number(member.outstandingBalance) || 0) - surcharge),
+    outstandingBalance: money((Number(member.outstandingBalance) || 0) - surcharge),
     paymentHistory: history.map((row) => (row.id === payment.id ? nextPayment : row)),
     updatedAt: removedAt,
   };
@@ -725,18 +827,22 @@ export function voidMemberDuesPayment(member, paymentId, {
     throw new Error('Ese cobro ya está anulado.');
   }
 
-  const amount = roundMoney(payment.amount);
+  const why = String(reason || '').trim();
+  if (why.length < 8) {
+    throw new Error('Falta el motivo de la anulación (mínimo 8 caracteres).');
+  }
+  const amount = money(payment.amount);
   const voidedAt = today instanceof Date ? today.toISOString() : String(today);
   const nextPayment = {
     ...payment,
     status: 'void',
     voidedBy,
     voidedAt,
-    voidReason: String(reason || '').trim() || 'Anulación de cobro',
+    voidReason: why,
   };
   const restoredBalance = payment.balanceBefore != null
-    ? roundMoney(payment.balanceBefore)
-    : roundMoney((Number(member.outstandingBalance) || 0) + amount);
+    ? money(payment.balanceBefore)
+    : money((Number(member.outstandingBalance) || 0) + amount);
   const next = {
     ...member,
     outstandingBalance: restoredBalance,
@@ -752,7 +858,7 @@ export function voidMemberDuesPayment(member, paymentId, {
     const byAccount = new Map();
     splits.forEach((row) => {
       const key = row.journalAccount || 'Caja General';
-      byAccount.set(key, roundMoney((byAccount.get(key) || 0) + row.amount));
+      byAccount.set(key, money((byAccount.get(key) || 0) + row.amount));
     });
     creditLines = [...byAccount.entries()].map(([accountName, value]) => ({
       account: accountName,
@@ -831,9 +937,22 @@ export function localDuesPayment(previous, next) {
   return newest;
 }
 
+function cobroSchedule(member, payment) {
+  const before = {
+    ...member,
+    outstandingBalance: payment.balanceBefore ?? member.outstandingBalance,
+    nextDueDate: payment.nextDueBefore || member.nextDueDate,
+    lastPaymentDate: payment.lastPaymentBefore ?? member.lastPaymentDate,
+  };
+  const paidOn = payment.paidAt || payment.date || new Date();
+  const balance = Math.max(Number(before.outstandingBalance) || 0, 0);
+  return openPeriodsFromChoices(collectionPeriodChoices(before, paidOn), balance);
+}
+
 function cobroPeriods(member, payment) {
   return {
     dueOns: Array.isArray(payment.periodDueOns) ? payment.periodDueOns : [],
+    schedule: cobroSchedule(member, payment),
     quota: payment.quota ?? null,
     surcharge: payment.surcharge ?? 0,
     creditApplied: payment.creditApplied ?? null,
@@ -887,6 +1006,75 @@ export async function commitDuesCollection(member, payment) {
   return { member: nextMember, payment: saved.payment, idempotent: saved.idempotent };
 }
 
+/**
+ * Cada fila importada se inserta una sola vez. Si la clave ya está,
+ * la base devuelve el cobro anterior y el saldo no vuelve a bajar.
+ */
+export async function persistImportedCollectionPayments(members = [], payments = []) {
+  const next = [...(members || [])];
+  const indexById = new Map(next.map((m, i) => [String(m.memberId), i]));
+  const applied = [];
+  const ledgerEntries = [];
+  let fullyPaidCount = 0;
+  let creditCount = 0;
+  let skipped = 0;
+
+  for (const payment of payments || []) {
+    if (!payment?.matched) continue;
+    const idx = indexById.get(String(payment.memberId));
+    if (idx == null) continue;
+    const current = next[idx];
+    if (memberAlreadyHasCollection(current, payment.id)) {
+      skipped += 1;
+      continue;
+    }
+    const draft = applyImportedMemberPayment(current, {
+      amount: payment.amount,
+      date: payment.date,
+      voucher: payment.voucher,
+      method: 'transferencia',
+      id: payment.id,
+    });
+    if (draft.duplicate) {
+      skipped += 1;
+      continue;
+    }
+    let savedMember = draft.member;
+    let paymentDbId = null;
+    if (current.id) {
+      const committed = await commitDuesCollection(current, draft.payment);
+      savedMember = committed.member;
+      paymentDbId = committed.payment?.id || null;
+      if (committed.idempotent) {
+        next[idx] = savedMember;
+        skipped += 1;
+        continue;
+      }
+    }
+    next[idx] = savedMember;
+    applied.push({
+      paymentId: draft.payment.id,
+      paymentDbId,
+      memberId: savedMember.memberId,
+      amount: draft.payment.amount,
+      date: draft.payment.date,
+      fullyPaid: money(savedMember.outstandingBalance) <= 0.01,
+      credit: money(savedMember.outstandingBalance) < -0.01
+        ? Math.abs(money(savedMember.outstandingBalance))
+        : 0,
+      outstandingBalance: draft.before.outstandingBalance,
+      lastPaymentDate: draft.before.lastPaymentDate,
+      nextDueDate: draft.before.nextDueDate,
+      overdueSince: draft.before.overdueSince,
+    });
+    if (draft.ledgerEntry) ledgerEntries.push(draft.ledgerEntry);
+    if (money(savedMember.outstandingBalance) <= 0.01) fullyPaidCount += 1;
+    if (money(savedMember.outstandingBalance) < -0.01) creditCount += 1;
+  }
+
+  return { members: next, applied, ledgerEntries, fullyPaidCount, creditCount, skipped };
+}
+
 /** Aplica el cobro al padrón, al libro de cuenta y al diario. El saldo no se pinta hasta que el recibo quedó. */
 export async function persistDuesCollection(result, {
   setMembers,
@@ -899,7 +1087,7 @@ export async function persistDuesCollection(result, {
   const payment = result.payment;
   if (isSupabaseConfigured && payment && isPersistedPaymentId(payment.id) && result.member?.id) {
     if (payment.status === 'void') {
-      const balance = await revertDuesPayment(payment.id);
+      const balance = await revertDuesPayment(payment.id, payment.voidReason);
       next = { ...next, member: { ...next.member, outstandingBalance: balance } };
     } else if (Number(payment.removedSurcharge) > 0) {
       const balance = await quitarRecargoCuota({

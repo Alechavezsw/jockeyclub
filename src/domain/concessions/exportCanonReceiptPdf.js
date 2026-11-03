@@ -1,3 +1,4 @@
+import { loadJsPdf } from '../../lib/office.js';
 function formatCurrency(amount) {
   return new Intl.NumberFormat('es-AR', {
     style: 'currency',
@@ -19,7 +20,7 @@ const METHOD = {
 /** Recibo PDF de cobro de canon de concesión. */
 export async function downloadCanonReceiptPdf({ concession, payment }) {
   if (!payment) throw new Error('Pago no encontrado.');
-  const { jsPDF } = await import('jspdf');
+  const { jsPDF } = await loadJsPdf();
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const gold = [180, 140, 50];
 

@@ -1,13 +1,16 @@
+import { loadXlsx, loadAutoTable, loadJsPdf } from '../../lib/office.js';
 import { periodStatusLabel } from './feeBilling';
 import { periodKeyFromPeriod } from './feeAccountDetails';
 import { buildFeePeriodLiquidation } from './feePeriodLiquidation';
 import {
+
   BRAND,
   CLUB_NAME,
   drawReportFooter,
   drawReportHeader,
   loadClubLogoDataUrl,
 } from '../reports/pdfBrand';
+import { todayAR } from '../../lib/arDate';
 
 export const FEE_PERIOD_EXCEL_HEADERS = [
   '#',
@@ -68,8 +71,8 @@ export function buildFeePeriodExcelAoA(model, { formatCurrency: formatCurrencyFn
 export async function exportFeePeriodExcel(model, _unused, { formatCurrency: formatCurrencyFn } = {}) {
   const liquidation = buildFeePeriodExportModel(model);
   const fmt = formatCurrencyFn || money;
-  const XLSX = await import('xlsx');
-  const stamp = new Date().toISOString().slice(0, 10);
+  const XLSX = await loadXlsx();
+  const stamp = todayAR();
   const fileName = `jockey_club_liquidacion_${fileSlug(liquidation.label)}_${stamp}.xlsx`;
 
   const wb = XLSX.utils.book_new();
@@ -86,13 +89,13 @@ export async function exportFeePeriodPdf(model, _unused, { formatCurrency: forma
   const liquidation = buildFeePeriodExportModel(model);
   const fmt = formatCurrencyFn || money;
   const [{ jsPDF }, autoTableMod, logoDataUrl] = await Promise.all([
-    import('jspdf'),
-    import('jspdf-autotable'),
+    loadJsPdf(),
+    loadAutoTable(),
     loadClubLogoDataUrl(),
   ]);
   const autoTable = autoTableMod.default;
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-  const stamp = new Date().toISOString().slice(0, 10);
+  const stamp = todayAR();
 
   autoTable(doc, {
     startY: drawReportHeader(doc, {

@@ -1,4 +1,6 @@
 import { buildPostedEntry } from './journal';
+import { todayAR } from '../../lib/arDate';
+
 
 export const DEFAULT_CASH_REGISTERS = [
   {
@@ -208,7 +210,7 @@ export function buildCashTransferEntry({
   if (!amt || amt <= 0) throw new Error('Importe de traspaso inválido.');
 
   return buildPostedEntry({
-    date: date || new Date().toISOString().slice(0, 10),
+    date: date || todayAR(),
     description: concept || 'Traspaso de fondos',
     lines: [
       { accountId: toAccountId, debit: amt, credit: 0 },

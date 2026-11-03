@@ -1,13 +1,15 @@
-import { duesAmountForTier, duesChargeSlicesForMember, isDuesExemptMember, isMemberBillingActive } from '../members/dues';
+import { duesAmountForTier, duesChargeSlicesForMember, duesDueDayForMember, isDuesExemptMember, isMemberBillingActive } from '../members/dues';
 import { attachHouseholdToMembers, isTitularMember } from '../members/households';
 import {
+  DUES_LATE_TIER_IDS,
   getTierAccessinCategoryId,
   getTierDisplayName,
   isFeePackLiquidationTier,
   parseCuotaCategories,
   slugifyTierId,
 } from '../members/tiers';
-import { addDaysISODate, todayISODateAR } from '../../lib/arDate';
+import { addDaysISODate, todayISODateAR, todayAR } from '../../lib/arDate';
+import { money } from '../money';
 import { feePackForPeriod } from './feePackConcepts';
 import { resolveDiscountRules } from './discountApplication';
 
@@ -152,7 +154,7 @@ export function prepareFeePeriodDraft(list = [], periodId, members = [], today =
   if (block) throw new Error(block);
 
   const when = today instanceof Date ? today : new Date(`${String(today).slice(0, 10)}T12:00:00`);
-  const iso = when.toISOString().slice(0, 10);
+  const iso = todayAR(when);
   const periodDate = new Date(Number(period.year), (Number(period.month) || 1) - 1, 10, 12, 0, 0, 0);
   const billed = attachHouseholdToMembers(members);
   const discountRules = resolveDiscountRules(meta?.discountRules);
@@ -408,10 +410,6 @@ function feePeriodChargeDay(period) {
   return new Date(Number(period.year), (Number(period.month) || 1) - 1, 10, 12, 0, 0, 0);
 }
 
-function chargeRowKey(row) {
-  return `${String(row?.memberId || '').trim()}|${String(row?.tierId || row?.category || '').trim().toLowerCase()}`;
-}
-
 /** Cargos del mes con bonificaciones / descuentos extras aplicados. */
 export function buildFeePeriodCharges(members = [], period, today = new Date(), discountRules) {
   if (!period) return [];
@@ -421,43 +419,20 @@ export function buildFeePeriodCharges(members = [], period, today = new Date(), 
   return billed.flatMap((member) => {
     if (!member || !isMemberBillingActive(member, today) || !isTitularMember(member)) return [];
     if (isDuesExemptMember(member)) return [];
+    const dueOn = `${period.year}-${pad2(period.month)}-${pad2(duesDueDayForMember(member))}`;
     return duesChargeSlicesForMember(member, periodDate, { rules }).map((slice) => ({
       memberId: member.memberId,
       addAmount: slice.amount,
       tierId: slice.tierId,
       category: slice.category,
+      dueOn,
     }));
   });
 }
 
-function chargeDeltaRows(prevCharges = [], nextCharges = []) {
-  const prev = new Map();
-  for (const row of prevCharges || []) {
-    const key = chargeRowKey(row);
-    if (!key.startsWith('|')) prev.set(key, (prev.get(key) || 0) + (Number(row.addAmount) || 0));
-  }
-  const next = new Map();
-  for (const row of nextCharges || []) {
-    const key = chargeRowKey(row);
-    if (!key.startsWith('|')) next.set(key, (next.get(key) || 0) + (Number(row.addAmount) || 0));
-  }
-  const keys = new Set([...prev.keys(), ...next.keys()]);
-  const byMember = new Map();
-  for (const key of keys) {
-    const memberId = key.split('|')[0];
-    const delta = (next.get(key) || 0) - (prev.get(key) || 0);
-    if (!delta) continue;
-    byMember.set(memberId, (byMember.get(memberId) || 0) + delta);
-  }
-  return [...byMember.entries()]
-    .filter(([, amount]) => amount !== 0)
-    .map(([memberId, amount]) => ({ memberId, amount: Math.round(amount) }));
-}
-
 /**
- * Recalcula el período vigente (borrador / pendiente / procesada de la app)
- * con Descuentos extras. Si ya estaba procesada, devuelve deltas de saldo
- * (negativos = bonificación que faltaba restar).
+ * Recalcula el borrador o el pendiente con Descuentos extras.
+ * Procesada no se toca: un ajuste posterior es una nota de crédito o débito.
  */
 export function refreshFeePeriodWithDiscounts(period, members = [], meta = {}, today = new Date()) {
   if (!period || !appOwnsFeePeriod(period)) {
@@ -465,6 +440,9 @@ export function refreshFeePeriodWithDiscounts(period, members = [], meta = {}, t
   }
   if (period.status === 'cancelled') {
     return { changed: false, reason: 'cancelled', period, deltas: [] };
+  }
+  if (period.status === 'processed') {
+    return { changed: false, reason: 'processed_locked', period, deltas: [] };
   }
   const discountRules = resolveDiscountRules(meta?.discountRules);
   const nextCharges = buildFeePeriodCharges(members, period, today, discountRules);
@@ -478,7 +456,7 @@ export function refreshFeePeriodWithDiscounts(period, members = [], meta = {}, t
 
   const prevTotal = Number(period.amount) || Number(period.pack?.total) || 0;
   const sameCharges = JSON.stringify(prevCharges) === JSON.stringify(nextCharges);
-  if (sameCharges && Math.round(prevTotal) === Math.round(packTotal)) {
+  if (sameCharges && money(prevTotal) === money(packTotal)) {
     return { changed: false, reason: 'already_applied', period, deltas: [] };
   }
 
@@ -529,15 +507,11 @@ export function refreshFeePeriodWithDiscounts(period, members = [], meta = {}, t
     },
   };
 
-  const deltas = period.status === 'processed'
-    ? chargeDeltaRows(prevCharges, nextCharges)
-    : [];
-
   return {
     changed: true,
-    reason: period.status === 'processed' ? 'processed_adjusted' : 'pending_refreshed',
+    reason: 'pending_refreshed',
     period: nextPeriod,
-    deltas,
+    deltas: [],
   };
 }
 
@@ -652,9 +626,28 @@ export function aggregateFeeChargeDeltas(charges = []) {
     const memberId = String(charge?.memberId || charge?.memberNumber || '').trim();
     const amount = Number(charge?.addAmount ?? charge?.amount) || 0;
     if (!memberId || !(amount > 0)) continue;
-    byId.set(memberId, (byId.get(memberId) || 0) + amount);
+    const row = byId.get(memberId) || { memberId, amount: 0, periods: new Map() };
+    row.amount += amount;
+    const dueOn = String(charge?.dueOn || '').slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dueOn)) {
+      const tierId = String(charge?.tierId || '').trim().toLowerCase();
+      const late = !tierId || DUES_LATE_TIER_IDS.has(tierId) ? amount : 0;
+      const period = row.periods.get(dueOn) || { dueOn, capital: 0, lateBase: 0 };
+      period.capital += amount;
+      period.lateBase += late;
+      row.periods.set(dueOn, period);
+    }
+    byId.set(memberId, row);
   }
-  return [...byId.entries()].map(([memberId, amount]) => ({ memberId, amount: Math.round(amount) }));
+  return [...byId.values()].map((row) => ({
+    memberId: row.memberId,
+    amount: money(row.amount),
+    periods: [...row.periods.values()].map((period) => ({
+      dueOn: period.dueOn,
+      capital: money(period.capital),
+      lateBase: money(period.lateBase),
+    })),
+  }));
 }
 
 /**
@@ -672,7 +665,7 @@ export function applyFeeChargeDeltasToMembers(members = [], deltas = []) {
     if (!add) return member;
     return {
       ...member,
-      outstandingBalance: Math.round(((Number(member.outstandingBalance) || 0) + add) * 100) / 100,
+      outstandingBalance: money((Number(member.outstandingBalance) || 0) + add),
     };
   });
 }
@@ -699,7 +692,7 @@ export function feePackLinesFromMembers(members = [], periodDate = new Date(), t
     const key = String(id || '').trim().toLowerCase();
     if (!key || !isFeePackLiquidationTier(key)) return;
     if (!buckets.has(key)) {
-      const amount = Math.round(duesAmountForTier(key, undefined, periodDate) || 0);
+      const amount = money(duesAmountForTier(key, undefined, periodDate));
       if (!(amount > 0)) return;
       const accessinId = getTierAccessinCategoryId(key);
       buckets.set(key, {
@@ -757,7 +750,7 @@ function parseRateNumber(value) {
 
 function roundUnit(amount, draft) {
   const n = Number(amount) || 0;
-  if (!draft?.isRounded) return n;
+  if (!draft?.isRounded) return money(n);
   if (draft.roundingOption === 'diez') return Math.round(n / 10) * 10;
   return Math.round(n);
 }

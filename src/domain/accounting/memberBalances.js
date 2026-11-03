@@ -1,5 +1,6 @@
 /** Saldos / resumen de cuenta de socios (Accessin / LILA). */
 
+import { money } from '../money';
 import { cobranzasSeed } from './cobranzas';
 import { feeAccountDetailsSeed } from './feeAccountDetails';
 import {
@@ -14,12 +15,14 @@ import { currentAccountBalanceOf } from './currentAccountBalances';
 import { familyGroupBalanceOf } from './familyGroupBalances';
 import { buildDetailedCcAccountEntries } from './detailedCurrentAccounts';
 import {
+
   ACCOUNT_ENTRY_TYPES,
   createAccountEntry,
   padMember,
   softDeleteAccountEntry,
   upsertAccountEntry,
 } from './accountEntries';
+import { todayAR } from '../../lib/arDate';
 
 // Reexportados para no romper a quien ya los importaba desde acá. Los consumidores
 // que solo necesitan el CRUD deben importar de ./accountEntries.
@@ -138,12 +141,12 @@ export function applyAccountEntryToMember(member, entry) {
   if (!member) return member;
   const delta = Number(entry?.value);
   if (!Number.isFinite(delta)) return member;
-  const next = Math.round(((Number(member.outstandingBalance) || 0) + delta) * 100) / 100;
+  const next = money((Number(member.outstandingBalance) || 0) + delta);
   return {
     ...member,
     outstandingBalance: next,
     lastPaymentDate: entry?.type === 'pago'
-      ? (entry.date || new Date().toISOString().slice(0, 10))
+      ? (entry.date || todayAR())
       : member.lastPaymentDate,
     updatedAt: new Date().toISOString(),
   };
@@ -570,7 +573,7 @@ export function buildPaymentBoleto(member, {
       identifier: getTierDisplayName(member?.tier),
       amount: fee,
       description: periodLabel ? `Cuota ${periodLabel}` : 'Cuota',
-      date: dueDate1 || new Date().toISOString().slice(0, 10),
+      date: dueDate1 || todayAR(),
       cancelled: 0,
     }],
     total: fee,

@@ -141,7 +141,7 @@ export function findMemberNameCandidates(members = [], query, { limit = 8 } = {}
   for (const member of members) {
     const name = foldName(member?.name);
     if (!name) continue;
-    let score = 0;
+    let score;
     if (name === q) score = 100;
     else if (name.startsWith(q) || name.includes(` ${q}`)) score = 80;
     else if (name.includes(q)) score = 60;

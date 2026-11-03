@@ -1313,7 +1313,6 @@ export function buildClubReview({
   });
 
   const bajaRows = uniqueBajas(bajas);
-  const bajaIds = new Set(bajaRows.map((baja) => memberMoveKey(baja.memberId)).filter(Boolean));
   const altaIds = new Set((altas || []).map((alta) => memberMoveKey(alta.memberId)).filter(Boolean));
   const byMemberId = new Map(
     (members || [])

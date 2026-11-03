@@ -11,6 +11,8 @@ import {
   countHrByType,
 } from '../../domain/staff/hr';
 import { formatShortDate } from '../../domain/members/dues';
+import { todayAR } from '../../lib/arDate';
+
 
 const TYPE_ICONS = {
   novedad: BellRing,
@@ -34,7 +36,7 @@ export default function StaffHrPanel({ staffMembers = [], hrRecords = [], setHrR
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
     employeeId: '',
-    date: new Date().toISOString().slice(0, 10),
+    date: todayAR(),
     title: '',
     detail: '',
   });
@@ -54,7 +56,7 @@ export default function StaffHrPanel({ staffMembers = [], hrRecords = [], setHrR
   const resetForm = () => {
     setForm({
       employeeId: staffMembers[0]?.id || '',
-      date: new Date().toISOString().slice(0, 10),
+      date: todayAR(),
       title: '',
       detail: '',
     });

@@ -1,3 +1,4 @@
+import { loadXlsx } from '../../lib/office.js';
 import {
   buildDebitListingMatrix,
   debitListingSheetName,
@@ -34,7 +35,7 @@ export async function exportDebitListingsExcel({
   sheets = [],
   fileName,
 } = {}) {
-  const XLSX = await import('xlsx');
+  const XLSX = await loadXlsx();
   const y = Number(year);
   const m = Number(month);
   if (!y || !m) throw new Error('Falta el período del listado.');

@@ -413,7 +413,7 @@ enabled = true
 verify_jwt = true
 
 [functions.send-join-welcome]
-verify_jwt = false
+verify_jwt = true
 
 [functions.jev-chat]
 verify_jwt = true

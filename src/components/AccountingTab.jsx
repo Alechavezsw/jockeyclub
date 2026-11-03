@@ -34,6 +34,7 @@ import {
 } from '../domain/auth/roles';
 import { useAuth } from '../context/AuthContext';
 import { formatISODateLongAR, todayISODateAR } from '../lib/arDate';
+import { money } from '../domain/money';
 import { keepPageAtTop, preventButtonScroll } from '../lib/scrollPage';
 import {
   buildOfficialJournalEntries,
@@ -389,15 +390,6 @@ export default function AccountingTab({
   fixedExpenses = [],
   addFixedExpense,
   toggleFixedExpense,
-  fixedDiscounts = [],
-  addFixedDiscount,
-  toggleFixedDiscount,
-  discounts = [],
-  onUpsertDiscount,
-  onDeleteDiscount,
-  feeExpenses = [],
-  onUpsertFeeExpense,
-  onDeleteFeeExpense,
   paymentOrders = [],
   onDeletePaymentOrder,
   accountingReports = [],
@@ -1806,7 +1798,7 @@ export default function AccountingTab({
                 if (!delta) return m;
                 return {
                   ...m,
-                  outstandingBalance: Math.round(((Number(m.outstandingBalance) || 0) + delta) * 100) / 100,
+                  outstandingBalance: money((Number(m.outstandingBalance) || 0) + delta),
                 };
               }));
             }
@@ -1830,7 +1822,7 @@ export default function AccountingTab({
                   ...m,
                   outstandingBalance: Math.max(
                     0,
-                    Math.round(((Number(m.outstandingBalance) || 0) + delta) * 100) / 100
+                    money((Number(m.outstandingBalance) || 0) + delta)
                   ),
                 };
               }));

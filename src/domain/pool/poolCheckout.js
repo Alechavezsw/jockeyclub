@@ -1,5 +1,7 @@
 import { createAccountEntry } from '../accounting/accountEntries';
 import { applyEntryToMembers } from '../accounting/memberBalances';
+import { todayAR } from '../../lib/arDate';
+
 
 export const POOL_MP_PENDING = 'El canon de Mercado Pago se acredita cuando confirma el pago.';
 
@@ -16,7 +18,7 @@ export function buildPoolAccountEntries({ entry, member } = {}) {
     || String(entry?.memberId || member?.memberId || '');
   if (!memberNumber) return [];
 
-  const date = entry?.date || new Date().toISOString().slice(0, 10);
+  const date = entry?.date || todayAR();
   const baseId = entry?.id || `pool-${Date.now().toString(36)}`;
   const memberName = member?.name || entry?.memberName || '';
   const description = entry?.kind === 'guest'

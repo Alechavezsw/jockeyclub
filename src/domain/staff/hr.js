@@ -1,3 +1,4 @@
+import { todayAR } from '../../lib/arDate';
 /** Novedades de personal: faltas, tardanzas, permisos y solicitudes. */
 
 export const HR_RECORD_TYPES = {
@@ -33,7 +34,7 @@ export function createHrRecord({
     type,
     employeeId: employeeId || null,
     employeeName: employeeName || (type === 'novedad' ? 'General' : ''),
-    date: date || new Date().toISOString().slice(0, 10),
+    date: date || todayAR(),
     time: time || new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
     title: (title || '').trim(),
     detail: (detail || '').trim(),

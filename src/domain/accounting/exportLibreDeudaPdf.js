@@ -1,9 +1,10 @@
 /** PDF del certificado de libre deuda. */
 
+import { loadJsPdf } from '../../lib/office.js';
 import { loadClubLogoDataUrl } from '../reports/pdfBrand';
 
 export async function exportLibreDeudaPdf(certificate) {
-  const { jsPDF } = await import('jspdf');
+  const { jsPDF } = await loadJsPdf();
   const letter = certificate.letter;
   const nro = certificate.memberNumberPadded || certificate.memberNumber || 'socio';
   const fileName = certificate.fileName || `Socio ${nro}.pdf`;

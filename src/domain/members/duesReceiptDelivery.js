@@ -5,9 +5,11 @@ import { uploadDuesReceipt } from '../../data/storage';
 import { sendPaymentReceiptEmail } from '../../data/repos';
 import { mpReceiptMoney } from './mpPaymentReceipt';
 import { formatAccessinCashDate } from '../accounting/cashLedger';
+import { todayAR } from '../../lib/arDate';
+
 
 export function buildOnlineDuesBoleto({ member, amount, dueLabel } = {}) {
-  const date = new Date().toISOString().slice(0, 10);
+  const date = todayAR();
   const receipt = `BOL-${String(member?.memberId || '').replace(/\W/g, '').slice(-6) || 'SOCIO'}-${date.replace(/-/g, '')}`;
   return {
     id: `boleto-${member?.memberId || 'socio'}-${date}`,

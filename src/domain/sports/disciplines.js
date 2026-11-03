@@ -1,3 +1,4 @@
+import { todayAR } from '../../lib/arDate';
 /** Catálogo y estadísticas de disciplinas deportivas del club. */
 
 export const DISCIPLINE_COLORS = [
@@ -266,7 +267,7 @@ export function buildDisciplineStats({
   catalog = DISCIPLINE_CATALOG,
   today = new Date(),
 } = {}) {
-  const todayIso = today.toISOString().slice(0, 10);
+  const todayIso = todayAR(today);
   const activeMembers = members.filter((m) => m.status !== 'inactive');
   const activeCatalog = (catalog || [])
     .map((d) => normalizeDiscipline(d))

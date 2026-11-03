@@ -1,9 +1,11 @@
 import { randomCredentialToken } from './qr';
+import { todayAR } from '../../lib/arDate';
+
 
 /** Pases de invitado del día (QR temporal). */
 
 function todayISO(d = new Date()) {
-  return d.toISOString().slice(0, 10);
+  return todayAR(d);
 }
 
 export function buildGuestPassPayload(pass) {

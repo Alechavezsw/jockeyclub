@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { loadSnapshots } from '../../data/snapshots';
+import { hasLocalSnapshot, loadSnapshots } from '../../data/snapshots';
 import {
   filterMonthlyBalanceDetailRows,
   balanceSectionFamily,
@@ -25,21 +25,21 @@ function lineByLabel(sectionId, re) {
 }
 
 describe('balance mensual LILA', () => {
-  it('arma las cards del snapshot de octubre 2026', () => {
+  it.skipIf(!hasLocalSnapshot('accessinMonthlyBalance'))('arma las cards del snapshot de noviembre 2026', () => {
     const cards = monthlyBalanceCards();
-    expect(ACCESSIN_MONTHLY_BALANCE_AS_OF).toBe('2026-10-31');
-    expect(cards.periodFrom).toBe('2026-10-01');
-    expect(cards.periodTo).toBe('2026-10-31');
-    expect(cards.totalIncome).toBeCloseTo(63925674.34, 2);
-    expect(cards.totalIncomeCash).toBeCloseTo(68218674.34, 2);
+    expect(ACCESSIN_MONTHLY_BALANCE_AS_OF).toBe('2026-11-30');
+    expect(cards.periodFrom).toBe('2026-11-01');
+    expect(cards.periodTo).toBe('2026-11-30');
+    expect(cards.totalIncome).toBeCloseTo(33302333, 2);
+    expect(cards.totalIncomeCash).toBeCloseTo(33498333, 2);
     expect(cards.totalExpenses).toBe(0);
-    expect(cards.cashOnHand).toBeCloseTo(811596540.62, 2);
-    expect(cards.closingCash).toBeCloseTo(879815214.96, 2);
+    expect(cards.cashOnHand).toBeCloseTo(882126214.96, 2);
+    expect(cards.closingCash).toBeCloseTo(915624547.96, 2);
     expect(cards.complete).toBe(false);
     expect(cards.sourceFolder).toMatch(/general|balances/i);
   });
 
-  it('encuentra secciones y enlaza líneas con su hoja de detalle', () => {
+  it.skipIf(!hasLocalSnapshot('accessinMonthlyBalance'))('encuentra secciones y enlaza líneas con su hoja de detalle', () => {
     expect(findMonthlyBalanceSection(ACCESSIN_MONTHLY_BALANCE_SECTIONS, 'saldos_de_caja')?.title)
       .toBe('SALDOS DE CAJA');
     expect(balanceSectionFamily({ id: 'saldos_de_caja', title: 'SALDOS DE CAJA' })).toBe('cash');

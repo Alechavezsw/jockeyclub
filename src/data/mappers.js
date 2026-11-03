@@ -126,6 +126,17 @@ export function memberToRow(member) {
   };
 }
 
+export function imputationFromRow(row) {
+  const dueOn = String(row?.due_on || row?.dueOn || '').slice(0, 10);
+  return {
+    dueOn,
+    capital: Number(row?.capital) || 0,
+    surcharge: Number(row?.surcharge) || 0,
+    capitalOpen: Number(row?.capital_open ?? row?.capitalOpen) || 0,
+    surchargeOpen: Number(row?.surcharge_open ?? row?.surchargeOpen) || 0,
+  };
+}
+
 export function paymentFromRow(row) {
   const amount = Number(row.amount ?? row.value ?? row.monto) || 0;
   const receipt = row.receipt_number || row.receipt || '';
@@ -135,6 +146,7 @@ export function paymentFromRow(row) {
   const receiptName = meta.receiptName || null;
   return {
     id: row.id,
+    idempotencyKey: row.idempotency_key || meta.idempotencyKey || null,
     memberDbId: row.member_id,
     amount,
     date: paidAt ? String(paidAt).slice(0, 10) : null,
@@ -171,7 +183,10 @@ export function paymentFromRow(row) {
     paymentPlanLabel: meta.paymentPlanLabel || null,
     receiptParse: meta.receiptParse && typeof meta.receiptParse === 'object' ? meta.receiptParse : null,
     paymentSplits: Array.isArray(meta.paymentSplits) ? meta.paymentSplits : null,
-    status: 'paid',
+    status: meta.status === 'void' || meta.voidedAt ? 'void' : 'paid',
+    voidReason: meta.voidReason || null,
+    voidedAt: meta.voidedAt || null,
+    voidedBy: meta.voidedBy || null,
     journalEntryId: row.journal_entry_id || null,
   };
 }

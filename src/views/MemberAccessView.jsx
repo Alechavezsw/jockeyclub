@@ -87,8 +87,8 @@ export default function MemberAccessView() {
       return undefined;
     }
     const raw = String(accessForm.fullName || '').trim();
-    const digits = raw.replace(/\D/g, '');
-    const enough = raw.length >= 2 || digits.length >= 3;
+    const letters = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z]/gi, '');
+    const enough = letters.length >= 3;
     if (!enough || !isSupabaseConfigured) {
       setAccessHits([]);
       setShowSearchHint(false);
@@ -109,8 +109,10 @@ export default function MemberAccessView() {
         .then((rows) => {
           if (!cancelled) setAccessHits(rows || []);
         })
-        .catch(() => {
-          if (!cancelled) setAccessHits([]);
+        .catch((err) => {
+          if (cancelled) return;
+          setAccessHits([]);
+          if (/Demasiadas búsquedas/i.test(err?.message || '')) setError(err.message);
         })
         .finally(() => {
           if (!cancelled) setShowSearchHint(false);
@@ -498,7 +500,7 @@ export default function MemberAccessView() {
               <input
                 required
                 autoComplete="off"
-                placeholder="Escribí para buscar tu ficha"
+                placeholder="Al menos 3 letras de tu nombre"
                 value={accessForm.fullName}
                 onChange={(e) => {
                   setAccessPicked(null);

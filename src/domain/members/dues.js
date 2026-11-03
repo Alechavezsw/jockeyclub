@@ -1,6 +1,7 @@
 /** Clasificación de cuotas sociales: en mora (después del vencimiento) vs próximas a vencer. */
 
 import {
+  DUES_AMET_RATE,
   DUES_LATE_RATE,
   DUES_LATE_TIER_IDS,
   DUES_TARIFF_FROM,
@@ -16,6 +17,8 @@ import {
 import { discountOnAmount, resolveDiscountRules } from '../accounting/discountApplication';
 import { isFamilyDependent, isTitularMember } from './households';
 import { familyDependentShouldLeave } from './familyStanding';
+import { todayAR } from '../../lib/arDate';
+import { money } from '../money';
 
 const DAY_MS = 86400000;
 
@@ -23,6 +26,64 @@ const DAY_MS = 86400000;
 export const DUES_DUE_DAY = 10;
 /** AMET vence el 18. El 2,5 % es tarifa, no recargo de mora. */
 export const DUES_AMET_DUE_DAY = 18;
+
+function percentLabel(rate) {
+  const n = Math.round(Number(rate) * 1000) / 10;
+  return `${String(n).replace('.', ',')} %`;
+}
+
+/** Textos de la regla. El manual de Jev lee esto: no copia el día ni el porcentaje. */
+export function duesRuleSentences() {
+  const late = percentLabel(DUES_LATE_RATE);
+  const ametCut = percentLabel(DUES_AMET_RATE);
+  const moraDay = DUES_DUE_DAY + 1;
+  const ametMoraDay = DUES_AMET_DUE_DAY + 1;
+  const tariffWhen = new Intl.DateTimeFormat('es-AR', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(`${DUES_TARIFF_FROM}T12:00:00Z`));
+  return {
+    dueDay: DUES_DUE_DAY,
+    ametDueDay: DUES_AMET_DUE_DAY,
+    moraDay,
+    ametMoraDay,
+    late,
+    ametCut,
+    dueLine: `La cuota social vence el día ${DUES_DUE_DAY} de cada mes. Desde el ${moraDay} el socio está en mora.`,
+    ametLine: `AMET (socio familiar AMET y socio individual AMET) vence el ${DUES_AMET_DUE_DAY}. Su cuota es la base menos ${ametCut}; ese ${ametCut} es tarifa, no mora ni recargo.`,
+    lateLine: `El recargo es del ${late}, corre desde el día siguiente al vencimiento y solo en socio familiar e individual. AMET no lleva recargo.`,
+    exemptLine: 'Vitalicio, fundador y comisión no abonan cuota. Para todo el padrón: sin mora, sin saldo, sin avisos, sin Mercado Pago y sin cobro en caja ni en el portal.',
+    householdLine: 'En un grupo familiar la cuota es una sola, la del titular. El adherente no tiene cuenta propia. Un abono de tenis de un integrante sí se suma a la cuenta del titular.',
+    groupMoraLine: 'La mora del titular alcanza al grupo: en temporada el adherente no ingresa ni paga pileta si el titular está en mora.',
+    paymentLine: `Un pago cubre el mes en que se hizo: si el último pago fue en agosto, el próximo vencimiento es el ${DUES_DUE_DAY} de septiembre.`,
+    deskLine: 'El recargo se cobra siempre. Un administrador puede borrarlo después en la ficha: el importe cobrado queda y el recargo pasa a saldo a favor.',
+    creditLine: 'El saldo a favor se descuenta solo en el próximo cobro. Si cubre la cuota, lo que sobra queda para el siguiente.',
+    tariffLine: `La tarifa vigente desde ${tariffWhen} y la liquidación de cada mes están en Cuotas; el día de vencimiento se ve en Configuración.`,
+    banner: `el ${DUES_DUE_DAY} de cada mes (AMET, el ${DUES_AMET_DUE_DAY})`,
+    collectLine: `El recargo del ${late} es el de cada mes vencido, por separado, desde el día siguiente al vencimiento y solo en socio familiar e individual; AMET no lleva.`,
+    moraWhen: `El día ${DUES_DUE_DAY} (AMET, el ${DUES_AMET_DUE_DAY}) vence la cuota. Hasta ese día no lleva recargo.`,
+    moraAfter: `Desde el día siguiente (el ${moraDay}; AMET, el ${ametMoraDay}) es mora. En socio familiar e individual corre el recargo del ${late}; AMET no lleva recargo.`,
+    glossaryAmet: `AMET: categoría que vence el ${DUES_AMET_DUE_DAY}, con la cuota en base menos ${ametCut}; ese ${ametCut} es tarifa, no mora, y no lleva recargo.`,
+    glossaryMora: `Mora: cuota vencida y sin pagar, desde el día siguiente al vencimiento. Recargo: ${late} de la cuota de cada mes vencido, por separado, solo familiar e individual.`,
+    controlMora: `Desde el día siguiente al vencimiento corre el recargo del ${late} (familiar e individual).`,
+    gateMora: `ACCESO DENEGADO · MORA aparece solo en temporada de pileta (diciembre a marzo), desde el ${DUES_DUE_DAY}, si no pagó la cuota del mes. Fuera de temporada la deuda se informa pero no cierra la puerta. Un adherente queda igual que su titular: si el titular está en mora, el grupo también.`,
+    gateReason: `ACCESO DENEGADO · MORA: es temporada de pileta (diciembre a marzo), pasó el ${DUES_DUE_DAY} y no pagó la cuota del mes. Que regularice en Caja o en Mi Cuenta; cuando se acredita, pasa. Fuera de temporada, la deuda no cierra la puerta.`,
+    poolMora: `Un socio en mora (desde el ${DUES_DUE_DAY}, o con saldo) no puede pagar pileta hasta regularizar la cuota. La ficha lo dice: Puede pagar pileta / No puede pagar pileta.`,
+    inicio: `Vencimiento del mes (${DUES_DUE_DAY}; AMET, ${DUES_AMET_DUE_DAY}), recaudado del mes con su cobrabilidad, caja y alertas vivas.`,
+    configDue: `Cuotas: Vence el día (1 al 28; hoy el ${DUES_DUE_DAY}), tolerancia de pago, gracia de la credencial, deuda máxima, cuenta protegida y si los socios ven su cuenta corriente. AMET vence el ${DUES_AMET_DUE_DAY} por regla de la categoría, no por este campo.`,
+    configNotices(advanceDays) {
+      const upcoming = DUES_DUE_DAY - advanceDays;
+      return `Regla de avisos: queda guardada en el libro. Mensaje interno y mail el día ${upcoming} (por vencer), el ${DUES_DUE_DAY} (vence) y el ${moraDay} (mora). Recargo del ${late} desde el ${moraDay} en familiar e individual.`;
+    },
+    noticesLine(advanceDays) {
+      const upcoming = DUES_DUE_DAY - advanceDays;
+      const ametUpcoming = DUES_AMET_DUE_DAY - advanceDays;
+      return `Avisos reales, uno de cada etapa por socio: desde ${advanceDays} días antes del vencimiento, el día que vence y desde el día siguiente (mora). Para casi todos eso es desde el ${upcoming}, el ${DUES_DUE_DAY} y desde el ${moraDay}; para AMET, desde el ${ametUpcoming}, el ${DUES_AMET_DUE_DAY} y desde el ${ametMoraDay}. Llegan por mensaje interno y mail, con las consecuencias de mora. La regla está en Configuración.`;
+    },
+    poolGate: `Pileta: canon socio e invitado, apto médico (días), invitados por socio, nombre de la temporada, si el socio carga el apto, y Mora desde el ${DUES_DUE_DAY} bloquea el ingreso (en temporada, diciembre a marzo; vale para sede y pileta).`,
+  };
+}
 
 let runtimeDueDay = null;
 
@@ -347,13 +408,6 @@ function discountedTierAmount(member, id, on, rules) {
   }).net;
 }
 
-function amountForTierIds(person, ids, on, rules, { addOnsOnly = false } = {}) {
-  return (ids || []).reduce((sum, id) => {
-    if (addOnsOnly && !isAddOnDuesTierId(id)) return sum;
-    return sum + discountedTierAmount(person, id, on, rules);
-  }, 0);
-}
-
 function payableForTierIds(person, ids, { paidOn, dueOn, on, rules, addOnsOnly = false } = {}) {
   return (ids || []).reduce((sum, id) => {
     if (addOnsOnly && !isAddOnDuesTierId(id)) return sum;
@@ -456,15 +510,28 @@ function isSocialDuesDueToday(member, todayStart) {
  * El día 10 todavía es el vencimiento, sin recargo.
  * Sin categoría, se mantiene el 10 % (un solo importe, sin líneas).
  */
+/** Día civil en Argentina. Una fecha YYYY-MM-DD no se corre a UTC. */
+function argentinaDay(value) {
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? todayAR() : todayAR(value);
+  const raw = String(value ?? '').trim();
+  if (!raw) return todayAR();
+  const day = raw.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(day) && !/[T\s]\d{2}:\d{2}/.test(raw)) return day;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? todayAR() : todayAR(parsed);
+}
+
 export function duesPayableAmount(base, { paidOn = new Date(), dueOn, tier } = {}) {
-  const amount = Math.round(Number(base) || 0);
+  const amount = money(base);
   if (amount <= 0) return 0;
-  const paid = asDueAnchor(paidOn);
-  const due = parseDueDate(dueOn) || duesDateOnDueDay(paid.getFullYear(), paid.getMonth());
-  if (paid <= due) return amount;
+  const paidIso = argentinaDay(paidOn);
+  const dueIso = dueOn
+    ? argentinaDay(dueOn)
+    : `${paidIso.slice(0, 8)}${String(duesDueDay()).padStart(2, '0')}`;
+  if (paidIso <= dueIso) return amount;
   const id = String(tier || '').trim().toLowerCase();
   if (id && !DUES_LATE_TIER_IDS.has(id)) return amount;
-  return Math.round(amount * (1 + DUES_LATE_RATE));
+  return money(amount * (1 + DUES_LATE_RATE));
 }
 
 /** Suma cada categoría del socio y aplica el recargo solo donde corresponde. */
@@ -500,7 +567,7 @@ export function duesAmountForHousehold(titularTier, familyGroup = [], on = new D
 }
 
 function pushChargeSlice(slices, person, id, on, rules) {
-  const amount = Math.round(discountedTierAmount(person, id, on, rules) || 0);
+  const amount = money(discountedTierAmount(person, id, on, rules));
   if (amount <= 0) return;
   const prev = slices.get(id);
   if (prev) {
@@ -535,8 +602,17 @@ export function duesChargeSlicesForMember(member, on = new Date(), options = {})
 
 /** Cuota vigente: titular (estatuto + abonos propios) + tenis de adherentes. El grupo no suma cuota social. */
 export function duesAmountForMember(member, on = new Date(), options = {}) {
-  return duesChargeSlicesForMember(member, on, options)
-    .reduce((sum, slice) => sum + slice.amount, 0);
+  return money(duesChargeSlicesForMember(member, on, options)
+    .reduce((sum, slice) => sum + slice.amount, 0));
+}
+
+/** Capital del mes que sí lleva 10 % (familiar e individual). El abono no. */
+export function lateBaseForMember(member, on) {
+  return money(duesChargeSlicesForMember(member, on).reduce((sum, slice) => {
+    const id = String(slice.tierId || '').trim().toLowerCase();
+    if (id && !DUES_LATE_TIER_IDS.has(id)) return sum;
+    return sum + (Number(slice.amount) || 0);
+  }, 0));
 }
 
 /**
@@ -556,8 +632,8 @@ export function overdueSocialMonths(member, paidOn) {
   const months = [];
   let cursor = first;
   while (cursor < todayStart && months.length < 24) {
-    const capital = Math.round(duesAmountForMember(member, cursor) || 0);
-    const payable = Math.round(duesPayableForMember(member, {
+    const capital = money(duesAmountForMember(member, cursor));
+    const payable = money(duesPayableForMember(member, {
       paidOn: todayStart,
       dueOn: cursor,
       on: cursor,
@@ -565,6 +641,7 @@ export function overdueSocialMonths(member, paidOn) {
     months.push({
       dueOn: toISODate(cursor),
       capital,
+      lateBase: lateBaseForMember(member, cursor),
       payable,
       surcharge: Math.max(0, payable - capital),
     });
@@ -596,6 +673,7 @@ export function collectionPeriodChoices(member, today = new Date()) {
       monthKey: String(row.dueOn).slice(0, 7),
       label: periodChoiceLabel(row.dueOn),
       capital: row.capital,
+      lateBase: row.lateBase,
       surcharge: row.surcharge,
       payable: row.payable,
       kind: 'overdue',
@@ -604,9 +682,9 @@ export function collectionPeriodChoices(member, today = new Date()) {
 
   const dueOn = pinDuesDueDate(member.nextDueDate, member) || nextDuesDueDate(today, member);
   const on = parseDate(dueOn) || paidOn;
-  const capital = Math.round(duesAmountForMember(member, on) || 0);
+  const capital = money(duesAmountForMember(member, on));
   if (!(capital > 0)) return [];
-  const payable = Math.round(duesPayableForMember(member, {
+  const payable = money(duesPayableForMember(member, {
     paidOn,
     dueOn,
     on,
@@ -617,14 +695,11 @@ export function collectionPeriodChoices(member, today = new Date()) {
     monthKey: String(dueOn).slice(0, 7),
     label: periodChoiceLabel(dueOn),
     capital,
+    lateBase: lateBaseForMember(member, on),
     surcharge: Math.max(0, payable - capital),
     payable,
     kind: 'upcoming',
   }];
-}
-
-function roundMoney(value) {
-  return Math.round((Number(value) || 0) * 100) / 100;
 }
 
 /**
@@ -649,8 +724,8 @@ export function duesChargeBreakdown(member, {
   if (selected?.size) {
     months = months.filter((row) => selected.has(String(row.dueOn).slice(0, 10)));
   }
-  const singleCapital = Math.round(duesAmountForMember(member, when) || 0);
-  const singlePayable = Math.round(duesPayableForMember(member, { paidOn: paid, dueOn, on: when }) || 0);
+  const singleCapital = money(duesAmountForMember(member, when));
+  const singlePayable = money(duesPayableForMember(member, { paidOn: paid, dueOn, on: when }));
   const useMonths = !dueOn && months.some((row) => row.capital > 0);
   let capital = useMonths
     ? months.reduce((sum, row) => sum + row.capital, 0)
@@ -661,7 +736,7 @@ export function duesChargeBreakdown(member, {
   const monthSurcharge = Math.max(0, payable - capital);
   const stored = Number(amount != null ? amount : member?.outstandingBalance);
   const hasStored = Number.isFinite(stored) && stored > 0;
-  const rounded = hasStored ? Math.round(stored) : 0;
+  const rounded = hasStored ? money(stored) : 0;
 
   let total;
   let surcharge;
@@ -678,7 +753,7 @@ export function duesChargeBreakdown(member, {
     for (const row of rows) {
       if (left <= 0) break;
       const take = Math.min(left, row.capital);
-      if (row.capital > 0) surcharge += Math.round(row.surcharge * take / row.capital);
+      if (row.capital > 0) surcharge = money(surcharge + (row.surcharge * take) / row.capital);
       left -= take;
     }
     total = rounded + surcharge;
@@ -699,11 +774,11 @@ export function duesChargeBreakdown(member, {
     }
     payable = total;
   }
-  total = roundMoney(total);
-  surcharge = roundMoney(surcharge);
-  capital = roundMoney(capital);
-  payable = roundMoney(payable);
-  const quota = Math.max(0, roundMoney(total - surcharge));
+  total = money(total);
+  surcharge = money(surcharge);
+  capital = money(capital);
+  payable = money(payable);
+  const quota = Math.max(0, money(total - surcharge));
   // El mostrador nunca manda este flag: canWaiveDuesSurcharge es siempre falso.
   // Si igual llega, registrar_cobro lo rechaza.
   if (waiveSurcharge && surcharge > 0) {
@@ -895,8 +970,8 @@ export function applyAutomaticDues(members, today = new Date()) {
     const months = overdueSocialMonths(normalized, todayStart);
     if (!months.length) return normalized;
 
-    const capital = Math.round(months.reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
-    const stored = Math.round(Number(normalized.outstandingBalance) || 0);
+    const capital = money(months.reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
+    const stored = money(normalized.outstandingBalance);
     const nextBalance = Math.max(stored, capital);
 
     if (nextBalance === stored) return normalized;
@@ -933,7 +1008,7 @@ export function duesOnJoin(member, joinDate = new Date()) {
   const fromHousehold = Array.isArray(member?.familyGroup) && member.familyGroup.length
     ? duesAmountForHousehold(member.tier, member.familyGroup, join)
     : duesAmountForMember(member, join);
-  const outstandingBalance = isDuesExemptMember(member) ? 0 : Math.round(fromHousehold || 0);
+  const outstandingBalance = isDuesExemptMember(member) ? 0 : money(fromHousehold);
   const dueDay = duesDueDayForMember(member);
   const nextDueDate = join.getDate() <= dueDay
     ? pinDuesDueDate(join, member)

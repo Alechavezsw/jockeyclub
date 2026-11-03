@@ -1,3 +1,4 @@
+import { loadJsPdf } from '../../lib/office.js';
 import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
@@ -239,7 +240,7 @@ export async function downloadJoinPlaque(url, { size, format }) {
   const { w, h } = canvasPixels(spec);
   const wMm = spec.wMm || (w * 25.4) / 96;
   const hMm = spec.hMm || (h * 25.4) / 96;
-  const { jsPDF } = await import('jspdf');
+  const { jsPDF } = await loadJsPdf();
   const doc = new jsPDF({
     orientation: wMm > hMm ? 'landscape' : 'portrait',
     unit: 'mm',

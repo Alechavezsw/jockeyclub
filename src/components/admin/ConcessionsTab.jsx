@@ -23,6 +23,8 @@ import { downloadCanonReceiptPdf } from '../../domain/concessions/exportCanonRec
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { uploadConcessionDocument, validateConcessionDocFile } from '../../data/storage';
 import ConcessionWizard from './ConcessionWizard';
+import { todayAR } from '../../lib/arDate';
+
 
 function formatCurrency(amount) {
   return new Intl.NumberFormat('es-AR', {
@@ -186,7 +188,7 @@ export default function ConcessionsTab({
 
   const exportCsv = () => {
     downloadTextFile(
-      `concesiones-${new Date().toISOString().slice(0, 10)}.csv`,
+      `concesiones-${todayAR()}.csv`,
       exportConcessionsCsv(concessions),
       'text/csv;charset=utf-8'
     );

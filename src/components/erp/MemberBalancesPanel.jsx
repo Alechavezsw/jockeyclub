@@ -34,6 +34,9 @@ import { listGroupAccountLedger, listMemberAccountSupport } from '../../data/rep
 import { isSupabaseConfigured } from '../../lib/supabase';
 import SnapshotGate from '../SnapshotGate';
 import CurrentAccountCutNote from './CurrentAccountCutNote';
+import { todayAR } from '../../lib/arDate';
+import { money } from '../../domain/money';
+
 
 const SNAPSHOTS = [...MEMBER_BALANCES_SNAPSHOTS, 'accessinMonthlyDebts'];
 
@@ -96,7 +99,7 @@ function MemberBalancesContent({
     memberNumber: '',
     memberName: '',
     value: '',
-    date: new Date().toISOString().slice(0, 10),
+    date: todayAR(),
     description: '',
   });
   const [entryQuery, setEntryQuery] = useState('');
@@ -259,7 +262,7 @@ function MemberBalancesContent({
       amount,
       dueDate1: due1,
       dueDate2: due2,
-      surcharge: Math.round(amount * DUES_LATE_RATE),
+      surcharge: money(amount * DUES_LATE_RATE),
     }));
     setView('boleto');
   };
@@ -279,7 +282,7 @@ function MemberBalancesContent({
       memberNumber: nro,
       memberName: member?.name || '',
       value: '',
-      date: new Date().toISOString().slice(0, 10),
+      date: todayAR(),
       description: '',
     });
     setEntryQuery(member ? `${nro} — ${member.name || ''}`.trim() : '');

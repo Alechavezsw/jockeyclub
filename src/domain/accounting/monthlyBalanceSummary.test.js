@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { loadSnapshots } from '../../data/snapshots';
+import { hasLocalSnapshot, loadSnapshots } from '../../data/snapshots';
 import {
   findMonthlyBalanceSummarySection,
   monthlyBalanceSummaryCards,
@@ -17,7 +17,7 @@ beforeAll(async () => {
   } = monthlyBalanceSummarySeed());
 });
 
-describe('balance mensual resumido LILA', () => {
+describe.skipIf(!hasLocalSnapshot('accessinMonthlyBalanceSummary'))('balance mensual resumido LILA', () => {
   it('arma las cards del corte de octubre 2026', () => {
     const cards = monthlyBalanceSummaryCards();
     expect(ACCESSIN_MONTHLY_BALANCE_SUMMARY_AS_OF).toBe('2026-10-31');

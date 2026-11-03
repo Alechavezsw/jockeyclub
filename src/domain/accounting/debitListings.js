@@ -101,7 +101,11 @@ export function excelSerialToISODate(serial) {
   const n = Number(serial);
   if (!Number.isFinite(n) || n < 20000) return null;
   const ms = Date.UTC(1899, 11, 30) + Math.round(n) * 86400000;
-  return new Date(ms).toISOString().slice(0, 10);
+  const utc = new Date(ms);
+  const y = utc.getUTCFullYear();
+  const m = String(utc.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(utc.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 export function maskDebitCard(card) {

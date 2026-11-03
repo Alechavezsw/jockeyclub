@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { loadSnapshots } from '../../data/snapshots';
+import { hasLocalSnapshot, loadSnapshots } from '../../data/snapshots';
 import {
   filterDebtorsByPeriod,
   listDebtPeriods,
@@ -17,14 +17,14 @@ beforeAll(async () => {
 });
 
 describe('monthlyDebts / deudas mes a mes', () => {
-  it('carga snapshot LILA de morosos', () => {
-    expect(ACCESSIN_MONTHLY_DEBTS_AS_OF).toBe('2026-10-31');
+  it.skipIf(!hasLocalSnapshot('accessinMonthlyDebts'))('carga snapshot LILA de morosos', () => {
+    expect(ACCESSIN_MONTHLY_DEBTS_AS_OF).toBe('2026-11-02');
     expect(ACCESSIN_MONTHLY_DEBTS_SNAPSHOT.memberCount).toBeGreaterThan(800);
     expect(ACCESSIN_MONTHLY_DEBTS_SNAPSHOT.monthRowCount).toBeGreaterThan(5000);
     expect(ACCESSIN_MONTHLY_DEBTS_SNAPSHOT.lineCount).toBeGreaterThan(10000);
   });
 
-  it('lookup socio 1004 con deuda por mes y líneas', () => {
+  it.skipIf(!hasLocalSnapshot('accessinMonthlyDebts'))('lookup socio 1004 con deuda por mes y líneas', () => {
     const hit = lookupMonthlyDebt('1004');
     expect(hit).toBeTruthy();
     expect(hit.totalDebt).toBe(56000);
@@ -34,7 +34,7 @@ describe('monthlyDebts / deudas mes a mes', () => {
     expect(hit.lines.some((l) => /Recargo/i.test(l.type))).toBe(true);
   });
 
-  it('lista y filtra por período', () => {
+  it.skipIf(!hasLocalSnapshot('accessinMonthlyDebts'))('lista y filtra por período', () => {
     const all = listMonthlyDebtors();
     expect(all.length).toBeGreaterThan(800);
     expect(all.length).toBeLessThanOrEqual(ACCESSIN_MONTHLY_DEBTS_SNAPSHOT.memberCount);
@@ -47,7 +47,7 @@ describe('monthlyDebts / deudas mes a mes', () => {
     expect(sept.every((m) => m.months.some((row) => row.periodKey === '2026-09' && ((Number(row.capital) || 0) !== 0 || (Number(row.interest) || 0) !== 0)))).toBe(true);
   });
 
-  it('al elegir un mes muestra la deuda de ese mes, no el total', () => {
+  it.skipIf(!hasLocalSnapshot('accessinMonthlyDebts'))('al elegir un mes muestra la deuda de ese mes, no el total', () => {
     const hit = lookupMonthlyDebt('1004');
     const febRow = hit.months.find((row) => row.periodKey === '2025-02');
     expect(febRow).toBeTruthy();

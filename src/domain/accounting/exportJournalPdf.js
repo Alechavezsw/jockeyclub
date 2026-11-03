@@ -1,3 +1,4 @@
+import { loadAutoTable, loadJsPdf } from '../../lib/office.js';
 import {
   BRAND,
   drawReportFooter,
@@ -5,6 +6,8 @@ import {
   loadClubLogoDataUrl,
 } from '../reports/pdfBrand';
 import { accountLabel, getAccountById } from './chartOfAccounts';
+import { todayAR } from '../../lib/arDate';
+
 
 function formatMoney(amount) {
   return new Intl.NumberFormat('es-AR', {
@@ -48,8 +51,8 @@ export async function exportJournalPdf(journalEntries = [], {
   chart = null,
 } = {}) {
   const [{ jsPDF }, autoTableMod, logoDataUrl] = await Promise.all([
-    import('jspdf'),
-    import('jspdf-autotable'),
+    loadJsPdf(),
+    loadAutoTable(),
     loadClubLogoDataUrl(),
   ]);
   const autoTable = autoTableMod.default;
@@ -57,7 +60,7 @@ export async function exportJournalPdf(journalEntries = [], {
   const entries = raw.filter((e) => !e.status || e.status === 'posted');
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
   const generatedAt = new Date().toLocaleString('es-AR');
-  const stamp = new Date().toISOString().slice(0, 10);
+  const stamp = todayAR();
   const downloadName = fileName || `jockey_club_libro_diario_${stamp}.pdf`;
 
   let totalDebe = 0;

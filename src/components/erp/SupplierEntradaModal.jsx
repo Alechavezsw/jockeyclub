@@ -7,16 +7,18 @@ import {
   createSupplierEntry,
 } from '../../domain/accounting/supplierEntries';
 import {
+
   SUPPLIER_CATEGORIES,
   compareSuppliersByAccessin,
   supplierAccessinCode,
   supplierDisplayName,
 } from '../../domain/accounting/suppliers';
+import { todayAR } from '../../lib/arDate';
 
 const EMPTY = {
   type: 'pago',
   supplierId: '',
-  date: new Date().toISOString().slice(0, 10),
+  date: todayAR(),
   amount: '',
   concept: '',
   invoiceNumber: '',
@@ -41,7 +43,7 @@ export default function SupplierEntradaModal({
     if (open) {
       setForm({
         ...EMPTY,
-        date: new Date().toISOString().slice(0, 10),
+        date: todayAR(),
         supplierId: initialSupplierId || '',
       });
       setError('');

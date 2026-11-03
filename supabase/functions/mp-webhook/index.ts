@@ -6,7 +6,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const AR_TZ = "America/Argentina/San_Juan";
+const AR_TZ = "America/Argentina/Buenos_Aires";
 const PORTAL_ACCOUNT = "https://www.jockeyclubsj.com.ar/cuenta";
 const DEFAULT_FROM = "Jockey Club San Juan <socios@jockeyclubsj.com.ar>";
 
@@ -36,10 +36,29 @@ function hexOf(buffer: ArrayBuffer) {
   return [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+function sameHex(left: string, right: string) {
+  if (left.length !== right.length) return false;
+  let diff = 0;
+  for (let i = 0; i < left.length; i += 1) diff |= left.charCodeAt(i) ^ right.charCodeAt(i);
+  return diff === 0;
+}
+
+/** Id que Mercado Pago firma: el query `data.id`, o el del cuerpo si no vino en la URL. */
+function signedResourceId(req: Request, rawBody: string) {
+  const fromQuery = new URL(req.url).searchParams.get("data.id") || "";
+  if (fromQuery.trim()) return fromQuery.trim();
+  try {
+    const parsed = JSON.parse(rawBody || "{}") as { data?: { id?: string | number }; id?: string | number };
+    return String(parsed?.data?.id || parsed?.id || "").trim();
+  } catch {
+    return "";
+  }
+}
+
 async function mpSignatureOk(req: Request, rawBody: string, secret: string) {
-  const header = String(req.headers.get("x-signature") || "");
-  const requestId = String(req.headers.get("x-request-id") || "");
-  if (!header || !secret) return true;
+  const header = String(req.headers.get("x-signature") || "").trim();
+  const requestId = String(req.headers.get("x-request-id") || "").trim();
+  if (!header || !secret) return false;
   const parts: Record<string, string> = {};
   for (const chunk of header.split(",")) {
     const [key, ...rest] = chunk.split("=");
@@ -47,15 +66,12 @@ async function mpSignatureOk(req: Request, rawBody: string, secret: string) {
   }
   const ts = parts.ts || "";
   const hash = String(parts.v1 || "").toLowerCase();
-  if (!ts || !hash) return false;
-  let dataId = "";
-  try {
-    const parsed = JSON.parse(rawBody) as { data?: { id?: string }; id?: string };
-    dataId = String(parsed?.data?.id || parsed?.id || "");
-  } catch {
-    dataId = "";
-  }
-  const manifest = `id:${dataId};request-id:${requestId};ts:${ts};`;
+  const dataId = signedResourceId(req, rawBody).toLowerCase();
+  if (!ts || !hash || !dataId) return false;
+  const chunks = [`id:${dataId}`];
+  if (requestId) chunks.push(`request-id:${requestId}`);
+  chunks.push(`ts:${ts}`);
+  const manifest = `${chunks.join(";")};`;
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
@@ -64,12 +80,20 @@ async function mpSignatureOk(req: Request, rawBody: string, secret: string) {
     ["sign"],
   );
   const signed = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(manifest));
-  return hexOf(signed) === hash;
+  return sameHex(hexOf(signed), hash);
 }
 
-function idOf(body: Record<string, unknown>, url: URL) {
-  const data = body.data as { id?: string } | undefined;
-  return String(data?.id || body.id || url.searchParams.get("id") || url.searchParams.get("data.id") || "");
+/** Estado tal como lo devolvió la API. Nunca se inventa "approved". */
+function mpApiStatus(value: unknown) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function mpPaidStatus(value: unknown) {
+  const status = mpApiStatus(value);
+  if (status === "approved" || status === "authorized" || status === "accredited" || status === "processed") {
+    return "approved";
+  }
+  return status;
 }
 
 function escapeHtml(value: string) {
@@ -137,7 +161,7 @@ function longDate(iso: string) {
   return `${d} de ${months[m - 1]} de ${y}`;
 }
 
-function arISODate(date = new Date()) {
+function todayAR(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: AR_TZ,
     year: "numeric",
@@ -321,7 +345,7 @@ async function deliverMpReceipt(admin: Admin, intentId: string) {
 
   const receiptNumber = String(payment?.receipt_number || `MP-${String(intent.id).slice(0, 8)}`);
   const amount = Number(payment?.amount || intent.amount || 0);
-  const paidAt = String(payment?.paid_at || intent.applied_at || arISODate()).slice(0, 10);
+  const paidAt = String(payment?.paid_at || intent.applied_at || todayAR()).slice(0, 10);
   const period = String(payment?.period_label || "");
   const concept = String(payment?.concept || intent.concept || "Cuota social · Mercado Pago");
   const channel = mpReceiptChannelOf(meta);
@@ -517,7 +541,7 @@ async function notifyDebitFailed(
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
-        "Idempotency-Key": `mp-debit-failed/${memberId || memberNumber}/${arISODate()}`,
+        "Idempotency-Key": `mp-debit-failed/${memberId || memberNumber}/${todayAR()}`,
       },
       body: JSON.stringify({ from, to: [email], subject, text }),
     });
@@ -539,10 +563,10 @@ Deno.serve(async (req) => {
     if (!supabaseUrl || !serviceKey) return json(500, { error: "Falta la configuración de Supabase." });
     if (!token) return json(503, { error: "Falta MP_ACCESS_TOKEN en las secretas de Supabase." });
 
+    const secret = Deno.env.get("MP_WEBHOOK_SECRET") || "";
     const url = new URL(req.url);
     const rawBody = await req.text();
-    const secret = Deno.env.get("MP_WEBHOOK_SECRET") || "";
-    if (secret && !(await mpSignatureOk(req, rawBody, secret))) {
+    if (!secret || !(await mpSignatureOk(req, rawBody, secret))) {
       return json(401, { error: "Firma inválida." });
     }
     const body = (() => {
@@ -550,19 +574,18 @@ Deno.serve(async (req) => {
       catch { return {} as Record<string, unknown>; }
     })();
     const topic = topicOf(body, url);
-    const remoteId = idOf(body, url);
-    if (!remoteId) return json(200, { ok: true, ignored: true });
+    const remoteId = signedResourceId(req, rawBody);
+    if (!remoteId) return json(401, { error: "Firma inválida." });
 
     const admin = createClient(supabaseUrl, serviceKey);
 
-    if (String(remoteId).startsWith("ORD") || (topic.includes("order") && !topic.includes("merchant"))) {
+    if (remoteId.toLowerCase().startsWith("ord") || (topic.includes("order") && !topic.includes("merchant"))) {
       const order = await mpGet(`/v1/orders/${remoteId}`, token);
       const intentId = String(order.external_reference || "");
       if (!intentId) return json(200, { ok: true, ignored: true });
       const payments = (order.transactions as { payments?: Array<Record<string, unknown>> } | undefined)?.payments || [];
       const pay = payments[0] || {};
-      const rawStatus = String(pay.status || order.status || "pending");
-      const status = /process|paid|accredit|approv/i.test(rawStatus) ? "approved" : rawStatus;
+      const status = mpPaidStatus(pay.status || order.status) || "pending";
       const { error } = await admin.rpc("apply_mp_approved_payment", {
         p_intent_id: intentId,
         p_provider_payment_id: String(pay.id || remoteId),
@@ -577,11 +600,12 @@ Deno.serve(async (req) => {
     if (topic.includes("preapproval") && !topic.includes("authorized_payment")) {
       const pre = await mpGet(`/preapproval/${remoteId}`, token);
       const intentId = String(pre.external_reference || "");
-      if (!intentId) return json(200, { ok: true, ignored: true });
+      const preStatus = mpApiStatus(pre.status);
+      if (!intentId || !preStatus) return json(200, { ok: true, ignored: true });
       const { error } = await admin.rpc("apply_mp_subscription", {
         p_intent_id: intentId,
         p_preapproval_id: String(pre.id || remoteId),
-        p_status: String(pre.status || "authorized"),
+        p_status: preStatus,
       });
       if (error) return json(500, { error: error.message });
       return json(200, { ok: true, kind: "subscription" });
@@ -591,7 +615,7 @@ Deno.serve(async (req) => {
       const pay = await mpGet(`/authorized_payments/${remoteId}`, token);
       const preapprovalId = String(pay.preapproval_id || "");
       const payment = pay.payment as { status?: string; id?: string; transaction_amount?: number } | undefined;
-      const status = String(payment?.status || pay.status || "");
+      const status = mpApiStatus(payment?.status || pay.status);
       const amount = Number(pay.transaction_amount || payment?.transaction_amount || 0);
       if (!preapprovalId) return json(200, { ok: true, ignored: true });
 
@@ -643,7 +667,7 @@ Deno.serve(async (req) => {
       const { error } = await admin.rpc("apply_mp_approved_payment", {
         p_intent_id: charge.id,
         p_provider_payment_id: String(payment?.id || remoteId),
-        p_status: status || "approved",
+        p_status: status || "pending",
         p_paid_amount: amount || sub.amount,
       });
       if (error) return json(500, { error: error.message });
@@ -661,12 +685,13 @@ Deno.serve(async (req) => {
     const payment = await mpGet(`/v1/payments/${remoteId}`, token);
     const metadata = payment.metadata as { intent_id?: string } | undefined;
     const intentId = String(payment.external_reference || metadata?.intent_id || "");
-    if (!intentId) return json(200, { ok: true, ignored: true });
+    const paymentStatus = mpApiStatus(payment.status);
+    if (!intentId || !paymentStatus) return json(200, { ok: true, ignored: true });
 
     const { error } = await admin.rpc("apply_mp_approved_payment", {
       p_intent_id: intentId,
       p_provider_payment_id: String(payment.id || remoteId),
-      p_status: String(payment.status || "pending"),
+      p_status: paymentStatus,
       p_paid_amount: Number(payment.transaction_amount || 0),
     });
     if (error) return json(500, { error: error.message });

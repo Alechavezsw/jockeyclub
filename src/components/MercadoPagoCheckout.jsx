@@ -29,7 +29,9 @@ export default function MercadoPagoCheckout({
   const [error, setError] = useState('');
   const [checkout, setCheckout] = useState(null);
   const approvedRef = useRef(onApproved);
-  approvedRef.current = onApproved;
+  useEffect(() => {
+    approvedRef.current = onApproved;
+  }, [onApproved]);
 
   useEffect(() => {
     if (!checkout?.id || !isSupabaseConfigured) return undefined;

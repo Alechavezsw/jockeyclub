@@ -174,8 +174,6 @@ export default function AdminDashboardTab({
   staffHrRecords = [],
   clubEvents = [],
   alerts = [],
-  alertAcks = [],
-  onAckAlert,
   isZondaActive = false,
   tierCatalog = [],
   totalMembers,
@@ -459,7 +457,7 @@ export default function AdminDashboardTab({
       .sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))
         || String(b.id || '').localeCompare(String(a.id || '')))
       .slice(0, 20);
-  }, [cashMoves, members, monthKey, finance.recentIncomes, poolMonthRows]);
+  }, [cashMoves, members, monthKey, finance, poolMonthRows]);
   const todayIncomeRows = useMemo(() => {
     const poolToday = poolMonthRows.find((row) => row.date === todayKey);
     const base = (todayIncomes || []).filter((row) => !/^canon pileta/i.test(String(row.label || '')));

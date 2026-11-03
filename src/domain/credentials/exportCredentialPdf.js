@@ -1,3 +1,4 @@
+import { loadJsPdf } from '../../lib/office.js';
 import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
@@ -74,7 +75,7 @@ async function imageToDataUrl(src) {
 export async function exportCredentialPdf(member) {
   if (!member) throw new Error('No hay socio para la credencial.');
   const [{ jsPDF }, logoDataUrl, photoDataUrl] = await Promise.all([
-    import('jspdf'),
+    loadJsPdf(),
     loadClubLogoDataUrl(),
     imageToDataUrl(member.photo),
   ]);

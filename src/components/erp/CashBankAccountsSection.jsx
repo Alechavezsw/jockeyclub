@@ -8,6 +8,8 @@ import {
 } from '../../domain/accounting/bankAccounts';
 import { formatAccessinCashDate, enrichCashMovementsWithMembers } from '../../domain/accounting/cashLedger';
 import { formatCurrency } from '../../domain/accounting/journal';
+import { todayAR } from '../../lib/arDate';
+
 
 function emptyForm() {
   return {
@@ -23,7 +25,7 @@ function emptyForm() {
 function emptyEntryForm(accountId = '') {
   return {
     accountId,
-    date: new Date().toISOString().slice(0, 10),
+    date: todayAR(),
     amount: '',
     description: '',
   };

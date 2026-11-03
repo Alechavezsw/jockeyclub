@@ -12,6 +12,7 @@ import {
   formatValidity as formatDiscountValidity,
 } from '../../domain/accounting/discounts';
 import {
+
   FEE_EXPENSE_CATEGORIES,
   FEE_EXPENSE_VALUE_TYPES,
   appliedToLabel as expenseAppliedToLabel,
@@ -21,6 +22,7 @@ import {
   formatFeeExpenseValue,
   formatValidity as formatExpenseValidity,
 } from '../../domain/accounting/feeExpenses';
+import { todayAR } from '../../lib/arDate';
 
 const PAGE_SIZE = 10;
 
@@ -40,7 +42,7 @@ const EMPTY_FORM = {
 function emptyFormFor(category, isExpense) {
   return {
     ...EMPTY_FORM,
-    validFrom: new Date().toISOString().slice(0, 10),
+    validFrom: todayAR(),
     valueType: isExpense ? 'amount' : 'percent',
   };
 }
@@ -357,7 +359,7 @@ export default function DiscountsBonusesPanel({
           description,
           valueType,
           value,
-          validFrom: new Date().toISOString().slice(0, 10),
+          validFrom: todayAR(),
           changeReason: 'Importación de descuentos extras',
         };
         if (isExpense) {

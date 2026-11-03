@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { loadSnapshots } from '../../data/snapshots';
+import { hasLocalSnapshot, loadSnapshots } from '../../data/snapshots';
 import {
   applyCurrentAccountBalances,
   currentAccountBalanceOf,
@@ -17,13 +17,13 @@ beforeAll(async () => {
 });
 
 describe('currentAccountBalances', () => {
-  it('carga el corte vivo de cuentas corrientes', () => {
-    expect(ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF).toBe('2026-10-31');
+  it.skipIf(!hasLocalSnapshot('accessinCurrentAccountBalances'))('carga el corte vivo de cuentas corrientes', () => {
+    expect(ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF).toBe('2026-11-02');
     expect(ACCESSIN_CURRENT_ACCOUNT_BALANCES_SNAPSHOT.rowCount).toBeGreaterThan(7000);
     expect(ACCESSIN_CURRENT_ACCOUNT_BALANCES_SNAPSHOT.withBalance).toBeGreaterThan(100);
   });
 
-  it('lookup por número de socio con saldo real', () => {
+  it.skipIf(!hasLocalSnapshot('accessinCurrentAccountBalances'))('lookup por número de socio con saldo real', () => {
     const hit = lookupCurrentAccountBalance('1004');
     expect(hit).toBeTruthy();
     expect(hit.balance).toBe(56000);
@@ -31,7 +31,7 @@ describe('currentAccountBalances', () => {
     expect(hit.unpaidSurcharges).toBe(2000);
   });
 
-  it('completa saldo LILA solo si el padrón no tiene saldo operativo', () => {
+  it.skipIf(!hasLocalSnapshot('accessinCurrentAccountBalances'))('completa saldo LILA solo si el padrón no tiene saldo operativo', () => {
     const seeded = applyCurrentAccountBalances([
       { memberId: '1004', name: 'Cristina Mugas' },
       { memberId: '99999999', name: 'Sin seed' },
@@ -47,7 +47,7 @@ describe('currentAccountBalances', () => {
     expect(currentAccountBalanceOf(kept[0])).toBe(999999);
   });
 
-  it('no pisa un cobro posterior al corte LILA', () => {
+  it.skipIf(!hasLocalSnapshot('accessinCurrentAccountBalances'))('no pisa un cobro posterior al corte LILA', () => {
     const first = applyCurrentAccountBalances([
       { memberId: '1004', name: 'Cristina Mugas', outstandingBalance: 999999 },
     ]);

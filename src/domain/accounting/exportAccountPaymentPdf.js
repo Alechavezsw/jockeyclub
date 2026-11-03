@@ -1,3 +1,4 @@
+import { loadAutoTable, loadJsPdf } from '../../lib/office.js';
 import {
   BRAND,
   CLUB_NAME,
@@ -20,8 +21,8 @@ function shortDate(iso) {
 export async function exportAccountPaymentPdf(entry, { memberName = '' } = {}) {
   if (!entry) throw new Error('No hay pago para exportar.');
   const [{ jsPDF }, autoTableMod, logoDataUrl] = await Promise.all([
-    import('jspdf'),
-    import('jspdf-autotable'),
+    loadJsPdf(),
+    loadAutoTable(),
     loadClubLogoDataUrl(),
   ]);
   const autoTable = autoTableMod.default;

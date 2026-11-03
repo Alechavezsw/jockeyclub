@@ -3,6 +3,7 @@
 import { periodLabelFromKey } from './detailedCurrentAccounts';
 import { formatAccessinCashDate } from './cashLedger';
 import { duesAmountForMember, duesDueDayForMember, duesPayableForMember, toWhatsAppPhone } from '../members/dues';
+import { money } from '../money';
 
 export function isCashMemberPayment(movement) {
   return /pago con efectivo/i.test(String(movement?.typeLabel || ''));
@@ -86,7 +87,7 @@ function periodKeyOf(year, month) {
 /** Cuota del período y, si el pago cae después del 10, el recargo del 10 %. Incluye adelantos (mes siguiente). */
 export function feeImputationLines(movement, member) {
   const paidOn = String(movement?.date || '').slice(0, 10);
-  const amount = Math.round((Number(movement?.amount) || 0) * 100) / 100;
+  const amount = money(movement?.amount);
   const match = paidOn.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match || !(amount > 0) || !member) return [];
   const year = Number(match[1]);
@@ -146,7 +147,7 @@ export function currentMonthFeeCollected(movements = [], members = [], monthKey 
       total += Number(line.amount) || 0;
     }
   }
-  return Math.round(total * 100) / 100;
+  return money(total);
 }
 
 function paymentDate(payment) {
@@ -211,7 +212,7 @@ export function liveMonthFeeCollected({
 }
 
 function roundCollected(value) {
-  return Math.round((Number(value) || 0) * 100) / 100;
+  return money(value);
 }
 
 function movementBlob(row) {
@@ -353,16 +354,16 @@ function linesForFeePeriod(member, period, paidOn, amount, mode = 'exact') {
   const key = periodKeyOf(period.year, period.month);
   const on = new Date(period.year, period.month - 1, 1);
   const dueOn = `${key}-${String(duesDueDayForMember(member)).padStart(2, '0')}`;
-  const cuota = Math.round((Number(duesAmountForMember(member, on)) || 0) * 100) / 100;
+  const cuota = money(duesAmountForMember(member, on));
   if (!(cuota > 0)) return [];
-  const payable = Math.round((Number(duesPayableForMember(member, { paidOn, dueOn, on })) || 0) * 100) / 100;
+  const payable = money(duesPayableForMember(member, { paidOn, dueOn, on }));
   if (mode === 'exact') {
     if (Math.abs(payable - amount) > 0.009) return [];
   } else if (amount <= payable + 0.009) {
     return [];
   }
   const label = periodLabelFromKey(key);
-  const recargo = Math.round((payable - cuota) * 100) / 100;
+  const recargo = money(payable - cuota);
   const rows = [{
     id: `cuota-${key}`,
     date: `${key}-01`,
@@ -443,7 +444,7 @@ export function buildCashPaymentDetail(movement, cobranzas = [], members = []) {
     voucher: firstText(movement.voucher, movement.comprobante, memberFromLines?.voucher),
     applied,
     creditApplied: Number(movement.creditApplied) || 0,
-    surplus: applied.length ? Math.max(0, Math.round((paymentTotal - appliedSum) * 100) / 100) : 0,
+    surplus: applied.length ? Math.max(0, money(paymentTotal - appliedSum)) : 0,
     paymentTotal,
     paymentMethods: [
       {
@@ -487,7 +488,5 @@ export function cashPaymentShareTargets(detail, formatMoney) {
 }
 
 export function cashMovementsSaldo(movements = []) {
-  return Math.round(
-    (movements || []).reduce((s, m) => s + (Number(m.amount) || 0), 0) * 100
-  ) / 100;
+  return money((movements || []).reduce((s, m) => s + (Number(m.amount) || 0), 0));
 }

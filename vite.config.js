@@ -19,15 +19,27 @@ const powerpointRoute = () => {
 export default defineConfig({
   plugins: [react(), powerpointRoute()],
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        manualChunks(id) {
-          if (!id.includes('node_modules')) return undefined;
-          if (id.includes('lucide-react')) return 'lucide';
-          if (id.includes('@supabase')) return 'supabase';
-          if (id.includes('xlsx')) return 'xlsx';
-          if (id.includes('jspdf')) return 'jspdf';
-          return 'vendor';
+        codeSplitting: {
+          groups: [
+            { name: 'lucide', test: /[\\/]node_modules[\\/]lucide-react[\\/]/, priority: 20 },
+            { name: 'supabase', test: /[\\/]node_modules[\\/]@supabase[\\/]/, priority: 20 },
+            // Sin arrastrar helpers compartidos: si entran acá, el index importa el PDF entero.
+            {
+              name: 'xlsx',
+              test: /[\\/]node_modules[\\/]xlsx[\\/]/,
+              priority: 30,
+              includeDependenciesRecursively: false,
+            },
+            {
+              name: 'jspdf',
+              test: /[\\/]node_modules[\\/](jspdf(?:-autotable)?|html2canvas|canvg|fflate|fast-png|pako|iobuffer)[\\/]/,
+              priority: 30,
+              includeDependenciesRecursively: false,
+            },
+            { name: 'vendor', test: /[\\/]node_modules[\\/]/, priority: 10 },
+          ],
         },
       },
     },
@@ -35,6 +47,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['src/**/*.test.{js,jsx}'],
+    setupFiles: ['src/test/setup.js'],
     // Sin Supabase en los tests: si falta un seed local, el snapshot falla en vez de
     // pedirlo al bucket real.
     env: {

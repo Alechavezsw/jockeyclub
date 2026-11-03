@@ -267,7 +267,10 @@ export default function NoticeComposeCard({
           });
         } catch (err) {
           const detail = err?.message || 'el mail no salió';
-          throw new Error(bits.length ? `El mensaje interno salió. El mail no: ${detail}` : detail);
+          throw new Error(
+            bits.length ? `El mensaje interno salió. El mail no: ${detail}` : detail,
+            { cause: err },
+          );
         }
         bits.push(mailed.sent === 1 ? '1 mail' : `${mailed.sent} mails`);
         if (mailed.failed) bits.push(`${mailed.failed} mails no salieron`);

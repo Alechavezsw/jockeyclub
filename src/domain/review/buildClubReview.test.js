@@ -228,7 +228,7 @@ describe('buildClubReview', () => {
         { memberId: '2', name: 'Luis', documentNumber: '30111333', tier: 'socio', status: 'active', email: 'ana@club.com' },
       ],
       expenses: [{ id: 'e1', status: 'pending_approval', concept: 'Luz' }],
-      feePeriods: [{ id: 'fp', year: 2026, month: 9, status: 'pending' }],
+      feePeriods: [{ id: 'fp', year: 2026, month: 9, status: 'draft' }],
       membershipApplications: [{ id: 'a1', fullName: 'Eva', status: 'pending' }],
       discounts: [{ id: 'd1', isActive: true, description: 'Viejo', validTo: '2026-01-01', category: 'members' }],
       cashSessions: [{ id: 'cs', status: 'open', openedAt: '2026-09-20T10:00:00.000Z' }],

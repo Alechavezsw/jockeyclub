@@ -1,6 +1,8 @@
 /** PDF del informe de cierre de un mes. */
 
+import { loadAutoTable, loadJsPdf } from '../../lib/office.js';
 import {
+
   BRAND,
   CLUB_NAME,
   CLUB_SEDE,
@@ -8,6 +10,7 @@ import {
   drawReportHeader,
   loadClubLogoDataUrl,
 } from '../reports/pdfBrand';
+import { todayAR } from '../../lib/arDate';
 
 function money(n) {
   return `$ ${Number(n || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -16,13 +19,13 @@ function money(n) {
 export async function exportMonthClosePdf(report) {
   if (!report?.monthKey) throw new Error('No hay un mes para cerrar.');
   const [{ jsPDF }, autoTableMod, logoDataUrl] = await Promise.all([
-    import('jspdf'),
-    import('jspdf-autotable'),
+    loadJsPdf(),
+    loadAutoTable(),
     loadClubLogoDataUrl(),
   ]);
   const autoTable = autoTableMod.default;
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  const stamp = new Date().toISOString().slice(0, 10);
+  const stamp = todayAR();
   let y = drawReportHeader(doc, {
     title: 'Informe de cierre',
     subtitle: `${CLUB_NAME} · ${CLUB_SEDE}`,

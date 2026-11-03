@@ -1,3 +1,4 @@
+import { loadAutoTable, loadJsPdf } from '../../lib/office.js';
 import {
   BRAND,
   CLUB_NAME,
@@ -7,6 +8,8 @@ import {
   loadClubLogoDataUrl,
 } from '../reports/pdfBrand';
 import { periodLabelFromKey } from './detailedCurrentAccounts';
+import { todayAR } from '../../lib/arDate';
+
 
 function money(n) {
   return `$ ${Number(n || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -15,13 +18,13 @@ function money(n) {
 export async function exportDetailedCcPdf(detail) {
   if (!detail?.memberNumber) throw new Error('Socio. Es obligatorio');
   const [{ jsPDF }, autoTableMod, logoDataUrl] = await Promise.all([
-    import('jspdf'),
-    import('jspdf-autotable'),
+    loadJsPdf(),
+    loadAutoTable(),
     loadClubLogoDataUrl(),
   ]);
   const autoTable = autoTableMod.default;
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-  const stamp = new Date().toISOString().slice(0, 10);
+  const stamp = todayAR();
 
   autoTable(doc, {
     startY: drawReportHeader(doc, {

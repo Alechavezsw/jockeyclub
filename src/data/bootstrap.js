@@ -1,6 +1,8 @@
 import { isSupabaseConfigured } from '../lib/supabase';
 import * as repos from './repos';
 import { canAccessAdmin } from '../domain/auth/roles';
+import { todayAR } from '../lib/arDate';
+
 
 const EMPTY_ERP = {
   chartOfAccounts: [],
@@ -73,7 +75,7 @@ async function mapLimit(tasks, limit = QUERY_CONCURRENCY) {
 }
 
 function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  return todayAR();
 }
 
 function mergeReservationOccupancy(detailed = [], occupancy = []) {

@@ -1,4 +1,4 @@
-import { formatInstantAR, hasClock, nowTimeAR } from '../../lib/arDate';
+import { formatInstantAR, hasClock, nowTimeAR, todayAR } from '../../lib/arDate';
 import {
   duesAmountForMember,
   duesAmountForTier,
@@ -40,7 +40,7 @@ function monthLabel(isoDate) {
 function shiftMonths(fromIso, delta) {
   const d = new Date(`${fromIso}T12:00:00`);
   d.setMonth(d.getMonth() + delta);
-  return d.toISOString().slice(0, 10);
+  return todayAR(d);
 }
 
 function paymentAmount(row) {
@@ -76,7 +76,7 @@ export function getMemberPaymentHistory(member, { today = new Date(), allowDemo 
 
   if (member?.id || !allowDemo) return [];
 
-  const todayIso = today.toISOString().slice(0, 10);
+  const todayIso = todayAR(today);
   const baseDue = member?.nextDueDate || todayIso;
   const amount = duesAmountForMember(member) || duesAmountForTier(member?.tier) || 32000;
   const years = Math.max(1, Number(member?.yearsActive) || 2);

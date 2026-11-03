@@ -21,6 +21,7 @@ import {
   parseCuotaCategories,
   slugifyTierId,
 } from '../members/tiers';
+import { money } from '../money';
 
 const MAX_MONTHS = 36;
 const EPS = 0.009;
@@ -43,14 +44,6 @@ const LEGACY_FEE_ACCOUNTS = {
     name: 'SOCIOS INDIVIDUALES',
   },
 };
-
-function foldAccountText(value) {
-  return String(value || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .trim();
-}
 
 function categoryKey(value) {
   return slugifyTierId(value);
@@ -241,17 +234,17 @@ function monthRow(dueOn, capital, interest) {
 }
 
 function takeCategoryMonth(member, slug, dueOn, leftover, { today, applyLate }) {
-  const capitalBase = Math.round(duesAmountForTier(slug, undefined, dueOn));
+  const capitalBase = money(duesAmountForTier(slug, undefined, dueOn));
   const payable = applyLate
-    ? Math.round(duesPayableAmount(capitalBase, { paidOn: today, dueOn, tier: slug }))
+    ? money(duesPayableAmount(capitalBase, { paidOn: today, dueOn, tier: slug }))
     : capitalBase;
   const interestBase = Math.max(0, payable - capitalBase);
   if (capitalBase <= 0 && interestBase <= 0) return { leftover, row: null, status: 'zero' };
 
   const capital = Math.min(capitalBase, leftover);
-  let next = Math.round((leftover - capital) * 100) / 100;
+  let next = money(leftover - capital);
   const interest = next > EPS ? Math.min(interestBase, next) : 0;
-  next = Math.round((next - interest) * 100) / 100;
+  next = money(next - interest);
   if (capital <= EPS && interest <= EPS) return { leftover: next, row: null, status: 'ok' };
   return { leftover: next, row: monthRow(dueOn, capital, interest), status: 'ok' };
 }
@@ -267,7 +260,7 @@ function categoryShareOfBalance(member, categoryName, on) {
     if (categoryKey(name) === categoryKey(categoryName)) mine += weight;
   }
   if (persisted > EPS && total > EPS && mine > EPS) {
-    return Math.round(persisted * (mine / total) * 100) / 100;
+    return money(persisted * (mine / total));
   }
   return 0;
 }
@@ -281,7 +274,7 @@ function syntheticCategoryUnpaid(member, slug, firstUnpaid, monthsBehind, today)
     total += duesPayableAmount(capital, { paidOn: today, dueOn, tier: slug });
     dueOn = shiftDue(dueOn, 1);
   }
-  return Math.round(total);
+  return money(total);
 }
 
 function allocateCategoryMonths(member, categoryName, { today = new Date() } = {}) {
@@ -395,9 +388,9 @@ export function liveFeeAccountStats(account, members = [], { today = new Date() 
     if (line.memberNumber) membersSeen.add(line.memberNumber);
   }
   return {
-    billed: Math.round(pending * 100) / 100,
+    billed: money(pending),
     collected: 0,
-    pending: Math.round(pending * 100) / 100,
+    pending: money(pending),
     memberCount: membersSeen.size,
     monthRowCount: lines.length,
   };
@@ -480,7 +473,8 @@ export function categoryChargesForMember(member, { paidOn = new Date(), dueOn, o
 
 /**
  * Movimientos de una liquidación. Cada categoría del socio va a su cuenta.
- * El importe queda pendiente: el balance vivo lo vuelve a calcular el listado.
+ * El importe es la cuota del mes, como si se pagara el día 10: el 10 % se suma al cobrar.
+ * Si el cargo ya trae categoría e importe, se usa ese importe.
  */
 export function ledgerLinesFromCharges(accounts = [], members = [], charges = [], period = {}) {
   const byMember = new Map((members || []).map((member) => [String(member.memberId), member]));
@@ -503,9 +497,9 @@ export function ledgerLinesFromCharges(accounts = [], members = [], charges = []
       ? [{
         name: charge.category || charge.tierId,
         slug: charge.tierId || categoryKey(charge.category),
-        amount: Math.round(Number(charge.addAmount ?? charge.amount) || 0),
+        amount: money(charge.addAmount ?? charge.amount),
       }].filter((slice) => slice.amount > 0)
-      : categoryChargesForMember(member, { paidOn: date || dueOn, dueOn, on });
+      : categoryChargesForMember(member, { paidOn: dueOn, dueOn, on });
     for (const slice of slices) {
       const account = matchFeeLedgerAccountForCategory(accounts, slice.name);
       if (!account) continue;
@@ -645,8 +639,8 @@ export function feeLedgerTotals(lines = []) {
     pending += Number(line.pending) || 0;
   }
   return {
-    billed: Math.round(billed * 100) / 100,
-    collected: Math.round(collected * 100) / 100,
-    pending: Math.round(pending * 100) / 100,
+    billed: money(billed),
+    collected: money(collected),
+    pending: money(pending),
   };
 }

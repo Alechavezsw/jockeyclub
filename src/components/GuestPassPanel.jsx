@@ -2,10 +2,12 @@ import { useMemo, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { UserPlus, Trash2, Ticket } from 'lucide-react';
 import {
+
   createGuestPass,
   isGuestPassValid,
   revokeGuestPass,
 } from '../domain/credentials/guestPass';
+import { todayAR } from '../lib/arDate';
 
 export default function GuestPassPanel({
   member,
@@ -14,7 +16,7 @@ export default function GuestPassPanel({
 }) {
   const [name, setName] = useState('');
   const [error, setError] = useState('');
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayAR();
 
   const mine = useMemo(
     () =>

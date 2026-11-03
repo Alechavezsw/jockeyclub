@@ -12,6 +12,7 @@ import GuestPassPanel from '../GuestPassPanel';
 import CollectDuesModal from './CollectDuesModal';
 import ModalDialog from '../ModalDialog';
 import { formatShortDate, isDuesExemptMember, quotaHeadline } from '../../domain/members/dues';
+import { imputationPeriodLabel } from '../../domain/members/duesImputations';
 import { familyChildStanding, regularidadOf, upsertRegularidad } from '../../domain/members/familyStanding';
 import { shouldOfferVitalicio } from '../../domain/members/membership';
 import { canRemoveDuesSurcharge, canVoidDuesPayment } from '../../domain/auth/roles';
@@ -1484,6 +1485,15 @@ export default function MemberProfilePanel({
                       ) : p.removedSurcharge > 0 ? (
                         <div className="mp-list-sub">Recargo borrado{p.surchargeRemovedBy ? ` · ${p.surchargeRemovedBy}` : ''}</div>
                       ) : null}
+                      {p.imputations?.length ? (
+                        <div className="mp-list-sub">
+                          {p.imputations.map((row) => (
+                            `${imputationPeriodLabel(row.dueOn)}: cuota ${formatCurrency(row.capital)}`
+                            + (row.surcharge > 0 ? ` · recargo ${formatCurrency(row.surcharge)}` : '')
+                            + (row.surchargeOpen > 0 ? ` · queda recargo ${formatCurrency(row.surchargeOpen)}` : '')
+                          )).join(' · ')}
+                        </div>
+                      ) : null}
                       {p.receiptName || p.receiptPath ? (
                         <div className="mp-list-sub">
                           Comprobante: {p.receiptName || 'adjunto'}
@@ -1550,10 +1560,17 @@ export default function MemberProfilePanel({
                         type="button"
                         className="btn btn-secondary btn-sm"
                         onClick={async () => {
-                          if (!window.confirm('¿Anular este cobro? Queda el rastro y se restaura el saldo.')) return;
+                          const reason = window.prompt('Motivo de la anulación (mínimo 8 caracteres)');
+                          if (reason == null) return;
+                          if (reason.trim().length < 8) {
+                            setCollectFlash('Falta el motivo de la anulación (mínimo 8 caracteres).');
+                            window.setTimeout(() => setCollectFlash(''), 5000);
+                            return;
+                          }
                           try {
                             const result = voidMemberDuesPayment(member, p.id, {
-                              voidedBy: user?.name || 'Tesorería',
+                              voidedBy: user?.name || 'Caja',
+                              reason,
                             });
                             await persistDuesVoid(result, {
                               setMembers,

@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { loadSnapshots } from '../../data/snapshots';
+import { hasLocalSnapshot, loadSnapshots } from '../../data/snapshots';
 import { bankAccountsSeed } from './bankAccounts';
 import {
   accessinCashBalanceCards,
@@ -33,20 +33,20 @@ beforeAll(async () => {
 });
 
 describe('cashLedger Accessin', () => {
-  it('carga el seed de movimientos reales', () => {
+  it.skipIf(!hasLocalSnapshot('accessinCashMovements') || !hasLocalSnapshot('accessinCashSnapshot'))('carga el seed de movimientos reales', () => {
     expect(ACCESSIN_CASH_MOVEMENTS.length).toBe(3283);
     expect(ACCESSIN_CASH_SNAPSHOT.asOf).toBe('2026-11-02');
     expect(ACCESSIN_CASH_SNAPSHOT.openingBalance).toBeCloseTo(680291959.84, 2);
     expect(ACCESSIN_CASH_SNAPSHOT.closingBalance).toBeCloseTo(915584547.96, 2);
   });
 
-  it('las tarjetas muestran el corte Accessin de caja', () => {
+  it.skipIf(!hasLocalSnapshot('accessinCashSnapshot'))('las tarjetas muestran el corte Accessin de caja', () => {
     const total = recalculateAccessinCashTotal(ACCESSIN_CASH_SNAPSHOT, ACCESSIN_CASH_MOVEMENTS);
     expect(ACCESSIN_CASH_SNAPSHOT.closingBalance).toBeCloseTo(915584547.96, 2);
     expect(total).toBeGreaterThan(ACCESSIN_CASH_SNAPSHOT.openingBalance);
   });
 
-  it('tarjetas usan saldos del corte (efectivo + bancos + cheques = total)', () => {
+  it.skipIf(!hasLocalSnapshot('accessinCashSnapshot'))('tarjetas usan saldos del corte (efectivo + bancos + cheques = total)', () => {
     const cards = accessinCashBalanceCards(ACCESSIN_CASH_SNAPSHOT, ACCESSIN_CASH_MOVEMENTS);
     const efectivo = cards.find((c) => c.id === 'efectivo')?.value;
     const bancos = cards.find((c) => c.id === 'bancos')?.value;
@@ -61,7 +61,7 @@ describe('cashLedger Accessin', () => {
     expect(Math.round((efectivo + bancos + cheques) * 100) / 100).toBeCloseTo(total, 2);
   });
 
-  it('si el padrón de bancos tiene saldo 0, usa el total del corte', () => {
+  it.skipIf(!hasLocalSnapshot('accessinCashSnapshot'))('si el padrón de bancos tiene saldo 0, usa el total del corte', () => {
     const zeroBanks = bankAccountsSeed().ACCESSIN_BANK_ACCOUNTS.map((row) => ({ ...row, balance: 0 }));
     const cards = accessinCashBalanceCards(
       ACCESSIN_CASH_SNAPSHOT,
@@ -81,13 +81,13 @@ describe('cashLedger Accessin', () => {
     expect(cards.find((c) => c.id === 'bancos')?.filter?.view).toBe('bank_accounts');
   });
 
-  it('usa cheques reales Accessin', () => {
+  it.skipIf(!hasLocalSnapshot('accessinCheques'))('usa cheques reales Accessin', () => {
     expect(ACCESSIN_CHEQUES_SNAPSHOT.total).toBe(0);
     expect(accessinChequesTotal(ACCESSIN_CHEQUES)).toBe(0);
     expect(filterAccessinCheques(ACCESSIN_CHEQUES)).toHaveLength(0);
   });
 
-  it('filtra por wallet y limita', () => {
+  it.skipIf(!hasLocalSnapshot('accessinCashMovements'))('filtra por wallet y limita', () => {
     const cash = filterAccessinCashMovements(ACCESSIN_CASH_MOVEMENTS, { walletKind: 'cash' });
     expect(cash.every((m) => m.walletKind === 'cash')).toBe(true);
     const limited = filterAccessinCashMovements(ACCESSIN_CASH_MOVEMENTS, { limit: 10 });

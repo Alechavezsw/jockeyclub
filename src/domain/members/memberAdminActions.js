@@ -1,3 +1,4 @@
+import { todayAR } from '../../lib/arDate';
 /** Acciones administrativas sobre socios: motivos trazables. */
 
 /** La nota se presenta con un mes de anticipación. El mes en curso se cobra y la baja rige el 1.º del mes siguiente. */
@@ -14,7 +15,7 @@ export function isPendingBaja(member, today = new Date()) {
   const fecha = String(member?.bajaFecha || member?.meta?.bajaFecha || '').slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return false;
   const iso = today instanceof Date
-    ? today.toISOString().slice(0, 10)
+    ? todayAR(today)
     : String(today).slice(0, 10);
   const status = String(member?.status || 'active').toLowerCase();
   return status === 'active' && fecha > iso;

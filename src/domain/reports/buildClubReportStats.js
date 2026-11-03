@@ -1,4 +1,6 @@
 import { isDuesExemptMember } from '../members/dues';
+import { todayAR } from '../../lib/arDate';
+
 
 /** Agrega KPIs económicos y operativos para la consola de reportes. */
 
@@ -70,7 +72,7 @@ export function buildClubReportStats({
   const alertsOpen = alerts.filter((a) => a.active !== false && a.status !== 'resolved').length;
   const accessToday = entryLogs.filter((l) => {
     const raw = l.timestamp || l.createdAt || l.date || '';
-    return String(raw).slice(0, 10) === new Date().toISOString().slice(0, 10);
+    return String(raw).slice(0, 10) === todayAR();
   }).length;
 
   const journalLines = journalEntries.reduce((n, e) => n + (e.lines?.length || 0), 0);

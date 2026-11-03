@@ -34,7 +34,6 @@ function CastLane({
   const width = 360;
   const height = 176;
   const pad = { l: 10, r: 36, t: 22, b: 24 };
-  const innerW = width - pad.l - pad.r;
   const innerH = height - pad.t - pad.b;
   const max = Math.max(maxValue || 0, ...points.map((row) => row.value), 1);
   const yOf = (value) => pad.t + innerH - (value / max) * innerH;
@@ -248,28 +247,28 @@ function WeekBars({ week }) {
 
 function MixChart({ padron }) {
   const total = Math.max(1, padron.slices.reduce((sum, row) => sum + row.value, 0));
-  let offset = 0;
+  const arcs = [];
+  let cursor = 0;
+  for (const slice of padron.slices) {
+    const pct = (slice.value / total) * 100;
+    arcs.push({ slice, pct, offset: cursor });
+    cursor += pct;
+  }
   return (
     <div className="jev-cast-mix">
       <svg viewBox="0 0 36 36" className="jev-cast-donut" aria-hidden="true">
-        {padron.slices.map((slice) => {
-          const pct = (slice.value / total) * 100;
-          const dash = `${pct} ${100 - pct}`;
-          const circle = (
-            <circle
-              key={slice.id}
-              className={`jev-cast-arc is-${slice.tone}`}
-              r="15.9"
-              cx="18"
-              cy="18"
-              pathLength="100"
-              strokeDasharray={dash}
-              strokeDashoffset={-offset}
-            />
-          );
-          offset += pct;
-          return circle;
-        })}
+        {arcs.map(({ slice, pct, offset }) => (
+          <circle
+            key={slice.id}
+            className={`jev-cast-arc is-${slice.tone}`}
+            r="15.9"
+            cx="18"
+            cy="18"
+            pathLength="100"
+            strokeDasharray={`${pct} ${100 - pct}`}
+            strokeDashoffset={-offset}
+          />
+        ))}
       </svg>
       <ul>
         {padron.slices.map((slice) => (

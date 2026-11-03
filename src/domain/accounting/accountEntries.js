@@ -1,3 +1,4 @@
+import { todayAR } from '../../lib/arDate';
 /**
  * Movimientos de cuenta de socio: alta, edición y baja lógica.
  *
@@ -38,7 +39,7 @@ export function createAccountEntry(input = {}) {
     accessinId: input.accessinId || null,
     memberNumber,
     memberName: String(input.memberName || '').trim(),
-    date: input.date || new Date().toISOString().slice(0, 10),
+    date: input.date || todayAR(),
     type,
     typeLabel,
     description: String(input.description || '').trim(),

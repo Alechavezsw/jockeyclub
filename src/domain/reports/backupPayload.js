@@ -1,3 +1,4 @@
+import { todayAR } from '../../lib/arDate';
 export const BACKUP_CLUB = 'Jockey Club San Juan - Sede Rivadavia';
 export const BACKUP_VERSION = '1.2.0';
 
@@ -85,7 +86,7 @@ export function validateBackupPayload(parsed) {
 }
 
 export function backupDayKey(date = new Date()) {
-  return date.toISOString().slice(0, 10);
+  return todayAR(date);
 }
 
 export function downloadBackupJson(payload, filename) {

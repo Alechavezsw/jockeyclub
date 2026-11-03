@@ -6,6 +6,7 @@
  * Lo que no entra en esas cuotas queda sin imputar (saldo previo / otros cargos).
  */
 
+import { money } from '../money';
 import { padMember } from './accountEntries';
 import {
   duesAmountForMember,
@@ -80,9 +81,9 @@ function latestOccurredDue(todayIso, member) {
 }
 
 function monthCharge(member, dueOn, { today, applyLate }) {
-  const capital = Math.round(duesAmountForMember(member, dueOn));
+  const capital = money(duesAmountForMember(member, dueOn));
   if (!applyLate) return { capital, interest: 0 };
-  const payable = Math.round(duesPayableForMember(member, { paidOn: today, dueOn, on: dueOn }));
+  const payable = money(duesPayableForMember(member, { paidOn: today, dueOn, on: dueOn }));
   return { capital, interest: Math.max(0, payable - capital) };
 }
 
@@ -139,7 +140,7 @@ function syntheticUnpaidAmount(member, firstUnpaid, monthsBehind, today) {
     total += duesPayableForMember(member, { paidOn: today, dueOn, on: dueOn });
     dueOn = nextDueAfter(dueOn, member);
   }
-  return Math.round(total);
+  return money(total);
 }
 
 function takeMonth(list, member, dueOn, leftover, { today, applyLate }) {
@@ -148,9 +149,9 @@ function takeMonth(list, member, dueOn, leftover, { today, applyLate }) {
     return { leftover, status: 'zero' };
   }
   const capital = Math.min(capitalBase, leftover);
-  let next = Math.round((leftover - capital) * 100) / 100;
+  let next = money(leftover - capital);
   const interest = next > EPS ? Math.min(interestBase, next) : 0;
-  next = Math.round((next - interest) * 100) / 100;
+  next = money(next - interest);
   if (capital > EPS || interest > EPS) {
     list.push({
       ...periodFromDueOn(dueOn),
@@ -195,7 +196,7 @@ function allocateMonths(member, { remaining, firstUnpaid, lastPaymentDate, today
     row.accumulated = accumulated;
   }
 
-  return { months, unallocated: Math.max(0, Math.round(leftover * 100) / 100) };
+  return { months, unallocated: Math.max(0, money(leftover)) };
 }
 
 export function appMonthlyDebtForMember(member, { today = new Date(), entries = [] } = {}) {
@@ -242,7 +243,7 @@ export function appMonthlyDebtForMember(member, { today = new Date(), entries = 
 
   const capital = months.reduce((sum, row) => sum + (Number(row.capital) || 0), 0);
   const interest = months.reduce((sum, row) => sum + (Number(row.interest) || 0), 0);
-  const totalDebt = Math.round((capital + interest + unallocated) * 100) / 100;
+  const totalDebt = money(capital + interest + unallocated);
   if (totalDebt <= EPS) return null;
 
   const cal = duesNoticeCalendar(duesDueDayForMember(member));
@@ -297,7 +298,7 @@ export function buildAppMonthlyDebts(members = [], { today = new Date(), account
     memberCount: Object.keys(byNumber).length,
     monthRowCount,
     lineCount,
-    totalDebt: Math.round(totalDebt * 100) / 100,
+    totalDebt: money(totalDebt),
     byNumber,
   };
 }

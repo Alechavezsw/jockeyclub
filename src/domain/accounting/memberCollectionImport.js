@@ -2,8 +2,10 @@ import { createAccountEntry, padMember } from './accountEntries';
 import { memberNumberOf } from '../members/households';
 import {
   applyImportedMemberPayment,
+  importedCollectionKey,
   revertImportedMemberPayment,
 } from '../members/memberPayments';
+import { todayAR } from '../../lib/arDate';
 
 /** Importación de cobranzas de socios (Excel Manual). */
 
@@ -35,14 +37,21 @@ function normHeader(h) {
     .toUpperCase();
 }
 
+function utcCalendarDay(date) {
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(date.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 function excelDateToIso(v) {
   if (v == null || v === '') return '';
   if (v instanceof Date && !Number.isNaN(v.getTime())) {
-    return v.toISOString().slice(0, 10);
+    return utcCalendarDay(v);
   }
   if (typeof v === 'number') {
     const utc = Date.UTC(1899, 11, 30) + Math.round(v * 86400000);
-    return new Date(utc).toISOString().slice(0, 10);
+    return utcCalendarDay(new Date(utc));
   }
   const s = String(v).trim();
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
@@ -174,6 +183,7 @@ export function buildMemberCollectionImport({
 }) {
   const payments = [];
   const errors = [];
+  const seen = new Set();
   const stamp = new Date();
   let totalAmount = 0;
   const index = buildMemberMatchIndex(members);
@@ -181,17 +191,31 @@ export function buildMemberCollectionImport({
   const payable = (rows || []).filter((r) => (Number(r.monto) || 0) > 0);
   const ordered = sortPayableRows(payable, imputationOrder);
 
-  ordered.forEach((row, i) => {
+  ordered.forEach((row) => {
     if (!row.unidad && !row.dni) {
       errors.push({ line: row.line, message: 'Falta UNIDAD o DNI (nro. de socio).' });
       return;
     }
     const matched = matchMemberByUnidad(members, row.unidad, index)
       || matchMemberByUnidad(members, row.dni, index);
-    const date = forceDate || row.fecha || stamp.toISOString().slice(0, 10);
+    const date = forceDate || row.fecha || todayAR(stamp);
+    const memberId = matched?.memberId || row.unidad || row.dni;
+    const idempotencyKey = importedCollectionKey({
+      memberId,
+      date,
+      amount: row.monto,
+      voucher: row.comprobante || '',
+      cbu: row.cbu || '',
+    });
+    if (seen.has(idempotencyKey)) {
+      errors.push({ line: row.line, message: 'Cobro repetido en el archivo: ya está en una fila anterior.' });
+      return;
+    }
+    seen.add(idempotencyKey);
     const payment = {
-      id: `mcp-${stamp.getTime()}-${i}`,
-      memberId: matched?.memberId || row.unidad || row.dni,
+      id: idempotencyKey,
+      idempotencyKey,
+      memberId,
       memberName: matched?.name || row.nombre || row.unidad,
       date,
       amount: row.monto,
@@ -258,6 +282,7 @@ export function applyMemberCollectionPayments(members = [], payments = []) {
         method: 'transferencia',
         id: payment.id,
       });
+      if (result.duplicate) continue;
       next[idx] = result.member;
       applied.push({
         paymentId: result.payment.id,
@@ -304,7 +329,7 @@ export function collectionPaymentsToEntries(payments = [], ledgerEntries = []) {
         memberNumber: p.memberId,
         memberName: p.nombre || p.memberName || '',
         value: p.amount,
-        date: p.date || new Date().toISOString().slice(0, 10),
+        date: p.date || todayAR(),
         voucher: p.comprobante || p.voucher || '',
         source: 'collection_import',
         description: 'Importación cobranzas socios',

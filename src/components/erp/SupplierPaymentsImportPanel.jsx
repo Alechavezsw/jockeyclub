@@ -1,3 +1,4 @@
+import { loadXlsx } from '../../lib/office.js';
 import { useRef, useState } from 'react';
 import { ArrowLeft, Download, FileSpreadsheet, Upload } from 'lucide-react';
 import {
@@ -55,7 +56,7 @@ export default function SupplierPaymentsImportPanel({
     }
     setBusy(true);
     try {
-      const XLSX = await import('xlsx');
+      const XLSX = await loadXlsx();
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf, { type: 'array', cellDates: true });
       const sheet = wb.Sheets.PAGOS || wb.Sheets[wb.SheetNames[0]];

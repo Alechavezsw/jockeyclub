@@ -1,3 +1,4 @@
+import { loadXlsx } from '../../lib/office.js';
 import { accountLabel, getAccountById } from './chartOfAccounts';
 import {
   journalDateKey,
@@ -79,7 +80,7 @@ export async function exportJournalExcel(journalEntries = [], {
   chart = null,
   fileName,
 } = {}) {
-  const XLSX = await import('xlsx');
+  const XLSX = await loadXlsx();
   const built = buildJournalExcelAoA(journalEntries, { chart });
   const stamp = todayISODateAR();
   const downloadName = fileName || `jockey_club_libro_diario_${stamp}.xlsx`;

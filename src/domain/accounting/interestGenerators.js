@@ -1,3 +1,4 @@
+import { todayAR } from '../../lib/arDate';
 /**
  * Generador de intereses sobre cuotas / saldos impagos (estilo Accessin/LILA).
  */
@@ -136,7 +137,7 @@ export function computeInterestAmount(balance, percentage, tolerance = 0) {
 export function runInterestGenerator({
   generator,
   members = [],
-  imputationDate = new Date().toISOString().slice(0, 10),
+  imputationDate = todayAR(),
 } = {}) {
   if (!generator?.id) throw new Error('Generador inválido.');
   if (!generator.isActive) throw new Error('El generador está inactivo.');

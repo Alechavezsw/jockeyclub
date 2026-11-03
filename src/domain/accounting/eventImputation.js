@@ -3,6 +3,8 @@
 import { FACILITIES, getFacilityById } from '../reservations/facilities';
 import { createAccountEntry } from './accountEntries';
 import { buildMemberMatchIndex, matchMemberByUnidad } from './memberCollectionImport';
+import { todayAR } from '../../lib/arDate';
+
 
 export const EVENT_DEBIT_ACCOUNT = 'Cuentas a Cobrar';
 export const EVENT_CREDIT_ACCOUNT = 'Reservas e Instalaciones';
@@ -21,7 +23,7 @@ function spaceLabel(reservation) {
 
 function reservationDate(reservation, today = new Date()) {
   return String(reservation?.date || reservation?.start || '').slice(0, 10)
-    || today.toISOString().slice(0, 10);
+    || todayAR(today);
 }
 
 export function findFacilityForReservation(reservation, catalog = FACILITIES) {

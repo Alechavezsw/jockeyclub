@@ -34,7 +34,6 @@ let version = 0;
 let generation = 0;
 let authBound = false;
 let liveBound = false;
-let liveTimer = 0;
 
 function notify() {
   version += 1;
@@ -74,13 +73,6 @@ export function snapshotStatus(name) {
 
 export function snapshotError(name) {
   return errors.get(name) || null;
-}
-
-function forgetSnapshot(name) {
-  loaded.delete(name);
-  errors.delete(name);
-  merged.delete(name);
-  inflight.delete(name);
 }
 
 /** Olvida todo lo cargado. Se llama solo al cambiar la sesión. */
@@ -174,7 +166,7 @@ function bindLive(supabase) {
   };
   document.addEventListener('visibilitychange', onVisible);
   window.addEventListener('focus', onVisible);
-  liveTimer = window.setInterval(() => {
+  window.setInterval(() => {
     if (document.visibilityState === 'visible') void refreshStaleSnapshots(supabase);
   }, 20000);
 }

@@ -4,6 +4,7 @@
  */
 
 import { slugifyTierId } from '../members/tiers';
+import { money } from '../money';
 
 let runtimeRules = [];
 
@@ -114,7 +115,7 @@ function ruleValue(rule) {
 
 /** Descuento de una cuota. Los porcentajes se suman y topan en 100. Después se resta el importe fijo. */
 export function discountOnAmount(gross, rules = [], member, context = {}) {
-  const base = Math.max(0, Math.round((Number(gross) || 0) * 100) / 100);
+  const base = Math.max(0, money(gross));
   if (!base) return { gross: 0, discount: 0, net: 0, applied: [] };
   let percent = 0;
   let fixed = 0;
@@ -130,10 +131,10 @@ export function discountOnAmount(gross, rules = [], member, context = {}) {
   }
   percent = Math.min(100, Math.max(0, percent));
   const afterPercent = base * (1 - percent / 100);
-  const net = Math.max(0, Math.round((afterPercent - fixed) * 100) / 100);
+  const net = Math.max(0, money(afterPercent - fixed));
   return {
     gross: base,
-    discount: Math.round((base - net) * 100) / 100,
+    discount: money(base - net),
     net,
     applied,
   };

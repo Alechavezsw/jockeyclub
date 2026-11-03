@@ -50,13 +50,19 @@ function excelSerialToIso(serial) {
   if (!Number.isFinite(n) || n <= 0) return '';
   const utc = new Date(Math.round((n - 25569) * 86400 * 1000));
   if (Number.isNaN(utc.getTime())) return '';
-  return utc.toISOString().slice(0, 10);
+  const y = utc.getUTCFullYear();
+  const m = String(utc.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(utc.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 export function parseAccessinDate(value) {
   if (value == null || value === '') return '';
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    return value.toISOString().slice(0, 10);
+    const y = value.getUTCFullYear();
+    const m = String(value.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(value.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
   }
   const text = cell(value);
   if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);

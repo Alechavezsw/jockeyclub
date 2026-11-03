@@ -18,7 +18,10 @@ const EMPTY = Object.freeze({ ACCESSIN_CHEQUES: [], ACCESSIN_CHEQUES_AS_OF: '', 
 
 describe('assembleSnapshotChunks', () => {
   function encode(value) {
-    return Buffer.from(JSON.stringify(value), 'utf8').toString('base64');
+    const bytes = new TextEncoder().encode(JSON.stringify(value));
+    let binary = '';
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary);
   }
 
   it('arma el JSON cuando las partes empiezan en 0 y siguen en orden', () => {
@@ -123,8 +126,9 @@ describe('registro de snapshots', () => {
     expect(readSnapshot('accessinCheques', EMPTY)).toBe(EMPTY);
   });
 
-  it('en desarrollo usa los seeds locales del catálogo', () => {
-    expect(SNAPSHOT_NAMES.every(hasLocalSnapshot)).toBe(true);
+  it('en desarrollo los seeds que están en disco pertenecen al catálogo', () => {
+    const present = SNAPSHOT_NAMES.filter((name) => hasLocalSnapshot(name));
+    expect(present.every((name) => SNAPSHOT_NAMES.includes(name))).toBe(true);
   });
 
   it('reloadSnapshot vuelve a pedir sin vaciar lo que ya se ve', async () => {

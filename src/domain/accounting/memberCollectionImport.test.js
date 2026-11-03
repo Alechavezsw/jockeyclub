@@ -66,7 +66,7 @@ describe('memberCollectionImport', () => {
       },
     ];
     const built = buildMemberCollectionImport({
-      rows: [{ line: 2, unidad: '3008', nombre: 'Nuñez', fecha: '2026-10-16', monto: 40000 }],
+      rows: [{ line: 2, unidad: '3008', nombre: 'Nuñez', fecha: '2026-10-16', monto: 44000 }],
       members,
     });
     const { members: next, applied } = applyMemberCollectionPayments(members, built.payments);
@@ -101,8 +101,44 @@ describe('memberCollectionImport', () => {
     });
     expect(built.payments[0].matched).toBe(true);
     const { members: next } = applyMemberCollectionPayments(members, built.payments);
-    expect(next[0].outstandingBalance).toBe(-10000);
+    expect(next[0].outstandingBalance).toBe(-6000);
     expect(next[0].nextDueDate).toBe('2026-11-10');
+  });
+
+  it('la misma fila dos veces no vuelve a bajar el saldo', () => {
+    const members = [
+      {
+        memberId: '3008',
+        name: 'Nuñez',
+        outstandingBalance: 50000,
+        nextDueDate: '2026-08-10',
+        status: 'active',
+        paymentHistory: [],
+      },
+    ];
+    const rows = [{ line: 2, unidad: '3008', nombre: 'Nuñez', fecha: '2026-08-30', monto: 25000, comprobante: 'RC-1' }];
+    const first = buildMemberCollectionImport({ rows, members });
+    const second = buildMemberCollectionImport({ rows, members });
+    expect(second.payments[0].id).toBe(first.payments[0].id);
+    expect(first.payments[0].id).toBe('import:3008:rc:RC-1');
+    const once = applyMemberCollectionPayments(members, first.payments);
+    const twice = applyMemberCollectionPayments(once.members, second.payments);
+    expect(once.members[0].outstandingBalance).toBe(25000);
+    expect(twice.members[0].outstandingBalance).toBe(25000);
+    expect(twice.members[0].paymentHistory).toHaveLength(1);
+    expect(twice.applied).toHaveLength(0);
+  });
+
+  it('una fila repetida en el mismo archivo entra una sola vez', () => {
+    const built = buildMemberCollectionImport({
+      rows: [
+        { line: 2, unidad: '3008', fecha: '2026-08-30', monto: 25000, comprobante: 'RC-1' },
+        { line: 3, unidad: '3008', fecha: '2026-08-30', monto: 25000, comprobante: 'RC-1' },
+      ],
+      members: [{ memberId: '3008', name: 'Nuñez', outstandingBalance: 50000 }],
+    });
+    expect(built.payments).toHaveLength(1);
+    expect(built.errors[0].message).toMatch(/repetido/i);
   });
 });
 

@@ -1,3 +1,4 @@
+import { todayAR } from '../../lib/arDate';
 /** Importación de gastos (Excel Manual con N° de comprobante). */
 
 export const EXPENSE_IMPORT_MODULES = {
@@ -22,14 +23,21 @@ function normHeader(h) {
     .toUpperCase();
 }
 
+function utcCalendarDay(date) {
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(date.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 function excelDateToIso(v) {
   if (v == null || v === '') return '';
   if (v instanceof Date && !Number.isNaN(v.getTime())) {
-    return v.toISOString().slice(0, 10);
+    return utcCalendarDay(v);
   }
   if (typeof v === 'number') {
     const utc = Date.UTC(1899, 11, 30) + Math.round(v * 86400000);
-    return new Date(utc).toISOString().slice(0, 10);
+    return utcCalendarDay(new Date(utc));
   }
   const s = String(v).trim();
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
@@ -153,7 +161,7 @@ export function buildExpenseImport({
     const expense = {
       id: `exp-imp-${stamp.getTime()}-${row.line}`,
       expenseNumber: null,
-      expenseDate: row.fecha || stamp.toISOString().slice(0, 10),
+      expenseDate: row.fecha || todayAR(stamp),
       vendorName: matchedSupplier
         ? (matchedSupplier.legalName || matchedSupplier.name)
         : row.proveedor,

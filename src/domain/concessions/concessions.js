@@ -1,6 +1,8 @@
 /** Concesiones del club: contratos, canon, vencimientos y alertas. */
 
 import { buildPostedEntry } from '../accounting/journal';
+import { todayAR } from '../../lib/arDate';
+
 
 export const CONCESSION_TYPES = {
   gastronomia: 'Gastronomía / Cantina',
@@ -79,7 +81,7 @@ function parseDate(value) {
 }
 
 function toISODate(d) {
-  return d.toISOString().slice(0, 10);
+  return todayAR(d);
 }
 
 function generatePortalCode(spaceId) {

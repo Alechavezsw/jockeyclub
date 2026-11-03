@@ -1,3 +1,4 @@
+import { loadAutoTable, loadJsPdf } from '../../lib/office.js';
 import { BRAND, drawReportFooter, drawReportHeader } from '../reports/pdfBrand';
 import { CLUB_BANK_ACCOUNTS, MERCADO_PAGO } from './clubBanks';
 
@@ -65,8 +66,8 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
   const isBoleto = kind === 'boleto';
   const docLabel = isBoleto ? 'Boleto de pago' : 'Recibo de pago';
   const [{ jsPDF }, autoTableMod] = await Promise.all([
-    import('jspdf'),
-    import('jspdf-autotable'),
+    loadJsPdf(),
+    loadAutoTable(),
   ]);
   const autoTable = autoTableMod.default;
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });

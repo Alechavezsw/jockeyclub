@@ -8,6 +8,19 @@ const corsHeaders = {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+function isServiceRole(req: Request) {
+  const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
+  const part = token.split(".")[1];
+  if (!part) return false;
+  try {
+    const padded = part.replace(/-/g, "+").replace(/_/g, "/");
+    const json = JSON.parse(atob(padded));
+    return json?.role === "service_role";
+  } catch {
+    return false;
+  }
+}
+
 function json(status: number, body: Record<string, unknown>) {
   return new Response(JSON.stringify(body), {
     status,
@@ -71,6 +84,8 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json(405, { error: "Method not allowed" });
 
   try {
+    if (!isServiceRole(req)) return json(401, { error: "La bienvenida la dispara el libro, no el navegador." });
+
     const applicationId = String((await req.json())?.applicationId || "").trim();
     if (!UUID_RE.test(applicationId)) return json(400, { error: "Solicitud inválida" });
 
@@ -83,24 +98,25 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
-    const { data: row, error } = await admin
-      .from("membership_applications")
-      .select("id, full_name, email, meta, created_at")
-      .eq("id", applicationId)
-      .maybeSingle();
-    if (error || !row) return json(404, { error: "No encontramos la solicitud" });
-
-    const to = String(row.email || "").trim();
-    if (!to.includes("@")) return json(400, { error: "La solicitud no tiene email" });
-
-    const meta = row.meta && typeof row.meta === "object" ? row.meta as Record<string, unknown> : {};
-    if (meta.welcome_sent_at) {
-      return json(200, { ok: true, already: true, to });
+    const { data: claimedRaw, error: claimError } = await admin.rpc("claim_join_welcome", {
+      p_id: applicationId,
+    });
+    if (claimError) return json(500, { error: claimError.message });
+    let claimed: unknown = claimedRaw;
+    if (typeof claimed === "string") {
+      try {
+        claimed = JSON.parse(claimed);
+      } catch {
+        claimed = null;
+      }
     }
+    if (!claimed || typeof claimed !== "object") return json(200, { ok: true, already: true });
 
-    const created = row.created_at ? new Date(String(row.created_at)).getTime() : 0;
-    if (created && Date.now() - created > 30 * 60 * 1000) {
-      return json(400, { error: "La bienvenida ya no se puede reenviar" });
+    const row = claimed as { full_name?: string; email?: string };
+    const to = String(row.email || "").trim();
+    if (!to.includes("@")) {
+      await admin.rpc("release_join_welcome", { p_id: applicationId });
+      return json(400, { error: "La solicitud no tiene email" });
     }
 
     const name = String(row.full_name || "").trim();
@@ -129,14 +145,11 @@ Deno.serve(async (req) => {
         html: welcomeHtml(name, ""),
       }),
     });
-    const payload = await res.json().catch(() => ({}));
+    const payload = await res.json().catch(() => ({})) as { message?: string; id?: string };
     if (!res.ok) {
+      await admin.rpc("release_join_welcome", { p_id: applicationId });
       return json(400, { error: payload?.message || "Resend no pudo enviar el mail" });
     }
-
-    await admin.from("membership_applications").update({
-      meta: { ...meta, welcome_sent_at: new Date().toISOString() },
-    }).eq("id", applicationId);
 
     return json(200, { ok: true, id: payload?.id || null, to });
   } catch (err) {

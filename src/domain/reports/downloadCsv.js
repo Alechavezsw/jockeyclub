@@ -1,3 +1,4 @@
+import { todayAR } from '../../lib/arDate';
 /** Descarga un CSV UTF-8 con BOM (Excel-friendly). */
 export function downloadCsv(filename, headers, rows) {
   const escape = (value) => {
@@ -22,5 +23,5 @@ export function downloadCsv(filename, headers, rows) {
 }
 
 export function stampDate() {
-  return new Date().toISOString().slice(0, 10);
+  return todayAR();
 }

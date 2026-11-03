@@ -11,7 +11,6 @@ import { useSnapshotSeed } from '../../hooks/useSnapshots';
 import {
   UNIDENTIFIED_STATUS,
   DEBIT_STATUS,
-  buildLiveFixedExpenses,
   buildLiveGalicia,
   buildLiveUnidentified,
   createUnidentifiedCollection,
@@ -23,7 +22,6 @@ import {
   createFixedDiscount,
 } from '../../domain/accounting/treasury';
 import { todayISODateAR } from '../../lib/arDate';
-import { duesAmountForMember } from '../../domain/members/dues';
 
 function PanelShell({ icon: Icon, title, subtitle, children, actions }) {
   return (

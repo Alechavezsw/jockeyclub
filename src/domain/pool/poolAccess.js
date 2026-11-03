@@ -1,6 +1,8 @@
 /** Acceso a pileta: revisación médica, canon del día e invitados. */
 
 import { piletaPayAccess, seasonDuesGate } from './seasonDuesGate';
+import { todayAR } from '../../lib/arDate';
+
 
 export const DEFAULT_POOL_SETTINGS = {
   memberDayFee: 5000,
@@ -18,13 +20,13 @@ export const POOL_PAYMENT_METHODS = [
 ];
 
 function todayISO(d = new Date()) {
-  return d.toISOString().slice(0, 10);
+  return todayAR(d);
 }
 
 function addDaysISO(isoDate, days) {
   const d = new Date(`${String(isoDate).slice(0, 10)}T12:00:00`);
   d.setDate(d.getDate() + Number(days || 0));
-  return d.toISOString().slice(0, 10);
+  return todayAR(d);
 }
 
 export function mergePoolSettings(raw = {}) {

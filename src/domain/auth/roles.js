@@ -282,7 +282,7 @@ export function allowedAdminTabs(role) {
     return ['dashboard', 'jev', 'members', 'pool', 'access', 'caja'];
   }
   if (role === 'cashier') {
-    return ['dashboard', 'jev', 'members', 'dues', 'pool', 'access', 'caja', 'events'];
+    return ['dashboard', 'jev', 'members', 'dues', 'access', 'caja', 'events'];
   }
   // Empleado de administración: el mostrador, más los débitos. Pileta no arma archivos.
   if (role === 'admin_employee') {
@@ -379,10 +379,19 @@ export function canWaiveDuesSurcharge() {
   return false;
 }
 
-/** Anular un cobro: solo tesorería, contador y superadmin. */
+/** Anular un cobro, con motivo: caja, tesorería, contador y superadmin. */
 export function canVoidDuesPayment(roleOrRolesOrProfile) {
   const keys = collectRoleKeys(roleOrRolesOrProfile).map((key) => String(key || '').toLowerCase());
-  return keys.includes('tesorero') || keys.includes('accountant') || keys.includes('superadmin');
+  return keys.includes('cashier')
+    || keys.includes('tesorero')
+    || keys.includes('accountant')
+    || keys.includes('superadmin');
+}
+
+/** Reabrir una liquidación ya generada: solo superadmin. La base lo exige en reopen_fee_period. */
+export function canReopenFeePeriod(roleOrRolesOrProfile) {
+  const keys = collectRoleKeys(roleOrRolesOrProfile).map((key) => String(key || '').toLowerCase());
+  return keys.includes('superadmin');
 }
 
 /** Quitar un recargo ya cobrado: solo superadmin. La base lo exige en quitar_recargo_cuota. */

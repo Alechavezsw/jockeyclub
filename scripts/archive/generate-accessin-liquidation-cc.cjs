@@ -1,0 +1,166 @@
+if (process.env.ALLOW_ARCHIVED_IMPORT !== '1') {
+  console.error('Archivado: import de Lila, Accessin o Societas. No está en npm. ALLOW_ARCHIVED_IMPORT=1 solo si sabés qué libro pisás.');
+  process.exit(1);
+}
+/**
+ * Seed del Detalle Cta. Cte. Liquidación Accessin/LILA.
+ * Toma el Excel más nuevo entre Avtualizacion/balances/Detalle de la cc e cuotas
+ * y el corte histórico.
+ */
+const XLSX = require('xlsx');
+const fs = require('fs');
+const path = require('path');
+
+const sourceRoots = [
+  path.join(__dirname, '../../datita/Avtualizacion/Contabilidad/balances/Detalle de la cc e cuotas'),
+  path.join(__dirname, '../../datita/Avtualizacion/Contabilidad/balances'),
+  path.join(__dirname, '../../datita/contabilidad/Balances'),
+];
+const outFile = path.join(__dirname, '../../src/data/seed/accessinLiquidationCc.js');
+
+function collectLiquidationExcels() {
+  const files = [];
+  const seen = new Set();
+  const walk = (dir, depth = 0) => {
+    if (!fs.existsSync(dir) || depth > 2) return;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full, depth + 1);
+        continue;
+      }
+      if (!entry.name.endsWith('.xlsx') || entry.name.startsWith('~$')) continue;
+      if (!/Detalle Cta Cte|Liquidaci[oó]n/i.test(entry.name)) continue;
+      if (/Balance Mensual/i.test(entry.name)) continue;
+      if (seen.has(full)) continue;
+      seen.add(full);
+      const dated = entry.name.match(/(\d{4}-\d{2}-\d{2})/);
+      files.push({
+        name: entry.name,
+        full,
+        date: dated ? dated[1] : '',
+        mtime: fs.statSync(full).mtimeMs,
+      });
+    }
+  };
+  sourceRoots.forEach((root) => walk(root));
+  return files.toSorted((a, b) => String(b.date).localeCompare(String(a.date)) || b.mtime - a.mtime);
+}
+
+const picked = collectLiquidationExcels()[0];
+if (!picked) throw new Error('No hay Excel de Detalle Cta Cte Liquidación');
+
+function cell(value) {
+  if (value == null || value === '') return '';
+  return String(value).trim();
+}
+
+function money(value) {
+  if (value === '' || value == null) return 0;
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
+}
+
+function parseSpanishMetaDate(raw) {
+  const s = cell(raw);
+  const m = s.match(/(\d{1,2})\s+de\s+([A-Za-záéíóúÁÉÍÓÚ]+)\s+del\s+(\d{4})/i);
+  if (!m) return '';
+  const months = {
+    enero: '01', febrero: '02', marzo: '03', abril: '04', mayo: '05', junio: '06',
+    julio: '07', agosto: '08', septiembre: '09', octubre: '10', noviembre: '11', diciembre: '12',
+  };
+  const mon = months[m[2].normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()];
+  if (!mon) return '';
+  return `${m[3]}-${mon}-${String(Number(m[1])).padStart(2, '0')}`;
+}
+
+const fileName = picked.name;
+const wb = XLSX.readFile(picked.full);
+const sheetName = wb.SheetNames.find((name) => /detalle/i.test(name)) || wb.SheetNames[0];
+const aoa = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
+
+let generatedAt = '';
+let periodLabel = '';
+for (const row of aoa) {
+  const a = cell(row?.[0]);
+  if (/^Generado el/i.test(a)) generatedAt = a.replace(/^Generado el\s+/i, '');
+  if (/^Liquidaci[oó]n\b/i.test(a)) periodLabel = a;
+}
+
+const headerIdx = aoa.findIndex((row) => /nro de socio/i.test(cell(row?.[0])));
+if (headerIdx < 0) throw new Error('Sin encabezado NRO DE SOCIO');
+
+const items = [];
+let totals = null;
+let sourceCount = 0;
+for (let i = headerIdx + 1; i < aoa.length; i += 1) {
+  const row = aoa[i] || [];
+  const memberNumber = cell(row[0]);
+  if (!memberNumber) continue;
+  if (/^totales$/i.test(memberNumber)) {
+    totals = {
+      previousBalance: money(row[4]),
+      liquidation: money(row[5]),
+      others: money(row[6]),
+      interests: money(row[7]),
+      withoutSurcharge: money(row[8]),
+      surcharge: money(row[9]),
+      surchargeAlt: money(row[10]),
+    };
+    continue;
+  }
+  sourceCount += 1;
+  const previousBalance = money(row[4]);
+  const liquidation = money(row[5]);
+  const others = money(row[6]);
+  const interests = money(row[7]);
+  const withoutSurcharge = money(row[8]);
+  const surcharge = money(row[9]);
+  const surchargeAlt = money(row[10]);
+  const hasMovement = [previousBalance, liquidation, others, interests, withoutSurcharge, surcharge, surchargeAlt]
+    .some((value) => Math.abs(value) > 0.009);
+  if (!hasMovement) continue;
+  items.push({
+    id: `liq-${memberNumber}-${i}`,
+    memberNumber,
+    firstName: cell(row[1]),
+    lastName: cell(row[2]),
+    memberName: [cell(row[1]), cell(row[2])].filter(Boolean).join(' '),
+    documentNumber: cell(row[3]),
+    previousBalance,
+    liquidation,
+    others,
+    interests,
+    withoutSurcharge,
+    surcharge,
+    surchargeAlt,
+  });
+}
+
+const asOf = parseSpanishMetaDate(generatedAt) || (fileName.match(/(\d{4}-\d{2}-\d{2})/) || [])[1] || '';
+const snapshot = {
+  asOf,
+  fileName,
+  generatedAt,
+  periodLabel: periodLabel || 'Liquidación',
+  sourceCount,
+  listedCount: items.length,
+  withLiquidation: items.filter((row) => Math.abs(row.liquidation) > 0.009).length,
+  withPrevious: items.filter((row) => Math.abs(row.previousBalance) > 0.009).length,
+  ...(totals || {}),
+};
+
+const body = `/** Auto-generado desde LILA - Detalle Cta Cte Liquidación ${asOf}. No editar a mano. */
+export const ACCESSIN_LIQUIDATION_CC_AS_OF = ${JSON.stringify(asOf)};
+export const ACCESSIN_LIQUIDATION_CC_SNAPSHOT = ${JSON.stringify(snapshot, null, 2)};
+export const ACCESSIN_LIQUIDATION_CC = ${JSON.stringify(items)};
+`;
+
+fs.writeFileSync(outFile, body);
+console.log(`Wrote liquidation CC ${asOf} listed=${items.length} source=${sourceCount}`);
+console.log(JSON.stringify({
+  periodLabel: snapshot.periodLabel,
+  liquidation: snapshot.liquidation,
+  previousBalance: snapshot.previousBalance,
+  withLiquidation: snapshot.withLiquidation,
+}, null, 2));

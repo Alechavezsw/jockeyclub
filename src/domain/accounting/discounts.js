@@ -1,3 +1,4 @@
+import { todayAR } from '../../lib/arDate';
 /** Descuentos / bonificaciones (reglas + aplicadas Accessin). */
 
 // El snapshot de bonificaciones vive en ./discountsSeed. No importarlo acá: este
@@ -194,11 +195,11 @@ export function createDiscount(input = {}) {
     value,
     percentage: valueType === 'percent' ? value : null,
     amount: valueType === 'amount' ? value : (Number(input.amount) || 0),
-    validFrom: input.validFrom || input.date || new Date().toISOString().slice(0, 10),
+    validFrom: input.validFrom || input.date || todayAR(),
     validFromTime: input.validFromTime || '',
     validTo: input.validTo || '',
     validToTime: input.validToTime || '',
-    date: input.date || input.validFrom || new Date().toISOString().slice(0, 10),
+    date: input.date || input.validFrom || todayAR(),
     appliedBy: String(input.appliedBy || '').trim(),
     isActive: input.isActive !== false,
     source: input.source || 'manual',

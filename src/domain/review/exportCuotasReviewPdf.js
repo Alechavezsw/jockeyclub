@@ -1,5 +1,6 @@
 /** PDF de la revisión IA de cuotas (altas, bajas, fichas y liquidación). */
 
+import { loadAutoTable, loadJsPdf } from '../../lib/office.js';
 import {
   BRAND,
   CLUB_NAME,
@@ -9,6 +10,8 @@ import {
   loadClubLogoDataUrl,
 } from '../reports/pdfBrand';
 import { REVIEW_TIERS } from './buildClubReview';
+import { todayAR } from '../../lib/arDate';
+
 
 const TIER_LABEL = Object.fromEntries(REVIEW_TIERS.map((tier) => [tier.id, tier.label]));
 
@@ -21,13 +24,13 @@ function sampleLabel(sample) {
 export async function exportCuotasReviewPdf(review) {
   if (!review) throw new Error('No hay revisión para exportar.');
   const [{ jsPDF }, autoTableMod, logoDataUrl] = await Promise.all([
-    import('jspdf'),
-    import('jspdf-autotable'),
+    loadJsPdf(),
+    loadAutoTable(),
     loadClubLogoDataUrl(),
   ]);
   const autoTable = autoTableMod.default;
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  const stamp = new Date().toISOString().slice(0, 10);
+  const stamp = todayAR();
   const counts = review.counts || {};
   const periodBit = review.periodLabel ? ` · ${review.periodLabel}` : '';
   let y = drawReportHeader(doc, {

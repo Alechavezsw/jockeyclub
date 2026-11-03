@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { loadSnapshots } from '../../data/snapshots';
+import { hasLocalSnapshot, loadSnapshots } from '../../data/snapshots';
 import {
   cobranzasSeed,
   cobranzasSummary,
@@ -15,13 +15,13 @@ beforeAll(async () => {
 });
 
 describe('cobranzas Accessin', () => {
-  it('carga el reporte real', () => {
-    expect(ACCESSIN_COBRANZAS_SNAPSHOT.asOf).toBe('2026-10-31');
-    expect(ACCESSIN_COBRANZAS.length).toBe(1941);
-    expect(ACCESSIN_COBRANZAS_SNAPSHOT.totalAmount).toBeCloseTo(91965336.6, 2);
+  it.skipIf(!hasLocalSnapshot('accessinCobranzas'))('carga el reporte real', () => {
+    expect(ACCESSIN_COBRANZAS_SNAPSHOT.asOf).toBe('2026-11-02');
+    expect(ACCESSIN_COBRANZAS.length).toBe(3208);
+    expect(ACCESSIN_COBRANZAS_SNAPSHOT.totalAmount).toBeCloseTo(163320722.57, 2);
   });
 
-  it('resume por tipo', () => {
+  it.skipIf(!hasLocalSnapshot('accessinCobranzas'))('resume por tipo', () => {
     const summary = cobranzasSummary();
     expect(summary.byType.Cuotas).toBeGreaterThan(40_000_000);
     expect(summary.count).toBe(ACCESSIN_COBRANZAS.length);
@@ -29,7 +29,7 @@ describe('cobranzas Accessin', () => {
     expect(Math.round(typed * 100) / 100).toBeCloseTo(summary.totalAmount, 2);
   });
 
-  it('filtra por tipo y texto', () => {
+  it.skipIf(!hasLocalSnapshot('accessinCobranzas'))('filtra por tipo y texto', () => {
     const cuotas = filterAccessinCobranzas(ACCESSIN_COBRANZAS, { type: 'Cuotas', limit: 5 });
     expect(cuotas).toHaveLength(5);
     expect(cuotas.every((r) => r.type === 'Cuotas')).toBe(true);

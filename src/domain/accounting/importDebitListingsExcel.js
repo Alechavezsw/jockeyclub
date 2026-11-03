@@ -1,3 +1,4 @@
+import { loadXlsx } from '../../lib/office.js';
 import {
   parseDebitListingMatrix,
   parseDebitListingSheetName,
@@ -21,7 +22,7 @@ export function periodMetaFromNames(sheetName = '', fileName = '') {
  */
 export async function parseDebitListingsExcelFile(file) {
   if (!file) throw new Error('Elegí un archivo Excel (.xlsx / .xlsm).');
-  const XLSX = await import('xlsx');
+  const XLSX = await loadXlsx();
   const buffer = await file.arrayBuffer();
   const wb = XLSX.read(buffer, { type: 'array', cellDates: false });
   if (!wb.SheetNames?.length) throw new Error('El Excel no tiene hojas.');

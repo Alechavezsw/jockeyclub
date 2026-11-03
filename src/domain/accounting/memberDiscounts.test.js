@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { loadSnapshots } from '../../data/snapshots';
+import { hasLocalSnapshot, loadSnapshots } from '../../data/snapshots';
 import {
   formatMemberDiscountRange,
   listMemberDiscounts,
@@ -20,7 +20,7 @@ beforeAll(async () => {
   } = memberDiscountsSeed());
 });
 
-describe('memberDiscounts', () => {
+describe.skipIf(!hasLocalSnapshot('accessinMemberDiscounts'))('memberDiscounts', () => {
   it('carga el corte LILA de descuentos extras', () => {
     expect(ACCESSIN_MEMBER_DISCOUNTS_AS_OF).toBe('2026-10-26');
     expect(ACCESSIN_MEMBER_DISCOUNTS.length).toBe(18);
