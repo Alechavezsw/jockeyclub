@@ -43,7 +43,19 @@ import {
   softDeleteFeeExpense,
   upsertFeeExpense,
 } from '../domain/accounting/feeExpenses';
-import { feePeriodNeedsClosure, periodLabel, reopenFeePeriod, resolveFeePeriods } from '../domain/accounting/feeBilling';
+import {
+  aggregateFeeChargeDeltas,
+  applyFeeChargeDeltasToMembers,
+  autoLiquidateFeePeriodOnMonthStart,
+  feePeriodNeedsClosure,
+  findFeePeriodForMonth,
+  periodLabel,
+  promotePendingFeePeriods,
+  refreshFeePeriodWithDiscounts,
+  reopenFeePeriod,
+  resolveFeePeriods,
+} from '../domain/accounting/feeBilling';
+import { liquidationFromPeriod } from '../domain/accounting/feePeriodLiquidation';
 import {
   createFeeChartAccount,
   ledgerLinesFromCharges,
@@ -1444,6 +1456,9 @@ export default function useErpStore({
     await repos.applyMemberBalanceDeltas(deltas);
   }, []);
 
+  const feePromoteRef = useRef({ running: false, key: '' });
+  const feeAutoRef = useRef({ running: false, key: '' });
+
   useEffect(() => {
     if (!cloud() || !userId) return undefined;
     let cancelled = false;
@@ -1570,6 +1585,213 @@ export default function useErpStore({
     }));
     return built;
   }, [feeChartAccounts]);
+
+  /**
+   * Pasa a Procesada todo Pendiente ya disponible (00 h) e imputa deudas.
+   * Corre en el bootstrap del panel: no depende de abrir la pestaña Cuotas.
+   */
+  const ensurePromotePendingFeePeriods = useCallback(async ({
+    members = [],
+    setMembers = null,
+  } = {}) => {
+    const pendingKey = (feePeriods || [])
+      .filter((period) => period.status === 'pending')
+      .map((period) => `${period.id}:${period.availableAt || period.pack?.availableAt || ''}`)
+      .join('|');
+    if (!pendingKey) return null;
+    const state = feePromoteRef.current;
+    if (state.running || state.key === pendingKey) return null;
+    const preview = promotePendingFeePeriods(feePeriods);
+    if (!preview.promoted?.length) {
+      state.key = pendingKey;
+      return null;
+    }
+    state.running = true;
+    try {
+      const result = promotePendingFeePeriods(feePeriods);
+      if (!result.promoted?.length) {
+        state.key = pendingKey;
+        return null;
+      }
+      for (const period of result.promoted) {
+        if (cloud()) await persistFeePeriod(period);
+      }
+      setFeePeriods(result.periods);
+      const allCharges = result.promoted.flatMap((period) => (
+        (period.pack?.charges || []).filter((row) => (Number(row.addAmount) || 0) > 0)
+      ));
+      const deltas = aggregateFeeChargeDeltas(allCharges);
+      if (deltas.length) {
+        if (cloud()) await repos.applyMemberBalanceDeltas(deltas);
+        if (typeof setMembers === 'function') {
+          setMembers((prev) => applyFeeChargeDeltasToMembers(prev, deltas));
+        }
+        for (const period of result.promoted) {
+          const periodCharges = (period.pack?.charges || [])
+            .filter((row) => (Number(row.addAmount) || 0) > 0);
+          if (periodCharges.length) {
+            await postFeeLedgerCharges({
+              charges: periodCharges,
+              period,
+              members: members?.length ? members : undefined,
+            });
+          }
+        }
+      }
+      state.key = pendingKey;
+      return { ...result, deltas };
+    } catch {
+      return null;
+    } finally {
+      state.running = false;
+    }
+  }, [feePeriods, persistFeePeriod, postFeeLedgerCharges]);
+
+  /**
+   * Genera la liquidación del mes en curso si sigue en borrador (día 1 o catch-up).
+   * Queda Pendiente; ensurePromotePendingFeePeriods imputa a las 00 h del día siguiente.
+   */
+  const ensureAutoFeeLiquidation = useCallback(async ({
+    members = [],
+    tierCatalog = [],
+    discounts: discountProp = null,
+    actor = 'Automático · panel',
+  } = {}) => {
+    if (!members?.length || !feePeriods?.length) return null;
+    const iso = todayISODateAR();
+    const state = feeAutoRef.current;
+    const runKey = `${iso}:${(feePeriods || []).map((p) => `${p.id}:${p.status}`).join(',')}`;
+    if (state.running || state.key === runKey) return null;
+    state.running = true;
+    try {
+      let discountRules = Array.isArray(discountProp) && discountProp.length
+        ? discountProp
+        : (discounts || []);
+      if (cloud() && !discountRules.length) {
+        try {
+          const rows = await repos.listDiscountRules();
+          if (Array.isArray(rows) && rows.length) {
+            discountRules = rows;
+            setDiscounts(rows);
+            setRuntimeDiscountRules(rows);
+          }
+        } catch {
+          /* best-effort: liquidar con runtime actual */
+        }
+      }
+      const result = autoLiquidateFeePeriodOnMonthStart(
+        feePeriods,
+        members,
+        new Date(),
+        { by: actor, catchUp: true, discountRules },
+      );
+      if (!result.ran || !result.period) {
+        state.key = runKey;
+        return null;
+      }
+      const model = liquidationFromPeriod(result.period, { members, tierCatalog, discountRules });
+      const generated = {
+        ...result.period,
+        amount: model.total,
+        lines: model.rows,
+        pack: {
+          ...(result.period.pack || {}),
+          total: model.total,
+          concepts: model.rows.length ? model.rows.map((row) => ({
+            id: row.identifier,
+            label: row.name,
+            holders: row.holders,
+            amount: row.unit,
+            total: row.total,
+          })) : (result.period.pack?.concepts || []),
+          charges: result.period.pack?.charges || result.pendingCharges || [],
+        },
+      };
+      const saved = cloud() ? await persistFeePeriod(generated) : generated;
+      const persisted = saved || generated;
+      setFeePeriods((prev) => resolveFeePeriods(
+        (result.periods || prev || []).map((item) => (
+          item.id === persisted.id ? persisted : item
+        )),
+      ));
+      state.key = runKey;
+      return persisted;
+    } catch {
+      return null;
+    } finally {
+      state.running = false;
+    }
+  }, [feePeriods, persistFeePeriod, discounts]);
+
+  /**
+   * Reaplica Descuentos extras / bonificaciones al mes en curso (vigente).
+   * Pendiente: corrige cargos antes de imputar. Procesada: ajusta saldos.
+   */
+  const ensureCurrentFeePeriodDiscounts = useCallback(async ({
+    members = [],
+    tierCatalog = [],
+    discounts: discountProp = null,
+    setMembers = null,
+    actor = 'Bonificaciones · mes vigente',
+  } = {}) => {
+    if (!members?.length || !feePeriods?.length) return null;
+    const iso = todayISODateAR();
+    const year = Number(iso.slice(0, 4));
+    const month = Number(iso.slice(5, 7));
+    const current = findFeePeriodForMonth(feePeriods, year, month);
+    if (!current) return null;
+
+    let discountRules = Array.isArray(discountProp) && discountProp.length
+      ? discountProp
+      : (discounts || []);
+    if (cloud() && !discountRules.length) {
+      try {
+        const rows = await repos.listDiscountRules();
+        if (Array.isArray(rows) && rows.length) {
+          discountRules = rows;
+          setDiscounts(rows);
+          setRuntimeDiscountRules(rows);
+        }
+      } catch {
+        /* best-effort */
+      }
+    }
+    if (!discountRules.length) return null;
+
+    const refreshed = refreshFeePeriodWithDiscounts(
+      current,
+      members,
+      { discountRules, by: actor },
+      new Date(),
+    );
+    if (!refreshed.changed) return null;
+
+    // Total canónico = suma de charges (ya con Descuentos extras). No pisar con el
+    // recount de liquidación: con lines vacías recuenta titulares distinto al padrón cobrado.
+    const charges = refreshed.period.pack?.charges || [];
+    const chargeTotal = charges.reduce((sum, row) => sum + (Number(row.addAmount) || 0), 0);
+    const stamped = {
+      ...refreshed.period,
+      amount: chargeTotal || refreshed.period.amount,
+      pack: {
+        ...(refreshed.period.pack || {}),
+        total: chargeTotal || refreshed.period.pack?.total || refreshed.period.amount,
+        charges,
+      },
+    };
+    const saved = cloud() ? await persistFeePeriod(stamped) : stamped;
+    const persisted = saved || stamped;
+    setFeePeriods((prev) => resolveFeePeriods(
+      (prev || []).map((item) => (item.id === persisted.id ? persisted : item)),
+    ));
+    if (refreshed.deltas?.length) {
+      if (cloud()) await repos.applyMemberBalanceDeltas(refreshed.deltas);
+      if (typeof setMembers === 'function') {
+        setMembers((prev) => applyFeeChargeDeltasToMembers(prev, refreshed.deltas));
+      }
+    }
+    return { period: persisted, deltas: refreshed.deltas || [], reason: refreshed.reason };
+  }, [feePeriods, persistFeePeriod, discounts]);
 
   const upsertMemberAccountEntryRecord = useCallback((input) => {
     setMemberAccountEntries((prev) => upsertAccountEntry(prev, input));
@@ -1996,6 +2218,9 @@ export default function useErpStore({
     deleteFeeChartAccountRecord,
     postFeeLedgerCharges,
     ensureProcessedFeeLedger,
+    ensurePromotePendingFeePeriods,
+    ensureAutoFeeLiquidation,
+    ensureCurrentFeePeriodDiscounts,
     upsertMemberAccountEntryRecord,
     deleteMemberAccountEntryRecord,
     recordAccountingReport,

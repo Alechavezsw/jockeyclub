@@ -12,7 +12,7 @@ import {
   toWhatsAppPhone,
 } from '../../domain/members/dues';
 import { persistDuesCollection, recordDuesCollection } from '../../domain/members/memberPayments';
-import { sendDuesReceiptMessage } from '../../domain/members/duesReceiptDelivery';
+import { deliverPaymentReceipt } from '../../domain/payments/deliverPaymentReceipt';
 import { downloadCsv, stampDate } from '../../domain/reports/downloadCsv';
 import { getActiveTiers, getTierDisplayName } from '../../domain/members/tiers';
 import CollectDuesModal from './CollectDuesModal';
@@ -246,10 +246,11 @@ export default function DuesControlTab({
         addJournalEntry,
         onAccountEntry,
       });
-      void sendDuesReceiptMessage({
+      void deliverPaymentReceipt({
         member: result.member,
         payment: result.payment,
         onSendMessage,
+        kind: 'cuota',
       });
       setCollectMember(null);
       setFlash(`Cobro registrado · ${formatCurrency(result.payment.amount)} · ${result.member.name}`);

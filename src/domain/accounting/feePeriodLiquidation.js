@@ -81,11 +81,12 @@ function conceptRows(concepts = [], counts = null) {
   });
 }
 
+/** Misma fecha que los cargos de liquidación (día 10 del mes). */
 function packImputationDay(period) {
   const year = Number(period?.year);
   const month = Number(period?.month);
   if (!year || !month) return '';
-  return `${year}-${String(month).padStart(2, '0')}-01`;
+  return `${year}-${String(month).padStart(2, '0')}-10`;
 }
 
 function applyDiscountsToPackRows(rows, members, rules, on, catalog) {
@@ -140,8 +141,9 @@ export function liquidationFromPack(period, pack, {
     ...row,
     total: (Number(row.holders) || 0) * (Number(row.unit) || 0),
   }));
-  // Descuentos de ficha solo con reglas explícitas: no bajan la grilla LILA por default.
-  const priced = !frozen && discountRules
+  // Descuentos extras / bonificaciones: bajan el total del pack (y las fichas vía charges).
+  // Mes ya cerrado (pending/processed con lines) no se vuelve a descontar.
+  const priced = !frozen
     ? applyDiscountsToPackRows(
       baseRows,
       members,

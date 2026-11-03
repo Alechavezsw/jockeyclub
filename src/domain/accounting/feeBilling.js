@@ -9,6 +9,7 @@ import {
 } from '../members/tiers';
 import { addDaysISODate, todayISODateAR } from '../../lib/arDate';
 import { feePackForPeriod } from './feePackConcepts';
+import { resolveDiscountRules } from './discountApplication';
 
 /** Liquidación mensual de cuotas (Accessin / LILA). */
 
@@ -142,8 +143,9 @@ function resolvePackSurcharges(period, pack = null, base = null) {
 /**
  * Arma o actualiza el borrador desde el padrón vivo (altas/bajas al día).
  * No imputa deudas: eso ocurre al liquidar.
+ * `meta.discountRules` = bonificaciones / descuentos extras (si omitís, usa runtime).
  */
-export function prepareFeePeriodDraft(list = [], periodId, members = [], today = new Date()) {
+export function prepareFeePeriodDraft(list = [], periodId, members = [], today = new Date(), meta = {}) {
   const period = (list || []).find((p) => p.id === periodId);
   if (!period) throw new Error('Período no encontrado.');
   const block = feePeriodPrepareBlock(period, today);
@@ -153,18 +155,12 @@ export function prepareFeePeriodDraft(list = [], periodId, members = [], today =
   const iso = when.toISOString().slice(0, 10);
   const periodDate = new Date(Number(period.year), (Number(period.month) || 1) - 1, 10, 12, 0, 0, 0);
   const billed = attachHouseholdToMembers(members);
-  const memberUpdates = billed.flatMap((member) => {
-    if (!member || !isMemberBillingActive(member, when) || !isTitularMember(member)) return [];
-    if (isDuesExemptMember(member)) return [];
-    return duesChargeSlicesForMember(member, periodDate).map((slice) => ({
-      memberId: member.memberId,
-      addAmount: slice.amount,
-      tierId: slice.tierId,
-      category: slice.category,
-    }));
-  });
+  const discountRules = resolveDiscountRules(meta?.discountRules);
+  const memberUpdates = buildFeePeriodCharges(members, period, when, discountRules);
   const packLines = feePackLinesFromMembers(billed, periodDate, when);
-  const packTotal = packLines.reduce((sum, row) => sum + (Number(row.total) || 0), 0);
+  const packTotal = memberUpdates.length
+    ? memberUpdates.reduce((sum, row) => sum + (Number(row.addAmount) || 0), 0)
+    : packLines.reduce((sum, row) => sum + (Number(row.total) || 0), 0);
   const surcharges = resolvePackSurcharges(period, period.pack);
   const nextPeriod = {
     ...period,
@@ -343,13 +339,16 @@ export function ensureAppFeePeriodSlot(list = [], year, month) {
 }
 
 /**
- * Día 1 (AR): arma el borrador desde el padrón vivo (altas/bajas) y genera la liquidación.
- * Queda Pendiente hasta las 00 h del día siguiente. Idempotente si ya está pendiente/procesada.
- * La corrida manual (Cargar borrador / Generar) sigue disponible el resto del mes.
+ * Día 1 (AR): genera la cuota del mes a cada titular que abona (altas/bajas del padrón).
+ * Queda Pendiente hasta las 00 h del día siguiente; al procesar SE SUMA al saldo previo
+ * (si no pagó, debe 2 cuotas, etc.). El 10 % no va en la liquidación: se aplica al cobrar
+ * después del 10. Idempotente si ya está pendiente/procesada.
+ * Con `meta.catchUp: true` también genera si el mes quedó en borrador después del día 1.
  */
 export function autoLiquidateFeePeriodOnMonthStart(list = [], members = [], today = new Date(), meta = {}) {
   const iso = todayISODateAR(today);
-  if (Number(iso.slice(8, 10)) !== 1) {
+  const day = Number(iso.slice(8, 10));
+  if (day !== 1 && !meta?.catchUp) {
     return { ran: false, reason: 'not_day_one', periods: list || [] };
   }
   const year = Number(iso.slice(0, 4));
@@ -362,20 +361,24 @@ export function autoLiquidateFeePeriodOnMonthStart(list = [], members = [], toda
     return { ran: false, reason: 'already_generated', periods, period };
   }
 
-  const drafted = prepareFeePeriodDraft(periods, period.id, members, today);
+  const drafted = prepareFeePeriodDraft(periods, period.id, members, today, meta);
   periods = drafted.periods;
   period = drafted.period;
 
   const generated = liquidateFeePeriod(periods, period.id, members, today, {
     ...meta,
-    by: meta?.by || 'Automático · día 1',
+    by: meta?.by || (day === 1 ? 'Automático · día 1' : 'Automático · catch-up'),
     auto: true,
   });
   const history = Array.isArray(generated.period.pack?.history) ? generated.period.pack.history : [];
+  // Catch-up después del día 1: el “día siguiente” ya pasó; disponible hoy para imputar.
+  const availableAt = day === 1 ? generated.period.availableAt : iso;
   const stamped = {
     ...generated.period,
+    availableAt,
     pack: {
       ...(generated.period.pack || {}),
+      availableAt,
       autoFromPadronAt: iso,
       preparedFrom: 'padron_auto',
       history: history.map((row, index) => (
@@ -383,7 +386,10 @@ export function autoLiquidateFeePeriodOnMonthStart(list = [], members = [], toda
           ? {
             ...row,
             type: 'auto_generated',
-            note: 'Día 1 · altas y bajas del padrón',
+            note: day === 1
+              ? 'Día 1 · altas y bajas del padrón'
+              : 'Catch-up · mes sin generar',
+            availableAt,
           }
           : row
       )),
@@ -395,6 +401,143 @@ export function autoLiquidateFeePeriodOnMonthStart(list = [], members = [], toda
     period: stamped,
     periods: generated.periods.map((row) => (row.id === stamped.id ? stamped : row)),
     pendingCharges: generated.pendingCharges,
+  };
+}
+
+function feePeriodChargeDay(period) {
+  return new Date(Number(period.year), (Number(period.month) || 1) - 1, 10, 12, 0, 0, 0);
+}
+
+function chargeRowKey(row) {
+  return `${String(row?.memberId || '').trim()}|${String(row?.tierId || row?.category || '').trim().toLowerCase()}`;
+}
+
+/** Cargos del mes con bonificaciones / descuentos extras aplicados. */
+export function buildFeePeriodCharges(members = [], period, today = new Date(), discountRules) {
+  if (!period) return [];
+  const periodDate = feePeriodChargeDay(period);
+  const billed = attachHouseholdToMembers(members);
+  const rules = resolveDiscountRules(discountRules);
+  return billed.flatMap((member) => {
+    if (!member || !isMemberBillingActive(member, today) || !isTitularMember(member)) return [];
+    if (isDuesExemptMember(member)) return [];
+    return duesChargeSlicesForMember(member, periodDate, { rules }).map((slice) => ({
+      memberId: member.memberId,
+      addAmount: slice.amount,
+      tierId: slice.tierId,
+      category: slice.category,
+    }));
+  });
+}
+
+function chargeDeltaRows(prevCharges = [], nextCharges = []) {
+  const prev = new Map();
+  for (const row of prevCharges || []) {
+    const key = chargeRowKey(row);
+    if (!key.startsWith('|')) prev.set(key, (prev.get(key) || 0) + (Number(row.addAmount) || 0));
+  }
+  const next = new Map();
+  for (const row of nextCharges || []) {
+    const key = chargeRowKey(row);
+    if (!key.startsWith('|')) next.set(key, (next.get(key) || 0) + (Number(row.addAmount) || 0));
+  }
+  const keys = new Set([...prev.keys(), ...next.keys()]);
+  const byMember = new Map();
+  for (const key of keys) {
+    const memberId = key.split('|')[0];
+    const delta = (next.get(key) || 0) - (prev.get(key) || 0);
+    if (!delta) continue;
+    byMember.set(memberId, (byMember.get(memberId) || 0) + delta);
+  }
+  return [...byMember.entries()]
+    .filter(([, amount]) => amount !== 0)
+    .map(([memberId, amount]) => ({ memberId, amount: Math.round(amount) }));
+}
+
+/**
+ * Recalcula el período vigente (borrador / pendiente / procesada de la app)
+ * con Descuentos extras. Si ya estaba procesada, devuelve deltas de saldo
+ * (negativos = bonificación que faltaba restar).
+ */
+export function refreshFeePeriodWithDiscounts(period, members = [], meta = {}, today = new Date()) {
+  if (!period || !appOwnsFeePeriod(period)) {
+    return { changed: false, reason: 'not_app_owned', period, deltas: [] };
+  }
+  if (period.status === 'cancelled') {
+    return { changed: false, reason: 'cancelled', period, deltas: [] };
+  }
+  const discountRules = resolveDiscountRules(meta?.discountRules);
+  const nextCharges = buildFeePeriodCharges(members, period, today, discountRules);
+  const prevCharges = Array.isArray(period.pack?.charges) ? period.pack.charges : [];
+  const billed = attachHouseholdToMembers(members);
+  const periodDate = feePeriodChargeDay(period);
+  const packLines = feePackLinesFromMembers(billed, periodDate, today);
+  const packTotal = nextCharges.length
+    ? nextCharges.reduce((sum, row) => sum + (Number(row.addAmount) || 0), 0)
+    : packLines.reduce((sum, row) => sum + (Number(row.total) || 0), 0);
+
+  const prevTotal = Number(period.amount) || Number(period.pack?.total) || 0;
+  const sameCharges = JSON.stringify(prevCharges) === JSON.stringify(nextCharges);
+  if (sameCharges && Math.round(prevTotal) === Math.round(packTotal)) {
+    return { changed: false, reason: 'already_applied', period, deltas: [] };
+  }
+
+  const history = Array.isArray(period.pack?.history) ? period.pack.history : [];
+  const by = String(meta?.by || '').trim() || null;
+  const stamp = {
+    type: 'discounts_reapplied',
+    at: new Date().toISOString(),
+    amount: packTotal,
+    status: period.status,
+    ...(by ? { by } : {}),
+  };
+
+  if (period.status === 'draft') {
+    const drafted = prepareFeePeriodDraft(
+      [period],
+      period.id,
+      members,
+      today,
+      { ...meta, discountRules },
+    );
+    return {
+      changed: true,
+      reason: 'draft_refreshed',
+      period: drafted.period,
+      deltas: [],
+    };
+  }
+
+  const nextPeriod = {
+    ...period,
+    amount: packTotal,
+    updatedAt: new Date().toISOString(),
+    lines: packLines.map((row) => ({
+      identifier: row.id,
+      tierId: row.tierId,
+      name: row.label,
+      holders: row.holders,
+      unit: row.amount,
+      total: row.total,
+    })),
+    pack: {
+      ...(period.pack || {}),
+      total: packTotal,
+      concepts: packLines,
+      charges: nextCharges,
+      history: [...history, stamp],
+    },
+  };
+
+  const deltas = period.status === 'processed'
+    ? chargeDeltaRows(prevCharges, nextCharges)
+    : [];
+
+  return {
+    changed: true,
+    reason: period.status === 'processed' ? 'processed_adjusted' : 'pending_refreshed',
+    period: nextPeriod,
+    deltas,
   };
 }
 
@@ -415,20 +558,15 @@ export function liquidateFeePeriod(list = [], periodId, members = [], today = ne
 
   const iso = todayISODateAR(today);
   const availableAt = feePeriodAvailableFrom(today);
-  const periodDate = new Date(Number(period.year), (Number(period.month) || 1) - 1, 10, 12, 0, 0, 0);
+  const periodDate = feePeriodChargeDay(period);
   const billed = attachHouseholdToMembers(members);
-  const charges = billed.flatMap((member) => {
-    if (!member || !isMemberBillingActive(member, today) || !isTitularMember(member)) return [];
-    if (isDuesExemptMember(member)) return [];
-    return duesChargeSlicesForMember(member, periodDate).map((slice) => ({
-      memberId: member.memberId,
-      addAmount: slice.amount,
-      tierId: slice.tierId,
-      category: slice.category,
-    }));
-  });
+  const discountRules = resolveDiscountRules(meta?.discountRules);
+  const charges = buildFeePeriodCharges(members, period, today, discountRules);
   const packLines = feePackLinesFromMembers(billed, periodDate, today);
-  const packTotal = packLines.reduce((sum, row) => sum + (Number(row.total) || 0), 0);
+  // Total = suma de cargos (ya con bonificaciones), no holders × tarifa bruta.
+  const packTotal = charges.length
+    ? charges.reduce((sum, row) => sum + (Number(row.addAmount) || 0), 0)
+    : packLines.reduce((sum, row) => sum + (Number(row.total) || 0), 0);
   const by = String(meta?.by || '').trim() || null;
   const byId = meta?.byId ? String(meta.byId) : null;
 
@@ -505,6 +643,38 @@ export function promotePendingFeePeriods(list = [], today = new Date()) {
     return next;
   });
   return { periods, promoted, memberUpdates };
+}
+
+/** Agrupa cargos de liquidación por socio (memberId = Nº de socio). */
+export function aggregateFeeChargeDeltas(charges = []) {
+  const byId = new Map();
+  for (const charge of charges || []) {
+    const memberId = String(charge?.memberId || charge?.memberNumber || '').trim();
+    const amount = Number(charge?.addAmount ?? charge?.amount) || 0;
+    if (!memberId || !(amount > 0)) continue;
+    byId.set(memberId, (byId.get(memberId) || 0) + amount);
+  }
+  return [...byId.entries()].map(([memberId, amount]) => ({ memberId, amount: Math.round(amount) }));
+}
+
+/**
+ * Suma los deltas de liquidación al padrón en memoria.
+ * No pisa saldos previos: acumula (LILA/octubre + noviembre, etc.).
+ */
+export function applyFeeChargeDeltasToMembers(members = [], deltas = []) {
+  if (!members?.length || !deltas?.length) return members || [];
+  const byId = new Map(
+    deltas.map((row) => [String(row.memberId || '').trim(), Number(row.amount) || 0]),
+  );
+  return members.map((member) => {
+    const key = String(member?.memberId || '').trim();
+    const add = byId.get(key);
+    if (!add) return member;
+    return {
+      ...member,
+      outstandingBalance: Math.round(((Number(member.outstandingBalance) || 0) + add) * 100) / 100,
+    };
+  });
 }
 
 const EXPENSE_CATEGORIES = [

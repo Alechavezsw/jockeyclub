@@ -1,7 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { FACILITIES, getFacilityById } from './facilities.js';
 import { buildFacilityCatalog } from './facilityConfig.js';
-import { validateMemberBooking, guestCap, facilityTurns } from './bookingRules.js';
+import {
+  validateMemberBooking,
+  guestCap,
+  facilityTurns,
+  reservationTotalPrice,
+  reservationDepositAmount,
+  reservationBalanceAfterDeposit,
+  RESERVATION_DEPOSIT_RATE,
+} from './bookingRules.js';
 
 const catalog = buildFacilityCatalog(FACILITIES);
 const anhelo = getFacilityById('salon_anhelo', catalog);
@@ -162,5 +170,18 @@ describe('validateMemberBooking', () => {
       now,
     });
     expect(result.ok).toBe(true);
+  });
+});
+
+describe('seña 50 % de la reserva', () => {
+  it('siempre es la mitad del total, aparte de la cuota', () => {
+    expect(RESERVATION_DEPOSIT_RATE).toBe(0.5);
+    expect(reservationTotalPrice(verde)).toBe(62000);
+    expect(reservationDepositAmount(verde)).toBe(31000);
+    expect(reservationBalanceAfterDeposit(verde)).toBe(31000);
+    expect(reservationDepositAmount(100001)).toBe(50001);
+    expect(reservationBalanceAfterDeposit(100001)).toBe(50000);
+    expect(reservationDepositAmount({ estimatedPrice: 80000 })).toBe(0);
+    expect(reservationDepositAmount(null, { estimatedPrice: 80000 })).toBe(40000);
   });
 });

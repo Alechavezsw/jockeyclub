@@ -3016,6 +3016,48 @@ export async function sendPaymentBoletoEmail({
   return data;
 }
 
+/** Comprobante de pago (caja / cuota) al mail real del socio. Misma regla que Mercado Pago. */
+export async function sendPaymentReceiptEmail({
+  memberNumber,
+  amountLabel,
+  receiptNo,
+  concept,
+  methodLabel,
+  dateLabel,
+  periodLabel,
+  pdfBase64,
+  fileName,
+} = {}) {
+  const { data, error } = await sb().functions.invoke('send-payment-receipt', {
+    body: {
+      memberNumber,
+      amountLabel,
+      receiptNo,
+      concept,
+      methodLabel,
+      dateLabel,
+      periodLabel,
+      pdfBase64,
+      fileName,
+    },
+  });
+  if (error) {
+    let detail = error.message || 'No se pudo enviar el comprobante por mail';
+    try {
+      const ctx = error.context;
+      if (ctx && typeof ctx.json === 'function') {
+        const body = await ctx.json();
+        if (body?.error) detail = body.error;
+      }
+    } catch {
+      /* ignore */
+    }
+    throw new Error(data?.error || detail);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
 /** Bienvenida al pedir asociarse. No lleva usuario ni contraseña. */
 export async function sendJoinWelcomeEmail(applicationId) {
   if (!applicationId) return { ok: false };

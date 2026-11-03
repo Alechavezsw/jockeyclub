@@ -1,33 +1,33 @@
-/** Auto-generado desde LILA - Balance Mensual 2026-10-31. No editar a mano. */
-export const ACCESSIN_MONTHLY_BALANCE_AS_OF = "2026-10-31";
+/** Auto-generado desde LILA - Balance Mensual 2026-11-30. No editar a mano. */
+export const ACCESSIN_MONTHLY_BALANCE_AS_OF = "2026-11-30";
 export const ACCESSIN_MONTHLY_BALANCE_SNAPSHOT = {
-  "asOf": "2026-10-31",
-  "fileName": "LILA - Balance Mensual 2026-10-26.xlsx",
+  "asOf": "2026-11-30",
+  "fileName": "LILA - Balance Mensual 2026-11-01.xlsx",
   "sourceFolder": "balances",
   "complete": false,
   "client": "Jockey Club San Juan",
-  "generatedAt": "26 de Octubre del 2026 a las 21:37",
-  "periodFrom": "2026-10-01",
-  "periodTo": "2026-10-31",
-  "periodLabel": "2026-10",
-  "totalIncome": 63925674.34,
-  "totalIncomeCash": 68218674.34,
+  "generatedAt": "02 de Noviembre del 2026 a las 19:46",
+  "periodFrom": "2026-11-01",
+  "periodTo": "2026-11-30",
+  "periodLabel": "2026-11",
+  "totalIncome": 33302333,
+  "totalIncomeCash": 33498333,
   "totalExpenses": 0,
   "totalExpensesCash": 0,
-  "cashOnHand": 811596540.62,
-  "closingCash": 879815214.96,
+  "cashOnHand": 882126214.96,
+  "closingCash": 915624547.96,
   "detailSheets": [
     {
       "key": "cuotas_imputadas_en_cuent",
       "title": "Cuotas imputadas en cuentas corrientes",
-      "count": 4838,
-      "total": 63163000
+      "count": 4868,
+      "total": 63763000
     },
     {
       "key": "recargos_de_cuotas_imputa",
       "title": "Recargos imputados en cuentas corrientes",
-      "count": 281,
-      "total": 1853000
+      "count": 0,
+      "total": 0
     },
     {
       "key": "0_in_de_saldos_iniciales",
@@ -38,26 +38,26 @@ export const ACCESSIN_MONTHLY_BALANCE_SNAPSHOT = {
     {
       "key": "1_in_de_cuotas_atrasadas",
       "title": "Ingresos de Cuotas atrasadas",
-      "count": 192,
-      "total": 9578500
+      "count": 23,
+      "total": 1260000
     },
     {
       "key": "2_in_de_recargos_de_cuotas_at",
       "title": "Ingresos de recargos de Cuotas atrasadas",
-      "count": 157,
-      "total": 513800.03
+      "count": 13,
+      "total": 75000
     },
     {
       "key": "3_in_de_cuotas",
       "title": "Ingresos de Cuotas",
-      "count": 806,
-      "total": 48560000
+      "count": 527,
+      "total": 33180000
     },
     {
       "key": "4_in_de_recargos_de_cuotas",
       "title": "Ingresos de recargos de Cuotas",
-      "count": 36,
-      "total": 228000
+      "count": 0,
+      "total": 0
     },
     {
       "key": "5_in_de_cuotas_posteriores",
@@ -74,8 +74,8 @@ export const ACCESSIN_MONTHLY_BALANCE_SNAPSHOT = {
     {
       "key": "7_in_de_reservas",
       "title": "Ingresos de reservas",
-      "count": 20,
-      "total": 2540000
+      "count": 1,
+      "total": 170000
     },
     {
       "key": "8_in_de_multas",
@@ -98,14 +98,14 @@ export const ACCESSIN_MONTHLY_BALANCE_SNAPSHOT = {
     {
       "key": "0_otros_in_banco",
       "title": "Otros Ingresos Banco",
-      "count": 28,
-      "total": 1684000
+      "count": 1,
+      "total": 82000
     },
     {
       "key": "1_otros_in_efectivo",
       "title": "Otros Ingresos Efectivo",
-      "count": 27,
-      "total": 2609000
+      "count": 1,
+      "total": 114000
     },
     {
       "key": "2_otros_in_reintegros",
@@ -152,21 +152,15 @@ export const ACCESSIN_MONTHLY_BALANCE_SNAPSHOT = {
     {
       "key": "1_otros_ing_rendicion_porter",
       "title": "Otros In. RENDICION PORTERIA ESTACIONAMIENTOS",
-      "count": 54,
-      "total": 4183000
-    },
-    {
-      "key": "2_otros_ing_transferencia_de",
-      "title": "Otros In. TRANSFERENCIA DE SOCIO",
-      "count": 1,
-      "total": 110000
+      "count": 2,
+      "total": 196000
     },
     {
       "key": "0_in_no_agrupados",
       "title": "Ingresos de particulares No agrupados",
-      "count": 78,
-      "total": 5727877.34
+      "count": 7,
+      "total": 340500
     }
   ]
 };
-export const ACCESSIN_MONTHLY_BALANCE_SECTIONS = [{"id":"saldos_de_caja","title":"SALDOS DE CAJA","lines":[{"id":"mb-0","label":"Efectivo","amount":187409302.75,"kind":"item","detailKey":""},{"id":"mb-1","label":"Cheques en cartera","amount":0,"kind":"item","detailKey":""},{"id":"mb-2","label":"Banco Macro - 2850410430094216236981 ($ 359491206.09)","amount":322462206.09,"kind":"item","detailKey":""},{"id":"mb-3","label":"Mercado Pago - 0000003100002002267621 ($ 182888834.37)","amount":167048859.37,"kind":"item","detailKey":""},{"id":"mb-4","label":"Banco de San Juan - 0450500602800018533145 ($ 117423153.86)","amount":106053054.52,"kind":"item","detailKey":""},{"id":"mb-5","label":"Banco Itaú - 2332232323323223323223 ($ 29177117.89)","amount":28623117.89,"kind":"item","detailKey":""}]},{"id":"liquidacion","title":"LIQUIDACIÓN","lines":[{"id":"mb-6","label":"Liquidación Octubre del 2026","amount":63233000,"kind":"item","detailKey":""},{"id":"mb-7","label":"Cuotas imputadas en cuentas corrientes","amount":62913000,"kind":"item","detailKey":"cuotas_imputadas_en_cuent"},{"id":"mb-8","label":"Recargos de Cuotas imputados en cuentas corrientes","amount":1853000,"kind":"item","detailKey":"recargos_de_cuotas_imputa"}]},{"id":"ingresos_por_tipo_de_entrada","title":"INGRESOS POR TIPO DE ENTRADA","lines":[{"id":"mb-9","label":"Ingresos de saldos iniciales","amount":0,"kind":"item","detailKey":"0_in_de_saldos_iniciales"},{"id":"mb-10","label":"Ingresos de Cuotas atrasadas – ABONO TENIS","amount":77500,"kind":"item","detailKey":"1_in_de_cuotas_atrasadas"},{"id":"mb-11","label":"Ingresos de Cuotas atrasadas – SOCIO FAMILIAR","amount":7673732.97,"kind":"item","detailKey":"1_in_de_cuotas_atrasadas"},{"id":"mb-12","label":"Ingresos de Cuotas atrasadas – SOCIO INDIVIDUAL","amount":1052500,"kind":"item","detailKey":"1_in_de_cuotas_atrasadas"},{"id":"mb-13","label":"Ingresos de Cuotas atrasadas – VOLEIBOL (No Socio)","amount":3500,"kind":"item","detailKey":"1_in_de_cuotas_atrasadas"},{"id":"mb-14","label":"Ingresos de Cuotas atrasadas (total)","amount":8807232.97,"kind":"subtotal","detailKey":"1_in_de_cuotas_atrasadas"},{"id":"mb-15","label":"Ingresos de recargos de Cuotas atrasadas","amount":506200.03,"kind":"item","detailKey":"2_in_de_recargos_de_cuotas_at"},{"id":"mb-16","label":"Ingresos de Cuotas – ABONO TENIS","amount":638000,"kind":"item","detailKey":"3_in_de_cuotas"},{"id":"mb-17","label":"Ingresos de Cuotas – INTERES POR TRANSACCIÓN 2,5% GRUPO FAMILIAR (AMET)","amount":15750,"kind":"item","detailKey":"3_in_de_cuotas"},{"id":"mb-18","label":"Ingresos de Cuotas – INTERES POR TRANSACCIÓN 2,5% SOCIO INDIVIDUAL (AMET)","amount":1000,"kind":"item","detailKey":"3_in_de_cuotas"},{"id":"mb-19","label":"Ingresos de Cuotas – SOCIO FAMILIAR","amount":42334000,"kind":"item","detailKey":"3_in_de_cuotas"},{"id":"mb-20","label":"Ingresos de Cuotas – SOCIO FAMILIAR (AMET)","amount":614250,"kind":"item","detailKey":"3_in_de_cuotas"},{"id":"mb-21","label":"Ingresos de Cuotas – SOCIO INDIVIDUAL","amount":4040000,"kind":"item","detailKey":"3_in_de_cuotas"},{"id":"mb-22","label":"Ingresos de Cuotas – SOCIO INDIVIDUAL (AMET)","amount":39000,"kind":"item","detailKey":"3_in_de_cuotas"},{"id":"mb-23","label":"Ingresos de Cuotas (total)","amount":47682000,"kind":"subtotal","detailKey":"3_in_de_cuotas"},{"id":"mb-24","label":"Ingresos de recargos de Cuotas","amount":228000,"kind":"item","detailKey":"4_in_de_recargos_de_cuotas"},{"id":"mb-25","label":"Ingresos de Cuotas posteriores","amount":0,"kind":"item","detailKey":"5_in_de_cuotas_posteriores"},{"id":"mb-26","label":"Ingresos de recargos de Cuotas posteriores","amount":0,"kind":"item","detailKey":"6_in_de_recargos_de_cuotas_po"},{"id":"mb-27","label":"Ingresos de reservas","amount":1810000,"kind":"item","detailKey":"7_in_de_reservas"},{"id":"mb-28","label":"Ingresos de multas","amount":0,"kind":"item","detailKey":"8_in_de_multas"},{"id":"mb-29","label":"Ingresos de intereses","amount":0,"kind":"item","detailKey":"9_in_de_intereses"},{"id":"mb-30","label":"Ingresos de transferencia de saldo","amount":0,"kind":"item","detailKey":"10_in_de_transferencia_de_sal"},{"id":"mb-31","label":"Otros ingresos por uso de amenities","amount":0,"kind":"item","detailKey":""},{"id":"mb-32","label":"Otros ingresos por alquileres","amount":0,"kind":"item","detailKey":"4_otros_in_alquileres"},{"id":"mb-33","label":"Otros ingresos por intereses","amount":0,"kind":"item","detailKey":"3_otros_in_intereses"},{"id":"mb-34","label":"Ingreso extraordinarios: indemnización por siniestros","amount":0,"kind":"item","detailKey":"6_indemnizacion_por_siniestros"},{"id":"mb-35","label":"Ingresos extraordinario: sentencias judiciales","amount":0,"kind":"item","detailKey":"7_sentencias_judiciales"},{"id":"mb-36","label":"Otros ingresos reintegros","amount":0,"kind":"item","detailKey":"2_otros_in_reintegros"},{"id":"mb-37","label":"Otros ingresos reintegros","amount":0,"kind":"item","detailKey":"2_otros_in_reintegros"},{"id":"mb-38","label":"Otros ingresos (Sin categorizar)","amount":0,"kind":"item","detailKey":"0_otros_ing_sin_categorizar"},{"id":"mb-39","label":"Otros ingresos: RENDICION PORTERIA ESTACIONAMIENTOS","amount":4183000,"kind":"item","detailKey":"1_otros_ing_rendicion_porter"},{"id":"mb-40","label":"Otros ingresos: TRANSFERENCIA DE SOCIO","amount":110000,"kind":"item","detailKey":"2_otros_ing_transferencia_de"},{"id":"mb-41","label":"Ingresos de reajuste de caja","amount":0,"kind":"item","detailKey":""},{"id":"mb-42","label":"Ingresos de part. (No agrupados)","amount":4917242.03,"kind":"item","detailKey":"0_in_no_agrupados"},{"id":"mb-43","label":"SALDO A FAVOR IMPUTADO","amount":-25000.69,"kind":"item","detailKey":""},{"id":"mb-44","label":"SALDO A FAVOR NO IMPUTADO","amount":0,"kind":"item","detailKey":""},{"id":"mb-45","label":"TOTAL INGRESOS","amount":63925674.34,"kind":"total","detailKey":""}]},{"id":"ingresos_detallados_por_caja","title":"INGRESOS DETALLADOS POR CAJA","lines":[{"id":"mb-46","label":"EFECTIVO","amount":3425600,"kind":"item","detailKey":""},{"id":"mb-47","label":"CHEQUES","amount":0,"kind":"item","detailKey":""},{"id":"mb-48","label":"Banco Macro - 2850410430094216236981 ($ 359491206.09)","amount":37029000,"kind":"item","detailKey":""},{"id":"mb-49","label":"Mercado Pago - 0000003100002002267621 ($ 182888834.37)","amount":15839975,"kind":"item","detailKey":""},{"id":"mb-50","label":"Banco de San Juan - 0450500602800018533145 ($ 117423153.86)","amount":11370099.34,"kind":"item","detailKey":""},{"id":"mb-51","label":"Banco Itaú - 2332232323323223323223 ($ 29177117.89)","amount":554000,"kind":"item","detailKey":""},{"id":"mb-52","label":"TOTAL INGRESOS EN CAJA","amount":68218674.34,"kind":"total","detailKey":""}]},{"id":"egresos_por_categoria","title":"EGRESOS POR CATEGORÍA","lines":[{"id":"mb-53","label":"Egresos de Sueldos y Jornales","amount":null,"kind":"item","detailKey":""},{"id":"mb-54","label":"Total","amount":0,"kind":"total","detailKey":""},{"id":"mb-55","label":"Egresos de Cargas Sociales","amount":null,"kind":"item","detailKey":""},{"id":"mb-56","label":"Total","amount":0,"kind":"total","detailKey":""},{"id":"mb-57","label":"Egresos de Gastos de Administración","amount":null,"kind":"item","detailKey":""},{"id":"mb-58","label":"Total","amount":0,"kind":"total","detailKey":""},{"id":"mb-59","label":"Egresos de Tasas y Servicios","amount":null,"kind":"item","detailKey":""},{"id":"mb-60","label":"Total","amount":0,"kind":"total","detailKey":""},{"id":"mb-61","label":"Egresos de Mantenimiento y Reparaciones","amount":null,"kind":"item","detailKey":""},{"id":"mb-62","label":"Total","amount":0,"kind":"total","detailKey":""},{"id":"mb-63","label":"Egresos de Otros Ingresos","amount":null,"kind":"item","detailKey":""},{"id":"mb-64","label":"Total","amount":0,"kind":"total","detailKey":""},{"id":"mb-65","label":"Egresos de Seguridad","amount":null,"kind":"item","detailKey":""},{"id":"mb-66","label":"Total","amount":0,"kind":"total","detailKey":""},{"id":"mb-67","label":"Egresos SIN CATEGORIZAR","amount":0,"kind":"item","detailKey":""},{"id":"mb-68","label":"TOTAL EGRESOS","amount":0,"kind":"total","detailKey":""},{"id":"mb-69","label":"TOTAL RETENCIONES REALIZADAS","amount":0,"kind":"total","detailKey":""},{"id":"mb-70","label":"TOTAL SALDO A FAVOR IMPUTADO","amount":0,"kind":"total","detailKey":""},{"id":"mb-71","label":"TOTAL","amount":0,"kind":"total","detailKey":""}]},{"id":"egresos_detallados_por_caja","title":"EGRESOS DETALLADOS POR CAJA","lines":[{"id":"mb-72","label":"EFECTIVO","amount":0,"kind":"item","detailKey":""},{"id":"mb-73","label":"CHEQUES","amount":0,"kind":"item","detailKey":""},{"id":"mb-74","label":"Banco Macro - 2850410430094216236981 ($ 359491206.09)","amount":0,"kind":"item","detailKey":""},{"id":"mb-75","label":"Mercado Pago - 0000003100002002267621 ($ 182888834.37)","amount":0,"kind":"item","detailKey":""},{"id":"mb-76","label":"Banco de San Juan - 0450500602800018533145 ($ 117423153.86)","amount":0,"kind":"item","detailKey":""},{"id":"mb-77","label":"Banco Itaú - 2332232323323223323223 ($ 29177117.89)","amount":0,"kind":"item","detailKey":""},{"id":"mb-78","label":"TOTAL EGRESOS EN CAJA","amount":0,"kind":"total","detailKey":""}]},{"id":"totales","title":"TOTALES","lines":[{"id":"mb-79","label":"Efectivo","amount":190834902.75,"kind":"item","detailKey":""},{"id":"mb-80","label":"Cheques en cartera","amount":0,"kind":"item","detailKey":""},{"id":"mb-81","label":"Banco Macro - 2850410430094216236981 ($ 359491206.09)","amount":359491206.09,"kind":"item","detailKey":""},{"id":"mb-82","label":"Mercado Pago - 0000003100002002267621 ($ 182888834.37)","amount":182888834.37,"kind":"item","detailKey":""},{"id":"mb-83","label":"Banco de San Juan - 0450500602800018533145 ($ 117423153.86)","amount":117423153.86,"kind":"item","detailKey":""},{"id":"mb-84","label":"Banco Itaú - 2332232323323223323223 ($ 29177117.89)","amount":29177117.89,"kind":"item","detailKey":""}]}];
+export const ACCESSIN_MONTHLY_BALANCE_SECTIONS = [{"id":"saldos_de_caja","title":"SALDOS DE CAJA","lines":[{"id":"mb-0","label":"Efectivo","amount":191186902.75,"kind":"item","detailKey":""},{"id":"mb-1","label":"Cheques en cartera","amount":0,"kind":"item","detailKey":""},{"id":"mb-2","label":"Banco Macro - 2850410430094216236981 ($ 390557206.09)","amount":359491206.09,"kind":"item","detailKey":""},{"id":"mb-3","label":"Mercado Pago - 0000003100002002267621 ($ 185388167.37)","amount":184018834.37,"kind":"item","detailKey":""},{"id":"mb-4","label":"Banco de San Juan - 0450500602800018533145 ($ 119091153.86)","amount":118252153.86,"kind":"item","detailKey":""},{"id":"mb-5","label":"Banco Itaú - 2332232323323223323223 ($ 29177117.89)","amount":29177117.89,"kind":"item","detailKey":""}]},{"id":"liquidacion","title":"LIQUIDACIÓN","lines":[{"id":"mb-6","label":"Liquidación Noviembre del 2026","amount":63763000,"kind":"item","detailKey":""},{"id":"mb-7","label":"Cuotas imputadas en cuentas corrientes","amount":63513000,"kind":"item","detailKey":"cuotas_imputadas_en_cuent"},{"id":"mb-8","label":"Recargos de Cuotas imputados en cuentas corrientes","amount":0,"kind":"item","detailKey":"recargos_de_cuotas_imputa"}]},{"id":"ingresos_por_tipo_de_entrada","title":"INGRESOS POR TIPO DE ENTRADA","lines":[{"id":"mb-9","label":"Ingresos de saldos iniciales","amount":0,"kind":"item","detailKey":"0_in_de_saldos_iniciales"},{"id":"mb-10","label":"Ingresos de Cuotas atrasadas – ABONO TENIS","amount":19500,"kind":"item","detailKey":"1_in_de_cuotas_atrasadas"},{"id":"mb-11","label":"Ingresos de Cuotas atrasadas – SOCIO FAMILIAR","amount":930333,"kind":"item","detailKey":"1_in_de_cuotas_atrasadas"},{"id":"mb-12","label":"Ingresos de Cuotas atrasadas – SOCIO INDIVIDUAL","amount":2000,"kind":"item","detailKey":"1_in_de_cuotas_atrasadas"},{"id":"mb-13","label":"Ingresos de Cuotas atrasadas (total)","amount":951833,"kind":"subtotal","detailKey":"1_in_de_cuotas_atrasadas"},{"id":"mb-14","label":"Ingresos de recargos de Cuotas atrasadas","amount":70000,"kind":"item","detailKey":"2_in_de_recargos_de_cuotas_at"},{"id":"mb-15","label":"Ingresos de Cuotas – ABONO TENIS","amount":300000,"kind":"item","detailKey":"3_in_de_cuotas"},{"id":"mb-16","label":"Ingresos de Cuotas – SOCIO FAMILIAR","amount":29815000.03,"kind":"item","detailKey":"3_in_de_cuotas"},{"id":"mb-17","label":"Ingresos de Cuotas – SOCIO INDIVIDUAL","amount":2593000,"kind":"item","detailKey":"3_in_de_cuotas"},{"id":"mb-18","label":"Ingresos de Cuotas (total)","amount":32708000.03,"kind":"subtotal","detailKey":"3_in_de_cuotas"},{"id":"mb-19","label":"Ingresos de recargos de Cuotas","amount":0,"kind":"item","detailKey":"4_in_de_recargos_de_cuotas"},{"id":"mb-20","label":"Ingresos de Cuotas posteriores","amount":0,"kind":"item","detailKey":"5_in_de_cuotas_posteriores"},{"id":"mb-21","label":"Ingresos de recargos de Cuotas posteriores","amount":0,"kind":"item","detailKey":"6_in_de_recargos_de_cuotas_po"},{"id":"mb-22","label":"Ingresos de reservas","amount":74000,"kind":"item","detailKey":"7_in_de_reservas"},{"id":"mb-23","label":"Ingresos de multas","amount":0,"kind":"item","detailKey":"8_in_de_multas"},{"id":"mb-24","label":"Ingresos de intereses","amount":0,"kind":"item","detailKey":"9_in_de_intereses"},{"id":"mb-25","label":"Ingresos de transferencia de saldo","amount":0,"kind":"item","detailKey":"10_in_de_transferencia_de_sal"},{"id":"mb-26","label":"Otros ingresos por uso de amenities","amount":0,"kind":"item","detailKey":""},{"id":"mb-27","label":"Otros ingresos por alquileres","amount":0,"kind":"item","detailKey":"4_otros_in_alquileres"},{"id":"mb-28","label":"Otros ingresos por intereses","amount":0,"kind":"item","detailKey":"3_otros_in_intereses"},{"id":"mb-29","label":"Ingreso extraordinarios: indemnización por siniestros","amount":0,"kind":"item","detailKey":"6_indemnizacion_por_siniestros"},{"id":"mb-30","label":"Ingresos extraordinario: sentencias judiciales","amount":0,"kind":"item","detailKey":"7_sentencias_judiciales"},{"id":"mb-31","label":"Otros ingresos reintegros","amount":0,"kind":"item","detailKey":"2_otros_in_reintegros"},{"id":"mb-32","label":"Otros ingresos reintegros","amount":0,"kind":"item","detailKey":"2_otros_in_reintegros"},{"id":"mb-33","label":"Otros ingresos (Sin categorizar)","amount":0,"kind":"item","detailKey":"0_otros_ing_sin_categorizar"},{"id":"mb-34","label":"Otros ingresos: RENDICION PORTERIA ESTACIONAMIENTOS","amount":196000,"kind":"item","detailKey":"1_otros_ing_rendicion_porter"},{"id":"mb-35","label":"Ingresos de reajuste de caja","amount":0,"kind":"item","detailKey":""},{"id":"mb-36","label":"Ingresos de part. (No agrupados)","amount":294500,"kind":"item","detailKey":"0_in_no_agrupados"},{"id":"mb-37","label":"SALDO A FAVOR IMPUTADO","amount":-796000.03,"kind":"item","detailKey":""},{"id":"mb-38","label":"SALDO A FAVOR NO IMPUTADO","amount":0,"kind":"item","detailKey":""},{"id":"mb-39","label":"TOTAL INGRESOS","amount":33302333,"kind":"total","detailKey":""}]},{"id":"ingresos_detallados_por_caja","title":"INGRESOS DETALLADOS POR CAJA","lines":[{"id":"mb-40","label":"EFECTIVO","amount":224000,"kind":"item","detailKey":""},{"id":"mb-41","label":"CHEQUES","amount":0,"kind":"item","detailKey":""},{"id":"mb-42","label":"Banco Macro - 2850410430094216236981 ($ 390557206.09)","amount":31066000,"kind":"item","detailKey":""},{"id":"mb-43","label":"Mercado Pago - 0000003100002002267621 ($ 185388167.37)","amount":1369333,"kind":"item","detailKey":""},{"id":"mb-44","label":"Banco de San Juan - 0450500602800018533145 ($ 119091153.86)","amount":839000,"kind":"item","detailKey":""},{"id":"mb-45","label":"Banco Itaú - 2332232323323223323223 ($ 29177117.89)","amount":0,"kind":"item","detailKey":""},{"id":"mb-46","label":"TOTAL INGRESOS EN CAJA","amount":33498333,"kind":"total","detailKey":""}]},{"id":"egresos_por_categoria","title":"EGRESOS POR CATEGORÍA","lines":[{"id":"mb-47","label":"Egresos de Sueldos y Jornales","amount":null,"kind":"item","detailKey":""},{"id":"mb-48","label":"Total","amount":0,"kind":"total","detailKey":""},{"id":"mb-49","label":"Egresos de Cargas Sociales","amount":null,"kind":"item","detailKey":""},{"id":"mb-50","label":"Total","amount":0,"kind":"total","detailKey":""},{"id":"mb-51","label":"Egresos de Gastos de Administración","amount":null,"kind":"item","detailKey":""},{"id":"mb-52","label":"Total","amount":0,"kind":"total","detailKey":""},{"id":"mb-53","label":"Egresos de Tasas y Servicios","amount":null,"kind":"item","detailKey":""},{"id":"mb-54","label":"Total","amount":0,"kind":"total","detailKey":""},{"id":"mb-55","label":"Egresos de Mantenimiento y Reparaciones","amount":null,"kind":"item","detailKey":""},{"id":"mb-56","label":"Total","amount":0,"kind":"total","detailKey":""},{"id":"mb-57","label":"Egresos de Otros Ingresos","amount":null,"kind":"item","detailKey":""},{"id":"mb-58","label":"Total","amount":0,"kind":"total","detailKey":""},{"id":"mb-59","label":"Egresos de Seguridad","amount":null,"kind":"item","detailKey":""},{"id":"mb-60","label":"Total","amount":0,"kind":"total","detailKey":""},{"id":"mb-61","label":"Egresos SIN CATEGORIZAR","amount":0,"kind":"item","detailKey":""},{"id":"mb-62","label":"TOTAL EGRESOS","amount":0,"kind":"total","detailKey":""},{"id":"mb-63","label":"TOTAL RETENCIONES REALIZADAS","amount":0,"kind":"total","detailKey":""},{"id":"mb-64","label":"TOTAL SALDO A FAVOR IMPUTADO","amount":0,"kind":"total","detailKey":""},{"id":"mb-65","label":"TOTAL","amount":0,"kind":"total","detailKey":""}]},{"id":"egresos_detallados_por_caja","title":"EGRESOS DETALLADOS POR CAJA","lines":[{"id":"mb-66","label":"EFECTIVO","amount":0,"kind":"item","detailKey":""},{"id":"mb-67","label":"CHEQUES","amount":0,"kind":"item","detailKey":""},{"id":"mb-68","label":"Banco Macro - 2850410430094216236981 ($ 390557206.09)","amount":0,"kind":"item","detailKey":""},{"id":"mb-69","label":"Mercado Pago - 0000003100002002267621 ($ 185388167.37)","amount":0,"kind":"item","detailKey":""},{"id":"mb-70","label":"Banco de San Juan - 0450500602800018533145 ($ 119091153.86)","amount":0,"kind":"item","detailKey":""},{"id":"mb-71","label":"Banco Itaú - 2332232323323223323223 ($ 29177117.89)","amount":0,"kind":"item","detailKey":""},{"id":"mb-72","label":"TOTAL EGRESOS EN CAJA","amount":0,"kind":"total","detailKey":""}]},{"id":"totales","title":"TOTALES","lines":[{"id":"mb-73","label":"Efectivo","amount":191410902.75,"kind":"item","detailKey":""},{"id":"mb-74","label":"Cheques en cartera","amount":0,"kind":"item","detailKey":""},{"id":"mb-75","label":"Banco Macro - 2850410430094216236981 ($ 390557206.09)","amount":390557206.09,"kind":"item","detailKey":""},{"id":"mb-76","label":"Mercado Pago - 0000003100002002267621 ($ 185388167.37)","amount":185388167.37,"kind":"item","detailKey":""},{"id":"mb-77","label":"Banco de San Juan - 0450500602800018533145 ($ 119091153.86)","amount":119091153.86,"kind":"item","detailKey":""},{"id":"mb-78","label":"Banco Itaú - 2332232323323223323223 ($ 29177117.89)","amount":29177117.89,"kind":"item","detailKey":""}]}];

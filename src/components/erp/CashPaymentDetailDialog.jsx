@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Mail, Phone, Printer, Share2, X } from 'lucide-react';
 import ModalDialog from '../ModalDialog';
 import { cashPaymentShareTargets } from '../../domain/accounting/cashPaymentDetail';
+import { sendCashPaymentReceipt } from '../../domain/accounting/cashPaymentReceiptDelivery';
 import { formatAccessinCashDate } from '../../domain/accounting/cashLedger';
 import { exportCashPaymentPdf } from '../../domain/accounting/exportCashPaymentPdf';
 import { formatCurrency } from '../../domain/accounting/journal';
@@ -20,15 +21,18 @@ function openExternal(url) {
   window.open(url, '_blank', 'noopener,noreferrer');
 }
 
-export default function CashPaymentDetailDialog({ detail, onClose }) {
+export default function CashPaymentDetailDialog({ detail, onClose, onSendMessage }) {
   const [busy, setBusy] = useState(false);
+  const [mailBusy, setMailBusy] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [shareOpen, setShareOpen] = useState(false);
   const share = detail ? cashPaymentShareTargets(detail, formatCurrency) : null;
 
   useEffect(() => {
     setShareOpen(false);
     setError('');
+    setNotice('');
   }, [detail?.movementId, detail?.paymentNumber]);
 
   const download = async () => {
@@ -41,6 +45,29 @@ export default function CashPaymentDetailDialog({ detail, onClose }) {
       setError(err?.message || 'No se pudo generar el PDF.');
     } finally {
       setBusy(false);
+    }
+  };
+
+  const sendMail = async () => {
+    if (!detail || mailBusy) return;
+    setMailBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const result = await sendCashPaymentReceipt({ detail, onSendMessage });
+      if (result.emailed) {
+        setNotice(`Comprobante enviado por mail${result.to ? ` a ${result.to}` : ''}.`);
+        return;
+      }
+      if (result.messaged) {
+        setNotice('Comprobante enviado al buzón del socio (sin mail real en la ficha).');
+        return;
+      }
+      setError(result.reason || 'No se pudo enviar el comprobante.');
+    } catch (err) {
+      setError(err?.message || 'No se pudo enviar el comprobante.');
+    } finally {
+      setMailBusy(false);
     }
   };
 
@@ -146,6 +173,7 @@ export default function CashPaymentDetailDialog({ detail, onClose }) {
           </section>
 
           {error ? <p style={{ color: '#ef4444', margin: 0 }}>{error}</p> : null}
+          {notice ? <p style={{ color: 'var(--emerald-accent)', margin: 0 }}>{notice}</p> : null}
 
           <div className="cash-payment-detail-actions">
             <button type="button" className="btn btn-secondary" onClick={onClose}>
@@ -153,6 +181,15 @@ export default function CashPaymentDetailDialog({ detail, onClose }) {
             </button>
             <button type="button" className="btn btn-secondary" disabled={busy} onClick={download}>
               <Printer size={14} /> {busy ? 'Generando…' : 'Imprimir'}
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={mailBusy || !detail.memberNumber}
+              onClick={sendMail}
+              title="Misma regla que Mercado Pago: PDF al mail del socio"
+            >
+              <Mail size={14} /> {mailBusy ? 'Enviando…' : 'Enviar por mail'}
             </button>
             <button
               type="button"
@@ -169,7 +206,11 @@ export default function CashPaymentDetailDialog({ detail, onClose }) {
                   setShareOpen((open) => !open);
                   return;
                 }
-                openExternal(share.whatsappUrl || share.mailUrl);
+                if (share.whatsappUrl) {
+                  openExternal(share.whatsappUrl);
+                  return;
+                }
+                void sendMail();
               }}
             >
               <Share2 size={14} /> Compartir
@@ -182,9 +223,9 @@ export default function CashPaymentDetailDialog({ detail, onClose }) {
                   <Phone size={14} /> WhatsApp {share.phone}
                 </button>
               ) : null}
-              {share.mailUrl ? (
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => openExternal(share.mailUrl)}>
-                  <Mail size={14} /> {share.email}
+              {share.email ? (
+                <button type="button" className="btn btn-secondary btn-sm" disabled={mailBusy} onClick={sendMail}>
+                  <Mail size={14} /> {mailBusy ? 'Enviando…' : share.email}
                 </button>
               ) : null}
             </div>

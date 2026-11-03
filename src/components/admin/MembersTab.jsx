@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Search, Filter, Plus, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Trash2, Users, UserPlus, X, CreditCard, Camera, FileDown, FileSpreadsheet, Pencil, KeyRound, MoreVertical } from 'lucide-react';
 import { duesAmountForHousehold, duesAmountForTier, duesOnJoin, isDuesExemptMember, pinDuesDueDate, quotaHeadline, toWhatsAppPhone } from '../../domain/members/dues';
 import { persistDuesCollection, recordDuesCollection } from '../../domain/members/memberPayments';
-import { sendDuesReceiptMessage } from '../../domain/members/duesReceiptDelivery';
+import { deliverPaymentReceipt } from '../../domain/payments/deliverPaymentReceipt';
 import { exportMembersExcel } from '../../domain/members/exportMembersExcel';
 import { exportMembersPdf } from '../../domain/members/exportMembersPdf';
 import { DISCIPLINE_OPTIONS } from '../../domain/sports/disciplines';
@@ -873,7 +873,12 @@ export default function MembersTab({
         addJournalEntry,
         onAccountEntry,
       });
-      void sendDuesReceiptMessage({ member: result.member, payment: result.payment, onSendMessage });
+      void deliverPaymentReceipt({
+        member: result.member,
+        payment: result.payment,
+        onSendMessage,
+        kind: 'cuota',
+      });
       setCollectMember(null);
     } catch (err) {
       window.alert(err?.message || 'No se pudo registrar el cobro.');

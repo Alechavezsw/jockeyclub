@@ -29,6 +29,11 @@ function fallbackHref(item) {
       ? `/panel/books?sub=${encodeURIComponent(item.focus)}`
       : '/panel/books';
   }
+  if (item?.tab === 'caja' || item?.focus === 'cash' || item?.focus === 'other_incomes') {
+    return item.focus
+      ? `/panel/caja?sub=${encodeURIComponent(item.focus)}`
+      : '/panel/caja?sub=cash';
+  }
   if (item?.tab === 'operation') {
     return item.focus
       ? `/panel/operation?sub=${encodeURIComponent(item.focus)}`

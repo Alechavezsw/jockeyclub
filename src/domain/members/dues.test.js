@@ -106,9 +106,70 @@ describe('dues classification', () => {
 
   it('genera deuda automática al vencer sin saldo previo', () => {
     const updated = applyAutomaticDues(members, today);
-    expect(updated.find((m) => m.memberId === '4').outstandingBalance).toBe(35200);
-    expect(updated.find((m) => m.memberId === '1').outstandingBalance).toBe(32000);
+    // Solo capital en ficha; el 10 % se suma al cobrar.
+    expect(updated.find((m) => m.memberId === '4').outstandingBalance).toBe(32000);
+    // Socio 1 ya tenía $32.000 y dos meses vencidos: completa al capital.
+    expect(updated.find((m) => m.memberId === '1').outstandingBalance).toBe(64000);
     expect(updated.find((m) => m.memberId === '2').outstandingBalance).toBe(0);
+  });
+
+  it('acumula varios meses vencidos cuando el saldo estaba en cero', () => {
+    const updated = applyAutomaticDues([{
+      memberId: 'multi',
+      name: 'Multi',
+      tier: 'socio_individual',
+      outstandingBalance: 0,
+      status: 'active',
+      nextDueDate: '2026-06-10',
+    }], today);
+    // Jun + Jul (antes de oct): 32.000 × 2 de capital
+    expect(updated[0].outstandingBalance).toBe(64000);
+  });
+
+  it('ciclo: cuota + cuota sin pagar = 2; recargo solo si paga después del 10', () => {
+    setRuntimeTierCatalog(null);
+    // Octubre liquidado, no pagó. Noviembre se suma encima.
+    const afterOct = {
+      memberId: '111591',
+      name: 'Chávez',
+      tier: 'socio_individual',
+      status: 'active',
+      outstandingBalance: 40000,
+      nextDueDate: '2026-10-10',
+      lastPaymentDate: null,
+      adherents: [],
+    };
+    const afterNov = {
+      ...afterOct,
+      outstandingBalance: afterOct.outstandingBalance + 40000, // liquidación 1º nov
+    };
+    expect(afterNov.outstandingBalance).toBe(80000);
+
+    // Paga el 5/11 (antes del 10 de nov): recargo solo sobre octubre vencido.
+    const beforeTen = duesChargeBreakdown(afterNov, { paidOn: '2026-11-05' });
+    expect(beforeTen.quota).toBe(80000);
+    expect(beforeTen.surcharge).toBe(4000); // 10 % de oct
+    expect(beforeTen.total).toBe(84000);
+
+    // Paga el 12/11: oct y nov vencidos → 10 % de cada uno.
+    const afterTen = duesChargeBreakdown({
+      ...afterNov,
+      nextDueDate: '2026-10-10',
+    }, { paidOn: '2026-11-12' });
+    expect(afterTen.quota).toBe(80000);
+    expect(afterTen.surcharge).toBe(8000);
+    expect(afterTen.total).toBe(88000);
+
+    // Paga el 10 exacto de octubre con una sola cuota: sin recargo.
+    expect(duesChargeBreakdown({
+      ...afterOct,
+      outstandingBalance: 40000,
+      nextDueDate: '2026-10-10',
+    }, { paidOn: '2026-10-10' })).toMatchObject({
+      quota: 40000,
+      surcharge: 0,
+      total: 40000,
+    });
   });
 
   it('al cobrar programa el próximo vencimiento', () => {
@@ -225,7 +286,7 @@ describe('dues classification', () => {
   it('detecta diffs de cuotas automáticas para persistir', () => {
     const updated = applyAutomaticDues(members, today);
     const changed = diffAutomaticDues(members, updated);
-    expect(changed.map((m) => m.memberId)).toEqual(['4']);
+    expect(changed.map((m) => m.memberId).toSorted()).toEqual(['1', '4']);
   });
 
   it('normaliza teléfonos AR para WhatsApp', () => {
@@ -449,7 +510,16 @@ describe('tarifa desde octubre 2026', () => {
     expect(duesPayableAmount(68250, { paidOn: '2026-10-11', dueOn: '2026-10-10', tier: 'socio_familiar_amet' })).toBe(68250);
     expect(duesPayableAmount(10000, { paidOn: '2026-10-11', dueOn: '2026-10-10', tier: 'abono_tenis' })).toBe(10000);
     expect(applyAutomaticDues([member], new Date('2026-10-10T12:00:00'))[0].outstandingBalance).toBe(0);
-    expect(applyAutomaticDues([member], afterDue)[0].outstandingBalance).toBe(44000);
+    // Ficha = capital; el 10 % aparece en duesChargeBreakdown / cobro, no en el saldo.
+    expect(applyAutomaticDues([member], afterDue)[0].outstandingBalance).toBe(40000);
+    expect(duesChargeBreakdown({
+      ...member,
+      outstandingBalance: 40000,
+    }, { paidOn: afterDue })).toMatchObject({
+      quota: 40000,
+      surcharge: 4000,
+      total: 44000,
+    });
   });
 });
 

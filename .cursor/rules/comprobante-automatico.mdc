@@ -1,0 +1,37 @@
+---
+description: Comprobante automático por mail+MD en todo cobro acreditado
+alwaysApply: true
+---
+
+# Comprobante automático (regla absoluta)
+
+Cuando un cobro **queda acreditado** a un socio (o pagador con mail de socio), el sistema **manda el comprobante solo**: PDF por Resend al mail real + mensaje MD en el portal. Sin click. Best-effort: el cobro no falla si el mail falla.
+
+## Obligatorio — todos estos canales
+
+- **Débitos automáticos** (suscripción / débito Mercado Pago)
+- **Pagos por la app del socio** (Mi cuenta / reservas): efectivo no aplica online; **todos los medios** que acrediten (Mercado Pago, transferencia avisada y confirmada, débito, etc.)
+- **Pagos registrados a mano** en administración: efectivo, Mercado Pago, tarjeta (POS), transferencia, mixto
+- **Reservas** (cancha / salón / pileta) cuando el pago se acredita
+- **Cuota social** (cobro en padrón, control, perfil, cobranza identificada)
+- **Portería / estacionamiento / otros ingresos** cuando el pagador es un **socio** con ficha
+- Cualquier otro cobro de socio que entre por caja, asiento o intent MP
+
+## Cómo implementarlo
+
+- Entrada única preferida: `deliverPaymentReceipt` / `sendDuesReceiptMessage` / `sendCashPaymentReceipt` / edge `send-payment-receipt` / `mp-webhook` → `deliverMpReceipt`.
+- Idempotente: no reenviar el mismo comprobante (`receipt_email_id`, `cash_payment_receipts_sent`, clave Resend).
+- Mail solo a casilla **real** (`paymentReceiptDeliverableEmail` / `mpReceiptDeliverableEmail`): no `@lila-jockey`, no `@jockeyclubsj.com`.
+- Link de Mi cuenta: **https://www.jockeyclubsj.com.ar/cuenta**.
+
+## Excepciones
+
+- **Vitalicio / fundador / comisión**: nunca comprobante de **cuota** (ver regla cuota-social). Sí pueden recibir comprobante de reserva u otro cobro no-cuota.
+- Portería u otro ingreso **sin socio** (pagador manual genérico): no hay destinatario → no inventar mail.
+- Sin mail real en la ficha: igual MD al buzón del socio si hay `memberId`.
+
+## Al agregar un cobro nuevo
+
+1. Tras persistir el pago acreditado → `void deliverPaymentReceipt(...)` (o el helper del dominio).
+2. Nunca dejar el envío solo en un botón “Compartir / Enviar mail”.
+3. Cubrir cloud (Supabase + Resend); no depender de `mailto:`.

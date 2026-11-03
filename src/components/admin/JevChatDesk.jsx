@@ -12,18 +12,42 @@ import {
 import { findMemberInQuery, memberFacts } from '../../domain/assistant/memberFacts';
 import { todayISODateAR } from '../../lib/arDate';
 
-const STARTERS = [
-  { id: 'mes', label: 'El mes', ask: 'Leé octubre: liquidado, recaudado y si llegamos al 10.' },
-  { id: 'mirar', label: 'Qué conviene', ask: '¿Qué conviene mirar ahora en el club?' },
-  { id: 'puerta', label: 'La puerta', ask: '¿Qué pasó hoy en portería y pileta?' },
-  { id: 'usar', label: 'Enseñame', ask: 'Enseñame a cobrar, liquidar y usar la puerta.' },
-  { id: 'manual', label: 'Manual', ask: null, room: 'manual' },
-];
+function consultaStarters(monthLabel = 'este mes') {
+  const mes = String(monthLabel || 'este mes').trim() || 'este mes';
+  return [
+    {
+      id: 'mes',
+      label: 'El mes',
+      ask: `Leé ${mes}: liquidado, recaudado, % de avance y si llegamos al vencimiento del 10. Decí qué falta y qué conviene hacer.`,
+    },
+    {
+      id: 'mirar',
+      label: 'Qué conviene',
+      ask: 'Con el libro en vivo, ¿qué conviene mirar ahora? Priorizá 3 acciones concretas (cuotas, caja, padrón, puerta o revisión).',
+    },
+    {
+      id: 'caja',
+      label: 'Caja',
+      ask: '¿Cómo está la caja hoy? Efectivo, bancos, cheques y qué mirar en movimientos del mes.',
+    },
+    {
+      id: 'puerta',
+      label: 'La puerta',
+      ask: '¿Qué pasó hoy en portería, pileta y reservas? Cruzá con deudores si aporta.',
+    },
+    {
+      id: 'usar',
+      label: 'Enseñame',
+      ask: 'Enseñame paso a paso a cobrar una cuota (efectivo, transferencia, tarjeta o Mercado Pago) y a liquidar el mes.',
+    },
+    { id: 'manual', label: 'Manual', ask: null, room: 'manual' },
+  ];
+}
 
 const REVIEW_STARTERS = [
-  { id: 'prioriza', label: 'Priorizá', ask: 'Con la revisión pendiente, ¿por dónde conviene empezar hoy?' },
-  { id: 'plata', label: 'La plata', ask: 'En la revisión, qué hay de plata, sin identificar y cuotas.' },
-  { id: 'fichas', label: 'Las fichas', ask: 'Qué fichas del padrón hay que corregir primero.' },
+  { id: 'prioriza', label: 'Priorizá', ask: 'Con la revisión pendiente, ¿por dónde conviene empezar hoy y por qué? Ordená los 3 primeros bloques.' },
+  { id: 'plata', label: 'La plata', ask: 'En la revisión, qué hay de plata: sin identificar, cuotas, caja. Qué imputar primero.' },
+  { id: 'fichas', label: 'Las fichas', ask: 'Qué fichas del padrón hay que corregir primero y con qué impacto operativo.' },
   { id: 'manual', label: 'Manual', ask: null, room: 'manual' },
 ];
 
@@ -100,7 +124,6 @@ export default function JevChatDesk({
     () => queue.map((item) => `${item.id}:${item.count || 0}`).join('|'),
     [queue],
   );
-  const starters = isReview ? REVIEW_STARTERS : STARTERS;
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -118,6 +141,7 @@ export default function JevChatDesk({
   const scroller = useRef(null);
   const lastMember = useRef({ member: null, at: -99 });
   const reading = useMemo(() => monthReading({ ...brief, today: brief.today || todayISODateAR() }), [brief]);
+  const starters = isReview ? REVIEW_STARTERS : consultaStarters(brief.monthLabel || reading?.month);
   const tiles = useMemo(() => {
     if (isReview) {
       const first = queue[0];
@@ -192,7 +216,7 @@ export default function JevChatDesk({
     setBusy(true);
     const history = [...messages, userMsg]
       .filter((row) => row.id !== 'open')
-      .slice(-8)
+      .slice(-10)
       .map((row) => ({ role: row.role, content: row.text }));
     const today = brief.today || todayISODateAR();
     const folded = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -242,12 +266,12 @@ export default function JevChatDesk({
           <p className="jev-desk-sub">
             {isReview
               ? 'Gemini lee la cola de revisión y el libro. Prioriza y te lleva a la sección.'
-              : 'Lee el club entero. Dice qué falta. El Manual de al lado tiene cada oficio.'}
+              : 'Gemini lee el libro entero y contesta con criterio. El Manual de al lado tiene cada oficio.'}
           </p>
         </div>
         <p className="jev-desk-live" aria-live="polite">
           <i />
-          <span>En el libro</span>
+          <span>{busy ? 'Gemini pensando…' : 'Listo para preguntar'}</span>
         </p>
       </header>
 
@@ -261,7 +285,7 @@ export default function JevChatDesk({
         {messages.map((row) => (
           <JevSlip key={row.id} row={row} goToTab={goToTab} />
         ))}
-        {busy ? <p className="jev-desk-wait">Jev está cruzando el libro…</p> : null}
+        {busy ? <p className="jev-desk-wait">Gemini está cruzando el libro…</p> : null}
       </div>
 
       <div className="jev-desk-starters">
@@ -304,12 +328,12 @@ export default function JevChatDesk({
             rows={2}
             placeholder={isReview
               ? 'Priorizá, sin identificar, fichas…'
-              : 'Número de socio, el mes, o cómo se hace algo'}
+              : 'Preguntale a Gemini: socio, mes, caja, reservas, qué conviene…'}
             disabled={busy}
           />
         </label>
         <button type="submit" className="jev-desk-send" disabled={busy || !input.trim()}>
-          Dictaminar
+          Preguntar
         </button>
       </form>
       {error ? <p className="jev-desk-error">{error}</p> : null}

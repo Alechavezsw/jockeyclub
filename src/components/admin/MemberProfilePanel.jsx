@@ -41,7 +41,7 @@ import {
   withProfileEditTrace,
 } from '../../domain/members/profileEdit';
 import { duesMethodLabel, isDuesCollectionJournal, journalEntryBelongsToMember, persistDuesCollection, persistDuesVoid, recordDuesCollection, removeDuesSurcharge, voidMemberDuesPayment } from '../../domain/members/memberPayments';
-import { sendDuesReceiptMessage } from '../../domain/members/duesReceiptDelivery';
+import { deliverPaymentReceipt } from '../../domain/payments/deliverPaymentReceipt';
 import { signedDuesReceiptUrl } from '../../data/storage';
 import { repos } from '../../data/bootstrap';
 import CurrentAccountCutNote from '../erp/CurrentAccountCutNote';
@@ -837,7 +837,12 @@ export default function MemberProfilePanel({
         addJournalEntry,
         onAccountEntry,
       });
-      void sendDuesReceiptMessage({ member: result.member, payment: result.payment, onSendMessage });
+      void deliverPaymentReceipt({
+        member: result.member,
+        payment: result.payment,
+        onSendMessage,
+        kind: 'cuota',
+      });
       setCollectOpen(false);
       setSection('movimientos');
       setCollectFlash(

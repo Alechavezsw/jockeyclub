@@ -11,7 +11,7 @@ const ADMIN_SECTIONS = [
   { key: 'accounting', title: 'Contabilidad', keywords: 'contabilidad padron catalogo' },
   { key: 'books', title: 'Libros', keywords: 'libros diario mayor asientos contabilidad partida doble' },
   { key: 'informes', title: 'Informes', keywords: 'informes balance resultados graficos reportes contables' },
-  { key: 'operation', title: 'Operación', keywords: 'operacion caja tesoreria gastos proveedores debitos' },
+  { key: 'operation', title: 'Operación', keywords: 'operacion tesoreria gastos proveedores debitos' },
   { key: 'staff', title: 'Personal', keywords: 'personal empleados rrhh' },
   { key: 'teachers', title: 'Profesores', keywords: 'profesores docentes' },
   { key: 'events', title: 'Fiestas', keywords: 'fiestas eventos' },
@@ -42,7 +42,7 @@ const ACCOUNTING_TOOLS = [
   { key: 'siap', title: 'SIAP', keywords: 'siap impuestos' },
   { key: 'impuestos', title: 'Impuestos', keywords: 'impuestos iva iibb comprobantes liquidacion taxes' },
   { key: 'plan', title: 'Plan de cuentas', keywords: 'plan cuentas contabilidad' },
-  { key: 'cash', title: 'Cajas', keywords: 'caja cajas tesoreria efectivo' },
+  { key: 'cash', title: 'Caja', keywords: 'caja cajas tesoreria efectivo arqueo cobranzas' },
   { key: 'expenses', title: 'Gastos', keywords: 'gastos egresos proveedores tesoreria' },
   { key: 'suppliers', title: 'Proveedores', keywords: 'proveedores gastos' },
   { key: 'retenciones', title: 'Retenciones', keywords: 'retenciones impuestos' },
@@ -107,7 +107,7 @@ export function searchSession({
     }, tokens);
   });
 
-  if (allowed.has('accounting') || allowed.has('books') || allowed.has('informes') || allowed.has('operation')) {
+  if (allowed.has('accounting') || allowed.has('books') || allowed.has('informes') || allowed.has('caja') || allowed.has('operation')) {
     const accountingAllowed = new Set(accountingTabs);
     const bookKeys = new Set(['diary', 'mayor', 'create']);
     const reportKeys = new Set([
@@ -126,21 +126,31 @@ export function searchSession({
       const isTreasury = treasuryKeys.has(tool.key);
       if (isBook && !allowed.has('books') && !allowed.has('accounting')) return;
       if (isReport && !allowed.has('informes') && !allowed.has('accounting')) return;
-      if (isTreasury && !allowed.has('operation') && !allowed.has('accounting')) return;
+      if (isTreasury && !allowed.has('operation') && !allowed.has('caja') && !allowed.has('accounting')) return;
       if (!isBook && !isReport && !isTreasury && !allowed.has('accounting')) return;
       const path = isBook && allowed.has('books')
         ? `/panel/books?sub=${tool.key}`
         : isReport && allowed.has('informes')
           ? `/panel/informes?sub=${tool.key}`
-          : isTreasury && allowed.has('operation')
-            ? `/panel/operation?sub=${tool.key}`
-            : `/panel/accounting?sub=${tool.key}`;
+          : (tool.key === 'cash' || tool.key === 'other_incomes') && allowed.has('caja')
+            ? `/panel/caja?sub=${tool.key}`
+            : isTreasury && allowed.has('operation')
+              ? `/panel/operation?sub=${tool.key}`
+              : `/panel/accounting?sub=${tool.key}`;
       pushRanked(items, {
         id: `tool-${tool.key}`,
         kind: 'tool',
         title: tool.title,
         keywords: tool.keywords,
-        subtitle: isBook ? 'Libros' : isReport ? 'Informes' : isTreasury ? 'Operación' : 'Contabilidad',
+        subtitle: isBook
+          ? 'Libros'
+          : isReport
+            ? 'Informes'
+            : (tool.key === 'cash' || tool.key === 'other_incomes')
+              ? 'Caja'
+              : isTreasury
+                ? 'Operación'
+                : 'Contabilidad',
         path,
       }, tokens);
     });

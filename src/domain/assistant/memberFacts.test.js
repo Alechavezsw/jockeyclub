@@ -174,6 +174,20 @@ describe('memberInsight', () => {
     expect(insight.figures.find((row) => row.label === 'Error')?.tone).toBe('error');
   });
 
+  it('marca saldo corto si la ficha no cubre las cuotas vencidas', () => {
+    const insight = memberInsight(memberFacts(
+      {
+        ...titular,
+        outstandingBalance: 32000,
+        nextDueDate: '2026-10-10',
+        lastPaymentDate: null,
+      },
+      { today: '2026-11-02', members: all },
+    ));
+    expect(insight.figures.find((row) => row.label === 'Saldo corto')?.tone).toBe('error');
+    expect(insight.text).toMatch(/cuotas vencidas|Falta imputar/i);
+  });
+
   it('explica al adherente sin inventarle una deuda', () => {
     const insight = memberInsight(memberFacts(adherente, { today: '2026-10-20', members: all }));
     expect(insight.verdict).toMatch(/adherente/);

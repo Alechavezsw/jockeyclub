@@ -1,11 +1,18 @@
 ---
-description: Cuota social — exentos, mora, Mi cuenta www
+description: Cuota social — generación día 1, acumulación, mora, exentos, Mi cuenta www
 alwaysApply: true
 ---
 
 # Cuota social
 
-Vence el **10**. Desde el **11** es mora. Recargo 10 % solo `socio_familiar` y `socio_individual`.
+## Ciclo (regla absoluta)
+
+1. **Día 1 de cada mes**: se genera e imputa la cuota del mes a cada titular que abona (liquidación → Pendiente → Procesada).
+2. **Si no paga**, el mes siguiente se genera otra cuota **arriba** del saldo: debe 2 (o N) cuotas.
+3. **Vence el 10**. Paga **el 10 o antes** → sin recargo. Desde el **11** → mora; recargo **10 %** solo `socio_familiar` y `socio_individual` (por cada mes vencido, al cobrar).
+4. El saldo de ficha guarda **capital** (cuotas liquidables). El 10 % **no** se mete en el saldo al liquidar: se calcula al cobrar.
+
+## Exentos
 
 **Vitalicio, fundador y comisión no abonan cuota.** Para todo el padrón, no un socio:
 

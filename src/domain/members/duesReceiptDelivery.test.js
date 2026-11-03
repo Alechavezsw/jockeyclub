@@ -4,7 +4,12 @@ vi.mock('../../data/storage', () => ({
   uploadDuesReceipt: vi.fn(),
 }));
 
+vi.mock('../../data/repos', () => ({
+  sendPaymentReceiptEmail: vi.fn(),
+}));
+
 import { uploadDuesReceipt } from '../../data/storage';
+import { sendPaymentReceiptEmail } from '../../data/repos';
 import {
   buildOnlineDuesBoleto,
   prepareOnlineDuesBoleto,
@@ -65,23 +70,25 @@ describe('prepareOnlineDuesBoleto', () => {
 describe('sendDuesReceiptMessage', () => {
   beforeEach(() => {
     uploadDuesReceipt.mockReset();
+    sendPaymentReceiptEmail.mockReset();
   });
 
-  it('no hace nada sin callback o sin pago', async () => {
-    await sendDuesReceiptMessage({ member: { memberId: '1' }, payment: { amount: 1 } });
+  it('no hace nada sin pago', async () => {
     await sendDuesReceiptMessage({
       member: { memberId: '1' },
       payment: null,
       onSendMessage: vi.fn(),
     });
     expect(uploadDuesReceipt).not.toHaveBeenCalled();
+    expect(sendPaymentReceiptEmail).not.toHaveBeenCalled();
   });
 
-  it('manda el recibo aunque el upload falle', async () => {
+  it('manda el recibo por MD y por mail aunque el upload falle', async () => {
     uploadDuesReceipt.mockRejectedValue(new Error('sin supabase'));
+    sendPaymentReceiptEmail.mockResolvedValue({ ok: true, id: 're_1' });
     const onSendMessage = vi.fn().mockResolvedValue(undefined);
     await sendDuesReceiptMessage({
-      member: { memberId: '111', name: 'Ana' },
+      member: { memberId: '111', name: 'Ana', email: 'ana@example.com' },
       payment: {
         amount: 40000,
         date: '2026-10-20',
@@ -94,13 +101,16 @@ describe('sendDuesReceiptMessage', () => {
     expect(onSendMessage).toHaveBeenCalledOnce();
     expect(onSendMessage.mock.calls[0][0].recipientId).toBe('111');
     expect(onSendMessage.mock.calls[0][0].meta.kind).toBe('dues_receipt');
+    expect(sendPaymentReceiptEmail).toHaveBeenCalledOnce();
+    expect(sendPaymentReceiptEmail.mock.calls[0][0].memberNumber).toBe('111');
   });
 
   it('no corta el cobro si el envío falla', async () => {
     uploadDuesReceipt.mockResolvedValue({ path: 'x', name: 'r.pdf' });
+    sendPaymentReceiptEmail.mockRejectedValue(new Error('resend down'));
     const onSendMessage = vi.fn().mockRejectedValue(new Error('mailbox down'));
     await expect(sendDuesReceiptMessage({
-      member: { memberId: '111', name: 'Ana' },
+      member: { memberId: '111', name: 'Ana', email: 'ana@example.com' },
       payment: {
         amount: 1000,
         date: '2026-10-20',

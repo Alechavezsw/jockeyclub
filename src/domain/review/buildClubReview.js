@@ -553,7 +553,7 @@ export function buildClubReview({
     focus: 'cash',
     samples: take(overdueCheques, (c) => asSample(
       `${c.checkNumber || c.drawer || 'Cheque'} · ${String(c.dueAt).slice(0, 10)}`,
-      '/panel/operation?sub=cash',
+      '/panel/caja?sub=cash',
     )),
   });
   row(items, {
@@ -567,7 +567,7 @@ export function buildClubReview({
     focus: 'cash',
     samples: take(soonCheques, (c) => asSample(
       `${c.checkNumber || c.drawer || 'Cheque'} · ${String(c.dueAt).slice(0, 10)}`,
-      '/panel/operation?sub=cash',
+      '/panel/caja?sub=cash',
     )),
   });
 
@@ -585,7 +585,7 @@ export function buildClubReview({
     focus: 'cash',
     samples: take(undatedCheques, (c) => asSample(
       c.checkNumber || c.drawer || 'Cheque',
-      '/panel/operation?sub=cash',
+      '/panel/caja?sub=cash',
     )),
   });
 
@@ -1183,7 +1183,7 @@ export function buildClubReview({
     focus: 'cash',
     samples: take(openDiscrepancy, (session) => asSample(
       session.closedAt ? String(session.closedAt).slice(0, 10) : 'Arqueo',
-      '/panel/operation?sub=cash',
+      '/panel/caja?sub=cash',
     )),
   });
 

@@ -47,10 +47,11 @@ describe('allowedAdminTabs', () => {
     expect(tabs).toContain('access');
   });
 
-  it('el cajero ve socios y módulo de caja (operation) pero no migración', () => {
+  it('el cajero ve socios y módulo de caja pero no migración', () => {
     const tabs = allowedAdminTabs('cashier');
     expect(tabs).toContain('members');
-    expect(tabs).toContain('operation');
+    expect(tabs).toContain('caja');
+    expect(tabs).not.toContain('operation');
     expect(tabs).not.toContain('accounting');
     expect(tabs).toContain('access');
     expect(tabs).not.toContain('migration');
@@ -62,6 +63,7 @@ describe('allowedAdminTabs', () => {
     expect(tabs).toContain('dues');
     expect(tabs).toContain('books');
     expect(tabs).toContain('informes');
+    expect(tabs).toContain('caja');
     expect(tabs).toContain('operation');
     expect(tabs).not.toContain('members');
   });
@@ -129,7 +131,8 @@ describe('allowedAdminTabs', () => {
 
   it('operador de portería ve caja e ingresos', () => {
     const tabs = allowedAdminTabs('gate_operator');
-    expect(tabs).toContain('operation');
+    expect(tabs).toContain('caja');
+    expect(tabs).not.toContain('operation');
     expect(tabs).toContain('access');
     expect(tabs).not.toContain('migration');
   });
@@ -185,19 +188,24 @@ describe('allowedAdminTabs', () => {
     expect(allowedAccountingSubtabs('superadmin').length).toBeGreaterThan(allowedAccountingSubtabs('admin').length);
   });
 
-  it('admin y cajero ven Operación (débitos/caja), no Libros ni Contabilidad general', () => {
+  it('admin ve Débitos; cajero ve Caja; contador ve ambos', () => {
     expect(allowedAdminTabs('admin')).toContain('operation');
     expect(allowedAdminTabs('admin')).not.toContain('books');
     expect(allowedAdminTabs('admin')).not.toContain('informes');
     expect(allowedAdminTabs('admin')).not.toContain('accounting');
-    expect(allowedAdminTabs('cashier')).toContain('operation');
+    expect(allowedAdminTabs('cashier')).toContain('caja');
+    expect(allowedAdminTabs('cashier')).not.toContain('operation');
     expect(allowedAdminTabs('cashier')).not.toContain('books');
     expect(allowedAdminTabs('cashier')).not.toContain('informes');
     expect(allowedAdminTabs('cashier')).not.toContain('accounting');
     expect(allowedAdminTabs('admin_employee')).toContain('operation');
+    expect(allowedAdminTabs('admin_employee')).not.toContain('caja');
     expect(allowedAdminTabs('admin_employee')).not.toContain('books');
     expect(allowedAdminTabs('admin_employee')).not.toContain('informes');
     expect(allowedAdminTabs('admin_employee')).not.toContain('accounting');
+    expect(allowedAdminTabs('accountant')).toContain('caja');
+    expect(allowedAdminTabs('accountant')).toContain('operation');
+    expect(allowedAdminTabs('superadmin')).toContain('caja');
   });
 });
 

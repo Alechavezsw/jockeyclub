@@ -13,6 +13,7 @@ import {
   cashMovementMonthSheets,
   enrichCashMovementsWithMembers,
   formatAccessinCashDate,
+  impliedCashOnHand,
   mergeAccessinCashMovements,
 } from './cashLedger';
 
@@ -270,10 +271,21 @@ export function buildLiveCashLedger({
     .filter((row) => row.walletKind === 'bank')
     .reduce((sum, row) => sum + signedCashAmount(row), 0);
 
-  // El corte de Lila no es la caja de hoy. Las tarjetas arrancan en 0
-  // y solo suman movimientos de la app posteriores a ese corte.
-  const efectivo = roundMoney(cashDelta);
-  const bancos = roundMoney(bankDelta);
+  // Corte Accessin/Lila + movimientos del libro posteriores + app/asientos vivos.
+  const base = impliedCashOnHand(snapshot, { bankAccounts, cheques });
+  const importedAfter = (movements || []).filter((row) => {
+    const date = isoDate(row.date);
+    return date && date > cutoff;
+  });
+  const importedCashDelta = importedAfter
+    .filter((row) => row.walletKind === 'cash')
+    .reduce((sum, row) => sum + signedCashAmount(row), 0);
+  const importedBankDelta = importedAfter
+    .filter((row) => row.walletKind === 'bank')
+    .reduce((sum, row) => sum + signedCashAmount(row), 0);
+
+  const efectivo = roundMoney(base.efectivo + importedCashDelta + cashDelta);
+  const bancos = roundMoney(base.bancos + importedBankDelta + bankDelta);
   const chequesValue = accessinChequesTotal(cheques);
   const total = roundMoney(efectivo + bancos + chequesValue);
   const cobExtras = [

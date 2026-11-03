@@ -84,7 +84,11 @@ function roundMoney(value) {
 function banksOnHand(bankAccounts, snapshot) {
   const active = (bankAccounts || []).filter((account) => account && account.isActive !== false);
   if (active.length) {
-    return roundMoney(active.reduce((sum, account) => sum + (Number(account.balance) || 0), 0));
+    const fromAccounts = roundMoney(
+      active.reduce((sum, account) => sum + (Number(account.balance) || 0), 0),
+    );
+    // El padrón Lila llega con saldo 0; el total de bancos vive en el corte de caja.
+    if (fromAccounts !== 0) return fromAccounts;
   }
   if (snapshot?.cards?.bancos?.balance != null && Number.isFinite(Number(snapshot.cards.bancos.balance))) {
     return Number(snapshot.cards.bancos.balance);
@@ -236,6 +240,29 @@ export function cashMovementMonthSheets(movements = []) {
       label: cashMovementMonthLabel(key),
       count,
     }));
+}
+
+/** Filas por hoja dentro del mes (no volcar 500+ de una). */
+export const CASH_MOVEMENT_SHEET_SIZE = 50;
+
+/**
+ * Parte los movimientos del mes en hojas numeradas.
+ * @returns {{ page: number, pageCount: number, pageSize: number, total: number, rows: any[] }}
+ */
+export function paginateCashMovementSheet(movements = [], page = 1, pageSize = CASH_MOVEMENT_SHEET_SIZE) {
+  const rows = Array.isArray(movements) ? movements : [];
+  const size = Math.max(1, Number(pageSize) || CASH_MOVEMENT_SHEET_SIZE);
+  const total = rows.length;
+  const pageCount = Math.max(1, Math.ceil(total / size));
+  const current = Math.min(Math.max(1, Number(page) || 1), pageCount);
+  const start = (current - 1) * size;
+  return {
+    page: current,
+    pageCount,
+    pageSize: size,
+    total,
+    rows: rows.slice(start, start + size),
+  };
 }
 
 export function filterAccessinCashMovements(movements = [], filter = {}) {

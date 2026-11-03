@@ -89,9 +89,14 @@ function pdfSafe(value: string) {
     .replace(/\)/g, "\\)");
 }
 
+/** Regla: todo cobro MP acreditado a socio lleva comprobante (cuota, débito, pileta, reserva). */
 function shouldIssueMpDuesReceipt(kind: string) {
   const next = String(kind || "").toLowerCase();
-  return next === "dues" || next === "subscription";
+  return next === "dues"
+    || next === "subscription"
+    || next === "pool"
+    || next === "booking"
+    || next === "reservation";
 }
 
 function mpReceiptChannelOf(meta: Record<string, unknown> = {}) {

@@ -1,6 +1,10 @@
 import { paymentBoletoPdfFile, paymentReceiptPdfFile } from './exportPaymentReceiptPdf';
 import { duesBoletoMessage, duesReceiptMessage } from './duesPaymentNotice';
+import { paymentReceiptDeliverableEmail } from './paymentReceiptEmail';
 import { uploadDuesReceipt } from '../../data/storage';
+import { sendPaymentReceiptEmail } from '../../data/repos';
+import { mpReceiptMoney } from './mpPaymentReceipt';
+import { formatAccessinCashDate } from '../accounting/cashLedger';
 
 export function buildOnlineDuesBoleto({ member, amount, dueLabel } = {}) {
   const date = new Date().toISOString().slice(0, 10);
@@ -49,11 +53,11 @@ export async function prepareOnlineDuesBoleto({ member, amount, dueLabel, profil
 }
 
 /**
- * Genera el recibo del cobro y lo manda por Mensajería al socio.
- * Best-effort: si falla (sin Supabase, sin red), no interrumpe el cobro ya registrado.
+ * Genera el recibo del cobro, lo manda por Mensajería y por mail (Resend).
+ * Misma regla que Mercado Pago. Best-effort: no interrumpe el cobro ya registrado.
  */
 export async function sendDuesReceiptMessage({ member, payment, onSendMessage }) {
-  if (typeof onSendMessage !== 'function' || !member?.memberId || !payment) return;
+  if (!member?.memberId || !payment) return;
   try {
     const file = await paymentReceiptPdfFile({ member, payment });
     let attachment;
@@ -62,8 +66,28 @@ export async function sendDuesReceiptMessage({ member, payment, onSendMessage })
     } catch {
       attachment = undefined;
     }
-    const msg = duesReceiptMessage({ member, payment, attachment });
-    await onSendMessage(msg);
+    if (typeof onSendMessage === 'function') {
+      try {
+        await onSendMessage(duesReceiptMessage({ member, payment, attachment }));
+      } catch {
+        /* best-effort MD */
+      }
+    }
+    const email = paymentReceiptDeliverableEmail(member.email)
+      || paymentReceiptDeliverableEmail(member.contactEmail);
+    if (!email) return;
+    const pdfBase64 = await fileToBase64(file);
+    await sendPaymentReceiptEmail({
+      memberNumber: member.memberId,
+      amountLabel: mpReceiptMoney(payment.amount),
+      receiptNo: payment.receiptNumber || payment.receipt || '',
+      concept: payment.concept || 'Cuota social',
+      methodLabel: payment.methodLabel || payment.method || 'Caja',
+      dateLabel: payment.date ? formatAccessinCashDate(payment.date) : '',
+      periodLabel: payment.period || payment.periodLabel || '',
+      pdfBase64,
+      fileName: file.name,
+    });
   } catch {
     /* best-effort */
   }

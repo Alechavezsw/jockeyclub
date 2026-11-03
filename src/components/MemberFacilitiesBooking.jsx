@@ -32,6 +32,10 @@ import {
   latestBookableIso,
   validateMemberBooking,
   facilityOffersPaymentButton,
+  reservationTotalPrice,
+  reservationDepositAmount,
+  reservationBalanceAfterDeposit,
+  RESERVATION_DEPOSIT_RATE,
 } from '../domain/reservations/bookingRules';
 import { isSlotPast } from '../domain/reservations/slotTime';
 import { joinWaitlist, leaveWaitlist, waitingForSlot } from '../domain/reservations/waitlist';
@@ -299,19 +303,21 @@ export default function MemberFacilitiesBooking({
     });
   };
 
-  const bookingPrice = Number(selectedFacility?.defaultPrice) || 0;
+  const bookingPrice = reservationTotalPrice(selectedFacility);
+  const depositDue = reservationDepositAmount(bookingPrice);
+  const balanceAfterDeposit = reservationBalanceAfterDeposit(bookingPrice);
   const bank = CLUB_BANK_ACCOUNTS[0];
   const bookingQr = useMemo(() => {
-    if (payMethod !== 'mercadopago' || bookingPrice <= 0 || !member) return null;
+    if (payMethod !== 'mercadopago' || depositDue <= 0 || !member) return null;
     const payload = buildMercadoPagoQrPayload({
-      amount: bookingPrice,
+      amount: depositDue,
       memberId: member.memberId,
       memberName: member.name,
-      concept: `${selectedFacility?.name || 'Reserva'} ${selectedDate || ''} ${time || ''}`.trim(),
+      concept: `Seña 50% ${selectedFacility?.name || 'Reserva'} ${selectedDate || ''} ${time || ''}`.trim(),
     });
     const ref = payload.split('|').find((part) => part.startsWith('ref='))?.slice(4) || '';
     return { payload, ref };
-  }, [payMethod, bookingPrice, member, selectedFacility?.name, selectedDate, time]);
+  }, [payMethod, depositDue, member, selectedFacility?.name, selectedDate, time]);
 
   const handleReceipt = (event) => {
     const file = event.target.files?.[0];
@@ -360,11 +366,11 @@ export default function MemberFacilitiesBooking({
     }
 
     const chargeToAccount = payMethod === 'cuenta_corriente';
-    if (bookingPrice > 0 && !chargeToAccount && payMethod === 'transferencia' && !receiptFile) {
-      setErrorMessage('Adjuntá el comprobante de la transferencia.');
+    if (depositDue > 0 && !chargeToAccount && payMethod === 'transferencia' && !receiptFile) {
+      setErrorMessage('Adjuntá el comprobante de la seña (50 %).');
       return;
     }
-    if (bookingPrice > 0 && !chargeToAccount && !sendMessage) {
+    if (depositDue > 0 && !chargeToAccount && !sendMessage) {
       setErrorMessage('El aviso de pago a administración no está disponible.');
       return;
     }
@@ -372,14 +378,14 @@ export default function MemberFacilitiesBooking({
     setPaying(true);
     try {
       let attachment = null;
-      if (bookingPrice > 0 && payMethod === 'transferencia') {
+      if (depositDue > 0 && payMethod === 'transferencia') {
         attachment = await uploadDuesReceipt(receiptFile, user?.id);
       }
-      if (bookingPrice > 0 && !chargeToAccount) {
+      if (depositDue > 0 && !chargeToAccount) {
         await sendMessage(bookingPaymentNotice({
           memberName: member.name,
           memberId: member.memberId,
-          amountLabel: formatCurrency(bookingPrice),
+          amountLabel: `${formatCurrency(depositDue)} (seña 50 % · total ${formatCurrency(bookingPrice)})`,
           facilityName: selectedFacility.name,
           dateLabel: selectedDateLabel,
           time,
@@ -407,6 +413,8 @@ export default function MemberFacilitiesBooking({
       status: check.status,
       endTime: check.turn.endTime,
       estimatedPrice: bookingPrice || null,
+      depositAmount: depositDue || null,
+      depositRate: bookingPrice > 0 ? RESERVATION_DEPOSIT_RATE : null,
       paymentMethod: bookingPrice > 0 ? payMethod : null,
       source: 'app',
     };
@@ -825,14 +833,18 @@ export default function MemberFacilitiesBooking({
                   <div className="mfb-pay">
                     <label className="form-label">Pago</label>
                     <p className="mfb-book-hint">
-                      {formatCurrency(bookingPrice)} · se imputa a la cuenta corriente. En salón hace falta abonar el total o el 50% para no perder la reserva.
+                      Total {formatCurrency(bookingPrice)} · seña obligatoria {formatCurrency(depositDue)} (50 %).
+                      El resto ({formatCurrency(balanceAfterDeposit)}) queda en cuenta. Aparte de la cuota social.
                     </p>
                   </div>
                 )}
                 {bookingPrice > 0 && facilityOffersPaymentButton(selectedFacility) && (
                   <div className="mfb-pay">
                     <label className="form-label" htmlFor="mfb-pay-method">Pago</label>
-                    <p className="mfb-book-hint">{formatCurrency(bookingPrice)} · cuenta corriente o botón de pago.</p>
+                    <p className="mfb-book-hint">
+                      Total {formatCurrency(bookingPrice)} · seña 50 % {formatCurrency(depositDue)}.
+                      El resto ({formatCurrency(balanceAfterDeposit)}) queda en cuenta, aparte de la cuota.
+                    </p>
                     <select
                       id="mfb-pay-method"
                       className="form-input"
@@ -854,7 +866,7 @@ export default function MemberFacilitiesBooking({
                         <div>
                           <strong><QrCode size={14} /> QR Mercado Pago</strong>
                           <p>Alias {MERCADO_PAGO.alias}</p>
-                          <p>{formatCurrency(bookingPrice)}. Al confirmar, administración recibe el aviso.</p>
+                          <p>Seña {formatCurrency(depositDue)} (50 %). Al confirmar, administración recibe el aviso.</p>
                         </div>
                       </div>
                     ) : null}

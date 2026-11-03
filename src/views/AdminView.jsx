@@ -17,6 +17,7 @@ import {
   canManageMembers,
   canWriteMemberLedger,
   isAccountingBookSubtab,
+  isAccountingCajaSubtab,
   isAccountingReportSubtab,
   isAccountingTreasurySubtab,
   ROLE_LABELS,
@@ -78,6 +79,7 @@ const TAB_PREFETCH = {
   books: () => import('../components/AccountingTab'),
   informes: () => import('../components/AccountingTab'),
   operation: () => import('../components/AccountingTab'),
+  caja: () => import('../components/AccountingTab'),
   members: () => import('../components/admin/MembersTab'),
   dues: () => import('../components/erp/CuotasPanel'),
   dashboard: () => import('../components/admin/AdminDashboardTab'),
@@ -227,7 +229,7 @@ export default function AdminView({
   const permittedTabs = allowedAdminTabsForRoles(roleSource);
 
   // La pestaña activa vive en la URL (/panel/:tab); perfiles en /panel/members|:staff/:id
-  // Subtabs: /panel/accounting|books|informes|operation?sub=…
+  // Subtabs: /panel/accounting|books|informes|caja|operation?sub=…
   const { tab: routeTab, memberId: routeEntityId } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -236,11 +238,10 @@ export default function AdminView({
     activeTab === 'accounting'
     || activeTab === 'books'
     || activeTab === 'informes'
+    || activeTab === 'caja'
     || activeTab === 'operation'
   )
-    ? (searchParams.get('sub') || (
-      activeTab === 'operation' && (userRole === 'cashier' || userRole === 'gate_operator') ? 'cash' : null
-    ))
+    ? (searchParams.get('sub') || (activeTab === 'caja' ? 'cash' : null))
     : null;
 
   // El inicio pinta con el resumen y la caja. Los cortes de varios MB entran después,
@@ -279,6 +280,50 @@ export default function AdminView({
     if (!liquidateDues || !membersSettled || !erp.ensureProcessedFeeLedger) return;
     void erp.ensureProcessedFeeLedger(members);
   }, [liquidateDues, membersSettled, erp.ensureProcessedFeeLedger]);
+  // Liquidación del mes + imputación a las 00 h: en el panel, no solo al abrir Cuotas.
+  // Así un saldo LILA previo (p. ej. $32.000) recibe noviembre al promover Pendiente→Procesada.
+  useEffect(() => {
+    if (!liquidateDues || !membersSettled || !erp.feePeriodsReady) return undefined;
+    if (!erp.ensureAutoFeeLiquidation || !erp.ensurePromotePendingFeePeriods) return undefined;
+    let cancelled = false;
+    const run = async () => {
+      await erp.ensureAutoFeeLiquidation({
+        members,
+        tierCatalog,
+        discounts: erp.discounts || [],
+        actor: 'Automático · panel',
+      });
+      if (cancelled) return;
+      // Mes vigente: recalcular cargos con bonificaciones (antes de imputar o ajustando fichas).
+      if (erp.ensureCurrentFeePeriodDiscounts) {
+        await erp.ensureCurrentFeePeriodDiscounts({
+          members,
+          tierCatalog,
+          discounts: erp.discounts || [],
+          setMembers: memberSet,
+          actor: 'Bonificaciones · mes vigente',
+        });
+      }
+      if (cancelled) return;
+      await erp.ensurePromotePendingFeePeriods({
+        members,
+        setMembers: memberSet,
+      });
+    };
+    void run();
+    return () => { cancelled = true; };
+  }, [
+    liquidateDues,
+    membersSettled,
+    erp.feePeriodsReady,
+    erp.feePeriods,
+    erp.discounts,
+    erp.ensureAutoFeeLiquidation,
+    erp.ensureCurrentFeePeriodDiscounts,
+    erp.ensurePromotePendingFeePeriods,
+    memberSet,
+    tierCatalog,
+  ]);
   useEffect(() => {
     let cancelled = false;
     repos.countGroupAccountLedgers()
@@ -395,6 +440,10 @@ export default function AdminView({
       navigate(`/panel/informes?sub=${encodeURIComponent(sub)}`, { replace: true });
       return;
     }
+    if (activeTab === 'accounting' && isAccountingCajaSubtab(sub) && permittedTabs.includes('caja')) {
+      navigate(`/panel/caja?sub=${encodeURIComponent(sub)}`, { replace: true });
+      return;
+    }
     if (activeTab === 'accounting' && isAccountingTreasurySubtab(sub) && permittedTabs.includes('operation')) {
       navigate(`/panel/operation?sub=${encodeURIComponent(sub)}`, { replace: true });
       return;
@@ -402,6 +451,8 @@ export default function AdminView({
     if (activeTab === 'books' && !isAccountingBookSubtab(sub)) {
       if (isAccountingReportSubtab(sub) && permittedTabs.includes('informes')) {
         navigate(`/panel/informes?sub=${encodeURIComponent(sub)}`, { replace: true });
+      } else if (isAccountingCajaSubtab(sub) && permittedTabs.includes('caja')) {
+        navigate(`/panel/caja?sub=${encodeURIComponent(sub)}`, { replace: true });
       } else if (isAccountingTreasurySubtab(sub) && permittedTabs.includes('operation')) {
         navigate(`/panel/operation?sub=${encodeURIComponent(sub)}`, { replace: true });
       } else if (permittedTabs.includes('accounting')) {
@@ -412,11 +463,18 @@ export default function AdminView({
     if (activeTab === 'informes' && !isAccountingReportSubtab(sub)) {
       if (isAccountingBookSubtab(sub) && permittedTabs.includes('books')) {
         navigate(`/panel/books?sub=${encodeURIComponent(sub)}`, { replace: true });
+      } else if (isAccountingCajaSubtab(sub) && permittedTabs.includes('caja')) {
+        navigate(`/panel/caja?sub=${encodeURIComponent(sub)}`, { replace: true });
       } else if (isAccountingTreasurySubtab(sub) && permittedTabs.includes('operation')) {
         navigate(`/panel/operation?sub=${encodeURIComponent(sub)}`, { replace: true });
       } else if (permittedTabs.includes('accounting')) {
         navigate(`/panel/accounting?sub=${encodeURIComponent(sub)}`, { replace: true });
       }
+      return;
+    }
+    // Enlaces viejos /panel/operation?sub=cash → /panel/caja
+    if (activeTab === 'operation' && isAccountingCajaSubtab(sub) && permittedTabs.includes('caja')) {
+      navigate(`/panel/caja?sub=${encodeURIComponent(sub)}`, { replace: true });
       return;
     }
     if (activeTab === 'operation' && !isAccountingTreasurySubtab(sub)) {
@@ -426,6 +484,15 @@ export default function AdminView({
         navigate(`/panel/informes?sub=${encodeURIComponent(sub)}`, { replace: true });
       } else if (permittedTabs.includes('accounting')) {
         navigate(`/panel/accounting?sub=${encodeURIComponent(sub)}`, { replace: true });
+      }
+    }
+    if (activeTab === 'caja' && !isAccountingCajaSubtab(sub)) {
+      if (isAccountingTreasurySubtab(sub) && permittedTabs.includes('operation')) {
+        navigate(`/panel/operation?sub=${encodeURIComponent(sub)}`, { replace: true });
+      } else if (isAccountingBookSubtab(sub) && permittedTabs.includes('books')) {
+        navigate(`/panel/books?sub=${encodeURIComponent(sub)}`, { replace: true });
+      } else if (isAccountingReportSubtab(sub) && permittedTabs.includes('informes')) {
+        navigate(`/panel/informes?sub=${encodeURIComponent(sub)}`, { replace: true });
       }
     }
   }, [activeTab, searchParams, navigate, permittedTabs]);
@@ -462,6 +529,10 @@ export default function AdminView({
         navigate(`/panel/informes?sub=${encodeURIComponent(focus)}`);
         return;
       }
+      if (focus && isAccountingCajaSubtab(focus) && permittedTabs.includes('caja')) {
+        navigate(`/panel/caja?sub=${encodeURIComponent(focus)}`);
+        return;
+      }
       if (focus && isAccountingTreasurySubtab(focus)) {
         navigate(`/panel/operation?sub=${encodeURIComponent(focus)}`);
         return;
@@ -491,12 +562,15 @@ export default function AdminView({
       }
       return;
     }
+    if (tabKey === 'caja') {
+      const nextFocus = focus && isAccountingCajaSubtab(focus) ? focus : 'cash';
+      navigate(`/panel/caja?sub=${encodeURIComponent(nextFocus)}`);
+      return;
+    }
     if (tabKey === 'operation') {
-      const nextFocus = focus && isAccountingTreasurySubtab(focus)
+      const nextFocus = focus && isAccountingTreasurySubtab(focus) && !isAccountingCajaSubtab(focus)
         ? focus
-        : (userRole === 'cashier' || userRole === 'gate_operator'
-          ? 'cash'
-          : (userRole === 'admin' || userRole === 'admin_employee' ? 'debit_moves' : null));
+        : (userRole === 'admin' || userRole === 'admin_employee' ? 'debit_moves' : null);
       if (nextFocus) {
         navigate(`/panel/operation?sub=${encodeURIComponent(nextFocus)}`);
       } else {
@@ -545,18 +619,15 @@ export default function AdminView({
           { key: 'accounting', icon: BookOpen, label: 'Contabilidad' },
           { key: 'books', icon: Book, label: 'Libros' },
           { key: 'informes', icon: PieChart, label: 'Informes' },
+          { key: 'caja', icon: Wallet, label: 'Caja' },
           {
             key: 'operation',
-            icon: (userRole === 'cashier' || userRole === 'gate_operator')
-              ? DollarSign
-              : (userRole === 'admin' || userRole === 'admin_employee')
-                ? CreditCard
-                : Wallet,
-            label: (userRole === 'cashier' || userRole === 'gate_operator')
-              ? 'Caja'
-              : (userRole === 'admin' || userRole === 'admin_employee')
-                ? 'Débitos'
-                : 'Operación',
+            icon: (userRole === 'admin' || userRole === 'admin_employee')
+              ? CreditCard
+              : DollarSign,
+            label: (userRole === 'admin' || userRole === 'admin_employee')
+              ? 'Débitos'
+              : 'Operación',
           },
           { key: 'reports', icon: FileSpreadsheet, label: 'Reportes' },
         ],
@@ -968,7 +1039,7 @@ export default function AdminView({
       <div className="admin-main">
       <div className="page-stage">
       {/* Cabecera solo fuera del Inicio (el dashboard ya trae su propia intro) */}
-      {activeTab !== 'dashboard' && activeTab !== 'events' && activeTab !== 'accounting' && activeTab !== 'books' && activeTab !== 'informes' && activeTab !== 'operation' && activeTab !== 'jev' && (
+      {activeTab !== 'dashboard' && activeTab !== 'events' && activeTab !== 'accounting' && activeTab !== 'books' && activeTab !== 'informes' && activeTab !== 'caja' && activeTab !== 'operation' && activeTab !== 'jev' && (
         <div className="page-header">
           <div>
             <h1 className="page-title">{panelMeta.title}</h1>
@@ -1090,6 +1161,7 @@ export default function AdminView({
           chartOfAccounts={chartOfAccounts}
           formatCurrency={formatCurrency}
           tierCatalog={tierCatalog}
+          discounts={erp.discounts || []}
           onSendMessage={sendMessage}
           duesSettings={duesSettings}
           setDuesSettings={setDuesSettings}
@@ -1198,18 +1270,21 @@ export default function AdminView({
         />
       )}
 
-      {(activeTab === 'accounting' || activeTab === 'books' || activeTab === 'informes' || activeTab === 'operation') && (
+      {(activeTab === 'accounting' || activeTab === 'books' || activeTab === 'informes' || activeTab === 'caja' || activeTab === 'operation') && (
         <AccountingTab
           section={
             activeTab === 'books'
               ? 'books'
               : activeTab === 'informes'
                 ? 'informes'
-                : activeTab === 'operation'
-                  ? 'operation'
-                  : 'general'
+                : activeTab === 'caja'
+                  ? 'caja'
+                  : activeTab === 'operation'
+                    ? 'operation'
+                    : 'general'
           }
           initialSubTab={accountingSubTabFocus}
+          onSendMessage={sendMessage}
           journalEntries={journalEntries}
           addJournalEntry={addJournalEntry}
           chartOfAccounts={chartOfAccounts}

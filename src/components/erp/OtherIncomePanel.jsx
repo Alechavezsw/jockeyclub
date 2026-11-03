@@ -12,6 +12,7 @@ import {
 } from '../../domain/accounting/otherIncomes';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { uploadOtherIncomeAttachment } from '../../data/storage';
+import { deliverPaymentReceipt } from '../../domain/payments/deliverPaymentReceipt';
 
 const EMPTY_FORM = {
   date: new Date().toISOString().slice(0, 10),
@@ -50,7 +51,7 @@ function FieldRow({ label, children, hint }) {
   );
 }
 
-export default function OtherIncomePanel({ items = [], onCreate }) {
+export default function OtherIncomePanel({ items = [], onCreate, members = [], onSendMessage }) {
   const [view, setView] = useState('list'); // list | form
   const [form, setForm] = useState(EMPTY_FORM);
   const [lines, setLines] = useState([]);
@@ -165,6 +166,28 @@ export default function OtherIncomePanel({ items = [], onCreate }) {
 
       if (typeof onCreate !== 'function') throw new Error('Guardado no disponible.');
       await onCreate(income);
+      if (income.payerType === 'member') {
+        const memberNumber = String(income.documentId || '').replace(/\D/g, '');
+        const member = (members || []).find((row) => (
+          String(row.memberId || '').replace(/\D/g, '') === memberNumber
+          || String(row.name || '').trim().toLowerCase() === String(income.payerName || '').trim().toLowerCase()
+        ));
+        if (member?.memberId) {
+          void deliverPaymentReceipt({
+            member,
+            payment: {
+              amount: income.amount,
+              date: income.date,
+              method: income.paymentMethod || 'efectivo',
+              methodLabel: income.paymentMethodLabel || income.paymentMethod || 'Caja',
+              receiptNumber: income.documentId || income.id,
+              concept: income.concept || (income.group === 'porteria' ? 'Portería' : 'Otro ingreso'),
+            },
+            onSendMessage,
+            kind: income.group === 'porteria' ? 'porteria' : 'otro',
+          });
+        }
+      }
       setOk(`Ingreso creado · ${income.payerName} · ${formatCurrency(income.amount)}`);
       setView('list');
     } catch (err) {

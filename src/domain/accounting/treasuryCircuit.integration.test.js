@@ -144,14 +144,14 @@ describe('circuito tesorería + impuestos (integrado)', () => {
       today: TODAY,
     });
 
-    // La caja no arrastra el corte de Lila.
+    // Corte Accessin (efectivo 600) + movimientos de app posteriores.
     // +10000 otro ingreso
     // -2500 gasto
     // +venta.total (débito caja)
     // -compra.total (crédito caja)
     // -iva.aPagar (pago liquidación)
     const expectedEfectivo = Math.round((
-      0
+      600
       + 10000
       - 2500
       + venta.totals.total

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Wallet,
   ArrowDownLeft,
@@ -34,12 +34,18 @@ import {
   filterAccessinCashMovements,
   filterAccessinCheques,
   formatAccessinCashDate,
+  paginateCashMovementSheet,
 } from '../../domain/accounting/cashLedger';
 import { buildLiveCashLedger } from '../../domain/accounting/liveCashLedger';
 import { buildCashPaymentDetail } from '../../domain/accounting/cashPaymentDetail';
+import {
+  autoSendCashPaymentReceipts,
+  loadCashReceiptsSentMap,
+} from '../../domain/accounting/cashPaymentAutoReceipts';
 import { exportCashPaymentPdf } from '../../domain/accounting/exportCashPaymentPdf';
 import CashPaymentDetailDialog from './CashPaymentDetailDialog';
 import { formatCurrency } from '../../domain/accounting/journal';
+import { isSupabaseConfigured } from '../../lib/supabase';
 import CashCobranzasSection from './CashCobranzasSection';
 import CashBankAccountsSection from './CashBankAccountsSection';
 import CashEfectivoRegistroSection from './CashEfectivoRegistroSection';
@@ -124,6 +130,7 @@ function CashRegistersContent({
   addCashMovement,
   transferCash,
   onNavigate,
+  onSendMessage,
 }) {
   const { ACCESSIN_CASH_SNAPSHOT } = useSnapshotSeed(CASH_SNAPSHOTS, cashSeed);
   const { ACCESSIN_CHEQUES_AS_OF } = useSnapshotSeed(CASH_SNAPSHOTS, chequesSeed);
@@ -154,7 +161,10 @@ function CashRegistersContent({
     showAll: false,
   });
   const [sheetMonth, setSheetMonth] = useState('');
+  const [sheetPage, setSheetPage] = useState(1);
   const [paymentDetail, setPaymentDetail] = useState(null);
+  const [autoMailStatus, setAutoMailStatus] = useState('');
+  const autoMailRunRef = useRef('');
 
   useEffect(() => {
     if (typeof window === 'undefined' || window.location.hash !== '#movimientos-de-caja') return undefined;
@@ -249,7 +259,7 @@ function CashRegistersContent({
   const newerSheet = activeSheetIndex > 0 ? monthSheets[activeSheetIndex - 1] : null;
   const olderSheet = activeSheetIndex >= 0 ? monthSheets[activeSheetIndex + 1] || null : null;
 
-  const ledgerRows = useMemo(() => {
+  const monthLedgerRows = useMemo(() => {
     const onMonthSheet = ledgerFilter.view !== 'cheques' && Boolean(activeMonth);
     return filterAccessinCashMovements(enrichedLedger, {
       walletKind: ledgerFilter.walletKind,
@@ -258,6 +268,89 @@ function CashRegistersContent({
       limit: onMonthSheet ? null : (ledgerFilter.showAll ? null : 25),
     });
   }, [enrichedLedger, ledgerFilter, activeMonth]);
+
+  const pagedSheet = useMemo(
+    () => paginateCashMovementSheet(monthLedgerRows, sheetPage),
+    [monthLedgerRows, sheetPage],
+  );
+  const ledgerRows = activeMonth ? pagedSheet.rows : monthLedgerRows;
+
+  useEffect(() => {
+    setSheetPage(1);
+  }, [activeMonth, ledgerFilter.walletKind, ledgerFilter.query]);
+
+  useEffect(() => {
+    if (sheetPage > pagedSheet.pageCount) setSheetPage(pagedSheet.pageCount);
+  }, [sheetPage, pagedSheet.pageCount]);
+
+  const monthAutoRows = useMemo(() => {
+    if (!activeMonth) return [];
+    return filterAccessinCashMovements(enrichedLedger, {
+      monthKey: activeMonth,
+      limit: null,
+    });
+  }, [enrichedLedger, activeMonth]);
+
+  // Regla MP: al abrir la hoja, manda solo los comprobantes de socio pendientes (idempotente).
+  useEffect(() => {
+    if (!activeMonth || !isSupabaseConfigured()) return undefined;
+    if (ledgerFilter.view === 'cheques') return undefined;
+    if (!monthAutoRows.length) return undefined;
+    const runKey = `${activeMonth}:${monthAutoRows.length}`;
+    if (autoMailRunRef.current === runKey) return undefined;
+    autoMailRunRef.current = runKey;
+    let cancelled = false;
+    setAutoMailStatus('Enviando comprobantes pendientes…');
+    const rows = monthAutoRows;
+    (async () => {
+      try {
+        const sentMap = await loadCashReceiptsSentMap();
+        if (cancelled) return;
+        const result = await autoSendCashPaymentReceipts({
+          movements: rows,
+          cobranzas: accessinCobranzas,
+          members,
+          onSendMessage,
+          sentMap,
+          shouldCancel: () => cancelled,
+          onProgress: (progress) => {
+            if (cancelled) return;
+            setAutoMailStatus(
+              `Comprobantes automáticos: ${progress.emailed} mail · ${progress.messaged} MD · ${progress.index}/${progress.total}`,
+            );
+          },
+        });
+        if (cancelled) return;
+        if (!result.total) {
+          setAutoMailStatus('Comprobantes al día (nada pendiente).');
+          return;
+        }
+        setAutoMailStatus(
+          `Comprobantes automáticos: ${result.emailed} por mail`
+          + (result.messaged ? ` · ${result.messaged} por MD` : '')
+          + (result.skipped ? ` · ${result.skipped} sin contacto` : '')
+          + (result.failed ? ` · ${result.failed} con error` : '')
+          + (result.remaining ? ` · quedan ${result.remaining} (se siguen al reabrir)` : ''),
+        );
+        if (result.remaining) autoMailRunRef.current = '';
+      } catch {
+        if (!cancelled) {
+          autoMailRunRef.current = '';
+          setAutoMailStatus('');
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeMonth,
+    monthAutoRows,
+    accessinCobranzas,
+    members,
+    onSendMessage,
+    ledgerFilter.view,
+  ]);
 
   const relatedAccounts = useMemo(
     () =>
@@ -390,6 +483,7 @@ function CashRegistersContent({
           movements={enrichedLedger}
           cobranzas={accessinCobranzas}
           members={members}
+          onSendMessage={onSendMessage}
           onBack={() => setLedgerFilter((f) => ({
             ...f,
             view: 'movements',
@@ -486,13 +580,20 @@ function CashRegistersContent({
 
           <div id="movimientos-de-caja">
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '0.65rem' }}>
-              <h5 className="cash-lila-section-title" style={{ margin: 0 }}>
-                {ledgerFilter.view === 'cheques'
-                  ? `Cheques en cartera · ${formatAccessinCashDate(ACCESSIN_CHEQUES_AS_OF)}`
-                  : activeSheet
-                    ? `Hoja de ${activeSheet.label}`
-                    : 'Movimientos de caja'}
-              </h5>
+              <div style={{ minWidth: 0 }}>
+                <h5 className="cash-lila-section-title" style={{ margin: 0 }}>
+                  {ledgerFilter.view === 'cheques'
+                    ? `Cheques en cartera · ${formatAccessinCashDate(ACCESSIN_CHEQUES_AS_OF)}`
+                    : activeSheet
+                      ? `Hoja de ${activeSheet.label}`
+                      : 'Movimientos de caja'}
+                </h5>
+                {autoMailStatus ? (
+                  <p style={{ margin: '0.25rem 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                    {autoMailStatus}
+                  </p>
+                ) : null}
+              </div>
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
                 {(ledgerFilter.walletKind || ledgerFilter.view === 'cheques') ? (
                   <button
@@ -570,18 +671,33 @@ function CashRegistersContent({
                     <button
                       type="button"
                       className="btn btn-secondary btn-sm"
-                      disabled={!olderSheet}
-                      aria-label="Mes anterior"
-                      onClick={() => olderSheet && setSheetMonth(olderSheet.key)}
+                      disabled={pagedSheet.page <= 1 && !olderSheet}
+                      aria-label={pagedSheet.page > 1 ? 'Hoja anterior' : 'Mes anterior'}
+                      onClick={() => {
+                        if (pagedSheet.page > 1) {
+                          setSheetPage((page) => page - 1);
+                          return;
+                        }
+                        if (olderSheet) setSheetMonth(olderSheet.key);
+                      }}
                     >
                       <ChevronLeft size={14} />
-                      {olderSheet ? olderSheet.label.replace(/ de \d{4}$/, '') : 'Anterior'}
+                      {pagedSheet.page > 1
+                        ? `Hoja ${pagedSheet.page - 1}`
+                        : (olderSheet ? olderSheet.label.replace(/ de \d{4}$/, '') : 'Anterior')}
                     </button>
                     <div className="cash-month-sheet-title">
-                      <span className="cash-month-sheet-kicker">Una hoja</span>
+                      <span className="cash-month-sheet-kicker">
+                        {pagedSheet.pageCount > 1
+                          ? `Hoja ${pagedSheet.page} de ${pagedSheet.pageCount}`
+                          : 'Una hoja'}
+                      </span>
                       <strong className="cash-month-sheet-name serif-font">{activeSheet.label}</strong>
                       <span className="cash-month-sheet-meta">
-                        {activeSheet.count.toLocaleString('es-AR')} movimientos
+                        {pagedSheet.total.toLocaleString('es-AR')} movimientos
+                        {pagedSheet.pageCount > 1
+                          ? ` · ${pagedSheet.rows.length} en esta hoja`
+                          : ''}
                       </span>
                     </div>
                     <label className="cash-month-sheet-jump">
@@ -599,11 +715,19 @@ function CashRegistersContent({
                     <button
                       type="button"
                       className="btn btn-secondary btn-sm"
-                      disabled={!newerSheet}
-                      aria-label="Mes siguiente"
-                      onClick={() => newerSheet && setSheetMonth(newerSheet.key)}
+                      disabled={pagedSheet.page >= pagedSheet.pageCount && !newerSheet}
+                      aria-label={pagedSheet.page < pagedSheet.pageCount ? 'Hoja siguiente' : 'Mes siguiente'}
+                      onClick={() => {
+                        if (pagedSheet.page < pagedSheet.pageCount) {
+                          setSheetPage((page) => page + 1);
+                          return;
+                        }
+                        if (newerSheet) setSheetMonth(newerSheet.key);
+                      }}
                     >
-                      {newerSheet ? newerSheet.label.replace(/ de \d{4}$/, '') : 'Siguiente'}
+                      {pagedSheet.page < pagedSheet.pageCount
+                        ? `Hoja ${pagedSheet.page + 1}`
+                        : (newerSheet ? newerSheet.label.replace(/ de \d{4}$/, '') : 'Siguiente')}
                       <ChevronRight size={14} />
                     </button>
                   </div>
@@ -1026,7 +1150,11 @@ function CashRegistersContent({
         </>
       )}
 
-      <CashPaymentDetailDialog detail={paymentDetail} onClose={() => setPaymentDetail(null)} />
+      <CashPaymentDetailDialog
+        detail={paymentDetail}
+        onClose={() => setPaymentDetail(null)}
+        onSendMessage={onSendMessage}
+      />
     </div>
   );
 }

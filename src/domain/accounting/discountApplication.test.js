@@ -81,7 +81,7 @@ describe('liquidación con descuentos', () => {
       status: 'draft',
       lines: [],
     }, {
-      concepts: [{ id: '1', label: 'SOCIO FAMILIAR', holders: 1, amount: 70000 }],
+      concepts: [{ id: '1', label: 'SOCIO FAMILIAR', holders: 2, amount: 70000 }],
     }, {
       members: [
         { memberId: '9216', status: 'active', cuotaCategories: ['SOCIO FAMILIAR'] },
@@ -89,7 +89,26 @@ describe('liquidación con descuentos', () => {
       ],
       discountRules: [puyg],
     });
+    // 9216 → $0; el otro → $70.000. Total neto, no 2 × 70.000.
+    expect(model.rows[0].holders).toBe(2);
     expect(model.rows[0].total).toBe(70000);
+    expect(model.total).toBe(70000);
+  });
+
+  it('sin pasar reglas usa las de runtime (bonificaciones cargadas)', () => {
+    setRuntimeDiscountRules([puyg]);
+    const model = liquidationFromPack({
+      id: 'fp-2026-11',
+      year: 2026,
+      month: 11,
+      status: 'draft',
+      lines: [],
+    }, {
+      concepts: [{ id: '1', label: 'SOCIO FAMILIAR', holders: 1, amount: 70000 }],
+    }, {
+      members: [{ memberId: '9216', status: 'active', cuotaCategories: ['SOCIO FAMILIAR'] }],
+    });
+    expect(model.total).toBe(0);
   });
 
   it('un mes ya cerrado no se vuelve a descontar', () => {

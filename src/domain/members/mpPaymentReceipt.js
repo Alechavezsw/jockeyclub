@@ -4,9 +4,14 @@ import { portalAccountUrl } from './selfService';
 
 export const PORTAL_ACCOUNT = portalAccountUrl();
 
+/** Cualquier cobro MP acreditado a socio lleva comprobante (cuota, débito, pileta, reserva). */
 export function shouldIssueMpDuesReceipt(kind) {
   const next = String(kind || '').toLowerCase();
-  return next === 'dues' || next === 'subscription';
+  return next === 'dues'
+    || next === 'subscription'
+    || next === 'pool'
+    || next === 'booking'
+    || next === 'reservation';
 }
 
 export function mpReceiptChannelOf(meta = {}) {

@@ -120,6 +120,7 @@ export default function CuotasPanel({
   chartOfAccounts = [],
   formatCurrency: formatCurrencyProp,
   tierCatalog = [],
+  discounts = [],
   onSendMessage,
   initialView = 'hub',
   balancesOnly = false,
@@ -173,6 +174,9 @@ export default function CuotasPanel({
 
   const deferredMembers = useDeferredValue(members);
   const membersReady = !membersLoading && (deferredMembers?.length || 0) > 0;
+  const discountRules = Array.isArray(discounts) ? discounts : [];
+  const liquidationOpts = { members: deferredMembers, tierCatalog, discountRules };
+  const actorWithDiscounts = { ...actorMeta, discountRules };
 
   const periods = useMemo(
     () => feePeriodsForYear(resolveFeePeriods(feePeriods), year),
@@ -221,7 +225,7 @@ export default function CuotasPanel({
 
   const periodLiquidation = useMemo(
     () => (selectedPeriod && membersReady
-      ? liquidationFromPeriod(selectedPeriod, { members: deferredMembers, tierCatalog })
+      ? liquidationFromPeriod(selectedPeriod, liquidationOpts)
       : null),
     [selectedPeriod, membersReady, deferredMembers, tierCatalog],
   );
@@ -275,8 +279,8 @@ export default function CuotasPanel({
         || { id: periodId },
     );
     if (block) throw new Error(block);
-    const result = prepareFeePeriodDraft(feePeriods, periodId, members);
-    const model = liquidationFromPeriod(result.period, { members, tierCatalog });
+    const result = prepareFeePeriodDraft(feePeriods, periodId, members, new Date(), actorWithDiscounts);
+    const model = liquidationFromPeriod(result.period, { members, tierCatalog, discountRules });
     const prepared = {
       ...result.period,
       amount: model.total,
@@ -404,7 +408,7 @@ export default function CuotasPanel({
     setExportBusy({ id: period.id, kind });
     setError('');
     try {
-      const model = visibleModel || liquidationFromPeriod(period, { members, tierCatalog });
+      const model = visibleModel || liquidationFromPeriod(period, { members, tierCatalog, discountRules });
       if (kind === 'xlsx') await exportFeePeriodExcel(model, null, { formatCurrency: fmt });
       else await exportFeePeriodPdf(model, null, { formatCurrency: fmt });
     } catch (err) {
@@ -561,8 +565,8 @@ export default function CuotasPanel({
         if (onPersistFeePeriod) await onPersistFeePeriod(saved);
         setSelectedPeriod(saved);
       }
-      const result = liquidateFeePeriod(list, periodId, members, new Date(), actorMeta);
-      const model = liquidationFromPeriod(result.period, { members, tierCatalog });
+      const result = liquidateFeePeriod(list, periodId, members, new Date(), actorWithDiscounts);
+      const model = liquidationFromPeriod(result.period, { members, tierCatalog, discountRules });
       const generated = {
         ...result.period,
         amount: model.total,
@@ -570,7 +574,13 @@ export default function CuotasPanel({
         pack: {
           ...(result.period.pack || {}),
           total: model.total,
-          concepts: result.period.pack?.concepts || model.rows,
+          concepts: model.rows.map((row) => ({
+            id: row.identifier,
+            label: row.name,
+            holders: row.holders,
+            amount: row.unit,
+            total: row.total,
+          })),
           charges: result.period.pack?.charges || result.pendingCharges || [],
           availableAt: result.period.availableAt,
         },
@@ -704,12 +714,13 @@ export default function CuotasPanel({
           feePeriods,
           deferredMembers,
           new Date(),
-          { ...actorMeta, by: `${actorName} · automático día 1` },
+          { ...actorWithDiscounts, by: `${actorName} · automático`, catchUp: true },
         );
         if (cancelled || !result.ran) return;
         const model = liquidationFromPeriod(result.period, {
           members: deferredMembers,
           tierCatalog,
+          discountRules,
         });
         const generated = {
           ...result.period,
@@ -941,7 +952,7 @@ export default function CuotasPanel({
   }
 
   if (view === 'period_detail' && selectedPeriod) {
-    const liquidation = periodLiquidation || liquidationFromPeriod(selectedPeriod, { members, tierCatalog });
+    const liquidation = periodLiquidation || liquidationFromPeriod(selectedPeriod, { members, tierCatalog, discountRules });
     return (
       <div className="fade-in cuotas-panel">
         <CuotasBusyOverlay phase={busyPhase} />

@@ -13,6 +13,7 @@ import {
   isMemberBillingActive,
   monthsBehindOnDues,
   formatMonthsBehind,
+  overdueSocialMonths,
   quotaHeadline,
 } from '../members/dues';
 import { familyPrincipalOf, isFamilyDependent, memberNumberOf } from '../members/households';
@@ -111,6 +112,8 @@ export function memberFacts(member, { today = new Date(), poolSettings = {}, mem
       member,
     })
     : 0;
+  const overdueMonths = billing ? overdueSocialMonths(member, when) : [];
+  const overdueCapital = overdueMonths.reduce((sum, row) => sum + (Number(row.capital) || 0), 0);
   const inMora = billing && getOverdueMembers([member], when).length > 0;
   const split = billing && (saldo > 0 || inMora)
     ? duesChargeBreakdown(member, { paidOn: when })
@@ -160,7 +163,8 @@ export function memberFacts(member, { today = new Date(), poolSettings = {}, mem
     canPayPool: pool.canPay,
     poolReason: pool.canPay ? '' : pool.detail,
     hasPortal: memberHasPortalAccess(member),
-    notice: balanceNotice({ saldo, inMora, exempt, dependent, billing }),
+    overdueCapital,
+    notice: balanceNotice({ saldo, inMora, exempt, dependent, billing, overdueCapital, monthsBehind }),
   };
 }
 
@@ -173,10 +177,11 @@ function saldoFigure(saldo) {
 }
 
 /** Etiqueta solo si pagó de más, o si el número no cierra. */
-function balanceNotice({ saldo, inMora, exempt, dependent, billing }) {
+function balanceNotice({ saldo, inMora, exempt, dependent, billing, overdueCapital = 0, monthsBehind = 0 }) {
   const n = Math.round(Number(saldo) || 0);
-  if (n === 0) return null;
+  const expected = Math.round(Number(overdueCapital) || 0);
   if (exempt || dependent) {
+    if (n === 0) return null;
     return {
       kind: 'error',
       label: 'Error',
@@ -203,6 +208,16 @@ function balanceNotice({ saldo, inMora, exempt, dependent, billing }) {
       value: pesos(n),
       tone: 'credit',
       sentence: `Pagó de más: ${pesos(n)} a favor.`,
+    };
+  }
+  // Ficha con atraso pero saldo menor que las cuotas vencidas (faltó liquidar/imputar un mes).
+  if (billing && monthsBehind > 0 && expected > 0 && n + 1 < expected) {
+    return {
+      kind: 'short',
+      label: 'Saldo corto',
+      value: pesos(n),
+      tone: 'error',
+      sentence: `Saldo en ficha ${pesos(n)}, pero las cuotas vencidas suman ${pesos(expected)}. Falta imputar liquidación o corregir la ficha.`,
     };
   }
   return null;

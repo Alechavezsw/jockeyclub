@@ -20,6 +20,7 @@ export default function CashEfectivoRegistroSection({
   movements = [],
   cobranzas = [],
   members = [],
+  onSendMessage,
   onBack,
 }) {
   const [page, setPage] = useState(0);
@@ -196,7 +197,11 @@ export default function CashEfectivoRegistroSection({
         </button>
       </div>
 
-      <CashPaymentDetailDialog detail={detail} onClose={() => setDetail(null)} />
+      <CashPaymentDetailDialog
+        detail={detail}
+        onClose={() => setDetail(null)}
+        onSendMessage={onSendMessage}
+      />
     </div>
   );
 }

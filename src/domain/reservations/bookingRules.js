@@ -5,6 +5,43 @@ import { memberMayOperateAccount } from '../members/households.js';
 import { todayISODateAR } from '../../lib/arDate.js';
 import { hasReservationConflict } from './conflicts.js';
 
+/** Seña obligatoria de toda reserva: 50 % del total. Va a la cuenta, aparte de la cuota. */
+export const RESERVATION_DEPOSIT_RATE = 0.5;
+
+/** Precio total del alquiler (catálogo o monto ya cargado). */
+export function reservationTotalPrice(facilityOrAmount, reservation = null) {
+  if (reservation != null) {
+    const fromRow = Number(
+      reservation.estimatedPrice
+      ?? reservation.amount
+      ?? reservation.price
+      ?? reservation.total
+      ?? reservation.fee
+      ?? 0,
+    );
+    if (Number.isFinite(fromRow) && fromRow > 0) return Math.round(fromRow);
+  }
+  if (typeof facilityOrAmount === 'number' || typeof facilityOrAmount === 'string') {
+    const n = Number(facilityOrAmount);
+    return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
+  }
+  const fromFacility = Number(facilityOrAmount?.defaultPrice);
+  return Number.isFinite(fromFacility) && fromFacility > 0 ? Math.round(fromFacility) : 0;
+}
+
+/** Seña 50 % (redondeo a peso). Sin total → 0. */
+export function reservationDepositAmount(totalOrFacility, reservation = null) {
+  const total = reservationTotalPrice(totalOrFacility, reservation);
+  if (!(total > 0)) return 0;
+  return Math.round(total * RESERVATION_DEPOSIT_RATE);
+}
+
+/** Saldo del alquiler después de la seña. */
+export function reservationBalanceAfterDeposit(totalOrFacility, reservation = null) {
+  const total = reservationTotalPrice(totalOrFacility, reservation);
+  return Math.max(0, total - reservationDepositAmount(total));
+}
+
 export function addDaysIso(iso, days) {
   const [y, m, d] = String(iso || '').split('-').map(Number);
   if (!y || !m || !d) return '';

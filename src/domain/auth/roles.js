@@ -123,6 +123,7 @@ export const ALL_ADMIN_TABS = [
   'accounting',
   'books',
   'informes',
+  'caja',
   'operation',
   'staff',
   'teachers',
@@ -175,10 +176,18 @@ export function isAccountingTreasurySubtab(subTab) {
   return ACCOUNTING_TREASURY_SUBTAB_SET.has(String(subTab || ''));
 }
 
-/** Pestañas del administrador sin contabilidad, libros, informes ni operación. Los débitos se suman aparte. */
+/** Pestañas del administrador sin contabilidad, libros, informes, caja ni operación. Los débitos se suman aparte. */
 const ADMIN_TABS_NO_ACCOUNTING = ALL_ADMIN_TABS.filter(
-  (t) => t !== 'accounting' && t !== 'books' && t !== 'informes' && t !== 'operation',
+  (t) => t !== 'accounting' && t !== 'books' && t !== 'informes' && t !== 'caja' && t !== 'operation',
 );
+
+/** Subpestañas del módulo Caja (efectivo / otros ingresos), aparte de Operación. */
+export const ACCOUNTING_CAJA_SUBTABS = ['cash', 'other_incomes'];
+export const ACCOUNTING_CAJA_SUBTAB_SET = new Set(ACCOUNTING_CAJA_SUBTABS);
+
+export function isAccountingCajaSubtab(subTab) {
+  return ACCOUNTING_CAJA_SUBTAB_SET.has(String(subTab || ''));
+}
 
 /**
  * Mostrador del club: padrón, saldos y atención.
@@ -266,14 +275,14 @@ export function allowedAdminTabs(role) {
     return [...ADMIN_TABS_NO_ACCOUNTING, 'operation'];
   }
   if (role === 'accountant') {
-    return ['dashboard', 'jev', 'dues', 'accounting', 'books', 'informes', 'operation', 'reports', 'events'];
+    return ['dashboard', 'jev', 'dues', 'accounting', 'books', 'informes', 'caja', 'operation', 'reports', 'events'];
   }
   // Operador de portería: caja + portería / ingresos.
   if (role === 'gate_operator') {
-    return ['dashboard', 'jev', 'members', 'pool', 'access', 'operation'];
+    return ['dashboard', 'jev', 'members', 'pool', 'access', 'caja'];
   }
   if (role === 'cashier') {
-    return ['dashboard', 'jev', 'members', 'dues', 'pool', 'access', 'operation', 'events'];
+    return ['dashboard', 'jev', 'members', 'dues', 'pool', 'access', 'caja', 'events'];
   }
   // Empleado de administración: el mostrador, más los débitos. Pileta no arma archivos.
   if (role === 'admin_employee') {

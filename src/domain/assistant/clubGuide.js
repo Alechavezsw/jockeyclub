@@ -587,14 +587,14 @@ export function openingBriefing(brief = {}) {
       prettyDay(brief.today) ? `Hoy ${prettyDay(brief.today)}.` : '',
       hasMoney ? `${reading.month} lleva ${formatGuideMoney(reading.collected)} de ${formatGuideMoney(reading.liquidated)}.` : '',
       bien != null ? `Padrón: ${formatGuideCount(bien)} fichas en orden de ${formatGuideCount(activos)} activos.` : '',
-      'Preguntame un número de socio, qué conviene mirar, o abrí el Manual.',
+      'Preguntame libre: un socio, el mes, caja, reservas, o qué conviene hacer. Gemini lee el libro y contesta con criterio.',
     ].filter(Boolean).join(' '),
     figures: [
       hasMoney ? { label: 'Avance', value: `${reading.pct}%` } : null,
       hasMoney ? { label: 'Falta', value: formatGuideMoney(reading.rest) } : null,
       bien != null ? { label: 'En orden', value: formatGuideCount(bien) } : null,
     ].filter(Boolean),
-    next: 'No escribo en el libro. El Manual de al lado tiene el oficio paso a paso.',
+    next: 'Atajos abajo, o escribí la duda. El Manual tiene el oficio paso a paso.',
     go: null,
   };
 }
@@ -677,34 +677,40 @@ export function mergeJevReply(local, remote) {
   const parsed = parseJevReply(remote);
   const geminiText = String(parsed?.text || '').trim();
   const geminiLooksBroken = !geminiText || geminiText.startsWith('{') || geminiText.startsWith('```');
-  // Gemini ve las lecciones que corresponden y los datos del socio: si contestó bien, manda su respuesta.
-  // El texto del libro queda de respaldo cuando no contestó o contestó roto.
+  // Gemini (más inteligencia) manda si contestó bien; el libro es respaldo.
   const fromGemini = remote?.source === 'gemini' && geminiText && !geminiLooksBroken;
+  const geminiFigures = Array.isArray(parsed?.figures) && parsed.figures.length ? parsed.figures : null;
   return {
     verdict: parsed?.verdict && !String(parsed.verdict).startsWith('{')
       ? parsed.verdict
       : (local?.verdict || null),
     text: fromGemini ? geminiText : (local?.text || geminiText || ''),
-    figures: local?.figures || parsed?.figures || [],
+    figures: fromGemini
+      ? (geminiFigures || local?.figures || [])
+      : (local?.figures || geminiFigures || []),
     next: parsed?.next || local?.next || null,
     go: parsed?.tab || parsed?.go || local?.go || null,
     focus: parsed?.focus || local?.focus || null,
-    source: remote?.source || 'libro',
+    source: fromGemini ? 'gemini' : (remote?.source || 'libro'),
   };
 }
 
-const ANSWER_RULES = `CÓMO CONTESTAR:
-- Tu trabajo es sacarle la duda a quien pregunta, con este manual y el LIBRO. Resolvé la duda completa; no mandes a leer el manual entero.
-- "¿Cómo se hace…?": pasos numerados del manual (1. 2. 3., máximo 6) en el campo text, y la sección en tab.
-- "¿Por qué no…?" o "¿qué pasa si…?": nombrá la regla, la causa más probable (según los datos del socio, si los hay) y qué hacer para resolverlo.
-- Si hay SOCIO CONSULTADO, contestá desde esos datos: ya vienen calculados con las reglas del club. No los contradigas ni los recalcules.
-- Si la duda no está cubierta, decilo en una línea y mandá a Secretaría o al superadministrador. No inventes pantallas, botones, montos ni plazos.
-- Si la pregunta es ambigua, hacé UNA pregunta corta en vez de adivinar.
+const ANSWER_RULES = `CÓMO CONTESTAR (Jev + Gemini):
+- Sacá la duda completa con el LIBRO y el MANUAL. No mandes a leer el manual entero.
+- Pensá como secretario: cruzá mes, padrón, mora, puerta, caja y revisión cuando ayuden a la respuesta.
+- "¿Cómo se hace…?": pasos numerados (1. 2. 3., máximo 6) en text, y la sección en tab.
+- "¿Por qué no…?" / "¿qué pasa si…?": regla + causa más probable + qué hacer.
+- Si hay SOCIO CONSULTADO: usá esos datos tal cual; no los contradigas ni los recalcules.
+- Preguntas abiertas ("¿qué conviene?", "¿estamos bien?", "¿qué falta?"): priorizá 1–3 acciones concretas con cifras del LIBRO.
+- Si falta un dato clave, hacé UNA pregunta corta; no inventes.
+- Si no está en el libro/manual: decilo y mandá a Secretaría o superadmin. No inventes pantallas, botones, montos ni plazos.
+- Comprobante: todo cobro acreditado a socio manda PDF por mail + MD (débito, app, efectivo, MP, tarjeta, transferencia, reserva, cuota, portería si es socio).
 - No escribís en el libro: no cobrás, no liquidás, no publicás.`;
 
 const FIXED_FACTS = `Roles: ${APP_ROLES}
-Empalme LILA: 1 de octubre de 2026. Octubre liquidó $ 63.233.000. Desde noviembre de 2026 las cuotas las liquida esta app.
-Portal socio: / /reservas /cuenta /revista /perfil /mensajes /registro
+Empalme LILA: 1 de octubre de 2026. Desde noviembre de 2026 las cuotas las liquida esta app.
+Caja es módulo propio del rail (Gestión): saldos, movimientos por hoja, cobranzas. Contabilidad → Operación tiene el resto.
+Portal socio: https://www.jockeyclubsj.com.ar/cuenta (Mi cuenta) · /reservas /revista /perfil /mensajes /registro
 Profesor: /asistencia
 Portería QR: /acceso · Pileta: /pileta · Entrada pileta: /entrada-pileta · Concesiones: /concesiones`;
 

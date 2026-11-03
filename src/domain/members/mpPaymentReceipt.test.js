@@ -8,10 +8,11 @@ import {
 } from './mpPaymentReceipt';
 
 describe('mpPaymentReceipt', () => {
-  it('el comprobante es de cuota, no de pileta', () => {
+  it('emite comprobante para cuota, débito, pileta y reserva', () => {
     expect(shouldIssueMpDuesReceipt('dues')).toBe(true);
     expect(shouldIssueMpDuesReceipt('subscription')).toBe(true);
-    expect(shouldIssueMpDuesReceipt('pool')).toBe(false);
+    expect(shouldIssueMpDuesReceipt('pool')).toBe(true);
+    expect(shouldIssueMpDuesReceipt('booking')).toBe(true);
   });
 
   it('distingue cuenta, QR del club y débito mensual', () => {

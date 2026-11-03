@@ -7,12 +7,14 @@ const corsHeaders = {
 };
 
 const GUIDE = `Mapa entero del Jockey Club San Juan (Sede Rivadavia).
-PANEL (rail): Inicio · IA/Jev (Consulta + Revisión) · Operación: Socios, Cuotas/Saldos, Reservas, Ingresos, Acceso QR (/acceso), Entrada pileta (/entrada-pileta), Pileta (/pileta) · Club: Disciplinas, Fiestas · Gestión: Concesiones (/concesiones), Contabilidad, Personal, Reportes · Comunicación: Novedades/Revista, Encuestas, Alertas, Reclamos, Mensajería (comunicado: DM y/o mail, uno o todos, la IA redacta) · Administración: Profesores, Usuarios y altas · Sistema: Migración.
-CONTABILIDAD: Diario, Mayor, Crear asiento, Balance (mensual/resumido/cta cte/patrimonial), Resultados, Gráficos, Reportes, Libre deuda, Grupo familiar, Descuentos extras, Bonificaciones, SIAP, Plan de cuentas, Cajas, Gastos, Proveedores, Retenciones, Otros ingresos, Intereses, Sin identificar, Galicia, Gastos fijos, Saldos, Órdenes de pago, Créditos socios. Cajero y portería solo ven caja. Administrador no entra a Contabilidad.
-PORTAL SOCIO: Inicio, Reservar Canchas (/reservas), Mi Cuenta (/cuenta: paga online con Checkout Pro o se suscribe al débito mensual), Novedades (/revista), Perfil (/perfil). Alta pública /registro. Pileta y caja: QR de mostrador (Orders API). Configuración → Mercado Pago (online, QR, suscripción). Token en secretas MP_ACCESS_TOKEN de la cuenta del club.
+PANEL (rail): Inicio · IA/Jev (Consulta, Revisión, Predicciones, Manual) · Operación: Socios, Cuotas/Saldos, Reservas, Ingresos, Acceso QR (/acceso), Entrada pileta (/entrada-pileta), Pileta (/pileta) · Club: Disciplinas, Fiestas · Gestión: Caja (propia), Concesiones (/concesiones), Contabilidad, Personal, Reportes · Comunicación: Novedades/Revista, Encuestas, Alertas, Reclamos, Mensajería · Administración: Profesores, Usuarios y altas · Sistema: Migración.
+CAJA (módulo Gestión): saldos efectivo/bancos/cheques, movimientos por hoja (50 filas), cobranzas, pago a proveedores. Comprobante automático (mail+MD) en cobros acreditados a socio.
+CONTABILIDAD: Diario, Mayor, Crear asiento, Balance, Resultados, Plan de cuentas, Operación (resto), Gastos, Proveedores, Retenciones, Otros ingresos, Intereses, Sin identificar, Galicia, Gastos fijos, Saldos, Órdenes de pago. Cajero y portería solo ven caja. Administrador no entra a Contabilidad.
+PORTAL SOCIO: https://www.jockeyclubsj.com.ar/cuenta (Mi cuenta: Checkout Pro, débito mensual, transferencia). Reservas /reservas · Revista /revista · Perfil /perfil. Alta /registro.
 PROFESOR: /asistencia. No entra al panel.
-ROLES: socio, profesor, personal, RR.HH., empleado de administración, operador de portería, operario de pileta (puerta y cobro del canon), cajero, contador, administrador (sin contabilidad), superadministrador (todo; únicos que crean perfiles). Liquidan cuotas: superadmin y contador.
-LILA/Societas: empalme 1 de octubre de 2026. Octubre liquidó $ 63.233.000. Migración guarda los cortes. No reimportar lo que ya está.`;
+ROLES: socio, profesor, personal, RR.HH., empleado de administración, operador de portería, operario de pileta, cajero, contador, administrador (sin contabilidad), superadministrador. Liquidan cuotas: superadmin y contador.
+CUOTA: vence el 10; desde el 11 mora; recargo 10% solo familiar e individual. Vitalicio/fundador/comisión no abonan cuota ni reciben avisos/cobros de cuota.
+LILA/Societas: empalme 1 de octubre de 2026. Desde noviembre 2026 liquida esta app. Migración guarda cortes. No reimportar lo que ya está.`;
 
 function json(status: number, body: Record<string, unknown>) {
   return new Response(JSON.stringify(body), {
@@ -111,7 +113,7 @@ async function liveBrief(userClient: ReturnType<typeof createClient>, hint: Reco
     proveedores,
     ordenesPago: ordenes,
     collected: money(hint.collected),
-    liquidated: money(hint.liquidated) || 63233000,
+    liquidated: money(hint.liquidated),
     bien: money(hint.bien),
     fichas: money(hint.fichas),
     titulares: money(hint.titulares),
@@ -149,7 +151,12 @@ function localAnswer(question: string, brief: Record<string, unknown>) {
   return bits.join(" ");
 }
 
-const GEMINI_MODELS = ["gemini-3.8-flash", "gemini-3.5-flash", "gemini-2.5-flash"];
+/** Pro primero (más criterio); flash como respaldo rápido. */
+const GEMINI_MODELS = [
+  "gemini-2.5-pro",
+  "gemini-2.5-flash",
+  "gemini-2.0-flash",
+];
 
 function scrubSecret(text: string, key: string) {
   return text.replaceAll(key, "").replace(/\s+/g, " ").trim().slice(0, 160);
@@ -164,21 +171,26 @@ async function askGemini(
   const fallback = { text: localAnswer(messages.at(-1)?.content || "", brief), source: "libro" };
   if (!key) return fallback;
 
-  const system = `Sos Jev, secretario del Jockey Club San Juan, Sede Rivadavia.
-Hablás en español rioplatense, corto, con criterio. Tutéas.
-Conocés TODA la app: cada menú del panel, cada herramienta de Contabilidad, el portal del socio, el profesor, QR, pileta, concesiones, roles y LILA.
-No inventás montos ni socios. Si un dato no está en el LIBRO, decís que no está.
-Primero el veredicto, después las cifras, después el siguiente paso (sección exacta).
-No repitas el mismo número dos veces. No suenes a chatbot.
-Respondé SOLO un JSON: {"verdict":"...","text":"...","next":"...","tab":"dashboard|jev|members|dues|bookings|disciplines|pool|pool_gate|access|qr_gate|accounting|staff|teachers|events|alerts|claims|messaging|news|reports|surveys|system|migration|concessions|null","focus":"diary|mayor|create|balance|results|cash|expenses|suppliers|payment_orders|libre_deuda|null"}
+  const system = `Sos Jev, secretario del Jockey Club San Juan (Sede Rivadavia), potenciado con Gemini.
+Hablás en español rioplatense, claro y con criterio. Tutéas.
+Tu trabajo: CONTESTAR preguntas inteligentes sobre el club usando el LIBRO EN VIVO y el MANUAL.
+Cruzá datos (mes, padrón, mora, puerta, caja, revisión) cuando ayuden. Priorizá 1–3 acciones concretas.
+Si la pregunta es ambigua, hacé UNA pregunta corta en "next" en vez de adivinar.
+"¿Cómo se hace…?": pasos numerados en "text" (máx. 6) y la sección en "tab".
+No inventés montos, socios, pantallas ni plazos. Si no está en el LIBRO/MANUAL, decilo.
+Comprobante automático: todo cobro acreditado a socio manda PDF por mail + MD.
+Primero el veredicto, después el texto útil, después el siguiente paso.
+No suenes a chatbot genérico. No repitas el mismo número dos veces.
+Respondé SOLO un JSON:
+{"verdict":"...","text":"...","next":"...","tab":"dashboard|jev|members|dues|bookings|disciplines|pool|pool_gate|access|qr_gate|accounting|caja|staff|teachers|events|alerts|claims|messaging|news|reports|surveys|system|migration|concessions|null","focus":"diary|mayor|create|balance|results|cash|expenses|suppliers|payment_orders|libre_deuda|null"}
 LIBRO EN VIVO:
 ${JSON.stringify(brief)}
 CÓMO SE USA LA APP:
 ${String(guide || GUIDE).slice(0, 12000)}`;
 
-  const contents = messages.slice(-8).map((row) => ({
+  const contents = messages.slice(-10).map((row) => ({
     role: row.role === "assistant" ? "model" : "user",
-    parts: [{ text: String(row.content || "").slice(0, 4000) }],
+    parts: [{ text: String(row.content || "").slice(0, 5000) }],
   }));
 
   for (const model of GEMINI_MODELS) {
@@ -194,7 +206,11 @@ ${String(guide || GUIDE).slice(0, 12000)}`;
           body: JSON.stringify({
             systemInstruction: { parts: [{ text: system }] },
             contents,
-            generationConfig: { maxOutputTokens: 700, responseMimeType: "application/json" },
+            generationConfig: {
+              maxOutputTokens: 1200,
+              temperature: 0.4,
+              responseMimeType: "application/json",
+            },
           }),
         },
       );

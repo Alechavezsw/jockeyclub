@@ -1,0 +1,16 @@
+---
+description: Reserva de instalaciones — seña 50 %, aparte de la cuota, va a la cuenta
+alwaysApply: true
+---
+
+# Reserva / seña 50 %
+
+Toda reserva de instalación (salón, Espacio Verde, etc.):
+
+1. **Es aparte de la cuota social** — no es mora de cuota, no mezcla liquidación ni recargo del 10 %.
+2. **Va a la cuenta** del titular (`event_imputation` / cuenta corriente / cobro de alquiler).
+3. **Siempre seña del 50 %** del precio total. El resto queda pendiente en cuenta hasta saldar.
+4. Mercado Pago / transferencia / aviso de pago de reserva: monto de la **seña (50 %)**, no el total (salvo que el socio abone el resto a propósito).
+5. Helpers: `RESERVATION_DEPOSIT_RATE`, `reservationDepositAmount`, `reservationTotalPrice`, `reservationBalanceAfterDeposit` en `bookingRules.js`.
+
+No inventar seña distinta por espacio. No tratar el alquiler como cuota.

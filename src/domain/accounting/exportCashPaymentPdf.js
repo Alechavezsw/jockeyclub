@@ -16,8 +16,13 @@ function shortDate(iso) {
   return match ? `${match[1]}/${match[2]}` : raw || '—';
 }
 
-/** Recibo del movimiento de caja, con imputaciones y forma de pago. */
-export async function exportCashPaymentPdf(detail) {
+function cashPaymentFileName(detail) {
+  const nro = String(detail?.memberNumber || 'socio').replace(/\D/g, '') || 'socio';
+  return `pago_${nro}_${detail?.paymentNumber || detail?.accessinId || 'recibo'}.pdf`;
+}
+
+/** Arma el PDF del recibo de caja (sin descargar). */
+export async function buildCashPaymentPdfDoc(detail) {
   if (!detail) throw new Error('No hay pago para exportar.');
   const [{ jsPDF }, autoTableMod, logoDataUrl] = await Promise.all([
     import('jspdf'),
@@ -109,8 +114,21 @@ export async function exportCashPaymentPdf(detail) {
   });
 
   drawReportFooter(doc);
-  const nro = String(detail.memberNumber || 'socio').replace(/\D/g, '') || 'socio';
-  const file = `pago_${nro}_${detail.paymentNumber || detail.accessinId || 'recibo'}.pdf`;
+  return doc;
+}
+
+/** Recibo del movimiento de caja, con imputaciones y forma de pago. */
+export async function exportCashPaymentPdf(detail) {
+  const doc = await buildCashPaymentPdfDoc(detail);
+  const file = cashPaymentFileName(detail);
   doc.save(file);
   return file;
+}
+
+/** Mismo recibo, como archivo en memoria (mail / mensajería). */
+export async function cashPaymentPdfFile(detail) {
+  const doc = await buildCashPaymentPdfDoc(detail);
+  const name = cashPaymentFileName(detail);
+  const blob = doc.output('blob');
+  return new File([blob], name, { type: 'application/pdf' });
 }

@@ -543,7 +543,7 @@ export function duesAmountForMember(member, on = new Date(), options = {}) {
  * Meses vencidos y todavía impagos. Cada uno trae su cuota y su propio 10 %.
  * El mes que todavía no venció no entra.
  */
-function overdueSocialMonths(member, paidOn) {
+export function overdueSocialMonths(member, paidOn) {
   const todayStart = startOfDay(paidOn);
   const day = duesDueDayForMember(member);
   const first = parseDate(firstUnpaidDuesDate({
@@ -860,9 +860,10 @@ export function buildWhatsAppDuesUrl(member, formatCurrency) {
 }
 
 /**
- * Genera la deuda de cuota automáticamente al vencer.
- * Si nextDueDate ya pasó y el socio no tiene saldo, carga el monto de su categoría.
- * No vuelve a sumar si ya hay outstandingBalance (evita doble cargo).
+ * Red de seguridad (modo local): alinea el saldo al capital de meses vencidos.
+ * La nube usa liquidación día 1 (suma cuota sobre cuota). Acá igual: solo capital;
+ * el 10 % se calcula al cobrar (duesChargeBreakdown), nunca se mete en el saldo.
+ * Si ya hay saldo (LILA / liquidación), solo completa hacia arriba si faltaban meses.
  */
 export function applyAutomaticDues(members, today = new Date()) {
   const todayStart = startOfDay(today);
@@ -876,7 +877,6 @@ export function applyAutomaticDues(members, today = new Date()) {
     if (!isMemberBillingActive(normalized) || isDuesExemptMember(normalized) || isFamilyDependent(normalized)) {
       return normalized;
     }
-    if ((Number(normalized.outstandingBalance) || 0) > 0) return normalized;
 
     const due = parseDueDate(normalized.nextDueDate, normalized);
     if (!due || due >= todayStart) return normalized;
@@ -889,10 +889,18 @@ export function applyAutomaticDues(members, today = new Date()) {
       return normalized;
     }
 
-    const base = duesPayableForMember(normalized, { paidOn: todayStart, dueOn: due, on: due });
+    const months = overdueSocialMonths(normalized, todayStart);
+    if (!months.length) return normalized;
+
+    const capital = Math.round(months.reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
+    const stored = Math.round(Number(normalized.outstandingBalance) || 0);
+    const nextBalance = Math.max(stored, capital);
+
+    if (nextBalance === stored) return normalized;
+
     return {
       ...normalized,
-      outstandingBalance: base,
+      outstandingBalance: nextBalance,
       overdueSince: normalized.overdueSince || toISODate(due),
     };
   });

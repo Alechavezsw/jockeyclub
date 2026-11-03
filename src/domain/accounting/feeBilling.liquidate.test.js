@@ -11,10 +11,13 @@ import {
   feePeriodPrepareBlock,
   liquidateFeePeriod,
   packEditorFromPeriod,
+  aggregateFeeChargeDeltas,
+  applyFeeChargeDeltasToMembers,
   autoLiquidateFeePeriodOnMonthStart,
   isFeePeriodAutoDay,
   prepareFeePeriodDraft,
   promotePendingFeePeriods,
+  refreshFeePeriodWithDiscounts,
   reopenFeePeriod,
   resolveFeePeriods,
 } from './feeBilling';
@@ -371,5 +374,133 @@ describe('liquidateFeePeriod', () => {
     const skip = autoLiquidateFeePeriodOnMonthStart(ACCESSIN_FEE_PERIODS, members, dayTwo);
     expect(skip.ran).toBe(false);
     expect(skip.reason).toBe('not_day_one');
+
+    const catchUp = autoLiquidateFeePeriodOnMonthStart(
+      ACCESSIN_FEE_PERIODS,
+      members,
+      dayTwo,
+      { catchUp: true, by: 'test' },
+    );
+    expect(catchUp.ran).toBe(true);
+    expect(catchUp.period.status).toBe('pending');
+    expect(catchUp.period.availableAt).toBe('2026-11-02');
+    const promoted = promotePendingFeePeriods(catchUp.periods, dayTwo);
+    expect(promoted.promoted).toHaveLength(1);
+    expect(promoted.memberUpdates.some((row) => row.memberId === '10485')).toBe(true);
+  });
+
+  it('al imputar suma el mes nuevo sobre el saldo previo', () => {
+    const deltas = aggregateFeeChargeDeltas([
+      { memberId: '111591', addAmount: 40000 },
+    ]);
+    const next = applyFeeChargeDeltasToMembers(
+      [{ memberId: '111591', outstandingBalance: 32000, tier: 'socio_individual' }],
+      deltas,
+    );
+    expect(next[0].outstandingBalance).toBe(72000);
+  });
+
+  it('liquidación aplica bonificaciones en cargos y total', () => {
+    const members = [
+      {
+        memberId: '9216',
+        status: 'active',
+        tier: 'socio_familiar',
+        cuotaCategories: ['SOCIO FAMILIAR'],
+      },
+      {
+        memberId: '11',
+        status: 'active',
+        tier: 'socio_individual',
+        cuotaCategories: ['SOCIO INDIVIDUAL'],
+      },
+    ];
+    const discountRules = [{
+      id: 'amdis-9216',
+      category: 'members',
+      memberIds: ['9216'],
+      memberNumber: '9216',
+      valueType: 'percent',
+      value: 100,
+      validFrom: '2026-06-12',
+      validTo: '2027-04-30',
+      isActive: true,
+    }];
+    const result = liquidateFeePeriod(
+      ACCESSIN_FEE_PERIODS,
+      'fp-2026-11',
+      members,
+      new Date('2026-11-02T12:00:00'),
+      { discountRules },
+    );
+    expect(result.pendingCharges).toEqual([
+      { memberId: '11', addAmount: 40000, tierId: 'socio_individual', category: 'SOCIO INDIVIDUAL' },
+    ]);
+    expect(result.period.amount).toBe(40000);
+    expect(result.period.pack.charges).toEqual(result.pendingCharges);
+  });
+
+  it('reaplica bonificaciones al mes vigente ya generado', () => {
+    const members = [
+      {
+        memberId: '9216',
+        status: 'active',
+        tier: 'socio_familiar',
+        cuotaCategories: ['SOCIO FAMILIAR'],
+      },
+      {
+        memberId: '11',
+        status: 'active',
+        tier: 'socio_individual',
+        cuotaCategories: ['SOCIO INDIVIDUAL'],
+      },
+    ];
+    const discountRules = [{
+      id: 'amdis-9216',
+      category: 'members',
+      memberIds: ['9216'],
+      memberNumber: '9216',
+      valueType: 'percent',
+      value: 100,
+      validFrom: '2026-06-12',
+      validTo: '2027-04-30',
+      isActive: true,
+    }];
+    const gross = {
+      id: 'fp-2026-11',
+      year: 2026,
+      month: 11,
+      status: 'pending',
+      amount: 110000,
+      pack: {
+        charges: [
+          { memberId: '9216', addAmount: 70000, tierId: 'socio_familiar', category: 'SOCIO FAMILIAR' },
+          { memberId: '11', addAmount: 40000, tierId: 'socio_individual', category: 'SOCIO INDIVIDUAL' },
+        ],
+        total: 110000,
+        history: [],
+      },
+    };
+    const refreshed = refreshFeePeriodWithDiscounts(
+      gross,
+      members,
+      { discountRules, by: 'test' },
+      new Date('2026-11-02T12:00:00'),
+    );
+    expect(refreshed.changed).toBe(true);
+    expect(refreshed.period.amount).toBe(40000);
+    expect(refreshed.period.pack.charges).toEqual([
+      { memberId: '11', addAmount: 40000, tierId: 'socio_individual', category: 'SOCIO INDIVIDUAL' },
+    ]);
+    expect(refreshed.deltas).toEqual([]);
+
+    const processed = { ...gross, status: 'processed' };
+    const adjusted = refreshFeePeriodWithDiscounts(
+      processed,
+      members,
+      { discountRules },
+      new Date('2026-11-02T12:00:00'),
+    );
+    expect(adjusted.deltas).toEqual([{ memberId: '9216', amount: -70000 }]);
   });
 });

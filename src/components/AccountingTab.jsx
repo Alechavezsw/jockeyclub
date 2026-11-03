@@ -27,6 +27,7 @@ import {
 } from '../domain/accounting/journal';
 import {
   ACCOUNTING_BOOK_SUBTAB_SET,
+  ACCOUNTING_CAJA_SUBTAB_SET,
   ACCOUNTING_REPORT_SUBTAB_SET,
   ACCOUNTING_TREASURY_SUBTAB_SET,
   allowedAccountingSubtabsForRoles,
@@ -50,6 +51,7 @@ import {
   persistDuesCollection,
   recordDuesCollection,
 } from '../domain/members/memberPayments';
+import { deliverPaymentReceipt } from '../domain/payments/deliverPaymentReceipt';
 import { billingAccountMember } from '../domain/members/households';
 
 const ChartOfAccountsPanel = lazy(() => import('./erp/ChartOfAccountsPanel'));
@@ -163,11 +165,13 @@ function buildAccountingNavGroups(accountingTabs, section = 'all') {
     ? [booksGroup]
     : section === 'informes'
       ? [informesGroup]
-      : section === 'operation'
-        ? [operationGroup]
-        : section === 'general'
-          ? generalGroups
-          : [booksGroup, informesGroup, ...generalGroups, operationGroup];
+      : section === 'caja'
+        ? []
+        : section === 'operation'
+          ? [operationGroup]
+          : section === 'general'
+            ? generalGroups
+            : [booksGroup, informesGroup, ...generalGroups, operationGroup];
   return groups
     .map((group) => ({
       ...group,
@@ -185,8 +189,12 @@ function sectionAllowedTabs(allTabs, section) {
       ACCOUNTING_REPORT_SUBTAB_SET.has(key) || BALANCE_TABS.has(key)
     ));
   }
+  if (section === 'caja') {
+    return allTabs.filter((key) => ACCOUNTING_CAJA_SUBTAB_SET.has(key));
+  }
   if (section === 'operation') {
-    return allTabs.filter((key) => TREASURY_TABS.has(key));
+    // Caja / otros ingresos viven en el módulo Caja del rail.
+    return allTabs.filter((key) => TREASURY_TABS.has(key) && !ACCOUNTING_CAJA_SUBTAB_SET.has(key));
   }
   if (section === 'general') {
     return allTabs.filter(
@@ -212,13 +220,16 @@ function resolveNavTabKey(tab, subTab) {
     : ACCOUNTING_HUBS[tab.hub].fallback;
 }
 
+const CAJA_HUB_TABS = [
+  { key: 'cash', icon: Wallet, label: 'Cajas' },
+  { key: 'other_incomes', icon: Banknote, label: 'Otros ingresos' },
+];
+
 const TREASURY_HUB_TABS = [
   { key: 'debit_moves', icon: CreditCard, label: 'Listados débitos', accent: 'debits' },
-  { key: 'cash', icon: Wallet, label: 'Cajas' },
   { key: 'expenses', icon: Receipt, label: 'Gastos' },
   { key: 'suppliers', icon: Truck, label: 'Proveedores' },
   { key: 'retenciones', icon: Percent, label: 'Retenciones' },
-  { key: 'other_incomes', icon: Banknote, label: 'Otros ingresos' },
   { key: 'interest_generators', icon: Percent, label: 'Intereses' },
   { key: 'unidentified', icon: HelpCircle, label: 'Sin identificar' },
   { key: 'galicia', icon: Building2, label: 'Galicia' },
@@ -370,6 +381,7 @@ export default function AccountingTab({
   onPostLiquidacion,
   onPayLiquidacion,
   members = [],
+  onSendMessage,
   unidentifiedCollections = [],
   upsertUnidentifiedCollection,
   galiciaDebits = [],
@@ -393,7 +405,7 @@ export default function AccountingTab({
   feePeriods = [],
   reservations = [],
   initialSubTab = null,
-  /** 'books' | 'informes' | 'operation' | 'general' | 'all' — módulos aparte en el rail. */
+  /** 'books' | 'informes' | 'caja' | 'operation' | 'general' | 'all' — módulos aparte en el rail. */
   section = 'all',
 }) {
   const { role, roles } = useAuth();
@@ -407,9 +419,11 @@ export default function AccountingTab({
       ? 'diary'
       : section === 'informes'
         ? 'balance'
-        : section === 'operation'
+        : section === 'caja'
           ? 'cash'
-          : 'libre_deuda');
+          : section === 'operation'
+            ? 'expenses'
+            : 'libre_deuda');
   const [searchParams, setSearchParams] = useSearchParams();
   const subFromUrl = searchParams.get('sub');
   const importFromUrl = searchParams.get('import');
@@ -827,18 +841,40 @@ export default function AccountingTab({
         </nav>
       )}
 
-      {accountingTabs.length === 1 && section === 'operation' && (
+      {section === 'caja' && accountingTabs.length <= 1 && (
         <div className="acct-cashier-bar" role="status">
           <Wallet size={16} aria-hidden="true" />
           <div>
             <strong>Caja</strong>
-            <span>Operación de tesorería del turno</span>
+            <span>Efectivo, bancos, cheques y cobranzas del turno</span>
           </div>
         </div>
       )}
 
-      {TREASURY_TABS.has(subTab) && accountingTabs.length > 1 && (
-        <nav className="acct-treasury-hub" aria-label="Módulos de tesorería">
+      {section === 'caja' && accountingTabs.length > 1 && (
+        <nav className="acct-treasury-hub" aria-label="Módulos de caja">
+          {CAJA_HUB_TABS.filter((t) => accountingTabs.includes(t.key)).map((tab) => {
+            const Icon = tab.icon;
+            const isActive = subTab === tab.key;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                className={['acct-treasury-hub-item', isActive ? 'is-active' : ''].filter(Boolean).join(' ')}
+                aria-current={isActive ? 'page' : undefined}
+                onMouseDown={preventButtonScroll}
+                onClick={() => setSubTab(tab.key)}
+              >
+                <Icon size={14} aria-hidden="true" />
+                {tab.label}
+              </button>
+            );
+          })}
+        </nav>
+      )}
+
+      {section === 'operation' && TREASURY_TABS.has(subTab) && accountingTabs.length > 1 && (
+        <nav className="acct-treasury-hub" aria-label="Módulos de operación">
           {TREASURY_HUB_TABS.filter((t) => accountingTabs.includes(t.key)).map((tab) => {
             const Icon = tab.icon;
             const isActive = subTab === tab.key;
@@ -1676,6 +1712,7 @@ export default function AccountingTab({
           addCashMovement={addCashMovement}
           transferCash={transferCash}
           onNavigate={setSubTab}
+          onSendMessage={onSendMessage}
         />
       )}
 
@@ -1742,6 +1779,8 @@ export default function AccountingTab({
         <OtherIncomePanel
           items={otherIncomes}
           onCreate={onCreateOtherIncome}
+          members={members}
+          onSendMessage={onSendMessage}
         />
       )}
 
@@ -1832,6 +1871,12 @@ export default function AccountingTab({
             const saved = await persistDuesCollection(result, {
               setMembers,
               addJournalEntry,
+            });
+            void deliverPaymentReceipt({
+              member: saved?.member || result.member,
+              payment: saved?.payment || result.payment,
+              onSendMessage,
+              kind: 'cuota',
             });
             upsertUnidentifiedCollection({
               ...matched,

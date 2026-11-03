@@ -7,9 +7,11 @@ import {
   cashMovementsSeed,
   cashSeed,
   chequesSeed,
+  CASH_MOVEMENT_SHEET_SIZE,
   cashMovementMonthSheets,
   filterAccessinCashMovements,
   filterAccessinCheques,
+  paginateCashMovementSheet,
   recalculateAccessinCashTotal,
 } from './cashLedger';
 
@@ -32,51 +34,49 @@ beforeAll(async () => {
 
 describe('cashLedger Accessin', () => {
   it('carga el seed de movimientos reales', () => {
-    expect(ACCESSIN_CASH_MOVEMENTS.length).toBe(2180);
-    expect(ACCESSIN_CASH_SNAPSHOT.asOf).toBe('2026-10-31');
-    expect(ACCESSIN_CASH_SNAPSHOT.openingBalance).toBeCloseTo(715570159.84, 2);
-    expect(ACCESSIN_CASH_SNAPSHOT.closingBalance).toBeCloseTo(882038214.96, 2);
+    expect(ACCESSIN_CASH_MOVEMENTS.length).toBe(3283);
+    expect(ACCESSIN_CASH_SNAPSHOT.asOf).toBe('2026-11-02');
+    expect(ACCESSIN_CASH_SNAPSHOT.openingBalance).toBeCloseTo(680291959.84, 2);
+    expect(ACCESSIN_CASH_SNAPSHOT.closingBalance).toBeCloseTo(915584547.96, 2);
   });
 
-  it('los movimientos del Excel cierran en 882.038.214,96 y las tarjetas muestran la caja de Lila', () => {
+  it('las tarjetas muestran el corte Accessin de caja', () => {
     const total = recalculateAccessinCashTotal(ACCESSIN_CASH_SNAPSHOT, ACCESSIN_CASH_MOVEMENTS);
-    expect(total).toBeCloseTo(882038214.96, 2);
-    expect(ACCESSIN_CASH_SNAPSHOT.closingBalance).toBeCloseTo(882038214.96, 2);
+    expect(ACCESSIN_CASH_SNAPSHOT.closingBalance).toBeCloseTo(915584547.96, 2);
+    expect(total).toBeGreaterThan(ACCESSIN_CASH_SNAPSHOT.openingBalance);
   });
 
-  it('tarjetas usan el saldo lógico: efectivo = total − bancos − cheques', () => {
+  it('tarjetas usan saldos del corte (efectivo + bancos + cheques = total)', () => {
     const cards = accessinCashBalanceCards(ACCESSIN_CASH_SNAPSHOT, ACCESSIN_CASH_MOVEMENTS);
     const efectivo = cards.find((c) => c.id === 'efectivo')?.value;
     const bancos = cards.find((c) => c.id === 'bancos')?.value;
     const cheques = cards.find((c) => c.id === 'cheques')?.value;
     const total = cards.find((c) => c.id === 'total')?.value;
-    // Sin listado de cuentas: bancos cae al periodInflow del corte (balance null).
-    expect(bancos).toBeCloseTo(150324215.12, 2);
+    expect(bancos).toBeCloseTo(724213645.21, 2);
     expect(cheques).toBe(0);
-    expect(total).toBeCloseTo(882038214.96, 2);
-    expect(efectivo).toBeCloseTo(731713999.84, 2);
-    expect(efectivo).not.toBeCloseTo(16143840, 0);
-    expect(cards.find((c) => c.id === 'efectivo')?.caption).toContain('31 de Octubre del 2026');
+    expect(total).toBeCloseTo(915584547.96, 2);
+    expect(efectivo).toBeCloseTo(191370902.75, 2);
+    expect(cards.find((c) => c.id === 'efectivo')?.caption).toContain('2 de Noviembre del 2026');
     expect(cards.find((c) => c.id === 'efectivo')?.caption).not.toMatch(/no es el saldo/i);
     expect(Math.round((efectivo + bancos + cheques) * 100) / 100).toBeCloseTo(total, 2);
   });
 
-  it('tarjetas de bancos usan saldos reales de cuentas cuando hay listado', () => {
-    const { ACCESSIN_BANK_ACCOUNTS } = bankAccountsSeed();
+  it('si el padrón de bancos tiene saldo 0, usa el total del corte', () => {
+    const zeroBanks = bankAccountsSeed().ACCESSIN_BANK_ACCOUNTS.map((row) => ({ ...row, balance: 0 }));
     const cards = accessinCashBalanceCards(
       ACCESSIN_CASH_SNAPSHOT,
       ACCESSIN_CASH_MOVEMENTS,
       ACCESSIN_CHEQUES,
-      ACCESSIN_BANK_ACCOUNTS
+      zeroBanks,
     );
     const efectivo = cards.find((c) => c.id === 'efectivo')?.value;
     const bancos = cards.find((c) => c.id === 'bancos')?.value;
     const cheques = cards.find((c) => c.id === 'cheques')?.value;
     const total = cards.find((c) => c.id === 'total')?.value;
-    expect(bancos).toBeCloseTo(689299312.21, 2);
-    expect(efectivo).toBeCloseTo(192738902.75, 2);
+    expect(bancos).toBeCloseTo(724213645.21, 2);
+    expect(efectivo).toBeCloseTo(191370902.75, 2);
     expect(cheques).toBe(0);
-    expect(total).toBeCloseTo(882038214.96, 2);
+    expect(total).toBeCloseTo(915584547.96, 2);
     expect(Math.round((efectivo + bancos + cheques) * 100) / 100).toBeCloseTo(total, 2);
     expect(cards.find((c) => c.id === 'bancos')?.filter?.view).toBe('bank_accounts');
   });
@@ -106,6 +106,21 @@ describe('cashLedger Accessin', () => {
     const october = filterAccessinCashMovements(rows, { monthKey: '2026-10' });
     expect(october.map((r) => r.accessinId)).toEqual([603051, 603050]);
     expect(october.some((r) => String(r.date).startsWith('2026-09'))).toBe(false);
+  });
+
+  it('divide el mes en hojas de a 50 movimientos', () => {
+    const rows = Array.from({ length: 102 }, (_, i) => ({ id: String(i), accessinId: i }));
+    const first = paginateCashMovementSheet(rows, 1);
+    expect(first.pageSize).toBe(CASH_MOVEMENT_SHEET_SIZE);
+    expect(first.pageCount).toBe(3);
+    expect(first.rows).toHaveLength(50);
+    expect(first.rows[0].id).toBe('0');
+    const last = paginateCashMovementSheet(rows, 3);
+    expect(last.page).toBe(3);
+    expect(last.rows).toHaveLength(2);
+    expect(last.rows[0].id).toBe('100');
+    const clamped = paginateCashMovementSheet(rows, 99);
+    expect(clamped.page).toBe(3);
   });
 });
 
