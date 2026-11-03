@@ -363,7 +363,7 @@ describe('payMemberDues', () => {
     expect(result.member.outstandingBalance).toBe(0);
   });
 
-  it('un administrador borra el recargo cobrado y queda a favor', () => {
+  it('un superadmin borra el recargo cobrado y queda a favor', () => {
     const member = {
       memberId: '1004',
       name: 'Paula',
@@ -379,6 +379,7 @@ describe('payMemberDues', () => {
     });
     const removed = removeDuesSurcharge(charged.member, charged.payment.id, {
       removedBy: 'Administración',
+      reason: 'Recargo cobrado de más',
     });
     expect(removed.payment.amount).toBe(77000);
     expect(removed.payment.surcharge).toBe(0);

@@ -84,8 +84,8 @@ export default function MemberDiscountsPanel({ members = [] }) {
     )));
   };
 
-  const onDelete = async (id) => {
-    await deactivateDiscountRule(id);
+  const onDelete = async (id, reason) => {
+    await deactivateDiscountRule(id, reason);
     setRules((prev) => softDeleteDiscount(prev || [], id));
   };
 

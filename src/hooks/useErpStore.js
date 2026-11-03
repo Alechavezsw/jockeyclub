@@ -1893,25 +1893,34 @@ export default function useErpStore({
     });
   }, []);
 
-  const addFixedDiscount = useCallback((item) => {
-    setFixedDiscounts((prev) => [item, ...prev]);
+  const addFixedDiscount = useCallback(async (item) => {
     if (cloud()) {
-      repos.upsertFixedDiscount(item).then((saved) => {
-        setFixedDiscounts((prev) => {
-          const withoutTemp = prev.filter((x) => x.id !== item.id && x.id !== saved.id);
-          return [saved, ...withoutTemp];
-        });
-      }).catch(() => {});
+      const saved = await repos.upsertFixedDiscount(item);
+      setFixedDiscounts((prev) => {
+        const withoutTemp = prev.filter((x) => x.id !== item.id && x.id !== saved.id);
+        return [saved, ...withoutTemp];
+      });
+      return saved;
     }
+    setFixedDiscounts((prev) => [item, ...prev]);
+    return item;
   }, []);
 
-  const toggleFixedDiscount = useCallback((id) => {
+  const toggleFixedDiscount = useCallback(async (id, reason) => {
+    let target = null;
     setFixedDiscounts((prev) => {
-      const next = prev.map((x) => (x.id === id ? { ...x, active: !x.active } : x));
-      const target = next.find((x) => x.id === id);
-      if (cloud() && target) repos.upsertFixedDiscount(target).catch(() => {});
-      return next;
+      target = prev.find((x) => x.id === id) || null;
+      return prev;
     });
+    if (!target) return null;
+    const nextItem = { ...target, active: !target.active, changeReason: reason };
+    if (cloud()) {
+      const saved = await repos.upsertFixedDiscount(nextItem);
+      setFixedDiscounts((prev) => prev.map((x) => (x.id === id || x.id === saved.id ? saved : x)));
+      return saved;
+    }
+    setFixedDiscounts((prev) => prev.map((x) => (x.id === id ? nextItem : x)));
+    return nextItem;
   }, []);
 
   const upsertPaymentOrder = useCallback((item) => {

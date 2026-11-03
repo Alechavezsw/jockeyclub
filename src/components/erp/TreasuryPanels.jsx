@@ -329,15 +329,20 @@ export function FixedExpensesPanel({ items = [], onAdd, onToggle }) {
 
 /** 4) Descuentos fijos */
 export function FixedDiscountsPanel({ items = [], onAdd, onToggle }) {
-  const [form, setForm] = useState({ name: '', percent: '', appliesTo: 'general' });
+  const [form, setForm] = useState({ name: '', percent: '', appliesTo: 'general', changeReason: '' });
   const [error, setError] = useState('');
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
     setError('');
+    const reason = String(form.changeReason || '').trim();
+    if (reason.length < 8) {
+      setError('Falta el motivo de la bonificación (mínimo 8 caracteres).');
+      return;
+    }
     try {
-      onAdd(createFixedDiscount(form));
-      setForm({ name: '', percent: '', appliesTo: 'general' });
+      await onAdd({ ...createFixedDiscount(form), changeReason: reason });
+      setForm({ name: '', percent: '', appliesTo: 'general', changeReason: '' });
     } catch (err) {
       setError(err.message);
     }
@@ -357,6 +362,7 @@ export function FixedDiscountsPanel({ items = [], onAdd, onToggle }) {
             <option value="staff">Staff</option>
           </select>
         </div>
+        <div><label className="form-label">Motivo</label><input className="form-input" required minLength={8} value={form.changeReason} onChange={(e) => setForm({ ...form, changeReason: e.target.value })} /></div>
         <div style={{ alignSelf: 'end' }}><button type="submit" className="btn btn-primary btn-sm"><Plus size={14} /> Alta</button></div>
       </form>
       {error && <p style={{ color: '#ef4444', margin: 0 }}>{error}</p>}
@@ -370,7 +376,18 @@ export function FixedDiscountsPanel({ items = [], onAdd, onToggle }) {
                 <td>{item.percent}%</td>
                 <td>{item.appliesTo}</td>
                 <td>{item.active ? 'Activo' : 'Inactivo'}</td>
-                <td><button type="button" className="btn btn-secondary btn-sm" onClick={() => onToggle(item.id)}>{item.active ? 'Desactivar' : 'Activar'}</button></td>
+                <td><button type="button" className="btn btn-secondary btn-sm" onClick={async () => {
+                  const reason = window.prompt(item.active ? 'Motivo para pausar el descuento (mínimo 8 caracteres)' : 'Motivo para activar el descuento (mínimo 8 caracteres)') || '';
+                  if (reason.trim().length < 8) {
+                    setError('Falta el motivo de la bonificación (mínimo 8 caracteres).');
+                    return;
+                  }
+                  try {
+                    await onToggle(item.id, reason.trim());
+                  } catch (err) {
+                    setError(err.message || 'No se pudo guardar el descuento.');
+                  }
+                }}>{item.active ? 'Desactivar' : 'Activar'}</button></td>
               </tr>
             ))}
           </tbody>

@@ -239,27 +239,21 @@ export default function DuesControlTab({
 
   const handleConfirmCollect = async (payload) => {
     if (!collectMember) return;
-    try {
-      const result = recordDuesCollection(collectMember, { ...payload, members });
-      await persistDuesCollection(result, {
-        setMembers,
-        addJournalEntry,
-        onAccountEntry,
-      });
-      void deliverPaymentReceipt({
-        member: result.member,
-        payment: result.payment,
-        onSendMessage,
-        kind: 'cuota',
-      });
-      setCollectMember(null);
-      setFlash(`Cobro registrado · ${formatCurrency(result.payment.amount)} · ${result.member.name}`);
-      window.setTimeout(() => setFlash(''), 5000);
-    } catch (err) {
-      setCollectMember(null);
-      setFlash(err.message || 'No se pudo registrar el cobro.');
-      window.setTimeout(() => setFlash(''), 5000);
-    }
+    const result = recordDuesCollection(collectMember, { ...payload, members });
+    const saved = await persistDuesCollection(result, {
+      setMembers,
+      addJournalEntry,
+      onAccountEntry,
+    });
+    void deliverPaymentReceipt({
+      member: saved?.member || result.member,
+      payment: saved?.payment || result.payment,
+      onSendMessage,
+      kind: 'cuota',
+    });
+    setCollectMember(null);
+    setFlash(`Cobro registrado · ${formatCurrency((saved?.payment || result.payment).amount)} · ${(saved?.member || result.member).name}`);
+    window.setTimeout(() => setFlash(''), 5000);
   };
 
   const handleExport = () => {

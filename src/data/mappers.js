@@ -99,7 +99,7 @@ export function memberToRow(member) {
     disciplines: member.disciplines || [],
     tier: canonicalMemberTier(member.tier),
     status: member.status || 'active',
-    outstanding_balance: Number(member.outstandingBalance) || 0,
+    // El saldo no se manda: lo calcula la base (deuda menos pagos).
     years_active: Number(member.yearsActive) || 0,
     next_due_date: pinDuesDueDate(member.nextDueDate, member) || null,
     overdue_since: member.overdueSince || null,
@@ -149,6 +149,8 @@ export function paymentFromRow(row) {
     periodDueOns: Array.isArray(meta.periodDueOns) ? meta.periodDueOns : [],
     quota: meta.quota != null ? Number(meta.quota) : undefined,
     surcharge: meta.surcharge != null ? Number(meta.surcharge) : undefined,
+    removedSurcharge: meta.removedSurcharge != null ? Number(meta.removedSurcharge) : undefined,
+    surchargeRemoveReason: meta.surchargeRemoveReason || null,
     receipt,
     receiptNumber: receipt,
     receiptName,

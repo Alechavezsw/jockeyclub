@@ -881,7 +881,8 @@ export default function MembersTab({
       });
       setCollectMember(null);
     } catch (err) {
-      window.alert(err?.message || 'No se pudo registrar el cobro.');
+      window.alert(err?.message || 'No se pudo registrar el cobro. El saldo no cambió.');
+      throw err;
     }
   };
 

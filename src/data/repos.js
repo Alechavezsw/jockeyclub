@@ -591,6 +591,15 @@ export async function upsertMember(member) {
         sb().from('members').insert(row).select().single(),
         'No se pudo crear socio'
       );
+      const firstDues = Number(member.outstandingBalance) || 0;
+      if (firstDues > 0) {
+        await postMemberDuesDelta({
+          memberId: saved.id,
+          amount: firstDues,
+          kind: 'alta',
+          source: `alta:${saved.id}`,
+        });
+      }
     }
   }
 
@@ -753,6 +762,9 @@ export async function provisionMemberPortalAccess(member, creds, { actorName = '
 }
 
 export async function insertMemberPayment(memberDbId, payment) {
+  if (Number(payment.waivedSurcharge) > 0) {
+    throw new Error('El recargo no se perdona al cobrar.');
+  }
   const paidDay = String(payment.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
   const row = {
     member_id: memberDbId,
@@ -778,6 +790,9 @@ export async function insertMemberPayment(memberDbId, payment) {
         : {}),
       ...(payment.quota != null ? { quota: payment.quota } : {}),
       ...(payment.surcharge != null ? { surcharge: payment.surcharge } : {}),
+      ...(Number(payment.waivedSurcharge) > 0
+        ? { waiveSurcharge: true, waivedSurcharge: Number(payment.waivedSurcharge) }
+        : {}),
       ...(payment.paymentPlanId ? { paymentPlanId: payment.paymentPlanId } : {}),
       ...(payment.paymentPlanLabel ? { paymentPlanLabel: payment.paymentPlanLabel } : {}),
       ...(payment.receiptParse && typeof payment.receiptParse === 'object'
@@ -794,6 +809,74 @@ export async function insertMemberPayment(memberDbId, payment) {
   );
   await audit('create', 'member_payments', saved.id, row);
   return M.paymentFromRow(saved);
+}
+
+/** Quita el recargo de un cobro ya acreditado. Solo superadmin, con motivo. */
+export async function quitarRecargoCuota({ paymentId, reason }) {
+  const balance = await unwrap(
+    sb().rpc('quitar_recargo_cuota', {
+      p_payment_id: paymentId,
+      p_reason: String(reason || '').trim(),
+    }),
+    'No se pudo quitar el recargo',
+  );
+  const value = Number(balance);
+  if (!Number.isFinite(value)) throw new Error('La base no devolvió el saldo.');
+  return value;
+}
+
+/** Suma o resta el saldo del socio. La ficha no escribe el número a mano. */
+export async function postMemberDuesDelta({ memberId, amount, kind = 'ajuste', source }) {
+  const balance = await unwrap(
+    sb().rpc('post_member_dues_delta', {
+      p_member_id: memberId,
+      p_amount: Number(amount) || 0,
+      p_kind: kind,
+      p_source: source || '',
+    }),
+    'No se pudo actualizar el saldo',
+  );
+  const value = Number(balance);
+  if (!Number.isFinite(value)) throw new Error('La base no devolvió el saldo.');
+  return value;
+}
+
+/** Devuelve al saldo el capital que había bajado ese cobro. */
+export async function revertDuesPayment(paymentId) {
+  const balance = await unwrap(
+    sb().rpc('revert_dues_payment', { p_payment_id: paymentId }),
+    'No se pudo anular el cobro en el saldo',
+  );
+  const value = Number(balance);
+  if (!Number.isFinite(value)) throw new Error('La base no devolvió el saldo.');
+  return value;
+}
+
+/** Recibo, imputación de períodos y saldo, en una sola transacción. */
+export async function registrarCobro({ memberId, amount, periods, idempotencyKey }) {
+  const data = await unwrap(
+    sb().rpc('registrar_cobro', {
+      p_member_id: memberId,
+      p_importe: Number(amount) || 0,
+      p_periodos: periods && typeof periods === 'object' ? periods : {},
+      p_idempotency_key: String(idempotencyKey || ''),
+    }),
+    'No se pudo registrar el cobro',
+  );
+  const paymentRow = data?.payment;
+  if (!paymentRow?.id) {
+    throw new Error('No se pudo registrar el cobro');
+  }
+  const balance = Number(data.outstandingBalance);
+  if (!Number.isFinite(balance)) {
+    throw new Error('El cobro no devolvió el saldo.');
+  }
+  return {
+    payment: M.paymentFromRow(paymentRow),
+    outstandingBalance: balance,
+    nextDueDate: data.nextDueDate ? String(data.nextDueDate).slice(0, 10) : null,
+    idempotent: Boolean(data.idempotent),
+  };
 }
 
 // ---- Reservations ----
@@ -2343,6 +2426,14 @@ export async function listDiscountRules() {
   return (rows || []).map(discountFromRule).filter(Boolean);
 }
 
+function benefitReason(value) {
+  const reason = String(value || '').trim();
+  if (reason.length < 8) {
+    throw new Error('Falta el motivo de la bonificación (mínimo 8 caracteres).');
+  }
+  return reason;
+}
+
 export async function upsertDiscountRule(input) {
   const d = createDiscount(input);
   const row = {
@@ -2359,6 +2450,7 @@ export async function upsertDiscountRule(input) {
     is_active: d.isActive !== false,
     accessin_id: input.accessinId ?? null,
     source: input.source || d.source || 'manual',
+    change_reason: benefitReason(input.changeReason),
   };
   if (input.ruleKey) row.rule_key = input.ruleKey;
   if (isUuid(d.id)) {
@@ -2372,10 +2464,13 @@ export async function upsertDiscountRule(input) {
   return discountFromRule(saved);
 }
 
-export async function deactivateDiscountRule(id) {
+export async function deactivateDiscountRule(id, reason) {
   if (!isUuid(id)) return null;
   const saved = await unwrap(
-    sb().from('discount_rules').update({ is_active: false }).eq('id', id).select().single(),
+    sb().from('discount_rules').update({
+      is_active: false,
+      change_reason: benefitReason(reason),
+    }).eq('id', id).select().single(),
   );
   return discountFromRule(saved);
 }
@@ -2413,13 +2508,13 @@ export async function upsertFixedDiscount(item) {
     cadence: item.cadence || 'monthly',
     status: active ? 'active' : 'inactive',
     meta,
+    change_reason: benefitReason(item.changeReason),
   };
   if (isUuid(item.id)) {
     const saved = await unwrap(sb().from('fixed_discounts').update(row).eq('id', item.id).select().single());
     return (await listFixedDiscounts()).find((x) => x.id === saved.id) || { ...item, id: saved.id, active, percent };
   }
   const saved = await unwrap(sb().from('fixed_discounts').insert(row).select().single());
-  await audit('upsert', 'fixed_discount', saved.id, { name: row.name });
   return (await listFixedDiscounts()).find((x) => x.id === saved.id) || { ...item, id: saved.id, active, percent };
 }
 

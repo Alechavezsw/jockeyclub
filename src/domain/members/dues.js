@@ -704,6 +704,8 @@ export function duesChargeBreakdown(member, {
   capital = roundMoney(capital);
   payable = roundMoney(payable);
   const quota = Math.max(0, roundMoney(total - surcharge));
+  // El mostrador nunca manda este flag: canWaiveDuesSurcharge es siempre falso.
+  // Si igual llega, registrar_cobro lo rechaza.
   if (waiveSurcharge && surcharge > 0) {
     return {
       quota,
@@ -860,7 +862,8 @@ export function buildWhatsAppDuesUrl(member, formatCurrency) {
 }
 
 /**
- * Red de seguridad (modo local): alinea el saldo al capital de meses vencidos.
+ * Solo modo local. En la nube el saldo lo calcula la base y esta función no se guarda.
+ * Alinea el saldo al capital de meses vencidos.
  * La nube usa liquidación día 1 (suma cuota sobre cuota). Acá igual: solo capital;
  * el 10 % se calcula al cobrar (duesChargeBreakdown), nunca se mete en el saldo.
  * Si ya hay saldo (LILA / liquidación), solo completa hacia arriba si faltaban meses.

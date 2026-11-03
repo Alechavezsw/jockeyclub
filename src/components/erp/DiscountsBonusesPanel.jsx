@@ -30,6 +30,7 @@ const EMPTY_FORM = {
   feeCategories: '',
   familyGroup: '',
   description: '',
+  changeReason: '',
   validFrom: '',
   validTo: '',
   valueType: 'percent',
@@ -272,6 +273,7 @@ export default function DiscountsBonusesPanel({
       feeCategories: (item.feeCategories || []).join(', ') || item.appliedTo || '',
       familyGroup: item.familyGroup || '',
       description: item.description || item.reason || '',
+      changeReason: '',
       validFrom: item.validFrom || item.date || '',
       validTo: item.validTo || '',
       valueType: item.valueType || (item.percentage != null ? 'percent' : 'amount'),
@@ -301,11 +303,16 @@ export default function DiscountsBonusesPanel({
         feeCategories: form.feeCategories,
         familyGroup: form.familyGroup,
         description: form.description,
+        changeReason: String(form.changeReason || '').trim(),
         validFrom: form.validFrom,
         validTo: form.validTo,
         valueType: form.valueType,
         value: form.value,
       };
+      if (!isExpense && payload.changeReason.length < 8) {
+        setError('Falta el motivo de la bonificación (mínimo 8 caracteres).');
+        return;
+      }
       if (isExpense) {
         createFeeExpense(payload);
         await onUpsertFeeExpense?.(payload);
@@ -351,13 +358,14 @@ export default function DiscountsBonusesPanel({
           valueType,
           value,
           validFrom: new Date().toISOString().slice(0, 10),
+          changeReason: 'Importación de descuentos extras',
         };
         if (isExpense) {
           createFeeExpense(payload);
-          onUpsertFeeExpense?.(payload);
+          await onUpsertFeeExpense?.(payload);
         } else {
           createDiscount(payload);
-          onUpsert?.(payload);
+          await onUpsert?.(payload);
         }
         created += 1;
       }
@@ -455,6 +463,19 @@ export default function DiscountsBonusesPanel({
             />
             <p className="disc-field-hint">Concepto que aparecerá en el detalle de cuotas y boleto de pago</p>
           </div>
+          {!isExpense ? (
+            <div className="disc-field">
+              <label className="disc-field-label">Motivo</label>
+              <input
+                className="form-input"
+                value={form.changeReason}
+                minLength={8}
+                required
+                onChange={(e) => setForm((f) => ({ ...f, changeReason: e.target.value }))}
+              />
+              <p className="disc-field-hint">Por qué se carga o se cambia. Queda en la auditoría. Mínimo 8 caracteres.</p>
+            </div>
+          ) : null}
           <div className="disc-field">
             <label className="disc-field-label">Válido desde</label>
             <input
@@ -666,9 +687,17 @@ export default function DiscountsBonusesPanel({
                           title="Eliminar"
                           onClick={async () => {
                             if (!window.confirm(`¿Eliminar este ${noun}?`)) return;
+                            let reason = '';
+                            if (!isExpense) {
+                              reason = window.prompt('Motivo para quitar el descuento (mínimo 8 caracteres)') || '';
+                              if (reason.trim().length < 8) {
+                                setError('Falta el motivo de la bonificación (mínimo 8 caracteres).');
+                                return;
+                              }
+                            }
                             try {
                               if (isExpense) await onDeleteFeeExpense?.(row.id);
-                              else await onDelete?.(row.id);
+                              else await onDelete?.(row.id, reason.trim());
                             } catch (err) {
                               setError(err.message || `No se pudo eliminar el ${noun}.`);
                             }

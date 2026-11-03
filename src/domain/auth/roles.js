@@ -385,9 +385,10 @@ export function canVoidDuesPayment(roleOrRolesOrProfile) {
   return keys.includes('tesorero') || keys.includes('accountant') || keys.includes('superadmin');
 }
 
-/** Borrar un recargo ya cobrado: administrador y superadmin. */
+/** Quitar un recargo ya cobrado: solo superadmin. La base lo exige en quitar_recargo_cuota. */
 export function canRemoveDuesSurcharge(roleOrRolesOrProfile) {
-  return canManageMembers(roleOrRolesOrProfile);
+  const keys = collectRoleKeys(roleOrRolesOrProfile).map((key) => String(key || '').toLowerCase());
+  return keys.includes('superadmin');
 }
 
 /** Editar ficha / padrón: solo administrador y superadministrador. */

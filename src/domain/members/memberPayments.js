@@ -11,6 +11,8 @@ import { referenceMonthlyDues } from './paymentHistory';
 import { createAccountEntry } from '../accounting/accountEntries';
 import { journalAccountForPayment } from './clubBanks';
 import { nowTimeAR, todayISODateAR } from '../../lib/arDate';
+import { isSupabaseConfigured } from '../../lib/supabase';
+import { quitarRecargoCuota, registrarCobro, revertDuesPayment } from '../../data/repos';
 
 export const DUES_METHOD_LABELS = {
   efectivo: 'Efectivo',
@@ -483,6 +485,7 @@ export function payUpcomingDues(member, { method = 'transferencia', today = new 
     receipt: receiptNumberFor(member, date),
     receiptNumber: receiptNumberFor(member, date),
     period: today.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' }),
+    periodDueOns: (preview.periods || []).map((row) => row.dueOn).filter(Boolean),
     balanceBefore: Number(member.outstandingBalance) || 0,
     nextDueBefore: member.nextDueDate || null,
     lastPaymentBefore: member.lastPaymentDate || null,
@@ -671,8 +674,13 @@ export function recordDuesCollection(member, {
  */
 export function removeDuesSurcharge(member, paymentId, {
   removedBy = 'Administración',
+  reason = '',
   today = new Date(),
 } = {}) {
+  const why = String(reason || '').trim();
+  if (why.length < 8) {
+    throw new Error('Falta el motivo para quitar el recargo (mínimo 8 caracteres).');
+  }
   if (!member) throw new Error('Socio no encontrado.');
   const history = member.paymentHistory || [];
   const payment = history.find((row) => row && String(row.id) === String(paymentId));
@@ -689,6 +697,7 @@ export function removeDuesSurcharge(member, paymentId, {
     removedSurcharge: surcharge,
     surchargeRemovedBy: removedBy,
     surchargeRemovedAt: removedAt,
+    surchargeRemoveReason: why,
   };
   const next = {
     ...member,
@@ -806,7 +815,79 @@ export function journalEntryBelongsToMember(entry, member) {
   return new RegExp(`\\(Cred\\.\\s*${escaped}(?:\\.{3}|…)?\\)`, 'i').test(text);
 }
 
-/** Aplica el cobro al padrón, al libro de cuenta y al diario. */
+const PAYMENT_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function isPersistedPaymentId(id) {
+  return PAYMENT_UUID.test(String(id || ''));
+}
+
+/** Cobro armado en el navegador, todavía sin fila en member_payments. */
+export function localDuesPayment(previous, next) {
+  const prevHist = previous?.paymentHistory || [];
+  const nextHist = next?.paymentHistory || [];
+  if (nextHist.length <= prevHist.length) return null;
+  const newest = nextHist[0];
+  if (!newest || isPersistedPaymentId(newest.id)) return null;
+  return newest;
+}
+
+function cobroPeriods(member, payment) {
+  return {
+    dueOns: Array.isArray(payment.periodDueOns) ? payment.periodDueOns : [],
+    quota: payment.quota ?? null,
+    surcharge: payment.surcharge ?? 0,
+    creditApplied: payment.creditApplied ?? null,
+    method: payment.method || null,
+    concept: payment.concept || null,
+    receiptNumber: payment.receiptNumber || payment.receipt || null,
+    paidAt: payment.paidAt || payment.date || null,
+    time: payment.time || null,
+    nextDueDate: member.nextDueDate || null,
+    bankName: payment.bankName || null,
+    bankId: payment.bankId || null,
+    receiptName: payment.receiptName || null,
+    receiptPath: payment.receiptPath || null,
+    receiptBucket: payment.receiptBucket || null,
+    receiptMime: payment.receiptMime || null,
+    receiptSize: payment.receiptSize ?? null,
+    paymentPlanId: payment.paymentPlanId || null,
+    paymentPlanLabel: payment.paymentPlanLabel || null,
+    paymentSplits: payment.paymentSplits || null,
+    waiveSurcharge: Number(payment.waivedSurcharge) > 0,
+    waivedSurcharge: Number(payment.waivedSurcharge) || 0,
+  };
+}
+
+/**
+ * Recibo, períodos y saldo en una sola transacción.
+ * Si falla, no hay que pintar el saldo nuevo.
+ */
+export async function commitDuesCollection(member, payment) {
+  const memberDbId = member?.id;
+  if (!memberDbId) {
+    throw new Error('No se pudo registrar el cobro: el socio no está cargado en la base.');
+  }
+  if (Number(payment.waivedSurcharge) > 0) {
+    throw new Error('El recargo no se perdona al cobrar.');
+  }
+  const saved = await registrarCobro({
+    memberId: memberDbId,
+    amount: Number(payment.amount) || 0,
+    periods: cobroPeriods(member, payment),
+    idempotencyKey: `cobro:${member.memberId}:${payment.id}`,
+  });
+  const history = (member.paymentHistory || []).filter((row) => row && row.id !== payment.id);
+  const nextMember = {
+    ...member,
+    outstandingBalance: saved.outstandingBalance,
+    nextDueDate: saved.nextDueDate || member.nextDueDate,
+    lastPaymentDate: saved.payment?.date || member.lastPaymentDate,
+    paymentHistory: [saved.payment, ...history],
+  };
+  return { member: nextMember, payment: saved.payment, idempotent: saved.idempotent };
+}
+
+/** Aplica el cobro al padrón, al libro de cuenta y al diario. El saldo no se pinta hasta que el recibo quedó. */
 export async function persistDuesCollection(result, {
   setMembers,
   updateMember,
@@ -814,26 +895,51 @@ export async function persistDuesCollection(result, {
   onAccountEntry,
 } = {}) {
   if (!result?.member) return result;
+  let next = result;
+  const payment = result.payment;
+  if (isSupabaseConfigured && payment && isPersistedPaymentId(payment.id) && result.member?.id) {
+    if (payment.status === 'void') {
+      const balance = await revertDuesPayment(payment.id);
+      next = { ...next, member: { ...next.member, outstandingBalance: balance } };
+    } else if (Number(payment.removedSurcharge) > 0) {
+      const balance = await quitarRecargoCuota({
+        paymentId: payment.id,
+        reason: payment.surchargeRemoveReason,
+      });
+      next = { ...next, member: { ...next.member, outstandingBalance: balance } };
+    }
+  }
+  if (isSupabaseConfigured && payment && !isPersistedPaymentId(payment.id)) {
+    const committed = await commitDuesCollection(result.member, payment);
+    next = {
+      ...result,
+      member: committed.member,
+      payment: committed.payment,
+      journalEntry: result.journalEntry
+        ? { ...result.journalEntry, sourceId: committed.payment.id }
+        : result.journalEntry,
+    };
+  }
   if (typeof setMembers === 'function') {
     setMembers((prev) => {
       const list = prev || [];
-      const idx = list.findIndex((m) => m.memberId === result.member.memberId);
-      if (idx < 0) return [result.member, ...list];
-      return list.map((m) => (m.memberId === result.member.memberId ? result.member : m));
+      const idx = list.findIndex((m) => m.memberId === next.member.memberId);
+      if (idx < 0) return [next.member, ...list];
+      return list.map((m) => (m.memberId === next.member.memberId ? next.member : m));
     });
   } else {
-    updateMember?.(result.member);
+    await updateMember?.(next.member);
   }
-  if (result.ledgerEntry) onAccountEntry?.(result.ledgerEntry);
-  if (result.journalEntry && typeof addJournalEntry === 'function') {
+  if (next.ledgerEntry) onAccountEntry?.(next.ledgerEntry);
+  if (next.journalEntry && typeof addJournalEntry === 'function') {
     try {
-      const saved = await addJournalEntry(result.journalEntry);
+      const saved = await addJournalEntry(next.journalEntry);
       if (saved && typeof saved === 'object') {
-        return { ...result, journalEntry: saved };
+        return { ...next, journalEntry: saved };
       }
     } catch {
       /* El cobro del padrón ya quedó. El diario se recompone con el libro oficial. */
     }
   }
-  return result;
+  return next;
 }

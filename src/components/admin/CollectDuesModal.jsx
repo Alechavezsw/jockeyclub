@@ -900,7 +900,7 @@ export default function CollectDuesModal({
         )}
 
         {error && (
-          <p style={{ color: '#ef4444', margin: '0 0 0.75rem', fontSize: '0.88rem' }}>{error}</p>
+          <p role="alert" style={{ color: '#ef4444', margin: '0 0 0.75rem', fontSize: '0.88rem' }}>{error}</p>
         )}
 
         <div style={{ display: 'flex', gap: '0.65rem', justifyContent: 'flex-end', flexWrap: 'wrap', borderTop: '1px solid var(--border-glass)', paddingTop: '1rem' }}>

@@ -22,6 +22,7 @@ import {
   saveDismissedNotificationIds,
 } from './domain/notifications/buildNotifications';
 import { applyAutomaticDues, pinDuesDueDate, setRuntimeDueDay } from './domain/members/dues';
+import { commitDuesCollection, isPersistedPaymentId, localDuesPayment } from './domain/members/memberPayments';
 import {
   DEFAULT_CLUB_SETTINGS,
   DEFAULT_DUES_SETTINGS,
@@ -1363,28 +1364,56 @@ function ClubPortal() {
   const updateMember = async (nextMember) => {
     if (!nextMember?.memberId) return;
     if (cloudMode) {
+      const current = members.find((m) => m.memberId === nextMember.memberId) || {};
+      const newest = localDuesPayment(current, nextMember);
+      if (newest) {
+        try {
+          const withId = {
+            ...current,
+            ...nextMember,
+            id: nextMember.id || current.id || memberDbIds[nextMember.memberId],
+          };
+          const committed = await commitDuesCollection(withId, newest);
+          setDbError('');
+          setMembers((prev) => prev.map((m) => (
+            m.memberId === nextMember.memberId ? { ...m, ...committed.member } : m
+          )));
+          if (committed.member.id) {
+            setMemberDbIds((prev) => ({ ...prev, [committed.member.memberId]: committed.member.id }));
+          }
+          return committed.member;
+        } catch (err) {
+          let restored = null;
+          try {
+            restored = await repos.getMemberByNumber(nextMember.memberId, { withPayments: true });
+          } catch {
+            restored = null;
+          }
+          const hadPayment = (restored?.paymentHistory || []).length > (current.paymentHistory || []).length;
+          if (restored && hadPayment) {
+            setMembers((prev) => prev.map((m) => (
+              m.memberId === nextMember.memberId ? { ...m, ...restored } : m
+            )));
+            setDbError('El cobro quedó registrado. Actualicé la ficha con lo que está en la base.');
+            return restored;
+          }
+          setDbError(err?.message || 'No se pudo registrar el cobro. El saldo no cambió.');
+          return;
+        }
+      }
       try {
-        const current = members.find((m) => m.memberId === nextMember.memberId) || {};
         const saved = await repos.upsertMember({ ...current, ...nextMember });
+        setDbError('');
         setMembers((prev) =>
           prev.map((m) => (m.memberId === nextMember.memberId ? { ...m, ...saved } : m))
         );
         if (saved.id) {
           setMemberDbIds((prev) => ({ ...prev, [saved.memberId]: saved.id }));
         }
-        // Pagos nuevos en paymentHistory
-        const prevHist = current.paymentHistory || [];
-        const nextHist = nextMember.paymentHistory || saved.paymentHistory || [];
-        if (nextHist.length > prevHist.length && saved.id) {
-          const newest = nextHist[0];
-          const looksLocal = newest && !/^[0-9a-f-]{36}$/i.test(String(newest.id || ''));
-          if (looksLocal) {
-            await repos.insertMemberPayment(saved.id, newest);
-          }
-        }
-        return;
+        return saved;
       } catch (err) {
         setDbError(err.message || 'No se pudo guardar el socio');
+        return;
       }
     }
     setMembers((prev) =>
@@ -2325,28 +2354,54 @@ function ClubPortal() {
         const prevIds = new Set(prev.map((m) => m.memberId));
         next.forEach((m) => {
           const old = prev.find((p) => p.memberId === m.memberId);
-          if (!old || JSON.stringify(old) !== JSON.stringify(m)) {
-            repos.upsertMember(m).then(async (saved) => {
-              setMemberDbIds((ids) => ({ ...ids, [saved.memberId]: saved.id }));
-              if (!prevIds.has(m.memberId)) {
-                setMembers((cur) =>
-                  cur.map((x) => (x.memberId === saved.memberId ? { ...x, ...saved } : x))
-                );
+          if (old && JSON.stringify(old) === JSON.stringify(m)) return;
+          const newest = localDuesPayment(old, m);
+          if (newest) {
+            const withId = { ...m, id: m.id || memberDbIds[m.memberId] };
+            commitDuesCollection(withId, newest).then((committed) => {
+              setDbError('');
+              setMembers((cur) => cur.map((x) => (
+                x.memberId === m.memberId ? { ...x, ...committed.member } : x
+              )));
+              if (committed.member.id) {
+                setMemberDbIds((ids) => ({ ...ids, [committed.member.memberId]: committed.member.id }));
               }
-              // Persistir cobros nuevos (Control de Cuotas / padrón)
-              const prevHist = old?.paymentHistory || [];
-              const nextHist = m.paymentHistory || [];
-              if (nextHist.length > prevHist.length && saved.id) {
-                const newest = nextHist[0];
-                const looksLocal = newest && !/^[0-9a-f-]{36}$/i.test(String(newest.id || ''));
-                if (looksLocal) {
-                  try {
-                    await repos.insertMemberPayment(saved.id, newest);
-                  } catch { /* best-effort */ }
-                }
+            }).catch(async (err) => {
+              let restored = null;
+              try {
+                restored = await repos.getMemberByNumber(m.memberId, { withPayments: true });
+              } catch {
+                restored = null;
               }
-            }).catch(() => {});
+              const hadPayment = (restored?.paymentHistory || []).length > (old?.paymentHistory || []).length;
+              if (restored && hadPayment) {
+                setMembers((cur) => cur.map((x) => (
+                  x.memberId === m.memberId ? { ...x, ...restored } : x
+                )));
+                setDbError('El cobro quedó registrado. Actualicé la ficha con lo que está en la base.');
+                return;
+              }
+              if (old) {
+                setMembers((cur) => cur.map((x) => (x.memberId === m.memberId ? old : x)));
+              }
+              setDbError(err?.message || 'No se pudo registrar el cobro. El saldo no cambió.');
+            });
+            return;
           }
+          const justPaid = isPersistedPaymentId((m.paymentHistory || [])[0]?.id)
+            && (m.paymentHistory || []).length > (old?.paymentHistory || []).length;
+          repos.upsertMember(m).then((saved) => {
+            setMemberDbIds((ids) => ({ ...ids, [saved.memberId]: saved.id }));
+            setMembers((cur) => cur.map((x) => {
+              if (x.memberId !== saved.memberId) return x;
+              if (!prevIds.has(m.memberId)) return { ...x, ...saved };
+              return { ...x, id: saved.id || x.id, outstandingBalance: saved.outstandingBalance };
+            }));
+          }).catch((err) => {
+            setDbError(justPaid
+              ? 'El cobro quedó registrado, pero no se pudo guardar el resto de la ficha.'
+              : (err?.message || 'No se pudo guardar el socio'));
+          });
         });
       }
       return next;

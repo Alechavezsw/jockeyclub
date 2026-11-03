@@ -78,12 +78,12 @@ describe('allowedAdminTabs', () => {
     expect(canLiquidateDues('pool_operator')).toBe(false);
   });
 
-  it('el recargo se cobra siempre y solo un administrador puede borrarlo', () => {
+  it('el recargo se cobra siempre y solo un superadmin puede quitarlo', () => {
     expect(canWaiveDuesSurcharge({ roles: [{ roleKey: 'tesorero' }] })).toBe(false);
     expect(canWaiveDuesSurcharge('accountant')).toBe(false);
     expect(canWaiveDuesSurcharge('superadmin')).toBe(false);
     expect(canWaiveDuesSurcharge('admin')).toBe(false);
-    expect(canRemoveDuesSurcharge('admin')).toBe(true);
+    expect(canRemoveDuesSurcharge('admin')).toBe(false);
     expect(canRemoveDuesSurcharge('superadmin')).toBe(true);
     expect(canRemoveDuesSurcharge('cashier')).toBe(false);
     expect(canRemoveDuesSurcharge('accountant')).toBe(false);

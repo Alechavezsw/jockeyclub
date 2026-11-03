@@ -829,30 +829,25 @@ export default function MemberProfilePanel({
       window.setTimeout(() => setCollectFlash(''), 5000);
       return;
     }
-    try {
-      const result = recordDuesCollection(member, { ...payload, members });
-      await persistDuesCollection(result, {
-        setMembers,
-        updateMember,
-        addJournalEntry,
-        onAccountEntry,
-      });
-      void deliverPaymentReceipt({
-        member: result.member,
-        payment: result.payment,
-        onSendMessage,
-        kind: 'cuota',
-      });
-      setCollectOpen(false);
-      setSection('movimientos');
-      setCollectFlash(
-        `Cobro registrado · ${duesMethodLabel(payload.method, payload.bankName)} · ${formatCurrency(result.payment.amount)}`
-      );
-      window.setTimeout(() => setCollectFlash(''), 5000);
-    } catch (err) {
-      setCollectFlash(err.message || 'No se pudo registrar el cobro.');
-      window.setTimeout(() => setCollectFlash(''), 5000);
-    }
+    const result = recordDuesCollection(member, { ...payload, members });
+    const saved = await persistDuesCollection(result, {
+      setMembers,
+      updateMember,
+      addJournalEntry,
+      onAccountEntry,
+    });
+    void deliverPaymentReceipt({
+      member: saved?.member || result.member,
+      payment: saved?.payment || result.payment,
+      onSendMessage,
+      kind: 'cuota',
+    });
+    setCollectOpen(false);
+    setSection('movimientos');
+    setCollectFlash(
+      `Cobro registrado · ${duesMethodLabel(payload.method, payload.bankName)} · ${formatCurrency((saved?.payment || result.payment).amount)}`
+    );
+    window.setTimeout(() => setCollectFlash(''), 5000);
   };
 
   const status = STATUS_COPY[member.status] || STATUS_COPY.pending;
@@ -1522,9 +1517,16 @@ export default function MemberProfilePanel({
                         className="btn btn-secondary btn-sm"
                         onClick={async () => {
                           if (!window.confirm('¿Borrar el recargo de este cobro? El importe cobrado queda y el recargo pasa a saldo a favor.')) return;
+                          const reason = window.prompt('Motivo para quitar el recargo (mínimo 8 caracteres)') || '';
+                          if (reason.trim().length < 8) {
+                            setCollectFlash('Falta el motivo para quitar el recargo (mínimo 8 caracteres).');
+                            window.setTimeout(() => setCollectFlash(''), 5000);
+                            return;
+                          }
                           try {
                             const result = removeDuesSurcharge(member, p.id, {
                               removedBy: user?.name || 'Administración',
+                              reason: reason.trim(),
                             });
                             await persistDuesCollection(result, {
                               setMembers,

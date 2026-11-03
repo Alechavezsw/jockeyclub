@@ -29,6 +29,8 @@ scripts/_lila_support/
 scripts/_out_debit_listings/
 # Planillas y archivos Prisma con números de tarjeta completos
 docs/Debitos/
+# Tarjetas de acceso con usuarios y contraseñas reales
+tarjetas-acceso/
 
 # Editor directories and files
 .vscode/*

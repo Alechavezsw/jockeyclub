@@ -44,7 +44,7 @@ describe('mappers', () => {
 
     const back = memberToRow(ui);
     expect(back.member_number).toBe('2026887744320988');
-    expect(back.outstanding_balance).toBe(32000);
+    expect(back.outstanding_balance).toBeUndefined();
     expect(back.full_name).toBe('Alejandro Chávez');
   });
 
