@@ -89,6 +89,16 @@ function mergeReservationOccupancy(detailed = [], occupancy = []) {
   return [...byId.values()];
 }
 
+function mergeReservationsById(...lists) {
+  const byId = new Map();
+  for (const list of lists) {
+    for (const row of list || []) {
+      if (row?.id) byId.set(String(row.id), row);
+    }
+  }
+  return [...byId.values()];
+}
+
 function emptyAppShell() {
   return {
     members: [],
@@ -204,7 +214,8 @@ export async function bootstrapOpsCriticalFromDb() {
 
   const [
     membersCount,
-    reservations,
+    latestReservations,
+    upcomingReservations,
     newsList,
     messages,
     claims,
@@ -213,7 +224,8 @@ export async function bootstrapOpsCriticalFromDb() {
     zondaSetting,
   ] = await mapLimit([
     () => soft(repos.countMembers('active'), 0, 'countMembers'),
-    () => soft(repos.listReservations({ limit: 150 }), [], 'reservations'),
+    () => soft(repos.listReservations({ limit: 80, orderBy: 'created_at' }), [], 'reservationsLatest'),
+    () => soft(repos.listReservations({ limit: 120, fromDate: todayISO() }), [], 'reservationsUpcoming'),
     () => soft(repos.listNews({ limit: 40 }), [], 'news'),
     () => soft(repos.listMessages({ limit: 100, forStaff: true }), [], 'messages'),
     () => soft(repos.listClaims({ limit: 80 }), [], 'claims'),
@@ -225,7 +237,7 @@ export async function bootstrapOpsCriticalFromDb() {
   return packShell({
     app: {
       membersCount: membersCount || 0,
-      reservations: reservations || [],
+      reservations: mergeReservationsById(latestReservations, upcomingReservations),
       newsList: newsList || [],
       messages: messages || [],
       claims: claims || [],

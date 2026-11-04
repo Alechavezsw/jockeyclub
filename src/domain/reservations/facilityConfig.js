@@ -131,16 +131,21 @@ export function normalizeFacilityConfig(facility = {}) {
     ...(facility.guests || {}),
   };
 
-  const accounting = {
+  const mergedAccounting = {
     multiplyExtendedPrice: true,
     autoCharge: true,
-    paymentButton: false,
+    paymentButton: true,
     debtLimit: 10000,
     debtAgeDays: 30,
-    paymentMethods: '',
+    paymentMethods: 'mercadopago,transferencia',
     mpToleranceMinutes: 10,
     mpOptions: [],
     ...(facility.accounting || {}),
+  };
+  const accounting = {
+    ...mergedAccounting,
+    // Precio > 0 → siempre seña con MP/transferencia (regla del club).
+    paymentButton: Number(facility.defaultPrice) > 0 ? true : Boolean(mergedAccounting.paymentButton),
   };
 
   const terms = {

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useSedeWeather } from '../hooks/useSedeWeather';
 import VirtualCard from '../components/VirtualCard';
 import MemberFacilitiesBooking from '../components/MemberFacilitiesBooking';
@@ -17,12 +18,40 @@ import {
 } from '../domain/members/membership';
 import { upcomingMemberReservations } from '../domain/reservations/memberBookings';
 import { todayISODateAR } from '../lib/arDate';
+import { DISCIPLINE_COLORS, resolveDiscipline } from '../domain/sports/disciplines';
 import {
   Calendar, CreditCard, MapPin, ShieldAlert,
   ArrowRight, Mail, Users, Send, MessageSquare, CheckCircle2,
   Clock, Info, ChevronRight, X, Sparkles, Radio, Bell,
   Activity, Trophy, Wind
 } from 'lucide-react';
+
+function memberSportCards(member) {
+  const labels = [
+    ...(Array.isArray(member?.disciplines) ? member.disciplines : []),
+    ...(Array.isArray(member?.preferredSports) ? member.preferredSports : []),
+  ]
+    .map((label) => String(label || '').trim())
+    .filter(Boolean);
+  const unique = [];
+  const seen = new Set();
+  for (const label of labels) {
+    const key = label.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(label);
+  }
+  return unique.map((label, index) => {
+    const match = resolveDiscipline(label);
+    const color = match?.color || DISCIPLINE_COLORS[index % DISCIPLINE_COLORS.length];
+    return {
+      name: match?.name || label,
+      color,
+      bg: `${color}14`,
+      detail: match?.coachRole || 'Disciplina del club',
+    };
+  });
+}
 
 export default function DashboardView({ 
   member, 
@@ -36,7 +65,6 @@ export default function DashboardView({
   messages = [],
   setMessages,
   isZondaActive,
-  setIsZondaActive,
   surveys = [],
   setSurveys,
   waitlist = [],
@@ -48,6 +76,7 @@ export default function DashboardView({
   sendMessage,
   membersCanViewCurrentAccounts = true,
 }) {
+  const navigate = useNavigate();
   const [showNewClaimForm, setShowNewClaimForm] = useState(false);
   const [claimType, setClaimType] = useState('Mantenimiento');
   const [claimTitle, setClaimTitle] = useState('');
@@ -122,6 +151,7 @@ export default function DashboardView({
   };
   const quota = quotaHeadline(profile);
   const canOperateAccount = memberMayOperateAccount(profile);
+  const sportCards = memberSportCards(profile);
   const duesValue = !membersCanViewCurrentAccounts
     ? 'En administración'
     : duesPending
@@ -294,50 +324,100 @@ export default function DashboardView({
         /* Quick Actions Bar */
         .db-quick-bar {
           display: grid;
-          grid-template-columns: 1.35fr 1fr 0.95fr 0.85fr;
-          gap: 0.85rem;
-          margin-bottom: 2rem;
+          grid-template-columns: 1.2fr 1fr 1fr 1.15fr;
+          gap: 0.75rem;
+          margin-bottom: 1.75rem;
         }
         .db-quick-btn {
+          position: relative;
           display: flex;
-          flex-direction: column;
           align-items: center;
-          gap: 0.6rem;
-          padding: 1.25rem 1rem;
-          border-radius: 18px 8px 14px 10px;
-          background: var(--surface-soft);
-          border: 1px solid var(--border-glass);
+          gap: 0.85rem;
+          min-height: 92px;
+          padding: 1rem 1.05rem;
+          border-radius: 18px;
+          background:
+            linear-gradient(145deg, rgba(255,255,255,0.05), rgba(255,255,255,0.01)),
+            var(--surface-soft);
+          border: 1px solid color-mix(in srgb, var(--primary-gold) 18%, var(--border-glass));
           cursor: pointer;
-          transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
-          text-align: center;
+          text-align: left;
+          font: inherit;
+          color: inherit;
+          overflow: hidden;
+          transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease, background 0.2s ease;
         }
-        .db-quick-btn:nth-child(2) { border-radius: 8px 18px 10px 12px; }
-        .db-quick-btn:nth-child(3) { border-radius: 14px 8px 16px 8px; }
-        .db-quick-btn:nth-child(4) { border-radius: 8px 16px 12px 14px; }
-        .db-quick-btn:hover {
-          background: rgba(255,255,255,0.05);
-          border-color: var(--primary-gold);
-          transform: none;
-          box-shadow: none;
+        .db-quick-btn::before {
+          content: '';
+          position: absolute;
+          left: 0;
+          top: 0.7rem;
+          bottom: 0.7rem;
+          width: 3px;
+          border-radius: 999px;
+          background: color-mix(in srgb, var(--primary-gold) 55%, transparent);
+        }
+        .db-quick-btn.is-news::before { background: color-mix(in srgb, var(--emerald-accent) 70%, transparent); }
+        .db-quick-btn.is-claim::before { background: color-mix(in srgb, var(--primary-gold) 70%, #cfa13a); }
+        .db-quick-btn.is-clima::before { background: color-mix(in srgb, #38bdf8 70%, transparent); }
+        .db-quick-btn.is-clima.is-warn::before { background: #f59e0b; }
+        .db-quick-btn.is-clima.is-danger::before { background: #ef4444; }
+        .db-quick-btn:hover:not(:disabled):not(.is-static) {
+          border-color: color-mix(in srgb, var(--primary-gold) 45%, var(--border-glass));
+          box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+          transform: translateY(-1px);
+        }
+        .db-quick-btn:disabled {
+          opacity: 0.45;
+          cursor: not-allowed;
+        }
+        .db-quick-btn.is-static {
+          cursor: default;
         }
         .db-quick-btn-icon {
-          width: 48px;
-          height: 48px;
+          width: 46px;
+          height: 46px;
           border-radius: 14px;
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 1.2rem;
+          flex-shrink: 0;
+        }
+        .db-quick-btn-copy {
+          display: flex;
+          flex-direction: column;
+          gap: 0.22rem;
+          min-width: 0;
+          flex: 1;
         }
         .db-quick-btn-label {
-          font-size: 0.78rem;
+          font-family: 'Playfair Display', Georgia, serif;
+          font-size: 1.05rem;
           font-weight: 600;
-          color: var(--text-secondary);
-          line-height: 1.2;
+          color: var(--text-primary);
+          line-height: 1.15;
         }
         .db-quick-btn-sub {
-          font-size: 0.68rem;
+          font-size: 0.76rem;
           color: var(--text-muted);
+          line-height: 1.35;
+        }
+        .db-quick-btn-go {
+          color: var(--primary-gold);
+          opacity: 0.75;
+          flex-shrink: 0;
+        }
+        .db-quick-btn.is-clima.is-ok .db-quick-btn-icon {
+          background: rgba(56, 189, 248, 0.12);
+          color: #38bdf8;
+        }
+        .db-quick-btn.is-clima.is-warn .db-quick-btn-icon {
+          background: rgba(245, 158, 11, 0.14);
+          color: #f59e0b;
+        }
+        .db-quick-btn.is-clima.is-danger .db-quick-btn-icon {
+          background: rgba(239, 68, 68, 0.16);
+          color: #ef4444;
         }
 
         /* Content Grid */
@@ -684,33 +764,57 @@ export default function DashboardView({
 
       {/* ===== QUICK ACTIONS ===== */}
       <div className="db-quick-bar">
-        <div className="db-quick-btn" onClick={() => canOperateAccount && setCurrentView('reservations')} style={canOperateAccount ? undefined : { opacity: 0.45, pointerEvents: 'none' }}>
-          <div className="db-quick-btn-icon" style={{ background: 'rgba(var(--primary-gold-rgb),0.12)', color: 'var(--primary-gold)' }}>
+        <button
+          type="button"
+          className="db-quick-btn is-reservas"
+          disabled={!canOperateAccount}
+          onClick={() => setCurrentView('reservations')}
+        >
+          <span className="db-quick-btn-icon" style={{ background: 'rgba(var(--primary-gold-rgb),0.14)', color: 'var(--primary-gold)' }}>
             <Calendar size={22} />
-          </div>
-          <span className="db-quick-btn-label">Reservar Cancha</span>
-          <span className="db-quick-btn-sub">Tenis · Rugby · Hípica</span>
-        </div>
-        <div className="db-quick-btn" onClick={() => setCurrentView('news')}>
-          <div className="db-quick-btn-icon" style={{ background: 'rgba(16,185,129,0.12)', color: 'var(--emerald-accent)' }}>
+          </span>
+          <span className="db-quick-btn-copy">
+            <span className="db-quick-btn-label">Reservar</span>
+            <span className="db-quick-btn-sub">Salones, Espacio Verde y canchas</span>
+          </span>
+          <ChevronRight size={16} className="db-quick-btn-go" aria-hidden="true" />
+        </button>
+        <button type="button" className="db-quick-btn is-news" onClick={() => setCurrentView('news')}>
+          <span className="db-quick-btn-icon" style={{ background: 'rgba(16,185,129,0.14)', color: 'var(--emerald-accent)' }}>
             <Bell size={22} />
-          </div>
-          <span className="db-quick-btn-label">Novedades</span>
-          <span className="db-quick-btn-sub">Eventos · Anuncios</span>
-        </div>
-        <div className="db-quick-btn" onClick={() => setShowNewClaimForm(!showNewClaimForm)}>
-          <div className="db-quick-btn-icon" style={{ background: 'rgba(var(--primary-gold-rgb), 0.12)', color: 'var(--primary-gold)' }}>
+          </span>
+          <span className="db-quick-btn-copy">
+            <span className="db-quick-btn-label">Novedades</span>
+            <span className="db-quick-btn-sub">Eventos y anuncios del club</span>
+          </span>
+          <ChevronRight size={16} className="db-quick-btn-go" aria-hidden="true" />
+        </button>
+        <button type="button" className="db-quick-btn is-claim" onClick={() => setShowNewClaimForm(!showNewClaimForm)}>
+          <span className="db-quick-btn-icon" style={{ background: 'rgba(var(--primary-gold-rgb), 0.12)', color: 'var(--primary-gold)' }}>
             <MessageSquare size={22} />
-          </div>
-          <span className="db-quick-btn-label">Enviar Reclamo</span>
-          <span className="db-quick-btn-sub">Atención directa</span>
-        </div>
-        <div className="db-quick-btn" onClick={() => setIsZondaActive(!isZondaActive)}>
-          <div className="db-quick-btn-icon" style={{ background: isZondaActive ? 'rgba(239,68,68,0.15)' : 'rgba(255,255,255,0.04)', color: isZondaActive ? '#ef4444' : 'var(--text-secondary)' }}>
+          </span>
+          <span className="db-quick-btn-copy">
+            <span className="db-quick-btn-label">Reclamo</span>
+            <span className="db-quick-btn-sub">Escribile a administración</span>
+          </span>
+          <ChevronRight size={16} className="db-quick-btn-go" aria-hidden="true" />
+        </button>
+        <div
+          className={`db-quick-btn is-clima is-static is-${weather?.pill?.tone || 'ok'}`}
+          role="status"
+          aria-live="polite"
+        >
+          <span className="db-quick-btn-icon">
             <Wind size={22} />
-          </div>
-          <span className="db-quick-btn-label">{isZondaActive ? '⚠ Zonda Activo' : 'Estado Zonda'}</span>
-          <span className="db-quick-btn-sub">{isZondaActive ? 'Actividades suspendidas' : 'Sin alertas activas'}</span>
+          </span>
+          <span className="db-quick-btn-copy">
+            <span className="db-quick-btn-label">Alertas climáticas</span>
+            <span className="db-quick-btn-sub">
+              {weather
+                ? `${weather.pill?.label || 'Clima'} · ${weather.summary}`
+                : (isZondaActive ? 'Zonda declarado · outdoor suspendido' : 'Consultando clima de la sede…')}
+            </span>
+          </span>
         </div>
       </div>
 
@@ -930,32 +1034,45 @@ export default function DashboardView({
                 </div>
                 Mi Perfil Deportivo
               </div>
-              <button className="btn btn-secondary btn-sm" style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }}>Editar</button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }}
+                onClick={() => navigate('/perfil?editar=1')}
+              >
+                Editar
+              </button>
             </div>
 
-            <div className="db-sport-grid">
-              {[
-                { name: 'Turf', sub: 'Caballeriza', val: 'El Triunfo', detail: '3 ejemplares · Propietario', pct: 70, color: 'var(--primary-gold)', bg: 'rgba(var(--primary-gold-rgb),0.08)', pill: 'Propietario', pillBg: 'rgba(var(--primary-gold-rgb),0.15)', pillColor: 'var(--primary-gold)', emoji: '🏇' },
-                { name: 'Hockey', sub: 'División', val: '1ra Damas', detail: 'Asistencia: 95%', pct: 85, color: 'var(--emerald-accent)', bg: 'rgba(16,185,129,0.08)', pill: 'Excelente', pillBg: 'rgba(16,185,129,0.15)', pillColor: 'var(--emerald-accent)', emoji: '🏑' },
-                { name: 'Rugby', sub: 'Plantel', val: 'Superior', detail: 'Próx. Sábado · Titular', pct: 90, color: 'var(--text-gold)', bg: 'rgba(var(--primary-gold-rgb),0.08)', pill: 'Titular', pillBg: 'rgba(var(--primary-gold-rgb),0.15)', pillColor: 'var(--primary-gold)', emoji: '🏉' },
-              ].map((sport, i) => (
-                <div key={i} className="db-sport-card" style={{ background: sport.bg, borderColor: `${sport.color}20` }}>
-                  <div style={{ fontSize: '1.5rem', marginBottom: '0.15rem' }}>{sport.emoji}</div>
-                  <div>
-                    <div className="db-sport-name">{sport.name}</div>
-                    <div className="db-sport-sub">{sport.sub}</div>
+            {sportCards.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '1.25rem 0.75rem' }}>
+                <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                  Todavía no tenés disciplinas cargadas.
+                </p>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  style={{ marginTop: '0.75rem' }}
+                  onClick={() => navigate('/perfil?editar=1')}
+                >
+                  Elegir disciplinas
+                </button>
+              </div>
+            ) : (
+              <div className="db-sport-grid">
+                {sportCards.map((sport) => (
+                  <div key={sport.name} className="db-sport-card" style={{ background: sport.bg, borderColor: `${sport.color}33` }}>
+                    <div>
+                      <div className="db-sport-name" style={{ color: sport.color }}>{sport.name}</div>
+                      <div className="db-sport-sub">{sport.detail}</div>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                      <span className="db-sport-pill" style={{ background: `${sport.color}22`, color: sport.color }}>Activa</span>
+                    </div>
                   </div>
-                  <div style={{ fontSize: '1rem', fontWeight: '700', color: sport.color }}>{sport.val}</div>
-                  <div className="db-sport-progress-track">
-                    <div className="db-sport-progress-bar" style={{ width: `${sport.pct}%`, background: sport.color }} />
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{sport.detail}</span>
-                    <span className="db-sport-pill" style={{ background: sport.pillBg, color: sport.pillColor }}>{sport.pill}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Mensajes */}

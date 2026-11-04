@@ -1,6 +1,6 @@
 /**
  * Contenido del Manual de uso (PDF). Lo dibuja scripts/generate-user-manual.mjs.
- * Edición 2.0 · octubre de 2026.
+ * Edición 2.1 · noviembre de 2026.
  *
  * Reglas de redacción:
  * - El PDF usa Helvetica estándar: nada de flechas ni símbolos fuera de Latin-1.
@@ -38,10 +38,10 @@ export function buildBody(m) {
       ['Operario/a de pileta', 'Entrada pileta y Pileta', 'Controlar la puerta de la pileta y cobrar el canon'],
       ['Cajero/a', 'Acceso QR + panel: Socios, Saldos, Pileta, Ingresos, Fiestas, Caja', 'Cobrar cuotas y registrar ingresos de caja'],
       ['Personal', 'Acceso QR + panel: Reservas, Disciplinas, Pileta, Ingresos, Personal, Fiestas, Alertas, Reclamos, Novedades', 'Operación diaria de la sede'],
-      ['Empleado/a de administración', 'Panel: Socios, Saldos, Reservas, Pileta, Profesores, Fiestas y atención al socio', 'Padrón, saldos y atención. No liquida cuotas'],
+      ['Empleado/a de administración', 'Panel: Socios, Cuotas, Reservas, Pileta, Profesores, Fiestas, Débitos y atención al socio', 'Padrón en consulta, cobro, liquidación de cuotas, débitos automáticos y atención'],
       ['Recursos humanos', 'Panel: Personal y Alertas', 'Legajos y novedades del staff'],
       ['Contador/a', 'Panel: Cuotas, Contabilidad, Reportes, Fiestas', 'Liquidar cuotas, libros, balances'],
-      ['Administrador/a', 'Todo el panel operativo, sin Contabilidad', 'Padrón, reservas, atención y profesores'],
+      ['Administrador/a', 'Todo el panel operativo, sin Contabilidad', 'Padrón (con el superadmin, el único que edita fichas y da altas), reservas, atención y profesores'],
       ['Superadministrador/a', 'Todo el panel', 'Usuarios, perfiles, configuración'],
       ['Concesionario', 'Portal de concesión, con su código', 'Ver su contrato y su canon'],
     ],
@@ -145,6 +145,8 @@ export function buildBody(m) {
     '“Las reservas las hace el titular de la cuenta”, si sos adherente.',
   ]);
   m.p('Según el espacio, la reserva queda confirmada al instante o pendiente de aprobación del club, y puede cargarse a tu cuenta corriente.');
+  m.h2('La seña del 50 %');
+  m.p('Toda reserva de una instalación con precio (salón, Espacio Verde, canchas) lleva una seña obligatoria del 50 % del total. Antes de confirmar ves el total, la seña y el resto. Si pagás con Mercado Pago o por transferencia, el importe es el de la seña. El resto queda pendiente en tu cuenta, aparte de la cuota social: no es mora de cuota ni lleva el recargo del 10 %.');
   m.h2('Turno ocupado');
   m.p('Si el horario ya está tomado, ves “ocupado”, pero no el nombre de la otra persona. Podés anotarte en lista de espera: si se libera, el club te tiene en cuenta.');
   m.h2('Viento Zonda');
@@ -211,13 +213,14 @@ export function buildBody(m) {
     [
       ['Vencimiento', 'La cuota social vence el día 10 de cada mes. El día se fija en Sistema > Configuración.'],
       ['Mora', 'Desde el día siguiente al vencimiento (el 11) el socio está en mora.'],
-      ['Recargo', '10 % sobre la cuota, desde el día siguiente al vencimiento. Solo en socio familiar y socio individual.'],
+      ['Recargo', '10 % sobre la cuota de cada mes vencido, por separado, desde el día siguiente al vencimiento. Solo en socio familiar y socio individual. Se cobra siempre, junto con la cuota.'],
       ['AMET', 'Socio familiar (AMET) y socio individual (AMET) vencen el 18, su mora empieza el 19 y no llevan recargo. Su cuota es la base menos 2,5 %; ese 2,5 % es tarifa, no mora.'],
       ['Exentos', 'Vitalicio, fundador y comisión no abonan cuota: sin mora, sin saldo, sin avisos, sin Mercado Pago y sin cobro en caja ni en el portal.'],
       ['Grupo familiar', 'Una sola cuota por grupo, la del titular. El adherente no tiene cuenta propia. Un abono de tenis de un integrante sí se suma a la cuenta del titular. La mora del titular alcanza al grupo: en temporada, el adherente no ingresa ni paga pileta.'],
       ['Un pago cubre el mes', 'El pago cubre el mes en que se hizo. Último pago en agosto: el próximo vencimiento es el 10 de septiembre.'],
       ['Descuentos', 'Los descuentos y bonificaciones se aplican sobre la cuota antes del recargo.'],
-      ['Perdonar el recargo', 'Lo pueden hacer, al cobrar, Tesorería (cargo de Tesorero), el contador y el superadministrador. Se cobra solo la cuota y queda anotado el recargo perdonado.'],
+      ['Perdonar el recargo', 'Nadie lo perdona al cobrar: el recargo se cobra siempre. Borrar un recargo ya cobrado es solo del superadministrador, con motivo; el importe cobrado queda y el recargo pasa a saldo a favor del socio.'],
+      ['Saldo a favor', 'Se descuenta solo en el próximo cobro. Si cubre la cuota entera, lo que sobra queda para el siguiente.'],
     ],
     [38, 140]
   );
@@ -288,14 +291,14 @@ export function buildBody(m) {
 
   /* ----------------------------------------------------------------- 11 */
   m.h1('11.  Pileta', { n: '11' });
-  m.p('La pileta tiene dos pantallas, distintas de la puerta de la sede: Entrada pileta (la puerta de la pileta) y Pileta (la caja del día y el canon). La temporada oficial va de diciembre a marzo; los montos y las reglas se editan en Sistema > Configuración > Pileta.');
-  m.h2('Abrir el día');
+  m.p('La pileta tiene dos pantallas, distintas de la puerta de la sede: Entrada pileta (la puerta de la pileta) y Pileta (la caja y el canon). La temporada oficial va de diciembre a marzo; los montos y las reglas se editan en Sistema > Configuración > Pileta.');
+  m.h2('Cobrar y habilitar');
   m.steps([
-    'Entrá a Pileta y tocá Abrir caja del día. La caja de pileta se abre una vez por día; sin caja abierta no se habilita el ingreso ni se cobra.',
+    'Entrá a Pileta. La caja está siempre abierta: se asegura sola, no hay que abrirla ni cerrarla, y el botón de arriba dice Caja abierta. Si dice Asegurando caja, esperá unos segundos.',
     'Buscá al socio. La ficha dice si puede pagar pileta (“Puede pagar pileta” o “No puede pagar pileta”) y por qué.',
     'Controlá el apto médico. Vale la cantidad de días que fije Configuración (hoy 365). El socio puede subirlo desde su Perfil si el club lo permite; si no, lo carga Administración.',
     'Cobrá el canon en efectivo o con Mercado Pago (QR en el lugar).',
-    'Habilitá el ingreso de hoy.',
+    'Habilitá el ingreso de hoy. El canon queda en la caja y también anotado en la cuenta del socio, sin tocar su deuda de cuota.',
   ]);
   m.h2('Invitados de pileta');
   m.p('Cada socio puede llevar invitados hasta el tope configurado (hoy 3 por día), con un canon por invitado. Cargá el nombre del invitado después de habilitar al socio anfitrión.');
@@ -314,52 +317,80 @@ export function buildBody(m) {
   m.steps([
     'Abrí Socios. Buscá por nombre, número, DNI, mail o teléfono.',
     'Entrá a la ficha (Ver perfil). El saldo y el vencimiento están en la cabecera.',
-    'Tocá Cobrar. El cobro muestra tres recuadros: Cuota, Recargo y Total. El recargo aparece solo si pasó el vencimiento y la categoría lo lleva.',
-    'Elegí el medio: Efectivo, Transferencia o Mercado Pago (QR). En transferencia el comprobante es obligatorio y se elige el banco del club.',
-    'Confirmá. El saldo de la ficha se actualiza, queda el asiento en caja y el recibo en PDF le llega al socio por mensaje interno.',
+    'Tocá Cobrar. El cobro muestra los recuadros Cuota, Recargo, A favor (si el socio tiene saldo a favor) y Total. El recargo aparece solo si pasó el vencimiento y la categoría lo lleva.',
+    'Si debe más de un mes, en “Meses del recibo” tildá los que entran en este cobro. El total se recalcula y lo que no tildás sigue pendiente.',
+    'Elegí el método: Efectivo, Transferencia, Tarjeta, Mixto o Mercado Pago (QR). Transferencia y tarjeta piden comprobante (y la transferencia, el banco del club).',
+    'Confirmá. El saldo de la ficha se actualiza, queda el asiento en caja y el comprobante en PDF le llega solo al socio, por mail y por mensaje interno.',
   ]);
-  m.h2('Perdonar el recargo');
-  m.p('Tesorería (cargo de Tesorero), el contador y el superadministrador ven una casilla “Perdonar recargo. Tesorería cobra solo la cuota”. Si la tildan, el total baja a la cuota y el recargo perdonado queda anotado en el cobro. Para los demás roles esa casilla no existe.');
+  m.h2('Tarjeta, pago mixto y comprobante');
+  m.table(
+    ['Método', 'Qué pide', 'Dónde queda'],
+    [
+      ['Efectivo', 'Solo confirmar', 'Caja General'],
+      ['Transferencia', 'Banco del club y comprobante obligatorio', 'La cuenta del banco elegido'],
+      ['Tarjeta (POS)', 'Plan con la tarjeta y comprobante (voucher) obligatorio', 'Caja General'],
+      ['Mixto', 'Dos o más medios (efectivo, transferencia, tarjeta) que sumen el total; un comprobante por cada transferencia o tarjeta', 'Cada medio en lo suyo'],
+      ['Mercado Pago', 'QR de mostrador; se acredita solo al aprobarse', 'Según Mercado Pago'],
+    ],
+    [30, 98, 50]
+  );
+  m.bullets([
+    'Tarjeta: el plan (por ejemplo, 3 cuotas) es el acuerdo del socio con la tarjeta y lo carga el superadministrador en Configuración. No financia la deuda del club: se cobra la cuota completa.',
+    'Mixto: la suma de las líneas tiene que dar el total (el cartel dice “ok” o cuánto falta). Mercado Pago QR no entra en el mixto.',
+    'Comprobante: al adjuntarlo, Gemini lo lee y arma un desglose con importe, fecha, banco o tarjeta y referencia, que se puede corregir. Si el importe difiere del cobro más que la tolerancia (hoy $1.000), el cuadro se pone en rojo para que se revise. Si la lectura falla, el cobro no se bloquea.',
+    'Comprobante automático: apenas el cobro se acredita, el PDF sale solo al mail real del socio y a su portal. Vitalicio, fundador y comisión no reciben comprobante de cuota.',
+  ]);
+  m.h2('El recargo se cobra siempre');
+  m.p('Nadie perdona el recargo al cobrar: la casilla “Perdonar recargo” ya no existe. El recargo de cada mes vencido se cobra junto con la cuota. Si hubo que quitar un recargo ya cobrado, lo borra el superadministrador desde Movimientos, con un motivo de al menos 8 caracteres; el importe cobrado queda y el recargo pasa a saldo a favor del socio.');
   m.h2('Cobrarle a un adherente');
   m.p('La cuenta es del titular. Si abrís la ficha de un adherente y cobrás, el modal te avisa “El pago de [nombre] entra en la cuenta del titular” y el cobro impacta en el titular. Si el titular no está en el padrón, el sistema no deja cobrar.');
   m.h2('Anular un cobro mal cargado');
+  m.p('Anulan caja, Tesorería, el contador y el superadministrador, siempre con un motivo de al menos 8 caracteres. Administración y pileta no ven el botón: anotan socio, importe, medio y motivo y lo pasan a Tesorería.');
   m.steps([
     'En la ficha del socio, abrí Movimientos.',
-    'Buscá el cobro y tocá Anular. Confirmá el aviso.',
+    'Buscá el cobro y tocá Anular. Escribí el motivo y confirmá.',
     'El cobro queda tachado con la marca “Anulado” y quién lo anuló. No se borra: queda el rastro.',
     'Vuelven el saldo, el último pago y el próximo vencimiento que había antes, y se genera el contraasiento en caja.',
     'Cobrá de nuevo con el importe y el medio correctos.',
   ]);
   m.box('warn', 'No inventes datos', 'El padrón de la lista es liviano a propósito (para que cargue rápido). La ficha completa se pide al abrir el socio. No borres domicilio ni datos médicos: si no los ves en la lista, es normal; están en el perfil. Y a un vitalicio, fundador o comisión no se les cobra cuota: la ficha no lo permite.');
-  m.h2('Caja del día');
-  m.p('En Contabilidad > Operación > Tesorería > Cajas (o el atajo Caja si tu rol es cajero) registrás movimientos de efectivo y bancos. Ojo: en los reportes LILA, “Ingresos en caja” de un período no es el dinero que hay ahora en el cajón. Es lo que entró en ese recorte de fechas.');
+  m.h2('Caja');
+  m.p('En Contabilidad > Operación > Tesorería > Cajas (o el atajo Caja si tu rol es cajero) registrás movimientos de efectivo y bancos. La caja está siempre abierta: no se abre ni se cierra por turno. Ojo: en los reportes LILA, “Ingresos en caja” de un período no es el dinero que hay ahora en el cajón. Es lo que entró en ese recorte de fechas.');
 
   /* ----------------------------------------------------------------- 13 */
   m.h1('13.  Cuotas, saldos y liquidación', { n: '13' });
-  m.p('La pestaña se llama Cuotas si tu perfil liquida (contador y superadministrador) y Saldos si no. Es la vista viva de la cuota social sobre el padrón: el 10 vence sin recargo, desde el 11 está en mora, con recargo del 10 % en familiar e individual. AMET vence el 18.');
+  m.p('La pestaña se llama Cuotas si tu perfil liquida (administración, contador y superadministrador) y Saldos si no. Es la vista viva de la cuota social sobre el padrón: el 10 vence sin recargo, desde el 11 está en mora, con recargo del 10 % en familiar e individual. AMET vence el 18.');
   m.h2('Qué podés hacer');
   m.bullets([
     'Consultar: Saldos, cuentas corrientes detalladas, Créditos y Deudas mes a mes.',
     'Control de mora: quién venció, cuántos meses debe y cuánto. Desde ahí se manda el WhatsApp de vencimiento con el teléfono de la ficha.',
-    'Cobrar: usa el mismo cobro de la ficha, con Cuota, Recargo, Total y Perdonar recargo para Tesorería.',
+    'Cobrar: usa el mismo cobro de la ficha, con Cuota, Recargo y Total. El recargo se cobra siempre.',
     'Importar cobranzas (Excel) e Imputar eventos (por ejemplo, una cena del club) a la cuenta del socio.',
     'Excel y PDF del período salen de esta misma pantalla.',
   ]);
   m.h2('En Inicio: el recaudado del mes');
-  m.p('Arriba de Inicio está la franja del vencimiento (“Hoy vencen las cuotas”, “Vencieron el 10”, con los días que faltan o pasaron). Recaudado del mes es solo la cuota del mes sobre lo liquidado, con el porcentaje de cobrabilidad y lo que falta. Aparte, en líneas chicas, van las atrasadas cobradas, los recargos y las reservas, que no suman a esa cobrabilidad.');
-  m.h2('Liquidar el mes (contador y superadministrador)');
+  m.p('Arriba de Inicio está la franja del vencimiento (“Hoy vencen las cuotas”, “Vencieron el 10”, con los días que faltan o pasaron). Recaudado del mes suma la cuota del mes, las atrasadas, los adelantos, los recargos y las reservas de salón; no entran portería, estacionamiento ni transferencias sin imputar. El anillo es recaudado sobre liquidado.');
+  m.h2('Liquidar el mes (administración, contador y superadministrador)');
   m.steps([
-    'Entrá a Cuotas. El borrador del mes siguiente se arma durante el mes en curso.',
-    'Revisá cantidad de socios y monto unitario por categoría. Si hace falta, Editar y guardá.',
-    'Liquidá recién en el mes en curso. El período cerrado no se vuelve a abrir.',
+    'Entrá a Cuotas y abrí “Cuotas de [año]”. El día 1 de cada mes la liquidación se genera sola desde el padrón (entran las altas, no las bajas); Cargar borrador y Generar siguen disponibles a mano.',
+    'Revisá cantidad de socios y monto unitario por categoría. Mientras esté Pendiente se puede editar; cambiar los montos de las categorías es solo del superadministrador.',
+    'Generá recién en el mes en curso. Al confirmar, queda Pendiente hasta las 00 h de mañana; una vez Procesada no se edita ni se elimina. Reabrir un período, volverlo a borrador y las notas de crédito o débito son del superadministrador.',
+    'Los descuentos y bonificaciones ya cargados se aplican en la liquidación vigente. Cargarlos es del superadministrador.',
     'La liquidación cobra una sola cuota por grupo familiar, la del titular, más los abonos de tenis de los integrantes. Vitalicio, fundador y comisión quedan en cero.',
     'Bajá el Excel y el PDF del período.',
   ]);
   m.box('tip', 'Quién liquida cada mes', 'Hasta octubre de 2026 la liquidación fue la de LILA. Desde noviembre liquida esta app, siempre el mes en curso. No re-liquides un mes para cobrarle a un solo socio: cobrá desde su ficha.');
+  m.h2('Débitos automáticos (Gestión > Débitos)');
+  m.p('Administración, el administrador, el contador y el superadministrador arman los débitos que se cobran solos cada mes. La pantalla Débitos tiene tres pestañas:');
+  m.bullets([
+    'Listados débitos: la planilla mensual de crédito y débito, con las altas, bajas y cambios de tarjetas. Se puede copiar el mes anterior, subir y bajar el Excel, y registrar un alta o una baja en ficha (N° de tarjeta, tipo de tarjeta, titular). El código de seguridad no se guarda.',
+    'Prisma: genera el archivo de presentación de Visa Crédito (DEBLIQC), Visa Débito (DEBLIQD) o Mastercard Crédito (DEBLIMC) con el identificador de Prisma. El importe de cada débito es el saldo de la cuenta corriente y los exentos no entran. La rendición se carga en Archivo de respuesta. No se genera dos veces el mismo mes: Prisma imputa de nuevo.',
+    'Galicia: el lote mensual de débitos por CBU, con su estado (Programado, Enviado, Acreditado).',
+  ]);
 
   /* ----------------------------------------------------------------- 14 */
   m.h1('14.  Contabilidad (tesorería)', { n: '14' });
-  m.p('Esta parte es para Contador y Superadministrador. Cajero y Portería ven solamente Cajas y Otros ingresos. El Administrador operativo no entra a Contabilidad: así se separa la gestión del club de los números patrimoniales.');
+  m.p('Esta parte es para Contador y Superadministrador. Cajero y Portería ven solamente Cajas y Otros ingresos. El Administrador operativo y Administración no entran a Contabilidad, solo a Débitos: así se separa la gestión del club de los números patrimoniales.');
   m.h2('Tres mundos que no se suman entre sí');
   m.bullets([
     'Saldo del socio: la ficha viva, lo que se cobra hoy.',
@@ -373,7 +404,7 @@ export function buildBody(m) {
       ['Libros', 'Libro Diario, Libro Mayor, Crear asiento legal', 'Contabilidad de partida doble del club'],
       ['Informes', 'Balance (mensual, resumido, cuenta corriente, patrimonial), Estado de resultados, Reportes y gráficos, Reportes', 'Resultados y balances'],
       ['Padrón', 'Libre deuda, Grupo familiar, Descuentos extras, Bonificaciones, SIAP, Impuestos', 'Certificados, saldos por familia, descuentos e impuestos del mes'],
-      ['Operación (Tesorería)', 'Cajas, Gastos, Proveedores, Retenciones, Otros ingresos, Intereses, Sin identificar, Galicia, Gastos fijos, Saldos, Órdenes, Créditos socios', 'Efectivo, bancos, cobranzas, egresos y cuentas a pagar'],
+      ['Operación (Tesorería)', 'Cajas, Gastos, Proveedores, Retenciones, Otros ingresos, Intereses, Sin identificar, Listados débitos, Galicia, Prisma, Gastos fijos, Saldos, Órdenes, Créditos socios', 'Efectivo, bancos, cobranzas, débitos, egresos y cuentas a pagar'],
       ['Catálogo', 'Plan de cuentas', 'Las cuentas contables'],
     ],
     [32, 86, 60]
@@ -383,7 +414,8 @@ export function buildBody(m) {
     'Gastos: se pide, se aprueba y al pagar baja caja o banco. Los gastos fijos son los recurrentes: no los cargues dos veces como gasto suelto.',
     'Proveedores: la cuenta corriente es el saldo de apertura más entradas y pagos. Positivo es deuda del club.',
     'Retenciones: se registran sobre la orden de pago y entran en Impuestos del mes.',
-    'Galicia: débitos automáticos. Sin identificar: cobranzas sin socio, que hay que imputar.',
+    'Galicia y Prisma: débitos automáticos. Sin identificar: cobranzas sin socio (o con un número que no existe), que hay que imputar o rechazar.',
+    'Una transferencia de un socio conocido entra directo como cuota desde la ficha: no se carga como ingreso suelto de caja para imputar después.',
     'Libre deuda: emite el certificado del socio. La ficha familiar se edita en Socios, no acá.',
     'Un cobro de socio habitual se carga en la ficha o en Saldos, no como asiento suelto.',
   ]);
@@ -395,13 +427,13 @@ export function buildBody(m) {
   m.bullets([
     'Operación: Socios, Cuotas o Saldos, Reservas, Ingresos, Acceso QR, Entrada pileta, Pileta.',
     'Club: Disciplinas y Fiestas.',
-    'Gestión: Concesiones, Contabilidad o Caja (según el rol) y Reportes.',
+    'Gestión: Concesiones, Contabilidad o Caja (según el rol), Débitos y Reportes.',
     'Comunicación: Novedades, Encuestas, Alertas, Reclamos y Mensajería.',
     'Administración: Personal, Profesores y Usuarios y altas.',
     'Sistema: Configuración y Migración.',
   ]);
   m.h2('Padrón de socios');
-  m.p('Buscá por número, DNI, apellido, mail o teléfono, filtrá por categoría y abrí la ficha. La ficha tiene secciones: Ficha, Editar, Tarjeta, Invitados, Documentos, Grupo familiar, Movimientos, Entradas, Asistencia, Reclamos, Mensajes y Trazabilidad. Desde ahí editás, cobrás, anulás un cobro, emitís la credencial o suspendés. La cabecera dice si la cuenta está habilitada, pendiente, suspendida o dada de baja, y si el socio puede pagar pileta. El padrón carga de a poco (miles de socios): esperá a que termine si no aparece alguien. PDF y Excel del padrón salen de la barra de Socios.');
+  m.p('Buscá por número, DNI, apellido, mail o teléfono, filtrá por categoría y abrí la ficha. La ficha tiene secciones: Ficha, Editar, Tarjeta, Invitados, Documentos, Grupo familiar, Movimientos, Entradas, Asistencia, Reclamos, Mensajes y Trazabilidad. Desde ahí cobrás y emitís la credencial; editar la ficha, dar altas, suspender y dar de baja es solo del administrador y del superadministrador (el resto del personal consulta el padrón y cobra, sin ver Editar ni Grupo familiar), y anular un cobro es de caja, Tesorería, contador y superadministrador. La cabecera dice si la cuenta está habilitada, pendiente, suspendida o dada de baja, y si el socio puede pagar pileta. El padrón carga de a poco (miles de socios): esperá a que termine si no aparece alguien. PDF y Excel del padrón salen de la barra de Socios.');
   m.h2('Reservas (vista del club)');
   m.p('A diferencia del socio, acá sí ves nombres, importes y podés anular o reactivar. Los espacios (salones, canchas, pileta) y sus reglas (anticipación, invitados, categorías, confirmación) se editan en la misma pantalla. Las fiestas no van acá: son eventos con inscripción en Club > Fiestas.');
   m.h2('Disciplinas, profesores y asistencia');
@@ -487,9 +519,9 @@ export function buildBody(m) {
     'Cuando la persona deja el club o el puesto, revocar el acceso; no alcanza con “esconder” el mail.',
   ]);
   m.h2('Pedidos que llegan desde /registro');
-  m.p('Las solicitudes de “Quiero asociarme” y los pedidos de “Ya soy socio” (usuario o recuperar clave) se ven en Usuarios y altas y en Inicio. Secretaría verifica la ficha, da el alta o contacta al socio. Si el mail con el acceso no sale, se le pasa la contraseña por WhatsApp.');
+  m.p('Las solicitudes de “Quiero asociarme” y los pedidos de “Ya soy socio” (usuario o recuperar clave) se ven en Usuarios y altas y en Inicio. El administrador o el superadministrador verifica la ficha, da el alta o contacta al socio; Administración y pileta no resuelven solicitudes ni entregan claves. Si el mail con el acceso no sale, se le pasa la contraseña por WhatsApp.');
   m.h2('Cargos del club');
-  m.p('Además del rol de sistema una persona puede tener un cargo: Presidente, Vicepresidente, Secretario, Tesorero, Vocal. Los cargos no cambian las pantallas que ve, pero el de Tesorero habilita a perdonar el recargo de la cuota al cobrar.');
+  m.p('Además del rol de sistema una persona puede tener un cargo: Presidente, Vicepresidente, Secretario, Tesorero, Vocal. Los cargos no cambian las pantallas que ve ni lo que se puede hacer con el recargo: el recargo de la cuota se cobra siempre. Solo el cargo de Tesorero habilita a anular un cobro.');
   m.box('warn', 'Seguridad', 'El sistema no toma el rol desde un dato que el usuario pueda inventar. Solo un superadministrador (o el proceso interno de alta) puede dar roles de personal o administración. Un administrador puede ver la lista de usuarios, pero no crear ni editar perfiles.');
 
   /* ----------------------------------------------------------------- 19 */
@@ -510,7 +542,10 @@ export function buildBody(m) {
       ['“Las reservas las hace el titular”', 'Sos adherente', 'Que reserve el titular de la cuenta'],
       ['Mi Cuenta sin botones de pago', 'Categoría exenta, adherente, o estado todavía confirmándose', 'Esperar unos segundos. Si sos vitalicio, fundador o comisión, es lo normal'],
       ['Mercado Pago no acredita', 'Mercado Pago todavía no confirmó', 'Esperar la confirmación; no pagar dos veces. Avisar a Caja con el comprobante'],
-      ['Cobro mal cargado', 'Importe o medio equivocado', 'Anular desde Movimientos de la ficha y cobrar de nuevo'],
+      ['Cobro mal cargado', 'Importe o medio equivocado', 'Anular desde Movimientos de la ficha (caja, Tesorería, contador o superadmin, con motivo) y cobrar de nuevo'],
+      ['“Elegí el plan con la tarjeta” o “Adjunte el comprobante de la tarjeta”', 'Falta el plan o el voucher en un cobro con tarjeta', 'Elegí el plan y adjuntá la foto o el PDF del voucher'],
+      ['La suma del pago mixto sale en rojo', 'Los importes de los medios no dan el total', 'Corregí los importes hasta que el cartel diga “ok”'],
+      ['Desglose del comprobante en rojo', 'El importe que leyó Gemini difiere del cobro más que la tolerancia', 'Revisá que sea el comprobante correcto y corregí el dato si hace falta'],
       ['No ves Contabilidad', 'Tu rol es Administrador u otro operativo', 'Normal. Tesorería entra con usuario de contador'],
       ['Números distintos en reportes', 'Cortes LILA de distintas fechas', 'Mirar la fecha del corte; el saldo vivo está en la ficha'],
       ['No podés reservar exterior', 'Alerta Zonda', 'Elegir un espacio cubierto o esperar el aviso'],
@@ -530,10 +565,15 @@ export function buildBody(m) {
       ['AMET', 'Categoría con vencimiento el 18 y tarifa con 2,5 % menos; no lleva recargo'],
       ['Exento', 'Vitalicio, fundador o comisión: no abona cuota social'],
       ['Mora', 'Cuota vencida y sin pagar: desde el día siguiente al vencimiento'],
-      ['Recargo', '10 % sobre la cuota en mora, solo familiar e individual; tesorería puede perdonarlo'],
+      ['Recargo', '10 % sobre la cuota de cada mes en mora, solo familiar e individual. Se cobra siempre'],
+      ['Saldo a favor', 'Plata del socio que quedó de más; se descuenta sola en el próximo cobro'],
+      ['Seña', 'El 50 % del precio de una reserva; el resto queda en cuenta, aparte de la cuota'],
+      ['Plan de tarjeta', 'El acuerdo del socio con su tarjeta (por ejemplo, 3 cuotas); no financia la deuda del club'],
+      ['Pago mixto', 'Un cobro dividido en dos o más medios: efectivo, transferencia y tarjeta'],
+      ['Débito automático', 'Cuota que se cobra sola de la tarjeta (Prisma), de la cuenta (Galicia) o de Mercado Pago'],
       ['Saldo operativo', 'Lo que debés o tenés al día, ahora'],
       ['Imputar', 'Asignar un cobro o un evento a la cuenta de un socio'],
-      ['Liquidar', 'Cerrar el período y generar las cuotas del mes (contador y superadmin)'],
+      ['Liquidar', 'Cerrar el período y generar las cuotas del mes (administración, contador y superadmin); el día 1 se genera sola'],
       ['Corte LILA', 'Una foto de un Excel de un día anterior al 1 de octubre de 2026, no el ahora'],
       ['Empalme', 'La fecha en que el portal pasó a ser el libro vivo: 1 de octubre de 2026'],
       ['QR firmado', 'Código de la app que no se puede inventar con el número'],
@@ -575,7 +615,7 @@ export function buildBody(m) {
       ['/asistencia', 'Profesor', 'Presentes y cuota de los alumnos'],
       ['/acceso', 'Portería y personal', 'Lector QR de la sede'],
       ['/entrada-pileta', 'Pileta', 'Puerta de la pileta'],
-      ['/pileta', 'Pileta y caja', 'Caja del día y canon'],
+      ['/pileta', 'Pileta y caja', 'Caja y canon'],
       ['/panel/…', 'Personal y autoridades', 'Oficina del club'],
       ['/concesiones', 'Admin / contador', 'Contratos y canon'],
     ],
@@ -585,7 +625,29 @@ export function buildBody(m) {
 
   /* ----------------------------------------------------------------- 22 */
   m.h1('22.  Qué cambió en esta edición', { n: '22' });
-  m.p('Si leíste la edición 1.0 (septiembre de 2026), esto es lo nuevo:');
+  m.p('Si leíste la edición 2.0 (octubre de 2026), esto es lo nuevo de la 2.1 (noviembre de 2026):');
+  m.table(
+    ['Tema', 'Antes', 'Ahora'],
+    [
+      ['Medios de cobro', 'Efectivo, transferencia y Mercado Pago', 'Se suman Tarjeta (con plan) y Pago mixto: efectivo, transferencia y tarjeta en un mismo cobro'],
+      ['Meses a cobrar', 'Un solo importe', 'Meses del recibo: se tildan los meses atrasados que entran en el cobro'],
+      ['Saldo a favor', 'No se mostraba', 'Recuadro A favor; se descuenta solo en el próximo cobro'],
+      ['Comprobante', 'Foto o PDF obligatorio', 'Gemini lo lee y arma el desglose (importe, fecha, banco o tarjeta, referencia), que se puede corregir'],
+      ['Recibo', 'PDF por mensaje interno', 'PDF por mail y mensaje al portal, solo y apenas se acredita el cobro'],
+      ['Recargo', 'Tesorería lo perdonaba al cobrar', 'Se cobra siempre. Borrarlo ya cobrado es solo del superadministrador, con motivo'],
+      ['Anular un cobro', 'Con confirmación', 'Caja, Tesorería, contador y superadministrador, siempre con motivo'],
+      ['Padrón', 'Alta, baja, suspensión y claves en varios roles', 'Solo administrador y superadministrador; el resto consulta y cobra'],
+      ['Administración', 'Veía lo mismo que pileta', 'Suma Cuotas con liquidación (el día 1 se genera sola) y Débitos'],
+      ['Débitos automáticos', 'Solo contador y superadministrador', 'Listados de débitos, Prisma y Galicia también para Administración y el administrador'],
+      ['Caja', 'Había que abrir la caja del día en Pileta', 'Siempre abierta: se asegura sola y no se cierra'],
+      ['Canon de pileta', 'Solo en caja', 'En caja y en la cuenta del socio, sin tocar su deuda de cuota'],
+      ['Reservas', 'Se pagaba el precio completo', 'Seña obligatoria del 50 %; el resto queda en cuenta, aparte de la cuota'],
+      ['Recaudado del mes', 'Solo la cuota del mes', 'Cuota, atrasadas, adelantos, recargos y salón; sin portería, estacionamiento ni transferencias sin imputar'],
+    ],
+    [32, 54, 92]
+  );
+  m.h2('Lo que había cambiado en la edición 2.0');
+  m.p('Si leíste la edición 1.0 (septiembre de 2026), además esto es lo nuevo:');
   m.table(
     ['Tema', 'Antes', 'Ahora'],
     [

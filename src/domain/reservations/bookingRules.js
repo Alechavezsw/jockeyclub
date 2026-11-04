@@ -76,7 +76,9 @@ export function facilityChargesCurrentAccount(facility) {
   return facility?.accounting?.autoCharge !== false;
 }
 
+/** Espacios con precio: misma seña 50 % (Mercado Pago o transferencia). */
 export function facilityOffersPaymentButton(facility) {
+  if (reservationTotalPrice(facility) > 0) return true;
   return Boolean(facility?.accounting?.paymentButton);
 }
 

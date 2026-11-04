@@ -49,6 +49,7 @@ function accountOrigin(origin: string) {
 function titleOf(kind: string) {
   if (kind === "pool") return "Canon pileta · Jockey Club San Juan";
   if (kind === "subscription") return "Suscripción cuota social · Jockey Club San Juan";
+  if (kind === "booking" || kind === "reservation") return "Seña reserva · Jockey Club San Juan";
   return "Cuota social · Jockey Club San Juan";
 }
 
@@ -200,7 +201,7 @@ Deno.serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     const kind = String(body?.kind || "dues");
-    if (!["dues", "pool", "subscription"].includes(kind)) {
+    if (!["dues", "pool", "subscription", "booking", "reservation"].includes(kind)) {
       return json(400, { error: "Tipo de cobro inválido." });
     }
     const amount = money(body?.amount);
@@ -256,7 +257,11 @@ Deno.serve(async (req) => {
     }
 
     const origin = kind === "pool" ? originOf(body?.origin, site) : accountOrigin(originOf(body?.origin, site));
-    const backPath = kind === "pool" ? "/entrada-pileta" : "/cuenta";
+    const backPath = kind === "pool"
+      ? "/entrada-pileta"
+      : (kind === "booking" || kind === "reservation")
+        ? "/reservas"
+        : "/cuenta";
     const success = `${origin}${backPath}?mp=ok`;
     const failure = `${origin}${backPath}?mp=fail`;
     const pending = `${origin}${backPath}?mp=pending`;

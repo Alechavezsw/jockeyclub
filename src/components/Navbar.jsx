@@ -1,10 +1,21 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Sun, Moon, Shield, User, Menu, X, Bell, LogOut, Mail, LayoutDashboard } from 'lucide-react';
+import {
+  Sun, Moon, Shield, User, Menu, X, Bell, LogOut, Mail, LayoutDashboard,
+  Home, CalendarDays, Wallet, Newspaper, ClipboardCheck,
+} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { navItemsForRole, ROLE_LABELS, sessionGreetLabel } from '../domain/auth/roles';
 import { formatLongDateAR, todayISODateAR } from '../lib/arDate';
 import { preventButtonScroll } from '../lib/scrollPage';
+
+const NAV_ICONS = {
+  dashboard: Home,
+  reservations: CalendarDays,
+  payments: Wallet,
+  news: Newspaper,
+  attendance: ClipboardCheck,
+};
 
 export default function Navbar({
   currentView,
@@ -106,28 +117,8 @@ export default function Navbar({
   };
 
   return (
-    <nav className="glass-panel nav-bar-shell" style={{
-      position: 'sticky',
-      top: 0,
-      zIndex: 100,
-      margin: '0 0 1rem 0',
-      borderRadius: '0 0 var(--radius-md) var(--radius-md)',
-      borderTop: 'none',
-      borderLeft: 'none',
-      borderRight: 'none',
-      background: 'color-mix(in srgb, var(--bg-secondary) 92%, transparent)',
-    }}>
-      <div className="nav-inner-bar" style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: '1rem 1.25rem',
-        maxWidth: '1400px',
-        margin: '0 auto',
-        width: '100%',
-        boxSizing: 'border-box',
-        gap: '0.5rem',
-      }}>
+    <nav className="glass-panel nav-bar-shell">
+      <div className="nav-inner-bar">
         <div className="nav-brand-block">
           <button
             type="button"
@@ -143,13 +134,13 @@ export default function Navbar({
               fetchPriority="high"
               className="club-mark nav-brand-logo"
             />
-            <span className="serif-font nav-brand-text">
-              Jockey Club
+            <span className="nav-brand-copy">
+              <span className="serif-font nav-brand-text">Jockey Club</span>
+              <time className="nav-header-date" dateTime={headerDateISO}>
+                {headerDate}
+              </time>
             </span>
           </button>
-          <time className="nav-header-date" dateTime={headerDateISO}>
-            {headerDate}
-          </time>
           {isOperative && (
             <button
               type="button"
@@ -163,55 +154,30 @@ export default function Navbar({
           )}
         </div>
 
-        <div style={{ display: 'none', gap: '1.5rem', alignItems: 'center' }} className="desktop-menu-container">
-          <style>{`
-            @media (min-width: 1024px) {
-              .desktop-menu-container { display: flex !important; }
-              .mobile-toggle { display: none !important; }
-            }
-            @media (max-width: 480px) {
-              .nav-brand-text { display: none !important; }
-              .nav-inner-bar { padding: 0.75rem 1rem !important; }
-            }
-          `}</style>
+        {visibleItems.length > 0 ? (
+          <div className="nav-links-rail desktop-menu-container" role="navigation" aria-label="Secciones">
+            {visibleItems.map((item) => {
+              const Icon = NAV_ICONS[item.id];
+              const active = currentView === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`nav-rail-link${active ? ' is-active' : ''}`}
+                  onMouseDown={preventButtonScroll}
+                  onClick={() => handleNavClick(item.id)}
+                  aria-current={active ? 'page' : undefined}
+                >
+                  {Icon ? <Icon size={15} strokeWidth={active ? 2.4 : 2} aria-hidden="true" /> : null}
+                  <span className="nav-rail-label">{item.label}</span>
+                  <span className="nav-rail-label-short">{item.shortLabel || item.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
 
-          {visibleItems.map(item => (
-            <button
-              key={item.id}
-              type="button"
-              onMouseDown={preventButtonScroll}
-              onClick={() => handleNavClick(item.id)}
-              aria-current={currentView === item.id ? 'page' : undefined}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: currentView === item.id ? 'var(--primary-gold)' : 'var(--text-secondary)',
-                fontFamily: 'inherit',
-                fontSize: '0.95rem',
-                fontWeight: '600',
-                cursor: 'pointer',
-                padding: '0.5rem 0.75rem',
-                position: 'relative',
-                transition: 'color 0.15s ease, background-color 0.15s ease'
-              }}
-            >
-              {item.label}
-              {currentView === item.id && (
-                <div style={{
-                  position: 'absolute',
-                  bottom: 0,
-                  left: '0.75rem',
-                  right: '0.75rem',
-                  height: '2px',
-                  backgroundColor: 'var(--primary-gold)',
-                  borderRadius: '2px'
-                }} />
-              )}
-            </button>
-          ))}
-        </div>
-
-        <div className="desktop-menu-container" style={{ display: 'none', alignItems: 'center', gap: '0.75rem' }}>
+        <div className="nav-actions desktop-menu-container">
           <button
             type="button"
             onClick={() => handleNavClick('messages')}
@@ -478,16 +444,9 @@ export default function Navbar({
         <button
           type="button"
           onClick={() => setIsOpen(!isOpen)}
-          className="mobile-toggle"
+          className="nav-mobile-toggle"
           aria-label={isOpen ? 'Cerrar menú' : 'Abrir menú'}
           aria-expanded={isOpen}
-          style={{
-            background: 'transparent',
-            border: 'none',
-            color: 'var(--text-primary)',
-            cursor: 'pointer',
-            padding: '0.5rem'
-          }}
         >
           {isOpen ? <X size={24} aria-hidden="true" /> : <Menu size={24} aria-hidden="true" />}
         </button>
@@ -541,29 +500,23 @@ export default function Navbar({
             </button>
           )}
 
-          {visibleItems.map(item => (
-            <button
-              key={item.id}
-              type="button"
-              onMouseDown={preventButtonScroll}
-              onClick={() => handleNavClick(item.id)}
-              style={{
-                background: currentView === item.id ? 'rgba(var(--primary-gold-rgb), 0.05)' : 'transparent',
-                border: 'none',
-                borderLeft: currentView === item.id ? '3px solid var(--primary-gold)' : '3px solid transparent',
-                color: currentView === item.id ? 'var(--primary-gold)' : 'var(--text-secondary)',
-                fontFamily: 'inherit',
-                fontSize: '1rem',
-                fontWeight: '600',
-                cursor: 'pointer',
-                padding: '0.75rem 1rem',
-                textAlign: 'left',
-                width: '100%',
-              }}
-            >
-              {item.label}
-            </button>
-          ))}
+          {visibleItems.map((item) => {
+            const Icon = NAV_ICONS[item.id];
+            const active = currentView === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className={`nav-mobile-link${active ? ' is-active' : ''}`}
+                onMouseDown={preventButtonScroll}
+                onClick={() => handleNavClick(item.id)}
+                aria-current={active ? 'page' : undefined}
+              >
+                {Icon ? <Icon size={16} aria-hidden="true" /> : null}
+                {item.label}
+              </button>
+            );
+          })}
 
           <button
             type="button"

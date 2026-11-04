@@ -40,8 +40,45 @@ function formatMoney(n) {
   }).format(v);
 }
 
+function reservationCreatedAt(res) {
+  return String(res?.createdAt || '').trim();
+}
+
+/** Más reciente primero; pendientes arriba cuando no hay día filtrado. */
+function compareReservationsLatest(a, b, { pendingFirst = false } = {}) {
+  if (pendingFirst) {
+    const ap = a.status === 'pending' ? 0 : 1;
+    const bp = b.status === 'pending' ? 0 : 1;
+    if (ap !== bp) return ap - bp;
+  }
+  const byCreated = reservationCreatedAt(b).localeCompare(reservationCreatedAt(a));
+  if (byCreated !== 0) return byCreated;
+  const byDate = String(b.date || '').localeCompare(String(a.date || ''));
+  if (byDate !== 0) return byDate;
+  return String(b.time || '').localeCompare(String(a.time || ''));
+}
+
+function formatRelativeCreated(iso) {
+  if (!iso) return '';
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return '';
+  const diffMs = Date.now() - at.getTime();
+  const mins = Math.round(diffMs / 60000);
+  if (mins < 1) return 'hace un momento';
+  if (mins < 60) return `hace ${mins} min`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `hace ${hours} h`;
+  const days = Math.round(hours / 24);
+  if (days < 7) return `hace ${days} d`;
+  return at.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' });
+}
+
 /** Libro de reservas con calendario mensual y tabla de gestión. */
-export default function BookingsTab({ reservations = [], setReservations }) {
+export default function BookingsTab({
+  reservations = [],
+  setReservations,
+  updateReservationStatus,
+}) {
   const today = useMemo(() => {
     const d = new Date();
     d.setHours(12, 0, 0, 0);
@@ -104,15 +141,29 @@ export default function BookingsTab({ reservations = [], setReservations }) {
     return cells;
   }, [cursor, byDate, todayKey, selectedDate]);
 
+  const pendingReservations = useMemo(
+    () => (reservations || []).filter((r) => r.status === 'pending' && !r.occupancyOnly),
+    [reservations],
+  );
+  const pendingCount = pendingReservations.length;
+
+  const latestReservations = useMemo(
+    () => (reservations || [])
+      .filter((r) => !r.occupancyOnly)
+      .toSorted((a, b) => compareReservationsLatest(a, b, { pendingFirst: true }))
+      .slice(0, 8),
+    [reservations],
+  );
+
   const filteredReservations = useMemo(() => {
-    const list = selectedDate
-      ? reservations.filter((r) => r.date === selectedDate)
-      : [...reservations];
-    return list.sort((a, b) => {
-      const byDateCmp = String(b.date || '').localeCompare(String(a.date || ''));
-      if (byDateCmp !== 0) return byDateCmp;
-      return String(b.time || '').localeCompare(String(a.time || ''));
-    });
+    if (selectedDate) {
+      return reservations
+        .filter((r) => r.date === selectedDate)
+        .toSorted((a, b) => String(a.time || '').localeCompare(String(b.time || '')));
+    }
+    return [...reservations]
+      .filter((r) => !r.occupancyOnly)
+      .toSorted((a, b) => compareReservationsLatest(a, b, { pendingFirst: true }));
   }, [reservations, selectedDate]);
 
   const selectedDayList = selectedDate ? (byDate.get(selectedDate) || []) : [];
@@ -124,8 +175,15 @@ export default function BookingsTab({ reservations = [], setReservations }) {
     });
   };
 
-  const handleUpdateReservationStatus = (resId, newStatus) => {
-    setReservations(reservations.map((res) => (
+  const handleUpdateReservationStatus = async (resId, newStatus) => {
+    if (typeof updateReservationStatus === 'function') {
+      const result = await updateReservationStatus(resId, newStatus);
+      if (result?.ok === false && result?.error) {
+        window.alert(result.error);
+      }
+      return;
+    }
+    setReservations((prev) => prev.map((res) => (
       res.id === resId ? { ...res, status: newStatus } : res
     )));
   };
@@ -395,6 +453,38 @@ export default function BookingsTab({ reservations = [], setReservations }) {
         .bookings-list-toggle:hover {
           background: color-mix(in srgb, var(--primary-gold) 6%, transparent);
         }
+        .bookings-list-toggle-main {
+          display: flex;
+          align-items: flex-start;
+          gap: 0.75rem;
+          min-width: 0;
+          flex: 1;
+        }
+        .bookings-list-title-row {
+          display: flex;
+          align-items: center;
+          gap: 0.55rem;
+          flex-wrap: wrap;
+        }
+        .bookings-notif-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.3rem;
+          min-height: 1.4rem;
+          padding: 0.12rem 0.55rem;
+          border-radius: 999px;
+          font-size: 0.72rem;
+          font-weight: 700;
+          letter-spacing: 0.01em;
+          background: color-mix(in srgb, #f59e0b 22%, transparent);
+          color: #fbbf24;
+          border: 1px solid color-mix(in srgb, #f59e0b 45%, transparent);
+        }
+        .bookings-notif-badge.is-clear {
+          background: color-mix(in srgb, var(--emerald-accent) 14%, transparent);
+          color: var(--emerald-accent);
+          border-color: color-mix(in srgb, var(--emerald-accent) 35%, transparent);
+        }
         .bookings-list-chevron {
           flex-shrink: 0;
           transition: transform 0.18s ease;
@@ -402,6 +492,67 @@ export default function BookingsTab({ reservations = [], setReservations }) {
         }
         .bookings-list-chevron.is-open {
           transform: rotate(180deg);
+        }
+        .bookings-inbox {
+          border-top: 1px solid var(--border-glass);
+          display: flex;
+          flex-direction: column;
+          gap: 0.35rem;
+          padding: 0.65rem 0.85rem 0.85rem;
+        }
+        .bookings-inbox-label {
+          margin: 0 0 0.15rem;
+          font-size: 0.72rem;
+          font-weight: 700;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          color: var(--text-muted);
+        }
+        .bookings-inbox-item {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 0.55rem 0.75rem;
+          align-items: center;
+          padding: 0.55rem 0.65rem;
+          border-radius: 10px;
+          border: 1px solid var(--border-glass);
+          background: color-mix(in srgb, var(--bg-card, transparent) 70%, transparent);
+          text-align: left;
+          color: inherit;
+          cursor: pointer;
+          width: 100%;
+        }
+        .bookings-inbox-item:hover {
+          border-color: color-mix(in srgb, var(--primary-gold) 40%, var(--border-glass));
+          background: color-mix(in srgb, var(--primary-gold) 7%, transparent);
+        }
+        .bookings-inbox-item.is-pending {
+          border-color: color-mix(in srgb, #f59e0b 40%, var(--border-glass));
+          background: color-mix(in srgb, #f59e0b 8%, transparent);
+        }
+        .bookings-inbox-copy strong {
+          display: block;
+          font-size: 0.86rem;
+          font-weight: 650;
+          color: var(--text-primary);
+        }
+        .bookings-inbox-copy span {
+          display: block;
+          margin-top: 0.12rem;
+          font-size: 0.74rem;
+          color: var(--text-muted);
+        }
+        .bookings-inbox-meta {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-end;
+          gap: 0.25rem;
+          flex-shrink: 0;
+        }
+        .bookings-inbox-meta small {
+          font-size: 0.68rem;
+          color: var(--text-muted);
+          white-space: nowrap;
         }
         .bookings-list-body {
           border-top: 1px solid var(--border-glass);
@@ -542,18 +693,36 @@ export default function BookingsTab({ reservations = [], setReservations }) {
               onClick={() => setListOpen((v) => !v)}
               style={{ flex: 1, minWidth: 0 }}
             >
-              <div>
-                <h4 style={{ margin: 0, fontSize: '1rem' }}>
-                  {selectedDate
-                    ? `Turnos del ${new Date(`${selectedDate}T12:00:00`).toLocaleDateString('es-AR')}`
-                    : 'Todas las reservas'}
-                </h4>
-                <p style={{ margin: '0.25rem 0 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                  {filteredReservations.length} registro{filteredReservations.length === 1 ? '' : 's'}
-                  {listOpen
-                    ? (selectedDate ? ' · click de nuevo en el día para ver todas' : ' · elegí un día en el calendario')
-                    : ' · clic para expandir'}
-                </p>
+              <div className="bookings-list-toggle-main">
+                <div style={{ minWidth: 0 }}>
+                  <div className="bookings-list-title-row">
+                    <h4 style={{ margin: 0, fontSize: '1rem' }}>
+                      {selectedDate
+                        ? `Turnos del ${new Date(`${selectedDate}T12:00:00`).toLocaleDateString('es-AR')}`
+                        : 'Últimas reservas'}
+                    </h4>
+                    {!selectedDate ? (
+                      <span
+                        className={`bookings-notif-badge${pendingCount ? '' : ' is-clear'}`}
+                        aria-label={pendingCount
+                          ? `${pendingCount} pendientes de aprobación`
+                          : 'Sin pendientes'}
+                      >
+                        {pendingCount
+                          ? `${pendingCount} pendiente${pendingCount === 1 ? '' : 's'}`
+                          : 'Al día'}
+                      </span>
+                    ) : null}
+                  </div>
+                  <p style={{ margin: '0.25rem 0 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                    {selectedDate
+                      ? `${filteredReservations.length} turno${filteredReservations.length === 1 ? '' : 's'} del día`
+                      : `${filteredReservations.length} registro${filteredReservations.length === 1 ? '' : 's'} · más nuevas primero`}
+                    {listOpen
+                      ? (selectedDate ? ' · click de nuevo en el día para ver todas' : ' · elegí un día en el calendario')
+                      : ' · clic para expandir'}
+                  </p>
+                </div>
               </div>
               <ChevronDown size={18} className={`bookings-list-chevron${listOpen ? ' is-open' : ''}`} aria-hidden />
             </button>
@@ -569,6 +738,45 @@ export default function BookingsTab({ reservations = [], setReservations }) {
             ) : null}
           </div>
 
+          {!listOpen && !selectedDate && latestReservations.length > 0 ? (
+            <div className="bookings-inbox" aria-label="Notificaciones de reservas">
+              <p className="bookings-inbox-label">
+                {pendingCount ? 'Pendientes y últimas' : 'Últimas cargadas'}
+              </p>
+              {latestReservations.map((res) => (
+                <button
+                  key={res.id}
+                  type="button"
+                  className={`bookings-inbox-item${res.status === 'pending' ? ' is-pending' : ''}`}
+                  onClick={() => {
+                    setSelectedDate(res.date || null);
+                    setListOpen(true);
+                    if (res.date) {
+                      const d = new Date(`${String(res.date).slice(0, 10)}T12:00:00`);
+                      if (!Number.isNaN(d.getTime())) {
+                        setCursor({ year: d.getFullYear(), month: d.getMonth() });
+                      }
+                    }
+                  }}
+                >
+                  <div className="bookings-inbox-copy">
+                    <strong>{res.memberName || 'Socio'}</strong>
+                    <span>
+                      {res.facilityName || res.facilityId || 'Instalación'}
+                      {' · '}
+                      {formatBookingDate(res.date)}
+                      {res.time ? ` · ${res.time}` : ''}
+                    </span>
+                  </div>
+                  <div className="bookings-inbox-meta">
+                    <span className={`bookings-status ${res.status}`}>{statusLabel(res.status)}</span>
+                    <small>{formatRelativeCreated(reservationCreatedAt(res)) || '—'}</small>
+                  </div>
+                </button>
+              ))}
+            </div>
+          ) : null}
+
           {listOpen ? (
             <div className="bookings-list-body table-responsive">
               <table className="admin-table">
@@ -578,6 +786,7 @@ export default function BookingsTab({ reservations = [], setReservations }) {
                     <th>Instalación</th>
                     <th>Fecha</th>
                     <th>Horario</th>
+                    {!selectedDate ? <th>Alta</th> : null}
                     <th>Importe</th>
                     <th>Estado</th>
                     <th style={{ textAlign: 'right' }}>Gestión</th>
@@ -586,7 +795,7 @@ export default function BookingsTab({ reservations = [], setReservations }) {
                 <tbody>
                   {filteredReservations.length === 0 ? (
                     <tr>
-                      <td colSpan={7} style={{ color: 'var(--text-muted)', padding: '1.5rem 1rem' }}>
+                      <td colSpan={selectedDate ? 7 : 8} style={{ color: 'var(--text-muted)', padding: '1.5rem 1rem' }}>
                         No hay reservas para mostrar.
                       </td>
                     </tr>
@@ -607,6 +816,11 @@ export default function BookingsTab({ reservations = [], setReservations }) {
                           {res.time || '—'}
                           {res.endTime ? <small>a {res.endTime}</small> : null}
                         </td>
+                        {!selectedDate ? (
+                          <td className="bookings-when">
+                            {formatRelativeCreated(reservationCreatedAt(res)) || '—'}
+                          </td>
+                        ) : null}
                         <td className="bookings-money">
                           {formatMoney(res.chargedPrice || res.estimatedPrice) || (
                             <span style={{ color: 'var(--text-muted)' }}>—</span>

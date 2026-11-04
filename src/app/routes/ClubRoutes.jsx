@@ -55,6 +55,7 @@ export default function ClubRoutes({
   pathForView,
   paymentPlans,
   persistReservation,
+  updateReservationStatus,
   poolAccesses,
   poolSettings,
   portalAccessRequests,
@@ -145,6 +146,7 @@ export default function ClubRoutes({
         setMembers={setMembersDb}
         setReservations={setReservations}
         persistReservation={persistReservation}
+        updateReservationStatus={updateReservationStatus}
         latestNews={newsList}
         setNewsList={setNewsDb}
         disciplineCatalog={disciplineCatalog}

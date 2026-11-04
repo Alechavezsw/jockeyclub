@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { QRCodeSVG } from 'qrcode.react';
 import {
   Calendar,
   ChevronLeft,
@@ -19,7 +18,6 @@ import {
   Sparkles,
   Minus,
   Plus,
-  QrCode,
   Upload,
 } from 'lucide-react';
 import { FACILITIES, facilitiesByGroup, sortFacilitiesForDisplay, isRealBookableSpace } from '../domain/reservations/facilities';
@@ -31,7 +29,6 @@ import {
   guestCap,
   latestBookableIso,
   validateMemberBooking,
-  facilityOffersPaymentButton,
   reservationTotalPrice,
   reservationDepositAmount,
   reservationBalanceAfterDeposit,
@@ -39,10 +36,11 @@ import {
 } from '../domain/reservations/bookingRules';
 import { isSlotPast } from '../domain/reservations/slotTime';
 import { joinWaitlist, leaveWaitlist, waitingForSlot } from '../domain/reservations/waitlist';
-import { CLUB_BANK_ACCOUNTS, MERCADO_PAGO, buildMercadoPagoQrPayload } from '../domain/members/clubBanks';
+import { CLUB_BANK_ACCOUNTS } from '../domain/members/clubBanks';
 import { bookingPaymentNotice } from '../domain/members/duesPaymentNotice';
 import { uploadDuesReceipt } from '../data/storage';
 import ModalDialog from './ModalDialog';
+import MercadoPagoCheckout from './MercadoPagoCheckout';
 
 function formatCurrency(amount) {
   return new Intl.NumberFormat('es-AR', {
@@ -252,7 +250,7 @@ export default function MemberFacilitiesBooking({
     setErrorMessage('');
     setWaitMsg('');
     setBookingSuccess(false);
-    setPayMethod(facilityOffersPaymentButton(facility) ? 'mercadopago' : 'cuenta_corriente');
+    setPayMethod(reservationTotalPrice(facility) > 0 ? 'mercadopago' : 'cuenta_corriente');
     setReceiptFile(null);
     setReceiptPreview('');
     setPaying(false);
@@ -307,17 +305,16 @@ export default function MemberFacilitiesBooking({
   const depositDue = reservationDepositAmount(bookingPrice);
   const balanceAfterDeposit = reservationBalanceAfterDeposit(bookingPrice);
   const bank = CLUB_BANK_ACCOUNTS[0];
-  let bookingQr = null;
-  if (payMethod === 'mercadopago' && depositDue > 0 && member) {
-    const payload = buildMercadoPagoQrPayload({
-      amount: depositDue,
-      memberId: member.memberId,
-      memberName: member.name,
-      concept: `Seña 50% ${selectedFacility?.name || 'Reserva'} ${selectedDate || ''} ${time || ''}`.trim(),
-    });
-    const ref = payload.split('|').find((part) => part.startsWith('ref='))?.slice(4) || '';
-    bookingQr = { payload, ref };
-  }
+  const bookingMpConcept = `Seña 50% ${selectedFacility?.name || 'Reserva'} ${selectedDate || ''} ${time || ''}`.trim();
+  const namesReady = guestNameList.map((name) => name.trim()).filter(Boolean).length === guests;
+  const bookingReadyForPay = Boolean(
+    selectedFacility
+    && member
+    && selectedDate
+    && time
+    && namesReady
+    && !(selectedFacility.isOutdoor && isZondaActive),
+  );
 
   const handleReceipt = (event) => {
     const file = event.target.files?.[0];
@@ -328,6 +325,67 @@ export default function MemberFacilitiesBooking({
       const reader = new FileReader();
       reader.onload = () => setReceiptPreview(String(reader.result || ''));
       reader.readAsDataURL(file);
+    }
+  };
+
+  const finalizeReservation = async ({ method, mpIntentId = null } = {}) => {
+    if (!selectedFacility || !member) return { ok: false, error: 'Falta el socio o el espacio.' };
+    const check = validateMemberBooking({
+      facility: selectedFacility,
+      member,
+      reservations,
+      date: selectedDate,
+      time,
+      guests,
+      now,
+    });
+    if (!check.ok) return { ok: false, error: check.error };
+    const names = guestNameList.map((name) => name.trim()).filter(Boolean);
+    if (names.length !== guests) {
+      return { ok: false, error: 'Completá el nombre y apellido de cada invitado.' };
+    }
+    const payload = {
+      facilityId: selectedFacility.id,
+      facilityName: selectedFacility.name,
+      memberId: member.memberId,
+      memberName: member.name,
+      date: selectedDate,
+      time,
+      guests: Number(guests) || 0,
+      guestNames: names.join(', '),
+      status: check.status,
+      endTime: check.turn.endTime,
+      estimatedPrice: bookingPrice || null,
+      depositAmount: depositDue || null,
+      depositRate: bookingPrice > 0 ? RESERVATION_DEPOSIT_RATE : null,
+      paymentMethod: bookingPrice > 0 ? method : null,
+      mpIntentId: mpIntentId || null,
+      source: 'app',
+    };
+    const result = await addReservation?.(payload);
+    if (result && result.ok === false) {
+      return { ok: false, error: result.error || 'No se pudo confirmar la reserva.', payload };
+    }
+    setBookingSuccess(true);
+    setErrorMessage('');
+    onBooked?.(payload);
+    setTimeout(() => closeBooking(), 1800);
+    return { ok: true, payload };
+  };
+
+  const handleMercadoPagoApproved = async (intent) => {
+    if (paying || bookingSuccess) return;
+    setPaying(true);
+    try {
+      const result = await finalizeReservation({
+        method: 'mercadopago',
+        mpIntentId: intent?.id || null,
+      });
+      if (!result.ok) {
+        setErrorMessage(result.error || 'El pago entró, pero no se pudo confirmar la reserva. Escribí a administración.');
+      }
+    } finally {
+      setPaying(false);
     }
   };
 
@@ -346,22 +404,8 @@ export default function MemberFacilitiesBooking({
       setErrorMessage('Actividades al aire libre suspendidas por viento Zonda.');
       return;
     }
-    const check = validateMemberBooking({
-      facility: selectedFacility,
-      member,
-      reservations,
-      date: selectedDate,
-      time,
-      guests,
-      now,
-    });
-    if (!check.ok) {
-      setErrorMessage(check.error);
-      return;
-    }
-    const names = guestNameList.map((name) => name.trim()).filter(Boolean);
-    if (names.length !== guests) {
-      setErrorMessage('Completá el nombre y apellido de cada invitado.');
+    if (depositDue > 0 && payMethod === 'mercadopago') {
+      setErrorMessage('Pagá la seña con Mercado Pago. La reserva se confirma sola cuando acredita.');
       return;
     }
 
@@ -391,7 +435,6 @@ export default function MemberFacilitiesBooking({
           time,
           method: payMethod,
           bankName: bank?.name,
-          qrRef: bookingQr?.ref,
           attachment,
         }));
       }
@@ -401,33 +444,11 @@ export default function MemberFacilitiesBooking({
       return;
     }
 
-    const payload = {
-      facilityId: selectedFacility.id,
-      facilityName: selectedFacility.name,
-      memberId: member.memberId,
-      memberName: member.name,
-      date: selectedDate,
-      time,
-      guests: Number(guests) || 0,
-      guestNames: names.join(', '),
-      status: check.status,
-      endTime: check.turn.endTime,
-      estimatedPrice: bookingPrice || null,
-      depositAmount: depositDue || null,
-      depositRate: bookingPrice > 0 ? RESERVATION_DEPOSIT_RATE : null,
-      paymentMethod: bookingPrice > 0 ? payMethod : null,
-      source: 'app',
-    };
-    const result = await addReservation?.(payload);
+    const result = await finalizeReservation({ method: payMethod });
     setPaying(false);
-    if (result && result.ok === false) {
+    if (!result.ok) {
       setErrorMessage(result.error || 'No se pudo confirmar la reserva.');
-      return;
     }
-    setBookingSuccess(true);
-    setErrorMessage('');
-    onBooked?.(payload);
-    setTimeout(() => closeBooking(), 1800);
   };
 
   const monthLabel = viewMonth.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
@@ -443,10 +464,10 @@ export default function MemberFacilitiesBooking({
       <header className="mfb-head">
         <div>
           <h2 className="mfb-title">
-            <Calendar size={20} /> Instalaciones & Reservas
+            <Calendar size={20} /> Reservar instalaciones
           </h2>
           <p className="mfb-sub">
-            Disponibilidad en vivo · elegí día en el calendario y reservá el turno.
+            Elegí el día, el espacio y el turno. La seña se paga al confirmar.
           </p>
           <div className="mfb-live-clock">
             <span className="mfb-pulse" />
@@ -574,7 +595,7 @@ export default function MemberFacilitiesBooking({
                 type="search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Buscar salón, espacio verde, cancha…"
+                placeholder="Buscar salón, Espacio Verde, cancha…"
                 aria-label="Buscar instalaciones"
               />
               {query && (
@@ -724,11 +745,13 @@ export default function MemberFacilitiesBooking({
                 <h4 style={{ marginTop: '0.75rem' }}>{bookingPrice > 0 ? 'Turno reservado' : 'Reserva confirmada'}</h4>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
                   {selectedFacility.name} · {selectedDate} · {time} hs
-                  {payMethod === 'cuenta_corriente' && bookingPrice > 0
-                    ? '. El importe se imputa a la cuenta corriente.'
-                    : bookingPrice > 0
-                      ? '. Avisamos el pago a administración.'
-                      : ''}
+                  {payMethod === 'mercadopago' && bookingPrice > 0
+                    ? '. Seña acreditada · el resto queda en cuenta.'
+                    : payMethod === 'cuenta_corriente' && bookingPrice > 0
+                      ? '. El importe se imputa a la cuenta corriente.'
+                      : bookingPrice > 0
+                        ? '. Avisamos el pago a administración.'
+                        : ''}
                 </p>
               </div>
             ) : (
@@ -829,46 +852,36 @@ export default function MemberFacilitiesBooking({
                   )}
                 </div>
 
-                {bookingPrice > 0 && !facilityOffersPaymentButton(selectedFacility) && (
+                {bookingPrice > 0 ? (
                   <div className="mfb-pay">
-                    <label className="form-label">Pago</label>
-                    <p className="mfb-book-hint">
-                      Total {formatCurrency(bookingPrice)} · seña obligatoria {formatCurrency(depositDue)} (50 %).
-                      El resto ({formatCurrency(balanceAfterDeposit)}) queda en cuenta. Aparte de la cuota social.
-                    </p>
-                  </div>
-                )}
-                {bookingPrice > 0 && facilityOffersPaymentButton(selectedFacility) && (
-                  <div className="mfb-pay">
-                    <label className="form-label" htmlFor="mfb-pay-method">Pago</label>
+                    <label className="form-label" htmlFor="mfb-pay-method">Pago de la seña</label>
                     <p className="mfb-book-hint">
                       Total {formatCurrency(bookingPrice)} · seña 50 % {formatCurrency(depositDue)}.
                       El resto ({formatCurrency(balanceAfterDeposit)}) queda en cuenta, aparte de la cuota.
+                      Mismo criterio en salones y Espacio Verde: Mercado Pago o transferencia.
                     </p>
                     <select
                       id="mfb-pay-method"
                       className="form-input"
-                      value={payMethod}
+                      value={payMethod === 'cuenta_corriente' ? 'mercadopago' : payMethod}
                       onChange={(e) => {
                         setPayMethod(e.target.value);
                         setErrorMessage('');
                       }}
                     >
-                      <option value="cuenta_corriente">Cuenta corriente</option>
                       <option value="mercadopago">Mercado Pago</option>
                       <option value="transferencia">Transferencia</option>
                     </select>
-                    {payMethod === 'mercadopago' && bookingQr ? (
-                      <div className="pay-hist-qr">
-                        <div className="pay-hist-qr-code">
-                          <QRCodeSVG value={bookingQr.payload} size={148} level="M" includeMargin />
-                        </div>
-                        <div>
-                          <strong><QrCode size={14} /> QR Mercado Pago</strong>
-                          <p>Alias {MERCADO_PAGO.alias}</p>
-                          <p>Seña {formatCurrency(depositDue)} (50 %). Al confirmar, administración recibe el aviso.</p>
-                        </div>
-                      </div>
+                    {payMethod !== 'transferencia' ? (
+                      <MercadoPagoCheckout
+                        kind="booking"
+                        amount={depositDue}
+                        memberNumber={member?.memberId}
+                        concept={bookingMpConcept}
+                        label={`Pagar seña ${formatCurrency(depositDue)}`}
+                        disabled={!bookingReadyForPay || paying || bookingSuccess}
+                        onApproved={handleMercadoPagoApproved}
+                      />
                     ) : null}
                     {payMethod === 'transferencia' && bank ? (
                       <div className="pay-hist-transfer">
@@ -883,11 +896,8 @@ export default function MemberFacilitiesBooking({
                         {receiptPreview ? <img src={receiptPreview} alt="Vista previa del comprobante" /> : null}
                       </div>
                     ) : null}
-                    {payMethod === 'debito' ? (
-                      <p className="pay-hist-note">Administración adhiere el débito y acredita el turno cuando lo confirma.</p>
-                    ) : null}
                   </div>
-                )}
+                ) : null}
 
                 {errorMessage && (
                   <div className="mfb-error">
@@ -908,16 +918,12 @@ export default function MemberFacilitiesBooking({
                     <button type="button" className="btn btn-primary" onClick={handleJoinWaitlist}>
                       Lista de espera
                     </button>
-                  ) : (
+                  ) : payMethod !== 'transferencia' && depositDue > 0 ? null : (
                     <button type="submit" className="btn btn-primary" disabled={paying}>
                       {paying
                         ? 'Enviando…'
                         : bookingPrice > 0
-                          ? (payMethod === 'cuenta_corriente'
-                            ? 'Reservar en cuenta corriente'
-                            : payMethod === 'transferencia'
-                              ? 'Enviar comprobante'
-                              : 'Avisar y reservar')
+                          ? (payMethod === 'transferencia' ? 'Enviar comprobante' : 'Confirmar reserva')
                           : 'Confirmar reserva'}
                     </button>
                   )}

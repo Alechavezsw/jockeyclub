@@ -5,6 +5,7 @@ import {
   validateMemberBooking,
   guestCap,
   facilityTurns,
+  facilityOffersPaymentButton,
   reservationTotalPrice,
   reservationDepositAmount,
   reservationBalanceAfterDeposit,
@@ -47,8 +48,10 @@ describe('turnos de Lila', () => {
     expect(anhelo.rules.hoursPrior).toBe(12);
     expect(verde.rules.hoursPrior).toBe(6);
     expect(anhelo.rules.advanceDays).toBe(90);
-    expect(anhelo.accounting.paymentButton).toBe(false);
-    expect(verde.accounting.paymentButton).toBe(true);
+    expect(facilityOffersPaymentButton(anhelo)).toBe(true);
+    expect(facilityOffersPaymentButton(verde)).toBe(true);
+    expect(facilityOffersPaymentButton(bustos)).toBe(true);
+    expect(facilityOffersPaymentButton(maurin)).toBe(true);
   });
 });
 

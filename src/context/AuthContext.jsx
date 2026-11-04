@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { allowLocalDemoAuth, isSupabaseConfigured, supabase } from '../lib/supabase';
 import { ROLE_LABELS, canAccessAdmin, primaryRoleFromList } from '../domain/auth/roles';
 import {
@@ -16,6 +16,21 @@ import {
 
 const AuthContext = createContext(null);
 const SESSION_KEY = 'jockey-auth-session';
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Perfil mínimo desde la sesión auth: evita volver al login si falla el fetch del perfil. */
+function skeletonFromAuth(sessionUser) {
+  if (!sessionUser?.id) return null;
+  return mapProfile(sessionUser, {
+    full_name: sessionUser.user_metadata?.full_name,
+    role: sessionUser.user_metadata?.role || 'member',
+    profile_roles: [],
+    member_number: sessionUser.user_metadata?.memberId || null,
+  });
+}
 
 function loadLocalSession() {
   try {
@@ -113,6 +128,8 @@ export function AuthProvider({ children }) {
   const [desk, setDesk] = useState(() => loadSessionDesk());
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState('');
+  /** Solo true cuando el usuario apretó “salir”: un SIGNED_OUT espurio no debe echarlo. */
+  const logoutIntentRef = useRef(false);
 
   const applyMappedUser = useCallback((mapped) => {
     if (!mapped) {
@@ -124,6 +141,13 @@ export function AuthProvider({ children }) {
     setUser(mapped);
     setDesk(nextDesk);
     return mapped;
+  }, []);
+
+  const clearLocalAuth = useCallback(() => {
+    setAuthUser(null);
+    setUser(null);
+    setDesk(null);
+    setLoading(false);
   }, []);
 
   // Listener sync: NUNCA await supabase.* acá (deadlock → “sesión cerrada” / UI colgada)
@@ -145,35 +169,49 @@ export function AuthProvider({ children }) {
       return () => { mounted = false; };
     }
 
+    const recoverSession = async () => {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        if (!mounted) return true;
+        try {
+          const { data } = await supabase.auth.getSession();
+          if (data?.session?.user) {
+            setAuthUser(data.session.user);
+            return true;
+          }
+          const { data: refreshed } = await supabase.auth.refreshSession();
+          if (refreshed?.session?.user) {
+            setAuthUser(refreshed.session.user);
+            return true;
+          }
+        } catch {
+          /* reintento */
+        }
+        await sleep(200 * (attempt + 1));
+      }
+      return false;
+    };
+
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       if (!mounted) return;
 
       if (event === 'SIGNED_OUT') {
-        // El SDK a veces dispara SIGNED_OUT por un hipo transitorio al refrescar
-        // el token (red, pestaña recién reactivada) aunque la sesión siga viva.
-        // Confirmamos con getSession() antes de cerrar de verdad la sesión en la
-        // app; el setTimeout es necesario porque await-ear supabase.* dentro de
-        // este callback sincrónico produce un deadlock (ver comentario arriba).
+        // Logout deliberado → cerrar ya. Hipo del SDK al refrescar token → recuperar.
+        if (logoutIntentRef.current) {
+          logoutIntentRef.current = false;
+          clearLocalAuth();
+          return;
+        }
         setTimeout(() => {
-          if (!mounted) return;
-          supabase.auth.getSession().then(({ data }) => {
-            if (!mounted) return;
-            if (data?.session?.user) {
-              setAuthUser(data.session.user);
-              return;
-            }
-            setAuthUser(null);
-            setUser(null);
-            setDesk(null);
-            setLoading(false);
-          }).catch(() => {
-            if (!mounted) return;
-            setAuthUser(null);
-            setUser(null);
-            setDesk(null);
-            setLoading(false);
+          void recoverSession().then((ok) => {
+            if (!mounted || ok) return;
+            clearLocalAuth();
           });
         }, 0);
+        return;
+      }
+
+      if (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+        if (session?.user) setAuthUser(session.user);
         return;
       }
 
@@ -186,11 +224,19 @@ export function AuthProvider({ children }) {
       }
     });
 
+    // Pestaña de nuevo visible: revalidar antes de que un refresh fallido dispare login.
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible' || !mounted) return;
+      void recoverSession();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
     return () => {
       mounted = false;
+      document.removeEventListener('visibilitychange', onVisible);
       sub?.subscription?.unsubscribe?.();
     };
-  }, []);
+  }, [clearLocalAuth]);
 
   // Perfil en efecto aparte (libera el lock de auth antes de pegarle a PostgREST)
   useEffect(() => {
@@ -198,7 +244,8 @@ export function AuthProvider({ children }) {
     if (!authUser?.id) return undefined;
 
     let cancelled = false;
-    setUser((prev) => (prev?.id === authUser.id ? prev : null));
+    // No borrar al usuario actual: un fallo de red no puede mandarlo al login.
+    setUser((prev) => (prev?.id === authUser.id ? prev : skeletonFromAuth(authUser)));
 
     const watchdog = setTimeout(() => {
       if (cancelled) return;
@@ -214,7 +261,7 @@ export function AuthProvider({ children }) {
         }
       } catch {
         if (!cancelled) {
-          setUser((prev) => (prev?.id === authUser.id ? prev : null));
+          setUser((prev) => (prev?.id === authUser.id ? prev : skeletonFromAuth(authUser)));
           setLoading(false);
         }
       } finally {
@@ -299,16 +346,25 @@ export function AuthProvider({ children }) {
 
   const logout = useCallback(async () => {
     setAuthError('');
+    logoutIntentRef.current = true;
     if (isSupabaseConfigured && supabase) {
-      await supabase.auth.signOut();
+      // Solo esta pestaña/dispositivo. `global` cerraba TODAS las sesiones del
+      // mismo usuario (p. ej. varios superadmin con la misma casilla).
+      try {
+        await supabase.auth.signOut({ scope: 'local' });
+      } catch {
+        logoutIntentRef.current = false;
+      }
+    } else {
+      logoutIntentRef.current = false;
     }
     localStorage.removeItem(SESSION_KEY);
     localStorage.removeItem('jockey-role');
     clearSessionDesk();
-    setAuthUser(null);
-    setUser(null);
-    setDesk(null);
-  }, []);
+    clearLocalAuth();
+    // Si el SDK no emite SIGNED_OUT, no dejar el flag trabado.
+    setTimeout(() => { logoutIntentRef.current = false; }, 2_000);
+  }, [clearLocalAuth]);
 
   const enterDesk = useCallback((next) => {
     if (next !== SESSION_DESK.member && next !== SESSION_DESK.ops) return;

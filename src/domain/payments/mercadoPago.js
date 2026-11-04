@@ -2,7 +2,7 @@
 
 import { PORTAL_PUBLIC_ORIGIN, PORTAL_WWW_ORIGIN } from '../members/selfService';
 
-export const MP_KINDS = ['dues', 'pool', 'subscription'];
+export const MP_KINDS = ['dues', 'pool', 'subscription', 'booking', 'reservation'];
 export const MP_STATUSES = ['pending', 'in_process', 'approved', 'authorized', 'rejected', 'cancelled'];
 
 export const MP_CHANNELS = ['online', 'onsite', 'subscription'];
@@ -68,12 +68,14 @@ export function mpAccountOrigin(origin) {
 
 export function mpBackPath(kind) {
   if (kind === 'pool') return '/entrada-pileta';
+  if (kind === 'booking' || kind === 'reservation') return '/reservas';
   return '/cuenta';
 }
 
 export function mpCheckoutTitle(kind) {
   if (kind === 'pool') return 'Canon pileta · Jockey Club San Juan';
   if (kind === 'subscription') return 'Suscripción cuota social · Jockey Club San Juan';
+  if (kind === 'booking' || kind === 'reservation') return 'Seña reserva · Jockey Club San Juan';
   return 'Cuota social · Jockey Club San Juan';
 }
 

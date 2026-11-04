@@ -166,6 +166,7 @@ export default function AdminView({
   setMembers,
   setReservations,
   persistReservation,
+  updateReservationStatus,
   journalEntries = [],
   setJournalEntries,
   addJournalEntry,
@@ -596,7 +597,12 @@ export default function AdminView({
         tabs: [
           { key: 'members', icon: Users, label: 'Socios' },
           { key: 'dues', icon: ShieldAlert, label: liquidateDues ? 'Cuotas' : 'Saldos' },
-          { key: 'bookings', icon: Calendar, label: 'Reservas' },
+          {
+            key: 'bookings',
+            icon: Calendar,
+            label: 'Reservas',
+            badge: (reservations || []).filter((r) => r?.status === 'pending' && !r?.occupancyOnly).length || null,
+          },
           { key: 'access', icon: DoorOpen, label: 'Ingresos' },
           { key: 'qr_gate', icon: QrCode, label: 'Acceso QR' },
           { key: 'pool_gate', icon: TicketCheck, label: 'Entrada pileta' },
@@ -671,7 +677,7 @@ export default function AdminView({
         }),
       }))
       .filter((group) => group.tabs.length > 0)
-  ), [permittedTabs, showConcessionsTab, showQrGateTab, userRole, liquidateDues]);
+  ), [permittedTabs, showConcessionsTab, showQrGateTab, userRole, liquidateDues, reservations]);
 
   useEffect(() => {
     const parent = navGroups.find((g) => g.tabs.some((t) => t.key === activeTab));
@@ -1024,6 +1030,9 @@ export default function AdminView({
                       >
                         <span className="admin-rail-icon" aria-hidden="true">
                           <Icon size={15} strokeWidth={isActive ? 2.4 : 2} />
+                          {tab.badge ? (
+                            <span className="admin-rail-badge" aria-hidden="true">{tab.badge > 9 ? '9+' : tab.badge}</span>
+                          ) : null}
                         </span>
                         <span className="admin-rail-label">{tab.label}</span>
                       </button>
@@ -1228,7 +1237,11 @@ export default function AdminView({
       )}
 
       {activeTab === 'bookings' && (
-        <BookingsTab reservations={reservations} setReservations={setReservations} />
+        <BookingsTab
+          reservations={reservations}
+          setReservations={setReservations}
+          updateReservationStatus={updateReservationStatus}
+        />
       )}
 
       {activeTab === 'disciplines' && (

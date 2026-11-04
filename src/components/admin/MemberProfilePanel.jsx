@@ -421,7 +421,8 @@ export default function MemberProfilePanel({
   }, [member?.memberId, selfService, searchParams, setSearchParams, canCollect]);
 
   useEffect(() => {
-    if (selfService || !member || searchParams.get('editar') !== '1') return undefined;
+    if (!member || searchParams.get('editar') !== '1') return undefined;
+    if (!allowEdit) return undefined;
     setSection('editar');
     setEditForm(editFormFromMember(member, disciplineOptions));
     setEditMsg('');
@@ -432,7 +433,7 @@ export default function MemberProfilePanel({
       return next;
     }, { replace: true });
     return undefined;
-  }, [member?.memberId, selfService, searchParams, setSearchParams, disciplineOptions]);
+  }, [member?.memberId, allowEdit, searchParams, setSearchParams, disciplineOptions]);
 
   const familyGroup = useMemo(
     () => resolveFamilyForDisplay(member, members.length ? members : [member].filter(Boolean)),

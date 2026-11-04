@@ -3,8 +3,14 @@ import { unwrap, reservationSlotTakenMessage, DbError } from '../errors';
 import { sb, audit } from './shared.js';
 
 // ---- Reservations ----
-export async function listReservations({ limit, memberNumber, fromDate } = {}) {
-  let q = sb().from('reservations').select('*').order('reservation_date', { ascending: false });
+export async function listReservations({
+  limit,
+  memberNumber,
+  fromDate,
+  orderBy = 'reservation_date',
+} = {}) {
+  const orderColumn = orderBy === 'created_at' ? 'created_at' : 'reservation_date';
+  let q = sb().from('reservations').select('*').order(orderColumn, { ascending: false });
   if (memberNumber) q = q.eq('member_number', String(memberNumber));
   if (fromDate) q = q.gte('reservation_date', fromDate);
   if (limit && Number(limit) > 0) q = q.limit(Number(limit));
@@ -54,6 +60,16 @@ export async function cancelOwnReservation(id) {
   return M.reservationFromRow(data);
 }
 
+/** Personal anula una reserva (queda cancelled en la base). */
+export async function cancelReservationByClub(id) {
+  const data = await unwrap(
+    sb().rpc('anular_reserva_club', { p_id: id }),
+    'No se pudo anular la reserva',
+  );
+  if (!data?.id) throw new Error('No se pudo anular la reserva');
+  return M.reservationFromRow(data);
+}
+
 export async function updateReservation(id, patch) {
   const row = {};
   if (patch.status != null) row.status = patch.status;
@@ -63,7 +79,8 @@ export async function updateReservation(id, patch) {
   if (patch.notes != null) row.notes = patch.notes;
   const metaFields = [
     'guestNames', 'facilityName', 'endTime', 'estimatedPrice', 'chargedPrice',
-    'paymentMethod', 'imputed', 'feeImputed', 'imputedAt', 'imputationEntryId',
+    'depositAmount', 'depositRate', 'paymentMethod', 'mpIntentId',
+    'imputed', 'feeImputed', 'imputedAt', 'imputationEntryId',
     'accountEntry', 'balanceBefore',
   ];
   const touchesMeta = Boolean(patch.meta) || metaFields.some((key) => patch[key] !== undefined);

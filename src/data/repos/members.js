@@ -8,8 +8,9 @@ import { isUuid, sb, fetchAllRows, fetchAllRowsParallel, audit } from './shared.
 import { createPortalUser, replaceProfileRoles } from './profiles.js';
 
 /** Sin el JSON completo de meta las páginas pueden ser grandes. */
-const MEMBERS_PAGE_SIZE = 1000;
-const MEMBERS_CONCURRENCY = 6;
+const MEMBERS_PAGE_SIZE = 800;
+/** Bajo a propósito: 6 páginas a la vez saturan el pool y dejan el UI en “0 de N”. */
+const MEMBERS_CONCURRENCY = 3;
 
 /**
  * Grilla: sin foto, token ni meta completo (hay fichas de más de 1 MB).
@@ -214,24 +215,33 @@ async function downloadMembersList({ onBatch, scope = 'active' } = {}) {
     }
   };
 
-  let from = 0;
+  // Primera página sola → el panel deja de decir “0 de N” enseguida.
+  const first = await fetchPage(0);
+  absorb(first);
+  report(false);
+  if ((first || []).length < MEMBERS_PAGE_SIZE) {
+    report(true);
+    return mapped;
+  }
+
+  let from = MEMBERS_PAGE_SIZE;
   let waves = 0;
   while (waves < 40) {
     waves += 1;
     const before = mapped.length;
-    const batch = await Promise.all(
-      Array.from({ length: MEMBERS_CONCURRENCY }, (_, j) => (
-        fetchPage(from + j * MEMBERS_PAGE_SIZE)
-      ))
+    const starts = Array.from(
+      { length: MEMBERS_CONCURRENCY },
+      (_, j) => from + j * MEMBERS_PAGE_SIZE,
     );
     let reachedEnd = false;
-    for (const chunk of batch) {
+    await Promise.all(starts.map(async (pageFrom) => {
+      const chunk = await fetchPage(pageFrom);
       absorb(chunk);
       if ((chunk || []).length < MEMBERS_PAGE_SIZE) reachedEnd = true;
-    }
+      report(false);
+    }));
     from += MEMBERS_CONCURRENCY * MEMBERS_PAGE_SIZE;
     if (reachedEnd || mapped.length === before) break;
-    report(false);
   }
 
   report(true);

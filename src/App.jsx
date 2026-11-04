@@ -45,6 +45,7 @@ import { loadTierCatalog, mergeOfficialTiers, setRuntimeTierCatalog, stripExampl
 import { isProductionWithoutBackend, isSupabaseConfigured, supabase } from './lib/supabase';
 import ConfigError from './components/ConfigError';
 import { notifyNextOnWaitlist } from './domain/reservations/waitlist';
+import { clubCancelledReservationNotice } from './domain/reservations/clubCancelNotice';
 import { bootstrapShellFromDb, bootstrapDeferredFromDb, bootstrapMembersFromDb, bootstrapErpFromDb, repos } from './data/bootstrap';
 import { drainAccessOutbox, enqueueAccessLog } from './domain/credentials/accessOutbox';
 import { useDailyBackup } from './hooks/useDailyBackup';
@@ -684,7 +685,45 @@ function ClubPortal() {
     return { ok: true };
   };
 
-  // Cancelar una reserva (y avisar al primero de la lista de espera)
+  const pushReservationMessage = (msg) => {
+    if (!msg?.recipientId) return;
+    if (cloudMode) {
+      repos.insertMessage(msg).then((saved) => {
+        setMessages((msgs) => [saved, ...msgs]);
+      }).catch(() => setMessages((msgs) => [msg, ...msgs]));
+      return;
+    }
+    setMessages((msgs) => [msg, ...msgs]);
+  };
+
+  const notifyWaitlistAfterCancel = (current) => {
+    if (!current) return;
+    setWaitlist((prev) => {
+      const { entries, notified } = notifyNextOnWaitlist(prev, {
+        facilityId: current.facilityId,
+        date: current.date,
+        time: current.time,
+      });
+      if (notified) {
+        pushReservationMessage({
+          id: `wl-msg-${Date.now()}`,
+          date: todayAR(),
+          sender: 'Reservas · Jockey Club',
+          senderId: 'ops',
+          recipientId: notified.memberId,
+          subject: 'Turno liberado · lista de espera',
+          content: `Se liberó ${notified.facilityName} el ${notified.date} a las ${notified.time}. Reservá desde Instalaciones.`,
+          isRead: false,
+        });
+      }
+      if (cloudMode) {
+        repos.replaceWaitlist(entries, memberDbIds).then(setWaitlist).catch(() => {});
+      }
+      return entries;
+    });
+  };
+
+  // Cancelar una reserva (socio) y avisar al primero de la lista de espera
   const cancelReservation = async (resId) => {
     const current = reservations.find((r) => r.id === resId);
     if (cloudMode && current) {
@@ -700,38 +739,7 @@ function ClubPortal() {
         prev.map((res) => (res.id === resId ? { ...res, status: 'cancelled' } : res))
       );
     }
-    if (current) {
-      setWaitlist((prev) => {
-        const { entries, notified } = notifyNextOnWaitlist(prev, {
-          facilityId: current.facilityId,
-          date: current.date,
-          time: current.time,
-        });
-        if (notified) {
-          const msg = {
-            id: `wl-msg-${Date.now()}`,
-            date: todayAR(),
-            sender: 'Reservas · Jockey Club',
-            senderId: 'ops',
-            recipientId: notified.memberId,
-            subject: 'Turno liberado · lista de espera',
-            content: `Se liberó ${notified.facilityName} el ${notified.date} a las ${notified.time}. Reservá desde Instalaciones.`,
-            isRead: false,
-          };
-          if (cloudMode) {
-            repos.insertMessage(msg).then((saved) => {
-              setMessages((msgs) => [saved, ...msgs]);
-            }).catch(() => setMessages((msgs) => [msg, ...msgs]));
-          } else {
-            setMessages((msgs) => [msg, ...msgs]);
-          }
-        }
-        if (cloudMode) {
-          repos.replaceWaitlist(entries, memberDbIds).then(setWaitlist).catch(() => {});
-        }
-        return entries;
-      });
-    }
+    notifyWaitlistAfterCancel(current);
   };
 
   const updateMember = async (nextMember) => {
@@ -794,24 +802,72 @@ function ClubPortal() {
     );
   };
 
-  const persistReservation = async (next) => {
+  const persistReservation = async (next, { requireCloud = false } = {}) => {
     if (!next?.id && !next?.accessinId) return next;
+    const cloudId = String(next.id || '');
+    const isCloudId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(cloudId);
+    if (cloudMode && isCloudId) {
+      try {
+        const saved = await repos.updateReservation(cloudId, next);
+        setReservations((prev) => prev.map((row) => (row.id === saved.id ? { ...row, ...saved } : row)));
+        return saved;
+      } catch (err) {
+        if (requireCloud) throw err;
+        setReservations((prev) => (prev || []).map((row) => {
+          const same = (next.id && row.id === next.id)
+            || (next.accessinId && row.accessinId === next.accessinId);
+          return same ? { ...row, ...next } : row;
+        }));
+        return next;
+      }
+    }
+    if (cloudMode && requireCloud) {
+      throw new Error('No se pudo guardar en la base (reserva sin id de nube).');
+    }
     setReservations((prev) => (prev || []).map((row) => {
       const same = (next.id && row.id === next.id)
         || (next.accessinId && row.accessinId === next.accessinId);
       return same ? { ...row, ...next } : row;
     }));
-    const cloudId = String(next.id || '');
-    if (cloudMode && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(cloudId)) {
-      try {
-        const saved = await repos.updateReservation(cloudId, next);
-        setReservations((prev) => prev.map((row) => (row.id === saved.id ? { ...row, ...saved } : row)));
-        return saved;
-      } catch {
-        return next;
-      }
-    }
     return next;
+  };
+
+  /** Administración cambia estado (aprobar / anular) y avisa al socio si anula el club. */
+  const updateReservationStatus = async (resId, newStatus) => {
+    const current = reservations.find((r) => r.id === resId);
+    if (!current) return { ok: false, error: 'No está la reserva.' };
+    const prevStatus = String(current.status || '');
+    const nextStatus = String(newStatus || '').trim();
+    if (!nextStatus || prevStatus === nextStatus) return { ok: true, reservation: current };
+
+    try {
+      let saved;
+      if (cloudMode && nextStatus === 'cancelled') {
+        saved = await repos.cancelReservationByClub(resId);
+        setReservations((prev) => prev.map((row) => (row.id === saved.id ? { ...row, ...saved } : row)));
+      } else {
+        saved = await persistReservation({ ...current, status: nextStatus }, { requireCloud: cloudMode });
+      }
+      if (nextStatus === 'cancelled' && prevStatus !== 'cancelled') {
+        const notice = clubCancelledReservationNotice(saved || current);
+        pushReservationMessage({
+          id: `res-cancel-${Date.now()}`,
+          date: todayAR(),
+          sender: 'Reservas · Jockey Club',
+          senderId: 'ops',
+          recipientId: current.memberId,
+          subject: notice.subject,
+          content: notice.content,
+          isRead: false,
+        });
+        notifyWaitlistAfterCancel(current);
+      }
+      return { ok: true, reservation: saved || { ...current, status: nextStatus } };
+    } catch (err) {
+      const message = err?.message || 'No se pudo actualizar la reserva.';
+      setDbError(message);
+      return { ok: false, error: message };
+    }
   };
 
   const erp = useErpStore({
@@ -1087,6 +1143,7 @@ function ClubPortal() {
         };
 
         // Ops: padrón y ERP en paralelo. El dump no debe tapar cajas ni reportes.
+        // La 1ª página del padrón va sola (repos/members) para no dejar “0 de N”.
         if (isOps) {
           runDeferred();
           const erpJob = bootstrapErpFromDb({
@@ -2074,6 +2131,7 @@ function ClubPortal() {
           pathForView={pathForView}
           paymentPlans={paymentPlans}
           persistReservation={persistReservation}
+          updateReservationStatus={updateReservationStatus}
           poolAccesses={poolAccesses}
           poolSettings={poolSettings}
           portalAccessRequests={portalAccessRequests}

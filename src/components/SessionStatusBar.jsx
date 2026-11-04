@@ -12,7 +12,7 @@ import { searchSession } from '../domain/nav/sessionSearch';
 
 const MEMBER_NAV = [
   { id: 'home', label: 'Inicio', path: '/' },
-  { id: 'reservas', label: 'Reservar canchas', path: '/reservas' },
+  { id: 'reservas', label: 'Reservas', path: '/reservas' },
   { id: 'cuenta', label: 'Mi cuenta', path: '/cuenta' },
   { id: 'revista', label: 'Novedades', path: '/revista' },
   { id: 'mensajes', label: 'Mensajes', path: '/mensajes' },

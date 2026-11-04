@@ -59,9 +59,9 @@ const DEFAULT_TEXTS = {
   coverTitle: 'Manual de uso',
   coverSubtitle: 'Portal de socios, personal y administración',
   coverBlurb: 'Una guía clara, en español, para que cualquier persona del club pueda entrar al sistema, usar su credencial, reservar, cobrar o atender sin tener que ser experta en computación.',
-  coverEdition: 'Versión 2.0',
+  coverEdition: 'Versión 2.1',
   coverNote: 'Uso interno del club  ·  No compartir claves',
-  tocIntro: 'Empezá por el capítulo de tu rol. Si no sabés cuál es, leé primero “Antes de empezar” y “Cómo entrar”. Si ya conocías la edición 1.0, mirá el último capítulo: resume qué cambió.',
+  tocIntro: 'Empezá por el capítulo de tu rol. Si no sabés cuál es, leé primero “Antes de empezar” y “Cómo entrar”. Si ya conocías una edición anterior, mirá el último capítulo: resume qué cambió.',
 };
 
 export class Manual {

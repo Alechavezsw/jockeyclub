@@ -436,10 +436,10 @@ export function canPostJournal(role) {
 export function navItemsForRole(role, { membersCanViewCurrentAccounts = true } = {}) {
   if (role === 'member') {
     const items = [
-      { id: 'dashboard', label: 'Inicio' },
-      { id: 'reservations', label: 'Reservar Canchas' },
-      { id: 'payments', label: 'Mi Cuenta' },
-      { id: 'news', label: 'Novedades' },
+      { id: 'dashboard', label: 'Inicio', shortLabel: 'Inicio' },
+      { id: 'reservations', label: 'Reservas', shortLabel: 'Reservas' },
+      { id: 'payments', label: 'Mi cuenta', shortLabel: 'Cuenta' },
+      { id: 'news', label: 'Novedades', shortLabel: 'Novedades' },
     ];
     if (!membersCanViewCurrentAccounts) {
       return items.filter((item) => item.id !== 'payments');

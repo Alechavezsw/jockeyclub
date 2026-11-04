@@ -70,7 +70,7 @@ function salonRules({
     guests: { capacity, maxGuests },
     accounting: {
       autoCharge: true,
-      paymentButton: false,
+      paymentButton: true,
       debtLimit,
       debtAgeDays: 30,
     },
