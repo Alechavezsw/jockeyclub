@@ -261,6 +261,20 @@ function isExemptDuesTierId(id) {
   return /vitalicio|fundador|^comision$/.test(t);
 }
 
+/**
+ * Misma regla que `member_is_dues_exempt` en Postgres.
+ * El trigger pone el saldo en 0 si el tier o cuotaCategories matchean,
+ * aunque la ficha también tenga una categoría que sí liquida.
+ */
+export function dbMemberIsDuesExempt(tier, meta) {
+  const t = String(tier || '');
+  const raw = meta && typeof meta === 'object' ? meta.cuotaCategories : null;
+  const cats = raw == null ? '' : (typeof raw === 'string' ? raw : JSON.stringify(raw));
+  return /(vitalicio|fundador)/i.test(t)
+    || /^comision$/i.test(t.trim())
+    || /(vitalicio|fundador|comision)/i.test(cats);
+}
+
 /** SOCIO (Vitalicio) y GRUPO FAMILIAR (Vitalicio): no liquidan cuota social. */
 export function isVitalicioMember(member) {
   const ids = billedTierIds(member);

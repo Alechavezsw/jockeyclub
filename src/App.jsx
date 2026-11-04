@@ -797,9 +797,11 @@ function ClubPortal() {
         return;
       }
     }
+    const savedLocal = { ...nextMember };
     setMembers((prev) =>
-      prev.map((m) => (m.memberId === nextMember.memberId ? { ...m, ...nextMember } : m))
+      prev.map((m) => (m.memberId === nextMember.memberId ? { ...m, ...savedLocal } : m))
     );
+    return savedLocal;
   };
 
   const persistReservation = async (next, { requireCloud = false } = {}) => {

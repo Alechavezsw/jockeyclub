@@ -1,6 +1,7 @@
 import * as M from '../mappers';
 import { unwrap, throwOnError } from '../errors';
 import { collectMemberMeta, buildLifecycleMeta, splitMemberName } from '../../domain/members/memberAdminActions';
+import { dbMemberIsDuesExempt } from '../../domain/members/dues';
 import { allocateNextMemberNumber } from '../../domain/members/households';
 import { todayAR } from '../../lib/arDate';
 import { supabase } from '../../lib/supabase';
@@ -503,6 +504,39 @@ export async function nextClubMemberNumber(members = []) {
   return allocateNextMemberNumber(members);
 }
 
+async function updateMemberWithoutPrivilegeColumns(memberId, row) {
+  const safe = { ...row };
+  delete safe.tier;
+  delete safe.status;
+  delete safe.meta;
+  return unwrap(
+    sb().from('members').update(safe).eq('id', memberId).select().single(),
+    'No se pudo actualizar socio'
+  );
+}
+
+async function saveMemberMeta(memberId, meta) {
+  await unwrap(
+    sb().rpc('guardar_meta_socio', { p_member_id: memberId, p_meta: meta || {} }),
+    'No se pudo guardar la ficha'
+  );
+}
+
+export async function eximirCuotaSocio(memberId, tier, reason) {
+  const clean = String(reason || '').trim();
+  if (clean.length < 8) {
+    throw new Error('Falta el motivo de la exención (mínimo 8 caracteres).');
+  }
+  return unwrap(
+    sb().rpc('eximir_cuota_socio', {
+      p_member_id: memberId,
+      p_tier: tier,
+      p_reason: clean,
+    }),
+    'No se pudo eximir la cuota'
+  );
+}
+
 export async function upsertMember(member) {
   invalidateMembersListCache();
   const row = M.memberToRow(member);
@@ -526,34 +560,45 @@ export async function upsertMember(member) {
   if (member.profileId) row.profile_id = member.profileId;
   row.meta = { ...collectMemberMeta(member), ...(row.meta || {}) };
   let saved;
-  if (member.id) {
-    saved = await unwrap(
-      sb().from('members').update(row).eq('id', member.id).select().single(),
-      'No se pudo actualizar socio'
-    );
-  } else {
+  let targetId = member.id || null;
+  if (!targetId && member.memberId) {
     const existing = await unwrap(
       sb().from('members').select('id').eq('member_number', member.memberId).maybeSingle()
     );
-    if (existing?.id) {
-      saved = await unwrap(
-        sb().from('members').update(row).eq('id', existing.id).select().single(),
-        'No se pudo actualizar socio'
+    targetId = existing?.id || null;
+  }
+  if (targetId) {
+    const current = await unwrap(
+      sb().from('members').select('id, tier, meta').eq('id', targetId).maybeSingle(),
+      'No se pudo leer el socio'
+    );
+    const nextExempt = dbMemberIsDuesExempt(row.tier, row.meta);
+    const prevExempt = dbMemberIsDuesExempt(current?.tier, current?.meta);
+    const tierChanged = String(row.tier || '') !== String(current?.tier || '');
+    if (nextExempt && (!prevExempt || tierChanged)) {
+      await eximirCuotaSocio(targetId, row.tier, member.exemptionReason);
+    } else if (tierChanged) {
+      await unwrap(
+        sb().rpc('cambiar_categoria_socio', { p_member_id: targetId, p_tier: row.tier }),
+        'No se pudo cambiar la categoría'
       );
-    } else {
-      saved = await unwrap(
-        sb().from('members').insert(row).select().single(),
-        'No se pudo crear socio'
-      );
-      const firstDues = Number(member.outstandingBalance) || 0;
-      if (firstDues > 0) {
-        await postMemberDuesDelta({
-          memberId: saved.id,
-          amount: firstDues,
-          kind: 'alta',
-          source: `alta:${saved.id}`,
-        });
-      }
+    }
+    const metaChanged = JSON.stringify(row.meta || {}) !== JSON.stringify(current?.meta || {});
+    if (metaChanged) await saveMemberMeta(targetId, row.meta);
+    saved = await updateMemberWithoutPrivilegeColumns(targetId, row);
+  } else {
+    saved = await unwrap(
+      sb().from('members').insert(row).select().single(),
+      'No se pudo crear socio'
+    );
+    const firstDues = Number(member.outstandingBalance) || 0;
+    if (firstDues > 0) {
+      await postMemberDuesDelta({
+        memberId: saved.id,
+        amount: firstDues,
+        kind: 'alta',
+        source: `alta:${saved.id}`,
+      });
     }
   }
 
@@ -618,15 +663,25 @@ export async function setMemberLifecycle(member, {
     detail,
     actorName,
   });
-  const next = {
-    ...member,
-    status,
-    meta,
-    bajaMotivo: meta.bajaMotivo,
-    bajaFecha: meta.bajaFecha,
-    bajaDetail: meta.bajaDetail,
-  };
-  const saved = await upsertMember(next);
+  const reason = [reasonLabel, detail].filter(Boolean).join('. ').trim();
+  if (reason.length < 8) {
+    throw new Error('Falta el motivo (mínimo 8 caracteres).');
+  }
+  const memberId = member.id;
+  if (!isUuid(memberId)) throw new Error('Socio inválido');
+  await unwrap(
+    sb().rpc('cambiar_estado_socio', {
+      p_member_id: memberId,
+      p_status: status,
+      p_reason: reason,
+      p_meta: meta,
+    }),
+    'No se pudo cambiar el estado'
+  );
+  const full = await unwrap(
+    sb().from('members').select('*, member_adherents(*)').eq('id', memberId).single()
+  );
+  const saved = M.memberFromRow(full);
   await audit(`member.${action}`, 'members', saved.id || member.id, {
     member_number: saved.memberId || member.memberId,
     status,
@@ -664,10 +719,10 @@ export async function linkMemberPortalAccess(member, profileId, creds, actorName
   const saved = await unwrap(
     sb().from('members').update({
       profile_id: profileId,
-      meta,
     }).eq('id', member.id).select('id, profile_id, member_number').single(),
     'No se pudo vincular el acceso'
   );
+  await saveMemberMeta(member.id, meta);
   void audit('member.provision_access', 'members', saved.id, {
     member_number: saved.member_number || member.memberId,
     username: creds?.username || null,
@@ -779,14 +834,20 @@ export async function quitarRecargoCuota({ paymentId, reason }) {
   return value;
 }
 
-/** Suma o resta el saldo del socio. La ficha no escribe el número a mano. */
-export async function postMemberDuesDelta({ memberId, amount, kind = 'ajuste', source }) {
+/** Suma o resta el saldo del socio. Un ajuste pide motivo: lo exige la base. */
+export async function postMemberDuesDelta({ memberId, amount, kind = 'ajuste', source, reason }) {
+  const valueAmount = Number(amount) || 0;
+  const why = String(reason || '').trim();
+  if ((valueAmount < 0 || kind !== 'alta') && why.length < 8) {
+    throw new Error('Falta el motivo del ajuste (mínimo 8 caracteres).');
+  }
   const balance = await unwrap(
     sb().rpc('post_member_dues_delta', {
       p_member_id: memberId,
-      p_amount: Number(amount) || 0,
+      p_amount: valueAmount,
       p_kind: kind,
       p_source: source || '',
+      p_reason: why,
     }),
     'No se pudo actualizar el saldo',
   );

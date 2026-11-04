@@ -579,6 +579,7 @@ export function payUpcomingDues(member, { method = 'transferencia', today = new 
     createdAt: paidAt,
     concept: `Cuota social anticipada · ${duesMethodLabel(method)}`,
     amount: preview.cash,
+    adelanto: true,
     quota: preview.quota,
     surcharge: preview.surcharge,
     creditApplied: preview.creditApplied,
@@ -974,6 +975,7 @@ function cobroPeriods(member, payment) {
     paymentSplits: payment.paymentSplits || null,
     waiveSurcharge: Number(payment.waivedSurcharge) > 0,
     waivedSurcharge: Number(payment.waivedSurcharge) || 0,
+    adelanto: payment.adelanto === true,
   };
 }
 

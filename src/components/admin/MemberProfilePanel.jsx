@@ -11,7 +11,7 @@ import VirtualCard from '../VirtualCard';
 import GuestPassPanel from '../GuestPassPanel';
 import CollectDuesModal from './CollectDuesModal';
 import ModalDialog from '../ModalDialog';
-import { formatShortDate, isDuesExemptMember, quotaHeadline } from '../../domain/members/dues';
+import { dbMemberIsDuesExempt, formatShortDate, isDuesExemptMember, quotaHeadline } from '../../domain/members/dues';
 import { imputationPeriodLabel } from '../../domain/members/duesImputations';
 import { familyChildStanding, regularidadOf, upsertRegularidad } from '../../domain/members/familyStanding';
 import { shouldOfferVitalicio } from '../../domain/members/membership';
@@ -1146,7 +1146,7 @@ export default function MemberProfilePanel({
 
         {section === 'editar' && editForm && (
           <form
-            onSubmit={(e) => {
+            onSubmit={async (e) => {
               e.preventDefault();
               if (!updateMember) return;
               const sports = canonDisciplineList(editForm.disciplines || [], disciplineOptions);
@@ -1161,16 +1161,32 @@ export default function MemberProfilePanel({
                 updated.birthDate = editForm.birthDate || '';
                 if (editForm.tier) updated.tier = editForm.tier;
               }
-              if (isDuesExemptMember(updated)) updated.notifyDues = false;
+              if (isDuesExemptMember(updated) || dbMemberIsDuesExempt(updated.tier, updated.meta)) {
+                updated.notifyDues = false;
+              }
               updated.recordScope = 'full';
               updated = withProfileEditTrace(member, updated, {
                 actorId,
                 actorName,
                 source: selfService ? 'portal' : 'panel',
               });
-              updateMember(updated);
-              setEditMsg(updated.meta?.lastProfileEdit
-                ? `Guardado · ${updated.meta.lastProfileEdit.actorName || actorName}`
+              const wasExempt = dbMemberIsDuesExempt(member.tier, member.meta);
+              const willExempt = dbMemberIsDuesExempt(updated.tier, updated.meta);
+              if (willExempt && !wasExempt) {
+                const reason = window.prompt('Motivo de la exención (mínimo 8 caracteres)');
+                if (!reason || reason.trim().length < 8) {
+                  setEditMsg('Falta el motivo de la exención (mínimo 8 caracteres).');
+                  return;
+                }
+                updated = { ...updated, exemptionReason: reason.trim() };
+              }
+              const saved = await updateMember(updated);
+              if (!saved) {
+                setEditMsg('No se pudo guardar.');
+                return;
+              }
+              setEditMsg(saved.meta?.lastProfileEdit
+                ? `Guardado · ${saved.meta.lastProfileEdit.actorName || actorName}`
                 : 'Datos actualizados correctamente.');
             }}
             className="mp-edit-form"

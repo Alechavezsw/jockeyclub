@@ -14,6 +14,7 @@ import {
   quotaHeadline,
   isVitalicioMember,
   isDuesExemptMember,
+  dbMemberIsDuesExempt,
   toWhatsAppPhone,
   buildWhatsAppDuesUrl,
   nextDuesDueDate,
@@ -377,6 +378,10 @@ describe('dues classification', () => {
       tier: 'fundador',
       cuotaCategories: ['FUNDADOR', 'SOCIO FAMILIAR'],
     })).toBe(false);
+    expect(dbMemberIsDuesExempt('vitalicio', { cuotaCategories: ['SOCIO FAMILIAR'] })).toBe(true);
+    expect(dbMemberIsDuesExempt('socio_familiar', { cuotaCategories: ['SOCIO FAMILIAR'] })).toBe(false);
+    expect(dbMemberIsDuesExempt('socio_familiar', { cuotaCategories: ['COMISION'] })).toBe(true);
+    expect(dbMemberIsDuesExempt('comision', null)).toBe(true);
     expect(canChargeSocialDues({ status: 'active', tier: 'fundador' })).toBe(false);
     const quota = quotaHeadline({
       status: 'active',
