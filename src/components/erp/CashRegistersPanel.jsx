@@ -293,7 +293,7 @@ function CashRegistersContent({
 
   // Regla MP: al abrir la hoja, manda solo los comprobantes de socio pendientes (idempotente).
   useEffect(() => {
-    if (!activeMonth || !isSupabaseConfigured()) return undefined;
+    if (!activeMonth || !isSupabaseConfigured) return undefined;
     if (ledgerFilter.view === 'cheques') return undefined;
     if (!monthAutoRows.length) return undefined;
     const runKey = `${activeMonth}:${monthAutoRows.length}`;

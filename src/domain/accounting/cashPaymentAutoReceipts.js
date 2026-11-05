@@ -43,7 +43,7 @@ export function isAutoCashReceiptCandidate(movement) {
 }
 
 export async function loadCashReceiptsSentMap() {
-  if (!isSupabaseConfigured()) return {};
+  if (!isSupabaseConfigured) return {};
   try {
     const value = await getSetting(CASH_RECEIPTS_SENT_SETTING);
     if (value && typeof value === 'object' && !Array.isArray(value)) return { ...value };
@@ -54,7 +54,7 @@ export async function loadCashReceiptsSentMap() {
 }
 
 export async function persistCashReceiptsSentMap(map) {
-  if (!isSupabaseConfigured()) return map;
+  if (!isSupabaseConfigured) return map;
   try {
     await setSetting(CASH_RECEIPTS_SENT_SETTING, map);
   } catch {

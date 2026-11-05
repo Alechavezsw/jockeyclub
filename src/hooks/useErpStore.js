@@ -620,10 +620,8 @@ export default function useErpStore({
 
   useEffect(() => {
     setAlerts((prev) => syncZondaAlert(prev, isZondaActive));
-    if (cloud()) {
-      repos.setSetting('zonda', { active: Boolean(isZondaActive) }, userId).catch(() => {});
-    }
-  }, [isZondaActive, userId]);
+    // No escribir app_settings al hidratar: Zonda se guarda solo con acción explícita.
+  }, [isZondaActive]);
 
   useEffect(() => {
     setAlerts((prev) => syncConcessionAlerts(prev, concessions));
@@ -796,45 +794,23 @@ export default function useErpStore({
   const refreshPoolDayCash = useCallback(async () => {
     if (!cloud()) return true;
     try {
-      let open = await repos.getPoolDayCashOpen();
-      if (!open) {
-        await repos.openPoolDayCash();
-        open = true;
-      }
-      setCloudPoolDayCashOpen(open);
-      return open;
+      const open = await repos.getPoolDayCashOpen();
+      setCloudPoolDayCashOpen(Boolean(open));
+      return Boolean(open);
     } catch {
       return null;
     }
   }, []);
 
-  /** Garantiza sesión abierta en cada caja activa: la caja del club no se cierra. */
-  const ensuringCashRef = useRef(false);
+  /** En cloud no se abren cajas al montar: eso pegaba POST cash_sessions (403) a cualquier rol. */
   useEffect(() => {
+    if (cloud()) return undefined;
     const missing = (cashRegisters || []).filter(
       (reg) => reg?.isActive !== false && reg?.id && !getOpenSession(cashSessions, reg.id),
     );
-    if (!missing.length || ensuringCashRef.current) return undefined;
-    ensuringCashRef.current = true;
-    let cancelled = false;
-    Promise.all(missing.map((reg) => openRegister(reg.id, 0).catch(() => null)))
-      .then(async () => {
-        if (cancelled || !cloud()) return;
-        try {
-          let open = await repos.getPoolDayCashOpen();
-          if (!open) {
-            await repos.openPoolDayCash();
-            open = true;
-          }
-          setCloudPoolDayCashOpen(open);
-        } catch {
-          /* sin permiso de pileta / caja: se ignora */
-        }
-      })
-      .finally(() => {
-        ensuringCashRef.current = false;
-      });
-    return () => { cancelled = true; };
+    if (!missing.length) return undefined;
+    void Promise.all(missing.map((reg) => openRegister(reg.id, 0).catch(() => null)));
+    return undefined;
   }, [cashRegisters, cashSessions, openRegister]);
 
   const transferCash = useCallback(
@@ -1412,13 +1388,19 @@ export default function useErpStore({
     if (!cloud()) return period;
     // Todo cambio de liquidación (borrador con pack, pendiente, procesada) va a Supabase.
     if (!feePeriodNeedsClosure(period)) return period;
-    const saved = await repos.upsertFeePeriodClosure(period);
-    if (saved?.id) {
-      setFeePeriods((cur) => resolveFeePeriods(
-        (cur || []).map((item) => (item.id === saved.id ? { ...item, ...saved } : item)),
-      ));
+    try {
+      const saved = await repos.upsertFeePeriodClosure(period);
+      if (saved?.id) {
+        setFeePeriods((cur) => resolveFeePeriods(
+          (cur || []).map((item) => (item.id === saved.id ? { ...item, ...saved } : item)),
+        ));
+      }
+      return saved || period;
+    } catch (err) {
+      const msg = String(err?.message || err || '');
+      if (/procesada no se modifica/i.test(msg)) return period;
+      throw err;
     }
-    return saved || period;
   }, []);
 
   const reopenProcessedFeePeriod = useCallback(async (period, reason, members = [], meta = {}) => {
@@ -1482,14 +1464,10 @@ export default function useErpStore({
     if (!cloud() || !userId) return undefined;
     let cancelled = false;
     repos.listFeeLedgerAccounts()
-      .then(async (rows) => {
+      .then((rows) => {
         if (cancelled) return;
-        const resolved = resolveFeeChartAccounts(rows);
-        setFeeChartAccounts(resolved);
-        const have = new Set((rows || []).map((row) => row.id));
-        const missing = resolved.filter((account) => account.isActive !== false && !have.has(account.id));
-        if (!missing.length) return;
-        await Promise.all(missing.map((account) => repos.upsertFeeLedgerAccount(account).catch(() => null)));
+        // Solo lectura al iniciar: no inventar / upsert cuentas faltantes (403 para roles sin permiso).
+        setFeeChartAccounts(resolveFeeChartAccounts(rows));
       })
       .catch(() => {});
     return () => { cancelled = true; };
@@ -1654,17 +1632,19 @@ export default function useErpStore({
   }, [feePeriods, persistFeePeriod, postFeeLedgerCharges]);
 
   /**
-   * Genera la liquidación del mes en curso si sigue en borrador (día 1 o catch-up).
+   * Solo el día 1 (AR): genera la liquidación del mes si sigue en borrador.
    * Queda Pendiente; ensurePromotePendingFeePeriods imputa a las 00 h del día siguiente.
+   * Sin catch-up: fuera del día 1 no inventa el mes.
    */
   const ensureAutoFeeLiquidation = useCallback(async ({
     members = [],
     tierCatalog = [],
     discounts: discountProp = null,
-    actor = 'Automático · panel',
+    actor = 'Automático · día 1',
   } = {}) => {
     if (!members?.length || !feePeriods?.length) return null;
     const iso = todayISODateAR();
+    if (Number(iso.slice(8, 10)) !== 1) return null;
     const state = feeAutoRef.current;
     const runKey = `${iso}:${(feePeriods || []).map((p) => `${p.id}:${p.status}`).join(',')}`;
     if (state.running || state.key === runKey) return null;
@@ -1689,7 +1669,7 @@ export default function useErpStore({
         feePeriods,
         members,
         new Date(),
-        { by: actor, catchUp: true, discountRules },
+        { by: actor, catchUp: false, discountRules },
       );
       if (!result.ran || !result.period) {
         state.key = runKey;
@@ -1745,6 +1725,8 @@ export default function useErpStore({
     const month = Number(iso.slice(5, 7));
     const current = findFeePeriodForMonth(feePeriods, year, month);
     if (!current) return null;
+    // Procesada: no reescribir fee_period_closures (trigger). Ajustes → nota de crédito/débito.
+    if (current.status === 'processed') return null;
 
     let discountRules = Array.isArray(discountProp) && discountProp.length
       ? discountProp

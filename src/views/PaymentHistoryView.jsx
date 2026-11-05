@@ -14,7 +14,8 @@ import {
 import { downloadPaymentReceiptPdf } from '../domain/members/exportPaymentReceiptPdf';
 import { useMemberDuesStanding } from '../hooks/useMemberDuesStanding';
 import { CLUB_BANK_ACCOUNTS } from '../domain/members/clubBanks';
-import { duesAmountForMember, duesChargeBreakdown, isDuesExemptMember, quotaHeadline } from '../domain/members/dues';
+import { duesAmountForMember, duesChargeBreakdown, duesDueDayForMember, isDuesExemptMember, quotaHeadline } from '../domain/members/dues';
+import { todayISODateAR } from '../lib/arDate';
 import { duesPaymentNotice } from '../domain/members/duesPaymentNotice';
 import { uploadDuesReceipt } from '../data/storage';
 import MercadoPagoCheckout from '../components/MercadoPagoCheckout';
@@ -62,9 +63,35 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
   const duesExempt = isDuesExemptMember(profile) || !quota.billing;
   const alDia = !standingPending && !behind;
   const monthly = duesExempt ? 0 : duesAmountForMember(profile);
-  const split = duesExempt ? { quota: 0, surcharge: 0, total: 0 } : duesChargeBreakdown(profile);
-  const payable = duesExempt ? 0 : (split.total || mpPayNowAmount(summary.outstanding, monthly));
+  const dueDay = summary.dueDay || duesDueDayForMember(profile);
+  const dueDayLabel = `la cuota vence el ${dueDay} de cada mes`;
+  const standingForCharge = duesExempt ? profile : {
+    ...profile,
+    nextDueDate: summary.nextDue || profile?.nextDueDate,
+    lastPaymentDate: summary.lastDuesDate || profile?.lastPaymentDate,
+    outstandingBalance: summary.outstanding != null ? summary.outstanding : profile?.outstandingBalance,
+  };
+  const split = duesExempt
+    ? { quota: 0, surcharge: 0, total: 0 }
+    : duesChargeBreakdown(standingForCharge);
+  const surcharge = Math.max(split.surcharge || 0, summary.surcharge || 0);
+  const payable = duesExempt
+    ? 0
+    : (summary.nextAmount > 0
+      ? summary.nextAmount
+      : (split.total || mpPayNowAmount(summary.outstanding, monthly)));
   const subscribeAmount = duesExempt ? 0 : mpSubscribeAmount(monthly);
+  const todayIso = todayISODateAR();
+  const dueIsPast = Boolean(summary.nextDue && String(summary.nextDue).slice(0, 10) < todayIso);
+  const dueVerb = dueIsPast ? 'Venció' : 'Vence';
+  const debtAmount = payable > 0 ? payable : (Number(summary.outstanding) || 0);
+  const debtHint = !duesExempt && !alDia && !standingPending
+    ? `${dueVerb} el ${formatDate(summary.nextDue)} · ${formatCurrency(debtAmount)}${
+      surcharge > 0
+        ? ` (cuota ${formatCurrency(summary.outstanding)} + recargo ${formatCurrency(surcharge)})`
+        : ''
+    }`
+    : null;
 
   const noticeKey = `${method}:${profile?.memberId || ''}:${payable}:${receiptFile?.name || ''}`;
 
@@ -197,7 +224,7 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
                 ? (quota.hint || 'No abona cuota social')
                 : alDia
                   ? `Próximo cobro ${formatDate(summary.nextDue)} · ${formatCurrency(summary.nextAmount)}`
-                  : `Venció el ${formatDate(summary.nextDue)} · ${formatCurrency(summary.outstanding)}`}
+                  : debtHint}
           </small>
         </article>
         <article className="pay-hist-kpi">
@@ -215,7 +242,7 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
           </small>
           {!duesExempt && lateLabel ? (
             <small className="pay-hist-kpi-late">
-              {lateLabel} · la cuota vence el 10 de cada mes
+              {lateLabel} · {dueDayLabel}
             </small>
           ) : null}
         </article>
@@ -239,7 +266,7 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
               ? (quota.hint || 'Esta categoría no liquida cuota social.')
               : alDia
                 ? `Podés adelantar ${formatCurrency(payable)} y quedar al día hasta ${formatDate(summary.nextDue)}.`
-                : `${lateLabel ? `${lateLabel}. ` : ''}Saldo a abonar: ${formatCurrency(payable)}${split.surcharge > 0 ? ` (cuota ${formatCurrency(split.quota)} + recargo ${formatCurrency(split.surcharge)})` : ''}. La cuota vence el 10 de cada mes.`}
+                : `${lateLabel ? `${lateLabel}. ` : ''}Saldo a abonar: ${formatCurrency(payable)}${surcharge > 0 ? ` (cuota ${formatCurrency(summary.outstanding)} + recargo ${formatCurrency(surcharge)})` : ''}. ${dueDayLabel.charAt(0).toUpperCase()}${dueDayLabel.slice(1)}.`}
         </p>
         {!duesExempt ? (
           <>
@@ -264,8 +291,8 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
             <h3>Débito cada mes</h3>
             <p>
               {subscribed
-                ? 'Ya estás adherido. Mercado Pago cobra la cuota el día 10.'
-                : `${formatCurrency(subscribeAmount)} el día 10. La deuda anterior se paga aparte.`}
+                ? `Ya estás adherido. Mercado Pago cobra la cuota el día ${dueDay}.`
+                : `${formatCurrency(subscribeAmount)} el día ${dueDay}. La deuda anterior se paga aparte.`}
             </p>
             {subscribed ? (
               <p className="pay-hist-note">Adhesión activa.</p>
@@ -277,7 +304,7 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
                 memberNumber={profile?.memberId}
                 concept={`Suscripción cuota social · ${profile?.name || 'socio'}`}
                 disabled={standingPending || subscribeAmount <= 0}
-                onApproved={() => setMessage('Adhesión lista. Mercado Pago debitará la cuota cada mes, el día 10.')}
+                onApproved={() => setMessage(`Adhesión lista. Mercado Pago debitará la cuota cada mes, el día ${dueDay}.`)}
               />
             )}
           </article>

@@ -122,9 +122,10 @@ export function validateMemberBooking({
   time,
   guests = 0,
   now = new Date(),
+  asAdmin = false,
 } = {}) {
   if (!facility) return { ok: false, error: 'Elegí un espacio.' };
-  if (member && !memberMayOperateAccount(member)) {
+  if (!asAdmin && member && !memberMayOperateAccount(member)) {
     return { ok: false, error: 'Las reservas las hace el titular de la cuenta.' };
   }
   const adminStatus = String(facility.status || 'disponible');
@@ -147,7 +148,7 @@ export function validateMemberBooking({
 
   const priorHours = Number(facility.rules?.hoursPrior) || 0;
   const startAt = turnStart(day, turn.time);
-  if (startAt && priorHours > 0 && startAt.getTime() < now.getTime() + priorHours * 60 * 60 * 1000) {
+  if (!asAdmin && startAt && priorHours > 0 && startAt.getTime() < now.getTime() + priorHours * 60 * 60 * 1000) {
     return { ok: false, error: `Hay que reservar con al menos ${priorHours} horas de anticipación.` };
   }
   if (startAt && startAt.getTime() <= now.getTime()) {
@@ -164,14 +165,14 @@ export function validateMemberBooking({
   }
 
   const allowed = facility.rules?.allowedTierLabels;
-  if (Array.isArray(allowed) && allowed.length) {
+  if (!asAdmin && Array.isArray(allowed) && allowed.length) {
     const label = memberTierLabel(member);
     if (!allowed.includes(label)) {
       return { ok: false, error: 'Tu categoría de cuota no puede reservar este espacio.' };
     }
   }
 
-  if (facility.rules?.limitOneApproved && member?.memberId) {
+  if (!asAdmin && facility.rules?.limitOneApproved && member?.memberId) {
     const already = (reservations || []).some((res) => (
       String(res.memberId || '') === String(member.memberId)
       && res.facilityId === facility.id
@@ -182,5 +183,9 @@ export function validateMemberBooking({
     if (already) return { ok: false, error: 'Ya tenés una reserva vigente en este espacio.' };
   }
 
-  return { ok: true, turn, status: reservationCreateStatus(facility) };
+  return {
+    ok: true,
+    turn,
+    status: asAdmin ? 'confirmed' : reservationCreateStatus(facility),
+  };
 }

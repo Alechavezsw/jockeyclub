@@ -92,6 +92,38 @@ describe('summarizePaymentHistory', () => {
     expect(summary.outstanding).toBe(96000);
     expect(summary.nextDue).toBe('2026-07-10');
   });
+
+  it('con saldo y nextDue futuro muestra la cuota más vieja y el recargo', () => {
+    setRuntimeTierCatalog(null);
+    const today = new Date('2026-11-03T12:00:00');
+    const summary = summarizePaymentHistory([], {
+      tier: 'socio_familiar',
+      outstandingBalance: 140000,
+      lastPaymentDate: '2026-08-05',
+      nextDueDate: '2026-11-10',
+    }, { today });
+    expect(summary.nextDue).toBe('2026-09-10');
+    expect(summary.monthsBehind).toBe(2);
+    expect(summary.outstanding).toBe(140000);
+    // sept $60.000 + oct $70.000 → 10 % de cada mes vencido
+    expect(summary.surcharge).toBe(13000);
+    expect(summary.nextAmount).toBe(143000);
+    expect(summary.dueDay).toBe(10);
+  });
+
+  it('AMET vence el 18 y no lleva recargo de mora', () => {
+    setRuntimeTierCatalog(null);
+    const today = new Date('2026-11-03T12:00:00');
+    const summary = summarizePaymentHistory([], {
+      tier: 'socio_familiar_amet',
+      outstandingBalance: 70000,
+      lastPaymentDate: '2026-08-05',
+      nextDueDate: '2026-11-10',
+    }, { today });
+    expect(summary.nextDue).toBe('2026-09-18');
+    expect(summary.dueDay).toBe(18);
+    expect(summary.surcharge).toBe(0);
+  });
 });
 
 describe('formatPaymentWhen', () => {

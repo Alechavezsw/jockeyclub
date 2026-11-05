@@ -2,9 +2,13 @@ import { formatInstantAR, hasClock, nowTimeAR, todayAR } from '../../lib/arDate'
 import {
   duesAmountForMember,
   duesAmountForTier,
+  duesChargeBreakdown,
+  duesDueDayForMember,
   firstUnpaidDuesDate,
   isDuesExemptMember,
   monthsBehindOnDues,
+  overdueSocialMonths,
+  pinDuesDueDate,
 } from './dues';
 
 function isDuesPayment(row) {
@@ -188,30 +192,54 @@ export function summarizePaymentHistory(history = [], member, { today = new Date
       monthlyReference: 0,
     };
   }
-  const monthsBehind = monthsBehindOnDues({
-    lastPaymentDate: lastDuesDate,
-    nextDueDate: member?.nextDueDate,
-    today,
-  });
   const monthly = referenceMonthlyDues(member, paid, today);
   const stored = Number(member?.outstandingBalance) || 0;
-  const outstanding = Math.max(stored, monthsBehind > 0 ? monthsBehind * monthly : 0);
-  const nextDue = firstUnpaidDuesDate({
+  const fromHistory = lastDuesDate
+    ? firstUnpaidDuesDate({ lastPaymentDate: lastDuesDate, today, member })
+    : null;
+  const fromFicha = pinDuesDueDate(member?.nextDueDate, member);
+  // Con saldo, la cuota más vieja impaga gana (ficha/RPC vs último cobro).
+  let nextDue;
+  if (stored > 0 && fromHistory && fromFicha) {
+    nextDue = fromHistory <= fromFicha ? fromHistory : fromFicha;
+  } else {
+    nextDue = firstUnpaidDuesDate({
+      lastPaymentDate: lastDuesDate,
+      nextDueDate: member?.nextDueDate,
+      today,
+      member,
+    });
+  }
+  const standingMember = {
+    ...member,
+    lastPaymentDate: lastDuesDate || member?.lastPaymentDate || null,
+    nextDueDate: nextDue,
+  };
+  const monthsBehind = monthsBehindOnDues({
     lastPaymentDate: lastDuesDate,
-    nextDueDate: member?.nextDueDate,
+    nextDueDate: nextDue,
     today,
+    member,
   });
-  const nextAmount = outstanding > 0 ? outstanding : monthly;
+  const overdue = overdueSocialMonths(standingMember, today);
+  const outstanding = Math.max(stored, monthsBehind > 0 ? monthsBehind * monthly : 0);
+  const split = duesChargeBreakdown(
+    { ...standingMember, outstandingBalance: outstanding },
+    { paidOn: today },
+  );
+  const nextAmount = outstanding > 0 ? (split.total || outstanding) : monthly;
 
   return {
     totalPaid,
     paymentsCount: paid.length,
     lastPayment: last,
     lastDuesDate,
-    monthsBehind,
+    monthsBehind: Math.max(monthsBehind, overdue.length),
     outstanding,
-    nextDue,
+    nextDue: overdue[0]?.dueOn || nextDue,
     nextAmount,
+    surcharge: outstanding > 0 ? (split.surcharge || 0) : 0,
+    dueDay: duesDueDayForMember(member),
     monthlyReference: duesAmountForTier(member?.tier, undefined, today),
   };
 }

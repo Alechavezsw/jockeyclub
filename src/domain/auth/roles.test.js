@@ -11,6 +11,8 @@ import {
   canReopenFeePeriod,
   canWaiveDuesSurcharge,
   canAdjustMemberBalance,
+  canBackdateDuesPayment,
+  canGenerateInterestRuns,
   canExemptMemberDues,
   canVoidDuesPayment,
   canManageProfiles,
@@ -78,6 +80,11 @@ describe('allowedAdminTabs', () => {
     expect(canLiquidateDues('cashier')).toBe(false);
     expect(canLiquidateDues('gate_operator')).toBe(false);
     expect(canLiquidateDues('pool_operator')).toBe(false);
+    expect(canGenerateInterestRuns('superadmin')).toBe(true);
+    expect(canGenerateInterestRuns('accountant')).toBe(true);
+    expect(canGenerateInterestRuns('admin')).toBe(false);
+    expect(canGenerateInterestRuns('cashier')).toBe(false);
+    expect(canGenerateInterestRuns('gate_operator')).toBe(false);
   });
 
   it('el recargo se cobra siempre y solo un superadmin puede quitarlo', () => {
@@ -98,6 +105,10 @@ describe('allowedAdminTabs', () => {
     expect(canAdjustMemberBalance('admin')).toBe(false);
     expect(canAdjustMemberBalance('accountant')).toBe(true);
     expect(canAdjustMemberBalance('superadmin')).toBe(true);
+    expect(canBackdateDuesPayment('cashier')).toBe(false);
+    expect(canBackdateDuesPayment('admin')).toBe(false);
+    expect(canBackdateDuesPayment('accountant')).toBe(true);
+    expect(canBackdateDuesPayment('superadmin')).toBe(true);
     expect(canExemptMemberDues('cashier')).toBe(false);
     expect(canExemptMemberDues('gate_operator')).toBe(false);
     expect(canExemptMemberDues('admin')).toBe(false);

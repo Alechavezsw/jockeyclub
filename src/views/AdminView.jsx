@@ -14,6 +14,7 @@ import {
   canAccessConcessions,
   canAccessQrGate,
   canLiquidateDues,
+  canPersistFeePeriodClosures,
   canManageMembers,
   canWriteMemberLedger,
   isAccountingBookSubtab,
@@ -167,6 +168,7 @@ export default function AdminView({
   setReservations,
   persistReservation,
   updateReservationStatus,
+  addReservation,
   journalEntries = [],
   setJournalEntries,
   addJournalEntry,
@@ -222,6 +224,7 @@ export default function AdminView({
   const [ledgerCount, setLedgerCount] = useState(0);
   const roleSource = user?.roles?.length ? user.roles : userRole;
   const liquidateDues = canLiquidateDues(roleSource);
+  const persistFeeClosures = canPersistFeePeriodClosures(roleSource);
   const manageMembers = canManageMembers(roleSource);
   const writeMemberLedger = canWriteMemberLedger(roleSource);
   // Cobrar / pileta escriben saldo sin poder editar padrón (canEditMember).
@@ -275,55 +278,46 @@ export default function AdminView({
   );
 
   const membersSettled = !membersLoading && (members?.length || 0) > 0;
+  // Día 1: generar liquidación del mes. Después: promover Pendiente→Procesada a las 00 h.
+  // Solo superadmin/contador (dues.liquidate). Sin catch-up fuera del día 1.
   useEffect(() => {
-    // Completa los meses de las cuentas de cuotas: es una escritura del que liquida. Para el
-    // resto la base la rechaza, y reintentarla en cada batch del padrón solo hace ruido.
-    if (!liquidateDues || !membersSettled || !erp.ensureProcessedFeeLedger) return;
-    void erp.ensureProcessedFeeLedger(members);
-  }, [liquidateDues, membersSettled, erp.ensureProcessedFeeLedger]);
-  // Liquidación del mes + imputación a las 00 h: en el panel, no solo al abrir Cuotas.
-  // Así un saldo LILA previo (p. ej. $32.000) recibe noviembre al promover Pendiente→Procesada.
-  useEffect(() => {
-    if (!liquidateDues || !membersSettled || !erp.feePeriodsReady) return undefined;
+    if (!persistFeeClosures || !membersSettled || !erp.feePeriodsReady) return undefined;
     if (!erp.ensureAutoFeeLiquidation || !erp.ensurePromotePendingFeePeriods) return undefined;
     let cancelled = false;
     const run = async () => {
-      await erp.ensureAutoFeeLiquidation({
-        members,
-        tierCatalog,
-        discounts: erp.discounts || [],
-        actor: 'Automático · panel',
-      });
-      if (cancelled) return;
-      // Mes vigente: recalcular cargos con bonificaciones (antes de imputar o ajustando fichas).
-      if (erp.ensureCurrentFeePeriodDiscounts) {
-        await erp.ensureCurrentFeePeriodDiscounts({
+      try {
+        await erp.ensureAutoFeeLiquidation({
           members,
           tierCatalog,
           discounts: erp.discounts || [],
-          setMembers: memberSet,
-          actor: 'Bonificaciones · mes vigente',
+          actor: 'Automático · día 1',
         });
+      } catch {
+        /* RLS / red: no bloquear el panel */
       }
       if (cancelled) return;
-      await erp.ensurePromotePendingFeePeriods({
-        members,
-        setMembers: memberSet,
-      });
+      try {
+        await erp.ensurePromotePendingFeePeriods({
+          members,
+          setMembers: memberSet,
+        });
+      } catch {
+        /* best-effort */
+      }
     };
     void run();
     return () => { cancelled = true; };
   }, [
-    liquidateDues,
+    persistFeeClosures,
     membersSettled,
     erp.feePeriodsReady,
     erp.feePeriods,
     erp.discounts,
     erp.ensureAutoFeeLiquidation,
-    erp.ensureCurrentFeePeriodDiscounts,
     erp.ensurePromotePendingFeePeriods,
     memberSet,
     tierCatalog,
+    members,
   ]);
   useEffect(() => {
     let cancelled = false;
@@ -1241,6 +1235,9 @@ export default function AdminView({
           reservations={reservations}
           setReservations={setReservations}
           updateReservationStatus={updateReservationStatus}
+          addReservation={addReservation}
+          members={members}
+          facilityCatalog={facilityCatalog}
         />
       )}
 

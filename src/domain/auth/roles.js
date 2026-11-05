@@ -369,6 +369,20 @@ export function canLiquidateDues(roleOrRoles) {
     || keys.includes('admin_employee');
 }
 
+/**
+ * Escritura real a fee_period_closures / fee_ledger_*: la RLS exige dues.liquidate
+ * (solo superadmin y contador). Admin ve Cuotas pero no puede persistir el cierre.
+ */
+export function canPersistFeePeriodClosures(roleOrRolesOrProfile) {
+  const keys = collectRoleKeys(roleOrRolesOrProfile).map((key) => String(key || '').toLowerCase());
+  return keys.includes('superadmin') || keys.includes('accountant');
+}
+
+/** Generar / anular intereses sobre saldos: contador y superadmin. La base exige dues.liquidate. */
+export function canGenerateInterestRuns(roleOrRolesOrProfile) {
+  return canPersistFeePeriodClosures(roleOrRolesOrProfile);
+}
+
 /** Cambiar montos de categorías en el armado de liquidación: solo superadmin. */
 export function canEditFeePackAmounts(roleOrRoles) {
   return isSuperAdmin(roleOrRoles);
@@ -396,6 +410,12 @@ export function canReopenFeePeriod(roleOrRolesOrProfile) {
 
 /** Ajustar el saldo a mano: solo superadmin o contador. La base lo exige en post_member_dues_delta. */
 export function canAdjustMemberBalance(roleOrRolesOrProfile) {
+  const keys = collectRoleKeys(roleOrRolesOrProfile).map((key) => String(key || '').toLowerCase());
+  return keys.includes('superadmin') || keys.includes('accountant');
+}
+
+/** Antedatar un cobro (paidAt anterior): solo superadmin o contador, con motivo. La base lo exige en registrar_cobro. */
+export function canBackdateDuesPayment(roleOrRolesOrProfile) {
   const keys = collectRoleKeys(roleOrRolesOrProfile).map((key) => String(key || '').toLowerCase());
   return keys.includes('superadmin') || keys.includes('accountant');
 }

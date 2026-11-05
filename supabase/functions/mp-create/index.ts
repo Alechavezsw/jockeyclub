@@ -14,7 +14,8 @@ const ALLOWED_ORIGINS = new Set([
   "https://www.jockeyclubsj.com.ar",
 ]);
 
-const STORE_EXTERNAL_ID = "jcsj-sede";
+/** Mercado Pago exige external_id alfanumérico (sin guiones). */
+const STORE_EXTERNAL_ID = "jcsjsede";
 
 function json(status: number, body: Record<string, unknown>) {
   return new Response(JSON.stringify(body), {
@@ -124,6 +125,35 @@ function firstId(payload: unknown) {
   return "";
 }
 
+function storeRows(payload: unknown): Record<string, unknown>[] {
+  if (!payload || typeof payload !== "object") return [];
+  const root = payload as { results?: unknown[]; stores?: unknown[] };
+  const rows = Array.isArray(root.results)
+    ? root.results
+    : Array.isArray(root.stores)
+      ? root.stores
+      : [];
+  return rows.filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === "object");
+}
+
+function pickStore(payload: unknown): { id: string; externalId: string } | null {
+  if (payload && typeof payload === "object" && "id" in payload && (payload as { id?: unknown }).id != null) {
+    const row = payload as { id: unknown; external_id?: unknown };
+    return {
+      id: String(row.id),
+      externalId: String(row.external_id || STORE_EXTERNAL_ID).replace(/[^a-zA-Z0-9]/g, "") || STORE_EXTERNAL_ID,
+    };
+  }
+  const rows = storeRows(payload);
+  const match = rows.find((row) => {
+    const external = String(row.external_id || "").replace(/[^a-zA-Z0-9]/g, "");
+    return external === STORE_EXTERNAL_ID || /jockey/i.test(String(row.name || ""));
+  }) || rows[0];
+  if (!match?.id) return null;
+  const externalId = String(match.external_id || STORE_EXTERNAL_ID).replace(/[^a-zA-Z0-9]/g, "") || STORE_EXTERNAL_ID;
+  return { id: String(match.id), externalId };
+}
+
 async function ensureCashRegister(token: string, posId: string) {
   const listed = await mpJson(`/pos?external_id=${encodeURIComponent(posId)}`, token).catch(() => null);
   if (firstId(listed)) return posId;
@@ -132,11 +162,15 @@ async function ensureCashRegister(token: string, posId: string) {
   const userId = String(me.id || "");
   if (!userId) throw new Error("No se pudo leer la cuenta vendedora de Mercado Pago.");
 
-  let storeId = "";
-  const found = await mpJson(`/users/${userId}/stores/search?external_id=${encodeURIComponent(STORE_EXTERNAL_ID)}`, token).catch(() => null);
-  storeId = firstId(found);
+  const searchStore = async (externalId?: string) => {
+    const qs = externalId ? `?external_id=${encodeURIComponent(externalId)}` : "";
+    return mpJson(`/users/${userId}/stores/search${qs}`, token).catch(() => null);
+  };
 
-  if (!storeId) {
+  let store = pickStore(await searchStore(STORE_EXTERNAL_ID));
+  if (!store) store = pickStore(await searchStore());
+
+  if (!store) {
     try {
       const createdStore = await mpJson(`/users/${userId}/stores`, token, {
         method: "POST",
@@ -144,8 +178,8 @@ async function ensureCashRegister(token: string, posId: string) {
           name: "Jockey Club San Juan",
           external_id: STORE_EXTERNAL_ID,
           location: {
-            street_name: "República del Líbano",
-            street_number: 1799,
+            street_name: "Republica del Libano",
+            street_number: "1799",
             city_name: "Rivadavia",
             state_name: "San Juan",
             latitude: -31.5317,
@@ -154,27 +188,49 @@ async function ensureCashRegister(token: string, posId: string) {
           },
         },
       });
-      storeId = firstId(createdStore);
+      store = pickStore(createdStore);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";
       if (!/already|existe|duplicate|external_id/i.test(msg)) throw err;
-      const again = await mpJson(`/users/${userId}/stores/search?external_id=${encodeURIComponent(STORE_EXTERNAL_ID)}`, token);
-      storeId = firstId(again);
+      store = pickStore(await searchStore(STORE_EXTERNAL_ID)) || pickStore(await searchStore());
     }
   }
-  if (!storeId) throw new Error("No se pudo abrir la sucursal de Mercado Pago.");
+  if (!store?.id) throw new Error("No se pudo abrir la sucursal de Mercado Pago.");
 
-  await mpJson("/pos", token, {
-    method: "POST",
-    body: {
-      name: "Caja sede",
-      fixed_amount: true,
-      store_id: storeId,
-      external_store_id: STORE_EXTERNAL_ID,
-      external_id: posId,
-      category: 621102,
-    },
-  });
+  // Releer la sucursal para usar el external_id real que tiene Mercado Pago.
+  const confirmed = pickStore(await searchStore(store.externalId))
+    || pickStore(await searchStore())
+    || store;
+  const storeIdNum = Number(confirmed.id);
+  const externalStoreId = confirmed.externalId || STORE_EXTERNAL_ID;
+
+  try {
+    await mpJson("/pos", token, {
+      method: "POST",
+      body: {
+        name: "Caja sede",
+        fixed_amount: true,
+        store_id: Number.isFinite(storeIdNum) ? storeIdNum : confirmed.id,
+        external_store_id: externalStoreId,
+        external_id: posId,
+        category: 621102,
+      },
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "";
+    // Si el external_store_id no matchea, reintentar solo con store_id.
+    if (!/external store id|external_store_id/i.test(msg)) throw err;
+    await mpJson("/pos", token, {
+      method: "POST",
+      body: {
+        name: "Caja sede",
+        fixed_amount: true,
+        store_id: Number.isFinite(storeIdNum) ? storeIdNum : confirmed.id,
+        external_id: posId,
+        category: 621102,
+      },
+    });
+  }
   return posId;
 }
 
@@ -271,7 +327,8 @@ Deno.serve(async (req) => {
     const dni = dniOf(member.document_number) || dniOf(profile?.document_number);
     const concept = String(body?.concept || titleOf(kind)).slice(0, 240);
     const guestName = String(body?.guestName || "").trim().slice(0, 80);
-    const posId = String(mpSet.posId || "jcsj-caja").trim().slice(0, 40) || "jcsj-caja";
+    const rawPos = String(mpSet.posId || "jcsjcaja").trim().slice(0, 40) || "jcsjcaja";
+    const posId = rawPos.replace(/[^a-zA-Z0-9]/g, "") || "jcsjcaja";
 
     const { data: intent, error: intentErr } = await admin
       .from("mp_intents")

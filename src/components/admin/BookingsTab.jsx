@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, CalendarDays, X } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { ChevronDown, ChevronLeft, ChevronRight, CalendarDays, Plus, X } from 'lucide-react';
+import AdminNewReservationDialog from './AdminNewReservationDialog';
 
 const WEEKDAYS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
@@ -22,11 +23,18 @@ function statusLabel(status) {
   return 'Cancelada';
 }
 
-function formatBookingDate(iso) {
+function formatBookingDate(iso, { today = new Date() } = {}) {
   if (!iso) return '—';
-  const date = new Date(`${String(iso).slice(0, 10)}T12:00:00`);
+  const day = String(iso).slice(0, 10);
+  const date = new Date(`${day}T12:00:00`);
   if (Number.isNaN(date.getTime())) return iso;
-  const raw = date.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' });
+  const sameYear = date.getFullYear() === today.getFullYear();
+  const raw = date.toLocaleDateString('es-AR', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    ...(sameYear ? {} : { year: 'numeric' }),
+  });
   return raw.replace(/\./g, '');
 }
 
@@ -78,6 +86,9 @@ export default function BookingsTab({
   reservations = [],
   setReservations,
   updateReservationStatus,
+  addReservation = null,
+  members = [],
+  facilityCatalog = null,
 }) {
   const today = useMemo(() => {
     const d = new Date();
@@ -91,12 +102,16 @@ export default function BookingsTab({
     month: today.getMonth(),
   }));
   const [selectedDate, setSelectedDate] = useState(null);
-  const [listOpen, setListOpen] = useState(false);
+  const [listOpen, setListOpen] = useState(true);
+  const [newReservationOpen, setNewReservationOpen] = useState(false);
 
-  useEffect(() => {
-    // Al elegir un día, abrir el panel; al volver a “todas”, colapsar la lista larga
-    setListOpen(Boolean(selectedDate));
-  }, [selectedDate]);
+  const selectCalendarDay = (iso) => {
+    setSelectedDate((prev) => {
+      const next = prev === iso ? null : iso;
+      if (next) setListOpen(true);
+      return next;
+    });
+  };
 
   const byDate = useMemo(() => {
     const map = new Map();
@@ -141,18 +156,31 @@ export default function BookingsTab({
     return cells;
   }, [cursor, byDate, todayKey, selectedDate]);
 
+  const currentMonthKey = todayKey.slice(0, 7);
+  const currentMonthLabel = useMemo(() => {
+    const raw = new Date(today.getFullYear(), today.getMonth(), 1)
+      .toLocaleDateString('es-AR', { month: 'long' });
+    return raw.charAt(0).toUpperCase() + raw.slice(1);
+  }, [today]);
+
+  const monthReservations = useMemo(
+    () => (reservations || []).filter((r) => (
+      !r.occupancyOnly && String(r.date || '').slice(0, 7) === currentMonthKey
+    )),
+    [reservations, currentMonthKey],
+  );
+
   const pendingReservations = useMemo(
-    () => (reservations || []).filter((r) => r.status === 'pending' && !r.occupancyOnly),
-    [reservations],
+    () => monthReservations.filter((r) => r.status === 'pending'),
+    [monthReservations],
   );
   const pendingCount = pendingReservations.length;
 
   const latestReservations = useMemo(
-    () => (reservations || [])
-      .filter((r) => !r.occupancyOnly)
+    () => monthReservations
       .toSorted((a, b) => compareReservationsLatest(a, b, { pendingFirst: true }))
-      .slice(0, 8),
-    [reservations],
+      .slice(0, 10),
+    [monthReservations],
   );
 
   const filteredReservations = useMemo(() => {
@@ -161,10 +189,9 @@ export default function BookingsTab({
         .filter((r) => r.date === selectedDate)
         .toSorted((a, b) => String(a.time || '').localeCompare(String(b.time || '')));
     }
-    return [...reservations]
-      .filter((r) => !r.occupancyOnly)
+    return [...monthReservations]
       .toSorted((a, b) => compareReservationsLatest(a, b, { pendingFirst: true }));
-  }, [reservations, selectedDate]);
+  }, [reservations, selectedDate, monthReservations]);
 
   const selectedDayList = selectedDate ? (byDate.get(selectedDate) || []) : [];
 
@@ -556,7 +583,7 @@ export default function BookingsTab({
         }
         .bookings-list-body {
           border-top: 1px solid var(--border-glass);
-          max-height: min(52vh, 420px);
+          max-height: min(70vh, 640px);
           overflow: auto;
         }
         .bookings-list-actions {
@@ -571,10 +598,43 @@ export default function BookingsTab({
         }
       `}</style>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', flexWrap: 'wrap' }}>
         <CalendarDays size={20} color="var(--primary-gold)" />
-        <h3 className="serif-font" style={{ fontSize: '1.4rem', margin: 0 }}>Libro de Reservas</h3>
+        <h3 className="serif-font" style={{ fontSize: '1.4rem', margin: 0, flex: 1, minWidth: 0 }}>
+          Libro de Reservas
+        </h3>
+        {typeof addReservation === 'function' ? (
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => setNewReservationOpen(true)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            <Plus size={15} />
+            Nueva reserva
+          </button>
+        ) : null}
       </div>
+
+      <AdminNewReservationDialog
+        open={newReservationOpen}
+        onClose={() => setNewReservationOpen(false)}
+        members={members}
+        reservations={reservations}
+        facilityCatalog={facilityCatalog}
+        addReservation={addReservation}
+        onCreated={(saved) => {
+          const day = String(saved?.date || '').slice(0, 10);
+          if (/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+            const d = new Date(`${day}T12:00:00`);
+            if (!Number.isNaN(d.getTime())) {
+              setCursor({ year: d.getFullYear(), month: d.getMonth() });
+              setSelectedDate(day);
+              setListOpen(true);
+            }
+          }
+        }}
+      />
 
       <div className="bookings-layout">
         <aside className="bookings-cal">
@@ -619,7 +679,7 @@ export default function BookingsTab({
                     cell.isSelected ? 'is-selected' : '',
                     cell.total > 0 ? 'has-bookings' : '',
                   ].filter(Boolean).join(' ')}
-                  onClick={() => setSelectedDate((prev) => (prev === cell.iso ? null : cell.iso))}
+                  onClick={() => selectCalendarDay(cell.iso)}
                   title={cell.total ? `${cell.total} reserva${cell.total === 1 ? '' : 's'}` : 'Sin reservas'}
                 >
                   <span className="bookings-cal-daynum">{cell.day}</span>
@@ -699,7 +759,7 @@ export default function BookingsTab({
                     <h4 style={{ margin: 0, fontSize: '1rem' }}>
                       {selectedDate
                         ? `Turnos del ${new Date(`${selectedDate}T12:00:00`).toLocaleDateString('es-AR')}`
-                        : 'Últimas reservas'}
+                        : `Reservas · ${currentMonthLabel}`}
                     </h4>
                     {!selectedDate ? (
                       <span
@@ -717,10 +777,8 @@ export default function BookingsTab({
                   <p style={{ margin: '0.25rem 0 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
                     {selectedDate
                       ? `${filteredReservations.length} turno${filteredReservations.length === 1 ? '' : 's'} del día`
-                      : `${filteredReservations.length} registro${filteredReservations.length === 1 ? '' : 's'} · más nuevas primero`}
-                    {listOpen
-                      ? (selectedDate ? ' · click de nuevo en el día para ver todas' : ' · elegí un día en el calendario')
-                      : ' · clic para expandir'}
+                      : `${monthReservations.length} en ${currentMonthLabel.toLowerCase()}`}
+                    {listOpen ? ' · clic para plegar' : ' · clic para expandir la tabla'}
                   </p>
                 </div>
               </div>
@@ -730,10 +788,13 @@ export default function BookingsTab({
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
-                onClick={() => setSelectedDate(null)}
+                onClick={() => {
+                  setSelectedDate(null);
+                  setListOpen(true);
+                }}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginRight: '0.5rem' }}
               >
-                <X size={14} /> Ver todas
+                <X size={14} /> Ver mes
               </button>
             ) : null}
           </div>
@@ -741,7 +802,9 @@ export default function BookingsTab({
           {!listOpen && !selectedDate && latestReservations.length > 0 ? (
             <div className="bookings-inbox" aria-label="Notificaciones de reservas">
               <p className="bookings-inbox-label">
-                {pendingCount ? 'Pendientes y últimas' : 'Últimas cargadas'}
+                {pendingCount
+                  ? `${currentMonthLabel} · pendientes y últimas 10`
+                  : `${currentMonthLabel} · últimas 10`}
               </p>
               {latestReservations.map((res) => (
                 <button

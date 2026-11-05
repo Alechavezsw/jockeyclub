@@ -140,6 +140,13 @@ export async function applyMemberBalanceDeltas(deltas = []) {
     .map((row) => ({
       memberId: String(row.memberId || row.memberNumber || '').trim(),
       amount: Number(row.amount ?? row.addAmount) || 0,
+      periods: Array.isArray(row.periods)
+        ? row.periods.map((period) => ({
+          dueOn: String(period?.dueOn || '').slice(0, 10),
+          capital: Number(period?.capital) || 0,
+          lateBase: Number(period?.lateBase) || 0,
+        })).filter((period) => /^\d{4}-\d{2}-\d{2}$/.test(period.dueOn) && period.capital > 0)
+        : [],
     }))
     .filter((row) => row.memberId && row.amount);
   if (!rows.length) return;

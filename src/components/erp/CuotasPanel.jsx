@@ -12,20 +12,17 @@ import { formatCurrency } from '../../domain/accounting/journal';
 import {
   applyFeePackEdit,
   appOwnsFeePeriod,
-  autoLiquidateFeePeriodOnMonthStart,
   feePeriodActionHistory,
   feePeriodIsClosed,
   feePeriodsForYear,
   formatPeriodGeneratedAt,
   feePeriodLiquidateBlock,
   feePeriodPrepareBlock,
-  isFeePeriodAutoDay,
   liquidateFeePeriod,
   packEditorFromPeriod,
   periodLabel,
   periodStatusLabel,
   prepareFeePeriodDraft,
-  promotePendingFeePeriods,
   resolveFeePeriods,
 } from '../../domain/accounting/feeBilling';
 import { todayISODateAR, todayAR } from '../../lib/arDate';
@@ -48,9 +45,7 @@ import {
   revertMemberCollectionPayments,
 } from '../../domain/accounting/memberCollectionImport';
 import {
-  applyAccountEntryToMember,
   applyEntryToMembers,
-  createAccountEntry,
 } from '../../domain/accounting/memberBalances';
 import {
   applyEventImputation,
@@ -617,154 +612,8 @@ export default function CuotasPanel({
     }
   };
 
-  const applyPromotedCharges = async (promotedPeriods = []) => {
-    const allCharges = [];
-    for (const period of promotedPeriods) {
-      const periodCharges = (period.pack?.charges || [])
-        .filter((u) => (Number(u.addAmount) || 0) > 0);
-      allCharges.push(...periodCharges);
-      if (periodCharges.length && onPostFeeLedger) {
-        await onPostFeeLedger({ charges: periodCharges, period, members });
-      }
-      if (periodCharges.length && typeof setMembers === 'function') {
-        const chargeDate = period.availableAt || period.generatedAt || todayAR();
-        const periodName = periodLabel(period);
-        const byId = new Map();
-        for (const charge of periodCharges) {
-          const key = String(charge.memberId);
-          if (!byId.has(key)) byId.set(key, []);
-          byId.get(key).push(charge);
-        }
-        setMembers((prev) => prev.map((m) => {
-          const memberCharges = byId.get(String(m.memberId));
-          if (!memberCharges?.length) return m;
-          return memberCharges.reduce((member, charge) => {
-            const entry = createAccountEntry({
-              type: 'cuota',
-              memberNumber: m.memberId,
-              memberName: m.name,
-              value: charge.addAmount,
-              date: chargeDate,
-              source: 'fee_liquidation',
-              description: charge.category ? `${periodName} · ${charge.category}` : periodName,
-            });
-            onUpsertMemberAccountEntry?.(entry);
-            return applyAccountEntryToMember(member, entry);
-          }, m);
-        }));
-      }
-    }
-    if (allCharges.length && onApplyBalanceDeltas) {
-      await onApplyBalanceDeltas(allCharges.map((u) => ({
-        memberId: u.memberId,
-        amount: u.addAmount,
-      })));
-    }
-  };
-
-  const pendingPromotionKey = useMemo(
-    () => (feePeriods || [])
-      .filter((period) => period.status === 'pending')
-      .map((period) => `${period.id}:${period.availableAt || period.pack?.availableAt || ''}`)
-      .join('|'),
-    [feePeriods],
-  );
-
-  useEffect(() => {
-    if (balancesOnly || !pendingPromotionKey) return undefined;
-    let cancelled = false;
-    const run = async () => {
-      const result = promotePendingFeePeriods(feePeriods);
-      if (cancelled || !result.promoted?.length) return;
-      onUpsertFeePeriods?.(result.periods);
-      for (const period of result.promoted) {
-        if (onPersistFeePeriod) await onPersistFeePeriod(period);
-      }
-      await applyPromotedCharges(result.promoted);
-      if (!cancelled) {
-        setFlash(
-          result.promoted.length === 1
-            ? `${periodLabel(result.promoted[0])} pasó a Procesada (00 h).`
-            : `${result.promoted.length} liquidaciones pasaron a Procesada (00 h).`,
-        );
-      }
-    };
-    void run();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [balancesOnly, pendingPromotionKey]);
-
-  /** Día 1: liquidación automática desde el padrón (altas/bajas). Manual sigue disponible. */
-  const autoMonthKey = useMemo(() => {
-    if (!isFeePeriodAutoDay()) return '';
-    return todayISODateAR().slice(0, 7);
-  }, []);
-  const autoRanRef = useRef('');
-
-  useEffect(() => {
-    if (balancesOnly || !autoMonthKey || !membersReady) return undefined;
-    if (!feePeriods?.length || !deferredMembers?.length) return undefined;
-    const [yearKey, monthKey] = autoMonthKey.split('-').map(Number);
-    const current = (feePeriods || []).find((p) => (
-      Number(p.year) === yearKey && Number(p.month) === monthKey
-    ));
-    if (current && (current.status === 'pending' || current.status === 'processed')) return undefined;
-    const runKey = `${autoMonthKey}:${current?.id || 'new'}:${current?.status || 'missing'}`;
-    if (autoRanRef.current === runKey) return undefined;
-    autoRanRef.current = runKey;
-
-    let cancelled = false;
-    const run = async () => {
-      try {
-        const result = autoLiquidateFeePeriodOnMonthStart(
-          feePeriods,
-          deferredMembers,
-          new Date(),
-          { ...actorWithDiscounts, by: `${actorName} · automático`, catchUp: true },
-        );
-        if (cancelled || !result.ran) return;
-        const model = liquidationFromPeriod(result.period, {
-          members: deferredMembers,
-          tierCatalog,
-          discountRules,
-        });
-        const generated = {
-          ...result.period,
-          amount: model.total,
-          lines: model.rows,
-          pack: {
-            ...(result.period.pack || {}),
-            total: model.total,
-            concepts: result.period.pack?.concepts || model.rows,
-            charges: result.period.pack?.charges || result.pendingCharges || [],
-          },
-        };
-        const saved = onPersistFeePeriod ? await onPersistFeePeriod(generated) : generated;
-        const persisted = saved || generated;
-        const nextList = (result.periods || []).map((p) => (
-          p.id === persisted.id ? persisted : p
-        ));
-        onUpsertFeePeriods?.(nextList);
-        if (!cancelled) {
-          const available = persisted.availableAt
-            ? formatPeriodGeneratedAt(persisted.availableAt)
-            : 'las 00 h de mañana';
-          setFlash(
-            `${periodLabel(persisted)} se generó sola el día 1 (padrón con altas/bajas). Pendiente hasta ${available}.`,
-          );
-          setSuccessBanner(`Liquidación automática de ${periodLabel(persisted)} generada.`);
-        }
-      } catch (err) {
-        autoRanRef.current = '';
-        if (!cancelled) {
-          setError(err?.message || 'No se pudo generar la liquidación automática del día 1.');
-        }
-      }
-    };
-    void run();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [balancesOnly, autoMonthKey, membersReady, feePeriods, deferredMembers]);
+  // Auto día 1 / promover Pendiente corre en AdminView al abrir el panel
+  // (solo superadmin/contador con dues.liquidate). Acá queda el flujo manual.
 
   const reopen = async (period, reasonOverride = null) => {
     const reason = reasonOverride || window.prompt(

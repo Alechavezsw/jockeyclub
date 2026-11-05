@@ -490,18 +490,13 @@ function ClubPortal() {
     if (!cloudMode && localDemoReady.current) localStorage.setItem('jockey-news', JSON.stringify(newsList));
   }, [newsList, cloudMode]);
   useEffect(() => {
+    // Cloud: app_settings solo se escribe en guardados explícitos (no al hidratar).
     if (!cloudMode) localStorage.setItem('jockey-disciplines-catalog', JSON.stringify(disciplineCatalog));
-    else if (hydratedRef.current && dbReady) {
-      repos.setSetting('disciplines_catalog', disciplineCatalog, user?.id).catch(() => {});
-    }
-  }, [disciplineCatalog, cloudMode, dbReady, user?.id]);
+  }, [disciplineCatalog, cloudMode]);
   useEffect(() => {
     setRuntimeTierCatalog(tierCatalog);
     if (!cloudMode) localStorage.setItem('jockey-member-tiers', JSON.stringify(tierCatalog));
-    else if (hydratedRef.current && dbReady) {
-      repos.setSetting('member_tiers', tierCatalog, user?.id).catch(() => {});
-    }
-  }, [tierCatalog, cloudMode, dbReady, user?.id]);
+  }, [tierCatalog, cloudMode]);
   useEffect(() => {
     if (!cloudMode) localStorage.setItem('jockey-rsvps', JSON.stringify(rsvpList));
   }, [rsvpList, cloudMode]);
@@ -537,47 +532,28 @@ function ClubPortal() {
   }, [poolAccesses, cloudMode]);
   useEffect(() => {
     if (!cloudMode) localStorage.setItem('jockey-pool-settings', JSON.stringify(poolSettings));
-    if (cloudMode && hydratedRef.current && dbReady) {
-      repos.setSetting(SETTINGS_KEYS.pool, poolSettings, user?.id).catch(() => {});
-    }
-  }, [poolSettings, cloudMode, dbReady, user?.id]);
+  }, [poolSettings, cloudMode]);
   useEffect(() => {
     setRuntimeClubSettings(clubSettings);
     if (!cloudMode) localStorage.setItem('jockey-club-settings', JSON.stringify(clubSettings));
-    if (cloudMode && hydratedRef.current && dbReady) {
-      repos.setSetting(SETTINGS_KEYS.club, clubSettings, user?.id).catch(() => {});
-    }
-  }, [clubSettings, cloudMode, dbReady, user?.id]);
+  }, [clubSettings, cloudMode]);
   useEffect(() => {
     setRuntimeDueDay(duesSettings.dueDay);
     if (!cloudMode) localStorage.setItem('jockey-dues-settings', JSON.stringify(duesSettings));
-    if (cloudMode && hydratedRef.current && dbReady) {
-      repos.setSetting(SETTINGS_KEYS.dues, duesSettings, user?.id).catch(() => {});
-    }
-  }, [duesSettings, cloudMode, dbReady, user?.id]);
+  }, [duesSettings, cloudMode]);
   useEffect(() => {
     if (!cloudMode) localStorage.setItem('jockey-system-rules', JSON.stringify(systemRules));
-    if (cloudMode && hydratedRef.current && dbReady) {
-      repos.setSetting(SETTINGS_KEYS.system, systemRules, user?.id).catch(() => {});
-    }
-  }, [systemRules, cloudMode, dbReady, user?.id]);
+  }, [systemRules, cloudMode]);
 
   useEffect(() => {
     if (!cloudMode) localStorage.setItem('jockey-payment-plans', JSON.stringify(paymentPlans));
-    if (cloudMode && dbReady) {
-      repos.setSetting(SETTINGS_KEYS.paymentPlans, paymentPlans, user?.id).catch(() => {});
-    }
-  }, [paymentPlans, cloudMode, dbReady, user?.id]);
+  }, [paymentPlans, cloudMode]);
   useEffect(() => {
     if (!facilityCatalog) return;
     if (!cloudMode) {
       localStorage.setItem('jockey-facility-catalog', JSON.stringify(facilityCatalog));
-      return;
     }
-    if (hydratedRef.current && dbReady) {
-      repos.setSetting('facility_catalog', facilityCatalog, user?.id).catch(() => {});
-    }
-  }, [facilityCatalog, cloudMode, dbReady, user?.id]);
+  }, [facilityCatalog, cloudMode]);
   useEffect(() => {
     if (!cloudMode) localStorage.setItem('jockey-waitlist', JSON.stringify(waitlist));
   }, [waitlist, cloudMode]);
@@ -587,6 +563,69 @@ function ClubPortal() {
   useEffect(() => {
     if (!cloudMode) localStorage.setItem('jockey-portal-access-requests', JSON.stringify(portalAccessRequests));
   }, [portalAccessRequests, cloudMode]);
+
+  /** Escritura a app_settings solo desde la UI (nunca al hidratar desde Supabase). */
+  const persistAppSetting = useCallback((key, value) => {
+    if (!cloudMode || !isSupabaseConfigured) return;
+    repos.setSetting(key, value, user?.id).catch(() => {});
+  }, [cloudMode, user?.id]);
+
+  const makeSettingSetter = useCallback((setState, key, normalize) => (
+    (valueOrUpdater) => {
+      setState((prev) => {
+        const raw = typeof valueOrUpdater === 'function' ? valueOrUpdater(prev) : valueOrUpdater;
+        const next = normalize ? normalize(raw) : raw;
+        persistAppSetting(key, next);
+        return next;
+      });
+    }
+  ), [persistAppSetting]);
+
+  const saveClubSettings = useMemo(
+    () => makeSettingSetter(setClubSettings, SETTINGS_KEYS.club, mergeClubSettings),
+    [makeSettingSetter],
+  );
+  const saveDuesSettings = useMemo(
+    () => makeSettingSetter(setDuesSettings, SETTINGS_KEYS.dues, mergeDuesSettings),
+    [makeSettingSetter],
+  );
+  const savePoolSettings = useMemo(
+    () => makeSettingSetter(setPoolSettings, SETTINGS_KEYS.pool, mergePoolSettings),
+    [makeSettingSetter],
+  );
+  const saveSystemRules = useMemo(
+    () => makeSettingSetter(setSystemRules, SETTINGS_KEYS.system, mergeSystemRules),
+    [makeSettingSetter],
+  );
+  const savePaymentPlans = useMemo(
+    () => makeSettingSetter(setPaymentPlans, SETTINGS_KEYS.paymentPlans, mergePaymentPlans),
+    [makeSettingSetter],
+  );
+  const saveTierCatalog = useMemo(
+    () => makeSettingSetter(setTierCatalog, 'member_tiers', (raw) => {
+      const list = Array.isArray(raw) ? raw : [];
+      const cleaned = mergeOfficialTiers(stripExampleTiers(list));
+      const next = cleaned.length ? cleaned : list;
+      setRuntimeTierCatalog(next);
+      return next;
+    }),
+    [makeSettingSetter],
+  );
+  const saveDisciplineCatalog = useMemo(
+    () => makeSettingSetter(setDisciplineCatalog, 'disciplines_catalog'),
+    [makeSettingSetter],
+  );
+  const saveFacilityCatalog = useMemo(
+    () => makeSettingSetter(setFacilityCatalog, 'facility_catalog'),
+    [makeSettingSetter],
+  );
+  const saveIsZondaActive = useCallback((valueOrUpdater) => {
+    setIsZondaActive((prev) => {
+      const next = typeof valueOrUpdater === 'function' ? Boolean(valueOrUpdater(prev)) : Boolean(valueOrUpdater);
+      persistAppSetting('zonda', { active: next });
+      return next;
+    });
+  }, [persistAppSetting]);
 
   // Socio activo: el vinculado a la sesión, o el primero como fallback operativo
   const sessionMemberFallback = useMemo(() => {
@@ -653,6 +692,7 @@ function ClubPortal() {
       memberId: newRes?.memberId,
       tier: newRes?.tier,
     };
+    const asAdmin = newRes?.source === 'admin' || newRes?.forceConfirmed === true;
     const check = validateMemberBooking({
       facility,
       member,
@@ -660,11 +700,12 @@ function ClubPortal() {
       date: newRes?.date,
       time: newRes?.time,
       guests: newRes?.guests,
+      asAdmin,
     });
     if (!check.ok) return { ok: false, error: check.error };
     const booking = {
       ...newRes,
-      status: check.status,
+      status: asAdmin ? 'confirmed' : check.status,
       endTime: check.turn.endTime || newRes.endTime || null,
     };
     if (cloudMode) {
@@ -2144,22 +2185,22 @@ function ClubPortal() {
           sendMessage={sendMessage}
           setAttendanceSessions={setAttendanceSessions}
           setClaimsDb={setClaimsDb}
-          setClubSettings={setClubSettings}
+          setClubSettings={saveClubSettings}
           setCurrentView={setCurrentView}
-          setDisciplineCatalog={setDisciplineCatalog}
-          setDuesSettings={setDuesSettings}
+          setDisciplineCatalog={saveDisciplineCatalog}
+          setDuesSettings={saveDuesSettings}
           setEntryLogsDb={setEntryLogsDb}
-          setFacilityCatalog={setFacilityCatalog}
+          setFacilityCatalog={saveFacilityCatalog}
           setGuestPassesDb={setGuestPassesDb}
-          setIsZondaActive={setIsZondaActive}
+          setIsZondaActive={saveIsZondaActive}
           setJournalEntries={setJournalEntries}
           setMembersDb={setMembersDb}
           setMembershipApplications={setMembershipApplications}
           setMessagesDb={setMessagesDb}
           setNewsDb={setNewsDb}
-          setPaymentPlans={setPaymentPlans}
+          setPaymentPlans={savePaymentPlans}
           setPoolAccessesDb={setPoolAccessesDb}
-          setPoolSettings={setPoolSettings}
+          setPoolSettings={savePoolSettings}
           setPortalAccessRequests={setPortalAccessRequests}
           setRegisteredUsersCount={setRegisteredUsersCount}
           setReservations={setReservations}
@@ -2167,8 +2208,8 @@ function ClubPortal() {
           setStaffMembersDb={setStaffMembersDb}
           setSurveysDb={setSurveysDb}
           setSyncQueue={setSyncQueue}
-          setSystemRules={setSystemRules}
-          setTierCatalog={setTierCatalog}
+          setSystemRules={saveSystemRules}
+          setTierCatalog={saveTierCatalog}
           setWaitlistDb={setWaitlistDb}
           staffHrRecords={staffHrRecords}
           staffMembers={staffMembers}

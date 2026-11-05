@@ -14,12 +14,18 @@ function standingFromRpc(raw) {
   const outstanding = Number(row.outstanding);
   const monthsBehind = Number(row.monthsBehind ?? row.months_behind);
   if (!Number.isFinite(outstanding) && !Number.isFinite(monthsBehind)) return null;
+  const surcharge = Number(row.surcharge);
+  const payable = Number(row.payable);
+  const dueDay = Number(row.dueDay ?? row.due_day);
   return {
     outstanding: Number.isFinite(outstanding) ? outstanding : 0,
     monthsBehind: Number.isFinite(monthsBehind) ? monthsBehind : 0,
     nextDue: row.nextDue || row.next_due || null,
     lastPaymentDate: row.lastPaymentDate || row.last_payment_date || null,
     overdueSince: row.overdueSince || row.overdue_since || null,
+    surcharge: Number.isFinite(surcharge) ? surcharge : 0,
+    payable: Number.isFinite(payable) ? payable : null,
+    dueDay: Number.isFinite(dueDay) && dueDay > 0 ? dueDay : null,
   };
 }
 
@@ -133,16 +139,35 @@ export function useMemberDuesStanding(member) {
   );
   const summary = useMemo(() => {
     const fromHistory = summarizePaymentHistory(history, memberForHistory, { today });
-    if (isDuesExemptMember(memberForHistory) || history.length > 0 || !persisted) return fromHistory;
-    const outstanding = Number(persisted.outstanding) || 0;
-    const monthsBehind = Number(persisted.monthsBehind) || 0;
+    if (isDuesExemptMember(memberForHistory) || !persisted) return fromHistory;
+    const outstanding = persisted.outstanding != null
+      ? Number(persisted.outstanding)
+      : fromHistory.outstanding;
+    const rpcNext = persisted.nextDue || null;
+    const histNext = fromHistory.nextDue || null;
+    const nextDue = [rpcNext, histNext].filter(Boolean).sort()[0] || histNext;
+    const monthsBehind = Math.max(
+      Number(persisted.monthsBehind) || 0,
+      fromHistory.monthsBehind || 0,
+    );
+    const surcharge = Math.max(
+      Number(persisted.surcharge) || 0,
+      fromHistory.surcharge || 0,
+    );
+    const nextAmount = outstanding > 0
+      ? (persisted.payable != null && Number(persisted.payable) > 0
+        ? Number(persisted.payable)
+        : (fromHistory.nextAmount || outstanding + surcharge))
+      : fromHistory.nextAmount;
     return {
       ...fromHistory,
       outstanding,
       monthsBehind,
-      nextDue: persisted.nextDue || fromHistory.nextDue,
+      nextDue,
       lastDuesDate: persisted.lastPaymentDate || fromHistory.lastDuesDate,
-      nextAmount: outstanding > 0 ? outstanding : fromHistory.nextAmount,
+      nextAmount,
+      surcharge,
+      dueDay: persisted.dueDay || fromHistory.dueDay,
     };
   }, [history, memberForHistory, today, persisted]);
 

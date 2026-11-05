@@ -147,6 +147,7 @@ export default function ClubRoutes({
         setReservations={setReservations}
         persistReservation={persistReservation}
         updateReservationStatus={updateReservationStatus}
+        addReservation={addReservation}
         latestNews={newsList}
         setNewsList={setNewsDb}
         disciplineCatalog={disciplineCatalog}

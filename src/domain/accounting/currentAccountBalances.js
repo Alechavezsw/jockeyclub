@@ -9,13 +9,13 @@ import { memberNumberOf } from '../members/households';
  * El total es la suma de saldos distintos de cero del Excel.
  */
 export const LILA_BALANCE_CUT = Object.freeze({
-  asOf: '2026-10-31',
-  filePositiveTotal: 344160500.69,
+  asOf: '2026-11-04',
+  filePositiveTotal: 365780767.69,
   omittedTotal: 0,
   omitted: Object.freeze([]),
-  previousAsOf: '2026-10-27',
+  previousAsOf: '2026-10-31',
   previousWithBalance: 1048,
-  previousTotal: 345447100.69,
+  previousTotal: 344160500.69,
 });
 
 const EMPTY_CURRENT_ACCOUNT_BALANCES_SEED = Object.freeze({

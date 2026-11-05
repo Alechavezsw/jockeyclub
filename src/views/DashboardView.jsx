@@ -152,6 +152,10 @@ export default function DashboardView({
   const quota = quotaHeadline(profile);
   const canOperateAccount = memberMayOperateAccount(profile);
   const sportCards = memberSportCards(profile);
+  const duesPayable = Number(duesStanding?.nextAmount) > 0
+    ? Number(duesStanding.nextAmount)
+    : Number(duesStanding?.outstanding) || 0;
+  const duesDueDay = duesStanding?.dueDay || 10;
   const duesValue = !membersCanViewCurrentAccounts
     ? 'En administración'
     : duesPending
@@ -159,14 +163,14 @@ export default function DashboardView({
       : !quota.billing && quota.kind !== 'debt'
         ? quota.title
         : duesBehind
-          ? (duesLateLabel || formatCurrency(duesStanding.outstanding))
+          ? (duesLateLabel || formatCurrency(duesPayable))
           : 'Al día';
   const duesSub = !membersCanViewCurrentAccounts
     ? 'La cuenta corriente no se muestra en el portal'
     : duesPending
       ? 'Confirmando vencimientos'
       : duesBehind
-        ? `${formatCurrency(duesStanding.outstanding)} · Ver pagos`
+        ? `${formatCurrency(duesPayable)} · Ver pagos`
         : quota.hint || 'Historial de pagos';
   const tierRow = findTier(profile.tier);
   const membershipLabel = prettyMembershipName(tierRow?.name || profile.tier);
@@ -751,7 +755,7 @@ export default function DashboardView({
           <span>
             <ShieldAlert size={16} style={{ verticalAlign: -3, marginRight: 6 }} />
             {membersCanViewCurrentAccounts
-              ? `${duesLateLabel ? `${duesLateLabel}. ` : ''}Cuota pendiente: ${formatCurrency(duesStanding.outstanding)}. Vence el 10 de cada mes.`
+              ? `${duesLateLabel ? `${duesLateLabel}. ` : ''}Cuota pendiente: ${formatCurrency(duesPayable)}${Number(duesStanding?.surcharge) > 0 ? ` (incluye recargo ${formatCurrency(duesStanding.surcharge)})` : ''}. Vence el ${duesDueDay} de cada mes.`
               : 'Hay un pendiente de cuota. Regularizalo en administración.'}
           </span>
           {membersCanViewCurrentAccounts && canOperateAccount ? (

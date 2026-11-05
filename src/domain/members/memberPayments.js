@@ -961,6 +961,7 @@ function cobroPeriods(member, payment) {
     concept: payment.concept || null,
     receiptNumber: payment.receiptNumber || payment.receipt || null,
     paidAt: payment.paidAt || payment.date || null,
+    paidAtReason: payment.paidAtReason || payment.backdateReason || null,
     time: payment.time || null,
     nextDueDate: member.nextDueDate || null,
     bankName: payment.bankName || null,
@@ -990,6 +991,14 @@ export async function commitDuesCollection(member, payment) {
   }
   if (Number(payment.waivedSurcharge) > 0) {
     throw new Error('El recargo no se perdona al cobrar.');
+  }
+  const paidDay = String(payment.date || payment.paidAt || '').slice(0, 10);
+  const today = todayISODateAR();
+  if (paidDay && paidDay < today) {
+    const reason = String(payment.paidAtReason || payment.backdateReason || '').trim();
+    if (reason.length < 8) {
+      throw new Error('Falta el motivo del cobro antedatado (mínimo 8 caracteres).');
+    }
   }
   const saved = await registrarCobro({
     memberId: memberDbId,

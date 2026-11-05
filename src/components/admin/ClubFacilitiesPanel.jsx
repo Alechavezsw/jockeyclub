@@ -71,16 +71,10 @@ export default function ClubFacilitiesPanel({
     [facilityCatalog]
   );
 
-  useEffect(() => {
-    if (typeof setFacilityCatalog !== 'function' || !Array.isArray(facilityCatalog)) return;
-    const cleaned = facilityCatalog.filter((f) => f?.id && !isDemoFacilityId(f.id) && isRealBookableSpace(f));
-    if (cleaned.length !== facilityCatalog.length) {
-      setFacilityCatalog(cleaned.length ? cleaned : null);
-    }
-  }, [facilityCatalog, setFacilityCatalog]);
-
   const persistCatalog = (nextList) => {
-    if (typeof setFacilityCatalog === 'function') setFacilityCatalog(nextList);
+    if (typeof setFacilityCatalog !== 'function') return;
+    const cleaned = (nextList || []).filter((f) => f?.id && !isDemoFacilityId(f.id) && isRealBookableSpace(f));
+    setFacilityCatalog(cleaned.length ? cleaned : null);
   };
 
   const typeMeta = FACILITY_MANAGE_TYPES.find((t) => t.id === activeType) || FACILITY_MANAGE_TYPES[0];
