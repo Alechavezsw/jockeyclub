@@ -8,6 +8,8 @@ import { useAuth } from '../context/AuthContext';
 import { navItemsForRole, ROLE_LABELS, sessionGreetLabel } from '../domain/auth/roles';
 import { formatLongDateAR, todayISODateAR } from '../lib/arDate';
 import { preventButtonScroll } from '../lib/scrollPage';
+import { APP_NAME } from '../domain/system/appBrand';
+import { JockeyWordmark } from './brand/JockeyBrand';
 
 const NAV_ICONS = {
   dashboard: Home,
@@ -123,19 +125,19 @@ export default function Navbar({
           <button
             type="button"
             onClick={goHome}
-            aria-label="Ir al inicio · Jockey Club San Juan"
+            aria-label={`Ir al inicio · ${APP_NAME}`}
             className="nav-brand-btn"
           >
             <img
               src="/logo-jockey-club.png?v=clavos-blancos"
-              alt=""
+              alt="Escudo Jockey Club San Juan"
               width={64}
               height={64}
               fetchPriority="high"
               className="club-mark nav-brand-logo"
             />
             <span className="nav-brand-copy">
-              <span className="serif-font nav-brand-text">Jockey Club</span>
+              <span className="nav-brand-text"><JockeyWordmark /></span>
               <time className="nav-header-date" dateTime={headerDateISO}>
                 {headerDate}
               </time>

@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import { Lock, Mail, Shield } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { ROLE_LABELS } from '../domain/auth/roles';
+import { APP_TAGLINE } from '../domain/system/appBrand';
+import { JockeyWordmark, SilksBand } from '../components/brand/JockeyBrand';
 
 export default function LoginView() {
   const { login, authError, setAuthError, isSupabase } = useAuth();
@@ -68,32 +70,34 @@ export default function LoginView() {
         @media (max-width: 860px) {
           .login-shell { grid-template-columns: 1fr !important; gap: 1.5rem !important; padding: 0 !important; }
           .login-brand-panel { text-align: center; order: -1; }
+          .login-brand-panel .login-brand-title > span { display: flex !important; justify-content: center; }
+          .login-brand-panel .login-brand-silks { margin-left: auto; margin-right: auto; }
+          .login-brand-panel .login-brand-tagline { margin-left: auto !important; margin-right: auto !important; }
         }
+        .login-brand-panel .login-brand-silks { width: min(260px, 70%); border-radius: 2px; }
         @media (max-width: 480px) {
           .login-shell { padding: 0 !important; }
         }
       `}</style>
 
       <section className="login-brand-panel" style={{ padding: '0.5rem 0.25rem' }}>
+        <h1 className="login-brand-title" style={{ margin: '0 0 0.95rem' }}>
+          <span style={{ fontSize: 'clamp(2.6rem, 6vw, 3.9rem)', display: 'inline-flex' }}>
+            <JockeyWordmark variant="stacked" />
+          </span>
+        </h1>
+        <SilksBand height={8} className="login-brand-silks" />
         <p style={{
           fontSize: '0.72rem',
           letterSpacing: '0.22em',
           textTransform: 'uppercase',
           color: 'var(--text-gold)',
-          marginBottom: '0.75rem',
+          margin: '1.1rem 0 0.4rem',
         }}>
-          Rivadavia · San Juan
+          Jockey Club San Juan · Rivadavia
         </p>
-        <h1 className="serif-font" style={{
-          fontSize: 'clamp(2rem, 4vw, 2.75rem)',
-          margin: '0 0 0.75rem',
-          letterSpacing: '0.06em',
-          lineHeight: 1.15,
-        }}>
-          Jockey Club<br />San Juan
-        </h1>
-        <p style={{ color: 'var(--text-secondary)', fontSize: '1.02rem', maxWidth: 420, lineHeight: 1.55, margin: 0 }}>
-          Portal institucional de socios y gestión
+        <p className="login-brand-tagline" style={{ color: 'var(--text-secondary)', fontSize: '1.02rem', maxWidth: 420, lineHeight: 1.55, margin: 0 }}>
+          {APP_TAGLINE}
         </p>
       </section>
 

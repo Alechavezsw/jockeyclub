@@ -44,6 +44,7 @@ import { loadDisciplineCatalog } from './domain/sports/disciplines';
 import { loadTierCatalog, mergeOfficialTiers, setRuntimeTierCatalog, stripExampleTiers } from './domain/members/tiers';
 import { isProductionWithoutBackend, isSupabaseConfigured, supabase } from './lib/supabase';
 import ConfigError from './components/ConfigError';
+import { BrandSplash, JockeyWordmark, SilksBand } from './components/brand/JockeyBrand';
 import { notifyNextOnWaitlist } from './domain/reservations/waitlist';
 import { clubCancelledReservationNotice } from './domain/reservations/clubCancelNotice';
 import { bootstrapShellFromDb, bootstrapDeferredFromDb, bootstrapMembersFromDb, bootstrapErpFromDb, repos } from './data/bootstrap';
@@ -2010,12 +2011,10 @@ function ClubPortal() {
 
   if (authLoading) {
     return (
-      <div className="app-container" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', gap: '0.75rem', padding: '1.5rem' }}>
-        <p style={{ color: 'var(--text-secondary)', margin: 0 }}>Cargando sesión…</p>
-        <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', margin: 0, maxWidth: 360, textAlign: 'center' }}>
-          Validando credenciales.
-        </p>
-        {dbError && <p style={{ color: 'var(--danger-accent)', fontSize: '0.85rem', margin: 0 }}>{dbError}</p>}
+      <div className="app-container">
+        <BrandSplash page message="Cargando sesión…" detail="Validando credenciales.">
+          {dbError && <p style={{ color: 'var(--danger-accent)', fontSize: '0.85rem', margin: 0 }}>{dbError}</p>}
+        </BrandSplash>
       </div>
     );
   }
@@ -2227,6 +2226,10 @@ function ClubPortal() {
 
       {!isStandaloneOps && (
         <footer className="app-footer">
+          <div className="app-footer-brand">
+            <span style={{ fontSize: '0.95rem' }}><JockeyWordmark /></span>
+          </div>
+          <SilksBand height={5} className="app-footer-silks" />
           <p className="serif-font" style={{ fontSize: '1rem', color: 'var(--text-gold)', letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
             {clubSettings.name}
           </p>
@@ -2237,7 +2240,7 @@ function ClubPortal() {
             Unión de Rugby de Cuyo · Federación Hípica de San Juan
           </p>
           <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-            Portal institucional v{import.meta.env.VITE_APP_VERSION || '1.0.0'}
+            Jockey Connect v{import.meta.env.VITE_APP_VERSION || '1.0.0'}
           </p>
         </footer>
       )}

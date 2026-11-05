@@ -5,6 +5,7 @@ import VirtualCard from '../components/VirtualCard';
 import MemberFacilitiesBooking from '../components/MemberFacilitiesBooking';
 import GuestPassPanel from '../components/GuestPassPanel';
 import ModalDialog from '../components/ModalDialog';
+import { SilksBand } from '../components/brand/JockeyBrand';
 import { FACILITIES } from '../domain/reservations/facilities';
 import { getFacilityLiveStatus } from '../domain/reservations/availability';
 import { useMemberDuesStanding } from '../hooks/useMemberDuesStanding';
@@ -251,6 +252,7 @@ export default function DashboardView({
           letter-spacing: 0.2em;
           color: var(--text-muted);
         }
+        .db-hero-silks { position: absolute; top: 0; left: 0; right: 0; }
         .db-hero-name {
           font-family: 'Playfair Display', serif;
           font-size: 2.5rem;
@@ -709,10 +711,12 @@ export default function DashboardView({
 
       {/* ===== HERO BANNER ===== */}
       <div className="db-hero">
-        <div className="db-hero-bg" />
+        <div className="db-hero-bg">
+          <SilksBand height={6} className="db-hero-silks" />
+        </div>
         <div className="db-hero-content">
           <div className="db-hero-left">
-            <p className="db-hero-greeting">✦ Bienvenido de vuelta</p>
+            <p className="db-hero-greeting">✦ Bienvenido a Jockey Connect</p>
             <h1 className="db-hero-name">
               {heroNameParts[0] || 'Socio'}
               {heroNameParts.length > 1 ? <><br />{heroNameParts.slice(1).join(' ')}</> : null}

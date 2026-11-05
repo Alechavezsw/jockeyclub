@@ -1,5 +1,5 @@
 import { Component } from 'react';
-
+import { APP_NAME } from '../domain/system/appBrand';
 export default class ErrorBoundary extends Component {
   constructor(props) {
     super(props);
@@ -14,7 +14,7 @@ export default class ErrorBoundary extends Component {
   }
 
   componentDidCatch(error, info) {
-    console.error('[Jockey Club] Error de interfaz:', error, info?.componentStack);
+    console.error(`[${APP_NAME}] Error de interfaz:`, error, info?.componentStack);
     const message = String(error?.message || '');
     if (/useAuth|AuthProvider/i.test(message) && import.meta.env.DEV) {
       window.location.reload();
@@ -32,7 +32,7 @@ export default class ErrorBoundary extends Component {
         <div className="app-container" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: '2rem' }}>
           <div className="glass-card" style={{ maxWidth: 420, padding: '2rem', textAlign: 'center' }}>
             <h1 className="serif-font" style={{ fontSize: '1.4rem', marginBottom: '0.5rem' }}>
-              Jockey Club San Juan
+              {APP_NAME}
             </h1>
             <p style={{ color: 'var(--text-secondary)', marginBottom: '1.25rem', fontSize: '0.95rem' }}>
               Ocurrió un error inesperado en la interfaz. La sesión se mantiene segura; recargue para continuar.

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jockey-club-sj-cache-v25';
+const CACHE_NAME = 'jockey-connect-cache-v26';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',

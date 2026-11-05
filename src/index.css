@@ -385,6 +385,20 @@ a {
   z-index: 0;
 }
 
+.app-footer-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  margin-bottom: 0.9rem;
+}
+
+.app-footer-silks {
+  width: min(180px, 50%);
+  margin: 0 auto 1.1rem;
+  border-radius: 2px;
+}
+
 body.has-modal .app-footer {
   visibility: hidden;
 }
@@ -640,12 +654,15 @@ body.has-modal .app-footer {
 }
 
 .nav-brand-text {
-  font-size: clamp(1rem, 2.5vw, 1.35rem);
-  font-weight: 700;
-  letter-spacing: 0.12em;
+  font-size: clamp(0.95rem, 1.9vw, 1.18rem);
   color: var(--text-primary);
-  text-transform: uppercase;
+  line-height: 1;
 }
+
+.nav-brand-text .jc-wordmark__connect {
+  letter-spacing: 0.24em;
+}
+
 
 .nav-header-date {
   font-family: 'Playfair Display', Georgia, serif;
@@ -739,8 +756,20 @@ body.has-modal .app-footer {
 }
 
 @media (max-width: 480px) {
+  /* En el celular el nombre pasa a dos renglones, junto al símbolo */
   .nav-brand-text {
-    display: none;
+    font-size: 0.86rem;
+  }
+
+  .nav-brand-text .jc-wordmark {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.34em;
+  }
+
+  .nav-brand-text .jc-wordmark__connect {
+    font-size: 0.6em;
+    letter-spacing: 0.5em;
   }
 }
 
@@ -3995,6 +4024,12 @@ button.membership-moves-name {
   letter-spacing: 0.2em;
   text-transform: uppercase;
   color: #f0b39a;
+}
+
+.join-hero__silks {
+  width: min(200px, 60%);
+  margin: 0.15rem 0 0.7rem;
+  border-radius: 2px;
 }
 
 .join-hero__title {

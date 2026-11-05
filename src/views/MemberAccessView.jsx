@@ -15,6 +15,7 @@ import {
 } from '../domain/members/selfService';
 import { repos } from '../data/bootstrap';
 import { isSupabaseConfigured } from '../lib/supabase';
+import { SilksBand } from '../components/brand/JockeyBrand';
 
 const TABS = [
   { id: 'alta', label: 'Quiero asociarme' },
@@ -289,7 +290,8 @@ export default function MemberAccessView() {
           width={112}
           height={112}
         />
-        <p className="join-hero__eyebrow">Sede Rivadavia · San Juan</p>
+        <SilksBand height={6} className="join-hero__silks" />
+        <p className="join-hero__eyebrow">Jockey Connect · Sede Rivadavia</p>
         <h1 className="join-hero__title">
           {joining ? 'Quiero asociarme' : 'Ya soy socio'}
         </h1>
