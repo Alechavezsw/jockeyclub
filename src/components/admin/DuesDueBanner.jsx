@@ -7,7 +7,7 @@ import { todayISODateAR } from '../../lib/arDate';
 import { formatCurrency } from '../../domain/accounting/journal';
 import { resolveFeePeriods } from '../../domain/accounting/feeBilling';
 import { liquidatedTotalForMonth } from '../../domain/accounting/feePeriodLiquidation';
-import { appFinanceSinceHandoff, composeClubFinance, financeFromMonthlySummary, lilaContabilidadFromSnapshots } from '../../domain/accounting/opsFinanceSnapshot';
+import { appFinanceSinceHandoff, composeClubFinance, duesCollectionFromMonthlySummary, financeFromMonthlySummary, lilaContabilidadFromSnapshots } from '../../domain/accounting/opsFinanceSnapshot';
 import { splitMonthDuesCollection } from '../../domain/accounting/cashPaymentDetail';
 import { monthlyBalanceSeed } from '../../domain/accounting/monthlyBalance';
 import { monthlyBalanceSummarySeed } from '../../domain/accounting/monthlyBalanceSummary';
@@ -254,6 +254,12 @@ export default function DuesDueBanner({
   // liquidated usa period.amount / pack primero (sin barrer 7k socios).
   const board = useMemo(() => {
     if (!rosterReady) return null;
+    const lilaMonth = duesCollectionFromMonthlySummary({
+      snapshot: monthlyBalanceSummarySeed().ACCESSIN_MONTHLY_BALANCE_SUMMARY_SNAPSHOT,
+      sections: monthlyBalanceSummarySeed().ACCESSIN_MONTHLY_BALANCE_SUMMARY_SECTIONS,
+      monthKey,
+    });
+    if (lilaMonth) return lilaMonth;
     const sheetLiquidated = liquidatedTotalForMonth(periods, monthKey, {
       members: deferredMembers,
       tierCatalog,
@@ -296,6 +302,7 @@ export default function DuesDueBanner({
     today,
     periods,
     tierCatalog,
+    lilaCut,
   ]);
   const collected = board?.collected ?? 0;
   const liquidated = board?.liquidated ?? 0;

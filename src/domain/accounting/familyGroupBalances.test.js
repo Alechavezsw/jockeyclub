@@ -18,9 +18,9 @@ beforeAll(async () => {
 
 describe('familyGroupBalances', () => {
   it.skipIf(!hasLocalSnapshot('accessinFamilyGroupBalances'))('carga el corte vivo de grupos familiares', () => {
-    expect(ACCESSIN_FAMILY_GROUP_BALANCES_AS_OF).toBe('2026-11-04');
+    expect(ACCESSIN_FAMILY_GROUP_BALANCES_AS_OF).toBe('2026-11-05');
     expect(ACCESSIN_FAMILY_GROUP_BALANCES_SNAPSHOT.groupCount).toBeGreaterThanOrEqual(700);
-    expect(ACCESSIN_FAMILY_GROUP_BALANCES_SNAPSHOT.asOfLabel).toMatch(/4 de Noviembre del 2026/i);
+    expect(ACCESSIN_FAMILY_GROUP_BALANCES_SNAPSHOT.asOfLabel).toMatch(/5 de Noviembre del 2026/i);
   });
 
   it.skipIf(!hasLocalSnapshot('accessinFamilyGroupBalances'))('lista grupos y resume el corte', () => {

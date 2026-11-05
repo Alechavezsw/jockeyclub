@@ -5,6 +5,7 @@ import {
   collectionForCalendarMonth,
   composeClubFinance,
   duesStandingRate,
+  duesCollectionFromMonthlySummary,
   financeFromMonthlySummary,
   financeFromSummary,
   lilaContabilidadFromSnapshots,
@@ -178,6 +179,16 @@ describe('financeFromMonthlySummary', () => {
 
   it('ignora un resumen que no es el mes calendario', () => {
     expect(financeFromMonthlySummary({ ...september, today: '2026-10-02' })).toBeNull();
+  });
+
+  it('el cartel del mes usa la liquidación y los ingresos de Lila', () => {
+    const board = duesCollectionFromMonthlySummary({ ...september, monthKey: '2026-09' });
+    expect(board.liquidated).toBe(57843000);
+    expect(board.cuotaMes).toBe(40496000);
+    expect(board.atrasadas).toBeCloseTo(10567001.14, 2);
+    expect(board.recargos).toBe(284200);
+    expect(board.recaudado).toBeCloseTo(51347201.14, 2);
+    expect(duesCollectionFromMonthlySummary({ ...september, monthKey: '2026-10' })).toBeNull();
   });
 
   it('un corte de otro mes no cuenta como recaudación de hoy', () => {

@@ -275,6 +275,66 @@ export function financeFromMonthlySummary({
   return month;
 }
 
+function summaryLines(sections = []) {
+  const lines = [];
+  for (const section of sections || []) {
+    for (const line of section?.lines || []) lines.push(line);
+  }
+  return lines;
+}
+
+function sumLabels(lines, test) {
+  let sum = 0;
+  let hit = false;
+  for (const line of lines) {
+    if (!test(String(line?.label || ''))) continue;
+    sum += Number(line?.amount) || 0;
+    hit = true;
+  }
+  return hit ? money(sum) : 0;
+}
+
+/**
+ * Recaudado y liquidado del mes, tomados del balance resumido de Lila.
+ * Misma regla que la caja: portería se muestra aparte y no entra al recaudado.
+ */
+export function duesCollectionFromMonthlySummary({
+  snapshot = {},
+  sections = [],
+  monthKey = '',
+} = {}) {
+  const periodKey = monthKeyOf(snapshot?.periodFrom || snapshot?.periodTo || snapshot?.asOf || '');
+  if (!periodKey || (monthKey && periodKey !== String(monthKey).slice(0, 7))) return null;
+  const lines = summaryLines(sections);
+  const liquidacion = sumLabels(lines, (label) => /^liquidaci[oó]n /i.test(label));
+  const imputadas = sumLabels(
+    lines,
+    (label) => /imputad[oa]s en cuentas corrientes/i.test(label) && !/recargo/i.test(label),
+  );
+  const liquidated = liquidacion > 0 ? liquidacion : imputadas;
+  if (!(liquidated > 0)) return null;
+  const cuotaMes = sumLabels(lines, (label) => /^ingresos de (cuotas|expensas)$/i.test(label));
+  const atrasadas = sumLabels(lines, (label) => /^ingresos de (cuotas|expensas) atrasadas$/i.test(label));
+  const posteriores = sumLabels(lines, (label) => /^ingresos de (cuotas|expensas) posteriores$/i.test(label));
+  const recargos = sumLabels(lines, (label) => /^ingresos de recargos de (cuotas|expensas)/i.test(label));
+  const reservas = sumLabels(lines, (label) => /^ingresos de reservas$/i.test(label));
+  const porteria = sumLabels(lines, (label) => /porter[ií]a/i.test(label));
+  const recaudado = money(cuotaMes + atrasadas + posteriores + recargos + reservas);
+  return {
+    source: 'lila-month',
+    periodKey,
+    recaudado,
+    collected: recaudado,
+    liquidated,
+    cuotaMes,
+    atrasadas,
+    posteriores,
+    recargos,
+    reservas,
+    porteria,
+  };
+}
+
 /**
  * KPIs del widget Contabilidad de LILA: liquidado / recaudado / caja.
  * Devuelve null si todavía no cargó el corte.

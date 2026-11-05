@@ -12,7 +12,7 @@ import { canAccessConcessions, canAccessQrGate } from '../../domain/auth/roles';
 import { reviewItemsForAccess } from '../../domain/review/buildClubReview';
 import { isAlertVisible, ALERT_SEVERITY } from '../../domain/alerts/alerts';
 import { isPoolDayCashOpen, poolCanonByDay } from '../../domain/pool/poolAccess';
-import { buildOpsFinanceSnapshot, composeClubFinance, financeFromSummary, lilaContabilidadFromSnapshots } from '../../domain/accounting/opsFinanceSnapshot';
+import { buildOpsFinanceSnapshot, composeClubFinance, duesCollectionFromMonthlySummary, financeFromSummary, lilaContabilidadFromSnapshots } from '../../domain/accounting/opsFinanceSnapshot';
 import { monthlyBalanceSeed } from '../../domain/accounting/monthlyBalance';
 import { monthlyBalanceSummarySeed } from '../../domain/accounting/monthlyBalanceSummary';
 import { detailedCcSeed } from '../../domain/accounting/detailedCurrentAccounts';
@@ -32,6 +32,7 @@ import { dedupeAccessLogs } from '../../domain/credentials/accessLog';
 import { OpsProgressRing } from './OpsGauge';
 import DuesDueBanner from './DuesDueBanner';
 import CurrentAccountCutNote from '../erp/CurrentAccountCutNote';
+import { summarizeCurrentAccountCut } from '../../domain/accounting/currentAccountBalances';
 
 const MOVES_SNAPSHOTS = ['societasMembershipMoves'];
 const LILA_MONEY_LIGHT = [
@@ -330,6 +331,7 @@ export default function AdminDashboardTab({
   );
 
   const deferredMembers = useDeferredValue(members);
+  const accountCut = useMemo(() => summarizeCurrentAccountCut(deferredMembers), [deferredMembers]);
   const household = useMemo(
     () => buildPadronHouseholdStats(deferredMembers, { tierCatalog }),
     [deferredMembers, tierCatalog]
@@ -375,6 +377,11 @@ export default function AdminDashboardTab({
 
   const duesBoard = useMemo(() => {
     if (membersLoading && !(deferredMembers?.length)) return null;
+    const lilaMonth = duesCollectionFromMonthlySummary({
+      snapshot: monthlyBalanceSummarySeed().ACCESSIN_MONTHLY_BALANCE_SUMMARY_SNAPSHOT,
+      sections: monthlyBalanceSummarySeed().ACCESSIN_MONTHLY_BALANCE_SUMMARY_SECTIONS,
+      monthKey,
+    });
     const periods = resolveFeePeriods(feePeriods);
     const liquidated = Number(liquidatedTotalForMonth(periods, monthKey, { members: deferredMembers, tierCatalog })) || 0;
     const split = splitMonthDuesCollection({
@@ -388,18 +395,20 @@ export default function AdminDashboardTab({
       monthKey,
       onDate: todayKey,
     });
-    const rate = liquidated > 0 ? Math.round((split.recaudado / liquidated) * 100) : 0;
+    const collected = lilaMonth?.recaudado ?? split.recaudado;
+    const liquidado = lilaMonth?.liquidated ?? liquidated;
+    const rate = liquidado > 0 ? Math.round((collected / liquidado) * 100) : 0;
     return {
-      recaudado: split.recaudado,
-      liquidated,
+      recaudado: collected,
+      liquidated: liquidado,
       rate,
       today: todaySplit.recaudado,
-      cuotaMes: split.cuotaMes,
-      atrasadas: split.atrasadas,
-      posteriores: split.posteriores,
-      recargos: split.recargos,
-      reservas: split.reservas,
-      porteria: split.porteria,
+      cuotaMes: lilaMonth?.cuotaMes ?? split.cuotaMes,
+      atrasadas: lilaMonth?.atrasadas ?? split.atrasadas,
+      posteriores: lilaMonth?.posteriores ?? split.posteriores,
+      recargos: lilaMonth?.recargos ?? split.recargos,
+      reservas: lilaMonth?.reservas ?? split.reservas,
+      porteria: lilaMonth?.porteria ?? split.porteria,
     };
   }, [membersLoading, feePeriods, monthKey, deferredMembers, tierCatalog, cashMoves, todayKey]);
   const liveCollectionRate = duesBoard?.rate ?? 0;
@@ -1115,6 +1124,11 @@ export default function AdminDashboardTab({
                       {userRole === 'cashier' ? 'Caja' : 'Contabilidad'}
                       <CurrentAccountCutNote members={members} />
                     </h3>
+                    {accountCut.asOf ? (
+                      <p className="ops-muted" style={{ margin: '0.2rem 0 0', fontSize: '0.78rem' }}>
+                        Cuentas corrientes al {formatISODateLongAR(accountCut.asOf)}
+                      </p>
+                    ) : null}
                   </div>
                   <span className="ops-month">{moneyMonthLabel}</span>
                 </header>

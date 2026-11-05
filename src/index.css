@@ -24319,20 +24319,22 @@ ul.sys-set-hint {
 .due-collect {
   position: relative;
   display: grid;
-  grid-template-columns: 1fr 1fr minmax(10.5rem, 0.85fr);
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.2fr) minmax(9.5rem, 0.8fr);
   grid-template-rows: auto auto auto auto;
-  column-gap: 1.35rem;
+  column-gap: clamp(0.75rem, 1.6vw, 1.35rem);
   row-gap: 0;
   align-items: start;
   overflow-anchor: none;
   margin: 0;
-  padding: 1.35rem 1.6rem 1.45rem;
+  padding: clamp(1.05rem, 1.8vw, 1.35rem) clamp(1rem, 2vw, 1.6rem) clamp(1.1rem, 1.8vw, 1.45rem);
   overflow: hidden;
   border-radius: 6px 28px 10px 26px;
   border: 1px solid rgba(202, 57, 12, 0.28);
   background:
     linear-gradient(108deg, rgba(202, 57, 12, 0.16) 0%, transparent 36%),
     var(--surface-card);
+  container-type: inline-size;
+  container-name: due-collect;
 }
 .due-collect::after {
   content: "";
@@ -24384,36 +24386,54 @@ ul.sys-set-hint {
 .due-collect-kicker,
 .due-collect-rest,
 .due-collect-amount {
-  justify-self: center;
+  justify-self: stretch;
   text-align: center;
+  max-width: 100%;
+  min-width: 0;
+}
+.due-collect-kicker {
+  line-height: 1.25;
+  text-wrap: balance;
 }
 .due-collect-rest {
   margin: 0.35rem 0 0;
   color: var(--text-secondary);
-  font-size: 0.92rem;
+  font-size: clamp(0.8rem, 0.72rem + 0.25vw, 0.92rem);
   line-height: 1.4;
+  text-wrap: balance;
 }
 .due-collect-amount {
   display: block;
-  margin: 0.1rem 0 0;
-  min-height: 3.35rem;
-  min-width: 12ch;
+  margin: 0.15rem 0 0;
+  min-height: 0;
   font-family: "IBM Plex Mono", "Cascadia Mono", "Segoe UI Mono", ui-monospace, monospace;
-  font-size: 2.85rem;
+  font-size: clamp(1.35rem, 0.55rem + 2.15vw, 2.65rem);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" 1;
-  line-height: 1;
-  letter-spacing: -0.02em;
+  line-height: 1.08;
+  letter-spacing: -0.035em;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
   overflow-anchor: none;
   color: var(--text-strong);
 }
 .due-collect-copy > .due-collect-amount {
   font-family: Outfit, system-ui, sans-serif;
-  font-size: 3.35rem;
+  font-size: clamp(2.1rem, 1.2rem + 2.4vw, 3.2rem);
   font-weight: 650;
-  min-width: 0;
+  letter-spacing: -0.02em;
+  overflow: visible;
+}
+.due-collect-money > .due-collect-amount {
+  /* Escala al ancho de la tarjeta: montos tipo $ 42.686.233,03 caben en la columna */
+  font-size: clamp(1.2rem, 3.05cqi, 2.55rem);
+}
+@container due-collect (max-width: 720px) {
+  .due-collect-money > .due-collect-amount {
+    font-size: clamp(1.4rem, 6.2cqi, 2.2rem);
+  }
 }
 .due-collect.phase-today .due-collect-money .due-collect-amount,
 .due-collect.phase-after .due-collect-money .due-collect-amount {
@@ -24422,10 +24442,12 @@ ul.sys-set-hint {
 .due-collect-track {
   height: 5px;
   width: min(100%, 16.5rem);
+  max-width: 100%;
   margin: 0.85rem auto 0;
   border-radius: 99px 2px 99px 2px;
   background: rgba(255, 255, 255, 0.08);
   overflow: hidden;
+  justify-self: center;
 }
 .due-collect-track span {
   display: block;
@@ -24819,6 +24841,32 @@ details[open] > summary .due-fold-arrow {
   font-style: normal;
   font-size: 0.85rem;
 }
+@media (max-width: 1100px) {
+  .due-collect,
+  .due-collect.phase-today,
+  .due-collect.phase-after {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+    grid-template-rows: auto auto auto auto auto;
+  }
+  .due-collect::after {
+    left: 42%;
+    height: 4.8rem;
+  }
+  .due-collect-money > .due-collect-lines {
+    grid-column: 1 / -1;
+    grid-row: 5;
+    margin-top: 0.85rem;
+    padding: 0.7rem 0 0;
+    border-left: none;
+    border-top: 1px solid color-mix(in srgb, var(--primary-gold) 32%, transparent);
+    width: 100%;
+    max-width: 22rem;
+    justify-self: center;
+  }
+  .due-collect-money > .due-collect-amount {
+    font-size: clamp(1.35rem, 3.4cqi, 2.3rem);
+  }
+}
 @media (max-width: 720px) {
   .due-collect,
   .jev-hero,
@@ -24834,7 +24882,7 @@ details[open] > summary .due-fold-arrow {
   .due-collect.phase-after {
     grid-template-columns: 1fr;
     grid-template-rows: none;
-    padding: 1.2rem 1rem 1.15rem;
+    padding: 1.15rem 0.95rem 1.1rem;
     border-radius: 8px 22px 10px 18px;
     gap: 0.55rem;
   }
@@ -24846,7 +24894,9 @@ details[open] > summary .due-fold-arrow {
     display: grid;
     justify-items: center;
     text-align: center;
-    gap: 0.1rem;
+    gap: 0.15rem;
+    width: 100%;
+    min-width: 0;
   }
   .due-collect-copy > .due-collect-kicker,
   .due-collect-copy > .due-collect-amount,
@@ -24868,10 +24918,14 @@ details[open] > summary .due-fold-arrow {
     margin-top: 0.65rem;
     padding-left: 0;
     border-left: none;
+    border-top: none;
   }
   .due-collect-money > .due-collect-amount {
-    font-size: 2.35rem;
-    min-height: 2.35rem;
+    font-size: clamp(1.45rem, 4.8vw + 0.4rem, 2.2rem);
+    letter-spacing: -0.04em;
+  }
+  .due-collect-copy > .due-collect-amount {
+    font-size: clamp(2rem, 7vw, 2.75rem);
   }
   .ops-dues-lines {
     margin-left: 0;

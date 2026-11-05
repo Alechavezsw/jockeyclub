@@ -15,6 +15,9 @@ import { persistDuesCollection, recordDuesCollection } from '../../domain/member
 import { deliverPaymentReceipt } from '../../domain/payments/deliverPaymentReceipt';
 import { downloadCsv, stampDate } from '../../domain/reports/downloadCsv';
 import { getActiveTiers, getTierDisplayName } from '../../domain/members/tiers';
+import { summarizeCurrentAccountCut } from '../../domain/accounting/currentAccountBalances';
+import { formatISODateLongAR } from '../../lib/arDate';
+import CurrentAccountCutNote from '../erp/CurrentAccountCutNote';
 import CollectDuesModal from './CollectDuesModal';
 
 function matchesSearch(member, query) {
@@ -179,6 +182,7 @@ export default function DuesControlTab({
   const tiers = useMemo(() => getActiveTiers(tierCatalog), [tierCatalog]);
   const canCollectHere = typeof setMembers === 'function';
 
+  const accountCut = useMemo(() => summarizeCurrentAccountCut(members), [members]);
   const overdueAll = useMemo(() => getOverdueMembers(members), [members]);
   const dueTodayAll = useMemo(() => getDueTodayMembers(members), [members]);
   const upcomingAll = useMemo(() => getUpcomingDuesMembers(members), [members]);
@@ -323,8 +327,12 @@ export default function DuesControlTab({
     <div className="fade-in dues-control">
       <div className="dues-control-head">
         <div>
-          <h2 className="serif-font">Control de Cuotas</h2>
+          <h2 className="serif-font">
+            Control de Cuotas
+            <CurrentAccountCutNote members={members} />
+          </h2>
           <p>
+            {accountCut.asOf ? `Cuentas corrientes al ${formatISODateLongAR(accountCut.asOf)}. ` : ''}
             Cuota social viva sobre el padrón: el 10 vence sin recargo, desde el 11 está en mora
             (familiar e individual, recargo 10 %). AMET vence el 18; el 2,5 % es tarifa, no mora.
             El saldo de cuota del padrón entra acá. Un alquiler queda afuera si el mes ya está pago. Cobrar usa el recaudo de caja.
