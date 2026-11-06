@@ -40,6 +40,7 @@ describe('buildMercadoPagoQrPayload', () => {
 describe('cuentas institucionales', () => {
   it('tiene Nación, MP y AMET con cuenta de asiento', () => {
     expect(CLUB_BANK_ACCOUNTS[0].id).toBe('nacion');
+    expect(CLUB_BANK_ACCOUNTS[0].alias).toBe('Jockey.club.sj');
     expect(CLUB_BANK_ACCOUNTS[0].cbu).toHaveLength(22);
     expect(MERCADO_PAGO.journalAccount).toBeTruthy();
     expect(AMET_CASH_ACCOUNT.journalAccount).toBe('AMET');

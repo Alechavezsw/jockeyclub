@@ -886,7 +886,10 @@ export default function MemberFacilitiesBooking({
                     ) : null}
                     {payMethod === 'transferencia' && bank ? (
                       <div className="pay-hist-transfer">
-                        <p>Alias {bank.alias}</p>
+                        <div className="pay-alias">
+                          <span className="pay-alias-label">Alias</span>
+                          <strong className="pay-alias-value">{bank.alias}</strong>
+                        </div>
                         <label className="pay-hist-file">
                           <Upload size={16} />
                           {receiptFile?.name || 'Adjuntar comprobante (JPG, PNG o PDF)'}

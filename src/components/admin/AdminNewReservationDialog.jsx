@@ -858,7 +858,10 @@ export default function AdminNewReservationDialog({
 
               {payMethod === 'transferencia' && bank ? (
                 <div className="admin-new-res-transfer">
-                  <p style={{ margin: 0 }}>Alias {bank.alias}</p>
+                  <div className="pay-alias">
+                    <span className="pay-alias-label">Alias</span>
+                    <strong className="pay-alias-value">{bank.alias}</strong>
+                  </div>
                   <p style={{ margin: 0 }}>
                     Monto {payFull ? 'total' : 'seña'}: <strong>{money(chargeAmount)}</strong>
                   </p>
