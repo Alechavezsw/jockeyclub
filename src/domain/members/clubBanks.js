@@ -6,7 +6,7 @@ export const CLUB_BANK_ACCOUNTS = [
     name: 'Banco Nación',
     accountName: 'Jockey Club San Juan',
     cbu: '0110599520000001234567',
-    alias: 'JOCKEY.CLUB.SJ',
+    alias: 'JOCKEY.CLUBSJ',
     journalAccount: 'Banco Nación',
   },
 ];

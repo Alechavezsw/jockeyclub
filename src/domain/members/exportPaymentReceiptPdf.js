@@ -55,7 +55,7 @@ function accountLabel(payment) {
   if (payment.method === 'mercadopago') return `Mercado Pago - ${MERCADO_PAGO.alias}`;
   if (payment.method === 'transferencia') {
     const bank = CLUB_BANK_ACCOUNTS.find((b) => b.id === payment.bankId);
-    return (payment.bankName || bank?.name) ? `${payment.bankName || bank.name} - ${bank?.cbu || ''}`.trim() : '—';
+    return bank?.alias ? `Alias ${bank.alias}` : '—';
   }
   return 'Caja General';
 }

@@ -65,9 +65,10 @@ export default function CollectDuesDeskFlow({
       return undefined;
     }
     let cancelled = false;
+    const controller = new AbortController();
     const timer = window.setTimeout(() => {
       setRemoteBusy(true);
-      repos.searchMembersDirectory(needle, { limit: 30 })
+      repos.searchMembersDirectory(needle, { limit: 12, signal: controller.signal })
         .then((rows) => {
           if (!cancelled) setRemoteHits(rows || []);
         })
@@ -80,6 +81,7 @@ export default function CollectDuesDeskFlow({
     }, 280);
     return () => {
       cancelled = true;
+      controller.abort();
       window.clearTimeout(timer);
     };
   }, [query, open, member]);

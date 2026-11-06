@@ -313,7 +313,7 @@ export function peekMembersDirectory(query, { limit = 20 } = {}) {
  * Búsqueda puntual para puerta / pileta / registro.
  * Prefiere RPC (índice trigram, sin RLS por fila).
  */
-export async function searchMembersDirectory(query, { limit = 20 } = {}) {
+export async function searchMembersDirectory(query, { limit = 20, signal } = {}) {
   const raw = String(query || '').trim();
   if (!raw) return [];
   const cap = Math.min(50, Math.max(5, Number(limit) || 20));
@@ -325,12 +325,14 @@ export async function searchMembersDirectory(query, { limit = 20 } = {}) {
     const { data, error } = await sb().rpc('search_members_lookup', {
       p_query: raw,
       p_limit: cap,
-    });
+    }, signal ? { abortSignal: signal } : undefined);
+    if (signal?.aborted) return [];
     if (!error) {
       const mapped = (data || []).map(listRowToMember);
       rememberMemberSearch(memoKey, mapped);
       return mapped;
     }
+    if (signal?.aborted || error?.name === 'AbortError') return [];
     if (isMissingRpc(error)) memberLookupRpcOk = false;
     else throwOnError(error, 'No se pudo buscar socios');
   }

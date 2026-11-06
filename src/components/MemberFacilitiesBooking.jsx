@@ -885,8 +885,6 @@ export default function MemberFacilitiesBooking({
                     ) : null}
                     {payMethod === 'transferencia' && bank ? (
                       <div className="pay-hist-transfer">
-                        <p><strong>{bank.name}</strong> · {bank.accountName}</p>
-                        <p>CBU {bank.cbu}</p>
                         <p>Alias {bank.alias}</p>
                         <label className="pay-hist-file">
                           <Upload size={16} />

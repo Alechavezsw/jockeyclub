@@ -62,7 +62,38 @@ export async function listJournalEntries() {
   }
 }
 
+function journalRpcMissing(error) {
+  const code = String(error?.code || '');
+  return code === 'PGRST202' || code === '42883';
+}
+
 export async function insertJournalEntry(entry, { createdBy } = {}) {
+  const created = isUuid(createdBy) ? createdBy : null;
+  const { data, error } = await sb().rpc('post_journal_entry', {
+    p_entry: {
+      fiscalPeriodId: entry.fiscalPeriodId || FISCAL_2026,
+      date: entry.date,
+      concept: entry.concept || entry.description || 'Asiento',
+      reference: entry.reference || null,
+      status: entry.status == null ? 'posted' : entry.status,
+      sourceModule: entry.sourceModule || 'manual',
+      createdBy: created,
+      lines: (entry.lines || []).map((line, index) => ({
+        accountId: line.accountId,
+        lineOrder: line.lineOrder || index + 1,
+        debit: Number(line.debit) || 0,
+        credit: Number(line.credit) || 0,
+        memo: line.memo || null,
+      })),
+    },
+  });
+  if (!error && data?.entry) {
+    return M.journalFromRow(data.entry, Array.isArray(data.lines) ? data.lines : []);
+  }
+  if (error && !journalRpcMissing(error)) {
+    throw new Error(error.message || 'No se pudo crear asiento');
+  }
+
   const header = {
     fiscal_period_id: entry.fiscalPeriodId || FISCAL_2026,
     entry_date: entry.date,

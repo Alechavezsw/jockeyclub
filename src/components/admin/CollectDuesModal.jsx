@@ -753,37 +753,29 @@ export default function CollectDuesModal({
 
         {method === 'transferencia' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '1rem' }}>
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label className="form-label">Banco del club</label>
-              <select
-                className="form-input"
-                value={bankId}
-                onChange={(e) => setBankId(e.target.value)}
-              >
-                {CLUB_BANK_ACCOUNTS.map((b) => (
-                  <option key={b.id} value={b.id}>{b.name}</option>
-                ))}
-              </select>
-            </div>
+            {CLUB_BANK_ACCOUNTS.length > 1 ? (
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Alias</label>
+                <select
+                  className="form-input"
+                  value={bankId}
+                  onChange={(e) => setBankId(e.target.value)}
+                >
+                  {CLUB_BANK_ACCOUNTS.map((b) => (
+                    <option key={b.id} value={b.id}>{b.alias}</option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
 
-            {selectedBank && (
+            {selectedBank?.alias ? (
               <div style={{ padding: '0.85rem', borderRadius: 10, border: '1px solid var(--border-glass)', background: 'rgba(255,255,255,0.02)' }}>
-                <div style={{ fontWeight: 700, color: 'var(--text-gold)', marginBottom: '0.5rem' }}>{selectedBank.name}</div>
-                <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <span>Titular: <strong style={{ color: 'var(--text-primary)' }}>{selectedBank.accountName}</strong></span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <span>CBU: <code style={{ color: 'var(--text-primary)' }}>{selectedBank.cbu}</code></span>
-                    <CopyBtn value={selectedBank.cbu} />
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <span>Alias: <code style={{ color: 'var(--text-primary)' }}>{selectedBank.alias}</code></span>
-                    <CopyBtn value={selectedBank.alias} />
-                  </div>
+                <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span>Alias: <code style={{ color: 'var(--text-primary)' }}>{selectedBank.alias}</code></span>
+                  <CopyBtn value={selectedBank.alias} />
                 </div>
               </div>
-            )}
+            ) : null}
           </div>
         )}
 
@@ -881,14 +873,14 @@ export default function CollectDuesModal({
                   </div>
                   {line.method === 'transferencia' ? (
                     <label className="form-group" style={{ margin: 0 }}>
-                      <span className="form-label">Banco</span>
+                      <span className="form-label">Alias</span>
                       <select
                         className="form-input"
                         value={line.bankId}
                         onChange={(e) => patchMixLine(line.key, { bankId: e.target.value })}
                       >
                         {CLUB_BANK_ACCOUNTS.map((b) => (
-                          <option key={b.id} value={b.id}>{b.name}</option>
+                          <option key={b.id} value={b.id}>{b.alias}</option>
                         ))}
                       </select>
                     </label>

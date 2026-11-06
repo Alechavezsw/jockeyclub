@@ -312,8 +312,6 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
         {bank ? (
           <div className="pay-hist-transfer">
             <h3>Transferencia al club</h3>
-            <p><strong>{bank.name}</strong> · {bank.accountName}</p>
-            <p>CBU {bank.cbu}</p>
             <p>Alias {bank.alias}</p>
             <label className="pay-hist-file">
               <Upload size={16} />

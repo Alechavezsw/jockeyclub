@@ -6,6 +6,7 @@ import { groupMailCampaigns } from '../../domain/messaging/clubNotice';
 import { useAuth } from '../../context/AuthContext';
 import { repos } from '../../data/bootstrap';
 import NoticeComposeCard from './NoticeComposeCard';
+import { CLUB_BANK_ACCOUNTS } from '../../domain/members/clubBanks';
 
 const SECTIONS = [
   { id: 'mail', label: 'Mail', Icon: Mail },
@@ -44,7 +45,7 @@ export default function MessagingTab({
   const [threadEmails, setThreadEmails] = useState([]);
   const [selectedCampaignId, setSelectedCampaignId] = useState('');
   const [whatsappTemplate, setWhatsappTemplate] = useState(
-    'Estimado/a *{nombre}*, le saludamos cordialmente de la Comisión Directiva del Jockey Club San Juan (Sede Rivadavia). Le recordamos amablemente que posee un saldo pendiente de cuota social de *{saldo}*. Puede regularizar su situación en la administración central o mediante transferencia al Banco Nación. ¡Muchas gracias!'
+    `Estimado/a *{nombre}*, le saludamos cordialmente de la Comisión Directiva del Jockey Club San Juan (Sede Rivadavia). Le recordamos amablemente que posee un saldo pendiente de cuota social de *{saldo}*. Puede regularizar su situación en la administración central o mediante transferencia al alias ${CLUB_BANK_ACCOUNTS[0].alias} ¡Muchas gracias!`
   );
   const [virtualSentLogs, setVirtualSentLogs] = useState([]);
 
