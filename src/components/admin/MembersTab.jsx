@@ -745,10 +745,6 @@ export default function MembersTab({
       setFormError('El teléfono WhatsApp es obligatorio.');
       return;
     }
-    if (!form.disciplines.length) {
-      setFormError('Seleccione al menos una disciplina (requisito de alta).');
-      return;
-    }
     if (form.documentNumber.trim() && members.some((m) => m.documentNumber === form.documentNumber.trim())) {
       setFormError('Ya existe un socio con ese documento.');
       return;
@@ -1833,9 +1829,9 @@ export default function MembersTab({
               </div>
             </div>
             <div style={{ marginTop: '0.85rem' }}>
-              <label className="form-label">Disciplinas *</label>
+              <label className="form-label">Disciplinas <span className="members-alta-optional">Opcional</span></label>
               <p style={{ margin: '0.2rem 0 0.45rem', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                Requisito de alta: indique al menos una disciplina en la que participará el titular.
+                Si participa en alguna actividad del club, márquela acá.
               </p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.45rem', marginTop: 4 }}>
                 {disciplineOptions.map((d) => {
@@ -2124,9 +2120,7 @@ export default function MembersTab({
             </button>
             <button type="submit" className="btn btn-tan" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 180, justifyContent: 'center' }}>
               <UserPlus size={16} />
-              {form.familyGroup.length > 0
-                ? `Registrar socio + ${form.familyGroup.length} familiar${form.familyGroup.length > 1 ? 'es' : ''}`
-                : 'Registrar socio'}
+              Registrar socio
             </button>
           </div>
         </form>
