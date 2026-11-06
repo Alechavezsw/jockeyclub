@@ -4,6 +4,8 @@ import {
   applyAccountEntryToMember,
   buildAccessinAccountEntries,
   buildPaymentBoleto,
+  lilaBalanceParts,
+  resolvePaymentBoletoAmounts,
   createAccountEntry,
   compareBalanceRows,
   familyBalanceForMember,
@@ -228,5 +230,39 @@ describe('memberBalances / saldos', () => {
     expect(boleto.totalToPay).toBe(60000);
     expect(boleto.dueAmount2).toBe(66000);
     expect(boleto.clubName).toMatch(/JOCKEY/i);
+  });
+
+  it('desglosa capital y recargos como el Excel de Lila (ej. socio 1004)', () => {
+    const parts = lilaBalanceParts({
+      memberId: '1004',
+      outstandingBalance: 56000,
+      unpaidCapital: 54000,
+      unpaidSurcharges: 2000,
+    });
+    expect(parts.capital).toBe(54000);
+    expect(parts.surcharges).toBe(2000);
+    expect(parts.resultante).toBe(56000);
+
+    const amounts = resolvePaymentBoletoAmounts({
+      memberId: '1004',
+      name: 'Cristina Mugas',
+      tier: 'socio_individual',
+      outstandingBalance: 56000,
+      unpaidCapital: 54000,
+      unpaidSurcharges: 2000,
+    });
+    expect(amounts.capital).toBe(54000);
+    expect(amounts.surcharge).toBe(2000);
+    // No inventa otro 10 % encima del resultante.
+    expect(amounts.capital + amounts.surcharge).toBe(56000);
+  });
+
+  it('no arma boleto de cuota para vitalicio', () => {
+    expect(() => resolvePaymentBoletoAmounts({
+      memberId: '4',
+      name: 'Vitalicia',
+      tier: 'socio_vitalicio',
+      outstandingBalance: 0,
+    })).toThrow(/no abonan cuota/i);
   });
 });

@@ -1,5 +1,5 @@
-/** Pagos a proveedores Accessin/LILA 2026-11-02. Auto-generado — no editar a mano. */
-export const ACCESSIN_SUPPLIER_PAYMENTS_AS_OF = "2026-11-02";
+/** Pagos a proveedores Accessin/LILA 2026-11-05. Auto-generado — no editar a mano. */
+export const ACCESSIN_SUPPLIER_PAYMENTS_AS_OF = "2026-11-05";
 export const ACCESSIN_SUPPLIER_PAYMENTS_METHOD_LABELS = {
   "efectivo": "Efectivo",
   "cheques": "Cheques",
@@ -9,9 +9,9 @@ export const ACCESSIN_SUPPLIER_PAYMENTS_METHOD_LABELS = {
   "otros": "Otros"
 };
 export const ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT = {
-  "asOf": "2026-11-02",
-  "fileName": "Reporte de Pagos a Proveedores - 2026-11-02.xlsx",
-  "generatedAt": "2026-11-02T00:00:00.000Z",
+  "asOf": "2026-11-05",
+  "fileName": "Reporte de Pagos a Proveedores - 2026-11-05.xlsx",
+  "generatedAt": "2026-11-05T00:00:00.000Z",
   "periodFrom": "2026-01-01",
   "periodTo": "2026-03-27",
   "count": 170,

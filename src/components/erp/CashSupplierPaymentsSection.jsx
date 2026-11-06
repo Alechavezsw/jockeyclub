@@ -10,6 +10,10 @@ import { formatCurrency } from '../../domain/accounting/journal';
 import { useSnapshotSeed } from '../../hooks/useSnapshots';
 import SnapshotGate from '../SnapshotGate';
 
+function formatCashAmount(value) {
+  return formatCurrency(Number(value) || 0);
+}
+
 export default function CashSupplierPaymentsSection(props) {
   return (
     <SnapshotGate names={['accessinSupplierPayments']}>
@@ -36,17 +40,13 @@ function CashSupplierPaymentsContent({
     }),
     [items, ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT, paymentOrders, expenses],
   );
-  const liveAsOf = live.asOf;
-  const livePeriodFrom = live.periodFrom;
-  const extraCount = live.extraCount;
-  const cutoff = live.cutoff;
+  const cards = live.cards || [];
   const [filter, setFilter] = useState({
     paymentMethod: null,
     query: '',
     showAll: false,
+    onDate: null,
   });
-
-  const cards = live.cards;
 
   const methodLabels = useMemo(() => {
     const labels = { ...live.methodLabels };
@@ -62,53 +62,161 @@ function CashSupplierPaymentsContent({
     () => filterAccessinSupplierPayments(live.rows, {
       paymentMethod: filter.paymentMethod,
       query: filter.query,
+      onDate: filter.onDate || null,
+      monthKey: filter.onDate ? null : (live.monthKey || null),
       limit: filter.showAll ? null : 40,
     }),
-    [live.rows, filter],
+    [live.rows, live.monthKey, filter],
   );
+
+  function openDayPayments(paymentMethod = null) {
+    setFilter((f) => ({
+      ...f,
+      paymentMethod: paymentMethod || null,
+      onDate: live.asOf,
+      showAll: true,
+      query: '',
+    }));
+  }
+
+  function openMonthMethod(paymentMethod = null) {
+    setFilter((f) => ({
+      ...f,
+      paymentMethod: paymentMethod || null,
+      onDate: null,
+      showAll: false,
+      query: '',
+    }));
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      <div>
-        <h5 className="cash-lila-section-title">
-          Pago a proveedores · {formatAccessinCashDate(liveAsOf)}
-        </h5>
-        <p style={{ margin: '0 0 0.75rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-          Órdenes de pago y gastos pagados al día. No es el saldo de proveedores.
-          {' '}Período {formatAccessinCashDate(livePeriodFrom)} → {formatAccessinCashDate(liveAsOf)}
-          {' · '}
-          {live.rows.length} pago(s)
-          {extraCount > 0
-            ? ` · ${extraCount} posteriores al ${formatAccessinCashDate(cutoff)}`
-            : ''}
-          .
-        </p>
-        <div className="cash-lila-cards">
-          {cards.map((card) => (
-            <div
-              key={card.id}
-              className={`cash-lila-card${card.emphasize ? ' is-total' : ''}`}
-            >
-              <div className="cash-lila-card-label">{card.label}</div>
-              <div className="cash-lila-card-value">
-                {card.isCount ? card.value : formatCurrency(card.value)}
-              </div>
-              <div className="cash-lila-card-caption">{card.caption}</div>
-              {card.filter?.paymentMethod ? (
-                <button
-                  type="button"
-                  className="cash-lila-card-btn"
-                  onClick={() => setFilter((f) => ({
-                    ...f,
-                    paymentMethod: card.filter.paymentMethod,
-                    showAll: false,
-                  }))}
-                >
-                  Filtrar medio
-                </button>
-              ) : null}
-            </div>
-          ))}
+      <div className="cash-lila-balance-block">
+        <div className="cash-day-strip">
+          <div className="cash-day-strip-copy">
+            <p className="cash-day-strip-kicker">
+              Pago a proveedores · {live.asOfLabel}
+            </p>
+            <p className="cash-day-strip-lead">
+              Órdenes y gastos pagados al día. Abajo, solo el acumulado de{' '}
+              {live.monthLabel || 'este mes'}. No es el saldo de proveedores.
+              {live.extraCount > 0
+                ? ` · ${live.extraCount} posteriores al ${live.cutoffLabel}`
+                : ''}
+            </p>
+          </div>
+          <div className="cash-day-strip-total">
+            <span className="cash-day-strip-total-label">Pagado hoy</span>
+            <strong className="cash-day-strip-total-value serif-font">
+              {formatCashAmount(live.dayTotal || 0)}
+            </strong>
+            <span className="cash-day-strip-total-meta">
+              {(live.dayCount || 0) === 1
+                ? '1 pago'
+                : `${live.dayCount || 0} pagos`}
+            </span>
+          </div>
+        </div>
+
+        <div className="cash-lila-cards cash-lila-cards--lila cash-lila-cards--four">
+          {cards.filter((c) => c.id !== 'total').map((card) => {
+            const dayAmount = Number(card.dayInflow) || 0;
+            const monthAmount = Number(card.monthInflow) || 0;
+            const hasDay = dayAmount > 0;
+            return (
+              <button
+                key={card.id}
+                type="button"
+                className={[
+                  'cash-pocket-card',
+                  hasDay ? 'has-day' : 'no-day',
+                ].filter(Boolean).join(' ')}
+                onClick={() => {
+                  if (hasDay) openDayPayments(card.filter?.paymentMethod || null);
+                  else openMonthMethod(card.filter?.paymentMethod || null);
+                }}
+              >
+                <div className="cash-pocket-card-top">
+                  <span className="cash-pocket-card-name">{card.label}</span>
+                </div>
+                <div className="cash-pocket-card-day">
+                  <span className="cash-pocket-card-day-label">
+                    {hasDay ? 'Pagado hoy' : 'Hoy sin pagos'}
+                  </span>
+                  <strong className={`cash-pocket-card-day-value${hasDay ? '' : ' is-zero'}`}>
+                    {hasDay ? formatCashAmount(dayAmount) : '$ 0'}
+                  </strong>
+                  {hasDay ? (
+                    <span className="cash-pocket-card-day-meta">
+                      {card.dayCount === 1 ? '1 pago' : `${card.dayCount || 0} pagos`}
+                      {' · tocá para verlos'}
+                    </span>
+                  ) : (
+                    <span className="cash-pocket-card-day-meta">
+                      Sin pagos de este medio hoy
+                    </span>
+                  )}
+                </div>
+                <div className="cash-pocket-card-stock">
+                  <span className="cash-pocket-card-stock-label">
+                    En el mes · {live.monthLabel || ''}
+                  </span>
+                  <span className="cash-pocket-card-stock-value">
+                    {formatCashAmount(monthAmount)}
+                  </span>
+                  {card.monthCount > 0 ? (
+                    <span className="cash-pocket-card-stock-meta">
+                      {card.monthCount === 1 ? '1 pago' : `${card.monthCount} pagos`}
+                      {' del mes'}
+                    </span>
+                  ) : null}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="cash-lila-balance-lower">
+          {cards.filter((c) => c.id === 'total').map((card) => {
+            const dayAmount = Number(card.dayInflow) || 0;
+            const monthAmount = Number(card.monthInflow) || 0;
+            return (
+              <button
+                key={card.id}
+                type="button"
+                className="cash-pocket-card cash-pocket-card--total has-day"
+                onClick={() => openDayPayments(null)}
+              >
+                <div className="cash-pocket-card-top">
+                  <span className="cash-pocket-card-name">Pagos del día</span>
+                </div>
+                <div className="cash-pocket-card-day">
+                  <span className="cash-pocket-card-day-label">Pagado hoy en total</span>
+                  <strong className="cash-pocket-card-day-value">
+                    {dayAmount > 0 ? formatCashAmount(dayAmount) : '$ 0'}
+                  </strong>
+                  <span className="cash-pocket-card-day-meta">
+                    {card.dayCount === 1 ? '1 pago' : `${card.dayCount || 0} pagos`}
+                    {' · ver el día'}
+                  </span>
+                </div>
+                <div className="cash-pocket-card-stock">
+                  <span className="cash-pocket-card-stock-label">
+                    En el mes · {live.monthLabel || ''}
+                  </span>
+                  <span className="cash-pocket-card-stock-value">
+                    {formatCashAmount(monthAmount)}
+                  </span>
+                  {card.monthCount > 0 ? (
+                    <span className="cash-pocket-card-stock-meta">
+                      {card.monthCount === 1 ? '1 pago' : `${card.monthCount} pagos`}
+                      {' del mes'}
+                    </span>
+                  ) : null}
+                </div>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -137,11 +245,20 @@ function CashSupplierPaymentsContent({
             onChange={(e) => setFilter((f) => ({ ...f, query: e.target.value }))}
           />
         </label>
-        {(filter.paymentMethod || filter.query) ? (
+        {filter.onDate ? (
           <button
             type="button"
             className="btn btn-secondary btn-sm"
-            onClick={() => setFilter({ paymentMethod: null, query: '', showAll: false })}
+            onClick={() => setFilter((f) => ({ ...f, onDate: null, showAll: false }))}
+          >
+            Ver mes completo
+          </button>
+        ) : null}
+        {(filter.paymentMethod || filter.query || filter.onDate) ? (
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => setFilter({ paymentMethod: null, query: '', showAll: false, onDate: null })}
           >
             Limpiar filtros
           </button>
@@ -168,8 +285,7 @@ function CashSupplierPaymentsContent({
             {rows.length === 0 ? (
               <tr>
                 <td colSpan={10} style={{ color: 'var(--text-muted)' }}>
-                  No hay pagos a proveedores al {formatAccessinCashDate(liveAsOf)}.
-                  Los que registres en Gastos o en Órdenes de pago aparecen acá.
+                  No hay pagos a proveedores con este filtro.
                 </td>
               </tr>
             ) : (
@@ -194,7 +310,7 @@ function CashSupplierPaymentsContent({
         </table>
       </div>
 
-      {!filter.showAll && live.rows.length > 40 ? (
+      {!filter.showAll && (filter.onDate ? rows.length >= 40 : (live.monthCount || live.rows.length) > 40) ? (
         <button
           type="button"
           className="cash-lila-see-all"
@@ -208,7 +324,7 @@ function CashSupplierPaymentsContent({
           className="btn btn-secondary btn-sm"
           onClick={() => setFilter((f) => ({ ...f, showAll: false }))}
         >
-          Ver solo primeras 40
+          Ver solo primeros 40
         </button>
       ) : null}
     </div>

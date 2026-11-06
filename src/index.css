@@ -21137,6 +21137,33 @@ a.ops-outline-btn {
   color: var(--text-gold);
 }
 .cash-lila-icon-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.cash-lila-receipt-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  color: var(--primary-gold);
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.cash-lila-receipt-link svg {
+  flex: 0 0 auto;
+  stroke: currentColor;
+}
+.cash-lila-receipt-link:hover {
+  color: var(--text-gold);
+}
+.cash-lila-receipt-link:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
 .cash-lila-see-all {
   margin-top: 0.75rem;
   width: 100%;
@@ -21214,10 +21241,362 @@ a.ops-outline-btn {
 .cash-lila-balance-block {
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  gap: 0.95rem;
+}
+.cash-day-strip {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: stretch;
+  flex-wrap: wrap;
+  padding: 1rem 1.15rem;
+  border: 1px solid color-mix(in srgb, var(--emerald-accent) 30%, var(--border-glass));
+  background:
+    linear-gradient(115deg, color-mix(in srgb, var(--emerald-accent) 14%, var(--bg-secondary)) 0%, var(--bg-secondary) 48%),
+    var(--bg-secondary);
+}
+.cash-day-strip-kicker {
+  margin: 0;
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 800;
+  color: var(--emerald-accent);
+}
+.cash-day-strip-lead {
+  margin: 0.35rem 0 0;
+  max-width: 38rem;
+  font-size: 0.92rem;
+  line-height: 1.35;
+  color: var(--text-secondary);
+}
+.cash-day-strip-total {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 0.2rem;
+  min-width: 12rem;
+}
+.cash-day-strip-total-label {
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+.cash-day-strip-total-value {
+  font-size: clamp(1.55rem, 2.4vw, 2rem);
+  line-height: 1;
+  font-weight: 700;
+  color: var(--emerald-accent);
+  font-variant-numeric: tabular-nums;
+}
+.cash-day-strip-total-meta {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
 }
 .cash-lila-cards--lila {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.cash-lila-cards--four {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.cash-pocket-card {
+  appearance: none;
+  border: 1px solid color-mix(in srgb, var(--primary-gold) 26%, var(--border-glass));
+  background: var(--bg-secondary);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 1rem 1.05rem 1.05rem;
+  min-height: 13.5rem;
+  transition: border-color 140ms ease, transform 140ms ease, background 140ms ease;
+}
+.cash-pocket-card:hover {
+  border-color: color-mix(in srgb, var(--emerald-accent) 55%, var(--primary-gold));
+  transform: translateY(-1px);
+}
+.cash-pocket-card:focus-visible {
+  outline: 2px solid var(--primary-gold);
+  outline-offset: 2px;
+}
+.cash-pocket-card.has-day {
+  border-color: color-mix(in srgb, var(--emerald-accent) 42%, var(--border-glass));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--emerald-accent) 10%, var(--bg-secondary)) 0%, var(--bg-secondary) 42%);
+}
+.cash-pocket-card.is-mp {
+  border-color: color-mix(in srgb, #00a0e3 38%, var(--border-glass));
+}
+.cash-pocket-card.is-mp .cash-pocket-card-icon {
+  color: #00a0e3;
+  border-color: color-mix(in srgb, #00a0e3 42%, var(--border-glass));
+  background: color-mix(in srgb, #00a0e3 12%, var(--bg-secondary));
+}
+.cash-pocket-card.is-muted {
+  opacity: 0.78;
+}
+.cash-pocket-card-top {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+.cash-pocket-card-icon {
+  width: 2.35rem;
+  height: 2.35rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--emerald-accent) 32%, var(--border-glass));
+  background: color-mix(in srgb, var(--emerald-accent) 10%, var(--bg-secondary));
+  color: var(--emerald-accent);
+  flex: 0 0 auto;
+}
+.cash-pocket-card-name {
+  font-size: 0.78rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+.cash-pocket-card-day {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  flex: 1 1 auto;
+}
+.cash-pocket-card-day-label {
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+.cash-pocket-card-day-value {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: clamp(1.55rem, 2.2vw, 1.95rem);
+  line-height: 1.05;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--emerald-accent);
+  letter-spacing: -0.01em;
+}
+.cash-pocket-card-day-value.is-zero {
+  color: var(--text-muted);
+  font-size: clamp(1.25rem, 1.8vw, 1.5rem);
+}
+.cash-pocket-card-day-meta {
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+  line-height: 1.3;
+}
+.cash-pocket-card-stock {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid color-mix(in srgb, var(--border-glass) 80%, transparent);
+}
+.cash-pocket-card-stock-label {
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+.cash-pocket-card-stock-value {
+  font-size: 0.95rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+.cash-pocket-card-stock-meta {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.cash-pocket-card--total {
+  min-height: 100%;
+  border-color: color-mix(in srgb, var(--emerald-accent) 48%, var(--border-glass));
+  background:
+    radial-gradient(120% 90% at 100% 0%, color-mix(in srgb, var(--emerald-accent) 18%, transparent), transparent 55%),
+    linear-gradient(165deg, color-mix(in srgb, var(--emerald-accent) 12%, var(--bg-secondary)), var(--bg-secondary));
+}
+.cash-pocket-card--total .cash-pocket-card-day-value {
+  font-size: clamp(1.7rem, 2.5vw, 2.15rem);
+}
+.cash-lila-balance-lower {
+  display: grid;
+  grid-template-columns: minmax(240px, 360px) minmax(0, 1fr);
+  gap: 0.85rem;
+  align-items: stretch;
+}
+@media (max-width: 1100px) {
+  .cash-lila-cards--four {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .cash-lila-balance-lower {
+    grid-template-columns: 1fr;
+  }
+  .cash-day-strip-total {
+    align-items: flex-start;
+  }
+}
+@media (max-width: 980px) {
+  .cash-lila-cards--four {
+    grid-template-columns: 1fr;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cash-pocket-card {
+    transition: none;
+  }
+}
+
+.cash-day-cal {
+  --cal-ink: color-mix(in srgb, var(--text-primary) 92%, #0b3d2e);
+  --cal-rail: color-mix(in srgb, var(--emerald-accent) 55%, #0f5c45);
+  --cal-gold: var(--primary-gold);
+  position: relative;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--emerald-accent) 28%, var(--border-glass));
+  background:
+    radial-gradient(120% 80% at 100% 0%, color-mix(in srgb, var(--emerald-accent) 16%, transparent), transparent 55%),
+    linear-gradient(160deg, color-mix(in srgb, var(--bg-secondary) 88%, #0b3d2e), var(--bg-secondary));
+  padding: 1rem 1.05rem 1.1rem;
+  min-height: 100%;
+}
+.cash-day-cal::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: linear-gradient(180deg, var(--cal-gold), var(--cal-rail));
+}
+.cash-day-cal-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+  margin-bottom: 0.85rem;
+  padding-left: 0.55rem;
+}
+.cash-day-cal-kicker {
+  margin: 0;
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--cal-rail);
+  font-weight: 700;
+}
+.cash-day-cal-title {
+  margin: 0.15rem 0 0;
+  font-size: 1.35rem;
+  line-height: 1.1;
+  color: var(--cal-ink);
+}
+.cash-day-cal-meta {
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+.cash-day-cal-nav {
+  display: inline-flex;
+  gap: 0.35rem;
+}
+.cash-day-cal-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.35rem;
+  margin-bottom: 0.35rem;
+  padding-left: 0.55rem;
+}
+.cash-day-cal-weekdays span {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-align: center;
+}
+.cash-day-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.35rem;
+  padding-left: 0.55rem;
+}
+.cash-day-cal-cell {
+  appearance: none;
+  border: 1px solid transparent;
+  background: color-mix(in srgb, var(--bg-primary) 55%, transparent);
+  min-height: 3.35rem;
+  padding: 0.35rem 0.3rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.15rem;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+.cash-day-cal-cell.is-blank {
+  visibility: hidden;
+  pointer-events: none;
+}
+.cash-day-cal-cell.is-tint {
+  background: color-mix(in srgb, var(--emerald-accent) 12%, var(--bg-primary));
+}
+.cash-day-cal-cell.is-soft {
+  background: color-mix(in srgb, var(--emerald-accent) 22%, var(--bg-primary));
+}
+.cash-day-cal-cell.is-warm {
+  background: color-mix(in srgb, var(--emerald-accent) 38%, var(--bg-primary));
+  color: #f4fff8;
+}
+.cash-day-cal-cell.is-hot {
+  background: linear-gradient(155deg, color-mix(in srgb, var(--emerald-accent) 78%, #0b3d2e), color-mix(in srgb, var(--primary-gold) 35%, var(--emerald-accent)));
+  color: #f7fff9;
+  border-color: color-mix(in srgb, var(--primary-gold) 45%, transparent);
+}
+.cash-day-cal-cell.is-today {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary-gold) 70%, transparent);
+}
+.cash-day-cal-cell.is-selected {
+  border-color: var(--primary-gold);
+  transform: translateY(-1px);
+}
+.cash-day-cal-cell:hover {
+  border-color: color-mix(in srgb, var(--primary-gold) 55%, var(--border-glass));
+}
+.cash-day-cal-cell:focus-visible {
+  outline: 2px solid var(--primary-gold);
+  outline-offset: 1px;
+}
+.cash-day-cal-num {
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1;
+}
+.cash-day-cal-amt {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  opacity: 0.95;
+}
+.cash-day-cal-amt.is-quiet {
+  opacity: 0.35;
+  font-weight: 500;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cash-day-cal-cell {
+    transition: none;
+  }
 }
 .cash-lila-card--icon {
   flex-direction: row;

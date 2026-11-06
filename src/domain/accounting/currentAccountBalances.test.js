@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { hasLocalSnapshot, loadSnapshots } from '../../data/snapshots';
 import {
   applyCurrentAccountBalances,
+  applyDuesPartsDelta,
   currentAccountBalanceOf,
   currentAccountBalancesSeed,
   lookupCurrentAccountBalance,
@@ -18,7 +19,7 @@ beforeAll(async () => {
 
 describe('currentAccountBalances', () => {
   it.skipIf(!hasLocalSnapshot('accessinCurrentAccountBalances'))('carga el corte vivo de cuentas corrientes', () => {
-    expect(ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF).toBe('2026-11-02');
+    expect(ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF).toBe('2026-11-05');
     expect(ACCESSIN_CURRENT_ACCOUNT_BALANCES_SNAPSHOT.rowCount).toBeGreaterThan(7000);
     expect(ACCESSIN_CURRENT_ACCOUNT_BALANCES_SNAPSHOT.withBalance).toBeGreaterThan(100);
   });
@@ -83,5 +84,19 @@ describe('currentAccountBalances', () => {
     expect(summary.members).toBe(3);
     expect(summary.withBalance).toBe(2);
     expect(summary.total).toBe(150.5);
+  });
+
+  it('el desglose LILA solo suma o resta; no se reinventa', () => {
+    const base = {
+      outstandingBalance: 56000,
+      unpaidCapital: 54000,
+      unpaidSurcharges: 2000,
+    };
+    const afterLiq = applyDuesPartsDelta(base, { capital: 40000 });
+    expect(afterLiq.unpaidCapital).toBe(94000);
+    expect(afterLiq.unpaidSurcharges).toBe(2000);
+    const afterPay = applyDuesPartsDelta(afterLiq, { capital: -40000, surcharges: -2000 });
+    expect(afterPay.unpaidCapital).toBe(54000);
+    expect(afterPay.unpaidSurcharges).toBe(0);
   });
 });

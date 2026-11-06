@@ -10,6 +10,8 @@ import {
   memberNumberOf,
   resolveFamilyForDisplay,
 } from '../members/households';
+import { isDuesExemptMember } from '../members/dues';
+import { collectionPreview } from '../members/memberPayments';
 import { getTierDisplayName, parseCuotaCategories, slugifyTierId } from '../members/tiers';
 import { currentAccountBalanceOf } from './currentAccountBalances';
 import { familyGroupBalanceOf } from './familyGroupBalances';
@@ -549,6 +551,80 @@ export function groupEntriesByMonth(entries = [], { monthsBack = 3, asOf, carrie
   });
 }
 
+/**
+ * Desglose como el Excel de Lila:
+ * capital + recargos + intereses + no imputado ≈ saldo resultante.
+ * El saldo de ficha operativo es el resultante; el 10 % nuevo no se inventa encima.
+ */
+export function lilaBalanceParts(member) {
+  const resultante = money(currentAccountBalanceOf(member));
+  const capitalRaw = member?.unpaidCapital;
+  const surchargeRaw = member?.unpaidSurcharges;
+  const interestRaw = member?.unpaidInterest;
+  const unallocatedRaw = member?.unallocatedBalance;
+  const hasParts = [capitalRaw, surchargeRaw, interestRaw, unallocatedRaw]
+    .some((value) => value != null && value !== '' && Number.isFinite(Number(value)));
+
+  if (hasParts) {
+    const capital = money(Number(capitalRaw) || 0);
+    const surcharges = money(Number(surchargeRaw) || 0);
+    const interest = money(Number(interestRaw) || 0);
+    const unallocated = money(Number(unallocatedRaw) || 0);
+    return {
+      capital,
+      surcharges,
+      interest,
+      unallocated,
+      resultante: money(resultante || (capital + surcharges + interest + unallocated)),
+      source: 'lila',
+    };
+  }
+
+  return {
+    capital: resultante,
+    surcharges: 0,
+    interest: 0,
+    unallocated: 0,
+    resultante,
+    source: 'ledger',
+  };
+}
+
+/**
+ * Montos del boleto alineados a Lila / Cobrar cuota.
+ * - amount (vence el 10): capital no pagado
+ * - surcharge: recargos ya en Lila, o el 10 % de meses vencidos si no hay desglose
+ * Nunca `saldo × 10 %` sobre el resultante (doble mora).
+ */
+export function resolvePaymentBoletoAmounts(member, today = new Date()) {
+  if (!member) throw new Error('Socio no encontrado.');
+  if (isFamilyDependent(member)) {
+    throw new Error('El boleto va a la cuenta del titular.');
+  }
+  if (isDuesExemptMember(member)) {
+    throw new Error('Vitalicio, fundador y comisión no abonan cuota.');
+  }
+
+  const parts = lilaBalanceParts(member);
+  let capital = parts.capital;
+  let surcharge = parts.surcharges;
+
+  if (parts.source !== 'lila' || (!(capital > 0) && !(parts.resultante > 0))) {
+    const preview = collectionPreview(member, today);
+    capital = money(preview.quota || parts.resultante || 0);
+    surcharge = money(preview.surcharge || 0);
+  }
+
+  return {
+    capital: money(Math.max(0, capital)),
+    surcharge: money(Math.max(0, surcharge)),
+    resultante: money(Math.max(0, parts.resultante || (capital + surcharge))),
+    interest: parts.interest,
+    unallocated: parts.unallocated,
+    source: parts.source,
+  };
+}
+
 export function buildPaymentBoleto(member, {
   periodLabel = '',
   amount = 0,
@@ -559,6 +635,7 @@ export function buildPaymentBoleto(member, {
 } = {}) {
   const nro = memberNumberOf(member) || '';
   const fee = Number(amount) || Number(member?.outstandingBalance) || 0;
+  const late = Number(surcharge) || 0;
   return {
     number: `025${String(nro).padStart(5, '0')}${String(Date.now()).slice(-2)}`,
     periodLabel: periodLabel || 'Liquidación',
@@ -582,10 +659,13 @@ export function buildPaymentBoleto(member, {
     dueDate1,
     dueAmount1: fee,
     dueDate2,
-    dueAmount2: fee + (Number(surcharge) || 0),
-    surchargeNote: surcharge
-      ? `$ ${Number(surcharge).toLocaleString('es-AR')} si se abona luego de ${dueDate1}`
+    // Como Lila: capital al 10; capital + recargos después.
+    dueAmount2: money(fee + late),
+    surchargeNote: late > 0
+      ? `$ ${late.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} de recargo si se abona luego de ${dueDate1}`
       : '',
+    capital: fee,
+    surcharge: late,
   };
 }
 

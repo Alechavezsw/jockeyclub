@@ -1,5 +1,6 @@
 import {
   ArrowLeft,
+  Banknote,
   BookOpen,
   FileSpreadsheet,
   ListTree,
@@ -19,7 +20,8 @@ const CONSULT = [
 ];
 
 const OPERATE = [
-  { id: 'import_collections', icon: Upload, label: 'Importar cobranzas', hint: 'Excel de cobros vivos', tone: 'emerald' },
+  { id: 'collect_dues', icon: Banknote, label: 'Cobrar cuota', hint: 'Buscar socio y cobrar', tone: 'emerald' },
+  { id: 'import_collections', icon: Upload, label: 'Importar cobranzas', hint: 'Excel débitos + boleto', tone: 'emerald' },
   { id: 'impute_events', icon: Plus, label: 'Imputar eventos', hint: 'Alquiler a la cuenta', tone: 'emerald' },
   { id: 'mora', icon: Search, label: 'Control de mora', hint: 'Quién debe hoy', tone: 'warn' },
 ];

@@ -394,10 +394,18 @@ describe('liquidateFeePeriod', () => {
       { memberId: '111591', addAmount: 40000 },
     ]);
     const next = applyFeeChargeDeltasToMembers(
-      [{ memberId: '111591', outstandingBalance: 32000, tier: 'socio_individual' }],
+      [{
+        memberId: '111591',
+        outstandingBalance: 56000,
+        unpaidCapital: 54000,
+        unpaidSurcharges: 2000,
+        tier: 'socio_individual',
+      }],
       deltas,
     );
-    expect(next[0].outstandingBalance).toBe(72000);
+    expect(next[0].outstandingBalance).toBe(96000);
+    expect(next[0].unpaidCapital).toBe(94000);
+    expect(next[0].unpaidSurcharges).toBe(2000);
   });
 
   it('liquidación aplica bonificaciones en cargos y total', () => {

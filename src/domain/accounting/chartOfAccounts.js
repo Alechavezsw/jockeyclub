@@ -44,6 +44,38 @@ export const DEFAULT_CHART_OF_ACCOUNTS = [
   { id: 'coa-5.1.06', code: '5.1.06', name: 'Impuestos y Tasas', accountType: 'expense', parentId: 'coa-5', level: 3, isPostable: true, isCashAccount: false },
 ];
 
+/** IDs UUID del seed Supabase → código (para cruzar con el plan demo coa-*). */
+export const CLOUD_ACCOUNT_ID_TO_CODE = {
+  'aaaaaaaa-0001-0001-0001-000000000111': '1.1.01',
+  'aaaaaaaa-0001-0001-0001-000000000112': '1.1.02',
+  'aaaaaaaa-0001-0001-0001-000000000113': '1.1.03',
+  'aaaaaaaa-0001-0001-0001-000000000114': '1.1.04',
+  'aaaaaaaa-0001-0001-0001-000000000115': '1.1.05',
+  'aaaaaaaa-0001-0001-0001-000000000116': '1.1.06',
+  'aaaaaaaa-0001-0001-0001-000000000117': '1.1.07',
+  'aaaaaaaa-0001-0001-0001-000000000121': '1.2.01',
+  'aaaaaaaa-0001-0001-0001-000000000122': '1.2.02',
+  'aaaaaaaa-0002-0002-0002-000000000111': '2.1.01',
+  'aaaaaaaa-0002-0002-0002-000000000112': '2.1.02',
+  'aaaaaaaa-0002-0002-0002-000000000113': '2.1.03',
+  'aaaaaaaa-0002-0002-0002-000000000114': '2.1.04',
+  'aaaaaaaa-0002-0002-0002-000000000115': '2.1.05',
+  'aaaaaaaa-0002-0002-0002-000000000116': '2.1.06',
+  'aaaaaaaa-0002-0002-0002-000000000117': '2.1.07',
+  'aaaaaaaa-0003-0003-0003-000000000111': '3.1.01',
+  'aaaaaaaa-0003-0003-0003-000000000112': '3.1.02',
+  'aaaaaaaa-0004-0004-0004-000000000111': '4.1.01',
+  'aaaaaaaa-0004-0004-0004-000000000112': '4.1.02',
+  'aaaaaaaa-0004-0004-0004-000000000113': '4.1.03',
+  'aaaaaaaa-0004-0004-0004-000000000114': '4.1.04',
+  'aaaaaaaa-0005-0005-0005-000000000111': '5.1.01',
+  'aaaaaaaa-0005-0005-0005-000000000112': '5.1.02',
+  'aaaaaaaa-0005-0005-0005-000000000113': '5.1.03',
+  'aaaaaaaa-0005-0005-0005-000000000114': '5.1.04',
+  'aaaaaaaa-0005-0005-0005-000000000115': '5.1.05',
+  'aaaaaaaa-0005-0005-0005-000000000116': '5.1.06',
+};
+
 /** Compatibilidad con asientos legacy (nombre de cuenta → id). */
 export const LEGACY_ACCOUNT_NAME_MAP = {
   'Caja': 'coa-1.1.01',
@@ -109,6 +141,24 @@ export function resolveAccountId(chart, accountRef) {
       if (match) return match.id;
     }
     if (getAccountById(list, legacy)) return legacy;
+  }
+
+  // coa-* en plan nube (UUID): cruzar por código/nombre del demo.
+  const fromDefault = getAccountById(DEFAULT_CHART_OF_ACCOUNTS, accountRef);
+  if (fromDefault) {
+    const match = list.find(
+      (a) => a.code === fromDefault.code || a.name === fromDefault.name
+    );
+    if (match) return match.id;
+    return fromDefault.id;
+  }
+
+  // UUID de nube en plan demo: códigos estables del seed Supabase.
+  const cloudCode = CLOUD_ACCOUNT_ID_TO_CODE[accountRef];
+  if (cloudCode) {
+    const match = getAccountByCode(list, cloudCode)
+      || getAccountByCode(DEFAULT_CHART_OF_ACCOUNTS, cloudCode);
+    if (match) return match.id;
   }
   return null;
 }

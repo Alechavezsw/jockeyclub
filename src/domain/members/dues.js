@@ -673,8 +673,70 @@ function periodChoiceLabel(dueOn) {
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
+function periodChoiceFromDue(member, dueOn, paidOn, kind = 'overdue') {
+  const on = parseDate(dueOn) || paidOn;
+  const capital = money(duesAmountForMember(member, on));
+  if (!(capital > 0)) return null;
+  const payable = money(duesPayableForMember(member, {
+    paidOn,
+    dueOn,
+    on,
+  }) || 0);
+  return {
+    id: dueOn,
+    dueOn,
+    monthKey: String(dueOn).slice(0, 7),
+    label: periodChoiceLabel(dueOn),
+    capital,
+    lateBase: lateBaseForMember(member, on),
+    surcharge: Math.max(0, payable - capital),
+    payable,
+    kind,
+  };
+}
+
+/**
+ * Si el saldo de ficha (capital) supera los meses reconstruidos desde nextDueDate,
+ * agrega meses hacia atrás hasta cubrirlo. Evita cobrar $44.000 cuando la ficha debe $152.000.
+ */
+function expandChoicesToCoverBalance(member, choices, paidOn) {
+  const owed = money(Math.max(0, Number(member?.outstandingBalance) || 0));
+  if (!(owed > 0.01)) return choices;
+  const day = duesDueDayForMember(member);
+  const rows = [...(choices || [])];
+  let covered = money(rows.reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
+  let guard = 0;
+  while (covered + 0.01 < owed && guard < 24) {
+    guard += 1;
+    const anchor = rows[0]?.dueOn
+      || pinDuesDueDate(member?.nextDueDate, member)
+      || toISODate(paidOn);
+    const first = parseDate(anchor);
+    if (!first) break;
+    const prevDue = toISODate(duesDateOnDueDay(first.getFullYear(), first.getMonth() - 1, day));
+    if (rows.some((row) => row.dueOn === prevDue)) break;
+    const remaining = money(owed - covered);
+    const full = periodChoiceFromDue(member, prevDue, paidOn, 'overdue');
+    if (!full) break;
+    const capital = money(Math.min(full.capital, remaining));
+    const surcharge = full.capital > 0
+      ? money((full.surcharge * capital) / full.capital)
+      : 0;
+    rows.unshift({
+      ...full,
+      capital,
+      surcharge,
+      payable: money(capital + surcharge),
+      lateBase: capital,
+    });
+    covered = money(covered + capital);
+  }
+  return rows;
+}
+
 /**
  * Meses que se pueden marcar en el cobro (atrasados, o el próximo si está al día).
+ * Si hay saldo en ficha mayor a los meses desde nextDueDate, completa hacia atrás.
  */
 export function collectionPeriodChoices(member, today = new Date()) {
   if (!member || isDuesExemptMember(member) || isFamilyDependent(member)) return [];
@@ -692,28 +754,19 @@ export function collectionPeriodChoices(member, today = new Date()) {
       payable: row.payable,
       kind: 'overdue',
     }));
-  if (overdue.length) return overdue;
+  if (overdue.length) return expandChoicesToCoverBalance(member, overdue, paidOn);
+
+  const owed = money(Math.max(0, Number(member?.outstandingBalance) || 0));
+  if (owed > 0.01) {
+    const seedDue = pinDuesDueDate(member.nextDueDate, member)
+      || toISODate(duesDateOnDueDay(paidOn.getFullYear(), paidOn.getMonth() - 1, duesDueDayForMember(member)));
+    const seed = periodChoiceFromDue(member, seedDue, paidOn, 'overdue');
+    if (seed) return expandChoicesToCoverBalance(member, [seed], paidOn);
+  }
 
   const dueOn = pinDuesDueDate(member.nextDueDate, member) || nextDuesDueDate(today, member);
-  const on = parseDate(dueOn) || paidOn;
-  const capital = money(duesAmountForMember(member, on));
-  if (!(capital > 0)) return [];
-  const payable = money(duesPayableForMember(member, {
-    paidOn,
-    dueOn,
-    on,
-  }) || 0);
-  return [{
-    id: dueOn,
-    dueOn,
-    monthKey: String(dueOn).slice(0, 7),
-    label: periodChoiceLabel(dueOn),
-    capital,
-    lateBase: lateBaseForMember(member, on),
-    surcharge: Math.max(0, payable - capital),
-    payable,
-    kind: 'upcoming',
-  }];
+  const upcoming = periodChoiceFromDue(member, dueOn, paidOn, 'upcoming');
+  return upcoming ? [upcoming] : [];
 }
 
 /**
@@ -1045,6 +1098,10 @@ export function afterCollectDues(member, today = new Date()) {
   return {
     ...member,
     outstandingBalance: 0,
+    unpaidCapital: member.unpaidCapital != null ? 0 : member.unpaidCapital,
+    unpaidSurcharges: member.unpaidSurcharges != null ? 0 : member.unpaidSurcharges,
+    unpaidInterest: member.unpaidInterest != null ? 0 : member.unpaidInterest,
+    unallocatedBalance: member.unallocatedBalance != null ? 0 : member.unallocatedBalance,
     overdueSince: null,
     nextDueDate: toISODate(next),
   };

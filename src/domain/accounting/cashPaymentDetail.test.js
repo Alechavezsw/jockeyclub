@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { buildCashPaymentDetail, cashPaymentShareTargets, currentMonthFeeCollected, feeImputationLines, liveMonthFeeCollected, splitMonthDuesCollection } from './cashPaymentDetail';
+import {
+  buildCashPaymentDetail,
+  buildCashPaymentDetailFromCobranza,
+  cashPaymentShareTargets,
+  cashReceiptLabel,
+  currentMonthFeeCollected,
+  feeImputationLines,
+  liveMonthFeeCollected,
+  matchMemberPaymentForCobranza,
+  splitMonthDuesCollection,
+} from './cashPaymentDetail';
 
 const macro = {
   id: 'acm-603050',
@@ -277,5 +287,44 @@ describe('liquidado / recaudado de tesorería', () => {
       members: [member],
       movements: [movement],
     }).recaudado).toBe(0);
+  });
+});
+
+describe('recibo desde cobranza', () => {
+  it('acorta UUID y deja nros Accessin legibles', () => {
+    expect(cashReceiptLabel('41c5ddd9-719f-42f9-a95b-1a4bac71eb13')).toBe('41c5ddd9');
+    expect(cashReceiptLabel('003468560')).toBe('3468560');
+  });
+
+  it('encuentra el pago del padrón y arma el detalle descargable', () => {
+    const members = [{
+      memberId: '111591',
+      name: 'manuel alejandro Chávez',
+      paymentHistory: [{
+        id: 'ef2d94ce-5345-4a42-bc33-b4bfdd244818',
+        date: '2026-11-05',
+        amount: 4400,
+        receipt: 'RC-111591',
+        concept: 'Cuota social · Efectivo',
+      }],
+    }];
+    const row = {
+      id: 'live-cob-41c5ddd9',
+      date: '2026-11-05',
+      amount: 4400,
+      type: 'Cuotas',
+      memberNumber: '111591',
+      memberName: 'manuel alejandro Chávez',
+      concept: 'Cobro cuota social (Efectivo)',
+      paymentMethodLabel: 'Efectivo',
+      receiptId: '41c5ddd9-719f-42f9-a95b-1a4bac71eb13',
+      origin: 'app',
+    };
+    const matched = matchMemberPaymentForCobranza(row, members);
+    expect(matched?.payment?.id).toBe('ef2d94ce-5345-4a42-bc33-b4bfdd244818');
+    const detail = buildCashPaymentDetailFromCobranza(row, members);
+    expect(detail.paymentNumber).toBe('RC-111591');
+    expect(detail.paymentTotal).toBe(4400);
+    expect(detail.memberNumber).toBe('111591');
   });
 });

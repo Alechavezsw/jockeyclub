@@ -17,6 +17,7 @@ import {
   Banknote,
   FolderOpen,
   CircleDollarSign,
+  Smartphone,
 } from 'lucide-react';
 import { accountLabel } from '../../domain/accounting/chartOfAccounts';
 import {
@@ -50,6 +51,7 @@ import CashCobranzasSection from './CashCobranzasSection';
 import CashBankAccountsSection from './CashBankAccountsSection';
 import CashEfectivoRegistroSection from './CashEfectivoRegistroSection';
 import CashSupplierPaymentsSection from './CashSupplierPaymentsSection';
+import CashDayCalendar from './CashDayCalendar';
 import { cobranzasSeed } from '../../domain/accounting/cobranzas';
 import { supplierPaymentsSeed } from '../../domain/accounting/supplierPaymentsReport';
 import { bankAccountsSeed } from '../../domain/accounting/bankAccounts';
@@ -92,6 +94,7 @@ function CashBalanceIcon({ kind }) {
   if (kind === 'cash') return <Banknote size={22} />;
   if (kind === 'checks') return <FolderOpen size={22} />;
   if (kind === 'bank') return <Landmark size={22} />;
+  if (kind === 'mp') return <Smartphone size={22} />;
   return <CircleDollarSign size={22} />;
 }
 
@@ -157,11 +160,14 @@ function CashRegistersContent({
   const [ledgerFilter, setLedgerFilter] = useState({
     view: 'movements', // movements | cheques | efectivo_registro | bank_accounts
     walletKind: null,
+    walletMatch: null,
+    onDate: null,
     query: '',
     showAll: false,
   });
   const [sheetMonth, setSheetMonth] = useState('');
   const [sheetPage, setSheetPage] = useState(1);
+  const [calendarMonth, setCalendarMonth] = useState('');
   const [paymentDetail, setPaymentDetail] = useState(null);
   const [autoMailStatus, setAutoMailStatus] = useState('');
   const autoMailRunRef = useRef('');
@@ -229,6 +235,32 @@ function CashRegistersContent({
   );
 
   const enrichedLedger = live.ledger;
+  const activeCalendarMonth = /^\d{4}-\d{2}$/.test(calendarMonth)
+    ? calendarMonth
+    : (String(live.asOf || '').slice(0, 7) || sheetMonth);
+
+  function openDayIncome(date, extra = {}) {
+    const day = String(date || '').slice(0, 10);
+    const month = day.slice(0, 7);
+    setSheetMonth(month);
+    setSheetPage(1);
+    setCalendarMonth(month);
+    setLedgerFilter((f) => ({
+      ...f,
+      view: 'movements',
+      walletKind: extra.walletKind ?? null,
+      walletMatch: extra.walletMatch ?? null,
+      onDate: day,
+      showAll: true,
+      query: '',
+    }));
+    setPanelTab('ledger');
+    if (typeof window !== 'undefined') {
+      window.setTimeout(() => {
+        document.getElementById('movimientos-de-caja')?.scrollIntoView({ block: 'start' });
+      }, 40);
+    }
+  }
 
   const balanceCards = useMemo(() => {
     if (recalcTotal == null) return live.cards;
@@ -263,9 +295,11 @@ function CashRegistersContent({
     const onMonthSheet = ledgerFilter.view !== 'cheques' && Boolean(activeMonth);
     return filterAccessinCashMovements(enrichedLedger, {
       walletKind: ledgerFilter.walletKind,
+      walletMatch: ledgerFilter.walletMatch,
       query: ledgerFilter.query,
-      monthKey: onMonthSheet ? activeMonth : null,
-      limit: onMonthSheet ? null : (ledgerFilter.showAll ? null : 25),
+      onDate: ledgerFilter.onDate,
+      monthKey: ledgerFilter.onDate ? null : (onMonthSheet ? activeMonth : null),
+      limit: (ledgerFilter.onDate || onMonthSheet) ? null : (ledgerFilter.showAll ? null : 25),
     });
   }, [enrichedLedger, ledgerFilter, activeMonth]);
 
@@ -433,11 +467,14 @@ function CashRegistersContent({
             <span className="suppliers-accessin-badge">{live.asOfLabel}</span>
           </h4>
           <p style={{ margin: '0.35rem 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-            {enrichedLedger.length} movimientos · {formatAccessinCashDate(ACCESSIN_CASH_SNAPSHOT.periodFrom)} → {live.asOfLabel}
+            Hoy y acumulado de {live.monthLabel || 'este mes'}
             {live.extraCount > 0
               ? ` · ${live.extraCount} posteriores al ${live.cutoffLabel}`
               : ''}
-            . Efectivo, bancos y cheques suman el total.
+            {live.importCount > 0
+              ? ` · ${live.importCount} débitos importados`
+              : ''}
+            . Efectivo, bancos, MP y cheques por bolsillo.
           </p>
         </div>
         <div className="cash-lila-actions">
@@ -524,58 +561,162 @@ function CashRegistersContent({
       {panelTab === 'ledger' && ledgerFilter.view !== 'efectivo_registro' && ledgerFilter.view !== 'bank_accounts' && (
         <>
           <div className="cash-lila-balance-block">
-            <div className="cash-lila-cards cash-lila-cards--lila">
-              {balanceCards.filter((c) => c.id !== 'total').map((card) => (
-                <div
-                  key={card.id}
-                  className={`cash-lila-card cash-lila-card--icon${card.muted ? ' is-muted' : ''}`}
-                >
-                  <div className="cash-lila-card-icon" aria-hidden>
-                    <CashBalanceIcon kind={card.icon} />
-                  </div>
-                  <div className="cash-lila-card-main">
-                    <div className={`cash-lila-card-value${card.muted ? ' is-muted' : ''}`}>
-                      {formatCashAmount(card.value, { withArs: Boolean(card.currencyHint) })}
-                    </div>
-                    <div className="cash-lila-card-label">{card.label}</div>
-                    {card.caption ? (
-                      <div className="cash-lila-card-caption">{card.caption}</div>
-                    ) : null}
-                    {card.actionLabel ? (
-                      <button
-                        type="button"
-                        className="cash-lila-card-btn"
-                        onClick={() => setLedgerFilter((f) => ({
-                          ...f,
-                          view: card.filter?.view || 'movements',
-                          walletKind: card.filter?.walletKind || null,
-                          showAll: false,
-                          query: '',
-                        }))}
-                      >
-                        {card.actionLabel}
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              ))}
-            </div>
-            {balanceCards.filter((c) => c.id === 'total').map((card) => (
-              <div key={card.id} className="cash-lila-card cash-lila-card--icon cash-lila-card--total">
-                <div className="cash-lila-card-icon" aria-hidden>
-                  <CashBalanceIcon kind="total" />
-                </div>
-                <div className="cash-lila-card-main">
-                  <div className="cash-lila-card-value is-total">
-                    {formatCashAmount(card.value)}
-                  </div>
-                  <div className="cash-lila-card-label">{card.label}</div>
-                  {card.caption ? (
-                    <div className="cash-lila-card-caption">{card.caption}</div>
-                  ) : null}
-                </div>
+            <div className="cash-day-strip">
+              <div className="cash-day-strip-copy">
+                <p className="cash-day-strip-kicker">Hoy · {live.asOfLabel}</p>
+                <p className="cash-day-strip-lead">
+                  Lo que entró hoy por cada bolsillo. Abajo, solo el acumulado de {live.monthLabel || 'este mes'}.
+                </p>
               </div>
-            ))}
+              <div className="cash-day-strip-total">
+                <span className="cash-day-strip-total-label">Ingreso total del día</span>
+                <strong className="cash-day-strip-total-value serif-font">
+                  {formatCashAmount(live.dayInflow?.total || 0)}
+                </strong>
+                <span className="cash-day-strip-total-meta">
+                  {(live.dayInflow?.count || 0) === 1
+                    ? '1 movimiento'
+                    : `${live.dayInflow?.count || 0} movimientos`}
+                </span>
+              </div>
+            </div>
+
+            <div className="cash-lila-cards cash-lila-cards--lila cash-lila-cards--four">
+              {balanceCards.filter((c) => c.id !== 'total').map((card) => {
+                const dayAmount = Number(card.dayInflow) || 0;
+                const monthAmount = card.stockIsPortfolio
+                  ? Number(card.value) || 0
+                  : Number(card.monthInflow) || 0;
+                const hasDay = dayAmount > 0;
+                return (
+                  <button
+                    key={card.id}
+                    type="button"
+                    className={[
+                      'cash-pocket-card',
+                      card.muted ? 'is-muted' : '',
+                      card.id === 'mercadopago' ? 'is-mp' : '',
+                      hasDay ? 'has-day' : 'no-day',
+                    ].filter(Boolean).join(' ')}
+                    onClick={() => {
+                      if (card.filter?.onDate) {
+                        openDayIncome(card.filter.onDate, {
+                          walletKind: card.filter.walletKind || null,
+                          walletMatch: card.filter.walletMatch || null,
+                        });
+                        return;
+                      }
+                      setLedgerFilter((f) => ({
+                        ...f,
+                        view: card.filter?.view || 'movements',
+                        walletKind: card.filter?.walletKind || null,
+                        walletMatch: card.filter?.walletMatch || null,
+                        onDate: null,
+                        showAll: false,
+                        query: '',
+                      }));
+                    }}
+                  >
+                    <div className="cash-pocket-card-top">
+                      <span className="cash-pocket-card-icon" aria-hidden>
+                        <CashBalanceIcon kind={card.icon} />
+                      </span>
+                      <span className="cash-pocket-card-name">{card.label}</span>
+                    </div>
+
+                    <div className="cash-pocket-card-day">
+                      <span className="cash-pocket-card-day-label">
+                        {hasDay ? 'Ingresó hoy' : 'Hoy sin movimientos'}
+                      </span>
+                      <strong className={`cash-pocket-card-day-value${hasDay ? '' : ' is-zero'}`}>
+                        {hasDay ? `+${formatCashAmount(dayAmount)}` : '$ 0'}
+                      </strong>
+                      {hasDay ? (
+                        <span className="cash-pocket-card-day-meta">
+                          {card.dayCount === 1 ? '1 ingreso' : `${card.dayCount || 0} ingresos`}
+                          {' · tocá para verlos'}
+                        </span>
+                      ) : (
+                        <span className="cash-pocket-card-day-meta">
+                          Sin entradas en este bolsillo hoy
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="cash-pocket-card-stock">
+                      <span className="cash-pocket-card-stock-label">
+                        {card.stockIsPortfolio
+                          ? `Cartera al ${live.asOfLabel}`
+                          : `En el mes · ${live.monthLabel || ''}`}
+                      </span>
+                      <span className="cash-pocket-card-stock-value">
+                        {formatCashAmount(monthAmount, { withArs: Boolean(card.currencyHint) })}
+                      </span>
+                      {!card.stockIsPortfolio && card.monthCount > 0 ? (
+                        <span className="cash-pocket-card-stock-meta">
+                          {card.monthCount === 1 ? '1 ingreso' : `${card.monthCount} ingresos`}
+                          {' del mes'}
+                        </span>
+                      ) : null}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="cash-lila-balance-lower">
+              {balanceCards.filter((c) => c.id === 'total').map((card) => {
+                const dayAmount = Number(card.dayInflow) || 0;
+                const monthAmount = Number(card.monthInflow) || 0;
+                return (
+                  <button
+                    key={card.id}
+                    type="button"
+                    className="cash-pocket-card cash-pocket-card--total has-day"
+                    onClick={() => openDayIncome(live.asOf)}
+                  >
+                    <div className="cash-pocket-card-top">
+                      <span className="cash-pocket-card-icon" aria-hidden>
+                        <CashBalanceIcon kind="total" />
+                      </span>
+                      <span className="cash-pocket-card-name">Caja completa</span>
+                    </div>
+                    <div className="cash-pocket-card-day">
+                      <span className="cash-pocket-card-day-label">Ingresó hoy en total</span>
+                      <strong className="cash-pocket-card-day-value">
+                        {dayAmount > 0 ? `+${formatCashAmount(dayAmount)}` : '$ 0'}
+                      </strong>
+                      <span className="cash-pocket-card-day-meta">
+                        {card.dayCount === 1 ? '1 movimiento' : `${card.dayCount || 0} movimientos`}
+                        {' · ver el día'}
+                      </span>
+                    </div>
+                    <div className="cash-pocket-card-stock">
+                      <span className="cash-pocket-card-stock-label">
+                        En el mes · {live.monthLabel || ''}
+                      </span>
+                      <span className="cash-pocket-card-stock-value">
+                        {formatCashAmount(monthAmount)}
+                      </span>
+                      {card.monthCount > 0 ? (
+                        <span className="cash-pocket-card-stock-meta">
+                          {card.monthCount === 1 ? '1 ingreso' : `${card.monthCount} ingresos`}
+                          {' del mes'}
+                        </span>
+                      ) : null}
+                    </div>
+                  </button>
+                );
+              })}
+              <CashDayCalendar
+                ledger={enrichedLedger}
+                monthKey={activeCalendarMonth}
+                selectedDate={ledgerFilter.onDate || ''}
+                today={live.asOf}
+                onChangeMonth={setCalendarMonth}
+                onSelectDay={(date) => openDayIncome(date)}
+              />
+            </div>
           </div>
 
           <div id="movimientos-de-caja">
@@ -584,9 +725,11 @@ function CashRegistersContent({
                 <h5 className="cash-lila-section-title" style={{ margin: 0 }}>
                   {ledgerFilter.view === 'cheques'
                     ? `Cheques en cartera · ${formatAccessinCashDate(ACCESSIN_CHEQUES_AS_OF)}`
-                    : activeSheet
-                      ? `Hoja de ${activeSheet.label}`
-                      : 'Movimientos de caja'}
+                    : ledgerFilter.onDate
+                      ? `Ingresos del ${formatAccessinCashDate(ledgerFilter.onDate)}`
+                      : activeSheet
+                        ? `Hoja de ${activeSheet.label}`
+                        : 'Movimientos de caja'}
                 </h5>
                 {autoMailStatus ? (
                   <p style={{ margin: '0.25rem 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
@@ -595,7 +738,7 @@ function CashRegistersContent({
                 ) : null}
               </div>
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                {(ledgerFilter.walletKind || ledgerFilter.view === 'cheques') ? (
+                {(ledgerFilter.walletKind || ledgerFilter.walletMatch || ledgerFilter.onDate || ledgerFilter.view === 'cheques') ? (
                   <button
                     type="button"
                     className="btn btn-secondary btn-sm"
@@ -603,6 +746,8 @@ function CashRegistersContent({
                       ...f,
                       view: 'movements',
                       walletKind: null,
+                      walletMatch: null,
+                      onDate: null,
                       showAll: false,
                     }))}
                   >
@@ -831,6 +976,7 @@ function CashRegistersContent({
       {panelTab === 'cobranzas' && (
         <CashCobranzasSection
           items={live.cobranzas}
+          members={members}
           asOf={live.asOf}
           periodTo={live.asOf}
           extraCount={live.extraCobranzasCount}

@@ -188,6 +188,10 @@ export function paymentFromRow(row) {
     voidedAt: meta.voidedAt || null,
     voidedBy: meta.voidedBy || null,
     journalEntryId: row.journal_entry_id || null,
+    importSource: meta.importSource || null,
+    importKind: meta.importKind || null,
+    paidAtReason: meta.paidAtReason || null,
+    methodLabel: meta.methodLabel || null,
   };
 }
 

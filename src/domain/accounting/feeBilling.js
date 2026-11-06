@@ -652,7 +652,8 @@ export function aggregateFeeChargeDeltas(charges = []) {
 
 /**
  * Suma los deltas de liquidación al padrón en memoria.
- * No pisa saldos previos: acumula (LILA/octubre + noviembre, etc.).
+ * No pisa el corte LILA: acumula capital (apertura + mes nuevo − cobros).
+ * El 10 % no entra acá: se calcula al cobrar.
  */
 export function applyFeeChargeDeltasToMembers(members = [], deltas = []) {
   if (!members?.length || !deltas?.length) return members || [];
@@ -663,9 +664,15 @@ export function applyFeeChargeDeltasToMembers(members = [], deltas = []) {
     const key = String(member?.memberId || '').trim();
     const add = byId.get(key);
     if (!add) return member;
+    const capitalAdd = money(add);
+    const prevBalance = Number(member.outstandingBalance) || 0;
+    const prevCapital = member.unpaidCapital != null && member.unpaidCapital !== ''
+      ? Number(member.unpaidCapital) || 0
+      : prevBalance;
     return {
       ...member,
-      outstandingBalance: money((Number(member.outstandingBalance) || 0) + add),
+      outstandingBalance: money(prevBalance + capitalAdd),
+      unpaidCapital: money(prevCapital + capitalAdd),
     };
   });
 }

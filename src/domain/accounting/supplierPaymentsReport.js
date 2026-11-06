@@ -43,6 +43,46 @@ function earliestDate(rows = [], fallback = '') {
   return min || fallback;
 }
 
+function monthLabelES(monthKey = '') {
+  const month = String(monthKey || '').slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(month)) return '';
+  const [y, m] = month.split('-').map(Number);
+  const raw = new Date(y, m - 1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+  return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : month;
+}
+
+function summarizeSupplierList(list = []) {
+  const byMethod = {};
+  const byMethodCount = {};
+  list.forEach((row) => {
+    const method = row.paymentMethod || 'otros';
+    const amount = Number(row.amount) || 0;
+    byMethod[method] = (byMethod[method] || 0) + amount;
+    byMethodCount[method] = (byMethodCount[method] || 0) + 1;
+  });
+  return {
+    count: list.length,
+    totalAmount: supplierPaymentsTotal(list),
+    byMethod: Object.fromEntries(
+      Object.entries(byMethod).map(([key, value]) => [key, roundMoney(value)])
+    ),
+    byMethodCount,
+  };
+}
+
+/** Resumen acotado a un día o a un mes (misma lógica que caja / cobranzas). */
+export function supplierPaymentsScopedSummary(items = [], { onDate = null, monthKey = null } = {}) {
+  const day = isoDate(onDate);
+  const month = String(monthKey || '').slice(0, 7);
+  let list = [...(items || [])];
+  if (day) {
+    list = list.filter((row) => isoDate(row.date) === day);
+  } else if (/^\d{4}-\d{2}$/.test(month)) {
+    list = list.filter((row) => String(row.date || '').slice(0, 7) === month);
+  }
+  return summarizeSupplierList(list);
+}
+
 /** Snapshot `accessinSupplierPayments`; vacío hasta que carga (ver data/snapshots). */
 export function supplierPaymentsSeed() {
   return readSnapshot('accessinSupplierPayments', EMPTY_SUPPLIER_PAYMENTS_SEED);
@@ -81,56 +121,99 @@ export function supplierPaymentsSummary(
   };
 }
 
+/**
+ * Tarjetas: pagado hoy + acumulado del mes (no el histórico ene→hoy).
+ * Devuelve `{ cards, dayTotal, monthTotal, monthLabel, asOfLabel, ... }`.
+ */
 export function supplierPaymentsBalanceCards(
   items = supplierPaymentsSeed().ACCESSIN_SUPPLIER_PAYMENTS,
   snapshot = supplierPaymentsSeed().ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT,
 ) {
-  const summary = supplierPaymentsSummary(items, snapshot);
+  const asOf = isoDate(snapshot?.asOf) || isoDate(supplierPaymentsSeed().ACCESSIN_SUPPLIER_PAYMENTS_AS_OF);
+  const monthKey = asOf.slice(0, 7);
+  const monthLabel = monthLabelES(monthKey);
+  const asOfLabel = formatAccessinCashDate(asOf);
   const labels = supplierPaymentMethodLabels();
-  const methodCards = Object.entries(summary.byMethod)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
-    .map(([method, value]) => ({
+  const daySummary = supplierPaymentsScopedSummary(items, { onDate: asOf });
+  const monthSummary = supplierPaymentsScopedSummary(items, { monthKey });
+
+  const methodKeys = [...new Set([
+    ...Object.keys(monthSummary.byMethod),
+    ...Object.keys(daySummary.byMethod),
+  ])].sort((a, b) => (monthSummary.byMethod[b] || 0) - (monthSummary.byMethod[a] || 0));
+
+  const methodCards = methodKeys.map((method) => {
+    const dayInflow = daySummary.byMethod[method] || 0;
+    const monthInflow = monthSummary.byMethod[method] || 0;
+    const dayCount = daySummary.byMethodCount[method] || 0;
+    const monthCount = monthSummary.byMethodCount[method] || 0;
+    return {
       id: `method-${method}`,
       label: labels[method] || method,
-      value,
-      caption: 'Importe del período',
+      value: monthInflow,
+      dayInflow,
+      dayCount,
+      monthInflow,
+      monthCount,
+      caption: dayInflow > 0
+        ? `Hoy ${formatAccessinCashDate(asOf)}`
+        : `Hoy sin pagos · ${asOfLabel}`,
+      subcaption: `En el mes · ${monthLabel}`,
       filter: { paymentMethod: method },
-    }));
+    };
+  });
 
-  return [
-    {
-      id: 'total',
-      label: 'Total pagado',
-      value: summary.totalAmount,
-      caption: summary.count
-        ? `${summary.count} pago(s) · ${formatAccessinCashDate(summary.periodFrom)} → ${formatAccessinCashDate(summary.periodTo)}`
-        : `Al ${formatAccessinCashDate(summary.asOf)} · sin pagos registrados`,
-      emphasize: true,
-      filter: null,
-    },
-    {
-      id: 'count',
-      label: 'Pagos',
-      value: summary.count,
-      caption: 'Órdenes y gastos pagados',
-      isCount: true,
-      filter: null,
-    },
-    ...methodCards,
-  ];
+  return {
+    asOf,
+    asOfLabel,
+    monthKey,
+    monthLabel,
+    dayTotal: daySummary.totalAmount,
+    dayCount: daySummary.count,
+    monthTotal: monthSummary.totalAmount,
+    monthCount: monthSummary.count,
+    cards: [
+      {
+        id: 'total',
+        label: 'Total pagado',
+        value: monthSummary.totalAmount,
+        dayInflow: daySummary.totalAmount,
+        dayCount: daySummary.count,
+        monthInflow: monthSummary.totalAmount,
+        monthCount: monthSummary.count,
+        caption: daySummary.totalAmount > 0
+          ? `Hoy ${asOfLabel}`
+          : `Hoy sin pagos · ${asOfLabel}`,
+        subcaption: `En el mes · ${monthLabel}`,
+        emphasize: true,
+        filter: null,
+      },
+      ...methodCards,
+    ],
+  };
 }
 
 export function filterAccessinSupplierPayments(items = [], filter = {}) {
   const {
     paymentMethod = null,
     bankName = null,
+    monthKey = null,
+    onDate = null,
     query = '',
     limit = null,
   } = filter || {};
   const q = String(query || '').trim().toLowerCase();
   let rows = [...(items || [])];
   if (paymentMethod) rows = rows.filter((row) => row.paymentMethod === paymentMethod);
+  const day = isoDate(onDate);
+  if (day) {
+    rows = rows.filter((row) => isoDate(row.date) === day);
+  } else {
+    const month = String(monthKey || '').slice(0, 7);
+    if (/^\d{4}-\d{2}$/.test(month)) {
+      rows = rows.filter((row) => String(row.date || '').slice(0, 7) === month);
+    }
+  }
   if (bankName) rows = rows.filter((row) => row.bankName === bankName);
   if (q) {
     rows = rows.filter((row) => {
@@ -259,15 +342,23 @@ export function buildLiveSupplierPayments({
     periodFrom: snapshot?.periodFrom || earliestDate(rows, cutoff),
     periodTo: asOf,
   };
+  const balance = supplierPaymentsBalanceCards(rows, liveSnapshot);
   return {
     asOf,
     asOfLabel: formatAccessinCashDate(asOf),
+    monthKey: balance.monthKey,
+    monthLabel: balance.monthLabel,
+    dayTotal: balance.dayTotal,
+    dayCount: balance.dayCount,
+    monthTotal: balance.monthTotal,
+    monthCount: balance.monthCount,
     cutoff,
     cutoffLabel: formatAccessinCashDate(cutoff),
     periodFrom: liveSnapshot.periodFrom,
     extraCount: extras.length,
     rows,
-    cards: supplierPaymentsBalanceCards(rows, liveSnapshot),
+    cards: balance.cards,
+    balance,
     methodLabels: supplierPaymentMethodLabels(),
   };
 }

@@ -3,8 +3,10 @@ import {
   applyMemberCollectionPayments,
   buildMemberCollectionImport,
   collectionPaymentsToEntries,
+  detectCobranzasSheetFormat,
   matchMemberByUnidad,
   parseCobranzasSociosSheetRows,
+  parseLilaCobranzasSheetRows,
   revertMemberCollectionPayments,
 } from './memberCollectionImport';
 import { feePeriodsForYear, periodLabel, resolveFeePeriods } from './feeBilling';
@@ -19,6 +21,36 @@ describe('memberCollectionImport', () => {
     expect(rows).toHaveLength(2);
     expect(rows[0].unidad).toBe('3008');
     expect(rows[0].monto).toBe(25000);
+  });
+
+  it('detecta y parsea Excel LILA de cobranzas/débitos', () => {
+    const aoa = [
+      ['Referencia', '', ''],
+      ['Tipo', 'ID Recibo', 'Fecha', 'Mes', 'Año', 'NRO DE SOCIO', 'NOMBRE', 'APELLIDO', 'DNI', 'Concepto', 'Efectivo', 'Cheques', 'Cheque propio/tercero', 'Transferencia', 'Electrónico', 'Otros', 'Banco', 'Importe total'],
+      ['Cuotas', '03655121', '2026-11-01', 11, 2026, 8192, 'Jean', 'Chacon', '36423639', 'Noviembre del 2026 - SOCIO INDIVIDUAL', '', '', '', '', '', '', 'Banco Macro', '40.000,00'],
+      ['Cuotas', '03655788', '2026-10-01', 10, 2026, 8271, 'Juan', 'Cobos', '27527793', 'Octubre del 2026', '', '', '', '', '', '', 'Banco Macro', '52.000,00'],
+      ['Recargos', '03656000', '2026-11-01', 11, 2026, 8192, 'Jean', 'Chacon', '36423639', 'Recargo nov', '', '', '', '', '', '', 'Banco Macro', '4.000,00'],
+      ['Varios', '03623371', '2026-11-01', 11, 2026, 11517, 'Cecilia', 'Maturano', '35148302', 'Diferencia', '', '', '', '', '', '', 'Banco de San Juan', '52.000,00'],
+    ];
+    expect(detectCobranzasSheetFormat(aoa).format).toBe('lila');
+    const { rows } = parseLilaCobranzasSheetRows(aoa, { month: 11, year: 2026 });
+    expect(rows).toHaveLength(2);
+    expect(rows[0].unidad).toBe('8192');
+    expect(rows[0].monto).toBe(40000);
+    expect(rows[0].banco).toBe('Banco Macro');
+    expect(rows[0].comprobante).toBe('03655121');
+    expect(rows[1].kind).toBe('Recargos');
+    const built = buildMemberCollectionImport({
+      rows,
+      members: [{ memberId: '8192', name: 'Jean Chacon', outstandingBalance: 44000 }],
+      entity: 'lila_cobranzas',
+      paidAtReason: 'Importación Excel débitos LILA noviembre',
+      importSource: 'test-batch-1',
+    });
+    expect(built.payments).toHaveLength(2);
+    expect(built.payments[0].importSource).toBe('test-batch-1');
+    expect(built.payments[0].bankName).toBe('Banco Macro');
+    expect(built.payments[0].concept).toContain('Noviembre');
   });
 
   it('arma lote e imputa saldo parcial sin mover el vencimiento', () => {

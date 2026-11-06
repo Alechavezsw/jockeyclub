@@ -438,6 +438,62 @@ export async function sendPaymentBoletoEmail({
   return data;
 }
 
+/**
+ * Envía boletos/comprobantes de un lote de importación Excel (edge send-import-receipts).
+ * Reintenta mientras queden pendientes del mismo importSource.
+ */
+export async function sendImportReceiptsBatch({
+  importSource,
+  limit = 40,
+  maxRounds = 40,
+  onProgress,
+} = {}) {
+  const source = String(importSource || '').trim();
+  if (!source) throw new Error('Falta importSource del lote.');
+  let sent = 0;
+  let skipped = 0;
+  let failed = 0;
+  let rounds = 0;
+  let pending = null;
+  while (rounds < maxRounds) {
+    rounds += 1;
+    const { data, error } = await sb().functions.invoke('send-import-receipts', {
+      body: { importSource: source, limit },
+    });
+    if (error) {
+      let detail = error.message || 'No se pudieron enviar los boletos';
+      try {
+        const ctx = error.context;
+        if (ctx && typeof ctx.json === 'function') {
+          const body = await ctx.json();
+          if (body?.error) detail = body.error;
+        }
+      } catch {
+        /* ignore */
+      }
+      throw new Error(data?.error || detail);
+    }
+    if (data?.error) throw new Error(data.error);
+    sent += Number(data?.sent) || 0;
+    skipped += Number(data?.skipped) || 0;
+    failed += Number(data?.failed) || 0;
+    pending = Number(data?.pending);
+    if (typeof onProgress === 'function') {
+      onProgress({
+        rounds,
+        sent,
+        skipped,
+        failed,
+        pending: Number.isFinite(pending) ? pending : null,
+        last: data,
+      });
+    }
+    const processed = Number(data?.processed) || 0;
+    if (!processed || (Number.isFinite(pending) && pending <= processed)) break;
+  }
+  return { ok: true, importSource: source, sent, skipped, failed, rounds, pending };
+}
+
 /** Comprobante de pago (caja / cuota) al mail real del socio. Misma regla que Mercado Pago. */
 export async function sendPaymentReceiptEmail({
   memberNumber,

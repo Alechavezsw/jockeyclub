@@ -29,7 +29,9 @@ import {
   duesDueDayForMember,
   duesOnJoin,
   isMemberBillingActive,
+  collectionPeriodChoices,
 } from './dues';
+import { collectionPreview } from './memberPayments';
 import { setRuntimeTierCatalog } from './tiers';
 import { setRuntimeDiscountRules } from '../accounting/discountApplication';
 
@@ -659,5 +661,27 @@ describe('buildWhatsAppDuesUrl', () => {
     }, formatCurrency);
     expect(url).toMatch(/^https:\/\/wa\.me\/5492644123456\?text=/);
     expect(buildWhatsAppDuesUrl({ name: 'Ana', phone: '' }, formatCurrency)).toBeNull();
+  });
+});
+
+describe('collectionPeriodChoices vs saldo de ficha', () => {
+  it('completa meses hacia atrás si el saldo supera el nextDueDate', () => {
+    const member = {
+      memberId: '111591',
+      name: 'Manuel',
+      tier: 'socio_individual',
+      status: 'active',
+      outstandingBalance: 152000,
+      nextDueDate: '2026-10-10',
+      overdueSince: '2026-10-10',
+    };
+    const today = new Date('2026-11-05T15:00:00-03:00');
+    const choices = collectionPeriodChoices(member, today);
+    const capital = choices.reduce((sum, row) => sum + (Number(row.capital) || 0), 0);
+    expect(capital).toBe(152000);
+    expect(choices.length).toBeGreaterThan(1);
+    const preview = collectionPreview(member, today);
+    expect(preview.quota).toBe(152000);
+    expect(preview.cash).toBeGreaterThan(152000);
   });
 });

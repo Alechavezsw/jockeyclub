@@ -269,16 +269,27 @@ export function filterAccessinCashMovements(movements = [], filter = {}) {
   const {
     walletKind = null,
     walletId = null,
+    walletMatch = null,
     monthKey = null,
+    onDate = null,
     query = '',
     limit = null,
   } = filter || {};
   const q = String(query || '').trim().toLowerCase();
   const month = String(monthKey || '').slice(0, 7);
+  const day = String(onDate || '').slice(0, 10);
+  const walletRe = walletMatch instanceof RegExp
+    ? walletMatch
+    : (walletMatch ? new RegExp(String(walletMatch), 'i') : null);
   let rows = [...(movements || [])];
   if (walletKind) rows = rows.filter((m) => m.walletKind === walletKind);
   if (walletId) rows = rows.filter((m) => m.walletId === walletId);
-  if (/^\d{4}-\d{2}$/.test(month)) {
+  if (walletRe) {
+    rows = rows.filter((m) => walletRe.test(`${m.walletName || ''} ${m.walletId || ''} ${m.description || ''}`));
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+    rows = rows.filter((m) => String(m.date || '').slice(0, 10) === day);
+  } else if (/^\d{4}-\d{2}$/.test(month)) {
     rows = rows.filter((m) => cashMovementMonthKey(m) === month);
   }
   if (q) {
@@ -291,6 +302,7 @@ export function filterAccessinCashMovements(movements = [], filter = {}) {
         m.memberName,
         m.familyGroup,
         m.walletName,
+        m.amount,
       ].map((x) => String(x || '').toLowerCase()).join(' ');
       return hay.includes(q);
     });

@@ -5,7 +5,6 @@ import {
 import CuotasDeskToolbar, { CuotasTool } from './CuotasDeskToolbar';
 import { exportAccountPaymentPdf } from '../../domain/accounting/exportAccountPaymentPdf';
 import { exportPaymentBoletoPdf } from '../../domain/accounting/exportPaymentBoleto';
-import { DUES_LATE_RATE } from '../../domain/members/tiers';
 import { isFamilyDependent, memberNumberOf, resolveFamilyForDisplay } from '../../domain/members/households';
 import {
   ACCOUNT_ENTRY_TYPES,
@@ -20,11 +19,13 @@ import {
   compareBalanceRows,
   filterMembersForBalances,
   formatSpanishLongDate,
+  lilaBalanceParts,
   lilaClubNumber,
   groupEntriesByMonth,
   MEMBER_BALANCES_SNAPSHOTS,
   memberStatusLabel,
   mergeAccountEntries,
+  resolvePaymentBoletoAmounts,
 } from '../../domain/accounting/memberBalances';
 import {
   currentAccountBalanceOf,
@@ -35,7 +36,6 @@ import { isSupabaseConfigured } from '../../lib/supabase';
 import SnapshotGate from '../SnapshotGate';
 import CurrentAccountCutNote from './CurrentAccountCutNote';
 import { todayAR } from '../../lib/arDate';
-import { money } from '../../domain/money';
 
 
 const SNAPSHOTS = [...MEMBER_BALANCES_SNAPSHOTS, 'accessinMonthlyDebts'];
@@ -249,22 +249,29 @@ function MemberBalancesContent({
 
   const openBoleto = (member = selectedMember) => {
     if (!member) return;
-    setSelectedMember(member);
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = now.getMonth();
-    const periodLabel = `${['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'][m]} del ${y}`;
-    const amount = Number(currentAccountBalanceOf(member)) || 0;
-    const due1 = `${y}-${String(m + 1).padStart(2, '0')}-10`;
-    const due2 = `${y}-${String(m + 1).padStart(2, '0')}-30`;
-    setBoleto(buildPaymentBoleto(member, {
-      periodLabel,
-      amount,
-      dueDate1: due1,
-      dueDate2: due2,
-      surcharge: money(amount * DUES_LATE_RATE),
-    }));
-    setView('boleto');
+    setError('');
+    try {
+      const amounts = resolvePaymentBoletoAmounts(member);
+      setSelectedMember(member);
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = now.getMonth();
+      const periodLabel = `${['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'][m]} del ${y}`;
+      const due1 = `${y}-${String(m + 1).padStart(2, '0')}-10`;
+      const due2 = `${y}-${String(m + 1).padStart(2, '0')}-30`;
+      // Como Lila: capital al 10; capital + recargos (ya cargados o del cobro) después.
+      setBoleto(buildPaymentBoleto(member, {
+        periodLabel,
+        amount: amounts.capital,
+        dueDate1: due1,
+        dueDate2: due2,
+        surcharge: amounts.surcharge,
+      }));
+      setView('boleto');
+    } catch (err) {
+      setError(err?.message || 'No se pudo armar el boleto.');
+      setView(selectedMember ? 'summary' : 'list');
+    }
   };
 
   const pickEntryMember = (member) => {
@@ -891,6 +898,7 @@ function MemberBalancesContent({
         ) : null}
       </div>
 
+      {error ? <p className="ig-error">{error}</p> : null}
       <div className="table-responsive">
         <table className="admin-table">
           <thead>
@@ -898,7 +906,9 @@ function MemberBalancesContent({
               <th>#</th>
               <th>Número de socio</th>
               <th>Socio Titular</th>
-              <th>Balance</th>
+              <th>Capital</th>
+              <th>Recargos</th>
+              <th>Saldo</th>
               <th>Balance familiar</th>
               <th>Estado</th>
               <th>Funciones</th>
@@ -907,11 +917,12 @@ function MemberBalancesContent({
           <tbody>
             {pageRows.length === 0 ? (
               <tr>
-                <td colSpan={7} style={{ color: 'var(--text-muted)' }}>Sin socios para este filtro.</td>
+                <td colSpan={9} style={{ color: 'var(--text-muted)' }}>Sin socios para este filtro.</td>
               </tr>
             ) : pageRows.map((m) => {
               const fam = familyBalanceForMember(m, members);
-              const balance = currentAccountBalanceOf(m);
+              const parts = lilaBalanceParts(m);
+              const balance = parts.resultante;
               const dependent = isFamilyDependent(m);
               return (
                 <tr key={m.memberId || m.id}>
@@ -921,6 +932,16 @@ function MemberBalancesContent({
                     <button type="button" className="member-balances-open" onClick={() => openSummary(m, 'member')}>
                       {m.name}
                     </button>
+                  </td>
+                  <td className="tabular-nums" style={{ fontWeight: 700, color: !dependent && parts.capital > 0 ? 'var(--emerald-accent)' : undefined }}>
+                    {dependent
+                      ? <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>—</span>
+                      : formatLilaListMoney(parts.capital)}
+                  </td>
+                  <td className="tabular-nums" style={{ fontWeight: 600, color: !dependent && parts.surcharges > 0 ? 'var(--warning, #b45309)' : 'var(--text-muted)' }}>
+                    {dependent
+                      ? <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>—</span>
+                      : formatLilaListMoney(parts.surcharges)}
                   </td>
                   <td className="tabular-nums" style={{ fontWeight: 700, color: !dependent && balance > 0 ? 'var(--emerald-accent)' : undefined }}>
                     {dependent

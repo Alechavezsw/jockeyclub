@@ -9,6 +9,7 @@ import {
 import { billingAccountMember, isFamilyDependent } from './households';
 import { referenceMonthlyDues } from './paymentHistory';
 import { createAccountEntry } from '../accounting/accountEntries';
+import { applyDuesPartsDelta } from '../accounting/currentAccountBalances';
 import { journalAccountForPayment } from './clubBanks';
 import { nowTimeAR, todayISODateAR } from '../../lib/arDate';
 import { money } from '../money';
@@ -20,6 +21,16 @@ import {
 } from './duesImputations';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { quitarRecargoCuota, registrarCobro, revertDuesPayment } from '../../data/repos';
+
+/** Resta capital (y recargos de stock LILA) del desglose vivo tras un cobro. */
+function withPaidParts(member, capitalPaid = 0, surchargePaid = 0) {
+  const stock = Number(member?.unpaidSurcharges) || 0;
+  const surchargeCut = Math.min(Math.max(0, Number(surchargePaid) || 0), stock);
+  return applyDuesPartsDelta(member, {
+    capital: -(Number(capitalPaid) || 0),
+    surcharges: -surchargeCut,
+  });
+}
 
 export const DUES_METHOD_LABELS = {
   efectivo: 'Efectivo',
@@ -196,6 +207,11 @@ export function applyImportedMemberPayment(member, {
   date,
   voucher = '',
   method = 'transferencia',
+  methodLabel = '',
+  concept = '',
+  bankName = '',
+  paidAtReason = '',
+  importSource = '',
   id,
   source = 'collection_import',
 } = {}) {
@@ -224,6 +240,7 @@ export function applyImportedMemberPayment(member, {
       duplicate: true,
     };
   }
+  const bank = String(bankName || '').trim();
   const payment = {
     id: key,
     idempotencyKey: key,
@@ -231,9 +248,14 @@ export function applyImportedMemberPayment(member, {
     time: nowTimeAR(when),
     paidAt: when.toISOString(),
     createdAt: when.toISOString(),
-    concept: 'Importación cobranzas socios',
+    concept: String(concept || '').trim() || 'Importación cobranzas socios',
     amount: paid,
     method,
+    methodLabel: String(methodLabel || '').trim()
+      || duesMethodLabel(method, bank),
+    bankName: bank || null,
+    paidAtReason: String(paidAtReason || '').trim() || undefined,
+    importSource: String(importSource || '').trim() || undefined,
     status: 'paid',
     receipt: voucher || receiptNumberFor(member, iso),
     receiptNumber: voucher || receiptNumberFor(member, iso),
@@ -268,7 +290,7 @@ export function applyImportedMemberPayment(member, {
       current = { ...current, outstandingBalance: capitalLeft };
     } else {
       current = {
-        ...member,
+        ...withPaidParts(member, imputed.capital, imputed.surcharge),
         outstandingBalance: capitalLeft,
         nextDueDate: openDue || member.nextDueDate,
       };
@@ -447,7 +469,7 @@ export function payMemberDues(member, {
       };
     }
     const next = {
-      ...member,
+      ...withPaidParts(member, imputed.capital, imputed.surcharge),
       outstandingBalance: capitalLeft,
       nextDueDate: openDue || member.nextDueDate,
       lastPaymentDate: date,
@@ -461,9 +483,12 @@ export function payMemberDues(member, {
     };
   }
 
+  const paidCapital = imputed ? imputed.capital : (lines.quota || 0);
+  const paidSurcharge = imputed ? imputed.surcharge : (lines.surcharge || 0);
+
   if (remainingCash > 0.01) {
     const next = {
-      ...member,
+      ...withPaidParts(member, paidCapital, paidSurcharge),
       outstandingBalance: money(remainingCash),
       lastPaymentDate: date,
       paymentHistory: history,
@@ -481,7 +506,7 @@ export function payMemberDues(member, {
       remainingChoices.reduce((sum, row) => sum + (Number(row.capital) || 0), 0),
     );
     const next = {
-      ...member,
+      ...withPaidParts(member, paidCapital, paidSurcharge),
       outstandingBalance: remainingCapital,
       nextDueDate: remainingChoices[0].dueOn,
       lastPaymentDate: date,
@@ -977,6 +1002,7 @@ function cobroPeriods(member, payment) {
     waiveSurcharge: Number(payment.waivedSurcharge) > 0,
     waivedSurcharge: Number(payment.waivedSurcharge) || 0,
     adelanto: payment.adelanto === true,
+    importSource: payment.importSource || null,
   };
 }
 
@@ -1043,7 +1069,12 @@ export async function persistImportedCollectionPayments(members = [], payments =
       amount: payment.amount,
       date: payment.date,
       voucher: payment.voucher,
-      method: 'transferencia',
+      method: payment.method || 'transferencia',
+      methodLabel: payment.methodLabel,
+      concept: payment.concept,
+      bankName: payment.bankName,
+      paidAtReason: payment.paidAtReason,
+      importSource: payment.importSource,
       id: payment.id,
     });
     if (draft.duplicate) {

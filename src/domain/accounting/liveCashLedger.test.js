@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CHART_OF_ACCOUNTS } from './chartOfAccounts';
-import { buildLiveCashLedger } from './liveCashLedger';
+import {
+  assignCashMovementNumbers,
+  buildLiveCashLedger,
+  maxCashMovementNumber,
+} from './liveCashLedger';
 import { impliedCashOnHand as cutoffOnHand } from './cashLedger';
 
 const TODAY = new Date('2026-10-19T15:00:00-03:00');
@@ -52,7 +56,7 @@ describe('liveCashLedger', () => {
       journalEntries: [
         cobro({ id: 'je-live-1', date: '2026-10-15', amount: 50 }),
         cobro({ id: 'je-live-2', date: '2026-10-16', amount: 80, account: 'Banco Nación' }),
-        cobro({ id: 'je-old', date: '2026-10-13', amount: 999 }),
+        cobro({ id: 'je-old', date: '2026-10-12', amount: 999 }),
       ],
       today: TODAY,
     });
@@ -68,6 +72,186 @@ describe('liveCashLedger', () => {
     expect(Math.round(sum * 100) / 100).toBeCloseTo(live.total, 2);
     expect(live.cobranzas).toHaveLength(2);
     expect(live.extraCobranzasCount).toBe(2);
+  });
+
+  it('incluye cobros de la app del mismo día del corte Accessin', () => {
+    const live = buildLiveCashLedger({
+      snapshot: SNAPSHOT,
+      movements: [],
+      bankAccounts: BANKS,
+      cheques: [],
+      chartOfAccounts: DEFAULT_CHART_OF_ACCOUNTS,
+      journalEntries: [
+        cobro({ id: 'je-same-day', date: '2026-10-13', amount: 44 }),
+      ],
+      today: TODAY,
+    });
+    expect(live.extraCount).toBe(1);
+    expect(live.efectivo).toBeCloseTo(644, 2);
+    expect(live.ledger.some((row) => row.journalEntryId === 'je-same-day' && row.amount === 44)).toBe(true);
+  });
+
+  it('lista débitos importados en el libro sin inflar el saldo del corte', () => {
+    const live = buildLiveCashLedger({
+      snapshot: SNAPSHOT,
+      movements: [],
+      bankAccounts: BANKS,
+      cheques: [],
+      chartOfAccounts: DEFAULT_CHART_OF_ACCOUNTS,
+      members: [{
+        memberId: '111591',
+        name: 'Chávez',
+        paymentHistory: [{
+          id: 'pay-imp-1',
+          date: '2026-10-01',
+          amount: 70000,
+          method: 'transferencia',
+          bankName: 'Banco Macro',
+          concept: 'Octubre del 2026 - SOCIO FAMILIAR',
+          importSource: 'lila-sheet-oct2026',
+          receipt: '03656025',
+        }],
+      }],
+      today: TODAY,
+    });
+    expect(live.importCount).toBe(1);
+    expect(live.bancos).toBeCloseTo(400, 2);
+    expect(live.ledger.some((row) => row.origin === 'import' && row.amount === 70000)).toBe(true);
+  });
+
+  it('no repite un débito importado si Accessin ya tiene la misma huella', () => {
+    const live = buildLiveCashLedger({
+      snapshot: SNAPSHOT,
+      movements: [{
+        id: 'acc-dup',
+        accessinId: 9001,
+        date: '2026-10-01',
+        amount: 70000,
+        movementType: 'income',
+        walletKind: 'bank',
+        memberNumber: '111591',
+        description: 'Débito Macro',
+      }],
+      bankAccounts: BANKS,
+      members: [{
+        memberId: '111591',
+        name: 'Chávez',
+        paymentHistory: [{
+          id: 'pay-imp-dup',
+          date: '2026-10-01',
+          amount: 70000,
+          method: 'transferencia',
+          importSource: 'lila-sheet-oct2026',
+        }],
+      }],
+      today: TODAY,
+    });
+    expect(live.importCount).toBe(0);
+    expect(live.ledger.filter((row) => row.amount === 70000 && row.memberNumber === '111591')).toHaveLength(1);
+  });
+
+  it('separa Mercado Pago y muestra el ingreso del día', () => {
+    const live = buildLiveCashLedger({
+      snapshot: {
+        ...SNAPSHOT,
+        periodInflows: {
+          'Mercado Pago (ARS)': 125000,
+          'Banco Macro (ARS)': 275000,
+        },
+        cards: {
+          ...SNAPSHOT.cards,
+          bancos: { periodInflow: 400000 },
+          total: { balance: 500000 },
+        },
+      },
+      movements: [{
+        id: 'mp-day',
+        accessinId: 1,
+        date: '2026-10-19',
+        amount: 2500,
+        movementType: 'income',
+        walletKind: 'bank',
+        walletName: 'Mercado Pago (ARS)',
+      }],
+      liveMovements: [{
+        id: 'cm-cash-day',
+        date: '2026-10-19',
+        amount: 4400,
+        movementType: 'income',
+        concept: 'Cobro cuota social (Efectivo)',
+      }],
+      bankAccounts: BANKS,
+      today: TODAY,
+    });
+    expect(live.mercadopago).toBeCloseTo(127500, 2);
+    expect(live.dayInflow.efectivo).toBeCloseTo(4400, 2);
+    expect(live.dayInflow.mercadopago).toBeCloseTo(2500, 2);
+    expect(live.dayInflow.total).toBeCloseTo(6900, 2);
+    expect(live.cards.find((c) => c.id === 'mercadopago')?.value).toBeCloseTo(127500, 2);
+    expect(live.cards.find((c) => c.id === 'efectivo')?.monthInflow).toBeCloseTo(4400, 2);
+    expect(live.cards.find((c) => c.id === 'mercadopago')?.monthInflow).toBeCloseTo(2500, 2);
+    expect(live.monthInflow.total).toBeCloseTo(6900, 2);
+    expect(live.cards.find((c) => c.id === 'efectivo')?.caption).toMatch(/Hoy \+/);
+    expect(live.calendar.days.find((d) => d.date === '2026-10-19')?.inflow).toBeCloseTo(6900, 2);
+  });
+
+  it('numera movimientos vivos a continuación del último # Accessin', () => {
+    expect(maxCashMovementNumber([
+      { accessinId: 603050 },
+      { accessinId: 603040 },
+      { accessinId: null },
+    ])).toBe(603050);
+
+    const numbered = assignCashMovementNumbers([
+      { id: 'acc-1', accessinId: 603050, date: '2026-11-04', amount: 10 },
+      { id: 'live-b', accessinId: null, date: '2026-11-05', amount: 4400, origin: 'app' },
+      { id: 'live-a', accessinId: null, date: '2026-11-01', amount: 70000, origin: 'import' },
+    ]);
+    expect(numbered.find((r) => r.id === 'live-a')?.accessinId).toBe(603051);
+    expect(numbered.find((r) => r.id === 'live-b')?.accessinId).toBe(603052);
+    expect(numbered.find((r) => r.id === 'acc-1')?.accessinId).toBe(603050);
+  });
+
+  it('en el libro vivo el cobro nuevo recibe # correlativo', () => {
+    const live = buildLiveCashLedger({
+      snapshot: SNAPSHOT,
+      movements: [{
+        id: 'acc-1',
+        accessinId: 9000,
+        date: '2026-10-12',
+        amount: 100,
+        movementType: 'income',
+        walletKind: 'cash',
+      }],
+      bankAccounts: BANKS,
+      journalEntries: [
+        cobro({ id: 'je-num', date: '2026-10-15', amount: 50 }),
+      ],
+      today: TODAY,
+    });
+    const row = live.ledger.find((r) => r.journalEntryId === 'je-num');
+    expect(row?.accessinId).toBe(9001);
+  });
+
+  it('omite el asiento global de importación de cobranzas', () => {
+    const live = buildLiveCashLedger({
+      snapshot: SNAPSHOT,
+      bankAccounts: BANKS,
+      journalEntries: [{
+        id: 'je-import-batch',
+        date: '2026-10-15',
+        status: 'posted',
+        sourceModule: 'cuotas',
+        description: 'Importación cobranzas socios (debitos-nov.xlsx)',
+        lines: [
+          { account: 'Caja General', type: 'debit', amount: 1000000 },
+          { account: 'Cuotas Sociales', type: 'credit', amount: 1000000 },
+        ],
+      }],
+      today: TODAY,
+    });
+    expect(live.extraCount).toBe(0);
+    expect(live.efectivo).toBeCloseTo(600, 2);
   });
 
   it('suma otros ingresos posteriores al corte en cobranzas', () => {

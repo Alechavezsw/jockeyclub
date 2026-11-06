@@ -7,11 +7,15 @@ import {
 } from '../members/memberPayments';
 import { todayAR } from '../../lib/arDate';
 
-/** Importación de cobranzas de socios (Excel Manual). */
+/** Importación de cobranzas de socios (Excel Manual o export LILA). */
 
 export const MEMBER_COLLECTION_ENTITIES = {
   excel_manual: 'Excel Manual',
+  lila_cobranzas: 'Cobranzas / débitos',
 };
+
+/** Tipos de fila del export LILA que se imputan como cuota viva. */
+export const LILA_COBRANZAS_DEFAULT_KINDS = Object.freeze(['Cuotas', 'Recargos']);
 
 export const MEMBER_COLLECTION_IMPUTATION_ORDERS = {
   chronological: 'Deuda más antigua primero',
@@ -66,6 +70,39 @@ function padUnidad(v) {
   return String(v ?? '').trim();
 }
 
+function parseMoneyCell(raw) {
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    return Math.round(raw * 100) / 100;
+  }
+  const t = String(raw || '')
+    .replace(/\./g, '')
+    .replace(',', '.')
+    .replace(/[^\d.-]/g, '');
+  const n = Number(t);
+  return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
+}
+
+function findHeaderRow(aoa = [], predicate) {
+  return (aoa || []).findIndex((r) => r && r.length && predicate((r || []).map(normHeader)));
+}
+
+/** Detecta export LILA (Tipo / ID Recibo / NRO DE SOCIO) vs lista base (UNIDAD / MONTO). */
+export function detectCobranzasSheetFormat(aoa = []) {
+  const lilaIdx = findHeaderRow(aoa, (h) => {
+    const tipo = h.findIndex((x) => x === 'TIPO');
+    const socio = h.findIndex((x) => x.includes('NRO') && x.includes('SOCIO'));
+    const recibo = h.findIndex((x) => x.includes('RECIBO'));
+    return tipo >= 0 && (socio >= 0 || recibo >= 0);
+  });
+  if (lilaIdx >= 0) return { format: 'lila', headerIdx: lilaIdx };
+  const baseIdx = findHeaderRow(aoa, (h) => {
+    const h0 = h[0] || '';
+    return h0 === 'UNIDAD' || h0.startsWith('UNIDAD') || h0 === 'NRO' || h0.startsWith('NRO');
+  });
+  if (baseIdx >= 0) return { format: 'lista_base', headerIdx: baseIdx };
+  return { format: 'unknown', headerIdx: -1 };
+}
+
 function clubNumber(member) {
   const digits = padMember(memberNumberOf(member) || member?.memberId);
   if (!digits) return '';
@@ -106,6 +143,102 @@ export function matchMemberByUnidad(members = [], unidad, index) {
     || map.get(key.replace(/^0+/, '') || key)
     || map.get(key.padStart(5, '0'))
     || null;
+}
+
+/**
+ * Export LILA cobranzas: Tipo, ID Recibo, Fecha, Mes, Año, NRO DE SOCIO, …
+ * Misma estructura que el Excel de débitos/cobranzas que se importa a mano.
+ */
+export function parseLilaCobranzasSheetRows(aoa = [], {
+  kinds = LILA_COBRANZAS_DEFAULT_KINDS,
+  month = null,
+  year = null,
+} = {}) {
+  if (!Array.isArray(aoa) || !aoa.length) {
+    throw new Error('El archivo no tiene datos de cobranzas LILA.');
+  }
+  const detected = detectCobranzasSheetFormat(aoa);
+  if (detected.format !== 'lila' || detected.headerIdx < 0) {
+    throw new Error('No se encontró el encabezado LILA (Tipo, ID Recibo, NRO DE SOCIO, …).');
+  }
+  const headerIdx = detected.headerIdx;
+  const header = (aoa[headerIdx] || []).map(normHeader);
+  const idx = {
+    tipo: header.findIndex((h) => h === 'TIPO'),
+    recibo: header.findIndex((h) => h.includes('RECIBO') || h === 'ID RECIBO'),
+    fecha: header.findIndex((h) => h === 'FECHA' || h.startsWith('FECHA')),
+    mes: header.findIndex((h) => h === 'MES'),
+    anio: header.findIndex((h) => h === 'ANO' || h === 'AÑO' || h.startsWith('ANIO')),
+    socio: header.findIndex((h) => h.includes('NRO') && h.includes('SOCIO')),
+    nombre: header.findIndex((h) => h === 'NOMBRE'),
+    apellido: header.findIndex((h) => h === 'APELLIDO'),
+    dni: header.findIndex((h) => h.includes('DNI') || h.includes('DOCUMENTO')),
+    concepto: header.findIndex((h) => h.includes('CONCEPTO')),
+    banco: header.findIndex((h) => h === 'BANCO' || h.startsWith('BANCO')),
+    importe: header.findIndex((h) => h.includes('IMPORTE') || h === 'TOTAL' || h.includes('TOTAL')),
+  };
+  if (idx.tipo < 0 || idx.socio < 0 || idx.importe < 0) {
+    throw new Error('La planilla LILA debe incluir Tipo, NRO DE SOCIO e Importe total.');
+  }
+
+  const kindSet = new Set(
+    (kinds || LILA_COBRANZAS_DEFAULT_KINDS).map((k) => String(k || '').trim().toLowerCase()),
+  );
+  const wantMonth = month != null && month !== '' ? Number(month) : null;
+  const wantYear = year != null && year !== '' ? Number(year) : null;
+  const rows = [];
+  const skipped = { kind: 0, period: 0, empty: 0 };
+
+  for (let i = headerIdx + 1; i < aoa.length; i += 1) {
+    const r = aoa[i];
+    if (!r) continue;
+    const kind = String(r[idx.tipo] ?? '').trim();
+    const unidad = padUnidad(r[idx.socio]);
+    const monto = parseMoneyCell(r[idx.importe]);
+    const nombre = [idx.nombre >= 0 ? r[idx.nombre] : '', idx.apellido >= 0 ? r[idx.apellido] : '']
+      .map((p) => String(p ?? '').trim())
+      .filter(Boolean)
+      .join(' ');
+    if (!kind && !unidad && !monto && !nombre) {
+      skipped.empty += 1;
+      continue;
+    }
+    if (!kindSet.has(kind.toLowerCase())) {
+      skipped.kind += 1;
+      continue;
+    }
+    const rowMonth = idx.mes >= 0 ? Number(r[idx.mes]) : null;
+    const rowYear = idx.anio >= 0 ? Number(r[idx.anio]) : null;
+    if (wantMonth != null && Number.isFinite(wantMonth) && rowMonth !== wantMonth) {
+      skipped.period += 1;
+      continue;
+    }
+    if (wantYear != null && Number.isFinite(wantYear) && rowYear !== wantYear) {
+      skipped.period += 1;
+      continue;
+    }
+    if (!unidad || !(monto > 0)) {
+      skipped.empty += 1;
+      continue;
+    }
+    rows.push({
+      line: i + 1,
+      kind,
+      unidad,
+      dni: idx.dni >= 0 ? padUnidad(r[idx.dni]) : '',
+      nombre,
+      fecha: excelDateToIso(idx.fecha >= 0 ? r[idx.fecha] : ''),
+      monto,
+      cbu: '',
+      comprobante: idx.recibo >= 0 ? String(r[idx.recibo] ?? '').trim() : '',
+      concepto: idx.concepto >= 0 ? String(r[idx.concepto] ?? '').trim() : '',
+      banco: idx.banco >= 0 ? String(r[idx.banco] ?? '').trim() : '',
+      month: Number.isFinite(rowMonth) ? rowMonth : null,
+      year: Number.isFinite(rowYear) ? rowYear : null,
+    });
+  }
+
+  return { rows, skipped, headerIdx };
 }
 
 /** AOA hoja Socios → filas normalizadas. */
@@ -180,6 +313,9 @@ export function buildMemberCollectionImport({
   forceDate = '',
   imputationOrder = 'chronological',
   fileName = '',
+  paidAtReason = '',
+  importSource = '',
+  sendReceipts = true,
 }) {
   const payments = [];
   const errors = [];
@@ -187,6 +323,8 @@ export function buildMemberCollectionImport({
   const stamp = new Date();
   let totalAmount = 0;
   const index = buildMemberMatchIndex(members);
+  const batchId = `mci-${stamp.getTime()}`;
+  const sourceKey = String(importSource || batchId).trim() || batchId;
 
   const payable = (rows || []).filter((r) => (Number(r.monto) || 0) > 0);
   const ordered = sortPayableRows(payable, imputationOrder);
@@ -212,15 +350,26 @@ export function buildMemberCollectionImport({
       return;
     }
     seen.add(idempotencyKey);
+    const bankName = String(row.banco || '').trim();
+    const concept = String(row.concepto || '').trim() || 'Importación cobranzas socios';
     const payment = {
       id: idempotencyKey,
       idempotencyKey,
       memberId,
-      memberName: matched?.name || row.nombre || row.unidad,
+      memberName: matched?.name || matched?.fullName || row.nombre || row.unidad,
       date,
       amount: row.monto,
       cbu: row.cbu || '',
       voucher: row.comprobante || '',
+      concept,
+      bankName,
+      method: 'transferencia',
+      methodLabel: bankName
+        ? `Transferencia bancaria · ${bankName}`
+        : 'Transferencia bancaria',
+      kind: row.kind || '',
+      paidAtReason: String(paidAtReason || '').trim(),
+      importSource: sourceKey,
       matched: Boolean(matched),
       entity,
       createdAt: stamp.toISOString(),
@@ -240,7 +389,7 @@ export function buildMemberCollectionImport({
   else if (errors.length) status = 'partial';
 
   const batch = {
-    id: `mci-${stamp.getTime()}`,
+    id: batchId,
     accessinId: null,
     importedAt: stamp.toISOString(),
     entity,
@@ -254,6 +403,8 @@ export function buildMemberCollectionImport({
     errors,
     forceDate: forceDate || '',
     imputationOrder,
+    importSource: sourceKey,
+    sendReceipts: sendReceipts !== false,
     paymentIds: payments.map((p) => p.id),
     applied: [],
   };
@@ -279,7 +430,12 @@ export function applyMemberCollectionPayments(members = [], payments = []) {
         amount: payment.amount,
         date: payment.date,
         voucher: payment.voucher,
-        method: 'transferencia',
+        method: payment.method || 'transferencia',
+        methodLabel: payment.methodLabel,
+        concept: payment.concept,
+        bankName: payment.bankName,
+        paidAtReason: payment.paidAtReason,
+        importSource: payment.importSource,
         id: payment.id,
       });
       if (result.duplicate) continue;

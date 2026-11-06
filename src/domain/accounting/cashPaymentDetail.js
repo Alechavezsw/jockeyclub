@@ -389,6 +389,59 @@ function includesRecargo(rows) {
   return (rows || []).some((row) => /recargo/i.test(String(row.type || row.description || '')));
 }
 
+/** Etiqueta corta del recibo (oculta UUIDs largos en la grilla). */
+export function cashReceiptLabel(receiptId) {
+  const raw = String(receiptId || '').trim();
+  if (!raw) return '';
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw)) {
+    return raw.slice(0, 8);
+  }
+  return raw.replace(/^0+/, '') || raw;
+}
+
+function memberDigitsOf(value) {
+  return String(value?.memberId || value?.member_number || value?.memberNumber || '').replace(/\D/g, '');
+}
+
+/** Busca el pago del padrón que originó esta cobranza (mismo día, monto y socio). */
+export function matchMemberPaymentForCobranza(row, members = []) {
+  const digits = memberDigitsOf(row);
+  const date = String(row?.date || '').slice(0, 10);
+  const amount = Number(row?.amount) || 0;
+  if (!digits || !date || !(amount > 0)) return null;
+  const member = (members || []).find((m) => memberDigitsOf(m) === digits);
+  if (!member) return null;
+  const payment = (member.paymentHistory || []).find((pay) => {
+    if (pay?.status === 'void' || pay?.status === 'cancelled') return false;
+    const payDate = String(pay.date || pay.paidAt || '').slice(0, 10);
+    return payDate === date && Math.abs((Number(pay.amount) || 0) - amount) < 0.009;
+  });
+  return payment ? { member, payment } : null;
+}
+
+/** Arma el detalle de recibo desde una fila de cobranzas (Accessin o vivo). */
+export function buildCashPaymentDetailFromCobranza(row, members = []) {
+  if (!row) return null;
+  const matched = matchMemberPaymentForCobranza(row, members);
+  const movement = {
+    id: row.id,
+    date: row.date,
+    amount: row.amount,
+    memberNumber: row.memberNumber,
+    typeLabel: row.paymentMethodLabel || row.type || 'Ingreso',
+    description: row.concept || row.description || '',
+    accessinId: /^\d+$/.test(String(row.receiptId || '')) ? row.receiptId : null,
+    paymentNumber: firstText(
+      matched?.payment?.receiptNumber,
+      matched?.payment?.receipt,
+      cashReceiptLabel(row.receiptId),
+      row.receiptId,
+    ),
+    voucher: row.voucher || row.comprobante || matched?.payment?.receipt || '',
+  };
+  return buildCashPaymentDetail(movement, [row], members);
+}
+
 export function buildCashPaymentDetail(movement, cobranzas = [], members = []) {
   if (!movement) return null;
   const lines = matchCobranzasForCashMovement(movement, cobranzas);

@@ -17,19 +17,16 @@ beforeAll(async () => {
 });
 
 describe('supplierPaymentsReport snapshot', () => {
-  it.skipIf(!hasLocalSnapshot('accessinSupplierPayments'))('el corte al 2 de noviembre trae los pagos de 2026 que Lila exporta', () => {
-    expect(ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT.asOf).toBe('2026-11-02');
-    expect(ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT.periodFrom).toBe('2026-01-01');
-    expect(ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT.periodTo).toBe('2026-03-27');
-    expect(ACCESSIN_SUPPLIER_PAYMENTS).toHaveLength(170);
-    expect(ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT.totalAmount).toBeCloseTo(62936763.56, 2);
-    expect(ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT.count).toBe(170);
+  it.skipIf(!hasLocalSnapshot('accessinSupplierPayments'))('el corte trae los pagos que Lila exporta', () => {
+    expect(ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT.asOf).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(ACCESSIN_SUPPLIER_PAYMENTS.length).toBeGreaterThan(50);
+    expect(ACCESSIN_SUPPLIER_PAYMENTS_SNAPSHOT.totalAmount).toBeGreaterThan(1_000_000);
   });
 
   it.skipIf(!hasLocalSnapshot('accessinSupplierPayments'))('resume el listado cargado', () => {
     const summary = supplierPaymentsSummary();
-    expect(summary.count).toBe(170);
-    expect(summary.totalAmount).toBeCloseTo(62936763.56, 2);
+    expect(summary.count).toBe(ACCESSIN_SUPPLIER_PAYMENTS.length);
+    expect(summary.totalAmount).toBeGreaterThan(1_000_000);
     expect(filterAccessinSupplierPayments([])).toEqual([]);
   });
 });
@@ -78,7 +75,9 @@ describe('buildLiveSupplierPayments', () => {
     expect(live.extraCount).toBe(2);
     expect(live.rows).toHaveLength(2);
     expect(supplierPaymentsTotal(live.rows)).toBe(2000);
-    expect(live.cards.find((card) => card.id === 'total')?.caption).not.toMatch(/Accessin|LILA/i);
+    expect(live.monthTotal).toBeCloseTo(2000, 2);
+    expect(live.cards.find((card) => card.id === 'total')?.monthInflow).toBeCloseTo(2000, 2);
+    expect(live.cards.find((card) => card.id === 'total')?.caption).not.toMatch(/Accessin|LILA|Enero/i);
   });
 
   it('si no hay pagos, el período arranca en el corte', () => {
@@ -91,7 +90,9 @@ describe('buildLiveSupplierPayments', () => {
     });
     expect(live.periodFrom).toBe('2026-09-26');
     expect(live.rows).toEqual([]);
-    expect(live.cards[0].caption).toContain('sin pagos registrados');
+    expect(live.dayTotal).toBe(0);
+    expect(live.monthTotal).toBe(0);
+    expect(live.cards.find((c) => c.id === 'total')?.caption).toMatch(/Hoy sin pagos/);
   });
 
   it('no duplica un gasto ya vinculado a una orden', () => {

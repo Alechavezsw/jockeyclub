@@ -6,7 +6,7 @@ import {
 import ModalDialog from '../ModalDialog';
 import { useAuth } from '../../context/AuthContext';
 import { canEditFeePackAmounts, canReopenFeePeriod } from '../../domain/auth/roles';
-import { notaAjusteCuota, revertDuesPayment } from '../../data/repos';
+import { notaAjusteCuota, revertDuesPayment, sendImportReceiptsBatch } from '../../data/repos';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { formatCurrency } from '../../domain/accounting/journal';
 import {
@@ -27,21 +27,26 @@ import {
 } from '../../domain/accounting/feeBilling';
 import { todayISODateAR, todayAR } from '../../lib/arDate';
 import { persistImportedCollectionPayments } from '../../domain/members/memberPayments';
+import { deliverPaymentReceipt } from '../../domain/payments/deliverPaymentReceipt';
 import { money } from '../../domain/money';
 import FeePackEditor from './FeePackEditor';
 import DuesDueBanner from '../admin/DuesDueBanner';
+import CollectDuesDeskFlow from '../admin/CollectDuesDeskFlow';
 import { exportFeePeriodExcel, exportFeePeriodPdf } from '../../domain/accounting/exportFeePeriodDetails';
 import { liquidationFromPeriod, periodDisplayTotal } from '../../domain/accounting/feePeriodLiquidation';
 import {
   LISTA_BASE_COBRANZAS_FILENAME,
   LISTA_BASE_COBRANZAS_URL,
+  LILA_COBRANZAS_DEFAULT_KINDS,
   MEMBER_COLLECTION_ENTITIES,
   MEMBER_COLLECTION_IMPUTATION_ORDERS,
   MEMBER_COLLECTION_IMPORT_STATUS,
   applyMemberCollectionPayments,
   buildMemberCollectionImport,
   collectionPaymentsToEntries,
+  detectCobranzasSheetFormat,
   parseCobranzasSociosSheetRows,
+  parseLilaCobranzasSheetRows,
   revertMemberCollectionPayments,
 } from '../../domain/accounting/memberCollectionImport';
 import {
@@ -162,6 +167,19 @@ export default function CuotasPanel({
   const [imputationOrder, setImputationOrder] = useState('chronological');
   const [file, setFile] = useState(null);
   const fileRef = useRef(null);
+  const [lilaMonth, setLilaMonth] = useState(() => {
+    const m = Number(todayAR().slice(5, 7));
+    return m >= 1 && m <= 12 ? m : 1;
+  });
+  const [lilaYear, setLilaYear] = useState(() => {
+    const y = Number(todayAR().slice(0, 4));
+    return y >= 2020 ? y : new Date().getFullYear();
+  });
+  const [lilaIncludeVarios, setLilaIncludeVarios] = useState(false);
+  const [paidAtReason, setPaidAtReason] = useState('Importación Excel cobranzas (débito/transferencia)');
+  const [sendReceipts, setSendReceipts] = useState(true);
+  const [detectedFormat, setDetectedFormat] = useState('');
+  const [collectOpen, setCollectOpen] = useState(false);
 
   const [evSocio, setEvSocio] = useState('');
   const [evSpace, setEvSpace] = useState('all');
@@ -216,13 +234,31 @@ export default function CuotasPanel({
     setView(balancesOnly ? 'balances' : 'hub');
   };
   const goDesk = (next) => {
-    if (balancesOnly && ['import_collections', 'impute_events', 'mora'].includes(next)) return;
+    if (balancesOnly && ['import_collections', 'impute_events', 'mora', 'collect_dues'].includes(next)) return;
+    if (next === 'collect_dues') {
+      setCollectOpen(true);
+      return;
+    }
     if (next === 'import_collections') {
+      const day = todayAR();
+      const m = Number(day.slice(5, 7));
+      const y = Number(day.slice(0, 4));
+      if (m >= 1 && m <= 12) setLilaMonth(m);
+      if (y >= 2020) setLilaYear(y);
       setError('');
       setOk('');
     }
     setView(next);
   };
+
+  useEffect(() => {
+    if (view !== 'import_collections') return;
+    const day = todayAR();
+    const m = Number(day.slice(5, 7));
+    const y = Number(day.slice(0, 4));
+    if (m >= 1 && m <= 12) setLilaMonth(m);
+    if (y >= 2020) setLilaYear(y);
+  }, [view]);
 
   const periodLiquidation = useMemo(
     () => (selectedPeriod && membersReady
@@ -686,19 +722,55 @@ export default function CuotasPanel({
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf, { type: 'array', cellDates: true });
       const sheet = wb.Sheets.Socios || wb.Sheets.SOCIOS || wb.Sheets[wb.SheetNames[0]];
-      if (!sheet) throw new Error('No se encontró la hoja Socios.');
+      if (!sheet) throw new Error('No se encontró una hoja con datos.');
       const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
-      const rows = parseCobranzasSociosSheetRows(aoa);
+      const detected = detectCobranzasSheetFormat(aoa);
+      setDetectedFormat(detected.format);
+      let rows = [];
+      let importEntity = entity;
+      let formatNote = '';
+      if (detected.format === 'lila') {
+        const kinds = lilaIncludeVarios
+          ? [...LILA_COBRANZAS_DEFAULT_KINDS, 'Varios']
+          : [...LILA_COBRANZAS_DEFAULT_KINDS];
+        const parsed = parseLilaCobranzasSheetRows(aoa, {
+          kinds,
+          month: lilaMonth,
+          year: lilaYear,
+        });
+        rows = parsed.rows;
+        importEntity = 'lila_cobranzas';
+        formatNote = `${MONTHS_ES[lilaMonth - 1] || lilaMonth}/${lilaYear}`;
+        if (!rows.length) {
+          throw new Error(
+            `No hay filas Cuotas/Recargos para ${MONTHS_ES[lilaMonth - 1] || lilaMonth} ${lilaYear}. `
+            + 'Revisá mes/año o el archivo.',
+          );
+        }
+      } else {
+        rows = parseCobranzasSociosSheetRows(aoa);
+        formatNote = 'lista base';
+      }
+      const today = todayAR();
+      const hasBackdated = rows.some((r) => {
+        const day = String(forceDate || r.fecha || '').slice(0, 10);
+        return day && day < today;
+      });
+      if (hasBackdated && String(paidAtReason || '').trim().length < 8) {
+        throw new Error('Hay fechas anteriores a hoy: completá el motivo del cobro antedatado (mín. 8 caracteres).');
+      }
       const built = buildMemberCollectionImport({
         rows,
         members,
-        entity,
+        entity: importEntity,
         forceDate,
         imputationOrder,
         fileName: file.name,
+        paidAtReason: hasBackdated ? paidAtReason : '',
+        sendReceipts,
       });
       if (!built.payments.length) {
-        throw new Error('No hay filas con MONTO > 0 para importar. Completá la lista base y volvé a subirla.');
+        throw new Error('No hay filas con importe > 0 para importar.');
       }
       let appliedResult = { members, applied: [], ledgerEntries: [], fullyPaidCount: 0, creditCount: 0, skipped: 0 };
       if (isSupabaseConfigured) {
@@ -716,11 +788,55 @@ export default function CuotasPanel({
         (sum, row) => sum + (Number(row.amount) || 0),
         0,
       );
+      let receiptNote = '';
+      if (sendReceipts && appliedResult.applied?.length) {
+        if (isSupabaseConfigured) {
+          setOk(`Pagos cargados (${formatNote}). Enviando boletos…`);
+          const receipts = await sendImportReceiptsBatch({
+            importSource: built.batch.importSource,
+            onProgress: ({ sent, skipped, pending }) => {
+              setOk(
+                `Pagos cargados (${formatNote}). Boletos: ${sent} enviados`
+                + (skipped ? ` · ${skipped} sin mail` : '')
+                + (pending != null ? ` · ${Math.max(0, pending - sent - skipped)} pendientes` : ''),
+              );
+            },
+          });
+          receiptNote = ` · boletos ${receipts.sent} enviados`
+            + (receipts.skipped ? ` · ${receipts.skipped} sin mail` : '')
+            + (receipts.failed ? ` · ${receipts.failed} fallidos` : '');
+        } else {
+          const byId = new Map((appliedResult.members || members).map((m) => [String(m.memberId), m]));
+          const payByKey = new Map(built.payments.map((p) => [p.id, p]));
+          let mailed = 0;
+          for (const row of appliedResult.applied) {
+            const member = byId.get(String(row.memberId));
+            const src = payByKey.get(row.paymentId);
+            if (!member || !src) continue;
+            await deliverPaymentReceipt({
+              member,
+              payment: {
+                ...src,
+                amount: row.amount,
+                date: row.date,
+                receiptNumber: src.voucher || src.receiptNumber,
+                method: src.methodLabel || src.method,
+                concept: src.concept,
+              },
+              onSendMessage,
+              kind: 'cuota',
+            });
+            mailed += 1;
+          }
+          receiptNote = ` · ${mailed} boleto(s) disparados`;
+        }
+      }
       const batch = {
         ...built.batch,
         applied: appliedResult.applied,
         fullyPaidCount: appliedResult.fullyPaidCount,
         creditCount: appliedResult.creditCount,
+        receiptsSent: sendReceipts,
       };
       if (typeof onImportCollections === 'function') {
         await onImportCollections({ ...built, batch });
@@ -731,7 +847,7 @@ export default function CuotasPanel({
       if (typeof addJournalEntry === 'function' && postedAmount > 0) {
         await addJournalEntry({
           date: forceDate || todayAR(),
-          description: `Importación cobranzas socios (${built.batch.fileName || 'Excel Manual'})`,
+          description: `Importación cobranzas socios (${built.batch.fileName || formatNote || 'Excel'})`,
           sourceModule: 'cuotas',
           lines: [
             { account: 'Caja General', type: 'debit', amount: postedAmount },
@@ -741,10 +857,12 @@ export default function CuotasPanel({
       }
       setOk(
         `Importados ${appliedResult.applied.length} de ${built.batch.totalRows} pagos · ${fmt(postedAmount)}`
+        + (formatNote ? ` · ${formatNote}` : '')
         + (appliedResult.skipped ? ` · ${appliedResult.skipped} ya estaban cargados` : '')
         + (appliedResult.fullyPaidCount ? ` · ${appliedResult.fullyPaidCount} socio(s) al día` : '')
         + (appliedResult.creditCount ? ` · ${appliedResult.creditCount} con crédito a favor` : '')
         + (built.errors.length ? ` · ${built.errors.length} aviso(s)` : '')
+        + receiptNote,
       );
       setFile(null);
       if (fileRef.current) fileRef.current.value = '';
@@ -1050,21 +1168,51 @@ export default function CuotasPanel({
     return (
       <div className="fade-in cuotas-panel">
         <div className="cuotas-toolbar">
-          <h3 className="cuotas-title">Importar cobranzas socios</h3>
+          <h3 className="cuotas-title">Importar cobranzas / débitos</h3>
         </div>
 
         <section className="supplier-pay-import-block">
+          <p className="disc-field-hint" style={{ marginBottom: '1rem' }}>
+            Subí el Excel de cobranzas (columnas Tipo, ID Recibo, Fecha, Mes, Año, NRO DE SOCIO, Concepto, Banco, Importe total)
+            o la lista base del club. Se imputan los pagos al padrón y, si está marcado, se envía el boleto automáticamente.
+          </p>
           <div className="supplier-pay-import-form">
             <div className="supplier-pay-import-field">
-              <label className="form-label" htmlFor="mci-entity">Entidad</label>
+              <label className="form-label" htmlFor="mci-entity">Entidad (lista base)</label>
               <select id="mci-entity" className="form-input" value={entity} onChange={(e) => setEntity(e.target.value)}>
                 {Object.entries(MEMBER_COLLECTION_ENTITIES).map(([id, label]) => (
                   <option key={id} value={id}>{label}</option>
                 ))}
               </select>
               <p className="disc-field-hint">
-                Excel de transferencias, débitos o cobros. Cada fila es un pago de cuota viva (día 10 / mora).
+                Si el archivo viene del sistema de cobranzas, se detecta solo.
               </p>
+            </div>
+            <div className="supplier-pay-import-field">
+              <label className="form-label" htmlFor="mci-lila-month">Mes</label>
+              <select
+                id="mci-lila-month"
+                className="form-input"
+                value={lilaMonth}
+                onChange={(e) => setLilaMonth(Number(e.target.value))}
+              >
+                {MONTHS_ES.map((label, i) => (
+                  <option key={label} value={i + 1}>{label}</option>
+                ))}
+              </select>
+              <p className="disc-field-hint">Solo filas de ese mes (Cuotas + Recargos).</p>
+            </div>
+            <div className="supplier-pay-import-field">
+              <label className="form-label" htmlFor="mci-lila-year">Año</label>
+              <input
+                id="mci-lila-year"
+                type="number"
+                className="form-input"
+                min={2020}
+                max={2100}
+                value={lilaYear}
+                onChange={(e) => setLilaYear(Number(e.target.value) || year)}
+              />
             </div>
             <div className="supplier-pay-import-field">
               <label className="form-label" htmlFor="mci-force">Forzar fecha</label>
@@ -1081,8 +1229,7 @@ export default function CuotasPanel({
                 ) : null}
               </div>
               <p className="disc-field-hint">
-                Si está vacía, se usa la fecha de cada fila. Si la completás, todos los pagos se imputan ese día
-                (vence el 10; recargo desde el 11).
+                Vacío = fecha de cada fila. Completá para imputar todos ese día (vence el 10; mora desde el 11).
               </p>
             </div>
             <div className="supplier-pay-import-field">
@@ -1097,20 +1244,50 @@ export default function CuotasPanel({
                   <option key={id} value={id}>{label}</option>
                 ))}
               </select>
-              <p className="disc-field-hint">
-                Si un socio trae varios renglones, se aplican en ese orden. Cada pago baja el saldo y, si cancela,
-                pasa el vencimiento al próximo día 10. El excedente queda como crédito o anticipo.
-              </p>
+            </div>
+            <div className="supplier-pay-import-field" style={{ gridColumn: '1 / -1' }}>
+              <label className="form-label" htmlFor="mci-reason">Motivo si hay fechas anteriores a hoy</label>
+              <input
+                id="mci-reason"
+                className="form-input"
+                value={paidAtReason}
+                onChange={(e) => setPaidAtReason(e.target.value)}
+                placeholder="Ej. Importación Excel débitos noviembre"
+              />
             </div>
             <div className="supplier-pay-import-field">
-              <label className="form-label" htmlFor="mci-file">Archivo</label>
+              <label className="form-label" htmlFor="mci-file">Archivo Excel</label>
               <input
                 id="mci-file"
                 ref={fileRef}
                 type="file"
                 accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                onChange={(e) => setFile(e.target.files?.[0] || null)}
+                onChange={(e) => {
+                  setDetectedFormat('');
+                  setFile(e.target.files?.[0] || null);
+                }}
               />
+              {detectedFormat ? (
+                <p className="disc-field-hint">Formato detectado: {detectedFormat === 'lila' ? 'cobranzas' : 'lista base'}.</p>
+              ) : null}
+            </div>
+            <div className="supplier-pay-import-field">
+              <label className="form-label" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <input
+                  type="checkbox"
+                  checked={sendReceipts}
+                  onChange={(e) => setSendReceipts(e.target.checked)}
+                />
+                Enviar boleto automático al subir
+              </label>
+              <label className="form-label" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.5rem' }}>
+                <input
+                  type="checkbox"
+                  checked={lilaIncludeVarios}
+                  onChange={(e) => setLilaIncludeVarios(e.target.checked)}
+                />
+                Incluir filas «Varios»
+              </label>
             </div>
             <div>
               <a className="btn btn-tan" href={LISTA_BASE_COBRANZAS_URL} download={LISTA_BASE_COBRANZAS_FILENAME}>
@@ -1127,7 +1304,7 @@ export default function CuotasPanel({
               Volver
             </button>
             <button type="button" className="btn btn-tan" disabled={busy} onClick={processCollections}>
-              <Upload size={14} /> {busy ? 'Procesando…' : 'Procesar archivo'}
+              <Upload size={14} /> {busy ? 'Procesando…' : 'Procesar y cargar pagos'}
             </button>
           </div>
         </section>
@@ -1445,6 +1622,23 @@ export default function CuotasPanel({
         loading={membersLoading || !membersReady}
         onOpenChange={setOverdueOpen}
         onOpenAll={() => setView('mora')}
+      />
+
+      <CollectDuesDeskFlow
+        open={collectOpen}
+        onClose={() => setCollectOpen(false)}
+        members={members}
+        setMembers={setMembers}
+        addJournalEntry={addJournalEntry}
+        onAccountEntry={onUpsertMemberAccountEntry}
+        onSendMessage={onSendMessage}
+        formatCurrency={fmt}
+        paymentPlans={paymentPlans}
+        paymentTolerance={duesSettings?.paymentTolerance}
+        onCollected={({ message }) => {
+          setSuccessBanner(message || 'Cobro registrado.');
+          setFlash(message || 'Cobro registrado.');
+        }}
       />
 
       {successBanner ? (

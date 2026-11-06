@@ -91,8 +91,9 @@ export function currentAccountBalanceOf(member) {
 }
 
 /**
- * Inicializa outstandingBalance con el snapshot LILA una sola vez por corte.
- * No pisa cobros posteriores (lastPaymentDate / paymentHistory).
+ * Inicializa outstandingBalance con el snapshot LILA una sola vez.
+ * Ese corte queda como verdad de apertura: lo nuevo (liquidación / cobro)
+ * solo suma o resta encima. Nunca pisa saldo operativo ni partes ya cargadas.
  */
 export function applyCurrentAccountBalances(members = [], {
   byNumber = currentAccountBalancesSeed().ACCESSIN_CURRENT_ACCOUNT_BALANCES_BY_NUMBER,
@@ -108,11 +109,13 @@ export function applyCurrentAccountBalances(members = [], {
       if (m.currentAccountAsOf === asOf && !(Number(m.outstandingBalance) > 0)) return m;
       return { ...m, outstandingBalance: 0, currentAccountAsOf: asOf || m.currentAccountAsOf };
     }
+    // Ya marcado con este corte → no tocar (ni saldo ni capital/recargos).
     if (m.currentAccountAsOf === asOf) return m;
 
     const hasOperational = m.outstandingBalance != null
       && m.outstandingBalance !== ''
       && Number.isFinite(Number(m.outstandingBalance));
+    // Hay saldo vivo (apertura o movimientos): solo sella la fecha del corte.
     if (hasOperational) {
       return { ...m, currentAccountAsOf: asOf };
     }
@@ -134,6 +137,30 @@ export function applyCurrentAccountBalances(members = [], {
       accessinId: m.accessinId || hit.accessinId || null,
     };
   });
+}
+
+/**
+ * Ajusta el desglose LILA vivo: liquidación suma capital; cobro resta capital
+ * (y recargos de stock LILA si vienen en el pago). Nunca inventa el 10 % nuevo.
+ */
+export function applyDuesPartsDelta(member, { capital = 0, surcharges = 0 } = {}) {
+  if (!member) return member;
+  const capitalDelta = Number(capital) || 0;
+  const surchargeDelta = Number(surcharges) || 0;
+  if (!capitalDelta && !surchargeDelta) return member;
+
+  const next = { ...member };
+  if (capitalDelta) {
+    const base = member.unpaidCapital != null && member.unpaidCapital !== ''
+      ? Number(member.unpaidCapital) || 0
+      : (Number(member.outstandingBalance) || 0);
+    next.unpaidCapital = Math.round((Math.max(0, base + capitalDelta)) * 100) / 100;
+  }
+  if (surchargeDelta && (member.unpaidSurcharges != null || surchargeDelta < 0)) {
+    const base = Number(member.unpaidSurcharges) || 0;
+    next.unpaidSurcharges = Math.round((Math.max(0, base + surchargeDelta)) * 100) / 100;
+  }
+  return next;
 }
 
 /** Socios cuyo saldo / corte / cobro cambió (para persistir en nube). */
