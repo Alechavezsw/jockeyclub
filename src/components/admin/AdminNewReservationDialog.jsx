@@ -10,7 +10,7 @@ import {
   RESERVATION_DEPOSIT_RATE,
   validateMemberBooking,
 } from '../../domain/reservations/bookingRules';
-import { hasReservationConflict } from '../../domain/reservations/conflicts';
+import { facilityDayTaken, hasReservationConflict } from '../../domain/reservations/conflicts';
 import { CLUB_BANK_ACCOUNTS } from '../../domain/members/clubBanks';
 import { uploadDuesReceipt } from '../../data/storage';
 import { todayISODateAR } from '../../lib/arDate';
@@ -89,9 +89,12 @@ export default function AdminNewReservationDialog({
   const chargeAmount = payFull ? total : deposit;
   const remainingAfterPay = payFull ? 0 : reservationBalanceAfterDeposit(total);
   const bank = CLUB_BANK_ACCOUNTS[0];
+  const selectedTurn = turns.find((turn) => turn.time === time) || null;
   const slotTaken = Boolean(
     facility && date && time
-    && hasReservationConflict(reservations, { facilityId: facility.id, date, time }),
+    && (selectedTurn?.openDay
+      ? facilityDayTaken(reservations, { facilityId: facility.id, date })
+      : hasReservationConflict(reservations, { facilityId: facility.id, date, time })),
   );
   const slotCheck = useMemo(() => {
     if (!facility || !date || !time) {
@@ -121,7 +124,9 @@ export default function AdminNewReservationDialog({
       taken: Boolean(
         facility
         && date
-        && hasReservationConflict(reservations, { facilityId: facility.id, date, time: turn.time }),
+        && (turn.openDay
+          ? facilityDayTaken(reservations, { facilityId: facility.id, date })
+          : hasReservationConflict(reservations, { facilityId: facility.id, date, time: turn.time })),
       ),
     })),
     [turns, facility, date, reservations],
@@ -746,9 +751,9 @@ export default function AdminNewReservationDialog({
               >
                 {turnsWithAvailability.map((turn) => (
                   <option key={turn.time} value={turn.time} disabled={turn.taken}>
-                    {turn.label || turn.time}
-                    {turn.endTime ? ` · ${turn.time}–${turn.endTime}` : ` · ${turn.time}`}
-                    {turn.taken ? ' · ocupado' : ' · libre'}
+                    {turn.openDay
+                      ? (turn.taken ? 'Ocupado' : 'Libre')
+                      : `${turn.label || turn.time}${turn.endTime ? ` · ${turn.time}–${turn.endTime}` : ` · ${turn.time}`}${turn.taken ? ' · ocupado' : ' · libre'}`}
                   </option>
                 ))}
               </select>

@@ -23,7 +23,7 @@ import {
 import { FACILITIES, facilitiesByGroup, sortFacilitiesForDisplay, isRealBookableSpace } from '../domain/reservations/facilities';
 import { buildFacilityCatalog } from '../domain/reservations/facilityConfig';
 import { getFacilityLiveStatus, isSeasonOpen } from '../domain/reservations/availability';
-import { hasReservationConflict } from '../domain/reservations/conflicts';
+import { facilityDayTaken, hasReservationConflict } from '../domain/reservations/conflicts';
 import {
   facilityTurns,
   guestCap,
@@ -34,7 +34,7 @@ import {
   reservationBalanceAfterDeposit,
   RESERVATION_DEPOSIT_RATE,
 } from '../domain/reservations/bookingRules';
-import { isSlotPast } from '../domain/reservations/slotTime';
+import { isTurnStillBookable } from '../domain/reservations/slotTime';
 import { joinWaitlist, leaveWaitlist, waitingForSlot } from '../domain/reservations/waitlist';
 import { CLUB_BANK_ACCOUNTS } from '../domain/members/clubBanks';
 import { bookingPaymentNotice } from '../domain/members/duesPaymentNotice';
@@ -97,11 +97,16 @@ function buildMonthCells(viewMonth) {
   return cells;
 }
 
+function slotIsTaken(reservations, facilityId, dateStr, slot) {
+  if (slot?.openDay) return facilityDayTaken(reservations, { facilityId, date: dateStr });
+  return hasReservationConflict(reservations, { facilityId, date: dateStr, time: slot?.time });
+}
+
 function freeSlotsForFacility(facility, dateStr, reservations, { isZondaActive, now }) {
   if (!isFacilityOpenForDay(facility, { isZondaActive, now })) return [];
   return facilityTurns(facility).filter(
-    (slot) => !isSlotPast(dateStr, slot.time, now)
-      && !hasReservationConflict(reservations, { facilityId: facility.id, date: dateStr, time: slot.time })
+    (slot) => isTurnStillBookable(dateStr, slot, now)
+      && !slotIsTaken(reservations, facility.id, dateStr, slot)
   );
 }
 
@@ -121,8 +126,8 @@ function dayAvailabilityScore(dateStr, reservations, isZondaActive, now, facilit
     const slots = facilityTurns(fac);
     total += slots.length;
     const freeSlots = slots.filter(
-      (slot) => !isSlotPast(dateStr, slot.time, now)
-        && !hasReservationConflict(reservations, { facilityId: fac.id, date: dateStr, time: slot.time })
+      (slot) => isTurnStillBookable(dateStr, slot, now)
+        && !slotIsTaken(reservations, fac.id, dateStr, slot)
     ).length;
     free += freeSlots;
     if (freeSlots > 0) spacesFree += 1;
@@ -760,12 +765,8 @@ export default function MemberFacilitiesBooking({
                   <label className="form-label">Horarios</label>
                   <div className="mfb-time-grid">
                     {facilityTurns(selectedFacility).map((turn) => {
-                      const past = isSlotPast(selectedDate, turn.time, now);
-                      const taken = !past && hasReservationConflict(reservations, {
-                        facilityId: selectedFacility.id,
-                        date: selectedDate,
-                        time: turn.time,
-                      });
+                      const past = !isTurnStillBookable(selectedDate, turn, now);
+                      const taken = !past && slotIsTaken(reservations, selectedFacility.id, selectedDate, turn);
                       const blockedOutdoor = selectedFacility.isOutdoor && isZondaActive;
                       const queue = waitingForSlot(waitlist, {
                         facilityId: selectedFacility.id,
@@ -773,7 +774,7 @@ export default function MemberFacilitiesBooking({
                         time: turn.time,
                       }).length;
                       const label = blockedOutdoor ? 'Cerrado' : past ? 'Pasó' : taken ? 'Ocupado' : 'Libre';
-                      const range = turn.endTime ? `${turn.time}–${turn.endTime}` : turn.time;
+                      const range = turn.openDay ? 'Cualquier horario' : (turn.endTime ? `${turn.time}–${turn.endTime}` : turn.time);
                       return (
                         <button
                           key={turn.time}
@@ -784,7 +785,7 @@ export default function MemberFacilitiesBooking({
                           title={past ? 'Ese turno ya pasó' : taken ? `Ocupado · ${queue} en espera` : 'Libre'}
                         >
                           <span>{range}</span>
-                          <small>{turn.label} · {label}</small>
+                          <small>{turn.openDay ? label : `${turn.label} · ${label}`}</small>
                         </button>
                       );
                     })}
@@ -908,11 +909,12 @@ export default function MemberFacilitiesBooking({
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', flexWrap: 'wrap' }}>
                   <button type="button" className="btn btn-secondary" onClick={closeBooking}>Cancelar</button>
-                  {time && hasReservationConflict(reservations, {
-                    facilityId: selectedFacility.id,
-                    date: selectedDate,
-                    time,
-                  }) ? (
+                  {time && slotIsTaken(
+                    reservations,
+                    selectedFacility.id,
+                    selectedDate,
+                    facilityTurns(selectedFacility).find((turn) => turn.time === time) || { time },
+                  ) ? (
                     <button type="button" className="btn btn-primary" onClick={handleJoinWaitlist}>
                       Lista de espera
                     </button>

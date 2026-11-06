@@ -3,7 +3,7 @@
 import { findTier } from '../members/tiers.js';
 import { memberMayOperateAccount } from '../members/households.js';
 import { todayISODateAR } from '../../lib/arDate.js';
-import { hasReservationConflict } from './conflicts.js';
+import { facilityDayTaken, hasReservationConflict } from './conflicts.js';
 
 /** Seña obligatoria de toda reserva: 50 % del total. Va a la cuenta, aparte de la cuota. */
 export const RESERVATION_DEPOSIT_RATE = 0.5;
@@ -59,6 +59,7 @@ export function facilityTurns(facility) {
       time: turn.time,
       endTime: turn.endTime || null,
       label: turn.label || turn.time,
+      openDay: turn.openDay === true,
     }));
   }
   return (facility?.slots || []).map((time) => ({ time, endTime: null, label: time }));
@@ -148,14 +149,23 @@ export function validateMemberBooking({
 
   const priorHours = Number(facility.rules?.hoursPrior) || 0;
   const startAt = turnStart(day, turn.time);
-  if (!asAdmin && startAt && priorHours > 0 && startAt.getTime() < now.getTime() + priorHours * 60 * 60 * 1000) {
+  const openDay = turn.openDay === true;
+  if (!openDay && !asAdmin && startAt && priorHours > 0 && startAt.getTime() < now.getTime() + priorHours * 60 * 60 * 1000) {
     return { ok: false, error: `Hay que reservar con al menos ${priorHours} horas de anticipación.` };
   }
-  if (startAt && startAt.getTime() <= now.getTime()) {
+  if (openDay) {
+    const endAt = turnStart(day, turn.endTime || '23:59');
+    if (endAt && now.getTime() > endAt.getTime()) {
+      return { ok: false, error: 'Ese día ya terminó.' };
+    }
+  } else if (startAt && startAt.getTime() <= now.getTime()) {
     return { ok: false, error: 'Ese turno ya empezó.' };
   }
 
-  if (hasReservationConflict(reservations, { facilityId: facility.id, date: day, time: turn.time })) {
+  const taken = openDay
+    ? facilityDayTaken(reservations, { facilityId: facility.id, date: day })
+    : hasReservationConflict(reservations, { facilityId: facility.id, date: day, time: turn.time });
+  if (taken) {
     return { ok: false, error: 'Ese turno ya está reservado.' };
   }
 

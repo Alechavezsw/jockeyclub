@@ -26,7 +26,7 @@ describe('turnos de Lila', () => {
     expect(facilityTurns(bustos).map((t) => t.endTime)).toEqual(['17:00', '23:59']);
     expect(facilityTurns(maurin)[0].endTime).toBe('17:00');
     expect(facilityTurns(refugio)).toHaveLength(2);
-    expect(facilityTurns(verde)).toEqual([{ time: '11:00', endTime: '23:00', label: 'Jornada' }]);
+    expect(facilityTurns(verde)).toEqual([{ time: '00:00', endTime: '23:59', label: 'Libre', openDay: true }]);
     expect(catalog.some((f) => f.id === 'salon_eventos')).toBe(false);
   });
 
@@ -44,9 +44,9 @@ describe('turnos de Lila', () => {
     expect(guestCap(bustos)).toBe(60);
     expect(guestCap(maurin)).toBe(40);
     expect(guestCap(anhelo)).toBe(60);
-    expect(guestCap(verde)).toBe(30);
+    expect(guestCap(verde)).toBe(20);
     expect(anhelo.rules.hoursPrior).toBe(12);
-    expect(verde.rules.hoursPrior).toBe(6);
+    expect(verde.rules.hoursPrior).toBe(0);
     expect(anhelo.rules.advanceDays).toBe(90);
     expect(facilityOffersPaymentButton(anhelo)).toBe(true);
     expect(facilityOffersPaymentButton(verde)).toBe(true);
@@ -111,7 +111,7 @@ describe('validateMemberBooking', () => {
       facility: verde,
       member: { memberId: '100', tier: 'grupo_familiar_familiar' },
       date: '2026-10-11',
-      time: '11:00',
+      time: '00:00',
       now,
     });
     expect(blocked.ok).toBe(false);
@@ -119,7 +119,7 @@ describe('validateMemberBooking', () => {
       facility: verde,
       member,
       date: '2026-10-11',
-      time: '11:00',
+      time: '00:00',
       now,
     });
     expect(allowed.ok).toBe(true);
@@ -164,15 +164,29 @@ describe('validateMemberBooking', () => {
       reservations: [{
         facilityId: 'espacio_verde',
         date: '2026-10-11',
-        time: '11:00',
-        endTime: '23:00',
+        time: '00:00',
+        endTime: '23:59',
         status: 'rejected',
       }],
       date: '2026-10-11',
-      time: '11:00',
+      time: '00:00',
       now,
     });
     expect(result.ok).toBe(true);
+  });
+
+  it('Espacio Verde se reserva hoy aunque ya haya pasado el mediodía', () => {
+    const afternoon = new Date(2026, 10, 6, 16, 3, 0);
+    const result = validateMemberBooking({
+      facility: verde,
+      member,
+      date: '2026-11-06',
+      time: '00:00',
+      now: afternoon,
+      asAdmin: true,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.turn.label).toBe('Libre');
   });
 });
 

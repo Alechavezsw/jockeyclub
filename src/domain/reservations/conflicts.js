@@ -44,3 +44,14 @@ export function hasReservationConflict(reservations, { facilityId, date, time },
       && reservationCoversTime(res, time)
   );
 }
+
+/** Horario libre: cualquier reserva vigente de ese día ocupa el espacio. */
+export function facilityDayTaken(reservations, { facilityId, date }, ignoreId = null) {
+  return (reservations || []).some(
+    (res) =>
+      res.facilityId === facilityId
+      && res.date === date
+      && occupiesSlot(res.status)
+      && (ignoreId === null || res.id !== ignoreId)
+  );
+}
