@@ -62,3 +62,43 @@ export function buildBookingPaymentReceipt({
     balanceRemaining,
   };
 }
+
+/** True si el cobro cargado cubre el alquiler completo (no solo la seña). */
+export function reservationPaidInFull(reservation) {
+  const total = reservationTotalPrice(null, reservation);
+  if (!(total > 0)) return false;
+  const charged = Number(reservation?.chargedPrice);
+  if (Number.isFinite(charged) && charged > 0 && charged >= total - 0.5) return true;
+  const notes = String(reservation?.notes || '');
+  if (/Pago:\s*total alquiler/i.test(notes)) return true;
+  return false;
+}
+
+/** Reimprime seña o total desde una fila del libro de reservas. */
+export function buildBookingReceiptFromReservation(reservation, {
+  member = null,
+  payFull = false,
+  today = todayAR(),
+} = {}) {
+  const total = reservationTotalPrice(null, reservation);
+  const deposit = Number(reservation?.depositAmount) > 0
+    ? Math.round(Number(reservation.depositAmount))
+    : reservationDepositAmount(total);
+  const paidOn = String(reservation?.createdAt || reservation?.date || today).slice(0, 10);
+  return buildBookingPaymentReceipt({
+    member: member || {
+      memberId: reservation?.memberId,
+      name: reservation?.memberName,
+    },
+    facilityName: reservation?.facilityName,
+    date: reservation?.date,
+    time: reservation?.time,
+    method: reservation?.paymentMethod || 'caja',
+    payFull,
+    total,
+    charged: payFull ? total : deposit,
+    deposit,
+    balanceAfter: payFull ? 0 : Math.max(0, total - deposit),
+    today: paidOn || today,
+  });
+}

@@ -1,6 +1,14 @@
 import { useMemo, useState } from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, CalendarDays, Plus, X } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, CalendarDays, Download, Plus, X } from 'lucide-react';
 import AdminNewReservationDialog from './AdminNewReservationDialog';
+import {
+  buildBookingReceiptFromReservation,
+  reservationPaidInFull,
+} from '../../domain/reservations/bookingReceipt';
+import { reservationTotalPrice } from '../../domain/reservations/bookingRules';
+import { downloadPaymentReceiptPdf } from '../../domain/members/exportPaymentReceiptPdf';
+import { exportWeekReservationsPdf } from '../../domain/reservations/exportWeekReservationsPdf';
+import { todayAR } from '../../lib/arDate';
 
 const WEEKDAYS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
@@ -103,6 +111,10 @@ export default function BookingsTab({
     month: today.getMonth(),
   }));
   const [selectedDate, setSelectedDate] = useState(null);
+  const [receiptTarget, setReceiptTarget] = useState(null);
+  const [receiptBusy, setReceiptBusy] = useState(false);
+  const [receiptError, setReceiptError] = useState('');
+  const [weekPdfBusy, setWeekPdfBusy] = useState(false);
   const [listOpen, setListOpen] = useState(true);
   const [newReservationOpen, setNewReservationOpen] = useState(false);
 
@@ -214,6 +226,51 @@ export default function BookingsTab({
     setReservations((prev) => prev.map((res) => (
       res.id === resId ? { ...res, status: newStatus } : res
     )));
+  };
+
+  const openReceiptMenu = (res) => {
+    if (!res || res.status === 'cancelled') return;
+    if (!(reservationTotalPrice(null, res) > 0)) return;
+    setReceiptError('');
+    setReceiptTarget(res);
+  };
+
+  const downloadBookingReceipt = async (payFull) => {
+    if (!receiptTarget || receiptBusy) return;
+    const total = reservationTotalPrice(null, receiptTarget);
+    if (!(total > 0)) {
+      setReceiptError('Esta reserva no tiene importe para comprobante.');
+      return;
+    }
+    setReceiptBusy(true);
+    setReceiptError('');
+    try {
+      const member = (members || []).find(
+        (row) => String(row.memberId) === String(receiptTarget.memberId),
+      ) || {
+        memberId: receiptTarget.memberId,
+        name: receiptTarget.memberName,
+      };
+      const payment = buildBookingReceiptFromReservation(receiptTarget, { member, payFull });
+      await downloadPaymentReceiptPdf({ member, payment });
+    } catch (err) {
+      setReceiptError(err?.message || 'No se pudo generar el PDF.');
+    } finally {
+      setReceiptBusy(false);
+    }
+  };
+
+  const downloadWeekPdf = async () => {
+    if (weekPdfBusy) return;
+    setWeekPdfBusy(true);
+    try {
+      const weekOf = selectedDate || todayAR();
+      await exportWeekReservationsPdf(reservations, { weekOf });
+    } catch (err) {
+      window.alert(err?.message || 'No se pudo generar el PDF de la semana.');
+    } finally {
+      setWeekPdfBusy(false);
+    }
   };
 
   return (
@@ -582,6 +639,54 @@ export default function BookingsTab({
           color: var(--text-muted);
           white-space: nowrap;
         }
+        .bookings-receipt-overlay {
+          position: fixed;
+          inset: 0;
+          z-index: 80;
+          display: grid;
+          place-items: center;
+          padding: 1rem;
+          background: color-mix(in srgb, #0b1220 55%, transparent);
+        }
+        .bookings-receipt-dialog {
+          width: min(26rem, 100%);
+          display: grid;
+          gap: 0.75rem;
+          padding: 1rem 1.1rem;
+          border-radius: 14px;
+          border: 1px solid var(--border-glass);
+          background: var(--bg-primary);
+          box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+        }
+        .bookings-receipt-dialog h4 {
+          margin: 0;
+          font-size: 1.05rem;
+        }
+        .bookings-receipt-dialog p {
+          margin: 0;
+          font-size: 0.82rem;
+          color: var(--text-secondary);
+          line-height: 1.4;
+        }
+        .bookings-receipt-actions {
+          display: grid;
+          gap: 0.45rem;
+        }
+        .bookings-receipt-actions .btn {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 0.4rem;
+        }
+        .bookings-receipt-error {
+          margin: 0;
+          font-size: 0.8rem;
+          color: var(--danger-accent);
+        }
+        .bookings-receipt-foot {
+          display: flex;
+          justify-content: flex-end;
+        }
         .bookings-list-body {
           border-top: 1px solid var(--border-glass);
           max-height: min(70vh, 640px);
@@ -604,6 +709,17 @@ export default function BookingsTab({
         <h3 className="serif-font" style={{ fontSize: '1.4rem', margin: 0, flex: 1, minWidth: 0 }}>
           Libro de Reservas
         </h3>
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={() => { void downloadWeekPdf(); }}
+          disabled={weekPdfBusy}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          title="Descargar PDF con todas las reservas de la semana (lun–dom)"
+        >
+          <Download size={15} aria-hidden />
+          {weekPdfBusy ? 'Generando…' : 'PDF semana'}
+        </button>
         {typeof addReservation === 'function' ? (
           <button
             type="button"
@@ -637,6 +753,73 @@ export default function BookingsTab({
           }
         }}
       />
+
+      {receiptTarget ? (
+        <div
+          className="bookings-receipt-overlay"
+          role="presentation"
+          onClick={() => {
+            if (!receiptBusy) {
+              setReceiptTarget(null);
+              setReceiptError('');
+            }
+          }}
+        >
+          <div
+            className="bookings-receipt-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="bookings-receipt-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h4 id="bookings-receipt-title">Comprobante de pago</h4>
+            <p>
+              <strong>{receiptTarget.memberName || 'Socio'}</strong>
+              {' · '}
+              {receiptTarget.facilityName || receiptTarget.facilityId || 'Instalación'}
+              {' · '}
+              {formatBookingDate(receiptTarget.date)}
+              {receiptTarget.time ? ` · ${receiptTarget.time}` : ''}
+            </p>
+            <div className="bookings-receipt-actions">
+              {reservationPaidInFull(receiptTarget) ? null : (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={receiptBusy}
+                  onClick={() => { void downloadBookingReceipt(false); }}
+                >
+                  <Download size={15} aria-hidden />
+                  {receiptBusy ? 'Generando…' : 'Descargar seña (50 %)'}
+                </button>
+              )}
+              <button
+                type="button"
+                className={reservationPaidInFull(receiptTarget) ? 'btn btn-primary' : 'btn btn-secondary'}
+                disabled={receiptBusy}
+                onClick={() => { void downloadBookingReceipt(true); }}
+              >
+                <Download size={15} aria-hidden />
+                {receiptBusy ? 'Generando…' : 'Descargar pago total'}
+              </button>
+            </div>
+            {receiptError ? <p className="bookings-receipt-error">{receiptError}</p> : null}
+            <div className="bookings-receipt-foot">
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={receiptBusy}
+                onClick={() => {
+                  setReceiptTarget(null);
+                  setReceiptError('');
+                }}
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="bookings-layout">
         <aside className="bookings-cal">
@@ -814,14 +997,18 @@ export default function BookingsTab({
                   type="button"
                   className={`bookings-inbox-item${res.status === 'pending' ? ' is-pending' : ''}`}
                   onClick={() => {
-                    setSelectedDate(res.date || null);
-                    setListOpen(true);
-                    if (res.date) {
-                      const d = new Date(`${String(res.date).slice(0, 10)}T12:00:00`);
-                      if (!Number.isNaN(d.getTime())) {
-                        setCursor({ year: d.getFullYear(), month: d.getMonth() });
+                    if (res.status === 'cancelled' || !(reservationTotalPrice(null, res) > 0)) {
+                      setSelectedDate(res.date || null);
+                      setListOpen(true);
+                      if (res.date) {
+                        const d = new Date(`${String(res.date).slice(0, 10)}T12:00:00`);
+                        if (!Number.isNaN(d.getTime())) {
+                          setCursor({ year: d.getFullYear(), month: d.getMonth() });
+                        }
                       }
+                      return;
                     }
+                    openReceiptMenu(res);
                   }}
                 >
                   <div className="bookings-inbox-copy">
@@ -897,7 +1084,19 @@ export default function BookingsTab({
                           </span>
                         </td>
                         <td style={{ textAlign: 'right' }}>
-                          <div style={{ display: 'inline-flex', gap: '0.4rem' }}>
+                          <div style={{ display: 'inline-flex', gap: '0.4rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                            {res.status !== 'cancelled' && reservationTotalPrice(null, res) > 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => openReceiptMenu(res)}
+                                className="btn btn-secondary btn-sm"
+                                style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}
+                                title="Descargar comprobante"
+                              >
+                                <Download size={14} aria-hidden />
+                                Comprobante
+                              </button>
+                            ) : null}
                             {res.status === 'pending' && (
                               <button
                                 type="button"

@@ -40,7 +40,8 @@ import { cashSeed } from '../domain/accounting/cashLedger';
 import { cobranzasSeed } from '../domain/accounting/cobranzas';
 import { composeClubFinance, financeFromMonthlySummary, financeFromSummary, lilaContabilidadFromSnapshots } from '../domain/accounting/opsFinanceSnapshot';
 import { useSnapshotSeed } from '../hooks/useSnapshots';
-import { todayISODateAR } from '../lib/arDate';
+import { todayAR, todayISODateAR } from '../lib/arDate';
+import { exportWeekReservationsPdf } from '../domain/reservations/exportWeekReservationsPdf';
 
 const AccountingTab = lazy(() => import('../components/AccountingTab'));
 const StaffTab = lazy(() => import('../components/StaffTab'));
@@ -1043,11 +1044,26 @@ export default function AdminView({
       <div className="page-stage">
       {/* Cabecera solo fuera del Inicio (el dashboard ya trae su propia intro) */}
       {activeTab !== 'dashboard' && activeTab !== 'events' && activeTab !== 'accounting' && activeTab !== 'books' && activeTab !== 'informes' && activeTab !== 'caja' && activeTab !== 'operation' && activeTab !== 'jev' && (
-        <div className="page-header">
+        <div className="page-header" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
           <div>
             <h1 className="page-title">{panelMeta.title}</h1>
             <p className="page-subtitle">{panelMeta.subtitle}</p>
           </div>
+          {activeTab === 'bookings' ? (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}
+              title="Descargar PDF con todas las reservas de esta semana (lun–dom)"
+              onClick={() => {
+                void exportWeekReservationsPdf(reservations, { weekOf: todayAR() }).catch((err) => {
+                  window.alert(err?.message || 'No se pudo generar el PDF de la semana.');
+                });
+              }}
+            >
+              PDF semana
+            </button>
+          ) : null}
         </div>
       )}
 
