@@ -10,8 +10,11 @@ import { collectionPeriodChoices, isDuesExemptMember } from '../../domain/member
 import {
   collectionPreview,
   duesMethodNeedsReceipt,
+  isManualDuesReceipt,
+  manualDuesReceiptLabel,
   MIXED_DUES_METHODS,
 } from '../../domain/members/memberPayments';
+import { todayISODateAR } from '../../lib/arDate';
 import { billingAccountMember } from '../../domain/members/households';
 import { activePaymentPlans } from '../../domain/system/paymentPlans';
 import { uploadDuesReceipt } from '../../data/storage';
@@ -38,11 +41,27 @@ function emptyMixLine(method = 'efectivo', amount = '') {
     amount,
     bankId: CLUB_BANK_ACCOUNTS[0]?.id || '',
     planId: '',
+    receiptMode: 'file',
     receiptFile: null,
     receiptName: '',
     receiptPreview: '',
     receiptParse: null,
     reading: false,
+  };
+}
+
+function blankManualReceipt({ amount, bankOrCard, payerName, method }) {
+  return {
+    amount: Number(amount) > 0 ? Number(amount) : null,
+    date: todayISODateAR(),
+    time: null,
+    method: method || null,
+    bankOrCard: bankOrCard || null,
+    reference: '',
+    payerName: payerName || null,
+    notes: null,
+    confidence: null,
+    source: 'manual',
   };
 }
 
@@ -142,19 +161,63 @@ function ReceiptParsePanel({
           />
         </label>
         <label className="form-group" style={{ margin: 0 }}>
-          <span className="form-label">Referencia</span>
+          <span className="form-label">{parse.source === 'manual' ? 'Referencia *' : 'Referencia'}</span>
           <input
             className="form-input"
             value={parse.reference || ''}
             onChange={(e) => onChange({ ...parse, reference: e.target.value || null })}
+            placeholder={parse.source === 'manual' ? 'Nº de operación' : undefined}
           />
         </label>
+        {parse.source === 'manual' ? (
+          <label className="form-group" style={{ margin: 0 }}>
+            <span className="form-label">Titular</span>
+            <input
+              className="form-input"
+              value={parse.payerName || ''}
+              onChange={(e) => onChange({ ...parse, payerName: e.target.value || null })}
+            />
+          </label>
+        ) : null}
       </div>
-      {parse.payerName ? (
+      {parse.source !== 'manual' && parse.payerName ? (
         <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
           Titular en el comprobante: {parse.payerName}
         </p>
       ) : null}
+    </div>
+  );
+}
+
+function ReceiptModeSwitch({ mode, onChange }) {
+  const options = [
+    { id: 'file', label: 'Adjuntar', hint: 'Imagen o PDF' },
+    { id: 'manual', label: 'A mano', hint: 'Sin archivo' },
+  ];
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+      {options.map((opt) => {
+        const active = mode === opt.id;
+        return (
+          <button
+            key={opt.id}
+            type="button"
+            onClick={() => onChange(opt.id)}
+            style={{
+              padding: '0.5rem 0.4rem',
+              borderRadius: 10,
+              border: active ? '1px solid var(--primary-gold)' : '1px solid var(--border-glass)',
+              background: active ? 'rgba(var(--primary-gold-rgb),0.12)' : 'rgba(255,255,255,0.02)',
+              color: active ? 'var(--text-gold)' : 'var(--text-secondary)',
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+            }}
+          >
+            <div style={{ fontSize: '0.8rem', fontWeight: 700 }}>{opt.label}</div>
+            <div style={{ fontSize: '0.68rem', marginTop: 2, opacity: 0.8 }}>{opt.hint}</div>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -199,6 +262,7 @@ export default function CollectDuesModal({
   const [method, setMethod] = useState('efectivo');
   const [bankId, setBankId] = useState(CLUB_BANK_ACCOUNTS[0]?.id || '');
   const [planId, setPlanId] = useState('');
+  const [receiptMode, setReceiptMode] = useState('file');
   const [receiptFile, setReceiptFile] = useState(null);
   const [receiptName, setReceiptName] = useState('');
   const [receiptPreview, setReceiptPreview] = useState('');
@@ -249,6 +313,7 @@ export default function CollectDuesModal({
   }, [isMixed, amount]);
 
   const clearReceipt = () => {
+    setReceiptMode('file');
     setReceiptFile(null);
     setReceiptName('');
     setReceiptPreview('');
@@ -256,8 +321,59 @@ export default function CollectDuesModal({
     setReadingReceipt(false);
   };
 
+  const beginManualReceipt = () => {
+    setReceiptMode('manual');
+    setReceiptFile(null);
+    setReceiptName('');
+    setReceiptPreview('');
+    setReadingReceipt(false);
+    setReceiptParse((prev) => (
+      prev?.source === 'manual'
+        ? prev
+        : blankManualReceipt({
+          amount,
+          bankOrCard: method === 'transferencia' ? selectedBank?.name : (selectedPlan?.label || ''),
+          payerName: account?.name,
+          method,
+        })
+    ));
+  };
+
+  const beginFileReceipt = () => {
+    setReceiptMode('file');
+    setReceiptParse((prev) => (prev?.source === 'manual' ? null : prev));
+  };
+
   const patchMixLine = (key, patch) => {
     setMixLines((prev) => prev.map((row) => (row.key === key ? { ...row, ...patch } : row)));
+  };
+
+  const setMixReceiptMode = (key, mode) => {
+    const line = mixLines.find((row) => row.key === key);
+    if (mode === 'manual') {
+      const bank = CLUB_BANK_ACCOUNTS.find((b) => b.id === line?.bankId);
+      const plan = plans.find((p) => p.id === line?.planId);
+      patchMixLine(key, {
+        receiptMode: 'manual',
+        receiptFile: null,
+        receiptName: '',
+        receiptPreview: '',
+        reading: false,
+        receiptParse: line?.receiptParse?.source === 'manual'
+          ? line.receiptParse
+          : blankManualReceipt({
+            amount: Number(line?.amount) || 0,
+            bankOrCard: line?.method === 'transferencia' ? bank?.name : (plan?.label || ''),
+            payerName: account?.name,
+            method: line?.method,
+          }),
+      });
+      return;
+    }
+    patchMixLine(key, {
+      receiptMode: 'file',
+      receiptParse: line?.receiptParse?.source === 'manual' ? null : line?.receiptParse,
+    });
   };
 
   const togglePeriod = (dueOn) => {
@@ -354,7 +470,12 @@ export default function CollectDuesModal({
         return;
       }
       for (const row of filled) {
-        if (duesMethodNeedsReceipt(row.method) && !row.receiptFile) {
+        const lineManual = row.receiptMode === 'manual';
+        if (duesMethodNeedsReceipt(row.method) && lineManual && !isManualDuesReceipt(row.receiptParse)) {
+          setError('Completá la referencia del comprobante manual.');
+          return;
+        }
+        if (duesMethodNeedsReceipt(row.method) && !lineManual && !row.receiptFile) {
           setError(row.method === 'tarjeta'
             ? 'Adjunte el comprobante de la tarjeta en el mixto.'
             : 'Adjunte el comprobante de la transferencia en el mixto.');
@@ -366,7 +487,12 @@ export default function CollectDuesModal({
         }
       }
     } else {
-      if (needsReceipt && !receiptFile) {
+      const manual = receiptMode === 'manual';
+      if (needsReceipt && manual && !isManualDuesReceipt(receiptParse)) {
+        setError('Completá la referencia del comprobante manual.');
+        return;
+      }
+      if (needsReceipt && !manual && !receiptFile) {
         setError(method === 'tarjeta'
           ? 'Adjunte el comprobante de la tarjeta.'
           : 'Adjunte el comprobante de la transferencia.');
@@ -386,7 +512,8 @@ export default function CollectDuesModal({
           const lineAmount = Number(row.amount) || 0;
           if (!(lineAmount > 0)) continue;
           let receiptAttachment = null;
-          if (duesMethodNeedsReceipt(row.method) && row.receiptFile) {
+          const lineManual = row.receiptMode === 'manual' && isManualDuesReceipt(row.receiptParse);
+          if (duesMethodNeedsReceipt(row.method) && row.receiptFile && !lineManual) {
             receiptAttachment = await uploadDuesReceipt(
               row.receiptFile,
               account.memberId || member.memberId,
@@ -402,7 +529,10 @@ export default function CollectDuesModal({
             journalAccount: journalAccountForPayment(row.method, row.bankId),
             paymentPlanId: row.method === 'tarjeta' ? (plan?.id || null) : null,
             paymentPlanLabel: row.method === 'tarjeta' ? (plan?.label || null) : null,
-            receiptName: receiptAttachment?.name || row.receiptName || null,
+            receiptName: receiptAttachment?.name
+              || (lineManual ? manualDuesReceiptLabel(row.receiptParse) : null)
+              || row.receiptName
+              || null,
             receiptAttachment,
             receiptParse: row.receiptParse,
           });
@@ -415,7 +545,8 @@ export default function CollectDuesModal({
         });
       } else {
         let receiptAttachment = null;
-        if (needsReceipt) {
+        const manual = receiptMode === 'manual' && isManualDuesReceipt(receiptParse);
+        if (needsReceipt && receiptFile && !manual) {
           receiptAttachment = await uploadDuesReceipt(receiptFile, account.memberId || member.memberId);
         }
         const journalAccount = journalAccountForPayment(method, bankId);
@@ -424,7 +555,10 @@ export default function CollectDuesModal({
           bankId: method === 'transferencia' ? bankId : null,
           bankName: method === 'transferencia' ? selectedBank?.name : null,
           journalAccount,
-          receiptName: receiptAttachment?.name || receiptName || null,
+          receiptName: receiptAttachment?.name
+            || (manual ? manualDuesReceiptLabel(receiptParse) : null)
+            || receiptName
+            || null,
           receiptAttachment,
           amount,
           periodDueOns: selectedDueOns,
@@ -775,35 +909,47 @@ export default function CollectDuesModal({
                   ) : null}
                   {lineNeedsReceipt ? (
                     <div>
-                      <label
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 10,
-                          padding: '0.7rem 0.85rem',
-                          borderRadius: 10,
-                          border: '1px dashed var(--border-glass)',
-                          cursor: 'pointer',
-                          color: 'var(--text-secondary)',
-                          fontSize: '0.82rem',
-                        }}
-                      >
-                        <Upload size={14} color="var(--text-gold)" />
-                        {line.receiptName || 'Comprobante *'}
-                        <input
-                          type="file"
-                          accept="image/*,.pdf,application/pdf"
-                          onChange={(e) => handleMixReceipt(line.key, e)}
-                          style={{ display: 'none' }}
-                        />
-                      </label>
-                      {line.receiptPreview ? (
-                        <img
-                          src={line.receiptPreview}
-                          alt=""
-                          style={{ marginTop: 8, maxWidth: '100%', maxHeight: 120, borderRadius: 8, border: '1px solid var(--border-glass)' }}
-                        />
-                      ) : null}
+                      <ReceiptModeSwitch
+                        mode={line.receiptMode === 'manual' ? 'manual' : 'file'}
+                        onChange={(next) => setMixReceiptMode(line.key, next)}
+                      />
+                      {line.receiptMode === 'manual' ? (
+                        <p style={{ margin: '0 0 0.35rem', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                          Cargá los datos del comprobante. La referencia es obligatoria.
+                        </p>
+                      ) : (
+                        <>
+                          <label
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 10,
+                              padding: '0.7rem 0.85rem',
+                              borderRadius: 10,
+                              border: '1px dashed var(--border-glass)',
+                              cursor: 'pointer',
+                              color: 'var(--text-secondary)',
+                              fontSize: '0.82rem',
+                            }}
+                          >
+                            <Upload size={14} color="var(--text-gold)" />
+                            {line.receiptName || 'Adjuntar imagen o PDF'}
+                            <input
+                              type="file"
+                              accept="image/*,.pdf,application/pdf"
+                              onChange={(e) => handleMixReceipt(line.key, e)}
+                              style={{ display: 'none' }}
+                            />
+                          </label>
+                          {line.receiptPreview ? (
+                            <img
+                              src={line.receiptPreview}
+                              alt=""
+                              style={{ marginTop: 8, maxWidth: '100%', maxHeight: 120, borderRadius: 8, border: '1px solid var(--border-glass)' }}
+                            />
+                          ) : null}
+                        </>
+                      )}
                       <ReceiptParsePanel
                         parse={line.receiptParse}
                         reading={line.reading}
@@ -839,34 +985,50 @@ export default function CollectDuesModal({
         {needsReceipt && !isMixed ? (
           <div className="form-group" style={{ marginBottom: '1rem' }}>
             <label className="form-label">Comprobante *</label>
-            <label
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                padding: '0.85rem 1rem',
-                borderRadius: 10,
-                border: '1px dashed var(--border-glass)',
-                cursor: 'pointer',
-                color: 'var(--text-secondary)',
-                fontSize: '0.88rem',
+            <ReceiptModeSwitch
+              mode={receiptMode}
+              onChange={(next) => {
+                setError('');
+                if (next === 'manual') beginManualReceipt();
+                else beginFileReceipt();
               }}
-            >
-              <Upload size={16} color="var(--text-gold)" />
-              {receiptName || 'Adjuntar imagen o PDF del comprobante'}
-              <input
-                type="file"
-                accept="image/*,.pdf,application/pdf"
-                onChange={handleReceipt}
-                style={{ display: 'none' }}
-              />
-            </label>
-            {receiptPreview && (
-              <img
-                src={receiptPreview}
-                alt="Vista previa del comprobante"
-                style={{ marginTop: 8, maxWidth: '100%', maxHeight: 160, borderRadius: 8, border: '1px solid var(--border-glass)' }}
-              />
+            />
+            {receiptMode === 'manual' ? (
+              <p style={{ margin: '0 0 0.35rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                Cargá los datos del comprobante. La referencia es obligatoria.
+              </p>
+            ) : (
+              <>
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '0.85rem 1rem',
+                    borderRadius: 10,
+                    border: '1px dashed var(--border-glass)',
+                    cursor: 'pointer',
+                    color: 'var(--text-secondary)',
+                    fontSize: '0.88rem',
+                  }}
+                >
+                  <Upload size={16} color="var(--text-gold)" />
+                  {receiptName || 'Adjuntar imagen o PDF del comprobante'}
+                  <input
+                    type="file"
+                    accept="image/*,.pdf,application/pdf"
+                    onChange={handleReceipt}
+                    style={{ display: 'none' }}
+                  />
+                </label>
+                {receiptPreview && (
+                  <img
+                    src={receiptPreview}
+                    alt="Vista previa del comprobante"
+                    style={{ marginTop: 8, maxWidth: '100%', maxHeight: 160, borderRadius: 8, border: '1px solid var(--border-glass)' }}
+                  />
+                )}
+              </>
             )}
             <ReceiptParsePanel
               parse={receiptParse}

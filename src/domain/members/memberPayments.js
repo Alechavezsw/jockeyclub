@@ -49,6 +49,18 @@ export function duesMethodNeedsReceipt(method) {
   return method === 'transferencia' || method === 'tarjeta';
 }
 
+/** Comprobante cargado a mano: la referencia reemplaza al archivo. */
+export function isManualDuesReceipt(receiptParse) {
+  if (!receiptParse || typeof receiptParse !== 'object') return false;
+  if (receiptParse.source !== 'manual') return false;
+  return String(receiptParse.reference || '').trim().length > 0;
+}
+
+export function manualDuesReceiptLabel(receiptParse) {
+  const ref = String(receiptParse?.reference || '').trim();
+  return ref ? `Manual · ${ref}` : '';
+}
+
 export function duesMethodLabel(method, bankName) {
   if (method === 'transferencia') {
     return bankName ? `Transferencia ${bankName}` : 'Transferencia';
@@ -73,7 +85,10 @@ export function normalizePaymentSplits(raw = []) {
           size: Number(row.receiptAttachment.size) || 0,
         }
         : null;
-      const receiptName = attachment?.name || row?.receiptName || null;
+      const manual = isManualDuesReceipt(row.receiptParse);
+      const receiptName = attachment?.name
+        || row?.receiptName
+        || (manual ? manualDuesReceiptLabel(row.receiptParse) : null);
       const bankId = method === 'transferencia' ? (row.bankId || null) : null;
       const bankName = method === 'transferencia' ? (row.bankName || null) : null;
       const paymentPlanId = method === 'tarjeta' ? (row.paymentPlanId || null) : null;
@@ -118,12 +133,15 @@ export function validatePaymentSplits(rawSplits, expectedAmount, { treasuryMatch
   }
   splits.forEach((row) => {
     if (!duesMethodNeedsReceipt(row.method)) return;
+    if (row.receiptParse?.source === 'manual' && !isManualDuesReceipt(row.receiptParse)) {
+      throw new Error('Completá la referencia del comprobante manual.');
+    }
     if (!row.receiptName) {
       throw new Error(row.method === 'tarjeta'
         ? 'Adjunte el comprobante de la tarjeta en el pago mixto.'
         : 'Adjunte el comprobante de la transferencia en el pago mixto.');
     }
-    if (!row.receiptPath && !treasuryMatch) {
+    if (!row.receiptPath && !treasuryMatch && !isManualDuesReceipt(row.receiptParse)) {
       throw new Error('No se pudo guardar un comprobante del pago mixto en Supabase.');
     }
   });
@@ -674,7 +692,13 @@ export function recordDuesCollection(member, {
   }
 
   const resolvedMethod = mixed ? 'mixto' : method;
-  const attachmentName = receiptAttachment?.name || receiptName || null;
+  const manual = !mixed && isManualDuesReceipt(receiptParse);
+  if (!mixed && receiptParse?.source === 'manual' && !manual) {
+    throw new Error('Completá la referencia del comprobante manual.');
+  }
+  const attachmentName = receiptAttachment?.name
+    || receiptName
+    || (manual ? manualDuesReceiptLabel(receiptParse) : null);
   const attachmentPath = receiptAttachment?.path || null;
   if (!mixed) {
     const needsReceipt = duesMethodNeedsReceipt(resolvedMethod);
@@ -683,7 +707,7 @@ export function recordDuesCollection(member, {
         ? 'Adjunte el comprobante de la tarjeta.'
         : 'Adjunte el comprobante de la transferencia.');
     }
-    if (needsReceipt && !attachmentPath && !treasuryMatch) {
+    if (needsReceipt && !attachmentPath && !treasuryMatch && !manual) {
       throw new Error('No se pudo guardar el comprobante en Supabase.');
     }
   }

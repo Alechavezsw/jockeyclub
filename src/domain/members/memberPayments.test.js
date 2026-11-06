@@ -312,6 +312,43 @@ describe('payMemberDues', () => {
     expect(result.journalEntry.description).toMatch(/Comp: comprobante.pdf/);
   });
 
+  it('acepta un comprobante manual sin archivo', () => {
+    const member = { memberId: '11017', name: 'Socio', outstandingBalance: 1000, paymentHistory: [] };
+    expect(() => recordDuesCollection(member, {
+      method: 'tarjeta',
+      receiptParse: { source: 'manual', reference: '   ' },
+    })).toThrow(/referencia/i);
+
+    const result = recordDuesCollection(member, {
+      method: 'transferencia',
+      bankId: 'nacion',
+      bankName: 'Banco Nación',
+      receiptParse: {
+        source: 'manual',
+        reference: 'OP-8841',
+        amount: 1000,
+        date: '2026-09-05',
+        bankOrCard: 'Banco Nación',
+      },
+      today: new Date('2026-09-05T12:00:00'),
+    });
+    expect(result.payment.receiptPath).toBeNull();
+    expect(result.payment.receiptName).toBe('Manual · OP-8841');
+    expect(result.payment.receiptParse.reference).toBe('OP-8841');
+    expect(result.journalEntry.description).toMatch(/Comp: Manual · OP-8841/);
+
+    const mixed = validatePaymentSplits([
+      { method: 'efectivo', amount: 500 },
+      {
+        method: 'transferencia',
+        amount: 500,
+        receiptParse: { source: 'manual', reference: 'TR-1', amount: 500 },
+      },
+    ], 1000);
+    expect(mixed.splits[1].receiptName).toBe('Manual · TR-1');
+    expect(mixed.splits[1].receiptPath).toBeNull();
+  });
+
   it('transferencia sin archivo en Supabase no registra el cobro', () => {
     const member = { memberId: '11017', name: 'Socio', outstandingBalance: 1000, paymentHistory: [] };
     expect(() => recordDuesCollection(member, {

@@ -51,6 +51,7 @@ const emptyUserForm = () => {
     authorizations: [],
     identifiers: [],
     linkedMemberId: '',
+    isClubMember: false,
   };
 }
 
@@ -145,6 +146,7 @@ function formFromProfile(profile) {
       identifier: i.identifier || '',
     })),
     linkedMemberId: '',
+    isClubMember: roleChipsSelected(roles, 'member'),
   };
 };
 
@@ -152,14 +154,25 @@ function roleChipsSelected(roles, key) {
   return (roles || []).some((r) => String(r.roleKey || r).toLowerCase() === String(key).toLowerCase());
 }
 
-function toggleRoleInList(roles, next) {
+function toggleRoleInList(roles, next, fallbackKey = 'member') {
   const key = next.roleKey;
   const has = roleChipsSelected(roles, key);
   if (has) {
     const filtered = roles.filter((r) => String(r.roleKey).toLowerCase() !== key.toLowerCase());
-    return filtered.length ? filtered : [{ roleKey: 'member', label: 'Socio', kind: 'system' }];
+    if (filtered.length) return filtered;
+    const fallback = fallbackKey || 'admin';
+    return [{ roleKey: fallback, label: ROLE_LABELS[fallback] || fallback, kind: 'system' }];
   }
   return [...roles, next];
+}
+
+function rolesForPerson(roles, isClubMember) {
+  const list = roles?.length ? [...roles] : [{ roleKey: 'admin', label: 'Administrador', kind: 'system' }];
+  if (isClubMember) return list;
+  const withoutMember = list.filter((role) => String(role.roleKey).toLowerCase() !== 'member');
+  return withoutMember.length
+    ? withoutMember
+    : [{ roleKey: 'admin', label: 'Administrador', kind: 'system' }];
 }
 
 function formatAuditAction(action) {
@@ -624,8 +637,22 @@ export default function SystemAdminTab({
     resetMemberLookup();
   };
 
+  const setClubMember = (isClubMember) => {
+    if (!isClubMember) {
+      setMemberPicked(null);
+      setMemberLookup('');
+      setMemberHits([]);
+    }
+    setUserForm((current) => ({
+      ...current,
+      isClubMember,
+      linkedMemberId: isClubMember ? current.linkedMemberId : '',
+      roles: rolesForPerson(current.roles, isClubMember),
+    }));
+  };
+
   useEffect(() => {
-    if (!showUserForm || memberPicked) {
+    if (!showUserForm || memberPicked || !userForm.isClubMember) {
       setMemberHits([]);
       setMemberSearchBusy(false);
       return undefined;
@@ -656,7 +683,7 @@ export default function SystemAdminTab({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [memberLookup, userForm.firstName, showUserForm, editingUserId, memberPicked]);
+  }, [memberLookup, userForm.firstName, userForm.isClubMember, showUserForm, editingUserId, memberPicked]);
 
   const applyMemberToNewForm = (member) => {
     const { firstName, lastName } = splitMemberName(member);
@@ -865,9 +892,8 @@ export default function SystemAdminTab({
     }
     setSavingUser(true);
     try {
-      const roles = userForm.roles?.length
-        ? userForm.roles
-        : [{ roleKey: 'member', label: 'Socio', kind: 'system' }];
+      const roles = rolesForPerson(userForm.roles, userForm.isClubMember);
+      const linkedMemberId = userForm.isClubMember ? userForm.linkedMemberId : '';
       const authorizations = userForm.authorizations;
       const identifiers = userForm.identifiers.filter((i) => i.idType && i.identifier);
 
@@ -894,9 +920,9 @@ export default function SystemAdminTab({
         saved = await repos.replaceProfileRoles(editingUserId, roles);
         await repos.replaceProfileAuthorizations(editingUserId, authorizations);
         await repos.replaceProfileIdentifiers(editingUserId, identifiers);
-        if (userForm.linkedMemberId) {
+        if (linkedMemberId) {
           try {
-            await repos.linkMemberProfile(userForm.linkedMemberId, editingUserId);
+            await repos.linkMemberProfile(linkedMemberId, editingUserId);
           } catch {
             /* no bloquear la edición si el vínculo falla */
           }
@@ -934,9 +960,9 @@ export default function SystemAdminTab({
           authorizations,
           identifiers,
         });
-        if (userForm.linkedMemberId) {
+        if (linkedMemberId) {
           try {
-            await repos.linkMemberProfile(userForm.linkedMemberId, created.id);
+            await repos.linkMemberProfile(linkedMemberId, created.id);
           } catch {
             /* el usuario ya existe; el vínculo se puede completar después */
           }
@@ -1133,7 +1159,9 @@ export default function SystemAdminTab({
                 <p style={{ margin: '0.25rem 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
                   {editingUserId
                     ? 'Actualizá la ficha, roles y autorizaciones.'
-                    : 'Buscá un socio del padrón o completá la ficha a mano.'}
+                    : userForm.isClubMember
+                      ? 'Buscá el socio en el padrón y completá lo que falte.'
+                      : 'La persona entra al sistema sin ficha de socio.'}
                 </p>
               </div>
               <button
@@ -1167,23 +1195,53 @@ export default function SystemAdminTab({
             </div>
 
             <div className="sys-user-grid">
+              <Field label="Persona" className="sys-user-span2">
+                <div className="sys-role-chips" role="radiogroup" aria-label="Si la persona es socia del club">
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={userForm.isClubMember}
+                    className={`sys-role-chip${userForm.isClubMember ? ' is-on' : ''}`}
+                    onClick={() => setClubMember(true)}
+                  >
+                    Es socio
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={!userForm.isClubMember}
+                    className={`sys-role-chip${!userForm.isClubMember ? ' is-on' : ''}`}
+                    onClick={() => setClubMember(false)}
+                  >
+                    No es socio
+                  </button>
+                </div>
+                <p className="sys-help" style={{ margin: '0.35rem 0 0' }}>
+                  {userForm.isClubMember
+                    ? 'Se puede vincular al padrón y entra también como socio.'
+                    : 'Queda solo como usuario. No se crea ni se vincula una ficha de socio.'}
+                </p>
+              </Field>
               <Field label="Nombre" as="div" className="sys-user-lookup">
                 <div className="sys-user-lookup-box">
                   <div className="sys-user-lookup-input">
-                    {!editingUserId ? <Search size={15} aria-hidden="true" /> : null}
+                    {!editingUserId && userForm.isClubMember ? <Search size={15} aria-hidden="true" /> : null}
                     <input
                       className="form-input"
                       required
                       autoComplete="off"
-                      placeholder={editingUserId ? undefined : 'Buscar socio o escribir nombre'}
+                      placeholder={editingUserId || !userForm.isClubMember ? undefined : 'Buscar socio o escribir nombre'}
                       value={userForm.firstName}
                       disabled={pickingMember}
                       onChange={(e) => {
-                        setMemberPicked(null);
-                        refreshUsernameFromIdentity({ firstName: e.target.value, linkedMemberId: '' });
+                        if (userForm.isClubMember) setMemberPicked(null);
+                        refreshUsernameFromIdentity({
+                          firstName: e.target.value,
+                          ...(userForm.isClubMember ? { linkedMemberId: '' } : {}),
+                        });
                       }}
-                      aria-autocomplete={!editingUserId ? 'list' : undefined}
-                      aria-expanded={!editingUserId && memberHits.length > 0}
+                      aria-autocomplete={!editingUserId && userForm.isClubMember ? 'list' : undefined}
+                      aria-expanded={!editingUserId && userForm.isClubMember && memberHits.length > 0}
                     />
                     {memberSearchBusy || pickingMember ? (
                       <Loader2 size={14} className="sys-user-lookup-spin" aria-hidden="true" />
@@ -1204,7 +1262,7 @@ export default function SystemAdminTab({
                       </button>
                     </p>
                   ) : null}
-                  {!editingUserId && memberHits.length > 0 ? (
+                  {!editingUserId && userForm.isClubMember && memberHits.length > 0 ? (
                     <ul className="sys-user-lookup-list" role="listbox">
                       {memberHits.map((member) => (
                         <li key={member.id}>
@@ -1222,7 +1280,7 @@ export default function SystemAdminTab({
                   ) : null}
                 </div>
               </Field>
-              {editingUserId ? (
+              {editingUserId && userForm.isClubMember ? (
                 <Field label="Ficha de socio" className="sys-user-span2">
                   <div className="sys-user-lookup-box">
                     <div className="sys-user-lookup-input">
@@ -1397,11 +1455,15 @@ export default function SystemAdminTab({
                           key={r}
                           type="button"
                           className={`sys-role-chip${on ? ' is-on' : ''}`}
-                          onClick={() => setUF('roles', toggleRoleInList(userForm.roles, {
-                            roleKey: r,
-                            label: ROLE_LABELS[r] || r,
-                            kind: 'system',
-                          }))}
+                          onClick={() => {
+                            const turningOn = !roleChipsSelected(userForm.roles, r);
+                            if (r === 'member' && turningOn) setClubMember(true);
+                            setUF('roles', toggleRoleInList(
+                              userForm.roles,
+                              { roleKey: r, label: ROLE_LABELS[r] || r, kind: 'system' },
+                              userForm.isClubMember || (r === 'member' && turningOn) ? 'member' : 'admin',
+                            ));
+                          }}
                         >
                           {ROLE_LABELS[r] || r}
                         </button>
@@ -1421,7 +1483,7 @@ export default function SystemAdminTab({
                             roleKey: t.key,
                             label: t.label,
                             kind: 'title',
-                          }))}
+                          }, userForm.isClubMember ? 'member' : 'admin'))}
                         >
                           {t.label}
                         </button>
