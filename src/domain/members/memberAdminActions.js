@@ -1,4 +1,5 @@
-import { todayAR } from '../../lib/arDate';
+import { todayAR, todayISODateAR } from '../../lib/arDate';
+import { money } from '../money';
 /** Acciones administrativas sobre socios: motivos trazables. */
 
 /** La nota se presenta con un mes de anticipación. El mes en curso se cobra y la baja rige el 1.º del mes siguiente. */
@@ -32,8 +33,8 @@ export const MEMBER_STATUS_REASONS = {
   activate: [
     { id: 'regularizo', label: 'Regularizó situación' },
     { id: 'revision', label: 'Revisión administrativa' },
-    { id: 'error', label: 'Alta / suspensión por error' },
-    { id: 'otro', label: 'Otro motivo' },
+    { id: 'error', label: 'Baja o suspensión por error' },
+    { id: 'otro', label: 'Otro' },
   ],
   delete: [
     { id: 'renuncia', label: 'Renuncia / baja voluntaria' },
@@ -44,6 +45,20 @@ export const MEMBER_STATUS_REASONS = {
     { id: 'otro', label: 'Otro motivo' },
   ],
 };
+
+export const REACTIVATE_OPTIONS = [
+  { id: 'regularizo', label: 'Regularizó situación', color: '#1f7a4d' },
+  { id: 'revision', label: 'Revisión administrativa', color: '#1d4e89' },
+  { id: 'error', label: 'Baja o suspensión por error', color: '#8a6a12' },
+  { id: 'otro', label: 'Otro', color: '#5c6570' },
+];
+
+/** Inactivo, suspendido, o baja ya cargada que todavía no llegó al 1.º. */
+export function canReactivateMember(member, today = new Date()) {
+  const status = String(member?.status || '').toLowerCase();
+  if (status === 'inactive' || status === 'suspended') return true;
+  return isPendingBaja(member, today);
+}
 
 export function reasonLabel(action, reasonId) {
   const list = MEMBER_STATUS_REASONS[action] || [];
@@ -71,15 +86,22 @@ export function buildLifecycleMeta(prevMeta = {}, {
   reasonLabel: label,
   detail = '',
   actorName = '',
+  actorId = '',
+  actorEmail = '',
+  presentedOn = '',
+  amount,
 } = {}) {
   const now = new Date().toISOString();
   const entry = {
     at: now,
+    registeredAt: now,
     action,
     reasonId: reasonId || null,
     reason: label || reasonId || null,
     detail: String(detail || '').trim() || null,
+    actorId: actorId || null,
     actorName: actorName || null,
+    actorEmail: actorEmail || null,
   };
   const history = Array.isArray(prevMeta.lifecycleHistory)
     ? [...prevMeta.lifecycleHistory, entry].slice(-40)
@@ -92,12 +114,25 @@ export function buildLifecycleMeta(prevMeta = {}, {
   };
 
   if (action === 'delete') {
-    const presented = now.slice(0, 10);
+    const rawDate = String(presentedOn || '').slice(0, 10);
+    const presented = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : todayISODateAR();
     const effective = bajaEffectiveOn(presented) || presented;
     next.bajaMotivo = entry.reason;
+    next.bajaKind = entry.reasonId;
+    next.bajaActorId = entry.actorId;
+    next.bajaActorName = entry.actorName;
+    next.bajaActorEmail = entry.actorEmail;
+    next.bajaRegistradaAt = now;
+    next.bajaPresentada = presented;
     next.bajaFecha = effective;
     next.bajaDetail = entry.detail;
     next.pendingBaja = effective > presented;
+    if (amount !== undefined && amount !== null && amount !== '') {
+      next.bajaMonto = money(amount);
+      entry.amount = next.bajaMonto;
+    }
+    entry.presentedOn = presented;
+    entry.effectiveOn = effective;
   }
   if (action === 'suspend') {
     next.suspendMotivo = entry.reason;
@@ -105,9 +140,23 @@ export function buildLifecycleMeta(prevMeta = {}, {
     next.suspendDetail = entry.detail;
   }
   if (action === 'activate') {
+    const rawDate = String(presentedOn || '').slice(0, 10);
+    const fecha = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : todayISODateAR();
+    next.pendingBaja = false;
     next.reactivateMotivo = entry.reason;
-    next.reactivateAt = now;
+    next.reactivateKind = entry.reasonId;
     next.reactivateDetail = entry.detail;
+    next.reactivateFecha = fecha;
+    next.reactivateAt = now;
+    next.reactivateActorId = entry.actorId;
+    next.reactivateActorName = entry.actorName;
+    next.reactivateActorEmail = entry.actorEmail;
+    next.reactivateRegistradaAt = now;
+    if (amount !== undefined && amount !== null && amount !== '') {
+      next.reactivateMonto = money(amount);
+      entry.amount = next.reactivateMonto;
+    }
+    entry.presentedOn = fecha;
   }
   return next;
 }
@@ -153,11 +202,13 @@ export function collectMemberMeta(member = {}) {
     'source', 'importedAt', 'autorizacion', 'anioNacimiento', 'vencimientoAutorizacion',
     'bloodType', 'healthInsurance', 'emergencyClinic', 'prismaId', 'prismaTipoDebito',
     'prismaSuspectBloodType', 'familyPrincipalNumber', 'familyGroupName', 'cuotaCategories',
-    'cuotaMissing', 'bajaFecha', 'bajaMotivo', 'bajaDetail', 'socioActivoRaw',
+    'cuotaMissing', 'pendingBaja', 'bajaFecha', 'bajaPresentada', 'bajaMonto', 'bajaKind', 'bajaMotivo', 'bajaDetail',
+    'bajaActorId', 'bajaActorName', 'bajaActorEmail', 'bajaRegistradaAt', 'socioActivoRaw',
+    'reactivateMotivo', 'reactivateKind', 'reactivateDetail', 'reactivateFecha', 'reactivateAt',
+    'reactivateActorId', 'reactivateActorName', 'reactivateActorEmail', 'reactivateRegistradaAt', 'reactivateMonto',
     'joinedAtFallback', 'fechaAltaRaw', 'joinTime', 'lifecycleHistory', 'lastLifecycle',
     'profileEditHistory', 'lastProfileEdit',
-    'suspendMotivo', 'suspendAt', 'suspendDetail', 'reactivateMotivo', 'reactivateAt',
-    'reactivateDetail', 'portalUsername', 'portalProvisionedAt', 'portalProvisionedBy',
+    'suspendMotivo', 'suspendAt', 'suspendDetail', 'portalUsername', 'portalProvisionedAt', 'portalProvisionedBy',
     'hasSocietasApp', 'societasAppAsOf', 'societasEmail',
     'documents',
     'poolMedicalExpiresAt', 'poolMedicalFileName', 'poolMedicalUploadedAt',

@@ -3306,6 +3306,10 @@ select.form-input,
   background: color-mix(in srgb, var(--stat-accent) 22%, var(--bg-secondary));
 }
 
+.members-baja-reasons .members-stat-card.is-on span {
+  color: var(--stat-accent);
+}
+
 .members-stat-card b {
   display: block;
   font-size: 1.12rem;
@@ -3332,6 +3336,53 @@ select.form-input,
   margin: 0;
   font-size: 0.78rem;
   color: var(--text-secondary);
+}
+
+.members-search-requests {
+  list-style: none;
+  margin: 0.15rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.members-search-requests li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.members-search-request {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.12rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--primary-gold) 40%, var(--border-glass));
+  background: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.members-search-request strong {
+  font-size: 0.92rem;
+}
+
+.members-search-request span {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  line-height: 1.35;
+}
+
+.members-search-request:hover,
+.members-search-request:focus-visible {
+  border-color: var(--primary-gold);
 }
 
 .membership-moves {

@@ -46,6 +46,11 @@ const MEMBERS_LIST_SELECT = [
   'has_societas_app:meta->>hasSocietasApp',
   'current_account_as_of:meta->>currentAccountAsOf',
   'baja_motivo:meta->>bajaMotivo',
+  'baja_fecha:meta->>bajaFecha',
+  'baja_actor:meta->>bajaActorName',
+  'baja_registrada:meta->>bajaRegistradaAt',
+  'reactivate_actor:meta->>reactivateActorName',
+  'reactivate_registrada:meta->>reactivateRegistradaAt',
 ].join(', ');
 
 export function metaFromListRow(row = {}) {
@@ -58,6 +63,11 @@ export function metaFromListRow(row = {}) {
   const societasApp = row.has_societas_app ?? row.hasSocietasApp ?? row.meta?.hasSocietasApp;
   const accountCut = row.current_account_as_of ?? row.currentAccountAsOf ?? row.meta?.currentAccountAsOf;
   const bajaMotivo = row.baja_motivo ?? row.bajaMotivo ?? row.meta?.bajaMotivo;
+  const bajaActorName = row.baja_actor ?? row.bajaActorName ?? row.meta?.bajaActorName;
+  const bajaRegistradaAt = row.baja_registrada ?? row.bajaRegistradaAt ?? row.meta?.bajaRegistradaAt;
+  const bajaFecha = row.baja_fecha ?? row.bajaFecha ?? row.meta?.bajaFecha;
+  const reactivateActorName = row.reactivate_actor ?? row.reactivateActorName ?? row.meta?.reactivateActorName;
+  const reactivateRegistradaAt = row.reactivate_registrada ?? row.reactivateRegistradaAt ?? row.meta?.reactivateRegistradaAt;
   const meta = row.meta && typeof row.meta === 'object' && !Array.isArray(row.meta) ? { ...row.meta } : {};
   if (principal != null && principal !== '') meta.familyPrincipalNumber = principal;
   if (group) meta.familyGroupName = group;
@@ -68,6 +78,11 @@ export function metaFromListRow(row = {}) {
   if (societasApp === true || societasApp === 'true') meta.hasSocietasApp = true;
   if (accountCut) meta.currentAccountAsOf = String(accountCut).slice(0, 10);
   if (bajaMotivo) meta.bajaMotivo = bajaMotivo;
+  if (bajaActorName) meta.bajaActorName = bajaActorName;
+  if (bajaRegistradaAt) meta.bajaRegistradaAt = bajaRegistradaAt;
+  if (bajaFecha) meta.bajaFecha = bajaFecha;
+  if (reactivateActorName) meta.reactivateActorName = reactivateActorName;
+  if (reactivateRegistradaAt) meta.reactivateRegistradaAt = reactivateRegistradaAt;
   return meta;
 }
 
@@ -654,6 +669,10 @@ export async function setMemberLifecycle(member, {
   reasonLabel,
   detail = '',
   actorName = '',
+  actorId = '',
+  actorEmail = '',
+  presentedOn = '',
+  amount,
 } = {}) {
   if (!member?.id && !member?.memberId) throw new Error('Socio inválido');
   const meta = buildLifecycleMeta(collectMemberMeta(member), {
@@ -662,6 +681,10 @@ export async function setMemberLifecycle(member, {
     reasonLabel,
     detail,
     actorName,
+    actorId,
+    actorEmail,
+    presentedOn,
+    amount,
   });
   const reason = [reasonLabel, detail].filter(Boolean).join('. ').trim();
   if (reason.length < 8) {
@@ -688,6 +711,18 @@ export async function setMemberLifecycle(member, {
     reasonId,
     reason: reasonLabel,
     detail: String(detail || '').trim() || null,
+    actor_name: (action === 'activate' ? saved.reactivateActorName : saved.bajaActorName)
+      || saved.meta?.lastLifecycle?.actorName || actorName || null,
+    actor_email: (action === 'activate' ? saved.reactivateActorEmail : saved.bajaActorEmail)
+      || saved.meta?.lastLifecycle?.actorEmail || actorEmail || null,
+    registered_at: (action === 'activate' ? saved.reactivateRegistradaAt : saved.bajaRegistradaAt)
+      || saved.meta?.lastLifecycle?.registeredAt || null,
+    reactivate_motivo: saved.reactivateMotivo || null,
+    reactivate_fecha: saved.reactivateFecha || null,
+    baja_kind: saved.bajaKind || null,
+    baja_presentada: saved.bajaPresentada || null,
+    baja_fecha: saved.bajaFecha || null,
+    baja_monto: saved.bajaMonto ?? null,
   });
   return saved;
 }

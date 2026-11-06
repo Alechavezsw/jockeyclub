@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import FoldableSection from './FoldableSection';
-import { membershipMovesSeed, summarizeBajas, uniqueBajas } from '../../domain/members/membershipMoves';
+import { livePadronBajas, membershipMovesSeed, summarizeBajas, uniqueBajas } from '../../domain/members/membershipMoves';
 import { useSnapshotSeed } from '../../hooks/useSnapshots';
+import { formatInstantAR } from '../../lib/arDate';
 
 function formatAr(iso) {
   if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso || '—';
@@ -34,7 +35,10 @@ export default function MembershipMovesSection({ members = [] }) {
     SOCIETAS_MEMBERSHIP_BAJAS,
     SOCIETAS_MEMBERSHIP_MOVES_SNAPSHOT: snap,
   } = useSnapshotSeed(['societasMembershipMoves'], membershipMovesSeed);
-  const bajas = useMemo(() => uniqueBajas(SOCIETAS_MEMBERSHIP_BAJAS), [SOCIETAS_MEMBERSHIP_BAJAS]);
+  const bajas = useMemo(
+    () => uniqueBajas([...SOCIETAS_MEMBERSHIP_BAJAS, ...livePadronBajas(members)]),
+    [SOCIETAS_MEMBERSHIP_BAJAS, members],
+  );
   // Socios dados de alta en la app (ej. solicitudes públicas aprobadas) después
   // del último sync de Societas: todavía no llegaron al importador.
   const altas = useMemo(() => {
@@ -135,6 +139,10 @@ export default function MembershipMovesSection({ members = [] }) {
                   {row.documentNumber ? ` · DNI ${row.documentNumber}` : ''}
                   {row.date ? ` · ${formatAr(row.date)}` : ''}
                   {row.motivo ? ` · ${row.motivo}` : ''}
+                  {row.actorName ? ` · ${row.actorName}` : ''}
+                  {row.registeredAt && formatInstantAR(row.registeredAt) !== '—'
+                    ? ` · ${formatInstantAR(row.registeredAt)}`
+                    : ''}
                 </span>
               </div>
               <div className="membership-moves-right">

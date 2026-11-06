@@ -33,6 +33,11 @@ const KIND_ORDER = [
   'mora', 'licencia', 'renuncia', 'duplicado', 'mayoria', 'grupo', 'liga', 'reempadron', 'otro',
 ];
 
+/** Motivos que se ofrecen al dar de baja desde el padrón. */
+export const PADRON_BAJA_OPTIONS = [
+  'mora', 'licencia', 'renuncia', 'duplicado', 'mayoria', 'grupo', 'otro',
+].map((id) => BAJA_KINDS[id]);
+
 function fold(text) {
   return String(text || '')
     .toLowerCase()
@@ -90,6 +95,26 @@ export function summarizeBajas(rows = []) {
   return KIND_ORDER
     .map((id) => ({ ...BAJA_KINDS[id], count: counts[id] || 0 }))
     .filter((k) => k.count > 0);
+}
+
+/** Bajas cargadas en la ficha, para sumarlas al listado de Societas. */
+export function livePadronBajas(members = []) {
+  return (members || []).flatMap((member) => {
+    const motivo = String(member?.bajaMotivo || member?.meta?.bajaMotivo || '').trim();
+    if (!motivo) return [];
+    const pending = member?.pendingBaja === true || member?.meta?.pendingBaja === true;
+    const presented = member?.bajaPresentada || member?.meta?.bajaPresentada;
+    if (String(member?.status || '').toLowerCase() !== 'inactive' && !pending && !presented) return [];
+    return [{
+      memberId: member.memberId,
+      name: member.name,
+      documentNumber: member.documentNumber,
+      date: String(presented || member?.bajaFecha || member?.meta?.bajaFecha || '').slice(0, 10),
+      motivo,
+      actorName: member?.bajaActorName || member?.meta?.bajaActorName || member?.meta?.lastLifecycle?.actorName || '',
+      registeredAt: member?.bajaRegistradaAt || member?.meta?.bajaRegistradaAt || member?.meta?.lastLifecycle?.registeredAt || '',
+    }];
+  });
 }
 
 export function uniqueBajas(rows = []) {

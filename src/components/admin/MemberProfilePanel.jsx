@@ -17,7 +17,7 @@ import { familyChildStanding, regularidadOf, upsertRegularidad } from '../../dom
 import { shouldOfferVitalicio } from '../../domain/members/membership';
 import { canRemoveDuesSurcharge, canVoidDuesPayment } from '../../domain/auth/roles';
 import { useAuth } from '../../context/AuthContext';
-import { formatDateTimeAR, todayISODateAR } from '../../lib/arDate';
+import { formatDateTimeAR, formatInstantAR, todayISODateAR } from '../../lib/arDate';
 import { formatPaymentWhen, paymentWhenStamp } from '../../domain/members/paymentHistory';
 import { DEFAULT_POOL_SETTINGS } from '../../domain/pool/poolAccess';
 import { piletaPayAccess } from '../../domain/pool/seasonDuesGate';
@@ -764,7 +764,7 @@ export default function MemberProfilePanel({
       };
       const at = h.at || '';
       items.push({
-        when: at ? formatDateTimeAR(at.slice(0, 10), at.slice(11, 16)) || formatShortDate(at.slice(0, 10)) : '—',
+        when: at ? formatInstantAR(at) : '—',
         title: titles[h.action] || `Cambio de estado (${h.action})`,
         detail: [h.reason, h.detail].filter(Boolean).join(' · ') || null,
         actorName: h.actorName || '',

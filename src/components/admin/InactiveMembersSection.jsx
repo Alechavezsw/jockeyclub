@@ -5,6 +5,7 @@ import { memberMatchesDirectoryQuery, mergeMembersById } from '../../domain/memb
 import { repos } from '../../data/bootstrap';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import FoldableSection from './FoldableSection';
+import { formatInstantAR } from '../../lib/arDate';
 
 const PAGE = 40;
 
@@ -21,6 +22,7 @@ export default function InactiveMembersSection({
   openToken = 0,
   loading = false,
   onRequestLoad,
+  onReactivate = null,
 }) {
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
@@ -128,11 +130,26 @@ export default function InactiveMembersSection({
                     {member.familyTitular ? ' · Titular' : ''}
                     {Array.isArray(member.disciplines) && member.disciplines[0] ? ` · ${member.disciplines[0]}` : ''}
                     {member.bajaMotivo ? ` · ${member.bajaMotivo}` : ' · Sin motivo'}
+                    {member.bajaActorName ? ` · ${member.bajaActorName}` : ''}
+                    {member.bajaRegistradaAt && formatInstantAR(member.bajaRegistradaAt) !== '—'
+                      ? ` · ${formatInstantAR(member.bajaRegistradaAt)}`
+                      : ''}
                   </span>
                 </div>
-                {profileTo ? (
-                  <Link to={profileTo} className="membership-moves-link">Ver ficha</Link>
-                ) : null}
+                <div className="membership-moves-right">
+                  {onReactivate ? (
+                    <button
+                      type="button"
+                      className="btn btn-emerald btn-sm"
+                      onClick={() => onReactivate(member)}
+                    >
+                      Reactivar
+                    </button>
+                  ) : null}
+                  {profileTo ? (
+                    <Link to={profileTo} className="membership-moves-link">Ver ficha</Link>
+                  ) : null}
+                </div>
               </li>
             );
           })}

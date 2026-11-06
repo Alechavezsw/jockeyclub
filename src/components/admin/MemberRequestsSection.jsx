@@ -22,6 +22,7 @@ import MemberRequestDetailModal from './MemberRequestDetailModal';
 
 export default function MemberRequestsSection({
   members = [],
+  focusRequest = null,
   membershipApplications = [],
   setMembershipApplications,
   portalAccessRequests = [],
@@ -172,6 +173,19 @@ export default function MemberRequestsSection({
     });
   };
 
+  useEffect(() => {
+    if (!focusRequest?.id) return;
+    const kind = focusRequest.kind === 'alta' ? 'alta' : 'acceso';
+    const list = kind === 'alta' ? membershipApplications : portalAccessRequests;
+    const item = (list || []).find((row) => row.id === focusRequest.id);
+    if (!item) return;
+    const pending = kind === 'alta' ? item.status === 'pending' : accessRequestIsOpen(item);
+    setView(kind);
+    setShowClosed(!pending);
+    if (kind === 'alta') openJoinDetail(item);
+    else openAccessDetail(item);
+  }, [focusRequest]);
+
   const closeDetail = () => {
     setDetail(null);
     setInvite(null);
@@ -255,7 +269,7 @@ export default function MemberRequestsSection({
       count={(accessInbox.open.length + pendingJoin.length).toLocaleString('es-AR')}
       defaultOpen={accessInbox.open.length + pendingJoin.length > 0}
       storageKey="solicitudes"
-      forceOpen={openJoinInbox}
+      forceOpen={openJoinInbox || Boolean(focusRequest?.id)}
       extra={(
         <div className="membership-moves-tabs">
           <div className="member-requests-public-wrap">

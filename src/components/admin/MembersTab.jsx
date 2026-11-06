@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Search, Filter, Plus, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Trash2, Users, UserPlus, X, CreditCard, Camera, FileDown, FileSpreadsheet, Pencil, KeyRound, MoreVertical } from 'lucide-react';
+import { Search, Filter, Plus, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Trash2, Users, UserMinus, UserPlus, X, CreditCard, Camera, FileDown, FileSpreadsheet, Pencil, KeyRound, MoreVertical } from 'lucide-react';
 import { duesAmountForHousehold, duesAmountForTier, duesOnJoin, isDuesExemptMember, pinDuesDueDate, quotaHeadline, toWhatsAppPhone } from '../../domain/members/dues';
 import { persistDuesCollection, recordDuesCollection } from '../../domain/members/memberPayments';
 import { deliverPaymentReceipt } from '../../domain/payments/deliverPaymentReceipt';
@@ -8,11 +8,16 @@ import { exportMembersPdf } from '../../domain/members/exportMembersPdf';
 import { DISCIPLINE_OPTIONS } from '../../domain/sports/disciplines';
 import { findTier, getActiveTiers, getTierOptionLabel, getTierDisplayName, splitTierDisplayName, tierChipVars } from '../../domain/members/tiers';
 import {
+  bajaEffectiveOn,
   buildLifecycleMeta,
+  canReactivateMember,
   collectMemberMeta,
   memberAppAccess,
   reasonLabel as lifecycleReasonLabel,
 } from '../../domain/members/memberAdminActions';
+import { buildBajaCertificate, buildReactivacionCertificate } from '../../domain/members/bajaCertificate';
+import { exportBajaCertificatePdf } from '../../domain/members/exportBajaCertificatePdf';
+import { libreDeudaClub } from '../../domain/accounting/libreDeuda';
 import { allocateNextMemberNumber, attachHouseholdToMembers, assignDistinctStatColors, buildPadronHouseholdStats, familyGroupMatchesQuery, isFamilyDependent, isLiveMember, isTitularMember, listFamilyGroups, memberMatchesDirectoryQuery, mergeMemberRecord, mergeMembersById, rankMemberSearchHit, resolveFamilyForDisplay } from '../../domain/members/households';
 import { portalLoginFromEmail } from '../../domain/auth/credentials';
 import {
@@ -23,6 +28,8 @@ import {
   markApplicationApproved,
   matchMemberForAccessRequest,
   portalLoginUrl,
+  requestStatusLabel,
+  searchRequestDirectoryHits,
 } from '../../domain/members/selfService';
 import { memberMoveKey, membershipMovesSeed, uniqueBajas } from '../../domain/members/membershipMoves';
 import { useSnapshotSeed } from '../../hooks/useSnapshots';
@@ -35,7 +42,7 @@ import MemberTiersPanel from './MemberTiersPanel';
 import MembershipMovesSection from './MembershipMovesSection';
 import InactiveMembersSection from './InactiveMembersSection';
 import MemberRequestsSection from './MemberRequestsSection';
-import { MemberLifecycleModal, MemberCredentialsModal } from './MemberAdminModals';
+import { MemberBajaModal, MemberLifecycleModal, MemberCredentialsModal, MemberReactivateModal } from './MemberAdminModals';
 import { nowTimeAR, todayISODateAR, todayAR } from '../../lib/arDate';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { repos } from '../../data/bootstrap';
@@ -301,6 +308,8 @@ export default function MembersTab({
 }) {
   const { user } = useAuth();
   const actorName = user?.fullName || user?.name || user?.email || '';
+  const actorId = user?.id || '';
+  const actorEmail = user?.email || '';
   const allowPadronWrite = canEditMember && Boolean(setMembers || updateMember);
   const {
     SOCIETAS_MEMBERSHIP_ALTAS,
@@ -315,6 +324,7 @@ export default function MembersTab({
   const [inactiveReady, setInactiveReady] = useState(false);
   const [inactiveLoading, setInactiveLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [requestFocus, setRequestFocus] = useState(null);
   const [remoteHits, setRemoteHits] = useState([]);
   const [remoteSearching, setRemoteSearching] = useState(false);
   const [page, setPage] = useState(1);
@@ -326,6 +336,9 @@ export default function MembersTab({
   const [cardMember, setCardMember] = useState(null);
   const [collectMember, setCollectMember] = useState(null);
   const [lifecycleTarget, setLifecycleTarget] = useState(null); // { member, action }
+  const [bajaOpen, setBajaOpen] = useState(false);
+  const [reactivateOpen, setReactivateOpen] = useState(false);
+  const [reactivateMember, setReactivateMember] = useState(null);
   const [lifecycleBusy, setLifecycleBusy] = useState(false);
   const [lifecycleError, setLifecycleError] = useState('');
   const [credsTarget, setCredsTarget] = useState(null);
@@ -603,6 +616,15 @@ export default function MembersTab({
       return String(a.name || '').localeCompare(String(b.name || ''), 'es');
     });
   }, [searchDirectory, searchQuery, remoteHits, tierFilter, quickFilter, moveIds]);
+
+  const requestHits = useMemo(
+    () => searchRequestDirectoryHits(searchQuery, {
+      applications: membershipApplications,
+      accessRequests: portalAccessRequests,
+      listedMembers: filteredMembers,
+    }),
+    [searchQuery, membershipApplications, portalAccessRequests, filteredMembers],
+  );
 
   const familyGroups = useMemo(() => listFamilyGroups(searchDirectory), [searchDirectory]);
 
@@ -900,6 +922,80 @@ export default function MembersTab({
     setLifecycleTarget({ member, action });
   };
 
+  const commitLifecycle = async (member, action, payload) => {
+    const nextMeta = buildLifecycleMeta(collectMemberMeta(member), {
+      action,
+      reasonId: payload.reasonId,
+      reasonLabel: payload.reasonLabel || lifecycleReasonLabel(action, payload.reasonId),
+      detail: payload.detail,
+      actorName,
+      actorId,
+      actorEmail,
+      presentedOn: payload.presentedOn,
+      amount: payload.amount,
+    });
+    const nextStatus = action === 'activate'
+      ? 'active'
+      : action === 'suspend'
+        ? 'suspended'
+        : (nextMeta.pendingBaja ? 'active' : 'inactive');
+    const next = {
+      ...member,
+      status: nextStatus,
+      meta: nextMeta,
+        bajaMotivo: nextMeta.bajaMotivo,
+        bajaFecha: nextMeta.bajaFecha,
+        bajaPresentada: nextMeta.bajaPresentada,
+        bajaMonto: nextMeta.bajaMonto,
+        bajaDetail: nextMeta.bajaDetail,
+        bajaKind: nextMeta.bajaKind,
+        bajaActorId: nextMeta.bajaActorId,
+        bajaActorName: nextMeta.bajaActorName,
+        bajaActorEmail: nextMeta.bajaActorEmail,
+        bajaRegistradaAt: nextMeta.bajaRegistradaAt,
+        pendingBaja: nextMeta.pendingBaja,
+        reactivateMotivo: nextMeta.reactivateMotivo,
+        reactivateFecha: nextMeta.reactivateFecha,
+        reactivateActorName: nextMeta.reactivateActorName,
+        reactivateActorId: nextMeta.reactivateActorId,
+        reactivateActorEmail: nextMeta.reactivateActorEmail,
+        reactivateRegistradaAt: nextMeta.reactivateRegistradaAt,
+        reactivateMonto: nextMeta.reactivateMonto,
+      };
+
+    let savedMember = next;
+    if (isSupabaseConfigured) {
+      const saved = await repos.setMemberLifecycle(next, {
+        status: nextStatus,
+        action,
+        reasonId: payload.reasonId,
+        reasonLabel: payload.reasonLabel || lifecycleReasonLabel(action, payload.reasonId),
+          detail: payload.detail,
+          actorName,
+          actorId,
+          actorEmail,
+          presentedOn: payload.presentedOn,
+          amount: payload.amount,
+        });
+      savedMember = saved || next;
+      await persistMember(savedMember);
+    } else {
+      await persistMember(next);
+    }
+
+    setActionFlash(
+      action === 'delete'
+        ? (nextMeta.pendingBaja
+          ? `Baja el ${nextMeta.bajaFecha}: ${member.name}. El mes en curso se cobra.`
+          : `Baja registrada: ${member.name}`)
+        : action === 'suspend'
+          ? `Suspensión registrada: ${member.name}`
+          : `Reactivación registrada: ${member.name}`,
+    );
+    setTimeout(() => setActionFlash(''), 3200);
+    return savedMember;
+  };
+
   const handleLifecycleConfirm = async (payload) => {
     if (payload?.error) {
       setLifecycleError(payload.error);
@@ -910,57 +1006,70 @@ export default function MembersTab({
     setLifecycleBusy(true);
     setLifecycleError('');
     try {
-      const nextMeta = buildLifecycleMeta(collectMemberMeta(member), {
-        action,
-        reasonId: payload.reasonId,
-        reasonLabel: payload.reasonLabel || lifecycleReasonLabel(action, payload.reasonId),
-        detail: payload.detail,
-        actorName,
-      });
-      const nextStatus = action === 'activate'
-        ? 'active'
-        : action === 'suspend'
-          ? 'suspended'
-          : (nextMeta.pendingBaja ? 'active' : 'inactive');
-      const next = {
-        ...member,
-        status: nextStatus,
-        meta: nextMeta,
-        bajaMotivo: nextMeta.bajaMotivo,
-        bajaFecha: nextMeta.bajaFecha,
-        bajaDetail: nextMeta.bajaDetail,
-      };
-
-      if (isSupabaseConfigured) {
-        const saved = await repos.setMemberLifecycle(next, {
-          status: nextStatus,
-          action,
-          reasonId: payload.reasonId,
-          reasonLabel: payload.reasonLabel || lifecycleReasonLabel(action, payload.reasonId),
-          detail: payload.detail,
-          actorName,
-        });
-        await persistMember(saved || next);
-      } else {
-        await persistMember(next);
-      }
-
-      setActionFlash(
-        action === 'delete'
-          ? (nextMeta.pendingBaja
-            ? `Baja el ${nextMeta.bajaFecha}: ${member.name}. El mes en curso se cobra.`
-            : `Baja registrada: ${member.name}`)
-          : action === 'suspend'
-            ? `Suspensión registrada: ${member.name}`
-            : `Reactivación registrada: ${member.name}`,
-      );
-      setTimeout(() => setActionFlash(''), 3200);
+      await commitLifecycle(member, action, payload);
       setLifecycleTarget(null);
     } catch (err) {
       setLifecycleError(err?.message || 'No se pudo guardar el cambio de estado.');
     } finally {
       setLifecycleBusy(false);
     }
+  };
+
+  const handleBajaConfirm = async (payload) => {
+    const saved = await commitLifecycle(payload.member, 'delete', payload);
+    const certificate = buildBajaCertificate({
+      member: saved || payload.member,
+      reasonLabel: payload.reasonLabel,
+      detail: payload.detail,
+      presentedOn: payload.presentedOn,
+      effectiveOn: bajaEffectiveOn(payload.presentedOn),
+      amount: payload.amount,
+      actorName: saved?.bajaActorName || actorName,
+      registeredAt: saved?.bajaRegistradaAt,
+      tierLabel: getTierDisplayName(payload.member.tier, tierCatalog),
+      club: libreDeudaClub(),
+    });
+    try {
+      await exportBajaCertificatePdf(certificate);
+    } catch {
+      setActionFlash(`Baja registrada: ${payload.member.name}. No se pudo generar el PDF.`);
+      setTimeout(() => setActionFlash(''), 4200);
+    }
+    setBajaOpen(false);
+  };
+
+  const openReactivate = (member = null) => {
+    if (!allowPadronWrite) return;
+    setReactivateMember(member);
+    setReactivateOpen(true);
+  };
+
+  const handleReactivateConfirm = async (payload) => {
+    let member = payload.member;
+    if (isSupabaseConfigured && member?.id) {
+      const full = await repos.getMember(member.id);
+      if (full) member = full;
+    }
+    const saved = await commitLifecycle(member, 'activate', payload);
+    const certificate = buildReactivacionCertificate({
+      member: saved || member,
+      reasonLabel: payload.reasonLabel,
+      detail: payload.detail,
+      presentedOn: payload.presentedOn,
+      amount: payload.amount,
+      actorName: saved?.reactivateActorName || actorName,
+      registeredAt: saved?.reactivateRegistradaAt,
+      tierLabel: getTierDisplayName(payload.member.tier, tierCatalog),
+      club: libreDeudaClub(),
+    });
+    try {
+      await exportBajaCertificatePdf(certificate);
+    } catch {
+      setActionFlash(`Reactivación registrada: ${member.name}. No se pudo generar el PDF.`);
+      setTimeout(() => setActionFlash(''), 4200);
+    }
+    setReactivateOpen(false);
+    setReactivateMember(null);
   };
 
   const openCredentials = (member) => {
@@ -1287,7 +1396,7 @@ export default function MembersTab({
           <input
             id="members-search-input"
             type="search"
-            placeholder="Nombre, Nº de socio, DNI, email o teléfono…"
+            placeholder="Nombre, Nº de socio, DNI, email, teléfono o solicitud…"
             className="members-search-input"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -1308,6 +1417,9 @@ export default function MembersTab({
           <p className="members-search-hint">
             {remoteSearching ? 'Buscando en el padrón… · ' : ''}
             {filteredMembers.length.toLocaleString('es-AR')} socio{filteredMembers.length === 1 ? '' : 's'}
+            {requestHits.length > 0
+              ? ` · ${requestHits.length.toLocaleString('es-AR')} solicitud${requestHits.length === 1 ? '' : 'es'}`
+              : ''}
             {filteredFamilies.length > 0
               ? ` · ${filteredFamilies.length.toLocaleString('es-AR')} familia${filteredFamilies.length === 1 ? '' : 's'}`
               : ''}
@@ -1316,9 +1428,45 @@ export default function MembersTab({
           <p className="members-search-hint">
             {membersLoading && membersProgress?.total
               ? `Cargando padrón… ${membersProgress.loaded.toLocaleString('es-AR')} de ${membersProgress.total.toLocaleString('es-AR')}. Podés buscar igual.`
-              : 'Escribí un nombre, DNI o Nº de socio. Primero aparecen los socios.'}
+              : 'Escribí un nombre, DNI o Nº de socio. También aparece quien pidió unirse.'}
           </p>
         )}
+        {requestHits.length > 0 ? (
+          <ul className="members-search-requests" aria-label="Solicitudes que coinciden">
+            {requestHits.map((hit) => (
+              <li key={`${hit.kind}-${hit.id}`}>
+                <button
+                  type="button"
+                  className="members-search-request"
+                  onClick={() => {
+                    setRequestFocus({ kind: hit.kind, id: hit.id, token: Date.now() });
+                    document.getElementById('member-requests-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }}
+                >
+                  <strong>{hit.name}</strong>
+                  <span>
+                    {hit.kind === 'alta' ? 'Solicitó asociarse' : 'Pidió acceso a la app'}
+                    {' · '}
+                    {requestStatusLabel(hit.status)}
+                    {hit.documentNumber ? ` · DNI ${hit.documentNumber}` : ''}
+                    {hit.memberNumber ? ` · Nº ${hit.memberNumber}` : ''}
+                    {hit.email ? ` · ${hit.email}` : ''}
+                    {hit.phone ? ` · ${hit.phone}` : ''}
+                  </span>
+                </button>
+                {hit.kind === 'alta' && hit.status === 'pending' && allowPadronWrite ? (
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => prefillFromApplication(hit.source)}
+                  >
+                    Dar de alta
+                  </button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </div>
 
       <div className="admin-filters members-toolbar">
@@ -1359,6 +1507,26 @@ export default function MembersTab({
         >
           <FileSpreadsheet size={16} /> {exportingExcel ? 'Generando…' : 'Exportar Excel'}
         </button>
+
+        {allowPadronWrite ? (
+          <button
+            type="button"
+            className="btn btn-danger"
+            onClick={() => setBajaOpen(true)}
+          >
+            <UserMinus size={16} /> Baja de socio
+          </button>
+        ) : null}
+
+        {allowPadronWrite ? (
+          <button
+            type="button"
+            className="btn btn-emerald"
+            onClick={() => openReactivate(null)}
+          >
+            <UserPlus size={16} /> Reactivar socio
+          </button>
+        ) : null}
 
         {allowPadronWrite ? (
           <button
@@ -1452,6 +1620,7 @@ export default function MembersTab({
 
       <MemberRequestsSection
         members={members}
+        focusRequest={requestFocus}
         membershipApplications={membershipApplications}
         setMembershipApplications={setMembershipApplications}
         portalAccessRequests={portalAccessRequests}
@@ -1471,6 +1640,7 @@ export default function MembersTab({
         openToken={inactiveOpenToken}
         loading={inactiveLoading}
         onRequestLoad={loadInactiveMembers}
+        onReactivate={allowPadronWrite ? openReactivate : null}
       />
 
       <MemberTiersPanel
@@ -2156,6 +2326,8 @@ export default function MembersTab({
                           <span className="member-identity-meta" style={{ color: memberStatusTone(m.status).color }}>
                             {memberStatusTone(m.status).text}
                             {m.status === 'inactive' && m.bajaMotivo ? ` · ${m.bajaMotivo}` : ''}
+                            {m.status === 'inactive' && m.bajaActorName ? ` · ${m.bajaActorName}` : ''}
+                            {m.status === 'active' && m.reactivateActorName ? ` · Reactivado por ${m.reactivateActorName}` : ''}
                             <span>
                               · {memberAppAccess(m).label} · Ver perfil
                             </span>
@@ -2246,16 +2418,27 @@ export default function MembersTab({
                               <Check size={13} /> Cobrar
                             </button>
                           )}
-                          <button
-                            type="button"
-                            role="menuitem"
-                            className="member-row-menu-item--danger"
-                            onClick={() => { setActionsMenuId(null); openLifecycle(m, m.status === 'active' ? 'suspend' : 'activate'); }}
-                            title={m.status === 'active' ? 'Suspender con motivo' : 'Reactivar con motivo'}
-                          >
-                            {m.status === 'active' ? 'Suspender' : 'Activar'}
-                          </button>
-                          {m.status !== 'inactive' && (
+                          {canReactivateMember(m) ? (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => { setActionsMenuId(null); openReactivate(m); }}
+                              title="Reactivar con motivo, usuario, fecha y hora"
+                            >
+                              <UserPlus size={13} /> Reactivar
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="member-row-menu-item--danger"
+                              onClick={() => { setActionsMenuId(null); openLifecycle(m, 'suspend'); }}
+                              title="Suspender con motivo"
+                            >
+                              Suspender
+                            </button>
+                          )}
+                          {m.status !== 'inactive' && !canReactivateMember(m) && (
                             <button
                               type="button"
                               role="menuitem"
@@ -2591,6 +2774,24 @@ export default function MembersTab({
             </div>
         </ModalDialog>
       )}
+
+      <MemberBajaModal
+        open={bajaOpen}
+        members={members}
+        onClose={() => setBajaOpen(false)}
+        onConfirm={handleBajaConfirm}
+      />
+
+      <MemberReactivateModal
+        open={reactivateOpen}
+        members={members}
+        initialMember={reactivateMember}
+        onClose={() => {
+          setReactivateOpen(false);
+          setReactivateMember(null);
+        }}
+        onConfirm={handleReactivateConfirm}
+      />
 
       <MemberLifecycleModal
         key={lifecycleTarget ? `${lifecycleTarget.member.memberId}-${lifecycleTarget.action}` : 'closed'}

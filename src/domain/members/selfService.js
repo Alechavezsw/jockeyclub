@@ -1,5 +1,5 @@
 import { duesOnJoin, toWhatsAppPhone } from './dues';
-import { allocateNextMemberNumber } from './households';
+import { allocateNextMemberNumber, memberMatchesDirectoryQuery } from './households';
 import { todayISODateAR } from '../../lib/arDate';
 import { loginEmailFromUsername } from '../auth/credentials';
 import { buildAccessInviteEmail } from './accessInviteEmail';
@@ -250,6 +250,85 @@ export function mergeOpenAccessRequest(list = [], payload, now = Date.now()) {
     item,
     merged: true,
   };
+}
+
+function requestSearchPerson(item) {
+  return {
+    name: item?.fullName || item?.name || '',
+    email: item?.email || '',
+    documentNumber: item?.documentNumber || '',
+    phone: item?.phone || '',
+    memberId: item?.memberNumber || '',
+  };
+}
+
+function requestAlreadyListed(item, listedMembers) {
+  const dni = String(item?.documentNumber || '').replace(/\D/g, '');
+  const number = String(item?.memberNumber || '').replace(/\D/g, '');
+  const uuid = item?.memberId || item?.memberDbId || '';
+  return (listedMembers || []).some((member) => {
+    if (uuid && member?.id && String(member.id) === String(uuid)) return true;
+    const memberNumber = String(member?.memberId || '').replace(/\D/g, '');
+    if (number && memberNumber && memberNumber === number) return true;
+    const memberDoc = String(member?.documentNumber || '').replace(/\D/g, '');
+    return dni.length >= 6 && memberDoc.length >= 6 && memberDoc === dni;
+  });
+}
+
+/**
+ * Solicitudes que coinciden con la misma búsqueda del padrón.
+ * Un alta ya aprobada y un acceso de alguien que ya está en los resultados no se repiten.
+ */
+export function searchRequestDirectoryHits(query, {
+  applications = [],
+  accessRequests = [],
+  listedMembers = [],
+} = {}) {
+  const raw = String(query || '').trim();
+  const digits = raw.replace(/\D/g, '');
+  if (raw.length < 2 && digits.length < 3) return [];
+
+  const hits = [];
+  for (const app of applications) {
+    if (!app?.id || !memberMatchesDirectoryQuery(requestSearchPerson(app), raw)) continue;
+    const approved = app.status === 'approved';
+    if (approved && requestAlreadyListed(app, listedMembers)) continue;
+    hits.push({
+      kind: 'alta',
+      id: app.id,
+      name: app.fullName || 'Sin nombre',
+      documentNumber: app.documentNumber || '',
+      email: app.email || '',
+      phone: app.phone || '',
+      status: app.status || 'pending',
+      createdAt: app.createdAt || '',
+      source: app,
+    });
+  }
+
+  for (const req of oneAccessRequestTrail(accessRequests)) {
+    if (!req?.id || !memberMatchesDirectoryQuery(requestSearchPerson(req), raw)) continue;
+    const status = effectiveAccessStatus(req);
+    if (status !== 'pending' && requestAlreadyListed(req, listedMembers)) continue;
+    hits.push({
+      kind: 'acceso',
+      id: req.id,
+      name: req.fullName || 'Sin nombre',
+      documentNumber: req.documentNumber || '',
+      memberNumber: req.memberNumber || '',
+      email: req.email || '',
+      phone: req.phone || '',
+      status,
+      createdAt: req.createdAt || '',
+      source: req,
+    });
+  }
+
+  return hits.toSorted((a, b) => {
+    const pending = (b.status === 'pending') - (a.status === 'pending');
+    if (pending !== 0) return pending;
+    return String(b.createdAt).localeCompare(String(a.createdAt));
+  });
 }
 
 export function requestStatusLabel(status) {

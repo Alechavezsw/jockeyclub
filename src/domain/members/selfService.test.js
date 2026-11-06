@@ -16,6 +16,7 @@ import {
   portalLoginUrl,
   portalAccountUrl,
   requestStatusLabel,
+  searchRequestDirectoryHits,
   buildRequestDetail,
   requestPdfFileName,
   buildAccessInvite,
@@ -242,5 +243,25 @@ describe('selfService', () => {
       documentNumber: '31888184',
       phone: '+5492645468012',
     }).name).toBe('Ale Chavez');
+  });
+
+  it('la búsqueda del padrón incluye quien pidió asociarse o acceso', () => {
+    const hits = searchRequestDirectoryHits('esquivel', {
+      applications: [
+        { id: 'app-1', fullName: 'Agustina Esquivel', documentNumber: '40111222', email: 'agustina@mail.com', phone: '2644001122', status: 'pending', createdAt: '2026-11-01T12:00:00.000Z' },
+        { id: 'app-2', fullName: 'Agustina Esquivel', documentNumber: '40111222', status: 'approved', memberId: 'mem-1', createdAt: '2026-10-01T12:00:00.000Z' },
+      ],
+      accessRequests: [
+        { id: 'acc-1', fullName: 'Agustina Esquivel', documentNumber: '30999888', memberNumber: '8801', phone: '2644003344', status: 'pending', createdAt: '2026-11-02T12:00:00.000Z' },
+      ],
+      listedMembers: [
+        { id: 'mem-1', memberId: '1200', name: 'Agustina Esquivel', documentNumber: '40111222' },
+      ],
+    });
+    expect(hits.map((hit) => hit.id)).toEqual(['acc-1', 'app-1']);
+    expect(hits.find((hit) => hit.id === 'app-1').kind).toBe('alta');
+    expect(searchRequestDirectoryHits('40111222', {
+      applications: [{ id: 'app-1', fullName: 'Agustina Esquivel', documentNumber: '40.111.222', status: 'pending' }],
+    }).map((hit) => hit.id)).toEqual(['app-1']);
   });
 });

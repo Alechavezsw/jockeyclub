@@ -2,13 +2,30 @@ import { describe, expect, it } from 'vitest';
 import {
   classifyBajaMotivo,
   decorateBaja,
+  PADRON_BAJA_OPTIONS,
   parseArDate,
   summarizeBajas,
   membershipMoveExportRows,
   uniqueBajas,
+  livePadronBajas,
 } from './membershipMoves';
 
 describe('membershipMoves', () => {
+  it('ofrece en el padrón los mismos motivos que las tarjetas de baja', () => {
+    expect(PADRON_BAJA_OPTIONS.map((opt) => opt.label)).toEqual([
+      'Mora / falta de pago',
+      'Licencia',
+      'Baja con nota',
+      'Duplicado',
+      'Mayoridad',
+      'Grupo familiar',
+      'Otro',
+    ]);
+    for (const opt of PADRON_BAJA_OPTIONS) {
+      expect(classifyBajaMotivo(opt.label).id).toBe(opt.id);
+    }
+  });
+
   it('colorea los motivos de baja', () => {
     expect(classifyBajaMotivo('LICENCIA 1 AÑO - CON NOTA FECHA 03/8/26').id).toBe('licencia');
     expect(classifyBajaMotivo('Baja x mora - fecha 10/9/26').id).toBe('mora');
@@ -38,6 +55,14 @@ describe('membershipMoves', () => {
     const summary = summarizeBajas(rows);
     expect(summary.find((s) => s.id === 'mora')?.count).toBe(1);
     expect(summary.find((s) => s.id === 'licencia')?.count).toBe(1);
+    const live = uniqueBajas(livePadronBajas([
+      { memberId: '55', name: 'Ana', status: 'active', pendingBaja: true, bajaPresentada: '2026-11-06', bajaMotivo: 'Licencia', bajaActorName: 'Ana Admin', bajaRegistradaAt: '2026-11-06T11:46:00.000Z' },
+      { memberId: '56', name: 'Luis', status: 'active' },
+    ]));
+    expect(live).toHaveLength(1);
+    expect(live[0].kind).toBe('licencia');
+    expect(live[0].actorName).toBe('Ana Admin');
+    expect(live[0].registeredAt).toContain('T11:46');
   });
 
   it('arma altas y bajas con el motivo clasificado y suma altas nuevas del portal', () => {

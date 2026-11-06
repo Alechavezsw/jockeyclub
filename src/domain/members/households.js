@@ -83,6 +83,11 @@ const LIST_META_FIELDS = [
   'hasSocietasApp',
   'currentAccountAsOf',
   'bajaMotivo',
+  'bajaFecha',
+  'bajaActorName',
+  'bajaRegistradaAt',
+  'reactivateActorName',
+  'reactivateRegistradaAt',
 ];
 
 /** Campos de ficha que el padrón corto rellena vacío. No se pisan si ya estaban. */
