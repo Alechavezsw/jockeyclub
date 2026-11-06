@@ -580,11 +580,34 @@ describe('payMemberDues', () => {
     await persistDuesCollection(result, {
       setMembers: (fn) => { members.splice(0, members.length, ...fn(members)); },
       onAccountEntry: (entry) => ledger.push(entry),
-      addJournalEntry: (entry) => journal.push(entry),
+      addJournalEntry: async (entry) => {
+        const saved = { ...entry, id: entry.id || `je-test-${journal.length + 1}` };
+        journal.push(saved);
+        return saved;
+      },
     });
     expect(members[0].outstandingBalance).toBe(0);
     expect(ledger[0].type).toBe('pago');
     expect(journal[0].sourceModule).toBe('cuotas');
+  });
+
+  it('persistDuesCollection avisa si el asiento de caja falla', async () => {
+    const member = {
+      memberId: '9',
+      name: 'Ana',
+      outstandingBalance: 2000,
+      paymentHistory: [],
+    };
+    const result = recordDuesCollection(member, {
+      method: 'efectivo',
+      today: new Date('2026-09-05T12:00:00'),
+    });
+    await expect(
+      persistDuesCollection(result, {
+        setMembers: () => {},
+        addJournalEntry: async () => { throw new Error('plan de cuentas vacío'); },
+      }),
+    ).rejects.toThrow(/no entró a caja ni al diario/i);
   });
 });
 

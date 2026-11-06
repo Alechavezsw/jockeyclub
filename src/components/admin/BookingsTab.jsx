@@ -89,6 +89,7 @@ export default function BookingsTab({
   addReservation = null,
   members = [],
   facilityCatalog = null,
+  onSendMessage,
 }) {
   const today = useMemo(() => {
     const d = new Date();
@@ -623,6 +624,7 @@ export default function BookingsTab({
         reservations={reservations}
         facilityCatalog={facilityCatalog}
         addReservation={addReservation}
+        onSendMessage={onSendMessage}
         onCreated={(saved) => {
           const day = String(saved?.date || '').slice(0, 10);
           if (/^\d{4}-\d{2}-\d{2}$/.test(day)) {

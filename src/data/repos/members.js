@@ -8,14 +8,14 @@ import { supabase } from '../../lib/supabase';
 import { isUuid, sb, fetchAllRows, fetchAllRowsParallel, audit } from './shared.js';
 import { createPortalUser, replaceProfileRoles } from './profiles.js';
 
-/** Sin el JSON completo de meta las páginas pueden ser grandes. */
-const MEMBERS_PAGE_SIZE = 800;
-/** Bajo a propósito: 6 páginas a la vez saturan el pool y dejan el UI en “0 de N”. */
-const MEMBERS_CONCURRENCY = 3;
+/** Tope PostgREST habitual. */
+const MEMBERS_PAGE_SIZE = 1000;
+/** Todas las páginas restantes salen juntas (≤8). */
+const MEMBERS_CONCURRENCY = 8;
 
 /**
- * Grilla: sin foto, token ni meta completo (hay fichas de más de 1 MB).
- * Solo se extraen las claves que usa el padrón / grupos familiares.
+ * Grilla mínima: la ficha completa se hidrata al expandir.
+ * Menos columnas = menos JSON/RLS por página (~4–5k activos).
  */
 const MEMBERS_LIST_SELECT = [
   'id',
@@ -28,23 +28,20 @@ const MEMBERS_LIST_SELECT = [
   'tier',
   'status',
   'outstanding_balance',
-  'years_active',
-  'joined_at',
   'next_due_date',
   'overdue_since',
-  'disciplines',
   'document_number',
   'document_type',
-  'birth_date',
-  'payment_method',
   'last_payment_date:meta->>lastPaymentDate',
   'family_principal:meta->>familyPrincipalNumber',
   'family_group_name:meta->>familyGroupName',
   'cuota_categories:meta->cuotaCategories',
-  'portal_username:meta->>portalUsername',
-  'portal_provisioned:meta->>portalProvisionedAt',
-  'has_societas_app:meta->>hasSocietasApp',
   'current_account_as_of:meta->>currentAccountAsOf',
+].join(', ');
+
+/** Solo listado de bajas / inactivos: el padrón activo no los necesita. */
+const MEMBERS_LIST_SELECT_INACTIVE = [
+  MEMBERS_LIST_SELECT,
   'baja_motivo:meta->>bajaMotivo',
   'baja_fecha:meta->>bajaFecha',
   'baja_actor:meta->>bajaActorName',
@@ -162,63 +159,80 @@ export async function listMembers({ onBatch, scope = 'active' } = {}) {
   return membersListInflight[key];
 }
 
-async function downloadMembersList({ onBatch, scope = 'active' } = {}) {
+async function downloadMembersListViaRpc({ onBatch, scope = 'active' } = {}) {
+  const { data, error } = await sb().rpc('list_members_padron', { p_scope: scope });
+  if (error) throw error;
+  const rows = data || [];
   const mapped = [];
-  let listSelect = MEMBERS_LIST_SELECT;
+  const total = rows.length;
+  const paintEvery = 1000;
+  for (let i = 0; i < rows.length; i += 1) {
+    const member = listRowToMember(rows[i]);
+    if (member) mapped.push(member);
+    const done = (i + 1) === rows.length;
+    const atPaint = done || (mapped.length > 0 && mapped.length % paintEvery === 0);
+    if (atPaint) {
+      onBatch?.(mapped, {
+        loaded: mapped.length,
+        total,
+        done,
+        firstPage: mapped.length <= paintEvery,
+      });
+    }
+  }
+  if (!rows.length) {
+    onBatch?.([], { loaded: 0, total: 0, done: true, firstPage: true });
+  }
+  return mapped;
+}
+
+async function downloadMembersListPaged({ onBatch, scope = 'active' } = {}) {
+  const mapped = [];
+  const baseSelect = scope === 'inactive' ? MEMBERS_LIST_SELECT_INACTIVE : MEMBERS_LIST_SELECT;
+  let listSelect = baseSelect;
   let knownTotal = 0;
   let finished = false;
 
-  const report = (done) => {
+  const report = (done, { firstPage = false } = {}) => {
     if (finished && !done) return;
     if (done) finished = true;
     onBatch?.(mapped, {
       loaded: mapped.length,
       total: knownTotal || (done ? mapped.length : 0),
       done,
+      firstPage,
     });
   };
 
-  // El conteo no bloquea la primera página: antes el padrón no pintaba
-  // hasta que el count exacto (con RLS) terminaba.
-  void applyMemberScope(
-    sb().from('members').select('id', { count: 'exact', head: true }),
-    scope,
-  )
-    .then(({ count, error }) => {
-      if (error || !count) return;
-      knownTotal = count;
-      report(false);
-    })
-    .catch(() => {});
-
-  const fetchPage = async (from) => {
+  const fetchPageRaw = async (from, { withCount = false } = {}) => {
+    const selectOpts = withCount ? { count: 'exact' } : undefined;
     try {
-      return await unwrap(
-        applyMemberScope(
-          sb().from('members').select(listSelect),
-          scope,
-        )
-          .order('id')
-          .range(from, from + MEMBERS_PAGE_SIZE - 1),
-        'No se pudieron cargar socios'
-      );
+      const req = applyMemberScope(
+        sb().from('members').select(listSelect, selectOpts),
+        scope,
+      )
+        .order('id')
+        .range(from, from + MEMBERS_PAGE_SIZE - 1);
+      const { data, error, count } = await req;
+      throwOnError(error, 'No se pudieron cargar socios');
+      return { rows: data || [], count: count ?? null };
     } catch (err) {
-      if (listSelect === MEMBERS_LIST_SELECT) {
-        listSelect = MEMBERS_LIST_SELECT
+      if (listSelect === baseSelect) {
+        listSelect = baseSelect
           .replace(', last_payment_date:meta->>lastPaymentDate', '')
           .replace(', family_principal:meta->>familyPrincipalNumber', '')
           .replace(', family_group_name:meta->>familyGroupName', '')
           .replace(', cuota_categories:meta->cuotaCategories', '')
           .replace(', current_account_as_of:meta->>currentAccountAsOf', '');
-        return unwrap(
-          applyMemberScope(
-            sb().from('members').select(listSelect),
-            scope,
-          )
-            .order('id')
-            .range(from, from + MEMBERS_PAGE_SIZE - 1),
-          'No se pudieron cargar socios'
-        );
+        const req = applyMemberScope(
+          sb().from('members').select(listSelect, selectOpts),
+          scope,
+        )
+          .order('id')
+          .range(from, from + MEMBERS_PAGE_SIZE - 1);
+        const { data, error, count } = await req;
+        throwOnError(error, 'No se pudieron cargar socios');
+        return { rows: data || [], count: count ?? null };
       }
       throw err;
     }
@@ -231,37 +245,54 @@ async function downloadMembersList({ onBatch, scope = 'active' } = {}) {
     }
   };
 
-  // Primera página sola → el panel deja de decir “0 de N” enseguida.
-  const first = await fetchPage(0);
-  absorb(first);
-  report(false);
-  if ((first || []).length < MEMBERS_PAGE_SIZE) {
+  // Primera página + count en el mismo viaje → UI a los ~1k sin HEAD aparte.
+  const firstPack = await fetchPageRaw(0, { withCount: true });
+  absorb(firstPack.rows);
+  if (firstPack.count) knownTotal = firstPack.count;
+  report(false, { firstPage: true });
+  if ((firstPack.rows || []).length < MEMBERS_PAGE_SIZE) {
     report(true);
     return mapped;
   }
 
-  let from = MEMBERS_PAGE_SIZE;
-  let waves = 0;
-  while (waves < 40) {
-    waves += 1;
-    const before = mapped.length;
-    const starts = Array.from(
-      { length: MEMBERS_CONCURRENCY },
-      (_, j) => from + j * MEMBERS_PAGE_SIZE,
-    );
+  const totalForPages = knownTotal || (mapped.length + MEMBERS_PAGE_SIZE * 20);
+  const remainingStarts = [];
+  for (let from = MEMBERS_PAGE_SIZE; from < totalForPages; from += MEMBERS_PAGE_SIZE) {
+    remainingStarts.push(from);
+  }
+  // Si el count falló, pedimos olas hasta página corta.
+  if (!knownTotal && remainingStarts.length === 0) {
+    remainingStarts.push(MEMBERS_PAGE_SIZE);
+  }
+
+  for (let i = 0; i < remainingStarts.length; i += MEMBERS_CONCURRENCY) {
+    const batch = remainingStarts.slice(i, i + MEMBERS_CONCURRENCY);
+    const packs = await Promise.all(batch.map((from) => fetchPageRaw(from)));
     let reachedEnd = false;
-    await Promise.all(starts.map(async (pageFrom) => {
-      const chunk = await fetchPage(pageFrom);
-      absorb(chunk);
-      if ((chunk || []).length < MEMBERS_PAGE_SIZE) reachedEnd = true;
-      report(false);
-    }));
-    from += MEMBERS_CONCURRENCY * MEMBERS_PAGE_SIZE;
-    if (reachedEnd || mapped.length === before) break;
+    for (const pack of packs) {
+      absorb(pack.rows);
+      if ((pack.rows || []).length < MEMBERS_PAGE_SIZE) reachedEnd = true;
+    }
+    report(false);
+    if (reachedEnd) break;
+    // Sin count: seguir pidiendo si la última ola vino completa.
+    if (!knownTotal && !reachedEnd && i + MEMBERS_CONCURRENCY >= remainingStarts.length) {
+      const nextFrom = remainingStarts[remainingStarts.length - 1] + MEMBERS_PAGE_SIZE;
+      remainingStarts.push(nextFrom);
+    }
   }
 
   report(true);
   return mapped;
+}
+
+async function downloadMembersList({ onBatch, scope = 'active' } = {}) {
+  try {
+    return await downloadMembersListViaRpc({ onBatch, scope });
+  } catch {
+    // RPC ausente / sin permiso → páginas PostgREST.
+    return downloadMembersListPaged({ onBatch, scope });
+  }
 }
 
 function escapeIlike(value) {

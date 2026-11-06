@@ -1238,6 +1238,7 @@ export default function AdminView({
           addReservation={addReservation}
           members={members}
           facilityCatalog={facilityCatalog}
+          onSendMessage={sendMessage}
         />
       )}
 

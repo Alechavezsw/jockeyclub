@@ -13,11 +13,14 @@ import {
 import { facilityDayTaken, hasReservationConflict } from '../../domain/reservations/conflicts';
 import { CLUB_BANK_ACCOUNTS } from '../../domain/members/clubBanks';
 import { uploadDuesReceipt } from '../../data/storage';
-import { todayISODateAR } from '../../lib/arDate';
+import { todayAR, todayISODateAR } from '../../lib/arDate';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import * as repos from '../../data/repos';
 import MercadoPagoCheckout from '../MercadoPagoCheckout';
 import { useAuth } from '../../context/AuthContext';
+import { buildBookingPaymentReceipt } from '../../domain/reservations/bookingReceipt';
+import { downloadPaymentReceiptPdf } from '../../domain/members/exportPaymentReceiptPdf';
+import { deliverPaymentReceipt } from '../../domain/payments/deliverPaymentReceipt';
 
 const PAY_METHODS = [
   { id: 'efectivo', label: 'Efectivo' },
@@ -57,6 +60,7 @@ export default function AdminNewReservationDialog({
   facilityCatalog = null,
   addReservation,
   onCreated,
+  onSendMessage,
 }) {
   const catalog = useMemo(
     () => buildFacilityCatalog(FACILITIES, Array.isArray(facilityCatalog) ? facilityCatalog : [])
@@ -79,6 +83,8 @@ export default function AdminNewReservationDialog({
   const [error, setError] = useState('');
   const [receiptFile, setReceiptFile] = useState(null);
   const [receiptPreview, setReceiptPreview] = useState('');
+  /** Carga manual: papel en mano, sin subir archivo. */
+  const [hasPhysicalReceipt, setHasPhysicalReceipt] = useState(false);
   const [mpPaidIntent, setMpPaidIntent] = useState(null);
 
   const facility = catalog.find((f) => f.id === facilityId) || null;
@@ -89,6 +95,7 @@ export default function AdminNewReservationDialog({
   const chargeAmount = payFull ? total : deposit;
   const remainingAfterPay = payFull ? 0 : reservationBalanceAfterDeposit(total);
   const bank = CLUB_BANK_ACCOUNTS[0];
+  const transferReceiptOk = Boolean(receiptFile) || hasPhysicalReceipt;
   const selectedTurn = turns.find((turn) => turn.time === time) || null;
   const slotTaken = Boolean(
     facility && date && time
@@ -146,6 +153,7 @@ export default function AdminNewReservationDialog({
     setBusy(false);
     setError('');
     setReceiptFile(null);
+    setHasPhysicalReceipt(false);
     setReceiptPreview((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return '';
@@ -201,7 +209,12 @@ export default function AdminNewReservationDialog({
 
   if (!open) return null;
 
-  const persistReservation = async ({ method, mpIntent = null, receiptAttachment = null }) => {
+  const persistReservation = async ({
+    method,
+    mpIntent = null,
+    receiptAttachment = null,
+    physicalReceipt = false,
+  } = {}) => {
     const check = validateMemberBooking({
       facility,
       member,
@@ -219,6 +232,7 @@ export default function AdminNewReservationDialog({
     else if (total > 0) payBits.push('Pago: seña 50 %');
     if (mpIntent?.id) payBits.push(`MP intent ${mpIntent.id}`);
     if (receiptAttachment?.url) payBits.push(`Comprobante: ${receiptAttachment.url}`);
+    else if (physicalReceipt) payBits.push('Comprobante físico (carga manual)');
     const noteParts = [notes.trim(), payBits.join(' · ')].filter(Boolean);
     const payload = {
       facilityId: facility.id,
@@ -246,7 +260,34 @@ export default function AdminNewReservationDialog({
     if (result?.ok === false) {
       return { ok: false, error: result.error || 'No se pudo guardar la reserva.' };
     }
-    return { ok: true, reservation: result?.reservation || payload };
+    const reservation = result?.reservation || payload;
+    if (total > 0 && method !== 'cuenta_corriente' && chargeAmount > 0) {
+      const payment = buildBookingPaymentReceipt({
+        member,
+        facility,
+        date,
+        time,
+        method,
+        payFull,
+        total,
+        charged: chargeAmount,
+        deposit,
+        balanceAfter: remainingAfterPay,
+        today: todayAR(),
+      });
+      try {
+        await downloadPaymentReceiptPdf({ member, payment });
+      } catch {
+        /* descarga best-effort */
+      }
+      void deliverPaymentReceipt({
+        member,
+        payment,
+        onSendMessage,
+        kind: 'reserva',
+      });
+    }
+    return { ok: true, reservation };
   };
 
   const handleSave = async (event) => {
@@ -268,21 +309,22 @@ export default function AdminNewReservationDialog({
       setError('Generá el QR de Mercado Pago. La reserva se confirma cuando acredita.');
       return;
     }
-    if (total > 0 && payMethod === 'transferencia' && !receiptFile) {
-      setError('Subí el comprobante de la transferencia.');
+    if (total > 0 && payMethod === 'transferencia' && !transferReceiptOk) {
+      setError('Subí el comprobante o marcá “Tengo comprobante físico”.');
       return;
     }
     setBusy(true);
     setError('');
     try {
       let receiptAttachment = null;
-      if (total > 0 && payMethod === 'transferencia' && receiptFile) {
+      if (total > 0 && payMethod === 'transferencia' && receiptFile && !hasPhysicalReceipt) {
         receiptAttachment = await uploadDuesReceipt(receiptFile, user?.id || member.memberId);
       }
       const saved = await persistReservation({
         method: payMethod,
         mpIntent: mpPaidIntent,
         receiptAttachment,
+        physicalReceipt: hasPhysicalReceipt,
       });
       if (!saved.ok) {
         setError(saved.error);
@@ -323,9 +365,20 @@ export default function AdminNewReservationDialog({
   const handleReceiptChange = (event) => {
     const file = event.target.files?.[0] || null;
     setReceiptFile(file);
+    if (file) setHasPhysicalReceipt(false);
     setError('');
     if (receiptPreview) URL.revokeObjectURL(receiptPreview);
     setReceiptPreview(file && file.type?.startsWith('image/') ? URL.createObjectURL(file) : '');
+  };
+
+  const handlePhysicalReceiptToggle = (checked) => {
+    setHasPhysicalReceipt(checked);
+    setError('');
+    if (checked) {
+      setReceiptFile(null);
+      if (receiptPreview) URL.revokeObjectURL(receiptPreview);
+      setReceiptPreview('');
+    }
   };
 
   const bookingReadyForMp = Boolean(member && facility && date && time && slotCheck.ok && chargeAmount > 0);
@@ -617,7 +670,48 @@ export default function AdminNewReservationDialog({
           font-weight: 600;
           cursor: pointer;
         }
-        .admin-new-res-file input { display: none; }
+        .admin-new-res-file input[type="file"] { display: none; }
+        .admin-new-res-physical {
+          display: flex;
+          align-items: flex-start;
+          gap: 0.55rem;
+          margin-top: 0.35rem;
+          padding: 0.55rem 0.65rem;
+          border-radius: 10px;
+          border: 1px solid var(--border-glass);
+          background: var(--surface-soft);
+          color: var(--text-primary);
+          font-size: 0.8rem;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .admin-new-res-physical:has(input:checked) {
+          border-color: color-mix(in srgb, var(--emerald-accent) 45%, var(--border-glass));
+          background: color-mix(in srgb, var(--emerald-accent) 12%, var(--bg-primary));
+        }
+        .admin-new-res-physical input {
+          margin-top: 0.15rem;
+          width: 1rem;
+          height: 1rem;
+          accent-color: var(--emerald-accent, #10b981);
+          flex-shrink: 0;
+        }
+        .admin-new-res-physical span {
+          display: grid;
+          gap: 0.15rem;
+          font-weight: 600;
+        }
+        .admin-new-res-physical small {
+          font-weight: 500;
+          color: var(--text-secondary);
+          line-height: 1.35;
+        }
+        .admin-new-res-physical-ok {
+          margin: 0;
+          font-size: 0.78rem;
+          font-weight: 600;
+          color: color-mix(in srgb, var(--emerald-accent) 88%, var(--text-primary));
+        }
         .admin-new-res-transfer img {
           margin-top: 0.35rem;
           max-width: 100%;
@@ -856,27 +950,48 @@ export default function AdminNewReservationDialog({
                 </div>
               ) : null}
 
-              {payMethod === 'transferencia' && bank ? (
+              {payMethod === 'transferencia' ? (
                 <div className="admin-new-res-transfer">
-                  <div className="pay-alias">
-                    <span className="pay-alias-label">Alias</span>
-                    <strong className="pay-alias-value">{bank.alias}</strong>
-                  </div>
+                  {bank ? (
+                    <div className="pay-alias">
+                      <span className="pay-alias-label">Alias</span>
+                      <strong className="pay-alias-value">{bank.alias}</strong>
+                    </div>
+                  ) : null}
                   <p style={{ margin: 0 }}>
                     Monto {payFull ? 'total' : 'seña'}: <strong>{money(chargeAmount)}</strong>
                   </p>
-                  <label className="admin-new-res-file">
-                    <Upload size={15} aria-hidden />
-                    {receiptFile?.name || 'Subir comprobante (JPG, PNG o PDF)'}
+                  <label className="admin-new-res-physical">
                     <input
-                      type="file"
-                      accept="image/jpeg,image/png,application/pdf,.jpg,.jpeg,.png,.pdf"
-                      onChange={handleReceiptChange}
+                      type="checkbox"
+                      checked={hasPhysicalReceipt}
+                      onChange={(e) => handlePhysicalReceiptToggle(e.target.checked)}
                     />
+                    <span>
+                      Tengo comprobante físico
+                      <small>Con esto solo ya podés guardar la reserva (carga manual).</small>
+                    </span>
                   </label>
-                  {receiptPreview ? (
-                    <img src={receiptPreview} alt="Vista previa del comprobante" />
-                  ) : null}
+                  {hasPhysicalReceipt ? (
+                    <p className="admin-new-res-physical-ok" role="status">
+                      Listo: no hace falta subir archivo.
+                    </p>
+                  ) : (
+                    <>
+                      <label className="admin-new-res-file">
+                        <Upload size={15} aria-hidden />
+                        {receiptFile?.name || 'Subir comprobante (JPG, PNG o PDF)'}
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,application/pdf,.jpg,.jpeg,.png,.pdf"
+                          onChange={handleReceiptChange}
+                        />
+                      </label>
+                      {receiptPreview ? (
+                        <img src={receiptPreview} alt="Vista previa del comprobante" />
+                      ) : null}
+                    </>
+                  )}
                 </div>
               ) : null}
             </div>
@@ -902,13 +1017,20 @@ export default function AdminNewReservationDialog({
               <button
                 type="submit"
                 className="btn btn-primary"
-                disabled={busy || !member || !slotCheck.ok}
+                disabled={
+                  busy
+                  || !member
+                  || !slotCheck.ok
+                  || (total > 0 && payMethod === 'transferencia' && !transferReceiptOk)
+                }
               >
                 {busy
                   ? 'Guardando…'
-                  : payMethod === 'transferencia' && total > 0
-                    ? 'Guardar con comprobante'
-                    : 'Guardar reserva'}
+                  : payMethod === 'transferencia' && total > 0 && hasPhysicalReceipt
+                    ? 'Guardar reserva'
+                    : payMethod === 'transferencia' && total > 0
+                      ? 'Guardar con comprobante'
+                      : 'Guardar reserva'}
               </button>
             )}
           </div>

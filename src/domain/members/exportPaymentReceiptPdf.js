@@ -94,12 +94,20 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9);
   doc.setTextColor(60, 60, 60);
+  const isBooking = payment.kind === 'reserva' || payment.bookingScope === 'deposit' || payment.bookingScope === 'total';
+  const balanceRemaining = Number(payment.balanceRemaining);
+  const totalPrice = Number(payment.totalPrice);
   const infoRows = [
     ['SOCIO', String(member?.name || '—').toUpperCase()],
     ['N° SOCIO', String(member?.memberId || '—')],
-    ['PERÍODO', paymentPeriodLabel(payment)],
-    ['FECHA', formatLongDateAr(payment.date)],
-    ['DESCRIPCIÓN', String(payment.concept || 'Cuota social').toUpperCase()],
+    isBooking
+      ? ['ESPACIO', String(payment.facilityName || '—').toUpperCase()]
+      : ['PERÍODO', paymentPeriodLabel(payment)],
+    isBooking
+      ? ['EVENTO', paymentPeriodLabel(payment)]
+      : ['FECHA', formatLongDateAr(payment.date)],
+    ['FECHA PAGO', formatLongDateAr(payment.date)],
+    ['DESCRIPCIÓN', String(payment.concept || (isBooking ? 'Reserva' : 'Cuota social')).toUpperCase()],
     ['COMPROBANTE', String(receiptNo)],
   ];
   infoRows.forEach(([label, value]) => {
@@ -122,10 +130,19 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
     ]
     : [[
       formatShortDateAr(payment.date),
-      payment.concept || 'Cuota social',
+      payment.concept || (isBooking ? 'Reserva' : 'Cuota social'),
       formatCurrency(payment.amount),
       formatCurrency(payment.amount),
     ]];
+
+  if (isBooking && Number.isFinite(totalPrice) && totalPrice > 0) {
+    bodyRows.push(['', 'Precio total alquiler', formatCurrency(totalPrice), '']);
+    if (Number.isFinite(balanceRemaining) && balanceRemaining > 0) {
+      bodyRows.push(['', 'Saldo pendiente', formatCurrency(balanceRemaining), '']);
+    } else if (payment.bookingScope === 'total' || balanceRemaining === 0) {
+      bodyRows.push(['', 'Saldo pendiente', formatCurrency(0), 'Saldado']);
+    }
+  }
 
   autoTable(doc, {
     startY: y + 4,
@@ -151,9 +168,10 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
   doc.text(`${(member?.name || '—').toUpperCase()} (${member?.memberId || '—'})`, 14, footY);
   footY += 6;
 
+  const bookingExtra = isBooking && Number.isFinite(balanceRemaining) && balanceRemaining > 0 ? 10 : 0;
   doc.setDrawColor(...BRAND.muted);
   doc.setLineWidth(0.2);
-  doc.rect(14, footY, 182, 22);
+  doc.rect(14, footY, 182, 22 + bookingExtra);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9);
   const footRows = [
@@ -161,6 +179,9 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
     ['CUENTA', accountLabel(payment)],
     ['MONTO', formatCurrency(payment.amount)],
   ];
+  if (isBooking && Number.isFinite(balanceRemaining) && balanceRemaining > 0) {
+    footRows.push(['SALDO', formatCurrency(balanceRemaining)]);
+  }
   let fy = footY + 6;
   footRows.forEach(([label, value]) => {
     doc.setFont('helvetica', 'bold');
@@ -172,14 +193,14 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
 
   doc.setFontSize(8);
   doc.setTextColor(...BRAND.muted);
-  doc.text(
-    isBoleto
-      ? 'Boleto emitido por el Portal del Socio para el pago con Mercado Pago. Tambien queda en Cuotas.'
-      : 'Comprobante emitido por el Portal del Socio. Conservelo como constancia de pago.',
-    14,
-    fy + 6,
-    { maxWidth: 180 }
-  );
+  const closing = isBoleto
+    ? 'Boleto emitido por el Portal del Socio para el pago con Mercado Pago. Tambien queda en Cuotas.'
+    : isBooking && Number.isFinite(balanceRemaining) && balanceRemaining > 0
+      ? 'Comprobante de seña. El saldo del alquiler queda pendiente en la cuenta del socio.'
+      : isBooking
+        ? 'Comprobante de alquiler. El espacio queda saldado.'
+        : 'Comprobante emitido por el Portal del Socio. Conservelo como constancia de pago.';
+  doc.text(closing, 14, fy + 6, { maxWidth: 180 });
 
   drawReportFooter(doc);
   return doc;

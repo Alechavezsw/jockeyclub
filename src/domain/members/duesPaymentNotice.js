@@ -98,27 +98,44 @@ function moneyLine(label, value) {
 /** Recibo de cuota cobrada por administración, al buzón del socio. */
 export function duesReceiptMessage({ member, payment, attachment }) {
   const who = String(member?.name || 'Socio').trim();
+  const isBooking = payment?.kind === 'reserva' || payment?.bookingScope === 'deposit' || payment?.bookingScope === 'total';
   const quota = Number(payment?.quota);
   const surcharge = Number(payment?.surcharge);
   const total = payment?.amount != null ? payment.amount : (Number.isFinite(quota) ? quota + (Number.isFinite(surcharge) ? surcharge : 0) : null);
+  const balance = Number(payment?.balanceRemaining);
   const lines = [
-    `Hola ${who}, registramos tu pago de ${payment?.concept || 'cuota social'}.`,
+    `Hola ${who}, registramos tu pago de ${payment?.concept || (isBooking ? 'reserva' : 'cuota social')}.`,
+    payment?.facilityName ? `Espacio: ${payment.facilityName}` : '',
+    payment?.period && isBooking ? `Evento: ${payment.period}` : '',
     Number.isFinite(quota) && quota > 0 ? moneyLine('Cuota', quota) : '',
     Number.isFinite(surcharge) && surcharge > 0 ? moneyLine('Interés', surcharge) : '',
-    total != null ? moneyLine('Total', total) : '',
+    total != null ? moneyLine(isBooking ? 'Abonado' : 'Total', total) : '',
+    isBooking && Number.isFinite(Number(payment?.totalPrice))
+      ? moneyLine('Precio total alquiler', payment.totalPrice)
+      : '',
+    isBooking && Number.isFinite(balance)
+      ? (balance > 0
+        ? moneyLine('Saldo pendiente', balance)
+        : 'Saldo pendiente: $ 0 (saldado)')
+      : '',
     payment?.date ? `Fecha: ${payment.date}` : '',
     payment?.receiptNumber || payment?.receipt ? `Comprobante: ${payment.receiptNumber || payment.receipt}` : '',
+    'También lo ves en Mi cuenta: https://www.jockeyclubsj.com.ar/cuenta',
   ];
 
   const msg = createMessage({
     sender: 'Administración',
     senderId: MAILBOX.OPERATIONS,
     recipientId: member?.memberId,
-    subject: 'Recibo de pago de cuota',
+    subject: isBooking
+      ? (payment?.bookingScope === 'deposit' || (Number.isFinite(balance) && balance > 0)
+        ? 'Comprobante de seña de reserva'
+        : 'Comprobante de alquiler')
+      : 'Recibo de pago de cuota',
     content: lines.filter(Boolean).join('\n'),
   });
   msg.meta = {
-    kind: 'dues_receipt',
+    kind: isBooking ? 'booking_receipt' : 'dues_receipt',
     ...(attachment ? { attachment } : {}),
   };
   return msg;

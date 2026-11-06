@@ -1188,12 +1188,21 @@ export async function persistDuesCollection(result, {
   if (next.journalEntry && typeof addJournalEntry === 'function') {
     try {
       const saved = await addJournalEntry(next.journalEntry);
-      if (saved && typeof saved === 'object') {
+      if (saved && typeof saved === 'object' && saved.id) {
         return { ...next, journalEntry: saved };
       }
-    } catch {
-      /* El cobro del padrón ya quedó. El diario se recompone con el libro oficial. */
+      throw new Error('El asiento no devolvió un id.');
+    } catch (err) {
+      const detail = err?.message ? ` ${err.message}` : '';
+      throw new Error(
+        `El cobro quedó en la ficha, pero no entró a caja ni al diario.${detail} Reintentá el asiento o avisá a sistemas.`,
+      );
     }
+  }
+  if (isSupabaseConfigured && next.journalEntry && typeof addJournalEntry !== 'function') {
+    throw new Error(
+      'El cobro quedó en la ficha, pero no hay quién registre el asiento de caja. Recargá el panel e intentá de nuevo.',
+    );
   }
   return next;
 }
