@@ -15,6 +15,13 @@ export default class ErrorBoundary extends Component {
 
   componentDidCatch(error, info) {
     console.error(`[${APP_NAME}] Error de interfaz:`, error, info?.componentStack);
+    if (import.meta.env.DEV && typeof window !== 'undefined') {
+      window.__lastUiError = {
+        message: String(error?.message || ''),
+        stack: String(error?.stack || ''),
+        componentStack: String(info?.componentStack || ''),
+      };
+    }
     const message = String(error?.message || '');
     if (/useAuth|AuthProvider/i.test(message) && import.meta.env.DEV) {
       window.location.reload();

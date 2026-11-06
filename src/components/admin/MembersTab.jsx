@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Search, Filter, Plus, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Trash2, Users, UserMinus, UserPlus, X, CreditCard, Camera, FileDown, FileSpreadsheet, Pencil, KeyRound, MoreVertical } from 'lucide-react';
+import { Search, Filter, Plus, Check, CheckCircle2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Trash2, Users, UserMinus, UserPlus, X, CreditCard, Camera, FileDown, FileSpreadsheet, Pencil, KeyRound, MoreVertical } from 'lucide-react';
 import { duesAmountForHousehold, duesAmountForTier, duesOnJoin, isDuesExemptMember, pinDuesDueDate, quotaHeadline, toWhatsAppPhone } from '../../domain/members/dues';
 import { persistDuesCollection, recordDuesCollection } from '../../domain/members/memberPayments';
 import { deliverPaymentReceipt } from '../../domain/payments/deliverPaymentReceipt';
@@ -329,6 +329,7 @@ export default function MembersTab({
   const [remoteSearching, setRemoteSearching] = useState(false);
   const [page, setPage] = useState(1);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [altaSuccess, setAltaSuccess] = useState(null);
   const [form, setForm] = useState(() => emptyMemberForm());
   const [formError, setFormError] = useState('');
   const [expandedMemberId, setExpandedMemberId] = useState(null);
@@ -442,6 +443,12 @@ export default function MembersTab({
     setForm(emptyMemberForm());
     setFormError('');
     setPendingApplicationId(null);
+  };
+
+  const openAltaForm = () => {
+    setAltaSuccess(null);
+    resetForm();
+    setShowAddForm(true);
   };
 
   const persistApplication = async (next) => {
@@ -747,16 +754,8 @@ export default function MembersTab({
       return;
     }
 
-    const incompleteFamily = form.familyGroup.some((f) => !f.name?.trim());
-    if (incompleteFamily) {
-      setFormError('Complete el nombre de todos los integrantes del grupo familiar, o elimínelos.');
-      return;
-    }
-    const familyWithoutDiscipline = form.familyGroup.some((f) => !(f.disciplines || []).length);
-    if (familyWithoutDiscipline) {
-      setFormError('Cada integrante del grupo familiar debe tener al menos una disciplina.');
-      return;
-    }
+    // Grupo familiar opcional: solo se registran filas con nombre.
+    const familyReady = (form.familyGroup || []).filter((f) => String(f?.name || '').trim());
 
     let memberId = allocateNextMemberNumber(members);
     if (isSupabaseConfigured && typeof repos.nextClubMemberNumber === 'function') {
@@ -771,13 +770,13 @@ export default function MembersTab({
     const dues = duesOnJoin({
       name: form.name,
       tier: form.tier,
-      familyGroup: form.familyGroup,
+      familyGroup: familyReady,
       status: form.status,
     }, joinDate);
     const firstDues = form.chargeFirstDues ? dues.outstandingBalance : 0;
     const nextDue = pinDuesDueDate(form.nextDueDate || dues.nextDueDate, { tier: form.tier });
 
-    const adherents = form.familyGroup.map((f, idx) => ({
+    const adherents = familyReady.map((f, idx) => ({
       id: `adh-${Date.now()}-${idx}`,
       name: f.name.trim(),
       photo: f.photo || '',
@@ -852,11 +851,20 @@ export default function MembersTab({
         }
       }
     }
+    setAltaSuccess({
+      name: newMember.name,
+      memberId: newMember.memberId,
+      familyCount: adherents.length,
+    });
     resetForm();
     setShowAddForm(false);
+    window.setTimeout(() => {
+      document.getElementById('members-alta-success')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 40);
   };
 
   const prefillFromApplication = (app) => {
+    setAltaSuccess(null);
     setForm({
       ...emptyMemberForm(),
       name: app.fullName || '',
@@ -875,6 +883,18 @@ export default function MembersTab({
     setFormError('');
     setShowAddForm(true);
   };
+
+  useEffect(() => {
+    if (!showAddForm) return undefined;
+    const timer = window.setTimeout(() => {
+      const el = document.getElementById('members-alta-form');
+      if (!el) return;
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const focusable = el.querySelector('input:not([type="hidden"]):not([type="file"]), select, textarea');
+      focusable?.focus?.();
+    }, 30);
+    return () => window.clearTimeout(timer);
+  }, [showAddForm]);
 
   const handleConfirmCollect = async (payload) => {
     const member = collectMember;
@@ -1469,11 +1489,13 @@ export default function MembersTab({
         ) : null}
       </div>
 
-      <div className="admin-filters members-toolbar">
-        <div className="members-toolbar-filter">
-          <Filter size={16} aria-hidden="true" />
+      <div className="admin-filters members-toolbar" role="toolbar" aria-label="Herramientas del padrón">
+        <label className="members-toolbar-filter">
+          <span className="members-toolbar-filter-ico" aria-hidden="true">
+            <Filter size={14} />
+          </span>
           <select
-            className="form-input"
+            className="members-toolbar-select"
             value={tierFilter}
             onChange={(e) => {
               setQuickFilter(null);
@@ -1486,175 +1508,80 @@ export default function MembersTab({
               <option key={tier.id} value={tier.id}>{tier.name}</option>
             ))}
           </select>
+        </label>
+
+        <div className="members-toolbar-divider" aria-hidden="true" />
+
+        <div className="members-toolbar-group" role="group" aria-label="Exportar padrón">
+          <button
+            type="button"
+            className="members-toolbar-btn"
+            onClick={() => { void handleExportPadronPdf(); }}
+            disabled={exportingPdf || exportingExcel}
+            title={`Exportar ${exportTierLabel} a PDF`}
+          >
+            <FileDown size={14} aria-hidden />
+            <span>{exportingPdf ? 'PDF…' : 'PDF'}</span>
+          </button>
+          <button
+            type="button"
+            className="members-toolbar-btn"
+            onClick={() => { void handleExportPadronExcel(); }}
+            disabled={exportingPdf || exportingExcel}
+            title={`Exportar ${exportTierLabel} a Excel`}
+          >
+            <FileSpreadsheet size={14} aria-hidden />
+            <span>{exportingExcel ? 'Excel…' : 'Excel'}</span>
+          </button>
         </div>
 
-        <button
-          type="button"
-          onClick={() => { void handleExportPadronPdf(); }}
-          className="btn btn-secondary"
-          disabled={exportingPdf || exportingExcel}
-          title={`Exportar ${exportTierLabel} a PDF`}
-        >
-          <FileDown size={16} /> {exportingPdf ? 'Generando…' : 'Exportar PDF'}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => { void handleExportPadronExcel(); }}
-          className="btn btn-secondary"
-          disabled={exportingPdf || exportingExcel}
-          title={`Exportar ${exportTierLabel} a Excel`}
-        >
-          <FileSpreadsheet size={16} /> {exportingExcel ? 'Generando…' : 'Exportar Excel'}
-        </button>
-
         {allowPadronWrite ? (
-          <button
-            type="button"
-            className="btn btn-danger"
-            onClick={() => setBajaOpen(true)}
-          >
-            <UserMinus size={16} /> Baja de socio
-          </button>
-        ) : null}
-
-        {allowPadronWrite ? (
-          <button
-            type="button"
-            className="btn btn-emerald"
-            onClick={() => openReactivate(null)}
-          >
-            <UserPlus size={16} /> Reactivar socio
-          </button>
-        ) : null}
-
-        {allowPadronWrite ? (
-          <button
-            type="button"
-            onClick={() => {
-              if (showAddForm) {
-                setShowAddForm(false);
-                return;
-              }
-              resetForm();
-              setShowAddForm(true);
-            }}
-            className="btn btn-emerald"
-          >
-            <Plus size={16} /> Registrar Socio
-          </button>
+          <>
+            <div className="members-toolbar-divider" aria-hidden="true" />
+            <div className="members-toolbar-group members-toolbar-group--ops" role="group" aria-label="Gestión de socios">
+              <button
+                type="button"
+                className="members-toolbar-btn is-danger"
+                onClick={() => setBajaOpen(true)}
+                title="Baja de socio"
+              >
+                <UserMinus size={14} aria-hidden />
+                <span>Baja</span>
+              </button>
+              <button
+                type="button"
+                className="members-toolbar-btn is-soft"
+                onClick={() => openReactivate(null)}
+                title="Reactivar socio"
+              >
+                <UserPlus size={14} aria-hidden />
+                <span>Reactivar</span>
+              </button>
+              <button
+                type="button"
+                className={`members-toolbar-btn is-primary${showAddForm ? ' is-active' : ''}`}
+                onClick={() => {
+                  if (showAddForm) {
+                    resetForm();
+                    setShowAddForm(false);
+                    return;
+                  }
+                  openAltaForm();
+                }}
+                title="Registrar socio"
+              >
+                <Plus size={14} aria-hidden />
+                <span>{showAddForm ? 'Cerrar alta' : 'Alta'}</span>
+              </button>
+            </div>
+          </>
         ) : null}
       </div>
-
-      <div className="members-stat-cards" aria-label="Resumen del padrón">
-        <PadronStatCard
-          label="Titulares"
-          value={household.titularesActivos}
-          color={PADRON_FIXED_CARD_COLORS.activos}
-          active={quickFilter === 'activos'}
-          onClick={() => {
-            setQuickFilter((cur) => (cur === 'activos' ? null : 'activos'));
-            setTierFilter('todos');
-          }}
-        />
-        <PadronStatCard
-          label="Grupo familiar"
-          value={household.integrantesActivos}
-          color={PADRON_FIXED_CARD_COLORS.familia}
-          active={quickFilter === 'familia'}
-          onClick={() => {
-            setQuickFilter((cur) => (cur === 'familia' ? null : 'familia'));
-            setTierFilter('todos');
-          }}
-        />
-        <PadronStatCard
-          label="Altas"
-          value={SOCIETAS_MEMBERSHIP_ALTAS.length}
-          color={PADRON_FIXED_CARD_COLORS.altas}
-          active={quickFilter === 'altas'}
-          onClick={() => {
-            setQuickFilter((cur) => (cur === 'altas' ? null : 'altas'));
-            setTierFilter('todos');
-          }}
-        />
-        <PadronStatCard
-          label="Bajas"
-          value={uniqueBajas(SOCIETAS_MEMBERSHIP_BAJAS).length}
-          color={PADRON_FIXED_CARD_COLORS.bajas}
-          active={quickFilter === 'bajas'}
-          onClick={() => {
-            setQuickFilter((cur) => (cur === 'bajas' ? null : 'bajas'));
-            setTierFilter('todos');
-          }}
-        />
-        <PadronStatCard
-          label="Inactivos"
-          value={(inactiveReady
-            ? members.filter((m) => (m.status || '') === 'inactive').length
-            : inactiveCount) ?? 0}
-          color={PADRON_FIXED_CARD_COLORS.inactivos}
-          active={false}
-          onClick={() => {
-            setInactiveOpenToken((token) => token + 1);
-            document.getElementById('socios-inactivos-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          }}
-        />
-        {[
-          household.byTier.find((tier) => tier.name?.toUpperCase() === 'SOCIO INDIVIDUAL'),
-          household.byTier.find((tier) => tier.name?.toUpperCase() === 'SOCIO (VITALICIO)'),
-        ].filter(Boolean).map((tier) => (
-          <PadronStatCard
-            key={tier.id}
-            label={tier.name}
-            value={tier.count}
-            color={tier.color}
-            active={!quickFilter && String(tierFilter).toLowerCase() === String(tier.id).toLowerCase()}
-            onClick={() => {
-              const id = String(tier.id);
-              setQuickFilter(null);
-              setTierFilter((cur) => (String(cur).toLowerCase() === id.toLowerCase() ? 'todos' : id));
-            }}
-          />
-        ))}
-      </div>
-
-      <MemberRequestsSection
-        members={members}
-        focusRequest={requestFocus}
-        membershipApplications={membershipApplications}
-        setMembershipApplications={setMembershipApplications}
-        portalAccessRequests={portalAccessRequests}
-        setPortalAccessRequests={setPortalAccessRequests}
-        onOpenAccessCredentials={(member, request) => {
-          setCredsFromRequest(request);
-          openCredentials(member);
-        }}
-        onPrefillAlta={prefillFromApplication}
-        onDeliverAccess={deliverAccessFromRequest}
-      />
-
-      <MembershipMovesSection members={members} />
-
-      <InactiveMembersSection
-        members={members}
-        openToken={inactiveOpenToken}
-        loading={inactiveLoading}
-        onRequestLoad={loadInactiveMembers}
-        onReactivate={allowPadronWrite ? openReactivate : null}
-      />
-
-      <MemberTiersPanel
-        catalog={tierCatalog}
-        setCatalog={setTierCatalog}
-        setMembers={setMembers}
-        members={members}
-        formatCurrency={formatCurrency}
-        tierAccentById={tierAccentById}
-      />
 
       {/* Formulario Alta de Socio — ficha completa */}
       {showAddForm && (
         <form
+          id="members-alta-form"
           onSubmit={handleAddMember}
           className="glass-panel fade-in"
           style={{
@@ -2026,137 +1953,40 @@ export default function MembersTab({
             </div>
           </section>
 
-          {/* 5. Grupo familiar */}
-          <section>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+          {/* 5. Grupo familiar (opcional) */}
+          <section className="members-alta-family">
+            <div className="members-alta-family-head">
               <div>
-                <h5 style={{ margin: 0, fontSize: '0.8rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-gold)' }}>
+                <h5>
                   6. Grupo familiar
+                  <span className="members-alta-optional">Opcional</span>
                 </h5>
-                <p style={{ margin: '0.35rem 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-                  Adherentes del titular (cónyuge, hijos, etc.). Opcional; también se pueden sumar después.
-                  {form.chargeFirstDues && (
-                    <> Cada integrante suma a la cuota: <strong style={{ color: 'var(--text-gold)' }}>{formatCurrency(duesPreview)}</strong></>
-                  )}
+                <p>
+                  Adherentes del titular (cónyuge, hijos, etc.). No es obligatorio para dar el alta; también se pueden sumar después.
+                  {form.chargeFirstDues ? (
+                    <> Cada integrante suma a la cuota: <strong>{formatCurrency(duesPreview)}</strong></>
+                  ) : null}
                 </p>
               </div>
               <button
                 type="button"
-                className="btn btn-secondary btn-sm"
+                className="members-alta-add-member"
                 onClick={addFamilyMember}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
               >
-                <Users size={14} /> Sumar integrante
+                <Users size={15} aria-hidden /> Sumar integrante
               </button>
             </div>
 
             {form.familyGroup.length === 0 ? (
-              <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--text-secondary)', fontStyle: 'italic' }}>
-                Sin integrantes. Use “Sumar integrante” para cargar el grupo familiar.
+              <p className="members-alta-family-empty">
+                Sin integrantes por ahora. Podés registrar solo al titular.
               </p>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <div className="members-alta-family-list">
                 {form.familyGroup.map((row, index) => (
-                  <div
-                    key={row.id || index}
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-                      gap: '0.65rem',
-                      padding: '0.85rem',
-                      border: '1px solid var(--border-glass)',
-                      borderRadius: 10,
-                      background: 'rgba(255,255,255,0.02)',
-                    }}
-                  >
-                    <div style={{ gridColumn: '1 / -1' }}>
-                      <PhotoPicker
-                        value={row.photo}
-                        onChange={(photo) => updateFamilyMember(index, 'photo', photo)}
-                        label="Foto del adherente"
-                        size={72}
-                      />
-                    </div>
-                    <div className="form-group" style={{ marginBottom: 0, gridColumn: '1 / -1' }}>
-                      <label className="form-label">Nombre completo *</label>
-                      <input
-                        className="form-input"
-                        value={row.name}
-                        onChange={(e) => updateFamilyMember(index, 'name', e.target.value)}
-                        placeholder="Apellido y nombres"
-                      />
-                    </div>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">Vínculo</label>
-                      <select
-                        className="form-input"
-                        value={row.relationship}
-                        onChange={(e) => updateFamilyMember(index, 'relationship', e.target.value)}
-                      >
-                        {RELATIONSHIP_OPTIONS.map((opt) => (
-                          <option key={opt} value={opt}>{opt}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">DNI</label>
-                      <input
-                        className="form-input"
-                        value={row.documentNumber}
-                        onChange={(e) => updateFamilyMember(index, 'documentNumber', e.target.value)}
-                        placeholder="Sin puntos"
-                      />
-                    </div>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">Nacimiento</label>
-                      <input
-                        type="date"
-                        className="form-input"
-                        value={row.birthDate}
-                        onChange={(e) => updateFamilyMember(index, 'birthDate', e.target.value)}
-                      />
-                    </div>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">Categoría</label>
-                      <select
-                        className="form-input"
-                        value={row.tier}
-                        onChange={(e) => updateFamilyMember(index, 'tier', e.target.value)}
-                      >
-                        {tiers.map((t) => (
-                          <option key={t.id} value={t.id}>{t.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="form-group" style={{ marginBottom: 0, gridColumn: '1 / -1' }}>
-                      <label className="form-label">Disciplinas *</label>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginTop: 4 }}>
-                        {disciplineOptions.map((d) => {
-                          const active = (row.disciplines || []).includes(d);
-                          return (
-                            <button
-                              key={d}
-                              type="button"
-                              onClick={() => toggleFamilyDiscipline(index, d)}
-                              style={{
-                                padding: '0.3rem 0.65rem',
-                                borderRadius: 20,
-                                border: active ? '1px solid var(--primary-gold)' : '1px solid var(--border-glass)',
-                                background: active ? 'rgba(var(--primary-gold-rgb),0.15)' : 'var(--bg-tertiary)',
-                                color: active ? 'var(--text-gold)' : 'var(--text-secondary)',
-                                fontSize: '0.75rem',
-                                fontWeight: 600,
-                                cursor: 'pointer',
-                                fontFamily: 'inherit',
-                              }}
-                            >
-                              {d}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                  <div key={row.id || index} className="members-alta-family-card">
+                    <div className="members-alta-family-card-top">
+                      <strong>Integrante {index + 1}</strong>
                       <button
                         type="button"
                         className="btn btn-secondary btn-sm"
@@ -2167,8 +1997,104 @@ export default function MembersTab({
                         <Trash2 size={14} /> Quitar
                       </button>
                     </div>
+                    <div className="members-alta-family-grid">
+                      <div style={{ gridColumn: '1 / -1' }}>
+                        <PhotoPicker
+                          value={row.photo}
+                          onChange={(photo) => updateFamilyMember(index, 'photo', photo)}
+                          label="Foto del adherente"
+                          size={72}
+                        />
+                      </div>
+                      <div className="form-group" style={{ marginBottom: 0, gridColumn: '1 / -1' }}>
+                        <label className="form-label">Nombre completo</label>
+                        <input
+                          className="form-input"
+                          value={row.name}
+                          onChange={(e) => updateFamilyMember(index, 'name', e.target.value)}
+                          placeholder="Apellido y nombres"
+                        />
+                      </div>
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label className="form-label">Vínculo</label>
+                        <select
+                          className="form-input"
+                          value={row.relationship}
+                          onChange={(e) => updateFamilyMember(index, 'relationship', e.target.value)}
+                        >
+                          {RELATIONSHIP_OPTIONS.map((opt) => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label className="form-label">DNI</label>
+                        <input
+                          className="form-input"
+                          value={row.documentNumber}
+                          onChange={(e) => updateFamilyMember(index, 'documentNumber', e.target.value)}
+                          placeholder="Sin puntos"
+                        />
+                      </div>
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label className="form-label">Nacimiento</label>
+                        <input
+                          type="date"
+                          className="form-input"
+                          value={row.birthDate}
+                          onChange={(e) => updateFamilyMember(index, 'birthDate', e.target.value)}
+                        />
+                      </div>
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label className="form-label">Categoría</label>
+                        <select
+                          className="form-input"
+                          value={row.tier}
+                          onChange={(e) => updateFamilyMember(index, 'tier', e.target.value)}
+                        >
+                          {tiers.map((t) => (
+                            <option key={t.id} value={t.id}>{t.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="form-group" style={{ marginBottom: 0, gridColumn: '1 / -1' }}>
+                        <label className="form-label">Disciplinas <span className="members-alta-optional">Opcional</span></label>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginTop: 4 }}>
+                          {disciplineOptions.map((d) => {
+                            const active = (row.disciplines || []).includes(d);
+                            return (
+                              <button
+                                key={d}
+                                type="button"
+                                onClick={() => toggleFamilyDiscipline(index, d)}
+                                style={{
+                                  padding: '0.3rem 0.65rem',
+                                  borderRadius: 20,
+                                  border: active ? '1px solid var(--primary-gold)' : '1px solid var(--border-glass)',
+                                  background: active ? 'rgba(var(--primary-gold-rgb),0.15)' : 'var(--bg-tertiary)',
+                                  color: active ? 'var(--text-gold)' : 'var(--text-secondary)',
+                                  fontSize: '0.75rem',
+                                  fontWeight: 600,
+                                  cursor: 'pointer',
+                                  fontFamily: 'inherit',
+                                }}
+                              >
+                                {d}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 ))}
+                <button
+                  type="button"
+                  className="members-alta-add-member is-block"
+                  onClick={addFamilyMember}
+                >
+                  <Plus size={15} aria-hidden /> Sumar otro integrante
+                </button>
               </div>
             )}
           </section>
@@ -2205,6 +2131,152 @@ export default function MembersTab({
           </div>
         </form>
       )}
+
+      {altaSuccess ? (
+        <div
+          id="members-alta-success"
+          className="members-alta-success"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="members-alta-success-badge" aria-hidden="true">
+            <CheckCircle2 size={28} />
+          </div>
+          <div className="members-alta-success-copy">
+            <p className="members-alta-success-kicker">Inscripción completa</p>
+            <h4>Alta Registrada</h4>
+            <p>
+              <strong>{altaSuccess.name}</strong>
+              {altaSuccess.memberId ? <> · Nº {altaSuccess.memberId}</> : null}
+              {altaSuccess.familyCount > 0
+                ? <> · {altaSuccess.familyCount} integrante{altaSuccess.familyCount === 1 ? '' : 's'} del grupo familiar</>
+                : null}
+            </p>
+          </div>
+          <div className="members-alta-success-actions">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setAltaSuccess(null)}
+            >
+              Cerrar
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={openAltaForm}
+            >
+              <Plus size={14} aria-hidden /> Nueva alta
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="members-stat-cards" aria-label="Resumen del padrón">
+        <PadronStatCard
+          label="Titulares"
+          value={household.titularesActivos}
+          color={PADRON_FIXED_CARD_COLORS.activos}
+          active={quickFilter === 'activos'}
+          onClick={() => {
+            setQuickFilter((cur) => (cur === 'activos' ? null : 'activos'));
+            setTierFilter('todos');
+          }}
+        />
+        <PadronStatCard
+          label="Grupo familiar"
+          value={household.integrantesActivos}
+          color={PADRON_FIXED_CARD_COLORS.familia}
+          active={quickFilter === 'familia'}
+          onClick={() => {
+            setQuickFilter((cur) => (cur === 'familia' ? null : 'familia'));
+            setTierFilter('todos');
+          }}
+        />
+        <PadronStatCard
+          label="Altas"
+          value={SOCIETAS_MEMBERSHIP_ALTAS.length}
+          color={PADRON_FIXED_CARD_COLORS.altas}
+          active={quickFilter === 'altas'}
+          onClick={() => {
+            setQuickFilter((cur) => (cur === 'altas' ? null : 'altas'));
+            setTierFilter('todos');
+          }}
+        />
+        <PadronStatCard
+          label="Bajas"
+          value={uniqueBajas(SOCIETAS_MEMBERSHIP_BAJAS).length}
+          color={PADRON_FIXED_CARD_COLORS.bajas}
+          active={quickFilter === 'bajas'}
+          onClick={() => {
+            setQuickFilter((cur) => (cur === 'bajas' ? null : 'bajas'));
+            setTierFilter('todos');
+          }}
+        />
+        <PadronStatCard
+          label="Inactivos"
+          value={(inactiveReady
+            ? members.filter((m) => (m.status || '') === 'inactive').length
+            : inactiveCount) ?? 0}
+          color={PADRON_FIXED_CARD_COLORS.inactivos}
+          active={false}
+          onClick={() => {
+            setInactiveOpenToken((token) => token + 1);
+            document.getElementById('socios-inactivos-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }}
+        />
+        {[
+          household.byTier.find((tier) => tier.name?.toUpperCase() === 'SOCIO INDIVIDUAL'),
+          household.byTier.find((tier) => tier.name?.toUpperCase() === 'SOCIO (VITALICIO)'),
+        ].filter(Boolean).map((tier) => (
+          <PadronStatCard
+            key={tier.id}
+            label={tier.name}
+            value={tier.count}
+            color={tier.color}
+            active={!quickFilter && String(tierFilter).toLowerCase() === String(tier.id).toLowerCase()}
+            onClick={() => {
+              const id = String(tier.id);
+              setQuickFilter(null);
+              setTierFilter((cur) => (String(cur).toLowerCase() === id.toLowerCase() ? 'todos' : id));
+            }}
+          />
+        ))}
+      </div>
+
+      <MemberRequestsSection
+        members={members}
+        focusRequest={requestFocus}
+        membershipApplications={membershipApplications}
+        setMembershipApplications={setMembershipApplications}
+        portalAccessRequests={portalAccessRequests}
+        setPortalAccessRequests={setPortalAccessRequests}
+        onOpenAccessCredentials={(member, request) => {
+          setCredsFromRequest(request);
+          openCredentials(member);
+        }}
+        onPrefillAlta={prefillFromApplication}
+        onDeliverAccess={deliverAccessFromRequest}
+      />
+
+      <MembershipMovesSection members={members} />
+
+      <InactiveMembersSection
+        members={members}
+        openToken={inactiveOpenToken}
+        loading={inactiveLoading}
+        onRequestLoad={loadInactiveMembers}
+        onReactivate={allowPadronWrite ? openReactivate : null}
+      />
+
+      <MemberTiersPanel
+        catalog={tierCatalog}
+        setCatalog={setTierCatalog}
+        setMembers={setMembers}
+        members={members}
+        formatCurrency={formatCurrency}
+        tierAccentById={tierAccentById}
+      />
 
       {/* Tabla de Socios */}
       <FoldableSection
