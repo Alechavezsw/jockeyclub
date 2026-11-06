@@ -5,8 +5,13 @@ import {
   collectionForCalendarMonth,
   composeClubFinance,
   duesStandingRate,
+  collectDeltaAfterCut,
+  dueCollectBoard,
+  lilaBookCutDate,
+  liquidatedDeltaAfterCut,
   duesCollectionFromMonthlySummary,
   financeFromMonthlySummary,
+  freshMonthCollectBoard,
   financeFromSummary,
   lilaContabilidadFromSnapshots,
   LILA_HANDOFF_ISO,
@@ -189,6 +194,188 @@ describe('financeFromMonthlySummary', () => {
     expect(board.recargos).toBe(284200);
     expect(board.recaudado).toBeCloseTo(51347201.14, 2);
     expect(duesCollectionFromMonthlySummary({ ...september, monthKey: '2026-10' })).toBeNull();
+  });
+
+  it('no publica un recuento parcial que después baja al llegar el balance', () => {
+    const lilaMonth = { collected: 42686233.03, liquidated: 63763000 };
+    const live = { collected: 51000000, liquidated: 63763000 };
+    expect(dueCollectBoard({
+      lilaMonth,
+      summarySettled: true,
+      membersLoading: true,
+      rosterReady: true,
+      live,
+    })).toBe(lilaMonth);
+    expect(dueCollectBoard({
+      lilaMonth: null,
+      summarySettled: false,
+      membersLoading: true,
+      rosterReady: true,
+      live,
+    })).toBeNull();
+    expect(dueCollectBoard({
+      lilaMonth: null,
+      summarySettled: true,
+      membersLoading: false,
+      rosterReady: true,
+      live,
+    })).toBe(live);
+  });
+
+  it('suma el cobro posterior al corte y resta la anulación', () => {
+    const base = { collected: 42686233.03, liquidated: 63763000, cuotaMes: 39819000.03, recargos: 164600.03 };
+    const cut = lilaBookCutDate(
+      { asOf: '2026-11-05' },
+      { fileName: 'LILA - Balance Mensual Resumido 2026-11-05.xlsx', asOf: '2026-11-30' },
+    );
+    expect(cut).toBe('2026-11-05');
+    const cobro = {
+      id: 'je-1',
+      date: '2026-11-06',
+      status: 'posted',
+      sourceModule: 'cuotas',
+      memberId: '10567',
+      lines: [
+        { account: 'Caja General', type: 'debit', amount: 77000 },
+        { account: 'Cuotas Sociales', type: 'credit', amount: 77000 },
+      ],
+    };
+    const added = collectDeltaAfterCut({
+      monthKey: '2026-11',
+      cutDate: cut,
+      chartOfAccounts: DEFAULT_CHART_OF_ACCOUNTS,
+      journalEntries: [cobro],
+      movements: [
+        { id: 'lila', date: '2026-11-04', amount: 70000, memberNumber: '10567', movementType: 'income' },
+      ],
+    });
+    expect(added.recaudado).toBe(77000);
+    const board = dueCollectBoard({ lilaMonth: base, summarySettled: true, delta: added });
+    expect(board.collected).toBe(42763233.03);
+    const voided = collectDeltaAfterCut({
+      monthKey: '2026-11',
+      cutDate: cut,
+      chartOfAccounts: DEFAULT_CHART_OF_ACCOUNTS,
+      journalEntries: [
+        cobro,
+        {
+          id: 'je-2',
+          date: '2026-11-06',
+          status: 'posted',
+          sourceModule: 'cuotas',
+          memberId: '10567',
+          lines: [
+            { account: 'Cuotas Sociales', type: 'debit', amount: 77000 },
+            { account: 'Caja General', type: 'credit', amount: 77000 },
+          ],
+        },
+      ],
+    });
+    expect(voided.recaudado).toBe(0);
+    expect(board.rate).toBe(Math.round((42763233.03 / 63763000) * 100));
+  });
+
+  it('el porcentaje usa la base de Lila y la liquidación posterior', () => {
+    const base = { collected: 42686233.03, liquidated: 63763000 };
+    const cut = '2026-11-05';
+    expect(liquidatedDeltaAfterCut({
+      monthKey: '2026-11',
+      cutDate: cut,
+      baseLiquidated: base.liquidated,
+      feePeriods: [{ year: 2026, month: 11, status: 'draft', amount: 0 }],
+    })).toBe(0);
+    const raised = liquidatedDeltaAfterCut({
+      monthKey: '2026-11',
+      cutDate: cut,
+      baseLiquidated: base.liquidated,
+      feePeriods: [{
+        year: 2026,
+        month: 11,
+        status: 'pending',
+        generatedAt: '2026-11-06',
+        amount: 64000000,
+        pack: {
+          history: [{ type: 'generated', at: '2026-11-06T15:00:00.000Z', amount: 64000000 }],
+        },
+      }],
+    });
+    expect(raised).toBe(237000);
+    const board = dueCollectBoard({
+      lilaMonth: base,
+      summarySettled: true,
+      delta: { recaudado: 77000, liquidated: raised },
+    });
+    expect(board.liquidated).toBe(64000000);
+    expect(board.collected).toBe(42763233.03);
+    expect(board.rate).toBe(Math.round((42763233.03 / 64000000) * 100));
+    expect(liquidatedDeltaAfterCut({
+      monthKey: '2026-11',
+      cutDate: cut,
+      baseLiquidated: base.liquidated,
+      feePeriods: [{
+        year: 2026,
+        month: 11,
+        status: 'draft',
+        amount: 0,
+        pack: {
+          history: [
+            { type: 'generated', at: '2026-11-06T15:00:00.000Z', amount: 64000000 },
+            { type: 'reverted', at: '2026-11-06T18:00:00.000Z', amount: 64000000 },
+          ],
+        },
+      }],
+    })).toBe(0);
+  });
+
+  it('en diciembre la liquidación automática es el liquidado y el cobro mueve el porcentaje', () => {
+    const board = freshMonthCollectBoard({
+      monthKey: '2026-12',
+      liquidated: 65000000,
+      chartOfAccounts: DEFAULT_CHART_OF_ACCOUNTS,
+      feePeriods: [{
+        year: 2026,
+        month: 12,
+        status: 'pending',
+        generatedAt: '2026-12-01',
+        amount: 65000000,
+        pack: {
+          history: [{
+            type: 'auto_generated',
+            at: '2026-12-01T06:05:00.000Z',
+            amount: 65000000,
+          }],
+        },
+      }],
+      journalEntries: [{
+        id: 'je-dic',
+        date: '2026-12-03',
+        status: 'posted',
+        sourceModule: 'cuotas',
+        memberId: '10567',
+        lines: [
+          { account: 'Caja General', type: 'debit', amount: 70000 },
+          { account: 'Cuotas Sociales', type: 'credit', amount: 70000 },
+        ],
+      }],
+    });
+    expect(board.liquidated).toBe(65000000);
+    expect(board.collected).toBe(70000);
+    expect(board.rate).toBe(Math.round((70000 / 65000000) * 100));
+    expect(liquidatedDeltaAfterCut({
+      monthKey: '2026-12',
+      cutDate: '2026-11-30',
+      baseLiquidated: 0,
+      feePeriods: [{
+        year: 2026,
+        month: 12,
+        status: 'pending',
+        generatedAt: '2026-12-01',
+        amount: 65000000,
+        pack: {
+          history: [{ type: 'auto_generated', at: '2026-12-01T06:05:00.000Z', amount: 65000000 }],
+        },
+      }],
+    })).toBe(65000000);
   });
 
   it('un corte de otro mes no cuenta como recaudación de hoy', () => {

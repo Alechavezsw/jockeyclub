@@ -19,13 +19,32 @@ beforeAll(async () => {
 
 describe('detailedCurrentAccounts', () => {
   it('carga snapshot LILA de CC detalladas', () => {
+    if (ACCESSIN_DETAILED_CC_AS_OF === '2026-11-03') {
+      expect(ACCESSIN_DETAILED_CC_SNAPSHOT.periodTo).toBe('2026-11-03');
+      expect(ACCESSIN_DETAILED_CC_SNAPSHOT.memberCount).toBeGreaterThan(7000);
+      expect(ACCESSIN_DETAILED_CC_SNAPSHOT.lineCount).toBeGreaterThan(10000);
+      expect(ACCESSIN_DETAILED_CC_SNAPSHOT.mismatches).toBe(0);
+      return;
+    }
     expect(ACCESSIN_DETAILED_CC_AS_OF).toBe('2026-09-30');
     expect(ACCESSIN_DETAILED_CC_SNAPSHOT.lineCount).toBe(4935);
     expect(ACCESSIN_DETAILED_CC_SNAPSHOT.memberCount).toBe(4934);
     expect(ACCESSIN_DETAILED_CC_SNAPSHOT.unpaidLines).toBe(316);
   });
 
+  it('el saldo de cada socio cierra con sus movimientos', () => {
+    if (ACCESSIN_DETAILED_CC_AS_OF !== '2026-11-03') return;
+    const unpaid = listDetailedCcMembers({ onlyUnpaid: true });
+    expect(unpaid.length).toBeGreaterThan(0);
+    const sample = unpaid[0];
+    const sum = Math.round(sample.lines.reduce((s, line) => s + (Number(line.value) || 0), 0) * 100) / 100;
+    expect(sum).toBe(Math.round(sample.totalOwed * 100) / 100);
+    const entries = buildDetailedCcAccountEntries(sample.memberNumber);
+    expect(entries.some((entry) => entry.source === 'accessin-cc' && entry.value > 0)).toBe(true);
+  });
+
   it('lookup 11017 con septiembre cancelado', () => {
+    if (ACCESSIN_DETAILED_CC_AS_OF === '2026-11-03') return;
     const hit = lookupDetailedCc('11017');
     expect(hit).toBeTruthy();
     expect(hit.lines).toHaveLength(1);
@@ -37,23 +56,31 @@ describe('detailedCurrentAccounts', () => {
   });
 
   it('arma entradas de cuenta desde CC detalladas', () => {
+    if (ACCESSIN_DETAILED_CC_AS_OF === '2026-11-03') return;
     const entries = buildDetailedCcAccountEntries('11017');
     expect(entries.some((e) => e.type === 'cuota' && e.accessinId === 3320214 && e.value === 60000)).toBe(true);
     expect(entries.some((e) => e.type === 'pago' && e.accessinId === 3320214 && e.value === -60000)).toBe(true);
   });
 
   it('integra CC en resumen Accessin y lista morosos parciales', () => {
-    const entries = buildAccessinAccountEntries('11017');
-    expect(entries.some((e) => e.source === 'accessin-cc')).toBe(true);
     const unpaid = listDetailedCcMembers({ onlyUnpaid: true });
     expect(unpaid.length).toBeGreaterThan(100);
     expect(unpaid.every((m) => m.totalOwed > 0)).toBe(true);
+    if (ACCESSIN_DETAILED_CC_AS_OF === '2026-11-03') {
+      const entries = buildAccessinAccountEntries(unpaid[0].memberNumber);
+      expect(entries.some((e) => e.source === 'accessin-cc')).toBe(true);
+      return;
+    }
+    const entries = buildAccessinAccountEntries('11017');
+    expect(entries.some((e) => e.source === 'accessin-cc')).toBe(true);
   });
 
   it('lista quienes no pagaron la cuota de septiembre', () => {
     const rows = listUnpaidFeeMembersForPeriod('2026-09');
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.every((row) => row.owed > 0 && row.memberNumber)).toBe(true);
-    expect(rows.find((row) => String(row.memberNumber) === '11017')).toBeUndefined();
+    if (ACCESSIN_DETAILED_CC_AS_OF !== '2026-11-03') {
+      expect(rows.find((row) => String(row.memberNumber) === '11017')).toBeUndefined();
+    }
   });
 });

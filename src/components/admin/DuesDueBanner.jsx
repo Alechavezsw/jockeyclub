@@ -7,8 +7,7 @@ import { todayISODateAR } from '../../lib/arDate';
 import { formatCurrency } from '../../domain/accounting/journal';
 import { resolveFeePeriods } from '../../domain/accounting/feeBilling';
 import { liquidatedTotalForMonth } from '../../domain/accounting/feePeriodLiquidation';
-import { appFinanceSinceHandoff, composeClubFinance, duesCollectionFromMonthlySummary, financeFromMonthlySummary, lilaContabilidadFromSnapshots } from '../../domain/accounting/opsFinanceSnapshot';
-import { splitMonthDuesCollection } from '../../domain/accounting/cashPaymentDetail';
+import { collectDeltaAfterCut, composeClubFinance, dueCollectBoard, duesCollectionFromMonthlySummary, financeFromMonthlySummary, freshMonthCollectBoard, lilaBookCutDate, lilaContabilidadFromSnapshots } from '../../domain/accounting/opsFinanceSnapshot';
 import { monthlyBalanceSeed } from '../../domain/accounting/monthlyBalance';
 import { monthlyBalanceSummarySeed } from '../../domain/accounting/monthlyBalanceSummary';
 import {
@@ -19,6 +18,7 @@ import {
 import { cashSeed, cashMovementsSeed } from '../../domain/accounting/cashLedger';
 import { cobranzasSeed } from '../../domain/accounting/cobranzas';
 import { useSnapshotSeed } from '../../hooks/useSnapshots';
+import { snapshotStatus } from '../../data/snapshots';
 
 const LILA_MONEY_LIGHT = [
   'accessinMonthlyBalance',
@@ -250,49 +250,55 @@ export default function DuesDueBanner({
   }, [lilaCut]);
   const cashMoves = cashMovements || seededMoves;
   const periods = useMemo(() => resolveFeePeriods(feePeriods), [feePeriods]);
-  // Mientras carga el padrón no imputamos: sin ficha el cobro no entra al recaudado.
-  // liquidated usa period.amount / pack primero (sin barrer 7k socios).
+  // El balance del mes es el recaudado. Mientras no está, no se muestra un recuento
+  // parcial: al llegar las fichas el mismo cobro se imputa y el número baja.
+  const summaryState = snapshotStatus('accessinMonthlyBalanceSummary');
+  const summarySettled = summaryState === 'ready' || summaryState === 'error';
   const board = useMemo(() => {
-    if (!rosterReady) return null;
+    const summarySnapshot = monthlyBalanceSummarySeed().ACCESSIN_MONTHLY_BALANCE_SUMMARY_SNAPSHOT;
     const lilaMonth = duesCollectionFromMonthlySummary({
-      snapshot: monthlyBalanceSummarySeed().ACCESSIN_MONTHLY_BALANCE_SUMMARY_SNAPSHOT,
+      snapshot: summarySnapshot,
       sections: monthlyBalanceSummarySeed().ACCESSIN_MONTHLY_BALANCE_SUMMARY_SECTIONS,
       monthKey,
     });
-    if (lilaMonth) return lilaMonth;
-    const sheetLiquidated = liquidatedTotalForMonth(periods, monthKey, {
-      members: deferredMembers,
-      tierCatalog,
-    });
-    const split = splitMonthDuesCollection({
-      movements: cashMoves,
-      members: deferredMembers,
-      monthKey,
-    });
-    let liquidated = sheetLiquidated;
-    if (liquidated == null) {
-      const monthFlow = appFinanceSinceHandoff({
+    const delta = lilaMonth
+      ? collectDeltaAfterCut({
+        movements: cashMoves,
         members: deferredMembers,
         journalEntries,
         chartOfAccounts,
         feePeriods,
-        since: `${monthKey}-01`,
-        today,
-      });
-      liquidated = Number(monthFlow?.liquidatedSince) || 0;
-    }
-    return {
-      collected: split.recaudado,
-      cuotaMes: split.cuotaMes,
-      liquidated: liquidated || 0,
-      atrasadas: split.atrasadas,
-      posteriores: split.posteriores,
-      recargos: split.recargos,
-      reservas: split.reservas,
-      porteria: split.porteria,
-    };
+        monthKey,
+        baseLiquidated: lilaMonth.liquidated,
+        cutDate: lilaBookCutDate(cashSeed().ACCESSIN_CASH_SNAPSHOT, summarySnapshot),
+      })
+      : null;
+    const live = !lilaMonth && summarySettled
+      ? freshMonthCollectBoard({
+        monthKey,
+        feePeriods,
+        movements: cashMoves,
+        members: deferredMembers,
+        journalEntries,
+        chartOfAccounts,
+        liquidated: liquidatedTotalForMonth(periods, monthKey, {
+          members: deferredMembers,
+          tierCatalog,
+        }),
+      })
+      : null;
+    return dueCollectBoard({
+      lilaMonth,
+      summarySettled,
+      membersLoading: false,
+      rosterReady: summarySettled,
+      live,
+      delta,
+    });
   }, [
     rosterReady,
+    membersLoading,
+    summarySettled,
     deferredMembers,
     journalEntries,
     chartOfAccounts,
@@ -319,7 +325,9 @@ export default function DuesDueBanner({
 
   // Anillo = recaudado / liquidado (misma regla del monto grande).
   const pending = Math.max(0, liquidated - collected);
-  const rate = liquidated > 0 ? Math.round((collected / liquidated) * 100) : 0;
+  const rate = Number.isFinite(board?.rate)
+    ? board.rate
+    : (liquidated > 0 ? Math.round((collected / liquidated) * 100) : 0);
   const monthName = moment.monthName.charAt(0).toUpperCase() + moment.monthName.slice(1);
   const monthLabel = `${monthName} de ${moment.year}`;
 

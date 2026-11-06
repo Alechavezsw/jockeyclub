@@ -303,7 +303,9 @@ export function buildAccessinAccountEntries(memberNumber, {
   buildDetailedCcAccountEntries(key).forEach((e) => {
     if (e?.id) seen.add(e.id);
     if (e?.accessinId) seen.add(`aid-${e.accessinId}`);
-    if (e?.type === 'cuota' && e.date) ccPeriods.add(String(e.date).slice(0, 7));
+    if ((e?.type === 'cuota' || e?.type === 'pago') && e.date) {
+      ccPeriods.add(String(e.date).slice(0, 7));
+    }
     entries.push(e);
   });
 

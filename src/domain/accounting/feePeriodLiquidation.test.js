@@ -211,6 +211,17 @@ describe('periodDisplayTotal', () => {
     }, { members, tierCatalog: catalog })).toBeNull();
   });
 
+  it('procesada muestra la grilla aunque amount sea el recuento de más', () => {
+    expect(periodDisplayTotal({
+      id: 'fp-2026-11',
+      year: 2026,
+      month: 11,
+      status: 'processed',
+      amount: 66832000,
+      pack: { total: 66832000, concepts: novConcepts },
+    })).toBe(63763000);
+  });
+
   it('en borrador usa titulares × valor del pack, no un pack.total distinto', () => {
     const draft = {
       id: 'fp-2026-11',

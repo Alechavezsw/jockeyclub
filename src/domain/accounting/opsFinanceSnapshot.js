@@ -1,7 +1,8 @@
 import { todayISODateAR } from '../../lib/arDate';
 import { canChargeSocialDues, duesAmountForMember, isDuesExemptMember } from '../members/dues';
-import { normalizeLines } from './journal';
+import { journalDateKey, normalizeLines, postedJournalEntries } from './journal';
 import { getAccountById } from './chartOfAccounts';
+import { feeImputationLines, splitMonthDuesCollection } from './cashPaymentDetail';
 
 /** Último corte LILA. Desde esta fecha el club suma lo que se carga acá. */
 export const LILA_HANDOFF_ISO = '2026-10-01';
@@ -298,6 +299,317 @@ function sumLabels(lines, test) {
  * Recaudado y liquidado del mes, tomados del balance resumido de Lila.
  * Misma regla que la caja: portería se muestra aparte y no entra al recaudado.
  */
+const EMPTY_COLLECT_DELTA = Object.freeze({
+  cuotaMes: 0,
+  atrasadas: 0,
+  posteriores: 0,
+  recargos: 0,
+  reservas: 0,
+  porteria: 0,
+  recaudado: 0,
+  liquidated: 0,
+});
+
+/**
+ * Día del export de Lila. El asOf del balance mensual es el fin de mes (30):
+ * usarlo escondería los cobros del mes. El corte de caja es el día del archivo.
+ */
+export function lilaBookCutDate(cashSnapshot = {}, summarySnapshot = {}) {
+  const cash = isoDateOf(cashSnapshot?.asOf || cashSnapshot?.periodTo || '');
+  if (cash) return cash;
+  const named = String(summarySnapshot?.fileName || '').match(/(\d{4}-\d{2}-\d{2})/);
+  return named ? named[1] : '';
+}
+
+function accountNameOf(line, chart) {
+  const account = getAccountById(chart, line?.accountId)
+    || (chart || []).find((row) => row.id === line?.accountId || row.name === line?.account);
+  return account?.name || String(line?.account || '');
+}
+
+function memberDigitsOf(value) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+/**
+ * Lo cargado después del corte. El balance de Lila no se vuelve a sumar.
+ * Un cobro suma; una anulación (débito a la cuenta de ingreso) resta.
+ * Sin fecha de corte no se suma nada: si no, el libro entero se monta sobre la base.
+ */
+/**
+ * Liquidación posterior al corte. Lila ya dejó el total del mes: si la app
+ * genera ese mes de nuevo, entra la diferencia. Una reversión vuelve a la base.
+ */
+export function liquidatedDeltaAfterCut({
+  feePeriods = [],
+  monthKey = '',
+  cutDate = '',
+  baseLiquidated = 0,
+} = {}) {
+  const cut = String(cutDate || '').slice(0, 10);
+  const [year, month] = String(monthKey || '').split('-').map(Number);
+  if (!cut || !year || !month) return 0;
+  const period = (feePeriods || []).find((row) => (
+    Number(row.year) === year
+    && Number(row.month) === month
+    && row.status !== 'cancelled'
+  ));
+  if (!period) return 0;
+  const history = Array.isArray(period.pack?.history) ? period.pack.history : [];
+  let official = null;
+  for (const row of history) {
+    const day = todayISODateAR(row?.at);
+    if (!day || day <= cut) continue;
+    if (row?.type === 'reverted') official = null;
+    else if (row?.type === 'generated' || row?.type === 'auto_generated') {
+      official = Number(row.amount) || 0;
+    }
+  }
+  if (official == null) {
+    const generated = String(period.generatedAt || '').slice(0, 10);
+    if (
+      generated > cut
+      && (period.status === 'processed' || period.status === 'pending')
+    ) {
+      official = Number(period.amount) || Number(period.pack?.total) || 0;
+    }
+  }
+  if (official == null) return 0;
+  return money(official - (Number(baseLiquidated) || 0));
+}
+
+export function collectDeltaAfterCut({
+  movements = [],
+  members = [],
+  journalEntries = [],
+  chartOfAccounts = [],
+  feePeriods = [],
+  monthKey = '',
+  cutDate = '',
+  baseLiquidated = 0,
+} = {}) {
+  const cut = String(cutDate || '').slice(0, 10);
+  if (!cut || !monthKey) return { ...EMPTY_COLLECT_DELTA };
+  const cashSplit = splitMonthDuesCollection({
+    movements,
+    members,
+    monthKey,
+    afterDate: cut,
+  });
+  const byNumber = new Map();
+  for (const member of members || []) {
+    const digits = memberDigitsOf(member?.memberId || member?.member_number);
+    if (digits && !byNumber.has(digits)) byNumber.set(digits, member);
+  }
+  const covered = new Map();
+  const cover = (digits, date, amount) => {
+    if (!digits || !(amount > 0)) return;
+    const key = `${digits}|${date}|${amount}`;
+    covered.set(key, (covered.get(key) || 0) + 1);
+  };
+  const alreadyCounted = (digits, date, amount) => {
+    const key = `${digits}|${date}|${amount}`;
+    const left = covered.get(key) || 0;
+    if (left <= 0) return false;
+    covered.set(key, left - 1);
+    return true;
+  };
+  for (const row of movements || []) {
+    const date = String(row?.date || '').slice(0, 10);
+    if (!date.startsWith(monthKey) || date <= cut) continue;
+    cover(
+      memberDigitsOf(row?.memberNumber || row?.memberId || row?.description),
+      date,
+      Math.abs(Number(row?.amount) || 0),
+    );
+  }
+  for (const member of members || []) {
+    const digits = memberDigitsOf(member?.memberId);
+    if (!digits) continue;
+    for (const payment of member.paymentHistory || []) {
+      if (payment?.status === 'void' || payment?.status === 'cancelled') continue;
+      const date = String(payment?.date || payment?.paidAt || '').slice(0, 10);
+      if (!date.startsWith(monthKey) || date <= cut) continue;
+      cover(digits, date, Math.abs(Number(payment?.amount) || 0));
+    }
+  }
+
+  let cuotaMes = 0;
+  let atrasadas = 0;
+  let posteriores = 0;
+  let recargos = 0;
+  let reservas = 0;
+  for (const entry of postedJournalEntries(journalEntries)) {
+    const date = journalDateKey(entry);
+    if (!date.startsWith(monthKey) || date <= cut) continue;
+    const lines = journalLinesOf(entry, chartOfAccounts);
+    let duesNet = 0;
+    let reservaNet = 0;
+    for (const line of lines) {
+      const name = accountNameOf(line, chartOfAccounts);
+      const net = (Number(line.credit) || 0) - (Number(line.debit) || 0);
+      if (!net) continue;
+      if (/cuotas sociales/i.test(name)) duesNet += net;
+      else if (/reservas e instalaciones/i.test(name)) reservaNet += net;
+    }
+    duesNet = money(duesNet);
+    reservaNet = money(reservaNet);
+    const digits = memberDigitsOf(entry.memberId);
+    if (duesNet) {
+      const amount = Math.abs(duesNet);
+      const sign = duesNet < 0 ? -1 : 1;
+      if (sign < 0 || !alreadyCounted(digits, date, amount)) {
+        const member = byNumber.get(digits);
+        const feeLines = member
+          ? feeImputationLines({
+            date,
+            amount,
+            memberNumber: digits,
+            movementType: 'income',
+          }, member)
+          : [];
+        let lined = 0;
+        for (const line of feeLines) {
+          const value = Number(line.amount) || 0;
+          lined += value;
+          const signed = sign * value;
+          if (/recargo/i.test(String(line.type || ''))) recargos += signed;
+          else {
+            const lineMonth = String(line.date || '').slice(0, 7);
+            if (lineMonth === monthKey) cuotaMes += signed;
+            else if (lineMonth && lineMonth < monthKey) atrasadas += signed;
+            else if (lineMonth && lineMonth > monthKey) posteriores += signed;
+          }
+        }
+        const rest = money(amount - lined);
+        if (!feeLines.length) cuotaMes += sign * amount;
+        else if (rest > 0.009) cuotaMes += sign * rest;
+      }
+    }
+    if (reservaNet) {
+      const key = `${digits}|${date}|${Math.abs(reservaNet)}|reserva`;
+      if (reservaNet < 0 || !covered.has(key)) {
+        if (reservaNet > 0) covered.set(key, 1);
+        reservas += reservaNet;
+      }
+    }
+  }
+
+  const cuotaMesR = money(cashSplit.cuotaMes + cuotaMes);
+  const atrasadasR = money(cashSplit.atrasadas + atrasadas);
+  const posterioresR = money(cashSplit.posteriores + posteriores);
+  const recargosR = money(cashSplit.recargos + recargos);
+  const reservasR = money(cashSplit.reservas + reservas);
+  const porteriaR = money(cashSplit.porteria);
+  return {
+    cuotaMes: cuotaMesR,
+    atrasadas: atrasadasR,
+    posteriores: posterioresR,
+    recargos: recargosR,
+    reservas: reservasR,
+    porteria: porteriaR,
+    recaudado: money(cuotaMesR + atrasadasR + posterioresR + recargosR + reservasR),
+    liquidated: liquidatedDeltaAfterCut({
+      feePeriods,
+      monthKey,
+      cutDate: cut,
+      baseLiquidated,
+    }),
+  };
+}
+
+function monthCutBefore(monthKey = '') {
+  const [year, month] = String(monthKey || '').split('-').map(Number);
+  if (!year || !month) return '';
+  const last = new Date(year, month - 1, 0);
+  const y = last.getFullYear();
+  const m = String(last.getMonth() + 1).padStart(2, '0');
+  const d = String(last.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * Mes que Lila no cubre (diciembre en adelante).
+ * Lo liquidado es la corrida automática del día 1. Lo recaudado son los cobros
+ * de ese mes. El porcentaje es esa cuenta, sin arrastrar el corte de noviembre.
+ */
+export function freshMonthCollectBoard({
+  monthKey = '',
+  feePeriods = [],
+  movements = [],
+  members = [],
+  journalEntries = [],
+  chartOfAccounts = [],
+  liquidated = null,
+} = {}) {
+  const fromPeriod = Number(liquidated);
+  const delta = collectDeltaAfterCut({
+    movements,
+    members,
+    journalEntries,
+    chartOfAccounts,
+    feePeriods,
+    monthKey,
+    cutDate: monthCutBefore(monthKey),
+    baseLiquidated: 0,
+  });
+  const liquidatedAmount = fromPeriod > 0 ? money(fromPeriod) : money(delta.liquidated);
+  const collected = money(delta.recaudado);
+  if (!(liquidatedAmount > 0) && !(collected > 0)) return null;
+  return {
+    source: 'app-month',
+    collected,
+    recaudado: collected,
+    liquidated: liquidatedAmount,
+    rate: liquidatedAmount > 0 ? Math.round((collected / liquidatedAmount) * 100) : 0,
+    cuotaMes: delta.cuotaMes,
+    atrasadas: delta.atrasadas,
+    posteriores: delta.posteriores,
+    recargos: delta.recargos,
+    reservas: delta.reservas,
+    porteria: delta.porteria,
+  };
+}
+
+function stackOnLilaMonth(base, delta) {
+  if (!delta) return base;
+  const add = (key) => money((Number(base[key]) || 0) + (Number(delta[key]) || 0));
+  const collected = money((Number(base.collected ?? base.recaudado) || 0) + (Number(delta.recaudado) || 0));
+  const liquidated = money((Number(base.liquidated) || 0) + (Number(delta.liquidated) || 0));
+  return {
+    ...base,
+    source: delta.recaudado || delta.liquidated ? 'lila+app' : base.source,
+    collected,
+    recaudado: collected,
+    liquidated,
+    rate: liquidated > 0 ? Math.round((collected / liquidated) * 100) : 0,
+    cuotaMes: add('cuotaMes'),
+    atrasadas: add('atrasadas'),
+    posteriores: add('posteriores'),
+    recargos: add('recargos'),
+    reservas: add('reservas'),
+    porteria: add('porteria'),
+  };
+}
+
+/**
+ * El balance de Lila es la base y no se reemplaza por un recuento a medias.
+ * Lo posterior al corte se suma o se resta. Sin ese balance, se espera a que
+ * cierre la carga: un padrón a medias deja pagos afuera o los cuenta de más.
+ */
+export function dueCollectBoard({
+  lilaMonth = null,
+  summarySettled = false,
+  membersLoading = false,
+  rosterReady = false,
+  live = null,
+  delta = null,
+} = {}) {
+  if (lilaMonth && Number(lilaMonth.collected) > 0) return stackOnLilaMonth(lilaMonth, delta);
+  if (!summarySettled || membersLoading || !rosterReady || !live) return null;
+  return live;
+}
+
 export function duesCollectionFromMonthlySummary({
   snapshot = {},
   sections = [],

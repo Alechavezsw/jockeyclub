@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { gzipSync } from 'node:zlib';
 import {
   assembleSnapshotChunks,
+  inflateGzipJson,
   clearSnapshots,
   getSnapshotsGeneration,
   hasLocalSnapshot,
@@ -36,6 +38,12 @@ describe('assembleSnapshotChunks', () => {
 
   it('no arma un corte al que le falta la primera parte', () => {
     expect(assembleSnapshotChunks([{ seq: 8, chunk: encode({ ok: true }) }])).toBeNull();
+  });
+
+  it('abre el corte que viaja comprimido', async () => {
+    const payload = { ACCESSIN_DETAILED_CC_AS_OF: '2026-11-03', ACCESSIN_DETAILED_CC_BY_NUMBER: { 11: { lines: [] } } };
+    const b64 = gzipSync(Buffer.from(JSON.stringify(payload))).toString('base64');
+    await expect(inflateGzipJson(b64)).resolves.toEqual(payload);
   });
 });
 

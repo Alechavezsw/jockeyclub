@@ -1,21 +1,35 @@
 import { useMemo, useState } from 'react';
-import { ArrowLeft, Eye, Search } from 'lucide-react';
+import { ArrowLeft, Eye, FileDown, Search } from 'lucide-react';
 import {
+  applyDetailedCcAppDelta,
+  detailedCcArchiveRows,
   detailedCcSeed,
   listDetailedCcMembers,
   listDetailedCcPeriods,
-  lookupDetailedCc,
   periodLabelFromKey,
 } from '../../domain/accounting/detailedCurrentAccounts';
+import { loadXlsx } from '../../lib/office';
 import { useSnapshotSeed } from '../../hooks/useSnapshots';
 import SnapshotGate from '../SnapshotGate';
 
 const PAGE_SIZE = 50;
 
+async function downloadArchive(byNumber, history) {
+  const rows = detailedCcArchiveRows(byNumber, history);
+  const XLSX = await loadXlsx();
+  const sheet = XLSX.utils.aoa_to_sheet([
+    ['Nro', 'Socio', 'Fecha', 'Tipo', 'Concepto', 'Monto'],
+    ...rows.map((row) => [row.memberNumber, row.memberName, row.date, row.type, row.concept, row.value]),
+  ]);
+  const book = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(book, sheet, 'Hasta octubre');
+  XLSX.writeFile(book, 'cuentas-corrientes-hasta-2026-10.xlsx');
+}
+
 function formatLilaMoney(n) {
   const v = Number(n) || 0;
   const abs = Math.abs(v).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return `$ ${abs}`;
+  return v < -0.009 ? `-$ ${abs}` : `$ ${abs}`;
 }
 
 export default function DetailedCurrentAccountsPanel(props) {
@@ -26,11 +40,31 @@ export default function DetailedCurrentAccountsPanel(props) {
   );
 }
 
-function DetailedCurrentAccountsContent({ onBack, onOpenMemberBalance }) {
+function DetailedCurrentAccountsContent({
+  onBack,
+  onOpenMemberBalance,
+  members: roster = [],
+  journalEntries = [],
+  chartOfAccounts = [],
+  feePeriods = [],
+}) {
   const {
     ACCESSIN_DETAILED_CC_AS_OF,
     ACCESSIN_DETAILED_CC_SNAPSHOT,
+    ACCESSIN_DETAILED_CC_BY_NUMBER,
+    ACCESSIN_DETAILED_CC_HISTORY,
   } = useSnapshotSeed(['accessinDetailedCurrentAccounts'], detailedCcSeed);
+  const cutDate = String(ACCESSIN_DETAILED_CC_SNAPSHOT?.asOf || ACCESSIN_DETAILED_CC_AS_OF || '').slice(0, 10);
+  const byNumber = useMemo(
+    () => applyDetailedCcAppDelta(ACCESSIN_DETAILED_CC_BY_NUMBER, {
+      cutDate,
+      journalEntries,
+      chartOfAccounts,
+      feePeriods,
+      members: roster,
+    }),
+    [ACCESSIN_DETAILED_CC_BY_NUMBER, cutDate, journalEntries, chartOfAccounts, feePeriods, roster],
+  );
   const [query, setQuery] = useState('');
   const [appliedQuery, setAppliedQuery] = useState('');
   const [period, setPeriod] = useState('all');
@@ -38,10 +72,10 @@ function DetailedCurrentAccountsContent({ onBack, onOpenMemberBalance }) {
   const [page, setPage] = useState(0);
   const [selected, setSelected] = useState(null);
 
-  const periods = useMemo(() => listDetailedCcPeriods(), []);
+  const periods = useMemo(() => listDetailedCcPeriods(byNumber), [byNumber]);
   const members = useMemo(
-    () => listDetailedCcMembers({ query: appliedQuery, onlyUnpaid, periodKey: period }),
-    [appliedQuery, onlyUnpaid, period]
+    () => listDetailedCcMembers({ byNumber, query: appliedQuery, onlyUnpaid, periodKey: period }),
+    [byNumber, appliedQuery, onlyUnpaid, period]
   );
 
   const totalPages = Math.max(1, Math.ceil(members.length / PAGE_SIZE));
@@ -50,7 +84,7 @@ function DetailedCurrentAccountsContent({ onBack, onOpenMemberBalance }) {
   const snap = ACCESSIN_DETAILED_CC_SNAPSHOT;
 
   if (selected) {
-    const detail = lookupDetailedCc(selected.memberNumber) || selected;
+    const detail = byNumber[selected.memberNumber] || selected;
     return (
       <div className="fade-in cuotas-panel">
         <div className="cuotas-toolbar">
@@ -81,25 +115,26 @@ function DetailedCurrentAccountsContent({ onBack, onOpenMemberBalance }) {
           <table className="admin-table">
             <thead>
               <tr>
-                <th>#</th>
-                <th>Período</th>
                 <th>Fecha</th>
+                <th>Tipo</th>
+                <th>Concepto</th>
                 <th>Monto</th>
-                <th>Pago</th>
-                <th>Adeudado</th>
               </tr>
             </thead>
             <tbody>
-              {(detail.lines || []).map((line) => (
-                <tr key={line.id}>
-                  <td>{line.id}</td>
-                  <td>{periodLabelFromKey(line.periodKey)}</td>
-                  <td>{line.feeDate}</td>
-                  <td style={{ fontWeight: 700, color: 'var(--emerald-accent)' }}>{formatLilaMoney(line.amount)}</td>
-                  <td style={{ color: line.paid > 0 ? 'var(--danger-accent)' : undefined }}>{formatLilaMoney(line.paid)}</td>
-                  <td style={{ fontWeight: 700 }}>{formatLilaMoney(line.owed)}</td>
-                </tr>
-              ))}
+              {(detail.lines || []).map((line) => {
+                const signed = line.value != null && line.value !== '' ? Number(line.value) : null;
+                return (
+                  <tr key={line.id}>
+                    <td>{line.feeDate}</td>
+                    <td>{line.type || periodLabelFromKey(line.periodKey)}</td>
+                    <td>{line.concept || periodLabelFromKey(line.periodKey)}</td>
+                    <td style={{ fontWeight: 700, color: signed != null && signed < 0 ? 'var(--danger-accent)' : 'var(--emerald-accent)' }}>
+                      {signed != null ? formatLilaMoney(signed) : formatLilaMoney(line.amount)}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -127,12 +162,17 @@ function DetailedCurrentAccountsContent({ onBack, onOpenMemberBalance }) {
           {' · '}
           período {snap.periodFrom} → {snap.periodTo}
           {' · '}
-          {snap.lineCount?.toLocaleString('es-AR')} líneas · {snap.memberCount?.toLocaleString('es-AR')} socios
+          {snap.lineCount?.toLocaleString('es-AR')} movimientos al corte · {snap.memberCount?.toLocaleString('es-AR')} socios
           {' · '}
-          recaudado {formatLilaMoney(snap.totalCollected)}
-          {' · '}
-          {snap.unpaidLines?.toLocaleString('es-AR')} sin cancelar
+          {snap.unpaidMembers?.toLocaleString('es-AR') || snap.unpaidLines?.toLocaleString('es-AR')} con saldo
+          {cutDate ? ` · lo posterior al ${cutDate} se suma o se resta` : ''}
+          {' · octubre y lo anterior se descarga'}
         </p>
+        <div style={{ margin: '0.4rem 0 0.6rem' }}>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => downloadArchive(ACCESSIN_DETAILED_CC_BY_NUMBER, ACCESSIN_DETAILED_CC_HISTORY)}>
+            <FileDown size={14} /> Descargar octubre y anteriores
+          </button>
+        </div>
         <div className="cuotas-event-filters">
           <label>
             <span className="form-label">Buscar</span>

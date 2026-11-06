@@ -12,7 +12,7 @@ import { canAccessConcessions, canAccessQrGate } from '../../domain/auth/roles';
 import { reviewItemsForAccess } from '../../domain/review/buildClubReview';
 import { isAlertVisible, ALERT_SEVERITY } from '../../domain/alerts/alerts';
 import { isPoolDayCashOpen, poolCanonByDay } from '../../domain/pool/poolAccess';
-import { buildOpsFinanceSnapshot, composeClubFinance, duesCollectionFromMonthlySummary, financeFromSummary, lilaContabilidadFromSnapshots } from '../../domain/accounting/opsFinanceSnapshot';
+import { buildOpsFinanceSnapshot, collectDeltaAfterCut, composeClubFinance, dueCollectBoard, duesCollectionFromMonthlySummary, financeFromSummary, freshMonthCollectBoard, lilaBookCutDate, lilaContabilidadFromSnapshots } from '../../domain/accounting/opsFinanceSnapshot';
 import { monthlyBalanceSeed } from '../../domain/accounting/monthlyBalance';
 import { monthlyBalanceSummarySeed } from '../../domain/accounting/monthlyBalanceSummary';
 import { detailedCcSeed } from '../../domain/accounting/detailedCurrentAccounts';
@@ -26,6 +26,7 @@ import { getOverdueMembers } from '../../domain/members/dues';
 import { membershipMovesSeed, uniqueBajas } from '../../domain/members/membershipMoves';
 import { accessRequestIsOpen } from '../../domain/members/selfService';
 import { useSnapshotSeed } from '../../hooks/useSnapshots';
+import { snapshotStatus } from '../../data/snapshots';
 import { countMembers } from '../../data/repos';
 import { formatISODateLongAR, todayISODateAR } from '../../lib/arDate';
 import { dedupeAccessLogs } from '../../domain/credentials/accessLog';
@@ -376,41 +377,67 @@ export default function AdminDashboardTab({
   );
 
   const duesBoard = useMemo(() => {
-    if (membersLoading && !(deferredMembers?.length)) return null;
+    const summarySnapshot = monthlyBalanceSummarySeed().ACCESSIN_MONTHLY_BALANCE_SUMMARY_SNAPSHOT;
     const lilaMonth = duesCollectionFromMonthlySummary({
-      snapshot: monthlyBalanceSummarySeed().ACCESSIN_MONTHLY_BALANCE_SUMMARY_SNAPSHOT,
+      snapshot: summarySnapshot,
       sections: monthlyBalanceSummarySeed().ACCESSIN_MONTHLY_BALANCE_SUMMARY_SECTIONS,
       monthKey,
     });
     const periods = resolveFeePeriods(feePeriods);
     const liquidated = Number(liquidatedTotalForMonth(periods, monthKey, { members: deferredMembers, tierCatalog })) || 0;
-    const split = splitMonthDuesCollection({
-      movements: cashMoves,
-      members: deferredMembers,
-      monthKey,
-    });
     const todaySplit = splitMonthDuesCollection({
       movements: cashMoves,
       members: deferredMembers,
       monthKey,
       onDate: todayKey,
     });
-    const collected = lilaMonth?.recaudado ?? split.recaudado;
-    const liquidado = lilaMonth?.liquidated ?? liquidated;
-    const rate = liquidado > 0 ? Math.round((collected / liquidado) * 100) : 0;
+    const summaryState = snapshotStatus('accessinMonthlyBalanceSummary');
+    const summarySettled = summaryState === 'ready' || summaryState === 'error';
+    const stacked = lilaMonth
+      ? dueCollectBoard({
+        lilaMonth,
+        summarySettled: true,
+        delta: collectDeltaAfterCut({
+          movements: cashMoves,
+          members: deferredMembers,
+          journalEntries,
+          chartOfAccounts,
+          feePeriods,
+          monthKey,
+          baseLiquidated: lilaMonth.liquidated,
+          cutDate: lilaBookCutDate(cashSeed().ACCESSIN_CASH_SNAPSHOT, summarySnapshot),
+        }),
+      })
+      : (summarySettled
+        ? freshMonthCollectBoard({
+          monthKey,
+          feePeriods,
+          movements: cashMoves,
+          members: deferredMembers,
+          journalEntries,
+          chartOfAccounts,
+          liquidated,
+        })
+        : null);
+    if (!stacked) return null;
+    const collected = stacked.collected;
+    const liquidado = stacked.liquidated;
+    const rate = Number.isFinite(stacked.rate)
+      ? stacked.rate
+      : (liquidado > 0 ? Math.round((collected / liquidado) * 100) : 0);
     return {
       recaudado: collected,
       liquidated: liquidado,
       rate,
       today: todaySplit.recaudado,
-      cuotaMes: lilaMonth?.cuotaMes ?? split.cuotaMes,
-      atrasadas: lilaMonth?.atrasadas ?? split.atrasadas,
-      posteriores: lilaMonth?.posteriores ?? split.posteriores,
-      recargos: lilaMonth?.recargos ?? split.recargos,
-      reservas: lilaMonth?.reservas ?? split.reservas,
-      porteria: lilaMonth?.porteria ?? split.porteria,
+      cuotaMes: stacked.cuotaMes,
+      atrasadas: stacked.atrasadas,
+      posteriores: stacked.posteriores,
+      recargos: stacked.recargos,
+      reservas: stacked.reservas,
+      porteria: stacked.porteria,
     };
-  }, [membersLoading, feePeriods, monthKey, deferredMembers, tierCatalog, cashMoves, todayKey]);
+  }, [membersLoading, feePeriods, monthKey, deferredMembers, tierCatalog, cashMoves, todayKey, journalEntries, chartOfAccounts]);
   const liveCollectionRate = duesBoard?.rate ?? 0;
   const standingCaption = duesBoard
     ? `${formatCurrency(duesBoard.recaudado)} de ${formatCurrency(duesBoard.liquidated)} liquidado`

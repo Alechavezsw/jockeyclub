@@ -196,6 +196,16 @@ function isIndexPayload(payload) {
   return Boolean(payload && typeof payload === 'object' && (payload.__storage || payload.__chunks));
 }
 
+/** El corte grande viaja comprimido para entrar en la fila de la nube. */
+export async function inflateGzipJson(b64) {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+  const text = await new Response(stream).text();
+  return JSON.parse(text);
+}
+
 function decodeBase64Utf8(b64) {
   const binary = atob(b64);
   const bytes = new Uint8Array(binary.length);
@@ -272,6 +282,9 @@ async function fetchRemote(name) {
   if (row?.updated_at) seenUpdatedAt.set(name, row.updated_at);
   const payload = row?.payload;
   if (!tableError && payload && typeof payload === 'object' && !isIndexPayload(payload)) {
+    if (typeof payload.__gzip === 'string' && payload.__gzip) {
+      return inflateGzipJson(payload.__gzip);
+    }
     return payload;
   }
 
@@ -337,6 +350,21 @@ async function overlayNewerCashCut(name, localData) {
   }
 }
 
+/** La cuenta corriente que se ve sale de la nube cuando el corte es el de noviembre. */
+async function withCloudDetailedCc(name, localData) {
+  const local = await overlayNewerCashCut(name, localData);
+  if (name !== 'accessinDetailedCurrentAccounts') return local;
+  if (import.meta.env.MODE === 'test') return local;
+  try {
+    const remote = await fetchRemote(name);
+    const remoteAsOf = String(remote?.ACCESSIN_DETAILED_CC_AS_OF || '');
+    if (remoteAsOf >= '2026-11-03') return remote;
+  } catch {
+    // Sin fila nueva, sigue el archivo de esta máquina.
+  }
+  return local;
+}
+
 /**
  * Un corte que ya se está viendo no se reemplaza por una bajada a medias.
  * El detalle de cuotas solo cambia si el archivo nuevo trae al menos la mitad de los socios.
@@ -368,7 +396,7 @@ export function loadSnapshot(name, { force = false } = {}) {
   const gen = generation;
   const local = localLoader(name);
   const promise = (local
-    ? local().then((mod) => overlayNewerCashCut(name, { ...mod }))
+    ? local().then((mod) => withCloudDetailedCc(name, { ...mod }))
     : fetchRemote(name))
     .then((data) => {
       if (gen !== generation) return null;

@@ -304,15 +304,16 @@ export function periodDisplayTotal(period, _context = {}) {
   if (!period || period.status === 'cancelled') return null;
   const official = Number(period.amount);
   if (period.status === 'processed' || period.status === 'pending') {
-    // Pendiente/procesada sin monto ni pack no inventa un recuento de padrón
-    // (p. ej. fila fantasma pending con amount 0 → no mostrar $91 M con exentos).
-    if (Number.isFinite(official) && official > 0) {
-      return Math.round(official * 100) / 100;
-    }
+    // La grilla (titulares × valor) es la liquidación. El amount puede quedar
+    // de un recuento de padrón distinto, como noviembre: 66.832.000 contra 63.763.000.
     const fromConcepts = feeConceptRowsTotal(period.pack?.concepts);
     if (fromConcepts > 0) return Math.round(fromConcepts * 100) / 100;
     const fromLines = feeConceptRowsTotal(period.lines);
     if (fromLines > 0) return Math.round(fromLines * 100) / 100;
+    // Sin grilla no se inventa un recuento de padrón.
+    if (Number.isFinite(official) && official > 0) {
+      return Math.round(official * 100) / 100;
+    }
     const prepared = Number(period.pack?.total);
     if (Number.isFinite(prepared) && prepared > 0) {
       return Math.round(prepared * 100) / 100;

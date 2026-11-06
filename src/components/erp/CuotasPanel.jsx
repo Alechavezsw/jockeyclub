@@ -923,6 +923,10 @@ export default function CuotasPanel({
       <DetailedCurrentAccountsPanel
         onBack={() => goHome()}
         onOpenMemberBalance={() => setView('balances')}
+        members={members}
+        journalEntries={journalEntries}
+        chartOfAccounts={chartOfAccounts}
+        feePeriods={feePeriods}
       />
     );
   }
