@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { formatJoinYear, membershipCaption, prettyMembershipName, shouldOfferVitalicio, yearsOnClub } from './membership';
+import {
+  effectiveJoinDate,
+  formatJoinYear,
+  membershipCaption,
+  membershipTenureLabel,
+  prettyMembershipName,
+  shouldOfferVitalicio,
+  yearsOnClub,
+} from './membership';
 
 describe('membership display', () => {
   it('limpia el slug de categoría', () => {
@@ -13,6 +21,19 @@ describe('membership display', () => {
     expect(yearsOnClub({ joinDate: '2021-04-10', yearsActive: 0 }, today)).toBe(5);
     expect(yearsOnClub({ joinDate: '2026-04-10', yearsActive: 9 }, today)).toBe(0);
     expect(yearsOnClub({ yearsActive: 5 }, today)).toBe(5);
+  });
+
+  it('ignora el placeholder 1900 y no inventa 126 años con nacimiento en 1986', () => {
+    const today = new Date('2026-11-07T12:00:00');
+    const member = {
+      joinDate: '1900-01-01',
+      birthDate: '1986-02-17',
+      yearsActive: 126,
+    };
+    expect(effectiveJoinDate(member)).toBeNull();
+    expect(yearsOnClub(member, today)).toBe(0);
+    expect(membershipTenureLabel(member, today)).toBeNull();
+    expect(formatJoinYear('1900-01-01', { birthDate: '1986-02-17' })).toBeNull();
   });
 
   it('arma el pie de la ficha', () => {

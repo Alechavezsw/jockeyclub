@@ -255,6 +255,8 @@ export default function AdminNewReservationDialog({
       forceConfirmed: true,
       mpIntentId: mpIntent?.id || null,
       receiptUrl: receiptAttachment?.url || null,
+      recordedBy: user?.id || null,
+      recordedByName: String(user?.fullName || user?.email || '').trim() || null,
     };
     const result = await addReservation?.(payload);
     if (result?.ok === false) {

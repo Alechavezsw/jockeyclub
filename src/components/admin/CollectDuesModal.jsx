@@ -15,11 +15,13 @@ import {
   MIXED_DUES_METHODS,
 } from '../../domain/members/memberPayments';
 import { todayISODateAR } from '../../lib/arDate';
-import { billingAccountMember } from '../../domain/members/households';
+import { billingAccountMember, memberNumberOf } from '../../domain/members/households';
 import { activePaymentPlans } from '../../domain/system/paymentPlans';
 import { uploadDuesReceipt } from '../../data/storage';
 import { parseDuesReceipt } from '../../data/parseDuesReceipt';
 import { money } from '../../domain/money';
+import { isSupabaseConfigured } from '../../lib/supabase';
+import * as repos from '../../data/repos';
 
 const METHODS = [
   { id: 'efectivo', label: 'Efectivo', icon: Banknote, hint: 'Cobro en sede / caja' },
@@ -115,7 +117,9 @@ function ReceiptParsePanel({
       marginTop: 10,
       padding: '0.75rem 0.85rem',
       borderRadius: 10,
-      border: mismatch ? '1px solid #ef4444' : '1px solid var(--border-glass)',
+      border: mismatch
+        ? '1px solid color-mix(in srgb, var(--primary-gold) 55%, var(--border-glass))'
+        : '1px solid var(--border-glass)',
       background: 'rgba(255,255,255,0.02)',
       display: 'flex',
       flexDirection: 'column',
@@ -125,8 +129,10 @@ function ReceiptParsePanel({
         Desglose del comprobante
       </div>
       {mismatch ? (
-        <p style={{ margin: 0, fontSize: '0.8rem', color: '#ef4444' }}>
-          El comprobante marca {formatCurrency(parsedAmount)}; el cobro es {formatCurrency(amount)}.
+        <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-gold)', lineHeight: 1.35 }}>
+          El comprobante muestra {formatCurrency(parsedAmount)}. Se registra el cobro por{' '}
+          <strong style={{ color: 'var(--emerald-accent)' }}>{formatCurrency(amount)}</strong>
+          {' '}(meses marcados). Podés seguir: no hace falta que coincidan.
         </p>
       ) : null}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.5rem' }}>
@@ -232,17 +238,49 @@ export default function CollectDuesModal({
   paymentPlans = [],
   paymentTolerance = 1000,
 }) {
+  const [liveMember, setLiveMember] = useState(member);
+  const [hydrating, setHydrating] = useState(Boolean(isSupabaseConfigured && member));
+
+  useEffect(() => {
+    setLiveMember(member);
+    if (!member || !isSupabaseConfigured) {
+      setHydrating(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setHydrating(true);
+    (async () => {
+      try {
+        const dbId = member?.id;
+        const number = memberNumberOf(member) || member?.memberId;
+        let full = null;
+        if (dbId && typeof repos.getMember === 'function') {
+          full = await repos.getMember(dbId);
+        }
+        if (!full && number && typeof repos.getMemberByNumber === 'function') {
+          full = await repos.getMemberByNumber(number);
+        }
+        if (!cancelled && full) setLiveMember(full);
+      } catch {
+        /* se mantiene el miembro del padrón */
+      } finally {
+        if (!cancelled) setHydrating(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [member?.id, member?.memberId]);
+
   const account = (() => {
     try {
-      return billingAccountMember(member, members);
+      return billingAccountMember(liveMember, members);
     } catch {
-      return member;
+      return liveMember;
     }
   })();
   const duesExempt = isDuesExemptMember(account);
   const periodChoices = useMemo(
-    () => (duesExempt ? [] : collectionPeriodChoices(account)),
-    [duesExempt, account?.memberId, account?.outstandingBalance, account?.nextDueDate, account?.lastPaymentDate, account?.tier],
+    () => (duesExempt || hydrating ? [] : collectionPeriodChoices(account)),
+    [duesExempt, hydrating, account?.memberId, account?.outstandingBalance, account?.nextDueDate, account?.lastPaymentDate, account?.tier],
   );
   const choiceKey = periodChoices.map((row) => row.dueOn).join('|');
   const [selectedDueOns, setSelectedDueOns] = useState([]);
@@ -255,8 +293,8 @@ export default function CollectDuesModal({
     }
     return collectionPreview(account, new Date(), { periodDueOns: selectedDueOns });
   }, [duesExempt, account, selectedDueOns]);
-  const amount = duesExempt ? 0 : split.cash;
-  const routed = account?.memberId && member?.memberId && account.memberId !== member.memberId;
+  const amount = duesExempt || hydrating ? 0 : split.cash;
+  const routed = account?.memberId && liveMember?.memberId && account.memberId !== liveMember.memberId;
   const methods = duesExempt ? METHODS.filter((row) => row.id !== 'mercadopago') : METHODS;
   const plans = useMemo(() => activePaymentPlans(paymentPlans), [paymentPlans]);
   const [method, setMethod] = useState('efectivo');
@@ -574,7 +612,7 @@ export default function CollectDuesModal({
     }
   };
 
-  if (!member) return null;
+  if (!member && !liveMember) return null;
 
   return (
     <ModalDialog
@@ -597,11 +635,12 @@ export default function CollectDuesModal({
               Cobrar cuota
             </h4>
             <p style={{ margin: '0.3rem 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-              {account.name} · {formatCurrency(amount)}
+              {account?.name || liveMember?.name || member?.name}
+              {hydrating ? ' · Actualizando saldo…' : ` · ${formatCurrency(amount)}`}
             </p>
             {routed ? (
               <p style={{ margin: '0.35rem 0 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                El pago de {member.name} entra en la cuenta del titular.
+                El pago de {liveMember?.name || member?.name} entra en la cuenta del titular.
               </p>
             ) : null}
           </div>
@@ -615,6 +654,12 @@ export default function CollectDuesModal({
             <X size={14} aria-hidden="true" /> Cerrar
           </button>
         </div>
+
+        {hydrating ? (
+          <p style={{ margin: '0 0 1rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+            Leyendo saldo y vencimientos en vivo…
+          </p>
+        ) : null}
 
         {canPickMonths ? (
           <div style={{ marginBottom: '1rem' }}>
@@ -1067,7 +1112,7 @@ export default function CollectDuesModal({
               type="button"
               className="btn btn-primary"
               onClick={handleConfirm}
-              disabled={submitting || readingReceipt || mixReading || !selectedDueOns.length}
+              disabled={hydrating || submitting || readingReceipt || mixReading || !selectedDueOns.length}
               style={{ minWidth: 160 }}
             >
               {submitting

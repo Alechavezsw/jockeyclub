@@ -11,10 +11,20 @@ import VirtualCard from '../VirtualCard';
 import GuestPassPanel from '../GuestPassPanel';
 import CollectDuesModal from './CollectDuesModal';
 import ModalDialog from '../ModalDialog';
-import { dbMemberIsDuesExempt, formatShortDate, isDuesExemptMember, quotaHeadline } from '../../domain/members/dues';
+import {
+  dbMemberIsDuesExempt,
+  formatShortDate,
+  isDuesExemptMember,
+  memberDueFact,
+  quotaHeadline,
+} from '../../domain/members/dues';
 import { imputationPeriodLabel } from '../../domain/members/duesImputations';
 import { familyChildStanding, regularidadOf, upsertRegularidad } from '../../domain/members/familyStanding';
-import { shouldOfferVitalicio } from '../../domain/members/membership';
+import {
+  effectiveJoinDate,
+  membershipTenureLabel,
+  shouldOfferVitalicio,
+} from '../../domain/members/membership';
 import { canRemoveDuesSurcharge, canVoidDuesPayment } from '../../domain/auth/roles';
 import { useAuth } from '../../context/AuthContext';
 import { formatDateTimeAR, formatInstantAR, todayISODateAR } from '../../lib/arDate';
@@ -135,28 +145,6 @@ function ageFromBirth(iso) {
   const m = now.getMonth() - birth.getMonth();
   if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) age -= 1;
   return age >= 0 ? age : null;
-}
-
-function membershipTenure(member) {
-  if (member?.joinDate) {
-    const join = new Date(`${String(member.joinDate).slice(0, 10)}T12:00:00`);
-    if (!Number.isNaN(join.getTime())) {
-      const now = new Date();
-      let years = now.getFullYear() - join.getFullYear();
-      const m = now.getMonth() - join.getMonth();
-      if (m < 0 || (m === 0 && now.getDate() < join.getDate())) years -= 1;
-      if (years <= 0) {
-        let months = (now.getFullYear() - join.getFullYear()) * 12 + (now.getMonth() - join.getMonth());
-        if (now.getDate() < join.getDate()) months -= 1;
-        if (months <= 0) return 'Recién ingresado';
-        return months === 1 ? '1 mes en el club' : `${months} meses en el club`;
-      }
-      return years === 1 ? '1 año de antigüedad' : `${years} años de antigüedad`;
-    }
-  }
-  const y = Number(member?.yearsActive);
-  if (!Number.isFinite(y)) return null;
-  return y === 1 ? '1 año de antigüedad' : `${y} años de antigüedad`;
 }
 
 function Fact({ icon: Icon, label, value, hint }) {
@@ -645,12 +633,15 @@ export default function MemberProfilePanel({
     const items = [];
     const tierName = getTierDisplayName(member.tier, tierCatalog);
 
+    const joinIso = effectiveJoinDate(member);
     items.push({
-      when: formatShortDate(member.joinDate) || 'Alta',
+      when: joinIso ? formatShortDate(joinIso) : 'Alta',
       title: 'Alta de socio titular',
-      detail: `Categoría ${tierName} · Credencial ${member.memberId}`,
+      detail: joinIso
+        ? `Categoría ${tierName} · Credencial ${member.memberId}`
+        : `Categoría ${tierName} · Credencial ${member.memberId} · fecha de ingreso sin dato`,
       tone: 'ok',
-      sort: member.joinDate || '1970-01-01',
+      sort: joinIso || '1970-01-01',
     });
 
     movements.forEach((e) => {
@@ -863,16 +854,18 @@ export default function MemberProfilePanel({
   const poolPay = piletaPayAccess(member, { settings: poolSettings, members });
   const tierName = getTierDisplayName(member.tier, tierCatalog);
   const age = ageFromBirth(member.birthDate);
-  const tenure = membershipTenure(member);
+  const tenure = membershipTenureLabel(member);
+  const dueFact = memberDueFact(member);
   const childStanding = familyChildStanding(member);
   const vitalicioOffer = shouldOfferVitalicio(member);
   const pendingBaja = isPendingBaja(member);
   const debitFailed = String(member?.mpAdhesion || member?.mercadoPagoAdhesion || member?.meta?.mpAdhesion || '').toLowerCase() === 'rejected'
     || Boolean(member?.meta?.lastDebitFailedAt);
-  const joinLabel = member.joinDate
+  const joinIso = effectiveJoinDate(member);
+  const joinLabel = joinIso
     ? (member.joinTime
-      ? formatDateTimeAR(member.joinDate, member.joinTime)
-      : formatShortDate(member.joinDate))
+      ? formatDateTimeAR(joinIso, member.joinTime)
+      : formatShortDate(joinIso))
     : null;
   const initials = (member.name || '?')
     .split(/\s+/)
@@ -953,13 +946,13 @@ export default function MemberProfilePanel({
             {hideCurrentAccount
               ? 'La cuenta corriente no se muestra en el portal'
               : (quota.hint
-                || (hasDebt
-                  ? (member.nextDueDate
-                    ? `Venció / vence ${formatShortDate(member.nextDueDate)}`
-                    : 'Pendiente de cobro')
-                  : (member.nextDueDate
-                    ? `Próximo vencimiento ${formatShortDate(member.nextDueDate)}`
-                    : 'Sin vencimiento cargado')))}
+                || (!dueFact.value
+                  ? (hasDebt ? 'Pendiente de cobro' : 'Sin vencimiento cargado')
+                  : (dueFact.overdue
+                    ? (hasDebt ? `Vencida desde ${dueFact.value}` : `Vencimiento ${dueFact.value}`)
+                    : (dueFact.label === 'Vence hoy'
+                      ? `Vence hoy · ${dueFact.value}`
+                      : `Próximo vencimiento ${dueFact.value}`))))}
           </div>
           <p className={`mp-balance-pool ${poolPay.canPay ? 'is-ok' : 'is-no'}`}>
             {poolPay.label}
@@ -1088,7 +1081,12 @@ export default function MemberProfilePanel({
               <div className="mp-facts mp-facts--dues">
                 <Fact icon={ShieldCheck} label="Categoría" value={tierName} hint={status.hint} />
                 <Fact icon={ShieldCheck} label="Estado de cuenta" value={status.label} />
-                <Fact icon={CalendarClock} label="Próximo vencimiento" value={formatShortDate(member.nextDueDate)} />
+                <Fact
+                  icon={CalendarClock}
+                  label={dueFact.label}
+                  value={dueFact.value}
+                  hint={dueFact.hint}
+                />
                 <Fact
                   icon={Banknote}
                   label="Medio de pago"

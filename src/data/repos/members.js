@@ -576,6 +576,32 @@ async function attachImputations(payments) {
   }));
 }
 
+/** Resuelve el nombre de quien registró el cobro (recorded_by → profiles). */
+async function attachRecordedByNames(payments = []) {
+  const list = payments || [];
+  const ids = [...new Set(list.map((p) => p.recordedBy).filter((id) => isUuid(id)))];
+  if (!ids.length) return list;
+  try {
+    const rows = await unwrap(
+      sb().from('profiles').select('id, full_name, email').in('id', ids),
+      'No se pudieron cargar operadores del cobro',
+    );
+    const byId = new Map(
+      (rows || []).map((row) => [
+        row.id,
+        String(row.full_name || row.email || '').trim() || null,
+      ]),
+    );
+    return list.map((payment) => {
+      if (payment.recordedByName) return payment;
+      const name = byId.get(payment.recordedBy);
+      return name ? { ...payment, recordedByName: name } : payment;
+    });
+  } catch {
+    return list;
+  }
+}
+
 /** Historial de pagos de un socio (ficha / cuenta). */
 export async function listMemberPayments(memberDbId) {
   if (!memberDbId) return [];
@@ -589,13 +615,14 @@ export async function listMemberPayments(memberDbId) {
       .range(from, to),
     'No se pudieron cargar pagos',
   );
-  return attachImputations(payments.map(M.paymentFromRow));
+  const withImp = await attachImputations(payments.map(M.paymentFromRow));
+  return attachRecordedByNames(withImp);
 }
 
 async function hydrateMemberRow(row, { withPayments = false } = {}) {
   if (!row) return null;
   const payments = withPayments
-    ? await attachImputations((await fetchAllRows(
+    ? await attachRecordedByNames(await attachImputations((await fetchAllRows(
       (from, to) => sb()
         .from('member_payments')
         .select('*')
@@ -604,7 +631,7 @@ async function hydrateMemberRow(row, { withPayments = false } = {}) {
         .order('id')
         .range(from, to),
       'No se pudieron cargar pagos',
-    )).map(M.paymentFromRow))
+    )).map(M.paymentFromRow)))
     : [];
   return M.memberFromRow(row, payments);
 }

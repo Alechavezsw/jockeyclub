@@ -6,7 +6,8 @@ const ADMIN_SECTIONS = [
   { key: 'dues', title: 'Cuotas', keywords: 'cuotas socios liquidacion vencimiento saldos cuentas' },
   { key: 'bookings', title: 'Reservas', keywords: 'reservas canchas turnos' },
   { key: 'disciplines', title: 'Disciplinas', keywords: 'disciplinas deportes' },
-  { key: 'pool', title: 'Pileta', keywords: 'pileta natacion' },
+  { key: 'pool', title: 'Pileta', keywords: 'pileta natacion canon' },
+  { key: 'pool_gate', title: 'Entrada pileta', keywords: 'entrada pileta puerta apto invitado' },
   { key: 'access', title: 'Ingresos', keywords: 'ingresos porteria acceso' },
   { key: 'accounting', title: 'Contabilidad', keywords: 'contabilidad padron catalogo' },
   { key: 'books', title: 'Libros', keywords: 'libros diario mayor asientos contabilidad partida doble' },
@@ -96,14 +97,20 @@ export function searchSession({
   const allowed = new Set(tabs);
 
   ADMIN_SECTIONS.forEach((section) => {
-    if (!allowed.has(section.key)) return;
+    const permittedKey = section.key === 'pool_gate' ? 'pool' : section.key;
+    if (!allowed.has(permittedKey)) return;
+    const path = section.key === 'pool'
+      ? '/pileta'
+      : section.key === 'pool_gate'
+        ? '/entrada-pileta'
+        : `/panel/${section.key}`;
     pushRanked(items, {
       id: `section-${section.key}`,
       kind: 'section',
       title: section.title,
       keywords: section.keywords,
-      subtitle: 'Sección',
-      path: `/panel/${section.key}`,
+      subtitle: section.key === 'pool_gate' ? 'Pileta' : 'Sección',
+      path,
     }, tokens);
   });
 

@@ -64,7 +64,16 @@ export function memberFromRow(row, payments = []) {
     profileId: row.profile_id || null,
     notes: row.notes || '',
     adherents: (row.member_adherents || []).map(adherentFromRow),
-    paymentHistory: payments.map(paymentFromRow),
+    // Si ya viene en shape UI (hydrate + recordedByName / imputaciones), no remapear:
+    // paymentFromRow espera fila snake_case y borraba recordedBy / imputations.
+    paymentHistory: payments.map((payment) => {
+      if (!payment) return payment;
+      const isDbRow = Object.prototype.hasOwnProperty.call(payment, 'member_id')
+        || Object.prototype.hasOwnProperty.call(payment, 'paid_at')
+        || Object.prototype.hasOwnProperty.call(payment, 'receipt_number')
+        || Object.prototype.hasOwnProperty.call(payment, 'recorded_by');
+      return isDbRow ? paymentFromRow(payment) : payment;
+    }),
     lastPaymentDate: meta.lastPaymentDate || null,
     credentialToken: row.credential_token || null,
     // La grilla trae birth_date y no address. Si address no vino en el SELECT, es padrón corto.
@@ -151,7 +160,7 @@ export function paymentFromRow(row) {
     amount,
     date: paidAt ? String(paidAt).slice(0, 10) : null,
     time: meta.time || row.time || '',
-    paidAt: meta.paidAt || null,
+    paidAt: meta.paidAt || paidAt || null,
     createdAt: row.created_at || row.createdAt || null,
     method: row.method || '',
     bankId: meta.bankId || null,
@@ -191,7 +200,10 @@ export function paymentFromRow(row) {
     importSource: meta.importSource || null,
     importKind: meta.importKind || null,
     paidAtReason: meta.paidAtReason || null,
-    methodLabel: meta.methodLabel || null,
+    methodLabel: meta.methodLabel || row.methodLabel || null,
+    recordedBy: row.recorded_by || row.recordedBy || meta.recordedBy || null,
+    recordedByName: row.recordedByName || meta.recordedByName || row.recorded_by_name || null,
+    ...(Array.isArray(row.imputations) ? { imputations: row.imputations } : {}),
   };
 }
 
@@ -240,6 +252,8 @@ export function reservationFromRow(row) {
     externalId: meta.externalId || null,
     source: meta.source || null,
     createdAt: meta.createdAt || row.created_at || null,
+    recordedBy: meta.recordedBy || null,
+    recordedByName: meta.recordedByName || null,
     imputed: Boolean(meta.imputed || meta.feeImputed),
     feeImputed: Boolean(meta.feeImputed || meta.imputed),
     imputedAt: meta.imputedAt || null,
@@ -273,6 +287,8 @@ export function reservationToRow(res, memberDbId = null) {
       externalId: res.externalId || null,
       source: res.source || null,
       createdAt: res.createdAt || null,
+      recordedBy: res.recordedBy || null,
+      recordedByName: res.recordedByName || null,
       document: res.document || null,
       mpTransactionId: res.mpTransactionId || null,
       voucher: res.voucher || null,

@@ -3,6 +3,7 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft, ChevronDown, Download, Eye, FileDown, FileSpreadsheet, History, Loader2, Pencil, Play, RotateCcw, Sparkles, Trash2, Upload, Wallet, X,
 } from 'lucide-react';
+import CollectReceiptActionsBanner from './CollectReceiptActionsBanner';
 import ModalDialog from '../ModalDialog';
 import { useAuth } from '../../context/AuthContext';
 import { canEditFeePackAmounts, canReopenFeePeriod } from '../../domain/auth/roles';
@@ -146,7 +147,8 @@ export default function CuotasPanel({
   const [year, setYear] = useState(2026);
   const ccEnabled = duesSettings?.showCurrentAccountsToMembers !== false;
   const [flash, setFlash] = useState('');
-  const [successBanner, setSuccessBanner] = useState('');
+  /** string | { message, member, payment } */
+  const [successBanner, setSuccessBanner] = useState(null);
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
   const [busy, setBusy] = useState(false);
@@ -159,7 +161,9 @@ export default function CuotasPanel({
 
   useEffect(() => {
     if (!successBanner) return undefined;
-    const t = window.setTimeout(() => setSuccessBanner(''), 7000);
+    // Con acciones de comprobante se queda hasta cerrar; si es solo texto, se oculta solo.
+    if (typeof successBanner === 'object' && successBanner?.payment) return undefined;
+    const t = window.setTimeout(() => setSuccessBanner(null), 7000);
     return () => window.clearTimeout(t);
   }, [successBanner]);
 
@@ -1651,24 +1655,40 @@ export default function CuotasPanel({
         formatCurrency={fmt}
         paymentPlans={paymentPlans}
         paymentTolerance={duesSettings?.paymentTolerance}
-        onCollected={({ message }) => {
-          setSuccessBanner(message || 'Cobro registrado.');
-          setFlash(message || 'Cobro registrado.');
+        onCollected={({ message, member: paidMember, payment }) => {
+          const text = message || 'Cobro registrado.';
+          setSuccessBanner({
+            message: text,
+            member: paidMember || null,
+            payment: payment || null,
+          });
+          setFlash('');
         }}
       />
 
       {successBanner ? (
-        <div className="cuotas-success-banner" role="status" aria-live="polite">
-          <span>{successBanner}</span>
-          <button
-            type="button"
-            className="cuotas-success-banner-close"
-            aria-label="Cerrar aviso"
-            onClick={() => setSuccessBanner('')}
-          >
-            <X size={14} />
-          </button>
-        </div>
+        typeof successBanner === 'object' && successBanner.payment && successBanner.member ? (
+          <CollectReceiptActionsBanner
+            member={successBanner.member}
+            payment={successBanner.payment}
+            message={successBanner.message}
+            onSendMessage={onSendMessage}
+            formatCurrency={fmt}
+            onClose={() => setSuccessBanner(null)}
+          />
+        ) : (
+          <div className="cuotas-success-banner" role="status" aria-live="polite">
+            <span>{typeof successBanner === 'string' ? successBanner : successBanner.message}</span>
+            <button
+              type="button"
+              className="cuotas-success-banner-close"
+              aria-label="Cerrar aviso"
+              onClick={() => setSuccessBanner(null)}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )
       ) : null}
       {flash ? <p className="ig-ok">{flash}</p> : null}
       {error ? <p className="ig-error">{error}</p> : null}

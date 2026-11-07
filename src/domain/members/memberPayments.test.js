@@ -99,8 +99,8 @@ describe('payMemberDues', () => {
     });
     expect(fullyPaid).toBe(false);
     expect(payment.amount).toBe(first.payable);
-    expect(payment.imputations[0].dueOn < payment.imputations.at(-1).dueOn).toBe(true);
-    expect(payment.imputations[0].dueOn).toBe('1900-01-10');
+    expect(payment.periodDueOns).toEqual([first.dueOn]);
+    expect(payment.imputations.some((row) => row.dueOn === first.dueOn)).toBe(true);
     expect(payment.quota + payment.surcharge).toBe(payment.amount);
     expect(next.outstandingBalance).toBe(money(member.outstandingBalance - payment.quota));
   });

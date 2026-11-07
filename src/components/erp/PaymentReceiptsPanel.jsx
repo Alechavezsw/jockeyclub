@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
+  ChevronDown,
   Download,
   Loader2,
   Mail,
@@ -13,13 +14,15 @@ import {
 import { formatCurrency as formatCurrencyDefault } from '../../domain/accounting/journal';
 import { formatAccessinCashDate } from '../../domain/accounting/cashLedger';
 import { memberNumberOf, rankMemberSearchHit } from '../../domain/members/households';
-import { duesMethodLabel } from '../../domain/members/memberPayments';
-import { downloadPaymentReceiptPdf } from '../../domain/members/exportPaymentReceiptPdf';
+import {
+  downloadPaymentReceiptPdf,
+  receiptMethodLabel,
+} from '../../domain/members/exportPaymentReceiptPdf';
 import {
   paymentReceiptShareTargets,
   sendDuesReceiptMessage,
 } from '../../domain/members/duesReceiptDelivery';
-import { todayAR } from '../../lib/arDate';
+import { formatInstantAR, todayAR } from '../../lib/arDate';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import * as repos from '../../data/repos';
 
@@ -67,8 +70,17 @@ function isActivePayment(payment) {
   return payment && payment.status !== 'void' && !payment.voidedAt;
 }
 
-function paymentMethodText(payment) {
-  return payment?.methodLabel || duesMethodLabel(payment?.method, payment?.bankName);
+function paymentOperatorLabel(payment) {
+  const name = String(payment?.recordedByName || '').trim();
+  if (name) return name;
+  return payment?.recordedBy ? 'Usuario del sistema' : '—';
+}
+
+function paymentOperationInstant(payment) {
+  return formatInstantAR(
+    payment?.paidAt || payment?.createdAt || payment?.date,
+    payment?.time || undefined,
+  );
 }
 
 async function hydrateMemberWithPayments(row) {
@@ -119,6 +131,7 @@ export default function PaymentReceiptsPanel({
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busyKey, setBusyKey] = useState('');
+  const [openActionsId, setOpenActionsId] = useState(null);
 
   const months = useMemo(() => monthOptions(), []);
 
@@ -213,6 +226,7 @@ export default function PaymentReceiptsPanel({
     setError('');
     setNotice('');
     setBusyKey('');
+    setOpenActionsId(null);
   };
 
   const runAction = async (payment, action) => {
@@ -408,66 +422,96 @@ export default function PaymentReceiptsPanel({
                     const receiptNo = payment.receiptNumber || payment.receipt || '—';
                     const share = paymentReceiptShareTargets(member, payment);
                     const rowBusy = busyKey.endsWith(`:${payment.id}`);
+                    const actionsOpen = openActionsId === payment.id;
                     return (
                       <tr key={payment.id}>
                         <td>{payment.date ? formatAccessinCashDate(payment.date) : '—'}</td>
                         <td>{payment.concept || 'Cuota social'}</td>
                         <td>{payment.period || '—'}</td>
-                        <td>{paymentMethodText(payment)}</td>
+                        <td>{receiptMethodLabel(payment)}</td>
                         <td style={{ fontWeight: 700 }}>{formatCurrency(payment.amount)}</td>
                         <td className="tabular-nums">{receiptNo}</td>
                         <td>
-                          <div className="payment-receipts-actions" role="group" aria-label="Acciones del comprobante">
+                          <div className={`payment-receipts-actions-wrap${actionsOpen ? ' is-open' : ''}`}>
                             <button
                               type="button"
-                              className="payment-receipts-chip tone-pdf"
-                              disabled={rowBusy}
-                              title="Descargar PDF"
-                              aria-label="Descargar PDF"
-                              onClick={() => runAction(payment, 'download')}
+                              className="payment-receipts-actions-toggle"
+                              aria-expanded={actionsOpen}
+                              aria-controls={`payment-actions-${payment.id}`}
+                              onClick={() => setOpenActionsId(actionsOpen ? null : payment.id)}
                             >
-                              {busyKey === `download:${payment.id}`
-                                ? <Loader2 size={13} className="spin" aria-hidden="true" />
-                                : <Download size={13} aria-hidden="true" />}
-                              <span>PDF</span>
+                              <span>Acciones</span>
+                              <ChevronDown size={14} aria-hidden="true" />
                             </button>
-                            <button
-                              type="button"
-                              className="payment-receipts-chip tone-wa"
-                              disabled={rowBusy || !share.whatsappUrl}
-                              title={share.whatsappUrl ? 'Abrir WhatsApp' : 'Sin celular en ficha'}
-                              aria-label="Enviar por WhatsApp"
-                              onClick={() => runAction(payment, 'whatsapp')}
-                            >
-                              <Phone size={13} aria-hidden="true" />
-                              <span>WA</span>
-                            </button>
-                            <button
-                              type="button"
-                              className="payment-receipts-chip tone-mail"
-                              disabled={rowBusy || !share.email}
-                              title={share.email ? 'Enviar por mail' : 'Sin mail real en ficha'}
-                              aria-label="Enviar por mail"
-                              onClick={() => runAction(payment, 'mail')}
-                            >
-                              {busyKey === `mail:${payment.id}`
-                                ? <Loader2 size={13} className="spin" aria-hidden="true" />
-                                : <Mail size={13} aria-hidden="true" />}
-                              <span>Mail</span>
-                            </button>
-                            <button
-                              type="button"
-                              className="payment-receipts-chip tone-md"
-                              disabled={rowBusy || typeof onSendMessage !== 'function'}
-                              title="Enviar por mensajería interna (MD)"
-                              aria-label="Enviar por MD"
-                              onClick={() => runAction(payment, 'md')}
-                            >
-                              {busyKey === `md:${payment.id}`
-                                ? <Loader2 size={13} className="spin" aria-hidden="true" />
-                                : <MessageSquare size={13} aria-hidden="true" />}
-                              <span>MD</span>
-                            </button>
+                            {actionsOpen ? (
+                              <div
+                                id={`payment-actions-${payment.id}`}
+                                className="payment-receipts-actions-panel"
+                              >
+                                <dl className="payment-receipts-op-meta">
+                                  <div>
+                                    <dt>Hora</dt>
+                                    <dd>{paymentOperationInstant(payment)}</dd>
+                                  </div>
+                                  <div>
+                                    <dt>Usuario</dt>
+                                    <dd>{paymentOperatorLabel(payment)}</dd>
+                                  </div>
+                                </dl>
+                                <div className="payment-receipts-actions" role="group" aria-label="Acciones del comprobante">
+                                  <button
+                                    type="button"
+                                    className="payment-receipts-chip tone-pdf"
+                                    disabled={rowBusy}
+                                    title="Descargar PDF"
+                                    aria-label="Descargar PDF"
+                                    onClick={() => runAction(payment, 'download')}
+                                  >
+                                    {busyKey === `download:${payment.id}`
+                                      ? <Loader2 size={13} className="spin" aria-hidden="true" />
+                                      : <Download size={13} aria-hidden="true" />}
+                                    <span>PDF</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="payment-receipts-chip tone-wa"
+                                    disabled={rowBusy || !share.whatsappUrl}
+                                    title={share.whatsappUrl ? 'Abrir WhatsApp' : 'Sin celular en ficha'}
+                                    aria-label="Enviar por WhatsApp"
+                                    onClick={() => runAction(payment, 'whatsapp')}
+                                  >
+                                    <Phone size={13} aria-hidden="true" />
+                                    <span>WA</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="payment-receipts-chip tone-mail"
+                                    disabled={rowBusy || !share.email}
+                                    title={share.email ? 'Enviar por mail' : 'Sin mail real en ficha'}
+                                    aria-label="Enviar por mail"
+                                    onClick={() => runAction(payment, 'mail')}
+                                  >
+                                    {busyKey === `mail:${payment.id}`
+                                      ? <Loader2 size={13} className="spin" aria-hidden="true" />
+                                      : <Mail size={13} aria-hidden="true" />}
+                                    <span>Mail</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="payment-receipts-chip tone-md"
+                                    disabled={rowBusy || typeof onSendMessage !== 'function'}
+                                    title="Enviar por mensajería interna (MD)"
+                                    aria-label="Enviar por MD"
+                                    onClick={() => runAction(payment, 'md')}
+                                  >
+                                    {busyKey === `md:${payment.id}`
+                                      ? <Loader2 size={13} className="spin" aria-hidden="true" />
+                                      : <MessageSquare size={13} aria-hidden="true" />}
+                                    <span>MD</span>
+                                  </button>
+                                </div>
+                              </div>
+                            ) : null}
                           </div>
                         </td>
                       </tr>

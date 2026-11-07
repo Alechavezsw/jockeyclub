@@ -600,8 +600,14 @@ export default function AdminView({
           },
           { key: 'access', icon: DoorOpen, label: 'Ingresos' },
           { key: 'qr_gate', icon: QrCode, label: 'Acceso QR' },
-          { key: 'pool_gate', icon: TicketCheck, label: 'Entrada pileta' },
-          { key: 'pool', icon: Waves, label: 'Pileta' },
+          {
+            key: 'pool',
+            icon: Waves,
+            label: 'Pileta',
+            children: [
+              { key: 'pool_gate', icon: TicketCheck, label: 'Entrada pileta' },
+            ],
+          },
         ],
       },
       {
@@ -664,18 +670,31 @@ export default function AdminView({
     ]
       .map((group) => ({
         ...group,
-        tabs: group.tabs.filter((tab) => {
-          if (tab.key === 'concessions') return showConcessionsTab;
-          if (tab.key === 'qr_gate') return showQrGateTab;
-          if (tab.key === 'pool_gate') return permittedTabs.includes('pool');
-          return permittedTabs.includes(tab.key);
-        }),
+        tabs: group.tabs
+          .filter((tab) => {
+            if (tab.key === 'concessions') return showConcessionsTab;
+            if (tab.key === 'qr_gate') return showQrGateTab;
+            if (tab.key === 'pool') return permittedTabs.includes('pool');
+            return permittedTabs.includes(tab.key);
+          })
+          .map((tab) => {
+            if (!tab.children?.length) return tab;
+            const children = tab.children.filter((child) => {
+              if (child.key === 'pool_gate') return permittedTabs.includes('pool');
+              return permittedTabs.includes(child.key);
+            });
+            return children.length ? { ...tab, children } : { ...tab, children: undefined };
+          }),
       }))
       .filter((group) => group.tabs.length > 0)
   ), [permittedTabs, showConcessionsTab, showQrGateTab, userRole, liquidateDues, reservations]);
 
+  const tabOrChildMatches = (tab, key) => (
+    tab.key === key || (tab.children || []).some((child) => child.key === key)
+  );
+
   useEffect(() => {
-    const parent = navGroups.find((g) => g.tabs.some((t) => t.key === activeTab));
+    const parent = navGroups.find((g) => g.tabs.some((t) => tabOrChildMatches(t, activeTab)));
     if (!parent) return;
     setOpenGroups((prev) => {
       if (prev.has(parent.id)) return prev;
@@ -984,7 +1003,11 @@ export default function AdminView({
           {navGroups.map((group) => {
             const GroupIcon = GROUP_ICONS[group.id] || LayoutDashboard;
             const isOpen = openGroups.has(group.id);
-            const hasActive = group.tabs.some((t) => t.key === activeTab);
+            const hasActive = group.tabs.some((t) => tabOrChildMatches(t, activeTab));
+            const railCount = group.tabs.reduce(
+              (n, tab) => n + 1 + (tab.children?.length || 0),
+              0,
+            );
             return (
               <div
                 key={group.id}
@@ -1003,7 +1026,7 @@ export default function AdminView({
                   </span>
                   <span className="admin-rail-label">
                     <span className="admin-rail-group-name">{group.label}</span>
-                    <span className="admin-rail-group-count">{group.tabs.length}</span>
+                    <span className="admin-rail-group-count">{railCount}</span>
                   </span>
                   <ChevronRight size={14} className="admin-rail-chevron" aria-hidden="true" />
                 </button>
@@ -1011,26 +1034,50 @@ export default function AdminView({
                   {group.tabs.map((tab) => {
                     const Icon = tab.icon;
                     const isActive = activeTab === tab.key;
+                    const childActive = (tab.children || []).some((child) => child.key === activeTab);
                     return (
-                      <button
-                        key={tab.key}
-                        type="button"
-                        onMouseDown={preventButtonScroll}
-                        onMouseEnter={() => prefetchTab(tab.key)}
-                        onFocus={() => prefetchTab(tab.key)}
-                        onClick={() => setActiveTab(tab.key)}
-                        className={`admin-rail-item is-sub${isActive ? ' is-active' : ''}`}
-                        aria-current={isActive ? 'page' : undefined}
-                        title={tab.label}
-                      >
-                        <span className="admin-rail-icon" aria-hidden="true">
-                          <Icon size={15} strokeWidth={isActive ? 2.4 : 2} />
-                          {tab.badge ? (
-                            <span className="admin-rail-badge" aria-hidden="true">{tab.badge > 9 ? '9+' : tab.badge}</span>
-                          ) : null}
-                        </span>
-                        <span className="admin-rail-label">{tab.label}</span>
-                      </button>
+                      <div key={tab.key} className={`admin-rail-branch${childActive ? ' has-active-child' : ''}`}>
+                        <button
+                          type="button"
+                          onMouseDown={preventButtonScroll}
+                          onMouseEnter={() => prefetchTab(tab.key)}
+                          onFocus={() => prefetchTab(tab.key)}
+                          onClick={() => setActiveTab(tab.key)}
+                          className={`admin-rail-item is-sub${isActive ? ' is-active' : ''}${childActive ? ' is-parent-active' : ''}`}
+                          aria-current={isActive ? 'page' : undefined}
+                          title={tab.label}
+                        >
+                          <span className="admin-rail-icon" aria-hidden="true">
+                            <Icon size={15} strokeWidth={isActive || childActive ? 2.4 : 2} />
+                            {tab.badge ? (
+                              <span className="admin-rail-badge" aria-hidden="true">{tab.badge > 9 ? '9+' : tab.badge}</span>
+                            ) : null}
+                          </span>
+                          <span className="admin-rail-label">{tab.label}</span>
+                        </button>
+                        {(tab.children || []).map((child) => {
+                          const ChildIcon = child.icon;
+                          const isChildActive = activeTab === child.key;
+                          return (
+                            <button
+                              key={child.key}
+                              type="button"
+                              onMouseDown={preventButtonScroll}
+                              onMouseEnter={() => prefetchTab(child.key)}
+                              onFocus={() => prefetchTab(child.key)}
+                              onClick={() => setActiveTab(child.key)}
+                              className={`admin-rail-item is-sub is-nested${isChildActive ? ' is-active' : ''}`}
+                              aria-current={isChildActive ? 'page' : undefined}
+                              title={child.label}
+                            >
+                              <span className="admin-rail-icon" aria-hidden="true">
+                                <ChildIcon size={14} strokeWidth={isChildActive ? 2.4 : 2} />
+                              </span>
+                              <span className="admin-rail-label">{child.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
                     );
                   })}
                 </div>

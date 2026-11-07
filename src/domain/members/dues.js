@@ -213,12 +213,15 @@ export function nextDuesDueDate(from = new Date(), member) {
  */
 export function firstUnpaidDuesDate({ lastPaymentDate, nextDueDate, today = new Date(), member } = {}) {
   const day = duesDueDayForMember(member);
+  // next_due_date es la fuente de verdad del primer vencimiento abierto (registrar_cobro).
+  // lastPaymentDate solo rellena si la ficha no trae vencimiento: si gana el último pago,
+  // reaparecen meses ya cobrados en “Meses del recibo”.
+  const pinned = pinDuesDueDate(nextDueDate, member);
+  if (pinned) return pinned;
   const paid = parseDate(lastPaymentDate);
   if (paid) {
     return toISODate(duesDateOnDueDay(paid.getFullYear(), paid.getMonth() + 1, day));
   }
-  const pinned = pinDuesDueDate(nextDueDate, member);
-  if (pinned) return pinned;
   return nextDuesDueDate(today, member);
 }
 
@@ -698,12 +701,13 @@ function periodChoiceFromDue(member, dueOn, paidOn, kind = 'overdue') {
 /**
  * Si el saldo de ficha (capital) supera los meses reconstruidos desde nextDueDate,
  * agrega meses hacia atrás hasta cubrirlo. Evita cobrar $44.000 cuando la ficha debe $152.000.
+ * Si hay de más (ficha ya cobrada / nextDue desfasado), recorta al saldo: no re-cobra meses pagos.
  */
 function expandChoicesToCoverBalance(member, choices, paidOn) {
   const owed = money(Math.max(0, Number(member?.outstandingBalance) || 0));
   if (!(owed > 0.01)) return choices;
   const day = duesDueDayForMember(member);
-  const rows = [...(choices || [])];
+  let rows = [...(choices || [])];
   let covered = money(rows.reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
   let guard = 0;
   while (covered + 0.01 < owed && guard < 24) {
@@ -731,7 +735,29 @@ function expandChoicesToCoverBalance(member, choices, paidOn) {
     });
     covered = money(covered + capital);
   }
-  return rows;
+  if (covered <= owed + 0.01) return rows;
+  // De más: dejar solo lo que cubre el saldo (desde el más viejo = next due).
+  const trimmed = [];
+  let taken = 0;
+  for (const row of rows) {
+    if (taken + 0.01 >= owed) break;
+    const remaining = money(owed - taken);
+    const fullCap = Number(row.capital) || 0;
+    const capital = money(Math.min(fullCap, remaining));
+    if (!(capital > 0)) continue;
+    const ratio = fullCap > 0 ? capital / fullCap : 0;
+    const surcharge = money((Number(row.surcharge) || 0) * ratio);
+    const lateBase = money((Number(row.lateBase) || 0) * ratio);
+    trimmed.push({
+      ...row,
+      capital,
+      surcharge,
+      payable: money(capital + surcharge),
+      lateBase,
+    });
+    taken = money(taken + capital);
+  }
+  return trimmed.length ? trimmed : rows;
 }
 
 /**
@@ -987,6 +1013,37 @@ export function formatShortDate(iso) {
   const d = parseDate(iso);
   if (!d) return String(iso);
   return d.toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+/**
+ * Etiqueta del vencimiento en ficha: “próximo” solo si la fecha aún no pasó.
+ * Si next_due quedó en octubre y hoy es noviembre, es cuota vencida / pendiente.
+ */
+export function memberDueFact(member, today = new Date()) {
+  const iso = pinDuesDueDate(member?.nextDueDate, member)
+    || String(member?.nextDueDate || '').slice(0, 10)
+    || '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+    return { label: 'Próximo vencimiento', value: null, hint: null, iso: null, overdue: false };
+  }
+  const todayIso = today instanceof Date
+    ? toISODate(startOfDay(today))
+    : String(today).slice(0, 10);
+  const owed = Number(member?.outstandingBalance) || 0;
+  const value = formatShortDate(iso);
+  if (iso < todayIso) {
+    return {
+      label: owed > 0.01 ? 'Cuota vencida' : 'Vencimiento',
+      value,
+      hint: owed > 0.01 ? 'Pendiente de cobro' : null,
+      iso,
+      overdue: true,
+    };
+  }
+  if (iso === todayIso) {
+    return { label: 'Vence hoy', value, hint: null, iso, overdue: false };
+  }
+  return { label: 'Próximo vencimiento', value, hint: null, iso, overdue: false };
 }
 
 /** Link de recordatorio de cuota por WhatsApp. Null si no hay teléfono válido. */

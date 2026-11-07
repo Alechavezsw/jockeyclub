@@ -10356,12 +10356,128 @@ a.ops-outline-btn {
   flex-direction: column;
   gap: 0.45rem;
   align-items: flex-start;
+  margin-top: 0.65rem;
 }
 
 .msg-attachment img {
   max-width: min(100%, 360px);
   border-radius: 8px;
   border: 1px solid var(--border-glass);
+}
+
+.msg-attachment-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 650;
+  color: var(--text-gold);
+  text-decoration: none;
+}
+.msg-attachment-link.is-pending {
+  opacity: 0.65;
+}
+
+.msg-list-pdf-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.15rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 0.3rem;
+  background: color-mix(in srgb, #c0392b 88%, #1a0a08);
+  color: #fff;
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.msg-pdf-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.75rem;
+  align-items: center;
+  margin-top: 0.75rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 0.85rem;
+  text-decoration: none;
+  color: inherit;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--primary-gold) 16%, transparent), transparent 55%),
+    color-mix(in srgb, var(--bg-secondary) 88%, #1a1210);
+  border: 1px solid color-mix(in srgb, var(--primary-gold) 42%, var(--border-glass));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 8%, transparent),
+    0 8px 22px color-mix(in srgb, #000 18%, transparent);
+  transition: transform 0.14s ease, border-color 0.14s ease, background 0.14s ease;
+}
+.msg-pdf-card:hover,
+.msg-pdf-card:focus-visible {
+  outline: none;
+  transform: translateY(-1px);
+  border-color: var(--primary-gold);
+}
+.msg-pdf-mark {
+  display: grid;
+  place-items: center;
+  gap: 0.15rem;
+  width: 3.1rem;
+  min-height: 3.4rem;
+  padding: 0.35rem 0.25rem;
+  border-radius: 0.55rem;
+  background: linear-gradient(160deg, #e74c3c 0%, #9b1c1c 100%);
+  color: #fff;
+  box-shadow: 0 6px 14px color-mix(in srgb, #9b1c1c 35%, transparent);
+}
+.msg-pdf-mark b {
+  font-size: 0.62rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  line-height: 1;
+}
+.msg-pdf-body {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+}
+.msg-pdf-kicker {
+  font-size: 0.62rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-gold);
+}
+.msg-pdf-name {
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.msg-pdf-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.15rem;
+  font-size: 0.72rem;
+  font-weight: 750;
+  color: var(--text-gold);
+}
+[data-theme='light'] .msg-pdf-card {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--primary-gold) 12%, #fff), #fff 60%);
+  border-color: color-mix(in srgb, var(--primary-gold) 35%, rgba(28, 25, 23, 0.12));
+  box-shadow: 0 6px 16px rgba(28, 25, 23, 0.08);
+}
+@media (prefers-reduced-motion: reduce) {
+  .msg-pdf-card,
+  .msg-pdf-card:hover,
+  .msg-pdf-card:focus-visible {
+    transition: none;
+    transform: none;
+  }
 }
 
 .glass-card.ops-notice {
@@ -11816,6 +11932,31 @@ a.ops-outline-btn {
   font-size: 0.8rem;
   font-weight: 500;
   color: var(--text-muted);
+}
+
+.admin-rail-branch {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+}
+
+.admin-rail-item.is-nested {
+  margin-left: 1.15rem;
+  padding-left: 0.55rem;
+  min-height: 1.9rem;
+  font-size: 0.76rem;
+  border-left: 1px solid color-mix(in srgb, var(--emerald-accent) 22%, transparent);
+  border-radius: 0 12px 12px 0;
+}
+
+.admin-rail-item.is-nested .admin-rail-icon {
+  width: 1.45rem;
+  height: 1.45rem;
+  border-radius: 8px;
+}
+
+.admin-rail-item.is-parent-active {
+  color: var(--text-primary);
 }
 
 .admin-rail-item:hover,
@@ -23262,6 +23403,48 @@ a.ops-outline-btn {
   font-size: 0.95rem;
   box-shadow: inset 4px 0 0 var(--emerald-accent, #2f9e6c);
 }
+.cuotas-receipt-banner {
+  align-items: flex-start;
+  padding: 1rem 1.05rem 1.05rem;
+  margin: 0 0 0.85rem;
+}
+.cuotas-receipt-banner-main {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 0;
+  flex: 1;
+}
+.cuotas-receipt-banner-title {
+  display: block;
+  font-size: 1.05rem;
+  font-weight: 750;
+  line-height: 1.3;
+  color: var(--emerald-accent, #2f9e6c);
+}
+.cuotas-receipt-banner-hint {
+  margin: 0;
+  font-size: 0.86rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+.cuotas-receipt-banner .payment-receipts-actions {
+  margin-top: 0.15rem;
+}
+.cuotas-receipt-banner-ok {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 650;
+  color: var(--emerald-accent);
+}
+.cuotas-receipt-banner-err {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 650;
+  color: #ef4444;
+}
+[data-theme='light'] .cuotas-receipt-banner-title {
+  color: #14532d;
+}
 .cuotas-success-banner-close {
   appearance: none;
   border: 1px solid color-mix(in srgb, var(--emerald-accent, #2f9e6c) 28%, var(--border-glass, rgba(255,255,255,0.12)));
@@ -23917,9 +24100,76 @@ a.ops-outline-btn {
   font-size: 0.9rem;
   font-weight: 600;
 }
+.payment-receipts-actions-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.45rem;
+  min-width: 11rem;
+}
+.payment-receipts-actions-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 1.85rem;
+  padding: 0.25rem 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--border-glass) 80%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border-glass) 40%, var(--surface-card));
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.payment-receipts-actions-toggle svg {
+  transition: transform 0.16s ease;
+}
+.payment-receipts-actions-wrap.is-open .payment-receipts-actions-toggle svg {
+  transform: rotate(180deg);
+}
+.payment-receipts-actions-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.55rem 0.6rem;
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--border-glass) 35%, var(--surface-card));
+  border: 1px solid color-mix(in srgb, var(--border-glass) 75%, transparent);
+}
+.payment-receipts-op-meta {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+}
+.payment-receipts-op-meta > div {
+  display: grid;
+  grid-template-columns: 4.2rem 1fr;
+  gap: 0.35rem;
+  align-items: baseline;
+}
+.payment-receipts-op-meta dt {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.payment-receipts-op-meta dd {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.25;
+  word-break: break-word;
+}
 .payment-receipts-actions {
   display: inline-flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.28rem;
   padding: 0.18rem;
@@ -23988,9 +24238,14 @@ a.ops-outline-btn {
     transform: none;
   }
 }
+[data-theme='light'] .payment-receipts-actions-toggle,
+[data-theme='light'] .payment-receipts-actions-panel,
+[data-theme='light'] .payment-receipts-actions {
+  background: #fff;
+  border-color: rgba(28, 25, 23, 0.08);
+}
 [data-theme='light'] .payment-receipts-actions {
   background: color-mix(in srgb, #1c1917 4%, #fff);
-  border-color: rgba(28, 25, 23, 0.08);
 }
 [data-theme='light'] .payment-receipts-chip {
   background: #fff;

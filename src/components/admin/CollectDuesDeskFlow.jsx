@@ -146,11 +146,11 @@ export default function CollectDuesDeskFlow({
     }
     const fromPadron = (members || []).find((m) => String(m.memberId) === String(row.memberId));
     let next = fromPadron || row;
-    if (!memberReadyForCollect(next)) {
-      setRemoteBusy(true);
-      next = await hydrateCollectMember(next);
-      setRemoteBusy(false);
-    }
+    // Siempre hidratar saldo / nextDue desde Supabase: el padrón en memoria
+    // puede seguir mostrando meses ya cobrados y volver a marcarlos.
+    setRemoteBusy(true);
+    next = await hydrateCollectMember(next);
+    setRemoteBusy(false);
     if (isDuesExemptMember(next)) {
       setError('Vitalicio, fundador y comisión no abonan cuota social.');
       return;

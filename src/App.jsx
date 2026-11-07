@@ -708,6 +708,11 @@ function ClubPortal() {
       ...newRes,
       status: asAdmin ? 'confirmed' : check.status,
       endTime: check.turn.endTime || newRes.endTime || null,
+      recordedBy: newRes?.recordedBy || user?.id || null,
+      recordedByName: newRes?.recordedByName
+        || (asAdmin
+          ? (String(user?.fullName || user?.email || '').trim() || null)
+          : (String(newRes?.memberName || user?.fullName || '').trim() || null)),
     };
     if (cloudMode) {
       try {

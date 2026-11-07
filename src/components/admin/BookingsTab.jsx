@@ -1,5 +1,18 @@
 import { useMemo, useState } from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, CalendarDays, Download, Plus, X } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  CalendarDays,
+  Download,
+  Loader2,
+  Mail,
+  MessageSquare,
+  Phone,
+  Plus,
+  Search,
+  X,
+} from 'lucide-react';
 import AdminNewReservationDialog from './AdminNewReservationDialog';
 import {
   buildBookingReceiptFromReservation,
@@ -7,8 +20,42 @@ import {
 } from '../../domain/reservations/bookingReceipt';
 import { reservationTotalPrice } from '../../domain/reservations/bookingRules';
 import { downloadPaymentReceiptPdf } from '../../domain/members/exportPaymentReceiptPdf';
+import {
+  paymentReceiptShareTargets,
+  sendDuesReceiptMessage,
+} from '../../domain/members/duesReceiptDelivery';
 import { exportWeekReservationsPdf } from '../../domain/reservations/exportWeekReservationsPdf';
 import { todayAR } from '../../lib/arDate';
+
+function openExternal(url) {
+  if (!url) return;
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+function memberForReservation(res, members = []) {
+  return (members || []).find((row) => String(row.memberId) === String(res?.memberId)) || {
+    memberId: res?.memberId,
+    name: res?.memberName,
+  };
+}
+
+function bookingPaymentForShare(res, members = []) {
+  const member = memberForReservation(res, members);
+  const payFull = reservationPaidInFull(res);
+  return {
+    member,
+    payment: buildBookingReceiptFromReservation(res, { member, payFull }),
+  };
+}
+
+function reservationTakenByLabel(res) {
+  const name = String(res?.recordedByName || '').trim();
+  if (name) return name;
+  const source = String(res?.source || '').toLowerCase();
+  if (source === 'app') return 'Portal del socio';
+  if (source === 'admin') return 'Administración';
+  return null;
+}
 
 const WEEKDAYS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
@@ -89,6 +136,40 @@ function formatRelativeCreated(iso) {
   return at.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' });
 }
 
+function normalizeBookingSearch(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+function reservationSearchHaystack(res) {
+  return normalizeBookingSearch([
+    res?.memberName,
+    res?.memberId,
+    res?.facilityName,
+    res?.facilityId,
+    res?.notes,
+    res?.guestNames,
+    res?.date,
+    res?.time,
+    res?.endTime,
+    res?.recordedByName,
+    statusLabel(res?.status),
+    reservationTakenByLabel(res),
+  ].filter(Boolean).join(' '));
+}
+
+function reservationMatchesQuery(res, query) {
+  const q = normalizeBookingSearch(query);
+  if (!q) return true;
+  const tokens = q.split(/\s+/).filter(Boolean);
+  if (!tokens.length) return true;
+  const hay = reservationSearchHaystack(res);
+  return tokens.every((token) => hay.includes(token));
+}
+
 /** Libro de reservas con calendario mensual y tabla de gestión. */
 export default function BookingsTab({
   reservations = [],
@@ -117,6 +198,11 @@ export default function BookingsTab({
   const [weekPdfBusy, setWeekPdfBusy] = useState(false);
   const [listOpen, setListOpen] = useState(true);
   const [newReservationOpen, setNewReservationOpen] = useState(false);
+  const [openActionsId, setOpenActionsId] = useState(null);
+  const [actionsBusyKey, setActionsBusyKey] = useState('');
+  const [actionsNotice, setActionsNotice] = useState('');
+  const [actionsError, setActionsError] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   const selectCalendarDay = (iso) => {
     setSelectedDate((prev) => {
@@ -124,6 +210,11 @@ export default function BookingsTab({
       if (next) setListOpen(true);
       return next;
     });
+  };
+
+  const setBookingSearch = (value) => {
+    setSearchQuery(value);
+    if (String(value || '').trim()) setListOpen(true);
   };
 
   const byDate = useMemo(() => {
@@ -196,7 +287,14 @@ export default function BookingsTab({
     [monthReservations],
   );
 
+  const searchActive = Boolean(normalizeBookingSearch(searchQuery));
+
   const filteredReservations = useMemo(() => {
+    if (searchActive) {
+      return (reservations || [])
+        .filter((r) => !r.occupancyOnly && reservationMatchesQuery(r, searchQuery))
+        .toSorted((a, b) => compareReservationsLatest(a, b));
+    }
     if (selectedDate) {
       return reservations
         .filter((r) => r.date === selectedDate)
@@ -204,7 +302,7 @@ export default function BookingsTab({
     }
     return [...monthReservations]
       .toSorted((a, b) => compareReservationsLatest(a, b, { pendingFirst: true }));
-  }, [reservations, selectedDate, monthReservations]);
+  }, [reservations, selectedDate, monthReservations, searchQuery, searchActive]);
 
   const selectedDayList = selectedDate ? (byDate.get(selectedDate) || []) : [];
 
@@ -233,6 +331,65 @@ export default function BookingsTab({
     if (!(reservationTotalPrice(null, res) > 0)) return;
     setReceiptError('');
     setReceiptTarget(res);
+  };
+
+  const runBookingShareAction = async (res, action) => {
+    if (!res || res.status === 'cancelled') return;
+    if (!(reservationTotalPrice(null, res) > 0)) {
+      setActionsError('Esta reserva no tiene importe para comprobante.');
+      return;
+    }
+    const key = `${action}:${res.id}`;
+    setActionsBusyKey(key);
+    setActionsError('');
+    setActionsNotice('');
+    try {
+      if (action === 'download') {
+        openReceiptMenu(res);
+        return;
+      }
+      const { member, payment } = bookingPaymentForShare(res, members);
+      const share = paymentReceiptShareTargets(member, payment);
+      if (action === 'whatsapp') {
+        if (!share.whatsappUrl) {
+          setActionsError('Este socio no tiene celular en la ficha.');
+          return;
+        }
+        openExternal(share.whatsappUrl);
+        setActionsNotice('WhatsApp abierto con el texto del comprobante.');
+        return;
+      }
+      if (action === 'mail') {
+        if (!share.email) {
+          setActionsError('Este socio no tiene un mail real en la ficha.');
+          return;
+        }
+        await sendDuesReceiptMessage({
+          member,
+          payment,
+          channels: { md: false, email: true },
+        });
+        setActionsNotice('Comprobante enviado por mail.');
+        return;
+      }
+      if (action === 'md') {
+        if (typeof onSendMessage !== 'function') {
+          setActionsError('La mensajería interna no está disponible.');
+          return;
+        }
+        await sendDuesReceiptMessage({
+          member,
+          payment,
+          onSendMessage,
+          channels: { md: true, email: false },
+        });
+        setActionsNotice('Comprobante enviado por MD.');
+      }
+    } catch (err) {
+      setActionsError(err?.message || 'No se pudo completar la acción.');
+    } finally {
+      setActionsBusyKey('');
+    }
   };
 
   const downloadBookingReceipt = async (payFull) => {
@@ -273,45 +430,354 @@ export default function BookingsTab({
     }
   };
 
+  const showCreatedColumn = searchActive || !selectedDate;
+
+  const renderReservationsTable = (rows, { emptyLabel }) => (
+    <div className="bookings-list-body table-responsive">
+      <table className="admin-table">
+        <thead>
+          <tr>
+            <th>Socio</th>
+            <th>Instalación</th>
+            <th>Fecha</th>
+            <th>Horario</th>
+            {showCreatedColumn ? <th>Alta</th> : null}
+            <th>Importe</th>
+            <th>Estado</th>
+            <th style={{ textAlign: 'right' }}>Gestión</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 ? (
+            <tr>
+              <td
+                colSpan={showCreatedColumn ? 8 : 7}
+                style={{ color: 'var(--text-muted)', padding: '1.5rem 1rem' }}
+              >
+                {emptyLabel}
+              </td>
+            </tr>
+          ) : (
+            rows.map((res) => (
+              <tr key={res.id}>
+                <td>
+                  <strong>{res.memberName}</strong>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    Nº {res.memberId}
+                  </div>
+                </td>
+                <td>
+                  <span style={{ color: 'var(--text-gold)', fontWeight: 600 }}>{res.facilityName}</span>
+                </td>
+                <td className="bookings-when">{formatBookingDate(res.date)}</td>
+                <td className="bookings-when">
+                  {res.time || '—'}
+                  {res.endTime ? <small>a {res.endTime}</small> : null}
+                </td>
+                {showCreatedColumn ? (
+                  <td className="bookings-when">
+                    {formatRelativeCreated(reservationCreatedAt(res)) || '—'}
+                  </td>
+                ) : null}
+                <td className="bookings-money">
+                  {formatMoney(res.chargedPrice || res.estimatedPrice) || (
+                    <span style={{ color: 'var(--text-muted)' }}>—</span>
+                  )}
+                </td>
+                <td>
+                  <span className={`bookings-status ${res.status}`}>
+                    {statusLabel(res.status)}
+                  </span>
+                </td>
+                <td style={{ textAlign: 'right' }}>
+                  {(() => {
+                    const actionsOpen = openActionsId === res.id;
+                    const canReceipt = res.status !== 'cancelled'
+                      && reservationTotalPrice(null, res) > 0;
+                    const { member, payment } = canReceipt
+                      ? bookingPaymentForShare(res, members)
+                      : { member: null, payment: null };
+                    const share = canReceipt
+                      ? paymentReceiptShareTargets(member, payment)
+                      : { whatsappUrl: null, email: '' };
+                    const rowBusy = actionsBusyKey.endsWith(`:${res.id}`);
+                    return (
+                      <div className="bookings-list-actions">
+                        <div className={`bookings-actions-wrap${actionsOpen ? ' is-open' : ''}`}>
+                          <button
+                            type="button"
+                            className="bookings-actions-toggle"
+                            aria-expanded={actionsOpen}
+                            aria-controls={`booking-actions-${res.id}`}
+                            onClick={() => {
+                              setActionsNotice('');
+                              setActionsError('');
+                              setOpenActionsId(actionsOpen ? null : res.id);
+                            }}
+                          >
+                            <span>Gestión</span>
+                            <ChevronDown size={14} aria-hidden="true" />
+                          </button>
+                          {actionsOpen ? (
+                            <div
+                              id={`booking-actions-${res.id}`}
+                              className="bookings-actions-panel"
+                            >
+                              <dl className="bookings-taken-by">
+                                <div>
+                                  <dt>Tomó</dt>
+                                  <dd>{reservationTakenByLabel(res) || '—'}</dd>
+                                </div>
+                              </dl>
+                              {canReceipt ? (
+                                <div
+                                  className="bookings-actions-chips payment-receipts-actions"
+                                  role="group"
+                                  aria-label="Enviar o descargar comprobante"
+                                >
+                                  <button
+                                    type="button"
+                                    className="payment-receipts-chip tone-pdf"
+                                    disabled={rowBusy}
+                                    title="Descargar PDF"
+                                    aria-label="Descargar PDF"
+                                    onClick={() => runBookingShareAction(res, 'download')}
+                                  >
+                                    <Download size={13} aria-hidden="true" />
+                                    <span>PDF</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="payment-receipts-chip tone-wa"
+                                    disabled={rowBusy || !share.whatsappUrl}
+                                    title={share.whatsappUrl ? 'Abrir WhatsApp' : 'Sin celular en ficha'}
+                                    aria-label="Enviar por WhatsApp"
+                                    onClick={() => runBookingShareAction(res, 'whatsapp')}
+                                  >
+                                    <Phone size={13} aria-hidden="true" />
+                                    <span>WA</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="payment-receipts-chip tone-mail"
+                                    disabled={rowBusy || !share.email}
+                                    title={share.email ? 'Enviar por mail' : 'Sin mail real en ficha'}
+                                    aria-label="Enviar por mail"
+                                    onClick={() => runBookingShareAction(res, 'mail')}
+                                  >
+                                    {actionsBusyKey === `mail:${res.id}`
+                                      ? <Loader2 size={13} className="spin" aria-hidden="true" />
+                                      : <Mail size={13} aria-hidden="true" />}
+                                    <span>Mail</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="payment-receipts-chip tone-md"
+                                    disabled={rowBusy || typeof onSendMessage !== 'function'}
+                                    title="Enviar por mensajería interna (MD)"
+                                    aria-label="Enviar por MD"
+                                    onClick={() => runBookingShareAction(res, 'md')}
+                                  >
+                                    {actionsBusyKey === `md:${res.id}`
+                                      ? <Loader2 size={13} className="spin" aria-hidden="true" />
+                                      : <MessageSquare size={13} aria-hidden="true" />}
+                                    <span>MD</span>
+                                  </button>
+                                </div>
+                              ) : (
+                                <p className="bookings-actions-feedback">Sin comprobante para esta reserva.</p>
+                              )}
+                              <div className="bookings-actions-status">
+                                {res.status === 'pending' ? (
+                                  <button
+                                    type="button"
+                                    className="btn btn-secondary btn-sm"
+                                    style={{
+                                      borderColor: 'var(--emerald-accent)',
+                                      color: 'var(--emerald-accent)',
+                                      background: 'rgba(16, 185, 129, 0.05)',
+                                    }}
+                                    onClick={() => handleUpdateReservationStatus(res.id, 'confirmed')}
+                                  >
+                                    Aprobar
+                                  </button>
+                                ) : null}
+                                {res.status !== 'cancelled' ? (
+                                  <button
+                                    type="button"
+                                    className="btn btn-danger btn-sm"
+                                    onClick={() => handleUpdateReservationStatus(res.id, 'cancelled')}
+                                  >
+                                    Anular
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="btn btn-secondary btn-sm"
+                                    onClick={() => handleUpdateReservationStatus(res.id, 'confirmed')}
+                                  >
+                                    Reactivar
+                                  </button>
+                                )}
+                              </div>
+                              {actionsOpen && actionsNotice ? (
+                                <p className="bookings-actions-feedback is-ok" role="status">{actionsNotice}</p>
+                              ) : null}
+                              {actionsOpen && actionsError ? (
+                                <p className="bookings-actions-feedback is-err" role="alert">{actionsError}</p>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+
   return (
-    <div className="glass-card fade-in bookings-tab" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+    <div className="glass-card fade-in bookings-tab" style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
       <style>{`
-        .bookings-layout {
+        .bookings-tab-toolbar {
+          display: flex;
+          align-items: center;
+          gap: 0.65rem;
+          flex-wrap: wrap;
+          padding-bottom: 0.35rem;
+          border-bottom: 1px solid var(--border-glass);
+        }
+        .bookings-search {
+          position: relative;
+          display: flex;
+          align-items: center;
+          flex: 1 1 14rem;
+          min-width: 12rem;
+          max-width: 22rem;
+        }
+        .bookings-search > svg:first-child {
+          position: absolute;
+          left: 0.7rem;
+          color: var(--text-muted);
+          pointer-events: none;
+        }
+        .bookings-search-input {
+          width: 100%;
+          min-height: 2.35rem;
+          padding: 0.4rem 2.2rem 0.4rem 2.25rem;
+          border: 1px solid var(--border-glass);
+          border-radius: 10px;
+          background: color-mix(in srgb, var(--border-glass) 28%, transparent);
+          color: var(--text-primary);
+          font: inherit;
+          font-size: 0.88rem;
+        }
+        .bookings-search-input::placeholder {
+          color: var(--text-muted);
+        }
+        .bookings-search-input:focus {
+          outline: 2px solid color-mix(in srgb, var(--primary-gold) 55%, transparent);
+          outline-offset: 1px;
+          border-color: color-mix(in srgb, var(--primary-gold) 45%, var(--border-glass));
+        }
+        .bookings-search-clear {
+          position: absolute;
+          right: 0.35rem;
           display: grid;
-          grid-template-columns: minmax(280px, 1.05fr) minmax(0, 1.35fr);
-          gap: 1.25rem;
-          align-items: start;
+          place-items: center;
+          width: 1.7rem;
+          height: 1.7rem;
+          border: 0;
+          border-radius: 999px;
+          background: transparent;
+          color: var(--text-muted);
+          cursor: pointer;
+        }
+        .bookings-search-clear:hover {
+          color: var(--text-primary);
+          background: color-mix(in srgb, var(--text-muted) 14%, transparent);
+        }
+        .bookings-search-results {
+          display: flex;
+          flex-direction: column;
+          gap: 0.65rem;
+          padding: 0.85rem 1rem 1rem;
+          border: 1px solid var(--border-glass);
+          border-radius: 14px;
+          background: color-mix(in srgb, var(--border-glass) 22%, transparent);
+        }
+        .bookings-search-results-head {
+          display: flex;
+          align-items: baseline;
+          justify-content: space-between;
+          gap: 0.75rem;
+          flex-wrap: wrap;
+        }
+        .bookings-search-results-head h4 {
+          margin: 0;
+          font-size: 0.95rem;
+          font-weight: 700;
+          color: var(--text-primary);
+        }
+        .bookings-search-results-head p {
+          margin: 0;
+          font-size: 0.78rem;
+          color: var(--text-muted);
+        }
+        .bookings-search-results .bookings-list-body {
+          margin: 0;
+        }
+        .bookings-search-empty {
+          margin: 0;
+          padding: 1rem 0.25rem;
+          font-size: 0.88rem;
+          color: var(--text-muted);
+        }
+        .bookings-layout {
+          display: flex;
+          flex-direction: column;
+          gap: 1.5rem;
+          width: 100%;
         }
         .bookings-cal {
-          padding: 1rem;
+          width: 100%;
+          padding: 1.25rem 1.35rem 1.4rem;
           border: 1px solid var(--border-glass);
-          border-radius: 12px;
+          border-radius: 16px;
           background: rgba(255,255,255,0.02);
         }
         .bookings-cal-head {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          gap: 0.75rem;
-          margin-bottom: 0.85rem;
+          gap: 0.85rem;
+          margin-bottom: 1.05rem;
+          padding-bottom: 0.75rem;
+          border-bottom: 1px solid color-mix(in srgb, var(--border-glass) 80%, transparent);
         }
         .bookings-cal-head h4 {
           margin: 0;
-          font-size: 1.05rem;
+          font-size: 1.2rem;
           font-weight: 700;
           color: var(--text-primary);
+          letter-spacing: -0.01em;
         }
         .bookings-cal-nav {
           display: inline-flex;
-          gap: 0.35rem;
+          gap: 0.4rem;
         }
         .bookings-cal-nav button {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          width: 34px;
-          height: 34px;
-          border-radius: 8px;
+          width: 38px;
+          height: 38px;
+          border-radius: 10px;
           border: 1px solid var(--border-glass);
           background: rgba(255,255,255,0.03);
           color: var(--text-primary);
@@ -323,97 +789,104 @@ export default function BookingsTab({
         }
         .bookings-cal-week {
           display: grid;
-          grid-template-columns: repeat(7, 1fr);
-          gap: 0.25rem;
-          margin-bottom: 0.35rem;
+          grid-template-columns: repeat(7, minmax(0, 1fr));
+          gap: 0.45rem;
+          margin-bottom: 0.5rem;
         }
         .bookings-cal-week span {
           text-align: center;
-          font-size: 0.68rem;
+          font-size: 0.72rem;
           text-transform: uppercase;
-          letter-spacing: 0.04em;
+          letter-spacing: 0.06em;
           color: var(--text-muted);
-          padding: 0.25rem 0;
+          padding: 0.35rem 0;
+          font-weight: 700;
         }
         .bookings-cal-grid {
           display: grid;
-          grid-template-columns: repeat(7, 1fr);
-          gap: 0.3rem;
+          grid-template-columns: repeat(7, minmax(0, 1fr));
+          gap: 0.5rem;
         }
         .bookings-cal-cell {
-          min-height: 64px;
-          border-radius: 8px;
-          border: 1px solid transparent;
-          background: rgba(255,255,255,0.02);
-          padding: 0.35rem 0.3rem;
+          min-height: 6.25rem;
+          border-radius: 12px;
+          border: 1px solid color-mix(in srgb, var(--border-glass) 85%, transparent);
+          background: rgba(255,255,255,0.025);
+          padding: 0.55rem 0.45rem 0.5rem;
           display: flex;
           flex-direction: column;
           align-items: flex-start;
-          gap: 0.25rem;
+          gap: 0.35rem;
           cursor: pointer;
           color: var(--text-primary);
           font-family: inherit;
-          transition: border-color 0.15s ease, background 0.15s ease;
+          transition: border-color 0.15s ease, background 0.15s ease, transform 0.12s ease;
         }
         .bookings-cal-cell:hover:not(:disabled) {
-          border-color: rgba(var(--primary-gold-rgb),0.45);
-          background: rgba(var(--primary-gold-rgb),0.06);
+          border-color: rgba(var(--primary-gold-rgb),0.5);
+          background: rgba(var(--primary-gold-rgb),0.08);
+          transform: translateY(-1px);
         }
         .bookings-cal-cell:disabled {
           cursor: default;
-          opacity: 0.25;
+          opacity: 0.22;
+          border-color: transparent;
+          background: transparent;
         }
         .bookings-cal-cell.is-today {
-          border-color: rgba(16,185,129,0.45);
+          border-color: rgba(16,185,129,0.55);
+          box-shadow: inset 0 0 0 1px rgba(16,185,129,0.18);
         }
         .bookings-cal-cell.is-selected {
           border-color: var(--primary-gold);
-          background: rgba(var(--primary-gold-rgb),0.12);
-          box-shadow: inset 0 0 0 1px rgba(var(--primary-gold-rgb),0.25);
+          background: rgba(var(--primary-gold-rgb),0.14);
+          box-shadow: inset 0 0 0 1px rgba(var(--primary-gold-rgb),0.28);
         }
         .bookings-cal-cell.has-bookings {
-          background: rgba(255,255,255,0.04);
+          background: color-mix(in srgb, var(--primary-gold) 7%, rgba(255,255,255,0.04));
         }
         .bookings-cal-daynum {
-          font-size: 0.82rem;
-          font-weight: 700;
+          font-size: 1.05rem;
+          font-weight: 750;
           line-height: 1;
+          letter-spacing: -0.02em;
         }
         .bookings-cal-dots {
           display: flex;
           flex-wrap: wrap;
-          gap: 3px;
+          gap: 4px;
           margin-top: auto;
         }
         .bookings-cal-dot {
-          width: 6px;
-          height: 6px;
+          width: 8px;
+          height: 8px;
           border-radius: 50%;
         }
         .bookings-cal-dot.confirmed { background: var(--emerald-accent); }
         .bookings-cal-dot.pending { background: #f59e0b; }
         .bookings-cal-dot.cancelled { background: #ef4444; }
         .bookings-cal-count {
-          font-size: 0.65rem;
-          color: var(--text-muted);
+          font-size: 0.72rem;
+          font-weight: 650;
+          color: var(--text-secondary);
         }
         .bookings-day-panel {
-          margin-top: 0.9rem;
-          padding-top: 0.85rem;
+          margin-top: 1.15rem;
+          padding-top: 1rem;
           border-top: 1px solid var(--border-glass);
         }
         .bookings-day-panel h5 {
-          margin: 0 0 0.55rem;
-          font-size: 0.85rem;
+          margin: 0 0 0.7rem;
+          font-size: 0.92rem;
           color: var(--text-gold);
         }
         .bookings-day-item {
           display: grid;
-          grid-template-columns: 4.6rem minmax(0, 1fr) auto;
-          gap: 0.65rem;
+          grid-template-columns: 5rem minmax(0, 1fr) auto;
+          gap: 0.75rem;
           align-items: center;
-          font-size: 0.8rem;
-          padding: 0.7rem 0;
+          font-size: 0.88rem;
+          padding: 0.85rem 0.15rem;
           border-bottom: 1px solid var(--border-glass);
         }
         .bookings-day-item:last-child { border-bottom: none; }
@@ -497,9 +970,11 @@ export default function BookingsTab({
         .bookings-legend {
           display: flex;
           flex-wrap: wrap;
-          gap: 0.85rem;
-          margin-top: 0.75rem;
-          font-size: 0.72rem;
+          gap: 1rem;
+          margin-top: 1rem;
+          padding-top: 0.85rem;
+          border-top: 1px solid color-mix(in srgb, var(--border-glass) 75%, transparent);
+          font-size: 0.78rem;
           color: var(--text-muted);
         }
         .bookings-legend span {
@@ -514,10 +989,12 @@ export default function BookingsTab({
           gap: 0.75rem;
           flex-wrap: wrap;
           margin-bottom: 0;
+          width: 100%;
         }
         .bookings-list-panel {
+          width: 100%;
           border: 1px solid var(--border-glass);
-          border-radius: 12px;
+          border-radius: 14px;
           overflow: hidden;
           background: color-mix(in srgb, var(--bg-card, transparent) 88%, transparent);
         }
@@ -693,22 +1170,153 @@ export default function BookingsTab({
           overflow: auto;
         }
         .bookings-list-actions {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-end;
+          gap: 0.45rem;
+          min-width: 11rem;
+        }
+        .bookings-actions-wrap {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-end;
+          gap: 0.45rem;
+          width: 100%;
+        }
+        .bookings-actions-toggle {
           display: inline-flex;
           align-items: center;
-          gap: 0.5rem;
+          gap: 0.35rem;
+          min-height: 1.85rem;
+          padding: 0.25rem 0.7rem;
+          border: 1px solid color-mix(in srgb, var(--border-glass) 80%, transparent);
+          border-radius: 999px;
+          background: color-mix(in srgb, var(--border-glass) 40%, var(--surface-card, transparent));
+          color: var(--text-primary);
+          font: inherit;
+          font-size: 0.72rem;
+          font-weight: 700;
+          letter-spacing: 0.03em;
+          text-transform: uppercase;
+          cursor: pointer;
         }
-        @media (max-width: 980px) {
-          .bookings-layout {
-            grid-template-columns: 1fr;
+        .bookings-actions-toggle svg {
+          transition: transform 0.16s ease;
+        }
+        .bookings-actions-wrap.is-open .bookings-actions-toggle svg {
+          transform: rotate(180deg);
+        }
+        .bookings-actions-panel {
+          display: flex;
+          flex-direction: column;
+          gap: 0.55rem;
+          width: 100%;
+          max-width: 16rem;
+          padding: 0.55rem 0.6rem;
+          border-radius: 0.75rem;
+          background: color-mix(in srgb, var(--border-glass) 35%, var(--surface-card, transparent));
+          border: 1px solid color-mix(in srgb, var(--border-glass) 75%, transparent);
+          text-align: left;
+        }
+        .bookings-taken-by {
+          display: grid;
+          gap: 0.35rem;
+          margin: 0;
+        }
+        .bookings-taken-by > div {
+          display: grid;
+          grid-template-columns: 4.2rem 1fr;
+          gap: 0.35rem;
+          align-items: baseline;
+        }
+        .bookings-taken-by dt {
+          margin: 0;
+          color: var(--text-muted);
+          font-size: 0.68rem;
+          font-weight: 700;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+        }
+        .bookings-taken-by dd {
+          margin: 0;
+          font-size: 0.78rem;
+          font-weight: 600;
+          color: var(--text-primary);
+          line-height: 1.25;
+          word-break: break-word;
+        }
+        .bookings-actions-chips {
+          display: inline-flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 0.28rem;
+        }
+        .bookings-actions-chips .payment-receipts-chip {
+          min-height: 1.7rem;
+        }
+        .bookings-actions-status {
+          display: inline-flex;
+          flex-wrap: wrap;
+          gap: 0.35rem;
+        }
+        .bookings-actions-status .btn {
+          min-width: 0;
+          min-height: 1.85rem;
+          padding: 0.28rem 0.65rem;
+          font-size: 0.72rem;
+        }
+        .bookings-actions-feedback {
+          margin: 0;
+          font-size: 0.72rem;
+          line-height: 1.3;
+        }
+        .bookings-actions-feedback.is-ok { color: var(--emerald-accent); }
+        .bookings-actions-feedback.is-err { color: var(--danger-accent, #ef4444); }
+        @media (max-width: 720px) {
+          .bookings-cal-cell {
+            min-height: 4.6rem;
+          }
+          .bookings-cal-daynum {
+            font-size: 0.92rem;
+          }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .bookings-cal-cell:hover:not(:disabled) {
+            transform: none;
           }
         }
       `}</style>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', flexWrap: 'wrap' }}>
-        <CalendarDays size={20} color="var(--primary-gold)" />
-        <h3 className="serif-font" style={{ fontSize: '1.4rem', margin: 0, flex: 1, minWidth: 0 }}>
+      <div className="bookings-tab-toolbar">
+        <CalendarDays size={22} color="var(--primary-gold)" />
+        <h3 className="serif-font" style={{ fontSize: '1.5rem', margin: 0, flex: '0 1 auto', minWidth: 0 }}>
           Libro de Reservas
         </h3>
+        <div className="bookings-search">
+          <Search size={15} aria-hidden="true" />
+          <label className="sr-only" htmlFor="bookings-search-input">Buscar reservas</label>
+          <input
+            id="bookings-search-input"
+            type="search"
+            className="bookings-search-input"
+            value={searchQuery}
+            onChange={(e) => setBookingSearch(e.target.value)}
+            placeholder="Socio, Nº, espacio, fecha…"
+            autoComplete="off"
+            aria-controls="bookings-search-results"
+            aria-expanded={searchActive}
+          />
+          {searchQuery ? (
+            <button
+              type="button"
+              className="bookings-search-clear"
+              aria-label="Limpiar búsqueda"
+              onClick={() => setBookingSearch('')}
+            >
+              <X size={14} />
+            </button>
+          ) : null}
+        </div>
         <button
           type="button"
           className="btn btn-secondary btn-sm"
@@ -732,6 +1340,28 @@ export default function BookingsTab({
           </button>
         ) : null}
       </div>
+
+      {searchActive ? (
+        <section
+          className="bookings-search-results"
+          id="bookings-search-results"
+          aria-live="polite"
+        >
+          <div className="bookings-search-results-head">
+            <h4>
+              {filteredReservations.length === 1
+                ? '1 reserva encontrada'
+                : `${filteredReservations.length} reservas encontradas`}
+            </h4>
+            <p>
+              Búsqueda: “{searchQuery.trim()}”
+            </p>
+          </div>
+          {renderReservationsTable(filteredReservations, {
+            emptyLabel: 'Ninguna reserva coincide con la búsqueda.',
+          })}
+        </section>
+      ) : null}
 
       <AdminNewReservationDialog
         open={newReservationOpen}
@@ -821,7 +1451,7 @@ export default function BookingsTab({
         </div>
       ) : null}
 
-      <div className="bookings-layout">
+      <div className="bookings-layout" hidden={searchActive}>
         <aside className="bookings-cal">
           <div className="bookings-cal-head">
             <h4>{monthLabel(cursor.year, cursor.month)}</h4>
@@ -930,7 +1560,7 @@ export default function BookingsTab({
         </aside>
 
         <div className="bookings-list-panel">
-          <div className="bookings-table-head" style={{ padding: '0.35rem 0.35rem 0.35rem 0.15rem' }}>
+          <div className="bookings-table-head">
             <button
               type="button"
               className="bookings-list-toggle"
@@ -1029,118 +1659,11 @@ export default function BookingsTab({
             </div>
           ) : null}
 
-          {listOpen ? (
-            <div className="bookings-list-body table-responsive">
-              <table className="admin-table">
-                <thead>
-                  <tr>
-                    <th>Socio</th>
-                    <th>Instalación</th>
-                    <th>Fecha</th>
-                    <th>Horario</th>
-                    {!selectedDate ? <th>Alta</th> : null}
-                    <th>Importe</th>
-                    <th>Estado</th>
-                    <th style={{ textAlign: 'right' }}>Gestión</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredReservations.length === 0 ? (
-                    <tr>
-                      <td colSpan={selectedDate ? 7 : 8} style={{ color: 'var(--text-muted)', padding: '1.5rem 1rem' }}>
-                        No hay reservas para mostrar.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredReservations.map((res) => (
-                      <tr key={res.id}>
-                        <td>
-                          <strong>{res.memberName}</strong>
-                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                            Nº {res.memberId}
-                          </div>
-                        </td>
-                        <td>
-                          <span style={{ color: 'var(--text-gold)', fontWeight: 600 }}>{res.facilityName}</span>
-                        </td>
-                        <td className="bookings-when">{formatBookingDate(res.date)}</td>
-                        <td className="bookings-when">
-                          {res.time || '—'}
-                          {res.endTime ? <small>a {res.endTime}</small> : null}
-                        </td>
-                        {!selectedDate ? (
-                          <td className="bookings-when">
-                            {formatRelativeCreated(reservationCreatedAt(res)) || '—'}
-                          </td>
-                        ) : null}
-                        <td className="bookings-money">
-                          {formatMoney(res.chargedPrice || res.estimatedPrice) || (
-                            <span style={{ color: 'var(--text-muted)' }}>—</span>
-                          )}
-                        </td>
-                        <td>
-                          <span className={`bookings-status ${res.status}`}>
-                            {statusLabel(res.status)}
-                          </span>
-                        </td>
-                        <td style={{ textAlign: 'right' }}>
-                          <div style={{ display: 'inline-flex', gap: '0.4rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                            {res.status !== 'cancelled' && reservationTotalPrice(null, res) > 0 ? (
-                              <button
-                                type="button"
-                                onClick={() => openReceiptMenu(res)}
-                                className="btn btn-secondary btn-sm"
-                                style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}
-                                title="Descargar comprobante"
-                              >
-                                <Download size={14} aria-hidden />
-                                Comprobante
-                              </button>
-                            ) : null}
-                            {res.status === 'pending' && (
-                              <button
-                                type="button"
-                                onClick={() => handleUpdateReservationStatus(res.id, 'confirmed')}
-                                className="btn btn-secondary btn-sm"
-                                style={{
-                                  borderColor: 'var(--emerald-accent)',
-                                  color: 'var(--emerald-accent)',
-                                  background: 'rgba(16, 185, 129, 0.05)',
-                                  padding: '0.35rem 0.75rem',
-                                }}
-                              >
-                                Aprobar
-                              </button>
-                            )}
-                            {res.status !== 'cancelled' && (
-                              <button
-                                type="button"
-                                onClick={() => handleUpdateReservationStatus(res.id, 'cancelled')}
-                                className="btn btn-danger btn-sm"
-                                style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}
-                              >
-                                Anular
-                              </button>
-                            )}
-                            {res.status === 'cancelled' && (
-                              <button
-                                type="button"
-                                onClick={() => handleUpdateReservationStatus(res.id, 'confirmed')}
-                                className="btn btn-secondary btn-sm"
-                                style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}
-                              >
-                                Reactivar
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
+          {listOpen
+            ? renderReservationsTable(filteredReservations, {
+              emptyLabel: 'No hay reservas para mostrar.',
+            })
+            : null}
         </div>
       </div>
     </div>

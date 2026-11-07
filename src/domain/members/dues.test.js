@@ -30,6 +30,7 @@ import {
   duesOnJoin,
   isMemberBillingActive,
   collectionPeriodChoices,
+  memberDueFact,
 } from './dues';
 import { collectionPreview } from './memberPayments';
 import { setRuntimeTierCatalog } from './tiers';
@@ -574,12 +575,18 @@ describe('atraso desde último pago (vence el 10)', () => {
     expect(formatMonthsBehind(1)).toBe('1 mes atrasado');
   });
 
-  it('prioriza el último pago aunque nextDueDate esté más adelante', () => {
+  it('nextDueDate gana: no reabre meses anteriores ya cerrados en ficha', () => {
+    // lastPayment viejo no debe inventar jul–sep si el vencimiento abierto es octubre.
     expect(monthsBehindOnDues({
-      lastPaymentDate: '2026-08-13',
+      lastPaymentDate: '2026-06-13',
       nextDueDate: '2026-10-10',
-      today,
+      today: new Date('2026-11-05T12:00:00'),
     })).toBe(1);
+    expect(firstUnpaidDuesDate({
+      lastPaymentDate: '2026-06-13',
+      nextDueDate: '2026-10-10',
+      today: new Date('2026-11-05T12:00:00'),
+    })).toBe('2026-10-10');
   });
 
   it('pago de julio deja 2 meses atrasados en septiembre', () => {
@@ -590,6 +597,27 @@ describe('atraso desde último pago (vence el 10)', () => {
   it('pago en septiembre deja al día aunque sea antes del 10', () => {
     expect(monthsBehindOnDues({ lastPaymentDate: '2026-09-05', today })).toBe(0);
     expect(monthsBehindOnDues({ lastPaymentDate: '2026-09-13', today })).toBe(0);
+  });
+});
+
+describe('memberDueFact', () => {
+  it('en noviembre un nextDue de octubre con saldo es cuota vencida, no próximo', () => {
+    const fact = memberDueFact({
+      nextDueDate: '2026-10-10',
+      outstandingBalance: 36000,
+    }, new Date('2026-11-07T12:00:00'));
+    expect(fact.label).toBe('Cuota vencida');
+    expect(fact.overdue).toBe(true);
+    expect(fact.hint).toBe('Pendiente de cobro');
+  });
+
+  it('una fecha futura sigue como próximo vencimiento', () => {
+    const fact = memberDueFact({
+      nextDueDate: '2026-12-10',
+      outstandingBalance: 0,
+    }, new Date('2026-11-07T12:00:00'));
+    expect(fact.label).toBe('Próximo vencimiento');
+    expect(fact.overdue).toBe(false);
   });
 });
 
@@ -683,5 +711,22 @@ describe('collectionPeriodChoices vs saldo de ficha', () => {
     const preview = collectionPreview(member, today);
     expect(preview.quota).toBe(152000);
     expect(preview.cash).toBeGreaterThan(152000);
+  });
+
+  it('no re-cobra jul–sep si el saldo y nextDue dicen solo octubre', () => {
+    const member = {
+      memberId: '111591',
+      name: 'Manuel',
+      tier: 'socio_individual',
+      status: 'active',
+      outstandingBalance: 36000,
+      nextDueDate: '2026-10-10',
+      lastPaymentDate: '2026-06-13',
+    };
+    const today = new Date('2026-11-07T15:00:00-03:00');
+    const choices = collectionPeriodChoices(member, today);
+    expect(choices.map((row) => row.dueOn)).toEqual(['2026-10-10']);
+    const preview = collectionPreview(member, today);
+    expect(preview.quota).toBe(36000);
   });
 });

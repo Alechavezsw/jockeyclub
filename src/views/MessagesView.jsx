@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Inbox, Send, PenSquare, MailOpen, ArrowLeft, CheckCheck, Search, X, AlertTriangle } from 'lucide-react';
+import {
+  Inbox, Send, PenSquare, MailOpen, ArrowLeft, CheckCheck, Search, X, AlertTriangle,
+  FileText, ExternalLink, Paperclip,
+} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -16,6 +19,18 @@ import {
 import { canAccessAdmin } from '../domain/auth/roles';
 import { signedDuesReceiptUrl } from '../data/storage';
 
+function isPdfAttachment(attachment) {
+  const mime = String(attachment?.mimeType || '').toLowerCase();
+  const name = String(attachment?.name || '');
+  return mime.includes('pdf') || /\.pdf$/i.test(name);
+}
+
+function isImageAttachment(attachment) {
+  const mime = String(attachment?.mimeType || '');
+  const name = String(attachment?.name || '');
+  return mime.startsWith('image/') || /\.(jpe?g|png|webp|gif)$/i.test(name);
+}
+
 function MessageAttachment({ attachment }) {
   const [url, setUrl] = useState(attachment?.dataUrl || '');
   useEffect(() => {
@@ -27,14 +42,49 @@ function MessageAttachment({ attachment }) {
     return () => { cancelled = true; };
   }, [attachment?.path]);
   if (!attachment) return null;
-  const isImage = String(attachment.mimeType || '').startsWith('image/') || /\.(jpe?g|png|webp)$/i.test(attachment.name || '');
+  const name = attachment.name || 'Comprobante adjunto';
+  const pdf = isPdfAttachment(attachment);
+  const image = isImageAttachment(attachment);
+
+  if (pdf) {
+    return (
+      <a
+        className="msg-pdf-card"
+        href={url || undefined}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={`Abrir PDF ${name}`}
+        onClick={(e) => { if (!url) e.preventDefault(); }}
+      >
+        <span className="msg-pdf-mark" aria-hidden="true">
+          <FileText size={22} strokeWidth={2.25} />
+          <b>PDF</b>
+        </span>
+        <span className="msg-pdf-body">
+          <span className="msg-pdf-kicker">Comprobante adjunto</span>
+          <strong className="msg-pdf-name">{name}</strong>
+          <span className="msg-pdf-cta">
+            {url ? 'Abrir PDF' : 'Preparando enlace…'}
+            <ExternalLink size={13} aria-hidden="true" />
+          </span>
+        </span>
+      </a>
+    );
+  }
+
   return (
-    <div className="msg-attachment">
-      {isImage && url ? <img src={url} alt={attachment.name || 'Comprobante'} /> : null}
+    <div className={`msg-attachment${image ? ' is-image' : ''}`}>
+      {image && url ? <img src={url} alt={name} /> : null}
       {url ? (
-        <a href={url} target="_blank" rel="noopener noreferrer">{attachment.name || 'Ver comprobante'}</a>
+        <a className="msg-attachment-link" href={url} target="_blank" rel="noopener noreferrer">
+          <Paperclip size={13} aria-hidden="true" />
+          {name}
+        </a>
       ) : (
-        <span>{attachment.name || 'Comprobante adjunto'}</span>
+        <span className="msg-attachment-link is-pending">
+          <Paperclip size={13} aria-hidden="true" />
+          {name}
+        </span>
       )}
     </div>
   );
@@ -560,6 +610,11 @@ export default function MessagesView({ messages, setMessages, members = [], onRe
                         <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--primary-gold)', flexShrink: 0 }} />
                       )}
                       {msg.subject}
+                      {msg.meta?.attachment && isPdfAttachment(msg.meta.attachment) ? (
+                        <span className="msg-list-pdf-pill" title="Incluye PDF">PDF</span>
+                      ) : msg.meta?.attachment ? (
+                        <Paperclip size={12} aria-hidden="true" style={{ color: 'var(--text-gold)', flexShrink: 0 }} />
+                      ) : null}
                     </div>
                     <div style={{
                       fontSize: '0.78rem',

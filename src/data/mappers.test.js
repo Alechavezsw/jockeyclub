@@ -48,6 +48,36 @@ describe('mappers', () => {
     expect(back.full_name).toBe('Alejandro Chávez');
   });
 
+  it('memberFromRow no pisa recordedByName de pagos ya hidratados', () => {
+    const mapped = paymentFromRow({
+      id: '14cc7b34-d10c-4236-bbc8-ae572cc7b77f',
+      member_id: '22222222-2222-2222-2222-222222222222',
+      amount: 39600,
+      paid_at: '2026-11-07T15:20:00-03:00',
+      method: 'transferencia',
+      recorded_by: '75dee325-88c3-47d1-ae51-feaf1a628c5f',
+      meta: {},
+    });
+    const hydrated = {
+      ...mapped,
+      recordedByName: 'Paula Andrea Cuello Scida',
+      imputations: [{ dueOn: '2026-11-10', capital: 39600 }],
+    };
+    const ui = memberFromRow({
+      id: '22222222-2222-2222-2222-222222222222',
+      member_number: '11350',
+      full_name: 'Socio',
+      tier: 'socio_familiar',
+      status: 'active',
+      outstanding_balance: 0,
+      joined_at: '2020-01-01',
+      meta: {},
+    }, [hydrated]);
+    expect(ui.paymentHistory[0].recordedBy).toBe('75dee325-88c3-47d1-ae51-feaf1a628c5f');
+    expect(ui.paymentHistory[0].recordedByName).toBe('Paula Andrea Cuello Scida');
+    expect(ui.paymentHistory[0].imputations).toHaveLength(1);
+  });
+
   it('conserva la adhesión de Mercado Pago al guardar la ficha', () => {
     const ui = memberFromRow({
       member_number: '1001',
@@ -183,6 +213,28 @@ describe('mappers', () => {
     expect(row.facility_id).toBe('tenis_trad');
     expect(row.time_slot).toBe('10:00');
     expect(row.member_id).toBe('m-db');
+  });
+
+  it('persiste quién tomó la reserva en meta', () => {
+    const ui = reservationFromRow({
+      id: 'r2',
+      facility_id: 'salon_anhelo',
+      member_number: '111591',
+      member_name: 'Test',
+      reservation_date: '2026-11-20',
+      time_slot: '20:00',
+      status: 'confirmed',
+      meta: {
+        facilityName: 'Salón Anhelo',
+        source: 'admin',
+        recordedBy: '75dee325-88c3-47d1-ae51-feaf1a628c5f',
+        recordedByName: 'Paula Andrea Cuello Scida',
+      },
+    });
+    expect(ui.recordedByName).toBe('Paula Andrea Cuello Scida');
+    const row = reservationToRow(ui);
+    expect(row.meta.recordedBy).toBe('75dee325-88c3-47d1-ae51-feaf1a628c5f');
+    expect(row.meta.recordedByName).toBe('Paula Andrea Cuello Scida');
   });
 
   it('round-trip de imputación de salón en meta', () => {
