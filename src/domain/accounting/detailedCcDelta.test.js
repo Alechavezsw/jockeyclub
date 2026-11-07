@@ -50,6 +50,26 @@ describe('detailedCcArchiveRows', () => {
 });
 
 describe('applyDetailedCcAppDelta', () => {
+  it('lee el Nº de socio desde Cred. cuando el asiento viene de la DB sin memberId', () => {
+    const next = applyDetailedCcAppDelta(base(), {
+      cutDate: cut,
+      chartOfAccounts: chart,
+      journalEntries: [{
+        id: 'desde-db',
+        status: 'posted',
+        date: '2026-11-06',
+        concept: 'Cobro cuota social (Transferencia) - Socio: Socio (Cred. 11)',
+        description: 'Cobro cuota social (Transferencia) - Socio: Socio (Cred. 11)',
+        lines: [
+          { accountId: 'coa-1.1.01', debit: 10000, credit: 0 },
+          { accountId: 'coa-4.1.01', debit: 0, credit: 10000 },
+        ],
+      }],
+    });
+    expect(next['11'].totalOwed).toBe(30000);
+    expect(next['11'].lines.find((line) => line.source === 'app').value).toBe(-10000);
+  });
+
   it('un cobro posterior al corte resta y uno del mismo día no entra', () => {
     const next = applyDetailedCcAppDelta(base(), {
       cutDate: cut,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MAILBOX } from '../messaging/messages';
 import { bookingPaymentNotice, duesBoletoMessage, duesDebitFailedMessage, duesPaymentNotice, duesReceiptMessage } from './duesPaymentNotice';
-import { buildOnlineDuesBoleto } from './duesReceiptDelivery';
+import { buildOnlineDuesBoleto, paymentReceiptShareTargets } from './duesReceiptDelivery';
 import { paymentBoletoPdfFile } from './exportPaymentReceiptPdf';
 
 describe('duesPaymentNotice', () => {
@@ -113,5 +113,16 @@ describe('duesPaymentNotice', () => {
     expect(msg.content).toMatch(/Salón Bustos/);
     expect(msg.content).toMatch(/18:00/);
     expect(msg.meta.kind).toBe('booking_payment');
+  });
+
+  it('arma links de WhatsApp y mail para reenviar un comprobante', () => {
+    const share = paymentReceiptShareTargets(
+      { name: 'Ana', memberId: '111', phone: '2645550101', email: 'ana@ejemplo.com' },
+      { amount: 70000, receiptNumber: 'RC-111', concept: 'Cuota social', date: '2026-11-06', method: 'transferencia' },
+    );
+    expect(share.whatsappUrl).toContain('https://wa.me/5492645550101');
+    expect(decodeURIComponent(share.whatsappUrl)).toMatch(/RC-111/);
+    expect(share.mailUrl).toContain('mailto:ana@ejemplo.com');
+    expect(share.message).toMatch(/jockeyclubsj\.com\.ar\/cuenta/);
   });
 });

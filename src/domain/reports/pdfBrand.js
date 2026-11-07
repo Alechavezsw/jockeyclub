@@ -10,9 +10,9 @@ export const BRAND = {
 };
 
 /** Carga el logo institucional como data URL para jsPDF. */
-export async function loadClubLogoDataUrl() {
+export async function loadClubLogoDataUrl(url = LOGO_URL) {
   try {
-    const res = await fetch(LOGO_URL);
+    const res = await fetch(url || LOGO_URL);
     if (!res.ok) return null;
     const blob = await res.blob();
     return await new Promise((resolve, reject) => {
@@ -26,7 +26,10 @@ export async function loadClubLogoDataUrl() {
   }
 }
 
-/** Pastilla crema para que el logo no se pierda sobre la barra verde. */
+/**
+ * Pastilla crema redondeada — mismo tratamiento que el boleto de pago.
+ * El logo va sobre el fondo claro para no perderse en la barra verde.
+ */
 export function drawLogoPastilla(doc, logoDataUrl, { x = 8, y = 3.4, size = 18 } = {}) {
   const pad = 2.1;
   const box = size + pad * 2;
@@ -36,6 +39,33 @@ export function drawLogoPastilla(doc, logoDataUrl, { x = 8, y = 3.4, size = 18 }
     doc.addImage(logoDataUrl, 'PNG', x + pad, y + pad, size, size);
   }
   return { width: box, height: box, textX: x + box + 4 };
+}
+
+/** Pastilla de medio de pago (ej. Transferencia bancaria). */
+export function drawLabelPastilla(doc, label, {
+  x = 14,
+  y = 40,
+  fill = [255, 255, 255],
+  textColor = BRAND.green,
+  border = BRAND.gold,
+} = {}) {
+  const text = String(label || '').trim();
+  if (!text) return { width: 0, height: 0 };
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  const padX = 3.2;
+  const h = 6.4;
+  const w = Math.min(doc.getTextWidth(text) + padX * 2, 90);
+  doc.setFillColor(...fill);
+  doc.roundedRect(x, y, w, h, h / 2, h / 2, 'F');
+  if (border) {
+    doc.setDrawColor(...border);
+    doc.setLineWidth(0.35);
+    doc.roundedRect(x, y, w, h, h / 2, h / 2, 'S');
+  }
+  doc.setTextColor(...textColor);
+  doc.text(text, x + padX, y + 4.3);
+  return { width: w, height: h };
 }
 
 /**

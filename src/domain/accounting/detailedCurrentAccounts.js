@@ -315,7 +315,12 @@ function journalMemberKey(entry, index) {
   const raw = entry?.memberNumber || entry?.memberId;
   const digits = String(raw || '').replace(/\D/g, '');
   if (digits && digits.length <= 8) return detailedCcMemberKey(digits);
-  return index.byId.get(String(entry?.memberId || '')) || '';
+  const fromId = index.byId.get(String(entry?.memberId || ''));
+  if (fromId) return fromId;
+  // Tras recargar, el asiento viene de DB sin memberId: se lee del texto Cred. N.
+  const text = String(entry?.description || entry?.concept || entry?.memo || '');
+  const match = text.match(/\(Cred\.\s*(\d{1,8})(?:\.{3}|…)?\)/i);
+  return match ? detailedCcMemberKey(match[1]) : '';
 }
 
 function retotalMember(bucket, lines) {

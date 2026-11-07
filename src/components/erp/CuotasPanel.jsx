@@ -68,6 +68,7 @@ import MemberBalancesPanel from './MemberBalancesPanel';
 import MonthlyDebtsPanel from './MonthlyDebtsPanel';
 import DetailedCurrentAccountsPanel from './DetailedCurrentAccountsPanel';
 import MemberCreditPurchasesPanel from './MemberCreditPurchasesPanel';
+import PaymentReceiptsPanel from './PaymentReceiptsPanel';
 import CuotasDeskToolbar from './CuotasDeskToolbar';
 import CuotasIaReviewModal from './CuotasIaReviewModal';
 import { mergeDuesSettings } from '../../domain/system/clubSettings';
@@ -141,7 +142,7 @@ export default function CuotasPanel({
   const reopenPeriods = canReopenFeePeriod(roleSource);
   const [notePeriod, setNotePeriod] = useState(null);
   const fmt = formatCurrencyProp || formatCurrency;
-  const [view, setView] = useState(() => (balancesOnly ? 'balances' : initialView)); // hub | import_collections | import_debts | impute_events | mora | period_detail | accounts | balances | monthly_debts | detailed_cc | credit_purchases
+  const [view, setView] = useState(() => (balancesOnly ? 'balances' : initialView)); // hub | import_collections | import_debts | impute_events | mora | period_detail | accounts | balances | monthly_debts | detailed_cc | credit_purchases | payment_receipts
   const [year, setYear] = useState(2026);
   const ccEnabled = duesSettings?.showCurrentAccountsToMembers !== false;
   const [flash, setFlash] = useState('');
@@ -937,6 +938,17 @@ export default function CuotasPanel({
         members={members}
         onBack={() => goHome()}
         onOpenMember={() => setView('balances')}
+      />
+    );
+  }
+
+  if (view === 'payment_receipts') {
+    return (
+      <PaymentReceiptsPanel
+        members={members}
+        onBack={() => goHome()}
+        onSendMessage={onSendMessage}
+        formatCurrency={fmt}
       />
     );
   }

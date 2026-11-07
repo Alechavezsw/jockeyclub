@@ -5,6 +5,7 @@ import {
   FileSpreadsheet,
   ListTree,
   Plus,
+  Receipt,
   Search,
   Ticket,
   Upload,
@@ -14,6 +15,7 @@ import {
 const CONSULT = [
   { id: 'balances', icon: Wallet, label: 'Saldos', hint: 'Cuentas de cada socio' },
   { id: 'detailed_cc', icon: ListTree, label: 'CC detalladas', hint: 'Cargos y pagos' },
+  { id: 'payment_receipts', icon: Receipt, label: 'Comprobantes', hint: 'Descargar o reenviar' },
   { id: 'credit_purchases', icon: Ticket, label: 'Créditos comprados', hint: 'Compras a crédito' },
   { id: 'monthly_debts', icon: FileSpreadsheet, label: 'Deudas mes a mes', hint: 'Saldo por mes' },
   { id: 'accounts', icon: BookOpen, label: 'Cuentas contables', hint: 'Pendiente por categoría' },

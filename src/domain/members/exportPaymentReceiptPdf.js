@@ -1,6 +1,13 @@
 import { loadAutoTable, loadJsPdf } from '../../lib/office.js';
-import { BRAND, drawReportFooter, drawReportHeader } from '../reports/pdfBrand';
+import {
+  BRAND,
+  drawLabelPastilla,
+  drawReportFooter,
+  drawReportHeader,
+  loadClubLogoDataUrl,
+} from '../reports/pdfBrand';
 import { CLUB_BANK_ACCOUNTS, MERCADO_PAGO } from './clubBanks';
+import { getTierDisplayName } from './tiers';
 
 function formatCurrency(amount) {
   return new Intl.NumberFormat('es-AR', {
@@ -32,13 +39,66 @@ function periodLabelFromDueOn(dueOn) {
 }
 
 /** Período cubierto por el cobro (meses marcados o texto guardado). */
-function paymentPeriodLabel(payment) {
+export function paymentPeriodLabel(payment) {
   const stored = String(payment?.period || '').trim();
   if (stored) return stored;
   const dueOns = Array.isArray(payment?.periodDueOns) ? payment.periodDueOns.filter(Boolean) : [];
   if (!dueOns.length) return '—';
   if (dueOns.length === 1) return periodLabelFromDueOn(dueOns[0]);
   return `${periodLabelFromDueOn(dueOns[0])} · ${periodLabelFromDueOn(dueOns[dueOns.length - 1])}`;
+}
+
+/** Categoría visible en el recibo (Socio / Grupo familiar, etc.). */
+export function receiptCategoryLabel(member) {
+  const fromCatalog = getTierDisplayName(member?.tier);
+  if (fromCatalog && fromCatalog !== '—') return String(fromCatalog).toUpperCase();
+  const categories = Array.isArray(member?.cuotaCategories)
+    ? member.cuotaCategories.map((c) => String(c || '').trim()).filter(Boolean)
+    : [];
+  if (categories.length) return categories[0].toUpperCase();
+  return '—';
+}
+
+/**
+ * A qué corresponde el cobro: meses imputados / período / concepto limpio.
+ * Sin mezclar el medio de pago (eso va en TIPO).
+ */
+export function paymentCorrespondsTo(payment, { isBooking = false } = {}) {
+  if (isBooking) {
+    const space = String(payment?.facilityName || '').trim();
+    const scope = payment?.bookingScope === 'deposit'
+      ? 'Seña 50 % de alquiler'
+      : payment?.bookingScope === 'total'
+        ? 'Alquiler saldado'
+        : 'Alquiler';
+    return [scope, space, paymentPeriodLabel(payment)].filter((p) => p && p !== '—').join(' · ') || 'Reserva';
+  }
+
+  const imputations = Array.isArray(payment?.imputations)
+    ? payment.imputations.filter((row) => row && !row.voidedAt)
+    : [];
+  if (imputations.length) {
+    return imputations.map((row) => {
+      const period = periodLabelFromDueOn(row.dueOn);
+      const bits = [];
+      if (Number(row.capital) > 0.01) bits.push(`Cuota social ${period}`);
+      if (Number(row.surcharge) > 0.01) bits.push(`Recargo ${period}`);
+      return bits.length ? bits.join(' + ') : `Cuota social ${period}`;
+    }).join(' · ');
+  }
+
+  const period = paymentPeriodLabel(payment);
+  const raw = String(payment?.concept || '').trim();
+  const cleaned = raw
+    .replace(/\s*[·•|-]\s*(Transferencia|Efectivo|Tarjeta|Mercado Pago|Caja|Débito)[^·•|-]*/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  if (cleaned && period && period !== '—' && !cleaned.toLowerCase().includes(period.toLowerCase())) {
+    return `${cleaned} · ${period}`;
+  }
+  if (cleaned) return cleaned;
+  if (period && period !== '—') return `Cuota social · ${period}`;
+  return 'Cuota social';
 }
 
 const METHOD = {
@@ -50,14 +110,36 @@ const METHOD = {
   mercadopago: 'Mercado Pago',
 };
 
-/** Cuenta acreditada según el medio de pago, para el recuadro final del recibo. */
-function accountLabel(payment) {
-  if (payment.method === 'mercadopago') return `Mercado Pago - ${MERCADO_PAGO.alias}`;
-  if (payment.method === 'transferencia') {
-    const bank = CLUB_BANK_ACCOUNTS.find((b) => b.id === payment.bankId);
-    return bank?.alias ? `Alias ${bank.alias}` : '—';
+/** Medio de pago para el recibo (genérico; el banco va en CUENTA). */
+export function receiptMethodLabel(payment) {
+  const method = String(payment?.method || '').trim().toLowerCase();
+  if (method === 'transferencia' || /transferencia/i.test(String(payment?.methodLabel || ''))) {
+    return 'Transferencia bancaria';
   }
-  return 'Caja General';
+  if (METHOD[method]) return METHOD[method];
+  const label = String(payment?.methodLabel || '').trim();
+  if (label) {
+    return label.replace(/^Transferencia\s+.+$/i, 'Transferencia bancaria');
+  }
+  return method || '—';
+}
+
+/**
+ * Destino acreditado (solo alias / caja).
+ * Nunca el nombre del banco (“Banco Nación”): eso no es la cuenta del recibo.
+ */
+export function accountLabel(payment) {
+  if (payment?.method === 'mercadopago') {
+    return MERCADO_PAGO.alias ? `Alias ${MERCADO_PAGO.alias}` : null;
+  }
+  if (payment?.method === 'transferencia') {
+    const bank = CLUB_BANK_ACCOUNTS.find((b) => b.id === payment.bankId) || CLUB_BANK_ACCOUNTS[0];
+    return bank?.alias ? `Alias ${bank.alias}` : null;
+  }
+  if (payment?.method === 'efectivo' || payment?.method === 'caja' || payment?.method === 'tarjeta') {
+    return 'Caja General';
+  }
+  return null;
 }
 
 /** Arma el PDF del recibo (compartido por descarga y envío por mensajería). */
@@ -65,21 +147,24 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
   if (!payment) throw new Error('Pago no encontrado.');
   const isBoleto = kind === 'boleto';
   const docLabel = isBoleto ? 'Boleto de pago' : 'Recibo de pago';
-  const [{ jsPDF }, autoTableMod] = await Promise.all([
+  const [{ jsPDF }, autoTableMod, logoDataUrl] = await Promise.all([
     loadJsPdf(),
     loadAutoTable(),
+    loadClubLogoDataUrl(),
   ]);
   const autoTable = autoTableMod.default;
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const receiptNo = payment.receiptNumber || payment.receipt || payment.id;
+  const category = receiptCategoryLabel(member);
+  const isBooking = payment.kind === 'reserva' || payment.bookingScope === 'deposit' || payment.bookingScope === 'total';
+  const corresponds = paymentCorrespondsTo(payment, { isBooking });
+  const methodText = receiptMethodLabel(payment);
 
-  // Sin logo: el PNG institucional pesa ~4MB embebido sin re-escalar y este
-  // recibo va adjunto a un mensaje (bucket con tope de 5MB); el resto del
-  // branding (barra verde, dorado) alcanza para que se vea institucional.
   const startY = drawReportHeader(doc, {
     title: `${docLabel} #${receiptNo}`,
-    subtitle: `Socio ${member?.memberId || '—'} · ${member?.name || '—'}`,
+    subtitle: `Socio ${member?.memberId || '—'} · ${member?.name || '—'} · ${category}`,
     metaLine: `Emitido el ${new Date().toLocaleString('es-AR')}`,
+    logoDataUrl,
   });
 
   doc.setFont('helvetica', 'bold');
@@ -90,47 +175,68 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
   doc.setLineWidth(0.3);
   doc.line(14, startY + 10, 196, startY + 10);
 
-  let y = startY + 18;
+  let y = startY + 14;
+  const pill = drawLabelPastilla(doc, methodText, {
+    x: 14,
+    y,
+    fill: [255, 255, 255],
+    textColor: BRAND.green,
+    border: BRAND.gold,
+  });
+  y += pill.height + 6;
+
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9);
   doc.setTextColor(60, 60, 60);
-  const isBooking = payment.kind === 'reserva' || payment.bookingScope === 'deposit' || payment.bookingScope === 'total';
   const balanceRemaining = Number(payment.balanceRemaining);
   const totalPrice = Number(payment.totalPrice);
   const infoRows = [
     ['SOCIO', String(member?.name || '—').toUpperCase()],
     ['N° SOCIO', String(member?.memberId || '—')],
+    ['CATEGORÍA', category],
     isBooking
       ? ['ESPACIO', String(payment.facilityName || '—').toUpperCase()]
-      : ['PERÍODO', paymentPeriodLabel(payment)],
+      : ['PERÍODO', String(paymentPeriodLabel(payment)).toUpperCase()],
+    ['CORRESPONDE A', String(corresponds).toUpperCase()],
     isBooking
-      ? ['EVENTO', paymentPeriodLabel(payment)]
+      ? ['EVENTO', String(paymentPeriodLabel(payment)).toUpperCase()]
       : ['FECHA', formatLongDateAr(payment.date)],
     ['FECHA PAGO', formatLongDateAr(payment.date)],
-    ['DESCRIPCIÓN', String(payment.concept || (isBooking ? 'Reserva' : 'Cuota social')).toUpperCase()],
     ['COMPROBANTE', String(receiptNo)],
   ];
   infoRows.forEach(([label, value]) => {
     doc.setFont('helvetica', 'bold');
     doc.text(`${label}:`, 16, y);
     doc.setFont('helvetica', 'normal');
-    doc.text(value, 55, y, { maxWidth: 140 });
-    y += 6;
+    const lines = doc.splitTextToSize(value, 140);
+    doc.text(lines, 58, y);
+    y += Math.max(6, lines.length * 5);
   });
 
   const quota = Number(payment.quota);
   const surcharge = Number(payment.surcharge);
   const hasSplit = Number.isFinite(quota) && quota > 0;
+  const period = paymentPeriodLabel(payment);
   const bodyRows = hasSplit
     ? [
-      [formatShortDateAr(payment.date), 'Cuota social', formatCurrency(quota), formatCurrency(quota)],
+      [
+        formatShortDateAr(payment.date),
+        period && period !== '—' ? `Cuota social · ${period}` : 'Cuota social',
+        formatCurrency(quota),
+        formatCurrency(quota),
+      ],
       ...(Number.isFinite(surcharge) && surcharge > 0
-        ? [['', 'Interés', formatCurrency(surcharge), formatCurrency(surcharge)]]
+        ? [[
+          '',
+          period && period !== '—' ? `Recargo · ${period}` : 'Recargo',
+          formatCurrency(surcharge),
+          formatCurrency(surcharge),
+        ]]
         : []),
     ]
     : [[
       formatShortDateAr(payment.date),
-      payment.concept || (isBooking ? 'Reserva' : 'Cuota social'),
+      corresponds,
       formatCurrency(payment.amount),
       formatCurrency(payment.amount),
     ]];
@@ -146,7 +252,7 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
 
   autoTable(doc, {
     startY: y + 4,
-    head: [['FECHA', 'ENTRADA', 'MONTO', 'ABONADO']],
+    head: [['FECHA', 'CORRESPONDE A', 'MONTO', 'ABONADO']],
     body: bodyRows,
     foot: [
       ['', '', 'TOTAL PAGO', formatCurrency(payment.amount)],
@@ -165,7 +271,7 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);
   doc.setTextColor(30, 30, 30);
-  doc.text(`${(member?.name || '—').toUpperCase()} (${member?.memberId || '—'})`, 14, footY);
+  doc.text(`${(member?.name || '—').toUpperCase()} (${member?.memberId || '—'}) · ${category}`, 14, footY);
   footY += 6;
 
   const bookingExtra = isBooking && Number.isFinite(balanceRemaining) && balanceRemaining > 0 ? 10 : 0;
@@ -174,9 +280,10 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
   doc.rect(14, footY, 182, 22 + bookingExtra);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9);
+  const credited = accountLabel(payment);
   const footRows = [
-    ['TIPO', METHOD[payment.method] || payment.method || '—'],
-    ['CUENTA', accountLabel(payment)],
+    ['TIPO', methodText],
+    ...(credited ? [['DESTINO', credited]] : []),
     ['MONTO', formatCurrency(payment.amount)],
   ];
   if (isBooking && Number.isFinite(balanceRemaining) && balanceRemaining > 0) {

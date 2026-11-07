@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, startTransition } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { keepPageAtTop } from './lib/scrollPage';
 import Navbar from './components/Navbar';
@@ -1047,7 +1047,7 @@ function ClubPortal() {
       setMembersLoading(isOps);
 
       /** Cada cuántos socios pintar React; el contador “N de M” sigue en vivo. */
-      const MEMBERS_UI_PAINT_STEP = 2000;
+      const MEMBERS_UI_PAINT_STEP = 1500;
       let lastMembersPainted = 0;
 
       const paintMembers = (rawMembers, {
@@ -1057,45 +1057,51 @@ function ClubPortal() {
         loaded = 0,
         total = 0,
         done = false,
+        urgent = false,
       } = {}) => {
         const cleaned = (rawMembers || []).filter((m) => !isDemoMember(m));
         const finished = Boolean(done || attachFamily);
-        setMembers((prev) => {
-          // El download manda la lista acumulada: reemplazar evita merge O(n²) por lote.
-          if (!finished && cleaned.length >= ((prev || []).length || 0)) {
-            return cleaned;
-          }
-          const merged = applyMemberListRefresh(
-            (prev || []).filter((m) => !isDemoMember(m)),
-            cleaned,
-            { done: finished },
-          );
-          return finished ? attachHouseholdToMembers(merged) : merged;
-        });
-        if (keepCount) {
-          setMembersCount((prev) => Math.max(prev, cleaned.length, expectedCount));
-        } else {
-          setMembersCount(Math.max(cleaned.length, expectedCount));
-        }
-        // Índices DB: solo al terminar (o primer lote) — no en cada ola.
-        if (finished || lastMembersPainted === 0) {
-          setMemberDbIds((prev) => {
-            const next = { ...(prev || {}) };
-            for (const member of cleaned) {
-              if (member.memberId && member.id) next[member.memberId] = member.id;
+        const apply = () => {
+          setMembers((prev) => {
+            // El download manda la lista acumulada: reemplazar evita merge O(n²) por lote.
+            if (!finished && cleaned.length >= ((prev || []).length || 0)) {
+              return cleaned;
             }
-            if (finished) {
-              const keep = new Set(cleaned.map((member) => String(member.memberId)));
-              for (const key of Object.keys(next)) {
-                if (!keep.has(String(key))) delete next[key];
-              }
-            }
-            return next;
+            const merged = applyMemberListRefresh(
+              (prev || []).filter((m) => !isDemoMember(m)),
+              cleaned,
+              { done: finished },
+            );
+            return finished ? attachHouseholdToMembers(merged) : merged;
           });
-        }
-        if (loaded || total) {
-          setMembersProgress({ loaded: loaded || cleaned.length, total: total || expectedCount || cleaned.length });
-        }
+          if (keepCount) {
+            setMembersCount((prev) => Math.max(prev, cleaned.length, expectedCount));
+          } else {
+            setMembersCount(Math.max(cleaned.length, expectedCount));
+          }
+          // Índices DB: solo al terminar (o primer lote) — no en cada ola.
+          if (finished || lastMembersPainted === 0) {
+            setMemberDbIds((prev) => {
+              const next = { ...(prev || {}) };
+              for (const member of cleaned) {
+                if (member.memberId && member.id) next[member.memberId] = member.id;
+              }
+              if (finished) {
+                const keep = new Set(cleaned.map((member) => String(member.memberId)));
+                for (const key of Object.keys(next)) {
+                  if (!keep.has(String(key))) delete next[key];
+                }
+              }
+              return next;
+            });
+          }
+          if (loaded || total) {
+            setMembersProgress({ loaded: loaded || cleaned.length, total: total || expectedCount || cleaned.length });
+          }
+        };
+        // Primer lote / cierre: inmediato. Olas intermedias: no bloquean la UI.
+        if (urgent || finished || lastMembersPainted === 0) apply();
+        else startTransition(apply);
       };
 
       // En la puerta / registro público no bajamos los 5k socios: satura el pool.
@@ -1122,7 +1128,12 @@ function ClubPortal() {
                 || firstPage
                 || lastMembersPainted === 0
                 || (loadedNow - lastMembersPainted >= MEMBERS_UI_PAINT_STEP);
-              if (!shouldPaint) return;
+              if (!shouldPaint) {
+                if (loadedNow || totalNow) {
+                  setMembersProgress({ loaded: loadedNow, total: totalNow || loadedNow });
+                }
+                return;
+              }
               lastMembersPainted = loadedNow;
               paintMembers(partial, {
                 keepCount: !finished,
@@ -1131,6 +1142,7 @@ function ClubPortal() {
                 expectedCount: totalNow,
                 loaded: loadedNow,
                 total: totalNow,
+                urgent: firstPage,
               });
             },
           });

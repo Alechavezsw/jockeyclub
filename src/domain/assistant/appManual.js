@@ -503,7 +503,7 @@ export const APP_MANUAL = [
     who: 'Saldos (solo consulta): caja y pileta. Operar y liquidar: administración, contador y superadmin.',
     steps: [
       'Si tu perfil no liquida, la sección se llama Saldos y es solo de consulta.',
-      'Consultar: Saldos, CC detalladas, Créditos, Deudas mes a mes.',
+      'Consultar: Saldos, CC detalladas, Comprobantes (buscar socio y mes, descargar PDF o reenviar por WhatsApp / mail / MD), Créditos, Deudas mes a mes.',
       'Operar (administración, contador y superadmin): Importar cobranzas (Excel), Imputar eventos, Control de mora y Liquidar.',
       'Control de mora lista a quien venció, con meses atrasados y lo que debe. Desde el día siguiente al vencimiento corre el recargo del 10 % (familiar e individual).',
       'WhatsApp de vencimiento sale de la franja de mora, con el teléfono de la ficha.',

@@ -6,6 +6,8 @@ import { sendPaymentReceiptEmail } from '../../data/repos';
 import { mpReceiptMoney } from './mpPaymentReceipt';
 import { formatAccessinCashDate } from '../accounting/cashLedger';
 import { todayAR } from '../../lib/arDate';
+import { toWhatsAppPhone } from './dues';
+import { duesMethodLabel } from './memberPayments';
 
 
 export function buildOnlineDuesBoleto({ member, amount, dueLabel } = {}) {
@@ -58,8 +60,15 @@ export async function prepareOnlineDuesBoleto({ member, amount, dueLabel, profil
  * Genera el recibo del cobro, lo manda por Mensajería y por mail (Resend).
  * Misma regla que Mercado Pago. Best-effort: no interrumpe el cobro ya registrado.
  */
-export async function sendDuesReceiptMessage({ member, payment, onSendMessage }) {
+export async function sendDuesReceiptMessage({
+  member,
+  payment,
+  onSendMessage,
+  channels = { md: true, email: true },
+} = {}) {
   if (!member?.memberId || !payment) return;
+  const sendMd = channels?.md !== false;
+  const sendEmail = channels?.email !== false;
   try {
     const file = await paymentReceiptPdfFile({ member, payment });
     let attachment;
@@ -68,13 +77,14 @@ export async function sendDuesReceiptMessage({ member, payment, onSendMessage })
     } catch {
       attachment = undefined;
     }
-    if (typeof onSendMessage === 'function') {
+    if (sendMd && typeof onSendMessage === 'function') {
       try {
         await onSendMessage(duesReceiptMessage({ member, payment, attachment }));
       } catch {
         /* best-effort MD */
       }
     }
+    if (!sendEmail) return;
     const email = paymentReceiptDeliverableEmail(member.email)
       || paymentReceiptDeliverableEmail(member.contactEmail);
     if (!email) return;
@@ -93,4 +103,44 @@ export async function sendDuesReceiptMessage({ member, payment, onSendMessage })
   } catch {
     /* best-effort */
   }
+}
+
+/** Texto / links para reenviar un recibo por WhatsApp o mailto (sin PDF adjunto). */
+export function paymentReceiptShareTargets(member, payment) {
+  if (!member || !payment) {
+    return { message: '', whatsappUrl: null, mailUrl: null, phone: '', email: '' };
+  }
+  const who = String(member.name || member.fullName || 'Socio').trim();
+  const amount = mpReceiptMoney(payment.amount);
+  const receiptNo = payment.receiptNumber || payment.receipt || '';
+  const method = payment.methodLabel || duesMethodLabel(payment.method, payment.bankName);
+  const dateLabel = payment.date ? formatAccessinCashDate(payment.date) : '';
+  const period = payment.period || payment.periodLabel || '';
+  const message = [
+    `Hola ${who}, te saludamos del Jockey Club San Juan.`,
+    '',
+    `Comprobante de pago${receiptNo ? ` ${receiptNo}` : ''}`,
+    payment.concept || 'Cuota social',
+    period ? `Período: ${period}` : null,
+    dateLabel ? `Fecha: ${dateLabel}` : null,
+    method ? `Medio: ${method}` : null,
+    `Total: ${amount}`,
+    '',
+    'También lo ves en Mi cuenta: https://www.jockeyclubsj.com.ar/cuenta',
+  ].filter((line) => line != null).join('\n');
+  const phoneRaw = member.phone || member.mobile || member.whatsapp || '';
+  const phone = toWhatsAppPhone(phoneRaw);
+  const email = paymentReceiptDeliverableEmail(member.email)
+    || paymentReceiptDeliverableEmail(member.contactEmail)
+    || '';
+  const subject = receiptNo ? `Comprobante ${receiptNo}` : 'Comprobante de pago';
+  return {
+    message,
+    phone: phoneRaw || '',
+    email,
+    whatsappUrl: phone ? `https://wa.me/${phone}?text=${encodeURIComponent(message)}` : null,
+    mailUrl: email
+      ? `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`
+      : null,
+  };
 }

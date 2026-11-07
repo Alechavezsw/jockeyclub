@@ -3,6 +3,7 @@ import { unwrap, throwOnError } from '../errors';
 import { collectMemberMeta, buildLifecycleMeta, splitMemberName } from '../../domain/members/memberAdminActions';
 import { dbMemberIsDuesExempt } from '../../domain/members/dues';
 import { allocateNextMemberNumber } from '../../domain/members/households';
+import { resolveStoredMemberTier } from '../../domain/members/tiers';
 import { todayAR } from '../../lib/arDate';
 import { supabase } from '../../lib/supabase';
 import { isUuid, sb, fetchAllRows, fetchAllRowsParallel, audit } from './shared.js';
@@ -10,8 +11,12 @@ import { createPortalUser, replaceProfileRoles } from './profiles.js';
 
 /** Tope PostgREST habitual. */
 const MEMBERS_PAGE_SIZE = 1000;
-/** Todas las páginas restantes salen juntas (≤8). */
-const MEMBERS_CONCURRENCY = 8;
+/** Páginas restantes en paralelo (ola única ~4–5k). */
+const MEMBERS_CONCURRENCY = 10;
+/** Filas mapeadas por slice antes de ceder el hilo (RPC). */
+const MEMBERS_MAP_CHUNK = 500;
+/** Si el RPC tarda más que esto, pintamos la 1ª página PostgREST. */
+const MEMBERS_EARLY_PAGE_MS = 160;
 
 /**
  * Grilla mínima: la ficha completa se hidrata al expandir.
@@ -83,16 +88,61 @@ export function metaFromListRow(row = {}) {
   return meta;
 }
 
+/**
+ * Mapper liviano del padrón (sin spread de meta ni pin de vencimiento).
+ * La ficha completa se hidrata al abrir el socio.
+ */
 function listRowToMember(row) {
   if (!row) return null;
-  const mapped = M.memberFromRow({
-    ...row,
-    meta: metaFromListRow(row),
-    photo_url: undefined,
-    credential_token: undefined,
-  }, []);
-  if (row.has_portal === true) return { ...mapped, hasApp: true, recordScope: 'list' };
-  return { ...mapped, recordScope: 'list' };
+  const cats = row.cuota_categories ?? row.cuotaCategories ?? null;
+  const tier = resolveStoredMemberTier(row.tier, cats);
+  const nextDue = row.next_due_date ? String(row.next_due_date).slice(0, 10) : null;
+  const member = {
+    id: row.id,
+    memberId: row.member_number,
+    name: row.full_name || '',
+    phone: row.phone || '',
+    email: row.email || '',
+    documentType: row.document_type || '',
+    documentNumber: row.document_number || '',
+    tier,
+    status: row.status,
+    outstandingBalance: Number(row.outstanding_balance) || 0,
+    nextDueDate: nextDue,
+    overdueSince: row.overdue_since || null,
+    cardNumber: row.card_number || null,
+    profileId: row.profile_id || null,
+    lastPaymentDate: row.last_payment_date || row.lastPaymentDate || null,
+    familyPrincipalNumber: row.family_principal || row.familyPrincipalNumber || null,
+    familyGroupName: row.family_group_name || row.familyGroupName || null,
+    currentAccountAsOf: row.current_account_as_of || row.currentAccountAsOf || null,
+    adherents: [],
+    paymentHistory: [],
+    recordScope: 'list',
+  };
+  if (cats) member.cuotaCategories = cats;
+  if (row.has_portal === true) member.hasApp = true;
+  if (row.baja_motivo || row.bajaMotivo) {
+    member.bajaMotivo = row.baja_motivo || row.bajaMotivo;
+    member.bajaFecha = row.baja_fecha || row.bajaFecha || null;
+    member.bajaActorName = row.baja_actor || row.bajaActorName || null;
+    member.bajaRegistradaAt = row.baja_registrada || row.bajaRegistradaAt || null;
+  }
+  if (row.reactivate_actor || row.reactivateActorName) {
+    member.reactivateActorName = row.reactivate_actor || row.reactivateActorName;
+    member.reactivateRegistradaAt = row.reactivate_registrada || row.reactivateRegistradaAt || null;
+  }
+  return member;
+}
+
+function yieldToUi() {
+  return new Promise((resolve) => {
+    if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+      window.requestAnimationFrame(() => resolve());
+      return;
+    }
+    setTimeout(resolve, 0);
+  });
 }
 
 const membersListInflight = { active: null, inactive: null };
@@ -165,23 +215,24 @@ async function downloadMembersListViaRpc({ onBatch, scope = 'active' } = {}) {
   const rows = data || [];
   const mapped = [];
   const total = rows.length;
-  const paintEvery = 1000;
-  for (let i = 0; i < rows.length; i += 1) {
-    const member = listRowToMember(rows[i]);
-    if (member) mapped.push(member);
-    const done = (i + 1) === rows.length;
-    const atPaint = done || (mapped.length > 0 && mapped.length % paintEvery === 0);
-    if (atPaint) {
-      onBatch?.(mapped, {
-        loaded: mapped.length,
-        total,
-        done,
-        firstPage: mapped.length <= paintEvery,
-      });
-    }
-  }
   if (!rows.length) {
     onBatch?.([], { loaded: 0, total: 0, done: true, firstPage: true });
+    return mapped;
+  }
+  for (let i = 0; i < rows.length; i += MEMBERS_MAP_CHUNK) {
+    const end = Math.min(i + MEMBERS_MAP_CHUNK, rows.length);
+    for (let j = i; j < end; j += 1) {
+      const member = listRowToMember(rows[j]);
+      if (member) mapped.push(member);
+    }
+    const done = end >= rows.length;
+    onBatch?.(mapped, {
+      loaded: mapped.length,
+      total,
+      done,
+      firstPage: i === 0,
+    });
+    if (!done) await yieldToUi();
   }
   return mapped;
 }
@@ -286,11 +337,70 @@ async function downloadMembersListPaged({ onBatch, scope = 'active' } = {}) {
   return mapped;
 }
 
+async function fetchMembersFirstPage(scope = 'active') {
+  const listSelect = scope === 'inactive' ? MEMBERS_LIST_SELECT_INACTIVE : MEMBERS_LIST_SELECT;
+  const req = applyMemberScope(
+    sb().from('members').select(listSelect, { count: 'exact' }),
+    scope,
+  )
+    .order('id')
+    .range(0, MEMBERS_PAGE_SIZE - 1);
+  const { data, error, count } = await req;
+  throwOnError(error, 'No se pudieron cargar socios');
+  const mapped = [];
+  for (const row of data || []) {
+    const member = listRowToMember(row);
+    if (member) mapped.push(member);
+  }
+  return { mapped, total: count || mapped.length };
+}
+
+/**
+ * RPC DEFINER (un viaje) + primer página PostgREST si el RPC tarda,
+ * para que el panel sea usable en ~160ms aunque el JSON grande demore.
+ */
 async function downloadMembersList({ onBatch, scope = 'active' } = {}) {
+  let rpcDone = false;
+  let earlyPainted = false;
+
+  const rpcPromise = downloadMembersListViaRpc({
+    onBatch: (partial, meta) => {
+      rpcDone = Boolean(meta?.done);
+      onBatch?.(partial, meta);
+    },
+    scope,
+  }).then((rows) => {
+    rpcDone = true;
+    return rows;
+  });
+
+  const earlyPromise = (async () => {
+    await Promise.race([
+      rpcPromise.then(() => 'rpc', () => 'rpc-fail'),
+      new Promise((resolve) => setTimeout(() => resolve('timeout'), MEMBERS_EARLY_PAGE_MS)),
+    ]);
+    if (rpcDone || earlyPainted) return;
+    try {
+      const first = await fetchMembersFirstPage(scope);
+      if (rpcDone || earlyPainted) return;
+      earlyPainted = true;
+      onBatch?.(first.mapped, {
+        loaded: first.mapped.length,
+        total: first.total || first.mapped.length,
+        done: false,
+        firstPage: true,
+      });
+    } catch {
+      /* el RPC o el paged terminan el trabajo */
+    }
+  })();
+
   try {
-    return await downloadMembersListViaRpc({ onBatch, scope });
+    const rows = await rpcPromise;
+    await earlyPromise;
+    return rows;
   } catch {
-    // RPC ausente / sin permiso → páginas PostgREST.
+    await earlyPromise;
     return downloadMembersListPaged({ onBatch, scope });
   }
 }
@@ -326,6 +436,10 @@ function rememberMemberSearch(key, rows) {
   if (MEMBER_SEARCH_CACHE.size <= MEMBER_SEARCH_CACHE_MAX) return;
   const first = MEMBER_SEARCH_CACHE.keys().next().value;
   MEMBER_SEARCH_CACHE.delete(first);
+}
+
+export function invalidateMemberSearchCache() {
+  MEMBER_SEARCH_CACHE.clear();
 }
 
 export function isMissingRpc(error) {

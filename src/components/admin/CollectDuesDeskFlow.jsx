@@ -4,12 +4,41 @@ import ModalDialog from '../ModalDialog';
 import CollectDuesModal from './CollectDuesModal';
 import { isDuesExemptMember } from '../../domain/members/dues';
 import { memberNumberOf, rankMemberSearchHit } from '../../domain/members/households';
+import { SIN_CATEGORIA_TIER } from '../../domain/members/tiers';
 import { collectionPreview, persistDuesCollection, recordDuesCollection } from '../../domain/members/memberPayments';
 import { deliverPaymentReceipt } from '../../domain/payments/deliverPaymentReceipt';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import * as repos from '../../data/repos';
 import { formatCurrency as formatCurrencyDefault } from '../../domain/accounting/journal';
 import { money } from '../../domain/money';
+
+function memberReadyForCollect(row) {
+  if (!row) return false;
+  const tier = String(row.tier || '').trim().toLowerCase();
+  if (!tier || tier === SIN_CATEGORIA_TIER) return false;
+  // search_members_lookup no trae categoría/saldo/vencimiento → hay que hidratar la ficha.
+  if (row.recordScope === 'list' && !row.nextDueDate) return false;
+  return true;
+}
+
+async function hydrateCollectMember(row) {
+  if (!isSupabaseConfigured) return row;
+  const dbId = row?.id;
+  const number = memberNumberOf(row) || row?.memberId;
+  try {
+    if (dbId && typeof repos.getMember === 'function') {
+      const full = await repos.getMember(dbId);
+      if (full) return full;
+    }
+    if (number && typeof repos.getMemberByNumber === 'function') {
+      const full = await repos.getMemberByNumber(number);
+      if (full) return full;
+    }
+  } catch {
+    /* se usa el hit de búsqueda si falla la ficha completa */
+  }
+  return row;
+}
 
 function memberMatches(member, query) {
   const q = String(query || '').trim().toLowerCase();
@@ -52,6 +81,11 @@ export default function CollectDuesDeskFlow({
       setRemoteBusy(false);
       setMember(null);
       setError('');
+      return;
+    }
+    // Evita hits viejos de search_members_lookup sin categoría/saldo.
+    if (typeof repos.invalidateMemberSearchCache === 'function') {
+      repos.invalidateMemberSearchCache();
     }
   }, [open]);
 
@@ -104,14 +138,28 @@ export default function CollectDuesDeskFlow({
       .slice(0, 12);
   }, [members, query, remoteHits, member]);
 
-  const pickMember = (row) => {
+  const pickMember = async (row) => {
     setError('');
     if (isDuesExemptMember(row)) {
       setError('Vitalicio, fundador y comisión no abonan cuota social.');
       return;
     }
     const fromPadron = (members || []).find((m) => String(m.memberId) === String(row.memberId));
-    setMember(fromPadron || row);
+    let next = fromPadron || row;
+    if (!memberReadyForCollect(next)) {
+      setRemoteBusy(true);
+      next = await hydrateCollectMember(next);
+      setRemoteBusy(false);
+    }
+    if (isDuesExemptMember(next)) {
+      setError('Vitalicio, fundador y comisión no abonan cuota social.');
+      return;
+    }
+    if (!memberReadyForCollect(next)) {
+      setError('No se pudo cargar la categoría y el saldo de este socio. Reintentá en unos segundos.');
+      return;
+    }
+    setMember(next);
   };
 
   const handleConfirm = async (payload) => {
