@@ -488,8 +488,31 @@ export function unpaidSocialDuesAmount(member, today = new Date()) {
   return total;
 }
 
+/** Capital de cuota del corte LILA (`meta.unpaidCapital`). Null si no hay dato. */
+export function lilaUnpaidCapital(member) {
+  const raw = member?.unpaidCapital;
+  if (raw == null || raw === '') return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Saldo de cuota para mora / “cuánto debe”.
+ * Tras importar débitos, unpaidCapital LILA es la verdad; la columna
+ * outstanding_balance a veces quedó vieja y metía cobrados en mora.
+ */
+export function socialDuesStoredBalance(member) {
+  const lila = lilaUnpaidCapital(member);
+  if (lila != null) return Math.max(0, money(lila));
+  return Math.max(0, money(Number(member?.outstandingBalance) || 0));
+}
+
 function socialDuesAmountDue(member, todayStart) {
-  return duesChargeBreakdown(member, { paidOn: todayStart }).total;
+  const stored = socialDuesStoredBalance(member);
+  const forBreakdown = stored === money(Number(member?.outstandingBalance) || 0)
+    ? member
+    : { ...member, outstandingBalance: stored };
+  return duesChargeBreakdown(forBreakdown, { paidOn: todayStart }).total;
 }
 
 function isSocialDuesMora(member, todayStart) {
@@ -502,7 +525,7 @@ function isSocialDuesMora(member, todayStart) {
     today: todayStart,
     member,
   }) > 0) return true;
-  const stored = Number(member?.outstandingBalance) || 0;
+  const stored = socialDuesStoredBalance(member);
   if (stored <= 0) return false;
   // Padrón LILA: hay saldo de cuota y no está cargado el vencimiento.
   if (!due) return true;

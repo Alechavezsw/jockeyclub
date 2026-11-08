@@ -36,10 +36,19 @@ export async function listMessages({ limit, memberNumber, forStaff } = {}) {
   }
 
   if (forStaff) {
-    const [opsInbox, circulars] = await Promise.all([
+    // Inbox a Secretaría + lo que ops envió a socios (comprobantes, avisos) + circulares.
+    // Sin opsSent, el poll de Mensajería borraba los MD salientes del estado.
+    const [opsInbox, opsSent, circulars] = await Promise.all([
       unwrap(
         sb().from('messages').select('*')
           .eq('recipient_key', 'ops')
+          .order('created_at', { ascending: false })
+          .limit(cap),
+        fail,
+      ),
+      unwrap(
+        sb().from('messages').select('*')
+          .eq('sender_key', 'ops')
           .order('created_at', { ascending: false })
           .limit(cap),
         fail,
@@ -53,7 +62,9 @@ export async function listMessages({ limit, memberNumber, forStaff } = {}) {
       ),
     ]);
     const map = new Map();
-    for (const row of [...(opsInbox || []), ...(circulars || [])]) map.set(row.id, row);
+    for (const row of [...(opsInbox || []), ...(opsSent || []), ...(circulars || [])]) {
+      map.set(row.id, row);
+    }
     return newest([...map.values()]);
   }
 

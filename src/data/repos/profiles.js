@@ -582,15 +582,30 @@ export async function sendClubMailCampaign({
   return { ok: true, sent, failed, skipped, campaignId: id };
 }
 
-/** Bandeja de comunicados por mail enviados desde Mensajería. */
+/** Bandeja de mail recibido en socios@ (Resend inbox). */
 export async function listClubInbox() {
   const data = await invokeFunction('club-mail-inbox', { action: 'list' }, 'No se pudo leer el mail recibido');
-  return Array.isArray(data?.threads) ? data.threads : [];
+  const threads = Array.isArray(data?.threads) ? data.threads : [];
+  return {
+    threads,
+    total: Number(data?.total) || threads.length,
+    unread: Number(data?.unread) || threads.filter((row) => row?.unread).length,
+    truncated: Boolean(data?.truncated),
+  };
 }
 
 export async function readClubInboxThread(threadId) {
   const data = await invokeFunction('club-mail-inbox', { action: 'read', threadId }, 'No se pudo abrir el mail');
   return Array.isArray(data?.emails) ? data.emails : [];
+}
+
+export async function markClubInboxThreadRead(threadId) {
+  const data = await invokeFunction(
+    'club-mail-inbox',
+    { action: 'mark_read', threadId },
+    'No se pudo marcar el mail como leído',
+  );
+  return Boolean(data?.ok);
 }
 
 /** Bandeja de comunicados por mail enviados desde Mensajería. */

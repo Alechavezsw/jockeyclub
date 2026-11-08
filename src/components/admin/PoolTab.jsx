@@ -25,6 +25,7 @@ import {
   chargePoolCanon,
   withChargedPoolEntry,
 } from '../../domain/pool/poolCheckout';
+import { deliverPaymentReceipt } from '../../domain/payments/deliverPaymentReceipt';
 import { poolIngressToAccessLog } from '../../domain/credentials/accessLog';
 import { todayISODateAR } from '../../lib/arDate';
 import MercadoPagoCheckout from '../MercadoPagoCheckout';
@@ -71,6 +72,7 @@ export default function PoolTab({
   setEntryLogs,
   poolSettings = DEFAULT_POOL_SETTINGS,
   setPoolSettings,
+  onSendMessage = null,
 }) {
   const { user } = useAuth();
   const actorName = user?.fullName || user?.name || user?.email || '';
@@ -232,6 +234,22 @@ export default function PoolTab({
         const log = poolIngressToAccessLog(charged);
         if (log) setEntryLogs((prev) => [log, ...(prev || [])]);
       }
+      const amount = Number(charged?.payment?.amount) || 0;
+      if (amount > 0 && charged?.payment?.method === 'efectivo') {
+        void deliverPaymentReceipt({
+          member,
+          payment: {
+            amount,
+            date: charged.date || today,
+            method: 'efectivo',
+            methodLabel: 'Efectivo',
+            receiptNumber: charged.cashMovementId || charged.journalEntryId || charged.id,
+            concept: `Canon pileta · ${member.name || 'socio'}`,
+          },
+          onSendMessage,
+          kind: 'pileta',
+        });
+      }
       showFlash(`Habilitado · ${member.name}`);
     } catch (err) {
       setError(err?.message || 'No se pudo habilitar el acceso.');
@@ -264,6 +282,22 @@ export default function PoolTab({
       if (typeof setEntryLogs === 'function') {
         const log = poolIngressToAccessLog(charged);
         if (log) setEntryLogs((prev) => [log, ...(prev || [])]);
+      }
+      const amount = Number(charged?.payment?.amount) || 0;
+      if (amount > 0 && charged?.payment?.method === 'efectivo') {
+        void deliverPaymentReceipt({
+          member: selected,
+          payment: {
+            amount,
+            date: charged.date || today,
+            method: 'efectivo',
+            methodLabel: 'Efectivo',
+            receiptNumber: charged.cashMovementId || charged.journalEntryId || charged.id,
+            concept: `Canon pileta invitado · ${charged.guestName || 'invitado'}`,
+          },
+          onSendMessage,
+          kind: 'pileta',
+        });
       }
       showFlash(`Invitado habilitado · ${charged.guestName}`);
     } catch (err) {

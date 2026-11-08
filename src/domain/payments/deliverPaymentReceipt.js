@@ -32,8 +32,8 @@ export async function deliverPaymentReceipt({
   }
 
   if (member?.memberId && payment) {
-    await sendDuesReceiptMessage({ member, payment, onSendMessage });
-    return { emailed: true, messaged: true, kind };
+    const result = await sendDuesReceiptMessage({ member, payment, onSendMessage });
+    return { emailed: Boolean(result?.emailed), messaged: Boolean(result?.messaged), kind };
   }
 
   return { emailed: false, messaged: false, reason: 'sin-destino' };

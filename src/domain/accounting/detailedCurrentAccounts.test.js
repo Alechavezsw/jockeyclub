@@ -5,6 +5,7 @@ import {
   detailedCcSeed,
   listDetailedCcMembers,
   listUnpaidFeeMembersForPeriod,
+  listUnpaidFeeMembersFromFeePeriod,
   lookupDetailedCc,
 } from './detailedCurrentAccounts';
 import { buildAccessinAccountEntries, MEMBER_BALANCES_SNAPSHOTS } from './memberBalances';
@@ -82,5 +83,134 @@ describe('detailedCurrentAccounts', () => {
     if (ACCESSIN_DETAILED_CC_AS_OF !== '2026-11-03') {
       expect(rows.find((row) => String(row.memberNumber) === '11017')).toBeUndefined();
     }
+  });
+
+  it('no lista comisión / presidente aunque el snapshot tenga saldo', () => {
+    const byNumber = {
+      8377: {
+        memberNumber: '8377',
+        memberName: 'Carlos Marcelo Laciar',
+        socialFee: 'COMISION',
+        tier: 'comision',
+        lines: [{ periodKey: '2026-11', owed: 266000, amount: 266000 }],
+      },
+      11017: {
+        memberNumber: '11017',
+        memberName: 'Socio Familiar',
+        socialFee: 'SOCIO FAMILIAR',
+        lines: [{ periodKey: '2026-11', owed: 70000, amount: 70000 }],
+      },
+    };
+    const rows = listUnpaidFeeMembersForPeriod('2026-11', byNumber, [
+      {
+        memberId: '8377',
+        name: 'Carlos Marcelo Laciar',
+        tier: 'comision',
+        cuotaCategories: ['COMISION'],
+        status: 'active',
+      },
+    ]);
+    expect(rows.find((row) => String(row.memberNumber) === '8377')).toBeUndefined();
+    expect(rows.find((row) => String(row.memberNumber) === '11017')?.owed).toBe(70000);
+  });
+
+  it('lista no pagaron desde el pack vivo de fee_period (no snapshot LILA)', () => {
+    const feePeriod = {
+      year: 2026,
+      month: 11,
+      status: 'processed',
+      pack: {
+        charges: [
+          { memberId: '11147', addAmount: 70000, memberName: 'Elizabeth Beatriz Onsalo' },
+          { memberId: '10559', addAmount: 70000, memberName: 'Egla Anabel Costa' },
+          { memberId: '8377', addAmount: 70000, memberName: 'Carlos Marcelo Laciar' },
+        ],
+      },
+    };
+    const rows = listUnpaidFeeMembersFromFeePeriod(feePeriod, [
+      {
+        memberId: '11147',
+        name: 'Elizabeth Beatriz Onsalo',
+        lastPaymentDate: '2026-11-01',
+        unpaidCapital: 0,
+        status: 'active',
+        tier: 'socio_familiar',
+      },
+      {
+        memberId: '10559',
+        name: 'Egla Anabel Costa',
+        unpaidCapital: 717000,
+        status: 'active',
+        tier: 'socio_familiar',
+      },
+      {
+        memberId: '8377',
+        name: 'Carlos Marcelo Laciar',
+        unpaidCapital: 0,
+        status: 'active',
+        tier: 'comision',
+        cuotaCategories: ['COMISION'],
+      },
+    ]);
+    expect(rows.map((r) => r.memberNumber)).toEqual(['10559']);
+    expect(rows[0].owed).toBe(70000);
+  });
+
+  it('no mete reservas de salón en “no pagaron” la cuota', () => {
+    const byNumber = {
+      8377: {
+        memberNumber: '8377',
+        memberName: 'Carlos Marcelo Laciar',
+        socialFee: '',
+        lines: [{
+          periodKey: '2026-11',
+          type: 'Reserva de espacio',
+          owed: 170000,
+          amount: 170000,
+          concept: 'SALON ANHELO',
+        }],
+      },
+      11017: {
+        memberNumber: '11017',
+        memberName: 'Socio Familiar',
+        lines: [{ periodKey: '2026-11', type: 'Cuota', owed: 70000, amount: 70000 }],
+      },
+    };
+    const rows = listUnpaidFeeMembersForPeriod('2026-11', byNumber, []);
+    expect(rows.find((row) => String(row.memberNumber) === '8377')).toBeUndefined();
+    expect(rows.find((row) => String(row.memberNumber) === '11017')?.owed).toBe(70000);
+  });
+
+  it('saca del mes a quienes ya pagaron con débito aunque el snapshot diga deuda', () => {
+    const byNumber = {
+      11147: {
+        memberNumber: '11147',
+        memberName: 'Elizabeth Beatriz Onsalo',
+        lines: [{ periodKey: '2026-11', owed: 70000, amount: 70000 }],
+      },
+      10559: {
+        memberNumber: '10559',
+        memberName: 'Egla Anabel Costa',
+        lines: [{ periodKey: '2026-11', owed: 70000, amount: 70000 }],
+      },
+    };
+    const rows = listUnpaidFeeMembersForPeriod('2026-11', byNumber, [
+      {
+        memberId: '11147',
+        lastPaymentDate: '2026-11-01',
+        unpaidCapital: 0,
+        nextDueDate: '2026-12-10',
+        status: 'active',
+        tier: 'socio_familiar',
+      },
+      {
+        memberId: '10559',
+        unpaidCapital: 717000,
+        status: 'active',
+        tier: 'socio_familiar',
+      },
+    ]);
+    expect(rows.find((row) => String(row.memberNumber) === '11147')).toBeUndefined();
+    expect(rows.find((row) => String(row.memberNumber) === '10559')?.owed).toBe(70000);
   });
 });

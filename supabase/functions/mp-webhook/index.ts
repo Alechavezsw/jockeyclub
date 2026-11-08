@@ -317,8 +317,15 @@ async function deliverMpReceipt(admin: Admin, intentId: string) {
     .maybeSingle();
 
   if (!intent) return { skip: "missing" };
-  if (!shouldIssueMpDuesReceipt(String(intent.kind || ""))) return { skip: "kind" };
+  const intentKind = String(intent.kind || "").toLowerCase();
+  if (!shouldIssueMpDuesReceipt(intentKind)) return { skip: "kind" };
   if (!intent.applied_at) return { skip: "not-applied" };
+
+  // Cuota / débito: exentos nunca reciben comprobante de cuota.
+  if ((intentKind === "dues" || intentKind === "subscription") && intent.member_id) {
+    const { data: exempt } = await admin.rpc("member_id_is_dues_exempt", { mid: intent.member_id });
+    if (exempt === true) return { skip: "dues-exempt" };
+  }
 
   const meta = (intent.meta || {}) as Record<string, unknown>;
   const alreadyMessage = Boolean(meta.receipt_message_id);

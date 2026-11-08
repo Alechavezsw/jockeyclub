@@ -87,7 +87,7 @@ describe('sendDuesReceiptMessage', () => {
     uploadDuesReceipt.mockRejectedValue(new Error('sin supabase'));
     sendPaymentReceiptEmail.mockResolvedValue({ ok: true, id: 're_1' });
     const onSendMessage = vi.fn().mockResolvedValue(undefined);
-    await sendDuesReceiptMessage({
+    const result = await sendDuesReceiptMessage({
       member: { memberId: '111', name: 'Ana', email: 'ana@example.com' },
       payment: {
         amount: 40000,
@@ -103,6 +103,7 @@ describe('sendDuesReceiptMessage', () => {
     expect(onSendMessage.mock.calls[0][0].meta.kind).toBe('dues_receipt');
     expect(sendPaymentReceiptEmail).toHaveBeenCalledOnce();
     expect(sendPaymentReceiptEmail.mock.calls[0][0].memberNumber).toBe('111');
+    expect(result).toEqual({ emailed: true, messaged: true });
   });
 
   it('no corta el cobro si el envío falla', async () => {
@@ -119,6 +120,6 @@ describe('sendDuesReceiptMessage', () => {
         concept: 'Cuota',
       },
       onSendMessage,
-    })).resolves.toBeUndefined();
+    })).resolves.toEqual({ emailed: false, messaged: false });
   });
 });

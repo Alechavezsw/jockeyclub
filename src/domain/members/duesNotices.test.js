@@ -3,6 +3,7 @@ import {
   cycleDueOnFromToday,
   duesNoticeCalendar,
   duesNoticeCopy,
+  duesNoticeDaysLeft,
   duesNoticeKind,
   duesNoticeStagesForDay,
   duesNoticeStagesForMember,
@@ -32,8 +33,12 @@ describe('duesNotices', () => {
     expect(cycleDueOnFromToday('2026-10-15')).toBe('2026-10-10');
     expect(duesNoticeKind('upcoming')).toBe('dues_upcoming');
     expect(duesNoticeKind('mora')).toBe('dues_mora');
-    const upcoming = duesNoticeCopy({ name: 'Alejandro', dueOn: '2026-10-10', stage: 'upcoming' });
+    const upcoming = duesNoticeCopy({ name: 'Alejandro', dueOn: '2026-10-10', stage: 'upcoming', daysLeft: 5 });
     expect(upcoming.subject).toMatch(/vence el 10 de octubre/i);
+    expect(upcoming.lead).toMatch(/Faltan 5 días/i);
+    expect(duesNoticeDaysLeft('2026-10-10', '2026-10-08')).toBe(2);
+    expect(duesNoticeCopy({ name: 'Alejandro', dueOn: '2026-10-10', stage: 'upcoming', daysLeft: 2 }).lead)
+      .toMatch(/Faltan 2 días/i);
     expect(upcoming.consequences).toMatch(/recargo del 10/i);
     expect(upcoming.consequences).toMatch(/pileta/i);
     const mora = duesNoticeCopy({ name: 'Alejandro', dueOn: '2026-10-10', stage: 'mora' });

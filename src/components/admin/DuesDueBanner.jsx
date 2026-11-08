@@ -5,7 +5,11 @@ import { buildWhatsAppDuesUrl, duesDueMoment } from '../../domain/members/dues';
 import { memberNumberOf } from '../../domain/members/households';
 import { todayISODateAR } from '../../lib/arDate';
 import { formatCurrency } from '../../domain/accounting/journal';
-import { resolveFeePeriods } from '../../domain/accounting/feeBilling';
+import {
+  appOwnsFeePeriod,
+  findFeePeriodForMonth,
+  resolveFeePeriods,
+} from '../../domain/accounting/feeBilling';
 import { liquidatedTotalForMonth } from '../../domain/accounting/feePeriodLiquidation';
 import { collectDeltaAfterCut, composeClubFinance, dueCollectBoard, duesCollectionFromMonthlySummary, financeFromMonthlySummary, freshMonthCollectBoard, lilaBookCutDate, lilaContabilidadFromSnapshots } from '../../domain/accounting/opsFinanceSnapshot';
 import { monthlyBalanceSeed } from '../../domain/accounting/monthlyBalance';
@@ -13,7 +17,7 @@ import { monthlyBalanceSummarySeed } from '../../domain/accounting/monthlyBalanc
 import {
   detailedCcSeed,
   listUnpaidFeeMembersForPeriod,
-  periodKeyFromDate,
+  listUnpaidFeeMembersFromFeePeriod,
 } from '../../domain/accounting/detailedCurrentAccounts';
 import { cashSeed, cashMovementsSeed } from '../../domain/accounting/cashLedger';
 import { cobranzasSeed } from '../../domain/accounting/cobranzas';
@@ -73,8 +77,14 @@ function membersByNumber(members = []) {
 
 const UNPAID_PAGE = 40;
 
-function DueUnpaidMonthList({ rows = [], monthLabel = '', formatMoney = formatCurrency, members = [] }) {
-  const [open, setOpen] = useState(false);
+function DueUnpaidMonthList({
+  rows = [],
+  monthLabel = '',
+  formatMoney = formatCurrency,
+  members = [],
+  embedded = false,
+}) {
+  const [open, setOpen] = useState(embedded);
   const [query, setQuery] = useState('');
   const [limit, setLimit] = useState(UNPAID_PAGE);
   const deferredQuery = useDeferredValue(query);
@@ -94,9 +104,98 @@ function DueUnpaidMonthList({ rows = [], monthLabel = '', formatMoney = formatCu
     [rows],
   );
   const count = rows.length;
-  const shown = open ? visible.slice(0, limit) : [];
-  const hasMore = open && visible.length > limit;
+  const active = embedded || open;
+  const shown = active ? visible.slice(0, limit) : [];
+  const hasMore = active && visible.length > limit;
   if (count === 0) return null;
+
+  const body = (
+    <div className="due-unpaid-body">
+      <label className="due-unpaid-search">
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setLimit(UNPAID_PAGE);
+          }}
+          placeholder="Buscar nombre o Nº"
+          aria-label="Buscar en quienes no pagaron"
+        />
+      </label>
+      <p className="due-unpaid-hint">
+        {visible.length === count
+          ? 'Lista completa del mes. Cobrar abre la ficha; WhatsApp manda el aviso.'
+          : `${visible.length.toLocaleString('es-AR')} de ${count.toLocaleString('es-AR')}`}
+      </p>
+      <ol className="due-unpaid-list">
+        {shown.map((row) => {
+          const id = row.memberNumber;
+          const member = roster.get(String(id).replace(/\D/g, '')) || roster.get(String(id));
+          const profileTo = `/panel/members/${encodeURIComponent(id)}`;
+          const wa = buildWhatsAppDuesUrl({
+            name: member?.name || row.memberName,
+            phone: member?.phone,
+            amountDue: row.owed,
+            dueDate: member?.nextDueDate || member?.dueDate,
+          }, formatMoney);
+          return (
+            <li key={id || row.memberName} className="due-unpaid-row">
+              <Link to={`${profileTo}?cobrar=1`} className="due-unpaid-who">
+                <strong>{row.memberName}</strong>
+                <span>Nº {id}</span>
+              </Link>
+              <b className="tabular-nums">{formatMoney(row.owed)}</b>
+              <div className="due-unpaid-actions">
+                <Link
+                  className="admin-overdue-btn admin-overdue-btn--icon"
+                  to={`${profileTo}?cobrar=1`}
+                  state={{ cobrar: true, memberId: id, member }}
+                  title={`Cobrar a ${row.memberName}`}
+                  aria-label={`Cobrar a ${row.memberName}`}
+                >
+                  <Banknote size={16} aria-hidden="true" />
+                </Link>
+                {wa ? (
+                  <a
+                    className="admin-overdue-btn admin-overdue-btn--wa"
+                    href={wa}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={`WhatsApp ${member.phone}`}
+                    aria-label={`WhatsApp a ${row.memberName}`}
+                  >
+                    <WhatsAppLogo size={18} />
+                  </a>
+                ) : (
+                  <span className="admin-overdue-btn admin-overdue-btn--wa is-disabled" aria-hidden="true">
+                    <WhatsAppLogo size={18} />
+                  </span>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+      {hasMore ? (
+        <button
+          type="button"
+          className="admin-overdue-strip-all"
+          onClick={() => setLimit((n) => n + UNPAID_PAGE)}
+        >
+          Mostrar más ({(visible.length - limit).toLocaleString('es-AR')})
+        </button>
+      ) : null}
+    </div>
+  );
+
+  if (embedded) {
+    return (
+      <div className="due-unpaid is-embedded" aria-label={`${count} socios no pagaron`}>
+        {body}
+      </div>
+    );
+  }
 
   return (
     <details
@@ -118,85 +217,7 @@ function DueUnpaidMonthList({ rows = [], monthLabel = '', formatMoney = formatCu
         </span>
         <b className="tabular-nums">{formatMoney(totalOwed)}</b>
       </summary>
-      {open ? (
-        <div className="due-unpaid-body">
-          <label className="due-unpaid-search">
-            <input
-              type="search"
-              value={query}
-              onChange={(event) => {
-                setQuery(event.target.value);
-                setLimit(UNPAID_PAGE);
-              }}
-              placeholder="Buscar nombre o Nº"
-              aria-label="Buscar en quienes no pagaron"
-            />
-          </label>
-          <p className="due-unpaid-hint">
-            {visible.length === count
-              ? 'Lista completa del mes. Cobrar abre la ficha; WhatsApp manda el aviso.'
-              : `${visible.length.toLocaleString('es-AR')} de ${count.toLocaleString('es-AR')}`}
-          </p>
-          <ol className="due-unpaid-list">
-            {shown.map((row) => {
-              const id = row.memberNumber;
-              const member = roster.get(String(id).replace(/\D/g, '')) || roster.get(String(id));
-              const profileTo = `/panel/members/${encodeURIComponent(id)}`;
-              const wa = buildWhatsAppDuesUrl({
-                name: member?.name || row.memberName,
-                phone: member?.phone,
-                amountDue: row.owed,
-                dueDate: member?.nextDueDate || member?.dueDate,
-              }, formatMoney);
-              return (
-                <li key={id || row.memberName} className="due-unpaid-row">
-                  <Link to={`${profileTo}?cobrar=1`} className="due-unpaid-who">
-                    <strong>{row.memberName}</strong>
-                    <span>Nº {id}</span>
-                  </Link>
-                  <b className="tabular-nums">{formatMoney(row.owed)}</b>
-                  <div className="due-unpaid-actions">
-                    <Link
-                      className="admin-overdue-btn admin-overdue-btn--icon"
-                      to={`${profileTo}?cobrar=1`}
-                      state={{ cobrar: true, memberId: id, member }}
-                      title={`Cobrar a ${row.memberName}`}
-                      aria-label={`Cobrar a ${row.memberName}`}
-                    >
-                      <Banknote size={16} aria-hidden="true" />
-                    </Link>
-                    {wa ? (
-                      <a
-                        className="admin-overdue-btn admin-overdue-btn--wa"
-                        href={wa}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        title={`WhatsApp ${member.phone}`}
-                        aria-label={`WhatsApp a ${row.memberName}`}
-                      >
-                        <WhatsAppLogo size={18} />
-                      </a>
-                    ) : (
-                      <span className="admin-overdue-btn admin-overdue-btn--wa is-disabled" aria-hidden="true">
-                        <WhatsAppLogo size={18} />
-                      </span>
-                    )}
-                  </div>
-                </li>
-              );
-            })}
-          </ol>
-          {hasMore ? (
-            <button
-              type="button"
-              className="admin-overdue-strip-all"
-              onClick={() => setLimit((n) => n + UNPAID_PAGE)}
-            >
-              Mostrar más ({(visible.length - limit).toLocaleString('es-AR')})
-            </button>
-          ) : null}
-        </div>
-      ) : null}
+      {open ? body : null}
     </details>
   );
 }
@@ -313,14 +334,20 @@ export default function DuesDueBanner({
   const collected = board?.collected ?? 0;
   const liquidated = board?.liquidated ?? 0;
   const moneyReady = Boolean(board);
-  const periodKey = periodKeyFromDate(money?.periodTo) || periodKeyFromDate(money?.periodKey);
-  const cutIsThisMonth = String(periodKey || '').slice(0, 7) === monthKey;
-  const unpaidRows = useMemo(
-    () => (enabled && cutIsThisMonth && rosterReady && !membersLoading
-      ? listUnpaidFeeMembersForPeriod(periodKey)
-      : []),
-    [enabled, cutIsThisMonth, periodKey, rosterReady, membersLoading],
-  );
+  const monthPeriod = useMemo(() => {
+    const year = Number(monthKey.slice(0, 4));
+    const month = Number(monthKey.slice(5, 7));
+    return findFeePeriodForMonth(periods, year, month);
+  }, [periods, monthKey]);
+  // Desde nov-2026 la lista sale del pack liquidado en Supabase + padrón vivo.
+  // Meses anteriores (migración LILA) pueden caer al snapshot Accessin.
+  const unpaidRows = useMemo(() => {
+    if (!enabled || !monthKey) return [];
+    if (monthPeriod && appOwnsFeePeriod(monthPeriod)) {
+      return listUnpaidFeeMembersFromFeePeriod(monthPeriod, deferredMembers);
+    }
+    return listUnpaidFeeMembersForPeriod(monthKey, undefined, deferredMembers);
+  }, [enabled, monthKey, monthPeriod, deferredMembers]);
   if (!enabled) return null;
 
   // Anillo = recaudado / liquidado (misma regla del monto grande).
@@ -388,8 +415,30 @@ export default function DuesDueBanner({
           ) : null}
         </div>
       </section>
-      {afterCollect}
-      <DueUnpaidMonthList rows={unpaidRows} monthLabel={monthLabel} members={deferredMembers} />
+      {typeof afterCollect === 'function'
+        ? afterCollect({
+          unpaidCount: unpaidRows.length,
+          unpaidTotal: unpaidRows.reduce((sum, row) => sum + (Number(row.owed) || 0), 0),
+          unpaidMonth: monthLabel,
+          unpaidBody: unpaidRows.length ? (
+            <DueUnpaidMonthList
+              embedded
+              rows={unpaidRows}
+              monthLabel={monthLabel}
+              members={deferredMembers}
+            />
+          ) : null,
+        })
+        : (
+          <>
+            {afterCollect}
+            <DueUnpaidMonthList
+              rows={unpaidRows}
+              monthLabel={monthLabel}
+              members={deferredMembers}
+            />
+          </>
+        )}
     </div>
   );
 }

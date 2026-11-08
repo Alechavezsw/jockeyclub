@@ -42,6 +42,7 @@ const MEMBERS_LIST_SELECT = [
   'family_group_name:meta->>familyGroupName',
   'cuota_categories:meta->cuotaCategories',
   'current_account_as_of:meta->>currentAccountAsOf',
+  'unpaid_capital:meta->unpaidCapital',
 ].join(', ');
 
 /** Solo listado de bajas / inactivos: el padrón activo no los necesita. */
@@ -64,6 +65,7 @@ export function metaFromListRow(row = {}) {
   const portalAt = row.portal_provisioned ?? row.portalProvisionedAt ?? row.meta?.portalProvisionedAt;
   const societasApp = row.has_societas_app ?? row.hasSocietasApp ?? row.meta?.hasSocietasApp;
   const accountCut = row.current_account_as_of ?? row.currentAccountAsOf ?? row.meta?.currentAccountAsOf;
+  const unpaidCapital = row.unpaid_capital ?? row.unpaidCapital ?? row.meta?.unpaidCapital;
   const bajaMotivo = row.baja_motivo ?? row.bajaMotivo ?? row.meta?.bajaMotivo;
   const bajaActorName = row.baja_actor ?? row.bajaActorName ?? row.meta?.bajaActorName;
   const bajaRegistradaAt = row.baja_registrada ?? row.bajaRegistradaAt ?? row.meta?.bajaRegistradaAt;
@@ -79,6 +81,7 @@ export function metaFromListRow(row = {}) {
   if (portalAt) meta.portalProvisionedAt = portalAt;
   if (societasApp === true || societasApp === 'true') meta.hasSocietasApp = true;
   if (accountCut) meta.currentAccountAsOf = String(accountCut).slice(0, 10);
+  if (unpaidCapital != null && unpaidCapital !== '') meta.unpaidCapital = Number(unpaidCapital) || 0;
   if (bajaMotivo) meta.bajaMotivo = bajaMotivo;
   if (bajaActorName) meta.bajaActorName = bajaActorName;
   if (bajaRegistradaAt) meta.bajaRegistradaAt = bajaRegistradaAt;
@@ -121,6 +124,11 @@ function listRowToMember(row) {
     recordScope: 'list',
   };
   if (cats) member.cuotaCategories = cats;
+  if (row.unpaid_capital != null && row.unpaid_capital !== '') {
+    member.unpaidCapital = Number(row.unpaid_capital) || 0;
+  } else if (row.unpaidCapital != null && row.unpaidCapital !== '') {
+    member.unpaidCapital = Number(row.unpaidCapital) || 0;
+  }
   if (row.has_portal === true) member.hasApp = true;
   if (row.baja_motivo || row.bajaMotivo) {
     member.bajaMotivo = row.baja_motivo || row.bajaMotivo;
@@ -183,6 +191,10 @@ export async function listMembers({ onBatch, scope = 'active' } = {}) {
     const rows = [...(active || []), ...(inactive || [])];
     onBatch?.(rows, { loaded: rows.length, total: rows.length, done: true });
     return rows;
+  }
+  // Caché exactamente en el tope PostgREST = padrón truncado; no reutilizar.
+  if (membersListCache[key]?.length === MEMBERS_PAGE_SIZE) {
+    membersListCache[key] = null;
   }
   if (membersListCache[key]?.length) {
     onBatch?.(membersListCache[key], {
@@ -249,7 +261,8 @@ async function downloadMembersListPaged({ onBatch, scope = 'active' } = {}) {
     if (done) finished = true;
     onBatch?.(mapped, {
       loaded: mapped.length,
-      total: knownTotal || (done ? mapped.length : 0),
+      // Al cerrar, el total es lo descargado (el count exact puede diferir en 1–N filas).
+      total: done ? mapped.length : (knownTotal || mapped.length),
       done,
       firstPage,
     });
@@ -274,7 +287,8 @@ async function downloadMembersListPaged({ onBatch, scope = 'active' } = {}) {
           .replace(', family_principal:meta->>familyPrincipalNumber', '')
           .replace(', family_group_name:meta->>familyGroupName', '')
           .replace(', cuota_categories:meta->cuotaCategories', '')
-          .replace(', current_account_as_of:meta->>currentAccountAsOf', '');
+          .replace(', current_account_as_of:meta->>currentAccountAsOf', '')
+          .replace(', unpaid_capital:meta->unpaidCapital', '');
         const req = applyMemberScope(
           sb().from('members').select(listSelect, selectOpts),
           scope,

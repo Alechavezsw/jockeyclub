@@ -53,7 +53,13 @@ export default function CuotasDeskToolbar({
   onBack,
   extraOperate = [],
   consultOnly = false,
+  resumen = [],
+  activeResumen = '',
+  onResumen,
+  children = null,
 }) {
+  const hasResumen = Array.isArray(resumen) && resumen.length > 0;
+
   return (
     <nav className="cuotas-toolbar" aria-label="Herramientas de cuotas">
       {onBack ? (
@@ -65,6 +71,29 @@ export default function CuotasDeskToolbar({
         </div>
       ) : null}
       <div className="cuotas-desk">
+        {hasResumen ? (
+          <div className="cuotas-desk-band">
+            <p className="cuotas-desk-label">Resumen</p>
+            <div className="cuotas-actions">
+              {resumen.map((tool) => (
+                <CuotasTool
+                  key={tool.id}
+                  icon={tool.icon}
+                  label={tool.label}
+                  hint={tool.hint}
+                  tone={tool.tone || 'gold'}
+                  current={activeResumen === tool.id}
+                  onClick={() => onResumen?.(tool.id)}
+                />
+              ))}
+            </div>
+            {children ? (
+              <div className="cuotas-toolbar-panel-body">
+                {children}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         <div className="cuotas-desk-band">
           <p className="cuotas-desk-label">Consultar</p>
           <div className="cuotas-actions">
@@ -110,6 +139,11 @@ export default function CuotasDeskToolbar({
         </div>
         )}
       </div>
+      {!hasResumen && children ? (
+        <div className="cuotas-toolbar-panels">
+          {children}
+        </div>
+      ) : null}
     </nav>
   );
 }

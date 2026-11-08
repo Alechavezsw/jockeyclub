@@ -33,8 +33,9 @@ export default function MemberTiersPanel({
   members = [],
   formatCurrency,
   tierAccentById = null,
+  embedded = false,
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(embedded);
   const [editingId, setEditingId] = useState(null);
   const [isCreating, setIsCreating] = useState(false);
   const [draft, setDraft] = useState(emptyDraft);
@@ -140,6 +141,7 @@ export default function MemberTiersPanel({
       count={tiers.length}
       defaultOpen={false}
       storageKey="categorias"
+      embedded={embedded}
       extra={(
         <div className="member-tiers-head-actions">
           <button type="button" className="btn btn-secondary btn-sm" onClick={() => setOpen((v) => !v)}>

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft, CheckCircle2, AlertCircle, Camera, CameraOff, History, QrCode,
+  ArrowLeft, CheckCircle2, AlertCircle, Camera, CameraOff, History, CalendarRange,
 } from 'lucide-react';
 import { parseCredentialQRPayload } from '../domain/credentials/qr';
 import { createCredentialVerifier } from '../domain/credentials/credentialCheck';
@@ -18,6 +18,7 @@ import { todayISODateAR } from '../lib/arDate';
 import { mergePoolSearchHits, mergePoolSettings, searchPoolMembers } from '../domain/pool/poolAccess';
 import { isPoolSeasonLive } from '../domain/pool/poolSeason';
 import { accountHolderOf, SEASON_DUES_GATE_COPY, seasonDuesGate } from '../domain/pool/seasonDuesGate';
+import { isActiveReservation, reservationDay } from '../domain/reservations/memberBookings';
 import {
   getGuestPassById,
   getMemberByNumber,
@@ -27,6 +28,13 @@ import {
 import { isSupabaseConfigured } from '../lib/supabase';
 import { useWakeLock } from '../hooks/useWakeLock';
 import QrLiveScanner from '../components/QrLiveScanner';
+
+function reservationStatusLabel(status) {
+  const s = String(status || 'confirmed').toLowerCase();
+  if (s === 'pending') return 'Pendiente';
+  if (s === 'approved' || s === 'confirmed') return 'OK';
+  return s || 'OK';
+}
 
 /** Cuánto queda el cartel. Una credencial distinta lo reemplaza al instante; la misma no se vuelve a leer. */
 const COOLDOWN_MS = 2200;
@@ -94,21 +102,17 @@ export default function AccessControlView({
   formatCurrency,
   guestPasses = [],
   poolSettings,
+  reservations = [],
   operatorName = '',
 }) {
   const navigate = useNavigate();
   const cooldownTimerRef = useRef(null);
   const lastPayloadRef = useRef({ raw: '', at: 0 });
   const lastAdmitRef = useRef({ id: '', at: 0 });
-  const [cameraOn, setCameraOn] = useState(true);
+  const [cameraOn, setCameraOn] = useState(false);
   const [cameraError, setCameraError] = useState('');
   const [result, setResult] = useState(null);
-  const [isWide, setIsWide] = useState(() =>
-    typeof window !== 'undefined' ? window.matchMedia('(min-width: 900px)').matches : false
-  );
-  const [showHistory, setShowHistory] = useState(() =>
-    typeof window !== 'undefined' ? window.matchMedia('(min-width: 900px)').matches : false
-  );
+  const [showHistory, setShowHistory] = useState(false);
   const [manualCode, setManualCode] = useState('');
   const [remoteHits, setRemoteHits] = useState([]);
   const [manualHint, setManualHint] = useState('');
@@ -418,8 +422,16 @@ export default function AccessControlView({
   const startCamera = useCallback(() => {
     setCameraError('');
     setResult(null);
+    setCameraLive(false);
     setCameraOn(true);
     setScannerGen((n) => n + 1);
+  }, []);
+
+  const handleCameraError = useCallback((msg) => {
+    const text = String(msg || '').trim() || 'No se pudo iniciar la cámara en este navegador.';
+    setCameraError(text);
+    setCameraOn(false);
+    setCameraLive(false);
   }, []);
 
   useEffect(() => {
@@ -430,17 +442,6 @@ export default function AccessControlView({
 
   useEffect(() => () => {
     if (cooldownTimerRef.current) clearTimeout(cooldownTimerRef.current);
-  }, []);
-
-  useEffect(() => {
-    const mq = window.matchMedia('(min-width: 900px)');
-    const onChange = (e) => {
-      setIsWide(e.matches);
-      if (e.matches) setShowHistory(true);
-    };
-    setIsWide(mq.matches);
-    mq.addEventListener?.('change', onChange);
-    return () => mq.removeEventListener?.('change', onChange);
   }, []);
 
   const localHits = useMemo(
@@ -507,6 +508,41 @@ export default function AccessControlView({
   );
   const visibleLogs = todayLogs.slice(0, historyShown);
   const hasMoreToday = todayLogs.length > historyShown;
+  const todayReservations = useMemo(
+    () => (reservations || [])
+      .filter((res) => (
+        !res?.occupancyOnly
+        && isActiveReservation(res)
+        && reservationDay(res) === clubDay
+      ))
+      .toSorted((a, b) => {
+        const ta = String(a.time || a.time_slot || '');
+        const tb = String(b.time || b.time_slot || '');
+        if (ta !== tb) return ta.localeCompare(tb);
+        return String(a.memberName || '').localeCompare(String(b.memberName || ''), 'es');
+      }),
+    [reservations, clubDay],
+  );
+
+  const resultCard = result ? (
+    <div className={`access-result-card ${result.status}${result.tone ? ` ${result.tone}` : ''}`} role="status" aria-live="assertive">
+      {result.photo ? (
+        <img
+          src={result.photo}
+          alt=""
+          width={64}
+          height={64}
+          className="access-result-photo"
+        />
+      ) : null}
+      {result.status === 'granted'
+        ? <CheckCircle2 size={44} aria-hidden="true" />
+        : <AlertCircle size={44} aria-hidden="true" />}
+      <h2 className="serif-font access-result-title">{result.title}</h2>
+      <p className="access-result-detail">{result.detail}</p>
+      {result.warning ? <p className="access-result-warning">{result.warning}</p> : null}
+    </div>
+  ) : null;
 
   return (
     <div className="access-gate fade-in">
@@ -515,170 +551,97 @@ export default function AccessControlView({
           min-height: 100dvh;
           width: 100%;
           margin: 0 auto;
-          padding: max(0.75rem, env(safe-area-inset-top)) max(0.9rem, env(safe-area-inset-right)) max(1.25rem, env(safe-area-inset-bottom)) max(0.9rem, env(safe-area-inset-left));
+          padding:
+            max(0.65rem, env(safe-area-inset-top))
+            max(1rem, env(safe-area-inset-right))
+            max(1.25rem, env(safe-area-inset-bottom))
+            max(1rem, env(safe-area-inset-left));
           display: flex;
           flex-direction: column;
-          gap: 0.9rem;
+          align-items: center;
           box-sizing: border-box;
           background:
-            radial-gradient(ellipse at 50% 0%, rgba(var(--primary-gold-rgb),0.12), transparent 55%),
+            radial-gradient(ellipse at 50% 0%, rgba(var(--primary-gold-rgb),0.14), transparent 52%),
             var(--bg-primary, #060e0a);
+        }
+        .access-gate-stack {
+          width: 100%;
+          max-width: 26.5rem;
+          display: flex;
+          flex-direction: column;
+          gap: 0.85rem;
+          flex: 1;
         }
         .access-gate-header {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          gap: 0.65rem;
-          flex-wrap: wrap;
-          max-width: 1100px;
-          width: 100%;
-          margin: 0 auto;
+          gap: 0.5rem;
         }
         .access-gate-brand {
           display: flex;
           align-items: center;
-          gap: 0.55rem;
+          gap: 0.5rem;
           min-width: 0;
         }
         .access-gate-brand img {
-          width: 58px;
-          height: 58px;
-        }
-        .access-gate-layout {
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 0.9rem;
-          width: 100%;
-          max-width: 1100px;
-          margin: 0 auto;
-          flex: 1;
-          align-items: start;
+          width: 44px;
+          height: 44px;
+          flex-shrink: 0;
         }
         .access-gate .season-dues-rule {
-          width: 100%;
-          max-width: 1100px;
-          margin: 0 auto 0.85rem;
+          margin: 0;
+          font-size: 0.72rem;
+          line-height: 1.35;
+          color: var(--text-muted);
+          text-align: center;
         }
-        .access-scanner-shell {
-          position: relative;
-          border-radius: 18px;
-          overflow: hidden;
-          border: 1px solid var(--border-glass);
-          background: #020804;
-          width: 100%;
-          aspect-ratio: 4 / 3;
-          min-height: 220px;
-          max-height: min(52vh, 480px);
-          height: auto;
-          box-shadow: 0 0 0 1px rgba(var(--primary-gold-rgb),0.15), 0 16px 40px rgba(0,0,0,0.45);
-        }
-        .access-scanner-shell.is-idle {
-          aspect-ratio: auto;
-          height: 240px;
-          max-height: 240px;
-        }
-        .access-side {
+        .access-panel {
           display: flex;
           flex-direction: column;
           gap: 0.85rem;
-          min-width: 0;
-          padding: 1rem 1.05rem 1.1rem;
+          padding: 1rem 1rem 1.1rem;
           border: 1px solid var(--border-glass);
-          border-radius: 16px;
-          background: var(--bg-secondary);
-        }
-        .access-scanner-shell .qr-live {
           border-radius: 18px;
-        }
-        .access-result-overlay {
-          position: absolute;
-          inset: 0;
-          z-index: 5;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          padding: clamp(1rem, 3vw, 1.5rem);
-          text-align: center;
-          backdrop-filter: blur(6px);
-        }
-        .access-result-overlay.granted {
-          background: rgba(6, 40, 28, 0.88);
-          color: var(--emerald-accent);
-        }
-        .access-result-overlay.denied {
-          background: rgba(40, 10, 10, 0.9);
-          color: var(--danger-accent);
-        }
-        .access-result-overlay.denied.warn {
-          background: rgba(52, 36, 6, 0.92);
-          color: #f4c15d;
-        }
-        .access-result-warning {
-          margin: 0.6rem 0 0;
-          padding: 0.3rem 0.8rem;
-          border-radius: 999px;
-          background: rgba(244, 193, 93, 0.18);
-          border: 1px solid rgba(244, 193, 93, 0.55);
-          color: #f4c15d;
-          font-size: 0.82rem;
-          font-weight: 700;
-          letter-spacing: 0.02em;
-        }
-        .access-idle-hint {
-          position: absolute;
-          inset: 0;
-          z-index: 2;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          gap: 0.65rem;
-          padding: 1.5rem;
-          text-align: center;
-          color: var(--text-secondary);
-          pointer-events: none;
-        }
-        .access-actions {
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 0.55rem;
-        }
-        .access-actions .btn {
-          min-height: 48px;
-          font-weight: 700;
+          background: var(--bg-secondary);
         }
         .access-manual {
           display: flex;
           flex-direction: column;
-          gap: 0.45rem;
+          gap: 0.5rem;
+          text-align: center;
         }
         .access-manual-label {
-          font-size: 0.72rem;
+          font-size: 0.7rem;
           font-weight: 700;
-          letter-spacing: 0.05em;
+          letter-spacing: 0.08em;
           text-transform: uppercase;
           color: var(--text-muted);
         }
         .access-manual-row {
           display: flex;
-          flex-wrap: wrap;
-          gap: 8px;
+          flex-direction: column;
+          gap: 0.55rem;
         }
         .access-manual .form-input {
-          flex: 1 1 180px;
-          min-height: 44px;
-          min-width: 0;
+          width: 100%;
+          min-height: 52px;
+          font-size: 1.05rem;
+          text-align: center;
+          border-radius: 14px;
         }
-        .access-manual .btn {
-          min-height: 44px;
-          padding: 0 1.1rem;
-          flex: 0 0 auto;
+        .access-manual .btn,
+        .access-actions .btn {
+          width: 100%;
+          min-height: 52px;
+          font-weight: 700;
+          font-size: 1rem;
+          border-radius: 14px;
         }
         .access-manual-hint {
           margin: 0;
-          font-size: 0.75rem;
-          line-height: 1.35;
+          font-size: 0.74rem;
+          line-height: 1.4;
           color: var(--text-muted);
         }
         .access-manual-hits {
@@ -687,15 +650,16 @@ export default function AccessControlView({
           padding: 0;
           display: flex;
           flex-direction: column;
-          gap: 0.35rem;
-          max-height: 220px;
+          gap: 0.4rem;
+          max-height: min(40vh, 260px);
           overflow-y: auto;
+          text-align: left;
         }
         .access-manual-hits button {
           width: 100%;
           text-align: left;
-          padding: 0.55rem 0.7rem;
-          border-radius: 10px;
+          padding: 0.7rem 0.85rem;
+          border-radius: 12px;
           border: 1px solid var(--border-glass);
           background: var(--bg-tertiary);
           color: inherit;
@@ -703,27 +667,124 @@ export default function AccessControlView({
           cursor: pointer;
           display: flex;
           flex-direction: column;
-          gap: 0.12rem;
+          gap: 0.15rem;
+          min-height: 52px;
         }
-        .access-manual-hits button:hover,
-        .access-manual-hits button:focus-visible {
-          border-color: color-mix(in srgb, var(--primary-gold) 50%, var(--border-glass));
+        .access-manual-hits button:active {
+          border-color: color-mix(in srgb, var(--primary-gold) 55%, var(--border-glass));
         }
         .access-manual-hits strong {
-          font-size: 0.88rem;
+          font-size: 0.95rem;
           color: var(--text-primary);
         }
         .access-manual-hits span {
-          font-size: 0.72rem;
+          font-size: 0.74rem;
           color: var(--text-muted);
           font-variant-numeric: tabular-nums;
+        }
+        .access-actions {
+          display: grid;
+          gap: 0.5rem;
+        }
+        .access-camera-error {
+          margin: 0;
+          font-size: 0.8rem;
+          line-height: 1.35;
+          color: var(--danger-accent);
+          text-align: center;
+        }
+        .access-scanner-shell {
+          position: relative;
+          border-radius: 18px;
+          overflow: hidden;
+          border: 1px solid var(--border-glass);
+          background: #020804;
+          width: 100%;
+          aspect-ratio: 3 / 4;
+          min-height: 280px;
+          max-height: min(58dvh, 520px);
+          box-shadow: 0 0 0 1px rgba(var(--primary-gold-rgb),0.15), 0 14px 36px rgba(0,0,0,0.4);
+        }
+        .access-scanner-shell .qr-live {
+          border-radius: 18px;
+        }
+        .access-result-card {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 0.35rem;
+          padding: 1.15rem 1rem;
+          border-radius: 18px;
+          text-align: center;
+        }
+        .access-result-card.granted {
+          background: rgba(6, 40, 28, 0.92);
+          color: var(--emerald-accent);
+          border: 1px solid rgba(46, 160, 110, 0.35);
+        }
+        .access-result-card.denied {
+          background: rgba(40, 10, 10, 0.94);
+          color: var(--danger-accent);
+          border: 1px solid rgba(200, 70, 70, 0.35);
+        }
+        .access-result-card.denied.warn {
+          background: rgba(52, 36, 6, 0.94);
+          color: #f4c15d;
+          border: 1px solid rgba(244, 193, 93, 0.4);
+        }
+        .access-result-photo {
+          width: 64px;
+          height: 64px;
+          border-radius: 16px;
+          object-fit: cover;
+          border: 2px solid currentColor;
+          margin-bottom: 0.25rem;
+        }
+        .access-result-title {
+          margin: 0.15rem 0 0;
+          font-size: 1.35rem;
+          letter-spacing: 0.04em;
+        }
+        .access-result-detail {
+          margin: 0.2rem 0 0;
+          font-size: 0.9rem;
+          color: #fff;
+          opacity: 0.92;
+          line-height: 1.35;
+        }
+        .access-result-warning {
+          margin: 0.45rem 0 0;
+          padding: 0.3rem 0.8rem;
+          border-radius: 999px;
+          background: rgba(244, 193, 93, 0.18);
+          border: 1px solid rgba(244, 193, 93, 0.55);
+          color: #f4c15d;
+          font-size: 0.8rem;
+          font-weight: 700;
+        }
+        .access-scanner-shell .access-result-card {
+          position: absolute;
+          inset: 0;
+          z-index: 5;
+          border-radius: 0;
+          border: 0;
+          backdrop-filter: blur(6px);
+        }
+        .access-history-toggle {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+          width: 100%;
+          min-height: 44px;
         }
         .access-history {
           border: 1px solid var(--border-glass);
           border-radius: 14px;
           padding: 0.75rem;
           background: rgba(255,255,255,0.02);
-          max-height: min(40vh, 320px);
+          max-height: min(36vh, 280px);
           overflow-y: auto;
         }
         .access-history-item {
@@ -734,170 +795,164 @@ export default function AccessControlView({
           border-bottom: 1px solid var(--border-glass);
           font-size: 0.8rem;
         }
-        .access-history-toggle {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          gap: 6px;
-          width: 100%;
-        }
         .access-history-more {
           width: 100%;
           margin-top: 0.55rem;
+          min-height: 44px;
         }
-
-        /* Tablet */
-        @media (min-width: 640px) {
-          .access-scanner-shell:not(.is-idle) {
-            max-height: min(48vh, 460px);
-          }
+        .access-today-bookings {
+          border: 1px solid var(--border-glass);
+          border-radius: 18px;
+          padding: 0.9rem 1rem 1rem;
+          background: var(--bg-secondary);
         }
-
-        /* Desktop: lector + panel lateral, sin estirar la cámara */
-        @media (min-width: 900px) {
-          .access-gate {
-            padding: 1.25rem 1.5rem 1.75rem;
-          }
-          .access-gate-layout {
-            grid-template-columns: minmax(0, 1.15fr) minmax(300px, 380px);
-            gap: 1.25rem;
-            align-items: start;
-          }
-          .access-scanner-shell:not(.is-idle) {
-            max-height: min(56vh, 500px);
-          }
-          .access-history {
-            flex: 1;
-            max-height: min(42vh, 360px);
-          }
-          .access-history-toggle {
-            display: none;
-          }
+        .access-today-bookings-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.5rem;
+          margin-bottom: 0.65rem;
         }
-
-        @media (min-width: 1200px) {
-          .access-gate-layout {
-            max-width: 1180px;
-          }
+        .access-today-bookings-head strong {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.4rem;
+          font-size: 0.88rem;
+          color: var(--text-gold);
         }
-
-        /* Pantallas angostas / landscape móvil */
-        @media (max-height: 520px) and (orientation: landscape) {
-          .access-gate-layout {
-            grid-template-columns: minmax(0, 1.1fr) minmax(240px, 320px);
-          }
-          .access-scanner-shell:not(.is-idle) {
+        .access-today-bookings-head span {
+          font-size: 0.72rem;
+          color: var(--text-muted);
+          font-variant-numeric: tabular-nums;
+        }
+        .access-today-bookings-list {
+          list-style: none;
+          margin: 0;
+          padding: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 0.35rem;
+          max-height: min(42vh, 320px);
+          overflow-y: auto;
+        }
+        .access-today-bookings-item {
+          display: grid;
+          grid-template-columns: 3.4rem 1fr auto;
+          gap: 0.55rem;
+          align-items: center;
+          padding: 0.55rem 0.15rem;
+          border-bottom: 1px solid var(--border-glass);
+          font-size: 0.82rem;
+        }
+        .access-today-bookings-item:last-child {
+          border-bottom: 0;
+        }
+        .access-today-bookings-time {
+          font-variant-numeric: tabular-nums;
+          font-weight: 700;
+          color: var(--text-primary);
+        }
+        .access-today-bookings-item strong {
+          display: block;
+          color: var(--text-primary);
+          font-size: 0.86rem;
+          line-height: 1.25;
+        }
+        .access-today-bookings-item em {
+          display: block;
+          margin-top: 0.12rem;
+          font-style: normal;
+          font-size: 0.72rem;
+          color: var(--text-muted);
+        }
+        .access-today-bookings-status {
+          font-size: 0.7rem;
+          font-weight: 700;
+          letter-spacing: 0.02em;
+          text-transform: uppercase;
+        }
+        .access-today-bookings-status.is-ok {
+          color: var(--emerald-accent);
+        }
+        .access-today-bookings-status.is-pending {
+          color: #f4c15d;
+        }
+        .access-today-bookings-empty {
+          margin: 0;
+          font-size: 0.82rem;
+          color: var(--text-muted);
+          text-align: center;
+          padding: 0.35rem 0;
+        }
+        @media (orientation: landscape) and (max-height: 480px) {
+          .access-scanner-shell {
             aspect-ratio: 16 / 10;
-            max-height: calc(100dvh - 5.5rem);
-          }
-          .access-side {
-            max-height: calc(100dvh - 5.5rem);
-            overflow-y: auto;
+            max-height: min(70dvh, 360px);
+            min-height: 180px;
           }
         }
       `}</style>
 
-      <header className="access-gate-header">
-        <div className="access-gate-brand">
-          <img className="club-mark" src="/logo-jockey-club.png?v=clavos-blancos" alt="Jockey Club San Juan" width={58} height={58} />
-          <div style={{ minWidth: 0 }}>
-            <div className="serif-font" style={{ fontSize: 'clamp(1rem, 2.5vw, 1.2rem)', color: 'var(--text-gold)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-              Acceso QR
-            </div>
-            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-              Sede Rivadavia · Molinete · Todos los dispositivos
+      <div className="access-gate-stack">
+        <header className="access-gate-header">
+          <div className="access-gate-brand">
+            <img className="club-mark" src="/logo-jockey-club.png?v=clavos-blancos" alt="Jockey Club San Juan" width={44} height={44} />
+            <div style={{ minWidth: 0 }}>
+              <div className="serif-font" style={{ fontSize: '1rem', color: 'var(--text-gold)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                Acceso
+              </div>
+              <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                Molinete · teléfono
+              </div>
             </div>
           </div>
-        </div>
-        <button
-          type="button"
-          className="btn btn-secondary btn-sm"
-          onClick={() => navigate('/panel')}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-        >
-          <ArrowLeft size={14} /> Panel
-        </button>
-      </header>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => navigate('/panel')}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            <ArrowLeft size={14} /> Panel
+          </button>
+        </header>
 
-      {poolCfg.seasonBlocksUnpaidDues !== false ? (
-        <p className="season-dues-rule">
-          {SEASON_DUES_GATE_COPY.lead}
-          {' '}
-          {SEASON_DUES_GATE_COPY.mora}
-          {isPoolSeasonLive(clubDay) ? '' : ' Rige en temporada, diciembre a marzo.'}
-        </p>
-      ) : null}
+        {poolCfg.seasonBlocksUnpaidDues !== false ? (
+          <p className="season-dues-rule">
+            {SEASON_DUES_GATE_COPY.lead}
+            {' '}
+            {SEASON_DUES_GATE_COPY.mora}
+            {isPoolSeasonLive(clubDay) ? '' : ' Rige en temporada, diciembre a marzo.'}
+          </p>
+        ) : null}
 
-      <div className="access-gate-layout">
-        <div className={`access-scanner-shell${cameraLive ? '' : ' is-idle'}`}>
-          {cameraOn && (
+        {!cameraOn && resultCard}
+
+        {cameraOn ? (
+          <div className="access-scanner-shell">
             <QrLiveScanner
               key={scannerGen}
               active={cameraOn}
               onDecode={handleDecode}
-              onError={setCameraError}
+              onError={handleCameraError}
               onLiveChange={setCameraLive}
             />
-          )}
-
-          {!cameraOn && !result && (
-            <div className="access-idle-hint">
-              <QrCode size={42} color="var(--primary-gold)" />
-              <p style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-primary)', fontWeight: 600 }}>
-                Lector de credenciales
-              </p>
-              <p style={{ margin: 0, fontSize: '0.8rem', maxWidth: 300 }}>
-                Credencial a pantalla completa, brillo al máximo. Acercá el QR al marco: debería leer al instante.
-              </p>
-            </div>
-          )}
-
-          {result && (
-            <div className={`access-result-overlay ${result.status}${result.tone ? ` ${result.tone}` : ''}`} role="status" aria-live="assertive">
-              {result.photo && (
-                <img
-                  src={result.photo}
-                  alt=""
-                  width={72}
-                  height={72}
-                  style={{ width: 72, height: 72, borderRadius: 16, objectFit: 'cover', marginBottom: 10, border: '2px solid currentColor' }}
-                />
-              )}
-              {result.status === 'granted'
-                ? <CheckCircle2 size={52} style={{ marginBottom: 8 }} />
-                : <AlertCircle size={52} style={{ marginBottom: 8 }} />}
-              <h2 className="serif-font" style={{ margin: 0, fontSize: 'clamp(1.2rem, 3vw, 1.55rem)', letterSpacing: '0.04em' }}>
-                {result.title}
-              </h2>
-              <p style={{ margin: '0.45rem 0 0', fontSize: '0.9rem', color: '#fff', opacity: 0.9 }}>
-                {result.detail}
-              </p>
-              {result.warning ? (
-                <p className="access-result-warning">{result.warning}</p>
-              ) : null}
-            </div>
-          )}
-        </div>
-
-        <aside className="access-side">
-          {cameraError && (
-            <p role="alert" style={{ margin: 0, fontSize: '0.82rem', color: 'var(--danger-accent)' }}>
-              {cameraError}
-            </p>
-          )}
-
-          <div className="access-actions">
-            {!cameraOn || cameraError ? (
-              <button type="button" className="btn btn-tan" onClick={startCamera} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                <Camera size={18} aria-hidden="true" /> {cameraError ? 'Reintentar cámara' : 'Activar cámara'}
-              </button>
-            ) : (
-              <button type="button" className="btn btn-secondary" onClick={stopCamera} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                <CameraOff size={18} aria-hidden="true" /> Detener cámara
-              </button>
-            )}
+            {result ? (
+              <div className={`access-result-card ${result.status}${result.tone ? ` ${result.tone}` : ''}`} role="status" aria-live="assertive">
+                {result.photo ? (
+                  <img src={result.photo} alt="" width={64} height={64} className="access-result-photo" />
+                ) : null}
+                {result.status === 'granted'
+                  ? <CheckCircle2 size={44} aria-hidden="true" />
+                  : <AlertCircle size={44} aria-hidden="true" />}
+                <h2 className="serif-font access-result-title">{result.title}</h2>
+                <p className="access-result-detail">{result.detail}</p>
+                {result.warning ? <p className="access-result-warning">{result.warning}</p> : null}
+              </div>
+            ) : null}
           </div>
+        ) : null}
 
+        <section className="access-panel">
           <form
             className="access-manual"
             onSubmit={(e) => {
@@ -936,7 +991,7 @@ export default function AccessControlView({
             }}
           >
             <label className="access-manual-label" htmlFor="access-manual-code">
-              Socio
+              Buscar socio
             </label>
             <div className="access-manual-row">
               <input
@@ -949,10 +1004,12 @@ export default function AccessControlView({
                   setManualCode(e.target.value);
                   setManualHint('');
                 }}
-                placeholder="DNI, apellido o número…"
-                inputMode="text"
+                placeholder="DNI, apellido o N°…"
+                inputMode="search"
+                enterKeyHint="search"
                 autoComplete="off"
                 autoCapitalize="off"
+                autoCorrect="off"
                 spellCheck={false}
                 aria-describedby="access-manual-hint"
                 aria-autocomplete="list"
@@ -979,29 +1036,52 @@ export default function AccessControlView({
               </ul>
             ) : null}
             <p id="access-manual-hint" className="access-manual-hint">
-              {manualHint || 'DNI, apellido o número de credencial. También acepta código JCSJ y pases.'}
+              {manualHint || 'DNI, apellido o número. También código JCSJ y pases.'}
             </p>
           </form>
+
+          {cameraError ? (
+            <p className="access-camera-error" role="alert">{cameraError}</p>
+          ) : null}
+
+          <div className="access-actions">
+            {!cameraOn ? (
+              <button type="button" className="btn btn-tan" onClick={startCamera}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                  <Camera size={18} aria-hidden="true" />
+                  {cameraError ? 'Reintentar cámara' : 'Abrir cámara'}
+                </span>
+              </button>
+            ) : (
+              <button type="button" className="btn btn-secondary" onClick={stopCamera}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                  <CameraOff size={18} aria-hidden="true" />
+                  Detener cámara
+                </span>
+              </button>
+            )}
+          </div>
 
           <button
             type="button"
             className="btn btn-secondary btn-sm access-history-toggle"
             onClick={() => setShowHistory((v) => !v)}
           >
-            <History size={14} aria-hidden="true" /> {showHistory ? 'Ocultar historial' : `Hoy (${todayLogs.length})`}
+            <History size={14} aria-hidden="true" />
+            {showHistory ? 'Ocultar hoy' : `Hoy · ${todayLogs.length}`}
           </button>
 
-          {(showHistory || isWide) && (
+          {showHistory ? (
             <div className="access-history">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                 <strong style={{ fontSize: '0.85rem', color: 'var(--text-gold)' }}>Lecturas de hoy</strong>
                 <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                  {todayLogs.length} {todayLogs.length === 1 ? 'lectura' : 'lecturas'}
+                  {todayLogs.length}
                 </span>
               </div>
               {visibleLogs.length === 0 ? (
                 <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)', textAlign: 'center' }}>
-                  Sin lecturas hoy. Mañana esta lista empieza de nuevo.
+                  Sin lecturas hoy.
                 </p>
               ) : (
                 <>
@@ -1027,14 +1107,53 @@ export default function AccessControlView({
                       className="btn btn-tan btn-sm access-history-more"
                       onClick={() => setHistoryShown((n) => n + GATE_HISTORY_PAGE)}
                     >
-                      Leer más ({todayLogs.length - historyShown} más)
+                      Más ({todayLogs.length - historyShown})
                     </button>
                   ) : null}
                 </>
               )}
             </div>
+          ) : null}
+        </section>
+
+        <section className="access-today-bookings" aria-label="Reservas de hoy">
+          <div className="access-today-bookings-head">
+            <strong>
+              <CalendarRange size={16} aria-hidden="true" />
+              Reservas de hoy
+            </strong>
+            <span>{todayReservations.length}</span>
+          </div>
+          {todayReservations.length === 0 ? (
+            <p className="access-today-bookings-empty">No hay reservas para hoy.</p>
+          ) : (
+            <ul className="access-today-bookings-list">
+              {todayReservations.map((res) => {
+                const time = String(res.time || res.time_slot || '—');
+                const status = String(res.status || 'confirmed').toLowerCase();
+                const pending = status === 'pending';
+                return (
+                  <li
+                    key={res.id || `${reservationDay(res)}-${time}-${res.memberId || res.memberName}`}
+                    className="access-today-bookings-item"
+                  >
+                    <span className="access-today-bookings-time">{time}</span>
+                    <div style={{ minWidth: 0 }}>
+                      <strong>{res.facilityName || res.facilityId || 'Espacio'}</strong>
+                      <em>
+                        {res.memberName || 'Socio'}
+                        {res.memberId ? ` · N° ${res.memberId}` : ''}
+                      </em>
+                    </div>
+                    <span className={`access-today-bookings-status${pending ? ' is-pending' : ' is-ok'}`}>
+                      {reservationStatusLabel(status)}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
           )}
-        </aside>
+        </section>
       </div>
     </div>
   );

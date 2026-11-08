@@ -42,6 +42,17 @@ describe('clubSettings', () => {
     expect(dues.moraConsequences.join(' ')).toMatch(/pileta/);
   });
 
+  it('respeta la pausa de avisos hasta auditoría', () => {
+    const paused = mergeDuesSettings({
+      noticesPaused: true,
+      noticeByMessage: false,
+      noticeByEmail: false,
+    });
+    expect(paused.noticesPaused).toBe(true);
+    expect(paused.noticeByMessage).toBe(false);
+    expect(paused.noticeByEmail).toBe(false);
+  });
+
   it('arma el pie con la sede real', () => {
     setRuntimeClubSettings({
       address: 'República del Líbano 1799 Oeste',

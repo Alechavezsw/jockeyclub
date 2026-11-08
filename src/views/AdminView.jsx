@@ -279,6 +279,22 @@ export default function AdminView({
   );
 
   const membersSettled = !membersLoading && (members?.length || 0) > 0;
+  // Contador de cabecera: exacto en DB (status=active), no el tamaño del lote en memoria.
+  const [exactActiveMembers, setExactActiveMembers] = useState(() => Number(membersCount) || 0);
+  useEffect(() => {
+    setExactActiveMembers((prev) => Math.max(Number(prev) || 0, Number(membersCount) || 0));
+  }, [membersCount]);
+  useEffect(() => {
+    if (activeTab !== 'members') return undefined;
+    let cancelled = false;
+    repos.countMembers('active')
+      .then((count) => {
+        if (cancelled || !count) return;
+        setExactActiveMembers((prev) => Math.max(Number(prev) || 0, Number(count) || 0));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [activeTab]);
   // Día 1: generar liquidación del mes. Después: promover Pendiente→Procesada a las 00 h.
   // Solo superadmin/contador (dues.liquidate). Sin catch-up fuera del día 1.
   useEffect(() => {
@@ -647,7 +663,12 @@ export default function AdminView({
           { key: 'surveys', icon: Radio, label: 'Encuestas' },
           { key: 'alerts', icon: BellRing, label: 'Alertas' },
           { key: 'claims', icon: MessageSquare, label: 'Reclamos' },
-          { key: 'messaging', icon: Phone, label: 'Mensajería' },
+          {
+            key: 'messaging',
+            icon: Phone,
+            label: 'Mensajería',
+            badge: (messages || []).filter((m) => m?.recipientId === 'ops' && !m?.isRead).length || null,
+          },
         ],
       },
       {
@@ -687,7 +708,7 @@ export default function AdminView({
           }),
       }))
       .filter((group) => group.tabs.length > 0)
-  ), [permittedTabs, showConcessionsTab, showQrGateTab, userRole, liquidateDues, reservations]);
+  ), [permittedTabs, showConcessionsTab, showQrGateTab, userRole, liquidateDues, reservations, messages]);
 
   const tabOrChildMatches = (tab, key) => (
     tab.key === key || (tab.children || []).some((child) => child.key === key)
@@ -1090,27 +1111,41 @@ export default function AdminView({
       <div className="admin-main">
       <div className="page-stage">
       {/* Cabecera solo fuera del Inicio (el dashboard ya trae su propia intro) */}
-      {activeTab !== 'dashboard' && activeTab !== 'events' && activeTab !== 'accounting' && activeTab !== 'books' && activeTab !== 'informes' && activeTab !== 'caja' && activeTab !== 'operation' && activeTab !== 'jev' && (
+      {activeTab !== 'dashboard' && activeTab !== 'events' && activeTab !== 'accounting' && activeTab !== 'books' && activeTab !== 'informes' && activeTab !== 'caja' && activeTab !== 'operation' && activeTab !== 'jev' && activeTab !== 'messaging' && (
         <div className="page-header" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
           <div>
             <h1 className="page-title">{panelMeta.title}</h1>
             <p className="page-subtitle">{panelMeta.subtitle}</p>
           </div>
-          {activeTab === 'bookings' ? (
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}
-              title="Descargar PDF con todas las reservas de esta semana (lun–dom)"
-              onClick={() => {
-                void exportWeekReservationsPdf(reservations, { weekOf: todayAR() }).catch((err) => {
-                  window.alert(err?.message || 'No se pudo generar el PDF de la semana.');
-                });
-              }}
-            >
-              PDF semana
-            </button>
-          ) : null}
+          <div className="page-header-aside">
+            {activeTab === 'members' ? (
+              <div
+                className="page-header-member-count"
+                title="Conteo exacto en Supabase: todas las categorías con estado activo. Sin bajas ni inactivos."
+              >
+                <span className="page-header-member-count-label">Socios activos</span>
+                <b className="page-header-member-count-value tabular-nums">
+                  {Number(exactActiveMembers || membersCount || 0).toLocaleString('es-AR')}
+                </b>
+                <span className="page-header-member-count-hint">todas las categorías · sin bajas</span>
+              </div>
+            ) : null}
+            {activeTab === 'bookings' ? (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}
+                title="Descargar PDF con todas las reservas de esta semana (lun–dom)"
+                onClick={() => {
+                  void exportWeekReservationsPdf(reservations, { weekOf: todayAR() }).catch((err) => {
+                    window.alert(err?.message || 'No se pudo generar el PDF de la semana.');
+                  });
+                }}
+              >
+                PDF semana
+              </button>
+            ) : null}
+          </div>
         </div>
       )}
 
@@ -1233,6 +1268,7 @@ export default function AdminView({
           setDuesSettings={setDuesSettings}
           paymentPlans={paymentPlans}
           membersLoading={membersLoading}
+          membersProgress={membersProgress}
         />
       )}
 
@@ -1333,6 +1369,7 @@ export default function AdminView({
           setEntryLogs={setEntryLogs}
           poolSettings={poolSettings}
           setPoolSettings={setPoolSettings}
+          onSendMessage={sendMessage}
         />
       )}
 

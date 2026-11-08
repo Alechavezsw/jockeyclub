@@ -23,6 +23,7 @@ export default function PoolControlView({
   setEntryLogs,
   poolSettings = DEFAULT_POOL_SETTINGS,
   setPoolSettings,
+  onSendMessage = null,
 }) {
   const navigate = useNavigate();
 
@@ -58,6 +59,7 @@ export default function PoolControlView({
         onRefreshDayCash={onRefreshDayCash}
         poolAccesses={poolAccesses}
         setPoolAccesses={setPoolAccesses}
+        onSendMessage={onSendMessage}
         setEntryLogs={setEntryLogs}
         poolSettings={poolSettings}
         setPoolSettings={setPoolSettings}

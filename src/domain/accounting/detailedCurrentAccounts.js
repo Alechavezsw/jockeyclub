@@ -4,8 +4,21 @@ import { readSnapshot } from '../../data/snapshots';
 import { DEFAULT_CHART_OF_ACCOUNTS, getAccountById } from './chartOfAccounts';
 import { journalDateKey, normalizeLines, postedJournalEntries } from './journal';
 import { memberNumberOf } from '../members/households';
+import {
+  dbMemberIsDuesExempt,
+  isDuesExemptMember,
+  isMemberBillingActive,
+  lilaUnpaidCapital,
+} from '../members/dues';
 import { money } from '../money';
 import { todayISODateAR } from '../../lib/arDate';
+
+/** Misma regla que feeBilling.APP_DUES_FROM — inline para no ciclar imports. */
+function appOwnsFeePeriod(period) {
+  const year = Number(period?.year) || 0;
+  const month = Number(period?.month) || 0;
+  return (year * 12 + month) >= (2026 * 12 + 11);
+}
 
 const EMPTY_DETAILED_CC_SEED = Object.freeze({
   ACCESSIN_DETAILED_CC_AS_OF: '',
@@ -83,20 +96,129 @@ export function periodKeyFromDate(iso) {
   return /^\d{4}-\d{2}$/.test(key) ? key : '';
 }
 
-/** Socios con cuota del período cargada y todavía adeudada. */
+function detailedCcLooksDuesExempt(bucket) {
+  if (!bucket || typeof bucket !== 'object') return false;
+  const cats = bucket.cuotaCategories
+    || bucket.socialFee
+    || bucket.category
+    || bucket.feeCategory
+    || null;
+  return dbMemberIsDuesExempt(bucket.tier, { cuotaCategories: cats });
+}
+
+function unpaidRosterByNumber(members) {
+  const map = new Map();
+  if (!Array.isArray(members)) return map;
+  for (const member of members) {
+    const key = detailedCcMemberKey(memberNumberOf(member) || member?.memberId);
+    if (key) map.set(key, member);
+  }
+  return map;
+}
+
+/** Solo cuota social del mes — no salón / espacio verde ni pagos. */
+function isUnpaidSocialFeeLine(line) {
+  const type = String(line?.type || '').trim().toLowerCase();
+  if (!type || type === 'cuota' || type === 'otros') return true;
+  if (type === 'pago' || type.startsWith('reserva')) return false;
+  return !/reserva|sal[oó]n|espacio verde|alquiler/i.test(String(line?.concept || ''));
+}
+
+/** Ya cubrió el mes (débito importado, cobro, o capital LILA en 0). */
+export function memberPaidFeePeriod(member, periodKey) {
+  const key = periodKeyFromDate(periodKey) || String(periodKey || '');
+  if (!member || !/^\d{4}-\d{2}$/.test(key)) return false;
+  const capital = lilaUnpaidCapital(member);
+  if (capital != null && capital <= 0) return true;
+  const paidMonth = String(member.lastPaymentDate || '').slice(0, 7);
+  if (/^\d{4}-\d{2}$/.test(paidMonth) && paidMonth >= key) return true;
+  const nextMonth = String(member.nextDueDate || '').slice(0, 7);
+  if (/^\d{4}-\d{2}$/.test(nextMonth) && nextMonth > key) return true;
+  return false;
+}
+
+function sortUnpaidFeeRows(rows) {
+  return rows.toSorted((a, b) => (
+    b.owed - a.owed
+    || String(a.memberName).localeCompare(String(b.memberName), 'es')
+    || String(a.memberNumber).localeCompare(String(b.memberNumber))
+  ));
+}
+
+/**
+ * Quienes aún deben la cuota del mes según la liquidación viva (`fee_period_closures.pack.charges`).
+ * LILA/Accessin fue migración: desde APP_DUES_FROM rige el pack de la app + padrón Supabase.
+ */
+export function listUnpaidFeeMembersFromFeePeriod(feePeriod, members = []) {
+  if (!feePeriod || !appOwnsFeePeriod(feePeriod)) return [];
+  const key = `${Number(feePeriod.year)}-${String(Number(feePeriod.month)).padStart(2, '0')}`;
+  if (!/^\d{4}-\d{2}$/.test(key)) return [];
+  const charges = Array.isArray(feePeriod.pack?.charges) ? feePeriod.pack.charges : [];
+  if (!charges.length) return [];
+
+  const byId = new Map();
+  for (const member of members || []) {
+    const id = String(member?.memberId || memberNumberOf(member) || '').trim();
+    if (id) byId.set(id, member);
+  }
+
+  const rows = [];
+  for (const charge of charges) {
+    const owed = money(Number(charge?.addAmount ?? charge?.amount) || 0);
+    if (owed <= 0) continue;
+    const memberId = String(charge?.memberId || '').trim();
+    if (!memberId) continue;
+    const member = byId.get(memberId);
+    if (member) {
+      if (!isMemberBillingActive(member) || isDuesExemptMember(member)) continue;
+      if (memberPaidFeePeriod(member, key)) continue;
+    }
+    rows.push({
+      memberNumber: memberId,
+      memberName: member?.name
+        || charge?.memberName
+        || [charge?.firstName, charge?.lastName].filter(Boolean).join(' ')
+        || 'Socio',
+      dni: member?.documentNumber || charge?.dni || '',
+      owed,
+      amount: owed,
+    });
+  }
+  return sortUnpaidFeeRows(rows);
+}
+
+/**
+ * Socios con cuota del período todavía adeudada.
+ * Preferir `feePeriod` vivo (app). El snapshot Accessin queda solo para meses pre-migración.
+ */
 export function listUnpaidFeeMembersForPeriod(
   periodKey,
   byNumber = detailedCcSeed().ACCESSIN_DETAILED_CC_BY_NUMBER,
+  members = null,
+  feePeriod = null,
 ) {
+  if (feePeriod && appOwnsFeePeriod(feePeriod) && (feePeriod.pack?.charges || []).length) {
+    return listUnpaidFeeMembersFromFeePeriod(feePeriod, members || []);
+  }
+
   const key = periodKeyFromDate(periodKey) || String(periodKey || '');
   if (!/^\d{4}-\d{2}$/.test(key)) return [];
 
+  const roster = unpaidRosterByNumber(members);
   const rows = [];
   for (const member of Object.values(byNumber || {})) {
+    // Vitalicio / fundador / comisión (p. ej. presidente Laciar) nunca figuran.
+    if (detailedCcLooksDuesExempt(member)) continue;
+    const rosterMember = roster.get(detailedCcMemberKey(member.memberNumber));
+    if (rosterMember && isDuesExemptMember(rosterMember)) continue;
+    // Débitos / cobros del mes: el snapshot Accessin puede seguir mostrando deuda.
+    if (rosterMember && memberPaidFeePeriod(rosterMember, key)) continue;
+
     let owed = 0;
     let amount = 0;
     for (const line of member.lines || []) {
       if (line.periodKey !== key) continue;
+      if (!isUnpaidSocialFeeLine(line)) continue;
       if (line.value != null && line.value !== '') {
         const value = Number(line.value) || 0;
         owed += value;
@@ -118,11 +240,7 @@ export function listUnpaidFeeMembersForPeriod(
       amount,
     });
   }
-  return rows.toSorted((a, b) => (
-    b.owed - a.owed
-    || String(a.memberName).localeCompare(String(b.memberName), 'es')
-    || String(a.memberNumber).localeCompare(String(b.memberNumber))
-  ));
+  return sortUnpaidFeeRows(rows);
 }
 
 const ARCHIVE_BEFORE = '2026-11';

@@ -49,6 +49,8 @@ export default function FoldableSection({
   openToken = 0,
   onOpen,
   forceOpen = false,
+  /** Sin encabezado plegable: el padre elige el panel (botonera). */
+  embedded = false,
   extra = null,
   className = '',
   children,
@@ -58,7 +60,7 @@ export default function FoldableSection({
     if (!openToken) return;
     setOpen(true);
   }, [openToken, setOpen]);
-  const visible = forceOpen || open;
+  const visible = embedded || forceOpen || open;
   useEffect(() => {
     if (visible && typeof onOpen === 'function') onOpen();
   }, [visible, onOpen]);
@@ -66,25 +68,32 @@ export default function FoldableSection({
   const bodyId = id ? `${id}-body` : undefined;
 
   return (
-    <Tag className={`foldable-block${visible ? ' is-open' : ' is-folded'}${className ? ` ${className}` : ''}`} aria-labelledby={id}>
-      <header className="foldable-block-head">
-        <button
-          type="button"
-          className="foldable-block-toggle"
-          aria-expanded={visible}
-          aria-controls={bodyId}
-          onClick={toggle}
-        >
-          <i className="due-fold-arrow" aria-hidden="true">
-            <ChevronDown size={18} strokeWidth={2.5} />
-          </i>
-          <span className="foldable-block-copy">
-            <h3 id={id}>{title}</h3>
-            {subtitle ? <p>{subtitle}</p> : null}
-          </span>
-          {count != null && count !== '' ? <b className="tabular-nums">{count}</b> : null}
-        </button>
-      </header>
+    <Tag
+      className={`foldable-block${visible ? ' is-open' : ' is-folded'}${embedded ? ' is-embedded' : ''}${className ? ` ${className}` : ''}`}
+      aria-labelledby={id}
+    >
+      {embedded ? (
+        <h3 id={id} className="sr-only">{title}</h3>
+      ) : (
+        <header className="foldable-block-head">
+          <button
+            type="button"
+            className="foldable-block-toggle"
+            aria-expanded={visible}
+            aria-controls={bodyId}
+            onClick={toggle}
+          >
+            <i className="due-fold-arrow" aria-hidden="true">
+              <ChevronDown size={18} strokeWidth={2.5} />
+            </i>
+            <span className="foldable-block-copy">
+              <h3 id={id}>{title}</h3>
+              {subtitle ? <p>{subtitle}</p> : null}
+            </span>
+            {count != null && count !== '' ? <b className="tabular-nums">{count}</b> : null}
+          </button>
+        </header>
+      )}
       {visible ? (
         <div id={bodyId} className="foldable-block-body">
           {extra ? <div className="foldable-block-extra">{extra}</div> : null}

@@ -23,6 +23,7 @@ export default function InactiveMembersSection({
   loading = false,
   onRequestLoad,
   onReactivate = null,
+  embedded = false,
 }) {
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
@@ -85,6 +86,7 @@ export default function InactiveMembersSection({
       defaultOpen={false}
       storageKey="sociosInactivos"
       openToken={openToken}
+      embedded={embedded}
     >
       <div className="inactive-members-tools">
         <label className="inactive-members-search">

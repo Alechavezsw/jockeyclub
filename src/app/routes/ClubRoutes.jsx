@@ -273,6 +273,7 @@ export default function ClubRoutes({
       formatCurrency={formatCurrency}
       guestPasses={guestPasses}
       poolSettings={poolSettings}
+      reservations={reservations}
       operatorName={user?.fullName || user?.name || user?.email || ''}
     />
   ) : (
@@ -300,6 +301,7 @@ export default function ClubRoutes({
       setEntryLogs={setEntryLogsDb}
       poolSettings={poolSettings}
       setPoolSettings={setPoolSettings}
+      onSendMessage={sendMessage}
     />
   ) : (
     <Navigate to="/panel" replace />
@@ -321,6 +323,7 @@ export default function ClubRoutes({
       setPoolAccesses={setPoolAccessesDb}
       setEntryLogs={setEntryLogsDb}
       poolSettings={poolSettings}
+      onSendMessage={sendMessage}
     />
   ) : (
     <Navigate to="/panel" replace />

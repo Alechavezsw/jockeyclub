@@ -66,9 +66,13 @@ export async function sendDuesReceiptMessage({
   onSendMessage,
   channels = { md: true, email: true },
 } = {}) {
-  if (!member?.memberId || !payment) return;
+  if (!member?.memberId || !payment) {
+    return { emailed: false, messaged: false, reason: 'sin-destino' };
+  }
   const sendMd = channels?.md !== false;
   const sendEmail = channels?.email !== false;
+  let messaged = false;
+  let emailed = false;
   try {
     const file = await paymentReceiptPdfFile({ member, payment });
     let attachment;
@@ -80,29 +84,34 @@ export async function sendDuesReceiptMessage({
     if (sendMd && typeof onSendMessage === 'function') {
       try {
         await onSendMessage(duesReceiptMessage({ member, payment, attachment }));
+        messaged = true;
       } catch {
         /* best-effort MD */
       }
     }
-    if (!sendEmail) return;
-    const email = paymentReceiptDeliverableEmail(member.email)
-      || paymentReceiptDeliverableEmail(member.contactEmail);
-    if (!email) return;
-    const pdfBase64 = await fileToBase64(file);
-    await sendPaymentReceiptEmail({
-      memberNumber: member.memberId,
-      amountLabel: mpReceiptMoney(payment.amount),
-      receiptNo: payment.receiptNumber || payment.receipt || '',
-      concept: payment.concept || 'Cuota social',
-      methodLabel: payment.methodLabel || payment.method || 'Caja',
-      dateLabel: payment.date ? formatAccessinCashDate(payment.date) : '',
-      periodLabel: payment.period || payment.periodLabel || '',
-      pdfBase64,
-      fileName: file.name,
-    });
+    if (sendEmail) {
+      const email = paymentReceiptDeliverableEmail(member.email)
+        || paymentReceiptDeliverableEmail(member.contactEmail);
+      if (email) {
+        const pdfBase64 = await fileToBase64(file);
+        await sendPaymentReceiptEmail({
+          memberNumber: member.memberId,
+          amountLabel: mpReceiptMoney(payment.amount),
+          receiptNo: payment.receiptNumber || payment.receipt || '',
+          concept: payment.concept || 'Cuota social',
+          methodLabel: payment.methodLabel || payment.method || 'Caja',
+          dateLabel: payment.date ? formatAccessinCashDate(payment.date) : '',
+          periodLabel: payment.period || payment.periodLabel || '',
+          pdfBase64,
+          fileName: file.name,
+        });
+        emailed = true;
+      }
+    }
   } catch {
     /* best-effort */
   }
+  return { emailed, messaged };
 }
 
 /** Texto / links para reenviar un recibo por WhatsApp o mailto (sin PDF adjunto). */

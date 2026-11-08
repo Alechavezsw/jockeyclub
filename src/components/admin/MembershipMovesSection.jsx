@@ -26,7 +26,7 @@ function MoveStatCard({ label, value, color, active, onClick }) {
   );
 }
 
-export default function MembershipMovesSection({ members = [] }) {
+export default function MembershipMovesSection({ members = [], embedded = false }) {
   const [view, setView] = useState('bajas');
   const [kind, setKind] = useState(null);
 
@@ -72,6 +72,7 @@ export default function MembershipMovesSection({ members = [] }) {
       count={null}
       defaultOpen={false}
       storageKey="altasBajas"
+      embedded={embedded}
       extra={(
         <div className="membership-moves-tabs">
           <button

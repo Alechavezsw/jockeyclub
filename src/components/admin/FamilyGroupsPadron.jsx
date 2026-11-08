@@ -48,6 +48,7 @@ export default function FamilyGroupsPadron({
   tierCatalog,
   onOpenProfile,
   forceOpen = false,
+  embedded = false,
 }) {
   const [page, setPage] = useState(1);
   const [openId, setOpenId] = useState(null);
@@ -82,6 +83,7 @@ export default function FamilyGroupsPadron({
       defaultOpen
       storageKey="padron-familias"
       forceOpen={forceOpen}
+      embedded={embedded}
     >
       <FamilyPager page={safePage} totalPages={totalPages} total={groups.length} onPage={setPage} />
 

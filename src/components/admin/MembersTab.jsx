@@ -30,6 +30,7 @@ import {
   portalLoginUrl,
   requestStatusLabel,
   searchRequestDirectoryHits,
+  splitAccessRequestInbox,
 } from '../../domain/members/selfService';
 import { memberMoveKey, membershipMovesSeed, uniqueBajas } from '../../domain/members/membershipMoves';
 import { useSnapshotSeed } from '../../hooks/useSnapshots';
@@ -190,6 +191,19 @@ const RELATIONSHIP_OPTIONS = [
 ];
 
 const MEMBERS_PAGE_SIZE = 50;
+const MEMBERS_PANEL_STORAGE = 'membersPanel:v1';
+const MEMBERS_PANEL_IDS = ['requests', 'moves', 'inactive', 'tiers', 'padron', 'families'];
+
+function readMembersPanel(fallback = 'padron') {
+  try {
+    const raw = localStorage.getItem(MEMBERS_PANEL_STORAGE);
+    if (MEMBERS_PANEL_IDS.includes(raw)) return raw;
+  } catch {
+    /* private mode */
+  }
+  return fallback;
+}
+
 const PADRON_FIXED_CARD_COLORS = {
   activos: '#CA390C',
   familia: '#096755',
@@ -323,6 +337,7 @@ export default function MembersTab({
   const [inactiveCount, setInactiveCount] = useState(null);
   const [inactiveReady, setInactiveReady] = useState(false);
   const [inactiveLoading, setInactiveLoading] = useState(false);
+  const [membersPanel, setMembersPanel] = useState(() => readMembersPanel('padron'));
   const [searchQuery, setSearchQuery] = useState('');
   const [requestFocus, setRequestFocus] = useState(null);
   const [remoteHits, setRemoteHits] = useState([]);
@@ -632,6 +647,22 @@ export default function MembersTab({
     }),
     [searchQuery, membershipApplications, portalAccessRequests, filteredMembers],
   );
+
+  const openRequestsCount = useMemo(() => {
+    const accessOpen = splitAccessRequestInbox(portalAccessRequests).open.length;
+    const joinOpen = (membershipApplications || []).filter((a) => a.status === 'pending').length;
+    return accessOpen + joinOpen;
+  }, [portalAccessRequests, membershipApplications]);
+
+  const selectMembersPanel = useCallback((panelId) => {
+    if (!MEMBERS_PANEL_IDS.includes(panelId)) return;
+    setMembersPanel(panelId);
+    try {
+      localStorage.setItem(MEMBERS_PANEL_STORAGE, panelId);
+    } catch {
+      /* private mode */
+    }
+  }, []);
 
   const familyGroups = useMemo(() => listFamilyGroups(searchDirectory), [searchDirectory]);
 
@@ -1397,9 +1428,28 @@ export default function MembersTab({
   };
 
   const isSearching = Boolean(searchQuery.trim());
+  const activePanel = isSearching && (membersPanel === 'requests' || membersPanel === 'moves' || membersPanel === 'inactive' || membersPanel === 'tiers')
+    ? 'padron'
+    : membersPanel;
+
+  useEffect(() => {
+    if (!isSearching) return;
+    if (membersPanel === 'families') return;
+    if (membersPanel !== 'padron') selectMembersPanel('padron');
+  }, [isSearching, membersPanel, selectMembersPanel]);
+
+  useEffect(() => {
+    if (!requestFocus?.id) return;
+    selectMembersPanel('requests');
+  }, [requestFocus, selectMembersPanel]);
+
+  useEffect(() => {
+    if (!inactiveOpenToken) return;
+    selectMembersPanel('inactive');
+  }, [inactiveOpenToken, selectMembersPanel]);
 
   return (
-    <div className={`glass-card fade-in members-tab${isSearching ? ' is-searching' : ''}`}>
+    <div className={`glass-card fade-in members-tab${isSearching ? ' is-searching' : ''}${activePanel ? ` panel-${activePanel}` : ''}`}>
       {actionFlash ? (
         <p className="member-action-flash" role="status">{actionFlash}</p>
       ) : null}
@@ -1456,7 +1506,7 @@ export default function MembersTab({
                   className="members-search-request"
                   onClick={() => {
                     setRequestFocus({ kind: hit.kind, id: hit.id, token: Date.now() });
-                    document.getElementById('member-requests-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    selectMembersPanel('requests');
                   }}
                 >
                   <strong>{hit.name}</strong>
@@ -2175,6 +2225,7 @@ export default function MembersTab({
           onClick={() => {
             setQuickFilter((cur) => (cur === 'activos' ? null : 'activos'));
             setTierFilter('todos');
+            selectMembersPanel('padron');
           }}
         />
         <PadronStatCard
@@ -2185,6 +2236,7 @@ export default function MembersTab({
           onClick={() => {
             setQuickFilter((cur) => (cur === 'familia' ? null : 'familia'));
             setTierFilter('todos');
+            selectMembersPanel('padron');
           }}
         />
         <PadronStatCard
@@ -2195,6 +2247,7 @@ export default function MembersTab({
           onClick={() => {
             setQuickFilter((cur) => (cur === 'altas' ? null : 'altas'));
             setTierFilter('todos');
+            selectMembersPanel('padron');
           }}
         />
         <PadronStatCard
@@ -2205,6 +2258,7 @@ export default function MembersTab({
           onClick={() => {
             setQuickFilter((cur) => (cur === 'bajas' ? null : 'bajas'));
             setTierFilter('todos');
+            selectMembersPanel('padron');
           }}
         />
         <PadronStatCard
@@ -2216,7 +2270,7 @@ export default function MembersTab({
           active={false}
           onClick={() => {
             setInactiveOpenToken((token) => token + 1);
-            document.getElementById('socios-inactivos-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            selectMembersPanel('inactive');
           }}
         />
         {[
@@ -2233,46 +2287,89 @@ export default function MembersTab({
               const id = String(tier.id);
               setQuickFilter(null);
               setTierFilter((cur) => (String(cur).toLowerCase() === id.toLowerCase() ? 'todos' : id));
+              selectMembersPanel('padron');
             }}
           />
         ))}
       </div>
 
-      <MemberRequestsSection
-        members={members}
-        focusRequest={requestFocus}
-        membershipApplications={membershipApplications}
-        setMembershipApplications={setMembershipApplications}
-        portalAccessRequests={portalAccessRequests}
-        setPortalAccessRequests={setPortalAccessRequests}
-        onOpenAccessCredentials={(member, request) => {
-          setCredsFromRequest(request);
-          openCredentials(member);
-        }}
-        onPrefillAlta={prefillFromApplication}
-        onDeliverAccess={deliverAccessFromRequest}
-      />
+      <div className="members-panel-rail" role="tablist" aria-label="Secciones del padrón">
+        {[
+          { id: 'requests', label: 'Solicitudes', count: openRequestsCount, accent: 'var(--emerald-accent)' },
+          { id: 'moves', label: 'Altas y bajas', count: null, accent: '#c23b3b' },
+          {
+            id: 'inactive',
+            label: 'Inactivos',
+            count: (inactiveReady
+              ? members.filter((m) => (m.status || '') === 'inactive').length
+              : inactiveCount) ?? 0,
+            accent: '#7a3048',
+          },
+          { id: 'tiers', label: 'Categorías', count: tiers.length, accent: 'var(--primary-gold)' },
+          { id: 'padron', label: 'Padrón', count: filteredMembers.length, accent: 'var(--emerald-accent)' },
+          { id: 'families', label: 'Familias', count: filteredFamilies.length, accent: '#b08d57' },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={activePanel === tab.id}
+            className={`members-panel-tab${activePanel === tab.id ? ' is-on' : ''}`}
+            style={{ '--panel-accent': tab.accent }}
+            onClick={() => selectMembersPanel(tab.id)}
+          >
+            <span>{tab.label}</span>
+            {tab.count != null ? <b className="tabular-nums">{Number(tab.count).toLocaleString('es-AR')}</b> : null}
+          </button>
+        ))}
+      </div>
 
-      <MembershipMovesSection members={members} />
+      {activePanel === 'requests' ? (
+        <MemberRequestsSection
+          embedded
+          members={members}
+          focusRequest={requestFocus}
+          membershipApplications={membershipApplications}
+          setMembershipApplications={setMembershipApplications}
+          portalAccessRequests={portalAccessRequests}
+          setPortalAccessRequests={setPortalAccessRequests}
+          onOpenAccessCredentials={(member, request) => {
+            setCredsFromRequest(request);
+            openCredentials(member);
+          }}
+          onPrefillAlta={prefillFromApplication}
+          onDeliverAccess={deliverAccessFromRequest}
+        />
+      ) : null}
 
-      <InactiveMembersSection
-        members={members}
-        openToken={inactiveOpenToken}
-        loading={inactiveLoading}
-        onRequestLoad={loadInactiveMembers}
-        onReactivate={allowPadronWrite ? openReactivate : null}
-      />
+      {activePanel === 'moves' ? (
+        <MembershipMovesSection embedded members={members} />
+      ) : null}
 
-      <MemberTiersPanel
-        catalog={tierCatalog}
-        setCatalog={setTierCatalog}
-        setMembers={setMembers}
-        members={members}
-        formatCurrency={formatCurrency}
-        tierAccentById={tierAccentById}
-      />
+      {activePanel === 'inactive' ? (
+        <InactiveMembersSection
+          embedded
+          members={members}
+          openToken={inactiveOpenToken || 1}
+          loading={inactiveLoading}
+          onRequestLoad={loadInactiveMembers}
+          onReactivate={allowPadronWrite ? openReactivate : null}
+        />
+      ) : null}
 
-      {/* Tabla de Socios */}
+      {activePanel === 'tiers' ? (
+        <MemberTiersPanel
+          embedded
+          catalog={tierCatalog}
+          setCatalog={setTierCatalog}
+          setMembers={setMembers}
+          members={members}
+          formatCurrency={formatCurrency}
+          tierAccentById={tierAccentById}
+        />
+      ) : null}
+
+      {activePanel === 'padron' ? (
       <FoldableSection
         as="div"
         className="members-padron-results"
@@ -2286,6 +2383,7 @@ export default function MembersTab({
         count={filteredMembers.length.toLocaleString('es-AR')}
         defaultOpen
         storageKey="padron"
+        embedded
         forceOpen={isSearching}
       >
       <div className="members-pager" aria-live="polite">
@@ -2784,12 +2882,17 @@ export default function MembersTab({
         </div>
       ) : null}
       </FoldableSection>
+      ) : null}
 
-      <FamilyGroupsPadron
-        groups={filteredFamilies}
-        tierCatalog={tierCatalog}
-        onOpenProfile={onOpenProfile}
-      />
+      {activePanel === 'families' ? (
+        <FamilyGroupsPadron
+          embedded
+          groups={filteredFamilies}
+          tierCatalog={tierCatalog}
+          onOpenProfile={onOpenProfile}
+          forceOpen={isSearching}
+        />
+      ) : null}
 
       {collectMember && (
         <CollectDuesModal

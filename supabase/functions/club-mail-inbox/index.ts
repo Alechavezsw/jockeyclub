@@ -20,11 +20,14 @@ function asText(value: unknown) {
   return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 }
 
-async function resendGet(path: string, apiKey: string) {
+async function resendRequest(path: string, apiKey: string, init: RequestInit = {}) {
   const res = await fetch(`https://api.resend.com${path}`, {
+    ...init,
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "User-Agent": "jockey-club-inbox/1.0",
+      ...(init.body ? { "Content-Type": "application/json" } : {}),
+      ...(init.headers || {}),
     },
   });
   const payload = await res.json().catch(() => ({}));
@@ -36,6 +39,17 @@ async function resendGet(path: string, apiKey: string) {
     throw new Error(raw);
   }
   return payload as Record<string, unknown>;
+}
+
+async function resendGet(path: string, apiKey: string) {
+  return resendRequest(path, apiKey);
+}
+
+async function resendPatch(path: string, apiKey: string, body: Record<string, unknown>) {
+  return resendRequest(path, apiKey, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
 }
 
 function mapThread(row: Record<string, unknown>) {
@@ -95,20 +109,54 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const action = String(body.action || "list");
 
-    if (action === "read") {
+    if (action === "read" || action === "mark_read") {
       const threadId = String(body.threadId || "").trim();
       if (!threadId) return json(400, { error: "Falta el hilo." });
+      // Marcar leído en Resend al abrir (o solo mark_read).
+      try {
+        await resendPatch(`/inboxes/${inboxId}/threads/${threadId}`, apiKey, { read: true });
+      } catch {
+        /* best-effort: igual devolvemos el hilo */
+      }
+      if (action === "mark_read") {
+        return json(200, { ok: true, threadId, read: true });
+      }
       const payload = await resendGet(
         `/inboxes/${inboxId}/threads/${threadId}/emails?limit=40`,
         apiKey,
       );
       const emails = Array.isArray(payload.data) ? payload.data.map((row) => mapEmail(row as Record<string, unknown>)) : [];
-      return json(200, { ok: true, emails });
+      return json(200, { ok: true, emails, read: true });
     }
 
-    const payload = await resendGet(`/inboxes/${inboxId}/threads?folders=inbox&limit=50`, apiKey);
-    const threads = Array.isArray(payload.data) ? payload.data.map((row) => mapThread(row as Record<string, unknown>)) : [];
-    return json(200, { ok: true, threads });
+    // Resend pagina de a 100. Traemos varias páginas para no cortar la bandeja.
+    const threads: ReturnType<typeof mapThread>[] = [];
+    let after = "";
+    let truncated = false;
+    for (let page = 0; page < 10; page += 1) {
+      const qs = new URLSearchParams({ folders: "inbox", limit: "100" });
+      if (after) qs.set("after", after);
+      const payload = await resendGet(`/inboxes/${inboxId}/threads?${qs.toString()}`, apiKey);
+      const batch = Array.isArray(payload.data)
+        ? (payload.data as Record<string, unknown>[]).map((row) => mapThread(row))
+        : [];
+      if (!batch.length) break;
+      threads.push(...batch);
+      if (batch.length < 100) break;
+      after = batch[batch.length - 1]?.id || "";
+      if (!after) break;
+      if (page === 9) {
+        truncated = true;
+        break;
+      }
+    }
+    return json(200, {
+      ok: true,
+      threads,
+      total: threads.length,
+      unread: threads.filter((row) => row.unread).length,
+      truncated,
+    });
   } catch (error) {
     return json(500, { error: error instanceof Error ? error.message : "No se pudo leer el mail recibido." });
   }

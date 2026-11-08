@@ -30,6 +30,7 @@ export default function MemberRequestsSection({
   onOpenAccessCredentials,
   onPrefillAlta,
   onDeliverAccess,
+  embedded = false,
 }) {
   const [params] = useSearchParams();
   const openJoinInbox = params.get('solicitudes') === 'alta';

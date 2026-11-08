@@ -24,6 +24,7 @@ import {
   chargePoolCanon,
   withChargedPoolEntry,
 } from '../domain/pool/poolCheckout';
+import { deliverPaymentReceipt } from '../domain/payments/deliverPaymentReceipt';
 import MercadoPagoCheckout from '../components/MercadoPagoCheckout';
 import { listPoolAccesses } from '../data/repos';
 import { isPoolSeasonLive } from '../domain/pool/poolSeason';
@@ -52,6 +53,7 @@ export default function PoolEntranceView({
   setPoolAccesses,
   setEntryLogs,
   poolSettings = DEFAULT_POOL_SETTINGS,
+  onSendMessage = null,
 }) {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -193,6 +195,22 @@ export default function PoolEntranceView({
       if (typeof setEntryLogs === 'function') {
         const log = poolIngressToAccessLog(charged);
         if (log) setEntryLogs((prev) => [log, ...(prev || [])]);
+      }
+      const amount = Number(charged?.payment?.amount) || 0;
+      if (amount > 0 && charged?.payment?.method === 'efectivo') {
+        void deliverPaymentReceipt({
+          member: selected,
+          payment: {
+            amount,
+            date: charged.date || today,
+            method: 'efectivo',
+            methodLabel: 'Efectivo',
+            receiptNumber: charged.cashMovementId || charged.journalEntryId || charged.id,
+            concept: `Canon pileta · ${selected.name || 'socio'}`,
+          },
+          onSendMessage,
+          kind: 'pileta',
+        });
       }
     } catch (err) {
       setError(err?.message || 'No se pudo habilitar.');

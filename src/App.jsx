@@ -1079,11 +1079,13 @@ function ClubPortal() {
             );
             return finished ? attachHouseholdToMembers(merged) : merged;
           });
-          if (keepCount) {
-            setMembersCount((prev) => Math.max(prev, cleaned.length, expectedCount));
-          } else {
-            setMembersCount(Math.max(cleaned.length, expectedCount));
-          }
+          // El conteo canónico es el de Supabase (expectedCount/total). Nunca lo
+          // pisamos con el tamaño del lote en memoria (p. ej. primera página = 1000).
+          setMembersCount((prev) => Math.max(
+            Number(prev) || 0,
+            Number(expectedCount) || 0,
+            Number(total) || 0,
+          ));
           // Índices DB: solo al terminar (o primer lote) — no en cada ola.
           if (finished || lastMembersPainted === 0) {
             setMemberDbIds((prev) => {
@@ -1185,7 +1187,11 @@ function ClubPortal() {
           if (seeded.length) {
             const withFamily = attachHouseholdToMembers(seeded);
             setMembers(withFamily);
-            setMembersCount(withFamily.length || app.membersCount || 0);
+            setMembersCount((prev) => Math.max(
+              Number(prev) || 0,
+              Number(app.membersCount) || 0,
+              withFamily.length || 0,
+            ));
             setMemberDbIds(shellIds || {});
           }
           setMembersLoading(false);
@@ -1278,10 +1284,18 @@ function ClubPortal() {
                   done: true,
                   expectedCount: app.membersCount || 0,
                   loaded: rawMembers.length,
-                  total: app.membersCount || rawMembers.length,
+                  total: app.membersCount || 0,
                 });
               } else if ((app.membersCount || 0) > 0) {
                 setDbError('No se pudo descargar el padrón de socios. Probá recargar.');
+              }
+              try {
+                const exact = await repos.countMembers('active');
+                if (!cancelled && exact) {
+                  setMembersCount((prev) => Math.max(Number(prev) || 0, Number(exact) || 0));
+                }
+              } catch {
+                /* el header reconsulta al abrir Socios */
               }
             } catch (membersErr) {
               if (!cancelled) {
@@ -1361,7 +1375,7 @@ function ClubPortal() {
               );
               return finished ? attachHouseholdToMembers(merged) : merged;
             });
-            setMembersCount((prev) => Math.max(prev, cleaned.length, totalNow));
+            setMembersCount((prev) => Math.max(Number(prev) || 0, Number(totalNow) || 0));
           },
         });
         if (cancelled) return;
@@ -1372,8 +1386,11 @@ function ClubPortal() {
             cleaned,
             { done: true },
           )));
-          setMembersCount(cleaned.length);
-          setMembersProgress({ loaded: cleaned.length, total: cleaned.length });
+          setMembersCount((prev) => Math.max(Number(prev) || 0, cleaned.length));
+          setMembersProgress((prev) => ({
+            loaded: cleaned.length,
+            total: Math.max(Number(prev?.total) || 0, cleaned.length),
+          }));
         }
       } catch (err) {
         if (!cancelled) setDbError(friendlyDbError(err, 'No se pudo cargar el padrón completo'));
@@ -1618,8 +1635,19 @@ function ClubPortal() {
           cleaned,
           { done: true },
         )));
-        setMembersCount(cleaned.length);
-        setMembersProgress({ loaded: cleaned.length, total: cleaned.length });
+        setMembersCount((prev) => Math.max(Number(prev) || 0, cleaned.length));
+        setMembersProgress((prev) => ({
+          loaded: cleaned.length,
+          total: Math.max(Number(prev?.total) || 0, cleaned.length),
+        }));
+      }
+      try {
+        const exact = await repos.countMembers('active');
+        if (gen === membersRefreshGen.current && exact) {
+          setMembersCount((prev) => Math.max(Number(prev) || 0, Number(exact) || 0));
+        }
+      } catch {
+        /* el conteo exacto se reintenta en el próximo refresh */
       }
     } catch {
       /* el padrón visible se queda con el último corte */
@@ -1986,10 +2014,14 @@ function ClubPortal() {
 
   const dueNoticeId = notifications.find((n) => /^(dues-upcoming-|dues-due-|dues-overdue-)/.test(String(n.id)))?.id || '';
   useEffect(() => {
+    // Avisos de cuota pausados hasta auditoría (dues.noticesPaused).
     if (!dueNoticeId || !cloudMode || !user?.id) return undefined;
+    if (duesSettings?.noticesPaused || (duesSettings?.noticeByMessage === false && duesSettings?.noticeByEmail === false)) {
+      return undefined;
+    }
     repos.requestOwnDueNotice().catch(() => {});
     return undefined;
-  }, [dueNoticeId, cloudMode, user?.id]);
+  }, [dueNoticeId, cloudMode, user?.id, duesSettings?.noticesPaused, duesSettings?.noticeByMessage, duesSettings?.noticeByEmail]);
 
   const dismissNotification = useCallback((notifId, notif = null) => {
     if (!notifId) return;
@@ -2149,21 +2181,14 @@ function ClubPortal() {
               membersCanViewCurrentAccounts={memberSeesCurrentAccount}
             />
             {(() => {
-              const completingPadron = !membersLoading
-                && !dbSyncing
-                && membersProgress.total > 0
-                && membersProgress.loaded > 0
-                && membersProgress.loaded < membersProgress.total;
-              if (!dbSyncing && !membersLoading && !completingPadron) return null;
+              if (!dbSyncing && !membersLoading) return null;
               const label = dbSyncing
                 ? 'Actualizando datos del club…'
-                : membersLoading
-                  ? (membersProgress.total
-                    ? `Cargando padrón de socios… ${membersProgress.loaded.toLocaleString('es-AR')} de ${membersProgress.total.toLocaleString('es-AR')}`
-                    : (membersProgress.loaded
-                      ? `Cargando padrón de socios… ${membersProgress.loaded.toLocaleString('es-AR')}`
-                      : 'Cargando padrón de socios…'))
-                  : `Completando padrón… ${membersProgress.loaded.toLocaleString('es-AR')} de ${membersProgress.total.toLocaleString('es-AR')}`;
+                : (membersProgress.total
+                  ? `Cargando padrón de socios… ${membersProgress.loaded.toLocaleString('es-AR')} de ${membersProgress.total.toLocaleString('es-AR')}`
+                  : (membersProgress.loaded
+                    ? `Cargando padrón de socios… ${membersProgress.loaded.toLocaleString('es-AR')}`
+                    : 'Cargando padrón de socios…'));
               return (
                 <p className="club-load-status" role="status" aria-live="polite">
                   {label}

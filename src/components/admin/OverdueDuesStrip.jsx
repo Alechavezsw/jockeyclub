@@ -82,8 +82,9 @@ export default function OverdueDuesStrip({
   duesHref = '/panel/dues',
   onOpenAll,
   onOpenChange,
+  embedded = false,
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(embedded);
   const [query, setQuery] = useState('');
   const [limit, setLimit] = useState(PAGE_SIZE);
   const deferredQuery = useDeferredValue(query);
@@ -98,8 +99,76 @@ export default function OverdueDuesStrip({
       return name.includes(q) || (digits && id.includes(digits));
     });
   }, [members, deferredQuery]);
-  const shown = open ? visible.slice(0, limit) : [];
-  const hasMore = open && visible.length > limit;
+  const active = embedded || open;
+  const shown = active ? visible.slice(0, limit) : [];
+  const hasMore = active && visible.length > limit;
+
+  const body = (
+    <div className="admin-overdue-strip-body">
+      {loading && badgeCount === 0 ? (
+        <p className="ops-muted">Cargando socios en mora…</p>
+      ) : badgeCount === 0 ? (
+        <p className="ops-muted">Ningún socio en mora.</p>
+      ) : members.length === 0 ? (
+        <p className="ops-muted">Preparando listado…</p>
+      ) : (
+        <>
+          <label className="admin-overdue-strip-search">
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setLimit(PAGE_SIZE);
+              }}
+              placeholder="Buscar nombre o Nº"
+              aria-label="Buscar en mora"
+            />
+          </label>
+          <p className="admin-overdue-strip-hint">
+            {visible.length === badgeCount
+              ? 'Lista completa. Tocá un nombre para ver la ficha.'
+              : `${visible.length.toLocaleString('es-AR')} de ${badgeCount.toLocaleString('es-AR')}`}
+            {onOpenAll ? (
+              <button type="button" className="admin-overdue-strip-all" onClick={onOpenAll}>
+                Ver todas
+              </button>
+            ) : (
+              <Link to={duesHref} className="admin-overdue-strip-all">
+                Ver todas
+              </Link>
+            )}
+          </p>
+          <ul className="admin-overdue-strip-list">
+            {shown.map((member) => (
+              <OverdueDuesRow
+                key={member.id || member.memberId}
+                member={member}
+                formatCurrency={formatCurrency}
+              />
+            ))}
+          </ul>
+          {hasMore ? (
+            <button
+              type="button"
+              className="admin-overdue-strip-all"
+              onClick={() => setLimit((n) => n + PAGE_SIZE)}
+            >
+              Mostrar más ({(visible.length - limit).toLocaleString('es-AR')})
+            </button>
+          ) : null}
+        </>
+      )}
+    </div>
+  );
+
+  if (embedded) {
+    return (
+      <div className="admin-overdue-strip is-embedded" aria-label="Socios en mora">
+        {body}
+      </div>
+    );
+  }
 
   return (
     <details
@@ -123,65 +192,7 @@ export default function OverdueDuesStrip({
           {loading ? '…' : badgeCount}
         </span>
       </summary>
-
-      {open ? (
-        <div className="admin-overdue-strip-body">
-          {loading && badgeCount === 0 ? (
-            <p className="ops-muted">Cargando socios en mora…</p>
-          ) : badgeCount === 0 ? (
-            <p className="ops-muted">Ningún socio en mora.</p>
-          ) : members.length === 0 ? (
-            <p className="ops-muted">Preparando listado…</p>
-          ) : (
-            <>
-              <label className="admin-overdue-strip-search">
-                <input
-                  type="search"
-                  value={query}
-                  onChange={(event) => {
-                    setQuery(event.target.value);
-                    setLimit(PAGE_SIZE);
-                  }}
-                  placeholder="Buscar nombre o Nº"
-                  aria-label="Buscar en mora"
-                />
-              </label>
-              <p className="admin-overdue-strip-hint">
-                {visible.length === badgeCount
-                  ? 'Lista completa. Tocá un nombre para ver la ficha.'
-                  : `${visible.length.toLocaleString('es-AR')} de ${badgeCount.toLocaleString('es-AR')}`}
-                {onOpenAll ? (
-                  <button type="button" className="admin-overdue-strip-all" onClick={onOpenAll}>
-                    Ver todas
-                  </button>
-                ) : (
-                  <Link to={duesHref} className="admin-overdue-strip-all">
-                    Ver todas
-                  </Link>
-                )}
-              </p>
-              <ul className="admin-overdue-strip-list">
-                {shown.map((member) => (
-                  <OverdueDuesRow
-                    key={member.id || member.memberId}
-                    member={member}
-                    formatCurrency={formatCurrency}
-                  />
-                ))}
-              </ul>
-              {hasMore ? (
-                <button
-                  type="button"
-                  className="admin-overdue-strip-all"
-                  onClick={() => setLimit((n) => n + PAGE_SIZE)}
-                >
-                  Mostrar más ({(visible.length - limit).toLocaleString('es-AR')})
-                </button>
-              ) : null}
-            </>
-          )}
-        </div>
-      ) : null}
+      {open ? body : null}
     </details>
   );
 }

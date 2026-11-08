@@ -1,7 +1,7 @@
 import { loadXlsx } from '../../lib/office.js';
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowLeft, ChevronDown, Download, Eye, FileDown, FileSpreadsheet, History, Loader2, Pencil, Play, RotateCcw, Sparkles, Trash2, Upload, Wallet, X,
+  ArrowLeft, CalendarRange, ChevronDown, Download, Eye, FileDown, FileSpreadsheet, History, Loader2, Pencil, Play, RotateCcw, ShieldAlert, Sparkles, Trash2, Upload, Users, Wallet, X,
 } from 'lucide-react';
 import CollectReceiptActionsBanner from './CollectReceiptActionsBanner';
 import ModalDialog from '../ModalDialog';
@@ -134,6 +134,7 @@ export default function CuotasPanel({
   paymentPlans = [],
   setDuesSettings,
   membersLoading = false,
+  membersProgress = { loaded: 0, total: 0 },
 }) {
   const { user } = useAuth();
   const roleSource = user?.roles?.length ? user.roles : user?.role;
@@ -197,7 +198,15 @@ export default function CuotasPanel({
   const [liquidateDraft, setLiquidateDraft] = useState(null);
 
   const deferredMembers = useDeferredValue(members);
+  const progressLoaded = Number(membersProgress?.loaded) || 0;
+  const progressTotal = Number(membersProgress?.total) || 0;
+  // Solo “completando” mientras el fetch sigue; si membersLoading ya bajó, el padrón usable está.
+  const padronCompleting = Boolean(membersLoading)
+    && progressTotal > 0
+    && progressLoaded > 0
+    && progressLoaded < progressTotal;
   const membersReady = !membersLoading && (deferredMembers?.length || 0) > 0;
+  const padronReady = membersReady && !padronCompleting;
   const discountRules = Array.isArray(discounts) ? discounts : [];
   const liquidationOpts = { members: deferredMembers, tierCatalog, discountRules };
   const actorWithDiscounts = { ...actorMeta, discountRules };
@@ -214,16 +223,17 @@ export default function CuotasPanel({
   }, [feePeriods, year]);
   // Lista completa solo en Mora o al abrir el strip; el hub cerrado solo necesita el conteo.
   const [overdueOpen, setOverdueOpen] = useState(false);
-  const needOverdueList = membersReady && (view === 'mora' || overdueOpen);
+  const [hubPanel, setHubPanel] = useState(null);
+  const needOverdueList = padronReady && (view === 'mora' || overdueOpen || hubPanel === 'mora');
   const overdueMembers = useMemo(
     () => (needOverdueList ? getOverdueMembers(deferredMembers) : []),
     [needOverdueList, deferredMembers],
   );
   const overdueCount = useMemo(() => {
-    if (!membersReady) return 0;
+    if (!padronReady) return null;
     if (needOverdueList) return overdueMembers.length;
     return countOverdueMembers(deferredMembers);
-  }, [membersReady, needOverdueList, overdueMembers, deferredMembers]);
+  }, [padronReady, needOverdueList, overdueMembers, deferredMembers]);
   const periodAmounts = useMemo(() => {
     const ctx = membersReady ? { members: deferredMembers, tierCatalog } : {};
     return new Map(
@@ -1628,20 +1638,407 @@ export default function CuotasPanel({
       <CuotasBusyOverlay phase={busyPhase} />
       <DuesDueBanner
         members={deferredMembers}
-        membersLoading={membersLoading || !membersReady}
+        membersLoading={membersLoading || !padronReady}
         journalEntries={journalEntries}
         chartOfAccounts={chartOfAccounts}
         feePeriods={feePeriods}
         tierCatalog={tierCatalog}
-        afterCollect={<CuotasDeskToolbar onGo={goDesk} />}
-      />
-      <OverdueDuesStrip
-        members={overdueMembers}
-        count={overdueCount}
-        formatCurrency={fmt}
-        loading={membersLoading || !membersReady}
-        onOpenChange={setOverdueOpen}
-        onOpenAll={() => setView('mora')}
+        afterCollect={({ unpaidCount = 0, unpaidTotal = 0, unpaidMonth = '', unpaidBody = null }) => (
+          <CuotasDeskToolbar
+            onGo={goDesk}
+            activeResumen={hubPanel || ''}
+            onResumen={(id) => {
+              const next = hubPanel === id ? null : id;
+              setHubPanel(next);
+              setOverdueOpen(next === 'mora');
+            }}
+            resumen={[
+              {
+                id: 'unpaid',
+                icon: Users,
+                label: !padronReady
+                  ? 'No pagaron el mes'
+                  : (unpaidCount === 1
+                    ? '1 no pagó'
+                    : `${unpaidCount.toLocaleString('es-AR')} no pagaron`),
+                hint: !padronReady
+                  ? (padronCompleting
+                    ? `Completando padrón… ${progressLoaded.toLocaleString('es-AR')} / ${progressTotal.toLocaleString('es-AR')}`
+                    : 'Cargando padrón…')
+                  : (unpaidMonth
+                    ? `${unpaidMonth} · ${fmt(unpaidTotal)}`
+                    : (unpaidCount > 0 ? fmt(unpaidTotal) : 'Nadie adeuda el mes')),
+                tone: 'gold',
+              },
+              {
+                id: 'mora',
+                icon: ShieldAlert,
+                label: 'En mora',
+                hint: !padronReady
+                  ? (padronCompleting
+                    ? `Completando padrón… ${progressLoaded.toLocaleString('es-AR')} / ${progressTotal.toLocaleString('es-AR')}`
+                    : 'Cargando padrón…')
+                  : `${Number(overdueCount || 0).toLocaleString('es-AR')} socios`,
+                tone: 'warn',
+              },
+              {
+                id: 'year',
+                icon: CalendarRange,
+                label: `Cuotas de ${year}`,
+                hint: `${periods.length} períodos`,
+                tone: 'emerald',
+              },
+              {
+                id: 'cc',
+                icon: Wallet,
+                label: 'Cuentas corrientes',
+                hint: ccEnabled ? 'Visibles para socios' : 'Desactivadas',
+                tone: ccEnabled ? 'emerald' : 'gold',
+              },
+            ].filter(Boolean)}
+          >
+            {hubPanel === 'unpaid' ? unpaidBody : null}
+            {hubPanel === 'mora' ? (
+              <OverdueDuesStrip
+                embedded
+                members={overdueMembers}
+                count={overdueCount}
+                formatCurrency={fmt}
+                loading={!padronReady}
+                onOpenAll={() => setView('mora')}
+              />
+            ) : null}
+            {hubPanel === 'year' ? (
+              <div className="cuotas-year is-embedded">
+                <div className="cuotas-year-body">
+                    <label className="cuotas-year-pick" htmlFor="cuotas-year">
+                      <span>Año</span>
+                      <select
+                        id="cuotas-year"
+                        value={year}
+                        onChange={(event) => setYear(Number(event.target.value))}
+                      >
+                        {yearOptions.map((y) => (
+                          <option key={y} value={y}>{y}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <p className="cuotas-year-auto-hint">
+                      El día 1 de cada mes se genera sola desde el padrón (altas incluidas, bajas fuera).
+                      Cargar borrador y Generar siguen disponibles a mano.
+                    </p>
+                    <div className="table-responsive">
+                      <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Período</th>
+                        <th>Monto</th>
+                        <th>Fecha de generación</th>
+                        <th>Estado</th>
+                        <th>Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {periods.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} style={{ color: 'var(--text-muted)' }}>No hay períodos para {year}.</td>
+                        </tr>
+                      ) : (
+                        periods.map((p, idx) => {
+                          const liquidateBlock = feePeriodLiquidateBlock(p);
+                          const prepareBlock = feePeriodPrepareBlock(p);
+                          const nextPeriod = periods[idx + 1];
+                          const canSeedNext = p.status === 'processed'
+                            && nextPeriod
+                            && nextPeriod.status === 'draft'
+                            && appOwnsFeePeriod(nextPeriod)
+                            && !feePeriodPrepareBlock(nextPeriod);
+                          const historyBtn = appOwnsFeePeriod(p) ? (
+                            <button
+                              type="button"
+                              className="cash-lila-icon-btn is-hist"
+                              title="Historial de generación / reversión"
+                              aria-label="Historial"
+                              onClick={() => setHistoryPeriod(p)}
+                            >
+                              <History size={14} />
+                            </button>
+                          ) : null;
+                          return (
+                          <tr key={p.id}>
+                            <td>{p.accessinId || '—'}</td>
+                            <td style={{ fontWeight: 600 }}>{periodLabel(p)}</td>
+                            <td className="tabular-nums">
+                              {p.status === 'processed' || p.status === 'pending' || p.status === 'draft'
+                                ? (periodAmounts.get(p.id) != null
+                                  ? fmt(periodAmounts.get(p.id))
+                                  : (membersReady ? '—' : '…'))
+                                : 'Cuotas no liquidados'}
+                            </td>
+                            <td>
+                              {p.status === 'draft'
+                                ? 'No liquidado'
+                                : (
+                                  <>
+                                    {formatPeriodGeneratedAt(p.generatedAt)}
+                                    {p.status === 'pending' && p.availableAt
+                                      ? ` · disponible ${formatPeriodGeneratedAt(p.availableAt)}`
+                                      : null}
+                                  </>
+                                )}
+                            </td>
+                            <td>
+                              <span className={`status-badge ${statusTone(p.status)}`}>
+                                {periodStatusLabel(p.status)}
+                              </span>
+                              {p.status === 'draft' && appOwnsFeePeriod(p) ? (
+                                <div className="cuotas-year-auto-tag">Automática el día 1</div>
+                              ) : null}
+                              {p.pack?.autoFromPadronAt ? (
+                                <div className="cuotas-year-auto-tag is-done">Generada el día 1</div>
+                              ) : null}
+                            </td>
+                            <td>
+                              <div className="cash-lila-row-actions">
+                                {p.status === 'processed' ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      className="cash-lila-icon-btn is-edit"
+                                      title="Ver liquidación"
+                                      aria-label="Ver liquidación"
+                                      onClick={() => openPeriodDetail(p)}
+                                    >
+                                      <Eye size={14} />
+                                    </button>
+                                    {historyBtn}
+                                    <button
+                                      type="button"
+                                      className="cash-lila-icon-btn is-edit"
+                                      title="Descargar Excel"
+                                      aria-label="Descargar Excel"
+                                      disabled={exportBusy?.id === p.id}
+                                      onClick={() => downloadPeriod(p, 'xlsx')}
+                                    >
+                                      <FileSpreadsheet size={14} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="cash-lila-icon-btn is-edit"
+                                      title="Descargar PDF"
+                                      aria-label="Descargar PDF"
+                                      disabled={exportBusy?.id === p.id}
+                                      onClick={() => downloadPeriod(p, 'pdf')}
+                                    >
+                                      <FileDown size={14} />
+                                    </button>
+                                    {canSeedNext && !balancesOnly ? (
+                                      <button
+                                        type="button"
+                                        className="cash-lila-icon-btn is-edit"
+                                        title={`Cargar borrador de ${periodLabel(nextPeriod)} desde el padrón`}
+                                        aria-label={`Cargar borrador de ${periodLabel(nextPeriod)}`}
+                                        onClick={() => prepareDraft(nextPeriod.id)}
+                                      >
+                                        <Upload size={14} />
+                                      </button>
+                                    ) : null}
+                                    {!balancesOnly && appOwnsFeePeriod(p) && reopenPeriods ? (
+                                      <button
+                                        type="button"
+                                        className="cash-lila-icon-btn is-del"
+                                        title="Reabrir (solo superadmin)"
+                                        aria-label="Reabrir liquidación"
+                                        onClick={() => reopen(p)}
+                                      >
+                                        <RotateCcw size={14} />
+                                      </button>
+                                    ) : null}
+                                    {!balancesOnly && appOwnsFeePeriod(p) && reopenPeriods ? (
+                                      <button
+                                        type="button"
+                                        className="cash-lila-icon-btn is-edit"
+                                        title="Nota de crédito o débito"
+                                        aria-label="Nota de crédito o débito"
+                                        onClick={() => setNotePeriod(p)}
+                                      >
+                                        <Wallet size={14} />
+                                      </button>
+                                    ) : null}
+                                    {p.month === 9 && p.year === 2026 ? (
+                                      <>
+                                        <button type="button" className="cash-lila-icon-btn is-del" title="Anular" disabled>
+                                          <Trash2 size={13} />
+                                        </button>
+                                        <button type="button" className="cash-lila-icon-btn is-edit" title="Revertir" disabled>
+                                          <RotateCcw size={13} />
+                                        </button>
+                                      </>
+                                    ) : null}
+                                  </>
+                                ) : p.status === 'pending' ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      className="cash-lila-icon-btn is-edit"
+                                      title="Ver liquidación"
+                                      aria-label="Ver liquidación"
+                                      onClick={() => openDraftDetail(p)}
+                                    >
+                                      <Eye size={14} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="cash-lila-icon-btn is-edit"
+                                      title="Editar (hasta Procesada)"
+                                      aria-label="Editar liquidación"
+                                      onClick={() => openDraftDetail(p, true)}
+                                    >
+                                      <Pencil size={14} />
+                                    </button>
+                                    {historyBtn}
+                                    {!balancesOnly && appOwnsFeePeriod(p) && reopenPeriods ? (
+                                      <button
+                                        type="button"
+                                        className="cash-lila-icon-btn is-del"
+                                        title="Volver a borrador (aún no imputó)"
+                                        aria-label="Volver a borrador"
+                                        onClick={() => cancelPendingGeneration(p)}
+                                      >
+                                        <RotateCcw size={14} />
+                                      </button>
+                                    ) : null}
+                                  </>
+                                ) : p.status === 'draft' ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      className="cash-lila-icon-btn is-edit"
+                                      title="Ver liquidación"
+                                      aria-label="Ver liquidación"
+                                      onClick={() => openDraftDetail(p)}
+                                    >
+                                      <Eye size={14} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="cash-lila-icon-btn is-edit"
+                                      title="Editar"
+                                      aria-label="Editar liquidación"
+                                      onClick={() => openDraftDetail(p, true)}
+                                    >
+                                      <Pencil size={14} />
+                                    </button>
+                                    {historyBtn}
+                                    {!balancesOnly ? (
+                                      <button
+                                        type="button"
+                                        className="cash-lila-icon-btn is-edit"
+                                        title={prepareBlock || 'Cargar / actualizar borrador desde el padrón (también automático el día 1)'}
+                                        aria-label="Cargar borrador"
+                                        disabled={Boolean(prepareBlock)}
+                                        onClick={() => prepareDraft(p.id)}
+                                      >
+                                        <Upload size={14} />
+                                      </button>
+                                    ) : null}
+                                    {!balancesOnly ? (
+                                      <button
+                                        type="button"
+                                        className="cash-lila-icon-btn is-gen"
+                                        title={prepareBlock || 'Generar liquidación (también automática el día 1)'}
+                                        aria-label="Generar"
+                                        disabled={Boolean(prepareBlock) && Boolean(liquidateBlock)
+                                          && !(p.pack?.concepts?.length || p.lines?.length)}
+                                        onClick={() => openGenerateScreen(p.id)}
+                                      >
+                                        <Play size={14} />
+                                      </button>
+                                    ) : null}
+                                  </>
+                                ) : (
+                                  <>
+                                    <button
+                                      type="button"
+                                      className="cash-lila-icon-btn is-edit"
+                                      title="Ver liquidación"
+                                      aria-label="Ver liquidación"
+                                      onClick={() => openDraftDetail(p)}
+                                    >
+                                      <Eye size={14} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="cash-lila-icon-btn is-edit"
+                                      title="Editar"
+                                      aria-label="Editar liquidación"
+                                      onClick={() => openDraftDetail(p, true)}
+                                    >
+                                      <Pencil size={14} />
+                                    </button>
+                                    {historyBtn}
+                                    {!balancesOnly ? (
+                                      <button
+                                        type="button"
+                                        className="cash-lila-icon-btn is-edit"
+                                        title={prepareBlock || 'Cargar / actualizar borrador desde el padrón (también automático el día 1)'}
+                                        aria-label="Cargar borrador"
+                                        disabled={Boolean(prepareBlock)}
+                                        onClick={() => prepareDraft(p.id)}
+                                      >
+                                        <Upload size={14} />
+                                      </button>
+                                    ) : null}
+                                    {!balancesOnly ? (
+                                      <button
+                                        type="button"
+                                        className="cash-lila-icon-btn is-gen"
+                                        title={prepareBlock || 'Generar liquidación (también automática el día 1)'}
+                                        aria-label="Generar"
+                                        disabled={Boolean(prepareBlock) && Boolean(liquidateBlock)
+                                          && !(p.pack?.concepts?.length || p.lines?.length)}
+                                        onClick={() => openGenerateScreen(p.id)}
+                                      >
+                                        <Play size={14} />
+                                      </button>
+                                    ) : null}
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                    </div>
+                  </div>
+              </div>
+            ) : null}
+            {hubPanel === 'cc' ? (
+              <div className={`cuotas-cc-banner${ccEnabled ? '' : ' is-off'}`}>
+                <span>
+                  {ccEnabled
+                    ? 'Todos los socios pueden ver sus cuentas corrientes'
+                    : 'Las cuentas corrientes están desactivadas para los socios'}
+                </span>
+                <button
+                  type="button"
+                  className={`btn btn-sm cuotas-cc-toggle${ccEnabled ? ' btn-secondary' : ' btn-emerald'}`}
+                  disabled={typeof setDuesSettings !== 'function'}
+                  onClick={() => setDuesSettings?.((prev) => ({
+                    ...mergeDuesSettings(prev),
+                    showCurrentAccountsToMembers: !ccEnabled,
+                  }))}
+                >
+                  {ccEnabled ? 'Desactivar cuentas corrientes' : 'Activar cuentas corrientes'}
+                </button>
+              </div>
+            ) : null}
+          </CuotasDeskToolbar>
+        )}
       />
 
       <CollectDuesDeskFlow
@@ -1692,340 +2089,6 @@ export default function CuotasPanel({
       ) : null}
       {flash ? <p className="ig-ok">{flash}</p> : null}
       {error ? <p className="ig-error">{error}</p> : null}
-
-      <details className="cuotas-year">
-        <summary className="cuotas-year-summary">
-          <i className="due-fold-arrow" aria-hidden="true">
-            <ChevronDown size={18} strokeWidth={2.5} />
-          </i>
-          <span>Cuotas de {year}</span>
-          <b className="tabular-nums">{periods.length}</b>
-        </summary>
-        <div className="cuotas-year-body">
-          <label className="cuotas-year-pick" htmlFor="cuotas-year">
-            <span>Año</span>
-            <select
-              id="cuotas-year"
-              value={year}
-              onChange={(event) => setYear(Number(event.target.value))}
-            >
-              {yearOptions.map((y) => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
-          </label>
-          <p className="cuotas-year-auto-hint">
-            El día 1 de cada mes se genera sola desde el padrón (altas incluidas, bajas fuera).
-            Cargar borrador y Generar siguen disponibles a mano.
-          </p>
-          <div className="table-responsive">
-            <table className="admin-table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Período</th>
-              <th>Monto</th>
-              <th>Fecha de generación</th>
-              <th>Estado</th>
-              <th>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {periods.length === 0 ? (
-              <tr>
-                <td colSpan={6} style={{ color: 'var(--text-muted)' }}>No hay períodos para {year}.</td>
-              </tr>
-            ) : (
-              periods.map((p, idx) => {
-                const liquidateBlock = feePeriodLiquidateBlock(p);
-                const prepareBlock = feePeriodPrepareBlock(p);
-                const nextPeriod = periods[idx + 1];
-                const canSeedNext = p.status === 'processed'
-                  && nextPeriod
-                  && nextPeriod.status === 'draft'
-                  && appOwnsFeePeriod(nextPeriod)
-                  && !feePeriodPrepareBlock(nextPeriod);
-                const historyBtn = appOwnsFeePeriod(p) ? (
-                  <button
-                    type="button"
-                    className="cash-lila-icon-btn is-hist"
-                    title="Historial de generación / reversión"
-                    aria-label="Historial"
-                    onClick={() => setHistoryPeriod(p)}
-                  >
-                    <History size={14} />
-                  </button>
-                ) : null;
-                return (
-                <tr key={p.id}>
-                  <td>{p.accessinId || '—'}</td>
-                  <td style={{ fontWeight: 600 }}>{periodLabel(p)}</td>
-                  <td className="tabular-nums">
-                    {p.status === 'processed' || p.status === 'pending' || p.status === 'draft'
-                      ? (periodAmounts.get(p.id) != null
-                        ? fmt(periodAmounts.get(p.id))
-                        : (membersReady ? '—' : '…'))
-                      : 'Cuotas no liquidados'}
-                  </td>
-                  <td>
-                    {p.status === 'draft'
-                      ? 'No liquidado'
-                      : (
-                        <>
-                          {formatPeriodGeneratedAt(p.generatedAt)}
-                          {p.status === 'pending' && p.availableAt
-                            ? ` · disponible ${formatPeriodGeneratedAt(p.availableAt)}`
-                            : null}
-                        </>
-                      )}
-                  </td>
-                  <td>
-                    <span className={`status-badge ${statusTone(p.status)}`}>
-                      {periodStatusLabel(p.status)}
-                    </span>
-                    {p.status === 'draft' && appOwnsFeePeriod(p) ? (
-                      <div className="cuotas-year-auto-tag">Automática el día 1</div>
-                    ) : null}
-                    {p.pack?.autoFromPadronAt ? (
-                      <div className="cuotas-year-auto-tag is-done">Generada el día 1</div>
-                    ) : null}
-                  </td>
-                  <td>
-                    <div className="cash-lila-row-actions">
-                      {p.status === 'processed' ? (
-                        <>
-                          <button
-                            type="button"
-                            className="cash-lila-icon-btn is-edit"
-                            title="Ver liquidación"
-                            aria-label="Ver liquidación"
-                            onClick={() => openPeriodDetail(p)}
-                          >
-                            <Eye size={14} />
-                          </button>
-                          {historyBtn}
-                          <button
-                            type="button"
-                            className="cash-lila-icon-btn is-edit"
-                            title="Descargar Excel"
-                            aria-label="Descargar Excel"
-                            disabled={exportBusy?.id === p.id}
-                            onClick={() => downloadPeriod(p, 'xlsx')}
-                          >
-                            <FileSpreadsheet size={14} />
-                          </button>
-                          <button
-                            type="button"
-                            className="cash-lila-icon-btn is-edit"
-                            title="Descargar PDF"
-                            aria-label="Descargar PDF"
-                            disabled={exportBusy?.id === p.id}
-                            onClick={() => downloadPeriod(p, 'pdf')}
-                          >
-                            <FileDown size={14} />
-                          </button>
-                          {canSeedNext && !balancesOnly ? (
-                            <button
-                              type="button"
-                              className="cash-lila-icon-btn is-edit"
-                              title={`Cargar borrador de ${periodLabel(nextPeriod)} desde el padrón`}
-                              aria-label={`Cargar borrador de ${periodLabel(nextPeriod)}`}
-                              onClick={() => prepareDraft(nextPeriod.id)}
-                            >
-                              <Upload size={14} />
-                            </button>
-                          ) : null}
-                          {!balancesOnly && appOwnsFeePeriod(p) && reopenPeriods ? (
-                            <button
-                              type="button"
-                              className="cash-lila-icon-btn is-del"
-                              title="Reabrir (solo superadmin)"
-                              aria-label="Reabrir liquidación"
-                              onClick={() => reopen(p)}
-                            >
-                              <RotateCcw size={14} />
-                            </button>
-                          ) : null}
-                          {!balancesOnly && appOwnsFeePeriod(p) && reopenPeriods ? (
-                            <button
-                              type="button"
-                              className="cash-lila-icon-btn is-edit"
-                              title="Nota de crédito o débito"
-                              aria-label="Nota de crédito o débito"
-                              onClick={() => setNotePeriod(p)}
-                            >
-                              <Wallet size={14} />
-                            </button>
-                          ) : null}
-                          {p.month === 9 && p.year === 2026 ? (
-                            <>
-                              <button type="button" className="cash-lila-icon-btn is-del" title="Anular" disabled>
-                                <Trash2 size={13} />
-                              </button>
-                              <button type="button" className="cash-lila-icon-btn is-edit" title="Revertir" disabled>
-                                <RotateCcw size={13} />
-                              </button>
-                            </>
-                          ) : null}
-                        </>
-                      ) : p.status === 'pending' ? (
-                        <>
-                          <button
-                            type="button"
-                            className="cash-lila-icon-btn is-edit"
-                            title="Ver liquidación"
-                            aria-label="Ver liquidación"
-                            onClick={() => openDraftDetail(p)}
-                          >
-                            <Eye size={14} />
-                          </button>
-                          <button
-                            type="button"
-                            className="cash-lila-icon-btn is-edit"
-                            title="Editar (hasta Procesada)"
-                            aria-label="Editar liquidación"
-                            onClick={() => openDraftDetail(p, true)}
-                          >
-                            <Pencil size={14} />
-                          </button>
-                          {historyBtn}
-                          {!balancesOnly && appOwnsFeePeriod(p) && reopenPeriods ? (
-                            <button
-                              type="button"
-                              className="cash-lila-icon-btn is-del"
-                              title="Volver a borrador (aún no imputó)"
-                              aria-label="Volver a borrador"
-                              onClick={() => cancelPendingGeneration(p)}
-                            >
-                              <RotateCcw size={14} />
-                            </button>
-                          ) : null}
-                        </>
-                      ) : p.status === 'draft' ? (
-                        <>
-                          <button
-                            type="button"
-                            className="cash-lila-icon-btn is-edit"
-                            title="Ver liquidación"
-                            aria-label="Ver liquidación"
-                            onClick={() => openDraftDetail(p)}
-                          >
-                            <Eye size={14} />
-                          </button>
-                          <button
-                            type="button"
-                            className="cash-lila-icon-btn is-edit"
-                            title="Editar"
-                            aria-label="Editar liquidación"
-                            onClick={() => openDraftDetail(p, true)}
-                          >
-                            <Pencil size={14} />
-                          </button>
-                          {historyBtn}
-                          {!balancesOnly ? (
-                            <button
-                              type="button"
-                              className="cash-lila-icon-btn is-edit"
-                              title={prepareBlock || 'Cargar / actualizar borrador desde el padrón (también automático el día 1)'}
-                              aria-label="Cargar borrador"
-                              disabled={Boolean(prepareBlock)}
-                              onClick={() => prepareDraft(p.id)}
-                            >
-                              <Upload size={14} />
-                            </button>
-                          ) : null}
-                          {!balancesOnly ? (
-                            <button
-                              type="button"
-                              className="cash-lila-icon-btn is-gen"
-                              title={prepareBlock || 'Generar liquidación (también automática el día 1)'}
-                              aria-label="Generar"
-                              disabled={Boolean(prepareBlock) && Boolean(liquidateBlock)
-                                && !(p.pack?.concepts?.length || p.lines?.length)}
-                              onClick={() => openGenerateScreen(p.id)}
-                            >
-                              <Play size={14} />
-                            </button>
-                          ) : null}
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            type="button"
-                            className="cash-lila-icon-btn is-edit"
-                            title="Ver liquidación"
-                            aria-label="Ver liquidación"
-                            onClick={() => openDraftDetail(p)}
-                          >
-                            <Eye size={14} />
-                          </button>
-                          <button
-                            type="button"
-                            className="cash-lila-icon-btn is-edit"
-                            title="Editar"
-                            aria-label="Editar liquidación"
-                            onClick={() => openDraftDetail(p, true)}
-                          >
-                            <Pencil size={14} />
-                          </button>
-                          {historyBtn}
-                          {!balancesOnly ? (
-                            <button
-                              type="button"
-                              className="cash-lila-icon-btn is-edit"
-                              title={prepareBlock || 'Cargar / actualizar borrador desde el padrón (también automático el día 1)'}
-                              aria-label="Cargar borrador"
-                              disabled={Boolean(prepareBlock)}
-                              onClick={() => prepareDraft(p.id)}
-                            >
-                              <Upload size={14} />
-                            </button>
-                          ) : null}
-                          {!balancesOnly ? (
-                            <button
-                              type="button"
-                              className="cash-lila-icon-btn is-gen"
-                              title={prepareBlock || 'Generar liquidación (también automática el día 1)'}
-                              aria-label="Generar"
-                              disabled={Boolean(prepareBlock) && Boolean(liquidateBlock)
-                                && !(p.pack?.concepts?.length || p.lines?.length)}
-                              onClick={() => openGenerateScreen(p.id)}
-                            >
-                              <Play size={14} />
-                            </button>
-                          ) : null}
-                        </>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-          </div>
-        </div>
-      </details>
-
-      <div className={`cuotas-cc-banner${ccEnabled ? '' : ' is-off'}`}>
-        <span>
-          {ccEnabled
-            ? 'Todos los socios pueden ver sus cuentas corrientes'
-            : 'Las cuentas corrientes están desactivadas para los socios'}
-        </span>
-        <button
-          type="button"
-          className={`btn btn-sm cuotas-cc-toggle${ccEnabled ? ' btn-secondary' : ' btn-emerald'}`}
-          disabled={typeof setDuesSettings !== 'function'}
-          onClick={() => setDuesSettings?.((prev) => ({
-            ...mergeDuesSettings(prev),
-            showCurrentAccountsToMembers: !ccEnabled,
-          }))}
-        >
-          {ccEnabled ? 'Desactivar cuentas corrientes' : 'Activar cuentas corrientes'}
-        </button>
-      </div>
 
       <LiquidateNowDialog
         open={Boolean(liquidateConfirmId)}

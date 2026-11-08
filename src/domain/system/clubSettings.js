@@ -118,6 +118,7 @@ export function mergeDuesSettings(raw = {}) {
   const day = Number(raw?.dueDay);
   const protect = text(raw?.accountProtectDate, DEFAULT_DUES_SETTINGS.accountProtectDate);
   const dueDay = Number.isInteger(day) && day >= 1 && day <= 28 ? day : DUES_DUE_DAY;
+  const noticeRule = noticeRuleForDueDay(dueDay);
   return {
     dueDay,
     paymentTolerance: money(raw?.paymentTolerance, DEFAULT_DUES_SETTINGS.paymentTolerance),
@@ -127,7 +128,15 @@ export function mergeDuesSettings(raw = {}) {
       ? protect
       : DEFAULT_DUES_SETTINGS.accountProtectDate,
     showCurrentAccountsToMembers: raw?.showCurrentAccountsToMembers !== false,
-    ...noticeRuleForDueDay(dueDay),
+    ...noticeRule,
+    // Pausado en cloud hasta auditoría: no pisar con defaults.
+    noticesPaused: raw?.noticesPaused === true,
+    noticeByMessage: raw?.noticeByMessage !== undefined
+      ? raw.noticeByMessage !== false
+      : noticeRule.noticeByMessage,
+    noticeByEmail: raw?.noticeByEmail !== undefined
+      ? raw.noticeByEmail !== false
+      : noticeRule.noticeByEmail,
   };
 }
 

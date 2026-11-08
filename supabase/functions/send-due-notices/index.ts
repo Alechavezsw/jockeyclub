@@ -68,12 +68,16 @@ function stagesForDay(todayIso: string, dueDay = 10, advanceDays = 5) {
 
 async function loadDuesClock(admin: ReturnType<typeof createClient>) {
   const { data } = await admin.from("app_settings").select("value").eq("key", "dues").maybeSingle();
-  const dueDay = asDay(data?.value?.dueDay, 10);
-  const advanceDays = asDay(data?.value?.noticeAdvanceDays, 5);
+  const value = (data?.value || {}) as Record<string, unknown>;
+  const dueDay = asDay(value.dueDay, 10);
+  const advanceDays = asDay(value.noticeAdvanceDays, 5);
   return {
     dueDay,
     advanceDays,
     moraDay: Math.min(28, dueDay + 1),
+    noticesPaused: value.noticesPaused === true,
+    noticeByMessage: value.noticeByMessage !== false,
+    noticeByEmail: value.noticeByEmail !== false,
   };
 }
 
@@ -86,7 +90,7 @@ function longDate(iso: string) {
   return `${d} de ${months[m - 1]} de ${y}`;
 }
 
-function noticeCopy(name: string, dueOn: string, stage: string, amet = false) {
+function noticeCopy(name: string, dueOn: string, stage: string, amet = false, daysLeft = 5) {
   const who = name || "socio";
   const when = longDate(dueOn);
   const consequences = (amet ? AMET_MORA_CONSEQUENCES : MORA_CONSEQUENCES).join(" ");
@@ -95,8 +99,10 @@ function noticeCopy(name: string, dueOn: string, stage: string, amet = false) {
     ? `Hoy, ${when}, vence la cuota AMET del Jockey Club San Juan.`
     : `Hoy, ${when}, vence la cuota social del Jockey Club San Juan. Si abonás hoy no lleva recargo.`;
   if (stage === "upcoming") {
+    const left = Number.isFinite(daysLeft) && daysLeft > 0 ? Math.round(daysLeft) : 5;
+    const leftLabel = left === 1 ? "Falta 1 día" : `Faltan ${left} días`;
     subject = `Tu cuota vence el ${when}`;
-    lead = `Faltan 5 días: el ${when} vence la cuota social del Jockey Club San Juan.`;
+    lead = `${leftLabel}: el ${when} vence la cuota social del Jockey Club San Juan.`;
   } else if (stage === "mora") {
     subject = "Tu cuota está en mora";
     lead = `El ${when} venció la cuota social y seguís sin regularizar. Ya estás en mora.`;
@@ -207,7 +213,10 @@ async function prepareNotice(
   member: MemberRow,
   dueOn: string,
   stage: string,
+  opts: { noticeByMessage?: boolean; noticeByEmail?: boolean; daysLeft?: number } = {},
 ): Promise<{ status: "already" | "skip" | "ready"; prepared?: Prepared; messaged?: boolean }> {
+  const noticeByMessage = opts.noticeByMessage !== false;
+  const noticeByEmail = opts.noticeByEmail !== false;
   const { data: existing } = await admin
     .from("dues_notice_sends")
     .select("id, resend_id, message_id")
@@ -218,7 +227,7 @@ async function prepareNotice(
   if (existing?.resend_id) return { status: "already" };
 
   let rowId = existing?.id as string | undefined;
-  const email = deliverableEmail(member.email);
+  const email = noticeByEmail ? deliverableEmail(member.email) : "";
   if (!rowId) {
     const inserted = await admin
       .from("dues_notice_sends")
@@ -230,16 +239,22 @@ async function prepareNotice(
   }
 
   const amet = Number(dueOn.slice(8, 10)) === AMET_DUE_DAY;
-  const copy = noticeCopy(member.full_name || "", dueOn, stage, amet);
-  const messageId = await ensureMemberMessage(admin, member, copy, dueOn, stage, existing?.message_id);
-  if (messageId && messageId !== existing?.message_id) {
-    await admin.from("dues_notice_sends").update({ message_id: messageId }).eq("id", rowId);
+  const copy = noticeCopy(member.full_name || "", dueOn, stage, amet, opts.daysLeft);
+  let messageId = existing?.message_id || null;
+  if (noticeByMessage) {
+    messageId = await ensureMemberMessage(admin, member, copy, dueOn, stage, existing?.message_id);
+    if (messageId && messageId !== existing?.message_id) {
+      await admin.from("dues_notice_sends").update({ message_id: messageId }).eq("id", rowId);
+    }
   }
 
   if (!email) {
     await admin
       .from("dues_notice_sends")
-      .update({ resend_id: "no-email", email_error: "Sin mail real" })
+      .update({
+        resend_id: noticeByEmail ? "no-email" : "email-off",
+        email_error: noticeByEmail ? "Sin mail real" : "Aviso por mail desactivado",
+      })
       .eq("id", rowId);
     return { status: "ready", messaged: Boolean(messageId) };
   }
@@ -330,12 +345,24 @@ Deno.serve(async (req) => {
 
     const today = arISODate();
     const clock = await loadDuesClock(admin);
+    // Pausado hasta auditoría: no manda upcoming / vencimiento / mora.
+    if (clock.noticesPaused || (!clock.noticeByMessage && !clock.noticeByEmail)) {
+      return json(200, {
+        ok: true,
+        sent: 0,
+        already: 0,
+        failed: 0,
+        messaged: 0,
+        skipped: "notices-paused",
+      });
+    }
     const clocks = [{ dueDay: clock.dueDay, advanceDays: clock.advanceDays }];
     if (clock.dueDay !== AMET_DUE_DAY) {
       clocks.push({ dueDay: AMET_DUE_DAY, advanceDays: clock.advanceDays });
     }
     const cycles = clocks.map((row) => ({
       dueOn: cycleDueOn(today, row.dueDay),
+      dueDay: row.dueDay,
       stages: stagesForDay(today, row.dueDay, row.advanceDays),
     })).filter((row) => row.stages.length);
     if (!cycles.length) return json(200, { ok: true, sent: 0, already: 0, failed: 0, skipped: "fuera de fecha" });
@@ -346,9 +373,11 @@ Deno.serve(async (req) => {
     const maxPages = profileId ? 1 : 6;
     const dueOns: string[] = [];
     const allStages: string[] = [];
+    const todayDay = Number(today.slice(8, 10));
 
     for (const cycle of cycles) {
       dueOns.push(cycle.dueOn);
+      const daysLeft = Math.max(1, cycle.dueDay - todayDay);
       for (const stage of cycle.stages) {
         allStages.push(stage);
         for (let page = 0; page < maxPages; page += 1) {
@@ -364,7 +393,11 @@ Deno.serve(async (req) => {
 
           const ready: Prepared[] = [];
           for (const member of members) {
-            const result = await prepareNotice(admin, member, cycle.dueOn, stage);
+            const result = await prepareNotice(admin, member, cycle.dueOn, stage, {
+              noticeByMessage: clock.noticeByMessage,
+              noticeByEmail: clock.noticeByEmail,
+              daysLeft,
+            });
             if (result.status === "already") counts.already += 1;
             else if (result.status === "ready") {
               if (result.messaged) counts.messaged += 1;

@@ -88,6 +88,30 @@ describe('dues classification', () => {
     expect(overdue[0].amountDue).toBe(77000);
   });
 
+  it('débitos importados con unpaidCapital LILA en 0 no figuran en mora', () => {
+    const overdue = getOverdueMembers([
+      {
+        memberId: '11147',
+        name: 'Elizabeth Beatriz Onsalo',
+        tier: 'socio_familiar',
+        outstandingBalance: 70000,
+        unpaidCapital: 0,
+        lastPaymentDate: '2026-11-01',
+        status: 'active',
+      },
+      {
+        memberId: '10559',
+        name: 'Egla Anabel Costa',
+        tier: 'socio_familiar',
+        outstandingBalance: 709000,
+        unpaidCapital: 717000,
+        status: 'active',
+      },
+    ], new Date('2026-11-08T12:00:00'));
+    expect(overdue.map((m) => m.memberId)).toEqual(['10559']);
+    expect(overdue[0].amountDue).toBe(717000);
+  });
+
   it('un alquiler en la cuenta no es mora de cuota', () => {
     const overdue = getOverdueMembers([
       {

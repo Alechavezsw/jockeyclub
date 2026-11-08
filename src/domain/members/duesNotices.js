@@ -81,16 +81,28 @@ export function longDueDate(iso) {
   return `${d} de ${MONTHS[m - 1]} de ${y}`;
 }
 
-export function duesNoticeCopy({ name, dueOn, stage, amet = false }) {
+/** Días calendario entre hoy (AR) y el vencimiento (mismo mes). */
+export function duesNoticeDaysLeft(dueOn, todayIso) {
+  const dueDay = Number(String(dueOn || '').slice(8, 10));
+  const todayDay = Number(String(todayIso || '').slice(8, 10));
+  if (!Number.isFinite(dueDay) || !Number.isFinite(todayDay)) return DUES_NOTICE_ADVANCE_DAYS;
+  return Math.max(1, dueDay - todayDay);
+}
+
+export function duesNoticeCopy({ name, dueOn, stage, amet = false, daysLeft } = {}) {
   const when = longDueDate(dueOn);
   const consequences = (amet ? AMET_MORA_CONSEQUENCES : MORA_CONSEQUENCES).join(' ');
   const greeting = `Hola ${String(name || '').trim() || 'socio'},`;
   const accountUrl = DUES_NOTICE_ACCOUNT_URL;
   if (stage === 'upcoming') {
+    const left = Number.isFinite(Number(daysLeft)) && Number(daysLeft) > 0
+      ? Math.round(Number(daysLeft))
+      : DUES_NOTICE_ADVANCE_DAYS;
+    const leftLabel = left === 1 ? 'Falta 1 día' : `Faltan ${left} días`;
     return {
       greeting,
       subject: `Tu cuota vence el ${when}`,
-      lead: `Faltan 5 días: el ${when} vence la cuota social del Jockey Club San Juan.`,
+      lead: `${leftLabel}: el ${when} vence la cuota social del Jockey Club San Juan.`,
       consequences,
       accountUrl,
     };
