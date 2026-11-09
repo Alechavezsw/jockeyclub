@@ -12,7 +12,7 @@ import {
   getOpenSession,
   pickGeneralCashRegister,
 } from '../domain/accounting/cash';
-import { loadSnapshots } from '../data/snapshots';
+import { loadSnapshots, subscribeSnapshots } from '../data/snapshots';
 import { isPoolDayCashOpen } from '../domain/pool/poolAccess';
 import { cashMovementsSeed, cashSeed, chequesSeed, mergeAccessinCashMovements } from '../domain/accounting/cashLedger';
 import { cobranzasSeed } from '../domain/accounting/cobranzas';
@@ -383,6 +383,18 @@ export default function useErpStore({
   useEffect(() => {
     if (!canLoadSeeds) return undefined;
     let cancelled = false;
+    const applyCashCut = () => {
+      const movements = cashMovementsSeed().ACCESSIN_CASH_MOVEMENTS;
+      const recent = cashSeed().ACCESSIN_CASH_SNAPSHOT?.recentMovements || [];
+      if (!movements.length && !recent.length) return;
+      setAccessinCashMovements((cur) => {
+        const next = mergeAccessinCashMovements(
+          mergeAccessinCashMovements(cur, movements),
+          recent,
+        );
+        return next.length === (cur?.length || 0) ? cur : next;
+      });
+    };
     const applySeeds = () => {
       if (cancelled) return;
       void loadSnapshots(ERP_SNAPSHOTS).then(() => {
@@ -391,14 +403,7 @@ export default function useErpStore({
         if (registers.length) {
           setCashRegisters((cur) => (isFallbackCashRegisters(cur) ? registers : cur));
         }
-        const movements = cashMovementsSeed().ACCESSIN_CASH_MOVEMENTS;
-        const recent = cashSeed().ACCESSIN_CASH_SNAPSHOT?.recentMovements || [];
-        if (movements.length || recent.length) {
-          setAccessinCashMovements((cur) => mergeAccessinCashMovements(
-            mergeAccessinCashMovements(cur, movements),
-            recent,
-          ));
-        }
+        applyCashCut();
         const cheques = chequesSeed().ACCESSIN_CHEQUES;
         if (cheques.length) setAccessinCheques((cur) => (cur?.length ? cur : cheques));
         const cobranzas = cobranzasSeed().ACCESSIN_COBRANZAS;
@@ -425,8 +430,13 @@ export default function useErpStore({
     } else {
       timeoutId = window.setTimeout(applySeeds, 1800);
     }
+    // Si el corte de caja termina después del idle, igual lo sumamos al libro.
+    const unsub = subscribeSnapshots(() => {
+      if (!cancelled) applyCashCut();
+    });
     return () => {
       cancelled = true;
+      unsub();
       if (idleId && typeof window.cancelIdleCallback === 'function') {
         window.cancelIdleCallback(idleId);
       }

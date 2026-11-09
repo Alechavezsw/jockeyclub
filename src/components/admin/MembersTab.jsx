@@ -1561,6 +1561,59 @@ export default function MembersTab({
       {actionFlash ? (
         <p className="member-action-flash" role="status">{actionFlash}</p>
       ) : null}
+      {allowPadronWrite ? (
+        <div className="padron-top-ops" role="group" aria-label="Gestión de socios">
+          <button
+            type="button"
+            className="page-header-member-op is-baja"
+            onClick={() => setBajaOpen(true)}
+            title="Dar de baja a un socio"
+          >
+            <span className="page-header-member-op-label">
+              <UserMinus size={15} aria-hidden />
+              Baja
+            </span>
+            <span className="page-header-member-op-hint">sacar del padrón</span>
+          </button>
+          <button
+            type="button"
+            className="page-header-member-op is-reactivate"
+            onClick={() => {
+              setReactivateMember(null);
+              setReactivateOpen(true);
+            }}
+            title="Reactivar un socio que estaba de baja"
+          >
+            <span className="page-header-member-op-label">
+              <UserPlus size={15} aria-hidden />
+              Reactivar
+            </span>
+            <span className="page-header-member-op-hint">volver al padrón</span>
+          </button>
+          <button
+            type="button"
+            className={`page-header-member-op is-alta${showAddForm ? ' is-on' : ''}`}
+            onClick={() => {
+              if (showAddForm) {
+                closeAltaForm();
+                return;
+              }
+              selectMembersPanel('titulares');
+              openAltaForm();
+            }}
+            title={showAddForm ? 'Cerrar formulario de alta' : 'Dar de alta a un socio nuevo'}
+            aria-pressed={Boolean(showAddForm)}
+          >
+            <span className="page-header-member-op-label">
+              <Plus size={15} aria-hidden />
+              {showAddForm ? 'Cerrar' : 'Alta'}
+            </span>
+            <span className="page-header-member-op-hint">
+              {showAddForm ? 'ocultar ficha' : 'nuevo titular'}
+            </span>
+          </button>
+        </div>
+      ) : null}
       <div className="members-search-hero">
         <label className="members-search-label" htmlFor="members-search-input">
           {activePanel === 'requests' ? 'Buscar pedido o socio' : 'Buscar en el padrón'}

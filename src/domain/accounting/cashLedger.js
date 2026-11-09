@@ -316,21 +316,43 @@ export function filterAccessinCashMovements(movements = [], filter = {}) {
   return rows;
 }
 
-/** Enriquece movimientos con nombre de socio desde el padrón local. */
+/** Nº de socio en un movimiento de caja (campo, Cred. N o descripción solo-dígitos). */
+export function cashMovementMemberDigits(row) {
+  const direct = String(row?.memberNumber || row?.memberId || '').replace(/\D/g, '');
+  if (direct) return direct;
+  const blob = String(row?.description || row?.concept || '');
+  const cred = blob.match(/Cred\.?\s*(\d{2,})/i);
+  if (cred) return cred[1];
+  const trimmed = blob.trim();
+  if (/^\d{2,}$/.test(trimmed)) return trimmed;
+  return '';
+}
+
+/** Nombre embebido en textos Accessin/asiento: `Socio: Fulano (Cred. 123)`. */
+export function cashMovementNameFromDescription(row) {
+  const blob = String(row?.description || row?.concept || '');
+  const match = blob.match(/Socio:\s*(.+?)\s*\(\s*Cred\.?\s*\d+/i);
+  return match ? String(match[1] || '').trim() : '';
+}
+
+/** Enriquece movimientos con nombre / Nº de socio desde el padrón (y el texto del asiento). */
 export function enrichCashMovementsWithMembers(movements = [], members = []) {
-  if (!members?.length) return movements;
   const byNumber = new Map();
-  members.forEach((m) => {
-    const num = String(m.memberId || m.member_number || '').replace(/\D/g, '');
-    if (num) byNumber.set(num, m.name || m.full_name || '');
+  (members || []).forEach((m) => {
+    const num = String(m.memberId || m.member_number || m.memberNumber || '').replace(/\D/g, '');
+    if (!num) return;
+    const name = m.name || m.full_name || m.fullName || '';
+    if (name || !byNumber.has(num)) byNumber.set(num, name);
   });
-  return movements.map((row) => {
-    const num = String(row.memberNumber || row.description || '').replace(/\D/g, '');
-    const name = num ? byNumber.get(num) : '';
-    if (!name) return row;
+  return (movements || []).map((row) => {
+    const num = cashMovementMemberDigits(row);
+    if (!num) return row;
+    const name = byNumber.get(num) || row.memberName || cashMovementNameFromDescription(row) || '';
     return {
       ...row,
-      memberName: name,
+      memberNumber: row.memberNumber || num,
+      memberId: row.memberId || num,
+      memberName: name || row.memberName || '',
       familyGroup: row.familyGroup || (num ? `G-F ${num}` : ''),
     };
   });

@@ -11,7 +11,7 @@ import { formatObservedClock } from '../../domain/weather/sedeWeather';
 import { canAccessConcessions, canAccessQrGate } from '../../domain/auth/roles';
 import { reviewItemsForAccess } from '../../domain/review/buildClubReview';
 import { isAlertVisible, ALERT_SEVERITY } from '../../domain/alerts/alerts';
-import { isPoolDayCashOpen, poolCanonByDay } from '../../domain/pool/poolAccess';
+import { poolCanonByDay } from '../../domain/pool/poolAccess';
 import { buildOpsFinanceSnapshot, collectDeltaAfterCut, composeClubFinance, dueCollectBoard, duesCollectionFromMonthlySummary, financeFromSummary, freshMonthCollectBoard, lilaBookCutDate, lilaContabilidadFromSnapshots } from '../../domain/accounting/opsFinanceSnapshot';
 import { monthlyBalanceSeed } from '../../domain/accounting/monthlyBalance';
 import { monthlyBalanceSummarySeed } from '../../domain/accounting/monthlyBalanceSummary';
@@ -191,16 +191,11 @@ export default function AdminDashboardTab({
   chartOfAccounts = [],
   feePeriods = [],
   poolAccesses = [],
-  cashSessions = [],
-  cashRegisters = [],
   accessinCashMovements = [],
-  onOpenDayCash,
   membershipApplications = [],
   portalAccessRequests = [],
   jevReview = null,
 }) {
-  const [openingCash, setOpeningCash] = useState(false);
-  const [cashFlash, setCashFlash] = useState('');
   const [alertIndex, setAlertIndex] = useState(0);
   const alertHold = useRef(false);
   const [agendaDay, setAgendaDay] = useState(null);
@@ -453,7 +448,6 @@ export default function AdminDashboardTab({
     () => poolCanonByDay(poolAccesses, { month: todayKey.slice(0, 7) }),
     [poolAccesses, todayKey],
   );
-  const dayCashOpen = isPoolDayCashOpen(cashSessions, cashRegisters);
   const recentIncomes = useMemo(() => {
     const byNumber = new Map();
     for (const member of members || []) {
@@ -499,32 +493,6 @@ export default function AdminDashboardTab({
     const base = (todayIncomes || []).filter((row) => !/^canon pileta/i.test(String(row.label || '')));
     return poolToday ? [poolToday, ...base] : base;
   }, [poolMonthRows, todayKey, todayIncomes]);
-
-  useEffect(() => {
-    if (dayCashOpen || typeof onOpenDayCash !== 'function') return undefined;
-    let cancelled = false;
-    setOpeningCash(true);
-    void onOpenDayCash()
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setOpeningCash(false);
-      });
-    return () => { cancelled = true; };
-  }, [dayCashOpen, onOpenDayCash]);
-
-  const openDayCash = async () => {
-    if (dayCashOpen || openingCash || typeof onOpenDayCash !== 'function') return;
-    setOpeningCash(true);
-    setCashFlash('');
-    try {
-      await onOpenDayCash();
-      setCashFlash('Caja abierta.');
-    } catch (err) {
-      setCashFlash(err?.message || 'No se pudo asegurar la caja.');
-    } finally {
-      setOpeningCash(false);
-    }
-  };
 
   const overdueTop = useMemo(
     () => getOverdueMembers(deferredMembers).slice(0, 5),
@@ -1206,18 +1174,9 @@ export default function AdminDashboardTab({
                 ) : null}
 
                 <div className="ops-block" style={{ marginTop: '0.85rem' }}>
-                  <div className="ops-block-title ops-block-title--split">
+                  <div className="ops-block-title">
                     <span>Últimos ingresos · {moneyMonthLabel}</span>
-                    <button
-                      type="button"
-                      className="btn btn-primary pool-day-cash"
-                      disabled={openingCash || dayCashOpen || typeof onOpenDayCash !== 'function'}
-                      onClick={openDayCash}
-                    >
-                      {dayCashOpen ? 'Caja abierta' : (openingCash ? 'Asegurando…' : 'Asegurar caja')}
-                    </button>
                   </div>
-                  {cashFlash ? <p className="ops-muted" style={{ margin: '0.35rem 0 0' }}>{cashFlash}</p> : null}
                   {recentIncomes.length > 0 ? (
                     <>
                       {(showAllMonthIncomes ? recentIncomes : recentIncomes.slice(0, 5)).map((row) => (

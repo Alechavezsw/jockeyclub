@@ -9,6 +9,8 @@ import {
   chequesSeed,
   CASH_MOVEMENT_SHEET_SIZE,
   cashMovementMonthSheets,
+  cashMovementMemberDigits,
+  enrichCashMovementsWithMembers,
   filterAccessinCashMovements,
   filterAccessinCheques,
   paginateCashMovementSheet,
@@ -139,5 +141,31 @@ describe('saldo de caja al día', () => {
     expect(cards.find((c) => c.id === 'efectivo')?.caption).toContain('1 de Octubre del 2026');
     expect(cards.find((c) => c.id === 'bancos')?.value).toBeCloseTo(624226837.87, 2);
     expect(cards.find((c) => c.id === 'total')?.value).toBeCloseTo(811596140.62, 2);
+  });
+});
+
+describe('enrichCashMovementsWithMembers', () => {
+  it('lee Cred. aunque la descripción traiga fechas y GF', () => {
+    const desc = 'Cobro cuota social (Transferencia Banco Nación) - Socio: Maria Florencia Ramirez Pericas (Cred. 101600) · Comp: Manual · GF-101600-20261109';
+    expect(cashMovementMemberDigits({ description: desc })).toBe('101600');
+    const [row] = enrichCashMovementsWithMembers(
+      [{ id: '1', description: desc, memberNumber: '' }],
+      [{ memberId: '101600', name: 'Maria Florencia Ramirez Pericas' }],
+    );
+    expect(row.memberNumber).toBe('101600');
+    expect(row.memberName).toBe('Maria Florencia Ramirez Pericas');
+    expect(row.familyGroup).toBe('G-F 101600');
+  });
+
+  it('si no está en el padrón, usa el nombre del texto del asiento', () => {
+    const [row] = enrichCashMovementsWithMembers(
+      [{
+        id: '2',
+        description: 'Cobro cuota social (Efectivo) - Socio: manuel alejandro Chávez (Cred. 111591)',
+      }],
+      [],
+    );
+    expect(row.memberNumber).toBe('111591');
+    expect(row.memberName).toBe('manuel alejandro Chávez');
   });
 });

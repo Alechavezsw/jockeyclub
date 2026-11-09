@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Wallet,
   ArrowDownLeft,
@@ -30,11 +31,13 @@ import {
 } from '../../domain/accounting/cash';
 import {
   cashSeed,
+  cashMovementsSeed,
   chequesSeed,
   cashMovementMonthSheets,
   filterAccessinCashMovements,
   filterAccessinCheques,
   formatAccessinCashDate,
+  mergeAccessinCashMovements,
   paginateCashMovementSheet,
 } from '../../domain/accounting/cashLedger';
 import { buildLiveCashLedger } from '../../domain/accounting/liveCashLedger';
@@ -60,7 +63,8 @@ import { useSnapshotSeed } from '../../hooks/useSnapshots';
 import SnapshotGate from '../SnapshotGate';
 
 // Cobranzas, pagos, cuentas y movimientos llegan por props desde el store del ERP.
-const CASH_SNAPSHOTS = ['accessinCashSnapshot', 'accessinCheques'];
+// El corte Accessin (movimientos) + lo nuevo de la app = libro vivo de migración.
+const CASH_SNAPSHOTS = ['accessinCashSnapshot', 'accessinCashMovements', 'accessinCheques'];
 
 const PANEL_TABS = [
   { id: 'ledger', label: 'Saldo y movimientos' },
@@ -101,6 +105,23 @@ function CashBalanceIcon({ kind }) {
 function formatCashAmount(value, { withArs = false } = {}) {
   const base = formatCurrency(value);
   return withArs ? `${base} (ARS)` : base;
+}
+
+function CashMemberCell({ row }) {
+  const num = String(row?.memberNumber || row?.memberId || '').replace(/\D/g, '');
+  const name = String(row?.memberName || '').trim();
+  if (!num && !name) return '—';
+  if (!num) return name;
+  return (
+    <Link
+      to={`/panel/members/${encodeURIComponent(num)}`}
+      className="cash-lila-member-link"
+      title={`Abrir ficha Nº ${num}`}
+    >
+      <strong>{name || `Nº ${num}`}</strong>
+      {name ? <span className="cash-lila-member-nro">Nº {num}</span> : null}
+    </Link>
+  );
 }
 
 export default function CashRegistersPanel(props) {
@@ -203,10 +224,21 @@ function CashRegistersContent({
   const expected = openSession ? sessionExpectedBalance(openSession, cashMovements) : 0;
   const sessionMoves = cashMovements.filter((m) => openSession && m.cashSessionId === openSession.id);
 
+  // Corte Accessin (migración): el SnapshotGate no bloquea el mount, así que
+  // re-leemos el seed cuando termina de cargar y lo sumamos al store.
+  const cutSeed = useSnapshotSeed(
+    ['accessinCashMovements'],
+    () => cashMovementsSeed().ACCESSIN_CASH_MOVEMENTS,
+  );
+  const cutMovements = useMemo(
+    () => mergeAccessinCashMovements(accessinCashMovements, cutSeed),
+    [accessinCashMovements, cutSeed],
+  );
+
   const live = useMemo(
     () => buildLiveCashLedger({
       snapshot: ACCESSIN_CASH_SNAPSHOT,
-      movements: accessinCashMovements,
+      movements: cutMovements,
       liveMovements: cashMovements,
       sessions: cashSessions,
       registers: cashRegisters,
@@ -220,7 +252,7 @@ function CashRegistersContent({
     }),
     [
       ACCESSIN_CASH_SNAPSHOT,
-      accessinCashMovements,
+      cutMovements,
       cashMovements,
       cashSessions,
       cashRegisters,
@@ -467,14 +499,10 @@ function CashRegistersContent({
             <span className="suppliers-accessin-badge">{live.asOfLabel}</span>
           </h4>
           <p style={{ margin: '0.35rem 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-            Hoy y acumulado de {live.monthLabel || 'este mes'}
-            {live.extraCount > 0
-              ? ` · ${live.extraCount} posteriores al ${live.cutoffLabel}`
-              : ''}
-            {live.importCount > 0
-              ? ` · ${live.importCount} débitos importados`
-              : ''}
-            . Efectivo, bancos, MP y cheques por bolsillo.
+            Corte Accessin al {live.cutoffLabel || '—'} + movimientos nuevos de la app
+            {live.extraCount > 0 ? ` (${live.extraCount} nuevos)` : ''}
+            {live.importCount > 0 ? ` · ${live.importCount} débitos importados` : ''}
+            . Hoy y mes: {live.monthLabel || 'este mes'}. Efectivo, bancos, MP y cheques por bolsillo.
           </p>
         </div>
         <div className="cash-lila-actions">
@@ -907,7 +935,7 @@ function CashRegistersContent({
                             <td>{formatAccessinCashDate(row.date)}</td>
                             <td>{row.typeLabel}</td>
                             <td>{row.description || '—'}</td>
-                            <td>{row.memberName || '—'}</td>
+                            <td><CashMemberCell row={row} /></td>
                             <td>{row.familyGroup || '—'}</td>
                             <td style={{ fontWeight: 700, color: 'var(--emerald-accent)' }}>
                               {formatCashAmount(row.amount, { withArs: true })}

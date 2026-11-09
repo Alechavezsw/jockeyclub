@@ -1060,8 +1060,7 @@ body.has-modal .app-footer {
   gap: 0.55rem;
 }
 
-.page-header-member-count,
-.page-header-member-op {
+.page-header-member-count {
   display: grid;
   grid-template-columns: auto;
   justify-items: end;
@@ -1079,22 +1078,33 @@ body.has-modal .app-footer {
 .page-header-member-ops {
   display: flex;
   flex-wrap: wrap;
-  align-items: stretch;
-  gap: 0.4rem;
+  align-items: center;
+  gap: 0.3rem;
 }
 
 .page-header-member-op {
   appearance: none;
-  min-width: 6.6rem;
-  text-align: right;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.05rem;
+  min-width: 0;
+  max-width: 6.2rem;
+  padding: 0.28rem 0.45rem 0.3rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-glass);
+  background: var(--surface-card);
+  box-shadow: none;
+  text-align: left;
   color: inherit;
   font: inherit;
   cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+  transition: border-color 0.15s ease, background 0.15s ease, filter 0.15s ease;
 }
 
 .page-header-member-op:hover {
-  transform: translateY(-1px);
+  filter: brightness(1.06);
 }
 
 .page-header-member-op:focus-visible {
@@ -1103,41 +1113,85 @@ body.has-modal .app-footer {
 }
 
 .page-header-member-op.is-baja {
-  --op-accent: #c23b3b;
-  border-color: color-mix(in srgb, #c23b3b 38%, var(--border-glass));
-  background:
-    linear-gradient(135deg, color-mix(in srgb, #c23b3b 12%, transparent), transparent 60%),
-    var(--surface-card);
-  box-shadow: inset 3px 0 0 #c23b3b;
+  --op-accent: #b42318;
+  border-color: color-mix(in srgb, #b42318 65%, var(--border-glass));
+  background: color-mix(in srgb, #b42318 22%, var(--surface-card));
+  box-shadow: inset 2px 0 0 #b42318;
+  color: #b42318;
 }
 
 .page-header-member-op.is-reactivate {
-  --op-accent: #2f6f8f;
-  border-color: color-mix(in srgb, #2f6f8f 38%, var(--border-glass));
-  background:
-    linear-gradient(135deg, color-mix(in srgb, #2f6f8f 12%, transparent), transparent 60%),
-    var(--surface-card);
-  box-shadow: inset 3px 0 0 #2f6f8f;
+  --op-accent: #1d6a8a;
+  border-color: color-mix(in srgb, #1d6a8a 65%, var(--border-glass));
+  background: color-mix(in srgb, #1d6a8a 20%, var(--surface-card));
+  box-shadow: inset 2px 0 0 #1d6a8a;
+  color: #1d6a8a;
 }
 
 .page-header-member-op.is-alta {
-  --op-accent: var(--primary-gold);
-  border-color: color-mix(in srgb, var(--primary-gold) 42%, var(--border-glass));
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--primary-gold) 14%, transparent), transparent 60%),
-    var(--surface-card);
-  box-shadow: inset 3px 0 0 var(--primary-gold);
+  --op-accent: var(--emerald-accent);
+  border-color: color-mix(in srgb, var(--emerald-accent) 70%, var(--border-glass));
+  background: color-mix(in srgb, var(--emerald-accent) 22%, var(--surface-card));
+  box-shadow: inset 2px 0 0 var(--emerald-accent);
+  color: var(--emerald-accent);
 }
 
 .page-header-member-op.is-alta.is-on {
-  border-color: color-mix(in srgb, var(--primary-gold) 60%, var(--border-glass));
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--primary-gold) 22%, transparent), transparent 55%),
-    var(--surface-card);
+  border-color: color-mix(in srgb, var(--emerald-accent) 85%, var(--border-glass));
+  background: color-mix(in srgb, var(--emerald-accent) 34%, var(--surface-card));
 }
 
-.page-header-member-count-label,
-.page-header-member-op-label {
+.padron-top-ops {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0.55rem;
+  margin: 0 0 1rem;
+}
+
+.padron-top-ops .page-header-member-op {
+  min-width: 8.4rem;
+  max-width: none;
+  padding: 0.55rem 0.75rem 0.6rem;
+  border-radius: 10px;
+  gap: 0.2rem;
+  border-width: 1.5px;
+}
+
+.padron-top-ops .page-header-member-op.is-baja {
+  background: color-mix(in srgb, #b42318 28%, var(--surface-card));
+  border-color: color-mix(in srgb, #b42318 75%, var(--border-glass));
+  box-shadow: inset 3px 0 0 #b42318;
+}
+
+.padron-top-ops .page-header-member-op.is-reactivate {
+  background: color-mix(in srgb, #1d6a8a 28%, var(--surface-card));
+  border-color: color-mix(in srgb, #1d6a8a 75%, var(--border-glass));
+  box-shadow: inset 3px 0 0 #1d6a8a;
+}
+
+.padron-top-ops .page-header-member-op.is-alta {
+  background: color-mix(in srgb, var(--emerald-accent) 28%, var(--surface-card));
+  border-color: color-mix(in srgb, var(--emerald-accent) 80%, var(--border-glass));
+  box-shadow: inset 3px 0 0 var(--emerald-accent);
+}
+
+.padron-top-ops .page-header-member-op.is-alta.is-on {
+  background: color-mix(in srgb, var(--emerald-accent) 40%, var(--surface-card));
+}
+
+.padron-top-ops .page-header-member-op-label {
+  font-size: 0.78rem;
+  letter-spacing: 0.07em;
+  gap: 0.35rem;
+}
+
+.padron-top-ops .page-header-member-op-hint {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+}
+
+.page-header-member-count-label {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
@@ -1149,8 +1203,20 @@ body.has-modal .app-footer {
   color: var(--text-secondary);
 }
 
-.page-header-member-count-value,
-.page-header-member-op-value {
+.page-header-member-op-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.2rem;
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--op-accent, var(--text-secondary));
+  line-height: 1;
+}
+
+.page-header-member-count-value {
   font-size: clamp(1.45rem, 2.6vw, 1.85rem);
   font-weight: 800;
   line-height: 1;
@@ -1158,14 +1224,21 @@ body.has-modal .app-footer {
 }
 
 .page-header-member-op-value {
-  color: var(--op-accent, var(--text-strong));
-  font-size: clamp(1.05rem, 2vw, 1.25rem);
+  font-size: 0.72rem;
+  font-weight: 750;
+  line-height: 1.1;
+  color: var(--text-primary);
 }
 
-.page-header-member-count-hint,
-.page-header-member-op-hint {
+.page-header-member-count-hint {
   font-size: 0.72rem;
   color: var(--text-secondary);
+}
+
+.page-header-member-op-hint {
+  font-size: 0.58rem;
+  line-height: 1.15;
+  color: var(--text-muted);
 }
 
 @media (max-width: 900px) {
@@ -1180,8 +1253,8 @@ body.has-modal .app-footer {
   }
 
   .page-header-member-op {
-    flex: 1 1 7rem;
-    min-width: 0;
+    flex: 1 1 auto;
+    max-width: none;
   }
 }
 
@@ -4201,23 +4274,37 @@ button.membership-moves-name {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 0.55rem;
-  min-width: 9.5rem;
+  gap: 0.45rem;
+  min-width: 11rem;
 }
 
 .member-requests-card-actions {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0.4rem;
-  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem;
+  width: min(100%, 15.5rem);
 }
 
-.member-requests-card-more {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 0.45rem 0.65rem;
+.member-requests-card-actions > .btn {
+  width: 100%;
+  min-height: 2rem;
+  justify-content: center;
+  font-size: 0.78rem;
+  padding: 0.35rem 0.55rem;
+  white-space: nowrap;
+}
+
+.member-requests-card-actions > .btn-primary {
+  grid-column: 1 / -1;
+}
+
+.member-requests-reject-btn {
+  color: #b42318 !important;
+  border-color: color-mix(in srgb, #b42318 45%, var(--border-glass)) !important;
+}
+
+.member-requests-reject-btn:hover {
+  background: color-mix(in srgb, #b42318 12%, var(--surface-card)) !important;
 }
 
 .member-requests-reject {
@@ -4242,8 +4329,8 @@ button.membership-moves-name {
     min-width: 0;
   }
 
-  .member-requests-card-more {
-    justify-content: flex-start;
+  .member-requests-card-actions {
+    width: 100%;
   }
 }
 
@@ -22296,6 +22383,29 @@ a.ops-outline-btn {
   text-underline-offset: 0.15em;
 }
 .member-balances-open:hover {
+  color: var(--text-gold);
+}
+.cash-lila-member-link {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.12rem;
+  color: var(--text-primary);
+  text-decoration: none;
+  line-height: 1.2;
+}
+.cash-lila-member-link:hover {
+  color: var(--text-gold);
+}
+.cash-lila-member-link strong {
+  font-weight: 700;
+}
+.cash-lila-member-nro {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.cash-lila-member-link:hover .cash-lila-member-nro {
   color: var(--text-gold);
 }
 .cash-lila-row-actions {

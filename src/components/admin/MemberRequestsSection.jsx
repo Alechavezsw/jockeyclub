@@ -375,26 +375,24 @@ export default function MemberRequestsSection({
                         <button type="button" className="btn btn-primary btn-sm" disabled={busyId === item.id} onClick={() => startDeliver('acceso', item)}>
                           Entregar acceso
                         </button>
-                        <div className="member-requests-card-more">
-                          {match ? (
-                            <button type="button" className="membership-moves-link" onClick={() => handleResolveAccess(item, { openCreds: true })}>
-                              Credenciales
-                            </button>
-                          ) : null}
-                          <button type="button" className="membership-moves-link" disabled={busyId === item.id} onClick={() => handleResolveAccess(item)}>
-                            Ya contactado
+                        {match ? (
+                          <button type="button" className="btn btn-secondary btn-sm" onClick={() => handleResolveAccess(item, { openCreds: true })}>
+                            Credenciales
                           </button>
-                          <button
-                            type="button"
-                            className="membership-moves-link"
-                            onClick={() => {
-                              setRejectId(item.id);
-                              setRejectNote('');
-                            }}
-                          >
-                            Rechazar
-                          </button>
-                        </div>
+                        ) : null}
+                        <button type="button" className="btn btn-secondary btn-sm" disabled={busyId === item.id} onClick={() => handleResolveAccess(item)}>
+                          Ya contactado
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm member-requests-reject-btn"
+                          onClick={() => {
+                            setRejectId(item.id);
+                            setRejectNote('');
+                          }}
+                        >
+                          Rechazar
+                        </button>
                       </div>
                     ) : null}
                   </div>
@@ -443,21 +441,19 @@ export default function MemberRequestsSection({
                         <button type="button" className="btn btn-primary btn-sm" disabled={busyId === item.id} onClick={() => startDeliver('alta', item)}>
                           {match ? 'Actualizar y enviar' : 'Alta + acceso'}
                         </button>
-                        <div className="member-requests-card-more">
-                          <button type="button" className="membership-moves-link" onClick={() => onPrefillAlta?.(item)}>
-                            Solo alta
-                          </button>
-                          <button
-                            type="button"
-                            className="membership-moves-link"
-                            onClick={() => {
-                              setRejectId(item.id);
-                              setRejectNote('');
-                            }}
-                          >
-                            Rechazar
-                          </button>
-                        </div>
+                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => onPrefillAlta?.(item)}>
+                          Solo alta
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm member-requests-reject-btn"
+                          onClick={() => {
+                            setRejectId(item.id);
+                            setRejectNote('');
+                          }}
+                        >
+                          Rechazar
+                        </button>
                       </div>
                     ) : null}
                   </div>

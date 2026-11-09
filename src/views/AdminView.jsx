@@ -5,7 +5,6 @@ import {
   BookOpen, Book, ClipboardList, MessageSquare, Phone, Wallet, PieChart,
   FileSpreadsheet, Radio, Database, BellRing, PartyPopper, Trophy, Store, DoorOpen, QrCode, Newspaper, CreditCard,
   LayoutDashboard, ChevronRight, Briefcase, Headset, Settings, SlidersHorizontal, Building2, Waves, GraduationCap, Sparkles, TicketCheck,
-  Plus, UserMinus, UserPlus,
 } from 'lucide-react';
 import { DEFAULT_POOL_SETTINGS } from '../domain/pool/poolAccess';
 import { DEFAULT_CHART_OF_ACCOUNTS, resolveAccountId } from '../domain/accounting/chartOfAccounts';
@@ -282,7 +281,6 @@ export default function AdminView({
   const membersSettled = !membersLoading && (members?.length || 0) > 0;
   // Contador de cabecera: exacto en DB (status=active), no el tamaño del lote en memoria.
   const [exactActiveMembers, setExactActiveMembers] = useState(() => Number(membersCount) || 0);
-  const [padronOps, setPadronOps] = useState(null);
   useEffect(() => {
     setExactActiveMembers((prev) => Math.max(Number(prev) || 0, Number(membersCount) || 0));
   }, [membersCount]);
@@ -1188,52 +1186,6 @@ export default function AdminView({
                   </b>
                   <span className="page-header-member-count-hint">todas las categorías · sin bajas</span>
                 </div>
-                {manageMembers && padronOps ? (
-                  <div className="page-header-member-ops" role="group" aria-label="Gestión de socios">
-                    <button
-                      type="button"
-                      className="page-header-member-op is-baja"
-                      onClick={() => padronOps.openBaja?.()}
-                      title="Dar de baja a un socio"
-                    >
-                      <span className="page-header-member-op-label">
-                        <UserMinus size={14} aria-hidden />
-                        Baja
-                      </span>
-                      <b className="page-header-member-op-value">Socio</b>
-                      <span className="page-header-member-op-hint">sacar del padrón</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="page-header-member-op is-reactivate"
-                      onClick={() => padronOps.openReactivate?.()}
-                      title="Reactivar un socio que estaba de baja"
-                    >
-                      <span className="page-header-member-op-label">
-                        <UserPlus size={14} aria-hidden />
-                        Reactivar
-                      </span>
-                      <b className="page-header-member-op-value">Socio</b>
-                      <span className="page-header-member-op-hint">volver al padrón</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`page-header-member-op is-alta${padronOps.altaOpen ? ' is-on' : ''}`}
-                      onClick={() => padronOps.toggleAlta?.()}
-                      title={padronOps.altaOpen ? 'Cerrar formulario de alta' : 'Dar de alta a un socio nuevo'}
-                      aria-pressed={Boolean(padronOps.altaOpen)}
-                    >
-                      <span className="page-header-member-op-label">
-                        <Plus size={14} aria-hidden />
-                        {padronOps.altaOpen ? 'Cerrar' : 'Alta'}
-                      </span>
-                      <b className="page-header-member-op-value">Socio</b>
-                      <span className="page-header-member-op-hint">
-                        {padronOps.altaOpen ? 'ocultar ficha' : 'nuevo titular'}
-                      </span>
-                    </button>
-                  </div>
-                ) : null}
               </div>
             ) : null}
             {activeTab === 'bookings' ? (
@@ -1295,10 +1247,7 @@ export default function AdminView({
           chartOfAccounts={chartOfAccounts}
           feePeriods={erp.feePeriods || []}
           poolAccesses={poolAccesses}
-          cashSessions={erp.cashSessions || []}
-          cashRegisters={erp.cashRegisters || []}
           accessinCashMovements={erp.accessinCashMovements || []}
-          onOpenDayCash={erp.openPoolDayCash}
           registeredUsersCount={registeredUsersCount}
           membershipApplications={membershipApplications}
           portalAccessRequests={portalAccessRequests}
@@ -1431,7 +1380,6 @@ export default function AdminView({
             onSendMessage={sendMessage}
             paymentPlans={paymentPlans}
             paymentTolerance={duesSettings?.paymentTolerance}
-            onPadronOpsChange={setPadronOps}
           />
         )
       )}
