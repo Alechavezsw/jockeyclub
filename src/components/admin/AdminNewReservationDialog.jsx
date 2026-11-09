@@ -282,12 +282,15 @@ export default function AdminNewReservationDialog({
       } catch {
         /* descarga best-effort */
       }
-      void deliverPaymentReceipt({
-        member,
-        payment,
-        onSendMessage,
-        kind: 'reserva',
-      });
+      // Mercado Pago: el webhook ya manda deliverMpReceipt. No duplicar mail/MD.
+      if (method !== 'mercadopago' && !mpIntent?.id) {
+        void deliverPaymentReceipt({
+          member,
+          payment,
+          onSendMessage,
+          kind: 'reserva',
+        });
+      }
     }
     return { ok: true, reservation };
   };

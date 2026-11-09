@@ -179,8 +179,16 @@ export async function bootstrapMemberDeferredFromDb() {
       guestPasses: [],
       tierCatalog: null,
       disciplineCatalog: null,
+      clubSettings: null,
+      duesSettings: null,
+      poolSettings: null,
+      systemRules: null,
+      paymentPlans: null,
+      facilityCatalog: null,
     };
   }
+
+  const softD = (p, fb, label) => soft(p, fb, label, DEFERRED_TIMEOUT_MS);
 
   const [
     waitlist,
@@ -188,12 +196,24 @@ export async function bootstrapMemberDeferredFromDb() {
     guestPasses,
     memberTiersSetting,
     disciplinesSetting,
+    clubSetting,
+    duesSetting,
+    poolSetting,
+    systemSetting,
+    paymentPlansSetting,
+    facilityCatalogSetting,
   ] = await mapLimit([
-    () => soft(repos.listWaitlist(), [], 'waitlist', DEFERRED_TIMEOUT_MS),
-    () => soft(repos.listRsvps(), [], 'rsvps', DEFERRED_TIMEOUT_MS),
-    () => soft(repos.listGuestPasses(), [], 'guestPasses', DEFERRED_TIMEOUT_MS),
-    () => soft(repos.getSetting('member_tiers'), null, 'tiers', DEFERRED_TIMEOUT_MS),
-    () => soft(repos.getSetting('disciplines_catalog'), null, 'disciplines', DEFERRED_TIMEOUT_MS),
+    () => softD(repos.listWaitlist(), [], 'waitlist'),
+    () => softD(repos.listRsvps(), [], 'rsvps'),
+    () => softD(repos.listGuestPasses(), [], 'guestPasses'),
+    () => softD(repos.getSetting('member_tiers'), null, 'tiers'),
+    () => softD(repos.getSetting('disciplines_catalog'), null, 'disciplines'),
+    () => softD(repos.getSetting('club'), null, 'club'),
+    () => softD(repos.getSetting('dues'), null, 'dues'),
+    () => softD(repos.getSetting('pool'), null, 'pool'),
+    () => softD(repos.getSetting('system'), null, 'system'),
+    () => softD(repos.getSetting('paymentPlans'), null, 'paymentPlans'),
+    () => softD(repos.getSetting('facility_catalog'), null, 'facility_catalog'),
   ], QUERY_CONCURRENCY);
 
   return {
@@ -202,6 +222,14 @@ export async function bootstrapMemberDeferredFromDb() {
     guestPasses: guestPasses || [],
     tierCatalog: Array.isArray(memberTiersSetting) ? memberTiersSetting : null,
     disciplineCatalog: Array.isArray(disciplinesSetting) ? disciplinesSetting : null,
+    clubSettings: clubSetting && typeof clubSetting === 'object' ? clubSetting : null,
+    duesSettings: duesSetting && typeof duesSetting === 'object' ? duesSetting : null,
+    poolSettings: poolSetting && typeof poolSetting === 'object' ? poolSetting : null,
+    systemRules: systemSetting && typeof systemSetting === 'object' ? systemSetting : null,
+    paymentPlans: Array.isArray(paymentPlansSetting) ? paymentPlansSetting : null,
+    facilityCatalog: facilityCatalogSetting && typeof facilityCatalogSetting === 'object'
+      ? facilityCatalogSetting
+      : null,
   };
 }
 
@@ -277,6 +305,7 @@ export async function bootstrapOpsDeferredFromDb() {
     poolSetting,
     systemSetting,
     paymentPlansSetting,
+    facilityCatalogSetting,
     registeredUsersCount,
     membershipApplications,
     portalAccessRequests,
@@ -298,6 +327,7 @@ export async function bootstrapOpsDeferredFromDb() {
     () => softD(repos.getSetting('pool'), null, 'pool'),
     () => softD(repos.getSetting('system'), null, 'system'),
     () => softD(repos.getSetting('paymentPlans'), null, 'paymentPlans'),
+    () => softD(repos.getSetting('facility_catalog'), null, 'facility_catalog'),
     () => softD(repos.countRegisteredProfiles(), 0, 'profilesCount'),
     () => softD(repos.listMembershipApplications(), [], 'applications'),
     () => softD(repos.listPortalAccessRequests(), [], 'portalAccess'),
@@ -320,6 +350,9 @@ export async function bootstrapOpsDeferredFromDb() {
       poolSettings: poolSetting && typeof poolSetting === 'object' ? poolSetting : null,
       systemRules: systemSetting && typeof systemSetting === 'object' ? systemSetting : null,
       paymentPlans: Array.isArray(paymentPlansSetting) ? paymentPlansSetting : null,
+      facilityCatalog: facilityCatalogSetting && typeof facilityCatalogSetting === 'object'
+        ? facilityCatalogSetting
+        : null,
       registeredUsersCount: registeredUsersCount || 0,
       membershipApplications: membershipApplications || [],
       portalAccessRequests: portalAccessRequests || [],

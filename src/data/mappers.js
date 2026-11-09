@@ -10,6 +10,8 @@ function canonicalMemberTier(tier, meta) {
 
 export function adherentFromRow(row) {
   if (!row) return null;
+  const meta = row.meta && typeof row.meta === 'object' ? row.meta : {};
+  const memberId = meta.memberId || meta.member_number || null;
   return {
     id: row.id,
     name: row.full_name,
@@ -18,6 +20,10 @@ export function adherentFromRow(row) {
     status: row.status,
     outstandingBalance: Number(row.outstanding_balance) || 0,
     disciplines: row.disciplines || [],
+    documentNumber: meta.documentNumber || meta.document_number || '',
+    birthDate: meta.birthDate || meta.birth_date || '',
+    memberId: memberId ? String(memberId) : undefined,
+    meta,
   };
 }
 
@@ -62,6 +68,9 @@ export function memberFromRow(row, payments = []) {
     photo: row.photo_url || null,
     cardNumber: row.card_number || null,
     profileId: row.profile_id || null,
+    ...(row.profile_id || row.has_portal === true || row.hasPortal === true
+      ? { hasApp: true, has_portal: true }
+      : {}),
     notes: row.notes || '',
     adherents: (row.member_adherents || []).map(adherentFromRow),
     // Si ya viene en shape UI (hydrate + recordedByName / imputaciones), no remapear:

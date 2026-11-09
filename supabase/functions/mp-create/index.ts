@@ -327,6 +327,23 @@ Deno.serve(async (req) => {
     const dni = dniOf(member.document_number) || dniOf(profile?.document_number);
     const concept = String(body?.concept || titleOf(kind)).slice(0, 240);
     const guestName = String(body?.guestName || "").trim().slice(0, 80);
+    const booking = body?.booking && typeof body.booking === "object"
+      ? (body.booking as Record<string, unknown>)
+      : null;
+    const bookingMeta = booking && (kind === "booking" || kind === "reservation")
+      ? {
+        facilityId: String(booking.facilityId || "").slice(0, 80) || undefined,
+        facilityName: String(booking.facilityName || "").slice(0, 120) || undefined,
+        date: String(booking.date || "").slice(0, 10) || undefined,
+        time: String(booking.time || "").slice(0, 16) || undefined,
+        endTime: String(booking.endTime || "").slice(0, 16) || undefined,
+        guests: Number(booking.guests) || 0,
+        guestNames: String(booking.guestNames || "").slice(0, 500) || undefined,
+        estimatedPrice: Number(booking.estimatedPrice) || undefined,
+        depositAmount: Number(booking.depositAmount) || undefined,
+        status: String(booking.status || "confirmed").slice(0, 32) || "confirmed",
+      }
+      : null;
     const rawPos = String(mpSet.posId || "jcsjcaja").trim().slice(0, 40) || "jcsjcaja";
     const posId = rawPos.replace(/[^a-zA-Z0-9]/g, "") || "jcsjcaja";
 
@@ -343,7 +360,11 @@ Deno.serve(async (req) => {
         back_url: success,
         created_by: user.id,
         external_reference: crypto.randomUUID(),
-        meta: { guestName: guestName || undefined, channel },
+        meta: {
+          guestName: guestName || undefined,
+          channel,
+          ...(bookingMeta ? { booking: bookingMeta } : {}),
+        },
       })
       .select("*")
       .single();

@@ -1398,7 +1398,10 @@ export default function useErpStore({
       return saved || period;
     } catch (err) {
       const msg = String(err?.message || err || '');
-      if (/procesada no se modifica/i.test(msg)) return period;
+      // Ya la promovió el cron (u otro cliente): no tratar como éxito para imputar de nuevo.
+      if (/procesada no se modifica/i.test(msg)) {
+        return { ...period, status: 'processed', _alreadyProcessed: true };
+      }
       throw err;
     }
   }, []);
@@ -1485,7 +1488,8 @@ export default function useErpStore({
         setFeePeriodsReady(true);
       })
       .catch(() => {
-        if (!cancelled) setFeePeriodsReady(true);
+        // Sin lista de DB: no marcar ready. Evita auto-liquidar el seed Accessin como verdad.
+        if (!cancelled) setFeePeriodsReady(false);
       });
     return () => { cancelled = true; };
   }, [userId]);
@@ -1578,11 +1582,13 @@ export default function useErpStore({
     members = [],
     setMembers = null,
   } = {}) => {
-    const pendingKey = (feePeriods || [])
+    // Incluir el día AR: si ayer no había nada que promover, hoy (availableAt) sí hay que reintentar.
+    const dayKey = todayISODateAR();
+    const pendingKey = `${dayKey}|${(feePeriods || [])
       .filter((period) => period.status === 'pending')
       .map((period) => `${period.id}:${period.availableAt || period.pack?.availableAt || ''}`)
-      .join('|');
-    if (!pendingKey) return null;
+      .join('|')}`;
+    if (pendingKey === `${dayKey}|`) return null;
     const state = feePromoteRef.current;
     if (state.running || state.key === pendingKey) return null;
     const preview = promotePendingFeePeriods(feePeriods);
@@ -1597,11 +1603,31 @@ export default function useErpStore({
         state.key = pendingKey;
         return null;
       }
+      const accepted = [];
       for (const period of result.promoted) {
-        if (cloud()) await persistFeePeriod(period);
+        if (cloud()) {
+          const saved = await persistFeePeriod(period);
+          if (saved?._alreadyProcessed) continue;
+          accepted.push(saved || period);
+        } else {
+          accepted.push(period);
+        }
       }
-      setFeePeriods(result.periods);
-      const allCharges = result.promoted.flatMap((period) => (
+      setFeePeriods(result.periods.map((row) => {
+        const hit = accepted.find((p) => p.id === row.id);
+        if (!hit) {
+          // Cron/u otro cliente ya la procesó: alineá el estado local.
+          const skipped = result.promoted.find((p) => p.id === row.id);
+          return skipped ? { ...row, status: 'processed', processedAt: row.processedAt || new Date().toISOString() } : row;
+        }
+        const { _alreadyProcessed: _drop, ...clean } = hit;
+        return { ...row, ...clean, status: 'processed' };
+      }));
+      if (!accepted.length) {
+        state.key = pendingKey;
+        return { promoted: [], periods: result.periods, deltas: [] };
+      }
+      const allCharges = accepted.flatMap((period) => (
         (period.pack?.charges || []).filter((row) => (Number(row.addAmount) || 0) > 0)
       ));
       const deltas = aggregateFeeChargeDeltas(allCharges);
@@ -1610,7 +1636,7 @@ export default function useErpStore({
         if (typeof setMembers === 'function') {
           setMembers((prev) => applyFeeChargeDeltasToMembers(prev, deltas));
         }
-        for (const period of result.promoted) {
+        for (const period of accepted) {
           const periodCharges = (period.pack?.charges || [])
             .filter((row) => (Number(row.addAmount) || 0) > 0);
           if (periodCharges.length) {
@@ -1623,7 +1649,7 @@ export default function useErpStore({
         }
       }
       state.key = pendingKey;
-      return { ...result, deltas };
+      return { ...result, promoted: accepted, deltas };
     } catch {
       return null;
     } finally {

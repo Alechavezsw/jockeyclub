@@ -301,15 +301,10 @@ function TimelineItem({ when, title, detail, actorName = '', tone = 'neutral' })
       <div className="mp-timeline-when">{when}</div>
       <div>
         <div className="mp-timeline-title">{title}</div>
-        {(detail || actor) ? (
-          <div className="mp-timeline-detail">
-            {detail || null}
-            {actor ? (
-              <>
-                {detail ? ' · ' : null}
-                por <strong className="mp-timeline-actor">{actor}</strong>
-              </>
-            ) : null}
+        {detail ? <div className="mp-timeline-detail">{detail}</div> : null}
+        {actor ? (
+          <div className="mp-timeline-actor-line">
+            Registró: <strong className="mp-timeline-actor">{actor}</strong>
           </div>
         ) : null}
       </div>
@@ -634,12 +629,19 @@ export default function MemberProfilePanel({
     const tierName = getTierDisplayName(member.tier, tierCatalog);
 
     const joinIso = effectiveJoinDate(member);
+    const altaActor = String(
+      member.meta?.altaActorName
+      || member.altaActorName
+      || member.meta?.registeredByName
+      || '',
+    ).trim();
     items.push({
       when: joinIso ? formatShortDate(joinIso) : 'Alta',
       title: 'Alta de socio titular',
       detail: joinIso
         ? `Categoría ${tierName} · Credencial ${member.memberId}`
         : `Categoría ${tierName} · Credencial ${member.memberId} · fecha de ingreso sin dato`,
+      actorName: altaActor,
       tone: 'ok',
       sort: joinIso || '1970-01-01',
     });
@@ -650,6 +652,7 @@ export default function MemberProfilePanel({
         when: formatShortDate(e.date),
         title: e.description,
         detail: amount != null ? formatCurrency(amount) : null,
+        actorName: e.createdByName || e.recordedByName || '',
         tone: 'neutral',
         sort: e.date,
       });
@@ -669,6 +672,7 @@ export default function MemberProfilePanel({
           p.receiptNumber || p.receipt || p.receiptId,
           p.receiptName ? `Comp. ${p.receiptName}` : null,
         ].filter(Boolean).join(' · '),
+        actorName: String(p.recordedByName || '').trim(),
         tone: 'ok',
         sort: paymentWhenStamp(p) || p.date || '',
       });
@@ -678,7 +682,7 @@ export default function MemberProfilePanel({
     const paymentsByDayAmount = new Map();
     [...(member.paymentHistory || []), ...householdPayments].forEach((p) => {
       const key = `${String(p.date || '').slice(0, 10)}|${Number(p.amount) || 0}`;
-      if (p.time || p.paidAt || p.createdAt) paymentsByDayAmount.set(key, p);
+      if (p.time || p.paidAt || p.createdAt || p.recordedByName) paymentsByDayAmount.set(key, p);
     });
     const liveCobranzas = accessinCobranzas.length
       ? accessinCobranzas
@@ -700,18 +704,24 @@ export default function MemberProfilePanel({
         time: row.time || timed?.time || '',
         paidAt: row.paidAt || timed?.paidAt || null,
         createdAt: row.createdAt || timed?.createdAt || null,
+        recordedByName: timed?.recordedByName || '',
+        recordedBy: timed?.recordedBy || null,
       });
     });
     householdNumbers.forEach((n) => {
       buildDetailedCcAccountEntries(n)
         .filter((e) => e.type === 'pago')
         .forEach((e) => {
+          const key = `${String(e.date || '').slice(0, 10)}|${Math.abs(Number(e.value) || 0)}`;
+          const timed = paymentsByDayAmount.get(key);
           pushCobro({
             date: e.date,
             amount: Math.abs(Number(e.value) || 0),
             concept: e.description ? `Cobro de cuota · ${e.description}` : 'Cobro de cuota',
             method: (e.paymentMethods || [])[0]?.method || '',
             receiptNumber: e.accessinId ? String(e.accessinId) : '',
+            recordedByName: timed?.recordedByName || e.recordedByName || '',
+            recordedBy: timed?.recordedBy || e.recordedBy || null,
           });
         });
     });
@@ -721,6 +731,7 @@ export default function MemberProfilePanel({
         when: `${formatShortDate(e.date)} ${e.time || ''}`.trim(),
         title: e.status === 'granted' ? 'Ingreso al club autorizado' : 'Ingreso denegado',
         detail: e.notes || e.role,
+        actorName: e.operator || '',
         tone: e.status === 'granted' ? 'ok' : 'danger',
         sort: `${e.date}T${e.time || '00:00'}`,
       });
@@ -731,6 +742,7 @@ export default function MemberProfilePanel({
         when: formatShortDate(r.date),
         title: `Reserva · ${r.facilityName || r.facilityId}`,
         detail: `${r.time || ''} · ${r.status}`,
+        actorName: r.recordedByName || '',
         tone: r.status === 'confirmed' ? 'ok' : 'warn',
         sort: `${r.date}T${r.time || '00:00'}`,
       });
@@ -739,8 +751,9 @@ export default function MemberProfilePanel({
     memberClaims.forEach((c) => {
       items.push({
         when: formatShortDate(c.date),
-        title: `Reclamo · ${c.title}`,
-        detail: c.status,
+        title: `Reclamo · ${c.title || c.subject || 'Sin asunto'}`,
+        detail: [c.status, c.assignedStaff ? `Asignado: ${c.assignedStaff}` : null].filter(Boolean).join(' · '),
+        actorName: c.recordedByName || c.createdByName || c.assignedStaff || '',
         tone: c.status === 'resolved' ? 'ok' : 'warn',
         sort: c.date,
       });
@@ -1710,7 +1723,7 @@ export default function MemberProfilePanel({
         {section === 'trazabilidad' && (
           <div>
             <p className="mp-section-lead">
-              Línea de tiempo: alta, cobros, comprobantes, ingresos, reservas, reclamos, suspensiones, bajas y accesos portal.
+              Línea de tiempo de lo registrado en esta app: alta, cobros, comprobantes, ingresos, reservas, reclamos, suspensiones, bajas y accesos portal. En cada ítem figura quién lo registró (desde esta app en adelante).
             </p>
             {timeline.length === 0 ? (
               <Empty text="Sin eventos de trazabilidad." />

@@ -1,4 +1,5 @@
 import { todayAR } from '../../lib/arDate';
+import { isSupabaseConfigured } from '../../lib/supabase';
 /** Catálogo y estadísticas de disciplinas deportivas del club. */
 
 export const DISCIPLINE_COLORS = [
@@ -136,6 +137,10 @@ export function getDisciplineOptions(catalog = DISCIPLINE_CATALOG) {
 export const DISCIPLINE_OPTIONS = getDisciplineOptions(DISCIPLINE_CATALOG);
 
 export function loadDisciplineCatalog(fallback = DISCIPLINE_CATALOG) {
+  // Cloud: no sembrar desde localStorage (Supabase es la verdad vía bootstrap).
+  if (isSupabaseConfigured) {
+    return fallback.map((d) => normalizeDiscipline(d));
+  }
   try {
     const raw = localStorage.getItem('jockey-disciplines-catalog');
     if (!raw) return fallback.map((d) => normalizeDiscipline(d));

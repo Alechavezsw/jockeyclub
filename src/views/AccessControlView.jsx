@@ -18,6 +18,8 @@ import { todayISODateAR } from '../lib/arDate';
 import { mergePoolSearchHits, mergePoolSettings, searchPoolMembers } from '../domain/pool/poolAccess';
 import { isPoolSeasonLive } from '../domain/pool/poolSeason';
 import { accountHolderOf, SEASON_DUES_GATE_COPY, seasonDuesGate } from '../domain/pool/seasonDuesGate';
+import { socialDuesStoredBalance } from '../domain/members/dues';
+import { familyPrincipalOf, isFamilyDependent, memberNumberOf } from '../domain/members/households';
 import { isActiveReservation, reservationDay } from '../domain/reservations/memberBookings';
 import {
   getGuestPassById,
@@ -28,6 +30,46 @@ import {
 import { isSupabaseConfigured } from '../lib/supabase';
 import { useWakeLock } from '../hooks/useWakeLock';
 import QrLiveScanner from '../components/QrLiveScanner';
+
+/** Ficha completa + titular del grupo si hace falta (lookup remoto no trae saldo). */
+async function hydrateGateMember(seed, roster = []) {
+  let member = seed;
+  const gateMembers = [...(roster || [])];
+  const pushUnique = (row) => {
+    if (!row) return;
+    const key = memberNumberOf(row) || row.memberId;
+    if (!key) return;
+    const idx = gateMembers.findIndex((m) => memberNumberOf(m) === key || m.memberId === key);
+    if (idx >= 0) gateMembers[idx] = { ...gateMembers[idx], ...row };
+    else gateMembers.push(row);
+  };
+  if (isSupabaseConfigured && seed?.memberId) {
+    try {
+      const full = await getMemberByNumber(seed.memberId);
+      if (full) {
+        member = { ...seed, ...full };
+        pushUnique(member);
+      }
+    } catch {
+      /* sin red: se usa lo que haya */
+    }
+  } else {
+    pushUnique(member);
+  }
+  if (isFamilyDependent(member)) {
+    const key = familyPrincipalOf(member);
+    let holder = gateMembers.find((row) => memberNumberOf(row) === key);
+    if (!holder && isSupabaseConfigured && key) {
+      try {
+        holder = await getMemberByNumber(key);
+        if (holder) pushUnique(holder);
+      } catch {
+        /* titular no disponible */
+      }
+    }
+  }
+  return { member, gateMembers };
+}
 
 function reservationStatusLabel(status) {
   const s = String(status || 'confirmed').toLowerCase();
@@ -146,18 +188,20 @@ export default function AccessControlView({
     setCameraError('');
   }, []);
 
-  const admitMember = useCallback((member) => {
-    if (!member) return;
+  const admitMember = useCallback(async (seed) => {
+    if (!seed) return;
+    const { member, gateMembers } = await hydrateGateMember(seed, members);
+    if (!member?.memberId) return;
     // La misma ficha dos veces en un instante (doble toque, doble lectura) cuenta una sola vez.
     const nowMs = Date.now();
     if (lastAdmitRef.current.id === member.memberId && nowMs - lastAdmitRef.current.at < 1500) return;
     lastAdmitRef.current = { id: member.memberId, at: nowMs };
 
     const isSuspended = member.status !== 'active';
-    const duesGate = seasonDuesGate(member, { today: clubDay, settings: poolCfg, members });
+    const duesGate = seasonDuesGate(member, { today: clubDay, settings: poolCfg, members: gateMembers });
     // El adherente no tiene cuenta propia: la deuda y la mora son las del titular.
-    const holder = accountHolderOf(member, members);
-    const owed = Number(holder?.outstandingBalance) || 0;
+    const holder = accountHolderOf(member, gateMembers);
+    const owed = socialDuesStoredBalance(holder);
     const hasDebt = owed > 0;
     const isAllowed = !isSuspended && !duesGate.blocked;
     const status = isAllowed ? 'granted' : 'denied';
@@ -188,6 +232,7 @@ export default function AccessControlView({
       buildAccessLogEntry({
         memberName: member.name,
         memberId: member.memberId,
+        memberDbId: member.id || null,
         role: tierToGroup(member.tier),
         group: tierToGroup(member.tier),
         activity: isSuspended
@@ -262,10 +307,10 @@ export default function AccessControlView({
           lookupFailed = true;
         }
       }
-      if (!pass && lookupFailed) {
+      if ((!pass && lookupFailed) || (pass && !host && lookupFailed)) {
         showUnverified(
           'Invitado',
-          'Sin conexión para consultar el pase. Reintentá en unos segundos o dejalo pasar con el socio anfitrión.',
+          'Sin conexión para consultar el pase o el anfitrión. Reintentá en unos segundos o dejalo pasar con el socio anfitrión.',
           'Pase de invitado sin verificar: sin conexión',
         );
         return;
@@ -336,6 +381,7 @@ export default function AccessControlView({
     }
 
     let member = members.find((m) => m.memberId === memberId);
+    let signatureOk = !parsed.signed;
 
     if (parsed.signed) {
       // El servidor dice si la firma es la de este socio (y se acuerda un turno). Nunca se baja la firma.
@@ -372,6 +418,31 @@ export default function AccessControlView({
         beginCooldown();
         return;
       }
+      if (check.status === 'unknown_member') {
+        setResult({
+          status: 'denied',
+          title: 'Socio no encontrado',
+          detail: 'La credencial no figura en el padrón o no se pudo validar la firma.',
+          memberName: null,
+        });
+        playBeep(false);
+        setEntryLogs((prev) => [
+          buildAccessLogEntry({
+            memberName: 'No empadronado',
+            memberId,
+            role: '—',
+            group: '—',
+            activity: 'No empadronado',
+            status: 'denied',
+            notes: `Credencial ${memberId}: verify unknown_member`,
+            operator: operatorName,
+          }),
+          ...(prev || []),
+        ]);
+        beginCooldown();
+        return;
+      }
+      signatureOk = check.status === 'valid';
     }
 
     if (!member && isSupabaseConfigured) {
@@ -383,6 +454,15 @@ export default function AccessControlView({
       }
     }
     if (!member) {
+      // Firma OK en caché pero sin ficha offline: no es “no empadronado”, es sin verificar.
+      if (parsed.signed && signatureOk) {
+        showUnverified(
+          'Sin verificar',
+          'La firma es válida en este turno, pero no se pudo cargar la ficha. Buscá por DNI o número.',
+          `Credencial ${memberId}: firma OK, ficha no disponible`,
+        );
+        return;
+      }
       setResult({
         status: 'denied',
         title: 'Socio no encontrado',
@@ -407,7 +487,7 @@ export default function AccessControlView({
       return;
     }
 
-    admitMember(member);
+    void admitMember(member);
   }, [members, guestPasses, setEntryLogs, beginCooldown, admitMember, showUnverified, verifier, clubDay, poolCfg, operatorName]);
 
   // El lector llama siempre a la versión más nueva sin reiniciar la cámara cada vez que cambia algo.

@@ -44,7 +44,8 @@ import MembershipMovesSection from './MembershipMovesSection';
 import InactiveMembersSection from './InactiveMembersSection';
 import MemberRequestsSection from './MemberRequestsSection';
 import { MemberBajaModal, MemberLifecycleModal, MemberCredentialsModal, MemberReactivateModal } from './MemberAdminModals';
-import { nowTimeAR, todayISODateAR, todayAR } from '../../lib/arDate';
+import { formatInstantAR, nowTimeAR, todayISODateAR, todayAR } from '../../lib/arDate';
+import { effectiveJoinDate } from '../../domain/members/membership';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { repos } from '../../data/bootstrap';
 import { useAuth } from '../../context/AuthContext';
@@ -192,9 +193,10 @@ const RELATIONSHIP_OPTIONS = [
 
 const MEMBERS_PAGE_SIZE = 50;
 const MEMBERS_PANEL_STORAGE = 'membersPanel:v1';
-const MEMBERS_PANEL_IDS = ['requests', 'moves', 'inactive', 'tiers', 'padron', 'families'];
+const MEMBERS_PANEL_IDS = ['requests', 'moves', 'inactive', 'tiers', 'titulares', 'padron', 'families'];
+const PADRON_LIST_PANELS = new Set(['titulares', 'padron']);
 
-function readMembersPanel(fallback = 'padron') {
+function readMembersPanel(fallback = 'titulares') {
   try {
     const raw = localStorage.getItem(MEMBERS_PANEL_STORAGE);
     if (MEMBERS_PANEL_IDS.includes(raw)) return raw;
@@ -319,6 +321,8 @@ export default function MembersTab({
   onSendMessage,
   paymentPlans = [],
   paymentTolerance = 1000,
+  /** Cabecera del panel: Alta / Baja / Reactivar con la misma lógica visual del contador. */
+  onPadronOpsChange = null,
 }) {
   const { user } = useAuth();
   const actorName = user?.fullName || user?.name || user?.email || '';
@@ -332,12 +336,16 @@ export default function MembersTab({
   const tiers = getActiveTiers(tierCatalog);
   const defaultTierId = tiers[0]?.id || 'socio_individual';
   const [tierFilter, setTierFilter] = useState('todos');
-  const [quickFilter, setQuickFilter] = useState(null);
+  const [quickFilter, setQuickFilter] = useState(() => (
+    readMembersPanel('titulares') === 'titulares' ? 'activos' : null
+  ));
+  const [exactTitulares, setExactTitulares] = useState(null);
+  const [exactActivos, setExactActivos] = useState(() => Number(membersCount) || 0);
   const [inactiveOpenToken, setInactiveOpenToken] = useState(0);
   const [inactiveCount, setInactiveCount] = useState(null);
   const [inactiveReady, setInactiveReady] = useState(false);
   const [inactiveLoading, setInactiveLoading] = useState(false);
-  const [membersPanel, setMembersPanel] = useState(() => readMembersPanel('padron'));
+  const [membersPanel, setMembersPanel] = useState(() => readMembersPanel('titulares'));
   const [searchQuery, setSearchQuery] = useState('');
   const [requestFocus, setRequestFocus] = useState(null);
   const [remoteHits, setRemoteHits] = useState([]);
@@ -466,6 +474,11 @@ export default function MembersTab({
     setShowAddForm(true);
   };
 
+  const closeAltaForm = () => {
+    resetForm();
+    setShowAddForm(false);
+  };
+
   const persistApplication = async (next) => {
     if (typeof setMembershipApplications !== 'function') return;
     if (isSupabaseConfigured) {
@@ -523,6 +536,42 @@ export default function MembersTab({
     repos.countMembers('inactive')
       .then((count) => {
         if (!cancelled) setInactiveCount(count);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return undefined;
+    let cancelled = false;
+    const fromLoaded = household.titularesActivos;
+    if (fromLoaded) {
+      setExactTitulares((prev) => Math.max(Number(prev) || 0, fromLoaded));
+    }
+    repos.countActiveTitulares()
+      .then((count) => {
+        if (cancelled || !count) return;
+        setExactTitulares((prev) => Math.max(Number(prev) || 0, Number(count) || 0));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [household.titularesActivos]);
+
+  useEffect(() => {
+    setExactActivos((prev) => Math.max(Number(prev) || 0, Number(membersCount) || 0));
+  }, [membersCount]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return undefined;
+    let cancelled = false;
+    repos.countMembers('active')
+      .then((count) => {
+        if (cancelled || !count) return;
+        setExactActivos((prev) => Math.max(Number(prev) || 0, Number(count) || 0));
       })
       .catch(() => {});
     return () => {
@@ -657,12 +706,64 @@ export default function MembersTab({
   const selectMembersPanel = useCallback((panelId) => {
     if (!MEMBERS_PANEL_IDS.includes(panelId)) return;
     setMembersPanel(panelId);
+    if (panelId === 'titulares') {
+      setQuickFilter('activos');
+      setTierFilter('todos');
+    } else if (panelId === 'padron') {
+      setQuickFilter(null);
+      setTierFilter('todos');
+    }
     try {
       localStorage.setItem(MEMBERS_PANEL_STORAGE, panelId);
     } catch {
       /* private mode */
     }
   }, []);
+
+  const titularesCount = Math.max(
+    Number(exactTitulares) || 0,
+    Number(household.titularesActivos) || 0,
+  );
+  const activosCount = Math.max(
+    Number(exactActivos) || 0,
+    Number(membersCount) || 0,
+    members.filter((m) => isLiveMember(m)).length,
+  );
+
+  useEffect(() => {
+    if (typeof onPadronOpsChange !== 'function') return undefined;
+    if (!allowPadronWrite) {
+      onPadronOpsChange(null);
+      return undefined;
+    }
+    onPadronOpsChange({
+      altaOpen: showAddForm,
+      openBaja: () => setBajaOpen(true),
+      openReactivate: () => {
+        setReactivateMember(null);
+        setReactivateOpen(true);
+      },
+      openAlta: () => {
+        selectMembersPanel('titulares');
+        openAltaForm();
+      },
+      closeAlta: closeAltaForm,
+      toggleAlta: () => {
+        if (showAddForm) {
+          closeAltaForm();
+          return;
+        }
+        selectMembersPanel('titulares');
+        openAltaForm();
+      },
+    });
+    return undefined;
+  }, [allowPadronWrite, onPadronOpsChange, showAddForm, selectMembersPanel]);
+
+  useEffect(() => {
+    if (typeof onPadronOpsChange !== 'function') return undefined;
+    return () => onPadronOpsChange(null);
+  }, [onPadronOpsChange]);
 
   const familyGroups = useMemo(() => listFamilyGroups(searchDirectory), [searchDirectory]);
 
@@ -858,6 +959,11 @@ export default function MembersTab({
         healthInsurance: form.healthInsurance.trim(),
         emergencyClinic: form.emergencyClinic.trim(),
         joinTime,
+        altaActorId: actorId || null,
+        altaActorName: actorName || null,
+        altaActorEmail: actorEmail || null,
+        altaRegistradaAt: new Date().toISOString(),
+        registeredByName: actorName || null,
       }),
     };
 
@@ -1431,11 +1537,13 @@ export default function MembersTab({
   const activePanel = isSearching && (membersPanel === 'requests' || membersPanel === 'moves' || membersPanel === 'inactive' || membersPanel === 'tiers')
     ? 'padron'
     : membersPanel;
+  const showPadronChrome = PADRON_LIST_PANELS.has(activePanel) || activePanel === 'families';
+  const showingTitulares = activePanel === 'titulares' || quickFilter === 'activos';
 
   useEffect(() => {
     if (!isSearching) return;
     if (membersPanel === 'families') return;
-    if (membersPanel !== 'padron') selectMembersPanel('padron');
+    if (!PADRON_LIST_PANELS.has(membersPanel)) selectMembersPanel('padron');
   }, [isSearching, membersPanel, selectMembersPanel]);
 
   useEffect(() => {
@@ -1455,7 +1563,7 @@ export default function MembersTab({
       ) : null}
       <div className="members-search-hero">
         <label className="members-search-label" htmlFor="members-search-input">
-          Buscar en el padrón
+          {activePanel === 'requests' ? 'Buscar pedido o socio' : 'Buscar en el padrón'}
         </label>
         <div className="members-search-field">
           <Search size={20} aria-hidden="true" className="members-search-icon" />
@@ -1494,7 +1602,9 @@ export default function MembersTab({
           <p className="members-search-hint">
             {membersLoading && membersProgress?.total
               ? `Cargando padrón… ${membersProgress.loaded.toLocaleString('es-AR')} de ${membersProgress.total.toLocaleString('es-AR')}. Podés buscar igual.`
-              : 'Escribí un nombre, DNI o Nº de socio. También aparece quien pidió unirse.'}
+              : activePanel === 'requests'
+                ? 'Buscá un pedido por nombre, DNI o mail. Abajo está la bandeja.'
+                : 'Escribí un nombre, DNI o Nº de socio. También aparece quien pidió unirse.'}
           </p>
         )}
         {requestHits.length > 0 ? (
@@ -1535,6 +1645,7 @@ export default function MembersTab({
         ) : null}
       </div>
 
+      {showPadronChrome ? (
       <div className="admin-filters members-toolbar" role="toolbar" aria-label="Herramientas del padrón">
         <label className="members-toolbar-filter">
           <span className="members-toolbar-filter-ico" aria-hidden="true">
@@ -1581,48 +1692,8 @@ export default function MembersTab({
           </button>
         </div>
 
-        {allowPadronWrite ? (
-          <>
-            <div className="members-toolbar-divider" aria-hidden="true" />
-            <div className="members-toolbar-group members-toolbar-group--ops" role="group" aria-label="Gestión de socios">
-              <button
-                type="button"
-                className="members-toolbar-btn is-danger"
-                onClick={() => setBajaOpen(true)}
-                title="Baja de socio"
-              >
-                <UserMinus size={14} aria-hidden />
-                <span>Baja</span>
-              </button>
-              <button
-                type="button"
-                className="members-toolbar-btn is-soft"
-                onClick={() => openReactivate(null)}
-                title="Reactivar socio"
-              >
-                <UserPlus size={14} aria-hidden />
-                <span>Reactivar</span>
-              </button>
-              <button
-                type="button"
-                className={`members-toolbar-btn is-primary${showAddForm ? ' is-active' : ''}`}
-                onClick={() => {
-                  if (showAddForm) {
-                    resetForm();
-                    setShowAddForm(false);
-                    return;
-                  }
-                  openAltaForm();
-                }}
-                title="Registrar socio"
-              >
-                <Plus size={14} aria-hidden />
-                <span>{showAddForm ? 'Cerrar alta' : 'Alta'}</span>
-              </button>
-            </div>
-          </>
-        ) : null}
       </div>
+      ) : null}
 
       {/* Formulario Alta de Socio — ficha completa */}
       {showAddForm && (
@@ -2216,16 +2287,15 @@ export default function MembersTab({
         </div>
       ) : null}
 
+      {showPadronChrome ? (
       <div className="members-stat-cards" aria-label="Resumen del padrón">
         <PadronStatCard
           label="Titulares"
-          value={household.titularesActivos}
+          value={titularesCount || household.titularesActivos}
           color={PADRON_FIXED_CARD_COLORS.activos}
-          active={quickFilter === 'activos'}
+          active={activePanel === 'titulares' || quickFilter === 'activos'}
           onClick={() => {
-            setQuickFilter((cur) => (cur === 'activos' ? null : 'activos'));
-            setTierFilter('todos');
-            selectMembersPanel('padron');
+            selectMembersPanel('titulares');
           }}
         />
         <PadronStatCard
@@ -2292,6 +2362,7 @@ export default function MembersTab({
           />
         ))}
       </div>
+      ) : null}
 
       <div className="members-panel-rail" role="tablist" aria-label="Secciones del padrón">
         {[
@@ -2306,7 +2377,18 @@ export default function MembersTab({
             accent: '#7a3048',
           },
           { id: 'tiers', label: 'Categorías', count: tiers.length, accent: 'var(--primary-gold)' },
-          { id: 'padron', label: 'Padrón', count: filteredMembers.length, accent: 'var(--emerald-accent)' },
+          {
+            id: 'titulares',
+            label: 'Titulares',
+            count: titularesCount || filteredMembers.length,
+            accent: '#CA390C',
+          },
+          {
+            id: 'padron',
+            label: 'Padrón completo',
+            count: activosCount || filteredMembers.length,
+            accent: 'var(--emerald-accent)',
+          },
           { id: 'families', label: 'Familias', count: filteredFamilies.length, accent: '#b08d57' },
         ].map((tab) => (
           <button
@@ -2369,18 +2451,22 @@ export default function MembersTab({
         />
       ) : null}
 
-      {activePanel === 'padron' ? (
+      {PADRON_LIST_PANELS.has(activePanel) ? (
       <FoldableSection
         as="div"
         className="members-padron-results"
         id="members-padron-title"
-        title="Padrón"
+        title={showingTitulares ? 'Titulares' : 'Padrón completo'}
         subtitle={
           filteredMembers.length === 0
             ? 'Sin resultados'
-            : `${((safePage - 1) * MEMBERS_PAGE_SIZE) + 1}–${Math.min(safePage * MEMBERS_PAGE_SIZE, filteredMembers.length)}`
+            : `${((safePage - 1) * MEMBERS_PAGE_SIZE) + 1}–${Math.min(safePage * MEMBERS_PAGE_SIZE, filteredMembers.length)} de ${filteredMembers.length.toLocaleString('es-AR')}`
         }
-        count={filteredMembers.length.toLocaleString('es-AR')}
+        count={(
+          showingTitulares
+            ? (titularesCount || filteredMembers.length)
+            : (activosCount || filteredMembers.length)
+        ).toLocaleString('es-AR')}
         defaultOpen
         storageKey="padron"
         embedded
@@ -2424,6 +2510,7 @@ export default function MembersTab({
               <th>Socio Titular</th>
               <th>Credencial ID</th>
               <th>Categoría</th>
+              <th>Ingreso</th>
               <th>Contacto</th>
               <th>Cuota / Saldo</th>
               <th className="members-padron-actions-h">Acciones</th>
@@ -2509,6 +2596,9 @@ export default function MembersTab({
                       catalog={tierCatalog}
                       nameOverride={findTier(m.tier, tierCatalog) ? '' : (Array.isArray(m.cuotaCategories) ? m.cuotaCategories.find(Boolean) || '' : '')}
                     />
+                  </td>
+                  <td data-label="Ingreso" className="members-padron-join">
+                    {formatInstantAR(effectiveJoinDate(m))}
                   </td>
                   <td data-label="Contacto" className="members-padron-phone">
                     <MemberWhatsAppLink phone={m.phone} name={m.name} />

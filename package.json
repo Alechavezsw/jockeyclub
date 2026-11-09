@@ -13,11 +13,13 @@
     "manual:pdf": "node scripts/generate-user-manual.mjs",
     "powerpoint:build": "node scripts/build-powerpoint.mjs",
     "manual:admin": "node scripts/generate-admin-manual.mjs",
+    "manual:acceso": "node scripts/generate-acceso-manual.mjs",
     "manual:superadmin": "node scripts/generate-superadmin-manual.mjs",
     "upload:snapshots": "node scripts/upload-snapshots.mjs",
     "upload:snapshots:dry": "node scripts/upload-snapshots.mjs --dry-run"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@supabase/supabase-js": "^2.110.8",
     "@zxing/browser": "^0.2.1",
     "dompurify": "^3.4.17",

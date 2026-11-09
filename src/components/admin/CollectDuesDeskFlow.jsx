@@ -1,16 +1,54 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Search, X } from 'lucide-react';
+import { ChevronRight, Search, X } from 'lucide-react';
 import ModalDialog from '../ModalDialog';
 import CollectDuesModal from './CollectDuesModal';
 import { isDuesExemptMember } from '../../domain/members/dues';
 import { memberNumberOf, rankMemberSearchHit } from '../../domain/members/households';
-import { SIN_CATEGORIA_TIER } from '../../domain/members/tiers';
+import { getTierDisplayName, SIN_CATEGORIA_TIER } from '../../domain/members/tiers';
 import { collectionPreview, persistDuesCollection, recordDuesCollection } from '../../domain/members/memberPayments';
 import { deliverPaymentReceipt } from '../../domain/payments/deliverPaymentReceipt';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import * as repos from '../../data/repos';
 import { formatCurrency as formatCurrencyDefault } from '../../domain/accounting/journal';
 import { money } from '../../domain/money';
+
+function hitHasCuotaCategories(member) {
+  return Array.isArray(member?.cuotaCategories) && member.cuotaCategories.length > 0;
+}
+
+function enrichHitFromPadron(row, members = []) {
+  const id = String(row?.memberId || memberNumberOf(row) || '');
+  if (!id) return row;
+  const local = (members || []).find((m) => String(m.memberId || memberNumberOf(m) || '') === id);
+  if (!local) return row;
+  // Preferir ficha del padrón (saldo / vencimiento) y conservar cuotaCategories
+  // (la búsqueda o el padrón pueden tener la categoría real de cobro).
+  const cuotaCategories = hitHasCuotaCategories(local)
+    ? local.cuotaCategories
+    : (hitHasCuotaCategories(row) ? row.cuotaCategories : local.cuotaCategories);
+  return {
+    ...row,
+    ...local,
+    name: local.name || row.name || row.fullName,
+    documentNumber: local.documentNumber || row.documentNumber || row.dni,
+    tier: local.tier || row.tier,
+    cuotaCategories,
+    outstandingBalance: local.outstandingBalance ?? row.outstandingBalance,
+    nextDueDate: local.nextDueDate || row.nextDueDate,
+    lastPaymentDate: local.lastPaymentDate || row.lastPaymentDate,
+    overdueSince: local.overdueSince || row.overdueSince,
+  };
+}
+
+function hitCategoryLabel(member, tierCatalog = []) {
+  if (hitHasCuotaCategories(member)) {
+    return member.cuotaCategories
+      .map((cat) => getTierDisplayName(cat, tierCatalog))
+      .filter((name) => name && name !== '—')
+      .join(' · ') || getTierDisplayName(member.tier, tierCatalog);
+  }
+  return getTierDisplayName(member?.tier, tierCatalog);
+}
 
 function memberReadyForCollect(row) {
   if (!row) return false;
@@ -66,6 +104,7 @@ export default function CollectDuesDeskFlow({
   formatCurrency = formatCurrencyDefault,
   paymentPlans = [],
   paymentTolerance,
+  tierCatalog = [],
   onCollected,
 }) {
   const [query, setQuery] = useState('');
@@ -164,6 +203,29 @@ export default function CollectDuesDeskFlow({
 
   const handleConfirm = async (payload) => {
     if (!member) return;
+    // Mercado Pago ya acreditó por webhook: no volver a registrar_cobro ni reenviar recibo.
+    if (payload?.alreadyApplied) {
+      if (member.memberId && typeof setMembers === 'function') {
+        try {
+          const fresh = await repos.getMemberByNumber(member.memberId, { withPayments: true });
+          if (fresh) {
+            setMembers((prev) => (prev || []).map((row) => (
+              String(row.memberId) === String(fresh.memberId) ? { ...row, ...fresh } : row
+            )));
+          }
+        } catch {
+          /* refresh best-effort */
+        }
+      }
+      onCollected?.({
+        member,
+        payment: null,
+        message: `Pago de Mercado Pago acreditado · ${member.name || ''}`.trim(),
+      });
+      setMember(null);
+      onClose?.();
+      return;
+    }
     const result = recordDuesCollection(member, { ...payload, members });
     const saved = await persistDuesCollection(result, {
       setMembers,
@@ -203,119 +265,126 @@ export default function CollectDuesDeskFlow({
     );
   }
 
+  const showEmpty = query.trim().length >= 2 && !remoteBusy && !hits.length;
+  const showHint = !query.trim() && !hits.length && !error;
+
   return (
     <ModalDialog
       onClose={onClose}
       labelledBy="collect-dues-desk-title"
-      contentClassName="modal-content glass-panel"
-      contentStyle={{
-        width: '92%',
-        maxWidth: 520,
-        background: 'var(--bg-secondary)',
-        border: '1px solid var(--border-glass)',
-        padding: '1.25rem',
-        maxHeight: '90vh',
-        overflowY: 'auto',
-      }}
+      describedBy="collect-dues-desk-lead"
+      contentClassName="modal-content glass-panel cdd-desk"
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', marginBottom: '1rem' }}>
-        <div>
-          <h4 id="collect-dues-desk-title" className="serif-font" style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-gold)' }}>
+      <header className="cdd-desk-hero">
+        <div className="cdd-desk-hero-main">
+          <h4 id="collect-dues-desk-title" className="serif-font cdd-desk-title">
             Cobrar cuota
           </h4>
-          <p style={{ margin: '0.3rem 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+          <p id="collect-dues-desk-lead" className="cdd-desk-lead">
             Buscá al socio, elegí el medio y confirmá. Baja el saldo del mes y manda el comprobante.
           </p>
         </div>
         <button
           type="button"
-          className="btn btn-secondary btn-sm"
+          className="btn btn-secondary btn-sm cdd-desk-close"
           onClick={onClose}
           aria-label="Cerrar"
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
         >
-          <X size={14} />
+          <X size={14} aria-hidden="true" />
+          <span>Cerrar</span>
         </button>
+      </header>
+
+      <div className="cdd-desk-body">
+        <label className="cdd-desk-search" htmlFor="collect-dues-desk-search">
+          <span className="cdd-desk-search-label">Buscar socio</span>
+          <div className="cdd-desk-search-field">
+            <Search className="cdd-desk-search-icon" size={20} aria-hidden="true" />
+            <input
+              id="collect-dues-desk-search"
+              className="form-input cdd-desk-input"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Nombre, Nº de socio o DNI"
+              autoFocus
+              autoComplete="off"
+            />
+          </div>
+        </label>
+
+        {error ? <p className="ig-error cdd-desk-error">{error}</p> : null}
+        {remoteBusy ? (
+          <p className="cdd-desk-status" role="status">Buscando en el padrón…</p>
+        ) : null}
+
+        {showHint ? (
+          <div className="cdd-desk-hint">
+            <p className="cdd-desk-hint-title">Empezá a escribir</p>
+            <p className="cdd-desk-hint-text">
+              Con dos letras del apellido, el número de socio o el DNI aparecen las fichas listas para cobrar.
+            </p>
+          </div>
+        ) : null}
+
+        {hits.length > 0 ? (
+          <ul className="cdd-desk-hits">
+            {hits.map((raw) => {
+              const row = enrichHitFromPadron(raw, members);
+              const nro = memberNumberOf(row) || row.memberId;
+              const doc = row.documentNumber || row.dni || '';
+              const category = hitCategoryLabel(row, tierCatalog);
+              const exempt = isDuesExemptMember(row);
+              const preview = exempt
+                ? { cash: 0, quota: 0, surcharge: 0 }
+                : collectionPreview(row, new Date());
+              const toCollect = money(preview.cash);
+              const capital = money(Math.max(0, Number(row.outstandingBalance) || 0));
+              return (
+                <li key={String(row.memberId || nro)}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary cdd-desk-hit"
+                    onClick={() => pickMember(row)}
+                  >
+                    <span className="cdd-desk-hit-main">
+                      <strong className="cdd-desk-hit-name">{row.name || row.fullName}</strong>
+                      <span className="cdd-desk-hit-meta">
+                        Nº {nro}
+                        {doc ? ` · DNI ${doc}` : ''}
+                        {category && category !== '—' ? ` · ${category}` : ''}
+                      </span>
+                    </span>
+                    <span className="cdd-desk-hit-side">
+                      <span className="cdd-desk-hit-figures">
+                        {exempt ? (
+                          <span className="cdd-desk-hit-exempt">Exento</span>
+                        ) : (
+                          <>
+                            <span className="cdd-desk-hit-amount tabular-nums">
+                              {formatCurrency(toCollect)}
+                            </span>
+                            <span className="cdd-desk-hit-capital">
+                              a cobrar
+                              {capital > 0.01 && Math.abs(capital - toCollect) > 0.01
+                                ? ` · capital ${formatCurrency(capital)}`
+                                : ''}
+                            </span>
+                          </>
+                        )}
+                      </span>
+                      <ChevronRight className="cdd-desk-hit-chevron" size={18} aria-hidden="true" />
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+
+        {showEmpty ? (
+          <p className="cdd-desk-empty">Sin coincidencias para «{query.trim()}».</p>
+        ) : null}
       </div>
-
-      <label className="form-group" style={{ marginBottom: '0.75rem' }}>
-        <span className="form-label" htmlFor="collect-dues-desk-search">Buscar socio</span>
-        <div style={{ position: 'relative' }}>
-          <Search
-            size={15}
-            style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', opacity: 0.55 }}
-            aria-hidden="true"
-          />
-          <input
-            id="collect-dues-desk-search"
-            className="form-input"
-            style={{ paddingLeft: 36 }}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Nombre, Nº de socio o DNI"
-            autoFocus
-          />
-        </div>
-      </label>
-
-      {error ? <p className="ig-error">{error}</p> : null}
-      {remoteBusy ? (
-        <p style={{ margin: '0 0 0.5rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>Buscando…</p>
-      ) : null}
-
-      <ul className="admin-picker-list" style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {hits.map((row) => {
-          const nro = memberNumberOf(row) || row.memberId;
-          const doc = row.documentNumber || row.dni || '';
-          const preview = isDuesExemptMember(row)
-            ? { cash: 0 }
-            : collectionPreview(row, new Date());
-          const toCollect = money(preview.cash);
-          const capital = money(Math.max(0, Number(row.outstandingBalance) || 0));
-          return (
-            <li key={String(row.memberId || nro)}>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                style={{
-                  width: '100%',
-                  justifyContent: 'space-between',
-                  textAlign: 'left',
-                  display: 'flex',
-                  gap: '0.75rem',
-                  alignItems: 'center',
-                  padding: '0.7rem 0.85rem',
-                }}
-                onClick={() => pickMember(row)}
-              >
-                <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-                  <strong style={{ fontSize: '0.92rem' }}>{row.name || row.fullName}</strong>
-                  <small style={{ color: 'var(--text-muted)' }}>
-                    Nº {nro}
-                    {doc ? ` · DNI ${doc}` : ''}
-                  </small>
-                </span>
-                <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
-                  <span className="tabular-nums" style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }}>
-                    {formatCurrency(toCollect)}
-                  </span>
-                  {capital > 0.01 && Math.abs(capital - toCollect) > 0.01 ? (
-                    <small style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                      capital {formatCurrency(capital)}
-                    </small>
-                  ) : null}
-                </span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-
-      {query.trim().length >= 2 && !remoteBusy && !hits.length ? (
-        <p style={{ margin: '0.75rem 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-          Sin coincidencias.
-        </p>
-      ) : null}
     </ModalDialog>
   );
 }

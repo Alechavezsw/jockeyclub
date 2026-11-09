@@ -335,6 +335,15 @@ export default function MemberFacilitiesBooking({
 
   const finalizeReservation = async ({ method, mpIntentId = null } = {}) => {
     if (!selectedFacility || !member) return { ok: false, error: 'Falta el socio o el espacio.' };
+    // El webhook puede haber creado la reserva antes del onApproved de la UI.
+    if (mpIntentId && (reservations || []).some((row) => (
+      String(row.mpIntentId || row.meta?.mpIntentId || '') === String(mpIntentId)
+    ))) {
+      setBookingSuccess(true);
+      setErrorMessage('');
+      setTimeout(() => closeBooking(), 1800);
+      return { ok: true, already: true };
+    }
     const check = validateMemberBooking({
       facility: selectedFacility,
       member,
@@ -879,6 +888,18 @@ export default function MemberFacilitiesBooking({
                         amount={depositDue}
                         memberNumber={member?.memberId}
                         concept={bookingMpConcept}
+                        booking={selectedFacility && selectedDate && time ? {
+                          facilityId: selectedFacility.id,
+                          facilityName: selectedFacility.name,
+                          date: selectedDate,
+                          time,
+                          endTime: null,
+                          guests: Number(guests) || 0,
+                          guestNames: guestNameList.map((n) => n.trim()).filter(Boolean).join(', '),
+                          estimatedPrice: bookingPrice || null,
+                          depositAmount: depositDue || null,
+                          status: 'confirmed',
+                        } : null}
                         label={`Pagar seña ${formatCurrency(depositDue)}`}
                         disabled={!bookingReadyForPay || paying || bookingSuccess}
                         onApproved={handleMercadoPagoApproved}

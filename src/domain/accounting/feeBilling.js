@@ -1,4 +1,11 @@
-import { duesAmountForTier, duesChargeSlicesForMember, duesDueDayForMember, isDuesExemptMember, isMemberBillingActive } from '../members/dues';
+import {
+  dbMemberIsDuesExempt,
+  duesAmountForTier,
+  duesChargeSlicesForMember,
+  duesDueDayForMember,
+  isDuesExemptMember,
+  isMemberBillingActive,
+} from '../members/dues';
 import { attachHouseholdToMembers, isTitularMember } from '../members/households';
 import {
   DUES_LATE_TIER_IDS,
@@ -419,6 +426,8 @@ export function buildFeePeriodCharges(members = [], period, today = new Date(), 
   return billed.flatMap((member) => {
     if (!member || !isMemberBillingActive(member, today) || !isTitularMember(member)) return [];
     if (isDuesExemptMember(member)) return [];
+    // Alineado con el trigger Postgres: no inventar cargo que apply_member_balance_deltas va a saltar.
+    if (dbMemberIsDuesExempt(member.tier, { cuotaCategories: member.cuotaCategories })) return [];
     const dueOn = `${period.year}-${pad2(period.month)}-${pad2(duesDueDayForMember(member))}`;
     return duesChargeSlicesForMember(member, periodDate, { rules }).map((slice) => ({
       memberId: member.memberId,

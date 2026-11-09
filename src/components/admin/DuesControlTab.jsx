@@ -13,6 +13,7 @@ import {
 } from '../../domain/members/dues';
 import { persistDuesCollection, recordDuesCollection } from '../../domain/members/memberPayments';
 import { deliverPaymentReceipt } from '../../domain/payments/deliverPaymentReceipt';
+import * as repos from '../../data/repos';
 import { downloadCsv, stampDate } from '../../domain/reports/downloadCsv';
 import { getActiveTiers, getTierDisplayName } from '../../domain/members/tiers';
 import { summarizeCurrentAccountCut } from '../../domain/accounting/currentAccountBalances';
@@ -243,6 +244,25 @@ export default function DuesControlTab({
 
   const handleConfirmCollect = async (payload) => {
     if (!collectMember) return;
+    // Mercado Pago ya acreditó por webhook: no volver a registrar_cobro ni reenviar recibo.
+    if (payload?.alreadyApplied) {
+      if (collectMember.memberId && typeof setMembers === 'function') {
+        try {
+          const fresh = await repos.getMemberByNumber(collectMember.memberId, { withPayments: true });
+          if (fresh) {
+            setMembers((prev) => (prev || []).map((row) => (
+              String(row.memberId) === String(fresh.memberId) ? { ...row, ...fresh } : row
+            )));
+          }
+        } catch {
+          /* refresh best-effort */
+        }
+      }
+      setCollectMember(null);
+      setFlash(`Pago de Mercado Pago acreditado · ${collectMember.name}`);
+      window.setTimeout(() => setFlash(''), 5000);
+      return;
+    }
     const result = recordDuesCollection(collectMember, { ...payload, members });
     const saved = await persistDuesCollection(result, {
       setMembers,

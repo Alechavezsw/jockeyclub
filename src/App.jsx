@@ -264,8 +264,13 @@ function ClubPortal() {
   });
 
   const [rsvpList, setRsvpList] = useState(() => {
-    const local = localStorage.getItem('jockey-rsvps');
-    return local ? JSON.parse(local) : [];
+    if (isSupabaseConfigured) return [];
+    try {
+      const local = localStorage.getItem('jockey-rsvps');
+      return local ? JSON.parse(local) : [];
+    } catch {
+      return [];
+    }
   });
 
   const [journalEntries, setJournalEntries] = useState([]);
@@ -1025,6 +1030,9 @@ function ClubPortal() {
       if (Array.isArray(app.paymentPlans)) {
         setPaymentPlans(mergePaymentPlans(app.paymentPlans));
       }
+      if (app.facilityCatalog && typeof app.facilityCatalog === 'object') {
+        setFacilityCatalog(app.facilityCatalog);
+      }
       if (Array.isArray(app.tierCatalog) && app.tierCatalog.length) {
         const cleaned = mergeOfficialTiers(stripExampleTiers(app.tierCatalog));
         setTierCatalog(cleaned.length ? cleaned : app.tierCatalog);
@@ -1413,7 +1421,7 @@ function ClubPortal() {
       if (cloudMode && Array.isArray(next) && next.length > (prev?.length || 0)) {
         const newest = next[0];
         if (newest && !isDbUuid(newest.id)) {
-          const dbId = memberDbIds[newest.memberId] || null;
+          const dbId = newest.memberDbId || memberDbIds[newest.memberId] || null;
           persistOnce(`access:${newest.id}`, () =>
             repos.insertAccessLog(newest, dbId).then((saved) => {
               setEntryLogs((cur) => [saved, ...cur.filter((x) => x !== newest && String(x.id) !== String(newest.id))]);

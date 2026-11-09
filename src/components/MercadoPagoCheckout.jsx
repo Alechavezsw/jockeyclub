@@ -19,6 +19,7 @@ export default function MercadoPagoCheckout({
   memberNumber,
   concept,
   guestName,
+  booking = null,
   mode = 'redirect',
   label,
   subscribe = false,
@@ -74,6 +75,7 @@ export default function MercadoPagoCheckout({
         memberNumber,
         concept,
         guestName,
+        booking,
         channel: mpChannelFor({ kind: nextKind, mode, subscribe }),
       });
       setCheckout(created);

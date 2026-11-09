@@ -77,6 +77,7 @@ export function groupFromRoleLabel(role = '') {
 export function buildAccessLogEntry({
   memberName,
   memberId,
+  memberDbId = null,
   role = '',
   status = 'granted',
   notes = '',
@@ -97,6 +98,7 @@ export function buildAccessLogEntry({
     time: clockTime(at),
     memberName: memberName || '—',
     memberId: memberId || null,
+    ...(memberDbId ? { memberDbId } : {}),
     role,
     group: resolvedGroup,
     activity: resolvedActivity,

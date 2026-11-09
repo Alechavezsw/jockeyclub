@@ -114,6 +114,16 @@ async function loadUserFromSession(sessionUser) {
     memberNumber = byDoc?.[0]?.member_number || null;
   }
 
+  // Si entró por DNI/mail sin profile_id en la ficha, vincula una vez (best-effort).
+  if (!memberByProfile.data?.[0]?.member_number) {
+    try {
+      const { data: linkedNumber } = await supabase.rpc('link_own_member_profile');
+      if (linkedNumber) memberNumber = linkedNumber;
+    } catch {
+      /* ignore */
+    }
+  }
+
   return mapProfile(sessionUser, {
     ...profileRes.data,
     profile_roles: roleRes.data || [],

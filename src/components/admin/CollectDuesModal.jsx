@@ -315,6 +315,28 @@ export default function CollectDuesModal({
   const canPickMonths = periodChoices.length > 1;
   const needsReceipt = duesMethodNeedsReceipt(method);
   const isMixed = method === 'mixto';
+  const quotaMonthLabel = useMemo(() => {
+    const periods = Array.isArray(split.periods) && split.periods.length
+      ? split.periods
+      : periodChoices.filter((row) => selectedDueOns.includes(String(row.dueOn).slice(0, 10)));
+    if (!periods.length) return 'Cuota';
+    const names = periods.map((row) => {
+      const fromLabel = String(row.label || '')
+        .replace(/\s+de\s+\d{4}/i, '')
+        .replace(/\s+\d{4}$/i, '')
+        .trim();
+      if (fromLabel) return fromLabel;
+      const iso = String(row.dueOn || row.monthKey || '').slice(0, 10);
+      const match = iso.match(/^(\d{4})-(\d{2})/);
+      if (!match) return '';
+      const date = new Date(Number(match[1]), Number(match[2]) - 1, 1);
+      return date.toLocaleDateString('es-AR', { month: 'long' });
+    }).filter(Boolean);
+    if (!names.length) return 'Cuota';
+    if (names.length === 1) return names[0];
+    if (names.length <= 3) return names.join(' · ');
+    return `${names.length} meses`;
+  }, [split.periods, periodChoices, selectedDueOns]);
 
   const selectedBank = CLUB_BANK_ACCOUNTS.find((b) => b.id === bankId) || CLUB_BANK_ACCOUNTS[0];
   const selectedPlan = plans.find((row) => row.id === planId) || null;
@@ -621,17 +643,17 @@ export default function CollectDuesModal({
       contentClassName="modal-content glass-panel"
       contentStyle={{
         width: '92%',
-        maxWidth: 560,
+        maxWidth: 680,
         background: 'var(--bg-secondary)',
         border: '1px solid var(--border-glass)',
-        padding: '1.25rem',
+        padding: '1.5rem 1.65rem',
         maxHeight: '90vh',
         overflowY: 'auto',
       }}
     >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', marginBottom: '1rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', marginBottom: '1.15rem' }}>
           <div>
-            <h4 id="collect-dues-title" className="serif-font" style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-gold)' }}>
+            <h4 id="collect-dues-title" className="serif-font" style={{ margin: 0, fontSize: '1.55rem', color: 'var(--text-gold)' }}>
               Cobrar cuota
             </h4>
             <p style={{ margin: '0.3rem 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
@@ -691,8 +713,9 @@ export default function CollectDuesModal({
                       <span style={{ flex: 1 }}>
                         <strong style={{ display: 'block', color: 'var(--text-primary)' }}>{row.label}</strong>
                         <small style={{ color: 'var(--text-muted)' }}>
-                          {row.kind === 'overdue' ? 'Atrasada' : 'Próxima'}
-                          {row.surcharge > 0 ? ` · recargo ${formatCurrency(row.surcharge)}` : ''}
+                          {row.kind === 'overdue' ? 'Atrasada' : 'Mes en curso'}
+                          {` · capital ${formatCurrency(row.capital)}`}
+                          {row.surcharge > 0 ? ` · intereses ${formatCurrency(row.surcharge)}` : ' · sin intereses'}
                         </small>
                       </span>
                       <b className="tabular-nums" style={{ color: 'var(--text-gold)' }}>{formatCurrency(row.payable)}</b>
@@ -712,7 +735,7 @@ export default function CollectDuesModal({
             marginBottom: '1rem',
           }}>
             <div style={{ padding: '0.55rem 0.65rem', borderRadius: 8, border: '1px solid var(--border-glass)' }}>
-              <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Cuota</div>
+              <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>{quotaMonthLabel}</div>
               <div className="tabular-nums" style={{ fontWeight: 700 }}>{formatCurrency(split.quota)}</div>
             </div>
             {split.surcharge > 0 ? (

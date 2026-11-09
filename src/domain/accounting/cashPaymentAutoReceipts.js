@@ -36,10 +36,15 @@ export function isAutoCashReceiptCandidate(movement) {
   if (!(amount > 0)) return false;
   const mt = String(movement.movementType || '').toLowerCase();
   if (mt === 'expense' || mt === 'transfer_out' || mt === 'egreso') return false;
+  // Asientos de cuota / pileta / reserva / MP ya mandan comprobante al acreditar
+  // (deliverPaymentReceipt / deliverMpReceipt). No reenviar desde la hoja de caja.
+  const source = String(movement.sourceModule || movement.source || '').toLowerCase();
+  if (['cuotas', 'pileta', 'reservas', 'mp', 'mercadopago'].includes(source)) return false;
   if (isCashMemberPayment(movement)) return true;
   const label = `${movement.typeLabel || ''} ${movement.description || ''}`;
   if (/egreso|proveedor|sueldo|haberes|retenci[oó]n/i.test(label)) return false;
-  return /pago|cuota|cobro|efectivo|transfer|macro|electr|cheque|mercado\s*pago|\bmp\b/i.test(label);
+  if (/mercado\s*pago|\bmp\b|intent/i.test(label)) return false;
+  return /pago|cuota|cobro|efectivo|transfer|macro|electr|cheque/i.test(label);
 }
 
 export async function loadCashReceiptsSentMap() {

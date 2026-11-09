@@ -12,6 +12,17 @@ alwaysApply: true
 3. **Vence el 10**. Paga **el 10 o antes** → sin recargo. Desde el **11** → mora; recargo **10 %** solo `socio_familiar` y `socio_individual` (por cada mes vencido, al cobrar).
 4. El saldo de ficha guarda **capital** (cuotas liquidables). El 10 % **no** se mete en el saldo al liquidar: se calcula al cobrar.
 
+## Cobro — meses del recibo (regla general, todo el padrón)
+
+Aplica a **todos** los socios que abonan, no a un caso puntual:
+
+1. **Solo meses ya abiertos**: la cuota de un mes se ofrece desde el **día 1** de ese mes. En noviembre no aparece diciembre; diciembre recién cuando estamos en diciembre.
+2. **Atrasados siempre**: si debe meses viejos, se listan y se pueden marcar/cobrar.
+3. **Mes en curso**: si el mes actual ya empezó y forma parte del saldo, también se puede cobrar.
+4. **Nunca un mes ya pago**: si el cobro / imputación ya cubrió ese `dueOn` (`periodDueOns`), no se vuelve a ofrecer.
+5. **En cada mes del recibo**: mostrar **capital** e **intereses** (recargo 10 % si corresponde; si no, “sin intereses”).
+6. Helpers: `collectionPeriodChoices` / `duesPeriodMonthStarted` / `memberCoveredDueOns` en `dues.js`; UI en `CollectDuesModal`.
+
 ## Exentos
 
 **Vitalicio, fundador y comisión no abonan cuota.** Para todo el padrón, no un socio:

@@ -140,6 +140,13 @@ export function mergeMemberRecord(current, incoming) {
       if (!incoming.adherents?.length) next.adherents = current.adherents;
       if (!incoming.paymentHistory?.length) next.paymentHistory = current.paymentHistory;
     }
+    // Con app gana si cualquiera de los dos ya lo detectó (DNI/mail / profile_id).
+    if (current.hasApp || current.has_portal || incoming.hasApp || incoming.has_portal
+      || current.profileId || incoming.profileId) {
+      next.hasApp = true;
+      next.has_portal = true;
+      next.profileId = incoming.profileId || current.profileId || next.profileId || null;
+    }
     return next;
   }
   const next = { ...current, recordScope: 'full' };
@@ -214,10 +221,10 @@ export function normalizePersonName(name) {
 }
 
 function personDedupeKey(row) {
-  const dni = String(row?.documentNumber || row?.document_number || '').replace(/\D/g, '');
-  if (dni) return `dni:${dni}`;
   const id = memberNumberOf(row);
   if (id) return `id:${id}`;
+  const dni = String(row?.documentNumber || row?.document_number || '').replace(/\D/g, '');
+  if (dni) return `dni:${dni}`;
   const name = normalizePersonName(row?.name || row?.full_name);
   return name ? `n:${name}` : '';
 }
@@ -306,6 +313,8 @@ export function householdMemberAsAdherent(member, relationship = 'Grupo familiar
     outstandingBalance: Number(member.outstandingBalance) || 0,
     disciplines: member.disciplines || [],
     photo: member.photo || member.photo_url || null,
+    documentNumber: member.documentNumber || member.document_number || '',
+    birthDate: member.birthDate || member.birth_date || '',
     memberId: memberNumberOf(member),
     fromPadron: true,
   };

@@ -41,6 +41,12 @@ describe('cashPaymentAutoReceipts', () => {
     expect(cashPaymentReceiptKey(row)).toBe('10343:3661928');
     expect(isAutoCashReceiptCandidate({ ...row, memberNumber: '' })).toBe(false);
     expect(isAutoCashReceiptCandidate({ ...row, movementType: 'expense' })).toBe(false);
+    expect(isAutoCashReceiptCandidate({ ...row, sourceModule: 'cuotas' })).toBe(false);
+    expect(isAutoCashReceiptCandidate({
+      ...row,
+      typeLabel: 'Cobro Mercado Pago',
+      description: 'Cuota · Mercado Pago',
+    })).toBe(false);
   });
 
   it('envía pendientes y marca enviados', async () => {

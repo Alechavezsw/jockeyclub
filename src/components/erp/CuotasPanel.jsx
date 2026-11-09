@@ -2052,6 +2052,7 @@ export default function CuotasPanel({
         formatCurrency={fmt}
         paymentPlans={paymentPlans}
         paymentTolerance={duesSettings?.paymentTolerance}
+        tierCatalog={tierCatalog}
         onCollected={({ message, member: paidMember, payment }) => {
           const text = message || 'Cobro registrado.';
           setSuccessBanner({

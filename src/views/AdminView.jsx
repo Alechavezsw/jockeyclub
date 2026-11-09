@@ -5,6 +5,7 @@ import {
   BookOpen, Book, ClipboardList, MessageSquare, Phone, Wallet, PieChart,
   FileSpreadsheet, Radio, Database, BellRing, PartyPopper, Trophy, Store, DoorOpen, QrCode, Newspaper, CreditCard,
   LayoutDashboard, ChevronRight, Briefcase, Headset, Settings, SlidersHorizontal, Building2, Waves, GraduationCap, Sparkles, TicketCheck,
+  Plus, UserMinus, UserPlus,
 } from 'lucide-react';
 import { DEFAULT_POOL_SETTINGS } from '../domain/pool/poolAccess';
 import { DEFAULT_CHART_OF_ACCOUNTS, resolveAccountId } from '../domain/accounting/chartOfAccounts';
@@ -281,6 +282,7 @@ export default function AdminView({
   const membersSettled = !membersLoading && (members?.length || 0) > 0;
   // Contador de cabecera: exacto en DB (status=active), no el tamaño del lote en memoria.
   const [exactActiveMembers, setExactActiveMembers] = useState(() => Number(membersCount) || 0);
+  const [padronOps, setPadronOps] = useState(null);
   useEffect(() => {
     setExactActiveMembers((prev) => Math.max(Number(prev) || 0, Number(membersCount) || 0));
   }, [membersCount]);
@@ -747,27 +749,83 @@ export default function AdminView({
     const local = findMemberForProfile(members, routeEntityId);
     if (local?.recordScope === 'full') setFetchedProfile(local);
     let cancelled = false;
-    repos.getMemberByNumber(routeEntityId, { withPayments: true })
-      .then((row) => {
-        if (cancelled) return;
-        if (row) {
-          const full = { ...row, recordScope: 'full' };
-          setFetchedProfile(full);
-          setMembers?.((prev) => {
-            const list = prev || [];
-            const idx = list.findIndex((m) => findMemberForProfile([m], row.memberId));
-            if (idx < 0) return [full, ...list];
-            const next = list.slice();
-            next[idx] = mergeMemberRecord(list[idx], full);
-            return next;
-          });
-        }
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setProfileLookupDone(true);
+    const applyFresh = (row) => {
+      if (cancelled || !row) return;
+      const full = { ...row, recordScope: 'full' };
+      setFetchedProfile(full);
+      setMembers?.((prev) => {
+        const list = prev || [];
+        const idx = list.findIndex((m) => findMemberForProfile([m], row.memberId));
+        if (idx < 0) return [full, ...list];
+        const next = list.slice();
+        // Saldo / vencimiento siempre del remoto: no conservar cifras viejas del padrón en RAM.
+        next[idx] = {
+          ...mergeMemberRecord(list[idx], full),
+          outstandingBalance: full.outstandingBalance,
+          nextDueDate: full.nextDueDate,
+          overdueSince: full.overdueSince ?? null,
+          lastPaymentDate: full.lastPaymentDate ?? list[idx]?.lastPaymentDate,
+          unpaidCapital: full.unpaidCapital ?? full.meta?.unpaidCapital,
+          meta: {
+            ...(list[idx]?.meta || {}),
+            ...(full.meta || {}),
+            unpaidCapital: full.unpaidCapital ?? full.meta?.unpaidCapital
+              ?? list[idx]?.meta?.unpaidCapital,
+          },
+          recordScope: 'full',
+        };
+        return next;
       });
-    return () => { cancelled = true; };
+    };
+    const mergeHousehold = (household) => {
+      if (cancelled || !household?.length) return;
+      setMembers?.((prev) => {
+        const list = prev || [];
+        const byId = new Map(list.map((m) => [String(m.memberId || ''), m]));
+        let changed = false;
+        for (const row of household) {
+          const id = String(row.memberId || '');
+          if (!id) continue;
+          const existing = byId.get(id);
+          if (!existing) {
+            byId.set(id, { ...row, recordScope: 'list' });
+            changed = true;
+            continue;
+          }
+          const next = mergeMemberRecord(existing, row);
+          if (next !== existing) {
+            byId.set(id, next);
+            changed = true;
+          }
+        }
+        if (!changed) return list;
+        return Array.from(byId.values());
+      });
+    };
+    const load = () => {
+      repos.getMemberByNumber(routeEntityId, { withPayments: true })
+        .then((row) => {
+          applyFresh(row);
+          const principal = row?.familyPrincipalNumber || row?.memberId || routeEntityId;
+          if (typeof repos.listHouseholdByPrincipal === 'function') {
+            return repos.listHouseholdByPrincipal(principal).then(mergeHousehold);
+          }
+          return null;
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (!cancelled) setProfileLookupDone(true);
+        });
+    };
+    load();
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') load();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [activeTab, routeEntityId]);
 
   const listedProfile = activeTab === 'members' && routeEntityId
@@ -1119,15 +1177,63 @@ export default function AdminView({
           </div>
           <div className="page-header-aside">
             {activeTab === 'members' ? (
-              <div
-                className="page-header-member-count"
-                title="Conteo exacto en Supabase: todas las categorías con estado activo. Sin bajas ni inactivos."
-              >
-                <span className="page-header-member-count-label">Socios activos</span>
-                <b className="page-header-member-count-value tabular-nums">
-                  {Number(exactActiveMembers || membersCount || 0).toLocaleString('es-AR')}
-                </b>
-                <span className="page-header-member-count-hint">todas las categorías · sin bajas</span>
+              <div className="page-header-member-tools">
+                <div
+                  className="page-header-member-count"
+                  title="Conteo exacto en Supabase: todas las categorías con estado activo. Sin bajas ni inactivos."
+                >
+                  <span className="page-header-member-count-label">Socios activos</span>
+                  <b className="page-header-member-count-value tabular-nums">
+                    {Number(exactActiveMembers || membersCount || 0).toLocaleString('es-AR')}
+                  </b>
+                  <span className="page-header-member-count-hint">todas las categorías · sin bajas</span>
+                </div>
+                {manageMembers && padronOps ? (
+                  <div className="page-header-member-ops" role="group" aria-label="Gestión de socios">
+                    <button
+                      type="button"
+                      className="page-header-member-op is-baja"
+                      onClick={() => padronOps.openBaja?.()}
+                      title="Dar de baja a un socio"
+                    >
+                      <span className="page-header-member-op-label">
+                        <UserMinus size={14} aria-hidden />
+                        Baja
+                      </span>
+                      <b className="page-header-member-op-value">Socio</b>
+                      <span className="page-header-member-op-hint">sacar del padrón</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="page-header-member-op is-reactivate"
+                      onClick={() => padronOps.openReactivate?.()}
+                      title="Reactivar un socio que estaba de baja"
+                    >
+                      <span className="page-header-member-op-label">
+                        <UserPlus size={14} aria-hidden />
+                        Reactivar
+                      </span>
+                      <b className="page-header-member-op-value">Socio</b>
+                      <span className="page-header-member-op-hint">volver al padrón</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`page-header-member-op is-alta${padronOps.altaOpen ? ' is-on' : ''}`}
+                      onClick={() => padronOps.toggleAlta?.()}
+                      title={padronOps.altaOpen ? 'Cerrar formulario de alta' : 'Dar de alta a un socio nuevo'}
+                      aria-pressed={Boolean(padronOps.altaOpen)}
+                    >
+                      <span className="page-header-member-op-label">
+                        <Plus size={14} aria-hidden />
+                        {padronOps.altaOpen ? 'Cerrar' : 'Alta'}
+                      </span>
+                      <b className="page-header-member-op-value">Socio</b>
+                      <span className="page-header-member-op-hint">
+                        {padronOps.altaOpen ? 'ocultar ficha' : 'nuevo titular'}
+                      </span>
+                    </button>
+                  </div>
+                ) : null}
               </div>
             ) : null}
             {activeTab === 'bookings' ? (
@@ -1325,6 +1431,7 @@ export default function AdminView({
             onSendMessage={sendMessage}
             paymentPlans={paymentPlans}
             paymentTolerance={duesSettings?.paymentTolerance}
+            onPadronOpsChange={setPadronOps}
           />
         )
       )}

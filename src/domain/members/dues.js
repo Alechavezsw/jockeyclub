@@ -5,6 +5,7 @@ import {
   DUES_LATE_RATE,
   DUES_LATE_TIER_IDS,
   DUES_TARIFF_FROM,
+  findTier,
   getTierDisplayName,
   getTierMonthlyDues,
   isAddOnDuesTierId,
@@ -287,8 +288,9 @@ export function isVitalicioMember(member) {
 
 /**
  * No abonan cuota social: vitalicio, fundador y comisión (presidente / comisión directiva).
- * Si además tienen una categoría que sí liquida (p. ej. socio familiar), no están exentos.
- * Vale para todo el padrón: no es un caso puntual.
+ * Si además tienen una categoría que sí liquida (p. ej. socio familiar), no están exentos
+ * en la UI/liquidación JS. Postgres (`member_is_dues_exempt`) usa OR y puede poner saldo 0
+ * en fichas mixtas: buildFeePeriodCharges también salta esas con `dbMemberIsDuesExempt`.
  */
 export function isDuesExemptMember(member) {
   if (isVitalicioMember(member)) return true;
@@ -396,11 +398,16 @@ export function duesAmountForTier(tier, catalog, on = new Date()) {
   const october = MONTHLY_DUES_FROM_OCTOBER_2026[id];
   const september = MONTHLY_DUES_THROUGH_SEPTEMBER_2026[id];
   if (from && when >= from && october != null) return october;
-  const catalogAmount = getTierMonthlyDues(tier, catalog);
-  if (from && when < from && october != null && catalogAmount === october) {
-    return september != null ? september : 0;
+  if (from && when < from && september != null) {
+    const listed = findTier(tier, catalog);
+    if (listed) {
+      const catalogAmount = getTierMonthlyDues(tier, catalog);
+      // Valor editado en catálogo (ni oct ni sep oficiales) → respetar. Si es la tarifa de oct, usar sep.
+      if (catalogAmount !== october && catalogAmount !== september) return catalogAmount;
+    }
+    return september;
   }
-  return catalogAmount;
+  return getTierMonthlyDues(tier, catalog);
 }
 
 function asDiscountPerson(row, titular) {
@@ -721,43 +728,147 @@ function periodChoiceFromDue(member, dueOn, paidOn, kind = 'overdue') {
   };
 }
 
+function appendPeriodChoiceCovering(rows, full, remaining) {
+  if (!full) return null;
+  const capital = money(Math.min(Number(full.capital) || 0, remaining));
+  if (!(capital > 0)) return null;
+  const surcharge = full.capital > 0
+    ? money((full.surcharge * capital) / full.capital)
+    : 0;
+  return {
+    ...full,
+    capital,
+    surcharge,
+    payable: money(capital + surcharge),
+    lateBase: money(Math.min(Number(full.lateBase) || capital, capital)),
+  };
+}
+
+/**
+ * Regla general de cobro: la cuota de un mes se ofrece recién cuando ese mes ya empezó
+ * (día 1). Ej.: en noviembre no se ofrece diciembre; los atrasados sí.
+ */
+function duesPeriodMonthStarted(dueOn, paidOn) {
+  const due = parseDate(dueOn);
+  if (!due || !paidOn) return false;
+  const dueYm = due.getFullYear() * 12 + due.getMonth();
+  const paidYm = paidOn.getFullYear() * 12 + paidOn.getMonth();
+  return dueYm <= paidYm;
+}
+
+/** Meses ya cubiertos por cobros (periodDueOns / imputaciones). No se vuelven a ofrecer. */
+export function memberCoveredDueOns(member) {
+  const set = new Set();
+  const push = (value) => {
+    const iso = String(value || '').slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) set.add(iso);
+  };
+  for (const payment of member?.paymentHistory || []) {
+    for (const due of payment?.periodDueOns || []) push(due);
+    for (const row of payment?.imputations || []) push(row?.dueOn);
+  }
+  return set;
+}
+
+function dueOnAlreadyCovered(dueOn, coveredDueOns) {
+  if (!coveredDueOns || coveredDueOns.size === 0) return false;
+  return coveredDueOns.has(String(dueOn || '').slice(0, 10));
+}
+
 /**
  * Si el saldo de ficha (capital) supera los meses reconstruidos desde nextDueDate,
- * agrega meses hacia atrás hasta cubrirlo. Evita cobrar $44.000 cuando la ficha debe $152.000.
+ * completa el mes en curso (si ya arrancó) y después hacia atrás (atrasados).
+ * No adelanta meses futuros: diciembre recién cuando estamos en diciembre.
  * Si hay de más (ficha ya cobrada / nextDue desfasado), recorta al saldo: no re-cobra meses pagos.
  */
-function expandChoicesToCoverBalance(member, choices, paidOn) {
+function expandChoicesToCoverBalance(member, choices, paidOn, coveredDueOns = null) {
   const owed = money(Math.max(0, Number(member?.outstandingBalance) || 0));
   if (!(owed > 0.01)) return choices;
   const day = duesDueDayForMember(member);
-  let rows = [...(choices || [])];
+  const paidSet = coveredDueOns || memberCoveredDueOns(member);
+  let rows = [...(choices || [])].filter((row) => !dueOnAlreadyCovered(row.dueOn, paidSet));
   let covered = money(rows.reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
   let guard = 0;
+
+  // 1) Adelante solo si el mes de esa cuota ya empezó (día 1) y no está pago.
   while (covered + 0.01 < owed && guard < 24) {
     guard += 1;
-    const anchor = rows[0]?.dueOn
+    const anchor = rows[rows.length - 1]?.dueOn
+      || pinDuesDueDate(member?.nextDueDate, member)
+      || toISODate(paidOn);
+    const last = parseDate(anchor);
+    if (!last) break;
+    const nextDue = toISODate(duesDateOnDueDay(last.getFullYear(), last.getMonth() + 1, day));
+    if (rows.some((row) => row.dueOn === nextDue)) break;
+    if (!duesPeriodMonthStarted(nextDue, paidOn)) break;
+    if (dueOnAlreadyCovered(nextDue, paidSet)) {
+      // Mes ya pago: avanzar el ancla sin sumar capital.
+      rows.push({
+        id: nextDue,
+        dueOn: nextDue,
+        monthKey: String(nextDue).slice(0, 7),
+        label: periodChoiceLabel(nextDue),
+        capital: 0,
+        lateBase: 0,
+        surcharge: 0,
+        payable: 0,
+        kind: 'paid',
+      });
+      continue;
+    }
+    const remaining = money(owed - covered);
+    const dueDate = parseDate(nextDue);
+    const kind = dueDate && dueDate < paidOn ? 'overdue' : 'upcoming';
+    const full = periodChoiceFromDue(member, nextDue, paidOn, kind);
+    const row = appendPeriodChoiceCovering(rows, full, remaining);
+    if (!row) break;
+    rows.push(row);
+    covered = money(covered + row.capital);
+  }
+
+  // 2) Atrás: meses anteriores si todavía no alcanza el capital de ficha.
+  guard = 0;
+  while (covered + 0.01 < owed && guard < 24) {
+    guard += 1;
+    const anchor = rows.find((row) => Number(row.capital) > 0)?.dueOn
+      || rows[0]?.dueOn
       || pinDuesDueDate(member?.nextDueDate, member)
       || toISODate(paidOn);
     const first = parseDate(anchor);
     if (!first) break;
     const prevDue = toISODate(duesDateOnDueDay(first.getFullYear(), first.getMonth() - 1, day));
     if (rows.some((row) => row.dueOn === prevDue)) break;
+    if (dueOnAlreadyCovered(prevDue, paidSet)) {
+      rows.unshift({
+        id: prevDue,
+        dueOn: prevDue,
+        monthKey: String(prevDue).slice(0, 7),
+        label: periodChoiceLabel(prevDue),
+        capital: 0,
+        lateBase: 0,
+        surcharge: 0,
+        payable: 0,
+        kind: 'paid',
+      });
+      continue;
+    }
     const remaining = money(owed - covered);
     const full = periodChoiceFromDue(member, prevDue, paidOn, 'overdue');
-    if (!full) break;
-    const capital = money(Math.min(full.capital, remaining));
-    const surcharge = full.capital > 0
-      ? money((full.surcharge * capital) / full.capital)
-      : 0;
-    rows.unshift({
-      ...full,
-      capital,
-      surcharge,
-      payable: money(capital + surcharge),
-      lateBase: capital,
-    });
-    covered = money(covered + capital);
+    const row = appendPeriodChoiceCovering(rows, full, remaining);
+    if (!row) break;
+    rows.unshift(row);
+    covered = money(covered + row.capital);
   }
+
+  const openMonths = rows.filter((row) => (
+    Number(row.capital) > 0
+    && row.kind !== 'paid'
+    && (row.kind === 'overdue' || duesPeriodMonthStarted(row.dueOn, paidOn))
+    && !dueOnAlreadyCovered(row.dueOn, paidSet)
+  ));
+  rows = openMonths.length ? openMonths : rows.filter((row) => Number(row.capital) > 0 && row.kind !== 'paid');
+  covered = money(rows.reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
+
   if (covered <= owed + 0.01) return rows;
   // De más: dejar solo lo que cubre el saldo (desde el más viejo = next due).
   const trimmed = [];
@@ -784,14 +895,15 @@ function expandChoicesToCoverBalance(member, choices, paidOn) {
 }
 
 /**
- * Meses que se pueden marcar en el cobro (atrasados, o el próximo si está al día).
- * Si hay saldo en ficha mayor a los meses desde nextDueDate, completa hacia atrás.
+ * Meses que se pueden marcar en el cobro (atrasados y mes en curso).
+ * Si el saldo supera lo vencido, suma el mes actual (si ya empezó) y completa hacia atrás.
  */
 export function collectionPeriodChoices(member, today = new Date()) {
   if (!member || isDuesExemptMember(member) || isFamilyDependent(member)) return [];
   const paidOn = startOfDay(today);
+  const paidSet = memberCoveredDueOns(member);
   const overdue = overdueSocialMonths(member, paidOn)
-    .filter((row) => row.capital > 0)
+    .filter((row) => row.capital > 0 && !dueOnAlreadyCovered(row.dueOn, paidSet))
     .map((row) => ({
       id: row.dueOn,
       dueOn: row.dueOn,
@@ -803,17 +915,22 @@ export function collectionPeriodChoices(member, today = new Date()) {
       payable: row.payable,
       kind: 'overdue',
     }));
-  if (overdue.length) return expandChoicesToCoverBalance(member, overdue, paidOn);
+  if (overdue.length) return expandChoicesToCoverBalance(member, overdue, paidOn, paidSet);
 
   const owed = money(Math.max(0, Number(member?.outstandingBalance) || 0));
   if (owed > 0.01) {
     const seedDue = pinDuesDueDate(member.nextDueDate, member)
       || toISODate(duesDateOnDueDay(paidOn.getFullYear(), paidOn.getMonth() - 1, duesDueDayForMember(member)));
-    const seed = periodChoiceFromDue(member, seedDue, paidOn, 'overdue');
-    if (seed) return expandChoicesToCoverBalance(member, [seed], paidOn);
+    if (!dueOnAlreadyCovered(seedDue, paidSet)) {
+      const seed = periodChoiceFromDue(member, seedDue, paidOn, 'overdue');
+      if (seed) return expandChoicesToCoverBalance(member, [seed], paidOn, paidSet);
+    }
+    return expandChoicesToCoverBalance(member, [], paidOn, paidSet);
   }
 
   const dueOn = pinDuesDueDate(member.nextDueDate, member) || nextDuesDueDate(today, member);
+  if (!duesPeriodMonthStarted(dueOn, paidOn)) return [];
+  if (dueOnAlreadyCovered(dueOn, paidSet)) return [];
   const upcoming = periodChoiceFromDue(member, dueOn, paidOn, 'upcoming');
   return upcoming ? [upcoming] : [];
 }

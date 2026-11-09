@@ -130,6 +130,10 @@ export function memberPaidFeePeriod(member, periodKey) {
   if (!member || !/^\d{4}-\d{2}$/.test(key)) return false;
   const capital = lilaUnpaidCapital(member);
   if (capital != null && capital <= 0) return true;
+  // Todavía debe capital LILA: un cobro parcial / otro concepto del mes no cierra el período.
+  if (capital != null && capital > 0) return false;
+  const bal = Number(member?.outstandingBalance) || 0;
+  if (bal > 0) return false;
   const paidMonth = String(member.lastPaymentDate || '').slice(0, 7);
   if (/^\d{4}-\d{2}$/.test(paidMonth) && paidMonth >= key) return true;
   const nextMonth = String(member.nextDueDate || '').slice(0, 7);

@@ -753,4 +753,81 @@ describe('collectionPeriodChoices vs saldo de ficha', () => {
     const preview = collectionPreview(member, today);
     expect(preview.quota).toBe(36000);
   });
+
+  it('Alameda en noviembre: sep $60k + oct $70k; noviembre ya pago no se ofrece', () => {
+    setRuntimeTierCatalog([
+      { id: 'socio_familiar', name: 'SOCIO FAMILIAR', monthlyDues: 70000, sortOrder: 1 },
+    ]);
+    const member = {
+      memberId: '9624',
+      name: 'Gustavo Ariel Alameda',
+      tier: 'socio_familiar',
+      status: 'active',
+      outstandingBalance: 130000,
+      nextDueDate: '2026-09-10',
+      cuotaCategories: ['SOCIO FAMILIAR'],
+      paymentHistory: [
+        { date: '2026-11-05', amount: 70000, periodDueOns: ['2026-11-10'], concept: 'Cuota noviembre' },
+      ],
+    };
+    const today = new Date(2026, 10, 9, 12, 0, 0);
+    const choices = collectionPeriodChoices(member, today);
+    expect(choices.map((row) => ({ dueOn: row.dueOn, capital: row.capital, surcharge: row.surcharge }))).toEqual([
+      { dueOn: '2026-09-10', capital: 60000, surcharge: 6000 },
+      { dueOn: '2026-10-10', capital: 70000, surcharge: 7000 },
+    ]);
+    expect(choices.some((row) => row.dueOn === '2026-11-10')).toBe(false);
+    expect(choices.some((row) => row.dueOn === '2026-12-10')).toBe(false);
+    const preview = collectionPreview(member, today);
+    expect(preview.quota).toBe(130000);
+    expect(preview.surcharge).toBe(13000);
+    expect(preview.cash).toBe(143000);
+  });
+
+  it('en diciembre sí ofrece la cuota de diciembre', () => {
+    setRuntimeTierCatalog([
+      { id: 'socio_familiar', name: 'SOCIO FAMILIAR', monthlyDues: 70000, sortOrder: 1 },
+    ]);
+    const member = {
+      memberId: '9624',
+      name: 'Gustavo Ariel Alameda',
+      tier: 'socio_familiar',
+      status: 'active',
+      outstandingBalance: 270000,
+      nextDueDate: '2026-09-10',
+      cuotaCategories: ['SOCIO FAMILIAR'],
+    };
+    const today = new Date(2026, 11, 5, 12, 0, 0);
+    const choices = collectionPeriodChoices(member, today);
+    expect(choices.map((row) => row.dueOn)).toEqual([
+      '2026-09-10',
+      '2026-10-10',
+      '2026-11-10',
+      '2026-12-10',
+    ]);
+  });
+
+  it('completa hacia atrás si el saldo pide meses atrasados', () => {
+    setRuntimeTierCatalog([
+      { id: 'socio_familiar', name: 'SOCIO FAMILIAR', monthlyDues: 70000, sortOrder: 1 },
+    ]);
+    const member = {
+      memberId: '9624',
+      name: 'Gustavo Ariel Alameda',
+      tier: 'socio_familiar',
+      status: 'active',
+      outstandingBalance: 260000,
+      nextDueDate: '2026-10-10',
+      cuotaCategories: ['SOCIO FAMILIAR'],
+    };
+    const today = new Date(2026, 10, 9, 12, 0, 0);
+    const choices = collectionPeriodChoices(member, today);
+    expect(choices.map((row) => row.dueOn)).toContain('2026-08-10');
+    expect(choices.map((row) => row.dueOn)).toContain('2026-09-10');
+    expect(choices.map((row) => row.dueOn)).toContain('2026-10-10');
+    expect(choices.map((row) => row.dueOn)).toContain('2026-11-10');
+    expect(choices.some((row) => row.dueOn === '2026-12-10')).toBe(false);
+    const capital = choices.reduce((sum, row) => sum + (Number(row.capital) || 0), 0);
+    expect(capital).toBe(260000);
+  });
 });

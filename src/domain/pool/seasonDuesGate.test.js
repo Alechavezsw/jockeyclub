@@ -71,6 +71,18 @@ describe('piletaPayAccess', () => {
     expect(access.detail).toMatch(/mora/i);
   });
 
+  it('antes del 10, con solo la cuota del mes en curso, no está en mora de pileta', () => {
+    const access = piletaPayAccess({
+      ...familiar,
+      outstandingBalance: 70000,
+      nextDueDate: '2026-11-10',
+      lastPaymentDate: '2026-10-10',
+    }, { today: '2026-11-09' });
+    expect(access.canPay).toBe(true);
+    expect(access.mora).toBe(false);
+    expect(access.detail).not.toMatch(/mora/i);
+  });
+
   it('con deuda de un mes anterior no paga pileta aunque aún no sea el 10', () => {
     const access = piletaPayAccess({
       ...familiar,

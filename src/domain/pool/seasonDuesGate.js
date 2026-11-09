@@ -1,6 +1,12 @@
 /** En temporada, desde el 10, sin la cuota del mes no se entra al club. */
 
-import { duesAmountForMember, duesDueDayForMember, isDuesExemptMember, pinDuesDueDate } from '../members/dues';
+import {
+  duesAmountForMember,
+  duesDueDayForMember,
+  isDuesExemptMember,
+  pinDuesDueDate,
+  socialDuesStoredBalance,
+} from '../members/dues';
 import { familyPrincipalOf, isFamilyDependent, memberNumberOf } from '../members/households';
 import { isPoolSeasonLive } from './poolSeason';
 
@@ -48,7 +54,8 @@ export function isCurrentMonthDuesUnpaid(member, today = new Date()) {
   const when = asDay(today);
   if (when.getDate() < duesDueDayForMember(member)) return false;
   if (duesAmountForMember(member, when) <= 0) return false;
-  if ((Number(member?.outstandingBalance) || 0) > 0) return true;
+  // Misma fuente que admin (`unpaidCapital` LILA si hay; si no, outstandingBalance).
+  if (socialDuesStoredBalance(member) > 0) return true;
   if (paidThisMonth(member, when)) return false;
   const nextDue = pinDuesDueDate(member?.nextDueDate, member);
   if (!nextDue) return false;
@@ -85,15 +92,23 @@ export function seasonDuesGate(member, {
 }
 
 /**
- * Mora de pileta: desde el 10 de cada mes, o con saldo, no paga hasta regularizar.
- * No espera a la temporada dic–mar.
+ * Mora de pileta (todo el año, no solo dic–mar):
+ * - meses anteriores con saldo (nextDue ya pasó) → bloquea aunque sea antes del 10
+ * - mes en curso → recién desde el día de vencimiento (el 10; AMET 18)
+ * No marcar “en mora” solo por tener liquidada la cuota del mes que todavía no venció.
  */
 export function isPiletaMora(member, { today = new Date(), settings = {}, members = [] } = {}) {
   if (!member) return false;
   if (settings?.seasonBlocksUnpaidDues === false) return false;
   const holder = accountHolderOf(member, members);
   if (isDuesExemptMember(holder)) return false;
-  if ((Number(holder?.outstandingBalance) || 0) > 0) return true;
+  const when = asDay(today);
+  const stored = socialDuesStoredBalance(holder);
+  if (stored <= 0) return isCurrentMonthDuesUnpaid(holder, today);
+  const nextDue = pinDuesDueDate(holder?.nextDueDate, holder);
+  if (!nextDue) return true;
+  const thisDue = pinDuesDueDate(when, holder);
+  if (thisDue && nextDue < thisDue) return true;
   return isCurrentMonthDuesUnpaid(holder, today);
 }
 

@@ -260,23 +260,39 @@ export default function MemberRequestsSection({
     setShowClosed(false);
   };
 
+  const openTotal = accessInbox.open.length + pendingJoin.length;
+  const inboxTitle = showClosed
+    ? 'Pedidos cerrados'
+    : view === 'acceso'
+      ? 'Piden acceso a la app'
+      : 'Quieren asociarse';
+  const inboxHint = showClosed
+    ? 'Ya revisados o rechazados'
+    : 'Formulario público · se guardan 7 días';
+
   return (
     <>
     <FoldableSection
       className="membership-moves member-requests"
       id="member-requests-title"
       title="Solicitudes"
-      subtitle={showClosed ? 'Pedidos que ya no están en la bandeja' : 'Pedidos del formulario público · 7 días'}
-      count={(accessInbox.open.length + pendingJoin.length).toLocaleString('es-AR')}
-      defaultOpen={accessInbox.open.length + pendingJoin.length > 0}
+      subtitle={inboxHint}
+      count={openTotal.toLocaleString('es-AR')}
+      defaultOpen
       storageKey="solicitudes"
+      embedded={embedded}
       forceOpen={openJoinInbox || Boolean(focusRequest?.id)}
-      extra={(
-        <div className="membership-moves-tabs">
+    >
+      <div className="member-requests-inbox">
+        <header className="member-requests-inbox-head">
+          <div className="member-requests-inbox-copy">
+            <h4>{inboxTitle}</h4>
+            <p>{inboxHint}</p>
+          </div>
           <div className="member-requests-public-wrap">
             <Link to="/registro?tramite=alta" className="member-requests-public">
               <ExternalLink size={13} aria-hidden="true" />
-              Link público
+              Formulario
             </Link>
             <button
               type="button"
@@ -285,43 +301,50 @@ export default function MemberRequestsSection({
               title="QR y placa para pegar"
             >
               <QrCode size={13} aria-hidden="true" />
-              Placa
+              Placa QR
             </button>
           </div>
+        </header>
+
+        <div className="member-requests-segments" role="tablist" aria-label="Tipo de solicitud">
           <button
             type="button"
+            role="tab"
+            aria-selected={view === 'acceso' && !showClosed}
             className={view === 'acceso' && !showClosed ? 'is-on' : ''}
-            style={{ '--stat-accent': '#b08d57' }}
             onClick={() => setInbox('acceso')}
           >
-            Acceso al portal
+            Acceso app
+            <b className="tabular-nums">{accessInbox.open.length.toLocaleString('es-AR')}</b>
           </button>
           <button
             type="button"
+            role="tab"
+            aria-selected={view === 'alta' && !showClosed}
             className={view === 'alta' && !showClosed ? 'is-on' : ''}
-            style={{ '--stat-accent': '#1f7a4d' }}
             onClick={() => setInbox('alta')}
           >
-            Quiero asociarme
+            Asociarse
+            <b className="tabular-nums">{pendingJoin.length.toLocaleString('es-AR')}</b>
           </button>
           <button
             type="button"
-            className={showClosed ? 'is-on' : ''}
-            style={{ '--stat-accent': '#6b7c74' }}
+            role="tab"
+            aria-selected={showClosed}
+            className={showClosed ? 'is-on is-muted' : 'is-muted'}
             onClick={() => setShowClosed((on) => !on)}
           >
-            {`Listos${closedCount ? ` ${closedCount.toLocaleString('es-AR')}` : ''}`}
+            Cerrados
+            {closedCount ? <b className="tabular-nums">{closedCount.toLocaleString('es-AR')}</b> : null}
           </button>
         </div>
-      )}
-    >
 
       {rows.length === 0 ? (
-        <p className="membership-moves-meta" style={{ margin: 0 }}>
-          {showClosed ? 'No hay pedidos listos para ver.' : 'No hay trámites en esta bandeja.'}
+        <p className="member-requests-empty">
+          {showClosed ? 'No hay pedidos cerrados para mostrar.' : 'Nada pendiente en esta bandeja.'}
         </p>
       ) : (
-        <ul className="membership-moves-list">
+        <ul className="member-requests-list">
           {view === 'acceso'
             ? accessRows.map((item) => {
               const match = matchMemberForAccessRequest(members, item);
@@ -329,49 +352,50 @@ export default function MemberRequestsSection({
               const open = accessRequestIsOpen(item);
               const color = status === 'rejected' ? '#c23b3b' : status === 'approved' ? '#1f7a4d' : status === 'done' ? '#6b7c74' : '#b08d57';
               return (
-                <li key={item.id} className="membership-moves-row" style={{ '--move-color': color }}>
-                  <div>
-                    <button type="button" className="membership-moves-name" onClick={() => openAccessDetail(item)}>
+                <li key={item.id} className="member-requests-card" style={{ '--move-color': color }}>
+                  <div className="member-requests-card-main">
+                    <button type="button" className="member-requests-card-name" onClick={() => openAccessDetail(item)}>
                       {item.fullName}
-                      <span className="membership-moves-meta">
-                        DNI {item.documentNumber || '—'}
-                        {item.memberNumber ? ` · Nº ${item.memberNumber}` : ''}
-                        {' · '}
-                        {accessReasonLabel(item.reason)}
-                        {' · '}
-                        {item.phone || 'sin celular'}
-                        {' · '}
-                        {formatRequestWhen(item.createdAt)}
-                        {match ? ` · ficha ${match.name}` : ' · sin ficha automática'}
-                      </span>
                     </button>
+                    <p className="member-requests-card-meta">
+                      <span>DNI {item.documentNumber || '—'}</span>
+                      {item.memberNumber ? <span>Nº {item.memberNumber}</span> : null}
+                      <span>{accessReasonLabel(item.reason)}</span>
+                      <span>{item.phone || 'Sin celular'}</span>
+                      <span>{formatRequestWhen(item.createdAt)}</span>
+                    </p>
+                    <p className={`member-requests-card-match${match ? '' : ' is-miss'}`}>
+                      {match ? `Ficha: ${match.name}` : 'Sin ficha automática'}
+                    </p>
                   </div>
-                  <div className="membership-moves-right">
+                  <div className="member-requests-card-side">
                     <span className="membership-moves-chip">{requestStatusLabel(status)}</span>
                     {open ? (
-                      <>
-                        <button type="button" className="membership-moves-link" disabled={busyId === item.id} onClick={() => startDeliver('acceso', item)}>
+                      <div className="member-requests-card-actions">
+                        <button type="button" className="btn btn-primary btn-sm" disabled={busyId === item.id} onClick={() => startDeliver('acceso', item)}>
                           Entregar acceso
                         </button>
-                        {match ? (
-                          <button type="button" className="membership-moves-link" onClick={() => handleResolveAccess(item, { openCreds: true })}>
-                            Credenciales
+                        <div className="member-requests-card-more">
+                          {match ? (
+                            <button type="button" className="membership-moves-link" onClick={() => handleResolveAccess(item, { openCreds: true })}>
+                              Credenciales
+                            </button>
+                          ) : null}
+                          <button type="button" className="membership-moves-link" disabled={busyId === item.id} onClick={() => handleResolveAccess(item)}>
+                            Ya contactado
                           </button>
-                        ) : null}
-                        <button type="button" className="membership-moves-link" disabled={busyId === item.id} onClick={() => handleResolveAccess(item)}>
-                          Ya contactado
-                        </button>
-                        <button
-                          type="button"
-                          className="membership-moves-link"
-                          onClick={() => {
-                            setRejectId(item.id);
-                            setRejectNote('');
-                          }}
-                        >
-                          Rechazar
-                        </button>
-                      </>
+                          <button
+                            type="button"
+                            className="membership-moves-link"
+                            onClick={() => {
+                              setRejectId(item.id);
+                              setRejectNote('');
+                            }}
+                          >
+                            Rechazar
+                          </button>
+                        </div>
+                      </div>
                     ) : null}
                   </div>
                   {rejectId === item.id ? (
@@ -392,45 +416,49 @@ export default function MemberRequestsSection({
             })
             : joinRows.map((item) => {
               const match = joinMatch(item);
-              const color = item.status === 'rejected' ? '#c23b3b' : item.status === 'approved' ? '#1f7a4d' : '#1f7a4d';
+              const color = item.status === 'rejected' ? '#c23b3b' : item.status === 'approved' ? '#1f7a4d' : 'var(--primary-gold)';
               const pending = item.status === 'pending';
               return (
-                <li key={item.id} className="membership-moves-row" style={{ '--move-color': pending ? 'var(--primary-gold)' : color }}>
-                  <div>
-                    <button type="button" className="membership-moves-name" onClick={() => openJoinDetail(item)}>
+                <li key={item.id} className="member-requests-card" style={{ '--move-color': color }}>
+                  <div className="member-requests-card-main">
+                    <button type="button" className="member-requests-card-name" onClick={() => openJoinDetail(item)}>
                       {item.fullName}
-                      <span className="membership-moves-meta">
-                        {item.documentType || 'DNI'} {item.documentNumber || '—'}
-                        {' · '}
-                        {item.phone || 'sin celular'}
-                        {item.requestedTier ? ` · ${getTierDisplayName(item.requestedTier)}` : ''}
-                        {' · '}
-                        {formatRequestWhen(item.createdAt)}
-                        {match ? ` · Ya es socio: ${match.name} Nº ${match.memberId}` : ''}
-                      </span>
                     </button>
+                    <p className="member-requests-card-meta">
+                      <span>{item.documentType || 'DNI'} {item.documentNumber || '—'}</span>
+                      <span>{item.phone || 'Sin celular'}</span>
+                      {item.requestedTier ? <span>{getTierDisplayName(item.requestedTier)}</span> : null}
+                      <span>{formatRequestWhen(item.createdAt)}</span>
+                    </p>
+                    {match ? (
+                      <p className="member-requests-card-match">
+                        Ya es socio: {match.name} · Nº {match.memberId}
+                      </p>
+                    ) : null}
                   </div>
-                  <div className="membership-moves-right">
+                  <div className="member-requests-card-side">
                     <span className="membership-moves-chip">{requestStatusLabel(item.status)}</span>
                     {pending ? (
-                      <>
-                        <button type="button" className="membership-moves-link" disabled={busyId === item.id} onClick={() => startDeliver('alta', item)}>
-                          {match ? 'Actualizar ficha y enviar acceso' : 'Dar de alta y enviar usuario'}
+                      <div className="member-requests-card-actions">
+                        <button type="button" className="btn btn-primary btn-sm" disabled={busyId === item.id} onClick={() => startDeliver('alta', item)}>
+                          {match ? 'Actualizar y enviar' : 'Alta + acceso'}
                         </button>
-                        <button type="button" className="membership-moves-link" onClick={() => onPrefillAlta?.(item)}>
-                          Dar de alta
-                        </button>
-                        <button
-                          type="button"
-                          className="membership-moves-link"
-                          onClick={() => {
-                            setRejectId(item.id);
-                            setRejectNote('');
-                          }}
-                        >
-                          Rechazar
-                        </button>
-                      </>
+                        <div className="member-requests-card-more">
+                          <button type="button" className="membership-moves-link" onClick={() => onPrefillAlta?.(item)}>
+                            Solo alta
+                          </button>
+                          <button
+                            type="button"
+                            className="membership-moves-link"
+                            onClick={() => {
+                              setRejectId(item.id);
+                              setRejectNote('');
+                            }}
+                          >
+                            Rechazar
+                          </button>
+                        </div>
+                      </div>
                     ) : null}
                   </div>
                   {rejectId === item.id ? (
@@ -451,6 +479,7 @@ export default function MemberRequestsSection({
             })}
         </ul>
       )}
+      </div>
     </FoldableSection>
 
       <MemberRequestDetailModal

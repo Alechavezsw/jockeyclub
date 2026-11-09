@@ -37,12 +37,14 @@ const MEMBERS_LIST_SELECT = [
   'overdue_since',
   'document_number',
   'document_type',
+  'joined_at',
   'last_payment_date:meta->>lastPaymentDate',
   'family_principal:meta->>familyPrincipalNumber',
   'family_group_name:meta->>familyGroupName',
   'cuota_categories:meta->cuotaCategories',
   'current_account_as_of:meta->>currentAccountAsOf',
   'unpaid_capital:meta->unpaidCapital',
+  'fecha_alta_raw:meta->>fechaAltaRaw',
 ].join(', ');
 
 /** Solo listado de bajas / inactivos: el padrón activo no los necesita. */
@@ -129,7 +131,25 @@ function listRowToMember(row) {
   } else if (row.unpaidCapital != null && row.unpaidCapital !== '') {
     member.unpaidCapital = Number(row.unpaidCapital) || 0;
   }
-  if (row.has_portal === true) member.hasApp = true;
+  if (row.has_portal === true || row.hasPortal === true) {
+    member.hasApp = true;
+    member.has_portal = true;
+  }
+  {
+    const joinCandidates = [
+      row.joined_at,
+      row.joinDate,
+      row.fecha_alta_raw,
+      row.fechaAltaRaw,
+    ];
+    for (const raw of joinCandidates) {
+      const day = String(raw || '').slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(day) && day > '1900-01-01') {
+        member.joinDate = day;
+        break;
+      }
+    }
+  }
   if (row.baja_motivo || row.bajaMotivo) {
     member.bajaMotivo = row.baja_motivo || row.bajaMotivo;
     member.bajaFecha = row.baja_fecha || row.bajaFecha || null;
@@ -176,6 +196,13 @@ export async function countMembers(status) {
   const { count, error } = await req;
   throwOnError(error, 'No se pudo contar socios');
   return count || 0;
+}
+
+/** Titulares activos (excluye integrantes de grupo familiar). */
+export async function countActiveTitulares() {
+  const { data, error } = await sb().rpc('count_active_titulares');
+  throwOnError(error, 'No se pudo contar titulares');
+  return Number(data) || 0;
 }
 
 // ---- Members ----
@@ -633,6 +660,36 @@ export async function listMemberPayments(memberDbId) {
   return attachRecordedByNames(withImp);
 }
 
+async function resolveMemberPortalFlags(row, member) {
+  if (!member) return member;
+  if (member.profileId || member.profile_id || member.hasApp || member.has_portal) {
+    return {
+      ...member,
+      hasApp: true,
+      has_portal: true,
+    };
+  }
+  if (member.meta?.portalProvisionedAt || member.meta?.portalUsername) {
+    return {
+      ...member,
+      hasApp: true,
+      has_portal: true,
+    };
+  }
+  if (!row?.id) return member;
+  try {
+    const { data, error } = await sb().rpc('member_has_portal', { p_member_id: row.id });
+    if (error || data !== true) return member;
+    return {
+      ...member,
+      hasApp: true,
+      has_portal: true,
+    };
+  } catch {
+    return member;
+  }
+}
+
 async function hydrateMemberRow(row, { withPayments = false } = {}) {
   if (!row) return null;
   const payments = withPayments
@@ -647,7 +704,8 @@ async function hydrateMemberRow(row, { withPayments = false } = {}) {
       'No se pudieron cargar pagos',
     )).map(M.paymentFromRow)))
     : [];
-  return M.memberFromRow(row, payments);
+  const mapped = M.memberFromRow(row, payments);
+  return resolveMemberPortalFlags(row, mapped);
 }
 
 export async function getMemberByNumber(memberNumber, { withPayments = false } = {}) {
@@ -660,6 +718,22 @@ export async function getMemberByNumber(memberNumber, { withPayments = false } =
     'No se pudo cargar el socio'
   );
   return hydrateMemberRow(row, { withPayments });
+}
+
+/** Integrantes del grupo familiar (mismo titular) para la ficha, sin esperar al padrón completo. */
+export async function listHouseholdByPrincipal(principalNumber) {
+  const key = String(principalNumber || '').replace(/\D/g, '');
+  if (!key) return [];
+  const rows = await unwrap(
+    sb()
+      .from('members')
+      .select(MEMBERS_LIST_SELECT)
+      .eq('meta->>familyPrincipalNumber', key)
+      .neq('member_number', key)
+      .order('member_number'),
+    'No se pudo cargar el grupo familiar'
+  );
+  return (rows || []).map((row) => listRowToMember(row)).filter(Boolean);
 }
 
 export async function getMember(memberDbId, { withPayments = false } = {}) {
