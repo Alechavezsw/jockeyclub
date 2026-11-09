@@ -358,6 +358,8 @@ export default function CollectDuesDeskFlow({
                       <span className="cdd-desk-hit-figures">
                         {exempt ? (
                           <span className="cdd-desk-hit-exempt">Exento</span>
+                        ) : preview.clear || (toCollect <= 0.01 && capital <= 0.01) ? (
+                          <span className="cdd-desk-hit-exempt">Al día</span>
                         ) : (
                           <>
                             <span className="cdd-desk-hit-amount tabular-nums">

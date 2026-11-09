@@ -565,7 +565,7 @@ export function collectionPreview(member, today = new Date(), { periodDueOns = n
   const selectedChoices = choices.filter((row) => selected.includes(String(row.dueOn).slice(0, 10)));
   const stored = Number(member?.outstandingBalance) || 0;
 
-  if (selectedChoices.some((row) => row.kind === 'overdue') || stored > 0) {
+  if (selectedChoices.some((row) => row.kind === 'overdue') || stored > 0.01) {
     const quota = money(selectedChoices.reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
     const surcharge = money(selectedChoices.reduce((sum, row) => sum + (Number(row.surcharge) || 0), 0));
     const gross = money(quota + surcharge);
@@ -578,6 +578,23 @@ export function collectionPreview(member, today = new Date(), { periodDueOns = n
       leftover: 0,
       periods: selectedChoices,
       choices,
+      clear: false,
+    };
+  }
+
+  // Al día (saldo 0) y sin mes abierto: no inventar adelanto (ej. diciembre en noviembre).
+  // Con saldo a favor sí se permite imputar al próximo período.
+  if (!selectedChoices.length && stored >= -0.01) {
+    return {
+      quota: 0,
+      surcharge: 0,
+      gross: 0,
+      creditApplied: 0,
+      cash: 0,
+      leftover: 0,
+      periods: [],
+      choices,
+      clear: true,
     };
   }
 
@@ -599,6 +616,7 @@ export function collectionPreview(member, today = new Date(), { periodDueOns = n
     leftover: money(credit - creditApplied),
     periods: selectedChoices,
     choices,
+    clear: false,
   };
 }
 

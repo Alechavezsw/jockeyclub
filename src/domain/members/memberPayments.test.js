@@ -424,6 +424,30 @@ describe('payMemberDues', () => {
     expect(removed.member.outstandingBalance).toBe(-7000);
   });
 
+  it('al día sin mes abierto no inventa cuota (muestra clear)', () => {
+    const member = {
+      memberId: '101600',
+      name: 'Florencia',
+      tier: 'socio_familiar',
+      cuotaCategories: ['SOCIO FAMILIAR'],
+      outstandingBalance: 0,
+      nextDueDate: '2026-12-10',
+      lastPaymentDate: '2026-11-09',
+      paymentHistory: [{
+        id: 'pay-nov',
+        date: '2026-11-09',
+        amount: 70000,
+        status: 'paid',
+        periodDueOns: ['2026-11-10'],
+      }],
+    };
+    const preview = collectionPreview(member, new Date('2026-11-09T15:00:00'));
+    expect(preview.clear).toBe(true);
+    expect(preview.cash).toBe(0);
+    expect(preview.gross).toBe(0);
+    expect(preview.periods).toEqual([]);
+  });
+
   it('el saldo a favor se imputa al próximo pago', () => {
     const member = {
       memberId: '1005',

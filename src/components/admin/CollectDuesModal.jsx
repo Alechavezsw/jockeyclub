@@ -6,7 +6,7 @@ import {
   CLUB_BANK_ACCOUNTS,
   journalAccountForPayment,
 } from '../../domain/members/clubBanks';
-import { collectionPeriodChoices, isDuesExemptMember } from '../../domain/members/dues';
+import { collectionPeriodChoices, formatShortDate, isDuesExemptMember } from '../../domain/members/dues';
 import {
   collectionPreview,
   duesMethodNeedsReceipt,
@@ -255,10 +255,10 @@ export default function CollectDuesModal({
         const number = memberNumberOf(member) || member?.memberId;
         let full = null;
         if (dbId && typeof repos.getMember === 'function') {
-          full = await repos.getMember(dbId);
+          full = await repos.getMember(dbId, { withPayments: true });
         }
         if (!full && number && typeof repos.getMemberByNumber === 'function') {
-          full = await repos.getMemberByNumber(number);
+          full = await repos.getMemberByNumber(number, { withPayments: true });
         }
         if (!cancelled && full) setLiveMember(full);
       } catch {
@@ -294,6 +294,8 @@ export default function CollectDuesModal({
     return collectionPreview(account, new Date(), { periodDueOns: selectedDueOns });
   }, [duesExempt, account, selectedDueOns]);
   const amount = duesExempt || hydrating ? 0 : split.cash;
+  const isClear = !duesExempt && !hydrating && Boolean(split.clear);
+  const nextDueLabel = formatShortDate(account?.nextDueDate) || null;
   const routed = account?.memberId && liveMember?.memberId && account.memberId !== liveMember.memberId;
   const methods = duesExempt ? METHODS.filter((row) => row.id !== 'mercadopago') : METHODS;
   const plans = useMemo(() => activePaymentPlans(paymentPlans), [paymentPlans]);
@@ -658,7 +660,11 @@ export default function CollectDuesModal({
             </h4>
             <p style={{ margin: '0.3rem 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
               {account?.name || liveMember?.name || member?.name}
-              {hydrating ? ' · Actualizando saldo…' : ` · ${formatCurrency(amount)}`}
+              {hydrating
+                ? ' · Actualizando saldo…'
+                : (duesExempt
+                  ? ' · Exento de cuota'
+                  : (isClear ? ' · Al día' : ` · ${formatCurrency(amount)}`))}
             </p>
             {routed ? (
               <p style={{ margin: '0.35rem 0 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
@@ -683,7 +689,26 @@ export default function CollectDuesModal({
           </p>
         ) : null}
 
-        {canPickMonths ? (
+        {isClear ? (
+          <div
+            style={{
+              marginBottom: '1rem',
+              padding: '0.85rem 0.95rem',
+              borderRadius: 10,
+              border: '1px solid rgba(16, 185, 129, 0.35)',
+              background: 'rgba(16, 185, 129, 0.08)',
+            }}
+          >
+            <p style={{ margin: 0, fontWeight: 700, color: 'var(--emerald-accent)' }}>Al día</p>
+            <p style={{ margin: '0.35rem 0 0', fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
+              {nextDueLabel
+                ? `No debe cuota ahora. Próximo vencimiento ${nextDueLabel}.`
+                : 'No debe cuota ahora.'}
+            </p>
+          </div>
+        ) : null}
+
+        {!isClear && canPickMonths ? (
           <div style={{ marginBottom: '1rem' }}>
             <p style={{ margin: '0 0 0.55rem', fontSize: '0.78rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-gold)' }}>
               Meses del recibo
@@ -727,7 +752,7 @@ export default function CollectDuesModal({
           </div>
         ) : null}
 
-        {split.gross > 0 ? (
+        {!isClear && split.gross > 0 ? (
           <div style={{
             display: 'grid',
             gridTemplateColumns: `repeat(${1 + (split.surcharge > 0 ? 1 : 0) + (split.creditApplied > 0 ? 1 : 0) + (split.surcharge > 0 || split.creditApplied > 0 || canPickMonths ? 1 : 0)}, minmax(0, 1fr))`,
@@ -763,6 +788,8 @@ export default function CollectDuesModal({
           </div>
         ) : null}
 
+        {!isClear ? (
+        <>
         <p style={{ margin: '0 0 0.65rem', fontSize: '0.78rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-gold)' }}>
           Método de pago
         </p>
@@ -1125,12 +1152,14 @@ export default function CollectDuesModal({
         {error && (
           <p role="alert" style={{ color: '#ef4444', margin: '0 0 0.75rem', fontSize: '0.88rem' }}>{error}</p>
         )}
+        </>
+        ) : null}
 
         <div style={{ display: 'flex', gap: '0.65rem', justifyContent: 'flex-end', flexWrap: 'wrap', borderTop: '1px solid var(--border-glass)', paddingTop: '1rem' }}>
           <button type="button" className="btn btn-secondary" onClick={onClose}>
-            Cancelar
+            {isClear ? 'Cerrar' : 'Cancelar'}
           </button>
-          {method === 'mercadopago' ? null : (
+          {!isClear && method !== 'mercadopago' ? (
             <button
               type="button"
               className="btn btn-primary"
@@ -1146,7 +1175,7 @@ export default function CollectDuesModal({
                     ? 'Registrar pago mixto'
                     : 'Registrar con comprobante')}
             </button>
-          )}
+          ) : null}
         </div>
     </ModalDialog>
   );
