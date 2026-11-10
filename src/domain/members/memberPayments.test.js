@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { money } from '../money';
 import {
   applyImportedMemberPayment,
+  cobroPeriods,
   collectionPreview,
   isDuesCollectionJournal,
   journalEntryBelongsToMember,
@@ -13,6 +14,7 @@ import {
   validatePaymentSplits,
   voidMemberDuesPayment,
 } from './memberPayments';
+import { setRuntimeTierCatalog } from './tiers';
 
 describe('journal de cuota en la ficha', () => {
   const cobro = {
@@ -103,6 +105,45 @@ describe('payMemberDues', () => {
     expect(payment.imputations.some((row) => row.dueOn === first.dueOn)).toBe(true);
     expect(payment.quota + payment.surcharge).toBe(payment.amount);
     expect(next.outstandingBalance).toBe(money(member.outstandingBalance - payment.quota));
+  });
+
+  it('el cobro de Campos manda septiembre, octubre y noviembre, no un saldo anterior', () => {
+    setRuntimeTierCatalog([
+      { id: 'socio_individual', name: 'SOCIO INDIVIDUAL', monthlyDues: 40000, sortOrder: 1 },
+    ]);
+    const member = {
+      memberId: '7037',
+      name: 'Ivana Campos',
+      tier: 'socio_individual',
+      status: 'active',
+      outstandingBalance: 123600,
+      unpaidCapital: 116000,
+      unpaidSurcharges: 7600,
+      nextDueDate: null,
+      lastPaymentDate: null,
+      cuotaCategories: ['SOCIO INDIVIDUAL'],
+      paymentHistory: [],
+    };
+    const result = recordDuesCollection(member, {
+      method: 'efectivo',
+      amount: 128000,
+      today: new Date(2026, 10, 10, 12, 0, 0),
+      periodDueOns: ['2026-09-10', '2026-10-10', '2026-11-10'],
+    });
+    try {
+      const periods = cobroPeriods(result.member, result.payment);
+      expect(periods.schedule.map((row) => row.dueOn)).toEqual([
+        '2026-09-10',
+        '2026-10-10',
+        '2026-11-10',
+      ]);
+      expect(periods.schedule.map((row) => row.capital)).toEqual([40000, 40000, 40000]);
+      expect(periods.schedule.map((row) => row.lateBase)).toEqual([40000, 40000, 40000]);
+      expect(periods.bakedSurcharge).toBe(3600);
+      expect(periods.surcharge).toBe(8000);
+    } finally {
+      setRuntimeTierCatalog(null);
+    }
   });
 
   it('recordDuesCollection acredita efectivo y deja asiento + diario', () => {

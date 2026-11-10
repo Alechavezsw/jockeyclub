@@ -1021,11 +1021,16 @@ export function localDuesPayment(previous, next) {
 }
 
 function cobroSchedule(member, payment) {
+  // La ficha que llega acá ya tiene el cobro en el historial y el vencimiento
+  // del mes que sigue. Si se usa esa foto, los meses del recibo figuran pagos
+  // y todo el saldo cae en 1900-01-10, sin lugar para el interés.
+  const history = (member?.paymentHistory || []).filter((row) => row && row.id !== payment?.id);
   const before = {
     ...member,
+    paymentHistory: history,
     outstandingBalance: payment.balanceBefore ?? member.outstandingBalance,
-    nextDueDate: payment.nextDueBefore || member.nextDueDate,
-    lastPaymentDate: payment.lastPaymentBefore ?? member.lastPaymentDate,
+    nextDueDate: payment && 'nextDueBefore' in payment ? payment.nextDueBefore : member.nextDueDate,
+    lastPaymentDate: payment && 'lastPaymentBefore' in payment ? payment.lastPaymentBefore : member.lastPaymentDate,
   };
   const paidOn = payment.paidAt || payment.date || new Date();
   const balance = Math.max(Number(before.outstandingBalance) || 0, 0);
@@ -1038,7 +1043,7 @@ function cobroSchedule(member, payment) {
   return openPeriodsFromChoices(choices, scheduleBalance);
 }
 
-function cobroPeriods(member, payment) {
+export function cobroPeriods(member, payment) {
   const schedule = cobroSchedule(member, payment);
   const scheduleCapital = schedule.reduce((sum, row) => sum + (Number(row.capital) || 0), 0);
   const balance = Math.max(Number(payment.balanceBefore ?? member?.outstandingBalance) || 0, 0);
