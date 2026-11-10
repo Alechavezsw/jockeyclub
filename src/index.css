@@ -22207,6 +22207,29 @@ a.ops-outline-btn {
   }
 }
 
+/* Rendición de portería */
+.gate-income { display: flex; flex-direction: column; gap: 1.15rem; max-width: 820px; }
+.gate-income-form { padding: 1.15rem 1.25rem 1.3rem; display: flex; flex-direction: column; gap: 0.85rem; }
+.gate-income-head p { margin: 0.3rem 0 0; font-size: 0.82rem; color: var(--text-secondary); }
+.gate-income-title { margin: 0; font-size: 1.35rem; display: flex; align-items: center; gap: 0.45rem; }
+.gate-income-kinds { display: flex; gap: 0.4rem; }
+.gate-income-kind {
+  flex: 1;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.12));
+  background: transparent;
+  color: inherit;
+  border-radius: 999px;
+  padding: 0.45rem 0.75rem;
+  cursor: pointer;
+}
+.gate-income-kind.is-on {
+  border-color: var(--text-gold, #b08d57);
+  color: var(--text-gold, #b08d57);
+}
+.gate-income-field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.78rem; }
+.gate-income-error { margin: 0; color: #ef4444; }
+.gate-income-ok { margin: 0; color: var(--emerald-accent); }
+
 /* Otros ingresos (LILA-style form) */
 .oi-panel { display: flex; flex-direction: column; gap: 1rem; }
 .oi-form-header { display: flex; align-items: center; gap: 0.85rem; flex-wrap: wrap; }

@@ -64,6 +64,41 @@ export async function listSystemAdminProfiles() {
   ));
 }
 
+function porterDisplayName(row) {
+  const full = String(row?.full_name || '').trim();
+  if (full) return full;
+  const parts = [row?.first_name, row?.last_name].map((part) => String(part || '').trim()).filter(Boolean);
+  return parts.join(' ');
+}
+
+/** Operadores de portería: id y nombre, para elegir quién rinde. */
+export async function listGateOperators() {
+  const [byRole, byColumn] = await Promise.all([
+    unwrap(
+      sb().from('profile_roles').select('profile_id').eq('role_key', 'gate_operator').is('revoked_at', null),
+      'No se pudieron cargar los porteros'
+    ),
+    unwrap(
+      sb().from('profiles').select('id').eq('role', 'gate_operator'),
+      'No se pudieron cargar los porteros'
+    ),
+  ]);
+  const ids = [...new Set([
+    ...(byRole || []).map((row) => row.profile_id),
+    ...(byColumn || []).map((row) => row.id),
+  ].filter(Boolean))];
+  if (!ids.length) return [];
+  const rows = await unwrap(
+    sb().from('profiles').select('id, full_name, first_name, last_name, is_active').in('id', ids),
+    'No se pudieron cargar los porteros'
+  );
+  return (rows || [])
+    .filter((row) => row.is_active !== false)
+    .map((row) => ({ id: row.id, fullName: porterDisplayName(row) }))
+    .filter((row) => row.fullName)
+    .sort((a, b) => a.fullName.localeCompare(b.fullName, 'es'));
+}
+
 export async function getProfile(profileId) {
   if (!isUuid(profileId)) throw new Error('Perfil inválido');
   const row = await unwrap(

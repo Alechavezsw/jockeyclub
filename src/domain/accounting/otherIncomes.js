@@ -101,6 +101,9 @@ export function createOtherIncome({
   notes = '',
   signatureLegend = '',
   attachments = [],
+  renderedBy = '',
+  renderedById = '',
+  bookNumber = '',
 }) {
   if (!OTHER_INCOME_PAYERS[payerType]) throw new Error('Origen inválido.');
   if (!OTHER_INCOME_PAYMENT_METHODS[paymentMethod]) throw new Error('Medio de cobro inválido.');
@@ -147,6 +150,9 @@ export function createOtherIncome({
     contact: String(contact || '').trim(),
     operationRef: String(operationRef || '').trim(),
     notes: String(notes || '').trim(),
+    renderedBy: String(renderedBy || '').trim(),
+    renderedById: String(renderedById || '').trim(),
+    bookNumber: String(bookNumber || '').trim(),
     signatureLegend: String(signatureLegend || '').trim(),
     attachments: Array.isArray(attachments) ? attachments : [],
     status: 'posted',
@@ -197,10 +203,20 @@ export function journalForOtherIncome(item, chart) {
 
   const isPorteria = item.group === 'porteria'
     || /porter[ií]a|estacionamiento/i.test(String(item.concept || ''));
-  const prefix = isPorteria ? 'Rendición portería' : 'Otro ingreso';
+  const who = String(item.renderedBy || '').trim();
+  const prefix = isPorteria
+    ? (/estacionamiento/i.test(String(item.concept || '')) ? 'Rendición estacionamiento' : 'Rendición portería')
+    : 'Otro ingreso';
+  const book = String(item.bookNumber || '').trim();
+  const detail = String(item.notes || '').trim();
+  let description = isPorteria && who
+    ? `${prefix} — rindió ${who}`
+    : `${prefix}: ${item.concept}${item.payerName ? ` — ${item.payerName}` : ''}`;
+  if (isPorteria && book) description += ` · talonario ${book}`;
+  if (isPorteria && detail) description += ` · ${detail}`;
   return buildPostedEntry({
     date: String(item.date || '').slice(0, 10),
-    description: `${prefix}: ${item.concept}${item.payerName ? ` — ${item.payerName}` : ''}`,
+    description,
     lines: [
       { accountId: treasuryId, debit: amount, credit: 0 },
       { accountId: incomeId, debit: 0, credit: amount },

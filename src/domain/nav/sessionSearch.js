@@ -9,6 +9,7 @@ const ADMIN_SECTIONS = [
   { key: 'pool', title: 'Pileta', keywords: 'pileta natacion canon' },
   { key: 'pool_gate', title: 'Entrada pileta', keywords: 'entrada pileta puerta apto invitado' },
   { key: 'access', title: 'Ingresos', keywords: 'ingresos porteria acceso' },
+  { key: 'gate_income', title: 'Ingresos portería', keywords: 'ingresos porteria rendicion estacionamiento rindio' },
   { key: 'accounting', title: 'Contabilidad', keywords: 'contabilidad padron catalogo' },
   { key: 'books', title: 'Libros', keywords: 'libros diario mayor asientos contabilidad partida doble' },
   { key: 'informes', title: 'Informes', keywords: 'informes balance resultados graficos reportes contables' },

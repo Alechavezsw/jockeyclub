@@ -4,7 +4,7 @@ import {
   Users, Calendar, DollarSign, Activity, ShieldAlert,
   BookOpen, Book, ClipboardList, MessageSquare, Phone, Wallet, PieChart,
   FileSpreadsheet, Radio, Database, BellRing, PartyPopper, Trophy, Store, DoorOpen, QrCode, Newspaper, CreditCard,
-  LayoutDashboard, ChevronRight, Briefcase, Headset, Settings, SlidersHorizontal, Building2, Waves, GraduationCap, Sparkles, TicketCheck,
+  LayoutDashboard, ChevronRight, Briefcase, Headset, Settings, SlidersHorizontal, Building2, Waves, GraduationCap, Sparkles, TicketCheck, Banknote,
 } from 'lucide-react';
 import { DEFAULT_POOL_SETTINGS } from '../domain/pool/poolAccess';
 import { DEFAULT_CHART_OF_ACCOUNTS, resolveAccountId } from '../domain/accounting/chartOfAccounts';
@@ -61,6 +61,7 @@ const SystemSettingsTab = lazy(() => import('../components/admin/SystemSettingsT
 const CuotasPanel = lazy(() => import('../components/erp/CuotasPanel'));
 const DisciplinesTab = lazy(() => import('../components/admin/DisciplinesTab'));
 const AccessLogsTab = lazy(() => import('../components/admin/AccessLogsTab'));
+const PorteriaIncomePanel = lazy(() => import('../components/erp/PorteriaIncomePanel'));
 const ClubFacilitiesPanel = lazy(() => import('../components/admin/ClubFacilitiesPanel'));
 const NewsCmsTab = lazy(() => import('../components/admin/NewsCmsTab'));
 const SystemAdminTab = lazy(() => import('../components/admin/SystemAdminTab'));
@@ -615,6 +616,7 @@ export default function AdminView({
             badge: (reservations || []).filter((r) => r?.status === 'pending' && !r?.occupancyOnly).length || null,
           },
           { key: 'access', icon: DoorOpen, label: 'Ingresos' },
+          { key: 'gate_income', icon: Banknote, label: 'Ingresos portería' },
           { key: 'qr_gate', icon: QrCode, label: 'Acceso QR' },
           {
             key: 'pool',
@@ -1433,6 +1435,16 @@ export default function AdminView({
           entryLogs={entryLogs}
           poolAccesses={poolAccesses}
           onOpenGate={() => navigate('/acceso')}
+        />
+      )}
+
+      {activeTab === 'gate_income' && (
+        <PorteriaIncomePanel
+          items={erp.otherIncomes}
+          onCreate={erp.createOtherIncomeRecord}
+          rendererId={user?.id || ''}
+          rendererName={user?.fullName || ''}
+          rendererIsPorter={user?.role === 'gate_operator' || (user?.roles || []).some((role) => role?.roleKey === 'gate_operator')}
         />
       )}
 

@@ -165,6 +165,7 @@ describe('allowedAdminTabs', () => {
     expect(tabs).toContain('caja');
     expect(tabs).not.toContain('operation');
     expect(tabs).toContain('access');
+    expect(tabs).toContain('gate_income');
     expect(tabs).not.toContain('migration');
   });
 

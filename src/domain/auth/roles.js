@@ -120,6 +120,7 @@ export const ALL_ADMIN_TABS = [
   'disciplines',
   'pool',
   'access',
+  'gate_income',
   'accounting',
   'books',
   'informes',
@@ -279,10 +280,10 @@ export function allowedAdminTabs(role) {
   }
   // Operador de portería: caja + portería / ingresos.
   if (role === 'gate_operator') {
-    return ['dashboard', 'jev', 'members', 'pool', 'access', 'caja'];
+    return ['dashboard', 'jev', 'members', 'pool', 'access', 'gate_income', 'caja'];
   }
   if (role === 'cashier') {
-    return ['dashboard', 'jev', 'members', 'dues', 'access', 'caja', 'events'];
+    return ['dashboard', 'jev', 'members', 'dues', 'access', 'gate_income', 'caja', 'events'];
   }
   // Empleado de administración: el mostrador, más los débitos. Pileta no arma archivos.
   if (role === 'admin_employee') {

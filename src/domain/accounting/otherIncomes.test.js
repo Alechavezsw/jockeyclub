@@ -75,4 +75,59 @@ describe('otherIncomes', () => {
     expect(entry.description).toMatch(/Rendición portería/i);
     expect(entry.lines.some((line) => line.accountId === 'coa-1.1.01' && line.debit === 45000)).toBe(true);
   });
+
+  it('la rendición nombra a quien rinde', () => {
+    const income = createOtherIncome({
+      date: '2026-11-10',
+      payerName: 'Ana López',
+      renderedBy: 'Ana López',
+      concept: 'Rendición portería',
+      group: 'porteria',
+      paymentMethod: 'efectivo',
+      amount: 12000,
+    });
+    expect(income.renderedBy).toBe('Ana López');
+    const entry = journalForOtherIncome(income, DEFAULT_CHART_OF_ACCOUNTS);
+    expect(entry.description).toBe('Rendición portería — rindió Ana López');
+  });
+
+  it('la rendición lleva talonario y descripción', () => {
+    const income = createOtherIncome({
+      date: '2026-11-10',
+      payerName: 'Ana López',
+      renderedBy: 'Ana López',
+      concept: 'Rendición portería',
+      group: 'porteria',
+      paymentMethod: 'efectivo',
+      amount: 12000,
+      bookNumber: '145',
+      notes: 'Visitas del sábado',
+    });
+    expect(income.bookNumber).toBe('145');
+    const entry = journalForOtherIncome(income, DEFAULT_CHART_OF_ACCOUNTS);
+    expect(entry.description).toBe('Rendición portería — rindió Ana López · talonario 145 · Visitas del sábado');
+  });
+
+  it('en el plan de la nube el debe cae en Caja General', () => {
+    const chart = [
+      { id: 'aaaaaaaa-0001-0001-0001-000000000111', code: '1.1.01', name: 'Caja General', isPostable: true, accountType: 'asset' },
+      { id: 'aaaaaaaa-0004-0004-0004-000000000113', code: '4.1.03', name: 'Eventos y Fiestas', isPostable: true, accountType: 'income' },
+    ];
+    const income = createOtherIncome({
+      date: '2026-11-10',
+      payerName: 'Ana López',
+      renderedBy: 'Ana López',
+      concept: 'Rendición portería',
+      group: 'porteria',
+      paymentMethod: 'efectivo',
+      amount: 12000,
+      bookNumber: '145',
+      notes: 'Visitas del sábado',
+    });
+    const entry = journalForOtherIncome(income, chart);
+    expect(entry.lines.find((line) => line.debit > 0)?.accountId)
+      .toBe('aaaaaaaa-0001-0001-0001-000000000111');
+    expect(entry.lines.find((line) => line.credit > 0)?.accountId)
+      .toBe('aaaaaaaa-0004-0004-0004-000000000113');
+  });
 });

@@ -269,6 +269,8 @@ export function asCobranzaFromOtherIncome(item) {
   if (!amount) return null;
   const porteria = item.group === 'porteria'
     || /porter[ií]a|estacionamiento/i.test(String(item.concept || ''));
+  const who = String(item.renderedBy || item.meta?.renderedBy || '').trim();
+  const base = item.concept || (porteria ? 'Rendición portería' : 'Otro ingreso');
   return {
     id: `live-oi-${item.id}`,
     date,
@@ -278,11 +280,19 @@ export function asCobranzaFromOtherIncome(item) {
     paymentMethod: item.paymentMethod || 'efectivo',
     paymentMethodLabel: item.paymentMethodLabel || 'Efectivo',
     memberNumber: item.payerType === 'member' ? (item.documentId || '') : '',
-    memberName: item.payerName || '',
-    concept: item.concept || (porteria ? 'Rendición portería' : 'Otro ingreso'),
-    description: item.concept || (porteria ? 'Rendición portería' : 'Otro ingreso'),
+    memberName: who || item.payerName || '',
+    concept: base,
+    description: porteria
+      ? [
+        who ? `${base} — rindió ${who}` : base,
+        String(item.bookNumber || item.meta?.bookNumber || '').trim()
+          ? `talonario ${String(item.bookNumber || item.meta?.bookNumber || '').trim()}`
+          : '',
+        String(item.notes || '').trim(),
+      ].filter(Boolean).join(' · ')
+      : base,
     group: item.group || null,
-    receiptId: item.documentId || item.id,
+    receiptId: item.bookNumber || item.meta?.bookNumber || item.documentId || item.id,
     origin: 'app',
   };
 }
