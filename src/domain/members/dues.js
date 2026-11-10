@@ -895,10 +895,24 @@ function expandChoicesToCoverBalance(member, choices, paidOn, coveredDueOns = nu
 }
 
 /**
- * Saldo sin vencimiento que entra justo en N cuotas vigentes.
+ * Diferencia entre la cuota de ahora y la de septiembre 2026.
+ * Lila a veces guardó un mes a tarifa vieja dentro del capital.
+ */
+function cuotaTariffStep(member, paidOn) {
+  const current = money(duesAmountForMember(member, paidOn));
+  const from = parseDate(DUES_TARIFF_FROM);
+  if (!from) return 0;
+  const previous = money(duesAmountForMember(member, new Date(from.getTime() - DAY_MS)));
+  return Math.abs(money(current - previous));
+}
+
+/**
+ * Saldo sin vencimiento que entra en N cuotas vigentes.
  * No se desarma con la tarifa vieja (septiembre a $36.000) ni con el recargo
  * que Lila dejó metido en el saldo: son N meses de la cuota de ahora,
  * desde el mes en curso hacia atrás.
+ * Un capital como 116.000 (36.000 + 40.000 + 40.000) no abre agosto por el
+ * recargo ni baja septiembre: septiembre también sale a la cuota vigente.
  */
 function lumpMonthsAtCurrentCuota(member, paidOn, paidSet) {
   if (pinDuesDueDate(member?.nextDueDate, member)) return null;
@@ -911,7 +925,8 @@ function lumpMonthsAtCurrentCuota(member, paidOn, paidSet) {
   const count = Math.round(capital / monthly);
   if (count < 1 || count > 18) return null;
   const gap = Math.abs(money(capital - count * monthly));
-  if (gap > money(monthly * 0.02)) return null;
+  const allowedGap = money(Math.max(monthly * 0.02, cuotaTariffStep(member, paidOn)));
+  if (gap > allowedGap) return null;
 
   const day = duesDueDayForMember(member);
   const tier = String(member?.tier || '').trim().toLowerCase();

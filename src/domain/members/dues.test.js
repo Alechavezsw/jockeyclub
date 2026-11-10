@@ -885,4 +885,34 @@ describe('collectionPeriodChoices vs saldo de ficha', () => {
     expect(preview.surcharge).toBe(8000);
     expect(preview.cash).toBe(128000);
   });
+
+  it('capital con un mes a tarifa vieja no inventa agosto ni baja septiembre', () => {
+    setRuntimeTierCatalog([
+      { id: 'socio_individual', name: 'SOCIO INDIVIDUAL', monthlyDues: 40000, sortOrder: 1 },
+    ]);
+    const member = {
+      memberId: '7037',
+      name: 'Ivana Campos',
+      tier: 'socio_individual',
+      status: 'active',
+      outstandingBalance: 123600,
+      unpaidCapital: 116000,
+      unpaidSurcharges: 7600,
+      nextDueDate: null,
+      cuotaCategories: ['SOCIO INDIVIDUAL'],
+    };
+    const today = new Date(2026, 10, 10, 12, 0, 0);
+    const choices = collectionPeriodChoices(member, today);
+    expect(choices.map((row) => ({
+      dueOn: row.dueOn,
+      capital: row.capital,
+      surcharge: row.surcharge,
+      kind: row.kind,
+    }))).toEqual([
+      { dueOn: '2026-09-10', capital: 40000, surcharge: 4000, kind: 'overdue' },
+      { dueOn: '2026-10-10', capital: 40000, surcharge: 4000, kind: 'overdue' },
+      { dueOn: '2026-11-10', capital: 40000, surcharge: 0, kind: 'upcoming' },
+    ]);
+    expect(choices.some((row) => row.dueOn === '2026-08-10')).toBe(false);
+  });
 });
