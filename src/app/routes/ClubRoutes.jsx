@@ -112,6 +112,7 @@ export default function ClubRoutes({
         reservations={reservations}
         cancelReservation={cancelReservation}
         addReservation={addReservation}
+        setReservations={setReservations}
         setCurrentView={setCurrentView}
         latestNews={newsList}
         staffMembers={staffMembers}

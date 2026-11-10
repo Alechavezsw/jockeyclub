@@ -80,6 +80,7 @@ export async function updateReservation(id, patch) {
   const metaFields = [
     'guestNames', 'facilityName', 'endTime', 'estimatedPrice', 'chargedPrice',
     'depositAmount', 'depositRate', 'paymentMethod', 'mpIntentId',
+    'paidInFull', 'balancePaidAt', 'balanceAmount', 'balancePaymentMethod',
     'imputed', 'feeImputed', 'imputedAt', 'imputationEntryId',
     'accountEntry', 'balanceBefore',
   ];
@@ -105,6 +106,18 @@ export async function updateReservation(id, patch) {
     rethrowReservation(err);
   }
   return M.reservationFromRow(saved);
+}
+
+/** Cobra el saldo del alquiler y lo deja saldado. El asiento queda en la base. */
+export async function completeReservationPayment(id, method = 'efectivo') {
+  const data = await unwrap(
+    sb().rpc('completar_pago_reserva', {
+      p_id: id,
+      p_method: method || 'efectivo',
+    }),
+    'No se pudo completar el pago de la reserva',
+  );
+  return data || {};
 }
 
 export async function listWaitlist() {

@@ -42,6 +42,28 @@ export function reservationBalanceAfterDeposit(totalOrFacility, reservation = nu
   return Math.max(0, total - reservationDepositAmount(total));
 }
 
+/** Lo ya cobrado de esta reserva: total, seña cargada o nada. */
+export function reservationCollectedAmount(reservation) {
+  const total = reservationTotalPrice(null, reservation);
+  if (!(total > 0)) return 0;
+  const charged = Number(reservation?.chargedPrice);
+  if (Number.isFinite(charged) && charged + 0.5 >= total) return total;
+  if (reservation?.paidInFull === true) return total;
+  if (/Pago:\s*total alquiler/i.test(String(reservation?.notes || ''))) return total;
+  if (Number.isFinite(charged) && charged > 0) return Math.min(total, Math.round(charged));
+  const deposit = Number(reservation?.depositAmount);
+  if (String(reservation?.paymentMethod || '').trim() && Number.isFinite(deposit) && deposit > 0) {
+    return Math.min(total, Math.round(deposit));
+  }
+  return 0;
+}
+
+/** Lo que falta para dejar el alquiler saldado. */
+export function reservationOpenBalance(reservation) {
+  const total = reservationTotalPrice(null, reservation);
+  return Math.max(0, total - reservationCollectedAmount(reservation));
+}
+
 export function addDaysIso(iso, days) {
   const [y, m, d] = String(iso || '').split('-').map(Number);
   if (!y || !m || !d) return '';

@@ -18,6 +18,7 @@ import {
   yearsOnClub,
 } from '../domain/members/membership';
 import { upcomingMemberReservations } from '../domain/reservations/memberBookings';
+import MemberReservationCard from '../components/MemberReservationCard';
 import { todayISODateAR } from '../lib/arDate';
 import { DISCIPLINE_COLORS, resolveDiscipline } from '../domain/sports/disciplines';
 import {
@@ -59,6 +60,7 @@ export default function DashboardView({
   reservations, 
   cancelReservation,
   addReservation,
+  setReservations,
   setCurrentView, 
   latestNews,
   claims = [],
@@ -1153,28 +1155,20 @@ export default function DashboardView({
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                {upcomingBookings.map(res => (
-                  <div key={res.id} className="db-res-item">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                      <div style={{ width: 40, height: 40, borderRadius: '12px', background: 'rgba(16,185,129,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                        <Calendar size={18} color="var(--emerald-accent)" />
-                      </div>
-                      <div>
-                        <p style={{ fontSize: '0.88rem', fontWeight: '600', color: 'var(--text-primary)' }}>{res.facilityName}</p>
-                        <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                          <MapPin size={10} color="var(--primary-gold)" /> {res.date} · {res.time} hs
-                        </p>
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                      <span className={`status-tag ${res.status}`} style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem' }}>
-                        {res.status === 'confirmed' ? '✓ Confirmado' : '⏳ Pendiente'}
-                      </span>
-                      <button onClick={() => cancelReservation(res.id)} className="btn btn-danger btn-sm" style={{ fontSize: '0.72rem', padding: '0.25rem 0.6rem' }}>
-                        Cancelar
-                      </button>
-                    </div>
-                  </div>
+                {upcomingBookings.map((res) => (
+                  <MemberReservationCard
+                    key={res.id}
+                    reservation={res}
+                    member={profile}
+                    canPay={canOperateAccount}
+                    onCancel={cancelReservation}
+                    onSettled={(row) => {
+                      if (typeof setReservations !== 'function') return;
+                      setReservations((prev) => (prev || []).map((item) => (
+                        item.id === row.id ? { ...item, ...row } : item
+                      )));
+                    }}
+                  />
                 ))}
               </div>
             )}

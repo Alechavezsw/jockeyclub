@@ -18,8 +18,14 @@ import {
   buildBookingReceiptFromReservation,
   reservationPaidInFull,
 } from '../../domain/reservations/bookingReceipt';
-import { reservationTotalPrice } from '../../domain/reservations/bookingRules';
+import {
+  reservationOpenBalance,
+  reservationTotalPrice,
+} from '../../domain/reservations/bookingRules';
 import { downloadPaymentReceiptPdf } from '../../domain/members/exportPaymentReceiptPdf';
+import { deliverPaymentReceipt } from '../../domain/payments/deliverPaymentReceipt';
+import { completeReservationPayment } from '../../data/repos/reservations';
+import { isSupabaseConfigured } from '../../lib/supabase';
 import {
   paymentReceiptShareTargets,
   sendDuesReceiptMessage,
@@ -392,6 +398,58 @@ export default function BookingsTab({
     }
   };
 
+  const completeBookingPayment = async (res) => {
+    const balance = reservationOpenBalance(res);
+    if (!(balance > 0) || res?.status === 'cancelled') return;
+    const total = reservationTotalPrice(null, res);
+    setActionsBusyKey(`settle:${res.id}`);
+    setActionsError('');
+    setActionsNotice('');
+    try {
+      let next = {
+        ...res,
+        chargedPrice: total,
+        paidInFull: true,
+        balanceAmount: balance,
+        balancePaidAt: todayAR(),
+        balancePaymentMethod: 'efectivo',
+        notes: /Pago:\s*total alquiler/i.test(String(res.notes || ''))
+          ? res.notes
+          : [res.notes, 'Pago: total alquiler'].filter(Boolean).join('\n'),
+      };
+      const cloudId = /^[0-9a-f-]{36}$/i.test(String(res.id || ''));
+      if (isSupabaseConfigured && cloudId) {
+        const saved = await completeReservationPayment(res.id, 'efectivo');
+        next = {
+          ...next,
+          chargedPrice: Number(saved?.chargedPrice) || total,
+          paidInFull: true,
+          balanceAmount: Number(saved?.balance) || balance,
+        };
+      }
+      if (typeof setReservations === 'function') {
+        setReservations((prev) => (prev || []).map((row) => (
+          row.id === res.id ? { ...row, ...next } : row
+        )));
+      }
+      const member = memberForReservation(next, members);
+      const payment = buildBookingReceiptFromReservation(next, { member, payFull: true });
+      void deliverPaymentReceipt({
+        member,
+        payment,
+        onSendMessage,
+        kind: 'reserva',
+      });
+      setActionsNotice('Alquiler saldado. El comprobante del total sale solo.');
+      setOpenActionsId(res.id);
+    } catch (err) {
+      setActionsError(err?.message || 'No se pudo completar el pago.');
+      setOpenActionsId(res.id);
+    } finally {
+      setActionsBusyKey('');
+    }
+  };
+
   const downloadBookingReceipt = async (payFull) => {
     if (!receiptTarget || receiptBusy) return;
     const total = reservationTotalPrice(null, receiptTarget);
@@ -485,9 +543,25 @@ export default function BookingsTab({
                   )}
                 </td>
                 <td>
-                  <span className={`bookings-status ${res.status}`}>
-                    {statusLabel(res.status)}
-                  </span>
+                  <div className="bookings-settle">
+                    <span className={`bookings-status ${res.status}`}>
+                      {statusLabel(res.status)}
+                    </span>
+                    {res.status !== 'cancelled' && reservationOpenBalance(res) > 0 ? (
+                      <button
+                        type="button"
+                        className="bookings-settle-btn"
+                        disabled={actionsBusyKey === `settle:${res.id}`}
+                        onClick={() => completeBookingPayment(res)}
+                      >
+                        {actionsBusyKey === `settle:${res.id}` ? 'Guardando…' : 'Completar pago'}
+                        <small>{formatMoney(reservationOpenBalance(res))}</small>
+                      </button>
+                    ) : null}
+                    {res.status !== 'cancelled' && reservationTotalPrice(null, res) > 0 && reservationOpenBalance(res) <= 0 ? (
+                      <span className="bookings-settle-note" style={{ color: 'var(--emerald-accent)' }}>Alquiler saldado</span>
+                    ) : null}
+                  </div>
                 </td>
                 <td style={{ textAlign: 'right' }}>
                   {(() => {
@@ -946,6 +1020,40 @@ export default function BookingsTab({
           color: var(--emerald-accent);
           background: rgba(16, 185, 129, 0.12);
           border-color: rgba(16, 185, 129, 0.28);
+        }
+        .bookings-settle {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 0.35rem;
+          margin-top: 0.45rem;
+        }
+        .bookings-settle-btn {
+          border: 1px solid var(--text-gold);
+          background: transparent;
+          color: var(--text-gold);
+          border-radius: 999px;
+          padding: 0.28rem 0.7rem;
+          font: inherit;
+          font-size: 0.72rem;
+          font-weight: 700;
+          cursor: pointer;
+          text-align: left;
+        }
+        .bookings-settle-btn:disabled {
+          opacity: 0.6;
+          cursor: wait;
+        }
+        .bookings-settle-btn small {
+          display: block;
+          font-weight: 550;
+          color: var(--text-secondary);
+        }
+        .bookings-settle-note {
+          margin: 0;
+          font-size: 0.68rem;
+          line-height: 1.3;
+          max-width: 11rem;
         }
         .bookings-status.pending {
           color: var(--warning-accent);

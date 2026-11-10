@@ -9,6 +9,8 @@ import {
   reservationTotalPrice,
   reservationDepositAmount,
   reservationBalanceAfterDeposit,
+  reservationCollectedAmount,
+  reservationOpenBalance,
   RESERVATION_DEPOSIT_RATE,
 } from './bookingRules.js';
 
@@ -200,5 +202,19 @@ describe('seña 50 % de la reserva', () => {
     expect(reservationBalanceAfterDeposit(100001)).toBe(50000);
     expect(reservationDepositAmount({ estimatedPrice: 80000 })).toBe(0);
     expect(reservationDepositAmount(null, { estimatedPrice: 80000 })).toBe(40000);
+  });
+
+  it('el saldo abierto es el resto después de la seña', () => {
+    const reservation = {
+      estimatedPrice: 130000,
+      depositAmount: 65000,
+      paymentMethod: 'mercadopago',
+    };
+    expect(reservationCollectedAmount(reservation)).toBe(65000);
+    expect(reservationOpenBalance(reservation)).toBe(65000);
+    expect(reservationOpenBalance({
+      ...reservation,
+      chargedPrice: 130000,
+    })).toBe(0);
   });
 });
