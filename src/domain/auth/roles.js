@@ -439,6 +439,25 @@ export function canManageMembers(roleOrRoles) {
   return keys.includes('admin') || keys.includes('superadmin');
 }
 
+/**
+ * Entregar acceso del portal a un socio (alta de usuario member / reset clave).
+ * Cualquier rol de staff del panel: administración, caja, portería, pileta, etc.
+ */
+export function canDeliverMemberAccess(roleOrRoles) {
+  if (canManageMembers(roleOrRoles)) return true;
+  const keys = collectRoleKeys(roleOrRoles).map((key) => String(key || '').toLowerCase());
+  return keys.some((key) => (
+    key === 'admin_employee'
+    || key === 'cashier'
+    || key === 'accountant'
+    || key === 'gate_operator'
+    || key === 'pool_operator'
+    || key === 'staff'
+    || key === 'hr'
+    || key === 'tesorero'
+  ));
+}
+
 /** Cobrar cuota en la ficha: caja, portería, pileta, contador y administración. */
 export function canCollectDues(roleOrRoles) {
   if (canManageMembers(roleOrRoles)) return true;

@@ -1059,11 +1059,33 @@ export async function provisionMemberPortalAccess(member, creds, { actorName = '
       ? [{ idType: 'dni', identifier: String(member.documentNumber).replace(/\D/g, '') || member.documentNumber }]
       : [],
   };
-  const profile = await createPortalUser(payload, { assignRoles: false });
-  const [, linked] = await Promise.all([
-    replaceProfileRoles(profile.id, payload.roles),
-    linkMemberPortalAccess(member, profile.id, creds, actorName),
-  ]);
+  const profile = await createPortalUser({
+    ...payload,
+    memberId: member.id || null,
+    actorName,
+  }, { assignRoles: false });
+  // El edge ya vincula la ficha y deja el rol member. Si falla el link local (sin members.write), igual queda.
+  let linked = {
+    ...member,
+    profileId: profile.id,
+    email: member?.email || creds.email,
+    meta: {
+      ...collectMemberMeta(member),
+      portalUsername: creds?.username || null,
+      portalProvisionedAt: new Date().toISOString(),
+      portalProvisionedBy: actorName || null,
+    },
+  };
+  try {
+    linked = await linkMemberPortalAccess(member, profile.id, creds, actorName);
+  } catch {
+    /* staff sin members.write: el edge ya hizo el vínculo */
+  }
+  try {
+    await replaceProfileRoles(profile.id, payload.roles);
+  } catch {
+    /* staff sin escritura de roles: el edge ya dejó member */
+  }
   return { member: linked, profile, creds };
 }
 

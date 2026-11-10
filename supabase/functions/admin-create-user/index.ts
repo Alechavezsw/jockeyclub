@@ -26,6 +26,75 @@ function normalizeDisciplineIds(raw: unknown): string[] {
   return out;
 }
 
+function isUuid(value: unknown) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    .test(String(value || ""));
+}
+
+/** Vincula el usuario member a la ficha (staff no tiene members.write en RLS). */
+async function linkMemberPortal(
+  admin: ReturnType<typeof createClient>,
+  memberId: string,
+  profileId: string,
+  username: string,
+  actorName: string,
+) {
+  if (!isUuid(memberId) || !isUuid(profileId)) return;
+
+  const { data: member, error: memberErr } = await admin
+    .from("members")
+    .select("id, meta, profile_id")
+    .eq("id", memberId)
+    .maybeSingle();
+  if (memberErr || !member) {
+    throw new Error(memberErr?.message || "No se encontró la ficha del socio");
+  }
+
+  const other = await admin
+    .from("members")
+    .select("id, member_number")
+    .eq("profile_id", profileId)
+    .neq("id", memberId)
+    .limit(1)
+    .maybeSingle();
+  if (other.data?.id) {
+    throw new Error(`Ese acceso ya está vinculado al socio Nº ${other.data.member_number || "—"}`);
+  }
+
+  const prevMeta = (member.meta && typeof member.meta === "object")
+    ? member.meta as Record<string, unknown>
+    : {};
+  const nextMeta = {
+    ...prevMeta,
+    portalUsername: username || prevMeta.portalUsername || null,
+    portalProvisionedAt: new Date().toISOString(),
+    portalProvisionedBy: actorName || null,
+  };
+
+  const { error: updErr } = await admin.from("members").update({
+    profile_id: profileId,
+    meta: nextMeta,
+    updated_at: new Date().toISOString(),
+  }).eq("id", memberId);
+  if (updErr) throw new Error(updErr.message || "No se pudo vincular el acceso");
+
+  const { data: roleRow } = await admin
+    .from("profile_roles")
+    .select("id")
+    .eq("profile_id", profileId)
+    .eq("role_key", "member")
+    .is("revoked_at", null)
+    .maybeSingle();
+  if (!roleRow?.id) {
+    await admin.from("profile_roles").insert({
+      profile_id: profileId,
+      role_key: "member",
+      label: "Socio",
+      kind: "system",
+    });
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -50,17 +119,15 @@ Deno.serve(async (req) => {
       return json(401, { error: "No autenticado" });
     }
 
-    const { data: caller } = await admin
-      .from("profiles")
-      .select("role")
-      .eq("id", authData.user.id)
-      .maybeSingle();
+    const [{ data: isStaff }, { data: isSuper }, { data: isAdmin }] = await Promise.all([
+      userClient.rpc("has_staff_access"),
+      userClient.rpc("user_has_role", { p_role: "superadmin" }),
+      userClient.rpc("user_has_role", { p_role: "admin" }),
+    ]);
 
-    const callerRole = String(caller?.role || "");
-    const isSuper = callerRole === "superadmin";
-    const isAdmin = callerRole === "admin";
-    if (!isSuper && !isAdmin) {
-      return json(403, { error: "Solo administración puede crear o modificar perfiles" });
+    const staffOk = Boolean(isStaff) || Boolean(isSuper) || Boolean(isAdmin);
+    if (!staffOk) {
+      return json(403, { error: "Sin permiso para crear o modificar accesos" });
     }
 
     const body = await req.json();
@@ -74,15 +141,24 @@ Deno.serve(async (req) => {
         return json(400, { error: "La contraseña debe tener al menos 6 caracteres" });
       }
 
-      if (!isSuper) {
-        const { data: target } = await admin
-          .from("profiles")
-          .select("role")
-          .eq("id", userId)
-          .maybeSingle();
-        if (String(target?.role || "") !== "teacher") {
-          return json(403, { error: "El administrador solo puede regenerar contraseñas de profesores" });
+      const { data: target } = await admin
+        .from("profiles")
+        .select("role")
+        .eq("id", userId)
+        .maybeSingle();
+      const targetRole = String(target?.role || "member");
+
+      // Acceso de socio: cualquier rol de staff del panel. Profesores: admin+. Resto: superadmin.
+      if (targetRole === "member") {
+        if (!staffOk) {
+          return json(403, { error: "Sin permiso para regenerar el acceso del socio" });
         }
+      } else if (targetRole === "teacher") {
+        if (!isSuper && !isAdmin) {
+          return json(403, { error: "Solo administración puede regenerar contraseñas de profesores" });
+        }
+      } else if (!isSuper) {
+        return json(403, { error: "Solo el superadministrador puede regenerar esa contraseña" });
       }
 
       const loginEmail = String(body.email || "").trim().toLowerCase();
@@ -101,6 +177,13 @@ Deno.serve(async (req) => {
         updated_at: new Date().toISOString(),
       }).eq("id", userId);
 
+      const memberId = String(body.memberId || "").trim();
+      const actorName = String(body.actorName || "").trim();
+      const username = String(body.username || "").trim().toLowerCase();
+      if (targetRole === "member" && isUuid(memberId)) {
+        await linkMemberPortal(admin, memberId, userId, username, actorName);
+      }
+
       return json(200, { ok: true, userId });
     }
 
@@ -114,8 +197,16 @@ Deno.serve(async (req) => {
     const contactEmail = body.contactEmail ? String(body.contactEmail).trim() : "";
     const disciplineIds = normalizeDisciplineIds(body.disciplineIds);
 
-    if (!isSuper && role !== "teacher") {
-      return json(403, { error: "El administrador solo puede dar de alta profesores" });
+    if (role === "member") {
+      if (!staffOk) {
+        return json(403, { error: "Sin permiso para entregar acceso de socio" });
+      }
+    } else if (role === "teacher") {
+      if (!isSuper && !isAdmin) {
+        return json(403, { error: "Solo administración puede dar de alta profesores" });
+      }
+    } else if (!isSuper) {
+      return json(403, { error: "Solo el superadministrador puede crear ese perfil" });
     }
 
     if (!email || !password) {
@@ -234,6 +325,14 @@ Deno.serve(async (req) => {
         }));
       if (rows.length) {
         await admin.from("profile_identifiers").insert(rows);
+      }
+    }
+
+    if (role === "member") {
+      const memberId = String(body.memberId || "").trim();
+      const actorName = String(body.actorName || "").trim();
+      if (isUuid(memberId)) {
+        await linkMemberPortal(admin, memberId, userId, username, actorName);
       }
     }
 

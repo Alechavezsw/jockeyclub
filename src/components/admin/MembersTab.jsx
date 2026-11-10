@@ -1254,13 +1254,31 @@ export default function MembersTab({
     }
 
     if (isSupabaseConfigured && profileId) {
-      await repos.resetPortalUserPassword(profileId, password, email);
-      const saved = await repos.linkMemberPortalAccess(
-        credsTarget,
-        profileId,
-        ready,
+      await repos.resetPortalUserPassword(profileId, password, email, {
+        memberId: credsTarget.id,
         actorName,
-      );
+        username,
+      });
+      let saved;
+      try {
+        saved = await repos.linkMemberPortalAccess(
+          credsTarget,
+          profileId,
+          ready,
+          actorName,
+        );
+      } catch {
+        saved = {
+          ...credsTarget,
+          profileId,
+          meta: {
+            ...collectMemberMeta(credsTarget),
+            portalUsername: username,
+            portalProvisionedAt: new Date().toISOString(),
+            portalProvisionedBy: actorName || null,
+          },
+        };
+      }
       putMemberInList(saved);
     } else if (isSupabaseConfigured) {
       const { member: saved, creds: out } = await repos.provisionMemberPortalAccess(
@@ -1413,8 +1431,25 @@ export default function MembersTab({
     }
 
     if (profileId && isSupabaseConfigured) {
-      await repos.resetPortalUserPassword(profileId, creds.password, creds.email);
-      member = await repos.linkMemberPortalAccess(member, profileId, creds, actorName);
+      await repos.resetPortalUserPassword(profileId, creds.password, creds.email, {
+        memberId: member.id,
+        actorName,
+        username: creds.username,
+      });
+      try {
+        member = await repos.linkMemberPortalAccess(member, profileId, creds, actorName);
+      } catch {
+        member = {
+          ...member,
+          profileId,
+          meta: {
+            ...collectMemberMeta(member),
+            portalUsername: creds.username,
+            portalProvisionedAt: new Date().toISOString(),
+            portalProvisionedBy: actorName || null,
+          },
+        };
+      }
       putMemberInList(member);
     } else if (isSupabaseConfigured) {
       const { member: saved } = await repos.provisionMemberPortalAccess(member, creds, { actorName });

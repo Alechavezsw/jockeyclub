@@ -272,8 +272,8 @@ export async function portalProfileIdForLogin(email, memberDbId) {
   return profileId;
 }
 
-/** Regenera la contraseña de un usuario existente (superadmin vía edge). */
-export async function resetPortalUserPassword(profileId, password, email) {
+/** Regenera la contraseña de un usuario existente (staff para socios; admin+ para el resto). */
+export async function resetPortalUserPassword(profileId, password, email, options = {}) {
   if (!isUuid(profileId)) throw new Error('Perfil inválido');
   if (!password || String(password).length < 6) {
     throw new Error('La contraseña debe tener al menos 6 caracteres');
@@ -284,12 +284,14 @@ export async function resetPortalUserPassword(profileId, password, email) {
   if (!token) throw new Error('Sesión no válida. Volvé a iniciar sesión.');
 
   const loginEmail = String(email || '').trim().toLowerCase();
+  const memberId = options?.memberId && isUuid(options.memberId) ? options.memberId : null;
   const { data, error } = await sb().functions.invoke('admin-create-user', {
     body: {
       action: 'reset_password',
       userId: profileId,
       password,
       ...(loginEmail.includes('@') ? { email: loginEmail } : {}),
+      ...(memberId ? { memberId, actorName: options?.actorName || '', username: options?.username || '' } : {}),
     },
   });
 

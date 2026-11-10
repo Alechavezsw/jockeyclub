@@ -18,6 +18,7 @@ import {
   canManageProfiles,
   canManageTeachers,
   canManageMembers,
+  canDeliverMemberAccess,
   canCollectDues,
   canWriteMemberLedger,
   canEditFeePackAmounts,
@@ -270,6 +271,16 @@ describe('canManageMembers', () => {
     for (const role of ['accountant', 'cashier', 'gate_operator', 'admin_employee', 'pool_operator', 'staff', 'hr', 'teacher', 'member']) {
       expect(canManageMembers(role)).toBe(false);
     }
+  });
+});
+
+describe('canDeliverMemberAccess', () => {
+  it('cualquier rol de staff del panel puede entregar acceso de socio', () => {
+    for (const role of ['superadmin', 'admin', 'admin_employee', 'cashier', 'accountant', 'gate_operator', 'pool_operator', 'staff', 'hr']) {
+      expect(canDeliverMemberAccess(role)).toBe(true);
+    }
+    expect(canDeliverMemberAccess('teacher')).toBe(false);
+    expect(canDeliverMemberAccess('member')).toBe(false);
   });
 });
 
