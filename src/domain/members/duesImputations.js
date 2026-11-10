@@ -92,8 +92,13 @@ export function imputeDuesPayment(periods = [], cash, paidOn) {
   for (const period of [...(periods || [])].toSorted(byDue)) {
     if (!(left > 0.009)) break;
     const capitalOpen = money(period.capitalOpen ?? period.capital);
-    const lateBase = money(period.lateBase);
-    const overdue = paid > String(period.dueOn).slice(0, 10) && String(period.dueOn) > OPENING_DUE_ON;
+    const due = String(period.dueOn).slice(0, 10);
+    const storedBase = money(period.lateBase);
+    // Desde octubre, si el mes está en mora y no quedó base, el 10 % es de la cuota abierta.
+    const lateBase = storedBase > 0.009
+      ? storedBase
+      : (due >= '2026-10-10' ? capitalOpen : 0);
+    const overdue = paid > due && due > OPENING_DUE_ON;
     const surchargeOpen = overdue ? money(lateBase * 0.1) : 0;
     if (!(capitalOpen > 0) && !(surchargeOpen > 0)) continue;
     const capital = money(Math.min(left, Math.max(0, capitalOpen)));

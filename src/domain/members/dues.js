@@ -558,7 +558,8 @@ function isSocialDuesDueToday(member, todayStart) {
 }
 
 /**
- * Después del 10 el pago lleva 10 % solo en socio familiar y socio individual.
+ * Después del 10 el pago lleva 10 % en socio familiar y socio individual.
+ * Desde octubre, toda cuota de esos socios lo lleva si ese mes está en mora.
  * El día 10 todavía es el vencimiento, sin recargo.
  * Sin categoría, se mantiene el 10 % (un solo importe, sin líneas).
  */

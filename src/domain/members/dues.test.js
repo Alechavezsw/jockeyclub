@@ -487,6 +487,34 @@ describe('tarifa desde octubre 2026', () => {
     expect(duesAmountForMember(member, new Date('2026-06-10T12:00:00'))).toBe(40000);
   });
 
+  it('desde octubre la cuota en mora después del 10 lleva 10 %', () => {
+    expect(duesPayableAmount(40000, {
+      paidOn: '2026-11-10',
+      dueOn: '2026-11-10',
+      tier: 'socio_individual',
+    })).toBe(40000);
+    expect(duesPayableAmount(40000, {
+      paidOn: '2026-11-11',
+      dueOn: '2026-11-10',
+      tier: 'socio_individual',
+    })).toBe(44000);
+    expect(duesPayableAmount(40000, {
+      paidOn: '2026-11-10',
+      dueOn: '2026-10-10',
+      tier: 'socio_individual',
+    })).toBe(44000);
+    expect(duesPayableAmount(70000, {
+      paidOn: '2026-11-10',
+      dueOn: '2026-10-10',
+      tier: 'socio_familiar',
+    })).toBe(77000);
+    expect(duesPayableAmount(70000, {
+      paidOn: '2026-10-10',
+      dueOn: '2026-10-10',
+      tier: 'socio_familiar',
+    })).toBe(70000);
+  });
+
   it('el recargo es el 10 % de cada mes vencido, por separado', () => {
     setRuntimeTierCatalog(null);
     const member = {
