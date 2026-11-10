@@ -116,7 +116,7 @@ export function drawReportHeader(doc, {
     y += 5;
   }
 
-  doc.setDrawColor(...BRAND.gold);
+  doc.setDrawColor(...BRAND.green);
   doc.setLineWidth(0.4);
   doc.line(14, y, pageW - 14, y);
   return y + 4;
@@ -128,7 +128,7 @@ export function drawReportFooter(doc) {
     doc.setPage(i);
     const h = doc.internal.pageSize.getHeight();
     const w = doc.internal.pageSize.getWidth();
-    doc.setDrawColor(...BRAND.gold);
+    doc.setDrawColor(...BRAND.green);
     doc.setLineWidth(0.3);
     doc.line(14, h - 12, w - 14, h - 12);
     doc.setFont('helvetica', 'normal');

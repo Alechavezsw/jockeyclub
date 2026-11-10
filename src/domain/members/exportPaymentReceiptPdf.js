@@ -62,6 +62,24 @@ export function receiptChargeLines(payment) {
   const imputations = Array.isArray(payment?.imputations)
     ? payment.imputations.filter((row) => row && !row.voidedAt && !isOpeningDue(row.dueOn))
     : [];
+  const selectedDueOns = Array.isArray(payment?.periodDueOns)
+    ? payment.periodDueOns.map((value) => String(value || '').slice(0, 10)).filter(Boolean)
+    : [];
+  // Cobro de un solo mes marcado: una línea con el total (el adelanto no abre otra fila).
+  if (selectedDueOns.length === 1) {
+    const dueOn = selectedDueOns[0];
+    const total = imputations.reduce((sum, row) => (
+      sum + (Number(row.capital) || 0) + (Number(row.surcharge) || 0)
+    ), 0);
+    const amount = total > 0.01 ? total : (Number(payment?.amount) || 0);
+    if (amount > 0.01) {
+      return [{
+        dueOn,
+        detail: duesPaymentDescription(dueOn),
+        payable: amount,
+      }];
+    }
+  }
   return imputations.map((row) => {
     const period = periodLabelFromDueOn(row.dueOn);
     const capital = Number(row.capital) || 0;
@@ -75,6 +93,23 @@ export function receiptChargeLines(payment) {
       payable: capital + surcharge,
     };
   }).filter((row) => row.payable > 0.01);
+}
+
+/** Descripción corta de cuota: «Pago de cuota social Noviembre 2026». */
+export function duesPaymentDescription(dueOnOrLabel) {
+  const raw = String(dueOnOrLabel || '').trim();
+  const fromDue = /^\d{4}-\d{2}-\d{2}/.test(raw) ? periodLabelFromDueOn(raw) : '';
+  const label = fromDue || raw;
+  if (!label || label === '—') return 'Pago de cuota social';
+  if (/^pago de cuota social/i.test(label)) {
+    return label.replace(/\s+de\s+(\d{4})\b/i, ' $1');
+  }
+  const month = label
+    .replace(/^cuota social\s*[·•|-]?\s*/i, '')
+    .replace(/^pago de\s+/i, '')
+    .replace(/\s+de\s+(\d{4})\b/i, ' $1')
+    .trim();
+  return month ? `Pago de cuota social ${month}` : 'Pago de cuota social';
 }
 
 /**
@@ -92,27 +127,41 @@ export function paymentCorrespondsTo(payment, { isBooking = false } = {}) {
     return [scope, space, paymentPeriodLabel(payment)].filter((p) => p && p !== '—').join(' · ') || 'Reserva';
   }
 
+  const selectedDueOns = Array.isArray(payment?.periodDueOns)
+    ? payment.periodDueOns.map((value) => String(value || '').slice(0, 10)).filter(Boolean)
+    : [];
+  // Un solo mes marcado en el cobro: el recibo habla de ese mes (aunque haya adelanto).
+  if (selectedDueOns.length === 1) {
+    return duesPaymentDescription(selectedDueOns[0]);
+  }
+
   const imputations = Array.isArray(payment?.imputations)
     ? payment.imputations.filter((row) => row && !row.voidedAt)
     : [];
   const charges = receiptChargeLines(payment);
-  if (charges.length === 1 && !(Number(imputations.find((row) => !isOpeningDue(row.dueOn))?.surcharge) > 0.01)) {
-    return `Cuota social ${periodLabelFromDueOn(charges[0].dueOn)}`;
+  const monthCharges = charges.filter((row) => String(row.dueOn || '').slice(0, 10) > '1900-01-10');
+  if (monthCharges.length === 1 && !(Number(imputations.find((row) => !isOpeningDue(row.dueOn))?.surcharge) > 0.01)) {
+    return duesPaymentDescription(monthCharges[0].dueOn);
   }
   if (charges.length) return charges.map((row) => row.detail).join(' · ');
 
   const period = paymentPeriodLabel(payment);
   const raw = String(payment?.concept || '').trim();
   const cleaned = raw
-    .replace(/\s*[·•|-]\s*(Transferencia|Efectivo|Tarjeta|Mercado Pago|Caja|Débito)[^·•|-]*/gi, '')
+    .replace(/\s*[·•|-]\s*(Transferencia|Efectivo|Tarjeta|Mercado Pago|Caja|Débito|Comp:)[^·•|-]*/gi, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
+  if (/^cuota social/i.test(cleaned) || /^pago de cuota social/i.test(cleaned)) {
+    const due = selectedDueOns[0] || (Array.isArray(payment?.imputations) ? payment.imputations.find((row) => !isOpeningDue(row?.dueOn))?.dueOn : null);
+    if (due) return duesPaymentDescription(due);
+    if (period && period !== '—') return duesPaymentDescription(period);
+  }
   if (cleaned && period && period !== '—' && !cleaned.toLowerCase().includes(period.toLowerCase())) {
     return `${cleaned} · ${period}`;
   }
   if (cleaned) return cleaned;
-  if (period && period !== '—') return `Cuota social · ${period}`;
-  return 'Cuota social';
+  if (period && period !== '—') return duesPaymentDescription(period);
+  return 'Pago de cuota social';
 }
 
 const METHOD = {
@@ -185,7 +234,7 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
   doc.setFontSize(13);
   doc.setTextColor(30, 30, 30);
   doc.text(`${docLabel.toUpperCase()} #${receiptNo}`, 105, startY + 6, { align: 'center' });
-  doc.setDrawColor(...BRAND.gold);
+  doc.setDrawColor(...BRAND.green);
   doc.setLineWidth(0.3);
   doc.line(14, startY + 10, 196, startY + 10);
 
@@ -195,7 +244,7 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
     y,
     fill: [255, 255, 255],
     textColor: BRAND.green,
-    border: BRAND.gold,
+    border: BRAND.green,
   });
   y += pill.height + 6;
 
