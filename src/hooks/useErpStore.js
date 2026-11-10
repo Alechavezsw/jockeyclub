@@ -392,6 +392,8 @@ export default function useErpStore({
           mergeAccessinCashMovements(cur, movements),
           recent,
         );
+        // El corte remoto/seed completo siempre gana a un array local a medias.
+        if (next.length < (cur?.length || 0)) return cur;
         return next.length === (cur?.length || 0) ? cur : next;
       });
     };

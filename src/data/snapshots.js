@@ -282,25 +282,47 @@ async function fetchRemote(name) {
   if (row?.updated_at) seenUpdatedAt.set(name, row.updated_at);
   const payload = row?.payload;
   if (!tableError && payload && typeof payload === 'object' && !isIndexPayload(payload)) {
-    if (typeof payload.__gzip === 'string' && payload.__gzip) {
-      return inflateGzipJson(payload.__gzip);
+    if (typeof payload.__gzip === 'string') {
+      // Cadena vacía = subida a medias; no devolver el wrapper como si fuera el corte.
+      if (payload.__gzip) return inflateGzipJson(payload.__gzip);
+    } else {
+      return payload;
     }
-    return payload;
   }
 
-  try {
+  // Preferir storage cuando el pointer lo pide (el bucket ya tiene el JSON grande).
+  const wantStorage = Boolean(payload?.__storage) || !payload?.__chunks;
+  const tryStorage = async () => {
     const { data, error } = await withTimeout(
       supabase.storage.from(SNAPSHOT_BUCKET).download(`${name}.json`),
       60000,
       `Tiempo agotado al bajar ${name}`,
     );
     if (!error && data) return JSON.parse(await data.text());
-  } catch {
-    // Storage vacío o timeout: se arma desde club_snapshot_load o club_snapshot_parts.
+    return null;
+  };
+
+  if (wantStorage) {
+    try {
+      const fromStorage = await tryStorage();
+      if (fromStorage) return fromStorage;
+    } catch {
+      // Storage vacío o timeout: probar partes.
+    }
   }
 
   const assembled = await fetchFromChunks(supabase, name);
   if (assembled) return assembled;
+
+  if (!wantStorage) {
+    try {
+      const fromStorage = await tryStorage();
+      if (fromStorage) return fromStorage;
+    } catch {
+      // Storage vacío o timeout.
+    }
+  }
+
   throw tableError || new Error(`Sin corte ${name} en tabla, storage ni partes.`);
 }
 
@@ -317,6 +339,19 @@ export function overlayCashSnapshot(name, localData, remoteData) {
     const remoteRows = Array.isArray(remoteData.ACCESSIN_CASH_MOVEMENTS)
       ? remoteData.ACCESSIN_CASH_MOVEMENTS
       : [];
+    // Un corte remoto a medias no debe achicar el seed local completo.
+    if (localRows.length >= 500 && remoteRows.length < localRows.length) {
+      const byId = new Map();
+      for (const row of remoteRows) {
+        const key = String(row?.accessinId ?? row?.id ?? '');
+        if (key) byId.set(key, row);
+      }
+      for (const row of localRows) {
+        const key = String(row?.accessinId ?? row?.id ?? '');
+        if (key) byId.set(key, row); // local gana en conflicto
+      }
+      return { ...localData, ACCESSIN_CASH_MOVEMENTS: [...byId.values()] };
+    }
     const byId = new Map();
     for (const row of localRows) {
       const key = String(row?.accessinId ?? row?.id ?? '');
@@ -365,13 +400,25 @@ async function withCloudDetailedCc(name, localData) {
   return local;
 }
 
+function cashMovementCount(payload) {
+  const rows = payload?.ACCESSIN_CASH_MOVEMENTS;
+  return Array.isArray(rows) ? rows.length : 0;
+}
+
 /**
  * Un corte que ya se está viendo no se reemplaza por una bajada a medias.
  * El detalle de cuotas solo cambia si el archivo nuevo trae al menos la mitad de los socios.
+ * Los movimientos de caja no se pisan con un corte más chico (storage vacío / partes a medias).
  */
 export function snapshotPayloadReplaces(name, previous, next) {
   if (!next || typeof next !== 'object') return false;
   if (!previous || typeof previous !== 'object') return true;
+  if (name === 'accessinCashMovements') {
+    const prevCount = cashMovementCount(previous);
+    const nextCount = cashMovementCount(next);
+    if (prevCount >= 500 && nextCount < prevCount) return false;
+    return true;
+  }
   if (name !== 'accessinDetailedCurrentAccounts') return true;
   const prevSize = Object.keys(previous[DETAILED_CC_MEMBERS] || {}).length;
   const nextSize = Object.keys(next[DETAILED_CC_MEMBERS] || {}).length;

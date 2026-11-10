@@ -142,12 +142,17 @@ describe('allowedAdminTabs', () => {
     expect(canWriteMemberLedger('member')).toBe(false);
   });
 
-  it('el admin inicia en dashboard y entra a débitos, no a QR como pestaña', () => {
+  it('el admin inicia en dashboard y ve caja, contabilidad y débitos', () => {
     const tabs = allowedAdminTabs('admin');
     expect(tabs[0]).toBe('dashboard');
     expect(tabs).toContain('operation');
-    expect(tabs).not.toContain('accounting');
-    expect(allowedAccountingSubtabs('admin')).toEqual(['prisma', 'galicia', 'debit_moves']);
+    expect(tabs).toContain('accounting');
+    expect(tabs).toContain('books');
+    expect(tabs).toContain('informes');
+    expect(tabs).toContain('caja');
+    expect(allowedAccountingSubtabs('admin')).toContain('cash');
+    expect(allowedAccountingSubtabs('admin')).toContain('diary');
+    expect(allowedAccountingSubtabs('admin')).toContain('prisma');
     expect(tabs).not.toContain('qr_control');
     expect(tabs).not.toContain('concessions');
     expect(tabs).toContain('disciplines');
@@ -211,14 +216,15 @@ describe('allowedAdminTabs', () => {
     expect(tabs).toContain('books');
     expect(tabs).toContain('informes');
     expect(tabs).toContain('operation');
-    expect(allowedAccountingSubtabs('superadmin').length).toBeGreaterThan(allowedAccountingSubtabs('admin').length);
+    expect(allowedAccountingSubtabs('superadmin').length).toBe(allowedAccountingSubtabs('admin').length);
   });
 
-  it('admin ve Débitos; cajero ve Caja; contador ve ambos', () => {
+  it('admin ve Caja, Contabilidad y Débitos; cajero solo Caja; contador ve ambos', () => {
     expect(allowedAdminTabs('admin')).toContain('operation');
-    expect(allowedAdminTabs('admin')).not.toContain('books');
-    expect(allowedAdminTabs('admin')).not.toContain('informes');
-    expect(allowedAdminTabs('admin')).not.toContain('accounting');
+    expect(allowedAdminTabs('admin')).toContain('books');
+    expect(allowedAdminTabs('admin')).toContain('informes');
+    expect(allowedAdminTabs('admin')).toContain('accounting');
+    expect(allowedAdminTabs('admin')).toContain('caja');
     expect(allowedAdminTabs('cashier')).toContain('caja');
     expect(allowedAdminTabs('cashier')).not.toContain('operation');
     expect(allowedAdminTabs('cashier')).not.toContain('books');
@@ -305,10 +311,12 @@ describe('allowedAccountingSubtabs', () => {
     expect(allowedAccountingSubtabs('gate_operator')).toEqual(['cash', 'other_incomes']);
   });
 
-  it('administración ve Prisma y Galicia, no los libros', () => {
-    expect(allowedAccountingSubtabs('admin')).toEqual(['prisma', 'galicia', 'debit_moves']);
+  it('admin ve libros y caja; el empleado de administración solo débitos', () => {
+    expect(allowedAccountingSubtabs('admin')).toContain('diary');
+    expect(allowedAccountingSubtabs('admin')).toContain('cash');
+    expect(allowedAccountingSubtabs('admin')).toContain('prisma');
     expect(allowedAccountingSubtabs('admin_employee')).toEqual(['prisma', 'galicia', 'debit_moves']);
-    expect(allowedAccountingSubtabs('admin')).not.toContain('diary');
+    expect(allowedAccountingSubtabs('admin_employee')).not.toContain('diary');
     expect(allowedAccountingSubtabs('pool_operator')).toEqual([]);
   });
 

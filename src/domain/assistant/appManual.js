@@ -660,7 +660,7 @@ export const APP_MANUAL = [
     title: 'Contabilidad (mapa)',
     tab: 'accounting',
     keywords: 'contabilidad tesoreria libros asiento mapa',
-    who: 'Contador y superadmin. Cajero y portería solo caja. Administración entra solo a Débitos (Prisma y Galicia).',
+    who: 'Contador, administrador y superadmin. Cajero y portería solo caja. Empleado de administración entra a Débitos (Prisma y Galicia).',
     steps: [
       'Gestión → Contabilidad (padrón, catálogo), Informes, Libros y Operación. Cajero y portería entran a Gestión → Caja / Operación.',
       'Libros: Libro Diario, Libro Mayor y Crear asiento legal.',

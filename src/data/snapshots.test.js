@@ -77,6 +77,18 @@ describe('overlayCashSnapshot', () => {
     expect(merged.ACCESSIN_CASH_MOVEMENTS.map((row) => row.accessinId)).toEqual([1, 603050]);
   });
 
+  it('no achica un seed local grande con un remoto a medias', () => {
+    const localRows = Array.from({ length: 600 }, (_, i) => ({ accessinId: i + 1, amount: 1 }));
+    const remoteRows = Array.from({ length: 50 }, (_, i) => ({ accessinId: i + 1, amount: 9 }));
+    const merged = overlayCashSnapshot(
+      'accessinCashMovements',
+      { ACCESSIN_CASH_MOVEMENTS: localRows },
+      { ACCESSIN_CASH_MOVEMENTS: remoteRows },
+    );
+    expect(merged.ACCESSIN_CASH_MOVEMENTS).toHaveLength(600);
+    expect(merged.ACCESSIN_CASH_MOVEMENTS.find((r) => r.accessinId === 1)?.amount).toBe(1);
+  });
+
   it('usa el corte de caja más nuevo', () => {
     const remote = overlayCashSnapshot(
       'accessinCashSnapshot',

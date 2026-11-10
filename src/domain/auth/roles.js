@@ -270,9 +270,9 @@ export function allowedAdminTabs(role) {
   if (role === 'superadmin') {
     return [...ALL_ADMIN_TABS];
   }
-  // Administrador: opera el club. En Operación solo entra a los débitos.
+  // Administrador: opera el club, más caja y contabilidad (misma vista que el contador).
   if (role === 'admin') {
-    return [...ADMIN_TABS_NO_ACCOUNTING, 'operation'];
+    return [...ADMIN_TABS_NO_ACCOUNTING, 'accounting', 'books', 'informes', 'caja', 'operation'];
   }
   if (role === 'accountant') {
     return ['dashboard', 'jev', 'dues', 'accounting', 'books', 'informes', 'caja', 'operation', 'reports', 'events'];
@@ -326,7 +326,7 @@ export function allowedAccountingSubtabsForRoles(rolesOrPrimary) {
     .map((r) => (typeof r === 'string' ? r : r?.roleKey || r?.key))
     .filter(Boolean)
     .map((k) => String(k).toLowerCase());
-  if (keys.includes('superadmin') || keys.includes('accountant')) {
+  if (keys.includes('superadmin') || keys.includes('accountant') || keys.includes('admin')) {
     return allowedAccountingSubtabs('superadmin');
   }
   const allowed = new Set();
@@ -338,7 +338,7 @@ export function allowedAccountingSubtabsForRoles(rolesOrPrimary) {
 
 /** Subpestañas de Contabilidad por rol. */
 export function allowedAccountingSubtabs(role) {
-  if (role === 'superadmin' || role === 'accountant') {
+  if (role === 'superadmin' || role === 'accountant' || role === 'admin') {
     return [
       'diary', 'mayor', 'create', 'balance', 'balance_monthly', 'balance_summary', 'balance_liquidation', 'balance_patrimonial', 'results', 'charts', 'acct_reports', 'libre_deuda', 'family_balances', 'member_discounts', 'bonificaciones', 'siap', 'impuestos', 'plan',
       'cash', 'expenses', 'suppliers', 'retenciones', 'other_incomes', 'interest_generators',
@@ -346,8 +346,8 @@ export function allowedAccountingSubtabs(role) {
       'credit_purchases',
     ];
   }
-  // Administración arma los débitos (Prisma, Galicia y altas/bajas). No ve libros ni tesorería.
-  if (role === 'admin' || role === 'admin_employee') {
+  // Empleado de administración: solo débitos (Prisma / Galicia / altas-bajas).
+  if (role === 'admin_employee') {
     return ['prisma', 'galicia', 'debit_moves'];
   }
   if (role === 'cashier' || role === 'gate_operator') {
@@ -462,7 +462,7 @@ export function canWriteMemberLedger(roleOrRoles) {
 }
 
 export function canPostJournal(role) {
-  return ['cashier', 'gate_operator', 'pool_operator', 'accountant', 'superadmin'].includes(role);
+  return ['cashier', 'gate_operator', 'pool_operator', 'accountant', 'admin', 'superadmin'].includes(role);
 }
 
 export function navItemsForRole(role, { membersCanViewCurrentAccounts = true } = {}) {
@@ -491,7 +491,7 @@ export function navItemsForRole(role, { membersCanViewCurrentAccounts = true } =
 export const ROLE_PANEL_META = {
   admin: {
     title: 'Administración',
-    subtitle: 'Operaciones, socios y control del club (sin contabilidad)',
+    subtitle: 'Operaciones, socios, caja y contabilidad del club',
   },
   superadmin: {
     title: 'Superadministración',
