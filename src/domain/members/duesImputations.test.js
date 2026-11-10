@@ -14,7 +14,7 @@ describe('duesMonthsPhrase', () => {
 });
 
 describe('imputeDuesPayment', () => {
-  it('un pago parcial entra al mes más viejo y deja el recargo de ese mes', () => {
+  it('un pago parcial entra al capital del mes más viejo, sin descontar intereses', () => {
     const periods = openPeriodsFromChoices([
       { dueOn: '2026-10-10', capital: 70000, lateBase: 70000 },
       { dueOn: '2026-11-10', capital: 70000, lateBase: 70000 },
@@ -22,10 +22,22 @@ describe('imputeDuesPayment', () => {
     const imputed = imputeDuesPayment(periods, 10000, '2026-11-12');
     expect(imputed.allocations).toHaveLength(1);
     expect(imputed.allocations[0].dueOn).toBe('2026-10-10');
-    expect(imputed.allocations[0].capital).toBe(9090.91);
-    expect(imputed.allocations[0].surcharge).toBe(909.09);
-    expect(imputed.allocations[0].surchargeOpen).toBe(6090.91);
+    expect(imputed.allocations[0].capital).toBe(10000);
+    expect(imputed.allocations[0].surcharge).toBe(0);
+    expect(imputed.allocations[0].capitalOpen).toBe(60000);
     expect(imputed.capital + imputed.surcharge).toBe(10000);
+  });
+
+  it('la cuota entera es capital; el 10 % solo entra si pagan de más un mes vencido', () => {
+    const periods = openPeriodsFromChoices([
+      { dueOn: '2026-10-10', capital: 70000, lateBase: 70000 },
+    ], 70000);
+    const cuota = imputeDuesPayment(periods, 70000, '2026-11-10');
+    expect(cuota.capital).toBe(70000);
+    expect(cuota.surcharge).toBe(0);
+    const conRecargo = imputeDuesPayment(periods, 77000, '2026-11-12');
+    expect(conRecargo.capital).toBe(70000);
+    expect(conRecargo.surcharge).toBe(7000);
   });
 
   it('lo que sobra del saldo, sin mes, se cobra antes y sin recargo', () => {
@@ -60,11 +72,11 @@ describe('payMemberDues', () => {
       today: new Date('2026-11-03T15:00:00-03:00'),
     });
     expect(payment.imputations[0].dueOn).toBe('2026-10-10');
-    expect(payment.imputations[0].capital).toBe(9090.91);
-    expect(payment.imputations[0].surcharge).toBe(909.09);
-    expect(payment.imputations[0].surchargeOpen).toBe(6090.91);
+    expect(payment.imputations[0].capital).toBe(10000);
+    expect(payment.imputations[0].surcharge).toBe(0);
+    expect(payment.imputations[0].capitalOpen).toBe(60000);
     expect(payment.period).toBe('Octubre 2026');
     expect(payment.concept).toMatch(/Octubre de 2026/);
-    expect(next.outstandingBalance).toBe(60909.09);
+    expect(next.outstandingBalance).toBe(60000);
   });
 });

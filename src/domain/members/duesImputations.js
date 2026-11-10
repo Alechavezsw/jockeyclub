@@ -82,7 +82,8 @@ export function openPeriodsFromChoices(choices = [], balance = 0) {
 
 /**
  * Aplica un cobro del mes más viejo al más nuevo.
- * En cada mes la plata entra a la vez en la cuota y en su 10 %, en la misma proporción.
+ * Primero entra la cuota. El 10 % no se descuenta de ese importe:
+ * solo se suma si el mes ya venció y sobra plata después del capital.
  */
 export function imputeDuesPayment(periods = [], cash, paidOn) {
   let left = money(cash);
@@ -92,15 +93,15 @@ export function imputeDuesPayment(periods = [], cash, paidOn) {
     if (!(left > 0.009)) break;
     const capitalOpen = money(period.capitalOpen ?? period.capital);
     const lateBase = money(period.lateBase);
-    if (!(capitalOpen > 0)) continue;
     const overdue = paid > String(period.dueOn).slice(0, 10) && String(period.dueOn) > OPENING_DUE_ON;
     const surchargeOpen = overdue ? money(lateBase * 0.1) : 0;
-    const total = money(capitalOpen + surchargeOpen);
-    if (!(total > 0)) continue;
-    const take = money(Math.min(left, total));
-    const capital = surchargeOpen > 0 ? money((take * capitalOpen) / total) : take;
-    const surcharge = money(take - capital);
-    const nextCapital = money(capitalOpen - capital);
+    if (!(capitalOpen > 0) && !(surchargeOpen > 0)) continue;
+    const capital = money(Math.min(left, Math.max(0, capitalOpen)));
+    left = money(left - capital);
+    const surcharge = money(Math.min(left, Math.max(0, surchargeOpen)));
+    left = money(left - surcharge);
+    if (!(capital > 0) && !(surcharge > 0)) continue;
+    const nextCapital = money(Math.max(0, capitalOpen - capital));
     const nextLate = capitalOpen > 0 ? money((lateBase * nextCapital) / capitalOpen) : 0;
     const surchargeLeft = overdue ? money(nextLate * 0.1) : 0;
     allocations.push({
@@ -112,7 +113,6 @@ export function imputeDuesPayment(periods = [], cash, paidOn) {
       lateBase: nextLate,
       lateBaseTaken: money(lateBase - nextLate),
     });
-    left = money(left - take);
   }
   return {
     allocations,
