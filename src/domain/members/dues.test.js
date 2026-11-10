@@ -915,4 +915,26 @@ describe('collectionPeriodChoices vs saldo de ficha', () => {
     ]);
     expect(choices.some((row) => row.dueOn === '2026-08-10')).toBe(false);
   });
+
+  it('un último pago viejo no reabre agosto cuando el saldo no tiene vencimiento', () => {
+    setRuntimeTierCatalog([
+      { id: 'socio_individual', name: 'SOCIO INDIVIDUAL', monthlyDues: 40000, sortOrder: 1 },
+    ]);
+    const member = {
+      memberId: '7037',
+      name: 'Ivana Campos',
+      tier: 'socio_individual',
+      status: 'active',
+      outstandingBalance: 123600,
+      unpaidCapital: 116000,
+      unpaidSurcharges: 7600,
+      nextDueDate: null,
+      lastPaymentDate: '2026-06-13',
+      cuotaCategories: ['SOCIO INDIVIDUAL'],
+    };
+    const today = new Date(2026, 10, 10, 12, 0, 0);
+    const choices = collectionPeriodChoices(member, today);
+    expect(choices.map((row) => row.dueOn)).toEqual(['2026-09-10', '2026-10-10', '2026-11-10']);
+    expect(choices.some((row) => row.dueOn.startsWith('2026-08'))).toBe(false);
+  });
 });

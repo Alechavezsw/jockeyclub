@@ -781,8 +781,18 @@ function dueOnAlreadyCovered(dueOn, coveredDueOns) {
  * No adelanta meses futuros: diciembre recién cuando estamos en diciembre.
  * Si hay de más (ficha ya cobrada / nextDue desfasado), recorta al saldo: no re-cobra meses pagos.
  */
+/** Capital a repartir en meses. El recargo que Lila dejó en el saldo no abre otro mes. */
+function capitalOwedForChoices(member) {
+  const balance = money(Math.max(0, Number(member?.outstandingBalance) || 0));
+  const lila = lilaUnpaidCapital(member);
+  if (lila != null && lila <= balance + 0.01) return money(Math.max(0, lila));
+  const surcharge = money(Math.max(0, Number(member?.unpaidSurcharges) || 0));
+  if (surcharge > 0.01 && balance > surcharge + 0.01) return money(balance - surcharge);
+  return balance;
+}
+
 function expandChoicesToCoverBalance(member, choices, paidOn, coveredDueOns = null) {
-  const owed = money(Math.max(0, Number(member?.outstandingBalance) || 0));
+  const owed = capitalOwedForChoices(member);
   if (!(owed > 0.01)) return choices;
   const day = duesDueDayForMember(member);
   const paidSet = coveredDueOns || memberCoveredDueOns(member);
@@ -962,6 +972,11 @@ export function collectionPeriodChoices(member, today = new Date()) {
   if (!member || isDuesExemptMember(member) || isFamilyDependent(member)) return [];
   const paidOn = startOfDay(today);
   const paidSet = memberCoveredDueOns(member);
+  // Sin vencimiento, el saldo son N cuotas vigentes. No se abre agosto con el recargo.
+  if (!pinDuesDueDate(member?.nextDueDate, member)) {
+    const lump = lumpMonthsAtCurrentCuota(member, paidOn, paidSet);
+    if (lump) return lump;
+  }
   const overdue = overdueSocialMonths(member, paidOn)
     .filter((row) => row.capital > 0 && !dueOnAlreadyCovered(row.dueOn, paidSet))
     .map((row) => ({
@@ -979,8 +994,6 @@ export function collectionPeriodChoices(member, today = new Date()) {
 
   const owed = money(Math.max(0, Number(member?.outstandingBalance) || 0));
   if (owed > 0.01) {
-    const lump = lumpMonthsAtCurrentCuota(member, paidOn, paidSet);
-    if (lump) return lump;
     const day = duesDueDayForMember(member);
     const currentDue = toISODate(duesDateOnDueDay(paidOn.getFullYear(), paidOn.getMonth(), day));
     // Sin nextDue, el saldo abierto es el mes en curso (desde el día 1), no el mes anterior.
