@@ -16,6 +16,26 @@ export function imputationPeriodLabel(dueOn) {
   return `${name} ${iso.slice(0, 4)}`;
 }
 
+/** Mes en español para el recibo: «Noviembre de 2026». */
+export function duesMonthLabel(dueOn) {
+  const iso = String(dueOn || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso) || iso <= OPENING_DUE_ON) return '';
+  const name = MONTHS_ES[Number(iso.slice(5, 7)) - 1];
+  return name ? `${name} de ${iso.slice(0, 4)}` : '';
+}
+
+/** «Septiembre de 2026, Octubre de 2026 y Noviembre de 2026». */
+export function duesMonthsPhrase(dueOns = []) {
+  const labels = [];
+  for (const dueOn of dueOns || []) {
+    const label = duesMonthLabel(dueOn);
+    if (label && !labels.includes(label)) labels.push(label);
+  }
+  if (labels.length <= 1) return labels[0] || '';
+  if (labels.length === 2) return `${labels[0]} y ${labels[1]}`;
+  return `${labels.slice(0, -1).join(', ')} y ${labels[labels.length - 1]}`;
+}
+
 export function imputationSummary(rows = []) {
   return (rows || [])
     .filter((row) => (Number(row.capital) || 0) > 0 || (Number(row.surcharge) || 0) > 0)

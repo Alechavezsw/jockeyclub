@@ -8,6 +8,7 @@ import {
 } from '../reports/pdfBrand';
 import { CLUB_BANK_ACCOUNTS, MERCADO_PAGO } from './clubBanks';
 import { getTierDisplayName } from './tiers';
+import { duesMonthLabel, duesMonthsPhrase } from './duesImputations';
 
 function formatCurrency(amount) {
   return new Intl.NumberFormat('es-AR', {
@@ -30,12 +31,7 @@ function formatShortDateAr(iso) {
 }
 
 function periodLabelFromDueOn(dueOn) {
-  const iso = String(dueOn || '').slice(0, 10);
-  const match = iso.match(/^(\d{4})-(\d{2})/);
-  if (!match) return iso || '';
-  const date = new Date(Number(match[1]), Number(match[2]) - 1, 1);
-  const label = date.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
-  return label.charAt(0).toUpperCase() + label.slice(1);
+  return duesMonthLabel(dueOn) || String(dueOn || '').slice(0, 7);
 }
 
 /** Período cubierto por el cobro (meses marcados o texto guardado). */
@@ -43,9 +39,7 @@ export function paymentPeriodLabel(payment) {
   const stored = String(payment?.period || '').trim();
   if (stored) return stored;
   const dueOns = Array.isArray(payment?.periodDueOns) ? payment.periodDueOns.filter(Boolean) : [];
-  if (!dueOns.length) return '—';
-  if (dueOns.length === 1) return periodLabelFromDueOn(dueOns[0]);
-  return `${periodLabelFromDueOn(dueOns[0])} · ${periodLabelFromDueOn(dueOns[dueOns.length - 1])}`;
+  return duesMonthsPhrase(dueOns) || '—';
 }
 
 /** Categoría visible en el recibo (Socio / Grupo familiar, etc.). */

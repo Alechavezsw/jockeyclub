@@ -21,7 +21,8 @@ Aplica a **todos** los socios que abonan, no a un caso puntual:
 3. **Mes en curso**: si el mes actual ya empezó y forma parte del saldo, también se puede cobrar.
 4. **Nunca un mes ya pago**: si el cobro / imputación ya cubrió ese `dueOn` (`periodDueOns`), no se vuelve a ofrecer.
 5. **En cada mes del recibo**: mostrar **capital** e **intereses** (recargo 10 % si corresponde; si no, “sin intereses”).
-6. Helpers: `collectionPeriodChoices` / `duesPeriodMonthStarted` / `memberCoveredDueOns` en `dues.js`; UI en `CollectDuesModal`.
+6. **El recibo nombra el mes**, en español y para todo el padrón: «Noviembre de 2026», «Octubre de 2026», etc. Vale para PDF, mail, mensaje del portal, Mercado Pago, caja, tarjeta, transferencia, débito y anticipo. Si son varios, van todos («Septiembre de 2026, Octubre de 2026 y Noviembre de 2026»). Nunca solo el medio («Cuota social · Efectivo»), ni «N meses», ni «Mes en curso», ni el mes en inglés.
+7. Helpers: `duesMonthLabel` / `duesMonthsPhrase` en `duesImputations.js`; `collectionPeriodChoices` / `duesPeriodMonthStarted` / `memberCoveredDueOns` en `dues.js`; UI en `CollectDuesModal`.
 
 ## Exentos
 

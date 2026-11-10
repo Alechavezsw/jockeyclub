@@ -7,6 +7,7 @@ import {
   journalAccountForPayment,
 } from '../../domain/members/clubBanks';
 import { collectionPeriodChoices, formatShortDate, isDuesExemptMember } from '../../domain/members/dues';
+import { duesMonthsPhrase } from '../../domain/members/duesImputations';
 import {
   collectionPreview,
   duesMethodNeedsReceipt,
@@ -335,9 +336,7 @@ export default function CollectDuesModal({
       return date.toLocaleDateString('es-AR', { month: 'long' });
     }).filter(Boolean);
     if (!names.length) return 'Cuota';
-    if (names.length === 1) return names[0];
-    if (names.length <= 3) return names.join(' · ');
-    return `${names.length} meses`;
+    return names.join(' · ');
   }, [split.periods, periodChoices, selectedDueOns]);
 
   const selectedBank = CLUB_BANK_ACCOUNTS.find((b) => b.id === bankId) || CLUB_BANK_ACCOUNTS[0];
@@ -1135,7 +1134,7 @@ export default function CollectDuesModal({
               mode="qr"
               amount={amount}
               memberNumber={account.memberId}
-              concept={`Cuota social · ${account.name || 'socio'}`}
+              concept={`Cuota social · ${duesMonthsPhrase(selectedDueOns) || account.name || 'socio'}`}
               disabled={duesExempt || amount <= 0 || !selectedDueOns.length}
               onApproved={() => {
                 onConfirm({

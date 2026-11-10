@@ -7,6 +7,20 @@ const corsHeaders = {
 };
 
 const AR_TZ = "America/Argentina/Buenos_Aires";
+const MONTHS_ES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+
+/** Mes de la cuota en el recibo: «Noviembre de 2026». */
+function cuotaMonthPhrase(now = new Date()) {
+  const iso = new Intl.DateTimeFormat("en-CA", {
+    timeZone: AR_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+  const match = iso.match(/^(\d{4})-(\d{2})-/);
+  const name = match ? MONTHS_ES[Number(match[2]) - 1] : "";
+  return name && match ? `${name} de ${match[1]}` : "";
+}
 const PORTAL_ACCOUNT = "https://www.jockeyclubsj.com.ar/cuenta";
 const DEFAULT_FROM = "Jockey Club San Juan <socios@jockeyclubsj.com.ar>";
 
@@ -657,7 +671,7 @@ Deno.serve(async (req) => {
             member_id: sub.member_id,
             member_number: sub.member_number,
             amount: amount || sub.amount,
-            concept: "Cuota social · débito Mercado Pago",
+            concept: `Cuota social · ${cuotaMonthPhrase()}`,
             payer_email: sub.payer_email,
             external_reference: crypto.randomUUID(),
             preapproval_id: preapprovalId,

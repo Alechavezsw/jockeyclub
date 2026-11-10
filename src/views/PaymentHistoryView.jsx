@@ -14,7 +14,8 @@ import {
 import { downloadPaymentReceiptPdf } from '../domain/members/exportPaymentReceiptPdf';
 import { useMemberDuesStanding } from '../hooks/useMemberDuesStanding';
 import { CLUB_BANK_ACCOUNTS } from '../domain/members/clubBanks';
-import { duesAmountForMember, duesChargeBreakdown, duesDueDayForMember, isDuesExemptMember, quotaHeadline } from '../domain/members/dues';
+import { collectionPeriodChoices, duesAmountForMember, duesChargeBreakdown, duesDueDayForMember, isDuesExemptMember, quotaHeadline } from '../domain/members/dues';
+import { duesMonthsPhrase } from '../domain/members/duesImputations';
 import { todayISODateAR } from '../lib/arDate';
 import { duesPaymentNotice } from '../domain/members/duesPaymentNotice';
 import { uploadDuesReceipt } from '../data/storage';
@@ -282,7 +283,7 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
               kind="dues"
               amount={payable}
               memberNumber={profile?.memberId}
-              concept={`Cuota social · ${profile?.name || 'socio'}`}
+              concept={`Cuota social · ${duesMonthsPhrase(collectionPeriodChoices(standingForCharge).map((row) => row.dueOn)) || profile?.name || 'socio'}`}
               disabled={standingPending || payable <= 0}
               onApproved={() => setMessage('Pago acreditado. Ya figura en tu cuenta.')}
             />

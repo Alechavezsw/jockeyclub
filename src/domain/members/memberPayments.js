@@ -14,6 +14,7 @@ import { journalAccountForPayment } from './clubBanks';
 import { nowTimeAR, todayISODateAR } from '../../lib/arDate';
 import { money } from '../money';
 import {
+  duesMonthsPhrase,
   imputationSummary,
   imputeDuesPayment,
   nextOpenDue,
@@ -441,18 +442,16 @@ export function payMemberDues(member, {
       }
       : split)
     : duesChargeBreakdown(member, { paidOn: today, amount: paidAmount, periodDueOns: selected });
-  const periodLabel = selectedChoices.length === 1
-    ? selectedChoices[0].label
-    : (selectedChoices.length > 1
-      ? `${selectedChoices[0].label} · ${selectedChoices[selectedChoices.length - 1].label}`
-      : today.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' }));
+  const monthPhrase = duesMonthsPhrase(selectedChoices.map((row) => row.dueOn));
+  const periodLabel = monthPhrase
+    || today.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
   const payment = {
     id: `pay-${member.memberId}-${Date.now()}`,
     date,
     time,
     paidAt,
     createdAt: paidAt,
-    concept: `Cuota social · ${duesMethodLabel(method)}`,
+    concept: monthPhrase ? `Cuota social · ${monthPhrase}` : `Cuota social · ${duesMethodLabel(method)}`,
     amount: paidAmount,
     quota: imputed ? imputed.capital : lines.quota,
     surcharge: imputed ? imputed.surcharge : lines.surcharge,
@@ -645,13 +644,16 @@ export function payUpcomingDues(member, { method = 'transferencia', today = new 
   const date = todayISODateAR(today);
   const time = nowTimeAR(today);
   const paidAt = today.toISOString();
+  const monthPhrase = duesMonthsPhrase((preview.periods || []).map((row) => row.dueOn));
   const payment = {
     id: `pay-${member.memberId}-${Date.now()}`,
     date,
     time,
     paidAt,
     createdAt: paidAt,
-    concept: `Cuota social anticipada · ${duesMethodLabel(method)}`,
+    concept: monthPhrase
+      ? `Cuota social anticipada · ${monthPhrase}`
+      : `Cuota social anticipada · ${duesMethodLabel(method)}`,
     amount: preview.cash,
     adelanto: true,
     quota: preview.quota,
@@ -661,7 +663,7 @@ export function payUpcomingDues(member, { method = 'transferencia', today = new 
     status: 'paid',
     receipt: receiptNumberFor(member, date),
     receiptNumber: receiptNumberFor(member, date),
-    period: today.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' }),
+    period: monthPhrase || today.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' }),
     periodDueOns: (preview.periods || []).map((row) => row.dueOn).filter(Boolean),
     balanceBefore: Number(member.outstandingBalance) || 0,
     nextDueBefore: member.nextDueDate || null,

@@ -1,9 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { payMemberDues } from './memberPayments';
 import {
+  duesMonthsPhrase,
   imputeDuesPayment,
   openPeriodsFromChoices,
 } from './duesImputations';
+
+describe('duesMonthsPhrase', () => {
+  it('nombra noviembre en el recibo', () => {
+    expect(duesMonthsPhrase(['2026-09-10', '2026-10-10', '2026-11-10']))
+      .toBe('Septiembre de 2026, Octubre de 2026 y Noviembre de 2026');
+  });
+});
 
 describe('imputeDuesPayment', () => {
   it('un pago parcial entra al mes más viejo y deja el recargo de ese mes', () => {
@@ -56,6 +64,7 @@ describe('payMemberDues', () => {
     expect(payment.imputations[0].surcharge).toBe(909.09);
     expect(payment.imputations[0].surchargeOpen).toBe(6090.91);
     expect(payment.period).toBe('Octubre 2026');
+    expect(payment.concept).toMatch(/Octubre de 2026/);
     expect(next.outstandingBalance).toBe(60909.09);
   });
 });
