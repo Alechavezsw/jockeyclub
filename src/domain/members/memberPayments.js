@@ -1014,13 +1014,26 @@ function cobroSchedule(member, payment) {
   };
   const paidOn = payment.paidAt || payment.date || new Date();
   const balance = Math.max(Number(before.outstandingBalance) || 0, 0);
-  return openPeriodsFromChoices(collectionPeriodChoices(before, paidOn), balance);
+  const choices = collectionPeriodChoices(before, paidOn);
+  const choiceCapital = choices.reduce((sum, row) => sum + (Number(row.capital) || 0), 0);
+  // El saldo puede traer recargos de Lila. Esos no son otra cuota.
+  const scheduleBalance = choiceCapital > 0.01 && choiceCapital < balance - 0.01
+    ? choiceCapital
+    : balance;
+  return openPeriodsFromChoices(choices, scheduleBalance);
 }
 
 function cobroPeriods(member, payment) {
+  const schedule = cobroSchedule(member, payment);
+  const scheduleCapital = schedule.reduce((sum, row) => sum + (Number(row.capital) || 0), 0);
+  const balance = Math.max(Number(payment.balanceBefore ?? member?.outstandingBalance) || 0, 0);
+  const bakedSurcharge = scheduleCapital > 0.01 && balance > scheduleCapital + 0.01
+    ? Math.round((balance - scheduleCapital) * 100) / 100
+    : 0;
   return {
     dueOns: Array.isArray(payment.periodDueOns) ? payment.periodDueOns : [],
-    schedule: cobroSchedule(member, payment),
+    schedule,
+    bakedSurcharge,
     quota: payment.quota ?? null,
     surcharge: payment.surcharge ?? 0,
     creditApplied: payment.creditApplied ?? null,

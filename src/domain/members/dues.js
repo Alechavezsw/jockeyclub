@@ -895,6 +895,51 @@ function expandChoicesToCoverBalance(member, choices, paidOn, coveredDueOns = nu
 }
 
 /**
+ * Saldo sin vencimiento que entra justo en N cuotas vigentes.
+ * No se desarma con la tarifa vieja (septiembre a $36.000) ni con el recargo
+ * que Lila dejó metido en el saldo: son N meses de la cuota de ahora,
+ * desde el mes en curso hacia atrás.
+ */
+function lumpMonthsAtCurrentCuota(member, paidOn, paidSet) {
+  if (pinDuesDueDate(member?.nextDueDate, member)) return null;
+  const balance = money(Math.max(0, Number(member?.outstandingBalance) || 0));
+  const lila = lilaUnpaidCapital(member);
+  const capital = lila != null && lila > 0.01 && lila <= balance + 0.01 ? money(lila) : balance;
+  if (!(capital > 0.01)) return null;
+  const monthly = money(duesAmountForMember(member, paidOn));
+  if (!(monthly > 0)) return null;
+  const count = Math.round(capital / monthly);
+  if (count < 1 || count > 18) return null;
+  const gap = Math.abs(money(capital - count * monthly));
+  if (gap > money(monthly * 0.02)) return null;
+
+  const day = duesDueDayForMember(member);
+  const tier = String(member?.tier || '').trim().toLowerCase();
+  const lateBase = DUES_LATE_TIER_IDS.has(tier) ? monthly : 0;
+  let cursor = duesDateOnDueDay(paidOn.getFullYear(), paidOn.getMonth(), day);
+  const rows = [];
+  for (let i = 0; i < count; i += 1) {
+    const dueOn = toISODate(cursor);
+    if (dueOnAlreadyCovered(dueOn, paidSet) || !duesPeriodMonthStarted(dueOn, paidOn)) return null;
+    const kind = cursor < paidOn ? 'overdue' : 'upcoming';
+    const payable = money(duesPayableAmount(monthly, { paidOn, dueOn, tier: member?.tier }));
+    rows.unshift({
+      id: dueOn,
+      dueOn,
+      monthKey: dueOn.slice(0, 7),
+      label: periodChoiceLabel(dueOn),
+      capital: monthly,
+      lateBase,
+      surcharge: money(Math.max(0, payable - monthly)),
+      payable,
+      kind,
+    });
+    cursor = duesDateOnDueDay(cursor.getFullYear(), cursor.getMonth() - 1, day);
+  }
+  return rows.length === count ? rows : null;
+}
+
+/**
  * Meses que se pueden marcar en el cobro (atrasados y mes en curso).
  * Si el saldo supera lo vencido, suma el mes actual (si ya empezó) y completa hacia atrás.
  */
@@ -919,6 +964,8 @@ export function collectionPeriodChoices(member, today = new Date()) {
 
   const owed = money(Math.max(0, Number(member?.outstandingBalance) || 0));
   if (owed > 0.01) {
+    const lump = lumpMonthsAtCurrentCuota(member, paidOn, paidSet);
+    if (lump) return lump;
     const day = duesDueDayForMember(member);
     const currentDue = toISODate(duesDateOnDueDay(paidOn.getFullYear(), paidOn.getMonth(), day));
     // Sin nextDue, el saldo abierto es el mes en curso (desde el día 1), no el mes anterior.
