@@ -419,8 +419,11 @@ export function payMemberDues(member, {
   const paidAmount = requested > 0 ? requested : due;
   if (!paidAmount || paidAmount <= 0) throw new Error('Importe inválido.');
   if (paidAmount > due + 0.01) throw new Error('El importe supera el saldo pendiente.');
-  const schedule = stored > 0
-    ? openPeriodsFromChoices(choices, stored)
+  const covered = selectedChoices.length ? selectedChoices : choices;
+  const coveredCapital = money(covered.reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
+  const scheduleAmount = coveredCapital > 0 ? coveredCapital : stored;
+  const schedule = scheduleAmount > 0
+    ? openPeriodsFromChoices(covered, scheduleAmount)
     : [];
   const imputed = schedule.length
     ? imputeDuesPayment(schedule, paidAmount, todayISODateAR(today))
@@ -477,13 +480,23 @@ export function payMemberDues(member, {
   if (imputed && stored > 0) {
     const capitalLeft = money(stored - imputed.capital);
     const openDue = nextOpenDue(schedule, imputed.allocations);
-    if (capitalLeft <= 0.01 && !openDue) {
+    const lilaRaw = member?.unpaidCapital;
+    const embedded = lilaRaw != null && lilaRaw !== ''
+      ? money(Math.max(0, stored - money(Math.max(0, Number(lilaRaw) || 0))))
+      : money(Math.max(0, Number(member?.unpaidSurcharges) || 0));
+    const duesSettled = !openDue
+      && remainingCash <= 0.01
+      && remainingChoices.length === 0
+      && embedded > 0.01
+      && capitalLeft <= embedded + 0.01;
+    if ((capitalLeft <= 0.01 && !openDue) || duesSettled) {
       const cleared = afterCollectDues(member, today);
+      const balanceLeft = duesSettled ? 0 : capitalLeft;
       return {
-        member: { ...cleared, outstandingBalance: capitalLeft, lastPaymentDate: date, paymentHistory: history },
+        member: { ...cleared, outstandingBalance: balanceLeft, lastPaymentDate: date, paymentHistory: history },
         payment,
         fullyPaid: true,
-        ledgerEntry: ledgerPago({ ...cleared, outstandingBalance: capitalLeft }, payment),
+        ledgerEntry: ledgerPago({ ...cleared, outstandingBalance: balanceLeft }, payment),
       };
     }
     const next = {

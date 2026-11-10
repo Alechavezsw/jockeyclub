@@ -59,6 +59,30 @@ export function receiptCategoryLabel(member) {
   return '—';
 }
 
+function isOpeningDue(dueOn) {
+  return String(dueOn || '').slice(0, 10) <= '1900-01-10';
+}
+
+/** Una línea por mes: capital e intereses, o el mes sin intereses. Sin saldo anterior. */
+export function receiptChargeLines(payment) {
+  const imputations = Array.isArray(payment?.imputations)
+    ? payment.imputations.filter((row) => row && !row.voidedAt && !isOpeningDue(row.dueOn))
+    : [];
+  return imputations.map((row) => {
+    const period = periodLabelFromDueOn(row.dueOn);
+    const capital = Number(row.capital) || 0;
+    const surcharge = Number(row.surcharge) || 0;
+    const detail = surcharge > 0.01
+      ? `${period} · capital ${formatCurrency(capital)} · intereses ${formatCurrency(surcharge)}`
+      : `${period} · sin intereses`;
+    return {
+      dueOn: String(row.dueOn || '').slice(0, 10),
+      detail,
+      payable: capital + surcharge,
+    };
+  }).filter((row) => row.payable > 0.01);
+}
+
 /**
  * A qué corresponde el cobro: meses imputados / período / concepto limpio.
  * Sin mezclar el medio de pago (eso va en TIPO).
@@ -77,15 +101,11 @@ export function paymentCorrespondsTo(payment, { isBooking = false } = {}) {
   const imputations = Array.isArray(payment?.imputations)
     ? payment.imputations.filter((row) => row && !row.voidedAt)
     : [];
-  if (imputations.length) {
-    return imputations.map((row) => {
-      const period = periodLabelFromDueOn(row.dueOn);
-      const bits = [];
-      if (Number(row.capital) > 0.01) bits.push(`Cuota social ${period}`);
-      if (Number(row.surcharge) > 0.01) bits.push(`Recargo ${period}`);
-      return bits.length ? bits.join(' + ') : `Cuota social ${period}`;
-    }).join(' · ');
+  const charges = receiptChargeLines(payment);
+  if (charges.length === 1 && !(Number(imputations.find((row) => !isOpeningDue(row.dueOn))?.surcharge) > 0.01)) {
+    return `Cuota social ${periodLabelFromDueOn(charges[0].dueOn)}`;
   }
+  if (charges.length) return charges.map((row) => row.detail).join(' · ');
 
   const period = paymentPeriodLabel(payment);
   const raw = String(payment?.concept || '').trim();
@@ -217,7 +237,15 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
   const surcharge = Number(payment.surcharge);
   const hasSplit = Number.isFinite(quota) && quota > 0;
   const period = paymentPeriodLabel(payment);
-  const bodyRows = hasSplit
+  const chargeLines = isBooking ? [] : receiptChargeLines(payment);
+  const bodyRows = chargeLines.length
+    ? chargeLines.map((line, index) => [
+      index === 0 ? formatShortDateAr(payment.date) : '',
+      line.detail,
+      formatCurrency(line.payable),
+      formatCurrency(line.payable),
+    ])
+    : hasSplit
     ? [
       [
         formatShortDateAr(payment.date),

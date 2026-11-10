@@ -738,9 +738,9 @@ export default function CollectDuesModal({
                       <span style={{ flex: 1 }}>
                         <strong style={{ display: 'block', color: 'var(--text-primary)' }}>{row.label}</strong>
                         <small style={{ color: 'var(--text-muted)' }}>
-                          {row.kind === 'overdue' ? 'Atrasada' : 'Mes en curso'}
-                          {` · capital ${formatCurrency(row.capital)}`}
-                          {row.surcharge > 0 ? ` · intereses ${formatCurrency(row.surcharge)}` : ' · sin intereses'}
+                          {row.surcharge > 0
+                            ? `capital ${formatCurrency(row.capital)} · intereses ${formatCurrency(row.surcharge)}`
+                            : 'sin intereses'}
                         </small>
                       </span>
                       <b className="tabular-nums" style={{ color: 'var(--text-gold)' }}>{formatCurrency(row.payable)}</b>

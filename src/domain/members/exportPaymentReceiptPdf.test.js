@@ -4,6 +4,7 @@ import {
   paymentCorrespondsTo,
   paymentPeriodLabel,
   receiptCategoryLabel,
+  receiptChargeLines,
   receiptMethodLabel,
 } from './exportPaymentReceiptPdf';
 
@@ -25,6 +26,23 @@ describe('exportPaymentReceiptPdf helpers', () => {
         { dueOn: '2026-10-10', capital: 70000, surcharge: 0 },
       ],
     })).toMatch(/Cuota social Octubre( de)? 2026/i);
+  });
+
+  it('el recibo de varios meses dice solo capital, intereses y el mes sin intereses', () => {
+    const payment = {
+      imputations: [
+        { dueOn: '1900-01-10', capital: 3600, surcharge: 0 },
+        { dueOn: '2026-09-10', capital: 40000, surcharge: 4000 },
+        { dueOn: '2026-10-10', capital: 40000, surcharge: 4000 },
+        { dueOn: '2026-11-10', capital: 40000, surcharge: 0 },
+      ],
+    };
+    const lines = receiptChargeLines(payment);
+    expect(lines.map((row) => row.payable)).toEqual([44000, 44000, 40000]);
+    expect(paymentCorrespondsTo(payment)).toMatch(/Septiembre de 2026 · capital .+ · intereses .+/);
+    expect(paymentCorrespondsTo(payment)).toMatch(/Octubre de 2026 · capital .+ · intereses .+/);
+    expect(paymentCorrespondsTo(payment)).toMatch(/Noviembre de 2026 · sin intereses/);
+    expect(paymentCorrespondsTo(payment)).not.toMatch(/agosto|saldo anterior/i);
   });
 
   it('usa el período guardado o los vencimientos imputados', () => {
