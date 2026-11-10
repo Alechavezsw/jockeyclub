@@ -913,6 +913,7 @@ describe('collectionPeriodChoices vs saldo de ficha', () => {
       { dueOn: '2026-10-10', capital: 40000, surcharge: 4000, kind: 'overdue' },
       { dueOn: '2026-11-10', capital: 40000, surcharge: 0, kind: 'upcoming' },
     ]);
+    expect(choices.map((row) => row.lateBase)).toEqual([40000, 40000, 40000]);
     expect(choices.some((row) => row.dueOn === '2026-08-10')).toBe(false);
   });
 
@@ -934,6 +935,8 @@ describe('collectionPeriodChoices vs saldo de ficha', () => {
     };
     const today = new Date(2026, 10, 10, 12, 0, 0);
     const choices = collectionPeriodChoices(member, today);
+    const withoutTier = collectionPeriodChoices({ ...member, tier: '' }, today);
+    expect(withoutTier.map((row) => row.lateBase)).toEqual([40000, 40000, 40000]);
     expect(choices.map((row) => row.dueOn)).toEqual(['2026-09-10', '2026-10-10', '2026-11-10']);
     expect(choices.some((row) => row.dueOn.startsWith('2026-08'))).toBe(false);
   });

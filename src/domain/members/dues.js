@@ -936,7 +936,8 @@ function lumpMonthsAtCurrentCuota(member, paidOn, paidSet) {
 
   const day = duesDueDayForMember(member);
   const tier = String(member?.tier || '').trim().toLowerCase();
-  const lateBase = DUES_LATE_TIER_IDS.has(tier) ? monthly : 0;
+  // Misma regla que el 10 % del recibo: sin categoría también hay recargo.
+  const lateBase = tier && !DUES_LATE_TIER_IDS.has(tier) ? 0 : monthly;
   let cursor = duesDateOnDueDay(paidOn.getFullYear(), paidOn.getMonth(), day);
   const rows = [];
   for (let i = 0; i < count; i += 1) {
