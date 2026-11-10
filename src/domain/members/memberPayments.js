@@ -1101,12 +1101,28 @@ export async function commitDuesCollection(member, payment) {
       throw new Error('Falta el motivo del cobro antedatado (mínimo 8 caracteres).');
     }
   }
-  const saved = await registrarCobro({
-    memberId: memberDbId,
-    amount: Number(payment.amount) || 0,
-    periods: cobroPeriods(member, payment),
-    idempotencyKey: `cobro:${member.memberId}:${payment.id}`,
-  });
+  const periods = cobroPeriods(member, payment);
+  const amount = Number(payment.amount) || 0;
+  const key = `cobro:${member.memberId}:${payment.id}`;
+  let saved;
+  try {
+    saved = await registrarCobro({
+      memberId: memberDbId,
+      amount,
+      periods,
+      idempotencyKey: key,
+    });
+  } catch (err) {
+    // Bases viejas todavía pedían marcar adelanto a mano; reintentamos en silencio.
+    const msg = String(err?.message || err || '');
+    if (!/supera la deuda|marcarlo como adelanto/i.test(msg) || periods.adelanto) throw err;
+    saved = await registrarCobro({
+      memberId: memberDbId,
+      amount,
+      periods: { ...periods, adelanto: true },
+      idempotencyKey: `${key}:adelanto`,
+    });
+  }
   const history = (member.paymentHistory || []).filter((row) => row && row.id !== payment.id);
   const nextMember = {
     ...member,

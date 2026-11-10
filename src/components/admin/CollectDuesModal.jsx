@@ -629,7 +629,13 @@ export default function CollectDuesModal({
         });
       }
     } catch (err) {
-      setError(err?.message || 'No se pudo guardar el comprobante.');
+      const msg = String(err?.message || '');
+      // Ese freno ya no debería aparecer; si una base vieja lo manda, no lo mostramos en rojo.
+      if (/supera la deuda|marcarlo como adelanto/i.test(msg)) {
+        setError('No se pudo cerrar el cobro. Probá de nuevo en un momento.');
+      } else {
+        setError(msg || 'No se pudo guardar el comprobante.');
+      }
     } finally {
       setSubmitting(false);
     }
