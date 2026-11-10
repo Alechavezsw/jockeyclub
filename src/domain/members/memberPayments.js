@@ -1114,13 +1114,14 @@ export async function commitDuesCollection(member, payment) {
     });
   } catch (err) {
     // Bases viejas todavía pedían marcar adelanto a mano; reintentamos en silencio.
+    // Misma clave: si el primer intento no insertó, no se duplica el cobro.
     const msg = String(err?.message || err || '');
     if (!/supera la deuda|marcarlo como adelanto/i.test(msg) || periods.adelanto) throw err;
     saved = await registrarCobro({
       memberId: memberDbId,
       amount,
       periods: { ...periods, adelanto: true },
-      idempotencyKey: `${key}:adelanto`,
+      idempotencyKey: key,
     });
   }
   const history = (member.paymentHistory || []).filter((row) => row && row.id !== payment.id);
