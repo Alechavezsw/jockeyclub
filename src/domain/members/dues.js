@@ -389,8 +389,9 @@ export function quotaHeadline(member) {
 
 /**
  * Monto de cuota según categoría, igual que la liquidación de Lila.
- * Desde octubre 2026 usa el borrador de ese mes. Antes, la liquidación de septiembre,
- * salvo que el catálogo tenga un valor editado distinto de la tarifa oficial.
+ * Socio individual: $ 40.000 en noviembre y en todos los meses.
+ * El resto, desde octubre 2026 usa el borrador de ese mes. Antes, la
+ * liquidación de septiembre, salvo un valor editado en el catálogo.
  */
 export function duesAmountForTier(tier, catalog, on = new Date()) {
   const when = asDueAnchor(on);
@@ -398,6 +399,9 @@ export function duesAmountForTier(tier, catalog, on = new Date()) {
   const id = String(tier || '').trim().toLowerCase();
   const october = MONTHLY_DUES_FROM_OCTOBER_2026[id];
   const september = MONTHLY_DUES_THROUGH_SEPTEMBER_2026[id];
+  // Socio individual: $ 40.000 en noviembre y en todos los meses.
+  // No vuelve la tarifa de septiembre ni un saldo viejo del catálogo.
+  if (id === 'socio_individual' && october != null) return october;
   if (from && when >= from && october != null) return october;
   if (from && when < from && september != null) {
     const listed = findTier(tier, catalog);
@@ -781,7 +785,9 @@ function dueOnAlreadyCovered(dueOn, coveredDueOns) {
 function capitalOwedForChoices(member) {
   const balance = money(Math.max(0, Number(member?.outstandingBalance) || 0));
   const lila = lilaUnpaidCapital(member);
-  if (lila != null && lila <= balance + 0.01) return money(Math.max(0, lila));
+  // El corte Lila es la cuota. Si la apertura quedó más baja (8063 en 28.000
+  // con individual a 40.000), no se cobra ese importe viejo.
+  if (lila != null) return money(Math.max(0, lila));
   const surcharge = money(Math.max(0, Number(member?.unpaidSurcharges) || 0));
   if (surcharge > 0.01 && balance > surcharge + 0.01) return money(balance - surcharge);
   return balance;
@@ -908,6 +914,17 @@ function cuotaTariffStep(member, paidOn) {
   const current = money(duesAmountForMember(member, paidOn));
   const from = parseDate(DUES_TARIFF_FROM);
   if (!from) return 0;
+  const ids = billedTierIds(member);
+  const tier = String(member?.tier || '').trim().toLowerCase();
+  const pool = ids.length ? ids : (tier ? [tier] : []);
+  let step = 0;
+  for (const id of pool) {
+    const previousTariff = MONTHLY_DUES_THROUGH_SEPTEMBER_2026[id];
+    const currentTariff = MONTHLY_DUES_FROM_OCTOBER_2026[id];
+    if (previousTariff == null || currentTariff == null) continue;
+    step += Math.abs(money(currentTariff - previousTariff));
+  }
+  if (step > 0) return money(step);
   const previous = money(duesAmountForMember(member, new Date(from.getTime() - DAY_MS)));
   return Math.abs(money(current - previous));
 }

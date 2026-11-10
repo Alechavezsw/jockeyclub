@@ -135,9 +135,9 @@ describe('dues classification', () => {
   it('genera deuda automática al vencer sin saldo previo', () => {
     const updated = applyAutomaticDues(members, today);
     // Solo capital en ficha; el 10 % se suma al cobrar.
-    expect(updated.find((m) => m.memberId === '4').outstandingBalance).toBe(32000);
-    // Socio 1 ya tenía $32.000 y dos meses vencidos: completa al capital.
-    expect(updated.find((m) => m.memberId === '1').outstandingBalance).toBe(64000);
+    expect(updated.find((m) => m.memberId === '4').outstandingBalance).toBe(40000);
+    // Socio 1 ya tenía saldo y dos meses vencidos: completa a $ 40.000 × 2.
+    expect(updated.find((m) => m.memberId === '1').outstandingBalance).toBe(80000);
     expect(updated.find((m) => m.memberId === '2').outstandingBalance).toBe(0);
   });
 
@@ -150,8 +150,8 @@ describe('dues classification', () => {
       status: 'active',
       nextDueDate: '2026-06-10',
     }], today);
-    // Jun + Jul (antes de oct): 32.000 × 2 de capital
-    expect(updated[0].outstandingBalance).toBe(64000);
+    // Jun + Jul: $ 40.000 × 2 de capital, también antes de octubre.
+    expect(updated[0].outstandingBalance).toBe(80000);
   });
 
   it('ciclo: cuota + cuota sin pagar = 2; recargo solo si paga después del 10', () => {
@@ -480,11 +480,11 @@ describe('tarifa desde octubre 2026', () => {
     }, october)).toBe(82000);
   });
 
-  it('en septiembre no reemplaza la cuota que ya estaba en el catálogo', () => {
-    expect(duesAmountForMember({
-      tier: 'socio_individual',
-      adherents: [],
-    }, new Date('2026-09-29T12:00:00'))).toBe(32000);
+  it('el individual es 40.000 en septiembre, en noviembre y en cualquier mes', () => {
+    const member = { tier: 'socio_individual', adherents: [] };
+    expect(duesAmountForMember(member, new Date('2026-09-29T12:00:00'))).toBe(40000);
+    expect(duesAmountForMember(member, new Date('2026-11-10T12:00:00'))).toBe(40000);
+    expect(duesAmountForMember(member, new Date('2026-06-10T12:00:00'))).toBe(40000);
   });
 
   it('el recargo es el 10 % de cada mes vencido, por separado', () => {
@@ -852,6 +852,27 @@ describe('collectionPeriodChoices vs saldo de ficha', () => {
     expect(preview.quota).toBe(70000);
     expect(preview.surcharge).toBe(0);
     expect(preview.cash).toBe(70000);
+  });
+
+  it('un individual con apertura vieja cobra 40.000, no el saldo más bajo', () => {
+    setRuntimeTierCatalog([
+      { id: 'socio_individual', name: 'SOCIO INDIVIDUAL', monthlyDues: 40000, sortOrder: 1 },
+    ]);
+    const member = {
+      memberId: '8063',
+      tier: 'socio_individual',
+      status: 'active',
+      outstandingBalance: 28000,
+      unpaidCapital: 40000,
+      nextDueDate: null,
+      cuotaCategories: ['SOCIO INDIVIDUAL'],
+    };
+    const today = new Date(2026, 10, 10, 12, 0, 0);
+    const choices = collectionPeriodChoices(member, today);
+    expect(choices).toHaveLength(1);
+    expect(choices[0].dueOn).toBe('2026-11-10');
+    expect(choices[0].capital).toBe(40000);
+    expect(choices[0].surcharge).toBe(0);
   });
 
   it('un saldo sin vencimiento de tres cuotas de $40.000 no inventa septiembre a $36.000', () => {
