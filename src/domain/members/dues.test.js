@@ -830,4 +830,27 @@ describe('collectionPeriodChoices vs saldo de ficha', () => {
     const capital = choices.reduce((sum, row) => sum + (Number(row.capital) || 0), 0);
     expect(capital).toBe(260000);
   });
+
+  it('sin nextDue y con una cuota de saldo, el 10 de noviembre ofrece noviembre sin recargo', () => {
+    setRuntimeTierCatalog([
+      { id: 'socio_familiar', name: 'SOCIO FAMILIAR', monthlyDues: 70000, sortOrder: 1 },
+    ]);
+    const member = {
+      memberId: '1205',
+      tier: 'socio_familiar',
+      status: 'active',
+      outstandingBalance: 70000,
+      nextDueDate: null,
+      cuotaCategories: ['SOCIO FAMILIAR'],
+    };
+    const today = new Date(2026, 10, 10, 12, 0, 0);
+    const choices = collectionPeriodChoices(member, today);
+    expect(choices.map((row) => ({ dueOn: row.dueOn, capital: row.capital, surcharge: row.surcharge, kind: row.kind }))).toEqual([
+      { dueOn: '2026-11-10', capital: 70000, surcharge: 0, kind: 'upcoming' },
+    ]);
+    const preview = collectionPreview(member, today);
+    expect(preview.quota).toBe(70000);
+    expect(preview.surcharge).toBe(0);
+    expect(preview.cash).toBe(70000);
+  });
 });

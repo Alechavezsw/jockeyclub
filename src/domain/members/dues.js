@@ -919,10 +919,24 @@ export function collectionPeriodChoices(member, today = new Date()) {
 
   const owed = money(Math.max(0, Number(member?.outstandingBalance) || 0));
   if (owed > 0.01) {
-    const seedDue = pinDuesDueDate(member.nextDueDate, member)
-      || toISODate(duesDateOnDueDay(paidOn.getFullYear(), paidOn.getMonth() - 1, duesDueDayForMember(member)));
+    const day = duesDueDayForMember(member);
+    const currentDue = toISODate(duesDateOnDueDay(paidOn.getFullYear(), paidOn.getMonth(), day));
+    // Sin nextDue, el saldo abierto es el mes en curso (desde el día 1), no el mes anterior.
+    // Un nextDue que todavía no empezó (diciembre en noviembre) tampoco se usa de semilla.
+    const hinted = pinDuesDueDate(member.nextDueDate, member)
+      || (member?.lastPaymentDate
+        ? firstUnpaidDuesDate({
+          lastPaymentDate: member.lastPaymentDate,
+          nextDueDate: null,
+          today: paidOn,
+          member,
+        })
+        : null);
+    const seedDue = hinted && duesPeriodMonthStarted(hinted, paidOn) ? hinted : currentDue;
     if (!dueOnAlreadyCovered(seedDue, paidSet)) {
-      const seed = periodChoiceFromDue(member, seedDue, paidOn, 'overdue');
+      const seedDate = parseDate(seedDue);
+      const seedKind = seedDate && seedDate < paidOn ? 'overdue' : 'upcoming';
+      const seed = periodChoiceFromDue(member, seedDue, paidOn, seedKind);
       if (seed) return expandChoicesToCoverBalance(member, [seed], paidOn, paidSet);
     }
     return expandChoicesToCoverBalance(member, [], paidOn, paidSet);
