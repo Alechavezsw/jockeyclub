@@ -262,6 +262,12 @@ Deno.serve(async (req) => {
     }
     const amount = money(body?.amount);
     if (amount <= 0) return json(400, { error: "Importe inválido." });
+    const discount = money(body?.discount);
+    const discountDetail = String(body?.discountDetail || "").replace(/\s+/g, " ").trim().slice(0, 180);
+    if (discount < 0) return json(400, { error: "El descuento no puede ser negativo." });
+    if (discount > 0 && discountDetail.length < 3) {
+      return json(400, { error: "Falta el detalle del descuento." });
+    }
     const channel = channelOf(kind, body?.channel);
 
     const admin = createClient(supabaseUrl, serviceKey);
@@ -363,6 +369,9 @@ Deno.serve(async (req) => {
         meta: {
           guestName: guestName || undefined,
           channel,
+          ...(discount > 0 && (kind === "dues" || kind === "subscription")
+            ? { discount, discountDetail }
+            : {}),
           ...(bookingMeta ? { booking: bookingMeta } : {}),
         },
       })

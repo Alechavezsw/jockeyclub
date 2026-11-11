@@ -195,12 +195,18 @@ function receiptCopy(input: {
   date: string;
   concept: string;
   period: string;
+  discount?: number;
+  discountDetail?: string;
 }) {
   const who = String(input.name || "socio").trim() || "socio";
   const via = mpReceiptChannelLabel(input.channel);
   const money = mpReceiptMoney(input.amount);
   const receipt = String(input.receiptNumber || "").trim() || "—";
   const conceptLabel = String(input.concept || "Cuota social").trim();
+  const cut = Number(input.discount) || 0;
+  const discountNote = String(input.discountDetail || "").trim();
+  const discountLabel = cut > 0.009 ? `Descuento · ${discountNote || "mostrador"}` : "";
+  const discountMoney = discountLabel ? mpReceiptMoney(cut) : "";
   const number = String(input.memberNumber || "").trim();
   const subject = "Comprobante de pago · Jockey Club San Juan";
   const greeting = `Hola ${who},`;
@@ -212,6 +218,7 @@ function receiptCopy(input: {
     "",
     `Comprobante: ${receipt}`,
     `Importe: ${money}`,
+    discountLabel ? `${discountLabel}: ${discountMoney}` : "",
     input.date ? `Fecha: ${input.date}` : "",
     input.period ? `Período: ${input.period}` : "",
     number ? `Socio Nº ${number}` : "",
@@ -248,6 +255,7 @@ function receiptCopy(input: {
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #eadcc0;border-bottom:1px solid #eadcc0;margin:0 0 22px;">
               ${row("Comprobante", receipt)}
               ${row("Importe", money)}
+              ${row(discountLabel, discountMoney)}
               ${row("Concepto", conceptLabel)}
               ${row("Medio", `Mercado Pago · ${via}`)}
               ${row("Fecha", input.date)}
@@ -365,7 +373,10 @@ async function deliverMpReceipt(admin: Admin, intentId: string) {
   });
 
   const receiptNumber = String(payment?.receipt_number || `MP-${String(intent.id).slice(0, 8)}`);
+  const payMeta = (payment?.meta || {}) as Record<string, unknown>;
   const amount = Number(payment?.amount || intent.amount || 0);
+  const discount = Number(payMeta.discount || meta.discount || 0);
+  const discountDetail = String(payMeta.discountDetail || meta.discountDetail || "");
   const paidAt = String(payment?.paid_at || intent.applied_at || todayAR()).slice(0, 10);
   const period = String(payment?.period_label || "");
   const concept = String(payment?.concept || intent.concept || "Cuota social · Mercado Pago");
@@ -381,12 +392,15 @@ async function deliverMpReceipt(admin: Admin, intentId: string) {
     date: longDate(paidAt),
     concept,
     period,
+    discount,
+    discountDetail,
   });
 
   const pdf = buildReceiptPdf([
     copy.lead,
     `Comprobante: ${receiptNumber}`,
     `Importe: ${copy.money}`,
+    discount > 0.009 ? `Descuento: ${mpReceiptMoney(discount)} ${discountDetail}`.trim() : "",
     `Concepto: ${concept}`,
     `Medio: Mercado Pago · ${copy.via}`,
     paidAt ? `Fecha: ${longDate(paidAt)}` : "",

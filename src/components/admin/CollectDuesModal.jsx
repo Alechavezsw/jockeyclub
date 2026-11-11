@@ -529,14 +529,6 @@ export default function CollectDuesModal({
       setError(err?.message || 'El descuento no es válido.');
       return;
     }
-    if (concession.discount > 0 && method === 'mercadopago') {
-      setError('El descuento se registra en caja, no por Mercado Pago.');
-      return;
-    }
-    if (concession.discount > 0 && concession.cash <= 0.009 && method !== 'efectivo') {
-      setError('Si el descuento cubre el total, acreditalo en efectivo.');
-      return;
-    }
     if (isDuesExemptMember(account)) {
       setError('Esta categoría no abona cuota social.');
       return;
@@ -548,7 +540,8 @@ export default function CollectDuesModal({
       setError('No hay saldo pendiente para abonar.');
       return;
     }
-    if (isMixed) {
+    const settling = concession.cash > 0.009;
+    if (isMixed && settling) {
       const filled = mixLines.filter((row) => Number(row.amount) > 0);
       if (filled.length < 2) {
         setError('El pago mixto necesita al menos dos medios con importe.');
@@ -571,7 +564,7 @@ export default function CollectDuesModal({
           return;
         }
       }
-    } else {
+    } else if (settling) {
       const manual = receiptMode === 'manual';
       if (needsReceipt && manual && !isManualDuesReceipt(receiptParse)) {
         setError('Completá la referencia del comprobante manual.');
@@ -591,7 +584,7 @@ export default function CollectDuesModal({
 
     setSubmitting(true);
     try {
-      if (isMixed) {
+      if (isMixed && settling) {
         const paymentSplits = [];
         for (const row of mixLines) {
           const lineAmount = Number(row.amount) || 0;
@@ -636,11 +629,12 @@ export default function CollectDuesModal({
         if (needsReceipt && receiptFile && !manual) {
           receiptAttachment = await uploadDuesReceipt(receiptFile, account.memberId || member.memberId);
         }
-        const journalAccount = journalAccountForPayment(method, bankId);
+        const recordMethod = isMixed ? 'efectivo' : method;
+        const journalAccount = journalAccountForPayment(recordMethod, bankId);
         await onConfirm({
-          method,
-          bankId: method === 'transferencia' ? bankId : null,
-          bankName: method === 'transferencia' ? selectedBank?.name : null,
+          method: recordMethod,
+          bankId: recordMethod === 'transferencia' ? bankId : null,
+          bankName: recordMethod === 'transferencia' ? selectedBank?.name : null,
           journalAccount,
           receiptName: receiptAttachment?.name
             || (manual ? manualDuesReceiptLabel(receiptParse) : null)
@@ -651,8 +645,8 @@ export default function CollectDuesModal({
           discount: concession.discount,
           discountDetail: concession.detail,
           periodDueOns: chargeDueOns,
-          paymentPlanId: method === 'tarjeta' ? (selectedPlan?.id || null) : null,
-          paymentPlanLabel: method === 'tarjeta' ? (selectedPlan?.label || null) : null,
+          paymentPlanId: recordMethod === 'tarjeta' ? (selectedPlan?.id || null) : null,
+          paymentPlanLabel: recordMethod === 'tarjeta' ? (selectedPlan?.label || null) : null,
           receiptParse: needsReceipt ? receiptParse : null,
         });
       }
@@ -1200,24 +1194,30 @@ export default function CollectDuesModal({
 
         {method === 'mercadopago' && (
           <div style={{ marginBottom: '1rem' }}>
-            {discountValue > 0.009 ? (
+            {discountValue > 0.009 && discountDetail.trim().length < 3 ? (
               <p style={{ margin: '0 0 0.6rem', fontSize: '0.84rem', color: 'var(--text-gold)' }}>
-                El descuento se registra en caja. Mercado Pago cobra el total sin ese descuento.
+                El descuento necesita un detalle para generar el QR.
               </p>
             ) : null}
             <MercadoPagoCheckout
               kind="dues"
               mode="qr"
-              amount={amount}
+              amount={cash}
+              discount={discountOver ? 0 : discountValue}
+              discountDetail={discountDetail}
               memberNumber={account.memberId}
-              concept={`Cuota social · ${duesMonthsPhrase(selectedDueOns) || account.name || 'socio'}`}
-              disabled={duesExempt || amount <= 0 || !selectedDueOns.length || discountValue > 0.009}
+              concept={`Cuota social · ${duesMonthsPhrase(selectedDueOns.length ? selectedDueOns : periodChoices.map((row) => String(row.dueOn).slice(0, 10))) || account.name || 'socio'}`}
+              disabled={duesExempt || cash <= 0 || (!selectedDueOns.length && !periodChoices.length) || discountOver || (discountValue > 0.009 && discountDetail.trim().length < 3)}
               onApproved={() => {
                 onConfirm({
                   method: 'mercadopago',
                   alreadyApplied: true,
-                  amount,
-                  periodDueOns: selectedDueOns,
+                  amount: cash,
+                  discount: discountOver ? 0 : discountValue,
+                  discountDetail,
+                  periodDueOns: selectedDueOns.length
+                    ? selectedDueOns
+                    : periodChoices.map((row) => String(row.dueOn).slice(0, 10)),
                 });
               }}
             />

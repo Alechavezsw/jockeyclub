@@ -763,7 +763,7 @@ export function recordDuesCollection(member, {
     || receiptName
     || (manual ? manualDuesReceiptLabel(receiptParse) : null);
   const attachmentPath = receiptAttachment?.path || null;
-  if (!mixed) {
+  if (!mixed && !(concession.discount > 0.009 && concession.cash <= 0.009)) {
     const needsReceipt = duesMethodNeedsReceipt(resolvedMethod);
     if (needsReceipt && !attachmentName) {
       throw new Error(resolvedMethod === 'tarjeta'

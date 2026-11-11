@@ -16,6 +16,8 @@ function formatCurrency(amount) {
 export default function MercadoPagoCheckout({
   kind = 'dues',
   amount,
+  discount = 0,
+  discountDetail = '',
   memberNumber,
   concept,
   guestName,
@@ -72,6 +74,8 @@ export default function MercadoPagoCheckout({
       const created = await createMercadoPagoCheckout({
         kind: nextKind,
         amount,
+        discount,
+        discountDetail,
         memberNumber,
         concept,
         guestName,

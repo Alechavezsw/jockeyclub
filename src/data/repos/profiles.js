@@ -446,6 +446,8 @@ async function invokeFunction(name, body, fallback) {
 export async function createMercadoPagoCheckout({
   kind = 'dues',
   amount,
+  discount = 0,
+  discountDetail = '',
   memberNumber,
   concept,
   guestName,
@@ -456,6 +458,8 @@ export async function createMercadoPagoCheckout({
   return invokeFunction('mp-create', {
     kind,
     amount,
+    discount,
+    discountDetail,
     memberNumber,
     concept,
     guestName,
