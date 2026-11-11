@@ -65,11 +65,11 @@ async function hydrateCollectMember(row) {
   const number = memberNumberOf(row) || row?.memberId;
   try {
     if (dbId && typeof repos.getMember === 'function') {
-      const full = await repos.getMember(dbId);
+      const full = await repos.getMember(dbId, { withPayments: true });
       if (full) return full;
     }
     if (number && typeof repos.getMemberByNumber === 'function') {
-      const full = await repos.getMemberByNumber(number);
+      const full = await repos.getMemberByNumber(number, { withPayments: true });
       if (full) return full;
     }
   } catch {
@@ -112,6 +112,7 @@ export default function CollectDuesDeskFlow({
   const [remoteBusy, setRemoteBusy] = useState(false);
   const [member, setMember] = useState(null);
   const [error, setError] = useState('');
+  const [coveredByMember, setCoveredByMember] = useState({});
 
   useEffect(() => {
     if (!open) {
@@ -120,6 +121,7 @@ export default function CollectDuesDeskFlow({
       setRemoteBusy(false);
       setMember(null);
       setError('');
+      setCoveredByMember({});
       return;
     }
     // Evita hits viejos de search_members_lookup sin categoría/saldo.
@@ -176,6 +178,24 @@ export default function CollectDuesDeskFlow({
       .toSorted((a, b) => rankMemberSearchHit(a, q) - rankMemberSearchHit(b, q))
       .slice(0, 12);
   }, [members, query, remoteHits, member]);
+
+  const hitKey = hits.map((row) => row.id).filter(Boolean).join(',');
+  useEffect(() => {
+    if (!open || !hitKey || !isSupabaseConfigured || typeof repos.listCoveredDueOnsByMember !== 'function') {
+      return undefined;
+    }
+    let cancelled = false;
+    repos.listCoveredDueOnsByMember(hitKey.split(','))
+      .then((map) => {
+        if (!cancelled) setCoveredByMember(map || {});
+      })
+      .catch(() => {
+        if (!cancelled) setCoveredByMember({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, hitKey]);
 
   const pickMember = async (row) => {
     setError('');
@@ -334,9 +354,13 @@ export default function CollectDuesDeskFlow({
               const doc = row.documentNumber || row.dni || '';
               const category = hitCategoryLabel(row, tierCatalog);
               const exempt = isDuesExemptMember(row);
+              const covered = coveredByMember[row.id];
+              const forPreview = covered?.length
+                ? { ...row, paymentHistory: [...(row.paymentHistory || []), ...covered] }
+                : row;
               const preview = exempt
                 ? { cash: 0, quota: 0, surcharge: 0 }
-                : collectionPreview(row, new Date());
+                : collectionPreview(forPreview, new Date());
               const toCollect = money(preview.cash);
               const capital = money(Math.max(0, Number(row.outstandingBalance) || 0));
               return (

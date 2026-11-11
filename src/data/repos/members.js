@@ -551,6 +551,34 @@ export async function searchMembersDirectory(query, { limit = 20, signal } = {})
   return mapped;
 }
 
+/**
+ * Meses ya cobrados (periodDueOns) para el preview de Cobrar cuota.
+ * La búsqueda del padrón no trae pagos; sin esto el mes en curso se vuelve a ofrecer con recargo.
+ */
+export async function listCoveredDueOnsByMember(memberIds) {
+  const ids = [...new Set((memberIds || []).map((id) => String(id || '')).filter((id) => isUuid(id)))];
+  if (!ids.length || !supabase) return {};
+  const rows = await unwrap(
+    sb()
+      .from('member_payments')
+      .select('member_id, meta')
+      .in('member_id', ids)
+      .gte('paid_at', '2026-01-01')
+      .limit(400),
+    'No se pudieron cargar los meses ya cobrados',
+  );
+  const out = {};
+  for (const row of rows || []) {
+    const dueOns = Array.isArray(row?.meta?.periodDueOns) ? row.meta.periodDueOns : [];
+    if (!dueOns.length || row?.meta?.status === 'void' || row?.meta?.voidedAt) continue;
+    const id = String(row.member_id);
+    const list = out[id] || [];
+    list.push({ periodDueOns: dueOns, status: 'paid' });
+    out[id] = list;
+  }
+  return out;
+}
+
 function buildMemberSearch(req, _raw, q, digits, nameLike) {
   if (digits && !nameLike) {
     return req.or([
