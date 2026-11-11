@@ -469,6 +469,35 @@ export async function createMercadoPagoCheckout({
   }, 'No se pudo abrir Mercado Pago');
 }
 
+/** Adhesiones al débito y los cobros que ya generaron. */
+export async function listDuesSubscriptions() {
+  const adhesions = await unwrap(
+    sb()
+      .from('mp_intents')
+      .select('id, status, member_id, member_number, amount, concept, payer_email, preapproval_id, applied_at, created_at, meta')
+      .eq('kind', 'subscription')
+      .order('created_at', { ascending: false }),
+    'No se pudieron cargar las suscripciones',
+  );
+  const charges = await unwrap(
+    sb()
+      .from('mp_intents')
+      .select('id, status, amount, concept, applied_at, created_at, meta')
+      .eq('kind', 'dues')
+      .filter('meta->>channel', 'eq', 'subscription')
+      .order('created_at', { ascending: false }),
+    'No se pudieron cargar los débitos',
+  );
+  const ids = [...new Set((adhesions || []).map((row) => row.member_id).filter(Boolean))];
+  const members = ids.length
+    ? await unwrap(
+      sb().from('members').select('id, full_name, member_number').in('id', ids),
+      'No se pudieron cargar los socios suscriptos',
+    )
+    : [];
+  return { adhesions: adhesions || [], charges: charges || [], members: members || [] };
+}
+
 export async function getMercadoPagoIntent(id) {
   if (!id) return null;
   const row = await unwrap(

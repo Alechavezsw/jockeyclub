@@ -14,7 +14,7 @@ import {
 import { downloadPaymentReceiptPdf } from '../domain/members/exportPaymentReceiptPdf';
 import { useMemberDuesStanding } from '../hooks/useMemberDuesStanding';
 import { CLUB_BANK_ACCOUNTS } from '../domain/members/clubBanks';
-import { collectionPeriodChoices, duesAmountForMember, duesChargeBreakdown, duesDueDayForMember, isDuesExemptMember, quotaHeadline } from '../domain/members/dues';
+import { collectionPeriodChoices, duesAmountForMember, duesDueDayForMember, isDuesExemptMember, quotaHeadline } from '../domain/members/dues';
 import { duesMonthsPhrase } from '../domain/members/duesImputations';
 import { todayISODateAR } from '../lib/arDate';
 import { duesPaymentNotice } from '../domain/members/duesPaymentNotice';
@@ -68,28 +68,27 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
   const dueDayLabel = `la cuota vence el ${dueDay} de cada mes`;
   const standingForCharge = duesExempt ? profile : {
     ...profile,
-    nextDueDate: summary.nextDue || profile?.nextDueDate,
+    nextDueDate: summary.chargeDue || summary.nextDue || profile?.nextDueDate,
     lastPaymentDate: summary.lastDuesDate || profile?.lastPaymentDate,
     outstandingBalance: summary.outstanding != null ? summary.outstanding : profile?.outstandingBalance,
   };
-  const split = duesExempt
-    ? { quota: 0, surcharge: 0, total: 0 }
-    : duesChargeBreakdown(standingForCharge);
-  const surcharge = Math.max(split.surcharge || 0, summary.surcharge || 0);
+  const surcharge = duesExempt || alDia ? 0 : (Number(summary.surcharge) || 0);
+  const quotaDue = duesExempt ? 0 : (Number(summary.quota) || Number(summary.outstanding) || 0);
   const payable = duesExempt
     ? 0
-    : (summary.nextAmount > 0
-      ? summary.nextAmount
-      : (split.total || mpPayNowAmount(summary.outstanding, monthly)));
+    : (Number(summary.nextAmount) > 0
+      ? Number(summary.nextAmount)
+      : mpPayNowAmount(summary.outstanding, monthly));
   const subscribeAmount = duesExempt ? 0 : mpSubscribeAmount(monthly);
   const todayIso = todayISODateAR();
-  const dueIsPast = Boolean(summary.nextDue && String(summary.nextDue).slice(0, 10) < todayIso);
+  const chargeDue = summary.chargeDue || summary.nextDue;
+  const dueIsPast = Boolean(chargeDue && String(chargeDue).slice(0, 10) < todayIso);
   const dueVerb = dueIsPast ? 'Venció' : 'Vence';
   const debtAmount = payable > 0 ? payable : (Number(summary.outstanding) || 0);
   const debtHint = !duesExempt && !alDia && !standingPending
-    ? `${dueVerb} el ${formatDate(summary.nextDue)} · ${formatCurrency(debtAmount)}${
+    ? `${dueVerb} el ${formatDate(chargeDue)} · ${formatCurrency(debtAmount)}${
       surcharge > 0
-        ? ` (cuota ${formatCurrency(summary.outstanding)} + recargo ${formatCurrency(surcharge)})`
+        ? ` (cuota ${formatCurrency(quotaDue)} + recargo ${formatCurrency(surcharge)})`
         : ''
     }`
     : null;
@@ -216,7 +215,7 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
         <article className={`pay-hist-kpi${standingPending ? '' : (duesExempt || alDia) ? ' is-ok' : ' is-debt'}`}>
           <span>Situación actual</span>
           <strong>
-            {standingPending ? '…' : duesExempt ? quota.title : alDia ? 'Al día' : (lateLabel || formatCurrency(summary.outstanding))}
+            {standingPending ? '…' : duesExempt ? quota.title : alDia ? 'Al día' : formatCurrency(debtAmount)}
           </strong>
           <small>
             {standingPending
@@ -225,7 +224,7 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
                 ? (quota.hint || 'No abona cuota social')
                 : alDia
                   ? `Próximo cobro ${formatDate(summary.nextDue)} · ${formatCurrency(summary.nextAmount)}`
-                  : debtHint}
+                  : `${lateLabel ? `${lateLabel}. ` : ''}${debtHint || ''}`}
           </small>
         </article>
         <article className="pay-hist-kpi">
@@ -267,7 +266,7 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
               ? (quota.hint || 'Esta categoría no liquida cuota social.')
               : alDia
                 ? `Podés adelantar ${formatCurrency(payable)} y quedar al día hasta ${formatDate(summary.nextDue)}.`
-                : `${lateLabel ? `${lateLabel}. ` : ''}Saldo a abonar: ${formatCurrency(payable)}${surcharge > 0 ? ` (cuota ${formatCurrency(summary.outstanding)} + recargo ${formatCurrency(surcharge)})` : ''}. ${dueDayLabel.charAt(0).toUpperCase()}${dueDayLabel.slice(1)}.`}
+                : `${lateLabel ? `${lateLabel}. ` : ''}Saldo a abonar: ${formatCurrency(payable)}${surcharge > 0 ? ` (cuota ${formatCurrency(quotaDue)} + recargo ${formatCurrency(surcharge)})` : ''}. ${dueDayLabel.charAt(0).toUpperCase()}${dueDayLabel.slice(1)}.`}
         </p>
         {!duesExempt ? (
           <>

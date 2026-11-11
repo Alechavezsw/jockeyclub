@@ -16,6 +16,8 @@ import {
   voidMemberDuesPayment,
 } from './memberPayments';
 import { setRuntimeTierCatalog } from './tiers';
+import { paymentCorrespondsTo, receiptChargeLines, receiptDiscountLine } from './exportPaymentReceiptPdf';
+import { mpSubscribeAmount } from '../payments/mercadoPago';
 
 describe('journal de cuota en la ficha', () => {
   const cobro = {
@@ -456,6 +458,77 @@ describe('payMemberDues', () => {
     ]);
     expect(cobroPeriods(member, result.payment).discount).toBe(2000);
     expect(cobroPeriods(member, result.payment).discountDetail).toBe('Convenio de caja');
+  });
+
+  it('el 11 de noviembre cobra $ 77.000 (cuota $ 70.000 + recargo $ 7.000) y no diciembre', () => {
+    setRuntimeTierCatalog([
+      { id: 'socio_familiar', name: 'SOCIO FAMILIAR', monthlyDues: 70000, sortOrder: 1 },
+    ]);
+    const today = new Date('2026-11-11T12:00:00-03:00');
+    const member = {
+      memberId: '10500',
+      name: 'Familiar de prueba',
+      tier: 'socio_familiar',
+      status: 'active',
+      cuotaCategories: ['SOCIO FAMILIAR'],
+      outstandingBalance: 70000,
+      nextDueDate: '2026-12-10',
+      paymentHistory: [],
+    };
+    try {
+      const preview = collectionPreview(member, today);
+      expect(preview.periods.map((row) => row.dueOn)).toEqual(['2026-11-10']);
+      expect(preview.quota).toBe(70000);
+      expect(preview.surcharge).toBe(7000);
+      expect(preview.cash).toBe(77000);
+
+      const paid = recordDuesCollection(member, { method: 'efectivo', today });
+      expect(paid.payment.periodDueOns).toEqual(['2026-11-10']);
+      expect(paid.payment.quota).toBe(70000);
+      expect(paid.payment.surcharge).toBe(7000);
+      expect(paid.payment.amount).toBe(77000);
+      expect(paid.payment.quota + paid.payment.surcharge).toBe(paid.payment.amount);
+      expect(paid.member.outstandingBalance).toBe(0);
+      expect(paid.ledgerEntry.value).toBe(-77000);
+      expect(paid.journalEntry.lines).toEqual([
+        { account: 'Caja General', type: 'debit', amount: 77000 },
+        { account: 'Cuotas Sociales', type: 'credit', amount: 77000 },
+      ]);
+      expect(paymentCorrespondsTo(paid.payment)).toMatch(/Noviembre 2026/);
+      expect(paymentCorrespondsTo(paid.payment)).not.toMatch(/diciembre/i);
+      expect(receiptChargeLines(paid.payment)[0].payable).toBe(77000);
+      expect(mpSubscribeAmount(70000)).toBe(70000);
+
+      const withDiscount = recordDuesCollection(member, {
+        method: 'efectivo',
+        today,
+        amount: 76000,
+        discount: 1000,
+        discountDetail: 'Convenio de caja',
+      });
+      expect(withDiscount.payment.amount).toBe(76000);
+      expect(withDiscount.payment.quota).toBe(70000);
+      expect(withDiscount.payment.surcharge).toBe(7000);
+      expect(withDiscount.member.outstandingBalance).toBe(0);
+      expect(withDiscount.journalEntry.lines).toEqual([
+        { account: 'Caja General', type: 'debit', amount: 76000 },
+        { account: 'Descuentos sobre cuotas', type: 'debit', amount: 1000 },
+        { account: 'Cuotas Sociales', type: 'credit', amount: 77000 },
+      ]);
+      expect(receiptChargeLines(withDiscount.payment)[0].payable).toBe(77000);
+      expect(receiptDiscountLine(withDiscount.payment).amount).toBe(1000);
+
+      const onTime = recordDuesCollection(member, {
+        method: 'efectivo',
+        today: new Date('2026-11-10T12:00:00-03:00'),
+      });
+      expect(onTime.payment.surcharge).toBe(0);
+      expect(onTime.payment.amount).toBe(70000);
+      expect(onTime.payment.periodDueOns).toEqual(['2026-11-10']);
+      expect(onTime.member.outstandingBalance).toBe(0);
+    } finally {
+      setRuntimeTierCatalog(null);
+    }
   });
 
   it('el recargo se cobra siempre', () => {

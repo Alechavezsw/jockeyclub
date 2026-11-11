@@ -55,6 +55,7 @@ describe('allowedAdminTabs', () => {
   it('el cajero ve socios y módulo de caja pero no migración', () => {
     const tabs = allowedAdminTabs('cashier');
     expect(tabs).toContain('members');
+    expect(tabs).toContain('subscriptions');
     expect(tabs).toContain('caja');
     expect(tabs).not.toContain('operation');
     expect(tabs).not.toContain('accounting');
@@ -66,6 +67,7 @@ describe('allowedAdminTabs', () => {
     const tabs = allowedAdminTabs('accountant');
     expect(tabs).toContain('reports');
     expect(tabs).toContain('dues');
+    expect(tabs).toContain('subscriptions');
     expect(tabs).toContain('books');
     expect(tabs).toContain('informes');
     expect(tabs).toContain('caja');

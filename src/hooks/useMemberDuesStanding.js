@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatMonthsBehind, isDuesExemptMember } from '../domain/members/dues';
+import { collectionPreview } from '../domain/members/memberPayments';
 import {
   getMemberPaymentHistory,
   summarizePaymentHistory,
@@ -139,35 +140,44 @@ export function useMemberDuesStanding(member) {
   );
   const summary = useMemo(() => {
     const fromHistory = summarizePaymentHistory(history, memberForHistory, { today });
-    if (isDuesExemptMember(memberForHistory) || !persisted) return fromHistory;
-    const outstanding = persisted.outstanding != null
+    if (isDuesExemptMember(memberForHistory)) return fromHistory;
+    const outstanding = persisted?.outstanding != null
       ? Number(persisted.outstanding)
       : fromHistory.outstanding;
-    const rpcNext = persisted.nextDue || null;
+    const rpcNext = persisted?.nextDue || null;
     const histNext = fromHistory.nextDue || null;
     const nextDue = [rpcNext, histNext].filter(Boolean).sort()[0] || histNext;
     const monthsBehind = Math.max(
-      Number(persisted.monthsBehind) || 0,
+      Number(persisted?.monthsBehind) || 0,
       fromHistory.monthsBehind || 0,
     );
-    const surcharge = Math.max(
-      Number(persisted.surcharge) || 0,
-      fromHistory.surcharge || 0,
-    );
-    const nextAmount = outstanding > 0
-      ? (persisted.payable != null && Number(persisted.payable) > 0
-        ? Number(persisted.payable)
-        : (fromHistory.nextAmount || outstanding + surcharge))
+    // Mismo total que Cobrar cuota: el recargo va dentro del importe, no solo en el texto.
+    const preview = collectionPreview({
+      ...memberForHistory,
+      outstandingBalance: outstanding,
+      nextDueDate: nextDue || memberForHistory?.nextDueDate,
+      lastPaymentDate: persisted?.lastPaymentDate || fromHistory.lastDuesDate || memberForHistory?.lastPaymentDate,
+    }, today);
+    const owes = outstanding > 0.01;
+    const surcharge = owes ? (Number(preview.surcharge) || 0) : 0;
+    const quota = owes ? (Number(preview.quota) || outstanding) : 0;
+    const nextAmount = owes
+      ? (Number(preview.cash) > 0.01 ? Number(preview.cash) : outstanding)
       : fromHistory.nextAmount;
+    const chargeDue = owes
+      ? (preview.periods?.[0]?.dueOn || nextDue)
+      : nextDue;
     return {
       ...fromHistory,
       outstanding,
       monthsBehind,
       nextDue,
-      lastDuesDate: persisted.lastPaymentDate || fromHistory.lastDuesDate,
+      chargeDue,
+      quota,
+      lastDuesDate: persisted?.lastPaymentDate || fromHistory.lastDuesDate,
       nextAmount,
       surcharge,
-      dueDay: persisted.dueDay || fromHistory.dueDay,
+      dueDay: persisted?.dueDay || fromHistory.dueDay,
     };
   }, [history, memberForHistory, today, persisted]);
 

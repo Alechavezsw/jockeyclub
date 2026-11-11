@@ -857,7 +857,7 @@ export default function DashboardView({
           <span>
             <ShieldAlert size={16} style={{ verticalAlign: -3, marginRight: 6 }} />
             {membersCanViewCurrentAccounts
-              ? `${duesLateLabel ? `${duesLateLabel}. ` : ''}Cuota pendiente: ${formatCurrency(duesPayable)}${Number(duesStanding?.surcharge) > 0 ? ` (incluye recargo ${formatCurrency(duesStanding.surcharge)})` : ''}. Vence el ${duesDueDay} de cada mes.`
+              ? `${duesLateLabel ? `${duesLateLabel}. ` : ''}Cuota pendiente: ${formatCurrency(duesPayable)}${Number(duesStanding?.surcharge) > 0 ? ` (cuota ${formatCurrency(duesStanding.quota || (duesPayable - Number(duesStanding.surcharge)))} + recargo ${formatCurrency(duesStanding.surcharge)})` : ''}. Vence el ${duesDueDay} de cada mes.`
               : 'Hay un pendiente de cuota. Regularizalo en administración.'}
           </span>
           {membersCanViewCurrentAccounts && canOperateAccount ? (

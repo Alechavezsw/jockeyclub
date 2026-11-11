@@ -812,6 +812,27 @@ describe('collectionPeriodChoices vs saldo de ficha', () => {
     expect(preview.cash).toBe(143000);
   });
 
+  it('en noviembre un familiar con saldo de $70.000 cobra noviembre con el 10 %, no diciembre', () => {
+    setRuntimeTierCatalog([
+      { id: 'socio_familiar', name: 'SOCIO FAMILIAR', monthlyDues: 70000, sortOrder: 1 },
+    ]);
+    const member = {
+      memberId: '1',
+      name: 'Familiar',
+      tier: 'socio_familiar',
+      status: 'active',
+      outstandingBalance: 70000,
+      nextDueDate: '2026-12-10',
+    };
+    const today = new Date('2026-11-11T12:00:00-03:00');
+    const preview = collectionPreview(member, today);
+    expect(preview.periods.map((row) => row.dueOn)).toEqual(['2026-11-10']);
+    expect(preview.quota).toBe(70000);
+    expect(preview.surcharge).toBe(7000);
+    expect(preview.cash).toBe(77000);
+    expect(preview.quota + preview.surcharge).toBe(preview.cash);
+  });
+
   it('en diciembre sí ofrece la cuota de diciembre', () => {
     setRuntimeTierCatalog([
       { id: 'socio_familiar', name: 'SOCIO FAMILIAR', monthlyDues: 70000, sortOrder: 1 },

@@ -10,7 +10,7 @@ const AR_TZ = "America/Argentina/Buenos_Aires";
 const MONTHS_ES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 
 /** Mes de la cuota en el recibo: «Noviembre de 2026». */
-function cuotaMonthPhrase(now = new Date()) {
+function cuotaMonthParts(now = new Date()) {
   const iso = new Intl.DateTimeFormat("en-CA", {
     timeZone: AR_TZ,
     year: "numeric",
@@ -18,8 +18,19 @@ function cuotaMonthPhrase(now = new Date()) {
     day: "2-digit",
   }).format(now);
   const match = iso.match(/^(\d{4})-(\d{2})-/);
-  const name = match ? MONTHS_ES[Number(match[2]) - 1] : "";
-  return name && match ? `${name} de ${match[1]}` : "";
+  if (!match) return null;
+  return { year: match[1], month: match[2] };
+}
+
+function cuotaMonthPhrase(now = new Date()) {
+  const parts = cuotaMonthParts(now);
+  const name = parts ? MONTHS_ES[Number(parts.month) - 1] : "";
+  return name && parts ? `${name} de ${parts.year}` : "";
+}
+
+function cuotaDueOn(now = new Date()) {
+  const parts = cuotaMonthParts(now);
+  return parts ? `${parts.year}-${parts.month}-10` : null;
 }
 const PORTAL_ACCOUNT = "https://www.jockeyclubsj.com.ar/cuenta";
 const DEFAULT_FROM = "Jockey Club San Juan <socios@jockeyclubsj.com.ar>";
@@ -693,6 +704,7 @@ Deno.serve(async (req) => {
               from_subscription: sub.id,
               authorized_payment_id: remoteId,
               channel: "subscription",
+              periodDueOn: cuotaDueOn(),
             },
           })
           .select("id")

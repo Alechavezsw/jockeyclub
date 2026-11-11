@@ -68,6 +68,7 @@ const SystemAdminTab = lazy(() => import('../components/admin/SystemAdminTab'));
 const PortalUserProfilePanel = lazy(() => import('../components/admin/PortalUserProfilePanel'));
 const TeachersTab = lazy(() => import('../components/admin/TeachersTab'));
 const PoolTab = lazy(() => import('../components/admin/PoolTab'));
+const SubscriptionsPanel = lazy(() => import('../components/admin/SubscriptionsPanel'));
 const JevReviewTab = lazy(() => import('../components/admin/JevReviewTab'));
 
 const TAB_FALLBACK = (
@@ -609,6 +610,7 @@ export default function AdminView({
         tabs: [
           { key: 'members', icon: Users, label: 'Socios' },
           { key: 'dues', icon: ShieldAlert, label: liquidateDues ? 'Cuotas' : 'Saldos' },
+          { key: 'subscriptions', icon: CreditCard, label: 'Suscripciones' },
           {
             key: 'bookings',
             icon: Calendar,
@@ -1282,6 +1284,10 @@ export default function AdminView({
           portalRequests={portalAccessRequests}
           concessions={erp.concessions || []}
         />
+      )}
+
+      {activeTab === 'subscriptions' && (
+        <SubscriptionsPanel />
       )}
 
       {activeTab === 'dues' && (
