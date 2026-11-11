@@ -1,0 +1,27 @@
+---
+description: Grupo familiar siempre desde Supabase; cada integrante con su tarjeta
+alwaysApply: true
+---
+
+# Grupo familiar (regla general)
+
+Aplica a **todo el padrón**, no a un caso puntual.
+
+## Fuente de verdad
+
+1. El hogar vive en `members.meta.familyPrincipalNumber` (+ `familyGroupName`).
+2. Leer con `repos.listHouseholdByPrincipal` → RPC `list_household_members` (titular + integrantes).
+3. **Nunca** armar el grupo solo desde `adherents` locales, padrón en memoria o `localStorage`.
+4. En portal y panel: misma lista; staff o socio del hogar (RLS vía RPC).
+
+## UI
+
+1. Mostrar **todos** los integrantes del grupo (titular + familiares).
+2. Cada integrante tiene **su propia tarjeta/credencial** con su Nº real del padrón (`VirtualCard` con `memberId` real). No inventar IDs.
+3. En ficha del socio y en el inicio del portal: bloque de grupo familiar + botón Tarjeta por persona.
+4. La pestaña «Grupo familiar» es visible también en portal (lectura); alta/edición solo staff.
+
+## Cuenta
+
+1. La cuota y el alquiler van a la cuenta del **titular** (`memberMayOperateAccount` / `billingAccountMember`).
+2. Si el titular está al día, el estado dice **Al día** (aunque el detalle de CC esté oculto en el portal).

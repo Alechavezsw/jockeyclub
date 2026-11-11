@@ -164,11 +164,39 @@ export default function App() {
   return <ClubPortal />;
 }
 
+function clearCloudBusinessLocalCache() {
+  if (!isSupabaseConfigured || typeof localStorage === 'undefined') return;
+  const keep = new Set([
+    'jockey-theme',
+    'jockey-alert-acks',
+    'jockey-notif-dismissed-v2',
+    'jockey-saved-news',
+    'padronFold:v1',
+  ]);
+  try {
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (!key) continue;
+      if (keep.has(key)) continue;
+      if (key.startsWith('sb-') || key.includes('supabase')) continue;
+      if (key.startsWith('jockey-read-messages:')) continue;
+      if (key.startsWith('jockey-') || key.startsWith('padronFold:')) keys.push(key);
+    }
+    keys.forEach((key) => localStorage.removeItem(key));
+  } catch {
+    /* private mode / quota */
+  }
+}
+
 function ClubPortal() {
   const { user, loading: authLoading, isAuthenticated, role, desk, needsDeskChoice, canAccessAdmin: sessionCanAccessAdmin } = useAuth();
   const userRole = role || 'member';
   const cloudMode = isSupabaseConfigured;
   const localDemoReady = useRef(isSupabaseConfigured);
+  useEffect(() => {
+    clearCloudBusinessLocalCache();
+  }, []);
   const [demoMembers, setDemoMembers] = useState([]);
   const hydratedRef = useRef(false);
   const membersLoadStartedRef = useRef(false);

@@ -23,9 +23,9 @@ Con `isSupabaseConfigured` / cloud mode activo, **todo dato de negocio vive en S
 
 - Tema (`jockey-theme`)
 - Sesión Auth de Supabase (keys del cliente)
-- UI efímera: folds, dismiss de notificaciones, leídos de mensajes
+- UI efímera: folds, dismiss de notificaciones, leídos de mensajes, noticias guardadas en el dispositivo
 
-Si no está en esa lista, **va a Supabase**.
+Si no está en esa lista, **va a Supabase**. El padrón, grupos familiares, cuotas, caja, reservas y settings **nunca** se arman desde `localStorage` ni desde semillas cuando hay cloud.
 
 ## Al agregar features
 

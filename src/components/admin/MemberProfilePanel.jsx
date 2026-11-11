@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, User, CreditCard, Users, Wallet, DoorOpen, CalendarDays,
@@ -45,7 +45,6 @@ import {
   householdMemberAsAdherent,
   isFamilyDependent,
   memberNumberOf,
-  resolveFamilyForDisplay,
   uniqueFamilyMembers,
 } from '../../domain/members/households';
 import {
@@ -58,6 +57,7 @@ import { duesMethodLabel, isDuesCollectionJournal, journalEntryBelongsToMember, 
 import { deliverPaymentReceipt } from '../../domain/payments/deliverPaymentReceipt';
 import { signedDuesReceiptUrl } from '../../data/storage';
 import { repos } from '../../data/bootstrap';
+import { isSupabaseConfigured } from '../../lib/supabase';
 import CurrentAccountCutNote from '../erp/CurrentAccountCutNote';
 import { isMpAdhered } from '../../domain/payments/mercadoPago';
 
@@ -375,7 +375,10 @@ export default function MemberProfilePanel({
   const [familyEditMsg, setFamilyEditMsg] = useState('');
   const [householdPayments, setHouseholdPayments] = useState([]);
   const [householdExtras, setHouseholdExtras] = useState([]);
-  const [householdReady, setHouseholdReady] = useState(Boolean(selfService));
+  const [householdReady, setHouseholdReady] = useState(false);
+  const [householdEpoch, setHouseholdEpoch] = useState(0);
+  const setMembersRef = useRef(setMembers);
+  setMembersRef.current = setMembers;
   const [searchParams, setSearchParams] = useSearchParams();
   const { version: cobrosSnapshotVersion } = useSnapshots(
     selfService ? [] : ['accessinCobranzas', 'accessinDetailedCurrentAccounts']
@@ -385,7 +388,7 @@ export default function MemberProfilePanel({
   const visibleSections = SECTIONS.filter((s) => {
     if (s.memberOnly && !selfService) return false;
     if (hideCurrentAccount && s.id === 'movimientos') return false;
-    if (!allowEdit && (s.id === 'editar' || s.id === 'familia')) return false;
+    if (!allowEdit && s.id === 'editar') return false;
     return true;
   });
   const canCollect = !selfService && Boolean(setMembers || updateMember);
@@ -423,97 +426,77 @@ export default function MemberProfilePanel({
     return undefined;
   }, [member?.memberId, allowEdit, searchParams, setSearchParams, disciplineOptions]);
 
-  /** Trae el grupo completo desde Supabase de una sola vez (sin ir apareciendo de a uno). */
+  /** Grupo familiar solo desde Supabase (titular + integrantes). Sin padrón local. */
   useEffect(() => {
     if (!member) return undefined;
-    if (selfService) {
-      setHouseholdReady(true);
-      setHouseholdExtras([]);
-      return undefined;
-    }
     const principal = familyPrincipalOf(member) || memberNumberOf(member);
     if (!principal) {
-      setHouseholdReady(true);
       setHouseholdExtras([]);
+      setHouseholdReady(true);
       return undefined;
     }
     let cancelled = false;
     setHouseholdReady(false);
     setHouseholdExtras([]);
+
     (async () => {
       try {
-        const [titular, dependents] = await Promise.all([
-          repos.getMemberByNumber?.(principal).catch(() => null),
-          repos.listHouseholdByPrincipal?.(principal).catch(() => []),
-        ]);
+        if (typeof repos.listHouseholdByPrincipal !== 'function') {
+          if (!cancelled) {
+            setHouseholdExtras([]);
+            setHouseholdReady(true);
+          }
+          return;
+        }
+        const rows = await repos.listHouseholdByPrincipal(principal);
         if (cancelled) return;
-        const extra = [titular, ...(dependents || [])].filter(Boolean);
-        setHouseholdExtras(extra);
-        setHouseholdReady(true);
-        if (extra.length && typeof setMembers === 'function') {
-          setMembers((prev) => attachHouseholdToMembers(
-            applyMemberListRefresh(prev || [], extra, { done: false }),
+        const list = Array.isArray(rows) ? rows : [];
+        setHouseholdExtras(list);
+        const push = setMembersRef.current;
+        if (list.length && typeof push === 'function') {
+          push((prev) => attachHouseholdToMembers(
+            applyMemberListRefresh(prev || [], list, { done: false }),
           ));
         }
       } catch {
-        if (!cancelled) {
-          setHouseholdExtras([]);
-          setHouseholdReady(true);
-        }
+        if (!cancelled) setHouseholdExtras([]);
+      } finally {
+        if (!cancelled) setHouseholdReady(true);
       }
     })();
+
     return () => { cancelled = true; };
-  }, [member?.memberId, selfService, setMembers]);
+  }, [member?.memberId, householdEpoch]);
 
-  const familySource = useMemo(() => {
-    const base = members.length ? members : [member].filter(Boolean);
-    if (householdReady && householdExtras.length) {
-      return applyMemberListRefresh(base, householdExtras, { done: false });
-    }
-    return base;
-  }, [members, member, householdExtras, householdReady]);
+  const householdPrincipal = familyPrincipalOf(member) || memberNumberOf(member);
 
-  const familyGroup = useMemo(
-    () => resolveFamilyForDisplay(member, familySource),
-    [member, familySource],
-  );
+  const familyGroup = useMemo(() => {
+    const titular = householdExtras.find((row) => memberNumberOf(row) === householdPrincipal)
+      || householdExtras.find((row) => !isFamilyDependent(row))
+      || null;
+    const dependents = householdExtras.filter((row) => (
+      memberNumberOf(row) !== householdPrincipal
+      && (isFamilyDependent(row) || familyPrincipalOf(row) === householdPrincipal)
+    ));
+    return {
+      titular,
+      members: dependents.map((row) => householdMemberAsAdherent(row)),
+    };
+  }, [householdExtras, householdPrincipal]);
 
   const familyRows = useMemo(() => {
-    // Admin: no pintar el grupo a medias mientras llega el hogar de la nube.
-    if (!selfService && !householdReady) return [];
+    if (!householdReady) return [];
+    const titular = familyGroup.titular;
+    const titularRow = titular
+      ? [householdMemberAsAdherent(titular, 'Titular')]
+      : [];
+    return uniqueFamilyMembers([
+      ...titularRow,
+      ...(familyGroup.members || []),
+    ]);
+  }, [householdReady, familyGroup.titular, familyGroup.members]);
 
-    if (!selfService && householdExtras.length) {
-      const principal = familyPrincipalOf(member) || memberNumberOf(member);
-      const titular = householdExtras.find((row) => memberNumberOf(row) === principal)
-        || familyGroup.titular
-        || member;
-      const dependents = householdExtras.filter((row) => (
-        isFamilyDependent(row) && familyPrincipalOf(row) === principal
-      ));
-      return uniqueFamilyMembers([
-        householdMemberAsAdherent(titular, 'Titular'),
-        ...dependents.map((row) => householdMemberAsAdherent(row)),
-      ]);
-    }
-
-    const list = [...(familyGroup.members || [])];
-    const selfId = memberNumberOf(member);
-    const already = list.some((row) => String(row.memberId || '').replace(/\D/g, '') === selfId);
-    if (member && selfId && !already) {
-      list.unshift(householdMemberAsAdherent(
-        member,
-        isFamilyDependent(member) ? 'Grupo familiar' : 'Titular',
-      ));
-    }
-    return uniqueFamilyMembers(list);
-  }, [
-    selfService,
-    householdReady,
-    householdExtras,
-    familyGroup.titular,
-    familyGroup.members,
-    member,
-  ]);
+  const familySource = householdExtras;
   const canEditFamily = !selfService && allowEdit;
   const tiers = useMemo(() => getActiveTiers(tierCatalog), [tierCatalog]);
   const defaultFamilyTier = useMemo(() => {
@@ -555,10 +538,17 @@ export default function MemberProfilePanel({
       try {
         memberId = await repos.nextClubMemberNumber(members);
       } catch {
-        /* correlativo local */
+        /* correlativo local solo sin nube */
       }
     }
-    if (findMemberByNumber(members, memberId)) {
+    if (isSupabaseConfigured && typeof repos.getMemberByNumber === 'function') {
+      try {
+        const existing = await repos.getMemberByNumber(memberId);
+        if (existing) return 'Ya existe un socio con esa credencial.';
+      } catch {
+        /* si falla el lookup, el upsert de abajo responde */
+      }
+    } else if (findMemberByNumber(members, memberId)) {
       return 'Ya existe un socio con esa credencial.';
     }
     const groupName = host?.familyGroupName || member?.familyGroupName || `Grupo ${principalId}`;
@@ -596,6 +586,35 @@ export default function MemberProfilePanel({
         regularidadCertificates: withCerts.regularidadCertificates,
       }),
     };
+
+    if (isSupabaseConfigured) {
+      if (typeof repos.upsertMember !== 'function') {
+        return 'No hay conexión con la base para guardar el integrante.';
+      }
+      let saved;
+      try {
+        saved = await repos.upsertMember(newMember);
+      } catch (err) {
+        return err?.message || 'No se pudo guardar el integrante en la base.';
+      }
+      if (host && !familyPrincipalOf(host) && typeof updateMember === 'function') {
+        await updateMember({
+          ...host,
+          familyPrincipalNumber,
+          familyGroupName: groupName,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+      if (typeof setMembers === 'function' && saved) {
+        setMembers((prev) => {
+          const id = memberNumberOf(saved);
+          const without = (prev || []).filter((row) => memberNumberOf(row) !== id);
+          return [saved, ...without];
+        });
+      }
+      return null;
+    }
+
     if (setMembers) {
       setMembers((prev) => [newMember, ...(prev || [])]);
     } else if (updateMember) {
@@ -1031,21 +1050,25 @@ export default function MemberProfilePanel({
             {selfService ? null : <CurrentAccountCutNote members={members} />}
           </div>
           <div className="mp-balance-value">
-            {hideCurrentAccount
-              ? 'En administración'
-              : (hasDebt ? formatCurrency(balance) : quota.title)}
+            {!hasDebt
+              ? (quota.title || 'Al día')
+              : hideCurrentAccount
+                ? 'En administración'
+                : formatCurrency(balance)}
           </div>
           <div className="mp-balance-hint">
-            {hideCurrentAccount
-              ? 'La cuenta corriente no se muestra en el portal'
-              : (quota.hint
-                || (!dueFact.value
-                  ? (hasDebt ? 'Pendiente de cobro' : 'Sin vencimiento cargado')
-                  : (dueFact.overdue
-                    ? (hasDebt ? `Vencida desde ${dueFact.value}` : `Vencimiento ${dueFact.value}`)
-                    : (dueFact.label === 'Vence hoy'
-                      ? `Vence hoy · ${dueFact.value}`
-                      : `Próximo vencimiento ${dueFact.value}`))))}
+            {!hasDebt
+              ? (quota.hint || 'Sin deuda de cuota')
+              : hideCurrentAccount
+                ? 'Consultá el detalle en administración'
+                : (quota.hint
+                  || (!dueFact.value
+                    ? 'Pendiente de cobro'
+                    : (dueFact.overdue
+                      ? `Vencida desde ${dueFact.value}`
+                      : (dueFact.label === 'Vence hoy'
+                        ? `Vence hoy · ${dueFact.value}`
+                        : `Próximo vencimiento ${dueFact.value}`))))}
           </div>
           <p className={`mp-balance-pool ${poolPay.canPay ? 'is-ok' : 'is-no'}`}>
             {poolPay.label}
@@ -1217,9 +1240,64 @@ export default function MemberProfilePanel({
               </div>
             </section>
 
+            <section className="mp-sheet mp-sheet--family">
+              <SheetHead
+                index="05"
+                title="Grupo familiar"
+                kicker={member.familyGroupName || familyGroup.titular?.familyGroupName || 'Integrantes del hogar en el padrón'}
+              />
+              {!householdReady ? (
+                <p className="mp-family-loading" role="status" aria-live="polite">
+                  <Loader2 size={16} className="mp-family-loading-spin" />
+                  Cargando el grupo familiar desde la base…
+                </p>
+              ) : !familyRows.length ? (
+                <p className="mp-fact-value muted">Sin integrantes en el grupo familiar.</p>
+              ) : (
+                <div className="mp-family">
+                  {familyRows.map((adh) => {
+                    const selfId = memberNumberOf(member);
+                    const rowId = String(adh.memberId || '').replace(/\D/g, '');
+                    const isSelf = rowId && rowId === selfId;
+                    const source = findMemberByNumber(familySource, adh.memberId);
+                    return (
+                      <div key={rowId || adh.id || adh.name} className="mp-family-row">
+                        <div className="mp-family-avatar">
+                          {adh.photo ? (
+                            <img src={adh.photo} alt="" />
+                          ) : (
+                            (adh.name || '?').split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase()
+                          )}
+                        </div>
+                        <div>
+                          <strong>{adh.name}{isSelf ? ' · Vos' : ''}</strong>
+                          <div className="mp-family-meta">
+                            {adh.relationship}
+                            {adh.memberId ? ` · Nº ${adh.memberId}` : ''}
+                          </div>
+                        </div>
+                        <span className="mp-tier-pill" style={tierBadgeStyle(adh.tier, tierCatalog)}>
+                          {getTierDisplayName(adh.tier, tierCatalog)}
+                        </span>
+                        <div className="mp-family-actions">
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => setCardMember(source || familyCardMember(adh, member))}
+                          >
+                            <CreditCard size={13} /> Tarjeta
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+
             {member.notes ? (
               <section className="mp-sheet mp-sheet--notes mp-notes">
-                <SheetHead index="05" title="Observaciones" />
+                <SheetHead index="06" title="Observaciones" />
                 <p>{member.notes}</p>
               </section>
             ) : null}
@@ -1230,7 +1308,9 @@ export default function MemberProfilePanel({
           <div className="mp-card-wrap">
             <VirtualCard member={member} />
             <p className="mp-card-hint">
-              Tocá la credencial para agrandarla o descargala en PDF.
+              {isFamilyDependent(member)
+                ? 'Tu credencial de socio familiar. Tocá para agrandarla o descargarla.'
+                : 'Tocá la credencial para agrandarla o descargala en PDF.'}
             </p>
           </div>
         )}
@@ -1466,7 +1546,7 @@ export default function MemberProfilePanel({
                 {member.familyGroupName || familyGroup.titular?.familyGroupName
                   ? `${member.familyGroupName || familyGroup.titular?.familyGroupName} · `
                   : ''}
-                {!householdReady && !selfService
+                {!householdReady
                   ? 'cargando grupo…'
                   : `${familyRows.length} integrante${familyRows.length === 1 ? '' : 's'}`}
               </p>
@@ -1476,10 +1556,10 @@ export default function MemberProfilePanel({
                 </button>
               ) : null}
             </div>
-            {!householdReady && !selfService ? (
+            {!householdReady ? (
               <p className="mp-family-loading" role="status" aria-live="polite">
                 <Loader2 size={16} className="mp-family-loading-spin" />
-                Cargando el grupo familiar completo…
+                Cargando el grupo familiar desde la base…
               </p>
             ) : !familyRows.length ? (
               <Empty text="Sin integrantes en el grupo familiar." />
@@ -1490,8 +1570,7 @@ export default function MemberProfilePanel({
                   const rowId = String(adh.memberId || '').replace(/\D/g, '');
                   const isSelf = rowId && rowId === selfId;
                   const canOpen = Boolean(onOpenMember && adh.memberId && !isSelf);
-                  const source = findMemberByNumber(familySource, adh.memberId)
-                    || findMemberByNumber(members, adh.memberId);
+                  const source = findMemberByNumber(familySource, adh.memberId);
                   return (
                     <div
                       key={rowId || adh.id || adh.name}
@@ -1907,18 +1986,21 @@ export default function MemberProfilePanel({
                 setFamilyEditMsg('El nombre es obligatorio.');
                 return;
               }
-              if (familyEdit.isNew) {
-                void (async () => {
+              void (async () => {
+                if (familyEdit.isNew) {
                   const error = await persistNewFamilyMember({ ...form, name });
                   if (error) {
                     setFamilyEditMsg(error);
                     return;
                   }
                   setFamilyEdit(null);
-                })();
-                return;
-              }
-              if (familyEdit.source) {
+                  setHouseholdEpoch((n) => n + 1);
+                  return;
+                }
+                if (!familyEdit.source) {
+                  setFamilyEditMsg('Ese integrante no está en el padrón de la base. Agregalo al grupo familiar.');
+                  return;
+                }
                 const nextPerson = withProfileEditTrace(
                   familyEdit.source,
                   applyRegularidadForm({
@@ -1936,30 +2018,14 @@ export default function MemberProfilePanel({
                   }, form),
                   { actorId, actorName, source: 'familia' },
                 );
-                updateMember(nextPerson);
-              } else {
-                const host = familyGroup.titular && memberNumberOf(familyGroup.titular) === memberNumberOf(member)
-                  ? member
-                  : (familyGroup.titular || member);
-                const nextAdherents = (host.adherents || []).map((row) => (
-                  String(row.id) === String(familyEdit.adherentId) || String(row.memberId) === String(familyEdit.adherentId)
-                    ? applyRegularidadForm({
-                      ...row,
-                      name,
-                      relationship: form.relationship,
-                      documentNumber: form.documentNumber,
-                      birthDate: form.birthDate,
-                      phone: form.phone,
-                      email: form.email,
-                      tier: form.tier,
-                      disciplines: form.disciplines || [],
-                      photo: form.photo,
-                    }, form)
-                    : row
-                ));
-                updateMember({ ...host, adherents: nextAdherents, updatedAt: new Date().toISOString() });
-              }
-              setFamilyEdit(null);
+                const saved = await updateMember(nextPerson);
+                if (isSupabaseConfigured && !saved) {
+                  setFamilyEditMsg('No se pudo guardar el integrante en la base.');
+                  return;
+                }
+                setFamilyEdit(null);
+                setHouseholdEpoch((n) => n + 1);
+              })();
             }}
           >
             <div className="mp-edit-field" style={{ gridColumn: '1 / -1' }}>

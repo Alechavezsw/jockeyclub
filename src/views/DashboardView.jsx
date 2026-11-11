@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSedeWeather } from '../hooks/useSedeWeather';
 import VirtualCard from '../components/VirtualCard';
@@ -11,21 +11,30 @@ import { getFacilityLiveStatus } from '../domain/reservations/availability';
 import { useMemberDuesStanding } from '../hooks/useMemberDuesStanding';
 import { findTier } from '../domain/members/tiers';
 import { quotaHeadline } from '../domain/members/dues';
-import { memberMayOperateAccount } from '../domain/members/households';
+import {
+  familyPrincipalOf,
+  householdMemberAsAdherent,
+  isFamilyDependent,
+  memberMayOperateAccount,
+  memberNumberOf,
+  uniqueFamilyMembers,
+} from '../domain/members/households';
 import {
   membershipCaption,
   prettyMembershipName,
   yearsOnClub,
 } from '../domain/members/membership';
 import { upcomingMemberReservations } from '../domain/reservations/memberBookings';
+import { reservationOpenBalance } from '../domain/reservations/bookingRules';
 import MemberReservationCard from '../components/MemberReservationCard';
 import { todayISODateAR } from '../lib/arDate';
+import { repos } from '../data/bootstrap';
 import { DISCIPLINE_COLORS, resolveDiscipline } from '../domain/sports/disciplines';
 import {
   Calendar, CreditCard, MapPin, ShieldAlert,
   ArrowRight, Mail, Users, Send, MessageSquare, CheckCircle2,
   Clock, Info, ChevronRight, X, Sparkles, Radio, Bell,
-  Activity, Trophy, Wind
+  Activity, Trophy, Wind, Loader2
 } from 'lucide-react';
 
 function memberSportCards(member) {
@@ -88,6 +97,8 @@ export default function DashboardView({
   const [selectedAdherent, setSelectedAdherent] = useState(null);
   const [selectedOptions, setSelectedOptions] = useState({});
   const [hoveredSegments, setHoveredSegments] = useState({});
+  const [householdRows, setHouseholdRows] = useState([]);
+  const [householdReady, setHouseholdReady] = useState(false);
 
   const liveSnapshot = useMemo(() => {
     const highlightIds = ['salon_anhelo', 'salon_bustos', 'salon_maurin', 'salon_refugio', 'espacio_verde'];
@@ -108,6 +119,41 @@ export default function DashboardView({
     member: duesMember,
   } = useMemberDuesStanding(member);
   const profile = duesMember || member;
+
+  useEffect(() => {
+    const principal = familyPrincipalOf(profile) || memberNumberOf(profile);
+    if (!principal || typeof repos.listHouseholdByPrincipal !== 'function') {
+      setHouseholdRows([]);
+      setHouseholdReady(true);
+      return undefined;
+    }
+    let cancelled = false;
+    setHouseholdReady(false);
+    (async () => {
+      try {
+        const rows = await repos.listHouseholdByPrincipal(principal);
+        if (!cancelled) setHouseholdRows(Array.isArray(rows) ? rows : []);
+      } catch {
+        if (!cancelled) setHouseholdRows([]);
+      } finally {
+        if (!cancelled) setHouseholdReady(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [profile?.memberId, profile?.familyPrincipalNumber]);
+
+  const familyRows = useMemo(() => {
+    if (!householdReady) return [];
+    const principal = familyPrincipalOf(profile) || memberNumberOf(profile);
+    const titular = householdRows.find((row) => memberNumberOf(row) === principal)
+      || householdRows.find((row) => !isFamilyDependent(row))
+      || profile;
+    const dependents = householdRows.filter((row) => memberNumberOf(row) !== memberNumberOf(titular));
+    return uniqueFamilyMembers([
+      householdMemberAsAdherent(titular, 'Titular'),
+      ...dependents.map((row) => householdMemberAsAdherent(row)),
+    ]);
+  }, [householdReady, householdRows, profile]);
 
   if (!member?.memberId) {
     return (
@@ -159,22 +205,33 @@ export default function DashboardView({
     ? Number(duesStanding.nextAmount)
     : Number(duesStanding?.outstanding) || 0;
   const duesDueDay = duesStanding?.dueDay || 10;
-  const duesValue = !membersCanViewCurrentAccounts
-    ? 'En administración'
-    : duesPending
-      ? 'Consultando…'
-      : !quota.billing && quota.kind !== 'debt'
-        ? quota.title
-        : duesBehind
-          ? (duesLateLabel || formatCurrency(duesPayable))
-          : 'Al día';
-  const duesSub = !membersCanViewCurrentAccounts
-    ? 'La cuenta corriente no se muestra en el portal'
-    : duesPending
-      ? 'Confirmando vencimientos'
-      : duesBehind
-        ? `${formatCurrency(duesPayable)} · Ver pagos`
-        : quota.hint || 'Historial de pagos';
+  const duesValue = duesPending
+    ? 'Consultando…'
+    : !duesBehind
+      ? 'Al día'
+      : !membersCanViewCurrentAccounts
+        ? 'En administración'
+        : !quota.billing && quota.kind !== 'debt'
+          ? quota.title
+          : (duesLateLabel || formatCurrency(duesPayable));
+  const duesSub = duesPending
+    ? 'Confirmando vencimientos'
+    : !duesBehind
+      ? (quota.hint || 'Sin deuda de cuota')
+      : !membersCanViewCurrentAccounts
+        ? 'Consultá el detalle en administración'
+        : `${formatCurrency(duesPayable)} · Ver pagos`;
+  const upcomingWithBalance = upcomingBookings.filter((res) => reservationOpenBalance(res) > 0).length;
+  const upcomingTurnsSub = upcomingReservationsCount === 0
+    ? 'Sin turnos a futuro'
+    : upcomingWithBalance > 0
+      ? (upcomingWithBalance === 1
+        ? 'Confirmar pago del turno'
+        : `${upcomingWithBalance} con saldo por pagar`)
+      : (upcomingReservationsCount === 1 ? 'Turno confirmado' : 'Turnos desde hoy');
+  const openUpcomingTurns = () => {
+    navigate('/reservas#mfb-mis-reservas');
+  };
   const tierRow = findTier(profile.tier);
   const membershipLabel = prettyMembershipName(tierRow?.name || profile.tier);
   const membershipYears = yearsOnClub(profile);
@@ -862,7 +919,7 @@ export default function DashboardView({
         {/* ===== COLUMNA IZQUIERDA ===== */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
 
-          {/* Grupo Familiar */}
+          {/* Grupo Familiar — todos los integrantes desde la BD, cada uno con su tarjeta */}
           <div className="db-card">
             <div className="db-card-title">
               <div className="db-card-title-icon" style={{ background: 'rgba(var(--primary-gold-rgb),0.1)', color: 'var(--primary-gold)' }}>
@@ -870,31 +927,54 @@ export default function DashboardView({
               </div>
               Grupo Familiar
               <span style={{ marginLeft: 'auto', fontSize: '0.75rem', background: 'rgba(255,255,255,0.04)', padding: '0.2rem 0.5rem', borderRadius: '8px', color: 'var(--text-muted)' }}>
-                {profile.adherents?.length || 0} adherentes
+                {!householdReady
+                  ? '…'
+                  : `${familyRows.length} integrante${familyRows.length === 1 ? '' : 's'}`}
               </span>
             </div>
-            {!profile.adherents || profile.adherents.length === 0 ? (
+            {!householdReady ? (
+              <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', textAlign: 'center', padding: '0.75rem', display: 'flex', gap: '0.4rem', alignItems: 'center', justifyContent: 'center' }}>
+                <Loader2 size={14} className="mp-family-loading-spin" /> Cargando grupo…
+              </p>
+            ) : familyRows.length === 0 ? (
               <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', textAlign: 'center', padding: '0.75rem' }}>
-                Sin adherentes familiares registrados.
+                Sin integrantes en el grupo familiar.
               </p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                {profile.adherents.map(adh => (
-                  <div key={adh.id} className="db-adherent-row">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                      <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(var(--primary-gold-rgb),0.1)', border: '1px solid rgba(var(--primary-gold-rgb),0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: '700', color: 'var(--primary-gold)' }}>
-                        {adh.name.split(' ').map(n => n[0]).slice(0,2).join('').toUpperCase()}
+                {familyRows.map((adh) => {
+                  const selfId = memberNumberOf(profile);
+                  const rowId = String(adh.memberId || '').replace(/\D/g, '');
+                  const isSelf = rowId && rowId === selfId;
+                  const source = householdRows.find((row) => memberNumberOf(row) === rowId) || null;
+                  return (
+                    <div key={rowId || adh.id || adh.name} className="db-adherent-row">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', minWidth: 0 }}>
+                        <div style={{ width: 34, height: 34, borderRadius: '50%', overflow: 'hidden', background: 'rgba(var(--primary-gold-rgb),0.1)', border: '1px solid rgba(var(--primary-gold-rgb),0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: '700', color: 'var(--primary-gold)', flexShrink: 0 }}>
+                          {adh.photo
+                            ? <img src={adh.photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            : (adh.name || '?').split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase()}
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: '0.85rem', fontWeight: '600', color: 'var(--text-primary)' }}>
+                            {adh.name}{isSelf ? ' · Vos' : ''}
+                          </div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                            {adh.relationship}{adh.memberId ? ` · Nº ${adh.memberId}` : ''}
+                          </div>
+                        </div>
                       </div>
-                      <div>
-                        <div style={{ fontSize: '0.85rem', fontWeight: '600', color: 'var(--text-primary)' }}>{adh.name}</div>
-                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{adh.relationship}</div>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedAdherent(source || adh)}
+                        className="btn btn-secondary btn-sm"
+                        style={{ padding: '0.2rem 0.6rem', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '0.2rem', flexShrink: 0 }}
+                      >
+                        Tarjeta <ChevronRight size={10} />
+                      </button>
                     </div>
-                    <button onClick={() => setSelectedAdherent(adh)} className="btn btn-secondary btn-sm" style={{ padding: '0.2rem 0.6rem', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-                      Credencial <ChevronRight size={10} />
-                    </button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1014,15 +1094,25 @@ export default function DashboardView({
               <span className="db-stat-sub">{duesSub}</span>
             </div>
 
-            <div className="db-stat-card is-ok">
+            <div
+              className={`db-stat-card is-clickable${upcomingWithBalance > 0 ? ' is-late' : ' is-ok'}`}
+              role="button"
+              tabIndex={0}
+              onClick={openUpcomingTurns}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  openUpcomingTurns();
+                }
+              }}
+              title={upcomingWithBalance > 0 ? 'Ir al turno y confirmar el pago' : 'Ver mis turnos'}
+            >
               <div className="db-stat-head">
                 <span className="db-stat-ico"><Calendar size={15} /></span>
                 <span className="db-stat-label">Próximos turnos</span>
               </div>
               <div className="db-stat-value">{upcomingReservationsCount}</div>
-              <span className="db-stat-sub">
-                {upcomingReservationsCount === 1 ? 'Turno confirmado' : 'Turnos desde hoy'}
-              </span>
+              <span className="db-stat-sub">{upcomingTurnsSub}</span>
             </div>
 
             <div className="db-stat-card is-membership">
@@ -1339,7 +1429,7 @@ export default function DashboardView({
         </div>
       </div>
 
-      {/* MODAL CREDENCIAL ADHERENTE */}
+      {/* MODAL CREDENCIAL DEL INTEGRANTE (Nº real del padrón) */}
       {selectedAdherent && (
         <ModalDialog
           onClose={() => setSelectedAdherent(null)}
@@ -1357,10 +1447,29 @@ export default function DashboardView({
                 Cerrar <X size={16} aria-hidden="true" />
               </button>
             </div>
-            <VirtualCard member={{ name: selectedAdherent.name, memberId: `2026${String(Math.abs([...selectedAdherent.id].reduce((h, c) => h * 31 + c.charCodeAt(0), 7))).padEnd(12, '0').slice(0, 12)}`, tier: selectedAdherent.tier, outstandingBalance: selectedAdherent.outstandingBalance, yearsActive: 1, status: selectedAdherent.status }} />
+            <VirtualCard
+              member={{
+                name: selectedAdherent.name,
+                memberId: selectedAdherent.memberId || memberNumberOf(selectedAdherent),
+                photo: selectedAdherent.photo,
+                tier: selectedAdherent.tier,
+                outstandingBalance: selectedAdherent.outstandingBalance,
+                yearsActive: selectedAdherent.yearsActive || 1,
+                status: selectedAdherent.status || 'active',
+                familyPrincipalNumber: selectedAdherent.familyPrincipalNumber
+                  || familyPrincipalOf(selectedAdherent)
+                  || familyPrincipalOf(profile)
+                  || memberNumberOf(profile),
+              }}
+            />
             <div id="adherent-card-title" style={{ marginTop: '1rem', background: 'rgba(6,14,10,0.9)', border: '1px solid var(--primary-gold)', padding: '0.85rem 1.25rem', borderRadius: '10px', color: 'var(--text-gold)', fontSize: '0.82rem', textAlign: 'center', maxWidth: '350px' }}>
-              <strong style={{ display: 'block', color: '#fff', marginBottom: '0.25rem' }}>Credencial de Adherente Familiar</strong>
-              Vinculada a {member.name}. Autorizado para reservas y acceso a sedes deportivas.
+              <strong style={{ display: 'block', color: '#fff', marginBottom: '0.25rem' }}>
+                {isFamilyDependent(selectedAdherent) || (selectedAdherent.relationship && selectedAdherent.relationship !== 'Titular')
+                  ? 'Credencial de socio familiar'
+                  : 'Credencial del titular'}
+              </strong>
+              Nº {selectedAdherent.memberId || memberNumberOf(selectedAdherent) || '—'}
+              {profile?.name ? ` · Grupo de ${profile.name}` : ''}
             </div>
         </ModalDialog>
       )}

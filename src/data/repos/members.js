@@ -720,20 +720,52 @@ export async function getMemberByNumber(memberNumber, { withPayments = false } =
   return hydrateMemberRow(row, { withPayments });
 }
 
-/** Integrantes del grupo familiar (mismo titular) para la ficha, sin esperar al padrón completo. */
+/** Select de hogar: listado + nacimiento/foto para la ficha de familia. */
+const MEMBERS_HOUSEHOLD_SELECT = [
+  MEMBERS_LIST_SELECT,
+  'birth_date',
+  'photo_url',
+  'disciplines',
+].join(', ');
+
+function mapHouseholdRow(row) {
+  const mapped = listRowToMember(row);
+  if (!mapped) return null;
+  return {
+    ...mapped,
+    birthDate: row.birth_date || mapped.birthDate || '',
+    photo: row.photo_url || mapped.photo || null,
+    disciplines: row.disciplines || mapped.disciplines || [],
+  };
+}
+
+/**
+ * Hogar completo (titular + integrantes) desde la BD.
+ * Usa RPC security definer: el socio puede ver su grupo; el staff, cualquiera.
+ */
 export async function listHouseholdByPrincipal(principalNumber) {
   const key = String(principalNumber || '').replace(/\D/g, '');
   if (!key) return [];
-  const rows = await unwrap(
-    sb()
-      .from('members')
-      .select(MEMBERS_LIST_SELECT)
-      .eq('meta->>familyPrincipalNumber', key)
-      .neq('member_number', key)
-      .order('member_number'),
-    'No se pudo cargar el grupo familiar'
-  );
-  return (rows || []).map((row) => listRowToMember(row)).filter(Boolean);
+  try {
+    if (supabase) {
+      const { data, error } = await sb().rpc('list_household_members', { p_principal: key });
+      if (!error && Array.isArray(data)) {
+        return data.map(mapHouseholdRow).filter(Boolean);
+      }
+    }
+    const rows = await unwrap(
+      sb()
+        .from('members')
+        .select(MEMBERS_HOUSEHOLD_SELECT)
+        .or(`member_number.eq.${key},meta->>familyPrincipalNumber.eq.${key}`)
+        .order('member_number')
+        .limit(80),
+      'No se pudo cargar el grupo familiar'
+    );
+    return (rows || []).map(mapHouseholdRow).filter(Boolean);
+  } catch {
+    return [];
+  }
 }
 
 export async function getMember(memberDbId, { withPayments = false } = {}) {

@@ -155,6 +155,7 @@ const LOCAL_UX_KEYS = new Set([
   'jockey-theme',
   'jockey-alert-acks',
   'jockey-notif-dismissed-v2',
+  'jockey-saved-news',
   'padronFold:v1',
 ]);
 

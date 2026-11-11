@@ -217,6 +217,16 @@ export default function MemberFacilitiesBooking({
     return () => clearInterval(id);
   }, []);
 
+  useEffect(() => {
+    if (compact) return undefined;
+    if (typeof window === 'undefined') return undefined;
+    if (window.location.hash !== '#mfb-mis-reservas') return undefined;
+    const timer = window.setTimeout(() => {
+      document.getElementById('mfb-mis-reservas')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [compact, myBookings.length]);
+
   const liveById = useMemo(() => {
     const map = new Map();
     for (const facility of catalog) {
