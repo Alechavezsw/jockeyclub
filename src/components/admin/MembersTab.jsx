@@ -19,7 +19,7 @@ import { buildBajaCertificate, buildReactivacionCertificate } from '../../domain
 import { exportBajaCertificatePdf } from '../../domain/members/exportBajaCertificatePdf';
 import { libreDeudaClub } from '../../domain/accounting/libreDeuda';
 import { allocateNextMemberNumber, attachHouseholdToMembers, assignDistinctStatColors, buildPadronHouseholdStats, familyGroupMatchesQuery, isFamilyDependent, isLiveMember, isTitularMember, listFamilyGroups, memberMatchesDirectoryQuery, mergeMemberRecord, mergeMembersById, rankMemberSearchHit, resolveFamilyForDisplay } from '../../domain/members/households';
-import { portalLoginFromEmail } from '../../domain/auth/credentials';
+import { portalAccessEmailCandidates, portalLoginFromEmail } from '../../domain/auth/credentials';
 import {
   accessInviteMailError,
   buildAccessInvite,
@@ -1425,15 +1425,40 @@ export default function MembersTab({
       throw new Error('No hay ficha para vincular. Revisá DNI o Nº de socio.');
     }
 
-    const creds = portalLoginFromEmail(item.email || member.email);
-    if (!creds) {
-      throw new Error('Falta el email del socio para crear el acceso.');
-    }
-
+    const candidates = portalAccessEmailCandidates(item.email, member.email);
+    let creds = null;
     let profileId = member.profileId || null;
-    if (isSupabaseConfigured) {
-      const byEmail = await repos.portalProfileIdForLogin(creds.email, member.id);
-      if (byEmail) profileId = byEmail;
+    let blocked = null;
+    for (const email of candidates) {
+      const next = portalLoginFromEmail(email);
+      if (!next) continue;
+      if (!isSupabaseConfigured) {
+        creds = next;
+        break;
+      }
+      try {
+        const byEmail = await repos.portalProfileIdForLogin(next.email, member.id);
+        creds = next;
+        if (byEmail) profileId = byEmail;
+        blocked = null;
+        break;
+      } catch (err) {
+        blocked = err;
+        try {
+          const claimed = await repos.claimPrincipalPortalProfile(member.id, next.email);
+          if (claimed) {
+            creds = next;
+            profileId = claimed;
+            blocked = null;
+            break;
+          }
+        } catch (claimErr) {
+          blocked = claimErr;
+        }
+      }
+    }
+    if (!creds) {
+      throw blocked || new Error('Falta el email del socio para crear el acceso.');
     }
 
     if (profileId && isSupabaseConfigured) {

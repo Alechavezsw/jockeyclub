@@ -5,6 +5,7 @@ import {
   loginEmailFromUsername,
   buildCredentials,
   portalLoginFromEmail,
+  portalAccessEmailCandidates,
 } from './credentials';
 
 describe('credentials', () => {
@@ -36,6 +37,17 @@ describe('credentials', () => {
   });
 
   it('el acceso del socio usa su mail real', () => {
+    expect(portalAccessEmailCandidates(
+      'priscilaagaallo2@gmail.com',
+      'trujillogloria@gmail.com',
+      '31477043@jockeyclubsj.com',
+    )).toEqual([
+      'priscilaagaallo2@gmail.com',
+      'trujillogloria@gmail.com',
+      '31477043@jockeyclubsj.com',
+    ]);
+    expect(portalAccessEmailCandidates('31477043@jockeyclubsj.com', '31477043@jockeyclubsj.com'))
+      .toEqual(['31477043@jockeyclubsj.com']);
     const login = portalLoginFromEmail(' Alechavez@cosechacreativa.com.ar ');
     expect(login.username).toBe('alechavez@cosechacreativa.com.ar');
     expect(login.email).toBe('alechavez@cosechacreativa.com.ar');

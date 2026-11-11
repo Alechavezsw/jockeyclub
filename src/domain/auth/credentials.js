@@ -76,4 +76,26 @@ export function portalLoginFromEmail(email = '') {
   };
 }
 
+export function isClubPlaceholderEmail(email = '') {
+  const mail = String(email || '').trim().toLowerCase();
+  return mail.endsWith('@jockeyclubsj.com')
+    || mail.endsWith('@jockeyclubsanjuan.com')
+    || mail.includes('@lila-jockey');
+}
+
+/** Mails para crear el acceso: el del pedido, después el de la ficha. El de relleno va último. */
+export function portalAccessEmailCandidates(...emails) {
+  const seen = new Set();
+  const real = [];
+  const placeholders = [];
+  for (const raw of emails) {
+    const mail = String(raw || '').trim().toLowerCase();
+    if (!mail.includes('@') || mail.startsWith('@') || mail.endsWith('@') || seen.has(mail)) continue;
+    seen.add(mail);
+    if (isClubPlaceholderEmail(mail)) placeholders.push(mail);
+    else real.push(mail);
+  }
+  return [...real, ...placeholders];
+}
+
 export { LOGIN_DOMAIN };

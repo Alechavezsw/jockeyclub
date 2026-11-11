@@ -272,6 +272,47 @@ export async function portalProfileIdForLogin(email, memberDbId) {
   return profileId;
 }
 
+/**
+ * El mail ya es el acceso de un integrante del mismo grupo.
+ * Si quien pide es el titular y ese mail está en su ficha, el acceso pasa a él.
+ */
+export async function claimPrincipalPortalProfile(memberDbId, email) {
+  const login = String(email || '').trim().toLowerCase();
+  if (!isUuid(memberDbId) || !login.includes('@')) return null;
+  const rows = await unwrap(
+    sb().from('profiles').select('id').eq('email', login).limit(1),
+    'No se pudo buscar el email'
+  );
+  const profileId = rows?.[0]?.id;
+  if (!profileId) return null;
+  const owners = await unwrap(
+    sb().from('members').select('id').eq('profile_id', profileId),
+    'No se pudo verificar el acceso'
+  );
+  const otherId = (owners || []).find((row) => row.id !== memberDbId)?.id;
+  if (!otherId) return profileId;
+  const people = await unwrap(
+    sb().from('members').select('id, member_number, email, meta').in('id', [memberDbId, otherId]),
+    'No se pudo leer el grupo familiar'
+  );
+  const mine = (people || []).find((row) => row.id === memberDbId);
+  const other = (people || []).find((row) => row.id === otherId);
+  const mineNumber = String(mine?.member_number || '').trim();
+  const minePrincipal = String(mine?.meta?.familyPrincipalNumber || mineNumber).trim();
+  const otherPrincipal = String(other?.meta?.familyPrincipalNumber || other?.member_number || '').trim();
+  const ownsTheMailbox = String(mine?.email || '').trim().toLowerCase() === login;
+  const isPrincipal = Boolean(mineNumber) && minePrincipal === mineNumber;
+  const sameFamily = Boolean(minePrincipal) && minePrincipal === otherPrincipal;
+  if (!ownsTheMailbox || !isPrincipal || !sameFamily) {
+    throw new Error(`Ese email ya es el acceso del socio Nº ${other?.member_number || '—'}.`);
+  }
+  await unwrap(
+    sb().from('members').update({ profile_id: null }).eq('id', otherId).eq('profile_id', profileId),
+    'No se pudo soltar el acceso del grupo'
+  );
+  return profileId;
+}
+
 /** Regenera la contraseña de un usuario existente (staff para socios; admin+ para el resto). */
 export async function resetPortalUserPassword(profileId, password, email, options = {}) {
   if (!isUuid(profileId)) throw new Error('Perfil inválido');
