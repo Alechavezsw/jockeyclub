@@ -428,6 +428,11 @@ export function buildFeePeriodCharges(members = [], period, today = new Date(), 
     if (isDuesExemptMember(member)) return [];
     // Alineado con el trigger Postgres: no inventar cargo que apply_member_balance_deltas va a saltar.
     if (dbMemberIsDuesExempt(member.tier, { cuotaCategories: member.cuotaCategories })) return [];
+    // Caso particular: meta.duesFreeThrough (AAAA-MM) deja ese mes y los anteriores sin cargo.
+    // El resto del padrón no lo tiene. El mes siguiente se liquida normal.
+    const freeThrough = String(member.duesFreeThrough || member.meta?.duesFreeThrough || '').slice(0, 7);
+    const periodKey = `${period.year}-${pad2(period.month)}`;
+    if (/^\d{4}-\d{2}$/.test(freeThrough) && periodKey <= freeThrough) return [];
     const dueOn = `${period.year}-${pad2(period.month)}-${pad2(duesDueDayForMember(member))}`;
     return duesChargeSlicesForMember(member, periodDate, { rules }).map((slice) => ({
       memberId: member.memberId,

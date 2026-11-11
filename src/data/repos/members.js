@@ -45,6 +45,7 @@ const MEMBERS_LIST_SELECT = [
   'current_account_as_of:meta->>currentAccountAsOf',
   'unpaid_capital:meta->unpaidCapital',
   'fecha_alta_raw:meta->>fechaAltaRaw',
+  'dues_free_through:meta->>duesFreeThrough',
 ].join(', ');
 
 /** Solo listado de bajas / inactivos: el padrón activo no los necesita. */
@@ -130,6 +131,10 @@ function listRowToMember(row) {
     member.unpaidCapital = Number(row.unpaid_capital) || 0;
   } else if (row.unpaidCapital != null && row.unpaidCapital !== '') {
     member.unpaidCapital = Number(row.unpaidCapital) || 0;
+  }
+  {
+    const freeThrough = String(row.dues_free_through || row.duesFreeThrough || '').slice(0, 7);
+    if (/^\d{4}-\d{2}$/.test(freeThrough)) member.duesFreeThrough = freeThrough;
   }
   if (row.has_portal === true || row.hasPortal === true) {
     member.hasApp = true;
@@ -316,7 +321,8 @@ async function downloadMembersListPaged({ onBatch, scope = 'active' } = {}) {
           .replace(', family_group_name:meta->>familyGroupName', '')
           .replace(', cuota_categories:meta->cuotaCategories', '')
           .replace(', current_account_as_of:meta->>currentAccountAsOf', '')
-          .replace(', unpaid_capital:meta->unpaidCapital', '');
+          .replace(', unpaid_capital:meta->unpaidCapital', '')
+          .replace(', dues_free_through:meta->>duesFreeThrough', '');
         const req = applyMemberScope(
           sb().from('members').select(listSelect, selectOpts),
           scope,

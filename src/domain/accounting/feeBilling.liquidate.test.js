@@ -9,6 +9,7 @@ import {
   feePeriodLiquidateBlock,
   feePeriodNeedsClosure,
   feePeriodPrepareBlock,
+  buildFeePeriodCharges,
   liquidateFeePeriod,
   packEditorFromPeriod,
   aggregateFeeChargeDeltas,
@@ -512,5 +513,35 @@ describe('liquidateFeePeriod', () => {
     expect(adjusted.changed).toBe(false);
     expect(adjusted.reason).toBe('processed_locked');
     expect(adjusted.deltas).toEqual([]);
+  });
+
+  it('Alameda queda sin cargo hasta diciembre 2026 y en enero paga la cuota normal', () => {
+    const alameda = {
+      memberId: '9624',
+      status: 'active',
+      tier: 'socio_familiar',
+      cuotaCategories: ['SOCIO FAMILIAR'],
+      duesFreeThrough: '2026-12',
+    };
+    const otro = {
+      memberId: '1',
+      status: 'active',
+      tier: 'socio_familiar',
+      cuotaCategories: ['SOCIO FAMILIAR'],
+    };
+    const december = buildFeePeriodCharges(
+      [alameda, otro],
+      { year: 2026, month: 12 },
+      new Date('2026-12-01T12:00:00'),
+    );
+    expect(december.map((row) => row.memberId)).toEqual(['1']);
+    const january = buildFeePeriodCharges(
+      [alameda],
+      { year: 2027, month: 1 },
+      new Date('2027-01-01T12:00:00'),
+    );
+    expect(january).toEqual([
+      expect.objectContaining({ memberId: '9624', addAmount: 70000, dueOn: '2027-01-10' }),
+    ]);
   });
 });

@@ -85,6 +85,7 @@ type MemberLite = {
   familyPrincipalNumber: string | null;
   familyGroupName: string;
   bajaFecha: string;
+  duesFreeThrough: string;
   adherents: Array<{
     memberId?: string;
     name?: string;
@@ -325,6 +326,9 @@ function buildCharges(members: MemberLite[], year: number, month: number, todayI
   for (const member of members) {
     if (!member || !isMemberBillingActive(member, todayIso) || isFamilyDependent(member)) continue;
     if (isDuesExemptMember(member)) continue;
+    const freeThrough = String(member.duesFreeThrough || "").slice(0, 7);
+    const periodKey = `${year}-${pad2(month)}`;
+    if (/^\d{4}-\d{2}$/.test(freeThrough) && periodKey <= freeThrough) continue;
     const dueOn = `${year}-${pad2(month)}-${pad2(duesDueDayForMember(member))}`;
     for (const slice of chargeSlicesForMember(member, onIso, rules)) {
       charges.push({
@@ -464,6 +468,7 @@ async function loadMembers(admin: SupabaseClient): Promise<MemberLite[]> {
           : null,
         familyGroupName: String(meta.familyGroupName || ""),
         bajaFecha: String(meta.bajaFecha || "").slice(0, 10),
+        duesFreeThrough: String(meta.duesFreeThrough || "").slice(0, 7),
         adherents: [],
       });
     }
