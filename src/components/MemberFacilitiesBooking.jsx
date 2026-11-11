@@ -34,13 +34,17 @@ import {
   reservationBalanceAfterDeposit,
   RESERVATION_DEPOSIT_RATE,
 } from '../domain/reservations/bookingRules';
+import { upcomingMemberReservations } from '../domain/reservations/memberBookings';
 import { isTurnStillBookable } from '../domain/reservations/slotTime';
 import { joinWaitlist, leaveWaitlist, waitingForSlot } from '../domain/reservations/waitlist';
+import { memberMayOperateAccount } from '../domain/members/households';
 import { CLUB_BANK_ACCOUNTS } from '../domain/members/clubBanks';
 import { bookingPaymentNotice } from '../domain/members/duesPaymentNotice';
+import { todayISODateAR } from '../lib/arDate';
 import { uploadDuesReceipt } from '../data/storage';
 import ModalDialog from './ModalDialog';
 import MercadoPagoCheckout from './MercadoPagoCheckout';
+import MemberReservationCard from './MemberReservationCard';
 
 function formatCurrency(amount) {
   return new Intl.NumberFormat('es-AR', {
@@ -157,6 +161,8 @@ export default function MemberFacilitiesBooking({
   member,
   reservations = [],
   addReservation,
+  cancelReservation,
+  setReservations,
   isZondaActive = false,
   compact = false,
   onBooked,
@@ -190,6 +196,13 @@ export default function MemberFacilitiesBooking({
   const [receiptFile, setReceiptFile] = useState(null);
   const [receiptPreview, setReceiptPreview] = useState('');
   const [paying, setPaying] = useState(false);
+  const [cancellingId, setCancellingId] = useState('');
+
+  const myBookings = useMemo(
+    () => upcomingMemberReservations(reservations, member?.memberId, todayISODateAR()),
+    [reservations, member?.memberId],
+  );
+  const canOperateAccount = memberMayOperateAccount(member);
 
   const catalog = useMemo(
     () => buildFacilityCatalog(FACILITIES, Array.isArray(facilityCatalog) ? facilityCatalog : [])
@@ -473,6 +486,17 @@ export default function MemberFacilitiesBooking({
     month: 'long',
   });
 
+  const handleCancelMine = async (resId) => {
+    if (!cancelReservation || cancellingId) return;
+    if (!window.confirm('¿Cancelar esta reserva? Se libera el turno.')) return;
+    setCancellingId(String(resId));
+    try {
+      await cancelReservation(resId);
+    } finally {
+      setCancellingId('');
+    }
+  };
+
   return (
     <section className={`mfb ${compact ? 'mfb--compact' : ''}`}>
       <header className="mfb-head">
@@ -488,13 +512,55 @@ export default function MemberFacilitiesBooking({
             En vivo · {clockLabel} · {availableNow} disponibles ahora
           </div>
         </div>
-        {isZondaActive && (
-          <div className="mfb-zonda">
-            <Wind size={16} />
-            Exterior suspendido por Zonda. Solo cubiertos.
-          </div>
-        )}
+        <div className="mfb-head-actions">
+          {!compact ? (
+            <a className="mfb-mine-link" href="#mfb-mis-reservas">
+              Mis reservas{myBookings.length > 0 ? ` · ${myBookings.length}` : ''}
+            </a>
+          ) : null}
+          {isZondaActive && (
+            <div className="mfb-zonda">
+              <Wind size={16} />
+              Exterior suspendido por Zonda. Solo cubiertos.
+            </div>
+          )}
+        </div>
       </header>
+
+      {!compact ? (
+        <section id="mfb-mis-reservas" className="mfb-mine glass-card" aria-label="Mis reservas">
+          <div className="mfb-mine-head">
+            <h3>Mis reservas</h3>
+            <p>
+              {myBookings.length === 0
+                ? 'Todavía no tenés turnos a futuro. Reservá abajo.'
+                : 'Con la seña (50 %) abonada podés pagar el resto o cancelar desde cada reserva.'}
+            </p>
+          </div>
+          {myBookings.length === 0 ? null : (
+            <div className="mfb-mine-list">
+              {myBookings.map((res) => (
+                <MemberReservationCard
+                  key={res.id}
+                  reservation={res}
+                  member={member}
+                  canPay={canOperateAccount}
+                  cancelling={cancellingId === String(res.id)}
+                  onCancel={canOperateAccount ? handleCancelMine : undefined}
+                  sendMessage={sendMessage}
+                  user={user}
+                  onSettled={(row) => {
+                    if (typeof setReservations !== 'function') return;
+                    setReservations((prev) => (prev || []).map((item) => (
+                      item.id === row.id ? { ...item, ...row } : item
+                    )));
+                  }}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null}
 
       <div className="mfb-layout">
         {/* Calendario */}

@@ -200,6 +200,8 @@ export default function AdminDashboardTab({
   const alertHold = useRef(false);
   const [agendaDay, setAgendaDay] = useState(null);
   const [showAllMonthIncomes, setShowAllMonthIncomes] = useState(false);
+  const [showAllTodayIncomes, setShowAllTodayIncomes] = useState(false);
+  const [showAllGateEntries, setShowAllGateEntries] = useState(false);
   const showGate = canAccessQrGate(userRole);
   const pendingMembershipApps = useMemo(
     () => (membershipApplications || []).filter((a) => a.status === 'pending').length
@@ -298,7 +300,8 @@ export default function AdminDashboardTab({
         : (log.time || '—'),
     }));
     return {
-      list: list.slice(0, 8),
+      list,
+      preview: list.slice(0, 5),
       granted: list.filter((l) => l.status === 'granted' || l.status === 'ok').length,
       denied: list.filter((l) => l.status === 'denied' || l.status === 'blocked').length,
       todayTotal: list.length,
@@ -1164,12 +1167,21 @@ export default function AdminDashboardTab({
                         {formatCurrency(todayIncomeRows.reduce((s, row) => s + (Number(row.amount) || 0), 0))}
                       </strong>
                     </div>
-                    {todayIncomeRows.map((row) => (
+                    {(showAllTodayIncomes ? todayIncomeRows : todayIncomeRows.slice(0, 5)).map((row) => (
                       <div key={`today-${row.id}`} className="ops-row">
                         <span className="ops-ellipsis">{row.label}</span>
                         <strong style={{ color: 'var(--emerald-accent)' }}>{formatCurrency(row.amount)}</strong>
                       </div>
                     ))}
+                    {todayIncomeRows.length > 5 && !showAllTodayIncomes ? (
+                      <button
+                        type="button"
+                        className="ops-dash-link"
+                        onClick={() => setShowAllTodayIncomes(true)}
+                      >
+                        Leer más · {todayIncomeRows.length - 5} más
+                      </button>
+                    ) : null}
                   </div>
                 ) : null}
 
@@ -1329,7 +1341,7 @@ export default function AdminDashboardTab({
                   <span>Denegados</span>
                 </div>
               </div>
-              {todayEntries.list.map((log) => (
+              {(showAllGateEntries ? todayEntries.list : todayEntries.preview).map((log) => (
                 <div key={log.id || `${log.memberName}-${log.time || log.timeLabel}`} className="ops-row">
                   <span className="ops-ellipsis">{log.memberName || 'Visitante'}</span>
                   <span className={`ops-gate-tag ${(log.status === 'denied' || log.status === 'blocked') ? 'denied' : 'ok'}`}>
@@ -1337,9 +1349,17 @@ export default function AdminDashboardTab({
                   </span>
                 </div>
               ))}
-              {todayEntries.list.length === 0 && (
-                <p className="ops-muted" style={{ margin: '0.25rem 0 0.5rem' }}>Sin ingresos hoy.</p>
-              )}
+              {todayEntries.list.length === 0 ? (
+                <p className="ops-muted">Sin ingresos hoy.</p>
+              ) : todayEntries.list.length > 5 && !showAllGateEntries ? (
+                <button
+                  type="button"
+                  className="ops-dash-link"
+                  onClick={() => setShowAllGateEntries(true)}
+                >
+                  Leer más · {todayEntries.list.length - 5} más
+                </button>
+              ) : null}
             </article>
           )}
 

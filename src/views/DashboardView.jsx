@@ -1161,7 +1161,9 @@ export default function DashboardView({
                     reservation={res}
                     member={profile}
                     canPay={canOperateAccount}
-                    onCancel={cancelReservation}
+                    onCancel={canOperateAccount ? cancelReservation : undefined}
+                    sendMessage={sendMessage}
+                    user={user}
                     onSettled={(row) => {
                       if (typeof setReservations !== 'function') return;
                       setReservations((prev) => (prev || []).map((item) => (

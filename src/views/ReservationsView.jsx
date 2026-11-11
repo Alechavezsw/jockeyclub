@@ -4,6 +4,8 @@ export default function ReservationsView({
   member,
   reservations,
   addReservation,
+  cancelReservation,
+  setReservations,
   setCurrentView,
   isZondaActive,
   waitlist = [],
@@ -28,6 +30,8 @@ export default function ReservationsView({
         member={member}
         reservations={reservations}
         addReservation={addReservation}
+        cancelReservation={cancelReservation}
+        setReservations={setReservations}
         isZondaActive={isZondaActive}
         waitlist={waitlist}
         setWaitlist={setWaitlist}

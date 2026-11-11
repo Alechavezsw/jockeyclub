@@ -210,6 +210,8 @@ export default function ClubRoutes({
       member={activeMember}
       reservations={reservations}
       addReservation={addReservation}
+      cancelReservation={cancelReservation}
+      setReservations={setReservations}
       setCurrentView={setCurrentView}
       isZondaActive={isZondaActive}
       waitlist={waitlist}
