@@ -23,6 +23,7 @@ export function adherentFromRow(row) {
     documentNumber: meta.documentNumber || meta.document_number || '',
     birthDate: meta.birthDate || meta.birth_date || '',
     memberId: memberId ? String(memberId) : undefined,
+    fromPadron: meta.fromPadron === true || meta.fromPadron === 'true',
     meta,
   };
 }

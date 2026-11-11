@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import {
+  Banknote,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -554,8 +555,15 @@ export default function BookingsTab({
                         disabled={actionsBusyKey === `settle:${res.id}`}
                         onClick={() => completeBookingPayment(res)}
                       >
-                        {actionsBusyKey === `settle:${res.id}` ? 'Guardando…' : 'Completar pago'}
-                        <small>{formatMoney(reservationOpenBalance(res))}</small>
+                        <span className="bookings-settle-btn-icon" aria-hidden="true">
+                          {actionsBusyKey === `settle:${res.id}`
+                            ? <Loader2 size={15} className="bookings-settle-spin" />
+                            : <Banknote size={15} strokeWidth={2.25} />}
+                        </span>
+                        <span className="bookings-settle-btn-copy">
+                          <strong>{actionsBusyKey === `settle:${res.id}` ? 'Guardando…' : 'Completar pago'}</strong>
+                          <b>{formatMoney(reservationOpenBalance(res))}</b>
+                        </span>
                       </button>
                     ) : null}
                     {res.status !== 'cancelled' && reservationTotalPrice(null, res) > 0 && reservationOpenBalance(res) <= 0 ? (
@@ -1025,29 +1033,88 @@ export default function BookingsTab({
           display: flex;
           flex-direction: column;
           align-items: flex-start;
-          gap: 0.35rem;
-          margin-top: 0.45rem;
+          gap: 0.4rem;
+          margin-top: 0.4rem;
         }
         .bookings-settle-btn {
-          border: 1px solid var(--text-gold);
-          background: transparent;
-          color: var(--text-gold);
-          border-radius: 999px;
-          padding: 0.28rem 0.7rem;
+          display: inline-flex;
+          align-items: center;
+          gap: 0.55rem;
+          border: 1px solid color-mix(in srgb, #c9a56e 55%, #8a6a3a);
+          background:
+            linear-gradient(165deg, #f0d7b0 0%, #e2c39a 38%, #c9a56e 100%);
+          color: #3d2a12;
+          border-radius: 12px;
+          padding: 0.42rem 0.7rem 0.42rem 0.48rem;
           font: inherit;
-          font-size: 0.72rem;
-          font-weight: 700;
           cursor: pointer;
           text-align: left;
+          box-shadow:
+            0 1px 0 color-mix(in srgb, #fff 45%, transparent) inset,
+            0 6px 14px -8px rgba(120, 84, 36, 0.55);
+          transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+        }
+        .bookings-settle-btn:hover:not(:disabled) {
+          transform: translateY(-1px);
+          filter: brightness(1.03);
+          box-shadow:
+            0 1px 0 color-mix(in srgb, #fff 50%, transparent) inset,
+            0 10px 18px -8px rgba(120, 84, 36, 0.6);
+        }
+        .bookings-settle-btn:active:not(:disabled) {
+          transform: translateY(0);
+        }
+        .bookings-settle-btn:focus-visible {
+          outline: 2px solid var(--primary-gold);
+          outline-offset: 2px;
         }
         .bookings-settle-btn:disabled {
-          opacity: 0.6;
+          opacity: 0.72;
           cursor: wait;
+          transform: none;
         }
-        .bookings-settle-btn small {
-          display: block;
-          font-weight: 550;
-          color: var(--text-secondary);
+        .bookings-settle-btn-icon {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 1.7rem;
+          height: 1.7rem;
+          border-radius: 9px;
+          background: color-mix(in srgb, #3d2a12 12%, transparent);
+          color: #3d2a12;
+          flex-shrink: 0;
+        }
+        .bookings-settle-btn-copy {
+          display: flex;
+          flex-direction: column;
+          gap: 0.05rem;
+          min-width: 0;
+          line-height: 1.15;
+        }
+        .bookings-settle-btn-copy strong {
+          font-size: 0.68rem;
+          font-weight: 700;
+          letter-spacing: 0.01em;
+          color: color-mix(in srgb, #3d2a12 78%, transparent);
+        }
+        .bookings-settle-btn-copy b {
+          font-size: 0.92rem;
+          font-weight: 800;
+          font-variant-numeric: tabular-nums;
+          color: #2a1c0b;
+        }
+        .bookings-settle-spin {
+          animation: bookings-settle-spin 0.8s linear infinite;
+        }
+        @keyframes bookings-settle-spin {
+          to { transform: rotate(360deg); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .bookings-settle-btn,
+          .bookings-settle-spin {
+            transition: none;
+            animation: none;
+          }
         }
         .bookings-settle-note {
           margin: 0;

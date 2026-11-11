@@ -19913,6 +19913,27 @@ a.ops-outline-btn {
   margin: 0;
 }
 
+.mp-family-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0.35rem 0 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.mp-family-loading-spin {
+  animation: mp-family-spin 0.8s linear infinite;
+}
+
+@keyframes mp-family-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mp-family-loading-spin { animation: none; }
+}
+
 .mp-family-modal-head {
   display: flex;
   justify-content: space-between;

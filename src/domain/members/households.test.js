@@ -279,4 +279,35 @@ describe('households', () => {
     expect(family.members.some((m) => m.relationship === 'Titular')).toBe(true);
     expect(family.members.some((m) => m.memberId === '4928')).toBe(true);
   });
+
+  it('en ficha de titular relee el padrón aunque haya adherentes fromPadron viejos', () => {
+    const stale = {
+      ...titular,
+      adherents: [{
+        id: 'adh-old',
+        name: 'Milagros Rojo',
+        memberId: '3501',
+        fromPadron: true,
+        relationship: 'Grupo familiar',
+      }],
+    };
+    const family = resolveFamilyForDisplay(stale, [stale, hijo, hija]);
+    const ids = family.members.map((m) => m.memberId).sort();
+    expect(ids).toEqual(['3501', '4928']);
+  });
+
+  it('no duplica el mismo integrante por credencial y por nombre', () => {
+    const family = resolveFamilyForDisplay(titular, [titular, hijo, hija]);
+    const withEcho = {
+      ...titular,
+      adherents: [
+        { id: 'adh-echo', name: 'Milagros Rojo', relationship: 'Grupo familiar' },
+        { id: 'adh-echo-2', name: 'Juan Rojo', memberId: '4928', relationship: 'Grupo familiar' },
+      ],
+    };
+    const merged = resolveFamilyForDisplay(withEcho, [withEcho, hijo, hija]);
+    expect(merged.members).toHaveLength(2);
+    expect(merged.members.map((m) => m.memberId).sort()).toEqual(['3501', '4928']);
+    expect(family.members).toHaveLength(2);
+  });
 });

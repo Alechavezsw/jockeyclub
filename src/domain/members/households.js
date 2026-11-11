@@ -229,14 +229,27 @@ function personDedupeKey(row) {
   return name ? `n:${name}` : '';
 }
 
+/** Todas las claves con las que una persona puede chocar en el grupo. */
+function personDedupeAliases(row) {
+  const aliases = [];
+  const id = memberNumberOf(row);
+  if (id) aliases.push(`id:${id}`);
+  const dni = String(row?.documentNumber || row?.document_number || '').replace(/\D/g, '');
+  if (dni) aliases.push(`dni:${dni}`);
+  const name = normalizePersonName(row?.name || row?.full_name);
+  if (name) aliases.push(`n:${name}`);
+  return aliases;
+}
+
 /** Quita personas repetidas en un grupo (mismo DNI, credencial o nombre). */
 export function uniqueFamilyMembers(members = []) {
   const seen = new Set();
   const out = [];
   for (const row of members || []) {
-    const key = personDedupeKey(row);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
+    const aliases = personDedupeAliases(row);
+    if (!aliases.length) continue;
+    if (aliases.some((key) => seen.has(key))) continue;
+    for (const key of aliases) seen.add(key);
     out.push(row);
   }
   return out;
@@ -368,6 +381,7 @@ export function attachHouseholdToMembers(members = []) {
 
 /**
  * Familia a mostrar en ficha: adherentes del titular, o titular + hermanos si es integrante.
+ * El padrón vivo manda: no nos quedamos con adherentes fromPadron viejos si el grupo ya cambió.
  */
 export function resolveFamilyForDisplay(member, allMembers = []) {
   if (!member) return { titular: null, members: [] };
@@ -381,17 +395,28 @@ export function resolveFamilyForDisplay(member, allMembers = []) {
       ...(titular ? [householdMemberAsAdherent(titular, 'Titular')] : []),
       ...siblings.map((m) => householdMemberAsAdherent(m)),
     ];
-    const manual = (member.adherents || []).filter((a) => !a.fromPadron);
+    const liveKeys = new Set(fromPadron.map((row) => personDedupeKey(row)).filter(Boolean));
+    const manual = (member.adherents || []).filter((a) => {
+      if (a?.fromPadron) return false;
+      const key = personDedupeKey(a);
+      return key && !liveKeys.has(key);
+    });
     return { titular, members: uniqueFamilyMembers([...fromPadron, ...manual]) };
   }
 
   const attached = member.adherents || [];
-  if (attached.some((a) => a.fromPadron) || !allMembers.length) {
+  if (!allMembers.length) {
     return { titular: member, members: uniqueFamilyMembers(attached) };
   }
   const live = listHouseholdIntegrantes(allMembers, memberNumberOf(member))
     .map((row) => householdMemberAsAdherent(row));
-  return { titular: member, members: uniqueFamilyMembers([...live, ...attached]) };
+  const liveKeys = new Set(live.map((row) => personDedupeKey(row)).filter(Boolean));
+  const extras = attached.filter((a) => {
+    if (a?.fromPadron) return false;
+    const key = personDedupeKey(a);
+    return key && !liveKeys.has(key);
+  });
+  return { titular: member, members: uniqueFamilyMembers([...live, ...extras]) };
 }
 
 /**

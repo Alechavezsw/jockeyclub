@@ -5,7 +5,7 @@ import {
   MessageSquare, ClipboardList, Activity, Phone, Mail, MapPin,
   Pencil, FileText, Ticket, Bell, IdCard, Cake, Heart, Flag, Clock,
   ShieldCheck, CalendarClock, Banknote, Building2, AlertTriangle,
-  Camera, X, Plus,
+  Camera, X, Plus, Loader2,
 } from 'lucide-react';
 import VirtualCard from '../VirtualCard';
 import GuestPassPanel from '../GuestPassPanel';
@@ -39,11 +39,14 @@ import { getActiveTiers, getTierDisplayName, tierBadgeStyle } from '../../domain
 import { DISCIPLINE_OPTIONS, getDisciplineOptions, normalizeLabel } from '../../domain/sports/disciplines';
 import {
   allocateNextMemberNumber,
+  applyMemberListRefresh,
+  attachHouseholdToMembers,
   familyPrincipalOf,
   householdMemberAsAdherent,
   isFamilyDependent,
   memberNumberOf,
   resolveFamilyForDisplay,
+  uniqueFamilyMembers,
 } from '../../domain/members/households';
 import {
   applyMemberProfileUpdate,
@@ -371,6 +374,8 @@ export default function MemberProfilePanel({
   const [familyEdit, setFamilyEdit] = useState(null);
   const [familyEditMsg, setFamilyEditMsg] = useState('');
   const [householdPayments, setHouseholdPayments] = useState([]);
+  const [householdExtras, setHouseholdExtras] = useState([]);
+  const [householdReady, setHouseholdReady] = useState(Boolean(selfService));
   const [searchParams, setSearchParams] = useSearchParams();
   const { version: cobrosSnapshotVersion } = useSnapshots(
     selfService ? [] : ['accessinCobranzas', 'accessinDetailedCurrentAccounts']
@@ -418,11 +423,79 @@ export default function MemberProfilePanel({
     return undefined;
   }, [member?.memberId, allowEdit, searchParams, setSearchParams, disciplineOptions]);
 
+  /** Trae el grupo completo desde Supabase de una sola vez (sin ir apareciendo de a uno). */
+  useEffect(() => {
+    if (!member) return undefined;
+    if (selfService) {
+      setHouseholdReady(true);
+      setHouseholdExtras([]);
+      return undefined;
+    }
+    const principal = familyPrincipalOf(member) || memberNumberOf(member);
+    if (!principal) {
+      setHouseholdReady(true);
+      setHouseholdExtras([]);
+      return undefined;
+    }
+    let cancelled = false;
+    setHouseholdReady(false);
+    setHouseholdExtras([]);
+    (async () => {
+      try {
+        const [titular, dependents] = await Promise.all([
+          repos.getMemberByNumber?.(principal).catch(() => null),
+          repos.listHouseholdByPrincipal?.(principal).catch(() => []),
+        ]);
+        if (cancelled) return;
+        const extra = [titular, ...(dependents || [])].filter(Boolean);
+        setHouseholdExtras(extra);
+        setHouseholdReady(true);
+        if (extra.length && typeof setMembers === 'function') {
+          setMembers((prev) => attachHouseholdToMembers(
+            applyMemberListRefresh(prev || [], extra, { done: false }),
+          ));
+        }
+      } catch {
+        if (!cancelled) {
+          setHouseholdExtras([]);
+          setHouseholdReady(true);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [member?.memberId, selfService, setMembers]);
+
+  const familySource = useMemo(() => {
+    const base = members.length ? members : [member].filter(Boolean);
+    if (householdReady && householdExtras.length) {
+      return applyMemberListRefresh(base, householdExtras, { done: false });
+    }
+    return base;
+  }, [members, member, householdExtras, householdReady]);
+
   const familyGroup = useMemo(
-    () => resolveFamilyForDisplay(member, members.length ? members : [member].filter(Boolean)),
-    [member, members]
+    () => resolveFamilyForDisplay(member, familySource),
+    [member, familySource],
   );
+
   const familyRows = useMemo(() => {
+    // Admin: no pintar el grupo a medias mientras llega el hogar de la nube.
+    if (!selfService && !householdReady) return [];
+
+    if (!selfService && householdExtras.length) {
+      const principal = familyPrincipalOf(member) || memberNumberOf(member);
+      const titular = householdExtras.find((row) => memberNumberOf(row) === principal)
+        || familyGroup.titular
+        || member;
+      const dependents = householdExtras.filter((row) => (
+        isFamilyDependent(row) && familyPrincipalOf(row) === principal
+      ));
+      return uniqueFamilyMembers([
+        householdMemberAsAdherent(titular, 'Titular'),
+        ...dependents.map((row) => householdMemberAsAdherent(row)),
+      ]);
+    }
+
     const list = [...(familyGroup.members || [])];
     const selfId = memberNumberOf(member);
     const already = list.some((row) => String(row.memberId || '').replace(/\D/g, '') === selfId);
@@ -432,8 +505,15 @@ export default function MemberProfilePanel({
         isFamilyDependent(member) ? 'Grupo familiar' : 'Titular',
       ));
     }
-    return list;
-  }, [familyGroup.members, member]);
+    return uniqueFamilyMembers(list);
+  }, [
+    selfService,
+    householdReady,
+    householdExtras,
+    familyGroup.titular,
+    familyGroup.members,
+    member,
+  ]);
   const canEditFamily = !selfService && allowEdit;
   const tiers = useMemo(() => getActiveTiers(tierCatalog), [tierCatalog]);
   const defaultFamilyTier = useMemo(() => {
@@ -1386,7 +1466,9 @@ export default function MemberProfilePanel({
                 {member.familyGroupName || familyGroup.titular?.familyGroupName
                   ? `${member.familyGroupName || familyGroup.titular?.familyGroupName} · `
                   : ''}
-                {familyRows.length} integrante{familyRows.length === 1 ? '' : 's'}
+                {!householdReady && !selfService
+                  ? 'cargando grupo…'
+                  : `${familyRows.length} integrante${familyRows.length === 1 ? '' : 's'}`}
               </p>
               {canEditFamily ? (
                 <button type="button" className="btn btn-primary btn-sm" onClick={openAddFamily}>
@@ -1394,7 +1476,12 @@ export default function MemberProfilePanel({
                 </button>
               ) : null}
             </div>
-            {!familyRows.length ? (
+            {!householdReady && !selfService ? (
+              <p className="mp-family-loading" role="status" aria-live="polite">
+                <Loader2 size={16} className="mp-family-loading-spin" />
+                Cargando el grupo familiar completo…
+              </p>
+            ) : !familyRows.length ? (
               <Empty text="Sin integrantes en el grupo familiar." />
             ) : (
               <div className="mp-family">
@@ -1403,10 +1490,11 @@ export default function MemberProfilePanel({
                   const rowId = String(adh.memberId || '').replace(/\D/g, '');
                   const isSelf = rowId && rowId === selfId;
                   const canOpen = Boolean(onOpenMember && adh.memberId && !isSelf);
-                  const source = findMemberByNumber(members, adh.memberId);
+                  const source = findMemberByNumber(familySource, adh.memberId)
+                    || findMemberByNumber(members, adh.memberId);
                   return (
                     <div
-                      key={adh.id || adh.memberId}
+                      key={rowId || adh.id || adh.name}
                       className={`mp-family-row${canOpen ? ' is-clickable' : ''}`}
                       role={canOpen ? 'button' : undefined}
                       tabIndex={canOpen ? 0 : undefined}
