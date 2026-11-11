@@ -71,7 +71,9 @@ export function receiptChargeLines(payment) {
     const total = imputations.reduce((sum, row) => (
       sum + (Number(row.capital) || 0) + (Number(row.surcharge) || 0)
     ), 0);
-    const amount = total > 0.01 ? total : (Number(payment?.amount) || 0);
+    const cut = Number(payment?.discount) || 0;
+    const billed = (Number(payment?.amount) || 0) + (cut > 0.009 ? cut : 0);
+    const amount = total > 0.01 ? total : billed;
     if (amount > 0.01) {
       return [{
         dueOn,

@@ -74,7 +74,13 @@ describe('exportPaymentReceiptPdf helpers', () => {
       discount: 1000,
       discountDetail: 'Convenio de caja',
     };
+    expect(receiptChargeLines(payment)[0].payable).toBe(39600);
     expect(receiptChargeLines(payment)[0].detail).toMatch(/Noviembre de 2026 · capital/);
+    expect(receiptChargeLines({
+      amount: 38600,
+      discount: 1000,
+      periodDueOns: ['2026-11-10'],
+    })[0].payable).toBe(39600);
     expect(receiptDiscountLine(payment)).toEqual({
       detail: 'Descuento · Convenio de caja',
       amount: 1000,
