@@ -5,6 +5,7 @@ import {
   paymentPeriodLabel,
   receiptCategoryLabel,
   receiptChargeLines,
+  receiptDiscountLine,
   receiptMethodLabel,
 } from './exportPaymentReceiptPdf';
 
@@ -65,6 +66,20 @@ describe('exportPaymentReceiptPdf helpers', () => {
     expect(paymentCorrespondsTo(payment)).toMatch(/Octubre de 2026 · capital .+ · intereses .+/);
     expect(paymentCorrespondsTo(payment)).toMatch(/Noviembre de 2026 · sin intereses/);
     expect(paymentCorrespondsTo(payment)).not.toMatch(/agosto|saldo anterior/i);
+  });
+
+  it('el descuento va aparte, con el detalle, y no reescribe el mes', () => {
+    const payment = {
+      imputations: [{ dueOn: '2026-11-10', capital: 36000, surcharge: 3600 }],
+      discount: 1000,
+      discountDetail: 'Convenio de caja',
+    };
+    expect(receiptChargeLines(payment)[0].detail).toMatch(/Noviembre de 2026 · capital/);
+    expect(receiptDiscountLine(payment)).toEqual({
+      detail: 'Descuento · Convenio de caja',
+      amount: 1000,
+    });
+    expect(paymentCorrespondsTo(payment)).not.toMatch(/descuento/i);
   });
 
   it('usa el período guardado o los vencimientos imputados', () => {

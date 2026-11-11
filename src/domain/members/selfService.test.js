@@ -58,6 +58,14 @@ describe('selfService', () => {
     })?.memberId).toBe('31098538');
   });
 
+  it('si el id no está en el padrón cargado, usa el número', () => {
+    expect(matchMemberForAccessRequest(members, {
+      memberId: '99999999-9999-4999-8999-999999999999',
+      memberNumber: '3368',
+      documentNumber: '30111222',
+    })?.name).toBe('Ana');
+  });
+
   it('no elige un Bonilla al azar si hay varios', () => {
     expect(matchMemberForAccessRequest(members, { fullName: 'bonilla' })).toBeNull();
   });

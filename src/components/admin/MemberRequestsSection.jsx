@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ExternalLink, QrCode } from 'lucide-react';
 import JoinClubPlaque from './JoinClubPlaque';
@@ -44,6 +44,7 @@ export default function MemberRequestsSection({
   const [invitesById, setInvitesById] = useState({});
   const [deliverError, setDeliverError] = useState('');
   const [plaqueOpen, setPlaqueOpen] = useState(false);
+  const [remoteMatches, setRemoteMatches] = useState({});
   const joinUrl = publicJoinUrl();
 
   useEffect(() => {
@@ -79,6 +80,60 @@ export default function MemberRequestsSection({
     () => (membershipApplications || []).filter((a) => a.status !== 'pending'),
     [membershipApplications],
   );
+
+  const accessMatch = (item) => (
+    matchMemberForAccessRequest(members, item) || remoteMatches[item?.id] || null
+  );
+
+  const localMissIds = useMemo(() => (
+    (accessInbox.open || [])
+      .filter((item) => !matchMemberForAccessRequest(members, item))
+      .map((item) => item.id)
+      .join('|')
+  ), [accessInbox.open, members]);
+
+  const openAccessRef = useRef(accessInbox.open);
+  openAccessRef.current = accessInbox.open;
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !localMissIds) return undefined;
+    const ids = new Set(localMissIds.split('|'));
+    const pending = (openAccessRef.current || []).filter((item) => ids.has(item.id));
+    if (!pending.length) return undefined;
+    let cancelled = false;
+    Promise.all(pending.map(async (item) => {
+      try {
+        const found = await repos.resolveMemberForApplication(item);
+        return [item.id, found || null];
+      } catch {
+        return [item.id, null];
+      }
+    })).then((pairs) => {
+      if (cancelled) return;
+      setRemoteMatches((prev) => {
+        const next = { ...prev };
+        for (const [id, found] of pairs) {
+          if (found) next[id] = found;
+          else delete next[id];
+        }
+        return next;
+      });
+    });
+    return () => { cancelled = true; };
+  }, [localMissIds]);
+
+  useEffect(() => {
+    setDetail((prev) => {
+      if (!prev || prev.kind !== 'acceso' || prev.match) return prev;
+      const found = matchMemberForAccessRequest(members, prev.item) || remoteMatches[prev.item?.id] || null;
+      if (!found) return prev;
+      return {
+        ...prev,
+        match: found,
+        data: buildRequestDetail('acceso', prev.item, { matchName: found.name }),
+      };
+    });
+  }, [remoteMatches, members]);
 
   const persistAccess = async (next) => {
     if (isSupabaseConfigured) {
@@ -121,7 +176,7 @@ export default function MemberRequestsSection({
   };
 
   const handleResolveAccess = async (item, { openCreds = false } = {}) => {
-    const match = matchMemberForAccessRequest(members, item);
+    const match = accessMatch(item);
     if (openCreds) {
       if (!match) return;
       onOpenAccessCredentials?.(match, item);
@@ -142,7 +197,7 @@ export default function MemberRequestsSection({
   };
 
   const openAccessDetail = (item) => {
-    const match = matchMemberForAccessRequest(members, item);
+    const match = accessMatch(item);
     const stored = invitesById[item.id];
     setInvite(stored ? { ...stored, emailError: accessInviteMailError(stored.emailError) } : null);
     setDeliverError('');
@@ -198,7 +253,7 @@ export default function MemberRequestsSection({
       if (!prev || prev.item?.id !== source.id) return prev;
       const item = { ...prev.item, status: 'approved' };
       if (kind === 'acceso') {
-        const match = prev.match || matchMemberForAccessRequest(members, item);
+        const match = prev.match || accessMatch(item);
         return {
           ...prev,
           item,
@@ -225,7 +280,8 @@ export default function MemberRequestsSection({
     setBusyId(item.id);
     setDeliverError('');
     try {
-      const next = await onDeliverAccess(kind, item, null, (ready) => {
+      const known = kind === 'acceso' ? accessMatch(item) : null;
+      const next = await onDeliverAccess(kind, item, known, (ready) => {
         setInvite(ready);
         setInvitesById((prev) => ({ ...prev, [item.id]: ready }));
         markDetailApproved(kind, item);
@@ -347,7 +403,7 @@ export default function MemberRequestsSection({
         <ul className="member-requests-list">
           {view === 'acceso'
             ? accessRows.map((item) => {
-              const match = matchMemberForAccessRequest(members, item);
+              const match = accessMatch(item);
               const status = effectiveAccessStatus(item);
               const open = accessRequestIsOpen(item);
               const color = status === 'rejected' ? '#c23b3b' : status === 'approved' ? '#1f7a4d' : status === 'done' ? '#6b7c74' : '#b08d57';

@@ -112,6 +112,17 @@ export function duesPaymentDescription(dueOnOrLabel) {
   return month ? `Pago de cuota social ${month}` : 'Pago de cuota social';
 }
 
+/** Línea de descuento del recibo. El mes y el recargo quedan como se cobraron. */
+export function receiptDiscountLine(payment) {
+  const discount = Number(payment?.discount) || 0;
+  if (!(discount > 0.009)) return null;
+  const detail = String(payment?.discountDetail || '').replace(/\s+/g, ' ').trim();
+  return {
+    detail: detail ? `Descuento · ${detail}` : 'Descuento',
+    amount: discount,
+  };
+}
+
 /**
  * A qué corresponde el cobro: meses imputados / período / concepto limpio.
  * Sin mezclar el medio de pago (eso va en TIPO).
@@ -311,6 +322,10 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
       formatCurrency(payment.amount),
       formatCurrency(payment.amount),
     ]];
+  const discountLine = isBooking ? null : receiptDiscountLine(payment);
+  if (discountLine) {
+    bodyRows.push(['', discountLine.detail, formatCurrency(-discountLine.amount), formatCurrency(-discountLine.amount)]);
+  }
 
   if (isBooking && Number.isFinite(totalPrice) && totalPrice > 0) {
     bodyRows.push(['', 'Precio total alquiler', formatCurrency(totalPrice), '']);

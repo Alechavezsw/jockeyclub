@@ -24,6 +24,7 @@ Aplica a **todos** los socios que abonan, no a un caso puntual:
 5. **En cada mes del recibo**: el importe de la cuota es **capital**. No se parte ese importe para inventar intereses. El 10 % se **suma encima**, solo si el mes ya venció (desde el 11) y el pago alcanza a cubrirlo. Si pagan la cuota del mes el 10 o antes, el recibo dice ese mes y «sin intereses», y el monto entero es capital.
 6. **El recibo nombra el mes**, en español y para todo el padrón: «Noviembre de 2026», «Octubre de 2026», etc. Vale para PDF, mail, mensaje del portal, Mercado Pago, caja, tarjeta, transferencia, débito y anticipo. Si son varios, van todos («Septiembre de 2026, Octubre de 2026 y Noviembre de 2026»). Nunca solo el medio («Cuota social · Efectivo»), ni «N meses», ni «Mes en curso», ni el mes en inglés.
 7. Helpers: `duesMonthLabel` / `duesMonthsPhrase` en `duesImputations.js`; `collectionPeriodChoices` / `duesPeriodMonthStarted` / `memberCoveredDueOns` en `dues.js`; UI en `CollectDuesModal`.
+8. **Descuento de mostrador**: es un monto, con detalle. No cambia el capital ni el 10 %. Baja el dinero que entra. Queda en el cobro, en el asiento (Descuentos sobre cuotas) y en el recibo.
 
 ## Exentos
 

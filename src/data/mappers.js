@@ -180,6 +180,8 @@ export function paymentFromRow(row) {
     periodDueOns: Array.isArray(meta.periodDueOns) ? meta.periodDueOns : [],
     quota: meta.quota != null ? Number(meta.quota) : undefined,
     surcharge: meta.surcharge != null ? Number(meta.surcharge) : undefined,
+    discount: meta.discount != null ? Number(meta.discount) : 0,
+    discountDetail: meta.discountDetail || null,
     removedSurcharge: meta.removedSurcharge != null ? Number(meta.removedSurcharge) : undefined,
     surchargeRemoveReason: meta.surchargeRemoveReason || null,
     receipt,

@@ -109,6 +109,9 @@ export function duesReceiptMessage({ member, payment, attachment }) {
     payment?.period && isBooking ? `Evento: ${payment.period}` : '',
     Number.isFinite(quota) && quota > 0 ? moneyLine('Cuota', quota) : '',
     Number.isFinite(surcharge) && surcharge > 0 ? moneyLine('Interés', surcharge) : '',
+    Number(payment?.discount) > 0.009
+      ? `${moneyLine('Descuento', payment.discount)}${payment.discountDetail ? ` · ${String(payment.discountDetail).trim()}` : ''}`
+      : '',
     total != null ? moneyLine(isBooking ? 'Abonado' : 'Total', total) : '',
     isBooking && Number.isFinite(Number(payment?.totalPrice))
       ? moneyLine('Precio total alquiler', payment.totalPrice)

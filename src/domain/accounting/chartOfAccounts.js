@@ -42,6 +42,7 @@ export const DEFAULT_CHART_OF_ACCOUNTS = [
   { id: 'coa-5.1.04', code: '5.1.04', name: 'Servicios e Insumos', accountType: 'expense', parentId: 'coa-5', level: 3, isPostable: true, isCashAccount: false },
   { id: 'coa-5.1.05', code: '5.1.05', name: 'Gastos de Eventos', accountType: 'expense', parentId: 'coa-5', level: 3, isPostable: true, isCashAccount: false },
   { id: 'coa-5.1.06', code: '5.1.06', name: 'Impuestos y Tasas', accountType: 'expense', parentId: 'coa-5', level: 3, isPostable: true, isCashAccount: false },
+  { id: 'coa-5.1.07', code: '5.1.07', name: 'Descuentos sobre cuotas', accountType: 'expense', parentId: 'coa-5', level: 3, isPostable: true, isCashAccount: false },
 ];
 
 /** IDs UUID del seed Supabase → código (para cruzar con el plan demo coa-*). */
@@ -74,6 +75,7 @@ export const CLOUD_ACCOUNT_ID_TO_CODE = {
   'aaaaaaaa-0005-0005-0005-000000000114': '5.1.04',
   'aaaaaaaa-0005-0005-0005-000000000115': '5.1.05',
   'aaaaaaaa-0005-0005-0005-000000000116': '5.1.06',
+  'aaaaaaaa-0005-0005-0005-000000000117': '5.1.07',
 };
 
 /** Compatibilidad con asientos legacy (nombre de cuenta → id). */
@@ -101,6 +103,7 @@ export const LEGACY_ACCOUNT_NAME_MAP = {
   'Alimento Equino': 'coa-5.1.03',
   'Servicios e Insumos': 'coa-5.1.04',
   'Gastos de Eventos': 'coa-5.1.05',
+  'Descuentos sobre cuotas': 'coa-5.1.07',
 };
 
 export function getPostableAccounts(chart = DEFAULT_CHART_OF_ACCOUNTS) {

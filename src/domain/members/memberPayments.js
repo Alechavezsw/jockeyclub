@@ -50,6 +50,29 @@ export function duesMethodNeedsReceipt(method) {
   return method === 'transferencia' || method === 'tarjeta';
 }
 
+/** Cuenta del descuento de mostrador. No es la cuota ni el recargo. */
+export const DUES_DISCOUNT_ACCOUNT = 'Descuentos sobre cuotas';
+
+/**
+ * Descuento en monto sobre este cobro. El capital y el 10 % no se recalculan:
+ * el descuento solo baja el dinero que entra.
+ */
+export function collectionDiscount(gross, { discount = 0, detail = '' } = {}) {
+  const base = money(Math.max(0, Number(gross) || 0));
+  const cut = money(discount);
+  if (cut < -0.001) throw new Error('El descuento no puede ser negativo.');
+  if (cut > base + 0.01) throw new Error('El descuento supera el cobro.');
+  const note = String(detail || '').replace(/\s+/g, ' ').trim();
+  if (cut > 0.009 && note.length < 3) throw new Error('Falta el detalle del descuento.');
+  const applied = cut > 0.009 ? cut : 0;
+  return {
+    discount: applied,
+    detail: applied ? note : '',
+    cash: money(base - applied),
+    gross: base,
+  };
+}
+
 /** Comprobante cargado a mano: la referencia reemplaza al archivo. */
 export function isManualDuesReceipt(receiptParse) {
   if (!receiptParse || typeof receiptParse !== 'object') return false;
@@ -709,6 +732,8 @@ export function recordDuesCollection(member, {
   paymentPlanLabel = null,
   receiptParse = null,
   paymentSplits = null,
+  discount = 0,
+  discountDetail = '',
 } = {}) {
   if (!member) throw new Error('Socio no encontrado.');
   const account = billingAccountMember(member, members);
@@ -716,11 +741,14 @@ export function recordDuesCollection(member, {
 
   const wantsMixed = method === 'mixto'
     || (Array.isArray(paymentSplits) && paymentSplits.filter((row) => Number(row?.amount) > 0).length >= 2);
+  const received = amount != null ? money(amount) : null;
+  const quotedGross = received == null
+    ? collectionPreview(account, today, { periodDueOns }).cash
+    : money(received + money(discount || 0));
+  const concession = collectionDiscount(quotedGross, { discount, detail: discountDetail });
   let mixed = null;
   if (wantsMixed) {
-    const previewCash = amount != null
-      ? money(amount)
-      : collectionPreview(account, today, { periodDueOns }).cash;
+    const previewCash = received != null ? received : concession.cash;
     mixed = validatePaymentSplits(paymentSplits, previewCash > 0 ? previewCash : amount, { treasuryMatch });
   }
 
@@ -748,7 +776,12 @@ export function recordDuesCollection(member, {
   const choices = collectionPeriodChoices(account, today);
   const hasOverdue = choices.some((row) => row.kind === 'overdue');
   const due = Number(account.outstandingBalance) || 0;
-  const collectAmount = mixed ? mixed.total : amount;
+  if (concession.discount > 0 && !(due > 0 || hasOverdue)) {
+    throw new Error('El descuento es sobre la cuota adeudada.');
+  }
+  const collectAmount = concession.discount > 0
+    ? concession.gross
+    : (mixed ? mixed.total : amount);
   const paid = (due > 0 || hasOverdue)
     ? payMemberDues(account, { method: resolvedMethod, amount: collectAmount, today, periodDueOns })
     : payUpcomingDues(account, { method: resolvedMethod, today });
@@ -799,6 +832,9 @@ export function recordDuesCollection(member, {
     paymentPlanLabel: mixed ? null : (resolvedMethod === 'tarjeta' ? (planLabel || null) : null),
     receiptParse: mixed ? null : (receiptParse && typeof receiptParse === 'object' ? receiptParse : null),
     paymentSplits: mixed ? mixed.splits : null,
+    amount: concession.discount > 0 ? concession.cash : paid.payment.amount,
+    discount: concession.discount,
+    discountDetail: concession.detail || null,
   };
 
   const memberNext = {
@@ -806,8 +842,13 @@ export function recordDuesCollection(member, {
     paymentHistory: [payment, ...(paid.member.paymentHistory || []).filter((row) => row.id !== paid.payment.id)],
   };
 
+  const discountNote = concession.discount > 0 ? ` · Descuento ${concession.detail}` : '';
   let journalEntry = null;
-  if (payment.amount > 0) {
+  if (payment.amount > 0 || concession.discount > 0) {
+    const income = money(payment.amount + concession.discount);
+    const discountLine = concession.discount > 0
+      ? [{ account: DUES_DISCOUNT_ACCOUNT, type: 'debit', amount: concession.discount }]
+      : [];
     if (mixed) {
       const byAccount = new Map();
       mixed.splits.forEach((row) => {
@@ -816,14 +857,15 @@ export function recordDuesCollection(member, {
       });
       journalEntry = {
         date: payment.date,
-        description: `Cobro cuota social (${label}) - Socio: ${account.name} (Cred. ${account.memberId})`,
+        description: `Cobro cuota social (${label}) - Socio: ${account.name} (Cred. ${account.memberId})${discountNote}`,
         lines: [
           ...[...byAccount.entries()].map(([accountName, value]) => ({
             account: accountName,
             type: 'debit',
             amount: value,
           })),
-          { account: 'Cuotas Sociales', type: 'credit', amount: payment.amount },
+          ...discountLine,
+          { account: 'Cuotas Sociales', type: 'credit', amount: income },
         ],
         sourceModule: 'cuotas',
         sourceId: payment.id,
@@ -832,10 +874,13 @@ export function recordDuesCollection(member, {
     } else {
       journalEntry = {
         date: payment.date,
-        description: `Cobro cuota social (${label}) - Socio: ${account.name} (Cred. ${account.memberId})${receiptNote}${planNote}`,
+        description: `Cobro cuota social (${label}) - Socio: ${account.name} (Cred. ${account.memberId})${receiptNote}${planNote}${discountNote}`,
         lines: [
-          { account: cashAccount, type: 'debit', amount: payment.amount },
-          { account: 'Cuotas Sociales', type: 'credit', amount: payment.amount },
+          ...(payment.amount > 0
+            ? [{ account: cashAccount, type: 'debit', amount: payment.amount }]
+            : []),
+          ...discountLine,
+          { account: 'Cuotas Sociales', type: 'credit', amount: income },
         ],
         sourceModule: 'cuotas',
         sourceId: payment.id,
@@ -1076,6 +1121,8 @@ export function cobroPeriods(member, payment) {
     paymentSplits: payment.paymentSplits || null,
     waiveSurcharge: Number(payment.waivedSurcharge) > 0,
     waivedSurcharge: Number(payment.waivedSurcharge) || 0,
+    discount: Number(payment.discount) || 0,
+    discountDetail: payment.discountDetail || null,
     adelanto: payment.adelanto === true,
     importSource: payment.importSource || null,
   };

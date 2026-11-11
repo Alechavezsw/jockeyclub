@@ -1397,10 +1397,16 @@ export default function MembersTab({
   };
 
   const deliverAccessFromRequest = async (kind, item, existingMember = null, onReady) => {
-    const matched = existingMember || matchMemberForAccessRequest(members, {
-      memberNumber: item.memberNumber,
-      documentNumber: item.documentNumber,
-    });
+    const lookup = kind === 'acceso'
+      ? item
+      : {
+        memberNumber: item.memberNumber,
+        documentNumber: item.documentNumber,
+      };
+    let matched = existingMember || matchMemberForAccessRequest(members, lookup);
+    if (!matched && kind === 'acceso' && isSupabaseConfigured) {
+      matched = await repos.resolveMemberForApplication(item);
+    }
     let nextId = null;
     if (kind === 'alta' && !matched) {
       nextId = allocateNextMemberNumber(members);

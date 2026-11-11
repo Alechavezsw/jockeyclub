@@ -251,7 +251,8 @@ export async function listMembers({ onBatch, scope = 'active' } = {}) {
 async function downloadMembersListViaRpc({ onBatch, scope = 'active' } = {}) {
   const { data, error } = await sb().rpc('list_members_padron', { p_scope: scope });
   if (error) throw error;
-  const rows = data || [];
+  const rows = Array.isArray(data) ? data : null;
+  if (!rows) throw new Error('El padrón no llegó como lista');
   const mapped = [];
   const total = rows.length;
   if (!rows.length) {
@@ -439,6 +440,15 @@ async function downloadMembersList({ onBatch, scope = 'active' } = {}) {
   try {
     const rows = await rpcPromise;
     await earlyPromise;
+    // PostgREST corta el RPC en el tope de página (1000). Con ~4.700 activos
+    // ese corte dejaba afuera fichas reales: la bandeja decía «Sin ficha automática».
+    if ((rows || []).length === MEMBERS_PAGE_SIZE) {
+      try {
+        return await downloadMembersListPaged({ onBatch, scope });
+      } catch {
+        return rows;
+      }
+    }
     return rows;
   } catch {
     await earlyPromise;

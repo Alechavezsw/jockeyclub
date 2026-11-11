@@ -9,6 +9,7 @@ import {
 import { collectionPeriodChoices, formatShortDate, isDuesExemptMember } from '../../domain/members/dues';
 import { duesMonthsPhrase } from '../../domain/members/duesImputations';
 import {
+  collectionDiscount,
   collectionPreview,
   duesMethodNeedsReceipt,
   isManualDuesReceipt,
@@ -295,6 +296,11 @@ export default function CollectDuesModal({
     return collectionPreview(account, new Date(), { periodDueOns: selectedDueOns });
   }, [duesExempt, account, selectedDueOns]);
   const amount = duesExempt || hydrating ? 0 : split.cash;
+  const [discountInput, setDiscountInput] = useState('');
+  const [discountDetail, setDiscountDetail] = useState('');
+  const discountValue = money(discountInput === '' ? 0 : discountInput);
+  const discountOver = discountValue < 0 || discountValue > amount + 0.01;
+  const cash = discountOver ? amount : money(Math.max(0, amount - Math.max(0, discountValue)));
   const isClear = !duesExempt && !hydrating && Boolean(split.clear);
   const nextDueLabel = formatShortDate(account?.nextDueDate) || null;
   const routed = account?.memberId && liveMember?.memberId && account.memberId !== liveMember.memberId;
@@ -359,19 +365,19 @@ export default function CollectDuesModal({
   }, [method, plans, planId]);
 
   useEffect(() => {
-    if (!isMixed || !(amount > 0)) return;
+    if (!isMixed || !(cash > 0)) return;
     setMixLines((prev) => {
       if (prev.length < 2) return prev;
       const first = Number(prev[0].amount);
       if (Number.isFinite(first) && first > 0) return prev;
-      const half = money(amount / 2);
+      const half = money(cash / 2);
       return prev.map((row, index) => {
         if (index === 0) return { ...row, amount: String(half) };
-        if (index === 1) return { ...row, amount: String(money(amount - half)) };
+        if (index === 1) return { ...row, amount: String(money(cash - half)) };
         return row;
       });
     });
-  }, [isMixed, amount]);
+  }, [isMixed, cash]);
 
   const clearReceipt = () => {
     setReceiptMode('file');
@@ -392,7 +398,7 @@ export default function CollectDuesModal({
       prev?.source === 'manual'
         ? prev
         : blankManualReceipt({
-          amount,
+          amount: cash,
           bankOrCard: method === 'transferencia' ? selectedBank?.name : (selectedPlan?.label || ''),
           payerName: account?.name,
           method,
@@ -468,7 +474,7 @@ export default function CollectDuesModal({
     setReadingReceipt(true);
     try {
       const parsed = await parseDuesReceipt(file, {
-        expectedAmount: amount,
+        expectedAmount: cash,
         methodHint: method,
       });
       setReceiptParse(parsed);
@@ -516,6 +522,21 @@ export default function CollectDuesModal({
 
   const handleConfirm = async () => {
     setError('');
+    let concession;
+    try {
+      concession = collectionDiscount(amount, { discount: discountValue, detail: discountDetail });
+    } catch (err) {
+      setError(err?.message || 'El descuento no es válido.');
+      return;
+    }
+    if (concession.discount > 0 && method === 'mercadopago') {
+      setError('El descuento se registra en caja, no por Mercado Pago.');
+      return;
+    }
+    if (concession.discount > 0 && concession.cash <= 0.009 && method !== 'efectivo') {
+      setError('Si el descuento cubre el total, acreditalo en efectivo.');
+      return;
+    }
     if (isDuesExemptMember(account)) {
       setError('Esta categoría no abona cuota social.');
       return;
@@ -600,7 +621,9 @@ export default function CollectDuesModal({
         }
         await onConfirm({
           method: 'mixto',
-          amount,
+          amount: concession.cash,
+          discount: concession.discount,
+          discountDetail: concession.detail,
           periodDueOns: selectedDueOns,
           paymentSplits,
         });
@@ -621,7 +644,9 @@ export default function CollectDuesModal({
             || receiptName
             || null,
           receiptAttachment,
-          amount,
+          amount: concession.cash,
+          discount: concession.discount,
+          discountDetail: concession.detail,
           periodDueOns: selectedDueOns,
           paymentPlanId: method === 'tarjeta' ? (selectedPlan?.id || null) : null,
           paymentPlanLabel: method === 'tarjeta' ? (selectedPlan?.label || null) : null,
@@ -669,7 +694,7 @@ export default function CollectDuesModal({
                 ? ' · Actualizando saldo…'
                 : (duesExempt
                   ? ' · Exento de cuota'
-                  : (isClear ? ' · Al día' : ` · ${formatCurrency(amount)}`))}
+                  : (isClear ? ' · Al día' : ` · ${formatCurrency(cash)}`))}
             </p>
             {routed ? (
               <p style={{ margin: '0.35rem 0 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
@@ -784,12 +809,45 @@ export default function CollectDuesModal({
                 </div>
               </div>
             ) : null}
-            {split.surcharge > 0 || split.creditApplied > 0 || canPickMonths ? (
+            {split.surcharge > 0 || split.creditApplied > 0 || canPickMonths || discountValue > 0.009 ? (
               <div style={{ padding: '0.55rem 0.65rem', borderRadius: 8, border: '1px solid var(--border-glass)' }}>
                 <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Total</div>
-                <div className="tabular-nums" style={{ fontWeight: 700, color: 'var(--text-gold)' }}>{formatCurrency(split.cash)}</div>
+                <div className="tabular-nums" style={{ fontWeight: 700, color: 'var(--text-gold)' }}>{formatCurrency(cash)}</div>
               </div>
             ) : null}
+          </div>
+        ) : null}
+
+        {!isClear && amount > 0 ? (
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 160px) minmax(0, 1fr)', gap: '0.55rem', marginBottom: '1rem' }}>
+            <label className="form-group" style={{ margin: 0 }}>
+              <span className="form-label">Descuento</span>
+              <input
+                className="form-input"
+                type="number"
+                min="0"
+                step="0.01"
+                inputMode="decimal"
+                value={discountInput}
+                onChange={(e) => {
+                  setDiscountInput(e.target.value);
+                  setError('');
+                }}
+                placeholder="0"
+              />
+            </label>
+            <label className="form-group" style={{ margin: 0 }}>
+              <span className="form-label">Detalle del descuento</span>
+              <input
+                className="form-input"
+                value={discountDetail}
+                onChange={(e) => {
+                  setDiscountDetail(e.target.value);
+                  setError('');
+                }}
+                placeholder="Por qué se descuenta"
+              />
+            </label>
           </div>
         ) : null}
 
@@ -816,8 +874,8 @@ export default function CollectDuesModal({
                   setError('');
                   if (!duesMethodNeedsReceipt(m.id)) clearReceipt();
                   if (m.id === 'mixto') {
-                    const half = amount > 0 ? money(amount / 2) : '';
-                    const rest = amount > 0 ? money(amount - Number(half || 0)) : '';
+                    const half = cash > 0 ? money(cash / 2) : '';
+                    const rest = cash > 0 ? money(cash - Number(half || 0)) : '';
                     setMixLines([
                       emptyMixLine('efectivo', half === '' ? '' : String(half)),
                       emptyMixLine('transferencia', rest === '' ? '' : String(rest)),
@@ -911,7 +969,7 @@ export default function CollectDuesModal({
         {isMixed ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '1rem' }}>
             <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
-              Combiná medios. La suma debe ser {formatCurrency(amount)}. Mercado Pago QR no entra en el mixto.
+              Combiná medios. La suma debe ser {formatCurrency(cash)}. Mercado Pago QR no entra en el mixto.
             </p>
             {mixLines.map((line, index) => {
               const lineNeedsReceipt = duesMethodNeedsReceipt(line.method);
@@ -1065,10 +1123,10 @@ export default function CollectDuesModal({
               </button>
               <span style={{
                 fontSize: '0.85rem',
-                color: Math.abs(mixTotal - amount) > 0.009 ? '#ef4444' : 'var(--emerald-accent)',
+                color: Math.abs(mixTotal - cash) > 0.009 ? '#ef4444' : 'var(--emerald-accent)',
               }}>
                 Suma {formatCurrency(mixTotal)}
-                {Math.abs(mixTotal - amount) > 0.009 ? ` · falta ${formatCurrency(amount - mixTotal)}` : ' · ok'}
+                {Math.abs(mixTotal - cash) > 0.009 ? ` · falta ${formatCurrency(cash - mixTotal)}` : ' · ok'}
               </span>
             </div>
           </div>
@@ -1125,7 +1183,7 @@ export default function CollectDuesModal({
             <ReceiptParsePanel
               parse={receiptParse}
               reading={readingReceipt}
-              amount={amount}
+              amount={cash}
               formatCurrency={formatCurrency}
               paymentTolerance={paymentTolerance}
               onChange={setReceiptParse}
@@ -1135,13 +1193,18 @@ export default function CollectDuesModal({
 
         {method === 'mercadopago' && (
           <div style={{ marginBottom: '1rem' }}>
+            {discountValue > 0.009 ? (
+              <p style={{ margin: '0 0 0.6rem', fontSize: '0.84rem', color: 'var(--text-gold)' }}>
+                El descuento se registra en caja. Mercado Pago cobra el total sin ese descuento.
+              </p>
+            ) : null}
             <MercadoPagoCheckout
               kind="dues"
               mode="qr"
               amount={amount}
               memberNumber={account.memberId}
               concept={`Cuota social · ${duesMonthsPhrase(selectedDueOns) || account.name || 'socio'}`}
-              disabled={duesExempt || amount <= 0 || !selectedDueOns.length}
+              disabled={duesExempt || amount <= 0 || !selectedDueOns.length || discountValue > 0.009}
               onApproved={() => {
                 onConfirm({
                   method: 'mercadopago',

@@ -87,6 +87,25 @@ describe('duesPaymentNotice', () => {
     expect(msg.content).not.toMatch(/saldo/i);
   });
 
+  it('el recibo nombra el descuento y su detalle', () => {
+    const msg = duesReceiptMessage({
+      member: { name: 'Ana', memberId: '111' },
+      payment: {
+        concept: 'Cuota social · Noviembre de 2026',
+        quota: 36000,
+        surcharge: 3600,
+        discount: 1000,
+        discountDetail: 'Convenio de caja',
+        amount: 38600,
+        date: '2026-11-11',
+        receiptNumber: 'R-2',
+      },
+    });
+    expect(msg.content).toMatch(/Descuento:.*Convenio de caja/);
+    expect(msg.content).toMatch(/Noviembre de 2026/);
+    expect(msg.content).toMatch(/Total:/);
+  });
+
   it('avisa al socio si no pasó el débito', () => {
     const msg = duesDebitFailedMessage({
       member: { name: 'Ana', memberId: '111' },

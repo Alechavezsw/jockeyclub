@@ -3,6 +3,7 @@ import { money } from '../money';
 import {
   applyImportedMemberPayment,
   cobroPeriods,
+  collectionDiscount,
   collectionPreview,
   isDuesCollectionJournal,
   journalEntryBelongsToMember,
@@ -418,6 +419,43 @@ describe('payMemberDues', () => {
     expect(result.payment.method).toBe('transferencia');
     expect(result.journalEntry.lines[0].account).toBe('Banco Nación');
     expect(result.journalEntry.lines[1].account).toBe('Cuotas Sociales');
+  });
+
+  it('el descuento es un monto con detalle y no parte la cuota', () => {
+    const member = {
+      memberId: '11017',
+      name: 'Socio',
+      outstandingBalance: 32000,
+      paymentHistory: [],
+    };
+    expect(() => recordDuesCollection(member, {
+      method: 'efectivo',
+      amount: 30000,
+      discount: 2000,
+      today: new Date('2026-09-05T12:00:00'),
+    })).toThrow(/detalle del descuento/i);
+    expect(() => collectionDiscount(32000, { discount: 40000, detail: 'de más' }))
+      .toThrow(/supera el cobro/i);
+
+    const result = recordDuesCollection(member, {
+      method: 'efectivo',
+      amount: 30000,
+      discount: 2000,
+      discountDetail: 'Convenio de caja',
+      today: new Date('2026-09-05T12:00:00'),
+    });
+    expect(result.payment.amount).toBe(30000);
+    expect(result.payment.discount).toBe(2000);
+    expect(result.payment.discountDetail).toBe('Convenio de caja');
+    expect(result.payment.quota).toBe(32000);
+    expect(result.member.outstandingBalance).toBe(0);
+    expect(result.journalEntry.lines).toEqual([
+      { account: 'Caja General', type: 'debit', amount: 30000 },
+      { account: 'Descuentos sobre cuotas', type: 'debit', amount: 2000 },
+      { account: 'Cuotas Sociales', type: 'credit', amount: 32000 },
+    ]);
+    expect(cobroPeriods(member, result.payment).discount).toBe(2000);
+    expect(cobroPeriods(member, result.payment).discountDetail).toBe('Convenio de caja');
   });
 
   it('el recargo se cobra siempre', () => {
