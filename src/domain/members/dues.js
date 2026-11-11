@@ -794,6 +794,34 @@ function capitalOwedForChoices(member) {
   return balance;
 }
 
+/**
+ * El mes en curso ya está pago y el saldo es exactamente la cuota siguiente,
+ * que todavía no empezó. No se cobra el mes anterior con recargo.
+ */
+function exactNextCuotaIfBalanceMatches(member, rows, paidOn) {
+  const nextDue = pinDuesDueDate(member?.nextDueDate, member);
+  if (!nextDue || duesPeriodMonthStarted(nextDue, paidOn)) return rows;
+  const monthly = money(duesAmountForMember(member, parseDate(nextDue) || paidOn));
+  const owed = money(Math.max(0, Number(member?.outstandingBalance) || 0));
+  if (!(monthly > 0) || Math.abs(owed - monthly) > 0.01) return rows;
+  const open = (rows || []).filter((row) => Number(row.capital) > 0 && row.kind !== 'paid');
+  if (open.length !== 1 || String(open[0].dueOn) >= nextDue) return rows;
+  const day = duesDueDayForMember(member);
+  const currentDue = toISODate(duesDateOnDueDay(paidOn.getFullYear(), paidOn.getMonth(), day));
+  if (!dueOnAlreadyCovered(currentDue, memberCoveredDueOns(member))) return rows;
+  return [{
+    id: nextDue,
+    dueOn: nextDue,
+    monthKey: String(nextDue).slice(0, 7),
+    label: periodChoiceLabel(nextDue),
+    capital: monthly,
+    lateBase: 0,
+    surcharge: 0,
+    payable: monthly,
+    kind: 'upcoming',
+  }];
+}
+
 function expandChoicesToCoverBalance(member, choices, paidOn, coveredDueOns = null) {
   const owed = capitalOwedForChoices(member);
   if (!(owed > 0.01)) return choices;
@@ -1029,7 +1057,7 @@ export function collectionPeriodChoices(member, today = new Date()) {
       const seed = periodChoiceFromDue(member, seedDue, paidOn, seedKind);
       if (seed) return expandChoicesToCoverBalance(member, [seed], paidOn, paidSet);
     }
-    return expandChoicesToCoverBalance(member, [], paidOn, paidSet);
+    return exactNextCuotaIfBalanceMatches(member, expandChoicesToCoverBalance(member, [], paidOn, paidSet), paidOn);
   }
 
   const dueOn = pinDuesDueDate(member.nextDueDate, member) || nextDuesDueDate(today, member);
