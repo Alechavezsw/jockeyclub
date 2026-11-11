@@ -541,8 +541,11 @@ export default function CollectDuesModal({
       setError('Esta categoría no abona cuota social.');
       return;
     }
-    if (!selectedDueOns.length) {
-      setError('Marcá al menos un mes a cobrar.');
+    const chargeDueOns = selectedDueOns.length
+      ? selectedDueOns
+      : periodChoices.map((row) => String(row.dueOn).slice(0, 10));
+    if (!chargeDueOns.length) {
+      setError('No hay saldo pendiente para abonar.');
       return;
     }
     if (isMixed) {
@@ -624,7 +627,7 @@ export default function CollectDuesModal({
           amount: concession.cash,
           discount: concession.discount,
           discountDetail: concession.detail,
-          periodDueOns: selectedDueOns,
+          periodDueOns: chargeDueOns,
           paymentSplits,
         });
       } else {
@@ -647,7 +650,7 @@ export default function CollectDuesModal({
           amount: concession.cash,
           discount: concession.discount,
           discountDetail: concession.detail,
-          periodDueOns: selectedDueOns,
+          periodDueOns: chargeDueOns,
           paymentPlanId: method === 'tarjeta' ? (selectedPlan?.id || null) : null,
           paymentPlanLabel: method === 'tarjeta' ? (selectedPlan?.label || null) : null,
           receiptParse: needsReceipt ? receiptParse : null,
@@ -655,6 +658,10 @@ export default function CollectDuesModal({
       }
     } catch (err) {
       const msg = String(err?.message || '');
+      if (/al menos un mes a cobrar/i.test(msg)) {
+        setError('');
+        return;
+      }
       // Ese freno ya no debería aparecer; si una base vieja lo manda, no lo mostramos en rojo.
       if (/supera la deuda|marcarlo como adelanto/i.test(msg)) {
         setError('No se pudo cerrar el cobro. Probá de nuevo en un momento.');
@@ -1232,7 +1239,7 @@ export default function CollectDuesModal({
               type="button"
               className="btn btn-primary"
               onClick={handleConfirm}
-              disabled={hydrating || submitting || readingReceipt || mixReading || !selectedDueOns.length}
+              disabled={hydrating || submitting || readingReceipt || mixReading || (!selectedDueOns.length && !periodChoices.length)}
               style={{ minWidth: 160 }}
             >
               {submitting

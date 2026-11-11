@@ -419,15 +419,17 @@ export function payMemberDues(member, {
   if (isDuesExemptMember(member)) throw new Error('Esta categoría no abona cuota social.');
   const requested = amount != null ? Number(amount) : 0;
   const stored = Number(member.outstandingBalance) || 0;
-  const selected = Array.isArray(periodDueOns) && periodDueOns.length
+  let selected = Array.isArray(periodDueOns) && periodDueOns.length
     ? periodDueOns.map((value) => String(value || '').slice(0, 10)).filter(Boolean)
     : null;
   const choices = collectionPeriodChoices(member, today);
-  const selectedChoices = selected
+  let selectedChoices = selected
     ? choices.filter((row) => selected.includes(String(row.dueOn).slice(0, 10)))
     : choices;
+  // El total del modal ya muestra esos meses. No frenar el cobro pidiendo marcarlos.
   if (selected && !selectedChoices.length) {
-    throw new Error('Marcá al menos un mes a cobrar.');
+    selected = null;
+    selectedChoices = choices;
   }
   const split = duesChargeBreakdown(member, {
     paidOn: today,
