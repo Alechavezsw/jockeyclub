@@ -19,6 +19,7 @@ import {
   memberNumberOf,
   uniqueFamilyMembers,
 } from '../domain/members/households';
+import { dedupeMessages } from '../domain/messaging/messages';
 import {
   membershipCaption,
   prettyMembershipName,
@@ -33,9 +34,18 @@ import { DISCIPLINE_COLORS, resolveDiscipline } from '../domain/sports/disciplin
 import {
   Calendar, CreditCard, MapPin, ShieldAlert,
   ArrowRight, Mail, Users, Send, MessageSquare, CheckCircle2,
-  Clock, Info, ChevronRight, X, Sparkles, Radio, Bell,
+  Clock, Info, ChevronRight, ChevronLeft, X, Sparkles, Radio, Bell,
   Activity, Trophy, Wind, Loader2
 } from 'lucide-react';
+
+const COMMS_PAGE_SIZE = 5;
+
+function scrollToId(id) {
+  if (typeof document === 'undefined') return;
+  window.setTimeout(() => {
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 40);
+}
 
 function memberSportCards(member) {
   const labels = [
@@ -99,6 +109,7 @@ export default function DashboardView({
   const [hoveredSegments, setHoveredSegments] = useState({});
   const [householdRows, setHouseholdRows] = useState([]);
   const [householdReady, setHouseholdReady] = useState(false);
+  const [commsPage, setCommsPage] = useState(0);
 
   const liveSnapshot = useMemo(() => {
     const highlightIds = ['salon_anhelo', 'salon_bustos', 'salon_maurin', 'salon_refugio', 'espacio_verde'];
@@ -110,7 +121,7 @@ export default function DashboardView({
         live: getFacilityLiveStatus(fac, { reservations, isZondaActive }),
       }));
   }, [reservations, isZondaActive]);
-  const { weather } = useSedeWeather({ isZondaActive });
+  const { weather, status: weatherStatus } = useSedeWeather({ isZondaActive });
   const {
     summary: duesStanding,
     lateLabel: duesLateLabel,
@@ -143,17 +154,27 @@ export default function DashboardView({
   }, [profile?.memberId, profile?.familyPrincipalNumber]);
 
   const familyRows = useMemo(() => {
-    if (!householdReady) return [];
+    if (!householdReady || !householdRows.length) return [];
     const principal = familyPrincipalOf(profile) || memberNumberOf(profile);
     const titular = householdRows.find((row) => memberNumberOf(row) === principal)
       || householdRows.find((row) => !isFamilyDependent(row))
       || profile;
-    const dependents = householdRows.filter((row) => memberNumberOf(row) !== memberNumberOf(titular));
+    const titularId = memberNumberOf(titular);
+    const dependents = householdRows.filter((row) => memberNumberOf(row) !== titularId);
     return uniqueFamilyMembers([
       householdMemberAsAdherent(titular, 'Titular'),
       ...dependents.map((row) => householdMemberAsAdherent(row)),
     ]);
   }, [householdReady, householdRows, profile]);
+
+  const memberMessages = useMemo(() => {
+    const mid = member?.memberId;
+    if (!mid) return [];
+    const raw = (messages || []).filter((msg) => (
+      msg.recipientId === mid || msg.recipientId === 'all'
+    ));
+    return dedupeMessages(raw).messages;
+  }, [messages, member?.memberId]);
 
   if (!member?.memberId) {
     return (
@@ -191,9 +212,27 @@ export default function DashboardView({
     todayISODateAR(),
   );
   const upcomingReservationsCount = upcomingBookings.length;
-  const memberMessages = messages.filter(msg => msg.recipientId === member.memberId || msg.recipientId === 'all');
-  const unreadMessagesCount = memberMessages.filter(msg => !msg.isRead).length;
+  const unreadMessagesCount = memberMessages.filter((msg) => !msg.isRead).length;
+  const commsPageCount = Math.max(1, Math.ceil(memberMessages.length / COMMS_PAGE_SIZE));
+  const safeCommsPage = Math.min(commsPage, commsPageCount - 1);
+  const pagedMessages = memberMessages.slice(
+    safeCommsPage * COMMS_PAGE_SIZE,
+    safeCommsPage * COMMS_PAGE_SIZE + COMMS_PAGE_SIZE,
+  );
   const memberClaims = claims.filter(clm => clm.memberId === member.memberId);
+  const weatherSub = weather
+    ? `${weather.pill?.label || 'Clima'} · ${weather.summary}`
+    : weatherStatus === 'error'
+      ? (isZondaActive ? 'Zonda declarado · outdoor suspendido' : 'Clima no disponible · reintentá más tarde')
+      : (isZondaActive ? 'Zonda declarado · outdoor suspendido' : 'Consultando clima de la sede…');
+  const openClaimForm = () => {
+    setShowNewClaimForm(true);
+    setClaimSuccess(false);
+    scrollToId('db-claims');
+  };
+  const openWeatherPanel = () => {
+    scrollToId('db-weather');
+  };
 
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 }).format(amount);
@@ -856,7 +895,7 @@ export default function DashboardView({
           </span>
           <ChevronRight size={16} className="db-quick-btn-go" aria-hidden="true" />
         </button>
-        <button type="button" className="db-quick-btn is-claim" onClick={() => setShowNewClaimForm(!showNewClaimForm)}>
+        <button type="button" className="db-quick-btn is-claim" onClick={openClaimForm}>
           <span className="db-quick-btn-icon" style={{ background: 'rgba(var(--primary-gold-rgb), 0.12)', color: 'var(--primary-gold)' }}>
             <MessageSquare size={22} />
           </span>
@@ -866,9 +905,10 @@ export default function DashboardView({
           </span>
           <ChevronRight size={16} className="db-quick-btn-go" aria-hidden="true" />
         </button>
-        <div
-          className={`db-quick-btn is-clima is-static is-${weather?.pill?.tone || 'ok'}`}
-          role="status"
+        <button
+          type="button"
+          className={`db-quick-btn is-clima is-${weather?.pill?.tone || (weatherStatus === 'error' ? 'warn' : 'ok')}`}
+          onClick={openWeatherPanel}
           aria-live="polite"
         >
           <span className="db-quick-btn-icon">
@@ -876,13 +916,10 @@ export default function DashboardView({
           </span>
           <span className="db-quick-btn-copy">
             <span className="db-quick-btn-label">Alertas climáticas</span>
-            <span className="db-quick-btn-sub">
-              {weather
-                ? `${weather.pill?.label || 'Clima'} · ${weather.summary}`
-                : (isZondaActive ? 'Zonda declarado · outdoor suspendido' : 'Consultando clima de la sede…')}
-            </span>
+            <span className="db-quick-btn-sub">{weatherSub}</span>
           </span>
-        </div>
+          <ChevronRight size={16} className="db-quick-btn-go" aria-hidden="true" />
+        </button>
       </div>
 
       {/* ===== DISPONIBILIDAD EN VIVO + CALENDARIO + RESERVA ===== */}
@@ -980,7 +1017,7 @@ export default function DashboardView({
           </div>
 
           {/* Clima & Instalaciones */}
-          <div className={`db-weather ${weather?.zonda ? 'zonda' : ''}`}>
+          <div id="db-weather" className={`db-weather ${weather?.zonda ? 'zonda' : ''}`}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div>
                 <p style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-muted)', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
@@ -1175,27 +1212,56 @@ export default function DashboardView({
             )}
           </div>
 
-          {/* Mensajes */}
+          {/* Mensajes: 5 por página, sin duplicados */}
           <div className="db-card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
               <div className="db-card-title">
                 <div className="db-card-title-icon" style={{ background: 'rgba(var(--primary-gold-rgb),0.1)', color: 'var(--primary-gold)' }}>
                   <Mail size={16} />
                 </div>
                 Comunicados de Secretaría
               </div>
-              {unreadMessagesCount > 0 && (
-                <span style={{ background: 'var(--primary-gold)', color: '#060e0a', borderRadius: '20px', padding: '0.2rem 0.65rem', fontSize: '0.72rem', fontWeight: '800' }}>
-                  {unreadMessagesCount} nuevos
-                </span>
-              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                {unreadMessagesCount > 0 && (
+                  <span style={{ background: 'var(--primary-gold)', color: '#060e0a', borderRadius: '20px', padding: '0.2rem 0.65rem', fontSize: '0.72rem', fontWeight: '800' }}>
+                    {unreadMessagesCount} nuevos
+                  </span>
+                )}
+                {memberMessages.length > COMMS_PAGE_SIZE ? (
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      aria-label="Comunicados anteriores"
+                      disabled={safeCommsPage <= 0}
+                      onClick={() => setCommsPage((p) => Math.max(0, p - 1))}
+                      style={{ padding: '0.2rem 0.45rem' }}
+                    >
+                      <ChevronLeft size={14} />
+                    </button>
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', minWidth: '3.2rem', textAlign: 'center' }}>
+                      {safeCommsPage + 1}/{commsPageCount}
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      aria-label="Comunicados siguientes"
+                      disabled={safeCommsPage >= commsPageCount - 1}
+                      onClick={() => setCommsPage((p) => Math.min(commsPageCount - 1, p + 1))}
+                      style={{ padding: '0.2rem 0.45rem' }}
+                    >
+                      <ChevronRight size={14} />
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             </div>
 
             {memberMessages.length === 0 ? (
               <p style={{ textAlign: 'center', padding: '1rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>Sin mensajes en el buzón.</p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                {memberMessages.map(msg => (
+                {pagedMessages.map((msg) => (
                   <div key={msg.id} className={`db-msg-item ${!msg.isRead ? 'unread' : ''}`} onClick={() => handleMarkAsRead(msg.id)}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
                       <span style={{ fontSize: '0.7rem', fontWeight: '700', color: 'var(--primary-gold)', textTransform: 'uppercase' }}>{msg.sender}</span>
@@ -1267,7 +1333,7 @@ export default function DashboardView({
           </div>
 
           {/* Reclamos */}
-          <div className="db-card">
+          <div id="db-claims" className="db-card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
               <div className="db-card-title">
                 <div className="db-card-title-icon" style={{ background: 'rgba(var(--primary-gold-rgb), 0.1)', color: 'var(--primary-gold)' }}>
@@ -1275,7 +1341,18 @@ export default function DashboardView({
                 </div>
                 Pedidos & Reclamos
               </div>
-              <button onClick={() => { setShowNewClaimForm(!showNewClaimForm); setClaimSuccess(false); }} className="btn btn-primary btn-sm" style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (showNewClaimForm) {
+                    setShowNewClaimForm(false);
+                    return;
+                  }
+                  openClaimForm();
+                }}
+                className="btn btn-primary btn-sm"
+                style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}
+              >
                 {showNewClaimForm ? 'Cerrar' : '+ Nueva Solicitud'}
               </button>
             </div>

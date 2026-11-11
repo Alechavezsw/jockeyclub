@@ -474,10 +474,9 @@ export default function MemberProfilePanel({
     const titular = householdExtras.find((row) => memberNumberOf(row) === householdPrincipal)
       || householdExtras.find((row) => !isFamilyDependent(row))
       || null;
-    const dependents = householdExtras.filter((row) => (
-      memberNumberOf(row) !== householdPrincipal
-      && (isFamilyDependent(row) || familyPrincipalOf(row) === householdPrincipal)
-    ));
+    const titularId = memberNumberOf(titular) || householdPrincipal;
+    // El RPC ya acota al hogar: todos los que no son el titular son integrantes.
+    const dependents = householdExtras.filter((row) => memberNumberOf(row) !== titularId);
     return {
       titular,
       members: dependents.map((row) => householdMemberAsAdherent(row)),
@@ -486,6 +485,7 @@ export default function MemberProfilePanel({
 
   const familyRows = useMemo(() => {
     if (!householdReady) return [];
+    if (!householdExtras.length) return [];
     const titular = familyGroup.titular;
     const titularRow = titular
       ? [householdMemberAsAdherent(titular, 'Titular')]
@@ -494,7 +494,7 @@ export default function MemberProfilePanel({
       ...titularRow,
       ...(familyGroup.members || []),
     ]);
-  }, [householdReady, familyGroup.titular, familyGroup.members]);
+  }, [householdReady, householdExtras.length, familyGroup.titular, familyGroup.members]);
 
   const familySource = householdExtras;
   const canEditFamily = !selfService && allowEdit;
@@ -1135,6 +1135,73 @@ export default function MemberProfilePanel({
         })}
       </nav>
 
+      {/* Grupo familiar siempre visible: integrantes + tarjeta de cada uno */}
+      <section className="mp-family-banner" aria-label="Grupo familiar">
+        <div className="mp-family-toolbar">
+          <p className="mp-section-lead">
+            <Users size={14} aria-hidden />{' '}
+            {member.familyGroupName || familyGroup.titular?.familyGroupName
+              ? `${member.familyGroupName || familyGroup.titular?.familyGroupName} · `
+              : 'Grupo familiar · '}
+            {!householdReady
+              ? 'cargando…'
+              : `${familyRows.length} integrante${familyRows.length === 1 ? '' : 's'}`}
+          </p>
+          {canEditFamily ? (
+            <button type="button" className="btn btn-primary btn-sm" onClick={openAddFamily}>
+              <Plus size={14} /> Agregar
+            </button>
+          ) : null}
+        </div>
+        {!householdReady ? (
+          <p className="mp-family-loading" role="status" aria-live="polite">
+            <Loader2 size={16} className="mp-family-loading-spin" />
+            Cargando el grupo familiar desde la base…
+          </p>
+        ) : !familyRows.length ? (
+          <p className="mp-fact-value muted" style={{ margin: 0 }}>Sin integrantes en el grupo familiar.</p>
+        ) : (
+          <div className="mp-family">
+            {familyRows.map((adh) => {
+              const selfId = memberNumberOf(member);
+              const rowId = String(adh.memberId || '').replace(/\D/g, '');
+              const isSelf = rowId && rowId === selfId;
+              const source = findMemberByNumber(familySource, adh.memberId);
+              return (
+                <div key={rowId || adh.id || adh.name} className="mp-family-row">
+                  <div className="mp-family-avatar">
+                    {adh.photo ? (
+                      <img src={adh.photo} alt="" />
+                    ) : (
+                      (adh.name || '?').split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase()
+                    )}
+                  </div>
+                  <div>
+                    <strong>{adh.name}{isSelf ? ' · Vos' : ''}</strong>
+                    <div className="mp-family-meta">
+                      {adh.relationship}
+                      {adh.memberId ? ` · Nº ${adh.memberId}` : ''}
+                    </div>
+                  </div>
+                  <span className="mp-tier-pill" style={tierBadgeStyle(adh.tier, tierCatalog)}>
+                    {getTierDisplayName(adh.tier, tierCatalog)}
+                  </span>
+                  <div className="mp-family-actions">
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => setCardMember(source || familyCardMember(adh, member))}
+                    >
+                      <CreditCard size={13} /> Tarjeta
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
       <div className="mp-panel glass-panel">
         {section === 'ficha' && (
           <div className="mp-dossier">
@@ -1240,64 +1307,9 @@ export default function MemberProfilePanel({
               </div>
             </section>
 
-            <section className="mp-sheet mp-sheet--family">
-              <SheetHead
-                index="05"
-                title="Grupo familiar"
-                kicker={member.familyGroupName || familyGroup.titular?.familyGroupName || 'Integrantes del hogar en el padrón'}
-              />
-              {!householdReady ? (
-                <p className="mp-family-loading" role="status" aria-live="polite">
-                  <Loader2 size={16} className="mp-family-loading-spin" />
-                  Cargando el grupo familiar desde la base…
-                </p>
-              ) : !familyRows.length ? (
-                <p className="mp-fact-value muted">Sin integrantes en el grupo familiar.</p>
-              ) : (
-                <div className="mp-family">
-                  {familyRows.map((adh) => {
-                    const selfId = memberNumberOf(member);
-                    const rowId = String(adh.memberId || '').replace(/\D/g, '');
-                    const isSelf = rowId && rowId === selfId;
-                    const source = findMemberByNumber(familySource, adh.memberId);
-                    return (
-                      <div key={rowId || adh.id || adh.name} className="mp-family-row">
-                        <div className="mp-family-avatar">
-                          {adh.photo ? (
-                            <img src={adh.photo} alt="" />
-                          ) : (
-                            (adh.name || '?').split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase()
-                          )}
-                        </div>
-                        <div>
-                          <strong>{adh.name}{isSelf ? ' · Vos' : ''}</strong>
-                          <div className="mp-family-meta">
-                            {adh.relationship}
-                            {adh.memberId ? ` · Nº ${adh.memberId}` : ''}
-                          </div>
-                        </div>
-                        <span className="mp-tier-pill" style={tierBadgeStyle(adh.tier, tierCatalog)}>
-                          {getTierDisplayName(adh.tier, tierCatalog)}
-                        </span>
-                        <div className="mp-family-actions">
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            onClick={() => setCardMember(source || familyCardMember(adh, member))}
-                          >
-                            <CreditCard size={13} /> Tarjeta
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-
             {member.notes ? (
               <section className="mp-sheet mp-sheet--notes mp-notes">
-                <SheetHead index="06" title="Observaciones" />
+                <SheetHead index="05" title="Observaciones" />
                 <p>{member.notes}</p>
               </section>
             ) : null}

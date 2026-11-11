@@ -19901,6 +19901,22 @@ a.ops-outline-btn {
   gap: 0.4rem;
 }
 
+.mp-family-banner {
+  margin: 0 0 1rem;
+  padding: 0.95rem 1.05rem;
+  border: 1px solid color-mix(in srgb, var(--primary-gold) 28%, var(--border-glass));
+  border-radius: 14px;
+  background:
+    linear-gradient(165deg, color-mix(in srgb, var(--primary-gold) 9%, transparent) 0%, transparent 52%),
+    var(--surface-card);
+}
+
+.mp-family-banner .mp-section-lead {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
 .mp-family-toolbar {
   display: flex;
   justify-content: space-between;

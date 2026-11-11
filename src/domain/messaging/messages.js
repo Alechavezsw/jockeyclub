@@ -54,10 +54,55 @@ export function withoutDuesBroadcasts(messages) {
   return (messages || []).filter((m) => !isDuesBroadcast(m));
 }
 
+/** Huella de un aviso: mismo destinatario + asunto + cuerpo + día = duplicado. */
+export function messageDedupeKey(message) {
+  if (!message) return '';
+  const paymentKey = message.meta?.paymentId
+    || message.meta?.receiptNumber
+    || message.meta?.mpPaymentId
+    || message.meta?.cashMovementId
+    || '';
+  if (paymentKey) {
+    return `pay:${String(message.recipientId || '')}|${String(paymentKey)}`;
+  }
+  const body = String(message.content || message.body || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 280)
+    .toLowerCase();
+  const subject = String(message.subject || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  const day = String(message.createdAt || message.date || '').slice(0, 10);
+  return `msg:${String(message.recipientId || '')}|${subject}|${body}|${day}`;
+}
+
+/**
+ * Regla general: un solo aviso por cobro/circular.
+ * Conserva el más nuevo (o el ya leído si empatan).
+ */
+export function dedupeMessages(messages = []) {
+  const sorted = [...(messages || [])].sort((a, b) => (
+    String(b.createdAt || b.date || '').localeCompare(String(a.createdAt || a.date || ''))
+  ));
+  const seen = new Set();
+  const unique = [];
+  const duplicateIds = [];
+  for (const row of sorted) {
+    const key = messageDedupeKey(row);
+    if (!key || seen.has(key)) {
+      if (row?.id) duplicateIds.push(row.id);
+      continue;
+    }
+    seen.add(key);
+    unique.push(row);
+  }
+  return { messages: unique, duplicateIds };
+}
+
 export function getInbox(messages, identity) {
-  return withoutDuesBroadcasts(messages)
+  const inbox = withoutDuesBroadcasts(messages)
     .filter((m) => isMessageForUser(m, identity))
     .sort((a, b) => String(b.createdAt || b.date).localeCompare(String(a.createdAt || a.date)));
+  return dedupeMessages(inbox).messages;
 }
 
 export function getSent(messages, { userId, memberId, role }) {

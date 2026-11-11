@@ -1,16 +1,25 @@
 import * as M from '../mappers';
 import { unwrap } from '../errors';
-import { withoutDuesBroadcasts } from '../../domain/messaging/messages';
+import { dedupeMessages, withoutDuesBroadcasts } from '../../domain/messaging/messages';
 import { sb, audit } from './shared.js';
 
 // ---- Messages / Claims / Surveys / News ----
 export async function listMessages({ limit, memberNumber, forStaff } = {}) {
   const cap = Number(limit) > 0 ? Number(limit) : 120;
   const fail = 'No se pudieron cargar mensajes';
-  const newest = (rows) => withoutDuesBroadcasts(
-    (rows || []).map(M.messageFromRow)
-      .sort((a, b) => String(b.createdAt || b.date).localeCompare(String(a.createdAt || a.date))),
-  );
+  const newest = (rows) => {
+    const mapped = withoutDuesBroadcasts(
+      (rows || []).map(M.messageFromRow)
+        .sort((a, b) => String(b.createdAt || b.date).localeCompare(String(a.createdAt || a.date))),
+    );
+    const { messages: unique, duplicateIds } = dedupeMessages(mapped);
+    if (duplicateIds.length) {
+      void Promise.allSettled(
+        duplicateIds.slice(0, 40).map((id) => sb().from('messages').delete().eq('id', id)),
+      );
+    }
+    return unique;
+  };
 
   const key = String(memberNumber || '').replace(/[^a-zA-Z0-9._-]/g, '');
   if (key && !forStaff) {

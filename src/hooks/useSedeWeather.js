@@ -17,7 +17,12 @@ async function loadRawWeather() {
   if (cache.data && now - cache.at < CACHE_TTL_MS) return cache.data;
   if (cache.promise) return cache.promise;
 
-  cache.promise = fetch(OPEN_METEO_FORECAST_URL)
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = controller
+    ? setTimeout(() => controller.abort(), 12_000)
+    : null;
+
+  cache.promise = fetch(OPEN_METEO_FORECAST_URL, controller ? { signal: controller.signal } : undefined)
     .then((res) => {
       if (!res.ok) throw new Error(`Clima ${res.status}`);
       return res.json();
@@ -32,6 +37,9 @@ async function loadRawWeather() {
     .catch((err) => {
       cache.promise = null;
       throw err;
+    })
+    .finally(() => {
+      if (timer) clearTimeout(timer);
     });
 
   return cache.promise;

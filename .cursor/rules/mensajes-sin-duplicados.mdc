@@ -1,0 +1,11 @@
+---
+description: Mensajería sin duplicados; comunicados paginados de a 5
+alwaysApply: true
+---
+
+# Mensajes / comunicados (regla general)
+
+1. **Sin duplicados**: mismo destinatario + mismo cobro (`paymentId` / recibo) o mismo asunto+cuerpo+día → un solo aviso. Helper: `dedupeMessages` / `messageDedupeKey` en `messages.js`.
+2. Al listar (`listMessages`) se dedupea y se borran de la base los ids sobrantes (best-effort).
+3. En el portal, **Comunicados de Secretaría** muestra **5** por página, con flechas para el resto.
+4. No reenviar comprobantes del mismo pago (idempotencia en entrega + dedupe).

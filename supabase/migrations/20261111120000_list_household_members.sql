@@ -97,5 +97,7 @@ begin
 end;
 $$;
 
+alter function public.list_household_members(text) owner to postgres;
 revoke all on function public.list_household_members(text) from public;
 grant execute on function public.list_household_members(text) to authenticated;
+grant execute on function public.list_household_members(text) to service_role;
