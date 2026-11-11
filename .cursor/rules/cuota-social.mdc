@@ -11,7 +11,8 @@ alwaysApply: true
 2. **Si no paga**, el mes siguiente se genera otra cuota **arriba** del saldo: debe 2 (o N) cuotas.
 3. **Vence el 10**. Paga **el 10 o antes** → sin recargo. Desde el **11** → mora. **Desde octubre, toda cuota** de `socio_familiar` y `socio_individual` lleva **10 %** si ese mes está en mora (el pago es después del 10 de ese mes). El 10 % se suma al capital, al cobrar.
 4. **Socio individual: $ 40.000 en noviembre y en todos los meses.** No se cobra la tarifa vieja ($ 36.000 / $ 32.000) ni un saldo de apertura más bajo.
-5. El saldo de ficha guarda **capital** (cuotas liquidables). El 10 % **no** se mete en el saldo al liquidar: se calcula al cobrar.
+5. **Socio familiar: agosto 2026 y septiembre 2026 son $ 70.000 de capital.** En mora el recibo de cada uno es **$ 77.000** (capital + 10 %). Octubre y los meses siguientes siguen en $ 70.000 + 10 % si están en mora. Julio y los meses anteriores no se suben a esa tarifa.
+6. El saldo de ficha guarda **capital** (cuotas liquidables). El 10 % **no** se mete en el saldo al liquidar: se calcula al cobrar.
 
 ## Cobro — meses del recibo (regla general, todo el padrón)
 

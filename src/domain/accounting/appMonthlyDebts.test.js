@@ -66,7 +66,7 @@ describe('appMonthlyDebts', () => {
     const sep = row.months.find((m) => m.periodKey === '2026-09');
     const oct = row.months.find((m) => m.periodKey === '2026-10');
     const jul = row.months.find((m) => m.periodKey === '2026-07');
-    expect(sep).toMatchObject({ capital: 60000, interest: 6000 });
+    expect(sep).toMatchObject({ capital: 70000, interest: 7000 });
     expect(oct).toMatchObject({ capital: 70000, interest: 7000 });
     expect(jul).toMatchObject({ capital: 60000, interest: 0 });
     expect(row.unallocated).toBe(0);
@@ -79,13 +79,13 @@ describe('appMonthlyDebts', () => {
       familiar({
         lastPaymentDate: '2026-10-12',
         nextDueDate: '2026-11-10',
-        outstandingBalance: 120000,
+        outstandingBalance: 140000,
       }),
       { today: TODAY },
     );
     expect(row.months.map((m) => m.periodKey)).toEqual(['2026-08', '2026-09']);
-    expect(row.months[0]).toMatchObject({ capital: 60000, interest: 0 });
-    expect(row.months[1]).toMatchObject({ capital: 60000, interest: 0 });
+    expect(row.months[0]).toMatchObject({ capital: 70000, interest: 0 });
+    expect(row.months[1]).toMatchObject({ capital: 70000, interest: 0 });
     expect(row.unallocated).toBe(0);
     expect(row.standing).toBe('Con saldo');
   });

@@ -527,31 +527,34 @@ describe('tarifa desde octubre 2026', () => {
       nextDueDate: '2026-09-10',
       adherents: [],
     };
-    expect(duesChargeBreakdown(member, { paidOn: '2026-10-22' })).toMatchObject({
-      quota: 130000,
-      surcharge: 13000,
-      total: 143000,
+    expect(duesChargeBreakdown({
+      ...member,
+      outstandingBalance: 140000,
+    }, { paidOn: '2026-10-22' })).toMatchObject({
+      quota: 140000,
+      surcharge: 14000,
+      total: 154000,
     });
     expect(duesChargeBreakdown({
       ...member,
-      outstandingBalance: 143000,
+      outstandingBalance: 154000,
     }, { paidOn: '2026-10-22' })).toMatchObject({
-      quota: 130000,
-      surcharge: 13000,
-      total: 143000,
+      quota: 140000,
+      surcharge: 14000,
+      total: 154000,
     });
     expect(duesChargeBreakdown({
       ...member,
       outstandingBalance: 200000,
-    }, { paidOn: '2026-10-22' }).surcharge).toBe(13000);
+    }, { paidOn: '2026-10-22' }).surcharge).toBe(14000);
     expect(duesChargeBreakdown({
       ...member,
       cuotaCategories: ['SOCIO FAMILIAR', 'ABONO TENIS'],
-      outstandingBalance: 150000,
+      outstandingBalance: 162000,
     }, { paidOn: '2026-10-22' })).toMatchObject({
-      quota: 150000,
-      surcharge: 12829.27,
-      total: 162829.27,
+      quota: 162000,
+      surcharge: 14000,
+      total: 176000,
     });
   });
 
@@ -782,7 +785,7 @@ describe('collectionPeriodChoices vs saldo de ficha', () => {
     expect(preview.quota).toBe(36000);
   });
 
-  it('Alameda en noviembre: sep $60k + oct $70k; noviembre ya pago no se ofrece', () => {
+  it('Alameda en noviembre: sep y oct a $70.000; noviembre ya pago no se ofrece', () => {
     setRuntimeTierCatalog([
       { id: 'socio_familiar', name: 'SOCIO FAMILIAR', monthlyDues: 70000, sortOrder: 1 },
     ]);
@@ -801,15 +804,15 @@ describe('collectionPeriodChoices vs saldo de ficha', () => {
     const today = new Date(2026, 10, 9, 12, 0, 0);
     const choices = collectionPeriodChoices(member, today);
     expect(choices.map((row) => ({ dueOn: row.dueOn, capital: row.capital, surcharge: row.surcharge }))).toEqual([
-      { dueOn: '2026-09-10', capital: 60000, surcharge: 6000 },
+      { dueOn: '2026-09-10', capital: 70000, surcharge: 7000 },
       { dueOn: '2026-10-10', capital: 70000, surcharge: 7000 },
     ]);
     expect(choices.some((row) => row.dueOn === '2026-11-10')).toBe(false);
     expect(choices.some((row) => row.dueOn === '2026-12-10')).toBe(false);
     const preview = collectionPreview(member, today);
-    expect(preview.quota).toBe(130000);
-    expect(preview.surcharge).toBe(13000);
-    expect(preview.cash).toBe(143000);
+    expect(preview.quota).toBe(140000);
+    expect(preview.surcharge).toBe(14000);
+    expect(preview.cash).toBe(154000);
   });
 
   it('en noviembre, con noviembre pago, no se cobra diciembre: sale en la liquidación', () => {
@@ -902,7 +905,11 @@ describe('collectionPeriodChoices vs saldo de ficha', () => {
     expect(choices.map((row) => row.dueOn)).toContain('2026-11-10');
     expect(choices.some((row) => row.dueOn === '2026-12-10')).toBe(false);
     const capital = choices.reduce((sum, row) => sum + (Number(row.capital) || 0), 0);
-    expect(capital).toBe(260000);
+    expect(capital).toBe(280000);
+    const august = choices.find((row) => row.dueOn === '2026-08-10');
+    const september = choices.find((row) => row.dueOn === '2026-09-10');
+    expect(august).toMatchObject({ capital: 70000, surcharge: 7000, payable: 77000 });
+    expect(september).toMatchObject({ capital: 70000, surcharge: 7000, payable: 77000 });
   });
 
   it('sin nextDue y con una cuota de saldo, el 10 de noviembre ofrece noviembre sin recargo', () => {

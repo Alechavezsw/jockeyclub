@@ -91,7 +91,7 @@ describe('feeChartAccounts', () => {
     const lines = withProcessedPeriodLines(familiar, [], members, periods);
     expect(lines.map((line) => line.description)).toEqual(['Octubre del 2026', 'Septiembre del 2026']);
     expect(lines[0].amount).toBe(70000);
-    expect(lines[1].amount).toBe(60000);
+    expect(lines[1].amount).toBe(70000);
     expect(periodLedgerLines(familiar, members, periods[1])).toHaveLength(1);
     const again = withProcessedPeriodLines(familiar, lines, members, periods);
     expect(again).toHaveLength(2);
