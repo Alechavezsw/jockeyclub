@@ -1042,4 +1042,49 @@ describe('collectionPeriodChoices vs saldo de ficha', () => {
     expect(choices.map((row) => row.dueOn)).toEqual(['2026-09-10', '2026-10-10', '2026-11-10']);
     expect(choices.some((row) => row.dueOn.startsWith('2026-08'))).toBe(false);
   });
+
+  it('un capital de mes en la ficha no cambia la tarifa del resto del padrón', () => {
+    setRuntimeTierCatalog([
+      { id: 'socio_familiar', name: 'SOCIO FAMILIAR', monthlyDues: 70000, sortOrder: 1 },
+    ]);
+    const today = new Date('2026-11-11T12:00:00-03:00');
+    const member = {
+      memberId: '11345',
+      name: 'Maria Belen Gonzalez',
+      tier: 'socio_familiar',
+      status: 'active',
+      outstandingBalance: 420000,
+      unpaidCapital: 420000,
+      nextDueDate: '2026-06-10',
+      cuotaCategories: ['SOCIO FAMILIAR'],
+      duesMonthCapital: { '2026-06': 70000, '2026-07': 70000 },
+    };
+    const choices = collectionPeriodChoices(member, today);
+    expect(choices.map((row) => row.dueOn)).toEqual([
+      '2026-06-10',
+      '2026-07-10',
+      '2026-08-10',
+      '2026-09-10',
+      '2026-10-10',
+      '2026-11-10',
+    ]);
+    expect(choices.every((row) => row.capital === 70000 && row.surcharge === 7000 && row.payable === 77000)).toBe(true);
+    expect(choices.some((row) => row.dueOn.startsWith('2026-05'))).toBe(false);
+    const preview = collectionPreview(member, today);
+    expect(preview.quota).toBe(420000);
+    expect(preview.surcharge).toBe(42000);
+    expect(preview.cash).toBe(462000);
+
+    const other = collectionPeriodChoices({
+      ...member,
+      memberId: '1',
+      name: 'Otra socia',
+      duesMonthCapital: undefined,
+      outstandingBalance: 60000,
+      unpaidCapital: 60000,
+      nextDueDate: '2026-07-10',
+    }, today);
+    const july = other.find((row) => row.dueOn === '2026-07-10');
+    expect(july).toMatchObject({ capital: 60000, surcharge: 6000, payable: 66000 });
+  });
 });

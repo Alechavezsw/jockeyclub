@@ -439,8 +439,24 @@ function asDiscountPerson(row, titular) {
   };
 }
 
+/** Caso particular: capital de un mes cargado en la ficha. El resto del padrón no lo tiene. */
+function memberSocialMonthCapital(member, tierId, on) {
+  const table = member?.duesMonthCapital;
+  if (!table || typeof table !== 'object' || Array.isArray(table)) return null;
+  const when = asDueAnchor(on);
+  const key = `${when.getFullYear()}-${String(when.getMonth() + 1).padStart(2, '0')}`;
+  if (!Object.prototype.hasOwnProperty.call(table, key)) return null;
+  const amount = Number(table[key]);
+  if (!Number.isFinite(amount) || amount < 0) return null;
+  const id = String(tierId || '').trim().toLowerCase();
+  const own = String(member?.tier || '').trim().toLowerCase();
+  if (!id || (own && id !== own)) return null;
+  return money(amount);
+}
+
 function discountedTierAmount(member, id, on, rules) {
-  const gross = duesAmountForTier(id, undefined, on);
+  const override = memberSocialMonthCapital(member, id, on);
+  const gross = override != null ? override : duesAmountForTier(id, undefined, on);
   if (!gross) return 0;
   if (!rules?.length) return gross;
   return discountOnAmount(gross, rules, member, {

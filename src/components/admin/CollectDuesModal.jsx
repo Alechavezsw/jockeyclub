@@ -282,7 +282,7 @@ export default function CollectDuesModal({
   const duesExempt = isDuesExemptMember(account);
   const periodChoices = useMemo(
     () => (duesExempt || hydrating ? [] : collectionPeriodChoices(account)),
-    [duesExempt, hydrating, account?.memberId, account?.outstandingBalance, account?.nextDueDate, account?.lastPaymentDate, account?.tier],
+    [duesExempt, hydrating, account?.memberId, account?.outstandingBalance, account?.unpaidCapital, account?.duesMonthCapital, account?.nextDueDate, account?.lastPaymentDate, account?.tier],
   );
   const choiceKey = periodChoices.map((row) => row.dueOn).join('|');
   const [selectedDueOns, setSelectedDueOns] = useState([]);
