@@ -812,14 +812,14 @@ describe('collectionPeriodChoices vs saldo de ficha', () => {
     expect(preview.cash).toBe(143000);
   });
 
-  it('Isern: saldo de $52.000 con noviembre pago es esa cuota, sin el mes anterior ni recargo', () => {
+  it('en noviembre, con noviembre pago, no se cobra diciembre: sale en la liquidación', () => {
     const member = {
       memberId: '6136',
       name: 'Emilio Isern',
       tier: 'socio_individual',
       status: 'active',
-      outstandingBalance: 52000,
-      unpaidCapital: 52000,
+      outstandingBalance: 0,
+      unpaidCapital: 0,
       nextDueDate: '2026-12-10',
       lastPaymentDate: '2026-11-11',
       cuotaCategories: ['ABONO TENIS', 'SOCIO INDIVIDUAL'],
@@ -832,11 +832,9 @@ describe('collectionPeriodChoices vs saldo de ficha', () => {
       }],
     };
     const preview = collectionPreview(member, new Date('2026-11-11T15:00:00-03:00'));
-    expect(preview.periods.map((row) => row.dueOn)).toEqual(['2026-12-10']);
-    expect(preview.quota).toBe(52000);
-    expect(preview.surcharge).toBe(0);
-    expect(preview.creditApplied).toBe(0);
-    expect(preview.cash).toBe(52000);
+    expect(preview.periods).toEqual([]);
+    expect(preview.cash).toBe(0);
+    expect(preview.clear).toBe(true);
   });
 
   it('en noviembre un familiar con saldo de $70.000 cobra noviembre con el 10 %, no diciembre', () => {
