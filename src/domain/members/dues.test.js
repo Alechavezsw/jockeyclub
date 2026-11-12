@@ -1092,6 +1092,31 @@ describe('collectionPeriodChoices vs saldo de ficha', () => {
       nextDueDate: '2026-07-10',
     }, today);
     const july = other.find((row) => row.dueOn === '2026-07-10');
-    expect(july).toMatchObject({ capital: 60000, surcharge: 6000, payable: 66000 });
+    expect(july).toMatchObject({ capital: 70000, surcharge: 7000, payable: 77000 });
+  });
+
+  it('junio, julio y deudas anteriores del familiar salen a $ 70.000 ($ 77.000 con mora)', () => {
+    setRuntimeTierCatalog([
+      { id: 'socio_familiar', name: 'SOCIO FAMILIAR', monthlyDues: 70000, sortOrder: 1 },
+    ]);
+    const today = new Date('2026-11-12T12:00:00-03:00');
+    const member = {
+      memberId: '2200',
+      name: 'Familiar atrasado',
+      tier: 'socio_familiar',
+      status: 'active',
+      outstandingBalance: 180000,
+      unpaidCapital: 180000,
+      nextDueDate: '2026-06-10',
+      cuotaCategories: ['SOCIO FAMILIAR'],
+    };
+    const choices = collectionPeriodChoices(member, today);
+    const june = choices.find((row) => row.dueOn === '2026-06-10');
+    const july = choices.find((row) => row.dueOn === '2026-07-10');
+    expect(june).toMatchObject({ capital: 70000, surcharge: 7000, payable: 77000 });
+    expect(july).toMatchObject({ capital: 70000, surcharge: 7000, payable: 77000 });
+    expect(duesAmountForMember(member, new Date('2026-06-10T12:00:00'))).toBe(70000);
+    expect(duesAmountForMember(member, new Date('2026-07-10T12:00:00'))).toBe(70000);
+    expect(duesAmountForMember(member, new Date('2026-05-10T12:00:00'))).toBe(70000);
   });
 });

@@ -398,21 +398,28 @@ export function quotaHeadline(member) {
   return { kind: 'clear', title: 'Al día', hint: null, billing: true };
 }
 
-/** Agosto y septiembre 2026 del familiar salen a $ 70.000. En mora, el recibo es $ 77.000. */
-function isFamiliarAugustOrSeptember2026(when) {
+/**
+ * Socio familiar: junio, julio y deudas anteriores, más agosto y septiembre 2026,
+ * salen a la misma cuota que octubre ($ 70.000). En mora el recibo es $ 77.000.
+ */
+function isFamiliarLiftedTariffMonth(when) {
   const d = asDueAnchor(when);
-  if (d.getFullYear() !== 2026) return false;
-  const month = d.getMonth();
-  return month === 7 || month === 8;
+  // Cualquier mes hasta septiembre 2026 inclusive (y deudas más viejas).
+  return d < new Date(2026, 9, 1);
+}
+
+/** Meses cuya ficha puede traer $ 60.000 y al cobrar pasan a $ 70.000. */
+function isFamiliarTariffLiftDueOn(dueOn) {
+  const due = String(dueOn || '').slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(due) && due <= '2026-09-30';
 }
 
 /**
  * Monto de cuota según categoría, igual que la liquidación de Lila.
  * Socio individual: $ 40.000 en noviembre y en todos los meses.
- * Socio familiar: agosto y septiembre 2026 usan la misma cuota que octubre
- * ($ 70.000). En mora el recibo de esos meses es $ 77.000. El resto, desde
- * octubre 2026 usa el borrador de ese mes. Antes, la liquidación de
- * septiembre, salvo un valor editado en el catálogo.
+ * Socio familiar: junio, julio y deudas anteriores, más agosto y septiembre 2026,
+ * usan la misma cuota que octubre ($ 70.000). En mora el recibo de esos meses
+ * es $ 77.000. Desde octubre 2026, el borrador de ese mes.
  */
 export function duesAmountForTier(tier, catalog, on = new Date()) {
   const when = asDueAnchor(on);
@@ -423,7 +430,7 @@ export function duesAmountForTier(tier, catalog, on = new Date()) {
   // Socio individual: $ 40.000 en noviembre y en todos los meses.
   // No vuelve la tarifa de septiembre ni un saldo viejo del catálogo.
   if (id === 'socio_individual' && october != null) return october;
-  if (id === 'socio_familiar' && october != null && isFamiliarAugustOrSeptember2026(when)) {
+  if (id === 'socio_familiar' && october != null && isFamiliarLiftedTariffMonth(when)) {
     return october;
   }
   if (from && when >= from && october != null) return october;
@@ -922,7 +929,7 @@ function expandChoicesToCoverBalance(member, choices, paidOn, coveredDueOns = nu
   rows = openMonths.length ? openMonths : rows.filter((row) => Number(row.capital) > 0 && row.kind !== 'paid');
   rows = rows.map((row) => {
     const due = String(row.dueOn || '').slice(0, 10);
-    if (!due.startsWith('2026-08-') && !due.startsWith('2026-09-')) return row;
+    if (!isFamiliarTariffLiftDueOn(due)) return row;
     const full = periodChoiceFromDue(member, due, paidOn, row.kind || 'overdue');
     if (!full || full.capital + 0.01 < 70000) return row;
     if ((Number(row.capital) || 0) + 0.01 >= full.capital) return row;
@@ -930,12 +937,12 @@ function expandChoicesToCoverBalance(member, choices, paidOn, coveredDueOns = nu
   });
   covered = money(rows.reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
 
-  // Agosto y septiembre 2026 del familiar pasan de $ 60.000 a $ 70.000.
-  // Si el saldo de ficha todavía tiene esos meses a $ 60.000, no se recorta
-  // octubre ni noviembre: cada uno de esos meses queda en $ 77.000 con mora.
+  // Junio, julio y deudas anteriores, más agosto y septiembre 2026 del familiar,
+  // pasan de $ 60.000 a $ 70.000. Si el saldo de ficha todavía trae esos meses
+  // a $ 60.000, no se recorta octubre ni noviembre: cada uno queda en $ 77.000 con mora.
   const familiarLift = rows.reduce((sum, row) => {
     const due = String(row.dueOn || '').slice(0, 10);
-    if (!due.startsWith('2026-08-') && !due.startsWith('2026-09-')) return sum;
+    if (!isFamiliarTariffLiftDueOn(due)) return sum;
     if ((Number(row.capital) || 0) + 0.01 < 70000) return sum;
     return sum + 10000;
   }, 0);
@@ -961,7 +968,18 @@ function expandChoicesToCoverBalance(member, choices, paidOn, coveredDueOns = nu
     });
     taken = money(taken + capital);
   }
-  return trimmed.length ? trimmed : rows;
+  const kept = trimmed.length ? trimmed : rows;
+  // Si el saldo de ficha traía $ 60.000, el recorte deja $ 60.000: volver a $ 70.000
+  // (recibo $ 77.000 con mora) en junio, julio y deudas anteriores.
+  return kept.map((row) => {
+    if (!isFamiliarTariffLiftDueOn(row.dueOn)) return row;
+    const full = periodChoiceFromDue(member, row.dueOn, paidOn, row.kind || 'overdue');
+    if (!full || full.capital + 0.01 < 70000) return row;
+    const cap = Number(row.capital) || 0;
+    if (cap + 0.01 >= full.capital) return row;
+    if (cap + 10000 + 0.01 >= full.capital) return full;
+    return row;
+  });
 }
 
 /**

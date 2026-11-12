@@ -61,14 +61,14 @@ describe('appMonthlyDebts', () => {
       { today: TODAY },
     );
     expect(row.months.map((m) => m.periodKey)).toEqual([
-      '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-09', '2026-10',
+      '2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-09', '2026-10',
     ]);
     const sep = row.months.find((m) => m.periodKey === '2026-09');
     const oct = row.months.find((m) => m.periodKey === '2026-10');
     const jul = row.months.find((m) => m.periodKey === '2026-07');
     expect(sep).toMatchObject({ capital: 70000, interest: 7000 });
     expect(oct).toMatchObject({ capital: 70000, interest: 7000 });
-    expect(jul).toMatchObject({ capital: 60000, interest: 0 });
+    expect(jul).toMatchObject({ capital: 70000, interest: 0 });
     expect(row.unallocated).toBe(0);
     expect(row.totalDebt).toBe(500000);
     expect(row.standing).toBe('En mora');
