@@ -43,6 +43,22 @@ function formatDate(iso) {
   });
 }
 
+function formatDateTime(value) {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleString('es-AR');
+}
+
+const PAY_METHOD = {
+  transfer: 'Transferencia',
+  transferencia: 'Transferencia',
+  cash: 'Efectivo',
+  efectivo: 'Efectivo',
+  cheque: 'Cheque',
+  mercadopago: 'Mercado Pago',
+};
+
 function spaceLabel(spaceId) {
   return CONCESSION_SPACES.find((s) => s.id === spaceId)?.name || 'Sin espacio';
 }
@@ -126,7 +142,7 @@ export default function ConcessionsTab({
   }, [concessions, searchParams, setSearchParams]);
 
   useEffect(() => {
-    if (detailTab === 'portal') setDetailTab('resumen');
+    if (detailTab === 'portal' || detailTab === 'historial') setDetailTab('trazabilidad');
   }, [detailTab]);
 
   useEffect(() => {
@@ -378,7 +394,7 @@ export default function ConcessionsTab({
                     ['canon', 'Canon'],
                     ['docs', missingDocs.length ? `Docs (${missingDocs.length})` : 'Documentos'],
                     ['checklist', 'Checklist'],
-                    ['historial', 'Historias'],
+                    ['trazabilidad', 'Trazabilidad'],
                   ].map(([id, label]) => (
                     <button
                       key={id}
@@ -544,31 +560,17 @@ export default function ConcessionsTab({
                       </button>
                     </form>
                     <p className="conc-canon-hint">
-                      El cobro entra a caja con fecha, hora y quién lo cargó. El boleto PDF se descarga solo.
+                      El cobro entra a caja. El boleto se descarga al cobrar; el historial completo está en Trazabilidad.
                     </p>
-                    <ul className="conc-pay-list">
-                      {selectedPayments.length === 0 && <li className="conc-empty">Sin cobros registrados.</li>}
-                      {selectedPayments.map((p) => {
-                        const when = p.recordedAt
-                          ? new Date(p.recordedAt).toLocaleString('es-AR')
-                          : (p.date || '—');
-                        const who = p.recordedByName || '—';
-                        return (
-                          <li key={p.id}>
-                            <span>{p.period}</span>
-                            <strong>{formatCurrency(p.amount)}</strong>
-                            <em title={`Cargó: ${who}`}>{when} · {who}</em>
-                            <button
-                              type="button"
-                              className="btn btn-secondary btn-sm"
-                              onClick={() => { void downloadCanonReceiptPdf({ concession: selected, payment: p }); }}
-                            >
-                              Boleto
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
+                    {selectedPayments.length > 0 ? (
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => setDetailTab('trazabilidad')}
+                      >
+                        Ver historial de pagos ({selectedPayments.length})
+                      </button>
+                    ) : null}
                   </div>
                 )}
 
@@ -717,25 +719,81 @@ export default function ConcessionsTab({
                   </div>
                 )}
 
-                {detailTab === 'historial' && (
-                  <div className="conc-panel">
-                    <ul className="conc-pay-list">
-                      {(selected.renewalHistory || []).length === 0 && (
-                        <li className="conc-empty">Sin renovaciones registradas.</li>
+                {detailTab === 'trazabilidad' && (
+                  <div className="conc-panel conc-trace-panel">
+                    <div className="conc-trace-block">
+                      <h4>
+                        <Receipt size={15} aria-hidden />
+                        Historial de pagos
+                      </h4>
+                      {selectedPayments.length === 0 ? (
+                        <p className="conc-empty">Todavía no hay cobros de canon.</p>
+                      ) : (
+                        <ul className="conc-trace-list">
+                          {[...selectedPayments]
+                            .toSorted((a, b) => String(b.recordedAt || b.date || '').localeCompare(String(a.recordedAt || a.date || '')))
+                            .map((p) => (
+                              <li key={p.id} className="conc-trace-card">
+                                <div className="conc-trace-card-main">
+                                  <strong>
+                                    {p.period || 'Sin período'}
+                                    {' · '}
+                                    {formatCurrency(p.amount)}
+                                  </strong>
+                                  <span>
+                                    {PAY_METHOD[p.method] || p.method || 'Medio —'}
+                                    {' · '}
+                                    Cargó {p.recordedByName || '—'}
+                                  </span>
+                                  <span>{formatDateTime(p.recordedAt || p.date)}</span>
+                                  {(p.cashMovementId || p.journalEntryId || p.receipt) ? (
+                                    <em>
+                                      {[
+                                        p.receipt ? `Boleto ${p.receipt}` : null,
+                                        p.cashMovementId ? `Caja ${String(p.cashMovementId).slice(0, 8)}…` : null,
+                                        p.journalEntryId ? `Asiento ${String(p.journalEntryId).slice(0, 8)}…` : null,
+                                      ].filter(Boolean).join(' · ')}
+                                    </em>
+                                  ) : null}
+                                </div>
+                                <button
+                                  type="button"
+                                  className="btn btn-primary btn-sm"
+                                  onClick={() => { void downloadCanonReceiptPdf({ concession: selected, payment: p }); }}
+                                >
+                                  <Download size={14} aria-hidden />
+                                  Descargar boleto
+                                </button>
+                              </li>
+                            ))}
+                        </ul>
                       )}
-                      {[...(selected.renewalHistory || [])].reverse().map((h) => (
-                        <li key={h.id}>
-                          <span>{formatDate((h.at || '').slice(0, 10))}</span>
-                          <strong>
-                            {formatDate(h.previousEndDate)} → {formatDate(h.newEndDate)}
-                          </strong>
-                          <em>
-                            {formatCurrency(h.previousFee)} → {formatCurrency(h.newFee)}
-                            {h.renewedBy ? ` · ${h.renewedBy}` : ''}
-                          </em>
-                        </li>
-                      ))}
-                    </ul>
+                    </div>
+
+                    <div className="conc-trace-block">
+                      <h4>
+                        <RefreshCw size={15} aria-hidden />
+                        Renovaciones
+                      </h4>
+                      {(selected.renewalHistory || []).length === 0 ? (
+                        <p className="conc-empty">Sin renovaciones registradas.</p>
+                      ) : (
+                        <ul className="conc-pay-list">
+                          {[...(selected.renewalHistory || [])].reverse().map((h) => (
+                            <li key={h.id}>
+                              <span>{formatDate((h.at || '').slice(0, 10))}</span>
+                              <strong>
+                                {formatDate(h.previousEndDate)} → {formatDate(h.newEndDate)}
+                              </strong>
+                              <em>
+                                {formatCurrency(h.previousFee)} → {formatCurrency(h.newFee)}
+                                {h.renewedBy ? ` · ${h.renewedBy}` : ''}
+                              </em>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
                   </div>
                 )}
 

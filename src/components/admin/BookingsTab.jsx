@@ -906,19 +906,25 @@ export default function BookingsTab({
           z-index: 80;
           display: flex;
           justify-content: flex-end;
-          background: color-mix(in srgb, #000 42%, transparent);
+          align-items: stretch;
+          padding: 0;
+          background: color-mix(in srgb, #06110c 55%, transparent);
+          backdrop-filter: blur(4px);
         }
         .bookings-detail-panel {
-          width: min(420px, 100vw);
+          width: min(440px, 100vw);
           height: 100%;
           overflow: auto;
-          padding: 1.1rem 1.15rem 1.5rem;
-          background: var(--bg-card, #122018);
-          border-left: 1px solid var(--border-glass);
-          box-shadow: -12px 0 40px rgba(0, 0, 0, 0.28);
+          padding: 1.25rem 1.2rem 1.4rem;
+          background:
+            linear-gradient(180deg, color-mix(in srgb, var(--primary-gold) 12%, #14261c) 0%, #14261c 28%),
+            #14261c;
+          color: #f4f7f4;
+          border-left: 1px solid color-mix(in srgb, var(--primary-gold) 35%, transparent);
+          box-shadow: -18px 0 48px rgba(0, 0, 0, 0.45);
           display: flex;
           flex-direction: column;
-          gap: 0.85rem;
+          gap: 1rem;
         }
         .bookings-detail-head {
           display: flex;
@@ -928,37 +934,88 @@ export default function BookingsTab({
         }
         .bookings-detail-head h4 {
           margin: 0;
-          font-size: 1.05rem;
+          font-size: 1.2rem;
+          font-weight: 750;
+          letter-spacing: -0.02em;
+          color: #fff;
         }
         .bookings-detail-head p {
-          margin: 0.25rem 0 0;
-          font-size: 0.78rem;
-          color: var(--text-muted);
+          margin: 0.35rem 0 0;
+          font-size: 0.8rem;
+          line-height: 1.35;
+          color: color-mix(in srgb, #f4f7f4 72%, transparent);
+        }
+        .bookings-detail-status-row {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 0.45rem;
+        }
+        .bookings-detail-hero {
+          display: grid;
+          gap: 0.35rem;
+          padding: 0.95rem 1rem;
+          border-radius: 16px;
+          border: 1px solid color-mix(in srgb, var(--primary-gold) 28%, transparent);
+          background: color-mix(in srgb, #000 22%, transparent);
+        }
+        .bookings-detail-hero strong {
+          font-size: 1.05rem;
+          color: #fff;
+          font-weight: 700;
+        }
+        .bookings-detail-hero span {
+          font-size: 0.84rem;
+          color: color-mix(in srgb, #f4f7f4 78%, transparent);
         }
         .bookings-detail-grid {
           display: grid;
+          grid-template-columns: 1fr 1fr;
           gap: 0.55rem;
+        }
+        .bookings-detail-grid .is-wide {
+          grid-column: 1 / -1;
         }
         .bookings-detail-grid div {
           display: flex;
-          justify-content: space-between;
-          gap: 0.75rem;
-          padding: 0.45rem 0;
-          border-bottom: 1px solid color-mix(in srgb, var(--border-glass) 70%, transparent);
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 0.28rem;
+          padding: 0.7rem 0.75rem;
+          border-radius: 12px;
+          border: 1px solid color-mix(in srgb, #fff 10%, transparent);
+          background: color-mix(in srgb, #000 18%, transparent);
           font-size: 0.84rem;
         }
         .bookings-detail-grid span {
-          color: var(--text-muted);
+          font-size: 0.68rem;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          color: color-mix(in srgb, #f4f7f4 58%, transparent);
         }
         .bookings-detail-grid strong {
-          text-align: right;
-          font-weight: 650;
+          text-align: left;
+          font-weight: 700;
+          color: #fff;
+          line-height: 1.3;
+          word-break: break-word;
         }
         .bookings-detail-actions {
           display: flex;
           flex-wrap: wrap;
-          gap: 0.45rem;
+          gap: 0.5rem;
           margin-top: auto;
+          padding-top: 0.75rem;
+          border-top: 1px solid color-mix(in srgb, #fff 12%, transparent);
+          position: sticky;
+          bottom: 0;
+          background: linear-gradient(180deg, transparent, #14261c 28%);
+          padding-bottom: 0.15rem;
+        }
+        @media (max-width: 520px) {
+          .bookings-detail-grid {
+            grid-template-columns: 1fr;
+          }
         }
         .bookings-app-inbox {
           display: flex;
@@ -1322,14 +1379,17 @@ export default function BookingsTab({
         .bookings-status {
           display: inline-flex;
           align-items: center;
+          justify-content: center;
           width: fit-content;
-          padding: 0.18rem 0.5rem;
+          min-height: 1.7rem;
+          padding: 0.18rem 0.55rem;
           border-radius: 999px;
           font-size: 0.68rem;
           font-weight: 650;
           letter-spacing: 0.01em;
           line-height: 1.2;
           border: 1px solid transparent;
+          box-sizing: border-box;
         }
         .bookings-status.confirmed {
           color: var(--emerald-accent);
@@ -1339,15 +1399,25 @@ export default function BookingsTab({
         .bookings-settle {
           display: flex;
           flex-direction: column;
-          align-items: flex-start;
-          gap: 0.35rem;
+          align-items: stretch;
+          gap: 0.3rem;
+          min-width: 10.5rem;
+        }
+        .bookings-settle > .bookings-status,
+        .bookings-settle > .bookings-settle-btn,
+        .bookings-settle > .bookings-settle-note {
+          width: 100%;
+          min-height: 1.7rem;
+          box-sizing: border-box;
         }
         .bookings-settle-btn {
           display: inline-flex;
           align-items: center;
+          justify-content: center;
           gap: 0.28rem;
-          width: fit-content;
-          padding: 0.18rem 0.5rem;
+          width: 100%;
+          min-height: 1.7rem;
+          padding: 0.18rem 0.55rem;
           border: 1px solid color-mix(in srgb, var(--primary-gold) 55%, var(--border-glass));
           border-radius: 999px;
           background: color-mix(in srgb, var(--primary-gold) 18%, var(--surface-card, transparent));
@@ -1358,8 +1428,9 @@ export default function BookingsTab({
           letter-spacing: 0.01em;
           line-height: 1.2;
           cursor: pointer;
-          text-align: left;
+          text-align: center;
           transition: background 0.15s ease, border-color 0.15s ease;
+          box-sizing: border-box;
         }
         .bookings-settle-btn:hover:not(:disabled) {
           background: color-mix(in srgb, var(--primary-gold) 28%, var(--surface-card, transparent));
@@ -2298,7 +2369,7 @@ export default function BookingsTab({
                   Reserva #{reservationAppNumber(detailReservation)}
                 </h4>
                 <p>
-                  {isAppReservation(detailReservation) ? 'Origen: app del socio' : 'Origen: administración / otro'}
+                  {isAppReservation(detailReservation) ? 'Desde la app del socio' : 'Cargada en administración'}
                   {reservationTakenByLabel(detailReservation)
                     ? ` · ${reservationTakenByLabel(detailReservation)}`
                     : ''}
@@ -2314,50 +2385,48 @@ export default function BookingsTab({
               </button>
             </div>
 
+            <div className="bookings-detail-status-row">
+              <span className={`bookings-status ${detailReservation.status}`}>
+                {statusLabel(detailReservation.status)}
+              </span>
+              {isAppReservation(detailReservation) ? (
+                <span className="bookings-status confirmed" style={{ color: 'var(--primary-gold)', borderColor: 'color-mix(in srgb, var(--primary-gold) 40%, transparent)', background: 'color-mix(in srgb, var(--primary-gold) 14%, transparent)' }}>
+                  App
+                </span>
+              ) : null}
+            </div>
+
+            <div className="bookings-detail-hero">
+              <strong>{detailReservation.facilityName || detailReservation.facilityId || 'Espacio'}</strong>
+              <span>
+                {formatBookingDate(detailReservation.date)}
+                {detailReservation.time ? ` · ${detailReservation.time}` : ''}
+                {detailReservation.endTime ? `–${detailReservation.endTime}` : ''}
+              </span>
+              <span>
+                {detailReservation.memberName || 'Socio'}
+                {detailReservation.memberId ? ` · Nº ${detailReservation.memberId}` : ''}
+              </span>
+            </div>
+
             <div className="bookings-detail-grid">
               <div>
-                <span>Estado</span>
-                <strong>{statusLabel(detailReservation.status)}</strong>
+                <span>Total</span>
+                <strong>{formatMoney(reservationTotalPrice(null, detailReservation)) || '—'}</strong>
               </div>
               <div>
-                <span>Socio</span>
-                <strong>{detailReservation.memberName || '—'} · Nº {detailReservation.memberId || '—'}</strong>
-              </div>
-              <div>
-                <span>Espacio</span>
-                <strong>{detailReservation.facilityName || detailReservation.facilityId || '—'}</strong>
-              </div>
-              <div>
-                <span>Fecha</span>
-                <strong>{formatBookingDate(detailReservation.date)}</strong>
-              </div>
-              <div>
-                <span>Horario</span>
-                <strong>
-                  {detailReservation.time || '—'}
-                  {detailReservation.endTime ? ` → ${detailReservation.endTime}` : ''}
-                </strong>
-              </div>
-              <div>
-                <span>Invitados</span>
-                <strong>
-                  {Number(detailReservation.guests) || 0}
-                  {detailReservation.guestNames ? ` · ${detailReservation.guestNames}` : ''}
-                </strong>
-              </div>
-              <div>
-                <span>Total / cobrado</span>
-                <strong>
-                  {formatMoney(reservationTotalPrice(null, detailReservation)) || '—'}
-                  {' / '}
-                  {formatMoney(detailReservation.chargedPrice) || '—'}
-                </strong>
+                <span>Cobrado</span>
+                <strong>{formatMoney(detailReservation.chargedPrice) || '—'}</strong>
               </div>
               <div>
                 <span>Saldo</span>
                 <strong>{formatMoney(reservationOpenBalance(detailReservation)) || '$ 0'}</strong>
               </div>
               <div>
+                <span>Invitados</span>
+                <strong>{Number(detailReservation.guests) || 0}</strong>
+              </div>
+              <div className="is-wide">
                 <span>Alta</span>
                 <strong>
                   {detailReservation.createdAt
@@ -2365,8 +2434,14 @@ export default function BookingsTab({
                     : '—'}
                 </strong>
               </div>
+              {detailReservation.guestNames ? (
+                <div className="is-wide">
+                  <span>Nombres de invitados</span>
+                  <strong>{detailReservation.guestNames}</strong>
+                </div>
+              ) : null}
               {detailReservation.notes ? (
-                <div>
+                <div className="is-wide">
                   <span>Notas</span>
                   <strong style={{ whiteSpace: 'pre-wrap' }}>{detailReservation.notes}</strong>
                 </div>

@@ -16732,6 +16732,63 @@ a.ops-outline-btn {
   color: var(--text-muted);
 }
 
+.conc-trace-panel {
+  gap: 1.25rem;
+}
+
+.conc-trace-block h4 {
+  margin: 0 0 0.65rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.95rem;
+  color: var(--text-gold, var(--primary-gold));
+}
+
+.conc-trace-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.conc-trace-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.85rem 0.95rem;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--border-glass) 85%, transparent);
+  background: color-mix(in srgb, var(--border-glass) 18%, transparent);
+}
+
+.conc-trace-card-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.conc-trace-card-main strong {
+  font-size: 0.92rem;
+}
+
+.conc-trace-card-main span,
+.conc-trace-card-main em {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-style: normal;
+}
+
+@media (max-width: 720px) {
+  .conc-trace-card {
+    grid-template-columns: 1fr;
+  }
+}
+
 .conc-portal-strip {
   display: flex;
   align-items: center;
