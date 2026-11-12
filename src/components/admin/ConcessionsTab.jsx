@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle, CheckCircle2, Clock, Plus, RefreshCw, Ban, Search,
-  CalendarDays, FileText, Download, Receipt, ClipboardList, KeyRound, Link2, Upload,
+  FileText, Download, Receipt, ClipboardList, KeyRound, Link2, Upload,
 } from 'lucide-react';
 import {
   CONCESSION_TYPES,
@@ -13,11 +13,11 @@ import {
   summarizeConcessions,
   findSpaceOverlap,
   getCanonDebt,
-  buildExpiryCalendar,
   exportConcessionsCsv,
   downloadTextFile,
   checklistProgress,
   missingRequiredDocuments,
+  sanitizeConcessionsList,
 } from '../../domain/concessions/concessions';
 import { downloadCanonReceiptPdf } from '../../domain/concessions/exportCanonReceiptPdf';
 import { isSupabaseConfigured } from '../../lib/supabase';
@@ -79,12 +79,11 @@ export default function ConcessionsTab({
   const [detailTab, setDetailTab] = useState('resumen');
   const [payForm, setPayForm] = useState({ period: '', amount: '', method: 'transfer', note: '' });
   const [uploadingDocType, setUploadingDocType] = useState(null);
-  const [calCursor, setCalCursor] = useState(() => {
-    const d = new Date();
-    return { year: d.getFullYear(), month: d.getMonth() };
-  });
 
-  const { rows, totals } = useMemo(() => summarizeConcessions(concessions), [concessions]);
+  const { rows, totals } = useMemo(
+    () => summarizeConcessions(sanitizeConcessionsList(concessions)),
+    [concessions],
+  );
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -108,11 +107,6 @@ export default function ConcessionsTab({
     [selected, canonPayments]
   );
 
-  const calendar = useMemo(
-    () => buildExpiryCalendar(concessions, calCursor),
-    [concessions, calCursor]
-  );
-
   const progress = selected ? checklistProgress(selected) : null;
   const missingDocs = selected ? missingRequiredDocuments(selected) : [];
 
@@ -131,13 +125,20 @@ export default function ConcessionsTab({
     return undefined;
   }, [concessions, searchParams, setSearchParams]);
 
-  // Si faltan docs obligatorios, abrir esa pestaña al elegir la concesión
   useEffect(() => {
-    if (!selected?.id) return;
-    if (missingRequiredDocuments(selected).length > 0) {
-      setDetailTab('docs');
-    }
-  }, [selected?.id]);
+    if (detailTab === 'portal') setDetailTab('resumen');
+  }, [detailTab]);
+
+  useEffect(() => {
+    if (!selected?.id || detailTab !== 'canon') return;
+    const unpaid = debt?.unpaidMonths || [];
+    const current = new Date().toISOString().slice(0, 7);
+    setPayForm((prev) => ({
+      ...prev,
+      period: prev.period || unpaid[0] || current,
+      amount: prev.amount || (selected.monthlyFee ? String(selected.monthlyFee) : ''),
+    }));
+  }, [selected?.id, selected?.monthlyFee, detailTab, debt?.unpaidMonths]);
 
   const registerPayment = async (e) => {
     e.preventDefault();
@@ -199,18 +200,12 @@ export default function ConcessionsTab({
     );
   };
 
-  const monthLabel = new Date(calCursor.year, calCursor.month, 1).toLocaleDateString('es-AR', {
-    month: 'long',
-    year: 'numeric',
-  });
-
   return (
     <div className="fade-in conc-tab">
       <div className="conc-section-tabs" style={{ alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
           {[
             ['contratos', 'Contratos'],
-            ['calendario', 'Calendario'],
             ['canon', 'Canon / Deuda'],
           ].map(([id, label]) => (
             <button
@@ -286,52 +281,6 @@ export default function ConcessionsTab({
             setDetailTab(missingRequiredDocuments(saved || {}).length ? 'docs' : 'resumen');
           }}
         />
-      )}
-
-      {section === 'calendario' && (
-        <section className="glass-card conc-calendar">
-          <div className="conc-calendar-head">
-            <h3><CalendarDays size={16} /> Vencimientos · {monthLabel}</h3>
-            <div className="conc-calendar-nav">
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => setCalCursor((c) => {
-                  const d = new Date(c.year, c.month - 1, 1);
-                  return { year: d.getFullYear(), month: d.getMonth() };
-                })}
-              >
-                ←
-              </button>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => setCalCursor((c) => {
-                  const d = new Date(c.year, c.month + 1, 1);
-                  return { year: d.getFullYear(), month: d.getMonth() };
-                })}
-              >
-                →
-              </button>
-            </div>
-          </div>
-          {calendar.length === 0 ? (
-            <p className="conc-empty">Sin vencimientos este mes.</p>
-          ) : (
-            <ul className="conc-calendar-list">
-              {calendar.map((ev) => (
-                <li key={`${ev.concessionId}-${ev.date}`}>
-                  <strong>{formatDate(ev.date)}</strong>
-                  <span>{ev.name}</span>
-                  <em>{ev.concessionaire}</em>
-                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setSelectedId(ev.concessionId); setSection('contratos'); }}>
-                    Ver
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
       )}
 
       {section === 'canon' && (
@@ -427,10 +376,9 @@ export default function ConcessionsTab({
                   {[
                     ['resumen', 'Resumen'],
                     ['canon', 'Canon'],
-                    ['docs', missingDocs.length ? `Documentos (${missingDocs.length})` : 'Documentos'],
+                    ['docs', missingDocs.length ? `Docs (${missingDocs.length})` : 'Documentos'],
                     ['checklist', 'Checklist'],
-                    ['historial', 'Renovaciones'],
-                    ['portal', 'Portal'],
+                    ['historial', 'Historias'],
                   ].map(([id, label]) => (
                     <button
                       key={id}
@@ -460,10 +408,36 @@ export default function ConcessionsTab({
                       <div><span>Docs faltantes</span><strong className={missingDocs.length ? 'bad' : 'ok'}>{missingDocs.length || 'Ninguno'}</strong></div>
                     </div>
                     {selected.notes && <p className="conc-notes">{selected.notes}</p>}
+                    <div className="conc-portal-strip">
+                      <KeyRound size={15} aria-hidden />
+                      <div>
+                        <span>Portal del concesionario</span>
+                        <strong>{selected.portalCode || '—'}</strong>
+                      </div>
+                      {selected.portalCode ? (
+                        <a
+                          className="btn btn-secondary btn-sm"
+                          href={`/concesionario/${selected.portalCode}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <Link2 size={14} /> Abrir
+                        </a>
+                      ) : null}
+                    </div>
                     <div className="conc-actions">
                       <button
                         type="button"
                         className="btn btn-primary btn-sm"
+                        onClick={() => {
+                          setDetailTab('canon');
+                        }}
+                      >
+                        <Receipt size={14} /> Cobrar canon
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
                         onClick={() => renewConcessionContract?.(selected.id, { months: 12, renewedBy })}
                       >
                         <RefreshCw size={14} /> Renovar 12 meses
@@ -492,12 +466,47 @@ export default function ConcessionsTab({
                 )}
 
                 {detailTab === 'canon' && (
-                  <div className="conc-panel">
-                    <div className="conc-fields">
-                      <div><span>Deuda</span><strong className={debt?.totalDebt > 0 ? 'bad' : 'ok'}>{formatCurrency(debt?.totalDebt || 0)}</strong></div>
-                      <div><span>Meses impagos</span><strong>{debt?.unpaidMonths?.join(', ') || '—'}</strong></div>
+                  <div className="conc-panel conc-canon-panel">
+                    <div className="conc-canon-hero">
+                      <div>
+                        <span>Deuda de canon</span>
+                        <strong className={debt?.totalDebt > 0 ? 'bad' : 'ok'}>
+                          {formatCurrency(debt?.totalDebt || 0)}
+                        </strong>
+                        <em>
+                          {debt?.noFeeConfigured
+                            ? 'Sin canon mensual cargado. Indicá el importe al cobrar.'
+                            : debt?.unpaidMonths?.length
+                              ? `${debt.unpaidMonths.length} mes(es) pendiente(s)`
+                              : 'Al día'}
+                        </em>
+                      </div>
+                      <div>
+                        <span>Canon mensual</span>
+                        <strong>{formatCurrency(selected.monthlyFee || 0)}</strong>
+                      </div>
                     </div>
-                    <form className="conc-inline-form" onSubmit={registerPayment}>
+
+                    {!debt?.noFeeConfigured && debt?.unpaidMonths?.length > 0 ? (
+                      <div className="conc-period-chips" role="group" aria-label="Meses impagos">
+                        {debt.unpaidMonths.map((period) => (
+                          <button
+                            key={period}
+                            type="button"
+                            className={`conc-period-chip${payForm.period === period ? ' is-active' : ''}`}
+                            onClick={() => setPayForm({
+                              ...payForm,
+                              period,
+                              amount: payForm.amount || String(selected.monthlyFee || ''),
+                            })}
+                          >
+                            {period}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    <form className="conc-inline-form conc-canon-form" onSubmit={registerPayment}>
                       <div>
                         <label className="form-label">Período</label>
                         <input
@@ -513,9 +522,12 @@ export default function ConcessionsTab({
                         <input
                           type="number"
                           className="form-input"
-                          placeholder={String(selected.monthlyFee || '')}
+                          min="1"
+                          step="1"
+                          placeholder={String(selected.monthlyFee || 'Importe')}
                           value={payForm.amount}
                           onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })}
+                          required
                         />
                       </div>
                       <div>
@@ -527,10 +539,13 @@ export default function ConcessionsTab({
                           <option value="mercadopago">Mercado Pago</option>
                         </select>
                       </div>
-                      <button type="submit" className="btn btn-primary btn-sm">
-                        <Receipt size={14} /> Cobrar + PDF
+                      <button type="submit" className="btn btn-primary btn-sm conc-canon-submit">
+                        <Receipt size={14} /> Cobrar y boleto
                       </button>
                     </form>
+                    <p className="conc-canon-hint">
+                      El cobro entra a caja con fecha, hora y quién lo cargó. El boleto PDF se descarga solo.
+                    </p>
                     <ul className="conc-pay-list">
                       {selectedPayments.length === 0 && <li className="conc-empty">Sin cobros registrados.</li>}
                       {selectedPayments.map((p) => {
@@ -548,7 +563,7 @@ export default function ConcessionsTab({
                               className="btn btn-secondary btn-sm"
                               onClick={() => { void downloadCanonReceiptPdf({ concession: selected, payment: p }); }}
                             >
-                              PDF
+                              Boleto
                             </button>
                           </li>
                         );
@@ -724,21 +739,6 @@ export default function ConcessionsTab({
                   </div>
                 )}
 
-                {detailTab === 'portal' && (
-                  <div className="conc-panel conc-portal-box">
-                    <p>
-                      <KeyRound size={16} /> Código portal concesionario
-                    </p>
-                    <code className="conc-portal-code">{selected.portalCode || '—'}</code>
-                    <p className="conc-notes">
-                      El concesionario puede consultar contrato, vencimiento y documentos en{' '}
-                      <Link2 size={12} style={{ display: 'inline' }} />{' '}
-                      <a href={`/concesionario/${selected.portalCode}`} target="_blank" rel="noreferrer">
-                        /concesionario/{selected.portalCode}
-                      </a>
-                    </p>
-                  </div>
-                )}
               </section>
             )}
           </div>

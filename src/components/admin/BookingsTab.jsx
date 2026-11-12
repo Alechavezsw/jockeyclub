@@ -1,17 +1,20 @@
 import { useMemo, useState } from 'react';
 import {
   Banknote,
+  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   CalendarDays,
   Download,
+  Eye,
   Loader2,
   Mail,
   MessageSquare,
   Phone,
   Plus,
   Search,
+  Smartphone,
   X,
 } from 'lucide-react';
 import AdminNewReservationDialog from './AdminNewReservationDialog';
@@ -97,6 +100,20 @@ function statusLabel(status) {
   if (status === 'pending') return 'Pendiente';
   if (status === 'rejected') return 'Rechazada';
   return 'Cancelada';
+}
+
+/** Texto del hover del día en el calendario. */
+function calendarDayTooltip(dayRes = []) {
+  const active = (dayRes || []).filter((r) => !r?.occupancyOnly);
+  if (!active.length) return 'Sin reservas';
+  const lines = active.map((r) => {
+    const time = r.endTime ? `${r.time || '—'}–${r.endTime}` : (r.time || '—');
+    const place = r.facilityName || r.facilityId || 'Espacio';
+    const who = r.memberName || (r.memberId ? `Nº ${r.memberId}` : 'Socio');
+    return `${time} · ${place} · ${who} · ${statusLabel(r.status)}`;
+  });
+  const head = active.length === 1 ? '1 reserva' : `${active.length} reservas`;
+  return [head, ...lines].join('\n');
 }
 
 function formatBookingDate(iso, { today = new Date() } = {}) {
@@ -242,10 +259,11 @@ export default function BookingsTab({
     if (String(value || '').trim()) setListOpen(true);
   };
 
-  const openReservationDetail = (res) => {
+  const openReservationDetail = (res, { jumpCalendar = true } = {}) => {
     if (!res?.id) return;
     setDetailReservationId(res.id);
     setListOpen(true);
+    if (!jumpCalendar || listScope === 'app') return;
     const day = String(res.date || '').slice(0, 10);
     if (/^\d{4}-\d{2}-\d{2}$/.test(day)) {
       setSelectedDate(day);
@@ -254,6 +272,22 @@ export default function BookingsTab({
         setCursor({ year: d.getFullYear(), month: d.getMonth() });
       }
     }
+  };
+
+  const enterAppReservationsScope = () => {
+    setListScope('app');
+    setListOpen(true);
+    setSelectedDate(null);
+    setSearchQuery('');
+    setOpenActionsId(null);
+    requestAnimationFrame(() => {
+      document.getElementById('bookings-app-inbox')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
+  const exitAppReservationsScope = () => {
+    setListScope('all');
+    setDetailReservationId(null);
   };
 
   const byDate = useMemo(() => {
@@ -282,7 +316,7 @@ export default function BookingsTab({
     for (let day = 1; day <= daysInMonth; day += 1) {
       const date = new Date(cursor.year, cursor.month, day, 12);
       const iso = toISODate(date);
-      const dayRes = byDate.get(iso) || [];
+      const dayRes = (byDate.get(iso) || []).filter((r) => !r?.occupancyOnly);
       cells.push({
         key: iso,
         empty: false,
@@ -294,6 +328,7 @@ export default function BookingsTab({
         confirmed: dayRes.filter((r) => r.status === 'confirmed').length,
         pending: dayRes.filter((r) => r.status === 'pending').length,
         cancelled: dayRes.filter((r) => r.status === 'cancelled').length,
+        tooltip: calendarDayTooltip(dayRes),
       });
     }
     return cells;
@@ -639,8 +674,8 @@ export default function BookingsTab({
                       >
                         <span className="bookings-settle-btn-icon" aria-hidden="true">
                           {actionsBusyKey === `settle:${res.id}`
-                            ? <Loader2 size={15} className="bookings-settle-spin" />
-                            : <Banknote size={15} strokeWidth={2.25} />}
+                            ? <Loader2 size={12} className="bookings-settle-spin" />
+                            : <Banknote size={12} strokeWidth={2.25} />}
                         </span>
                         <span className="bookings-settle-btn-copy">
                           <strong>{actionsBusyKey === `settle:${res.id}` ? 'Guardando…' : 'Completar pago'}</strong>
@@ -924,6 +959,79 @@ export default function BookingsTab({
           flex-wrap: wrap;
           gap: 0.45rem;
           margin-top: auto;
+        }
+        .bookings-app-inbox {
+          display: flex;
+          flex-direction: column;
+          gap: 0.85rem;
+          scroll-margin-top: 1rem;
+        }
+        .bookings-app-inbox-head {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 0.75rem;
+          flex-wrap: wrap;
+        }
+        .bookings-app-inbox-head h4 {
+          margin: 0;
+          font-size: 1.05rem;
+          display: inline-flex;
+          align-items: center;
+          gap: 0.45rem;
+        }
+        .bookings-app-inbox-head p {
+          margin: 0.3rem 0 0;
+          font-size: 0.8rem;
+          color: var(--text-muted);
+        }
+        .bookings-app-list {
+          display: flex;
+          flex-direction: column;
+          gap: 0.55rem;
+        }
+        .bookings-app-card {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 0.65rem 0.85rem;
+          align-items: center;
+          width: 100%;
+          padding: 0.85rem 0.95rem;
+          border-radius: 14px;
+          border: 1px solid color-mix(in srgb, var(--border-glass) 85%, transparent);
+          background: color-mix(in srgb, var(--border-glass) 22%, transparent);
+          text-align: left;
+        }
+        .bookings-app-card.is-pending {
+          border-color: color-mix(in srgb, #f59e0b 55%, transparent);
+          background: color-mix(in srgb, #f59e0b 10%, transparent);
+        }
+        .bookings-app-card-main {
+          display: flex;
+          flex-direction: column;
+          gap: 0.2rem;
+          min-width: 0;
+        }
+        .bookings-app-card-main strong {
+          font-size: 0.95rem;
+        }
+        .bookings-app-card-main span {
+          font-size: 0.78rem;
+          color: var(--text-muted);
+        }
+        .bookings-app-card-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.35rem;
+          justify-content: flex-end;
+        }
+        @media (max-width: 720px) {
+          .bookings-app-card {
+            grid-template-columns: 1fr;
+          }
+          .bookings-app-card-actions {
+            justify-content: flex-start;
+          }
         }
         .bookings-tab-toolbar {
           display: flex;
@@ -1237,17 +1345,18 @@ export default function BookingsTab({
         .bookings-settle-btn {
           display: inline-flex;
           align-items: center;
-          gap: 0.35rem;
-          min-height: 1.85rem;
-          padding: 0.25rem 0.7rem;
+          gap: 0.28rem;
+          width: fit-content;
+          padding: 0.18rem 0.5rem;
           border: 1px solid color-mix(in srgb, var(--primary-gold) 55%, var(--border-glass));
           border-radius: 999px;
           background: color-mix(in srgb, var(--primary-gold) 18%, var(--surface-card, transparent));
           color: var(--text-primary);
           font: inherit;
-          font-size: 0.72rem;
-          font-weight: 700;
-          letter-spacing: 0.02em;
+          font-size: 0.68rem;
+          font-weight: 650;
+          letter-spacing: 0.01em;
+          line-height: 1.2;
           cursor: pointer;
           text-align: left;
           transition: background 0.15s ease, border-color 0.15s ease;
@@ -1274,21 +1383,21 @@ export default function BookingsTab({
         .bookings-settle-btn-copy {
           display: inline-flex;
           align-items: baseline;
-          gap: 0.35rem;
+          gap: 0.28rem;
           min-width: 0;
-          line-height: 1.15;
+          line-height: 1.2;
           white-space: nowrap;
         }
         .bookings-settle-btn-copy strong {
-          font-size: 0.72rem;
-          font-weight: 700;
-          letter-spacing: 0.02em;
-          text-transform: uppercase;
-          color: var(--text-primary);
+          font-size: inherit;
+          font-weight: inherit;
+          letter-spacing: inherit;
+          text-transform: none;
+          color: inherit;
         }
         .bookings-settle-btn-copy b {
-          font-size: 0.72rem;
-          font-weight: 700;
+          font-size: inherit;
+          font-weight: inherit;
           font-variant-numeric: tabular-nums;
           color: var(--text-gold, var(--primary-gold));
         }
@@ -1660,12 +1769,8 @@ export default function BookingsTab({
           type="button"
           className={`bookings-scope-chip${listScope === 'app' ? ' is-active' : ''}`}
           aria-pressed={listScope === 'app'}
-          onClick={() => {
-            setListScope((prev) => (prev === 'app' ? 'all' : 'app'));
-            setListOpen(true);
-            setSelectedDate(null);
-          }}
-          title="Ver solo reservas hechas desde la app del socio"
+          onClick={enterAppReservationsScope}
+          title="Ver y gestionar reservas hechas desde la app del socio"
         >
           Reservas de la app
           <strong>{appReservations.length}</strong>
@@ -1830,7 +1935,129 @@ export default function BookingsTab({
         </div>
       ) : null}
 
-      <div className="bookings-layout" hidden={searchActive}>
+      {listScope === 'app' && !searchActive ? (
+        <section className="bookings-app-inbox" id="bookings-app-inbox" aria-label="Reservas de la app">
+          <div className="bookings-app-inbox-head">
+            <div>
+              <h4>
+                <Smartphone size={18} aria-hidden />
+                Reservas de la app
+              </h4>
+              <p>
+                {appReservations.length === 0
+                  ? 'Todavía no hay pedidos desde el portal del socio.'
+                  : `${appReservations.length} reserva${appReservations.length === 1 ? '' : 's'}${
+                    appPendingCount > 0
+                      ? ` · ${appPendingCount} pendiente${appPendingCount === 1 ? '' : 's'} de aprobación`
+                      : ''
+                  }`}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={exitAppReservationsScope}
+            >
+              Volver al libro
+            </button>
+          </div>
+
+          {appReservations.length === 0 ? (
+            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.88rem' }}>
+              Cuando un socio reserve desde Mi cuenta / Reservar, aparece acá para confirmar, anular o ver el detalle.
+            </p>
+          ) : (
+            <div className="bookings-app-list">
+              {[...appReservations]
+                .toSorted((a, b) => compareReservationsLatest(a, b, { pendingFirst: true }))
+                .map((res) => {
+                  const busy = actionsBusyKey.endsWith(`:${res.id}`);
+                  const money = formatMoney(res.chargedPrice || res.estimatedPrice);
+                  return (
+                    <article
+                      key={res.id}
+                      className={`bookings-app-card${res.status === 'pending' ? ' is-pending' : ''}`}
+                    >
+                      <div className="bookings-app-card-main">
+                        <strong>
+                          #{reservationAppNumber(res)}
+                          {' · '}
+                          {res.memberName || 'Socio'}
+                        </strong>
+                        <span>
+                          {res.facilityName || res.facilityId || 'Espacio'}
+                          {' · '}
+                          {formatBookingDate(res.date)}
+                          {res.time ? ` · ${res.time}` : ''}
+                          {res.endTime ? `–${res.endTime}` : ''}
+                        </span>
+                        <span>
+                          <span className={`bookings-status ${res.status}`}>{statusLabel(res.status)}</span>
+                          {money ? ` · ${money}` : ''}
+                          {reservationCreatedAt(res)
+                            ? ` · alta ${formatRelativeCreated(reservationCreatedAt(res))}`
+                            : ''}
+                        </span>
+                      </div>
+                      <div className="bookings-app-card-actions">
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => openReservationDetail(res, { jumpCalendar: false })}
+                        >
+                          <Eye size={14} aria-hidden />
+                          Detalle
+                        </button>
+                        {res.status === 'pending' ? (
+                          <button
+                            type="button"
+                            className="btn btn-primary btn-sm"
+                            disabled={busy}
+                            onClick={() => handleUpdateReservationStatus(res.id, 'confirmed')}
+                          >
+                            <Check size={14} aria-hidden />
+                            Aprobar
+                          </button>
+                        ) : null}
+                        {res.status !== 'cancelled' ? (
+                          <button
+                            type="button"
+                            className="btn btn-danger btn-sm"
+                            disabled={busy}
+                            onClick={() => handleUpdateReservationStatus(res.id, 'cancelled')}
+                          >
+                            Anular
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            disabled={busy}
+                            onClick={() => handleUpdateReservationStatus(res.id, 'confirmed')}
+                          >
+                            Reactivar
+                          </button>
+                        )}
+                        {res.status !== 'cancelled' && reservationOpenBalance(res) > 0 ? (
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            disabled={actionsBusyKey === `settle:${res.id}`}
+                            onClick={() => completeBookingPayment(res)}
+                          >
+                            Completar pago
+                          </button>
+                        ) : null}
+                      </div>
+                    </article>
+                  );
+                })}
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      <div className="bookings-layout" hidden={searchActive || listScope === 'app'}>
         <aside className="bookings-cal">
           <div className="bookings-cal-head">
             <h4>{monthLabel(cursor.year, cursor.month)}</h4>
@@ -1874,7 +2101,7 @@ export default function BookingsTab({
                     cell.total > 0 ? 'has-bookings' : '',
                   ].filter(Boolean).join(' ')}
                   onClick={() => selectCalendarDay(cell.iso)}
-                  title={cell.total ? `${cell.total} reserva${cell.total === 1 ? '' : 's'}` : 'Sin reservas'}
+                  title={cell.tooltip || 'Sin reservas'}
                 >
                   <span className="bookings-cal-daynum">{cell.day}</span>
                   {cell.total > 0 && (
@@ -2154,24 +2381,50 @@ export default function BookingsTab({
                     className="btn btn-primary btn-sm"
                     disabled={Boolean(actionsBusyKey)}
                     onClick={() => {
-                      void updateReservationStatus?.(detailReservation.id, 'confirmed');
+                      void handleUpdateReservationStatus(detailReservation.id, 'confirmed');
                       setDetailReservationId(null);
                     }}
                   >
-                    Confirmar
+                    Aprobar
                   </button>
                   <button
                     type="button"
-                    className="btn btn-secondary btn-sm"
+                    className="btn btn-danger btn-sm"
                     disabled={Boolean(actionsBusyKey)}
                     onClick={() => {
-                      void updateReservationStatus?.(detailReservation.id, 'cancelled');
+                      void handleUpdateReservationStatus(detailReservation.id, 'cancelled');
                       setDetailReservationId(null);
                     }}
                   >
                     Rechazar
                   </button>
                 </>
+              ) : null}
+              {detailReservation.status === 'confirmed' ? (
+                <button
+                  type="button"
+                  className="btn btn-danger btn-sm"
+                  disabled={Boolean(actionsBusyKey)}
+                  onClick={() => {
+                    void handleUpdateReservationStatus(detailReservation.id, 'cancelled');
+                    setDetailReservationId(null);
+                  }}
+                >
+                  Anular
+                </button>
+              ) : null}
+              {detailReservation.status === 'cancelled' ? (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  disabled={Boolean(actionsBusyKey)}
+                  onClick={() => {
+                    void handleUpdateReservationStatus(detailReservation.id, 'confirmed');
+                    setDetailReservationId(null);
+                  }}
+                >
+                  Reactivar
+                </button>
               ) : null}
               {detailReservation.status !== 'cancelled'
                 && reservationOpenBalance(detailReservation) > 0 ? (
@@ -2196,16 +2449,6 @@ export default function BookingsTab({
                   Comprobante
                 </button>
               ) : null}
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => {
-                  setOpenActionsId(detailReservation.id);
-                  setDetailReservationId(null);
-                }}
-              >
-                Ir a gestión
-              </button>
             </div>
           </aside>
         </div>

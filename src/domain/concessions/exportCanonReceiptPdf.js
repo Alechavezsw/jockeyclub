@@ -46,7 +46,7 @@ export async function downloadCanonReceiptPdf({ concession, payment }) {
   doc.text('JOCKEY CLUB SAN JUAN', 14, 16);
   doc.setFontSize(10);
   doc.setTextColor(220, 220, 220);
-  doc.text('Sede Rivadavia · Recibo de canon de concesión', 14, 24);
+  doc.text('Sede Rivadavia · Boleto de canon de concesión', 14, 24);
   doc.text(`N° ${payment.receipt || payment.id}`, 196, 16, { align: 'right' });
 
   doc.setTextColor(30, 30, 30);

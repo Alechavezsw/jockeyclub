@@ -1,6 +1,7 @@
 /** Concesiones del club: contratos, canon, vencimientos y alertas. */
 
 import { buildPostedEntry } from '../accounting/journal';
+import { resolveAccountId } from '../accounting/chartOfAccounts';
 import { todayAR } from '../../lib/arDate';
 
 
@@ -281,12 +282,13 @@ export const DEFAULT_CANON_PAYMENTS = [];
 
 /** Completa el padrón de concesiones con los locales del club si faltan. */
 export function ensureClubConcessions(list = []) {
+  const cleaned = sanitizeConcessionsList(list);
   const present = new Set(
-    (list || []).map((row) => concessionNameKey(row?.name || row?.concessionaire)),
+    cleaned.map((row) => concessionNameKey(row?.name || row?.concessionaire)),
   );
   const missing = DEFAULT_CONCESSIONS.filter((seed) => !present.has(concessionNameKey(seed.name)));
-  if (!missing.length) return Array.isArray(list) ? list : [];
-  return [...(list || []), ...missing];
+  if (!missing.length) return cleaned;
+  return [...cleaned, ...missing];
 }
 
 /**
@@ -501,9 +503,21 @@ export function getCanonDebt(concession, payments = [], { today = new Date() } =
   const concessionPayments = (payments || []).filter((p) => p.concessionId === concession.id);
   const paidPeriods = new Set(concessionPayments.map((p) => p.period));
 
+  const monthlyFee = Number(concession.monthlyFee) || 0;
+  // Sin canon configurado no inventamos deuda ni meses impagos.
+  if (monthlyFee <= 0) {
+    return {
+      expectedMonths,
+      paidMonths: [],
+      unpaidMonths: [],
+      totalDebt: 0,
+      monthlyFee: 0,
+      noFeeConfigured: true,
+    };
+  }
+
   const paidMonths = expectedMonths.filter((m) => paidPeriods.has(m));
   const unpaidMonths = expectedMonths.filter((m) => !paidPeriods.has(m));
-  const monthlyFee = Number(concession.monthlyFee) || 0;
 
   return {
     expectedMonths,
@@ -511,23 +525,42 @@ export function getCanonDebt(concession, payments = [], { today = new Date() } =
     unpaidMonths,
     totalDebt: unpaidMonths.length * monthlyFee,
     monthlyFee,
+    noFeeConfigured: false,
   };
 }
 
 export function buildCanonJournalEntry(payment, concession, chart) {
   const amount = Number(payment.amount) || 0;
-  const incomeAccount = concession.incomeAccountId || 'coa-4.1.04';
+  const list = Array.isArray(chart) ? chart : [];
+  const cashAccount = resolveAccountId(list, 'coa-1.1.01')
+    || resolveAccountId(list, 'Caja General');
+  const incomeAccount = resolveAccountId(list, concession.incomeAccountId || 'coa-4.1.04')
+    || resolveAccountId(list, 'Concesión Gastronómica')
+    || resolveAccountId(list, 'coa-4.1.04');
+  if (!cashAccount || !incomeAccount) {
+    throw new Error('Faltan las cuentas de Caja o Concesión en el plan contable.');
+  }
 
   return buildPostedEntry({
     date: payment.date || toISODate(new Date()),
     description: `Canon concesión ${concession.name} · ${payment.period}`,
     lines: [
-      { accountId: 'coa-1.1.01', debit: amount, credit: 0, memo: 'Caja General' },
+      { accountId: cashAccount, debit: amount, credit: 0, memo: 'Caja General' },
       { accountId: incomeAccount, debit: 0, credit: amount, memo: concession.name },
     ],
     sourceModule: 'concessions',
     sourceId: payment.id,
     chart,
+  });
+}
+
+/** Quita demos viejos (p. ej. Proveduría) que no son del padrón del club. */
+const RETIRED_CONCESSION_KEYS = new Set(['proveduria', 'proveeduria']);
+
+export function sanitizeConcessionsList(list = []) {
+  return (Array.isArray(list) ? list : []).filter((row) => {
+    const key = concessionNameKey(row?.name || row?.concessionaire);
+    return key && !RETIRED_CONCESSION_KEYS.has(key);
   });
 }
 

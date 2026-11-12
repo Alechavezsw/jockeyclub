@@ -16650,6 +16650,125 @@ a.ops-outline-btn {
   min-height: 280px;
 }
 
+.conc-canon-panel {
+  gap: 1rem;
+}
+
+.conc-canon-hero {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 0.75rem;
+}
+
+.conc-canon-hero > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.9rem 1rem;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--border-glass) 85%, transparent);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--primary-gold) 10%, transparent), transparent 55%),
+    color-mix(in srgb, var(--border-glass) 22%, transparent);
+}
+
+.conc-canon-hero span {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.conc-canon-hero strong {
+  font-size: 1.45rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+
+.conc-canon-hero em {
+  font-style: normal;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.conc-period-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.conc-period-chip {
+  min-height: 1.7rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--border-glass) 80%, transparent);
+  background: color-mix(in srgb, var(--border-glass) 28%, transparent);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.conc-period-chip.is-active,
+.conc-period-chip:hover {
+  border-color: color-mix(in srgb, var(--primary-gold) 60%, transparent);
+  background: color-mix(in srgb, var(--primary-gold) 16%, transparent);
+  color: var(--text-gold, var(--primary-gold));
+}
+
+.conc-canon-form {
+  align-items: end;
+}
+
+.conc-canon-submit {
+  min-height: 2.5rem;
+}
+
+.conc-canon-hint {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.conc-portal-strip {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--border-glass) 80%, transparent);
+  background: color-mix(in srgb, var(--border-glass) 20%, transparent);
+}
+
+.conc-portal-strip > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.conc-portal-strip span {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.conc-portal-strip strong {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.95rem;
+  letter-spacing: 0.04em;
+}
+
+@media (max-width: 720px) {
+  .conc-canon-hero {
+    grid-template-columns: 1fr;
+  }
+}
+
 .conc-wizard {
   padding: 1.15rem 1.25rem 1.35rem;
   margin-bottom: 1rem;

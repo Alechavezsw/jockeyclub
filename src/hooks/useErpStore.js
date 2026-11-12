@@ -121,6 +121,7 @@ import {
   removeConcessionDocument,
   syncConcessionAlerts,
   ensureClubConcessions,
+  sanitizeConcessionsList,
 } from '../domain/concessions/concessions';
 import { buildPostedEntry, normalizeLines } from '../domain/accounting/journal';
 import {
@@ -553,7 +554,7 @@ export default function useErpStore({
     if (Array.isArray(erp.fixedDiscounts)) setFixedDiscounts(withoutDemoTreasuryRows(erp.fixedDiscounts));
     if (Array.isArray(erp.paymentOrders)) setPaymentOrders(withoutDemoTreasuryRows(erp.paymentOrders));
     if (Array.isArray(erp.concessions)) {
-      const next = ensureClubConcessions(erp.concessions);
+      const next = ensureClubConcessions(sanitizeConcessionsList(erp.concessions));
       concessionsRef.current = next;
       setConcessions(next);
       if (cloud() && next.length > (erp.concessions?.length || 0)) {
@@ -1132,7 +1133,10 @@ export default function useErpStore({
             movementType: 'income',
             amount,
             concept: `Canon · ${concession.name} · ${payment.period}`,
-            relatedAccountId: concession.incomeAccountId || 'coa-4.1.04',
+            relatedAccountId: resolveAccountId(
+              chartOfAccounts,
+              concession.incomeAccountId || 'coa-4.1.04',
+            ) || resolveAccountId(chartOfAccounts, 'Concesión Gastronómica'),
             memberDbId: null,
             journalEntryId: savedEntry.id,
             createdBy: userId,
@@ -1162,7 +1166,10 @@ export default function useErpStore({
           movementType: 'income',
           amount,
           concept: `Canon · ${concession.name} · ${payment.period}`,
-          relatedAccountId: concession.incomeAccountId || 'coa-4.1.04',
+          relatedAccountId: resolveAccountId(
+            chartOfAccounts,
+            concession.incomeAccountId || 'coa-4.1.04',
+          ) || resolveAccountId(chartOfAccounts, 'Concesión Gastronómica'),
           journalEntryId: entry.id,
           createdAt: payment.recordedAt,
           createdBy: payment.recordedBy,

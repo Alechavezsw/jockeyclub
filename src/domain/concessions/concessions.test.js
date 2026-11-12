@@ -8,6 +8,7 @@ import {
   createCanonPayment,
   createConcession,
   ensureClubConcessions,
+  sanitizeConcessionsList,
   exportConcessionsCsv,
   findConcessionByPortalCode,
   findSpaceOverlap,
@@ -183,6 +184,26 @@ describe('canon debt', () => {
     ]);
     expect(debt.unpaidMonths).toEqual(['2026-02', '2026-04', '2026-05', '2026-06', '2026-07']);
     expect(debt.totalDebt).toBe(500000);
+  });
+
+  it('sin canon mensual no inventa deuda ni meses impagos', () => {
+    const debt = getCanonDebt(
+      { id: 'c1', startDate: '2026-01-01', endDate: '2026-12-31', monthlyFee: 0 },
+      [],
+      { today: new Date('2026-07-15') },
+    );
+    expect(debt.noFeeConfigured).toBe(true);
+    expect(debt.unpaidMonths).toEqual([]);
+    expect(debt.totalDebt).toBe(0);
+  });
+
+  it('saca Proveduría del listado', () => {
+    const next = sanitizeConcessionsList([
+      { id: '1', name: 'La Kelita' },
+      { id: '2', name: 'Proveduría' },
+      { id: '3', name: 'Proveeduría' },
+    ]);
+    expect(next.map((c) => c.name)).toEqual(['La Kelita']);
   });
 
   it('guarda quién y cuándo cargó el canon', () => {
