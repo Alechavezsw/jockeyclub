@@ -29,20 +29,39 @@ describe('hasReservationConflict', () => {
     expect(hasReservationConflict(undefined, { facilityId: 'x', date: 'y', time: 'z' })).toBe(false);
   });
 
-  it('bloquea turnos intermedios cuando la reserva tiene endTime (jornada real)', () => {
+  it('bloquea el turno día 11–19 sin tocar la noche', () => {
     const salonDay = [
       {
         id: 9,
         facilityId: 'salon_anhelo',
         date: '2026-08-30',
         time: '11:00',
-        endTime: '23:00',
+        endTime: '19:00',
         status: 'confirmed',
       },
     ];
     expect(hasReservationConflict(salonDay, { facilityId: 'salon_anhelo', date: '2026-08-30', time: '11:00' })).toBe(true);
     expect(hasReservationConflict(salonDay, { facilityId: 'salon_anhelo', date: '2026-08-30', time: '14:00' })).toBe(true);
-    expect(hasReservationConflict(salonDay, { facilityId: 'salon_anhelo', date: '2026-08-30', time: '21:00' })).toBe(true);
-    expect(hasReservationConflict(salonDay, { facilityId: 'salon_anhelo', date: '2026-08-30', time: '23:00' })).toBe(false);
+    expect(hasReservationConflict(salonDay, { facilityId: 'salon_anhelo', date: '2026-08-30', time: '18:30' })).toBe(true);
+    expect(hasReservationConflict(salonDay, { facilityId: 'salon_anhelo', date: '2026-08-30', time: '19:00' })).toBe(false);
+    expect(hasReservationConflict(salonDay, { facilityId: 'salon_anhelo', date: '2026-08-30', time: '20:00' })).toBe(false);
+  });
+
+  it('turno noche 20:00–03:30 cubre tras medianoche el mismo día de reserva', () => {
+    const salonNight = [
+      {
+        id: 10,
+        facilityId: 'salon_bustos',
+        date: '2026-08-30',
+        time: '20:00',
+        endTime: '03:30',
+        status: 'confirmed',
+      },
+    ];
+    expect(hasReservationConflict(salonNight, { facilityId: 'salon_bustos', date: '2026-08-30', time: '20:00' })).toBe(true);
+    expect(hasReservationConflict(salonNight, { facilityId: 'salon_bustos', date: '2026-08-30', time: '23:00' })).toBe(true);
+    expect(hasReservationConflict(salonNight, { facilityId: 'salon_bustos', date: '2026-08-30', time: '02:00' })).toBe(true);
+    expect(hasReservationConflict(salonNight, { facilityId: 'salon_bustos', date: '2026-08-30', time: '03:30' })).toBe(false);
+    expect(hasReservationConflict(salonNight, { facilityId: 'salon_bustos', date: '2026-08-30', time: '11:00' })).toBe(false);
   });
 });

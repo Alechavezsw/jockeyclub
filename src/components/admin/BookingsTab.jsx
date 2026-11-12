@@ -64,6 +64,20 @@ function reservationTakenByLabel(res) {
   return null;
 }
 
+function isAppReservation(res) {
+  const source = String(res?.source || '').toLowerCase();
+  return source === 'app' || source === 'portal' || source === 'member';
+}
+
+/** Nº visible de la reserva (app u otras): estable y corto. */
+export function reservationAppNumber(res) {
+  const external = String(res?.externalId || '').replace(/\D/g, '');
+  if (external.length >= 3) return external.slice(-6);
+  const raw = String(res?.id || '').replace(/[^a-zA-Z0-9]/g, '');
+  if (!raw) return '—';
+  return raw.slice(-6).toUpperCase();
+}
+
 const WEEKDAYS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
 function toISODate(d) {
@@ -163,6 +177,8 @@ function reservationSearchHaystack(res) {
     res?.time,
     res?.endTime,
     res?.recordedByName,
+    reservationAppNumber(res),
+    isAppReservation(res) ? 'app portal' : '',
     statusLabel(res?.status),
     reservationTakenByLabel(res),
   ].filter(Boolean).join(' '));
@@ -210,6 +226,8 @@ export default function BookingsTab({
   const [actionsNotice, setActionsNotice] = useState('');
   const [actionsError, setActionsError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [listScope, setListScope] = useState('all'); // all | app
+  const [detailReservationId, setDetailReservationId] = useState(null);
 
   const selectCalendarDay = (iso) => {
     setSelectedDate((prev) => {
@@ -222,6 +240,20 @@ export default function BookingsTab({
   const setBookingSearch = (value) => {
     setSearchQuery(value);
     if (String(value || '').trim()) setListOpen(true);
+  };
+
+  const openReservationDetail = (res) => {
+    if (!res?.id) return;
+    setDetailReservationId(res.id);
+    setListOpen(true);
+    const day = String(res.date || '').slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+      setSelectedDate(day);
+      const d = new Date(`${day}T12:00:00`);
+      if (!Number.isNaN(d.getTime())) {
+        setCursor({ year: d.getFullYear(), month: d.getMonth() });
+      }
+    }
   };
 
   const byDate = useMemo(() => {
@@ -296,11 +328,37 @@ export default function BookingsTab({
 
   const searchActive = Boolean(normalizeBookingSearch(searchQuery));
 
+  const appReservations = useMemo(
+    () => (reservations || []).filter((r) => !r.occupancyOnly && isAppReservation(r)),
+    [reservations],
+  );
+  const appPendingCount = useMemo(
+    () => appReservations.filter((r) => r.status === 'pending').length,
+    [appReservations],
+  );
+
+  const detailReservation = useMemo(
+    () => (reservations || []).find((r) => String(r.id) === String(detailReservationId)) || null,
+    [reservations, detailReservationId],
+  );
+
   const filteredReservations = useMemo(() => {
+    const onlyApp = listScope === 'app';
     if (searchActive) {
       return (reservations || [])
         .filter((r) => !r.occupancyOnly && reservationMatchesQuery(r, searchQuery))
+        .filter((r) => !onlyApp || isAppReservation(r))
         .toSorted((a, b) => compareReservationsLatest(a, b));
+    }
+    if (onlyApp) {
+      const pool = selectedDate
+        ? appReservations.filter((r) => r.date === selectedDate)
+        : appReservations;
+      return [...pool].toSorted((a, b) => (
+        selectedDate
+          ? String(a.time || '').localeCompare(String(b.time || ''))
+          : compareReservationsLatest(a, b, { pendingFirst: true })
+      ));
     }
     if (selectedDate) {
       return reservations
@@ -309,7 +367,15 @@ export default function BookingsTab({
     }
     return [...monthReservations]
       .toSorted((a, b) => compareReservationsLatest(a, b, { pendingFirst: true }));
-  }, [reservations, selectedDate, monthReservations, searchQuery, searchActive]);
+  }, [
+    reservations,
+    selectedDate,
+    monthReservations,
+    searchQuery,
+    searchActive,
+    listScope,
+    appReservations,
+  ]);
 
   const selectedDayList = selectedDate ? (byDate.get(selectedDate) || []) : [];
 
@@ -490,12 +556,14 @@ export default function BookingsTab({
   };
 
   const showCreatedColumn = searchActive || !selectedDate;
+  const tableColSpan = (showCreatedColumn ? 8 : 7) + 1;
 
   const renderReservationsTable = (rows, { emptyLabel }) => (
     <div className="bookings-list-body table-responsive">
       <table className="admin-table">
         <thead>
           <tr>
+            <th>Nº</th>
             <th>Socio</th>
             <th>Instalación</th>
             <th>Fecha</th>
@@ -510,7 +578,7 @@ export default function BookingsTab({
           {rows.length === 0 ? (
             <tr>
               <td
-                colSpan={showCreatedColumn ? 8 : 7}
+                colSpan={tableColSpan}
                 style={{ color: 'var(--text-muted)', padding: '1.5rem 1rem' }}
               >
                 {emptyLabel}
@@ -518,11 +586,25 @@ export default function BookingsTab({
             </tr>
           ) : (
             rows.map((res) => (
-              <tr key={res.id}>
+              <tr
+                key={res.id}
+                className={detailReservationId === res.id ? 'is-selected-booking' : undefined}
+              >
+                <td>
+                  <button
+                    type="button"
+                    className={`bookings-res-num${isAppReservation(res) ? ' is-app' : ''}`}
+                    onClick={() => openReservationDetail(res)}
+                    title="Abrir ficha de la reserva"
+                  >
+                    #{reservationAppNumber(res)}
+                  </button>
+                </td>
                 <td>
                   <strong>{res.memberName}</strong>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                     Nº {res.memberId}
+                    {isAppReservation(res) ? ' · App' : ''}
                   </div>
                 </td>
                 <td>
@@ -726,6 +808,123 @@ export default function BookingsTab({
   return (
     <div className="glass-card fade-in bookings-tab" style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
       <style>{`
+        .bookings-scope-chip {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.4rem;
+          min-height: 2rem;
+          padding: 0.28rem 0.75rem;
+          border-radius: 999px;
+          border: 1px solid color-mix(in srgb, var(--border-glass) 80%, transparent);
+          background: color-mix(in srgb, var(--border-glass) 35%, transparent);
+          color: var(--text-primary);
+          font: inherit;
+          font-size: 0.78rem;
+          font-weight: 650;
+          cursor: pointer;
+          white-space: nowrap;
+        }
+        .bookings-scope-chip strong {
+          font-variant-numeric: tabular-nums;
+          color: var(--primary-gold);
+        }
+        .bookings-scope-chip em {
+          font-style: normal;
+          font-size: 0.7rem;
+          color: #f59e0b;
+          font-weight: 700;
+        }
+        .bookings-scope-chip.is-active {
+          border-color: color-mix(in srgb, var(--primary-gold) 65%, transparent);
+          background: color-mix(in srgb, var(--primary-gold) 18%, transparent);
+        }
+        .bookings-res-num {
+          display: inline-flex;
+          align-items: center;
+          min-height: 1.7rem;
+          padding: 0.15rem 0.55rem;
+          border-radius: 999px;
+          border: 1px solid color-mix(in srgb, var(--border-glass) 80%, transparent);
+          background: color-mix(in srgb, var(--border-glass) 30%, transparent);
+          color: var(--text-primary);
+          font: inherit;
+          font-size: 0.72rem;
+          font-weight: 750;
+          font-variant-numeric: tabular-nums;
+          letter-spacing: 0.03em;
+          cursor: pointer;
+        }
+        .bookings-res-num.is-app {
+          border-color: color-mix(in srgb, var(--primary-gold) 55%, transparent);
+          color: var(--text-gold, var(--primary-gold));
+        }
+        .bookings-res-num:hover {
+          border-color: var(--primary-gold);
+          background: color-mix(in srgb, var(--primary-gold) 16%, transparent);
+        }
+        tr.is-selected-booking td {
+          background: color-mix(in srgb, var(--primary-gold) 10%, transparent);
+        }
+        .bookings-detail-overlay {
+          position: fixed;
+          inset: 0;
+          z-index: 80;
+          display: flex;
+          justify-content: flex-end;
+          background: color-mix(in srgb, #000 42%, transparent);
+        }
+        .bookings-detail-panel {
+          width: min(420px, 100vw);
+          height: 100%;
+          overflow: auto;
+          padding: 1.1rem 1.15rem 1.5rem;
+          background: var(--bg-card, #122018);
+          border-left: 1px solid var(--border-glass);
+          box-shadow: -12px 0 40px rgba(0, 0, 0, 0.28);
+          display: flex;
+          flex-direction: column;
+          gap: 0.85rem;
+        }
+        .bookings-detail-head {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 0.75rem;
+        }
+        .bookings-detail-head h4 {
+          margin: 0;
+          font-size: 1.05rem;
+        }
+        .bookings-detail-head p {
+          margin: 0.25rem 0 0;
+          font-size: 0.78rem;
+          color: var(--text-muted);
+        }
+        .bookings-detail-grid {
+          display: grid;
+          gap: 0.55rem;
+        }
+        .bookings-detail-grid div {
+          display: flex;
+          justify-content: space-between;
+          gap: 0.75rem;
+          padding: 0.45rem 0;
+          border-bottom: 1px solid color-mix(in srgb, var(--border-glass) 70%, transparent);
+          font-size: 0.84rem;
+        }
+        .bookings-detail-grid span {
+          color: var(--text-muted);
+        }
+        .bookings-detail-grid strong {
+          text-align: right;
+          font-weight: 650;
+        }
+        .bookings-detail-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.45rem;
+          margin-top: auto;
+        }
         .bookings-tab-toolbar {
           display: flex;
           align-items: center;
@@ -1033,36 +1232,29 @@ export default function BookingsTab({
           display: flex;
           flex-direction: column;
           align-items: flex-start;
-          gap: 0.4rem;
-          margin-top: 0.4rem;
+          gap: 0.35rem;
         }
         .bookings-settle-btn {
           display: inline-flex;
           align-items: center;
-          gap: 0.55rem;
-          border: 1px solid color-mix(in srgb, #c9a56e 55%, #8a6a3a);
-          background:
-            linear-gradient(165deg, #f0d7b0 0%, #e2c39a 38%, #c9a56e 100%);
-          color: #3d2a12;
-          border-radius: 12px;
-          padding: 0.42rem 0.7rem 0.42rem 0.48rem;
+          gap: 0.35rem;
+          min-height: 1.85rem;
+          padding: 0.25rem 0.7rem;
+          border: 1px solid color-mix(in srgb, var(--primary-gold) 55%, var(--border-glass));
+          border-radius: 999px;
+          background: color-mix(in srgb, var(--primary-gold) 18%, var(--surface-card, transparent));
+          color: var(--text-primary);
           font: inherit;
+          font-size: 0.72rem;
+          font-weight: 700;
+          letter-spacing: 0.02em;
           cursor: pointer;
           text-align: left;
-          box-shadow:
-            0 1px 0 color-mix(in srgb, #fff 45%, transparent) inset,
-            0 6px 14px -8px rgba(120, 84, 36, 0.55);
-          transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+          transition: background 0.15s ease, border-color 0.15s ease;
         }
         .bookings-settle-btn:hover:not(:disabled) {
-          transform: translateY(-1px);
-          filter: brightness(1.03);
-          box-shadow:
-            0 1px 0 color-mix(in srgb, #fff 50%, transparent) inset,
-            0 10px 18px -8px rgba(120, 84, 36, 0.6);
-        }
-        .bookings-settle-btn:active:not(:disabled) {
-          transform: translateY(0);
+          background: color-mix(in srgb, var(--primary-gold) 28%, var(--surface-card, transparent));
+          border-color: color-mix(in srgb, var(--primary-gold) 70%, var(--border-glass));
         }
         .bookings-settle-btn:focus-visible {
           outline: 2px solid var(--primary-gold);
@@ -1071,37 +1263,34 @@ export default function BookingsTab({
         .bookings-settle-btn:disabled {
           opacity: 0.72;
           cursor: wait;
-          transform: none;
         }
         .bookings-settle-btn-icon {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          width: 1.7rem;
-          height: 1.7rem;
-          border-radius: 9px;
-          background: color-mix(in srgb, #3d2a12 12%, transparent);
-          color: #3d2a12;
           flex-shrink: 0;
+          color: var(--primary-gold);
         }
         .bookings-settle-btn-copy {
-          display: flex;
-          flex-direction: column;
-          gap: 0.05rem;
+          display: inline-flex;
+          align-items: baseline;
+          gap: 0.35rem;
           min-width: 0;
           line-height: 1.15;
+          white-space: nowrap;
         }
         .bookings-settle-btn-copy strong {
-          font-size: 0.68rem;
+          font-size: 0.72rem;
           font-weight: 700;
-          letter-spacing: 0.01em;
-          color: color-mix(in srgb, #3d2a12 78%, transparent);
+          letter-spacing: 0.02em;
+          text-transform: uppercase;
+          color: var(--text-primary);
         }
         .bookings-settle-btn-copy b {
-          font-size: 0.92rem;
-          font-weight: 800;
+          font-size: 0.72rem;
+          font-weight: 700;
           font-variant-numeric: tabular-nums;
-          color: #2a1c0b;
+          color: var(--text-gold, var(--primary-gold));
         }
         .bookings-settle-spin {
           animation: bookings-settle-spin 0.8s linear infinite;
@@ -1467,6 +1656,21 @@ export default function BookingsTab({
         <h3 className="serif-font" style={{ fontSize: '1.5rem', margin: 0, flex: '0 1 auto', minWidth: 0 }}>
           Libro de Reservas
         </h3>
+        <button
+          type="button"
+          className={`bookings-scope-chip${listScope === 'app' ? ' is-active' : ''}`}
+          aria-pressed={listScope === 'app'}
+          onClick={() => {
+            setListScope((prev) => (prev === 'app' ? 'all' : 'app'));
+            setListOpen(true);
+            setSelectedDate(null);
+          }}
+          title="Ver solo reservas hechas desde la app del socio"
+        >
+          Reservas de la app
+          <strong>{appReservations.length}</strong>
+          {appPendingCount > 0 ? <em>{appPendingCount} pend.</em> : null}
+        </button>
         <div className="bookings-search">
           <Search size={15} aria-hidden="true" />
           <label className="sr-only" htmlFor="bookings-search-input">Buscar reservas</label>
@@ -1476,7 +1680,7 @@ export default function BookingsTab({
             className="bookings-search-input"
             value={searchQuery}
             onChange={(e) => setBookingSearch(e.target.value)}
-            placeholder="Socio, Nº, espacio, fecha…"
+            placeholder="Socio, Nº reserva, espacio, fecha…"
             autoComplete="off"
             aria-controls="bookings-search-results"
             aria-expanded={searchActive}
@@ -1747,9 +1951,13 @@ export default function BookingsTab({
                 <div style={{ minWidth: 0 }}>
                   <div className="bookings-list-title-row">
                     <h4 style={{ margin: 0, fontSize: '1rem' }}>
-                      {selectedDate
-                        ? `Turnos del ${new Date(`${selectedDate}T12:00:00`).toLocaleDateString('es-AR')}`
-                        : `Reservas · ${currentMonthLabel}`}
+                      {listScope === 'app'
+                        ? (selectedDate
+                          ? `App · ${new Date(`${selectedDate}T12:00:00`).toLocaleDateString('es-AR')}`
+                          : 'Reservas de la app')
+                        : selectedDate
+                          ? `Turnos del ${new Date(`${selectedDate}T12:00:00`).toLocaleDateString('es-AR')}`
+                          : `Reservas · ${currentMonthLabel}`}
                     </h4>
                     {!selectedDate ? (
                       <span
@@ -1836,11 +2044,172 @@ export default function BookingsTab({
 
           {listOpen
             ? renderReservationsTable(filteredReservations, {
-              emptyLabel: 'No hay reservas para mostrar.',
+              emptyLabel: listScope === 'app'
+                ? 'No hay reservas de la app para mostrar.'
+                : 'No hay reservas para mostrar.',
             })
             : null}
         </div>
       </div>
+
+      {detailReservation ? (
+        <div
+          className="bookings-detail-overlay"
+          role="presentation"
+          onClick={() => setDetailReservationId(null)}
+        >
+          <aside
+            className="bookings-detail-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="bookings-detail-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="bookings-detail-head">
+              <div>
+                <h4 id="bookings-detail-title">
+                  Reserva #{reservationAppNumber(detailReservation)}
+                </h4>
+                <p>
+                  {isAppReservation(detailReservation) ? 'Origen: app del socio' : 'Origen: administración / otro'}
+                  {reservationTakenByLabel(detailReservation)
+                    ? ` · ${reservationTakenByLabel(detailReservation)}`
+                    : ''}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                aria-label="Cerrar ficha"
+                onClick={() => setDetailReservationId(null)}
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            <div className="bookings-detail-grid">
+              <div>
+                <span>Estado</span>
+                <strong>{statusLabel(detailReservation.status)}</strong>
+              </div>
+              <div>
+                <span>Socio</span>
+                <strong>{detailReservation.memberName || '—'} · Nº {detailReservation.memberId || '—'}</strong>
+              </div>
+              <div>
+                <span>Espacio</span>
+                <strong>{detailReservation.facilityName || detailReservation.facilityId || '—'}</strong>
+              </div>
+              <div>
+                <span>Fecha</span>
+                <strong>{formatBookingDate(detailReservation.date)}</strong>
+              </div>
+              <div>
+                <span>Horario</span>
+                <strong>
+                  {detailReservation.time || '—'}
+                  {detailReservation.endTime ? ` → ${detailReservation.endTime}` : ''}
+                </strong>
+              </div>
+              <div>
+                <span>Invitados</span>
+                <strong>
+                  {Number(detailReservation.guests) || 0}
+                  {detailReservation.guestNames ? ` · ${detailReservation.guestNames}` : ''}
+                </strong>
+              </div>
+              <div>
+                <span>Total / cobrado</span>
+                <strong>
+                  {formatMoney(reservationTotalPrice(null, detailReservation)) || '—'}
+                  {' / '}
+                  {formatMoney(detailReservation.chargedPrice) || '—'}
+                </strong>
+              </div>
+              <div>
+                <span>Saldo</span>
+                <strong>{formatMoney(reservationOpenBalance(detailReservation)) || '$ 0'}</strong>
+              </div>
+              <div>
+                <span>Alta</span>
+                <strong>
+                  {detailReservation.createdAt
+                    ? new Date(detailReservation.createdAt).toLocaleString('es-AR')
+                    : '—'}
+                </strong>
+              </div>
+              {detailReservation.notes ? (
+                <div>
+                  <span>Notas</span>
+                  <strong style={{ whiteSpace: 'pre-wrap' }}>{detailReservation.notes}</strong>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="bookings-detail-actions">
+              {detailReservation.status === 'pending' ? (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    disabled={Boolean(actionsBusyKey)}
+                    onClick={() => {
+                      void updateReservationStatus?.(detailReservation.id, 'confirmed');
+                      setDetailReservationId(null);
+                    }}
+                  >
+                    Confirmar
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={Boolean(actionsBusyKey)}
+                    onClick={() => {
+                      void updateReservationStatus?.(detailReservation.id, 'cancelled');
+                      setDetailReservationId(null);
+                    }}
+                  >
+                    Rechazar
+                  </button>
+                </>
+              ) : null}
+              {detailReservation.status !== 'cancelled'
+                && reservationOpenBalance(detailReservation) > 0 ? (
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  disabled={actionsBusyKey === `settle:${detailReservation.id}`}
+                  onClick={() => {
+                    void completeBookingPayment(detailReservation);
+                  }}
+                >
+                  Completar pago
+                </button>
+              ) : null}
+              {detailReservation.status !== 'cancelled'
+                && reservationTotalPrice(null, detailReservation) > 0 ? (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => openReceiptMenu(detailReservation)}
+                >
+                  Comprobante
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => {
+                  setOpenActionsId(detailReservation.id);
+                  setDetailReservationId(null);
+                }}
+              >
+                Ir a gestión
+              </button>
+            </div>
+          </aside>
+        </div>
+      ) : null}
     </div>
   );
 }

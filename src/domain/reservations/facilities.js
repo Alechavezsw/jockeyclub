@@ -29,18 +29,22 @@ export function isDemoFacilityId(id) {
 }
 
 /** Versión de las reglas copiadas de Lila. Un catálogo guardado sin esta versión vuelve al seed. */
-export const LILA_RULES_VERSION = 1;
+export const LILA_RULES_VERSION = 2;
 
 /** Espacios que ya no existen en Lila y no se ofrecen. */
 export const RETIRED_FACILITY_IDS = new Set(['salon_eventos']);
 
-const NIGHT = { time: '20:00', endTime: '23:59', label: 'Noche' };
+/** Turnos de salón: día 11–19 y noche 20–03:30 (cruza medianoche). */
+export const SALON_DAY_TURN = { time: '11:00', endTime: '19:00', label: 'Día' };
+export const SALON_NIGHT_TURN = {
+  time: '20:00',
+  endTime: '03:30',
+  label: 'Noche',
+  endsNextDay: true,
+};
 
-function salonTurns(dayEnd) {
-  return [
-    { time: '11:00', endTime: dayEnd, label: 'Día' },
-    NIGHT,
-  ];
+export function salonTurns() {
+  return [SALON_DAY_TURN, SALON_NIGHT_TURN];
 }
 
 function salonRules({
@@ -49,7 +53,7 @@ function salonRules({
   debtLimit = 10000,
   maxGuests = 0,
   capacity,
-  intervalHours = 6,
+  intervalHours = 8,
   maxPerMonth = 56,
 } = {}) {
   return {
@@ -83,27 +87,27 @@ export const FACILITIES = [
     name: 'Salón Anhelo',
     category: 'salon',
     spaceType: 'salon',
-    description: 'Salón de fiestas. Turno de día 11:00 a 18:00 y turno de noche 20:00 a 03:00. Incluye limpieza, sillas y tablones.',
+    description: 'Salón de fiestas. Turno de día 11:00 a 19:00 y turno de noche 20:00 a 03:30. Incluye limpieza, sillas y tablones.',
     image: '/espacios/salon-anhelo.jpg',
-    hours: '11:00-18:00 · 20:00-23:59',
+    hours: '11:00-19:00 · 20:00-03:30',
     capacity: '60',
-    turns: salonTurns('18:00'),
+    turns: salonTurns(),
     slots: ['11:00', '20:00'],
     guestLimit: 60,
     isOutdoor: false,
     defaultPrice: 170000,
-    ...salonRules({ createStatus: 'pending', capacity: 60, maxGuests: 0, intervalHours: 7, maxPerMonth: 56 }),
+    ...salonRules({ createStatus: 'pending', capacity: 60, maxGuests: 0, intervalHours: 8, maxPerMonth: 56 }),
   },
   {
     id: 'salon_bustos',
     name: 'Salón Bustos',
     category: 'salon',
     spaceType: 'salon',
-    description: 'Salón de fiestas para hasta 95 personas. Turno de día 11:00 a 17:00 y turno de noche 20:00 a 03:00. Una reserva vigente por socio.',
+    description: 'Salón de fiestas para hasta 95 personas. Turno de día 11:00 a 19:00 y turno de noche 20:00 a 03:30. Una reserva vigente por socio.',
     image: '/espacios/salon-bustos.jpg',
-    hours: '11:00-17:00 · 20:00-23:59',
+    hours: '11:00-19:00 · 20:00-03:30',
     capacity: '95',
-    turns: salonTurns('17:00'),
+    turns: salonTurns(),
     slots: ['11:00', '20:00'],
     guestLimit: 60,
     isOutdoor: false,
@@ -115,11 +119,11 @@ export const FACILITIES = [
     name: 'Salón Maurin',
     category: 'salon',
     spaceType: 'salon',
-    description: 'Salón de fiestas para hasta 65 personas. Turno de día 11:00 a 17:00 y turno de noche 20:00 a 03:00. Una reserva vigente por socio.',
+    description: 'Salón de fiestas para hasta 65 personas. Turno de día 11:00 a 19:00 y turno de noche 20:00 a 03:30. Una reserva vigente por socio.',
     image: '/espacios/salon-maurin.jpg',
-    hours: '11:00-17:00 · 20:00-23:59',
+    hours: '11:00-19:00 · 20:00-03:30',
     capacity: '65',
-    turns: salonTurns('17:00'),
+    turns: salonTurns(),
     slots: ['11:00', '20:00'],
     guestLimit: 40,
     isOutdoor: false,
@@ -131,11 +135,11 @@ export const FACILITIES = [
     name: 'Salón Refugio',
     category: 'salon',
     spaceType: 'salon',
-    description: 'Salón para hasta 30 personas. Turno de día 11:00 a 17:00 y turno de noche 20:00 a 03:00.',
+    description: 'Salón para hasta 30 personas. Turno de día 11:00 a 19:00 y turno de noche 20:00 a 03:30.',
     image: '/espacios/salon-refugio.jpg',
-    hours: '11:00-17:00 · 20:00-23:59',
+    hours: '11:00-19:00 · 20:00-03:30',
     capacity: '30',
-    turns: salonTurns('17:00'),
+    turns: salonTurns(),
     slots: ['11:00', '20:00'],
     guestLimit: 30,
     isOutdoor: false,

@@ -87,7 +87,7 @@ export const CLUB_GUIDE = [
     tab: 'concessions',
     title: 'Concesiones',
     keywords: 'concesion canon local gastronomia espacio',
-    teach: 'Concesiones abre /concesiones. Entran admin, superadmin y contador. Ahí están locales, contratos y el canon.',
+    teach: 'Concesiones abre /panel/concessions (Operación). Entran admin, superadmin y contador. Locales precargados, canon a caja con trazabilidad y PDF.',
   },
   {
     id: 'contabilidad',
@@ -712,7 +712,7 @@ Empalme LILA: 1 de octubre de 2026. Desde noviembre de 2026 las cuotas las liqui
 Caja es módulo propio del rail (Gestión): saldos, movimientos por hoja, cobranzas. Contabilidad → Operación tiene el resto.
 Portal socio: https://www.jockeyclubsj.com.ar/cuenta (Mi cuenta) · /reservas /revista /perfil /mensajes /registro
 Profesor: /asistencia
-Portería QR: /acceso · Pileta: /pileta · Entrada pileta: /entrada-pileta · Concesiones: /concesiones`;
+Portería QR: /acceso · Pileta: /pileta · Entrada pileta: /entrada-pileta · Concesiones: /panel/concessions`;
 
 /** Cola de Revisión para el prompt de Gemini (prioridad del club). */
 export function reviewQueueForPrompt(items = [], { limit = 2200 } = {}) {

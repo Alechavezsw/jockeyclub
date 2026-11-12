@@ -448,20 +448,6 @@ export const APP_MANUAL = [
     dont: 'Si no ves una sección, no está rota: tu perfil no la abre.',
   },
   {
-    id: 'buscar',
-    group: 'entrar',
-    title: 'Buscar en el panel',
-    tab: 'dashboard',
-    keywords: 'buscar buscador ctrl seccion socio herramienta',
-    who: 'Cualquiera con panel.',
-    steps: [
-      'Arriba a la izquierda está el buscador (Ctrl /).',
-      'Escribí la sección (caja, socios, diario) o el nombre / número de socio.',
-      'El menú de la izquierda se agrupa: Operación, Club, Gestión, Comunicación, Administración, Sistema.',
-    ],
-    dont: 'No recorras el rail entero si sabés el nombre: buscá.'
-  },
-  {
     id: 'inicio',
     group: 'ops',
     title: 'Inicio',
@@ -546,10 +532,11 @@ export const APP_MANUAL = [
       'El socio entra a Reservar Canchas (/reservas), no al rail. Elige espacio, día y horario libre. Del turno ocupado ve solo que está ocupado.',
       'Las reservas las hace el titular de la cuenta. Un adherente que intenta reservar recibe “Las reservas las hace el titular de la cuenta”.',
       'Cada espacio tiene su regla, que se edita desde el espacio: hasta cuántos días antes se reserva, horas mínimas de anticipación, máximo de invitados, qué categorías pueden, una reserva vigente por espacio, si queda confirmada o pendiente de aprobación y si se carga a la cuenta corriente del socio.',
+      'Salones y Espacio Verde: seña del 50 % del alquiler, aparte de la cuota. Comisión no paga ese canon: reserva a costo 0 (sin seña ni cobro). Canchas sí cobran su tarifa.',
       'Con Zonda declarado se suspende lo que está al aire libre; lo cubierto sigue.',
       'Fiestas no es esta agenda: Fiestas son eventos con inscripción.',
     ],
-    dont: 'No cargues una fiesta acá. Eso va a Club → Fiestas.',
+    dont: 'No cargues una fiesta acá. Eso va a Club → Fiestas. No le cobres alquiler de salón ni Espacio Verde a comisión.',
   },
   {
     id: 'ingresos',
@@ -642,17 +629,18 @@ export const APP_MANUAL = [
   },
   {
     id: 'concesiones',
-    group: 'gestion',
+    group: 'ops',
     title: 'Concesiones',
     tab: 'concessions',
-    keywords: 'concesion canon local gastronomia contrato',
+    keywords: 'concesion canon local gastronomia contrato kelita paddle fanzolato teresita',
     who: 'Admin, superadmin y contador.',
     steps: [
-      'Gestión → Concesiones o /concesiones.',
-      'Alta: datos, vigencia y canon, documentos, cierre.',
+      'Operación → Concesiones (/panel/concessions).',
+      'Vienen precargadas La Kelita, Paddle, Escuela Santa Teresita y Escuela Fanzolato.',
+      'Cobrá el canon desde la ficha: entra a caja, guarda fecha/hora y quién lo cargó, y exporta PDF con el detalle.',
       'El vencimiento de un contrato aparece en Alertas.',
     ],
-    dont: 'No es un proveedor. Proveedores vive en Contabilidad.',
+    dont: 'No es un proveedor. Proveedores vive en Contabilidad. No cobres canon sin dejar trazabilidad.',
   },
   {
     id: 'contabilidad',

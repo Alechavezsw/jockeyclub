@@ -11,6 +11,10 @@ Toda reserva de instalación (salón, Espacio Verde, etc.):
 2. **Va a la cuenta** del titular (`event_imputation` / cuenta corriente / cobro de alquiler).
 3. **Siempre seña del 50 %** del precio total. El resto queda pendiente en cuenta hasta saldar.
 4. Mercado Pago / transferencia / aviso de pago de reserva: monto de la **seña (50 %)**, no el total (salvo que el socio abone el resto a propósito).
-5. Helpers: `RESERVATION_DEPOSIT_RATE`, `reservationDepositAmount`, `reservationTotalPrice`, `reservationBalanceAfterDeposit` en `bookingRules.js`.
+5. Helpers: `RESERVATION_DEPOSIT_RATE`, `reservationDepositAmount`, `reservationTotalPrice`, `reservationPriceForMember`, `reservationBalanceAfterDeposit` en `bookingRules.js`.
+
+## Comisión — salones y Espacio Verde a costo 0
+
+**Comisión** (presidente / comisión directiva) **no paga canon de alquiler** de salones ni Espacio Verde. Puede reservar Anhelo, Bustos, Maurín, Refugio y Espacio Verde (`isRealBookableSpace`) a **$ 0**: sin seña, sin MP, sin cargo a cuenta. Helper: `memberWaivesSalonRental` / `reservationPriceForMember`. No aplica a canchas ni pileta. Vitalicio y fundador **sí** pagan (salvo que también sean comisión).
 
 No inventar seña distinta por espacio. No tratar el alquiler como cuota.

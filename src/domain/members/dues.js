@@ -287,6 +287,17 @@ export function isVitalicioMember(member) {
   return /vitalicio/i.test(String(member?.tier || ''));
 }
 
+/** Comisión directiva / presidente: categoría comisión en el padrón. */
+export function isCommissionMember(member) {
+  const ids = billedTierIds(member);
+  if (ids.some((id) => /comision/.test(id))) return true;
+  const tier = String(member?.tier || '').trim().toLowerCase();
+  if (/comision/.test(tier)) return true;
+  const cats = member?.cuotaCategories ?? member?.meta?.cuotaCategories;
+  const blob = cats == null ? '' : (typeof cats === 'string' ? cats : JSON.stringify(cats));
+  return /comision/i.test(blob);
+}
+
 /**
  * No abonan cuota social: vitalicio, fundador y comisión (presidente / comisión directiva).
  * Si además tienen una categoría que sí liquida (p. ej. socio familiar), no están exentos

@@ -8,7 +8,7 @@ function parseMinutes(time = '') {
 
 /**
  * True si el horario `time` cae dentro de la reserva (inicio exacto o rango start–endTime).
- * Las reservas reales de salón/parrilla suelen ser jornada completa (11:00–23:00).
+ * Turno noche de salón puede cruzar medianoche (p. ej. 20:00–03:30).
  */
 function occupiesSlot(status) {
   const s = String(status || '').toLowerCase();
@@ -24,10 +24,13 @@ export function reservationCoversTime(reservation, time) {
   if (slotMin == null || startMin == null) return false;
 
   const endMin = parseMinutes(reservation.endTime);
-  if (endMin != null && endMin > startMin) {
+  if (endMin == null) return false;
+  // Mismo día: 11:00–19:00
+  if (endMin > startMin) {
     return slotMin >= startMin && slotMin < endMin;
   }
-  return false;
+  // Cruza medianoche: 20:00–03:30 → cubre desde start hasta 24:00 y de 00:00 hasta end
+  return slotMin >= startMin || slotMin < endMin;
 }
 
 /**

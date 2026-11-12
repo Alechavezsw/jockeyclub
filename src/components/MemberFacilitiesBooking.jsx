@@ -29,9 +29,10 @@ import {
   guestCap,
   latestBookableIso,
   validateMemberBooking,
-  reservationTotalPrice,
+  reservationPriceForMember,
   reservationDepositAmount,
   reservationBalanceAfterDeposit,
+  memberWaivesSalonRental,
   RESERVATION_DEPOSIT_RATE,
 } from '../domain/reservations/bookingRules';
 import { upcomingMemberReservations } from '../domain/reservations/memberBookings';
@@ -278,7 +279,7 @@ export default function MemberFacilitiesBooking({
     setErrorMessage('');
     setWaitMsg('');
     setBookingSuccess(false);
-    setPayMethod(reservationTotalPrice(facility) > 0 ? 'mercadopago' : 'cuenta_corriente');
+    setPayMethod(reservationPriceForMember(facility, member) > 0 ? 'mercadopago' : 'cuenta_corriente');
     setReceiptFile(null);
     setReceiptPreview('');
     setPaying(false);
@@ -329,7 +330,8 @@ export default function MemberFacilitiesBooking({
     });
   };
 
-  const bookingPrice = reservationTotalPrice(selectedFacility);
+  const salonWaived = memberWaivesSalonRental(member, selectedFacility);
+  const bookingPrice = reservationPriceForMember(selectedFacility, member);
   const depositDue = reservationDepositAmount(bookingPrice);
   const balanceAfterDeposit = reservationBalanceAfterDeposit(bookingPrice);
   const bank = CLUB_BANK_ACCOUNTS[0];
@@ -392,12 +394,15 @@ export default function MemberFacilitiesBooking({
       guestNames: names.join(', '),
       status: check.status,
       endTime: check.turn.endTime,
-      estimatedPrice: bookingPrice || null,
-      depositAmount: depositDue || null,
+      estimatedPrice: bookingPrice,
+      depositAmount: bookingPrice > 0 ? depositDue : 0,
       depositRate: bookingPrice > 0 ? RESERVATION_DEPOSIT_RATE : null,
       paymentMethod: bookingPrice > 0 ? method : null,
       mpIntentId: mpIntentId || null,
       source: 'app',
+      rentalWaived: salonWaived || null,
+      rentalWaiveReason: salonWaived ? 'comision_espacio' : null,
+      notes: salonWaived ? 'Sin cargo: comisión · alquiler de salón / Espacio Verde' : undefined,
     };
     const result = await addReservation?.(payload);
     if (result && result.ok === false) {
@@ -859,7 +864,11 @@ export default function MemberFacilitiesBooking({
                         time: turn.time,
                       }).length;
                       const label = blockedOutdoor ? 'Cerrado' : past ? 'Pasó' : taken ? 'Ocupado' : 'Libre';
-                      const range = turn.openDay ? 'Cualquier horario' : (turn.endTime ? `${turn.time}–${turn.endTime}` : turn.time);
+                      const range = turn.openDay
+                        ? 'Cualquier horario'
+                        : (turn.endTime
+                          ? `${turn.time}–${turn.endTime}${turn.endsNextDay ? ' (+1)' : ''}`
+                          : turn.time);
                       return (
                         <button
                           key={turn.time}
@@ -938,7 +947,13 @@ export default function MemberFacilitiesBooking({
                   )}
                 </div>
 
-                {bookingPrice > 0 ? (
+                {salonWaived ? (
+                  <div className="mfb-pay">
+                    <p className="mfb-book-hint">
+                      Comisión: no abonás canon de alquiler de salones ni Espacio Verde. Esta reserva queda a costo 0, sin seña.
+                    </p>
+                  </div>
+                ) : bookingPrice > 0 ? (
                   <div className="mfb-pay">
                     <label className="form-label" htmlFor="mfb-pay-method">Pago de la seña</label>
                     <p className="mfb-book-hint">
@@ -972,8 +987,8 @@ export default function MemberFacilitiesBooking({
                           endTime: null,
                           guests: Number(guests) || 0,
                           guestNames: guestNameList.map((n) => n.trim()).filter(Boolean).join(', '),
-                          estimatedPrice: bookingPrice || null,
-                          depositAmount: depositDue || null,
+                          estimatedPrice: bookingPrice,
+                          depositAmount: depositDue,
                           status: 'confirmed',
                         } : null}
                         label={`Pagar seña ${formatCurrency(depositDue)}`}

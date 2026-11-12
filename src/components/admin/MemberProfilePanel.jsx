@@ -968,7 +968,9 @@ export default function MemberProfilePanel({
   const age = ageFromBirth(member.birthDate);
   const tenure = membershipTenureLabel(member);
   const dueFact = memberDueFact(member);
-  const childStanding = familyChildStanding(member);
+  const childStanding = isFamilyDependent(member)
+    ? familyChildStanding(member)
+    : { kind: 'ok', age: null, label: null };
   const vitalicioOffer = shouldOfferVitalicio(member);
   const pendingBaja = isPendingBaja(member);
   const debitFailed = String(member?.mpAdhesion || member?.mercadoPagoAdhesion || member?.meta?.mpAdhesion || '').toLowerCase() === 'rejected'
@@ -1611,7 +1613,7 @@ export default function MemberProfilePanel({
                           {adh.memberId ? ` · Nº ${adh.memberId}` : ''}
                           {' · '}
                           {(adh.disciplines || []).join(', ') || 'Sin disciplina'}
-                          {familyChildStanding(source || adh).label ? (
+                          {adh.relationship !== 'Titular' && familyChildStanding(source || adh).label ? (
                             <span className="mp-family-standing">
                               {familyChildStanding(source || adh).label}
                             </span>

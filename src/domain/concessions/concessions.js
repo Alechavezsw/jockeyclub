@@ -23,6 +23,10 @@ export const CONCESSION_STATUS = {
 };
 
 export const CONCESSION_SPACES = [
+  { id: 'space-kelita', name: 'La Kelita', area: 'Gastronomía' },
+  { id: 'space-paddle', name: 'Paddle', area: 'Deportes' },
+  { id: 'space-santa-teresita', name: 'Escuela Santa Teresita', area: 'Educación' },
+  { id: 'space-fanzolato', name: 'Escuela Fanzolato', area: 'Educación' },
   { id: 'space-pavilion', name: 'Pabellón social / Restaurante', area: 'Social' },
   { id: 'space-proshop', name: 'Local Proshop tenis/pádel', area: 'Deportes' },
   { id: 'space-parking-n', name: 'Estacionamiento Norte', area: 'Accesos' },
@@ -61,6 +65,10 @@ export const ONBOARDING_STEPS = [
 ];
 
 const SPACE_PORTAL_PREFIX = {
+  'space-kelita': 'KEL',
+  'space-paddle': 'PAD',
+  'space-santa-teresita': 'TER',
+  'space-fanzolato': 'FAN',
   'space-pavilion': 'PAV',
   'space-proshop': 'PRO',
   'space-parking-n': 'PKN',
@@ -68,6 +76,15 @@ const SPACE_PORTAL_PREFIX = {
   'space-cantina-pileta': 'CPL',
   'space-eventos': 'EVT',
 };
+
+function concessionNameKey(name) {
+  return String(name || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
 
 const DAY_MS = 86400000;
 
@@ -112,16 +129,6 @@ function escapeCsv(value) {
     return `"${s.replace(/"/g, '""')}"`;
   }
   return s;
-}
-
-function seedDocuments(docs) {
-  return docs.map((doc, index) => ({
-    id: doc.id || `doc-seed-${index + 1}`,
-    type: doc.type,
-    name: doc.name,
-    uploadedAt: doc.uploadedAt || '2025-01-01T12:00:00.000Z',
-    note: doc.note || '',
-  }));
 }
 
 export function defaultChecklist() {
@@ -191,175 +198,96 @@ export function missingRequiredDocuments(concession) {
   return REQUIRED_DOC_TYPES.filter((t) => !types.has(t));
 }
 
-export const DEFAULT_CONCESSIONS = [
-  {
-    id: 'conc-1',
-    name: 'Restaurante The Pavilion',
-    type: 'gastronomia',
-    concessionaire: 'Bodega & Catering Rivadavia',
-    cuit: '30-55443322-9',
-    contactName: 'Laura Mendoza',
-    contactPhone: '+54 264 415-7788',
-    contactEmail: 'eventos@cateringrivadavia.ar',
-    location: 'Pabellón social · Sede Rivadavia',
-    spaceId: 'space-pavilion',
-    portalCode: 'PAV-8842',
-    startDate: '2025-01-01',
-    endDate: '2026-08-15',
-    noticeDays: 45,
-    monthlyFee: 850000,
-    revenueSharePct: 8,
-    deposit: 1500000,
-    incomeAccountId: 'coa-4.1.04',
-    statusManual: 'active',
-    autoRenew: false,
-    notes: 'Incluye cantina de pileta en temporada.',
-    checklist: {
-      contrato: true,
-      seguro: true,
-      habilitacion: true,
-      deposito: true,
-      llaves: true,
-      inventario: false,
-      baja_llaves: false,
-      baja_deposito: false,
-    },
-    documents: seedDocuments([
-      { id: 'doc-c1-contrato', type: 'contrato', name: 'Contrato Pavilion 2025-2026.pdf' },
-      { id: 'doc-c1-seguro', type: 'seguro', name: 'Póliza RC Rivadavia.pdf' },
-      { id: 'doc-c1-hab', type: 'habilitacion', name: 'Habilitación municipal 2025.pdf' },
-    ]),
-    renewalHistory: [],
-    createdAt: '2025-01-01T12:00:00.000Z',
-  },
-  {
-    id: 'conc-2',
-    name: 'Proshop Tenis & Pádel',
-    type: 'tienda',
-    concessionaire: 'Sport Cuyo SA',
-    cuit: '30-70112233-4',
-    contactName: 'Martín Ríos',
-    contactPhone: '+54 264 422-0099',
-    contactEmail: 'proshop@sportcuyo.ar',
-    location: 'Canchas de tenis · local anexo',
-    spaceId: 'space-proshop',
-    portalCode: 'PRO-3310',
-    startDate: '2024-06-01',
-    endDate: '2026-07-31',
-    noticeDays: 30,
-    monthlyFee: 220000,
-    revenueSharePct: 5,
-    deposit: 400000,
-    incomeAccountId: 'coa-4.1.02',
-    statusManual: 'active',
-    autoRenew: true,
-    notes: 'Venta de raquetas, pelotas y alquiler de material.',
-    checklist: defaultChecklist(),
-    documents: seedDocuments([
-      { id: 'doc-c2-contrato', type: 'contrato', name: 'Contrato Proshop.pdf' },
-      { id: 'doc-c2-seguro', type: 'seguro', name: 'Seguro Sport Cuyo.pdf' },
-      { id: 'doc-c2-hab', type: 'habilitacion', name: 'Habilitación comercial.pdf' },
-    ]),
-    renewalHistory: [],
-    createdAt: '2024-06-01T12:00:00.000Z',
-  },
-  {
-    id: 'conc-3',
-    name: 'Estacionamiento Norte',
-    type: 'estacionamiento',
-    concessionaire: 'Parking Rivadavia SRL',
-    cuit: '30-60998877-2',
-    contactName: 'Carlos Vega',
-    contactPhone: '+54 264 430-5500',
-    contactEmail: 'ops@parkingrivadavia.ar',
-    location: 'Acceso norte · República del Líbano',
-    spaceId: 'space-parking-n',
-    portalCode: 'PKN-5521',
-    startDate: '2023-03-01',
-    endDate: '2026-06-30',
-    noticeDays: 60,
-    monthlyFee: 180000,
-    revenueSharePct: 0,
-    deposit: 300000,
-    incomeAccountId: 'coa-4.1.04',
-    statusManual: 'active',
-    autoRenew: false,
-    notes: 'Canon fijo mensual. Renovación en trámite.',
-    checklist: defaultChecklist(),
-    documents: seedDocuments([
-      { id: 'doc-c3-contrato', type: 'contrato', name: 'Contrato estacionamiento.pdf' },
-      { id: 'doc-c3-hab', type: 'habilitacion', name: 'Habilitación tránsito.pdf' },
-    ]),
-    renewalHistory: [],
-    createdAt: '2023-03-01T12:00:00.000Z',
-  },
-  {
-    id: 'conc-4',
-    name: 'Clínica de Equitación externa',
-    type: 'deportes',
-    concessionaire: 'Escuela Cordillerana',
-    cuit: '27-28445912-3',
-    contactName: 'Ana Lucero',
-    contactPhone: '+54 264 455-1212',
-    contactEmail: 'info@escuelacordillerana.ar',
-    location: 'Pistas de adiestramiento',
-    spaceId: 'space-equitacion',
-    portalCode: 'EQU-1198',
-    startDate: '2025-09-01',
+function clubConcessionSeed({
+  id,
+  name,
+  type,
+  concessionaire,
+  spaceId,
+  portalCode,
+  location,
+}) {
+  return {
+    id,
+    name,
+    type,
+    concessionaire,
+    cuit: '',
+    contactName: '',
+    contactPhone: '',
+    contactEmail: '',
+    location,
+    spaceId,
+    portalCode,
+    startDate: '2026-01-01',
     endDate: '2026-12-31',
     noticeDays: 30,
-    monthlyFee: 95000,
-    revenueSharePct: 10,
-    deposit: 150000,
-    incomeAccountId: 'coa-4.1.02',
+    monthlyFee: 0,
+    revenueSharePct: 0,
+    deposit: 0,
+    incomeAccountId: 'coa-4.1.04',
     statusManual: 'active',
     autoRenew: true,
-    notes: 'Clases particulares fuera de horario de club.',
+    notes: 'Canon mensual: se carga al cobrar (fecha, hora y quién lo registró quedan en trazabilidad y caja).',
     checklist: defaultChecklist(),
     documents: [],
     renewalHistory: [],
-    createdAt: '2025-09-01T12:00:00.000Z',
-  },
+    seedKey: concessionNameKey(name),
+    createdAt: '2026-01-01T12:00:00.000Z',
+  };
+}
+
+/** Locales reales del club: siempre precargados. */
+export const DEFAULT_CONCESSIONS = [
+  clubConcessionSeed({
+    id: 'conc-kelita',
+    name: 'La Kelita',
+    type: 'gastronomia',
+    concessionaire: 'La Kelita',
+    spaceId: 'space-kelita',
+    portalCode: 'KEL-1001',
+    location: 'La Kelita · Sede Rivadavia',
+  }),
+  clubConcessionSeed({
+    id: 'conc-paddle',
+    name: 'Paddle',
+    type: 'deportes',
+    concessionaire: 'Paddle',
+    spaceId: 'space-paddle',
+    portalCode: 'PAD-1002',
+    location: 'Canchas de pádel',
+  }),
+  clubConcessionSeed({
+    id: 'conc-santa-teresita',
+    name: 'Escuela Santa Teresita',
+    type: 'otro',
+    concessionaire: 'Escuela Santa Teresita',
+    spaceId: 'space-santa-teresita',
+    portalCode: 'TER-1003',
+    location: 'Escuela Santa Teresita',
+  }),
+  clubConcessionSeed({
+    id: 'conc-fanzolato',
+    name: 'Escuela Fanzolato',
+    type: 'otro',
+    concessionaire: 'Escuela Fanzolato',
+    spaceId: 'space-fanzolato',
+    portalCode: 'FAN-1004',
+    location: 'Escuela Fanzolato',
+  }),
 ];
 
-export const DEFAULT_CANON_PAYMENTS = [
-  {
-    id: 'cp-1',
-    concessionId: 'conc-1',
-    amount: 850000,
-    period: '2026-05',
-    method: 'transfer',
-    date: '2026-05-05',
-    note: 'Canon mayo',
-  },
-  {
-    id: 'cp-2',
-    concessionId: 'conc-1',
-    amount: 850000,
-    period: '2026-06',
-    method: 'transfer',
-    date: '2026-06-05',
-    note: 'Canon junio',
-  },
-  {
-    id: 'cp-3',
-    concessionId: 'conc-2',
-    amount: 220000,
-    period: '2026-06',
-    method: 'cash',
-    date: '2026-06-10',
-    note: '',
-  },
-  {
-    id: 'cp-4',
-    concessionId: 'conc-2',
-    amount: 220000,
-    period: '2026-07',
-    method: 'transfer',
-    date: '2026-07-08',
-    note: 'Julio',
-  },
-];
+export const DEFAULT_CANON_PAYMENTS = [];
+
+/** Completa el padrón de concesiones con los locales del club si faltan. */
+export function ensureClubConcessions(list = []) {
+  const present = new Set(
+    (list || []).map((row) => concessionNameKey(row?.name || row?.concessionaire)),
+  );
+  const missing = DEFAULT_CONCESSIONS.filter((seed) => !present.has(concessionNameKey(seed.name)));
+  if (!missing.length) return Array.isArray(list) ? list : [];
+  return [...(list || []), ...missing];
+}
 
 /**
  * Estado operativo según fechas (y suspensión manual).
@@ -532,9 +460,22 @@ export function renewConcession(concession, { months = 12, today = new Date(), m
   };
 }
 
-export function createCanonPayment({ concessionId, amount, period, method, date, note }) {
+export function createCanonPayment({
+  concessionId,
+  amount,
+  period,
+  method,
+  date,
+  note,
+  recordedBy = null,
+  recordedByName = null,
+  recordedAt = null,
+} = {}) {
   if (!concessionId) throw new Error('Indicá la concesión.');
   if (!period) throw new Error('Indicá el período (YYYY-MM).');
+  const now = new Date();
+  const paidOn = date || toISODate(now);
+  const when = recordedAt || now.toISOString();
 
   return {
     id: `cp-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
@@ -542,8 +483,12 @@ export function createCanonPayment({ concessionId, amount, period, method, date,
     amount: Number(amount) || 0,
     period: String(period),
     method: method || 'transfer',
-    date: date || toISODate(new Date()),
+    date: paidOn,
     note: String(note || '').trim(),
+    recordedBy: recordedBy || null,
+    recordedByName: String(recordedByName || '').trim() || null,
+    recordedAt: when,
+    concept: `Canon concesión · ${String(period)}`,
   };
 }
 

@@ -120,6 +120,7 @@ import {
   addConcessionDocument,
   removeConcessionDocument,
   syncConcessionAlerts,
+  ensureClubConcessions,
 } from '../domain/concessions/concessions';
 import { buildPostedEntry, normalizeLines } from '../domain/accounting/journal';
 import {
@@ -358,8 +359,9 @@ export default function useErpStore({
     if (cloud()) return [];
     const loaded = load('jockey-concessions', null);
     if (!loaded) return DEFAULT_CONCESSIONS;
-    return loaded.map((c) => {
-      const seed = DEFAULT_CONCESSIONS.find((d) => d.id === c.id);
+    const merged = loaded.map((c) => {
+      const seed = DEFAULT_CONCESSIONS.find((d) => d.id === c.id)
+        || DEFAULT_CONCESSIONS.find((d) => String(d.name).toLowerCase() === String(c.name || '').toLowerCase());
       return {
         ...(seed || {}),
         ...c,
@@ -370,6 +372,7 @@ export default function useErpStore({
         portalCode: c.portalCode || seed?.portalCode || '',
       };
     });
+    return ensureClubConcessions(merged);
   });
   const concessionsRef = useRef(concessions);
   useEffect(() => {
@@ -550,8 +553,22 @@ export default function useErpStore({
     if (Array.isArray(erp.fixedDiscounts)) setFixedDiscounts(withoutDemoTreasuryRows(erp.fixedDiscounts));
     if (Array.isArray(erp.paymentOrders)) setPaymentOrders(withoutDemoTreasuryRows(erp.paymentOrders));
     if (Array.isArray(erp.concessions)) {
-      concessionsRef.current = erp.concessions;
-      setConcessions(erp.concessions);
+      const next = ensureClubConcessions(erp.concessions);
+      concessionsRef.current = next;
+      setConcessions(next);
+      if (cloud() && next.length > (erp.concessions?.length || 0)) {
+        const known = new Set((erp.concessions || []).map((row) => String(row.name || '').toLowerCase()));
+        next
+          .filter((row) => !known.has(String(row.name || '').toLowerCase()))
+          .forEach((row) => {
+            void repos.upsertConcession(row).then((saved) => {
+              setConcessions((prev) => {
+                const withoutSeed = prev.filter((c) => c.id !== row.id && c.id !== saved.id);
+                return ensureClubConcessions([...withoutSeed, saved]);
+              });
+            }).catch(() => {});
+          });
+      }
     }
     if (Array.isArray(erp.alerts)) {
       setAlerts(syncConcessionAlerts(erp.alerts, concessionsRef.current));
@@ -1088,30 +1105,90 @@ export default function useErpStore({
     async (payload) => {
       const concession = concessions.find((c) => c.id === payload.concessionId);
       if (!concession) throw new Error('Concesión no encontrada.');
-      const payment = createCanonPayment(payload);
+      const amount = Number(payload.amount) || Number(concession.monthlyFee) || 0;
+      if (!(amount > 0)) throw new Error('Indicá el importe del canon.');
+      const payment = createCanonPayment({
+        ...payload,
+        amount,
+        recordedBy: payload.recordedBy || userId || null,
+        recordedByName: payload.recordedByName
+          || String(payload.actorName || '').trim()
+          || null,
+      });
       const entry = buildCanonJournalEntry(payment, concession, chartOfAccounts);
+      const receipt = `CAN-${String(Date.now()).slice(-8)}`;
+      const register = pickGeneralCashRegister(cashRegisters, chartOfAccounts);
+      let cashMovement = null;
+
       if (cloud()) {
         const savedEntry = await repos.insertJournalEntry(entry, { createdBy: userId });
+        if (register && amount > 0) {
+          let session = getOpenSession(cashSessions, register.id);
+          if (!session) {
+            session = await openRegister(register.id, 0);
+          }
+          cashMovement = await repos.insertCashMovement({
+            cashSessionId: session.id,
+            movementType: 'income',
+            amount,
+            concept: `Canon · ${concession.name} · ${payment.period}`,
+            relatedAccountId: concession.incomeAccountId || 'coa-4.1.04',
+            memberDbId: null,
+            journalEntryId: savedEntry.id,
+            createdBy: userId,
+          });
+          setCashMovements((prev) => [cashMovement, ...prev]);
+        }
         const withReceipt = {
           ...payment,
-          receipt: `CAN-${String(Date.now()).slice(-8)}`,
+          receipt,
           journalEntryId: savedEntry.id,
+          cashMovementId: cashMovement?.id || null,
         };
         const savedPay = await repos.insertCanonPayment(withReceipt);
         setCanonPayments((prev) => [savedPay, ...prev]);
         setJournalEntries((prev) => [savedEntry, ...prev]);
         return savedPay;
       }
+
+      if (register && amount > 0) {
+        let session = getOpenSession(cashSessions, register.id);
+        if (!session) {
+          session = await openRegister(register.id, 0);
+        }
+        cashMovement = {
+          id: `cm-canon-${Date.now()}`,
+          cashSessionId: session.id,
+          movementType: 'income',
+          amount,
+          concept: `Canon · ${concession.name} · ${payment.period}`,
+          relatedAccountId: concession.incomeAccountId || 'coa-4.1.04',
+          journalEntryId: entry.id,
+          createdAt: payment.recordedAt,
+          createdBy: payment.recordedBy,
+        };
+        setCashMovements((prev) => [cashMovement, ...prev]);
+      }
       const withReceipt = {
         ...payment,
-        receipt: `CAN-${String(Date.now()).slice(-8)}`,
+        receipt,
         journalEntryId: entry.id,
+        cashMovementId: cashMovement?.id || null,
       };
       setCanonPayments((prev) => [withReceipt, ...prev]);
       setJournalEntries((prev) => [entry, ...prev]);
       return withReceipt;
     },
-    [concessions, chartOfAccounts, setJournalEntries, userId]
+    [
+      concessions,
+      chartOfAccounts,
+      cashRegisters,
+      cashSessions,
+      openRegister,
+      setJournalEntries,
+      setCashMovements,
+      userId,
+    ]
   );
 
   const addClubEvent = useCallback(async (payload) => {

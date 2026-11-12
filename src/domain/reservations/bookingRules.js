@@ -1,25 +1,31 @@
 /** Reglas de reserva tal como están configuradas en Lila para cada espacio. */
 
 import { findTier } from '../members/tiers.js';
+import { isCommissionMember } from '../members/dues.js';
 import { memberMayOperateAccount } from '../members/households.js';
 import { todayISODateAR } from '../../lib/arDate.js';
 import { facilityDayTaken, hasReservationConflict } from './conflicts.js';
+import { isRealBookableSpace } from './facilities.js';
 
 /** Seña obligatoria de toda reserva: 50 % del total. Va a la cuenta, aparte de la cuota. */
 export const RESERVATION_DEPOSIT_RATE = 0.5;
 
+/**
+ * Comisión no paga canon de alquiler de salones ni Espacio Verde: reserva a costo 0.
+ * Canchas / pileta siguen con su precio.
+ */
+export function memberWaivesSalonRental(member, facility) {
+  return Boolean(member && isCommissionMember(member) && isRealBookableSpace(facility));
+}
+
 /** Precio total del alquiler (catálogo o monto ya cargado). */
 export function reservationTotalPrice(facilityOrAmount, reservation = null) {
   if (reservation != null) {
-    const fromRow = Number(
-      reservation.estimatedPrice
-      ?? reservation.amount
-      ?? reservation.price
-      ?? reservation.total
-      ?? reservation.fee
-      ?? 0,
-    );
-    if (Number.isFinite(fromRow) && fromRow > 0) return Math.round(fromRow);
+    for (const key of ['estimatedPrice', 'amount', 'price', 'total', 'fee']) {
+      if (reservation[key] == null || reservation[key] === '') continue;
+      const fromRow = Number(reservation[key]);
+      if (Number.isFinite(fromRow) && fromRow >= 0) return Math.round(fromRow);
+    }
   }
   if (typeof facilityOrAmount === 'number' || typeof facilityOrAmount === 'string') {
     const n = Number(facilityOrAmount);
@@ -27,6 +33,15 @@ export function reservationTotalPrice(facilityOrAmount, reservation = null) {
   }
   const fromFacility = Number(facilityOrAmount?.defaultPrice);
   return Number.isFinite(fromFacility) && fromFacility > 0 ? Math.round(fromFacility) : 0;
+}
+
+/**
+ * Precio a aplicar al socio: 0 si es comisión y el espacio es salón / Espacio Verde;
+ * si no, el catálogo / la fila de reserva.
+ */
+export function reservationPriceForMember(facilityOrAmount, member, reservation = null) {
+  if (memberWaivesSalonRental(member, facilityOrAmount)) return 0;
+  return reservationTotalPrice(facilityOrAmount, reservation);
 }
 
 /** Seña 50 % (redondeo a peso). Sin total → 0. */
@@ -82,6 +97,9 @@ export function facilityTurns(facility) {
       endTime: turn.endTime || null,
       label: turn.label || turn.time,
       openDay: turn.openDay === true,
+      endsNextDay: turn.endsNextDay === true
+        || (Boolean(turn.endTime)
+          && parseInt(String(turn.endTime).slice(0, 2), 10) < parseInt(String(turn.time).slice(0, 2), 10)),
     }));
   }
   return (facility?.slots || []).map((time) => ({ time, endTime: null, label: time }));
@@ -126,6 +144,20 @@ function turnStart(day, time) {
   const [hh, mm] = String(time).split(':').map(Number);
   if (!y || !m || !d || !Number.isFinite(hh)) return null;
   return new Date(y, m - 1, d, hh, Number.isFinite(mm) ? mm : 0, 0, 0);
+}
+
+/** Fin del turno; si endsNextDay o endTime < start, cae al día siguiente. */
+export function turnEndAt(day, turn) {
+  if (!turn) return null;
+  const end = turnStart(day, turn.endTime || turn.time);
+  const start = turnStart(day, turn.time);
+  if (!end || !start) return end;
+  const overnight = turn.endsNextDay === true
+    || (parseInt(String(turn.endTime || '').slice(0, 2), 10) < parseInt(String(turn.time || '').slice(0, 2), 10));
+  if (overnight && end.getTime() <= start.getTime()) {
+    end.setDate(end.getDate() + 1);
+  }
+  return end;
 }
 
 function memberTierLabel(member) {
@@ -176,7 +208,7 @@ export function validateMemberBooking({
     return { ok: false, error: `Hay que reservar con al menos ${priorHours} horas de anticipación.` };
   }
   if (openDay) {
-    const endAt = turnStart(day, turn.endTime || '23:59');
+    const endAt = turnEndAt(day, { ...turn, endTime: turn.endTime || '23:59' });
     if (endAt && now.getTime() > endAt.getTime()) {
       return { ok: false, error: 'Ese día ya terminó.' };
     }

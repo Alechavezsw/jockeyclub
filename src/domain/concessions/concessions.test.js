@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CHART_OF_ACCOUNTS } from '../accounting/chartOfAccounts';
 import {
-  DEFAULT_CANON_PAYMENTS,
   DEFAULT_CONCESSIONS,
   buildCanonJournalEntry,
   buildExpiryCalendar,
   checklistProgress,
   createCanonPayment,
   createConcession,
+  ensureClubConcessions,
   exportConcessionsCsv,
   findConcessionByPortalCode,
   findSpaceOverlap,
@@ -185,45 +185,56 @@ describe('canon debt', () => {
     expect(debt.totalDebt).toBe(500000);
   });
 
-  it('usa DEFAULT_CANON_PAYMENTS para conc-1 parcialmente al día', () => {
-    const conc = DEFAULT_CONCESSIONS.find((c) => c.id === 'conc-1');
-    const debt = getCanonDebt(conc, DEFAULT_CANON_PAYMENTS, { today: new Date('2026-07-24') });
-    expect(debt.paidMonths).toContain('2026-05');
-    expect(debt.paidMonths).toContain('2026-06');
-    expect(debt.unpaidMonths.length).toBeGreaterThan(0);
+  it('guarda quién y cuándo cargó el canon', () => {
+    const payment = createCanonPayment({
+      concessionId: 'conc-kelita',
+      amount: 150000,
+      period: '2026-11',
+      method: 'cash',
+      recordedBy: 'user-1',
+      recordedByName: 'Ana Admin',
+      recordedAt: '2026-11-11T21:05:00.000Z',
+    });
+    expect(payment.recordedByName).toBe('Ana Admin');
+    expect(payment.recordedAt).toBe('2026-11-11T21:05:00.000Z');
+    expect(payment.amount).toBe(150000);
   });
 
   it('genera asiento contable de canon', () => {
     const conc = DEFAULT_CONCESSIONS[0];
-    const payment = DEFAULT_CANON_PAYMENTS[0];
+    const payment = createCanonPayment({
+      concessionId: conc.id,
+      amount: 150000,
+      period: '2026-11',
+      method: 'transfer',
+      date: '2026-11-11',
+    });
     const entry = buildCanonJournalEntry(payment, conc, DEFAULT_CHART_OF_ACCOUNTS);
     expect(entry.status).toBe('posted');
-    expect(entry.lines.some((l) => l.accountId === 'coa-1.1.01' && l.debit === 850000)).toBe(true);
-    expect(entry.lines.some((l) => l.accountId === 'coa-4.1.04' && l.credit === 850000)).toBe(true);
+    expect(entry.lines.some((l) => l.accountId === 'coa-1.1.01' && l.debit === 150000)).toBe(true);
+    expect(entry.lines.some((l) => l.accountId === 'coa-4.1.04' && l.credit === 150000)).toBe(true);
   });
 });
 
 describe('calendar and csv', () => {
-  it('lista vencimientos del mes', () => {
-    const july = buildExpiryCalendar(DEFAULT_CONCESSIONS, { year: 2026, month: 6 });
-    expect(july.some((e) => e.concessionId === 'conc-2' && e.date === '2026-07-31')).toBe(true);
-
-    const august = buildExpiryCalendar(DEFAULT_CONCESSIONS, { year: 2026, month: 7 });
-    expect(august.some((e) => e.concessionId === 'conc-1' && e.date === '2026-08-15')).toBe(true);
-    expect(august.every((e) => e.type === 'expiry')).toBe(true);
+  it('lista vencimientos del mes de las concesiones del club', () => {
+    const december = buildExpiryCalendar(DEFAULT_CONCESSIONS, { year: 2026, month: 11 });
+    expect(december.some((e) => e.concessionId === 'conc-kelita' && e.date === '2026-12-31')).toBe(true);
+    expect(december.every((e) => e.type === 'expiry')).toBe(true);
   });
 
-  it('exporta CSV con BOM', () => {
-    const csv = exportConcessionsCsv(DEFAULT_CONCESSIONS.slice(0, 1));
+  it('exporta CSV con BOM y locales precargados', () => {
+    const csv = exportConcessionsCsv(DEFAULT_CONCESSIONS);
     expect(csv.charCodeAt(0)).toBe(0xfeff);
-    expect(csv).toContain('Restaurante The Pavilion');
-    expect(csv).toContain('PAV-8842');
+    expect(csv).toContain('La Kelita');
+    expect(csv).toContain('KEL-1001');
+    expect(csv).toContain('Escuela Fanzolato');
   });
 });
 
 describe('portal code and documents', () => {
   it('encuentra concesión por portal code', () => {
-    expect(findConcessionByPortalCode(DEFAULT_CONCESSIONS, 'pav-8842')?.id).toBe('conc-1');
+    expect(findConcessionByPortalCode(DEFAULT_CONCESSIONS, 'kel-1001')?.id).toBe('conc-kelita');
     expect(findConcessionByPortalCode(DEFAULT_CONCESSIONS, 'INVALID')).toBeNull();
   });
 
@@ -239,9 +250,19 @@ describe('portal code and documents', () => {
     expect(conc.checklist).toBeDefined();
   });
 
-  it('detecta documentos requeridos faltantes en seed', () => {
-    expect(missingRequiredDocuments(DEFAULT_CONCESSIONS[0])).toEqual([]);
-    expect(missingRequiredDocuments(DEFAULT_CONCESSIONS[2])).toEqual(['seguro']);
-    expect(missingRequiredDocuments(DEFAULT_CONCESSIONS[3])).toEqual(['contrato', 'seguro', 'habilitacion']);
+  it('seed del club viene sin documentos (checklist pendiente)', () => {
+    expect(DEFAULT_CONCESSIONS.map((c) => c.name)).toEqual([
+      'La Kelita',
+      'Paddle',
+      'Escuela Santa Teresita',
+      'Escuela Fanzolato',
+    ]);
+    expect(missingRequiredDocuments(DEFAULT_CONCESSIONS[0])).toEqual(['contrato', 'seguro', 'habilitacion']);
+  });
+
+  it('ensureClubConcessions completa los locales faltantes', () => {
+    const next = ensureClubConcessions([{ id: 'x', name: 'La Kelita' }]);
+    expect(next.some((c) => c.name === 'Paddle')).toBe(true);
+    expect(next.filter((c) => /kelita/i.test(c.name))).toHaveLength(1);
   });
 });

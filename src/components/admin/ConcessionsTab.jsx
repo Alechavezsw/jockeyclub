@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-  Store, AlertTriangle, CheckCircle2, Clock, Plus, RefreshCw, Ban, Search,
+  AlertTriangle, CheckCircle2, Clock, Plus, RefreshCw, Ban, Search,
   CalendarDays, FileText, Download, Receipt, ClipboardList, KeyRound, Link2, Upload,
 } from 'lucide-react';
 import {
@@ -66,6 +66,8 @@ export default function ConcessionsTab({
   removeDocFromConcession,
   recordCanonPayment,
   renewedBy = 'admin',
+  recordedBy = null,
+  recordedByName = 'admin',
 }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [section, setSection] = useState('contratos');
@@ -137,16 +139,19 @@ export default function ConcessionsTab({
     }
   }, [selected?.id]);
 
-  const registerPayment = (e) => {
+  const registerPayment = async (e) => {
     e.preventDefault();
     if (!selected || !recordCanonPayment) return;
+    setError('');
     try {
-      const payment = recordCanonPayment({
+      const payment = await recordCanonPayment({
         concessionId: selected.id,
         period: payForm.period || new Date().toISOString().slice(0, 7),
         amount: Number(payForm.amount) || selected.monthlyFee,
         method: payForm.method,
         note: payForm.note,
+        recordedBy,
+        recordedByName: recordedByName || renewedBy,
       });
       setPayForm({ period: '', amount: '', method: 'transfer', note: '' });
       void downloadCanonReceiptPdf({ concession: selected, payment });
@@ -201,14 +206,24 @@ export default function ConcessionsTab({
 
   return (
     <div className="fade-in conc-tab">
-      <header className="conc-head">
-        <div>
-          <h2 className="serif-font conc-title">
-            <Store size={20} /> Concesiones
-          </h2>
-          <p>Canon, vencimientos, documentos, checklist y portal del concesionario.</p>
+      <div className="conc-section-tabs" style={{ alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+          {[
+            ['contratos', 'Contratos'],
+            ['calendario', 'Calendario'],
+            ['canon', 'Canon / Deuda'],
+          ].map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              className={`filter-btn${section === id ? ' active' : ''}`}
+              onClick={() => setSection(id)}
+            >
+              {label}
+            </button>
+          ))}
         </div>
-        <div className="conc-head-actions">
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.45rem' }}>
           <button type="button" className="btn btn-secondary btn-sm" onClick={exportCsv}>
             <Download size={14} /> Exportar CSV
           </button>
@@ -224,28 +239,11 @@ export default function ConcessionsTab({
             <Plus size={14} /> Nueva concesión
           </button>
         </div>
-      </header>
+      </div>
 
       {error && !showForm && (
         <p className="conc-error" role="alert">{error}</p>
       )}
-
-      <div className="conc-section-tabs">
-        {[
-          ['contratos', 'Contratos'],
-          ['calendario', 'Calendario'],
-          ['canon', 'Canon / Deuda'],
-        ].map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            className={`filter-btn${section === id ? ' active' : ''}`}
-            onClick={() => setSection(id)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
 
       <section className="conc-kpis">
         <article className="conc-kpi">
@@ -535,20 +533,26 @@ export default function ConcessionsTab({
                     </form>
                     <ul className="conc-pay-list">
                       {selectedPayments.length === 0 && <li className="conc-empty">Sin cobros registrados.</li>}
-                      {selectedPayments.map((p) => (
-                        <li key={p.id}>
-                          <span>{p.period}</span>
-                          <strong>{formatCurrency(p.amount)}</strong>
-                          <em>{p.date}</em>
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            onClick={() => { void downloadCanonReceiptPdf({ concession: selected, payment: p }); }}
-                          >
-                            PDF
-                          </button>
-                        </li>
-                      ))}
+                      {selectedPayments.map((p) => {
+                        const when = p.recordedAt
+                          ? new Date(p.recordedAt).toLocaleString('es-AR')
+                          : (p.date || '—');
+                        const who = p.recordedByName || '—';
+                        return (
+                          <li key={p.id}>
+                            <span>{p.period}</span>
+                            <strong>{formatCurrency(p.amount)}</strong>
+                            <em title={`Cargó: ${who}`}>{when} · {who}</em>
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => { void downloadCanonReceiptPdf({ concession: selected, payment: p }); }}
+                            >
+                              PDF
+                            </button>
+                          </li>
+                        );
+                      })}
                     </ul>
                   </div>
                 )}

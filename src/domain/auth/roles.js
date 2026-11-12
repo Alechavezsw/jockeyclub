@@ -122,6 +122,7 @@ export const ALL_ADMIN_TABS = [
   'pool',
   'access',
   'gate_income',
+  'concessions',
   'accounting',
   'books',
   'informes',
@@ -262,7 +263,7 @@ export function canTakeAttendance(role) {
   return ['teacher', 'staff', 'admin', 'superadmin'].includes(role);
 }
 
-/** Quién puede usar la sección aparte de Concesiones (`/concesiones`). */
+/** Quién puede usar Concesiones en el panel (`/panel/concessions`). */
 export function canAccessConcessions(role) {
   return ['admin', 'superadmin', 'accountant'].includes(role);
 }
@@ -278,7 +279,7 @@ export function allowedAdminTabs(role) {
     return [...ADMIN_TABS_NO_ACCOUNTING, 'accounting', 'books', 'informes', 'caja', 'operation'];
   }
   if (role === 'accountant') {
-    return ['dashboard', 'jev', 'dues', 'subscriptions', 'accounting', 'books', 'informes', 'caja', 'operation', 'reports', 'events'];
+    return ['dashboard', 'jev', 'dues', 'subscriptions', 'concessions', 'accounting', 'books', 'informes', 'caja', 'operation', 'reports', 'events'];
   }
   // Operador de portería: caja + portería / ingresos.
   if (role === 'gate_operator') {

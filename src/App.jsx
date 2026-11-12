@@ -233,7 +233,7 @@ function ClubPortal() {
       case 'messages': return '/mensajes';
       case 'payments': return '/cuenta';
       case 'profile': return '/perfil';
-      case 'concessions': return '/concesiones';
+      case 'concessions': return '/panel/concessions';
       case 'admin': return isOperativeRole ? '/panel' : (userRole === 'teacher' ? '/asistencia' : '/');
       case 'dashboard':
       default: return isOperativeRole ? '/panel' : (userRole === 'teacher' ? '/asistencia' : '/');
@@ -2211,11 +2211,7 @@ function ClubPortal() {
       >
         {!isStandaloneOps && (
           <>
-            <SessionStatusBar
-              members={members}
-              staffMembers={staffMembers}
-              membersCanViewCurrentAccounts={memberSeesCurrentAccount}
-            />
+            <SessionStatusBar />
             {(() => {
               if (!dbSyncing && !membersLoading) return null;
               const label = dbSyncing

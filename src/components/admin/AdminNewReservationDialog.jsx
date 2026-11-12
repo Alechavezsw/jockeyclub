@@ -4,9 +4,10 @@ import { FACILITIES, isDemoFacilityId, isPoolFacility } from '../../domain/reser
 import { buildFacilityCatalog } from '../../domain/reservations/facilityConfig';
 import {
   facilityTurns,
-  reservationTotalPrice,
+  reservationPriceForMember,
   reservationDepositAmount,
   reservationBalanceAfterDeposit,
+  memberWaivesSalonRental,
   RESERVATION_DEPOSIT_RATE,
   validateMemberBooking,
 } from '../../domain/reservations/bookingRules';
@@ -89,7 +90,8 @@ export default function AdminNewReservationDialog({
 
   const facility = catalog.find((f) => f.id === facilityId) || null;
   const turns = facilityTurns(facility);
-  const total = reservationTotalPrice(facility);
+  const salonWaived = memberWaivesSalonRental(member, facility);
+  const total = reservationPriceForMember(facility, member);
   const deposit = reservationDepositAmount(total);
   const payFull = payScope === 'total';
   const chargeAmount = payFull ? total : deposit;
@@ -228,7 +230,8 @@ export default function AdminNewReservationDialog({
       return { ok: false, error: check.error || 'No se puede reservar ese turno.' };
     }
     const payBits = [];
-    if (payFull) payBits.push('Pago: total alquiler');
+    if (salonWaived) payBits.push('Sin cargo: comisión · alquiler de salón / Espacio Verde');
+    else if (payFull) payBits.push('Pago: total alquiler');
     else if (total > 0) payBits.push('Pago: seña 50 %');
     if (mpIntent?.id) payBits.push(`MP intent ${mpIntent.id}`);
     if (receiptAttachment?.url) payBits.push(`Comprobante: ${receiptAttachment.url}`);
@@ -245,12 +248,14 @@ export default function AdminNewReservationDialog({
       guestNames: '',
       status: 'confirmed',
       endTime: check.turn.endTime,
-      estimatedPrice: total || null,
-      depositAmount: deposit || null,
+      estimatedPrice: total,
+      depositAmount: total > 0 ? deposit : 0,
       depositRate: total > 0 ? RESERVATION_DEPOSIT_RATE : null,
       paymentMethod: total > 0 ? method : null,
-      chargedPrice: total > 0 && method !== 'cuenta_corriente' ? chargeAmount : null,
+      chargedPrice: total > 0 && method !== 'cuenta_corriente' ? chargeAmount : 0,
       notes: noteParts.join('\n'),
+      rentalWaived: salonWaived || null,
+      rentalWaiveReason: salonWaived ? 'comision_espacio' : null,
       source: 'admin',
       forceConfirmed: true,
       mpIntentId: mpIntent?.id || null,
@@ -852,7 +857,7 @@ export default function AdminNewReservationDialog({
                   <option key={turn.time} value={turn.time} disabled={turn.taken}>
                     {turn.openDay
                       ? (turn.taken ? 'Ocupado' : 'Libre')
-                      : `${turn.label || turn.time}${turn.endTime ? ` · ${turn.time}–${turn.endTime}` : ` · ${turn.time}`}${turn.taken ? ' · ocupado' : ' · libre'}`}
+                      : `${turn.label || turn.time}${turn.endTime ? ` · ${turn.time}–${turn.endTime}${turn.endsNextDay ? ' (+1)' : ''}` : ` · ${turn.time}`}${turn.taken ? ' · ocupado' : ' · libre'}`}
                   </option>
                 ))}
               </select>
@@ -868,7 +873,17 @@ export default function AdminNewReservationDialog({
             <span>{slotCheck.label}</span>
           </div>
 
-          {total > 0 ? (
+          {salonWaived ? (
+            <div className="admin-new-res-pay" aria-label="Alquiler sin cargo">
+              <div className="admin-new-res-pay-row is-accent">
+                <span>Alquiler de salón</span>
+                <strong>{money(0)}</strong>
+              </div>
+              <p style={{ margin: '0.45rem 0 0', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                Comisión: no abona canon de alquiler de salones ni Espacio Verde. La reserva queda a costo 0.
+              </p>
+            </div>
+          ) : total > 0 ? (
             <div className="admin-new-res-pay" aria-label="Pago de la reserva">
               <div className="admin-new-res-pay-row">
                 <span>Total alquiler</span>

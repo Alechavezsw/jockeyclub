@@ -14,6 +14,7 @@ import {
   quotaHeadline,
   isVitalicioMember,
   isDuesExemptMember,
+  isCommissionMember,
   dbMemberIsDuesExempt,
   toWhatsAppPhone,
   buildWhatsAppDuesUrl,
@@ -327,6 +328,12 @@ describe('dues classification', () => {
     expect(quotaHeadline({ status: 'inactive', outstandingBalance: 0 }).kind).toBe('off');
     expect(quotaHeadline({ status: 'active', outstandingBalance: 0 }).title).toBe('Al día');
     expect(quotaHeadline({ status: 'inactive', outstandingBalance: 500 }).kind).toBe('debt');
+  });
+
+  it('detecta comisión en el padrón', () => {
+    expect(isCommissionMember({ tier: 'comision', cuotaCategories: ['COMISION'] })).toBe(true);
+    expect(isCommissionMember({ tier: 'socio_familiar', cuotaCategories: ['COMISION'] })).toBe(true);
+    expect(isCommissionMember({ tier: 'socio_familiar' })).toBe(false);
   });
 
   it('comisión y presidente no figuran en mora de cuota', () => {

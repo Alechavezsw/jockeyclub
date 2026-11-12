@@ -70,6 +70,7 @@ const TeachersTab = lazy(() => import('../components/admin/TeachersTab'));
 const PoolTab = lazy(() => import('../components/admin/PoolTab'));
 const SubscriptionsPanel = lazy(() => import('../components/admin/SubscriptionsPanel'));
 const JevReviewTab = lazy(() => import('../components/admin/JevReviewTab'));
+const ConcessionsTab = lazy(() => import('../components/admin/ConcessionsTab'));
 
 const TAB_FALLBACK = (
   <article className="glass-card fade-in" style={{ padding: '1.25rem' }}>
@@ -90,6 +91,7 @@ const TAB_PREFETCH = {
   reports: () => import('../components/admin/ReportsTab'),
   pool: () => import('../components/admin/PoolTab'),
   jev: () => import('../components/admin/JevReviewTab'),
+  concessions: () => import('../components/admin/ConcessionsTab'),
 };
 
 const LILA_METRIC_SNAPSHOTS_LIGHT = [
@@ -518,10 +520,6 @@ export default function AdminView({
 
   const goToTab = (tabKey, focus = null) => {
     prefetchTab(tabKey);
-    if (tabKey === 'concessions') {
-      navigate('/concesiones');
-      return;
-    }
     if (tabKey === 'qr_gate') {
       navigate('/acceso');
       return;
@@ -628,6 +626,7 @@ export default function AdminView({
               { key: 'pool_gate', icon: TicketCheck, label: 'Entrada pileta' },
             ],
           },
+          { key: 'concessions', icon: Store, label: 'Concesiones' },
         ],
       },
       {
@@ -642,7 +641,6 @@ export default function AdminView({
         id: 'mgmt',
         label: 'Gestión',
         tabs: [
-          { key: 'concessions', icon: Store, label: 'Concesiones' },
           { key: 'accounting', icon: BookOpen, label: 'Contabilidad' },
           { key: 'books', icon: Book, label: 'Libros' },
           { key: 'informes', icon: PieChart, label: 'Informes' },
@@ -1452,6 +1450,25 @@ export default function AdminView({
           rendererName={user?.fullName || ''}
           rendererIsPorter={user?.role === 'gate_operator' || (user?.roles || []).some((role) => role?.roleKey === 'gate_operator')}
         />
+      )}
+
+      {activeTab === 'concessions' && showConcessionsTab && (
+        <Suspense fallback={TAB_FALLBACK}>
+          <ConcessionsTab
+            concessions={erp.concessions || []}
+            canonPayments={erp.canonPayments || []}
+            upsertConcession={erp.upsertConcession}
+            renewConcessionContract={erp.renewConcessionContract}
+            setConcessionStatus={erp.setConcessionStatus}
+            toggleConcessionChecklist={erp.toggleConcessionChecklist}
+            addDocToConcession={erp.addDocToConcession}
+            removeDocFromConcession={erp.removeDocFromConcession}
+            recordCanonPayment={erp.recordCanonPayment}
+            renewedBy={user?.fullName || user?.email || 'admin'}
+            recordedBy={user?.id || null}
+            recordedByName={user?.fullName || user?.email || 'admin'}
+          />
+        </Suspense>
       )}
 
       {(activeTab === 'accounting' || activeTab === 'books' || activeTab === 'informes' || activeTab === 'caja' || activeTab === 'operation') && (

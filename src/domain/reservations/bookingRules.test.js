@@ -7,10 +7,12 @@ import {
   facilityTurns,
   facilityOffersPaymentButton,
   reservationTotalPrice,
+  reservationPriceForMember,
   reservationDepositAmount,
   reservationBalanceAfterDeposit,
   reservationCollectedAmount,
   reservationOpenBalance,
+  memberWaivesSalonRental,
   RESERVATION_DEPOSIT_RATE,
 } from './bookingRules.js';
 
@@ -23,12 +25,19 @@ const verde = getFacilityById('espacio_verde', catalog);
 const now = new Date(2026, 8, 29, 9, 0, 0);
 
 describe('turnos de Lila', () => {
-  it('los salones tienen día y noche, y Espacio Verde una jornada', () => {
-    expect(facilityTurns(anhelo).map((t) => `${t.time}-${t.endTime}`)).toEqual(['11:00-18:00', '20:00-23:59']);
-    expect(facilityTurns(bustos).map((t) => t.endTime)).toEqual(['17:00', '23:59']);
-    expect(facilityTurns(maurin)[0].endTime).toBe('17:00');
+  it('los salones tienen día 11–19 y noche 20–03:30, y Espacio Verde una jornada', () => {
+    expect(facilityTurns(anhelo).map((t) => `${t.time}-${t.endTime}`)).toEqual(['11:00-19:00', '20:00-03:30']);
+    expect(facilityTurns(bustos).map((t) => t.endTime)).toEqual(['19:00', '03:30']);
+    expect(facilityTurns(maurin)[0].endTime).toBe('19:00');
+    expect(facilityTurns(anhelo)[1].endsNextDay).toBe(true);
     expect(facilityTurns(refugio)).toHaveLength(2);
-    expect(facilityTurns(verde)).toEqual([{ time: '00:00', endTime: '23:59', label: 'Libre', openDay: true }]);
+    expect(facilityTurns(verde)).toEqual([{
+      time: '00:00',
+      endTime: '23:59',
+      label: 'Libre',
+      openDay: true,
+      endsNextDay: false,
+    }]);
     expect(catalog.some((f) => f.id === 'salon_eventos')).toBe(false);
   });
 
@@ -70,7 +79,7 @@ describe('validateMemberBooking', () => {
     });
     expect(result.ok).toBe(true);
     expect(result.status).toBe('pending');
-    expect(result.turn.endTime).toBe('18:00');
+    expect(result.turn.endTime).toBe('19:00');
   });
 
   it('no ofrece el turno de las 14', () => {
@@ -216,5 +225,43 @@ describe('seña 50 % de la reserva', () => {
       ...reservation,
       chargedPrice: 130000,
     })).toBe(0);
+  });
+});
+
+describe('comisión sin canon de salón ni Espacio Verde', () => {
+  const comision = {
+    memberId: '8377',
+    name: 'Presidente',
+    tier: 'comision',
+    cuotaCategories: ['COMISION'],
+  };
+  const vitalicio = {
+    memberId: '1',
+    name: 'Vitalicio',
+    tier: 'vitalicio',
+    cuotaCategories: ['SOCIO (Vitalicio)'],
+  };
+
+  it('comisión reserva salón y Espacio Verde a costo 0', () => {
+    expect(memberWaivesSalonRental(comision, anhelo)).toBe(true);
+    expect(memberWaivesSalonRental(comision, maurin)).toBe(true);
+    expect(memberWaivesSalonRental(comision, verde)).toBe(true);
+    expect(reservationPriceForMember(anhelo, comision)).toBe(0);
+    expect(reservationDepositAmount(reservationPriceForMember(anhelo, comision))).toBe(0);
+    expect(reservationPriceForMember(verde, comision)).toBe(0);
+  });
+
+  it('vitalicio y socio común pagan el salón y Espacio Verde', () => {
+    expect(memberWaivesSalonRental(vitalicio, anhelo)).toBe(false);
+    expect(reservationPriceForMember(anhelo, vitalicio)).toBe(reservationTotalPrice(anhelo));
+    expect(reservationPriceForMember(verde, vitalicio)).toBe(reservationTotalPrice(verde));
+    expect(reservationPriceForMember(anhelo, { memberId: '2', tier: 'socio_familiar' })).toBe(
+      reservationTotalPrice(anhelo),
+    );
+  });
+
+  it('una reserva guardada en 0 no vuelve al precio de catálogo', () => {
+    expect(reservationTotalPrice(anhelo, { estimatedPrice: 0 })).toBe(0);
+    expect(reservationOpenBalance({ estimatedPrice: 0 })).toBe(0);
   });
 });

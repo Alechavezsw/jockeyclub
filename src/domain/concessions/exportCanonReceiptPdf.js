@@ -1,4 +1,5 @@
 import { loadJsPdf } from '../../lib/office.js';
+
 function formatCurrency(amount) {
   return new Intl.NumberFormat('es-AR', {
     style: 'currency',
@@ -17,7 +18,20 @@ const METHOD = {
   mercadopago: 'Mercado Pago',
 };
 
-/** Recibo PDF de cobro de canon de concesión. */
+function formatDateTime(value) {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleString('es-AR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+/** Recibo PDF de cobro de canon de concesión (detalle + trazabilidad). */
 export async function downloadCanonReceiptPdf({ concession, payment }) {
   if (!payment) throw new Error('Pago no encontrado.');
   const { jsPDF } = await loadJsPdf();
@@ -45,30 +59,45 @@ export async function downloadCanonReceiptPdf({ concession, payment }) {
   doc.text(`Concesionario: ${concession?.concessionaire || '—'}`, 14, 64);
   doc.text(`CUIT: ${concession?.cuit || '—'}`, 14, 70);
   doc.text(`Portal: ${concession?.portalCode || '—'}`, 14, 76);
+  doc.text(`Ubicación: ${concession?.location || '—'}`, 14, 82);
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(12);
-  doc.text('Detalle del cobro', 14, 92);
+  doc.text('Detalle del cobro', 14, 96);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
-  doc.text(`Período: ${payment.period}`, 14, 100);
-  doc.text(`Fecha: ${payment.date}`, 14, 106);
-  doc.text(`Medio: ${METHOD[payment.method] || payment.method || '—'}`, 14, 112);
-  doc.text(`Importe: ${formatCurrency(payment.amount)}`, 14, 118);
-  if (payment.note) doc.text(`Nota: ${payment.note}`, 14, 124);
+  doc.text(`Período: ${payment.period || '—'}`, 14, 104);
+  doc.text(`Fecha del canon: ${payment.date || '—'}`, 14, 110);
+  doc.text(`Medio: ${METHOD[payment.method] || payment.method || '—'}`, 14, 116);
+  doc.text(`Importe: ${formatCurrency(payment.amount)}`, 14, 122);
+  if (payment.note) doc.text(`Nota: ${payment.note}`, 14, 128);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12);
+  doc.text('Trazabilidad', 14, 144);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.text(`Cargó: ${payment.recordedByName || '—'}`, 14, 152);
+  doc.text(`Fecha y hora: ${formatDateTime(payment.recordedAt)}`, 14, 158);
+  if (payment.cashMovementId) {
+    doc.text(`Movimiento de caja: ${payment.cashMovementId}`, 14, 164);
+  }
+  if (payment.journalEntryId) {
+    doc.text(`Asiento: ${payment.journalEntryId}`, 14, payment.cashMovementId ? 170 : 164);
+  }
 
   doc.setDrawColor(...gold);
   doc.setLineWidth(0.4);
-  doc.line(14, 134, 196, 134);
+  doc.line(14, 180, 196, 180);
   doc.setFontSize(9);
   doc.setTextColor(100, 100, 100);
   doc.text(
-    'Comprobante emitido por el módulo de Concesiones. Conservelo como constancia de pago del canon.',
+    'Comprobante del módulo de Concesiones. El cobro ingresa a caja y queda registrado con fecha, hora y quien lo cargó.',
     14,
-    144,
-    { maxWidth: 180 }
+    190,
+    { maxWidth: 180 },
   );
-  doc.text(`Emitido: ${new Date().toLocaleString('es-AR')}`, 14, 154);
+  doc.text(`Emitido: ${new Date().toLocaleString('es-AR')}`, 14, 200);
 
   const file = `canon-${payment.receipt || payment.id}.pdf`;
   doc.save(file);

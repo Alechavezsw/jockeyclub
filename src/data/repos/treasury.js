@@ -89,10 +89,24 @@ export async function insertCanonPayment(p) {
     amount: Number(p.amount) || 0,
     paid_at: p.date || todayAR(),
     method: p.method || null,
-    concept: p.concept || null,
+    concept: p.concept || `Canon concesión · ${p.period || ''}`.trim(),
     journal_entry_id: p.journalEntryId || null,
+    meta: {
+      note: p.note || '',
+      receipt: p.receipt || null,
+      cashMovementId: p.cashMovementId || null,
+      recordedBy: p.recordedBy || null,
+      recordedByName: p.recordedByName || null,
+      recordedAt: p.recordedAt || new Date().toISOString(),
+    },
   };
   const saved = await unwrap(sb().from('canon_payments').insert(row).select().single());
+  await audit('create', 'canon_payments', saved.id, {
+    concessionId: p.concessionId,
+    amount: row.amount,
+    period: row.period_label,
+    recordedBy: p.recordedByName || p.recordedBy || null,
+  });
   return M.canonPaymentFromRow(saved);
 }
 

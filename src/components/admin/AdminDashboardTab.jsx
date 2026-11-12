@@ -82,6 +82,16 @@ function formatMoveDay(iso) {
   return `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
 }
 
+function compactOpsMoney(amount) {
+  const value = Math.abs(Number(amount) || 0);
+  if (value >= 1_000_000) {
+    const m = value / 1_000_000;
+    return `$${m >= 10 ? Math.round(m) : m.toFixed(1).replace(/\.0$/, '')}M`;
+  }
+  if (value >= 1_000) return `$${Math.round(value / 1000)} mil`;
+  return `$${Math.round(value)}`;
+}
+
 function buildBookingsSnapshot(reservations = [], today = new Date()) {
   const todayKey = todayISODateAR(today);
   const list = Array.isArray(reservations) ? reservations : [];
@@ -199,7 +209,6 @@ export default function AdminDashboardTab({
   const [alertIndex, setAlertIndex] = useState(0);
   const alertHold = useRef(false);
   const [agendaDay, setAgendaDay] = useState(null);
-  const [showAllMonthIncomes, setShowAllMonthIncomes] = useState(false);
   const [showAllTodayIncomes, setShowAllTodayIncomes] = useState(false);
   const [showAllGateEntries, setShowAllGateEntries] = useState(false);
   const showGate = canAccessQrGate(userRole);
@@ -451,46 +460,51 @@ export default function AdminDashboardTab({
     () => poolCanonByDay(poolAccesses, { month: todayKey.slice(0, 7) }),
     [poolAccesses, todayKey],
   );
-  const recentIncomes = useMemo(() => {
-    const byNumber = new Map();
-    for (const member of members || []) {
-      const digits = String(member.memberId || member.member_number || member.memberNumber || '').replace(/\D/g, '');
-      if (digits && !byNumber.has(digits)) byNumber.set(digits, member);
-    }
+  const monthIncomeByDay = useMemo(() => {
+    const [y, m] = monthKey.split('-').map(Number);
+    const daysInMonth = new Date(y, m, 0).getDate();
+    const endDay = todayKey.startsWith(monthKey)
+      ? Number(todayKey.slice(8, 10))
+      : daysInMonth;
+    const totals = new Map();
+    for (let day = 1; day <= endDay; day += 1) totals.set(day, 0);
+
     const seen = new Set();
-    const fromCash = [];
+    const bump = (dateStr, amount, id) => {
+      const date = String(dateStr || '').slice(0, 10);
+      if (!date.startsWith(monthKey)) return;
+      const day = Number(date.slice(8, 10));
+      if (!totals.has(day)) return;
+      const key = id ? String(id) : `${date}:${Number(amount) || 0}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      totals.set(day, (totals.get(day) || 0) + (Number(amount) || 0));
+    };
+
     for (const row of cashMoves || []) {
-      const date = String(row?.date || '').slice(0, 10);
-      if (!date.startsWith(monthKey)) continue;
       const movementType = String(row?.movementType || 'income');
       if (movementType === 'expense' || movementType === 'transfer_out') continue;
       const amount = Number(row?.amount) || 0;
       if (amount <= 0) continue;
-      const id = String(row?.accessinId ?? row?.id ?? '');
-      if (id && seen.has(id)) continue;
-      if (id) seen.add(id);
-      const digits = String(row.memberNumber || row.description || '').replace(/\D/g, '');
-      const member = byNumber.get(digits);
-      const name = member?.name || member?.full_name || '';
-      const label = name
-        ? `${digits} · ${name}`
-        : (digits ? `Socio ${digits}` : (row.typeLabel || 'Ingreso'));
-      fromCash.push({
-        id: id || `${date}-${digits}-${amount}`,
-        date,
-        label,
-        amount,
-      });
+      bump(row?.date, amount, row?.accessinId ?? row?.id);
     }
-    const base = (finance.recentIncomes || []).filter((row) => {
-      const date = String(row.date || '').slice(0, 10);
-      return date.startsWith(monthKey) && !/^canon pileta/i.test(String(row.label || ''));
-    });
-    return [...fromCash, ...poolMonthRows, ...base]
-      .sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))
-        || String(b.id || '').localeCompare(String(a.id || '')))
-      .slice(0, 20);
-  }, [cashMoves, members, monthKey, finance, poolMonthRows]);
+    for (const row of poolMonthRows || []) {
+      bump(row.date, row.amount, row.id || `pool-${row.date}`);
+    }
+    for (const row of finance.recentIncomes || []) {
+      if (/^canon pileta/i.test(String(row.label || ''))) continue;
+      bump(row.date, row.amount, row.id);
+    }
+
+    const days = Array.from(totals.entries()).map(([day, amount]) => ({
+      day,
+      amount,
+      isToday: todayKey === `${monthKey}-${String(day).padStart(2, '0')}`,
+    }));
+    const max = Math.max(1, ...days.map((row) => row.amount));
+    const total = days.reduce((sum, row) => sum + row.amount, 0);
+    return { days, max, total };
+  }, [cashMoves, finance.recentIncomes, monthKey, poolMonthRows, todayKey]);
   const todayIncomeRows = useMemo(() => {
     const poolToday = poolMonthRows.find((row) => row.date === todayKey);
     const base = (todayIncomes || []).filter((row) => !/^canon pileta/i.test(String(row.label || '')));
@@ -1186,30 +1200,45 @@ export default function AdminDashboardTab({
                 ) : null}
 
                 <div className="ops-block" style={{ marginTop: '0.85rem' }}>
-                  <div className="ops-block-title">
-                    <span>Últimos ingresos · {moneyMonthLabel}</span>
+                  <div className="ops-block-title ops-block-title--split">
+                    <span>Recaudación diaria · {moneyMonthLabel}</span>
+                    <strong style={{ color: monthIncomeByDay.total > 0 ? 'var(--emerald-accent)' : 'inherit' }}>
+                      {formatCurrency(monthIncomeByDay.total)}
+                    </strong>
                   </div>
-                  {recentIncomes.length > 0 ? (
-                    <>
-                      {(showAllMonthIncomes ? recentIncomes : recentIncomes.slice(0, 5)).map((row) => (
-                        <div key={row.id} className="ops-row">
-                          <span className="ops-ellipsis">
-                            <span className="ops-muted" style={{ marginRight: 6 }}>{String(row.date || '').slice(8, 10)}/{String(row.date || '').slice(5, 7)} </span>
-                            {row.label}
-                          </span>
-                          <strong style={{ color: 'var(--emerald-accent)' }}>{formatCurrency(row.amount)}</strong>
-                        </div>
-                      ))}
-                      {recentIncomes.length > 5 && !showAllMonthIncomes ? (
-                        <button
-                          type="button"
-                          className="ops-dash-link"
-                          onClick={() => setShowAllMonthIncomes(true)}
-                        >
-                          Ver más
-                        </button>
-                      ) : null}
-                    </>
+                  {monthIncomeByDay.total > 0 ? (
+                    <div
+                      className="ops-income-chart"
+                      role="img"
+                      aria-label={`Recaudación diaria de ${moneyMonthLabel}: ${formatCurrency(monthIncomeByDay.total)}`}
+                    >
+                      <div className="ops-income-chart__bars">
+                        {monthIncomeByDay.days.map((row) => {
+                          const pct = Math.round((row.amount / monthIncomeByDay.max) * 100);
+                          return (
+                            <div
+                              key={row.day}
+                              className={`ops-income-chart__col${row.isToday ? ' is-today' : ''}${row.amount > 0 ? ' has-value' : ''}`}
+                              title={`${row.day}/${monthNumber}: ${formatCurrency(row.amount)}`}
+                            >
+                              <span className="ops-income-chart__val">
+                                {row.amount > 0 ? compactOpsMoney(row.amount) : ''}
+                              </span>
+                              <span className="ops-income-chart__track">
+                                <span
+                                  className="ops-income-chart__bar"
+                                  style={{ height: `${row.amount > 0 ? Math.max(pct, 8) : 2}%` }}
+                                />
+                              </span>
+                              <span className="ops-income-chart__day">{row.day}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <p className="ops-muted ops-income-chart__hint">
+                        Barras por día del mes · hoy resaltado
+                      </p>
+                    </div>
                   ) : (
                     <p className="ops-muted" style={{ margin: '0.7rem 0 0' }}>
                       Todavía no hay cobros cargados en {moneyMonthLabel}.

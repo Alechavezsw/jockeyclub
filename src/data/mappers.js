@@ -266,6 +266,8 @@ export function reservationFromRow(row) {
     mpIntentId: meta.mpIntentId || null,
     externalId: meta.externalId || null,
     source: meta.source || null,
+    rentalWaived: meta.rentalWaived === true,
+    rentalWaiveReason: meta.rentalWaiveReason || null,
     createdAt: meta.createdAt || row.created_at || null,
     recordedBy: meta.recordedBy || null,
     recordedByName: meta.recordedByName || null,
@@ -304,6 +306,8 @@ export function reservationToRow(res, memberDbId = null) {
       mpIntentId: res.mpIntentId || null,
       externalId: res.externalId || null,
       source: res.source || null,
+      rentalWaived: res.rentalWaived === true,
+      rentalWaiveReason: res.rentalWaiveReason || null,
       createdAt: res.createdAt || null,
       recordedBy: res.recordedBy || null,
       recordedByName: res.recordedByName || null,
@@ -901,6 +905,7 @@ export function concessionFromRow(row) {
 }
 
 export function canonPaymentFromRow(row) {
+  const meta = row?.meta && typeof row.meta === 'object' ? row.meta : {};
   return {
     id: row.id,
     concessionId: row.concession_id,
@@ -910,6 +915,12 @@ export function canonPaymentFromRow(row) {
     method: row.method || '',
     concept: row.concept || '',
     journalEntryId: row.journal_entry_id,
+    cashMovementId: meta.cashMovementId || null,
+    recordedBy: meta.recordedBy || null,
+    recordedByName: meta.recordedByName || null,
+    recordedAt: meta.recordedAt || row.created_at || null,
+    note: meta.note || '',
+    receipt: meta.receipt || null,
   };
 }
 

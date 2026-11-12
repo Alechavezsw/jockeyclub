@@ -4,7 +4,6 @@ import {
   canAccessAdmin,
   canAccessQrGate,
   canAccessPool,
-  canAccessConcessions,
   canTakeAttendance,
   canWriteMemberLedger,
 } from '../../domain/auth/roles';
@@ -21,7 +20,6 @@ const MemberProfilePanel = lazy(() => import('../../components/admin/MemberProfi
 const AccessControlView = lazy(() => import('../../views/AccessControlView'));
 const PoolControlView = lazy(() => import('../../views/PoolControlView'));
 const PoolEntranceView = lazy(() => import('../../views/PoolEntranceView'));
-const ConcessionsView = lazy(() => import('../../views/ConcessionsView'));
 const ConcessionPortalView = lazy(() => import('../../views/ConcessionPortalView'));
 const MemberAccessView = lazy(() => import('../../views/MemberAccessView'));
 
@@ -332,23 +330,6 @@ export default function ClubRoutes({
     <Navigate to="/panel" replace />
   );
 
-  const concessionsView = canAccessConcessions(userRole) ? (
-    <ConcessionsView
-      concessions={erp.concessions || []}
-      canonPayments={erp.canonPayments || []}
-      upsertConcession={erp.upsertConcession}
-      renewConcessionContract={erp.renewConcessionContract}
-      setConcessionStatus={erp.setConcessionStatus}
-      toggleConcessionChecklist={erp.toggleConcessionChecklist}
-      addDocToConcession={erp.addDocToConcession}
-      removeDocFromConcession={erp.removeDocFromConcession}
-      recordCanonPayment={erp.recordCanonPayment}
-      renewedBy={user?.fullName || user?.email || 'admin'}
-    />
-  ) : (
-    <Navigate to="/panel" replace />
-  );
-
   const attendanceView = canTakeAttendance(userRole) ? (
     <div className="fade-in">
       <TeacherAttendanceView
@@ -397,7 +378,7 @@ export default function ClubRoutes({
           <Route path="/pileta" element={poolGateView} />
           <Route path="/entrada-pileta" element={poolEntranceView} />
           <Route path="/panel/pool" element={<Navigate to="/pileta" replace />} />
-          <Route path="/concesiones" element={concessionsView} />
+          <Route path="/concesiones" element={<Navigate to="/panel/concessions" replace />} />
           <Route path="/registro" element={<MemberAccessView />} />
           <Route
             path="/concesionario/:code"
@@ -409,7 +390,6 @@ export default function ClubRoutes({
             }
           />
           <Route path="/panel/qr_control" element={<Navigate to="/acceso" replace />} />
-          <Route path="/panel/concessions" element={<Navigate to="/concesiones" replace />} />
           <Route path="/panel" element={isOperativeRole ? operativePanel : <Navigate to={pathForView('dashboard')} replace />} />
           <Route path="/panel/:tab/:memberId?" element={isOperativeRole ? operativePanel : <Navigate to={pathForView('dashboard')} replace />} />
           <Route path="*" element={<Navigate to={pathForView('dashboard')} replace />} />

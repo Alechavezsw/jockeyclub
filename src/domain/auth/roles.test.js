@@ -157,7 +157,7 @@ describe('allowedAdminTabs', () => {
     expect(allowedAccountingSubtabs('admin')).toContain('diary');
     expect(allowedAccountingSubtabs('admin')).toContain('prisma');
     expect(tabs).not.toContain('qr_control');
-    expect(tabs).not.toContain('concessions');
+    expect(tabs).toContain('concessions');
     expect(tabs).toContain('disciplines');
     expect(tabs).toContain('access');
     expect(tabs.length).toBeGreaterThanOrEqual(14);
@@ -309,7 +309,7 @@ describe('hasSystemAdminRole', () => {
 });
 
 describe('canAccessConcessions', () => {
-  it('admin y contador acceden a /concesiones; cajero y socio no', () => {
+  it('admin y contador acceden a concesiones; cajero y socio no', () => {
     expect(canAccessConcessions('admin')).toBe(true);
     expect(canAccessConcessions('superadmin')).toBe(true);
     expect(canAccessConcessions('accountant')).toBe(true);
