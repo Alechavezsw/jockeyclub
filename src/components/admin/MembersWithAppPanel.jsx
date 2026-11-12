@@ -53,7 +53,7 @@ import CollectDuesModal from './CollectDuesModal';
 import ModalDialog from '../ModalDialog';
 import { MemberCredentialsModal } from './MemberAdminModals';
 import { useAuth } from '../../context/AuthContext';
-import { isSupabaseConfigured } from '../../lib/supabase';
+import { isSupabaseConfigured, supabase } from '../../lib/supabase';
 import { repos } from '../../data/bootstrap';
 
 const PAGE_SIZE = 40;
@@ -137,7 +137,13 @@ export default function MembersWithAppPanel({
   const [selectedId, setSelectedId] = useState('');
   const [detailTab, setDetailTab] = useState('pagos');
   const [hydrated, setHydrated] = useState(null);
+  const [liveBookings, setLiveBookings] = useState([]);
+  const [liveEntries, setLiveEntries] = useState([]);
+  const [liveMessages, setLiveMessages] = useState([]);
+  const [liveClaims, setLiveClaims] = useState([]);
+  const [liveReady, setLiveReady] = useState(false);
   const [hydrateBusy, setHydrateBusy] = useState(false);
+  const [liveAt, setLiveAt] = useState('');
   const [flash, setFlash] = useState('');
   const [collectMember, setCollectMember] = useState(null);
   const [cardMember, setCardMember] = useState(null);
@@ -210,26 +216,104 @@ export default function MembersWithAppPanel({
   useEffect(() => {
     if (!selectedId) {
       setHydrated(null);
+      setLiveBookings([]);
+      setLiveEntries([]);
+      setLiveMessages([]);
+      setLiveClaims([]);
+      setLiveReady(false);
+      setLiveAt('');
       return undefined;
     }
+
     let cancelled = false;
-    setHydrateBusy(true);
-    repos.getMemberByNumber(selectedId, { withPayments: true })
-      .then((fresh) => {
-        if (cancelled || !fresh) return;
-        setHydrated(fresh);
-        if (typeof updateMember === 'function') void updateMember(fresh);
-        else if (typeof setMembers === 'function') {
-          setMembers((prev) => prev.map((x) => (x.memberId === fresh.memberId ? { ...x, ...fresh } : x)));
+    let timer = null;
+
+    const applyFallback = () => {
+      const local = (members || []).find((m) => m.memberId === selectedId) || null;
+      setHydrated(local);
+      setLiveBookings((reservations || []).filter((r) => r.memberId === selectedId || r.memberName === local?.name));
+      setLiveEntries((entryLogs || []).filter((e) => e.memberId === selectedId));
+      setLiveMessages((messages || []).filter((m) => m.recipientId === selectedId || m.senderId === selectedId));
+      setLiveClaims((claims || []).filter((c) => c.memberId === selectedId));
+      setLiveReady(true);
+    };
+
+    const loadLive = async ({ silent = false } = {}) => {
+      if (!silent) setHydrateBusy(true);
+      try {
+        if (!isSupabaseConfigured) {
+          if (!cancelled) applyFallback();
+          return;
         }
-      })
-      .catch(() => {
-        if (!cancelled) setHydrated(null);
-      })
-      .finally(() => {
+        const [fresh, bookingsRows, messageRows, claimRows, accessRows] = await Promise.all([
+          repos.getMemberByNumber(selectedId, { withPayments: true }).catch(() => null),
+          repos.listReservations({ memberNumber: selectedId, limit: 120 }).catch(() => []),
+          repos.listMessages({ memberNumber: selectedId, limit: 100 }).catch(() => []),
+          repos.listClaims({ memberNumber: selectedId, limit: 80 }).catch(() => []),
+          repos.listAccessLogs({ memberNumber: selectedId, limit: 120 }).catch(() => []),
+        ]);
+        if (cancelled) return;
+        if (fresh) {
+          setHydrated(fresh);
+          if (typeof updateMember === 'function') void updateMember(fresh);
+          else if (typeof setMembers === 'function') {
+            setMembers((prev) => prev.map((x) => (x.memberId === fresh.memberId ? { ...x, ...fresh } : x)));
+          }
+        } else {
+          applyFallback();
+        }
+        setLiveBookings(Array.isArray(bookingsRows) ? bookingsRows : []);
+        setLiveMessages(Array.isArray(messageRows) ? messageRows : []);
+        setLiveClaims(Array.isArray(claimRows) ? claimRows : []);
+        setLiveEntries(Array.isArray(accessRows) ? accessRows : []);
+        setLiveReady(true);
+        setLiveAt(new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      } finally {
         if (!cancelled) setHydrateBusy(false);
-      });
-    return () => { cancelled = true; };
+      }
+    };
+
+    void loadLive();
+    timer = window.setInterval(() => { void loadLive({ silent: true }); }, 12000);
+
+    let channel = null;
+    if (isSupabaseConfigured && supabase) {
+      channel = supabase
+        .channel(`members-app-${selectedId}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'member_payments' }, () => {
+          void loadLive({ silent: true });
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'reservations' }, () => {
+          void loadLive({ silent: true });
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => {
+          void loadLive({ silent: true });
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'claims' }, () => {
+          void loadLive({ silent: true });
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'access_logs' }, () => {
+          void loadLive({ silent: true });
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'members' }, () => {
+          void loadLive({ silent: true });
+        })
+        .subscribe();
+    }
+
+    const onVis = () => {
+      if (document.visibilityState === 'visible') void loadLive({ silent: true });
+    };
+    document.addEventListener('visibilitychange', onVis);
+
+    return () => {
+      cancelled = true;
+      if (timer) window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVis);
+      if (channel) supabase?.removeChannel(channel);
+    };
+    // Props de listado solo alimentan el fallback local; el refresh lo dispara selectedId + realtime.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- members/reservations/etc. son snapshot de respaldo
   }, [selectedId, setMembers, updateMember]);
 
   const stats = useMemo(() => {
@@ -244,36 +328,32 @@ export default function MembersWithAppPanel({
   }, [selected]);
 
   const bookings = useMemo(() => {
-    if (!selected) return [];
-    return (reservations || [])
-      .filter((r) => r.memberId === selected.memberId || r.memberName === selected.name)
-      .slice()
-      .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
-  }, [reservations, selected]);
+    const rows = liveReady
+      ? liveBookings
+      : (reservations || []).filter((r) => r.memberId === selectedId || r.memberName === selected?.name);
+    return [...rows].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+  }, [liveReady, liveBookings, reservations, selectedId, selected]);
 
   const entries = useMemo(() => {
-    if (!selected) return [];
-    return (entryLogs || [])
-      .filter((e) => e.memberId === selected.memberId)
-      .slice()
-      .sort((a, b) => `${b.date || ''}${b.time || ''}`.localeCompare(`${a.date || ''}${a.time || ''}`));
-  }, [entryLogs, selected]);
+    const rows = liveReady
+      ? liveEntries
+      : (entryLogs || []).filter((e) => e.memberId === selectedId);
+    return [...rows].sort((a, b) => `${b.date || ''}${b.time || ''}`.localeCompare(`${a.date || ''}${a.time || ''}`));
+  }, [liveReady, liveEntries, entryLogs, selectedId]);
 
   const memberMessages = useMemo(() => {
-    if (!selected) return [];
-    return (messages || [])
-      .filter((m) => m.recipientId === selected.memberId || m.senderId === selected.memberId)
-      .slice()
-      .sort((a, b) => String(b.date || b.createdAt || '').localeCompare(String(a.date || a.createdAt || '')));
-  }, [messages, selected]);
+    const rows = liveReady
+      ? liveMessages
+      : (messages || []).filter((m) => m.recipientId === selectedId || m.senderId === selectedId);
+    return [...rows].sort((a, b) => String(b.date || b.createdAt || '').localeCompare(String(a.date || a.createdAt || '')));
+  }, [liveReady, liveMessages, messages, selectedId]);
 
   const memberClaims = useMemo(() => {
-    if (!selected) return [];
-    return (claims || [])
-      .filter((c) => c.memberId === selected.memberId)
-      .slice()
-      .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
-  }, [claims, selected]);
+    const rows = liveReady
+      ? liveClaims
+      : (claims || []).filter((c) => c.memberId === selectedId);
+    return [...rows].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+  }, [liveReady, liveClaims, claims, selectedId]);
 
   const movements = useMemo(() => {
     if (!selected) return [];
@@ -566,7 +646,7 @@ export default function MembersWithAppPanel({
               Socios con app
             </h2>
             <p className="ops-muted" style={{ margin: '0.25rem 0 0' }}>
-              Interacción completa: pagos, reservas, ingresos, mensajes, reclamos y cobro directo.
+              Datos en vivo desde Supabase: pagos, reservas, ingresos, mensajes y reclamos.
             </p>
           </div>
         </div>
@@ -593,9 +673,9 @@ export default function MembersWithAppPanel({
           />
         </label>
         <div className="members-app-desk__filters" role="group" aria-label="Filtro de deuda">
-          <button type="button" className={`btn btn-xs ${debtFilter === 'all' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setDebtFilter('all')}>Todos</button>
-          <button type="button" className={`btn btn-xs ${debtFilter === 'debt' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setDebtFilter('debt')}>Con deuda</button>
-          <button type="button" className={`btn btn-xs ${debtFilter === 'clear' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setDebtFilter('clear')}>Al día</button>
+          <button type="button" className={`members-app-desk__chip${debtFilter === 'all' ? ' is-on' : ''}`} onClick={() => setDebtFilter('all')}>Todos</button>
+          <button type="button" className={`members-app-desk__chip${debtFilter === 'debt' ? ' is-on' : ''}`} onClick={() => setDebtFilter('debt')}>Con deuda</button>
+          <button type="button" className={`members-app-desk__chip${debtFilter === 'clear' ? ' is-on' : ''}`} onClick={() => setDebtFilter('clear')}>Al día</button>
         </div>
       </div>
 
@@ -663,12 +743,7 @@ export default function MembersWithAppPanel({
             ) : (
               <>
                 <div className="members-app-desk__detail-head">
-                  <button
-                    type="button"
-                    className="members-app-desk__identity"
-                    onClick={() => onOpenProfile?.(selected.memberId)}
-                    title="Abrir ficha completa"
-                  >
+                  <div className="members-app-desk__identity" aria-label={`Socio ${selected.name}`}>
                     <span className="members-app-desk__avatar" aria-hidden="true">
                       {selected.photo ? <img src={selected.photo} alt="" /> : memberInitials(selected.name)}
                     </span>
@@ -680,42 +755,46 @@ export default function MembersWithAppPanel({
                         <TierChip tier={selected.tier} catalog={tierCatalog} />
                         {' · '}
                         <em style={{ fontStyle: 'normal', color: 'var(--emerald-accent)' }}>{access?.label}</em>
-                        {hydrateBusy ? ' · actualizando…' : ''}
                       </span>
                       <span className="members-app-desk__balance">
                         {isFamilyDependent(selected) || isDuesExemptMember(selected) || balance <= 0
                           ? headline?.title
                           : formatCurrency(balance)}
+                        {hydrateBusy
+                          ? ' · actualizando…'
+                          : liveAt
+                            ? ` · en vivo ${liveAt}`
+                            : ''}
                       </span>
                     </span>
-                  </button>
+                  </div>
 
                   <div className="members-app-desk__actions">
-                    <button type="button" className="btn btn-secondary btn-xs" onClick={() => onOpenProfile?.(selected.memberId)}>
-                      <Pencil size={13} /> Ficha
+                    <button type="button" className="members-app-desk__action-btn" onClick={() => onOpenProfile?.(selected.memberId)}>
+                      <Pencil size={14} /> Ficha
                     </button>
                     {canCollect ? (
-                      <button type="button" className="btn btn-secondary btn-xs members-app-desk__btn-collect" onClick={() => setCollectMember(selected)}>
-                        <Check size={13} /> Cobrar
+                      <button type="button" className="members-app-desk__action-btn is-collect" onClick={() => setCollectMember(selected)}>
+                        <Check size={14} /> Cobrar
                       </button>
                     ) : null}
-                    <button type="button" className="btn btn-secondary btn-xs" disabled={pdfBusy || isDuesExemptMember(selected)} onClick={() => handleDebtPdf(selected)}>
-                      <FileDown size={13} /> Deuda
+                    <button type="button" className="members-app-desk__action-btn" disabled={pdfBusy || isDuesExemptMember(selected)} onClick={() => handleDebtPdf(selected)}>
+                      <FileDown size={14} /> Deuda
                     </button>
-                    <button type="button" className="btn btn-secondary btn-xs" onClick={() => setCardMember(selected)}>
-                      <CreditCard size={13} /> Tarjeta
+                    <button type="button" className="members-app-desk__action-btn" onClick={() => setCardMember(selected)}>
+                      <CreditCard size={14} /> Tarjeta
                     </button>
-                    <button type="button" className="btn btn-secondary btn-xs" onClick={() => openCredentials(selected)}>
-                      <KeyRound size={13} /> Acceso
+                    <button type="button" className="members-app-desk__action-btn" onClick={() => openCredentials(selected)}>
+                      <KeyRound size={14} /> Acceso
                     </button>
                     {wa ? (
-                      <a className="btn btn-secondary btn-xs members-app-desk__wa" href={`https://wa.me/${wa}`} target="_blank" rel="noopener noreferrer">
-                        <WhatsAppIcon size={13} /> WA
+                      <a className="members-app-desk__action-btn" href={`https://wa.me/${wa}`} target="_blank" rel="noopener noreferrer">
+                        <WhatsAppIcon size={14} /> WhatsApp
                       </a>
                     ) : null}
                     {typeof onSendMessage === 'function' ? (
-                      <button type="button" className="btn btn-secondary btn-xs" onClick={() => openMessage(selected)}>
-                        <MessageSquare size={13} /> MD
+                      <button type="button" className="members-app-desk__action-btn" onClick={() => openMessage(selected)}>
+                        <MessageSquare size={14} /> Mensaje
                       </button>
                     ) : null}
                   </div>

@@ -137,28 +137,37 @@ function syntheticUnpaidAmount(member, firstUnpaid, monthsBehind, today) {
   let total = 0;
   const n = Math.min(Math.max(monthsBehind, 0), MAX_MONTHS);
   for (let i = 0; i < n; i += 1) {
-    total += duesPayableForMember(member, { paidOn: today, dueOn, on: dueOn });
+    // Solo capital: el 10 % se calcula aparte al armar el desglose / al cobrar.
+    total += duesAmountForMember(member, dueOn);
     dueOn = nextDueAfter(dueOn, member);
   }
   return money(total);
 }
 
-function takeMonth(list, member, dueOn, leftover, { today, applyLate }) {
-  const { capital: capitalBase, interest: interestBase } = monthCharge(member, dueOn, { today, applyLate });
-  if (capitalBase <= 0 && interestBase <= 0) {
+/**
+ * El saldo de ficha es capital. Cada mes del desglose es cuota entera;
+ * el 10 % de mora va encima y no come meses del saldo.
+ * Nunca inventa un resto (ej. $ 26.000).
+ */
+function takeMonth(list, member, dueOn, leftover, { today }) {
+  const { capital: capitalBase, interest: interestBase } = monthCharge(member, dueOn, {
+    today,
+    applyLate: true,
+  });
+  if (capitalBase <= EPS) {
     return { leftover, status: 'zero' };
   }
-  const capital = Math.min(capitalBase, leftover);
-  let next = money(leftover - capital);
-  const interest = next > EPS ? Math.min(interestBase, next) : 0;
-  next = money(next - interest);
-  if (capital > EPS || interest > EPS) {
-    list.push({
-      ...periodFromDueOn(dueOn),
-      capital,
-      interest,
-    });
+  if (leftover + EPS < capitalBase) {
+    return { leftover, status: 'short' };
   }
+  const capital = capitalBase;
+  const interest = Math.max(0, interestBase);
+  const next = money(leftover - capital);
+  list.push({
+    ...periodFromDueOn(dueOn),
+    capital,
+    interest,
+  });
   return { leftover: next, status: 'ok' };
 }
 
@@ -170,9 +179,9 @@ function allocateMonths(member, { remaining, firstUnpaid, lastPaymentDate, today
   let dueOn = firstUnpaid;
   for (let i = 0; i < MAX_MONTHS && leftover > EPS; i += 1) {
     if (!dueOn || dueOn > todayIso) break;
-    const taken = takeMonth(current, member, dueOn, leftover, { today, applyLate: true });
+    const taken = takeMonth(current, member, dueOn, leftover, { today });
     leftover = taken.leftover;
-    if (taken.status === 'zero') break;
+    if (taken.status === 'zero' || taken.status === 'short') break;
     dueOn = nextDueAfter(dueOn, member);
   }
 
@@ -183,9 +192,9 @@ function allocateMonths(member, { remaining, firstUnpaid, lastPaymentDate, today
 
   for (let i = 0; i < MAX_MONTHS && leftover > EPS; i += 1) {
     if (!olderDue || current.length + older.length >= MAX_MONTHS) break;
-    const taken = takeMonth(older, member, olderDue, leftover, { today, applyLate: false });
+    const taken = takeMonth(older, member, olderDue, leftover, { today });
     leftover = taken.leftover;
-    if (taken.status === 'zero') break;
+    if (taken.status === 'zero' || taken.status === 'short') break;
     olderDue = prevDueBefore(olderDue, member);
   }
 

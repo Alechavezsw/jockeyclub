@@ -15,7 +15,7 @@ function familiar(extra = {}) {
     status: 'active',
     lastPaymentDate: '2026-09-13',
     nextDueDate: '2026-10-10',
-    outstandingBalance: 77000,
+    outstandingBalance: 70000,
     ...extra,
   };
 }
@@ -51,7 +51,7 @@ describe('appMonthlyDebts', () => {
     expect(row.dueDay).toBe(18);
   });
 
-  it('reparte el ciclo impago con recargo y el saldo previo mes a mes sin recargo', () => {
+  it('reparte saldo de capital en meses enteros y suma el 10 % encima en cada mes en mora', () => {
     const row = appMonthlyDebtForMember(
       familiar({
         lastPaymentDate: '2026-08-13',
@@ -68,13 +68,32 @@ describe('appMonthlyDebts', () => {
     const jul = row.months.find((m) => m.periodKey === '2026-07');
     expect(sep).toMatchObject({ capital: 70000, interest: 7000 });
     expect(oct).toMatchObject({ capital: 70000, interest: 7000 });
-    expect(jul).toMatchObject({ capital: 70000, interest: 0 });
-    expect(row.unallocated).toBe(0);
-    expect(row.totalDebt).toBe(500000);
+    expect(jul).toMatchObject({ capital: 70000, interest: 7000 });
+    expect(row.capital).toBe(490000);
+    expect(row.interest).toBe(49000);
+    expect(row.unallocated).toBe(10000);
+    expect(row.totalDebt).toBe(549000);
     expect(row.standing).toBe('En mora');
   });
 
-  it('si ya pagó este mes, el saldo previo se parte hacia atrás sin recargo', () => {
+  it('no inventa un mes a resto: el sobrante queda sin imputar', () => {
+    const row = appMonthlyDebtForMember(
+      familiar({
+        lastPaymentDate: '2026-08-13',
+        nextDueDate: '2026-09-10',
+        outstandingBalance: 376000,
+      }),
+      { today: new Date('2026-11-12T12:00:00') },
+    );
+    expect(row.months.every((m) => m.capital === 70000)).toBe(true);
+    expect(row.months.find((m) => m.periodKey === '2026-10')).toMatchObject({ capital: 70000, interest: 7000 });
+    expect(row.months.find((m) => m.periodKey === '2026-11')).toMatchObject({ capital: 70000, interest: 7000 });
+    expect(row.unallocated).toBe(26000);
+    expect(row.capital).toBe(350000);
+    expect(row.interest).toBe(35000);
+  });
+
+  it('si ya pagó este mes, el saldo previo se parte hacia atrás con mora de cada mes vencido', () => {
     const row = appMonthlyDebtForMember(
       familiar({
         lastPaymentDate: '2026-10-12',
@@ -84,9 +103,10 @@ describe('appMonthlyDebts', () => {
       { today: TODAY },
     );
     expect(row.months.map((m) => m.periodKey)).toEqual(['2026-08', '2026-09']);
-    expect(row.months[0]).toMatchObject({ capital: 70000, interest: 0 });
-    expect(row.months[1]).toMatchObject({ capital: 70000, interest: 0 });
+    expect(row.months[0]).toMatchObject({ capital: 70000, interest: 7000 });
+    expect(row.months[1]).toMatchObject({ capital: 70000, interest: 7000 });
     expect(row.unallocated).toBe(0);
+    expect(row.totalDebt).toBe(154000);
     expect(row.standing).toBe('Con saldo');
   });
 
@@ -95,8 +115,10 @@ describe('appMonthlyDebts', () => {
       familiar({ outstandingBalance: 0 }),
       { today: TODAY },
     );
-    expect(row.totalDebt).toBe(77000);
     expect(row.months[0].periodKey).toBe('2026-10');
+    expect(row.months[0].capital).toBe(70000);
+    expect(row.months[0].interest).toBe(7000);
+    expect(row.totalDebt).toBe(77000);
   });
 
   it('omite comisión aunque tenga saldo de padrón', () => {
@@ -134,14 +156,14 @@ describe('appMonthlyDebts', () => {
   it('incluye baja con deuda previa y arma el listado filtrable por mes', () => {
     const snapshot = buildAppMonthlyDebts(
       [
-        familiar({ memberId: '10', outstandingBalance: 77000 }),
+        familiar({ memberId: '10', outstandingBalance: 70000 }),
         familiar({
           memberId: '20',
           name: 'Luis Gómez',
           documentNumber: '22999888',
           lastPaymentDate: '2026-08-13',
           nextDueDate: '2026-09-10',
-          outstandingBalance: 143000,
+          outstandingBalance: 140000,
         }),
         familiar({
           memberId: '30',

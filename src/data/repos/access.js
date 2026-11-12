@@ -4,15 +4,14 @@ import { todayAR } from '../../lib/arDate';
 import { isUuid, sb, audit } from './shared.js';
 
 // ---- Access ----
-export async function listAccessLogs({ limit = 500 } = {}) {
-  const rows = await unwrap(
-    sb()
-      .from('access_logs')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(Math.max(1, Number(limit) || 500)),
-    'No se pudieron cargar accesos'
-  );
+export async function listAccessLogs({ limit = 500, memberNumber } = {}) {
+  let q = sb()
+    .from('access_logs')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(Math.max(1, Number(limit) || 500));
+  if (memberNumber) q = q.eq('member_number', String(memberNumber));
+  const rows = await unwrap(q, 'No se pudieron cargar accesos');
   return (rows || []).map(M.accessLogFromRow);
 }
 

@@ -25059,6 +25059,25 @@ a.ops-outline-btn {
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
+.consult-debt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.consult-debt-action-btn {
+  min-height: 2.5rem;
+  padding: 0.55rem 1rem !important;
+  font-size: 0.88rem !important;
+  line-height: 1.2;
+  width: auto !important;
+  height: auto !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+}
 .consult-debt-result-head {
   display: flex;
   flex-wrap: wrap;
@@ -28412,4 +28431,62 @@ button.debit-moves-row:disabled {
     position: static;
     max-height: 240px;
   }
+}
+
+
+.members-app-desk__chip {
+  min-height: 2rem;
+  padding: 0.4rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-glass);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  cursor: pointer;
+  width: auto;
+  height: auto;
+}
+
+.members-app-desk__chip.is-on {
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--emerald-accent) 45%, var(--border-glass));
+  background: color-mix(in srgb, var(--emerald-accent) 12%, transparent);
+}
+
+.members-app-desk__action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-height: 2.15rem;
+  padding: 0.45rem 0.8rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border-glass);
+  background: color-mix(in srgb, var(--bg-primary) 55%, transparent);
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  line-height: 1.2;
+  text-decoration: none;
+  cursor: pointer;
+  width: auto;
+  height: auto;
+  white-space: nowrap;
+}
+
+.members-app-desk__action-btn:hover {
+  border-color: color-mix(in srgb, var(--text-gold) 40%, var(--border-glass));
+}
+
+.members-app-desk__action-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.members-app-desk__action-btn.is-collect {
+  color: var(--emerald-accent);
+  border-color: color-mix(in srgb, var(--emerald-accent) 45%, var(--border-glass));
+}
+
+.members-app-desk__identity {
+  cursor: default;
 }

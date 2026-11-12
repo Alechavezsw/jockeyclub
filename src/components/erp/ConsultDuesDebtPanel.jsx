@@ -256,12 +256,12 @@ export default function ConsultDuesDebtPanel({
               </p>
             </div>
             <div className="consult-debt-actions">
-              <button type="button" className="btn btn-secondary btn-sm" onClick={clearPick}>
+              <button type="button" className="btn btn-secondary consult-debt-action-btn" onClick={clearPick}>
                 Cambiar socio
               </button>
               <button
                 type="button"
-                className="btn btn-primary"
+                className="btn btn-primary consult-debt-action-btn"
                 disabled={busy}
                 onClick={() => { void download(); }}
               >

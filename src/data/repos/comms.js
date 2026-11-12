@@ -102,8 +102,9 @@ export async function updateMessage(id, patch) {
   return M.messageFromRow(saved);
 }
 
-export async function listClaims({ limit } = {}) {
+export async function listClaims({ limit, memberNumber } = {}) {
   let q = sb().from('claims').select('*').order('created_at', { ascending: false });
+  if (memberNumber) q = q.eq('member_number', String(memberNumber));
   if (limit && Number(limit) > 0) q = q.limit(Number(limit));
   const rows = await unwrap(q, 'No se pudieron cargar reclamos');
   return (rows || []).map(M.claimFromRow);
