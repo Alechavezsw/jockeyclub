@@ -25059,15 +25059,6 @@ a.ops-outline-btn {
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
-.consult-debt-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-  align-items: center;
-}
-.consult-debt-search-label .spin {
-  animation: cuotas-busy-spin 0.85s linear infinite;
-}
 .consult-debt-result-head {
   display: flex;
   flex-wrap: wrap;
@@ -28074,7 +28065,8 @@ button.debit-moves-row:disabled {
   }
 }
 
-/* —— Socios con app (escritorio portal) —— */
+
+/* -- Socios con app (escritorio portal) -- */
 .members-app-desk {
   display: flex;
   flex-direction: column;
