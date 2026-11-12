@@ -767,12 +767,14 @@ describe('collectionPeriodChoices vs saldo de ficha', () => {
     };
     const today = new Date('2026-11-05T15:00:00-03:00');
     const choices = collectionPeriodChoices(member, today);
+    // Solo cuotas enteras de $ 40.000: no inventa un resto de $ 32.000.
     const capital = choices.reduce((sum, row) => sum + (Number(row.capital) || 0), 0);
-    expect(capital).toBe(152000);
-    expect(choices.length).toBeGreaterThan(1);
+    expect(capital).toBe(120000);
+    expect(choices.every((row) => row.capital === 40000)).toBe(true);
+    expect(choices.length).toBe(3);
     const preview = collectionPreview(member, today);
-    expect(preview.quota).toBe(152000);
-    expect(preview.cash).toBeGreaterThan(152000);
+    expect(preview.quota).toBe(120000);
+    expect(preview.cash).toBeGreaterThan(120000);
   });
 
   it('no re-cobra jul–sep si el saldo y nextDue dicen solo octubre', () => {
@@ -787,9 +789,11 @@ describe('collectionPeriodChoices vs saldo de ficha', () => {
     };
     const today = new Date('2026-11-07T15:00:00-03:00');
     const choices = collectionPeriodChoices(member, today);
+    // Individual a $ 40.000: no inventa cobrar $ 36.000 de saldo viejo.
     expect(choices.map((row) => row.dueOn)).toEqual(['2026-10-10']);
+    expect(choices[0].capital).toBe(40000);
     const preview = collectionPreview(member, today);
-    expect(preview.quota).toBe(36000);
+    expect(preview.quota).toBe(40000);
   });
 
   it('Alameda en noviembre: sep y oct a $70.000; noviembre ya pago no se ofrece', () => {
@@ -1118,5 +1122,31 @@ describe('collectionPeriodChoices vs saldo de ficha', () => {
     expect(duesAmountForMember(member, new Date('2026-06-10T12:00:00'))).toBe(70000);
     expect(duesAmountForMember(member, new Date('2026-07-10T12:00:00'))).toBe(70000);
     expect(duesAmountForMember(member, new Date('2026-05-10T12:00:00'))).toBe(70000);
+  });
+
+  it('no inventa un noviembre a medio ($ 26.000) cuando el saldo no cierra en cuotas enteras', () => {
+    setRuntimeTierCatalog([
+      { id: 'socio_familiar', name: 'SOCIO FAMILIAR', monthlyDues: 70000, sortOrder: 1 },
+    ]);
+    const today = new Date('2026-11-12T12:00:00-03:00');
+    const member = {
+      memberId: '10989',
+      name: 'Carlos Abel Marinero Lampasona',
+      tier: 'socio_familiar',
+      status: 'active',
+      outstandingBalance: 376000,
+      nextDueDate: null,
+      cuotaCategories: ['SOCIO FAMILIAR'],
+    };
+    const choices = collectionPeriodChoices(member, today);
+    expect(choices.every((row) => row.capital === 70000)).toBe(true);
+    expect(choices.every((row) => row.surcharge === 7000 && row.payable === 77000)).toBe(true);
+    expect(choices.some((row) => row.capital === 26000)).toBe(false);
+    const november = choices.find((row) => row.dueOn === '2026-11-10');
+    if (november) {
+      expect(november).toMatchObject({ capital: 70000, surcharge: 7000, payable: 77000 });
+    }
+    const capital = choices.reduce((sum, row) => sum + (Number(row.capital) || 0), 0);
+    expect(capital).toBeLessThanOrEqual(376000 + 40000 + 0.01);
   });
 });

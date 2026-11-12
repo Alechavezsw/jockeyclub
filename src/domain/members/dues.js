@@ -776,20 +776,22 @@ function periodChoiceFromDue(member, dueOn, paidOn, kind = 'overdue') {
   };
 }
 
-function appendPeriodChoiceCovering(rows, full, remaining) {
+/** Cuánto del saldo de ficha consume un mes. El lift 60→70 no inventa capital extra en la ficha. */
+function fichaCostForChoice(row) {
+  const cap = Number(row?.capital) || 0;
+  if (!(cap > 0)) return 0;
+  if (isFamiliarTariffLiftDueOn(row.dueOn) && cap + 0.01 >= 70000) return money(cap - 10000);
+  return money(cap);
+}
+
+function appendPeriodChoiceCovering(rows, full, fichaRemaining) {
   if (!full) return null;
-  const capital = money(Math.min(Number(full.capital) || 0, remaining));
-  if (!(capital > 0)) return null;
-  const surcharge = full.capital > 0
-    ? money((full.surcharge * capital) / full.capital)
-    : 0;
-  return {
-    ...full,
-    capital,
-    surcharge,
-    payable: money(capital + surcharge),
-    lateBase: money(Math.min(Number(full.lateBase) || capital, capital)),
-  };
+  const fullCap = Number(full.capital) || 0;
+  if (!(fullCap > 0)) return null;
+  // Solo meses enteros a tarifa real. Si no alcanza, no inventa un resto (ej. $ 26.000).
+  const cost = fichaCostForChoice(full);
+  if (fichaRemaining + 0.01 < cost) return null;
+  return { ...full };
 }
 
 /**
@@ -847,11 +849,16 @@ function expandChoicesToCoverBalance(member, choices, paidOn, coveredDueOns = nu
   const day = duesDueDayForMember(member);
   const paidSet = coveredDueOns || memberCoveredDueOns(member);
   let rows = [...(choices || [])].filter((row) => !dueOnAlreadyCovered(row.dueOn, paidSet));
-  let covered = money(rows.reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
+  // Semilla: meses enteros a tarifa; el costo de ficha respeta el lift 60→70.
+  rows = rows.map((row) => {
+    const full = periodChoiceFromDue(member, row.dueOn, paidOn, row.kind || 'overdue');
+    return full || row;
+  }).filter((row) => (Number(row.capital) || 0) > 0);
+  let fichaUsed = money(rows.reduce((sum, row) => sum + fichaCostForChoice(row), 0));
   let guard = 0;
 
   // 1) Adelante solo si el mes de esa cuota ya empezó (día 1) y no está pago.
-  while (covered + 0.01 < owed && guard < 24) {
+  while (fichaUsed + 0.01 < owed && guard < 24) {
     guard += 1;
     const anchor = rows[rows.length - 1]?.dueOn
       || pinDuesDueDate(member?.nextDueDate, member)
@@ -876,19 +883,18 @@ function expandChoicesToCoverBalance(member, choices, paidOn, coveredDueOns = nu
       });
       continue;
     }
-    const remaining = money(owed - covered);
     const dueDate = parseDate(nextDue);
     const kind = dueDate && dueDate < paidOn ? 'overdue' : 'upcoming';
     const full = periodChoiceFromDue(member, nextDue, paidOn, kind);
-    const row = appendPeriodChoiceCovering(rows, full, remaining);
+    const row = appendPeriodChoiceCovering(rows, full, money(owed - fichaUsed));
     if (!row) break;
     rows.push(row);
-    covered = money(covered + row.capital);
+    fichaUsed = money(fichaUsed + fichaCostForChoice(row));
   }
 
   // 2) Atrás: meses anteriores si todavía no alcanza el capital de ficha.
   guard = 0;
-  while (covered + 0.01 < owed && guard < 24) {
+  while (fichaUsed + 0.01 < owed && guard < 24) {
     guard += 1;
     const anchor = rows.find((row) => Number(row.capital) > 0)?.dueOn
       || rows[0]?.dueOn
@@ -912,12 +918,11 @@ function expandChoicesToCoverBalance(member, choices, paidOn, coveredDueOns = nu
       });
       continue;
     }
-    const remaining = money(owed - covered);
     const full = periodChoiceFromDue(member, prevDue, paidOn, 'overdue');
-    const row = appendPeriodChoiceCovering(rows, full, remaining);
+    const row = appendPeriodChoiceCovering(rows, full, money(owed - fichaUsed));
     if (!row) break;
     rows.unshift(row);
-    covered = money(covered + row.capital);
+    fichaUsed = money(fichaUsed + fichaCostForChoice(row));
   }
 
   const openMonths = rows.filter((row) => (
@@ -927,59 +932,17 @@ function expandChoicesToCoverBalance(member, choices, paidOn, coveredDueOns = nu
     && !dueOnAlreadyCovered(row.dueOn, paidSet)
   ));
   rows = openMonths.length ? openMonths : rows.filter((row) => Number(row.capital) > 0 && row.kind !== 'paid');
-  rows = rows.map((row) => {
-    const due = String(row.dueOn || '').slice(0, 10);
-    if (!isFamiliarTariffLiftDueOn(due)) return row;
-    const full = periodChoiceFromDue(member, due, paidOn, row.kind || 'overdue');
-    if (!full || full.capital + 0.01 < 70000) return row;
-    if ((Number(row.capital) || 0) + 0.01 >= full.capital) return row;
-    return full;
-  });
-  covered = money(rows.reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
 
-  // Junio, julio y deudas anteriores, más agosto y septiembre 2026 del familiar,
-  // pasan de $ 60.000 a $ 70.000. Si el saldo de ficha todavía trae esos meses
-  // a $ 60.000, no se recorta octubre ni noviembre: cada uno queda en $ 77.000 con mora.
-  const familiarLift = rows.reduce((sum, row) => {
-    const due = String(row.dueOn || '').slice(0, 10);
-    if (!isFamiliarTariffLiftDueOn(due)) return sum;
-    if ((Number(row.capital) || 0) + 0.01 < 70000) return sum;
-    return sum + 10000;
-  }, 0);
-  if (covered <= owed + familiarLift + 0.01) return rows;
-  // De más: dejar solo lo que cubre el saldo (desde el más viejo = next due).
-  const trimmed = [];
-  let taken = 0;
-  for (const row of rows) {
-    if (taken + 0.01 >= owed) break;
-    const remaining = money(owed - taken);
-    const fullCap = Number(row.capital) || 0;
-    const capital = money(Math.min(fullCap, remaining));
-    if (!(capital > 0)) continue;
-    const ratio = fullCap > 0 ? capital / fullCap : 0;
-    const surcharge = money((Number(row.surcharge) || 0) * ratio);
-    const lateBase = money((Number(row.lateBase) || 0) * ratio);
-    trimmed.push({
-      ...row,
-      capital,
-      surcharge,
-      payable: money(capital + surcharge),
-      lateBase,
-    });
-    taken = money(taken + capital);
+  // De más (semilla overdue más larga que el saldo): sacar meses nuevos enteros.
+  fichaUsed = money(rows.reduce((sum, row) => sum + fichaCostForChoice(row), 0));
+  if (fichaUsed <= owed + 0.01) return rows;
+  const kept = [...rows];
+  while (kept.length > 1) {
+    const used = money(kept.reduce((sum, row) => sum + fichaCostForChoice(row), 0));
+    if (used <= owed + 0.01) break;
+    kept.pop();
   }
-  const kept = trimmed.length ? trimmed : rows;
-  // Si el saldo de ficha traía $ 60.000, el recorte deja $ 60.000: volver a $ 70.000
-  // (recibo $ 77.000 con mora) en junio, julio y deudas anteriores.
-  return kept.map((row) => {
-    if (!isFamiliarTariffLiftDueOn(row.dueOn)) return row;
-    const full = periodChoiceFromDue(member, row.dueOn, paidOn, row.kind || 'overdue');
-    if (!full || full.capital + 0.01 < 70000) return row;
-    const cap = Number(row.capital) || 0;
-    if (cap + 0.01 >= full.capital) return row;
-    if (cap + 10000 + 0.01 >= full.capital) return full;
-    return row;
-  });
+  return kept.length ? kept : rows;
 }
 
 /**
