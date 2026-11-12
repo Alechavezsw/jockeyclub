@@ -793,9 +793,12 @@ export async function listHouseholdByPrincipal(principalNumber) {
   try {
     if (supabase) {
       const { data, error } = await sb().rpc('list_household_members', { p_principal: key });
-      // Solo confiar en el RPC si trae filas; vacío puede ser caché/schema o sesión.
+      // Solo confiar en el RPC si trae filas; vacío/error → SELECT (RLS ya incluye el hogar).
       if (!error && Array.isArray(data) && data.length) {
         return data.map(mapHouseholdRow).filter(Boolean);
+      }
+      if (error && typeof console !== 'undefined') {
+        console.warn('[household] list_household_members', error.message || error);
       }
     }
     const rows = await unwrap(

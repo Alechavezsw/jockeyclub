@@ -114,7 +114,7 @@ describe('buildClubReview', () => {
     });
 
     const byId = Object.fromEntries(review.items.map((item) => [item.id, item]));
-    expect(byId['concessions-expired'].samples[0].href).toBe('/concesiones?id=conc-1');
+    expect(byId['concessions-expired'].samples[0].href).toBe('/panel/concessions?id=conc-1');
     expect(byId['suppliers-cuit'].samples[0].href).toBe('/panel/operation?sub=suppliers&supplier=sup-1');
     expect(byId['titular-baja'].samples[0].href).toBe('/panel/members/201?editar=1');
     expect(byId['dup-dni'].samples[0].label).toMatch(/mismo DNI/);

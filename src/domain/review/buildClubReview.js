@@ -605,7 +605,7 @@ export function buildClubReview({
     tab: 'concessions',
     samples: take(expiredConc, (r) => asSample(
       r.concession.name || r.concession.concessionaire || 'Concesión',
-      r.concession.id ? `/concesiones?id=${encodeURIComponent(r.concession.id)}` : '/concesiones',
+      r.concession.id ? `/panel/concessions?id=${encodeURIComponent(r.concession.id)}` : '/panel/concessions',
     )),
   });
   row(items, {
@@ -618,7 +618,7 @@ export function buildClubReview({
     tab: 'concessions',
     samples: take(expiringConc, (r) => asSample(
       r.concession.name || 'Concesión',
-      r.concession.id ? `/concesiones?id=${encodeURIComponent(r.concession.id)}` : '/concesiones',
+      r.concession.id ? `/panel/concessions?id=${encodeURIComponent(r.concession.id)}` : '/panel/concessions',
     )),
   });
 

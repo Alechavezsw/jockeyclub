@@ -23,7 +23,7 @@ function formatCount(value) {
 }
 
 function fallbackHref(item) {
-  if (item?.tab === 'concessions') return '/concesiones';
+  if (item?.tab === 'concessions') return '/panel/concessions';
   if (item?.tab === 'books') {
     return item.focus
       ? `/panel/books?sub=${encodeURIComponent(item.focus)}`

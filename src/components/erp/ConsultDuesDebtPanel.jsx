@@ -1,10 +1,15 @@
-import { useMemo, useState } from 'react';
-import { ArrowLeft, Download, Search, AlertTriangle } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { ArrowLeft, Download, Search, AlertTriangle, Loader2 } from 'lucide-react';
 import { appMonthlyDebtForMember } from '../../domain/accounting/appMonthlyDebts';
-import { filterMembersForBalances } from '../../domain/accounting/memberBalances';
 import { downloadDuesDebtPdf } from '../../domain/accounting/exportDuesDebtPdf';
-import { memberNumberOf } from '../../domain/members/households';
+import {
+  memberMatchesDirectoryQuery,
+  memberNumberOf,
+  rankMemberSearchHit,
+} from '../../domain/members/households';
 import { isDuesExemptMember } from '../../domain/members/dues';
+import { isSupabaseConfigured } from '../../lib/supabase';
+import * as repos from '../../data/repos';
 
 function formatMoney(n) {
   return new Intl.NumberFormat('es-AR', {
@@ -28,24 +33,71 @@ export default function ConsultDuesDebtPanel({
   formatCurrency = formatMoney,
 }) {
   const [query, setQuery] = useState('');
-  const [selectedId, setSelectedId] = useState('');
+  const [selected, setSelected] = useState(null);
+  const [remoteHits, setRemoteHits] = useState([]);
+  const [remoteBusy, setRemoteBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const selected = useMemo(
-    () => members.find((m) => String(m.memberId || '') === String(selectedId)) || null,
-    [members, selectedId],
-  );
+  useEffect(() => {
+    if (typeof repos.invalidateMemberSearchCache === 'function') {
+      repos.invalidateMemberSearchCache();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selected) {
+      setRemoteHits([]);
+      setRemoteBusy(false);
+      return undefined;
+    }
+    const needle = query.trim();
+    const digits = needle.replace(/\D/g, '');
+    const enough = needle.length >= 2 || digits.length >= 3;
+    if (!enough || !isSupabaseConfigured) {
+      setRemoteHits([]);
+      setRemoteBusy(false);
+      return undefined;
+    }
+    let cancelled = false;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      setRemoteBusy(true);
+      repos.searchMembersDirectory(needle, { limit: 14, signal: controller.signal })
+        .then((rows) => {
+          if (!cancelled) setRemoteHits(rows || []);
+        })
+        .catch(() => {
+          if (!cancelled) setRemoteHits([]);
+        })
+        .finally(() => {
+          if (!cancelled) setRemoteBusy(false);
+        });
+    }, 220);
+    return () => {
+      cancelled = true;
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [query, selected]);
 
   const suggestions = useMemo(() => {
+    if (selected) return [];
     const q = query.trim();
-    if (q.length < 2) return [];
-    if (selected) {
-      const label = `${padNro(memberNumberOf(selected) || selected.memberId)} · ${selected.name || ''}`.trim();
-      if (q === label) return [];
+    if (!q) return [];
+    const local = (members || [])
+      .filter((m) => memberMatchesDirectoryQuery(m, q))
+      .toSorted((a, b) => rankMemberSearchHit(a, q) - rankMemberSearchHit(b, q))
+      .slice(0, 14);
+    const byId = new Map(local.map((m) => [String(m.memberId), m]));
+    for (const row of remoteHits) {
+      const id = String(row.memberId || '');
+      if (id && !byId.has(id)) byId.set(id, row);
     }
-    return filterMembersForBalances(members, { query: q, status: 'all' }).slice(0, 12);
-  }, [members, query, selected]);
+    return [...byId.values()]
+      .toSorted((a, b) => rankMemberSearchHit(a, q) - rankMemberSearchHit(b, q))
+      .slice(0, 14);
+  }, [members, query, remoteHits, selected]);
 
   const debt = useMemo(() => {
     if (!selected || isDuesExemptMember(selected)) return null;
@@ -58,8 +110,21 @@ export default function ConsultDuesDebtPanel({
   }, [selected, accountEntries]);
 
   const pick = (row) => {
-    setSelectedId(String(row.memberId || ''));
-    setQuery(`${padNro(memberNumberOf(row) || row.memberId)} · ${row.name || ''}`.trim());
+    const fromPadron = (members || []).find((m) => String(m.memberId) === String(row.memberId));
+    // Preferir la fila con saldo si el padrón en memoria vino vacío/desfasado.
+    const remoteBal = Number(row?.outstandingBalance) || 0;
+    const localBal = Number(fromPadron?.outstandingBalance) || 0;
+    const full = fromPadron && localBal >= remoteBal
+      ? { ...row, ...fromPadron }
+      : { ...(fromPadron || {}), ...row };
+    setSelected(full);
+    setQuery(`${padNro(memberNumberOf(full) || full.memberId)} · ${full.name || ''}`.trim());
+    setError('');
+  };
+
+  const clearPick = () => {
+    setSelected(null);
+    setQuery('');
     setError('');
   };
 
@@ -71,7 +136,22 @@ export default function ConsultDuesDebtPanel({
     setBusy(true);
     setError('');
     try {
-      await downloadDuesDebtPdf({ member: selected, debt, asOf: new Date() });
+      const bal = Number(selected.outstandingBalance) || 0;
+      const pdfDebt = debt || (bal > 0.009 && !isDuesExemptMember(selected)
+        ? {
+          memberNumber: memberNumberOf(selected),
+          memberName: selected.name,
+          dni: selected.documentNumber || selected.dni || '',
+          socialFee: selected.tier || '',
+          standing: 'Con saldo',
+          capital: bal,
+          interest: 0,
+          unallocated: bal,
+          totalDebt: bal,
+          months: [],
+        }
+        : null);
+      await downloadDuesDebtPdf({ member: selected, debt: pdfDebt, asOf: new Date() });
     } catch (err) {
       setError(err?.message || 'No se pudo generar el PDF.');
     } finally {
@@ -80,9 +160,18 @@ export default function ConsultDuesDebtPanel({
   };
 
   const months = debt?.months || [];
-  const total = Number(debt?.totalDebt) || 0;
-  const clear = !debt || total <= 0.009;
+  const debtTotal = Number(debt?.totalDebt) || 0;
+  const balance = Number(selected?.outstandingBalance) || 0;
   const exempt = selected ? isDuesExemptMember(selected) : false;
+  // Solo después de elegir socio. Sin selección no se inventa «Al día».
+  const hasDebt = Boolean(selected) && !exempt && (debtTotal > 0.009 || balance > 0.009);
+  const clear = Boolean(selected) && !exempt && !hasDebt;
+  const sealLabel = !selected
+    ? null
+    : (exempt ? 'Exento' : (hasDebt ? 'Con deuda' : 'Al día'));
+  const displayCapital = debt ? Number(debt.capital) || 0 : balance;
+  const displayInterest = debt ? Number(debt.interest) || 0 : 0;
+  const displayTotal = debtTotal > 0.009 ? debtTotal : balance;
 
   return (
     <div className="fade-in cuotas-panel consult-dues-debt-panel">
@@ -103,9 +192,11 @@ export default function ConsultDuesDebtPanel({
             Buscá un socio y descargá el PDF con el capital de cada mes y los intereses (recargo 10 %).
           </p>
         </div>
-        <span className={`consult-debt-seal${clear || exempt ? '' : ' is-debt'}`}>
-          {exempt ? 'Exento' : (clear ? 'Al día' : 'Con deuda')}
-        </span>
+        {sealLabel ? (
+          <span className={`consult-debt-seal${hasDebt ? ' is-debt' : ''}`}>
+            {sealLabel}
+          </span>
+        ) : null}
       </header>
 
       {error ? <p className="mb-folio-status is-error" role="alert">{error}</p> : null}
@@ -114,6 +205,7 @@ export default function ConsultDuesDebtPanel({
         <label className="consult-debt-search-label" htmlFor="consult-debt-q">
           <Search size={15} aria-hidden />
           Buscar socio
+          {remoteBusy ? <Loader2 size={14} className="spin" aria-label="Buscando…" /> : null}
         </label>
         <input
           id="consult-debt-q"
@@ -121,7 +213,7 @@ export default function ConsultDuesDebtPanel({
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
-            setSelectedId('');
+            setSelected(null);
             setError('');
           }}
           placeholder="Nº de socio o nombre"
@@ -143,6 +235,9 @@ export default function ConsultDuesDebtPanel({
             })}
           </ul>
         ) : null}
+        {!selected && query.trim().length >= 2 && !remoteBusy && suggestions.length === 0 ? (
+          <p className="consult-debt-hint">No hay coincidencias para «{query.trim()}».</p>
+        ) : null}
       </section>
 
       {selected ? (
@@ -160,15 +255,20 @@ export default function ConsultDuesDebtPanel({
                 {exempt ? ' · No abona cuota' : null}
               </p>
             </div>
-            <button
-              type="button"
-              className="btn btn-primary"
-              disabled={busy}
-              onClick={() => { void download(); }}
-            >
-              <Download size={15} aria-hidden />
-              {busy ? 'Generando…' : 'Descargar PDF'}
-            </button>
+            <div className="consult-debt-actions">
+              <button type="button" className="btn btn-secondary btn-sm" onClick={clearPick}>
+                Cambiar socio
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={busy}
+                onClick={() => { void download(); }}
+              >
+                <Download size={15} aria-hidden />
+                {busy ? 'Generando…' : 'Descargar PDF'}
+              </button>
+            </div>
           </div>
 
           {exempt ? (
@@ -182,13 +282,13 @@ export default function ConsultDuesDebtPanel({
               <div className="consult-debt-kpis">
                 <div>
                   <span>Capital</span>
-                  <strong>{formatCurrency(debt.capital)}</strong>
+                  <strong>{formatCurrency(displayCapital)}</strong>
                 </div>
                 <div>
                   <span>Intereses</span>
-                  <strong>{formatCurrency(debt.interest)}</strong>
+                  <strong>{formatCurrency(displayInterest)}</strong>
                 </div>
-                {Number(debt.unallocated) > 0.009 ? (
+                {debt && Number(debt.unallocated) > 0.009 ? (
                   <div>
                     <span>Sin imputar</span>
                     <strong>{formatCurrency(debt.unallocated)}</strong>
@@ -196,7 +296,7 @@ export default function ConsultDuesDebtPanel({
                 ) : null}
                 <div className="is-total">
                   <span>Total</span>
-                  <strong>{formatCurrency(debt.totalDebt)}</strong>
+                  <strong>{formatCurrency(displayTotal)}</strong>
                 </div>
               </div>
 
@@ -214,7 +314,9 @@ export default function ConsultDuesDebtPanel({
                     {months.length === 0 ? (
                       <tr>
                         <td colSpan={4} style={{ color: 'var(--text-muted)' }}>
-                          Sin desglose mes a mes: el saldo queda sin imputar.
+                          {balance > 0.009
+                            ? `Saldo de ficha ${formatCurrency(balance)} sin desglose mes a mes.`
+                            : 'Sin desglose mes a mes: el saldo queda sin imputar.'}
                         </td>
                       </tr>
                     ) : months.map((row) => {

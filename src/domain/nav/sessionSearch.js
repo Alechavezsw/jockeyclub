@@ -3,6 +3,7 @@
 const ADMIN_SECTIONS = [
   { key: 'dashboard', title: 'Inicio', keywords: 'inicio tablero panel' },
   { key: 'members', title: 'Socios', keywords: 'socios padron ficha alta' },
+  { key: 'members_app', title: 'Socios con app', keywords: 'socios app portal acceso credenciales con app' },
   { key: 'dues', title: 'Cuotas', keywords: 'cuotas socios liquidacion vencimiento saldos cuentas' },
   { key: 'bookings', title: 'Reservas', keywords: 'reservas canchas turnos' },
   { key: 'disciplines', title: 'Disciplinas', keywords: 'disciplinas deportes' },
@@ -98,7 +99,11 @@ export function searchSession({
   const allowed = new Set(tabs);
 
   ADMIN_SECTIONS.forEach((section) => {
-    const permittedKey = section.key === 'pool_gate' ? 'pool' : section.key;
+    const permittedKey = section.key === 'pool_gate'
+      ? 'pool'
+      : section.key === 'members_app'
+        ? 'members'
+        : section.key;
     if (!allowed.has(permittedKey)) return;
     const path = section.key === 'pool'
       ? '/pileta'
@@ -110,7 +115,11 @@ export function searchSession({
       kind: 'section',
       title: section.title,
       keywords: section.keywords,
-      subtitle: section.key === 'pool_gate' ? 'Pileta' : 'Sección',
+      subtitle: section.key === 'pool_gate'
+        ? 'Pileta'
+        : section.key === 'members_app'
+          ? 'Socios'
+          : 'Sección',
       path,
     }, tokens);
   });

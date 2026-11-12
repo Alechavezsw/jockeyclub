@@ -4,7 +4,7 @@ import {
   Users, Calendar, DollarSign, Activity, ShieldAlert,
   BookOpen, Book, ClipboardList, MessageSquare, Phone, Wallet, PieChart,
   FileSpreadsheet, Radio, Database, BellRing, PartyPopper, Trophy, Store, DoorOpen, QrCode, Newspaper, CreditCard,
-  LayoutDashboard, ChevronRight, Briefcase, Headset, Settings, SlidersHorizontal, Building2, Waves, GraduationCap, Sparkles, TicketCheck, Banknote,
+  LayoutDashboard, ChevronRight, Briefcase, Headset, Settings, SlidersHorizontal, Building2, Waves, GraduationCap, Sparkles, TicketCheck, Banknote, Smartphone,
 } from 'lucide-react';
 import { DEFAULT_POOL_SETTINGS } from '../domain/pool/poolAccess';
 import { DEFAULT_CHART_OF_ACCOUNTS, resolveAccountId } from '../domain/accounting/chartOfAccounts';
@@ -49,6 +49,7 @@ const AlertsPanel = lazy(() => import('../components/erp/AlertsPanel'));
 const ClubEventsPanel = lazy(() => import('../components/erp/ClubEventsPanel'));
 const AdminDashboardTab = lazy(() => import('../components/admin/AdminDashboardTab'));
 const MembersTab = lazy(() => import('../components/admin/MembersTab'));
+const MembersWithAppPanel = lazy(() => import('../components/admin/MembersWithAppPanel'));
 const MemberProfilePanel = lazy(() => import('../components/admin/MemberProfilePanel'));
 const StaffProfilePanel = lazy(() => import('../components/admin/StaffProfilePanel'));
 const BookingsTab = lazy(() => import('../components/admin/BookingsTab'));
@@ -86,6 +87,7 @@ const TAB_PREFETCH = {
   operation: () => import('../components/AccountingTab'),
   caja: () => import('../components/AccountingTab'),
   members: () => import('../components/admin/MembersTab'),
+  members_app: () => import('../components/admin/MembersWithAppPanel'),
   dues: () => import('../components/erp/CuotasPanel'),
   dashboard: () => import('../components/admin/AdminDashboardTab'),
   reports: () => import('../components/admin/ReportsTab'),
@@ -242,7 +244,15 @@ export default function AdminView({
   const { tab: routeTab, memberId: routeEntityId } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const activeTab = routeTab && permittedTabs.includes(routeTab) ? routeTab : permittedTabs[0] || 'dashboard';
+  const routeTabAllowed = Boolean(
+    routeTab
+    && (
+      permittedTabs.includes(routeTab)
+      || (routeTab === 'members_app' && permittedTabs.includes('members'))
+      || (routeTab === 'pool_gate' && permittedTabs.includes('pool'))
+    ),
+  );
+  const activeTab = routeTabAllowed ? routeTab : permittedTabs[0] || 'dashboard';
   const accountingSubTabFocus = (
     activeTab === 'accounting'
     || activeTab === 'books'
@@ -606,7 +616,14 @@ export default function AdminView({
         id: 'ops',
         label: 'Operación',
         tabs: [
-          { key: 'members', icon: Users, label: 'Socios' },
+          {
+            key: 'members',
+            icon: Users,
+            label: 'Socios',
+            children: [
+              { key: 'members_app', icon: Smartphone, label: 'Socios con app' },
+            ],
+          },
           { key: 'dues', icon: ShieldAlert, label: liquidateDues ? 'Cuotas' : 'Saldos' },
           { key: 'subscriptions', icon: CreditCard, label: 'Suscripciones' },
           {
@@ -704,6 +721,7 @@ export default function AdminView({
             if (!tab.children?.length) return tab;
             const children = tab.children.filter((child) => {
               if (child.key === 'pool_gate') return permittedTabs.includes('pool');
+              if (child.key === 'members_app') return permittedTabs.includes('members');
               return permittedTabs.includes(child.key);
             });
             return children.length ? { ...tab, children } : { ...tab, children: undefined };
@@ -1169,7 +1187,7 @@ export default function AdminView({
       <div className="admin-main">
       <div className="page-stage">
       {/* Cabecera solo fuera del Inicio (el dashboard ya trae su propia intro) */}
-      {activeTab !== 'dashboard' && activeTab !== 'events' && activeTab !== 'accounting' && activeTab !== 'books' && activeTab !== 'informes' && activeTab !== 'caja' && activeTab !== 'operation' && activeTab !== 'jev' && activeTab !== 'messaging' && (
+      {activeTab !== 'dashboard' && activeTab !== 'events' && activeTab !== 'accounting' && activeTab !== 'books' && activeTab !== 'informes' && activeTab !== 'caja' && activeTab !== 'operation' && activeTab !== 'jev' && activeTab !== 'messaging' && activeTab !== 'members_app' && (
         <div className="page-header" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
           <div>
             <h1 className="page-title">{panelMeta.title}</h1>
@@ -1388,6 +1406,28 @@ export default function AdminView({
             paymentTolerance={duesSettings?.paymentTolerance}
           />
         )
+      )}
+
+      {activeTab === 'members_app' && (
+        <MembersWithAppPanel
+          members={members}
+          membersLoading={membersLoading}
+          setMembers={memberSet}
+          updateMember={memberWrite}
+          addJournalEntry={addJournalEntry}
+          onAccountEntry={erp.upsertMemberAccountEntryRecord}
+          formatCurrency={formatCurrency}
+          onOpenProfile={(id) => navigate(`/panel/members/${id}`)}
+          onSendMessage={sendMessage}
+          tierCatalog={tierCatalog}
+          paymentPlans={paymentPlans}
+          paymentTolerance={duesSettings?.paymentTolerance}
+          journalEntries={journalEntries}
+          reservations={reservations}
+          entryLogs={entryLogs}
+          claims={claims}
+          messages={messages}
+        />
       )}
 
       {activeTab === 'bookings' && (

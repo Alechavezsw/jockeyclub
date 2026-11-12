@@ -235,7 +235,7 @@ export const CLUB_TOOLS = [
 
 export const ALL_GUIDE_TOPICS = [...CLUB_GUIDE, ...CLUB_TOOLS];
 
-export const JEV_TABS = 'dashboard|jev|members|dues|bookings|disciplines|pool|pool_gate|access|qr_gate|accounting|staff|teachers|events|alerts|claims|messaging|news|reports|surveys|system|settings|migration|concessions';
+export const JEV_TABS = 'dashboard|jev|members|members_app|dues|bookings|disciplines|pool|pool_gate|access|qr_gate|accounting|staff|teachers|events|alerts|claims|messaging|news|reports|surveys|system|settings|migration|concessions';
 
 export const APP_ROLES = 'Socio (portal), Profesor (/asistencia), Personal, RR.HH., Empleado de administración, Operador de portería, Operario de pileta (puerta y cobro del canon), Cajero, Contador, Administrador (caja y contabilidad), Superadministrador (todo, únicos que crean perfiles).';
 
