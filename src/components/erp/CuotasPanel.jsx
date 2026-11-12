@@ -67,6 +67,7 @@ import OverdueDuesStrip from '../admin/OverdueDuesStrip';
 import FeeChartAccountsPanel from './FeeChartAccountsPanel';
 import MemberBalancesPanel from './MemberBalancesPanel';
 import MonthlyDebtsPanel from './MonthlyDebtsPanel';
+import ConsultDuesDebtPanel from './ConsultDuesDebtPanel';
 import DetailedCurrentAccountsPanel from './DetailedCurrentAccountsPanel';
 import MemberCreditPurchasesPanel from './MemberCreditPurchasesPanel';
 import PaymentReceiptsPanel from './PaymentReceiptsPanel';
@@ -918,6 +919,17 @@ export default function CuotasPanel({
         onGoView={goDesk}
         formatCurrency={fmt}
         tierCatalog={tierCatalog}
+      />
+    );
+  }
+
+  if (view === 'consult_debt') {
+    return (
+      <ConsultDuesDebtPanel
+        members={members}
+        accountEntries={memberAccountEntries}
+        onBack={() => goHome()}
+        formatCurrency={fmt}
       />
     );
   }

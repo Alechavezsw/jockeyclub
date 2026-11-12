@@ -1,4 +1,5 @@
 import {
+  AlertTriangle,
   ArrowLeft,
   Banknote,
   BookOpen,
@@ -13,6 +14,7 @@ import {
 } from 'lucide-react';
 
 const CONSULT = [
+  { id: 'consult_debt', icon: AlertTriangle, label: 'Consultar deuda', hint: 'Cuota + intereses · PDF', tone: 'danger' },
   { id: 'balances', icon: Wallet, label: 'Saldos', hint: 'Cuentas de cada socio' },
   { id: 'detailed_cc', icon: ListTree, label: 'CC detalladas', hint: 'Cargos y pagos' },
   { id: 'payment_receipts', icon: Receipt, label: 'Comprobantes', hint: 'Descargar o reenviar' },
@@ -103,6 +105,7 @@ export default function CuotasDeskToolbar({
                 icon={tool.icon}
                 label={tool.label}
                 hint={tool.hint}
+                tone={tool.tone || 'gold'}
                 current={current === tool.id}
                 onClick={() => onGo?.(tool.id)}
               />
