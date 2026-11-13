@@ -22613,6 +22613,17 @@ a.ops-outline-btn {
 }
 .gate-income-book-figure b { font-size: 0.95rem; }
 .gate-income-book-figure.is-total b { font-size: 1.15rem; color: var(--text-gold, #b08d57); }
+.gate-income-receipt-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+.gate-income-receipt-btn .spin {
+  animation: cuotas-busy-spin 0.85s linear infinite;
+}
 
 /* Otros ingresos (LILA-style form) */
 .oi-panel { display: flex; flex-direction: column; gap: 1rem; }

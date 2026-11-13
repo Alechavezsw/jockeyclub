@@ -150,6 +150,8 @@ export function createOtherIncome({
   attachments = [],
   renderedBy = '',
   renderedById = '',
+  receivedBy = '',
+  receivedById = '',
   bookNumber = '',
 }) {
   if (!OTHER_INCOME_PAYERS[payerType]) throw new Error('Origen inválido.');
@@ -199,6 +201,8 @@ export function createOtherIncome({
     notes: String(notes || '').trim(),
     renderedBy: String(renderedBy || '').trim(),
     renderedById: String(renderedById || '').trim(),
+    receivedBy: String(receivedBy || '').trim(),
+    receivedById: String(receivedById || '').trim(),
     bookNumber: String(bookNumber || '').trim(),
     signatureLegend: String(signatureLegend || '').trim(),
     attachments: Array.isArray(attachments) ? attachments : [],

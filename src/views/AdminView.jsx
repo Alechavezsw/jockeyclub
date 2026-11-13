@@ -1490,6 +1490,8 @@ export default function AdminView({
           rendererId={user?.id || ''}
           rendererName={user?.fullName || ''}
           rendererIsPorter={user?.role === 'gate_operator' || (user?.roles || []).some((role) => role?.roleKey === 'gate_operator')}
+          receiverId={user?.id || ''}
+          receiverName={user?.fullName || ''}
         />
       )}
 

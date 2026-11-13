@@ -1062,6 +1062,8 @@ export function otherIncomeFromRow(row) {
     notes: row.notes || meta.notes || '',
     renderedBy: meta.renderedBy || '',
     renderedById: meta.renderedById || '',
+    receivedBy: meta.receivedBy || '',
+    receivedById: meta.receivedById || '',
     bookNumber: meta.bookNumber || '',
     signatureLegend: meta.signatureLegend || '',
     attachments: Array.isArray(meta.attachments) ? meta.attachments : [],

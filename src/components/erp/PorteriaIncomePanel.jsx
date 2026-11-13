@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Banknote } from 'lucide-react';
+import { Banknote, Download, Loader2 } from 'lucide-react';
 import { formatCurrency } from '../../domain/accounting/journal';
 import {
   createOtherIncome,
@@ -7,6 +7,7 @@ import {
   OTHER_INCOME_PAYMENT_METHODS,
   porterIncomeBooks,
 } from '../../domain/accounting/otherIncomes';
+import { downloadPorteriaIncomeReceiptPdf } from '../../domain/accounting/exportPorteriaIncomeReceiptPdf';
 import { repos } from '../../data/bootstrap';
 import { todayAR } from '../../lib/arDate';
 
@@ -34,6 +35,8 @@ export default function PorteriaIncomePanel({
   rendererId = '',
   rendererName = '',
   rendererIsPorter = false,
+  receiverId = '',
+  receiverName = '',
 }) {
   const [date, setDate] = useState(todayAR);
   const [kind, setKind] = useState('porteria');
@@ -48,6 +51,7 @@ export default function PorteriaIncomePanel({
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
   const [busy, setBusy] = useState(false);
+  const [exportingId, setExportingId] = useState('');
 
   const rows = useMemo(
     () => (items || []).filter(isPorteriaIncomeItem),
@@ -99,6 +103,21 @@ export default function PorteriaIncomePanel({
   }, [rendererId, rendererName, rendererIsPorter]);
 
   const selectedPorter = porters.find((row) => row.id === porterId) || null;
+  const whoReceives = String(receiverName || rendererName || '').trim();
+
+  const exportReceipt = async (item) => {
+    if (!item?.id) return;
+    setError('');
+    setExportingId(item.id);
+    try {
+      await downloadPorteriaIncomeReceiptPdf(item);
+      setOk(`Recibo listo para enviar · ${formatCurrency(item.amount)}`);
+    } catch (err) {
+      setError(err?.message || 'No se pudo exportar el recibo.');
+    } finally {
+      setExportingId('');
+    }
+  };
 
   const submit = async (event) => {
     event.preventDefault();
@@ -129,6 +148,8 @@ export default function PorteriaIncomePanel({
         payerName: name,
         renderedBy: name,
         renderedById: selectedPorter.id,
+        receivedBy: whoReceives,
+        receivedById: String(receiverId || rendererId || '').trim(),
         concept: preset.concept,
         group: 'porteria',
         paymentMethod: method,
@@ -137,12 +158,18 @@ export default function PorteriaIncomePanel({
         bookNumber: book,
       });
       if (typeof onCreate !== 'function') throw new Error('Guardado no disponible.');
-      await onCreate(income);
+      const saved = await onCreate(income);
+      const receipt = saved && typeof saved === 'object' ? { ...income, ...saved } : income;
       setOk(`${preset.label} · ${income.paymentMethodLabel} · talonario ${book} · rindió ${name} · ${formatCurrency(income.amount)}`);
       setAmount('');
       setDetail('');
       setBookNumber('');
       setPaymentMethod('efectivo');
+      try {
+        await downloadPorteriaIncomeReceiptPdf(receipt);
+      } catch {
+        /* el cobro ya quedó; el PDF se puede bajar del listado */
+      }
     } catch (err) {
       setError(err.message || 'No se pudo registrar.');
     } finally {
@@ -157,7 +184,10 @@ export default function PorteriaIncomePanel({
           <h4 className="serif-font gate-income-title">
             <Banknote size={18} aria-hidden="true" /> Ingresos de portería
           </h4>
-          <p>Efectivo a caja · Mercado Pago a la cuenta MP. El asiento nombra al portero que rinde.</p>
+          <p>
+            Efectivo a caja · Mercado Pago a la cuenta MP. El asiento nombra al portero que rinde.
+            Al registrar se descarga el recibo para enviárselo.
+          </p>
         </div>
 
         <div className="gate-income-kinds" role="radiogroup" aria-label="Qué se rinde">
@@ -304,12 +334,13 @@ export default function PorteriaIncomePanel({
               <th>Descripción</th>
               <th>Entrada</th>
               <th>Importe</th>
+              <th>Recibo</th>
             </tr>
           </thead>
           <tbody>
             {visibleRows.length === 0 ? (
               <tr>
-                <td colSpan={6}>Todavía no hay rendiciones de portería.</td>
+                <td colSpan={7}>Todavía no hay rendiciones de portería.</td>
               </tr>
             ) : visibleRows.map((item) => (
               <tr key={item.id}>
@@ -319,6 +350,20 @@ export default function PorteriaIncomePanel({
                 <td>{item.notes || '—'}</td>
                 <td>{entryLabel(item)}</td>
                 <td className="tabular-nums">{formatCurrency(item.amount)}</td>
+                <td>
+                  <button
+                    type="button"
+                    className="btn btn-secondary gate-income-receipt-btn"
+                    disabled={exportingId === item.id}
+                    title="Descargar recibo para el portero"
+                    onClick={() => { void exportReceipt(item); }}
+                  >
+                    {exportingId === item.id
+                      ? <Loader2 size={14} className="spin" aria-hidden="true" />
+                      : <Download size={14} aria-hidden="true" />}
+                    Recibo
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>

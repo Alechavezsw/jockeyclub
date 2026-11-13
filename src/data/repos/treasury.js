@@ -371,6 +371,8 @@ export async function upsertOtherIncome(item) {
       notes: item.notes || '',
       renderedBy: item.renderedBy || '',
       renderedById: item.renderedById || '',
+      receivedBy: item.receivedBy || '',
+      receivedById: item.receivedById || '',
       bookNumber: item.bookNumber || '',
       signatureLegend: item.signatureLegend || '',
       attachments: item.attachments || [],
