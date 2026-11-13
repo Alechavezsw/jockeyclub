@@ -47,7 +47,7 @@ function isTreasuryAccount(account) {
 }
 
 export function isMercadoPagoMovement(row) {
-  const blob = `${row?.walletName || ''} ${row?.walletId || ''} ${row?.description || ''} ${row?.typeLabel || ''}`;
+  const blob = `${row?.walletName || ''} ${row?.walletId || ''} ${row?.description || ''} ${row?.typeLabel || ''} ${row?.paymentMethod || ''} ${row?.paymentMethodLabel || ''}`;
   return /mercado\s*pago|\bmp\b|wallet-mp/i.test(blob);
 }
 
@@ -271,14 +271,21 @@ export function asCobranzaFromOtherIncome(item) {
     || /porter[ií]a|estacionamiento/i.test(String(item.concept || ''));
   const who = String(item.renderedBy || item.meta?.renderedBy || '').trim();
   const base = item.concept || (porteria ? 'Rendición portería' : 'Otro ingreso');
+  const paymentMethod = item.paymentMethod || 'efectivo';
+  const paymentMethodLabel = item.paymentMethodLabel
+    || (paymentMethod === 'mercadopago' ? 'Mercado Pago' : 'Efectivo');
+  const walletKind = walletKindForPaymentMethod(paymentMethod);
+  const mp = /mercado\s*pago/i.test(`${paymentMethod} ${paymentMethodLabel}`);
   return {
     id: `live-oi-${item.id}`,
     date,
     amount,
     type: porteria ? 'Portería' : (OTHER_INCOME_COBRANZA_TYPE[item.group] || 'Varios'),
     typeLabel: porteria ? 'RENDICION PORTERIA' : undefined,
-    paymentMethod: item.paymentMethod || 'efectivo',
-    paymentMethodLabel: item.paymentMethodLabel || 'Efectivo',
+    paymentMethod,
+    paymentMethodLabel,
+    walletKind,
+    walletName: mp ? 'Mercado Pago' : (walletKind === 'bank' ? 'Bancos' : 'Efectivo'),
     memberNumber: item.payerType === 'member' ? (item.documentId || '') : '',
     memberName: who || item.payerName || '',
     concept: base,

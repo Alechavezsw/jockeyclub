@@ -1,13 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Banknote } from 'lucide-react';
 import { formatCurrency } from '../../domain/accounting/journal';
-import { createOtherIncome, isPorteriaIncomeItem, porterIncomeBooks } from '../../domain/accounting/otherIncomes';
+import {
+  createOtherIncome,
+  isPorteriaIncomeItem,
+  OTHER_INCOME_PAYMENT_METHODS,
+  porterIncomeBooks,
+} from '../../domain/accounting/otherIncomes';
 import { repos } from '../../data/bootstrap';
 import { todayAR } from '../../lib/arDate';
 
 const KINDS = [
   { id: 'porteria', label: 'Portería', concept: 'Rendición portería' },
   { id: 'estacionamiento', label: 'Estacionamiento', concept: 'Rendición estacionamiento' },
+];
+
+const PAY_METHODS = [
+  { id: 'efectivo', label: OTHER_INCOME_PAYMENT_METHODS.efectivo },
+  { id: 'mercadopago', label: OTHER_INCOME_PAYMENT_METHODS.mercadopago },
 ];
 
 function entryLabel(item) {
@@ -27,6 +37,7 @@ export default function PorteriaIncomePanel({
 }) {
   const [date, setDate] = useState(todayAR);
   const [kind, setKind] = useState('porteria');
+  const [paymentMethod, setPaymentMethod] = useState('efectivo');
   const [amount, setAmount] = useState('');
   const [detail, setDetail] = useState('');
   const [bookNumber, setBookNumber] = useState('');
@@ -109,6 +120,7 @@ export default function PorteriaIncomePanel({
       return;
     }
     const preset = KINDS.find((item) => item.id === kind) || KINDS[0];
+    const method = PAY_METHODS.some((item) => item.id === paymentMethod) ? paymentMethod : 'efectivo';
     setBusy(true);
     try {
       const income = createOtherIncome({
@@ -119,17 +131,18 @@ export default function PorteriaIncomePanel({
         renderedById: selectedPorter.id,
         concept: preset.concept,
         group: 'porteria',
-        paymentMethod: 'efectivo',
+        paymentMethod: method,
         amount: Number(amount),
         notes: description,
         bookNumber: book,
       });
       if (typeof onCreate !== 'function') throw new Error('Guardado no disponible.');
       await onCreate(income);
-      setOk(`${preset.label} · talonario ${book} · rindió ${name} · ${formatCurrency(income.amount)}`);
+      setOk(`${preset.label} · ${income.paymentMethodLabel} · talonario ${book} · rindió ${name} · ${formatCurrency(income.amount)}`);
       setAmount('');
       setDetail('');
       setBookNumber('');
+      setPaymentMethod('efectivo');
     } catch (err) {
       setError(err.message || 'No se pudo registrar.');
     } finally {
@@ -144,7 +157,7 @@ export default function PorteriaIncomePanel({
           <h4 className="serif-font gate-income-title">
             <Banknote size={18} aria-hidden="true" /> Ingresos de portería
           </h4>
-          <p>El efectivo entra a caja. El asiento nombra al portero que rinde.</p>
+          <p>Efectivo a caja · Mercado Pago a la cuenta MP. El asiento nombra al portero que rinde.</p>
         </div>
 
         <div className="gate-income-kinds" role="radiogroup" aria-label="Qué se rinde">
@@ -156,6 +169,21 @@ export default function PorteriaIncomePanel({
               aria-checked={kind === item.id}
               className={`gate-income-kind${kind === item.id ? ' is-on' : ''}`}
               onClick={() => setKind(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="gate-income-kinds" role="radiogroup" aria-label="Tipo de pago">
+          {PAY_METHODS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="radio"
+              aria-checked={paymentMethod === item.id}
+              className={`gate-income-kind${paymentMethod === item.id ? ' is-on' : ''}`}
+              onClick={() => setPaymentMethod(item.id)}
             >
               {item.label}
             </button>
@@ -272,6 +300,7 @@ export default function PorteriaIncomePanel({
             <tr>
               <th>Fecha</th>
               <th>Talonario</th>
+              <th>Pago</th>
               <th>Descripción</th>
               <th>Entrada</th>
               <th>Importe</th>
@@ -280,12 +309,13 @@ export default function PorteriaIncomePanel({
           <tbody>
             {visibleRows.length === 0 ? (
               <tr>
-                <td colSpan={5}>Todavía no hay rendiciones de portería.</td>
+                <td colSpan={6}>Todavía no hay rendiciones de portería.</td>
               </tr>
             ) : visibleRows.map((item) => (
               <tr key={item.id}>
                 <td>{item.date}</td>
                 <td className="tabular-nums">{item.bookNumber || '—'}</td>
+                <td>{item.paymentMethodLabel || OTHER_INCOME_PAYMENT_METHODS[item.paymentMethod] || 'Efectivo'}</td>
                 <td>{item.notes || '—'}</td>
                 <td>{entryLabel(item)}</td>
                 <td className="tabular-nums">{formatCurrency(item.amount)}</td>

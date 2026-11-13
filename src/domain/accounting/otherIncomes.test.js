@@ -77,6 +77,23 @@ describe('otherIncomes', () => {
     expect(entry.lines.some((line) => line.accountId === 'coa-1.1.01' && line.debit === 45000)).toBe(true);
   });
 
+  it('portería por Mercado Pago va a la cuenta MP, no a caja', () => {
+    const income = createOtherIncome({
+      date: '2026-11-13',
+      payerName: 'Ana López',
+      renderedBy: 'Ana López',
+      concept: 'Rendición portería',
+      group: 'porteria',
+      paymentMethod: 'mercadopago',
+      amount: 18000,
+      bookNumber: '200',
+    });
+    expect(income.paymentMethod).toBe('mercadopago');
+    const entry = journalForOtherIncome(income, DEFAULT_CHART_OF_ACCOUNTS);
+    expect(entry.lines.some((line) => line.accountId === 'coa-1.1.08' && line.debit === 18000)).toBe(true);
+    expect(entry.lines.some((line) => line.accountId === 'coa-1.1.01' && line.debit > 0)).toBe(false);
+  });
+
   it('la rendición nombra a quien rinde', () => {
     const income = createOtherIncome({
       date: '2026-11-10',
