@@ -6,15 +6,22 @@ import { isSupabaseConfigured, supabase } from '../lib/supabase';
 import * as repos from '../data/repos';
 import ChangePasswordDialog from './ChangePasswordDialog';
 
-/** Destino real para avisar la clave (contacto o login). */
-function mailTargetForUser(user) {
+const INSTITUTIONAL_MAIL_RE = /@(?:jockey\.sj|jockeyclubsj\.com(?:\.ar)?|lila-jockey)\b/i;
+
+function isDeliverablePasswordMail(email) {
+  const value = String(email || '').trim();
+  if (!value.includes('@')) return false;
+  if (INSTITUTIONAL_MAIL_RE.test(value)) return false;
+  return true;
+}
+
+/** Destino real para avisar la clave (solo casilla entregable). */
+export function mailTargetForUser(user) {
   const contact = String(user?.contactEmail || '').trim();
   const login = String(user?.email || '').trim();
-  if (contact.includes('@') && !/@jockey\.sj$/i.test(contact) && !/@lila-jockey/i.test(contact)) {
-    return contact;
-  }
-  if (login.includes('@')) return login;
-  return contact.includes('@') ? contact : '';
+  if (isDeliverablePasswordMail(contact)) return contact;
+  if (isDeliverablePasswordMail(login)) return login;
+  return '';
 }
 
 /** Barra de sesión: quién está logueado, sede y cambio de clave. */
@@ -60,7 +67,7 @@ export default function SessionStatusBar() {
           mailNote = ` La clave quedó guardada, pero el mail falló: ${mailErr?.message || 'error'}.`;
         }
       } else {
-        mailNote = ' No hay mail para avisar el cambio.';
+        mailNote = ' La clave quedó guardada; falta un mail real de contacto para avisar.';
       }
 
       setOpen(false);
@@ -107,8 +114,8 @@ export default function SessionStatusBar() {
         open={open}
         onClose={() => (!busy ? setOpen(false) : null)}
         title="Cambiar tu clave"
-        subtitle="Regenerá una clave o escribí una propia. Guardamos el cambio y Resend te lo manda por mail."
-        confirmLabel="Guardar y enviar mail"
+        subtitle="Mínimo 6 caracteres."
+        confirmLabel="Guardar Clave"
         busy={busy}
         error={error}
         onSubmit={saveOwnPassword}

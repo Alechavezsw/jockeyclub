@@ -11,8 +11,8 @@ export default function ChangePasswordDialog({
   open,
   onClose,
   title = 'Cambiar clave',
-  subtitle = 'Podés regenerar una clave o escribir una propia. Se envía por mail.',
-  confirmLabel = 'Guardar y enviar mail',
+  subtitle = 'Mínimo 6 caracteres.',
+  confirmLabel = 'Guardar Clave',
   busy = false,
   error = '',
   onSubmit,
@@ -67,10 +67,11 @@ export default function ChangePasswordDialog({
         </div>
         <div className="modal-body" style={{ display: 'grid', gap: '0.85rem' }}>
           <p className="ops-muted" style={{ margin: 0, fontSize: '0.86rem' }}>{subtitle}</p>
-          <label className="form-group" style={{ margin: 0 }}>
-            <span className="form-label">Nueva clave</span>
+          <div className="form-group" style={{ margin: 0 }}>
+            <label className="form-label" htmlFor="change-password-input">Nueva clave</label>
             <div style={{ display: 'flex', gap: 8 }}>
               <input
+                id="change-password-input"
                 className="form-input"
                 type={visible ? 'text' : 'password'}
                 value={password}
@@ -102,7 +103,7 @@ export default function ChangePasswordDialog({
                 <RefreshCw size={14} /> Regenerar
               </button>
             </div>
-          </label>
+          </div>
           {(localError || error) ? (
             <p className="ig-error" role="alert" style={{ margin: 0 }}>{localError || error}</p>
           ) : null}

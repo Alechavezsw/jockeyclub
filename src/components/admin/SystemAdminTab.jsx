@@ -1013,9 +1013,14 @@ export default function SystemAdminTab({
         email: profile.email,
         password: nextPassword,
       });
-      const to = String(profile.contactEmail || profile.email || '').trim();
+      const contact = String(profile.contactEmail || '').trim();
+      const login = String(profile.email || '').trim();
+      const institutional = /@(?:jockey\.sj|jockeyclubsj\.com(?:\.ar)?|lila-jockey)\b/i;
+      const to = (contact.includes('@') && !institutional.test(contact))
+        ? contact
+        : ((login.includes('@') && !institutional.test(login)) ? login : '');
       let mailNote = '';
-      if (to.includes('@')) {
+      if (to) {
         try {
           await repos.sendAccessInviteEmail({
             to,
@@ -1030,7 +1035,7 @@ export default function SystemAdminTab({
           mailNote = ` La clave quedó, pero el mail falló: ${mailErr?.message || 'error'}.`;
         }
       } else {
-        mailNote = ' Sin mail de contacto para avisar.';
+        mailNote = ' La clave quedó; falta un mail real de contacto para avisar.';
       }
       setPasswordTarget(null);
       setFlash(`Clave actualizada para ${profile.email}.${mailNote}`);
@@ -1814,8 +1819,8 @@ export default function SystemAdminTab({
           open={Boolean(passwordTarget)}
           onClose={() => (!passwordBusy ? setPasswordTarget(null) : null)}
           title="Cambiar clave del usuario"
-          subtitle={`Regenerá o escribí una clave para ${passwordTarget?.email || 'este usuario'}. Resend manda el aviso.`}
-          confirmLabel="Guardar y enviar mail"
+          subtitle="Mínimo 6 caracteres."
+          confirmLabel="Guardar Clave"
           busy={passwordBusy}
           error={passwordError}
           onSubmit={resetExistingPassword}
