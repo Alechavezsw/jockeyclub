@@ -27,6 +27,7 @@ Aplica a **todos** los socios que abonan, no a un caso puntual:
 6. **El recibo nombra el mes**, en español y para todo el padrón: «Noviembre de 2026», «Octubre de 2026», etc. Vale para PDF, mail, mensaje del portal, Mercado Pago, caja, tarjeta, transferencia, débito y anticipo. Si son varios, van todos («Septiembre de 2026, Octubre de 2026 y Noviembre de 2026»). Nunca solo el medio («Cuota social · Efectivo»), ni «N meses», ni «Mes en curso», ni el mes en inglés.
 7. Helpers: `duesMonthLabel` / `duesMonthsPhrase` en `duesImputations.js`; `collectionPeriodChoices` / `duesPeriodMonthStarted` / `memberCoveredDueOns` en `dues.js`; UI en `CollectDuesModal`.
 8. **Descuento de mostrador**: es un monto, con detalle. No cambia el capital ni el 10 %. Baja el dinero que entra. Queda en el cobro, en el asiento (Descuentos sobre cuotas) y en el recibo.
+9. **Débito (caja, Galicia, automático)**: solo capital. No se cobra el 10 % de mora. Helper: `duesMethodSkipsSurcharge`. Vale para preview, `payMemberDues` / `recordDuesCollection` / anticipo / import / `cobroPeriods` / `registrar_cobro`. No es “perdonar” (`waivedSurcharge` sigue prohibido). Efectivo, transferencia, tarjeta y Mercado Pago one-shot **sí** llevan el 10 % si el mes está en mora. La suscripción MP (`mpSubscribeAmount`) ya es capital del mes.
 
 ## Exentos
 

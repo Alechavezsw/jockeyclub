@@ -1798,6 +1798,18 @@ export default function MemberProfilePanel({
                               addJournalEntry,
                               onAccountEntry,
                             });
+                            if (typeof onSendMessage === 'function') {
+                              try {
+                                const { duesVoidedReceiptMessage } = await import('../../domain/members/duesPaymentNotice');
+                                await onSendMessage(duesVoidedReceiptMessage({
+                                  member: result.member,
+                                  payment: result.payment,
+                                  reason,
+                                }));
+                              } catch {
+                                /* aviso al socio: best-effort */
+                              }
+                            }
                             setCollectFlash(`Cobro anulado · ${formatCurrency(p.amount)}`);
                             window.setTimeout(() => setCollectFlash(''), 5000);
                           } catch (err) {

@@ -144,6 +144,32 @@ export function duesReceiptMessage({ member, payment, attachment }) {
   return msg;
 }
 
+/** Aviso al socio: el comprobante de cuota quedó anulado. */
+export function duesVoidedReceiptMessage({ member, payment, reason } = {}) {
+  const who = String(member?.name || 'Socio').trim();
+  const receipt = payment?.receiptNumber || payment?.receipt || '';
+  const lines = [
+    `Hola ${who}, anulamos el comprobante de cuota${receipt ? ` ${receipt}` : ''}.`,
+    moneyLine('Importe anulado', payment?.amount),
+    payment?.concept ? `Concepto: ${payment.concept}` : '',
+    reason ? `Motivo: ${String(reason).trim()}` : '',
+    'El saldo y el vencimiento volvieron a como estaban antes de ese cobro.',
+    'Mi cuenta: https://www.jockeyclubsj.com.ar/cuenta',
+  ];
+  const msg = createMessage({
+    sender: 'Administración',
+    senderId: MAILBOX.OPERATIONS,
+    recipientId: member?.memberId,
+    subject: 'Comprobante de cuota anulado',
+    content: lines.filter(Boolean).join('\n'),
+  });
+  msg.meta = {
+    kind: 'dues_receipt_void',
+    paymentId: payment?.id || null,
+  };
+  return msg;
+}
+
 /** Aviso al socio cuando el débito de Mercado Pago no se acreditó. */
 export function duesDebitFailedMessage({ member, date, amount }) {
   const who = String(member?.name || 'Socio').trim();

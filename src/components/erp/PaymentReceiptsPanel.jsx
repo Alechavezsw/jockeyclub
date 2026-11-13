@@ -148,6 +148,7 @@ export default function PaymentReceiptsPanel({
   setMembers,
   setJournalEntries,
   addJournalEntry,
+  onAccountEntry,
   onBack,
   onSendMessage,
   formatCurrency = formatCurrencyDefault,
@@ -359,10 +360,22 @@ export default function PaymentReceiptsPanel({
             }
             return local;
           },
+        onAccountEntry: typeof onAccountEntry === 'function'
+          ? onAccountEntry
+          : undefined,
       });
       let refreshed = persisted.member;
       try {
-        refreshed = await hydrateMemberWithPayments(persisted.member);
+        const hydrated = await hydrateMemberWithPayments(persisted.member);
+        // La anulación ya restauró saldo/vencimiento/último pago en la base;
+        // si el hydrate trae un pago anulado mezclado, conservamos el standing del void.
+        refreshed = {
+          ...hydrated,
+          outstandingBalance: persisted.member.outstandingBalance ?? hydrated.outstandingBalance,
+          nextDueDate: persisted.member.nextDueDate ?? hydrated.nextDueDate,
+          lastPaymentDate: persisted.member.lastPaymentDate ?? hydrated.lastPaymentDate,
+          unpaidCapital: persisted.member.unpaidCapital ?? hydrated.unpaidCapital,
+        };
       } catch {
         /* se usa el resultado local */
       }
@@ -374,10 +387,22 @@ export default function PaymentReceiptsPanel({
         voidedByName: actorName,
         voidedAt: persisted.payment?.voidedAt || new Date().toISOString(),
       });
+      if (typeof onSendMessage === 'function') {
+        try {
+          const { duesVoidedReceiptMessage } = await import('../../domain/members/duesPaymentNotice');
+          await onSendMessage(duesVoidedReceiptMessage({
+            member: refreshed,
+            payment: persisted.payment,
+            reason: why,
+          }));
+        } catch {
+          /* aviso al socio: best-effort */
+        }
+      }
       setVoidEditId(null);
       setVoidReason('');
       setShowVoided(true);
-      setNotice(`Cobro anulado · ${formatCurrency(payment.amount)} · ${actorName}. Saldo, imputaciones y caja revertidos.`);
+      setNotice(`Cobro anulado · ${formatCurrency(payment.amount)} · ${actorName}. Transacción completa revertida (saldo, meses, vencimiento, caja y libro).`);
     } catch (err) {
       setError(err?.message || 'No se pudo anular el cobro.');
     } finally {

@@ -6,6 +6,7 @@ import {
   collectionDiscount,
   collectionPreview,
   duesMethodNeedsReceipt,
+  duesMethodSkipsSurcharge,
   duesMethodUsesBank,
   duesReceiptRequiredMessage,
   isDuesCollectionJournal,
@@ -701,6 +702,48 @@ describe('payMemberDues', () => {
     expect(voided.journalEntry.description).toMatch(/Anulación/);
     expect(voided.journalEntry.description).toMatch(/Paula/);
     expect(voided.journalEntry.description).toMatch(/Carga duplicada/);
+    expect(voided.member.nextDueDate).toBe('2026-10-10');
+    expect(voided.ledgerEntry?.type).toBe('cuota');
+    expect(voided.ledgerEntry?.source).toBe('dues_void');
+  });
+
+  it('anula un cobro con descuento revirtiendo también Descuentos sobre cuotas', () => {
+    setRuntimeTierCatalog([
+      { id: 'socio_individual', name: 'SOCIO INDIVIDUAL', monthlyDues: 40000, sortOrder: 1 },
+    ]);
+    const member = {
+      memberId: '11018',
+      name: 'Socio descuento',
+      tier: 'socio_individual',
+      status: 'active',
+      cuotaCategories: ['SOCIO INDIVIDUAL'],
+      outstandingBalance: 40000,
+      nextDueDate: '2026-11-10',
+      paymentHistory: [],
+    };
+    try {
+      const charged = recordDuesCollection(member, {
+        method: 'efectivo',
+        today: new Date('2026-11-05T12:00:00'),
+        discount: 5000,
+        discountDetail: 'Convenio mostrador',
+      });
+      expect(charged.payment.amount).toBe(35000);
+      expect(charged.payment.discount).toBe(5000);
+      const voided = voidMemberDuesPayment(charged.member, charged.payment.id, {
+        voidedBy: 'Paula',
+        reason: 'Descuento mal cargado',
+        today: new Date('2026-11-05T15:00:00'),
+      });
+      expect(voided.member.outstandingBalance).toBe(40000);
+      expect(voided.journalEntry.lines).toEqual(expect.arrayContaining([
+        { account: 'Cuotas Sociales', type: 'debit', amount: 40000 },
+        { account: 'Caja General', type: 'credit', amount: 35000 },
+        { account: 'Descuentos sobre cuotas', type: 'credit', amount: 5000 },
+      ]));
+    } finally {
+      setRuntimeTierCatalog(null);
+    }
   });
 
   it('anula un pago mixto revirtiendo cada medio a su cuenta', () => {
@@ -797,6 +840,12 @@ describe('débito como medio de cobro', () => {
   it('exige comprobante (archivo o manual) y usa banco', () => {
     expect(duesMethodNeedsReceipt('debito')).toBe(true);
     expect(duesMethodUsesBank('debito')).toBe(true);
+    expect(duesMethodSkipsSurcharge('debito')).toBe(true);
+    expect(duesMethodSkipsSurcharge('debito_automatico')).toBe(true);
+    expect(duesMethodSkipsSurcharge('galicia')).toBe(true);
+    expect(duesMethodSkipsSurcharge('Débito Galicia')).toBe(true);
+    expect(duesMethodSkipsSurcharge('transferencia')).toBe(false);
+    expect(duesMethodSkipsSurcharge('mercadopago')).toBe(false);
     expect(duesReceiptRequiredMessage('debito')).toMatch(/débito/i);
   });
 
@@ -836,6 +885,89 @@ describe('débito como medio de cobro', () => {
         { account: 'Cuotas Sociales', type: 'credit', amount: 40000 },
       ]);
       expect(paid.member.outstandingBalance).toBe(0);
+    } finally {
+      setRuntimeTierCatalog(null);
+    }
+  });
+
+  it('en mora cobra solo capital: sin el 10 %', () => {
+    setRuntimeTierCatalog([
+      { id: 'socio_familiar', name: 'SOCIO FAMILIAR', monthlyDues: 70000, sortOrder: 1 },
+    ]);
+    const today = new Date('2026-11-15T12:00:00-03:00');
+    const member = {
+      memberId: '10902',
+      name: 'Débito sin mora',
+      tier: 'socio_familiar',
+      status: 'active',
+      cuotaCategories: ['SOCIO FAMILIAR'],
+      outstandingBalance: 70000,
+      nextDueDate: '2026-11-10',
+      paymentHistory: [],
+    };
+    try {
+      const previewCash = collectionPreview(member, today).cash;
+      const previewDebito = collectionPreview(member, today, { skipSurcharge: true });
+      expect(previewCash).toBe(77000);
+      expect(previewDebito.surcharge).toBe(0);
+      expect(previewDebito.cash).toBe(70000);
+
+      const paid = recordDuesCollection(member, {
+        method: 'debito',
+        bankId: 'macro',
+        bankName: 'Banco Macro',
+        today,
+        amount: previewDebito.cash,
+        receiptParse: {
+          source: 'manual',
+          reference: 'DEB-SIN-RECARGO',
+          amount: 70000,
+          date: '2026-11-15',
+        },
+      });
+      expect(paid.payment.amount).toBe(70000);
+      expect(paid.payment.quota).toBe(70000);
+      expect(paid.payment.surcharge).toBe(0);
+      expect(paid.payment.waivedSurcharge || 0).toBe(0);
+      expect(paid.member.outstandingBalance).toBe(0);
+      expect(paid.journalEntry.lines).toEqual([
+        { account: 'Banco Macro', type: 'debit', amount: 70000 },
+        { account: 'Cuotas Sociales', type: 'credit', amount: 70000 },
+      ]);
+
+      const periods = cobroPeriods(paid.member, paid.payment);
+      expect(periods.surcharge).toBe(0);
+      expect(periods.skipSurcharge).toBe(true);
+      expect(periods.schedule.every((row) => Number(row.lateBase) === 0)).toBe(true);
+    } finally {
+      setRuntimeTierCatalog(null);
+    }
+  });
+
+  it('importación marcada como débito no adelanta con el 10 %', () => {
+    setRuntimeTierCatalog([
+      { id: 'socio_individual', name: 'SOCIO INDIVIDUAL', monthlyDues: 40000, sortOrder: 1 },
+    ]);
+    const member = {
+      memberId: '10903',
+      name: 'Import débito',
+      tier: 'socio_individual',
+      status: 'active',
+      cuotaCategories: ['SOCIO INDIVIDUAL'],
+      outstandingBalance: 0,
+      nextDueDate: '2026-11-10',
+      paymentHistory: [],
+    };
+    try {
+      const { payment, member: next } = applyImportedMemberPayment(member, {
+        amount: 40000,
+        date: '2026-11-15',
+        method: 'debito',
+        voucher: 'DEB-IMP-1',
+      });
+      expect(payment.surcharge || 0).toBe(0);
+      expect(payment.amount).toBe(40000);
+      expect(next.outstandingBalance).toBeLessThanOrEqual(0.01);
     } finally {
       setRuntimeTierCatalog(null);
     }

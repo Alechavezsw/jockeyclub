@@ -31,6 +31,7 @@ import {
   duesOnJoin,
   isMemberBillingActive,
   collectionPeriodChoices,
+  memberCoveredDueOns,
   memberDueFact,
 } from './dues';
 import { collectionPreview } from './memberPayments';
@@ -755,6 +756,40 @@ describe('buildWhatsAppDuesUrl', () => {
 });
 
 describe('collectionPeriodChoices vs saldo de ficha', () => {
+  it('tras anular un cobro vuelve a ofrecer esos meses', () => {
+    setRuntimeTierCatalog([
+      { id: 'socio_individual', name: 'SOCIO INDIVIDUAL', monthlyDues: 40000, sortOrder: 1 },
+    ]);
+    const today = new Date('2026-11-15T12:00:00-03:00');
+    const member = {
+      memberId: '10950',
+      name: 'Anulado',
+      tier: 'socio_individual',
+      status: 'active',
+      cuotaCategories: ['SOCIO INDIVIDUAL'],
+      outstandingBalance: 40000,
+      nextDueDate: '2026-11-10',
+      paymentHistory: [{
+        id: 'pay-void-1',
+        status: 'void',
+        voidedAt: '2026-11-15T15:00:00.000Z',
+        amount: 40000,
+        periodDueOns: ['2026-11-10'],
+        imputations: [{ dueOn: '2026-11-10', capital: 40000 }],
+      }],
+    };
+    try {
+      expect([...memberCoveredDueOns(member)]).toEqual([]);
+      const choices = collectionPeriodChoices(member, today);
+      expect(choices.map((row) => row.dueOn)).toEqual(['2026-11-10']);
+      const preview = collectionPreview(member, today);
+      expect(preview.quota).toBe(40000);
+      expect(preview.cash).toBeGreaterThan(0);
+    } finally {
+      setRuntimeTierCatalog(null);
+    }
+  });
+
   it('completa meses hacia atrás si el saldo supera el nextDueDate', () => {
     const member = {
       memberId: '111591',

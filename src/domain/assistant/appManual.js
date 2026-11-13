@@ -131,7 +131,7 @@ export const APP_MANUAL = [
       'Abrí la ficha. El saldo y el vencimiento están en la cabecera. Tocá Cobrar (también se cobra desde Cuotas → Saldos).',
       `El cobro separa Cuota, Recargo y Total. ${RULES.collectLine}`,
       'Si debe más de un mes, en Meses del recibo marcá cuáles entran en este cobro. El total se recalcula; lo no marcado sigue pendiente.',
-      'Elegí el medio: Efectivo, Transferencia, Tarjeta (POS), Débito, Mixto o Mercado Pago por QR. Transferencia, tarjeta y débito exigen comprobante (archivo o a mano; se guarda en Supabase); Gemini lo lee y desglosa importe, fecha y referencia. En tarjeta elegí el plan (acuerdo con la tarjeta) si hay planes activos. El débito acredita en el banco o alias elegido.',
+      'Elegí el medio: Efectivo, Transferencia, Tarjeta (POS), Débito, Mixto o Mercado Pago por QR. Transferencia, tarjeta y débito exigen comprobante (archivo o a mano; se guarda en Supabase); Gemini lo lee y desglosa importe, fecha y referencia. En tarjeta elegí el plan (acuerdo con la tarjeta) si hay planes activos. El débito acredita en el banco o alias elegido y cobra solo capital (sin el 10 % de mora).',
       'Pago mixto: combiná efectivo, transferencia y tarjeta en un mismo cobro. La suma de los medios tiene que cerrar con el total; cada transferencia/tarjeta lleva su comprobante. Mercado Pago QR no entra en el mixto.',
       'Si cobrás a un adherente, el pago entra en la cuenta del titular y el aviso del cobro lo dice.',
       'El recargo se cobra siempre, junto con la cuota. No se perdona en el mostrador.',
@@ -149,10 +149,10 @@ export const APP_MANUAL = [
     steps: [
       'Operación → Cuotas → Comprobantes, o Socios → ficha → Movimientos. En Acciones del cobro tocá Anular.',
       'Escribí el motivo (mínimo 8 caracteres) y confirmá. El cobro queda tachado con Anulado, quién lo anuló y el motivo: no se borra, queda el rastro.',
-      'Vuelven el saldo, las imputaciones de meses, el último pago y el vencimiento; la caja registra el contraasiento.',
+      'Se anula toda la transacción: saldo, imputaciones de meses, liquidación (fee ledger), último pago, vencimiento, mora, descuento de mostrador, contraasiento de caja y asiento en el libro de cuenta. El socio recibe aviso en el portal.',
       'Después cobrá de nuevo con el importe y el medio correctos.',
     ],
-    dont: 'No anules el cobro para sacar el recargo. El recargo se cobra siempre. Si hay que quitarlo, lo borra un administrador en Movimientos y queda a favor del socio.',
+    dont: 'No anules el cobro para sacar el recargo. El recargo se cobra siempre. Si hay que quitarlo, lo borra un administrador en Movimientos y queda a favor del socio. Mercado Pago / banco: la plata en el riel se gestiona aparte; acá queda el rastro contable anulado.',
   },
   {
     id: 'liquidar-mes',
@@ -795,8 +795,8 @@ export const APP_MANUAL = [
     keywords: 'galicia debito automatico interes recargo sin identificar',
     who: 'Tesorería y contador. Los débitos Galicia también los arma administración.',
     steps: [
-      'Galicia: débitos automáticos. Administración entra por Gestión → Débitos. Contador y superadmin, por Gestión → Operación.',
-      'Intereses: el contador los genera a mano. No corren solos y no quedan en la deuda de cuota. Esa deuda es cuota y recargo.',
+      'Galicia: débitos automáticos. Administración entra por Gestión → Débitos. Contador y superadmin, por Gestión → Operación. El débito acredita solo capital de cuota (sin el 10 % de mora).',
+      'Intereses: el contador los genera a mano. No corren solos y no quedan en la deuda de cuota. Esa deuda es cuota y recargo (el recargo no se cobra por débito).',
       'Sin identificar: cobranzas que no tienen socio o traen un número que no existe. Ahí se imputan o se rechazan.',
       'Jev avisa esas pendientes en Revisión y en la campanita (contador / superadmin), con enlace a Sin identificar.',
     ],

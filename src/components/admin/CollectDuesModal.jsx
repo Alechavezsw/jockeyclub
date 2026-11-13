@@ -12,6 +12,7 @@ import {
   collectionDiscount,
   collectionPreview,
   duesMethodNeedsReceipt,
+  duesMethodSkipsSurcharge,
   duesMethodUsesBank,
   duesReceiptRequiredMessage,
   isManualDuesReceipt,
@@ -31,7 +32,7 @@ const METHODS = [
   { id: 'efectivo', label: 'Efectivo', icon: Banknote, hint: 'Cobro en sede / caja' },
   { id: 'transferencia', label: 'Transferencia', icon: Landmark, hint: 'Bancos del club + comprobante' },
   { id: 'tarjeta', label: 'Tarjeta', icon: CreditCard, hint: 'POS / voucher + comprobante' },
-  { id: 'debito', label: 'Débito', icon: WalletCards, hint: 'Débito bancario · comprobante o a mano' },
+  { id: 'debito', label: 'Débito', icon: WalletCards, hint: 'Débito bancario · sin recargo · comprobante o a mano' },
   { id: 'mixto', label: 'Mixto', icon: Split, hint: 'Combiná efectivo, transferencia y tarjeta' },
   { id: 'mercadopago', label: 'Mercado Pago', icon: QrCode, hint: 'QR de mostrador y acreditación automática' },
 ];
@@ -289,15 +290,20 @@ export default function CollectDuesModal({
   );
   const choiceKey = periodChoices.map((row) => row.dueOn).join('|');
   const [selectedDueOns, setSelectedDueOns] = useState([]);
+  const [method, setMethod] = useState('efectivo');
   useEffect(() => {
     setSelectedDueOns(choiceKey ? choiceKey.split('|') : []);
   }, [choiceKey]);
+  const skipSurcharge = duesMethodSkipsSurcharge(method);
   const split = useMemo(() => {
     if (duesExempt) {
       return { quota: 0, surcharge: 0, gross: 0, creditApplied: 0, cash: 0, leftover: 0, periods: [], choices: [] };
     }
-    return collectionPreview(account, new Date(), { periodDueOns: selectedDueOns });
-  }, [duesExempt, account, selectedDueOns]);
+    return collectionPreview(account, new Date(), {
+      periodDueOns: selectedDueOns,
+      skipSurcharge,
+    });
+  }, [duesExempt, account, selectedDueOns, skipSurcharge]);
   const amount = duesExempt || hydrating ? 0 : split.cash;
   const [discountInput, setDiscountInput] = useState('');
   const [discountDetail, setDiscountDetail] = useState('');
@@ -309,7 +315,6 @@ export default function CollectDuesModal({
   const routed = account?.memberId && liveMember?.memberId && account.memberId !== liveMember.memberId;
   const methods = duesExempt ? METHODS.filter((row) => row.id !== 'mercadopago') : METHODS;
   const plans = useMemo(() => activePaymentPlans(paymentPlans), [paymentPlans]);
-  const [method, setMethod] = useState('efectivo');
   const [bankId, setBankId] = useState(CLUB_BANK_ACCOUNTS[0]?.id || '');
   const [planId, setPlanId] = useState('');
   const [receiptMode, setReceiptMode] = useState('file');
@@ -768,12 +773,16 @@ export default function CollectDuesModal({
                       <span style={{ flex: 1 }}>
                         <strong style={{ display: 'block', color: 'var(--text-primary)' }}>{row.label}</strong>
                         <small style={{ color: 'var(--text-muted)' }}>
-                          {row.surcharge > 0
-                            ? `capital ${formatCurrency(row.capital)} · intereses ${formatCurrency(row.surcharge)}`
-                            : 'sin intereses'}
+                          {skipSurcharge
+                            ? 'débito · sin recargo'
+                            : (row.surcharge > 0
+                              ? `capital ${formatCurrency(row.capital)} · intereses ${formatCurrency(row.surcharge)}`
+                              : 'sin intereses')}
                         </small>
                       </span>
-                      <b className="tabular-nums" style={{ color: 'var(--text-gold)' }}>{formatCurrency(row.payable)}</b>
+                      <b className="tabular-nums" style={{ color: 'var(--text-gold)' }}>
+                        {formatCurrency(skipSurcharge ? row.capital : row.payable)}
+                      </b>
                     </label>
                   </li>
                 );
@@ -913,8 +922,8 @@ export default function CollectDuesModal({
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '1rem' }}>
             {method === 'debito' ? (
               <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
-                Registrá un débito ya ejecutado. Podés adjuntar el comprobante o cargarlo a mano.
-                Acredita en el banco o alias elegido.
+                Registrá un débito ya ejecutado. Solo capital: no se cobra el 10&nbsp;% de mora.
+                Podés adjuntar el comprobante o cargarlo a mano. Acredita en el banco o alias elegido.
               </p>
             ) : null}
             {CLUB_BANK_ACCOUNTS.length > 1 ? (

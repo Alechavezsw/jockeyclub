@@ -814,8 +814,19 @@ export function memberCoveredDueOns(member) {
     if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) set.add(iso);
   };
   for (const payment of member?.paymentHistory || []) {
+    // Cobro anulado: esos meses vuelven a estar disponibles para cobrar.
+    if (
+      payment?.status === 'void'
+      || payment?.status === 'cancelled'
+      || payment?.voidedAt
+    ) {
+      continue;
+    }
     for (const due of payment?.periodDueOns || []) push(due);
-    for (const row of payment?.imputations || []) push(row?.dueOn);
+    for (const row of payment?.imputations || []) {
+      if (row?.voidedAt) continue;
+      push(row?.dueOn);
+    }
   }
   return set;
 }
