@@ -29,6 +29,7 @@ const MEMBERS_LIST_SELECT = [
   'profile_id',
   'member_number',
   'card_number',
+  'card_last4',
   'full_name',
   'phone',
   'email',
@@ -118,7 +119,8 @@ function listRowToMember(row) {
     outstandingBalance: Number(row.outstanding_balance) || 0,
     nextDueDate: nextDue,
     overdueSince: row.overdue_since || null,
-    cardNumber: row.card_number || null,
+    cardNumber: row.card_number || row.card_last4 || null,
+    cardLast4: row.card_last4 || null,
     profileId: row.profile_id || null,
     lastPaymentDate: row.last_payment_date || row.lastPaymentDate || null,
     familyPrincipalNumber: row.family_principal || row.familyPrincipalNumber || null,
@@ -217,6 +219,41 @@ export async function countActiveTitulares() {
  * Padrón por páginas. onBatch se llama tras cada lote para pintar la UI
  * sin esperar los ~5k socios ni pagos/adherentes.
  */
+async function overlayMemberCardNumbers(members) {
+  if (!members?.length) return members;
+  const byId = new Map();
+  const pageSize = 1000;
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await sb()
+      .from('member_card_vault')
+      .select('member_id, card_number')
+      .order('member_id')
+      .range(from, from + pageSize - 1);
+    if (error || !data?.length) {
+      if (from === 0) return members;
+      break;
+    }
+    for (const row of data) byId.set(row.member_id, row.card_number);
+    if (data.length < pageSize) break;
+  }
+  if (!byId.size) return members;
+  return members.map((member) => {
+    const full = byId.get(member.id);
+    return full ? { ...member, cardNumber: full } : member;
+  });
+}
+
+async function withMemberCard(member) {
+  if (!member?.id) return member;
+  const { data, error } = await sb()
+    .from('member_card_vault')
+    .select('card_number')
+    .eq('member_id', member.id)
+    .maybeSingle();
+  if (error || !data?.card_number) return member;
+  return { ...member, cardNumber: data.card_number };
+}
+
 export async function listMembers({ onBatch, scope = 'active' } = {}) {
   const key = scope === 'inactive' ? 'inactive' : 'active';
   if (scope === 'all') {
@@ -452,15 +489,33 @@ async function downloadMembersList({ onBatch, scope = 'active' } = {}) {
     // ese corte dejaba afuera fichas reales: la bandeja decía «Sin ficha automática».
     if ((rows || []).length === MEMBERS_PAGE_SIZE) {
       try {
-        return await downloadMembersListPaged({ onBatch, scope });
+        const paged = await downloadMembersListPaged({ onBatch, scope });
+        const withCards = await overlayMemberCardNumbers(paged);
+        if (withCards !== paged) {
+          onBatch?.(withCards, {
+            loaded: withCards.length,
+            total: withCards.length,
+            done: true,
+          });
+        }
+        return withCards;
       } catch {
-        return rows;
+        return overlayMemberCardNumbers(rows);
       }
     }
-    return rows;
+    const withCards = await overlayMemberCardNumbers(rows);
+    if (withCards !== rows) {
+      onBatch?.(withCards, {
+        loaded: withCards.length,
+        total: withCards.length,
+        done: true,
+      });
+    }
+    return withCards;
   } catch {
     await earlyPromise;
-    return downloadMembersListPaged({ onBatch, scope });
+    const rows = await downloadMembersListPaged({ onBatch, scope });
+    return overlayMemberCardNumbers(rows);
   }
 }
 
@@ -751,7 +806,7 @@ async function hydrateMemberRow(row, { withPayments = false } = {}) {
     )).map(M.paymentFromRow)))
     : [];
   const mapped = M.memberFromRow(row, payments);
-  return resolveMemberPortalFlags(row, mapped);
+  return withMemberCard(await resolveMemberPortalFlags(row, mapped));
 }
 
 export async function getMemberByNumber(memberNumber, { withPayments = false } = {}) {
@@ -1000,7 +1055,7 @@ export async function upsertMember(member) {
   const full = await unwrap(
     sb().from('members').select('*, member_adherents(*)').eq('id', saved.id).single()
   );
-  return M.memberFromRow(full);
+  return withMemberCard(M.memberFromRow(full));
 }
 
 /**

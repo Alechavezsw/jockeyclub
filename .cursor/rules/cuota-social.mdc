@@ -13,12 +13,13 @@ alwaysApply: true
 4. **Socio individual: $ 40.000 en noviembre y en todos los meses.** No se cobra la tarifa vieja ($ 36.000 / $ 32.000) ni un saldo de apertura más bajo.
 5. **Socio familiar: junio, julio y deudas anteriores, más agosto y septiembre 2026, son $ 70.000 de capital.** En mora el recibo de cada uno es **$ 77.000** (capital + 10 %). Octubre y los meses siguientes siguen en $ 70.000 + 10 % si están en mora.
 6. El saldo de ficha guarda **capital** (cuotas liquidables). El 10 % **no** se mete en el saldo al liquidar: se calcula al cobrar.
+7. **Hasta que no se liquide el mes, nadie lo debe.** Ejemplo: en noviembre **nadie debe diciembre**. Un `next_due_date` en 10/12 solo marca el próximo vencimiento de quien está al día; **no** es deuda, **no** entra en Consultar deuda, cobro, mora, boleto ni Mercado Pago. Diciembre recién existe como cuota cuando estamos en diciembre **y** esa liquidación quedó procesada.
 
 ## Cobro — meses del recibo (regla general, todo el padrón)
 
 Aplica a **todos** los socios que abonan, no a un caso puntual:
 
-1. **Solo meses ya abiertos**: la cuota de un mes se ofrece desde el **día 1** de ese mes. En noviembre no aparece diciembre; diciembre recién cuando estamos en diciembre.
+1. **Solo meses ya abiertos y liquidables**: la cuota de un mes se ofrece desde el **día 1** de ese mes (y recién cuando ese mes se liquidó). En noviembre no aparece diciembre; diciembre recién cuando estamos en diciembre.
 2. **Atrasados siempre**: si debe meses viejos, se listan y se pueden marcar/cobrar.
 3. **Mes en curso**: si el mes actual ya empezó y forma parte del saldo, también se puede cobrar.
 4. **Nunca un mes ya pago**: si el cobro / imputación ya cubrió ese `dueOn` (`periodDueOns`), no se vuelve a ofrecer.

@@ -67,7 +67,8 @@ export function memberFromRow(row, payments = []) {
     }) || null,
     overdueSince: row.overdue_since || null,
     photo: row.photo_url || null,
-    cardNumber: row.card_number || null,
+    cardNumber: row.card_number || row.card_last4 || null,
+    cardLast4: row.card_last4 || null,
     profileId: row.profile_id || null,
     ...(row.profile_id || row.has_portal === true || row.hasPortal === true
       ? { hasApp: true, has_portal: true }

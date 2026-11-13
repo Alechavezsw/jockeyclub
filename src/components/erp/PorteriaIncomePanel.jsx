@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Banknote } from 'lucide-react';
 import { formatCurrency } from '../../domain/accounting/journal';
-import { createOtherIncome } from '../../domain/accounting/otherIncomes';
+import { createOtherIncome, isPorteriaIncomeItem, porterIncomeBooks } from '../../domain/accounting/otherIncomes';
 import { repos } from '../../data/bootstrap';
 import { todayAR } from '../../lib/arDate';
 
@@ -9,11 +9,6 @@ const KINDS = [
   { id: 'porteria', label: 'Portería', concept: 'Rendición portería' },
   { id: 'estacionamiento', label: 'Estacionamiento', concept: 'Rendición estacionamiento' },
 ];
-
-function isPorteriaIncome(item) {
-  return item?.group === 'porteria'
-    || /porter[ií]a|estacionamiento/i.test(String(item?.concept || ''));
-}
 
 function entryLabel(item) {
   const name = String(item?.renderedBy || item?.payerName || '').trim();
@@ -37,15 +32,32 @@ export default function PorteriaIncomePanel({
   const [bookNumber, setBookNumber] = useState('');
   const [porters, setPorters] = useState([]);
   const [porterId, setPorterId] = useState('');
+  const [openBookId, setOpenBookId] = useState('');
   const [loadingPorters, setLoadingPorters] = useState(true);
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
   const [busy, setBusy] = useState(false);
 
   const rows = useMemo(
-    () => (items || []).filter(isPorteriaIncome),
+    () => (items || []).filter(isPorteriaIncomeItem),
     [items],
   );
+  const books = useMemo(
+    () => porterIncomeBooks(rows, porters, todayAR()),
+    [rows, porters],
+  );
+  const visibleBooks = rendererIsPorter && rendererId
+    ? books.filter((book) => book.id === rendererId)
+    : books;
+  const activeBookId = rendererIsPorter && rendererId ? rendererId : openBookId;
+  const visibleRows = activeBookId
+    ? rows.filter((item) => {
+      const id = String(item.renderedById || '').trim();
+      if (id) return id === activeBookId;
+      const book = visibleBooks.find((row) => row.id === activeBookId);
+      return book && String(item.renderedBy || item.payerName || '').trim().toLowerCase() === book.name.toLowerCase();
+    })
+    : rows;
 
   useEffect(() => {
     let cancelled = false;
@@ -219,6 +231,41 @@ export default function PorteriaIncomePanel({
         </button>
       </form>
 
+      <section className="gate-income-books" aria-label="Acumulado por portero">
+        <h5 className="gate-income-books-title">Lo que lleva cada portero</h5>
+        {visibleBooks.length === 0 ? (
+          <p className="gate-income-books-empty">Todavía no hay porteros para acumular.</p>
+        ) : visibleBooks.map((book) => {
+          const open = activeBookId === book.id;
+          return (
+            <button
+              key={book.id}
+              type="button"
+              className={`gate-income-book${open ? ' is-on' : ''}`}
+              aria-pressed={open}
+              onClick={() => {
+                if (rendererIsPorter) return;
+                setOpenBookId(open ? '' : book.id);
+                setPorterId(book.id);
+              }}
+            >
+              <span className="gate-income-book-name">
+                {book.name}
+                <small>{book.count === 1 ? '1 rendición' : `${book.count} rendiciones`}</small>
+              </span>
+              <span className="gate-income-book-figure">
+                <span>Hoy</span>
+                <b className="tabular-nums">{formatCurrency(book.today)}</b>
+              </span>
+              <span className="gate-income-book-figure is-total">
+                <span>Acumulado</span>
+                <b className="tabular-nums">{formatCurrency(book.total)}</b>
+              </span>
+            </button>
+          );
+        })}
+      </section>
+
       <div className="table-responsive">
         <table className="admin-table">
           <thead>
@@ -231,11 +278,11 @@ export default function PorteriaIncomePanel({
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 ? (
+            {visibleRows.length === 0 ? (
               <tr>
                 <td colSpan={5}>Todavía no hay rendiciones de portería.</td>
               </tr>
-            ) : rows.map((item) => (
+            ) : visibleRows.map((item) => (
               <tr key={item.id}>
                 <td>{item.date}</td>
                 <td className="tabular-nums">{item.bookNumber || '—'}</td>

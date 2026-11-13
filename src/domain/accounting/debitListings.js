@@ -114,6 +114,17 @@ export function maskDebitCard(card) {
   return `${'•'.repeat(Math.max(0, digits.length - 4))}${digits.slice(-4)}`;
 }
 
+/** Completo solo si quien mira puede verlo. El resto ve los últimos 4. */
+export function presentDebitCard(card, canReadFull = false) {
+  const digits = String(card || '').replace(/\D/g, '');
+  if (!digits) return '—';
+  if (canReadFull && digits.length >= 13) {
+    return digits.replace(/(\d{4})(?=\d)/g, '$1 ').trim();
+  }
+  if (digits.length >= 4) return `•••• ${digits.slice(-4)}`;
+  return '••••';
+}
+
 /** Solo dígitos; vacío → null. */
 export function normalizeDebitCard(value) {
   const digits = String(value || '').replace(/\D/g, '');
@@ -606,7 +617,9 @@ export function buildDebitListingMatrix(rows = [], { year, month, sheetKind = 'c
     const total = moneyOrNull(row.totalAmount) ?? ((Number(row.duesAmount) || 0) + (Number(row.abonoAmount) || 0));
     matrix.push([
       Number(row.sortOrder) || null,
-      row.cardNumber ? String(row.cardNumber) : null,
+      row.cardNumber && String(row.cardNumber).replace(/\D/g, '').length >= 13
+        ? String(row.cardNumber).replace(/\D/g, '')
+        : (presentDebitCard(row.cardNumber, false) === '—' ? null : presentDebitCard(row.cardNumber, false)),
       receiptValue(row.receipt),
       isoDateToExcelSerial(row.dueDate),
       dues,

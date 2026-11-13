@@ -11,6 +11,7 @@ import {
   canReopenFeePeriod,
   canWaiveDuesSurcharge,
   canAdjustMemberBalance,
+  canReadMemberCards,
   canBackdateDuesPayment,
   canGenerateInterestRuns,
   canExemptMemberDues,
@@ -108,6 +109,12 @@ describe('allowedAdminTabs', () => {
     expect(canAdjustMemberBalance('admin')).toBe(false);
     expect(canAdjustMemberBalance('accountant')).toBe(true);
     expect(canAdjustMemberBalance('superadmin')).toBe(true);
+    expect(canReadMemberCards('accountant')).toBe(true);
+    expect(canReadMemberCards('superadmin')).toBe(true);
+    expect(canReadMemberCards('admin')).toBe(false);
+    expect(canReadMemberCards('cashier')).toBe(false);
+    expect(canReadMemberCards('gate_operator')).toBe(false);
+    expect(canReadMemberCards('staff')).toBe(false);
     expect(canBackdateDuesPayment('cashier')).toBe(false);
     expect(canBackdateDuesPayment('admin')).toBe(false);
     expect(canBackdateDuesPayment('accountant')).toBe(true);

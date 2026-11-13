@@ -143,7 +143,16 @@ async function main() {
       console.log(`CHUNKS_OK ${name}`);
     }
     if (bytes > 350_000) {
-      console.log(`TABLE_SKIP ${name} (${formatKb(bytes)}, queda en storage/partes)`);
+      const { error: tableError } = await sb.from('club_snapshots').upsert({
+        name,
+        payload: { __chunks: true },
+        updated_at: new Date().toISOString(),
+      });
+      if (tableError) {
+        console.warn(`TABLE_WARN ${name}: ${tableError.message}`);
+      } else {
+        console.log(`TABLE_INDEX ${name} (${formatKb(bytes)}, se lee de storage/partes)`);
+      }
     } else {
       const { error: tableError } = await sb.from('club_snapshots').upsert({
         name,

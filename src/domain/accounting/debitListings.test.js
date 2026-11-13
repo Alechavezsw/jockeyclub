@@ -14,6 +14,7 @@ import {
   isoDateToExcelSerial,
   isValidDebitCard,
   maskDebitCard,
+  presentDebitCard,
   normalizeDebitCard,
   normalizeDebitBrand,
   parseDebitListingMatrix,
@@ -176,6 +177,9 @@ describe('applyDebitCardEdit', () => {
 describe('helpers', () => {
   it('enmascara tarjeta y resume / filtra / agrupa', () => {
     expect(maskDebitCard('5591980057011931')).toMatch(/1931$/);
+    expect(presentDebitCard('5591980057011931', true)).toBe('5591 9800 5701 1931');
+    expect(presentDebitCard('5591980057011931', false)).toBe('•••• 1931');
+    expect(presentDebitCard('1931', false)).toBe('•••• 1931');
     const rows = [
       { brand: 'ARGENCARD', section: 'padron', totalAmount: 100, holderName: 'A', memberId: '1' },
       { brand: 'ARGENCARD', section: 'altas', totalAmount: 50, holderName: 'B', memberId: '2' },

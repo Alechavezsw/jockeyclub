@@ -1,5 +1,6 @@
 /** Otros ingresos / cobros manuales (estilo LILA). */
 
+import { money } from '../money';
 import { buildPostedEntry } from './journal';
 import { todayAR } from '../../lib/arDate';
 
@@ -41,6 +42,52 @@ export const PORTERIA_INCOME_PRESETS = [
     paymentMethod: 'efectivo',
   },
 ];
+
+export function isPorteriaIncomeItem(item) {
+  if (!item || String(item.status || 'posted').toLowerCase() === 'void') return false;
+  return item.group === 'porteria'
+    || /porter[ií]a|estacionamiento/i.test(String(item.concept || ''));
+}
+
+function porterBookKey(item, porters) {
+  const id = String(item?.renderedById || '').trim();
+  if (id) return id;
+  const name = String(item?.renderedBy || item?.payerName || '').trim().toLowerCase();
+  const hit = (porters || []).find((porter) => String(porter?.fullName || '').trim().toLowerCase() === name);
+  if (hit?.id) return hit.id;
+  return name ? `name:${name}` : '';
+}
+
+/** Acumulado de cada portero: lo de hoy y el total de sus rendiciones. */
+export function porterIncomeBooks(incomes = [], porters = [], today = '') {
+  const day = String(today || '').slice(0, 10);
+  const books = new Map();
+  for (const porter of porters) {
+    const id = String(porter?.id || '').trim();
+    const name = String(porter?.fullName || '').trim();
+    if (!id || !name) continue;
+    books.set(id, { id, name, today: 0, total: 0, count: 0 });
+  }
+  for (const item of incomes) {
+    if (!isPorteriaIncomeItem(item)) continue;
+    const amount = money(item.amount);
+    if (amount <= 0) continue;
+    const key = porterBookKey(item, porters);
+    if (!key) continue;
+    let book = books.get(key);
+    if (!book) {
+      const name = String(item.renderedBy || item.payerName || 'Portero').trim();
+      book = { id: key, name, today: 0, total: 0, count: 0 };
+      books.set(key, book);
+    }
+    book.total = money(book.total + amount);
+    book.count += 1;
+    if (day && String(item.date || '').slice(0, 10) === day) {
+      book.today = money(book.today + amount);
+    }
+  }
+  return [...books.values()].sort((a, b) => a.name.localeCompare(b.name, 'es'));
+}
 
 export const OTHER_INCOME_PAYMENT_METHODS = {
   efectivo: 'Efectivo',

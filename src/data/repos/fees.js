@@ -1,5 +1,5 @@
 import { unwrap, throwOnError } from '../errors';
-import { debitListingPeriodOptions, previousDebitListingPeriod, remapDebitListingsToPeriod } from '../../domain/accounting/debitListings';
+import { debitListingPeriodOptions, maskDebitCard, previousDebitListingPeriod } from '../../domain/accounting/debitListings';
 import { sb, audit } from './shared.js';
 import { feePeriodClosureFromRow, interestGeneratorFromRow, interestRunFromRow } from './ledgers.js';
 
@@ -321,6 +321,29 @@ export async function listFeePeriodClosures() {
   return (rows || []).map(feePeriodClosureFromRow).filter(Boolean);
 }
 
+async function overlayCardSecrets(rows, { table, idColumn }) {
+  if (!rows?.length) return rows;
+  const ids = rows.map((row) => row.id).filter(Boolean);
+  const secrets = new Map();
+  const page = 150;
+  for (let i = 0; i < ids.length; i += page) {
+    const slice = ids.slice(i, i + page);
+    const { data, error } = await sb().from(table).select('*').in(idColumn, slice);
+    if (error) return rows;
+    for (const row of data || []) secrets.set(row[idColumn], row);
+  }
+  if (!secrets.size) return rows;
+  return rows.map((row) => {
+    const secret = secrets.get(row.id);
+    if (!secret?.card_number) return row;
+    return {
+      ...row,
+      cardNumber: secret.card_number,
+      ...(Array.isArray(secret.card_edits) ? { cardEdits: secret.card_edits } : {}),
+    };
+  });
+}
+
 function debitListingFromRow(row) {
   if (!row) return null;
   return {
@@ -356,7 +379,10 @@ export async function listDebitListings({ year, month, sheetKind } = {}) {
   if (month) q = q.eq('month', Number(month));
   if (sheetKind) q = q.eq('sheet_kind', sheetKind);
   const rows = await unwrap(q);
-  return (rows || []).map(debitListingFromRow).filter(Boolean);
+  return overlayCardSecrets(
+    (rows || []).map(debitListingFromRow).filter(Boolean),
+    { table: 'debit_listing_cards', idColumn: 'listing_id' },
+  );
 }
 
 /** Totales livianos del mes (crédito / débito) sin bajar la planilla completa. */
@@ -411,11 +437,15 @@ export async function updateDebitListingCard(row) {
   const last = mapped.cardEdits?.[mapped.cardEdits.length - 1];
   await audit('update', 'debit_listing', saved.id, {
     field: 'card_number',
-    from: last?.from || null,
-    to: last?.to || mapped.cardNumber,
+    from: last?.from ? maskDebitCard(last.from) : null,
+    to: maskDebitCard(last?.to || mapped.cardNumber),
     memberId: mapped.memberId,
   });
-  return mapped;
+  const [withCard] = await overlayCardSecrets([mapped], {
+    table: 'debit_listing_cards',
+    idColumn: 'listing_id',
+  });
+  return withCard || mapped;
 }
 
 function debitMoveEventFromRow(row) {
@@ -456,7 +486,10 @@ export async function listDebitMoveEvents({ year, month } = {}) {
   if (year) q = q.eq('year', Number(year));
   if (month) q = q.eq('month', Number(month));
   const rows = await unwrap(q);
-  return (rows || []).map(debitMoveEventFromRow).filter(Boolean);
+  return overlayCardSecrets(
+    (rows || []).map(debitMoveEventFromRow).filter(Boolean),
+    { table: 'debit_event_cards', idColumn: 'event_id' },
+  );
 }
 
 /**
@@ -549,15 +582,23 @@ export async function registerDebitMove({
 
   await audit(moveType, 'debit_move_event', savedEvent.id, {
     memberId: draft.memberId,
-    cardNumber: draft.cardNumber,
+    cardNumber: maskDebitCard(draft.cardNumber),
     holderName: draft.holderName,
     listingId: savedListing.id,
     actor: actor?.email || actor?.name || null,
   });
 
+  const [listing] = await overlayCardSecrets([debitListingFromRow(savedListing)], {
+    table: 'debit_listing_cards',
+    idColumn: 'listing_id',
+  });
+  const [event] = await overlayCardSecrets([debitMoveEventFromRow(savedEvent)], {
+    table: 'debit_event_cards',
+    idColumn: 'event_id',
+  });
   return {
-    listing: debitListingFromRow(savedListing),
-    event: debitMoveEventFromRow(savedEvent),
+    listing: listing || debitListingFromRow(savedListing),
+    event: event || debitMoveEventFromRow(savedEvent),
   };
 }
 
@@ -599,20 +640,13 @@ export async function copyDebitListingsFromPreviousMonth({ year, month } = {}) {
   const m = Number(month);
   if (!y || !m) throw new Error('Falta el período destino.');
   const prev = previousDebitListingPeriod(y, m);
-  const [credito, debito] = await Promise.all([
-    listDebitListings({ year: prev.year, month: prev.month, sheetKind: 'credito' }),
-    listDebitListings({ year: prev.year, month: prev.month, sheetKind: 'debito' }),
-  ]);
-  const source = [...(credito || []), ...(debito || [])];
-  if (!source.length) {
-    throw new Error(`No hay planilla en ${prev.key} para copiar.`);
-  }
-  const rows = remapDebitListingsToPeriod(source, { year: y, month: m });
-  const result = await importDebitListings(rows, {
-    fileName: `mes-anterior:${prev.key}→${y}-${String(m).padStart(2, '0')}`,
+  const { data, error } = await sb().rpc('copy_debit_listings_from_previous_month', {
+    p_year: y,
+    p_month: m,
   });
+  throwOnError(error, 'No se pudo cargar el mes anterior');
   return {
-    ...result,
+    count: Number(data) || 0,
     from: prev,
     to: { year: y, month: m, key: `${y}-${String(m).padStart(2, '0')}` },
   };

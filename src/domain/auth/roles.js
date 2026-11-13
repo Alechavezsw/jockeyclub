@@ -412,6 +412,12 @@ export function canReopenFeePeriod(roleOrRolesOrProfile) {
   return keys.includes('superadmin');
 }
 
+/** Número de tarjeta completo: solo contabilidad y superadmin. */
+export function canReadMemberCards(roleOrRolesOrProfile) {
+  const keys = collectRoleKeys(roleOrRolesOrProfile).map((key) => String(key || '').toLowerCase());
+  return keys.includes('superadmin') || keys.includes('accountant');
+}
+
 /** Ajustar el saldo a mano: solo superadmin o contador. La base lo exige en post_member_dues_delta. */
 export function canAdjustMemberBalance(roleOrRolesOrProfile) {
   const keys = collectRoleKeys(roleOrRolesOrProfile).map((key) => String(key || '').toLowerCase());

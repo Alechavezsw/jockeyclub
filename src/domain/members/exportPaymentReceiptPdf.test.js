@@ -49,6 +49,27 @@ describe('exportPaymentReceiptPdf helpers', () => {
       detail: 'Pago de cuota social Noviembre 2026',
       payable: 70000,
     }]);
+
+    const sepOct = {
+      amount: 154000,
+      periodDueOns: ['2026-09-10', '2026-10-10'],
+      imputations: [
+        { dueOn: '2026-11-10', capital: 60000, surcharge: 6000 },
+        { dueOn: '2026-12-10', capital: 88000, surcharge: 0, kind: 'adelanto' },
+      ],
+    };
+    expect(paymentCorrespondsTo(sepOct)).toMatch(/Septiembre de 2026/);
+    expect(paymentCorrespondsTo(sepOct)).toMatch(/Octubre de 2026/);
+    expect(paymentCorrespondsTo(sepOct)).not.toMatch(/[Dd]iciembre/);
+    expect(receiptChargeLines({
+      amount: 154000,
+      periodDueOns: ['2026-09-10', '2026-10-10'],
+      imputations: [
+        { dueOn: '2026-09-10', capital: 70000, surcharge: 7000 },
+        { dueOn: '2026-10-10', capital: 70000, surcharge: 7000 },
+        { dueOn: '2026-12-10', capital: 1, surcharge: 0, kind: 'adelanto' },
+      ],
+    }).map((row) => row.dueOn)).toEqual(['2026-09-10', '2026-10-10']);
   });
 
   it('el recibo de varios meses dice solo capital, intereses y el mes sin intereses', () => {

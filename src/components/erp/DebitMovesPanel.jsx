@@ -13,6 +13,7 @@ import {
   groupDebitListings,
   isDebitListingPeriodAllowed,
   maskDebitCard,
+  presentDebitCard,
   normalizeDebitBrand,
   periodLabelES,
   previousDebitListingPeriod,
@@ -41,6 +42,7 @@ import { isLiveMember, isTitularMember } from '../../domain/members/households';
 import { todayISODateAR } from '../../lib/arDate';
 import { repos } from '../../data/bootstrap';
 import { useAuth } from '../../context/AuthContext';
+import { canReadMemberCards } from '../../domain/auth/roles';
 
 const ALTA_CARD_KINDS = Object.freeze({
   credito: { id: 'credito', label: 'Crédito automático' },
@@ -81,7 +83,7 @@ function formatAr(iso) {
   return `${d}/${m}/${y}`;
 }
 
-function DebitCardCell({ row, onSave, disabled = false }) {
+function DebitCardCell({ row, onSave, disabled = false, canRead = false }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(row.cardNumber || '');
   const [saving, setSaving] = useState(false);
@@ -139,21 +141,28 @@ function DebitCardCell({ row, onSave, disabled = false }) {
 
   return (
     <td className="tabular-nums debit-card-cell">
-      <button
-        type="button"
-        className="debit-card-edit"
-        title="Editar N° de tarjeta"
-        disabled={disabled}
-        onClick={() => setEditing(true)}
-      >
-        {maskDebitCard(row.cardNumber)}
-      </button>
+      {canRead ? (
+        <button
+          type="button"
+          className="debit-card-edit"
+          title="Editar N° de tarjeta"
+          disabled={disabled}
+          onClick={() => setEditing(true)}
+        >
+          {presentDebitCard(row.cardNumber, true)}
+        </button>
+      ) : (
+        <span title="El número completo lo ven contabilidad y el superadmin">
+          {presentDebitCard(row.cardNumber, false)}
+        </span>
+      )}
     </td>
   );
 }
 
 export default function DebitMovesPanel({ members = [], setMembers = null }) {
   const { user } = useAuth();
+  const canSeeCards = canReadMemberCards(user);
   const today = todayISODateAR();
   const defaultPeriod = today.slice(0, 7);
 
@@ -818,6 +827,7 @@ export default function DebitMovesPanel({ members = [], setMembers = null }) {
                           <td className="tabular-nums">{row.sortOrder}</td>
                           <DebitCardCell
                             row={row}
+                            canRead={canSeeCards}
                             disabled={busy}
                             onSave={async (target, nextCard) => {
                               try {
@@ -918,7 +928,7 @@ export default function DebitMovesPanel({ members = [], setMembers = null }) {
                         ) : '—'}
                       </td>
                       <td>{event.holderName || '—'}</td>
-                      <td className="tabular-nums">{maskDebitCard(event.cardNumber)}</td>
+                      <td className="tabular-nums">{presentDebitCard(event.cardNumber, canSeeCards)}</td>
                       <td>{event.cardKind === 'debito' ? 'Débito' : 'Crédito'}</td>
                       <td className="tabular-nums">{formatCurrency(event.totalAmount)}</td>
                       <td>{event.actorName || event.actorEmail || '—'}</td>
@@ -1071,15 +1081,24 @@ export default function DebitMovesPanel({ members = [], setMembers = null }) {
                       <span className="form-label">N° tarjeta</span>
                       <input
                         className="form-input"
-                        value={draft.cardNumber || ''}
-                        onChange={(e) => setDraft((prev) => ({
-                          ...prev,
-                          cardNumber: e.target.value.replace(/[^\d\s-]/g, ''),
-                        }))}
+                        value={canSeeCards
+                          ? (draft.cardNumber || '')
+                          : presentDebitCard(draft.cardNumber, false)}
+                        onChange={(e) => {
+                          if (!canSeeCards) return;
+                          setDraft((prev) => ({
+                            ...prev,
+                            cardNumber: e.target.value.replace(/[^\d\s-]/g, ''),
+                          }));
+                        }}
                         inputMode="numeric"
                         autoComplete="cc-number"
                         placeholder="Obligatorio · 13–19 dígitos"
+                        title={canSeeCards
+                          ? 'Número completo'
+                          : 'El número completo lo ven contabilidad y el superadmin'}
                         required
+                        readOnly={!canSeeCards}
                         disabled={busy}
                       />
                     </label>
@@ -1314,7 +1333,7 @@ export default function DebitMovesPanel({ members = [], setMembers = null }) {
                           {' · '}
                           {event.holderName || event.memberId}
                           <span className="debit-moves-meta">
-                            {maskDebitCard(event.cardNumber)}
+                            {presentDebitCard(event.cardNumber, canSeeCards)}
                             {' · '}
                             {event.actorName || event.actorEmail || 'sin usuario'}
                             {' · '}

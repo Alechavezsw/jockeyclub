@@ -57,6 +57,21 @@ function isOpeningDue(dueOn) {
   return String(dueOn || '').slice(0, 10) <= '1900-01-10';
 }
 
+function chargeLineFromImputation(row) {
+  const dueOn = String(row?.dueOn || '').slice(0, 10);
+  const period = periodLabelFromDueOn(dueOn);
+  const capital = Number(row?.capital) || 0;
+  const surcharge = Number(row?.surcharge) || 0;
+  const detail = surcharge > 0.01
+    ? `${period} · capital ${formatCurrency(capital)} · intereses ${formatCurrency(surcharge)}`
+    : `${period} · sin intereses`;
+  return {
+    dueOn,
+    detail,
+    payable: capital + surcharge,
+  };
+}
+
 /** Una línea por mes: capital e intereses, o el mes sin intereses. Sin saldo anterior. */
 export function receiptChargeLines(payment) {
   const imputations = Array.isArray(payment?.imputations)
@@ -65,7 +80,7 @@ export function receiptChargeLines(payment) {
   const selectedDueOns = Array.isArray(payment?.periodDueOns)
     ? payment.periodDueOns.map((value) => String(value || '').slice(0, 10)).filter(Boolean)
     : [];
-  // Cobro de un solo mes marcado: una línea con el total (el adelanto no abre otra fila).
+  // Un solo mes marcado: una línea con el total (el adelanto no abre otra fila).
   if (selectedDueOns.length === 1) {
     const dueOn = selectedDueOns[0];
     const total = imputations.reduce((sum, row) => (
@@ -82,19 +97,23 @@ export function receiptChargeLines(payment) {
       }];
     }
   }
-  return imputations.map((row) => {
-    const period = periodLabelFromDueOn(row.dueOn);
-    const capital = Number(row.capital) || 0;
-    const surcharge = Number(row.surcharge) || 0;
-    const detail = surcharge > 0.01
-      ? `${period} · capital ${formatCurrency(capital)} · intereses ${formatCurrency(surcharge)}`
-      : `${period} · sin intereses`;
-    return {
-      dueOn: String(row.dueOn || '').slice(0, 10),
-      detail,
-      payable: capital + surcharge,
-    };
-  }).filter((row) => row.payable > 0.01);
+  // Varios meses marcados: el recibo nombra esos, no un adelanto a diciembre.
+  if (selectedDueOns.length > 1) {
+    const byDue = new Map(
+      imputations.map((row) => [String(row.dueOn || '').slice(0, 10), row]),
+    );
+    const matched = selectedDueOns
+      .map((dueOn) => byDue.get(dueOn))
+      .filter(Boolean)
+      .map(chargeLineFromImputation)
+      .filter((row) => row.payable > 0.01);
+    if (matched.length === selectedDueOns.length) return matched;
+    if (matched.length) return matched;
+  }
+  return imputations
+    .filter((row) => String(row.kind || '').toLowerCase() !== 'adelanto')
+    .map(chargeLineFromImputation)
+    .filter((row) => row.payable > 0.01);
 }
 
 /** Descripción corta de cuota: «Pago de cuota social Noviembre 2026». */
@@ -143,9 +162,13 @@ export function paymentCorrespondsTo(payment, { isBooking = false } = {}) {
   const selectedDueOns = Array.isArray(payment?.periodDueOns)
     ? payment.periodDueOns.map((value) => String(value || '').slice(0, 10)).filter(Boolean)
     : [];
-  // Un solo mes marcado en el cobro: el recibo habla de ese mes (aunque haya adelanto).
+  // Meses marcados en el cobro: el recibo nombra esos, no un adelanto a diciembre.
   if (selectedDueOns.length === 1) {
     return duesPaymentDescription(selectedDueOns[0]);
+  }
+  if (selectedDueOns.length > 1) {
+    const phrase = duesMonthsPhrase(selectedDueOns);
+    if (phrase) return `Pago de cuota social · ${phrase}`;
   }
 
   const imputations = Array.isArray(payment?.imputations)

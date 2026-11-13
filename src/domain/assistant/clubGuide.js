@@ -752,7 +752,7 @@ export function guideForPrompt(query = '', { member = null, reviewItems = null, 
 }
 
 /** Apertura de la mesa cuando estás en Revisión. */
-export function openingReviewBriefing(brief = {}, reviewItems = []) {
+export function openingReviewBriefing(_brief = {}, reviewItems = []) {
   const queue = (reviewItems || []).filter((item) => Number(item?.count) > 0 || item?.title);
   const first = queue[0];
   const total = queue.length;

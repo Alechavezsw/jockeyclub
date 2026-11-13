@@ -22577,6 +22577,42 @@ a.ops-outline-btn {
 .gate-income-field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.78rem; }
 .gate-income-error { margin: 0; color: #ef4444; }
 .gate-income-ok { margin: 0; color: var(--emerald-accent); }
+.gate-income-books { display: flex; flex-direction: column; gap: 0.45rem; }
+.gate-income-books-title {
+  margin: 0 0 0.15rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-gold, #b08d57);
+}
+.gate-income-books-empty { margin: 0; font-size: 0.82rem; color: var(--text-secondary); }
+.gate-income-book {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 1rem;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.12));
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.gate-income-book.is-on { border-color: var(--text-gold, #b08d57); }
+.gate-income-book-name { display: flex; flex-direction: column; gap: 0.1rem; font-weight: 600; }
+.gate-income-book-name small { font-weight: 450; font-size: 0.72rem; color: var(--text-secondary); }
+.gate-income-book-figure { display: flex; flex-direction: column; align-items: flex-end; min-width: 6.5rem; }
+.gate-income-book-figure span {
+  font-size: 0.66rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted, var(--text-secondary));
+}
+.gate-income-book-figure b { font-size: 0.95rem; }
+.gate-income-book-figure.is-total b { font-size: 1.15rem; color: var(--text-gold, #b08d57); }
 
 /* Otros ingresos (LILA-style form) */
 .oi-panel { display: flex; flex-direction: column; gap: 1rem; }
