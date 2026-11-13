@@ -6,6 +6,7 @@ import {
   Loader2,
   Mail,
   MessageSquare,
+  Pencil,
   Phone,
   Receipt,
   Search,
@@ -22,9 +23,20 @@ import {
   paymentReceiptShareTargets,
   sendDuesReceiptMessage,
 } from '../../domain/members/duesReceiptDelivery';
+import {
+  EDITABLE_DUES_METHODS,
+} from '../../domain/members/duesPaymentMethodChange';
+import { CLUB_BANK_ACCOUNTS } from '../../domain/members/clubBanks';
+import { DUES_METHOD_LABELS } from '../../domain/members/memberPayments';
+import { useAuth } from '../../context/AuthContext';
 import { formatInstantAR, todayAR } from '../../lib/arDate';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import * as repos from '../../data/repos';
+
+const METHOD_EDIT_OPTIONS = EDITABLE_DUES_METHODS.map((id) => ({
+  id,
+  label: DUES_METHOD_LABELS[id] || id,
+}));
 
 const MONTHS_ES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -117,10 +129,14 @@ function openExternal(url) {
 
 export default function PaymentReceiptsPanel({
   members = [],
+  setMembers,
+  setJournalEntries,
   onBack,
   onSendMessage,
   formatCurrency = formatCurrencyDefault,
 }) {
+  const { user } = useAuth();
+  const actorName = user?.fullName || user?.email || 'Administración';
   const [query, setQuery] = useState('');
   const [remoteHits, setRemoteHits] = useState([]);
   const [remoteBusy, setRemoteBusy] = useState(false);
@@ -132,6 +148,10 @@ export default function PaymentReceiptsPanel({
   const [notice, setNotice] = useState('');
   const [busyKey, setBusyKey] = useState('');
   const [openActionsId, setOpenActionsId] = useState(null);
+  const [methodEditId, setMethodEditId] = useState(null);
+  const [methodDraft, setMethodDraft] = useState('efectivo');
+  const [methodBankId, setMethodBankId] = useState(CLUB_BANK_ACCOUNTS[0]?.id || '');
+  const [methodReason, setMethodReason] = useState('');
 
   const months = useMemo(() => monthOptions(), []);
 
@@ -227,6 +247,95 @@ export default function PaymentReceiptsPanel({
     setNotice('');
     setBusyKey('');
     setOpenActionsId(null);
+    setMethodEditId(null);
+    setMethodReason('');
+  };
+
+  const openMethodEdit = (payment) => {
+    const current = String(payment?.method || 'efectivo').toLowerCase();
+    setMethodEditId(payment.id);
+    setMethodDraft(EDITABLE_DUES_METHODS.includes(current) ? current : 'efectivo');
+    setMethodBankId(payment.bankId || CLUB_BANK_ACCOUNTS[0]?.id || '');
+    setMethodReason('');
+    setError('');
+    setNotice('');
+  };
+
+  const saveMethodEdit = async (payment) => {
+    if (!payment?.id) return;
+    const key = `method:${payment.id}`;
+    setBusyKey(key);
+    setError('');
+    setNotice('');
+    try {
+      if (!isSupabaseConfigured || typeof repos.updateMemberPaymentMethod !== 'function') {
+        throw new Error('El cambio de medio requiere la nube.');
+      }
+      const bank = CLUB_BANK_ACCOUNTS.find((row) => row.id === methodBankId) || CLUB_BANK_ACCOUNTS[0];
+      const saved = await repos.updateMemberPaymentMethod({
+        paymentId: payment.id,
+        method: methodDraft,
+        bankId: methodDraft === 'transferencia' ? (bank?.id || null) : null,
+        bankName: methodDraft === 'transferencia' ? (bank?.name || null) : null,
+        reason: methodReason,
+        changedByName: actorName,
+      });
+      setPayments((prev) => prev.map((row) => (row.id === saved.id ? { ...row, ...saved } : row)));
+      setMember((prev) => {
+        if (!prev) return prev;
+        const history = (prev.paymentHistory || []).map((row) => (
+          row.id === saved.id ? { ...row, ...saved } : row
+        ));
+        return { ...prev, paymentHistory: history };
+      });
+      if (typeof setMembers === 'function' && member?.memberId) {
+        setMembers((prev) => (prev || []).map((row) => {
+          if (String(row.memberId) !== String(member.memberId)) return row;
+          const history = (row.paymentHistory || []).map((pay) => (
+            pay.id === saved.id ? { ...pay, ...saved } : pay
+          ));
+          return { ...row, paymentHistory: history };
+        }));
+      }
+      const sync = saved.accountingSync;
+      if (typeof setJournalEntries === 'function' && sync?.journalEntryId) {
+        const accountId = sync.treasuryAccountId || null;
+        const accountName = sync.journalAccountName || null;
+        setJournalEntries((prev) => (prev || []).map((entry) => {
+          if (String(entry.id) !== String(sync.journalEntryId)) return entry;
+          const nextLines = (entry.lines || []).map((line) => {
+            if (!(Number(line.debit) > 0)) return line;
+            const accName = String(line.account || line.accountName || '');
+            const looksTreasury = /caja|banco|mercado/i.test(accName);
+            if (!looksTreasury && accName) return line;
+            if (!looksTreasury && !accountId) return line;
+            return {
+              ...line,
+              ...(accountId ? { accountId } : {}),
+              ...(accountName ? { account: accountName, accountName } : {}),
+            };
+          });
+          return {
+            ...entry,
+            concept: sync.concept || entry.concept,
+            description: sync.concept || entry.description,
+            lines: nextLines,
+          };
+        }));
+      }
+      setMethodEditId(null);
+      setMethodReason('');
+      const syncNote = sync?.error
+        ? ` · aviso: ${sync.error}`
+        : (sync?.updatedLines || sync?.updatedMovements
+          ? ' · asiento y caja alineados'
+          : '');
+      setNotice(`Medio actualizado a ${receiptMethodLabel(saved)} · ${saved.methodChangedByName || actorName}${syncNote}`);
+    } catch (err) {
+      setError(err?.message || 'No se pudo cambiar el medio de pago.');
+    } finally {
+      setBusyKey('');
+    }
   };
 
   const runAction = async (payment, action) => {
@@ -428,7 +537,19 @@ export default function PaymentReceiptsPanel({
                         <td>{payment.date ? formatAccessinCashDate(payment.date) : '—'}</td>
                         <td>{payment.concept || 'Cuota social'}</td>
                         <td>{payment.period || '—'}</td>
-                        <td>{receiptMethodLabel(payment)}</td>
+                        <td>
+                          <div className="payment-receipts-method-cell">
+                            <strong>{receiptMethodLabel(payment)}</strong>
+                            {payment.methodChangedByName ? (
+                              <small>
+                                Cambió {payment.methodChangedByName}
+                                {payment.methodChangedAt
+                                  ? ` · ${formatInstantAR(payment.methodChangedAt)}`
+                                  : ''}
+                              </small>
+                            ) : null}
+                          </div>
+                        </td>
                         <td style={{ fontWeight: 700 }}>{formatCurrency(payment.amount)}</td>
                         <td className="tabular-nums">{receiptNo}</td>
                         <td>
@@ -457,6 +578,17 @@ export default function PaymentReceiptsPanel({
                                     <dt>Usuario</dt>
                                     <dd>{paymentOperatorLabel(payment)}</dd>
                                   </div>
+                                  {payment.methodChangedByName ? (
+                                    <div>
+                                      <dt>Medio editado</dt>
+                                      <dd>
+                                        {payment.methodChangedByName}
+                                        {payment.methodChangeReason
+                                          ? ` · ${payment.methodChangeReason}`
+                                          : ''}
+                                      </dd>
+                                    </div>
+                                  ) : null}
                                 </dl>
                                 <div className="payment-receipts-actions" role="group" aria-label="Acciones del comprobante">
                                   <button
@@ -509,7 +641,87 @@ export default function PaymentReceiptsPanel({
                                       : <MessageSquare size={13} aria-hidden="true" />}
                                     <span>MD</span>
                                   </button>
+                                  <button
+                                    type="button"
+                                    className="payment-receipts-chip tone-edit"
+                                    disabled={rowBusy || String(payment.method || '').toLowerCase() === 'mixto'}
+                                    title={String(payment.method || '').toLowerCase() === 'mixto'
+                                      ? 'Pago mixto: anulá y cobrá de nuevo'
+                                      : 'Cambiar medio de pago'}
+                                    aria-label="Cambiar medio de pago"
+                                    onClick={() => openMethodEdit(payment)}
+                                  >
+                                    <Pencil size={13} aria-hidden="true" />
+                                    <span>Medio</span>
+                                  </button>
                                 </div>
+                                {methodEditId === payment.id ? (
+                                  <form
+                                    className="payment-receipts-method-form"
+                                    onSubmit={(e) => {
+                                      e.preventDefault();
+                                      void saveMethodEdit(payment);
+                                    }}
+                                  >
+                                    <label className="form-group" style={{ margin: 0 }}>
+                                      <span className="form-label">Nuevo medio</span>
+                                      <select
+                                        className="form-input"
+                                        value={methodDraft}
+                                        onChange={(e) => setMethodDraft(e.target.value)}
+                                      >
+                                        {METHOD_EDIT_OPTIONS.map((opt) => (
+                                          <option key={opt.id} value={opt.id}>{opt.label}</option>
+                                        ))}
+                                      </select>
+                                    </label>
+                                    {methodDraft === 'transferencia' ? (
+                                      <label className="form-group" style={{ margin: 0 }}>
+                                        <span className="form-label">Banco</span>
+                                        <select
+                                          className="form-input"
+                                          value={methodBankId}
+                                          onChange={(e) => setMethodBankId(e.target.value)}
+                                        >
+                                          {CLUB_BANK_ACCOUNTS.map((bank) => (
+                                            <option key={bank.id} value={bank.id}>{bank.name}</option>
+                                          ))}
+                                        </select>
+                                      </label>
+                                    ) : null}
+                                    <label className="form-group" style={{ margin: 0 }}>
+                                      <span className="form-label">Motivo del cambio</span>
+                                      <textarea
+                                        className="form-input"
+                                        rows={2}
+                                        value={methodReason}
+                                        onChange={(e) => setMethodReason(e.target.value)}
+                                        placeholder="Ej. se cargó efectivo por error; era transferencia"
+                                        required
+                                      />
+                                    </label>
+                                    <div className="payment-receipts-method-form-actions">
+                                      <button
+                                        type="button"
+                                        className="btn btn-secondary btn-sm"
+                                        disabled={rowBusy}
+                                        onClick={() => setMethodEditId(null)}
+                                      >
+                                        Cancelar
+                                      </button>
+                                      <button
+                                        type="submit"
+                                        className="btn btn-primary btn-sm"
+                                        disabled={rowBusy || methodReason.trim().length < 8}
+                                      >
+                                        {busyKey === `method:${payment.id}`
+                                          ? <Loader2 size={14} className="spin" aria-hidden="true" />
+                                          : null}
+                                        Guardar medio
+                                      </button>
+                                    </div>
+                                  </form>
+                                ) : null}
                               </div>
                             ) : null}
                           </div>

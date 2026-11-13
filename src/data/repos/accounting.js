@@ -1,6 +1,8 @@
 import * as M from '../mappers';
 import { unwrap } from '../errors';
 import { todayAR } from '../../lib/arDate';
+import { resolveAccountId } from '../../domain/accounting/chartOfAccounts';
+import { rewriteDuesCobroConcept } from '../../domain/members/duesPaymentMethodChange';
 import { isUuid, sb, audit, FISCAL_2026 } from './shared.js';
 
 // ---- Accounting ----
@@ -174,6 +176,137 @@ export async function listCashMovements() {
     sb().from('cash_movements').select('*').order('created_at', { ascending: false })
   );
   return (rows || []).map(M.cashMovementFromRow);
+}
+
+/**
+ * Alinea asiento + movimientos de caja al nuevo medio de un cobro de cuota.
+ * Cambia la cuenta de tesorería del debe y el texto del concepto.
+ */
+export async function syncDuesPaymentMethodAccounting({
+  paymentId,
+  journalEntryId = null,
+  methodLabel,
+  journalAccountName,
+  actorName = '',
+} = {}) {
+  const payId = isUuid(paymentId) ? paymentId : null;
+  let entryId = isUuid(journalEntryId) ? journalEntryId : null;
+  if (!entryId && payId) {
+    try {
+      const bySource = await unwrap(
+        sb()
+          .from('journal_entries')
+          .select('id')
+          .eq('source_module', 'cuotas')
+          .eq('source_id', payId)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        'No se pudo buscar el asiento',
+      );
+      entryId = bySource?.id || null;
+    } catch {
+      entryId = null;
+    }
+  }
+  if (!entryId) {
+    return { journalEntryId: null, updatedLines: 0, updatedMovements: 0 };
+  }
+
+  const chart = await listChartOfAccounts();
+  const treasuryAccountId = resolveAccountId(chart, journalAccountName)
+    || resolveAccountId(chart, 'Caja General');
+  if (!treasuryAccountId) {
+    throw new Error('No se encontró la cuenta de tesorería para el nuevo medio.');
+  }
+
+  const entry = await unwrap(
+    sb().from('journal_entries').select('*').eq('id', entryId).maybeSingle(),
+    'No se encontró el asiento',
+  );
+  if (!entry) return { journalEntryId: entryId, updatedLines: 0, updatedMovements: 0 };
+
+  const nextConcept = rewriteDuesCobroConcept(entry.concept, methodLabel);
+  if (nextConcept && nextConcept !== entry.concept) {
+    await unwrap(
+      sb().from('journal_entries').update({
+        concept: nextConcept,
+        updated_at: new Date().toISOString(),
+      }).eq('id', entryId),
+      'No se pudo actualizar el concepto del asiento',
+    );
+  }
+
+  const lines = await unwrap(
+    sb().from('journal_lines').select('*').eq('journal_entry_id', entryId),
+    'No se pudieron leer las líneas del asiento',
+  );
+  const treasuryIds = new Set(
+    (chart || [])
+      .filter((acc) => acc?.isCashAccount || /caja|banco|mercado/i.test(String(acc?.name || '')))
+      .map((acc) => acc.id),
+  );
+  let updatedLines = 0;
+  for (const line of lines || []) {
+    const debit = Number(line.debit) || 0;
+    if (!(debit > 0)) continue;
+    if (treasuryIds.size && !treasuryIds.has(line.account_id)) continue;
+    if (line.account_id === treasuryAccountId) continue;
+    await unwrap(
+      sb().from('journal_lines').update({ account_id: treasuryAccountId }).eq('id', line.id),
+      'No se pudo actualizar la cuenta del asiento',
+    );
+    updatedLines += 1;
+  }
+
+  const movements = await unwrap(
+    sb().from('cash_movements').select('*').eq('journal_entry_id', entryId),
+    'No se pudieron leer movimientos de caja',
+  );
+  let updatedMovements = 0;
+  for (const move of movements || []) {
+    const patch = {
+      related_account_id: treasuryAccountId,
+    };
+    const nextMoveConcept = rewriteDuesCobroConcept(move.concept, methodLabel);
+    if (nextMoveConcept && nextMoveConcept !== move.concept) {
+      patch.concept = nextMoveConcept;
+    }
+    await unwrap(
+      sb().from('cash_movements').update(patch).eq('id', move.id),
+      'No se pudo actualizar el movimiento de caja',
+    );
+    updatedMovements += 1;
+  }
+
+  await audit('update_method_accounting', 'journal_entries', entryId, {
+    paymentId: payId,
+    methodLabel,
+    journalAccountName,
+    updatedLines,
+    updatedMovements,
+    by: actorName || null,
+  });
+
+  if (payId && !journalEntryId) {
+    try {
+      await unwrap(
+        sb().from('member_payments').update({ journal_entry_id: entryId }).eq('id', payId),
+        'No se pudo vincular el asiento al cobro',
+      );
+    } catch {
+      /* best-effort */
+    }
+  }
+
+  return {
+    journalEntryId: entryId,
+    updatedLines,
+    updatedMovements,
+    concept: nextConcept,
+    journalAccountName: journalAccountName || null,
+    treasuryAccountId,
+  };
 }
 
 export async function insertCashMovement(movement) {

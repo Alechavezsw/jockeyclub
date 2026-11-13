@@ -1338,6 +1338,7 @@ export default function AdminView({
           })}
           addJournalEntry={addJournalEntry}
           journalEntries={journalEntries}
+          setJournalEntries={setJournalEntries}
           chartOfAccounts={chartOfAccounts}
           formatCurrency={formatCurrency}
           tierCatalog={tierCatalog}

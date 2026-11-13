@@ -39,6 +39,7 @@ export const DUES_METHOD_LABELS = {
   tarjeta: 'Tarjeta',
   mixto: 'Pago mixto',
   mercadopago: 'Mercado Pago',
+  debito: 'Débito',
   caja: 'Efectivo',
 };
 
@@ -91,6 +92,11 @@ export function duesMethodLabel(method, bankName) {
   }
   return DUES_METHOD_LABELS[method] || method || 'Pago';
 }
+
+export {
+  EDITABLE_DUES_METHODS,
+  changeDuesPaymentMethod,
+} from './duesPaymentMethodChange';
 
 /** Normaliza líneas de un pago mixto. */
 export function normalizePaymentSplits(raw = []) {

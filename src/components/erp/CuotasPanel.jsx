@@ -124,6 +124,7 @@ export default function CuotasPanel({
   onImputeReservation,
   addJournalEntry,
   journalEntries = [],
+  setJournalEntries,
   chartOfAccounts = [],
   formatCurrency: formatCurrencyProp,
   tierCatalog = [],
@@ -972,6 +973,8 @@ export default function CuotasPanel({
     return (
       <PaymentReceiptsPanel
         members={members}
+        setMembers={setMembers}
+        setJournalEntries={setJournalEntries}
         onBack={() => goHome()}
         onSendMessage={onSendMessage}
         formatCurrency={fmt}

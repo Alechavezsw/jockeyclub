@@ -25469,6 +25469,36 @@ a.ops-outline-btn {
 .payment-receipts-chip.tone-md {
   --chip-accent: var(--emerald-accent, #2f9e6c);
 }
+.payment-receipts-chip.tone-edit {
+  --chip-accent: #8a6d1d;
+}
+.payment-receipts-method-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 7rem;
+}
+.payment-receipts-method-cell strong {
+  font-weight: 600;
+}
+.payment-receipts-method-cell small {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1.25;
+}
+.payment-receipts-method-form {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.65rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--border-glass, rgba(255, 255, 255, 0.08));
+}
+.payment-receipts-method-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: flex-end;
+}
 .payment-receipts-chip:hover:not(:disabled),
 .payment-receipts-chip:focus-visible:not(:disabled) {
   background: var(--chip-accent);

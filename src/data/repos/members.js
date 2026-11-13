@@ -8,6 +8,8 @@ import { todayAR } from '../../lib/arDate';
 import { supabase } from '../../lib/supabase';
 import { isUuid, sb, fetchAllRows, fetchAllRowsParallel, audit } from './shared.js';
 import { createPortalUser, replaceProfileRoles } from './profiles.js';
+import { changeDuesPaymentMethod } from '../../domain/members/duesPaymentMethodChange';
+import { syncDuesPaymentMethodAccounting } from './accounting.js';
 
 /** Tope PostgREST habitual. */
 const MEMBERS_PAGE_SIZE = 1000;
@@ -1217,6 +1219,115 @@ export async function insertMemberPayment(memberDbId, payment) {
   );
   await audit('create', 'member_payments', saved.id, row);
   return M.paymentFromRow(saved);
+}
+
+/**
+ * Cambia el medio de un cobro (efectivo / transferencia / tarjeta / MP).
+ * Deja rastro en meta + audit_logs de quién lo cambió y por qué.
+ */
+export async function updateMemberPaymentMethod({
+  paymentId,
+  method,
+  bankId = null,
+  bankName = null,
+  reason = '',
+  changedByName = '',
+} = {}) {
+  const id = String(paymentId || '').trim();
+  if (!isUuid(id)) throw new Error('Cobro inválido.');
+
+  const row = await unwrap(
+    sb().from('member_payments').select('*').eq('id', id).maybeSingle(),
+    'No se encontró el cobro',
+  );
+  if (!row) throw new Error('No se encontró el cobro.');
+
+  const { data: authData } = await sb().auth.getUser();
+  const actorId = authData?.user?.id || null;
+  let actorName = String(changedByName || '').trim();
+  if (!actorName && actorId) {
+    try {
+      const profile = await unwrap(
+        sb().from('profiles').select('full_name, email').eq('id', actorId).maybeSingle(),
+        'No se pudo leer el usuario',
+      );
+      actorName = String(profile?.full_name || profile?.email || '').trim();
+    } catch {
+      /* se usa fallback */
+    }
+  }
+  if (!actorName) actorName = 'Administración';
+
+  const current = M.paymentFromRow(row);
+  const next = changeDuesPaymentMethod(current, {
+    method,
+    bankId,
+    bankName,
+    changedBy: actorId,
+    changedByName: actorName,
+    reason,
+  });
+
+  const prevMeta = row.meta && typeof row.meta === 'object' && !Array.isArray(row.meta)
+    ? row.meta
+    : {};
+  const meta = {
+    ...prevMeta,
+    methodLabel: next.methodLabel,
+    ...(next.bankName ? { bank: next.bankName } : {}),
+    ...(next.bankId ? { bankId: next.bankId } : {}),
+    journalAccount: next.journalAccount || null,
+    methodChangedAt: next.methodChangedAt,
+    methodChangedBy: next.methodChangedBy,
+    methodChangedByName: next.methodChangedByName,
+    methodChangeReason: next.methodChangeReason,
+    previousMethod: next.previousMethod,
+    methodHistory: next.methodHistory,
+  };
+  if (next.method !== 'transferencia') {
+    delete meta.bank;
+    delete meta.bankId;
+  }
+
+  const saved = await unwrap(
+    sb()
+      .from('member_payments')
+      .update({ method: next.method, meta })
+      .eq('id', id)
+      .select('*')
+      .single(),
+    'No se pudo actualizar el medio de pago',
+  );
+
+  let accounting = null;
+  try {
+    accounting = await syncDuesPaymentMethodAccounting({
+      paymentId: id,
+      journalEntryId: saved.journal_entry_id || current.journalEntryId || null,
+      methodLabel: next.methodLabel,
+      journalAccountName: next.journalAccount,
+      actorName,
+    });
+  } catch (err) {
+    // El medio ya quedó en el cobro; el asiento se reintenta o se avisa.
+    accounting = { error: err?.message || 'No se pudo alinear el asiento/caja' };
+  }
+
+  await audit('update_method', 'member_payments', id, {
+    from: next.previousMethod,
+    to: next.method,
+    reason: next.methodChangeReason,
+    by: next.methodChangedByName,
+    byId: next.methodChangedBy,
+    accounting,
+  });
+
+  const payment = M.paymentFromRow(saved);
+  if (accounting?.journalEntryId && !payment.journalEntryId) {
+    payment.journalEntryId = accounting.journalEntryId;
+  }
+  payment.accountingSync = accounting;
+  return payment;
 }
 
 /** Quita el recargo de un cobro ya acreditado. Solo superadmin, con motivo. */
