@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { X, Banknote, Landmark, QrCode, CreditCard, Upload, Copy, Check, Split } from 'lucide-react';
+import { X, Banknote, Landmark, QrCode, CreditCard, Upload, Copy, Check, Split, WalletCards } from 'lucide-react';
 import ModalDialog from '../ModalDialog';
 import MercadoPagoCheckout from '../MercadoPagoCheckout';
 import {
@@ -12,6 +12,8 @@ import {
   collectionDiscount,
   collectionPreview,
   duesMethodNeedsReceipt,
+  duesMethodUsesBank,
+  duesReceiptRequiredMessage,
   isManualDuesReceipt,
   manualDuesReceiptLabel,
   MIXED_DUES_METHODS,
@@ -29,6 +31,7 @@ const METHODS = [
   { id: 'efectivo', label: 'Efectivo', icon: Banknote, hint: 'Cobro en sede / caja' },
   { id: 'transferencia', label: 'Transferencia', icon: Landmark, hint: 'Bancos del club + comprobante' },
   { id: 'tarjeta', label: 'Tarjeta', icon: CreditCard, hint: 'POS / voucher + comprobante' },
+  { id: 'debito', label: 'Débito', icon: WalletCards, hint: 'Débito bancario · comprobante o a mano' },
   { id: 'mixto', label: 'Mixto', icon: Split, hint: 'Combiná efectivo, transferencia y tarjeta' },
   { id: 'mercadopago', label: 'Mercado Pago', icon: QrCode, hint: 'QR de mostrador y acreditación automática' },
 ];
@@ -399,7 +402,7 @@ export default function CollectDuesModal({
         ? prev
         : blankManualReceipt({
           amount: cash,
-          bankOrCard: method === 'transferencia' ? selectedBank?.name : (selectedPlan?.label || ''),
+          bankOrCard: duesMethodUsesBank(method) ? selectedBank?.name : (selectedPlan?.label || ''),
           payerName: account?.name,
           method,
         })
@@ -430,7 +433,7 @@ export default function CollectDuesModal({
           ? line.receiptParse
           : blankManualReceipt({
             amount: Number(line?.amount) || 0,
-            bankOrCard: line?.method === 'transferencia' ? bank?.name : (plan?.label || ''),
+            bankOrCard: duesMethodUsesBank(line?.method) ? bank?.name : (plan?.label || ''),
             payerName: account?.name,
             method: line?.method,
           }),
@@ -554,9 +557,7 @@ export default function CollectDuesModal({
           return;
         }
         if (duesMethodNeedsReceipt(row.method) && !lineManual && !row.receiptFile) {
-          setError(row.method === 'tarjeta'
-            ? 'Adjunte el comprobante de la tarjeta en el mixto.'
-            : 'Adjunte el comprobante de la transferencia en el mixto.');
+          setError(duesReceiptRequiredMessage(row.method, { mixed: true }).replace('pago mixto', 'mixto'));
           return;
         }
         if (row.method === 'tarjeta' && plans.length && !row.planId) {
@@ -571,9 +572,7 @@ export default function CollectDuesModal({
         return;
       }
       if (needsReceipt && !manual && !receiptFile) {
-        setError(method === 'tarjeta'
-          ? 'Adjunte el comprobante de la tarjeta.'
-          : 'Adjunte el comprobante de la transferencia.');
+        setError(duesReceiptRequiredMessage(method));
         return;
       }
       if (method === 'tarjeta' && plans.length && !selectedPlan) {
@@ -602,8 +601,8 @@ export default function CollectDuesModal({
           paymentSplits.push({
             method: row.method,
             amount: lineAmount,
-            bankId: row.method === 'transferencia' ? row.bankId : null,
-            bankName: row.method === 'transferencia' ? bank?.name : null,
+            bankId: duesMethodUsesBank(row.method) ? row.bankId : null,
+            bankName: duesMethodUsesBank(row.method) ? bank?.name : null,
             journalAccount: journalAccountForPayment(row.method, row.bankId),
             paymentPlanId: row.method === 'tarjeta' ? (plan?.id || null) : null,
             paymentPlanLabel: row.method === 'tarjeta' ? (plan?.label || null) : null,
@@ -633,8 +632,8 @@ export default function CollectDuesModal({
         const journalAccount = journalAccountForPayment(recordMethod, bankId);
         await onConfirm({
           method: recordMethod,
-          bankId: recordMethod === 'transferencia' ? bankId : null,
-          bankName: recordMethod === 'transferencia' ? selectedBank?.name : null,
+          bankId: duesMethodUsesBank(recordMethod) ? bankId : null,
+          bankName: duesMethodUsesBank(recordMethod) ? selectedBank?.name : null,
           journalAccount,
           receiptName: receiptAttachment?.name
             || (manual ? manualDuesReceiptLabel(receiptParse) : null)
@@ -910,8 +909,14 @@ export default function CollectDuesModal({
           </div>
         )}
 
-        {method === 'transferencia' && (
+        {(method === 'transferencia' || method === 'debito') && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '1rem' }}>
+            {method === 'debito' ? (
+              <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
+                Registrá un débito ya ejecutado. Podés adjuntar el comprobante o cargarlo a mano.
+                Acredita en el banco o alias elegido.
+              </p>
+            ) : null}
             {CLUB_BANK_ACCOUNTS.length > 1 ? (
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label">Alias</label>
@@ -1030,7 +1035,7 @@ export default function CollectDuesModal({
                       />
                     </label>
                   </div>
-                  {line.method === 'transferencia' ? (
+                  {duesMethodUsesBank(line.method) ? (
                     <label className="form-group" style={{ margin: 0 }}>
                       <span className="form-label">Alias</span>
                       <select
@@ -1248,7 +1253,9 @@ export default function CollectDuesModal({
                   ? 'Acreditar efectivo'
                   : method === 'mixto'
                     ? 'Registrar pago mixto'
-                    : 'Registrar con comprobante')}
+                    : method === 'debito'
+                      ? 'Registrar débito'
+                      : 'Registrar con comprobante')}
             </button>
           ) : null}
         </div>

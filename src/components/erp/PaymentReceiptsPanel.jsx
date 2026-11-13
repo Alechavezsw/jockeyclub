@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
+  Ban,
   ChevronDown,
   Download,
   Loader2,
@@ -27,7 +28,12 @@ import {
   EDITABLE_DUES_METHODS,
 } from '../../domain/members/duesPaymentMethodChange';
 import { CLUB_BANK_ACCOUNTS } from '../../domain/members/clubBanks';
-import { DUES_METHOD_LABELS } from '../../domain/members/memberPayments';
+import {
+  DUES_METHOD_LABELS,
+  persistDuesVoid,
+  voidMemberDuesPayment,
+} from '../../domain/members/memberPayments';
+import { canVoidDuesPayment } from '../../domain/auth/roles';
 import { useAuth } from '../../context/AuthContext';
 import { formatInstantAR, todayAR } from '../../lib/arDate';
 import { isSupabaseConfigured } from '../../lib/supabase';
@@ -88,6 +94,16 @@ function paymentOperatorLabel(payment) {
   return payment?.recordedBy ? 'Usuario del sistema' : '—';
 }
 
+function paymentVoidedByLabel(payment) {
+  const name = String(payment?.voidedByName || '').trim();
+  if (name) return name;
+  const raw = String(payment?.voidedBy || '').trim();
+  if (!raw) return '—';
+  // En la base a veces queda el uuid del auth; no lo mostramos como “quién”.
+  if (/^[0-9a-f-]{32,}$/i.test(raw.replace(/-/g, ''))) return 'Usuario del sistema';
+  return raw;
+}
+
 function paymentOperationInstant(payment) {
   return formatInstantAR(
     payment?.paidAt || payment?.createdAt || payment?.date,
@@ -99,7 +115,7 @@ async function hydrateMemberWithPayments(row) {
   if (!isSupabaseConfigured) {
     return {
       ...row,
-      paymentHistory: (row?.paymentHistory || []).filter(isActivePayment),
+      paymentHistory: Array.isArray(row?.paymentHistory) ? row.paymentHistory : [],
     };
   }
   const dbId = row?.id;
@@ -118,7 +134,7 @@ async function hydrateMemberWithPayments(row) {
   }
   return {
     ...row,
-    paymentHistory: (row?.paymentHistory || []).filter(isActivePayment),
+    paymentHistory: Array.isArray(row?.paymentHistory) ? row.paymentHistory : [],
   };
 }
 
@@ -131,12 +147,14 @@ export default function PaymentReceiptsPanel({
   members = [],
   setMembers,
   setJournalEntries,
+  addJournalEntry,
   onBack,
   onSendMessage,
   formatCurrency = formatCurrencyDefault,
 }) {
   const { user } = useAuth();
   const actorName = user?.fullName || user?.email || 'Administración';
+  const canVoid = canVoidDuesPayment(user);
   const [query, setQuery] = useState('');
   const [remoteHits, setRemoteHits] = useState([]);
   const [remoteBusy, setRemoteBusy] = useState(false);
@@ -152,6 +170,9 @@ export default function PaymentReceiptsPanel({
   const [methodDraft, setMethodDraft] = useState('efectivo');
   const [methodBankId, setMethodBankId] = useState(CLUB_BANK_ACCOUNTS[0]?.id || '');
   const [methodReason, setMethodReason] = useState('');
+  const [voidEditId, setVoidEditId] = useState(null);
+  const [voidReason, setVoidReason] = useState('');
+  const [showVoided, setShowVoided] = useState(true);
 
   const months = useMemo(() => monthOptions(), []);
 
@@ -216,10 +237,11 @@ export default function PaymentReceiptsPanel({
   }, [members, query, remoteHits, member]);
 
   const filteredPayments = useMemo(() => {
-    const rows = (payments || []).filter(isActivePayment);
+    let rows = payments || [];
+    if (!showVoided) rows = rows.filter(isActivePayment);
     if (monthKey === 'all') return rows;
     return rows.filter((p) => paymentMonthKey(p) === monthKey);
-  }, [payments, monthKey]);
+  }, [payments, monthKey, showVoided]);
 
   const pickMember = async (row) => {
     setError('');
@@ -230,7 +252,7 @@ export default function PaymentReceiptsPanel({
       const fromPadron = (members || []).find((m) => String(m.memberId) === String(row.memberId));
       const full = await hydrateMemberWithPayments(fromPadron || row);
       setMember(full);
-      setPayments((full.paymentHistory || []).filter(isActivePayment));
+      setPayments(full.paymentHistory || []);
     } catch (err) {
       setError(err?.message || 'No se pudieron cargar los pagos.');
       setPayments([]);
@@ -249,16 +271,118 @@ export default function PaymentReceiptsPanel({
     setOpenActionsId(null);
     setMethodEditId(null);
     setMethodReason('');
+    setVoidEditId(null);
+    setVoidReason('');
   };
 
   const openMethodEdit = (payment) => {
     const current = String(payment?.method || 'efectivo').toLowerCase();
+    setVoidEditId(null);
+    setVoidReason('');
     setMethodEditId(payment.id);
     setMethodDraft(EDITABLE_DUES_METHODS.includes(current) ? current : 'efectivo');
     setMethodBankId(payment.bankId || CLUB_BANK_ACCOUNTS[0]?.id || '');
     setMethodReason('');
     setError('');
     setNotice('');
+  };
+
+  const openVoidEdit = (payment) => {
+    setMethodEditId(null);
+    setMethodReason('');
+    setVoidEditId(payment.id);
+    setVoidReason('');
+    setError('');
+    setNotice('');
+  };
+
+  const applyVoidedMember = (nextMember, voidedPayment) => {
+    const history = (nextMember.paymentHistory || []).map((row) => (
+      String(row.id) === String(voidedPayment.id) ? { ...row, ...voidedPayment } : row
+    ));
+    if (!history.some((row) => String(row.id) === String(voidedPayment.id))) {
+      history.unshift(voidedPayment);
+    }
+    const merged = { ...nextMember, paymentHistory: history };
+    setMember(merged);
+    setPayments(history);
+    if (typeof setMembers === 'function' && merged?.memberId) {
+      setMembers((prev) => (prev || []).map((row) => (
+        String(row.memberId) === String(merged.memberId) ? { ...row, ...merged } : row
+      )));
+    }
+  };
+
+  const saveVoid = async (payment) => {
+    if (!payment?.id || !member) return;
+    const key = `void:${payment.id}`;
+    setBusyKey(key);
+    setError('');
+    setNotice('');
+    try {
+      if (!canVoid) {
+        throw new Error('Sin permiso para anular el cobro.');
+      }
+      const why = voidReason.trim();
+      if (why.length < 8) {
+        throw new Error('Falta el motivo de la anulación (mínimo 8 caracteres).');
+      }
+      const host = members.find((row) => String(row.memberId) === String(member.memberId)) || member;
+      const withHistory = {
+        ...host,
+        paymentHistory: payments.length ? payments : (host.paymentHistory || member.paymentHistory || []),
+        outstandingBalance: member.outstandingBalance ?? host.outstandingBalance,
+        nextDueDate: member.nextDueDate ?? host.nextDueDate,
+        lastPaymentDate: member.lastPaymentDate ?? host.lastPaymentDate,
+        id: member.id || host.id,
+      };
+      const result = voidMemberDuesPayment(withHistory, payment.id, {
+        voidedBy: actorName,
+        voidedById: user?.id || null,
+        reason: why,
+      });
+      const persisted = await persistDuesVoid(result, {
+        setMembers,
+        addJournalEntry: typeof addJournalEntry === 'function'
+          ? addJournalEntry
+          : async (entry) => {
+            if (isSupabaseConfigured && typeof repos.insertJournalEntry === 'function') {
+              const saved = await repos.insertJournalEntry(entry, { createdBy: user?.id || null });
+              if (typeof setJournalEntries === 'function') {
+                setJournalEntries((prev) => [saved, ...(prev || [])]);
+              }
+              return saved;
+            }
+            const local = { ...entry, id: entry.id || `je-void-${Date.now()}` };
+            if (typeof setJournalEntries === 'function') {
+              setJournalEntries((prev) => [local, ...(prev || [])]);
+            }
+            return local;
+          },
+      });
+      let refreshed = persisted.member;
+      try {
+        refreshed = await hydrateMemberWithPayments(persisted.member);
+      } catch {
+        /* se usa el resultado local */
+      }
+      applyVoidedMember(refreshed, {
+        ...payment,
+        ...persisted.payment,
+        status: 'void',
+        voidReason: why,
+        voidedByName: actorName,
+        voidedAt: persisted.payment?.voidedAt || new Date().toISOString(),
+      });
+      setVoidEditId(null);
+      setVoidReason('');
+      setShowVoided(true);
+      setNotice(`Cobro anulado · ${formatCurrency(payment.amount)} · ${actorName}. Saldo, imputaciones y caja revertidos.`);
+    } catch (err) {
+      setError(err?.message || 'No se pudo anular el cobro.');
+    } finally {
+      setBusyKey('');
+    }
   };
 
   const saveMethodEdit = async (payment) => {
@@ -275,8 +399,8 @@ export default function PaymentReceiptsPanel({
       const saved = await repos.updateMemberPaymentMethod({
         paymentId: payment.id,
         method: methodDraft,
-        bankId: methodDraft === 'transferencia' ? (bank?.id || null) : null,
-        bankName: methodDraft === 'transferencia' ? (bank?.name || null) : null,
+        bankId: (methodDraft === 'transferencia' || methodDraft === 'debito') ? (bank?.id || null) : null,
+        bankName: (methodDraft === 'transferencia' || methodDraft === 'debito') ? (bank?.name || null) : null,
         reason: methodReason,
         changedByName: actorName,
       });
@@ -497,6 +621,14 @@ export default function PaymentReceiptsPanel({
                 ))}
               </select>
             </label>
+            <label className="payment-receipts-voided-toggle">
+              <input
+                type="checkbox"
+                checked={showVoided}
+                onChange={(e) => setShowVoided(e.target.checked)}
+              />
+              Mostrar anulados
+            </label>
           </div>
 
           {error ? <p className="ig-error" role="alert">{error}</p> : null}
@@ -532,20 +664,33 @@ export default function PaymentReceiptsPanel({
                     const share = paymentReceiptShareTargets(member, payment);
                     const rowBusy = busyKey.endsWith(`:${payment.id}`);
                     const actionsOpen = openActionsId === payment.id;
+                    const voided = !isActivePayment(payment);
                     return (
-                      <tr key={payment.id}>
+                      <tr key={payment.id} className={voided ? 'payment-receipts-row-void' : undefined}>
                         <td>{payment.date ? formatAccessinCashDate(payment.date) : '—'}</td>
                         <td>{payment.concept || 'Cuota social'}</td>
                         <td>{payment.period || '—'}</td>
                         <td>
                           <div className="payment-receipts-method-cell">
                             <strong>{receiptMethodLabel(payment)}</strong>
-                            {payment.methodChangedByName ? (
+                            {voided ? (
+                              <span className="payment-receipts-void-badge">
+                                Anulado · {paymentVoidedByLabel(payment)}
+                              </span>
+                            ) : null}
+                            {payment.methodChangedByName && !voided ? (
                               <small>
                                 Cambió {payment.methodChangedByName}
                                 {payment.methodChangedAt
                                   ? ` · ${formatInstantAR(payment.methodChangedAt)}`
                                   : ''}
+                              </small>
+                            ) : null}
+                            {voided ? (
+                              <small>
+                                Anuló {paymentVoidedByLabel(payment)}
+                                {payment.voidedAt ? ` · ${formatInstantAR(payment.voidedAt)}` : ''}
+                                {payment.voidReason ? ` · ${payment.voidReason}` : ''}
                               </small>
                             ) : null}
                           </div>
@@ -589,6 +734,20 @@ export default function PaymentReceiptsPanel({
                                       </dd>
                                     </div>
                                   ) : null}
+                                  {voided ? (
+                                    <div>
+                                      <dt>Anuló</dt>
+                                      <dd>
+                                        {paymentVoidedByLabel(payment)}
+                                        {payment.voidedAt
+                                          ? ` · ${formatInstantAR(payment.voidedAt)}`
+                                          : ''}
+                                        {payment.voidReason
+                                          ? ` · ${payment.voidReason}`
+                                          : ''}
+                                      </dd>
+                                    </div>
+                                  ) : null}
                                 </dl>
                                 <div className="payment-receipts-actions" role="group" aria-label="Acciones del comprobante">
                                   <button
@@ -607,7 +766,7 @@ export default function PaymentReceiptsPanel({
                                   <button
                                     type="button"
                                     className="payment-receipts-chip tone-wa"
-                                    disabled={rowBusy || !share.whatsappUrl}
+                                    disabled={rowBusy || voided || !share.whatsappUrl}
                                     title={share.whatsappUrl ? 'Abrir WhatsApp' : 'Sin celular en ficha'}
                                     aria-label="Enviar por WhatsApp"
                                     onClick={() => runAction(payment, 'whatsapp')}
@@ -618,7 +777,7 @@ export default function PaymentReceiptsPanel({
                                   <button
                                     type="button"
                                     className="payment-receipts-chip tone-mail"
-                                    disabled={rowBusy || !share.email}
+                                    disabled={rowBusy || voided || !share.email}
                                     title={share.email ? 'Enviar por mail' : 'Sin mail real en ficha'}
                                     aria-label="Enviar por mail"
                                     onClick={() => runAction(payment, 'mail')}
@@ -631,7 +790,7 @@ export default function PaymentReceiptsPanel({
                                   <button
                                     type="button"
                                     className="payment-receipts-chip tone-md"
-                                    disabled={rowBusy || typeof onSendMessage !== 'function'}
+                                    disabled={rowBusy || voided || typeof onSendMessage !== 'function'}
                                     title="Enviar por mensajería interna (MD)"
                                     aria-label="Enviar por MD"
                                     onClick={() => runAction(payment, 'md')}
@@ -644,16 +803,33 @@ export default function PaymentReceiptsPanel({
                                   <button
                                     type="button"
                                     className="payment-receipts-chip tone-edit"
-                                    disabled={rowBusy || String(payment.method || '').toLowerCase() === 'mixto'}
-                                    title={String(payment.method || '').toLowerCase() === 'mixto'
-                                      ? 'Pago mixto: anulá y cobrá de nuevo'
-                                      : 'Cambiar medio de pago'}
+                                    disabled={rowBusy || voided || String(payment.method || '').toLowerCase() === 'mixto'}
+                                    title={voided
+                                      ? 'Cobro anulado'
+                                      : (String(payment.method || '').toLowerCase() === 'mixto'
+                                        ? 'Pago mixto: anulá y cobrá de nuevo'
+                                        : 'Cambiar medio de pago')}
                                     aria-label="Cambiar medio de pago"
                                     onClick={() => openMethodEdit(payment)}
                                   >
                                     <Pencil size={13} aria-hidden="true" />
                                     <span>Medio</span>
                                   </button>
+                                  {canVoid ? (
+                                    <button
+                                      type="button"
+                                      className="payment-receipts-chip tone-void"
+                                      disabled={rowBusy || voided}
+                                      title={voided
+                                        ? 'Ya está anulado'
+                                        : 'Anular cobro · revierte saldo, imputaciones y caja'}
+                                      aria-label="Anular cobro"
+                                      onClick={() => openVoidEdit(payment)}
+                                    >
+                                      <Ban size={13} aria-hidden="true" />
+                                      <span>Anular</span>
+                                    </button>
+                                  ) : null}
                                 </div>
                                 {methodEditId === payment.id ? (
                                   <form
@@ -675,7 +851,7 @@ export default function PaymentReceiptsPanel({
                                         ))}
                                       </select>
                                     </label>
-                                    {methodDraft === 'transferencia' ? (
+                                    {(methodDraft === 'transferencia' || methodDraft === 'debito') ? (
                                       <label className="form-group" style={{ margin: 0 }}>
                                         <span className="form-label">Banco</span>
                                         <select
@@ -718,6 +894,55 @@ export default function PaymentReceiptsPanel({
                                           ? <Loader2 size={14} className="spin" aria-hidden="true" />
                                           : null}
                                         Guardar medio
+                                      </button>
+                                    </div>
+                                  </form>
+                                ) : null}
+                                {voidEditId === payment.id ? (
+                                  <form
+                                    className="payment-receipts-method-form"
+                                    onSubmit={(e) => {
+                                      e.preventDefault();
+                                      void saveVoid(payment);
+                                    }}
+                                  >
+                                    <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                                      Anula el cobro por completo: vuelve el saldo, las imputaciones de meses,
+                                      el vencimiento y registra el contraasiento en caja. El comprobante queda
+                                      tachado con quién lo anuló y el motivo.
+                                    </p>
+                                    <label className="form-group" style={{ margin: 0 }}>
+                                      <span className="form-label">Motivo de la anulación *</span>
+                                      <textarea
+                                        className="form-input"
+                                        rows={2}
+                                        value={voidReason}
+                                        onChange={(e) => setVoidReason(e.target.value)}
+                                        placeholder="Ej. cobro duplicado / medio equivocado / socio incorrecto"
+                                        required
+                                      />
+                                    </label>
+                                    <div className="payment-receipts-method-form-actions">
+                                      <button
+                                        type="button"
+                                        className="btn btn-secondary btn-sm"
+                                        disabled={rowBusy}
+                                        onClick={() => {
+                                          setVoidEditId(null);
+                                          setVoidReason('');
+                                        }}
+                                      >
+                                        Cancelar
+                                      </button>
+                                      <button
+                                        type="submit"
+                                        className="btn btn-primary btn-sm"
+                                        disabled={rowBusy || voidReason.trim().length < 8}
+                                      >
+                                        {busyKey === `void:${payment.id}`
+                                          ? <Loader2 size={14} className="spin" aria-hidden="true" />
+                                          : null}
+                                        Confirmar anulación
                                       </button>
                                     </div>
                                   </form>

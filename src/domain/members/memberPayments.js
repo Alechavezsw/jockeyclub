@@ -46,9 +46,30 @@ export const DUES_METHOD_LABELS = {
 /** Medios que se pueden combinar en un pago mixto (sin QR async). */
 export const MIXED_DUES_METHODS = ['efectivo', 'transferencia', 'tarjeta'];
 
-/** Transferencia y tarjeta exigen comprobante guardado. */
+/** Transferencia, tarjeta y débito exigen comprobante (archivo o carga a mano). */
 export function duesMethodNeedsReceipt(method) {
-  return method === 'transferencia' || method === 'tarjeta';
+  return method === 'transferencia' || method === 'tarjeta' || method === 'debito';
+}
+
+/** Medios que acreditan en banco / alias del club (no caja). */
+export function duesMethodUsesBank(method) {
+  return method === 'transferencia' || method === 'debito';
+}
+
+export function duesReceiptRequiredMessage(method, { mixed = false } = {}) {
+  if (method === 'tarjeta') {
+    return mixed
+      ? 'Adjunte el comprobante de la tarjeta en el pago mixto.'
+      : 'Adjunte el comprobante de la tarjeta.';
+  }
+  if (method === 'debito') {
+    return mixed
+      ? 'Adjunte el comprobante del débito en el pago mixto.'
+      : 'Adjunte el comprobante del débito.';
+  }
+  return mixed
+    ? 'Adjunte el comprobante de la transferencia en el pago mixto.'
+    : 'Adjunte el comprobante de la transferencia.';
 }
 
 /** Cuenta del descuento de mostrador. No es la cuota ni el recargo. */
@@ -90,6 +111,9 @@ export function duesMethodLabel(method, bankName) {
   if (method === 'transferencia') {
     return bankName ? `Transferencia ${bankName}` : 'Transferencia';
   }
+  if (method === 'debito') {
+    return bankName ? `Débito ${bankName}` : 'Débito';
+  }
   return DUES_METHOD_LABELS[method] || method || 'Pago';
 }
 
@@ -119,8 +143,8 @@ export function normalizePaymentSplits(raw = []) {
       const receiptName = attachment?.name
         || row?.receiptName
         || (manual ? manualDuesReceiptLabel(row.receiptParse) : null);
-      const bankId = method === 'transferencia' ? (row.bankId || null) : null;
-      const bankName = method === 'transferencia' ? (row.bankName || null) : null;
+      const bankId = duesMethodUsesBank(method) ? (row.bankId || null) : null;
+      const bankName = duesMethodUsesBank(method) ? (row.bankName || null) : null;
       const paymentPlanId = method === 'tarjeta' ? (row.paymentPlanId || null) : null;
       const paymentPlanLabel = method === 'tarjeta' ? (String(row.paymentPlanLabel || '').trim() || null) : null;
       const journalAccount = row.journalAccount || journalAccountForPayment(method, bankId);
@@ -167,9 +191,7 @@ export function validatePaymentSplits(rawSplits, expectedAmount, { treasuryMatch
       throw new Error('Completá la referencia del comprobante manual.');
     }
     if (!row.receiptName) {
-      throw new Error(row.method === 'tarjeta'
-        ? 'Adjunte el comprobante de la tarjeta en el pago mixto.'
-        : 'Adjunte el comprobante de la transferencia en el pago mixto.');
+      throw new Error(duesReceiptRequiredMessage(row.method, { mixed: true }));
     }
     if (!row.receiptPath && !treasuryMatch && !isManualDuesReceipt(row.receiptParse)) {
       throw new Error('No se pudo guardar un comprobante del pago mixto en Supabase.');
@@ -721,7 +743,7 @@ export function payUpcomingDues(member, { method = 'transferencia', today = new 
 
 /**
  * Cobro operativo único: saldo vivo + historial + asiento de cuenta + diario.
- * Efectivo acredita; transferencia y tarjeta exigen comprobante; MP deja QR.
+ * Efectivo acredita; transferencia, tarjeta y débito exigen comprobante; MP deja QR.
  */
 export function recordDuesCollection(member, {
   method = 'efectivo',
@@ -772,9 +794,7 @@ export function recordDuesCollection(member, {
   if (!mixed && !(concession.discount > 0.009 && concession.cash <= 0.009)) {
     const needsReceipt = duesMethodNeedsReceipt(resolvedMethod);
     if (needsReceipt && !attachmentName) {
-      throw new Error(resolvedMethod === 'tarjeta'
-        ? 'Adjunte el comprobante de la tarjeta.'
-        : 'Adjunte el comprobante de la transferencia.');
+      throw new Error(duesReceiptRequiredMessage(resolvedMethod));
     }
     if (needsReceipt && !attachmentPath && !treasuryMatch && !manual) {
       throw new Error('No se pudo guardar el comprobante en Supabase.');
@@ -810,8 +830,8 @@ export function recordDuesCollection(member, {
   const payment = {
     ...paid.payment,
     method: resolvedMethod,
-    bankId: mixed ? null : (resolvedMethod === 'transferencia' ? bankId : null),
-    bankName: mixed ? null : (resolvedMethod === 'transferencia' ? bankName : null),
+    bankId: mixed ? null : (duesMethodUsesBank(resolvedMethod) ? bankId : null),
+    bankName: mixed ? null : (duesMethodUsesBank(resolvedMethod) ? bankName : null),
     journalAccount: cashAccount,
     receiptName: mixed ? (primarySplit?.receiptName || null) : attachmentName,
     receiptPath: mixed ? (primarySplit?.receiptPath || null) : attachmentPath,
@@ -952,6 +972,7 @@ export function removeDuesSurcharge(member, paymentId, {
  */
 export function voidMemberDuesPayment(member, paymentId, {
   voidedBy = 'Administración',
+  voidedById = null,
   reason = '',
   today = new Date(),
 } = {}) {
@@ -959,7 +980,7 @@ export function voidMemberDuesPayment(member, paymentId, {
   const history = member.paymentHistory || [];
   const payment = history.find((row) => row && String(row.id) === String(paymentId));
   if (!payment) throw new Error('No se encontró el cobro.');
-  if (payment.status === 'void' || payment.status === 'cancelled') {
+  if (payment.status === 'void' || payment.status === 'cancelled' || payment.voidedAt) {
     throw new Error('Ese cobro ya está anulado.');
   }
 
@@ -967,12 +988,14 @@ export function voidMemberDuesPayment(member, paymentId, {
   if (why.length < 8) {
     throw new Error('Falta el motivo de la anulación (mínimo 8 caracteres).');
   }
+  const who = String(voidedBy || 'Administración').trim() || 'Administración';
   const amount = money(payment.amount);
   const voidedAt = today instanceof Date ? today.toISOString() : String(today);
   const nextPayment = {
     ...payment,
     status: 'void',
-    voidedBy,
+    voidedBy: voidedById || who,
+    voidedByName: who,
     voidedAt,
     voidReason: why,
   };
@@ -993,7 +1016,9 @@ export function voidMemberDuesPayment(member, paymentId, {
   if (splits.length >= 2) {
     const byAccount = new Map();
     splits.forEach((row) => {
-      const key = row.journalAccount || 'Caja General';
+      const key = row.journalAccount
+        || journalAccountForPayment(row.method, row.bankId)
+        || 'Caja General';
       byAccount.set(key, money((byAccount.get(key) || 0) + row.amount));
     });
     creditLines = [...byAccount.entries()].map(([accountName, value]) => ({
@@ -1003,18 +1028,21 @@ export function voidMemberDuesPayment(member, paymentId, {
     }));
   } else {
     creditLines = [{
-      account: payment.journalAccount || 'Caja General',
+      account: payment.journalAccount
+        || journalAccountForPayment(payment.method, payment.bankId)
+        || 'Caja General',
       type: 'credit',
       amount,
     }];
   }
 
+  const receiptRef = nextPayment.receiptNumber || nextPayment.receipt || paymentId;
   return {
     member: next,
     payment: nextPayment,
     journalEntry: {
       date: todayISODateAR(today),
-      description: `Anulación cobro cuota social - Socio: ${member.name} (Cred. ${member.memberId}) · ${nextPayment.receiptNumber || nextPayment.receipt || paymentId}`,
+      description: `Anulación cobro cuota social (${who}) - Socio: ${member.name} (Cred. ${member.memberId}) · ${receiptRef} · ${why}`,
       lines: [
         { account: 'Cuotas Sociales', type: 'debit', amount },
         ...creditLines,
@@ -1276,8 +1304,19 @@ export async function persistDuesCollection(result, {
   const payment = result.payment;
   if (isSupabaseConfigured && payment && isPersistedPaymentId(payment.id) && result.member?.id) {
     if (payment.status === 'void') {
-      const balance = await revertDuesPayment(payment.id, payment.voidReason);
-      next = { ...next, member: { ...next.member, outstandingBalance: balance } };
+      const balance = await revertDuesPayment(payment.id, payment.voidReason, {
+        voidedByName: payment.voidedByName || payment.voidedBy || null,
+      });
+      next = {
+        ...next,
+        member: { ...next.member, outstandingBalance: balance },
+        payment: {
+          ...payment,
+          status: 'void',
+          voidReason: payment.voidReason,
+          voidedByName: payment.voidedByName || payment.voidedBy || null,
+        },
+      };
     } else if (Number(payment.removedSurcharge) > 0) {
       const balance = await quitarRecargoCuota({
         paymentId: payment.id,

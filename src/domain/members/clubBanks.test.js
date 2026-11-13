@@ -20,6 +20,11 @@ describe('journalAccountForPayment', () => {
     expect(journalAccountForPayment('transferencia', 'mercadopago')).toBe('Mercado Pago');
     expect(journalAccountForPayment('transferencia', 'desconocido')).toBe(CLUB_BANK_ACCOUNTS[0].journalAccount);
   });
+
+  it('débito acredita en el banco o alias elegido', () => {
+    expect(journalAccountForPayment('debito', 'macro')).toBe('Banco Macro');
+    expect(journalAccountForPayment('debito', 'mercadopago')).toBe('Mercado Pago');
+  });
 });
 
 describe('buildMercadoPagoQrPayload', () => {

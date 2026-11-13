@@ -1277,7 +1277,7 @@ export async function insertMemberPayment(memberDbId, payment) {
 }
 
 /**
- * Cambia el medio de un cobro (efectivo / transferencia / tarjeta / MP).
+ * Cambia el medio de un cobro (efectivo / transferencia / tarjeta / MP / débito).
  * Deja rastro en meta + audit_logs de quién lo cambió y por qué.
  */
 export async function updateMemberPaymentMethod({
@@ -1339,7 +1339,7 @@ export async function updateMemberPaymentMethod({
     previousMethod: next.previousMethod,
     methodHistory: next.methodHistory,
   };
-  if (next.method !== 'transferencia') {
+  if (next.method !== 'transferencia' && next.method !== 'debito') {
     delete meta.bank;
     delete meta.bankId;
   }
@@ -1422,7 +1422,7 @@ export async function postMemberDuesDelta({ memberId, amount, kind = 'ajuste', s
 }
 
 /** Devuelve al saldo el capital que había bajado ese cobro. Exige un motivo. */
-export async function revertDuesPayment(paymentId, reason) {
+export async function revertDuesPayment(paymentId, reason, { voidedByName = null } = {}) {
   const why = String(reason || '').trim();
   if (why.length < 8) {
     throw new Error('Falta el motivo de la anulación (mínimo 8 caracteres).');
@@ -1433,6 +1433,37 @@ export async function revertDuesPayment(paymentId, reason) {
   );
   const value = Number(balance);
   if (!Number.isFinite(value)) throw new Error('La base no devolvió el saldo.');
+
+  const who = String(voidedByName || '').trim();
+  if (who) {
+    try {
+      const row = await unwrap(
+        sb().from('member_payments').select('meta').eq('id', paymentId).maybeSingle(),
+        'No se pudo leer el cobro anulado',
+      );
+      const prevMeta = row?.meta && typeof row.meta === 'object' && !Array.isArray(row.meta)
+        ? row.meta
+        : {};
+      await unwrap(
+        sb().from('member_payments').update({
+          meta: {
+            ...prevMeta,
+            status: 'void',
+            voidReason: why,
+            voidedByName: who,
+            voidedAt: prevMeta.voidedAt || new Date().toISOString(),
+          },
+        }).eq('id', paymentId),
+        'No se pudo guardar la trazabilidad de la anulación',
+      );
+      await audit('void', 'member_payments', paymentId, {
+        reason: why,
+        by: who,
+      });
+    } catch {
+      /* el saldo ya volvió; la trazabilidad de nombre es best-effort */
+    }
+  }
   return value;
 }
 

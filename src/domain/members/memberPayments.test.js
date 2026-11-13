@@ -5,6 +5,9 @@ import {
   cobroPeriods,
   collectionDiscount,
   collectionPreview,
+  duesMethodNeedsReceipt,
+  duesMethodUsesBank,
+  duesReceiptRequiredMessage,
   isDuesCollectionJournal,
   journalEntryBelongsToMember,
   normalizePaymentSplits,
@@ -691,10 +694,13 @@ describe('payMemberDues', () => {
       today: new Date('2026-10-20T15:00:00'),
     });
     expect(voided.payment.status).toBe('void');
-    expect(voided.payment.voidedBy).toBe('Paula');
+    expect(voided.payment.voidedByName).toBe('Paula');
+    expect(voided.payment.voidReason).toBe('Carga duplicada');
     expect(voided.member.outstandingBalance).toBe(40000);
     expect(voided.member.paymentHistory[0].status).toBe('void');
     expect(voided.journalEntry.description).toMatch(/Anulación/);
+    expect(voided.journalEntry.description).toMatch(/Paula/);
+    expect(voided.journalEntry.description).toMatch(/Carga duplicada/);
   });
 
   it('anula un pago mixto revirtiendo cada medio a su cuenta', () => {
@@ -784,6 +790,55 @@ describe('payMemberDues', () => {
         addJournalEntry: async () => { throw new Error('plan de cuentas vacío'); },
       }),
     ).rejects.toThrow(/no entró a caja ni al diario/i);
+  });
+});
+
+describe('débito como medio de cobro', () => {
+  it('exige comprobante (archivo o manual) y usa banco', () => {
+    expect(duesMethodNeedsReceipt('debito')).toBe(true);
+    expect(duesMethodUsesBank('debito')).toBe(true);
+    expect(duesReceiptRequiredMessage('debito')).toMatch(/débito/i);
+  });
+
+  it('registra débito con referencia manual en el banco elegido', () => {
+    setRuntimeTierCatalog([
+      { id: 'socio_individual', name: 'SOCIO INDIVIDUAL', monthlyDues: 40000, sortOrder: 1 },
+    ]);
+    const today = new Date('2026-11-05T12:00:00-03:00');
+    const member = {
+      memberId: '10901',
+      name: 'Débito de prueba',
+      tier: 'socio_individual',
+      status: 'active',
+      cuotaCategories: ['SOCIO INDIVIDUAL'],
+      outstandingBalance: 40000,
+      nextDueDate: '2026-11-10',
+      paymentHistory: [],
+    };
+    try {
+      const paid = recordDuesCollection(member, {
+        method: 'debito',
+        bankId: 'macro',
+        bankName: 'Banco Macro',
+        today,
+        receiptParse: {
+          source: 'manual',
+          reference: 'DEB-9988',
+          amount: 40000,
+          date: '2026-11-05',
+        },
+      });
+      expect(paid.payment.method).toBe('debito');
+      expect(paid.payment.bankId).toBe('macro');
+      expect(paid.payment.receiptName).toMatch(/Manual · DEB-9988/);
+      expect(paid.journalEntry.lines).toEqual([
+        { account: 'Banco Macro', type: 'debit', amount: 40000 },
+        { account: 'Cuotas Sociales', type: 'credit', amount: 40000 },
+      ]);
+      expect(paid.member.outstandingBalance).toBe(0);
+    } finally {
+      setRuntimeTierCatalog(null);
+    }
   });
 });
 

@@ -1692,7 +1692,13 @@ export default function MemberProfilePanel({
                     <span className="mp-list-main">
                       {p.concept || `Cobro · ${duesMethodLabel(p.method, p.bankName)}`}
                       {p.status === 'void' ? (
-                        <div className="mp-list-sub">Anulado{p.voidedBy ? ` · ${p.voidedBy}` : ''}</div>
+                        <div className="mp-list-sub">
+                          Anulado
+                          {p.voidedByName || (p.voidedBy && !/^[0-9a-f-]{36}$/i.test(String(p.voidedBy)))
+                            ? ` · ${p.voidedByName || p.voidedBy}`
+                            : ''}
+                          {p.voidReason ? ` · ${p.voidReason}` : ''}
+                        </div>
                       ) : p.surcharge > 0 ? (
                         <div className="mp-list-sub">Cuota {formatCurrency(p.quota)} · Recargo {formatCurrency(p.surcharge)}</div>
                       ) : p.removedSurcharge > 0 ? (
@@ -1782,7 +1788,8 @@ export default function MemberProfilePanel({
                           }
                           try {
                             const result = voidMemberDuesPayment(member, p.id, {
-                              voidedBy: user?.name || 'Caja',
+                              voidedBy: user?.fullName || user?.name || 'Caja',
+                              voidedById: user?.id || null,
                               reason,
                             });
                             await persistDuesVoid(result, {

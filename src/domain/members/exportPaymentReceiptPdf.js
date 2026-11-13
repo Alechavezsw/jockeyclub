@@ -203,7 +203,7 @@ export function paymentCorrespondsTo(payment, { isBooking = false } = {}) {
 const METHOD = {
   transferencia: 'Transferencia bancaria',
   efectivo: 'Efectivo',
-  debito: 'Débito automático',
+  debito: 'Débito',
   tarjeta: 'Tarjeta',
   caja: 'Caja / Secretaría',
   mercadopago: 'Mercado Pago',
@@ -231,7 +231,7 @@ export function accountLabel(payment) {
   if (payment?.method === 'mercadopago') {
     return MERCADO_PAGO.alias ? `Alias ${MERCADO_PAGO.alias}` : null;
   }
-  if (payment?.method === 'transferencia') {
+  if (payment?.method === 'transferencia' || payment?.method === 'debito') {
     const bank = CLUB_BANK_ACCOUNTS.find((b) => b.id === payment.bankId) || CLUB_BANK_ACCOUNTS[0];
     return bank?.alias ? `Alias ${bank.alias}` : null;
   }

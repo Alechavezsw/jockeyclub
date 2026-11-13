@@ -12,9 +12,16 @@ const METHOD_LABELS = {
   caja: 'Efectivo',
 };
 
+function methodUsesBank(method) {
+  return method === 'transferencia' || method === 'debito';
+}
+
 function methodLabelOf(method, bankName) {
   if (method === 'transferencia') {
     return bankName ? `Transferencia ${bankName}` : 'Transferencia';
+  }
+  if (method === 'debito') {
+    return bankName ? `Débito ${bankName}` : 'Débito';
   }
   return METHOD_LABELS[method] || method || 'Pago';
 }
@@ -66,13 +73,13 @@ export function changeDuesPaymentMethod(payment, {
     throw new Error('Falta el motivo del cambio (mínimo 8 caracteres).');
   }
 
-  const resolvedBankId = nextMethod === 'transferencia'
+  const resolvedBankId = methodUsesBank(nextMethod)
     ? (bankId || payment.bankId || CLUB_BANK_ACCOUNTS[0]?.id || null)
     : null;
   const bank = resolvedBankId
     ? (CLUB_BANK_ACCOUNTS.find((row) => row.id === resolvedBankId) || CLUB_BANK_ACCOUNTS[0] || null)
     : null;
-  const resolvedBankName = nextMethod === 'transferencia'
+  const resolvedBankName = methodUsesBank(nextMethod)
     ? (bankName || bank?.name || payment.bankName || null)
     : null;
   const methodLabel = methodLabelOf(nextMethod, resolvedBankName);

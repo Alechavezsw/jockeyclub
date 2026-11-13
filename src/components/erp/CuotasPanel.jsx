@@ -975,6 +975,7 @@ export default function CuotasPanel({
         members={members}
         setMembers={setMembers}
         setJournalEntries={setJournalEntries}
+        addJournalEntry={addJournalEntry}
         onBack={() => goHome()}
         onSendMessage={onSendMessage}
         formatCurrency={fmt}
