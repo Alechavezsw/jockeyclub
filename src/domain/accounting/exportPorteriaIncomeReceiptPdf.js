@@ -111,7 +111,7 @@ async function buildPorteriaIncomeReceiptDoc(item) {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(13);
   doc.setTextColor(30, 30, 30);
-  doc.text('COMPROBANTE PARA EL PORTERO', 105, y, { align: 'center' });
+  doc.text('COMPROBANTE RENDICIÓN DE PORTERÍA', 105, y, { align: 'center' });
   y += 8;
 
   const pill = drawLabelPastilla(doc, method, {
