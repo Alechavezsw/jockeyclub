@@ -27,6 +27,10 @@ import { repos } from '../../data/bootstrap';
 import NoticeComposeCard from './NoticeComposeCard';
 import { CLUB_BANK_ACCOUNTS } from '../../domain/members/clubBanks';
 import { signedDuesReceiptUrl } from '../../data/storage';
+import {
+  duesStandingDisplayAmount,
+  memberDuesStandingSummary,
+} from '../../domain/accounting/appMonthlyDebts';
 
 const SECTIONS = [
   { id: 'mail', label: 'Mail', Icon: Mail },
@@ -369,7 +373,7 @@ export default function MessagingTab({
   const unreadOps = opsInbox.filter((m) => !m.isRead).length;
   const selected = mdList.find((m) => String(m.id) === String(selectedId)) || null;
   const debtors = useMemo(() => {
-    const owing = (members || []).filter((m) => Number(m.outstandingBalance) > 0);
+    const owing = (members || []).filter((m) => !memberDuesStandingSummary(m).clear);
     if (!searchActive) return owing;
     return owing.filter((m) => matchesMsgQuery(
       [m.name, m.memberId, m.phone, m.documentNumber].join(' '),
@@ -411,9 +415,11 @@ export default function MessagingTab({
   };
 
   const handleSendWhatsAppRedirect = (memberItem) => {
+    const standing = memberDuesStandingSummary(memberItem);
+    const saldoLabel = duesStandingDisplayAmount(standing, formatCurrency);
     const rawMsg = whatsappTemplate
       .replace('{nombre}', memberItem.name)
-      .replace('{saldo}', formatCurrency(memberItem.outstandingBalance));
+      .replace('{saldo}', saldoLabel);
 
     const encodedText = encodeURIComponent(rawMsg);
     const cleanPhone = String(memberItem.phone || '').replace(/[+\s-]/g, '');
@@ -926,7 +932,7 @@ export default function MessagingTab({
                 <div key={debtor.memberId} className="ops-msg-wa-row">
                   <div>
                     <strong>{debtor.name}</strong>
-                    <em>Deuda: {formatCurrency(debtor.outstandingBalance)}</em>
+                    <em>Deuda: {duesStandingDisplayAmount(memberDuesStandingSummary(debtor), formatCurrency)}</em>
                     <span>Cel: {debtor.phone || 'No registrado'}</span>
                   </div>
                   <button

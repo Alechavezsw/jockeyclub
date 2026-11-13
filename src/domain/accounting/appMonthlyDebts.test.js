@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { listDebtPeriods, listMonthlyDebtors } from './monthlyDebts';
-import { appMonthlyDebtForMember, buildAppMonthlyDebts } from './appMonthlyDebts';
+import {
+  appMonthlyDebtForMember,
+  buildAppMonthlyDebts,
+  duesStandingDisplayAmount,
+  memberDuesStandingSummary,
+} from './appMonthlyDebts';
 
 const TODAY = '2026-10-17';
 
@@ -151,6 +156,28 @@ describe('appMonthlyDebts', () => {
       }),
       { today: TODAY },
     )).toBeNull();
+  });
+
+  it('memberDuesStandingSummary alinea capital + recargo con Consultar deuda', () => {
+    const standing = memberDuesStandingSummary(familiar(), { today: TODAY });
+    expect(standing.clear).toBe(false);
+    expect(standing.totalDebt).toBe(77000);
+    expect(standing.capital).toBe(70000);
+    expect(standing.interest).toBe(7000);
+    expect(standing.monthsPhrase).toMatch(/Octubre de 2026/);
+    expect(duesStandingDisplayAmount(standing, (n) => `$${n}`)).toBe('$77000');
+
+    const clear = memberDuesStandingSummary(
+      familiar({
+        outstandingBalance: 0,
+        lastPaymentDate: '2026-10-12',
+        nextDueDate: '2026-11-10',
+      }),
+      { today: TODAY },
+    );
+    expect(clear.clear).toBe(true);
+    expect(clear.title).toBe('Al día');
+    expect(duesStandingDisplayAmount(clear)).toBe('Al día');
   });
 
   it('incluye baja con deuda previa y arma el listado filtrable por mes', () => {

@@ -8,8 +8,6 @@ import {
   FileDown,
   MessageSquare,
   Check,
-  ChevronLeft,
-  ChevronRight,
   X,
   Wallet,
   CalendarDays,
@@ -17,7 +15,7 @@ import {
   ClipboardList,
   Banknote,
 } from 'lucide-react';
-import { formatShortDate, isDuesExemptMember, quotaHeadline, toWhatsAppPhone } from '../../domain/members/dues';
+import { formatShortDate, isDuesExemptMember, toWhatsAppPhone } from '../../domain/members/dues';
 import { imputationPeriodLabel } from '../../domain/members/duesImputations';
 import {
   duesMethodLabel,
@@ -44,7 +42,12 @@ import {
   buildAccessInvite,
   portalLoginUrl,
 } from '../../domain/members/selfService';
-import { appMonthlyDebtForMember } from '../../domain/accounting/appMonthlyDebts';
+import {
+  appMonthlyDebtForMember,
+  duesStandingDisplayAmount,
+  duesStandingDisplayHint,
+  memberDuesStandingSummary,
+} from '../../domain/accounting/appMonthlyDebts';
 import { downloadDuesDebtPdf } from '../../domain/accounting/exportDuesDebtPdf';
 import { createMessage, MAILBOX } from '../../domain/messaging/messages';
 import { formatPaymentWhen } from '../../domain/members/paymentHistory';
@@ -56,7 +59,6 @@ import { useAuth } from '../../context/AuthContext';
 import { isSupabaseConfigured, supabase } from '../../lib/supabase';
 import { repos } from '../../data/bootstrap';
 
-const PAGE_SIZE = 40;
 const DETAIL_TABS = [
   { id: 'pagos', label: 'Pagos', icon: Wallet },
   { id: 'reservas', label: 'Reservas', icon: CalendarDays },
@@ -132,8 +134,6 @@ export default function MembersWithAppPanel({
   const actorName = user?.name || user?.email || 'Administración';
 
   const [query, setQuery] = useState('');
-  const [page, setPage] = useState(1);
-  const [debtFilter, setDebtFilter] = useState('all');
   const [selectedId, setSelectedId] = useState('');
   const [detailTab, setDetailTab] = useState('pagos');
   const [hydrated, setHydrated] = useState(null);
@@ -142,8 +142,6 @@ export default function MembersWithAppPanel({
   const [liveMessages, setLiveMessages] = useState([]);
   const [liveClaims, setLiveClaims] = useState([]);
   const [liveReady, setLiveReady] = useState(false);
-  const [hydrateBusy, setHydrateBusy] = useState(false);
-  const [liveAt, setLiveAt] = useState('');
   const [flash, setFlash] = useState('');
   const [collectMember, setCollectMember] = useState(null);
   const [cardMember, setCardMember] = useState(null);
@@ -164,41 +162,17 @@ export default function MembersWithAppPanel({
     [members],
   );
 
-  const filtered = useMemo(() => {
+  const suggestions = useMemo(() => {
+    if (selectedId) return [];
     const q = String(query || '').trim();
-    let list = withApp;
-    if (debtFilter === 'debt') {
-      list = list.filter((m) => !isFamilyDependent(m) && !isDuesExemptMember(m) && (Number(m.outstandingBalance) || 0) > 0);
-    } else if (debtFilter === 'clear') {
-      list = list.filter((m) => isFamilyDependent(m) || isDuesExemptMember(m) || (Number(m.outstandingBalance) || 0) <= 0);
-    }
-    if (!q) {
-      return [...list].sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'es'));
-    }
-    return list
+    if (q.length < 2 && q.replace(/\D/g, '').length < 3) return [];
+    return withApp
       .filter((m) => memberMatchesDirectoryQuery(m, q))
       .map((m) => ({ m, rank: rankMemberSearchHit(m, q) }))
       .sort((a, b) => b.rank - a.rank || String(a.m.name || '').localeCompare(String(b.m.name || ''), 'es'))
+      .slice(0, 12)
       .map((h) => h.m);
-  }, [withApp, query, debtFilter]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const safePage = Math.min(page, totalPages);
-  const pageRows = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
-
-  useEffect(() => {
-    setPage(1);
-  }, [query, debtFilter]);
-
-  useEffect(() => {
-    if (!filtered.length) {
-      setSelectedId('');
-      return;
-    }
-    if (!selectedId || !filtered.some((m) => m.memberId === selectedId)) {
-      setSelectedId(filtered[0].memberId);
-    }
-  }, [filtered, selectedId]);
+  }, [withApp, query, selectedId]);
 
   const listMember = useMemo(
     () => (members || []).find((m) => m.memberId === selectedId) || null,
@@ -221,7 +195,6 @@ export default function MembersWithAppPanel({
       setLiveMessages([]);
       setLiveClaims([]);
       setLiveReady(false);
-      setLiveAt('');
       return undefined;
     }
 
@@ -238,8 +211,7 @@ export default function MembersWithAppPanel({
       setLiveReady(true);
     };
 
-    const loadLive = async ({ silent = false } = {}) => {
-      if (!silent) setHydrateBusy(true);
+    const loadLive = async () => {
       try {
         if (!isSupabaseConfigured) {
           if (!cancelled) applyFallback();
@@ -267,42 +239,41 @@ export default function MembersWithAppPanel({
         setLiveClaims(Array.isArray(claimRows) ? claimRows : []);
         setLiveEntries(Array.isArray(accessRows) ? accessRows : []);
         setLiveReady(true);
-        setLiveAt(new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
-      } finally {
-        if (!cancelled) setHydrateBusy(false);
+      } catch {
+        if (!cancelled) applyFallback();
       }
     };
 
     void loadLive();
-    timer = window.setInterval(() => { void loadLive({ silent: true }); }, 12000);
+    timer = window.setInterval(() => { void loadLive(); }, 12000);
 
     let channel = null;
     if (isSupabaseConfigured && supabase) {
       channel = supabase
         .channel(`members-app-${selectedId}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'member_payments' }, () => {
-          void loadLive({ silent: true });
+          void loadLive();
         })
         .on('postgres_changes', { event: '*', schema: 'public', table: 'reservations' }, () => {
-          void loadLive({ silent: true });
+          void loadLive();
         })
         .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => {
-          void loadLive({ silent: true });
+          void loadLive();
         })
         .on('postgres_changes', { event: '*', schema: 'public', table: 'claims' }, () => {
-          void loadLive({ silent: true });
+          void loadLive();
         })
         .on('postgres_changes', { event: '*', schema: 'public', table: 'access_logs' }, () => {
-          void loadLive({ silent: true });
+          void loadLive();
         })
         .on('postgres_changes', { event: '*', schema: 'public', table: 'members' }, () => {
-          void loadLive({ silent: true });
+          void loadLive();
         })
         .subscribe();
     }
 
     const onVis = () => {
-      if (document.visibilityState === 'visible') void loadLive({ silent: true });
+      if (document.visibilityState === 'visible') void loadLive();
     };
     document.addEventListener('visibilitychange', onVis);
 
@@ -317,7 +288,10 @@ export default function MembersWithAppPanel({
   }, [selectedId, setMembers, updateMember]);
 
   const stats = useMemo(() => {
-    const debt = withApp.filter((m) => !isFamilyDependent(m) && !isDuesExemptMember(m) && (Number(m.outstandingBalance) || 0) > 0).length;
+    const debt = withApp.filter((m) => {
+      const standing = memberDuesStandingSummary(m);
+      return !standing.clear;
+    }).length;
     return { total: withApp.length, debt, clear: withApp.length - debt };
   }, [withApp]);
 
@@ -623,7 +597,10 @@ export default function MembersWithAppPanel({
     }
   };
 
-  const balance = Number(selected?.outstandingBalance) || 0;
+  const selectedStanding = selected ? memberDuesStandingSummary(selected) : null;
+  const balance = selectedStanding && !selectedStanding.clear
+    ? selectedStanding.totalDebt
+    : 0;
   const canCollect = Boolean(
     selected
     && !isFamilyDependent(selected)
@@ -631,8 +608,19 @@ export default function MembersWithAppPanel({
     && balance > 0,
   );
   const wa = selected ? toWhatsAppPhone(selected.phone) : '';
-  const headline = selected ? quotaHeadline(selected) : null;
   const access = selected ? memberAppAccess(selected) : null;
+
+  const pickMember = (m) => {
+    setSelectedId(m.memberId);
+    setDetailTab('pagos');
+    setQuery(String(m.name || '').trim());
+  };
+
+  const clearPick = () => {
+    setSelectedId('');
+    setHydrated(null);
+    setQuery('');
+  };
 
   return (
     <section className="members-app-desk fade-in" aria-labelledby="members-app-title">
@@ -646,7 +634,7 @@ export default function MembersWithAppPanel({
               Socios con app
             </h2>
             <p className="ops-muted" style={{ margin: '0.25rem 0 0' }}>
-              Datos en vivo desde Supabase: pagos, reservas, ingresos, mensajes y reclamos.
+              Buscá un socio con portal y operá pagos, reservas, ingresos, mensajes y reclamos en vivo.
             </p>
           </div>
         </div>
@@ -661,86 +649,61 @@ export default function MembersWithAppPanel({
         <p className="members-app-desk__flash" role="status">{flash}</p>
       ) : null}
 
-      <div className="members-app-desk__toolbar">
+      <div className="members-app-desk__search-wrap">
         <label className="members-app-desk__search">
           <Search size={16} aria-hidden="true" />
           <input
             type="search"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Buscar por nombre, Nº, DNI, mail o celular…"
+            onChange={(e) => {
+              setQuery(e.target.value);
+              if (selectedId) {
+                setSelectedId('');
+                setHydrated(null);
+              }
+            }}
+            placeholder="Buscar socio con app por nombre, Nº, DNI, mail o celular…"
             aria-label="Buscar socios con app"
+            autoComplete="off"
           />
+          {selected ? (
+            <button type="button" className="members-app-desk__search-clear" onClick={clearPick}>
+              Cambiar
+            </button>
+          ) : null}
         </label>
-        <div className="members-app-desk__filters" role="group" aria-label="Filtro de deuda">
-          <button type="button" className={`members-app-desk__chip${debtFilter === 'all' ? ' is-on' : ''}`} onClick={() => setDebtFilter('all')}>Todos</button>
-          <button type="button" className={`members-app-desk__chip${debtFilter === 'debt' ? ' is-on' : ''}`} onClick={() => setDebtFilter('debt')}>Con deuda</button>
-          <button type="button" className={`members-app-desk__chip${debtFilter === 'clear' ? ' is-on' : ''}`} onClick={() => setDebtFilter('clear')}>Al día</button>
-        </div>
+        {suggestions.length > 0 ? (
+          <ul className="members-app-desk__suggest" role="listbox">
+            {suggestions.map((m) => {
+              const standing = memberDuesStandingSummary(m);
+              return (
+                <li key={m.memberId || m.id}>
+                  <button type="button" onClick={() => pickMember(m)}>
+                    <strong>{m.name}</strong>
+                    <span>Nº {String(m.memberId || '').replace(/(\d{4})/g, '$1 ').trim()}</span>
+                    <em>
+                      {standing.clear
+                        ? (standing.kind === 'clear' ? 'Al día' : '—')
+                        : duesStandingDisplayAmount(standing, formatCurrency)}
+                    </em>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+        {!selected && query.trim().length >= 2 && suggestions.length === 0 && !membersLoading ? (
+          <p className="members-app-desk__empty">Ningún socio con app coincide con la búsqueda.</p>
+        ) : null}
       </div>
 
       {membersLoading && !withApp.length ? (
         <p className="ops-muted">Cargando padrón…</p>
-      ) : !filtered.length ? (
-        <article className="glass-card" style={{ padding: '1.25rem' }}>
-          <p style={{ margin: 0 }}>
-            {query.trim()
-              ? 'Ningún socio con app coincide con la búsqueda.'
-              : 'Todavía no hay socios con acceso al portal en este listado.'}
-          </p>
-        </article>
       ) : (
-        <div className="members-app-desk__split">
-          <aside className="members-app-desk__rail" aria-label="Listado con app">
-            <ul className="members-app-desk__rail-list">
-              {pageRows.map((m) => {
-                const bal = Number(m.outstandingBalance) || 0;
-                const active = m.memberId === selectedId;
-                return (
-                  <li key={m.memberId || m.id}>
-                    <button
-                      type="button"
-                      className={`members-app-desk__rail-item${active ? ' is-active' : ''}`}
-                      onClick={() => {
-                        setSelectedId(m.memberId);
-                        setDetailTab('pagos');
-                      }}
-                      aria-current={active ? 'true' : undefined}
-                    >
-                      <span className="members-app-desk__avatar is-sm" aria-hidden="true">
-                        {m.photo ? <img src={m.photo} alt="" /> : memberInitials(m.name)}
-                      </span>
-                      <span className="members-app-desk__copy">
-                        <strong>{m.name}</strong>
-                        <span>Nº {String(m.memberId || '').replace(/(\d{4})/g, '$1 ').trim()}</span>
-                        <span className="members-app-desk__balance">
-                          {isFamilyDependent(m) || isDuesExemptMember(m) || bal <= 0
-                            ? quotaHeadline(m).title
-                            : formatCurrency(bal)}
-                        </span>
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-            {filtered.length > PAGE_SIZE ? (
-              <div className="members-app-desk__pager is-compact">
-                <button type="button" className="btn btn-secondary btn-xs" disabled={safePage <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
-                  <ChevronLeft size={14} />
-                </button>
-                <span className="ops-muted">{safePage}/{totalPages}</span>
-                <button type="button" className="btn btn-secondary btn-xs" disabled={safePage >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
-                  <ChevronRight size={14} />
-                </button>
-              </div>
-            ) : null}
-          </aside>
-
-          <article className="members-app-desk__detail" aria-live="polite">
-            {!selected ? (
-              <EmptyBlock text="Elegí un socio del listado." />
-            ) : (
+        <article className="members-app-desk__detail" aria-live="polite">
+          {!selected ? (
+            <EmptyBlock text="Escribí en el buscador para elegir un socio con app." />
+          ) : (
               <>
                 <div className="members-app-desk__detail-head">
                   <div className="members-app-desk__identity" aria-label={`Socio ${selected.name}`}>
@@ -756,16 +719,18 @@ export default function MembersWithAppPanel({
                         {' · '}
                         <em style={{ fontStyle: 'normal', color: 'var(--emerald-accent)' }}>{access?.label}</em>
                       </span>
-                      <span className="members-app-desk__balance">
-                        {isFamilyDependent(selected) || isDuesExemptMember(selected) || balance <= 0
-                          ? headline?.title
-                          : formatCurrency(balance)}
-                        {hydrateBusy
-                          ? ' · actualizando…'
-                          : liveAt
-                            ? ` · en vivo ${liveAt}`
-                            : ''}
-                      </span>
+                      {selectedStanding && !selectedStanding.clear ? (
+                        <span className="members-app-desk__balance" title={duesStandingDisplayHint(selectedStanding, formatCurrency)}>
+                          {duesStandingDisplayAmount(selectedStanding, formatCurrency)}
+                          {selectedStanding.monthsPhrase ? (
+                            <em style={{ display: 'block', fontStyle: 'normal', fontWeight: 500, fontSize: '0.78em', opacity: 0.85 }}>
+                              {duesStandingDisplayHint(selectedStanding, formatCurrency)}
+                            </em>
+                          ) : null}
+                        </span>
+                      ) : selectedStanding?.kind === 'clear' ? (
+                        <span className="members-app-desk__balance" style={{ color: 'var(--emerald-accent)' }}>Al día</span>
+                      ) : null}
                     </span>
                   </div>
 
@@ -952,9 +917,8 @@ export default function MembersWithAppPanel({
                   )}
                 </div>
               </>
-            )}
-          </article>
-        </div>
+          )}
+        </article>
       )}
 
       {collectMember ? (

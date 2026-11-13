@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Download, Search, AlertTriangle, Loader2 } from 'lucide-react';
-import { appMonthlyDebtForMember } from '../../domain/accounting/appMonthlyDebts';
+import {
+  appMonthlyDebtForMember,
+  duesStandingDisplayAmount,
+  memberDuesStandingSummary,
+} from '../../domain/accounting/appMonthlyDebts';
 import { downloadDuesDebtPdf } from '../../domain/accounting/exportDuesDebtPdf';
 import {
   memberMatchesDirectoryQuery,
@@ -223,12 +227,13 @@ export default function ConsultDuesDebtPanel({
           <ul className="consult-debt-suggest">
             {suggestions.map((row) => {
               const nro = padNro(memberNumberOf(row) || row.memberId);
+              const standing = memberDuesStandingSummary(row);
               return (
                 <li key={row.memberId || nro}>
                   <button type="button" onClick={() => pick(row)}>
                     <strong>{nro}</strong>
                     <span>{row.name}</span>
-                    <em>{formatCurrency(row.outstandingBalance || 0)}</em>
+                    <em>{duesStandingDisplayAmount(standing, formatCurrency)}</em>
                   </button>
                 </li>
               );

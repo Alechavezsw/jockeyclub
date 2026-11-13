@@ -4,6 +4,7 @@ import { allowedAccountingSubtabs, allowedAdminTabs } from '../auth/roles';
 import { canChargeSocialDues, nextDuesDueDate, pinDuesDueDate } from '../members/dues';
 import { isFamilyDependent } from '../members/households';
 import { formatISODateLongAR, todayISODateAR } from '../../lib/arDate';
+import { memberDuesStandingSummary } from '../accounting/appMonthlyDebts';
 
 /**
  * Notificaciones reales de la campanita (sin semillas demo).
@@ -151,19 +152,25 @@ export function buildNotifications({
         && member.notifyDues !== false
         && canChargeSocialDues(member)
         && !isFamilyDependent(member)
-        && (Number(member.outstandingBalance) || 0) > 0
       ) {
-        const bal = Number(member.outstandingBalance) || 0;
-        push(out, {
-          id: `dues-debt-${member.memberId}-${bal}`,
-          kind: 'dues',
-          title: 'Cuota pendiente',
-          detail: membersCanViewCurrentAccounts
-            ? 'Tenés saldo por abonar. Tocá para ver Mi Cuenta.'
-            : 'Tenés un pendiente de cuota. Regularizalo en administración.',
-          view: membersCanViewCurrentAccounts ? 'payments' : 'profile',
-          path: membersCanViewCurrentAccounts ? '/cuenta' : '/perfil',
-        });
+        const standing = memberDuesStandingSummary(member, { today: new Date(`${todayIso}T12:00:00`) });
+        if (!standing.clear) {
+          const bal = Number(standing.totalDebt) || 0;
+          const monthsBit = standing.monthsPhrase ? `${standing.monthsPhrase}. ` : '';
+          const moneyBit = bal > 0
+            ? new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 }).format(bal)
+            : '';
+          push(out, {
+            id: `dues-debt-${member.memberId}-${bal}`,
+            kind: 'dues',
+            title: 'Cuota pendiente',
+            detail: membersCanViewCurrentAccounts
+              ? `${monthsBit}Deuda ${moneyBit}${standing.interest > 0 ? ' (capital + recargo)' : ''}. Tocá para ver Mi Cuenta.`
+              : 'Tenés un pendiente de cuota. Regularizalo en administración.',
+            view: membersCanViewCurrentAccounts ? 'payments' : 'profile',
+            path: membersCanViewCurrentAccounts ? '/cuenta' : '/perfil',
+          });
+        }
       }
 
       (waitlist || [])

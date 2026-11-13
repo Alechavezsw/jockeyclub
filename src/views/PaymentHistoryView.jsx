@@ -85,12 +85,20 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
   const dueIsPast = Boolean(chargeDue && String(chargeDue).slice(0, 10) < todayIso);
   const dueVerb = dueIsPast ? 'Venció' : 'Vence';
   const debtAmount = payable > 0 ? payable : (Number(summary.outstanding) || 0);
+  const debtMonthsLabel = duesMonthsPhrase(
+    (summary.debtMonths || []).map((row) => row.dueOn),
+  );
   const debtHint = !duesExempt && !alDia && !standingPending
-    ? `${dueVerb} el ${formatDate(chargeDue)} · ${formatCurrency(debtAmount)}${
+    ? [
+      debtMonthsLabel || null,
+      `${dueVerb} el ${formatDate(chargeDue)} · ${formatCurrency(debtAmount)}`,
       surcharge > 0
-        ? ` (cuota ${formatCurrency(quotaDue)} + recargo ${formatCurrency(surcharge)})`
-        : ''
-    }`
+        ? `(capital ${formatCurrency(quotaDue)} + recargo ${formatCurrency(surcharge)})`
+        : null,
+      Number(summary.unallocated) > 0
+        ? `sin imputar ${formatCurrency(summary.unallocated)}`
+        : null,
+    ].filter(Boolean).join(' · ')
     : null;
 
   const noticeKey = `${method}:${profile?.memberId || ''}:${payable}:${receiptFile?.name || ''}`;

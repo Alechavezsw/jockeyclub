@@ -11,6 +11,10 @@ import { isSupabaseConfigured } from '../../lib/supabase';
 import * as repos from '../../data/repos';
 import { formatCurrency as formatCurrencyDefault } from '../../domain/accounting/journal';
 import { money } from '../../domain/money';
+import {
+  duesStandingDisplayHint,
+  memberDuesStandingSummary,
+} from '../../domain/accounting/appMonthlyDebts';
 
 function hitHasCuotaCategories(member) {
   return Array.isArray(member?.cuotaCategories) && member.cuotaCategories.length > 0;
@@ -358,11 +362,21 @@ export default function CollectDuesDeskFlow({
               const forPreview = covered?.length
                 ? { ...row, paymentHistory: [...(row.paymentHistory || []), ...covered] }
                 : row;
+              const standing = exempt
+                ? null
+                : memberDuesStandingSummary(forPreview);
               const preview = exempt
                 ? { cash: 0, quota: 0, surcharge: 0 }
                 : collectionPreview(forPreview, new Date());
-              const toCollect = money(preview.cash);
-              const capital = money(Math.max(0, Number(row.outstandingBalance) || 0));
+              const toCollect = standing && !standing.clear
+                ? money(standing.totalDebt)
+                : money(preview.cash);
+              const capital = standing
+                ? money((Number(standing.capital) || 0) + (Number(standing.unallocated) || 0))
+                : money(Math.max(0, Number(row.outstandingBalance) || 0));
+              const hint = standing && !standing.clear
+                ? duesStandingDisplayHint(standing, formatCurrency)
+                : '';
               return (
                 <li key={String(row.memberId || nro)}>
                   <button
@@ -382,7 +396,7 @@ export default function CollectDuesDeskFlow({
                       <span className="cdd-desk-hit-figures">
                         {exempt ? (
                           <span className="cdd-desk-hit-exempt">Exento</span>
-                        ) : preview.clear || (toCollect <= 0.01 && capital <= 0.01) ? (
+                        ) : !standing || standing.clear || toCollect <= 0.01 ? (
                           <span className="cdd-desk-hit-exempt">Al día</span>
                         ) : (
                           <>
@@ -390,8 +404,8 @@ export default function CollectDuesDeskFlow({
                               {formatCurrency(toCollect)}
                             </span>
                             <span className="cdd-desk-hit-capital">
-                              a cobrar
-                              {capital > 0.01 && Math.abs(capital - toCollect) > 0.01
+                              {hint || 'a cobrar'}
+                              {!hint && capital > 0.01 && Math.abs(capital - toCollect) > 0.01
                                 ? ` · capital ${formatCurrency(capital)}`
                                 : ''}
                             </span>

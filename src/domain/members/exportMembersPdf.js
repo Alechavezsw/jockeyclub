@@ -5,10 +5,13 @@ import {
   drawReportHeader,
   loadClubLogoDataUrl,
 } from '../reports/pdfBrand';
-import { isDuesExemptMember, quotaHeadline } from './dues';
 import { getTierDisplayName } from './tiers';
 import { isFamilyDependent } from './households';
 import { todayAR } from '../../lib/arDate';
+import {
+  duesStandingDisplayAmount,
+  memberDuesStandingSummary,
+} from '../accounting/appMonthlyDebts';
 
 
 function formatMoney(amount) {
@@ -111,9 +114,7 @@ export async function exportMembersPdf(members = [], {
       m.phone || '—',
       m.email || '—',
       statusLabel(m.status),
-      Number(m.outstandingBalance) > 0 && !isDuesExemptMember(m)
-        ? formatCurrency(m.outstandingBalance)
-        : quotaHeadline(m).title,
+      duesStandingDisplayAmount(memberDuesStandingSummary(m), formatCurrency),
     ];
   });
 

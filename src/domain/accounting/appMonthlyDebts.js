@@ -18,8 +18,9 @@ import {
   monthsBehindOnDues,
   pinDuesDueDate,
 } from '../members/dues';
+import { duesMonthsPhrase } from '../members/duesImputations';
 import { duesNoticeCalendar, duesNoticeStagesForDay } from '../members/duesNotices';
-import { memberNumberOf } from '../members/households';
+import { isFamilyDependent, memberNumberOf } from '../members/households';
 import { getTierDisplayName } from '../members/tiers';
 
 const MAX_MONTHS = 36;
@@ -278,6 +279,132 @@ export function appMonthlyDebtForMember(member, { today = new Date(), entries = 
     lines: linesFromEntries(entries),
     accessinId: member.memberId || memberNumber,
   };
+}
+
+/**
+ * Resumen único de cuota para toda la app (portal + admin).
+ * Misma fuente que Consultar deuda / PDF: capital + 10 % + meses + sin imputar.
+ */
+export function memberDuesStandingSummary(member, { today = new Date(), entries = [] } = {}) {
+  if (!member) {
+    return {
+      clear: true,
+      kind: 'empty',
+      standing: '—',
+      title: '—',
+      hint: null,
+      totalDebt: 0,
+      capital: 0,
+      interest: 0,
+      unallocated: 0,
+      monthsBehind: 0,
+      months: [],
+      monthsPhrase: '',
+      billing: false,
+      debt: null,
+    };
+  }
+
+  if (isDuesExemptMember(member)) {
+    return {
+      clear: true,
+      kind: 'exempt',
+      standing: 'Exento',
+      title: 'Exento',
+      hint: 'No abona cuota social',
+      totalDebt: 0,
+      capital: 0,
+      interest: 0,
+      unallocated: 0,
+      monthsBehind: 0,
+      months: [],
+      monthsPhrase: '',
+      billing: false,
+      debt: null,
+    };
+  }
+
+  if (isFamilyDependent(member)) {
+    return {
+      clear: true,
+      kind: 'dependent',
+      standing: 'Grupo familiar',
+      title: 'Grupo familiar',
+      hint: 'La cuenta la lleva el titular',
+      totalDebt: 0,
+      capital: 0,
+      interest: 0,
+      unallocated: 0,
+      monthsBehind: 0,
+      months: [],
+      monthsPhrase: '',
+      billing: false,
+      debt: null,
+    };
+  }
+
+  const debt = appMonthlyDebtForMember(member, { today, entries });
+  if (!debt) {
+    return {
+      clear: true,
+      kind: 'clear',
+      standing: 'Al día',
+      title: 'Al día',
+      hint: 'Sin deuda de cuota',
+      totalDebt: 0,
+      capital: 0,
+      interest: 0,
+      unallocated: 0,
+      monthsBehind: 0,
+      months: [],
+      monthsPhrase: '',
+      billing: true,
+      debt: null,
+    };
+  }
+
+  const monthsPhrase = duesMonthsPhrase((debt.months || []).map((row) => row.dueOn));
+
+  return {
+    clear: false,
+    kind: 'debt',
+    standing: debt.standing,
+    title: debt.standing || 'Con deuda',
+    hint: monthsPhrase || null,
+    totalDebt: Number(debt.totalDebt) || 0,
+    capital: Number(debt.capital) || 0,
+    interest: Number(debt.interest) || 0,
+    unallocated: Number(debt.unallocated) || 0,
+    monthsBehind: Number(debt.monthsBehind) || 0,
+    months: debt.months || [],
+    monthsPhrase,
+    billing: true,
+    debt,
+  };
+}
+
+/** Monto a mostrar: total con intereses, o etiqueta Al día / exento. */
+export function duesStandingDisplayAmount(summary, formatCurrency) {
+  if (!summary || summary.clear) return summary?.title || 'Al día';
+  if (typeof formatCurrency === 'function') return formatCurrency(summary.totalDebt);
+  return String(summary.totalDebt);
+}
+
+/** Texto secundario: meses + desglose capital/recargo. */
+export function duesStandingDisplayHint(summary, formatCurrency) {
+  if (!summary) return '';
+  if (summary.clear) return summary.hint || '';
+  const parts = [];
+  if (summary.monthsPhrase) parts.push(summary.monthsPhrase);
+  if (Number(summary.interest) > 0 && typeof formatCurrency === 'function') {
+    parts.push(`capital ${formatCurrency(summary.capital)} + recargo ${formatCurrency(summary.interest)}`);
+  } else if (summary.hint) {
+    return summary.hint;
+  }
+  if (Number(summary.unallocated) > 0 && typeof formatCurrency === 'function') {
+    parts.push(`sin imputar ${formatCurrency(summary.unallocated)}`);
+  }
+  return parts.join(' · ') || summary.standing || '';
 }
 
 export function buildAppMonthlyDebts(members = [], { today = new Date(), accountEntries = [] } = {}) {

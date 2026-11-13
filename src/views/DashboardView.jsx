@@ -11,6 +11,7 @@ import { getFacilityLiveStatus } from '../domain/reservations/availability';
 import { useMemberDuesStanding } from '../hooks/useMemberDuesStanding';
 import { findTier } from '../domain/members/tiers';
 import { quotaHeadline } from '../domain/members/dues';
+import { duesMonthsPhrase } from '../domain/members/duesImputations';
 import {
   familyPrincipalOf,
   householdMemberAsAdherent,
@@ -244,6 +245,9 @@ export default function DashboardView({
     ? Number(duesStanding.nextAmount)
     : Number(duesStanding?.outstanding) || 0;
   const duesDueDay = duesStanding?.dueDay || 10;
+  const duesMonthsLabel = duesMonthsPhrase(
+    (duesStanding?.debtMonths || []).map((row) => row.dueOn),
+  );
   const duesValue = duesPending
     ? 'Consultando…'
     : !duesBehind
@@ -252,14 +256,20 @@ export default function DashboardView({
         ? 'En administración'
         : !quota.billing && quota.kind !== 'debt'
           ? quota.title
-          : (duesLateLabel || formatCurrency(duesPayable));
+          : formatCurrency(duesPayable);
   const duesSub = duesPending
     ? 'Confirmando vencimientos'
     : !duesBehind
       ? (quota.hint || 'Sin deuda de cuota')
       : !membersCanViewCurrentAccounts
         ? 'Consultá el detalle en administración'
-        : `${formatCurrency(duesPayable)} · Ver pagos`;
+        : [
+          duesMonthsLabel || duesLateLabel,
+          Number(duesStanding?.surcharge) > 0
+            ? `capital ${formatCurrency(duesStanding.quota || 0)} + recargo ${formatCurrency(duesStanding.surcharge)}`
+            : null,
+          'Ver pagos',
+        ].filter(Boolean).join(' · ');
   const upcomingWithBalance = upcomingBookings.filter((res) => reservationOpenBalance(res) > 0).length;
   const upcomingTurnsSub = upcomingReservationsCount === 0
     ? 'Sin turnos a futuro'
@@ -857,7 +867,7 @@ export default function DashboardView({
           <span>
             <ShieldAlert size={16} style={{ verticalAlign: -3, marginRight: 6 }} />
             {membersCanViewCurrentAccounts
-              ? `${duesLateLabel ? `${duesLateLabel}. ` : ''}Cuota pendiente: ${formatCurrency(duesPayable)}${Number(duesStanding?.surcharge) > 0 ? ` (cuota ${formatCurrency(duesStanding.quota || (duesPayable - Number(duesStanding.surcharge)))} + recargo ${formatCurrency(duesStanding.surcharge)})` : ''}. Vence el ${duesDueDay} de cada mes.`
+              ? `${duesMonthsLabel ? `${duesMonthsLabel}. ` : (duesLateLabel ? `${duesLateLabel}. ` : '')}Deuda: ${formatCurrency(duesPayable)}${Number(duesStanding?.surcharge) > 0 ? ` (capital ${formatCurrency(duesStanding.quota || (duesPayable - Number(duesStanding.surcharge)))} + recargo ${formatCurrency(duesStanding.surcharge)})` : ''}. Vence el ${duesDueDay} de cada mes.`
               : 'Hay un pendiente de cuota. Regularizalo en administración.'}
           </span>
           {membersCanViewCurrentAccounts && canOperateAccount ? (

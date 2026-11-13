@@ -17,6 +17,10 @@ import {
 } from '../../domain/members/memberAdminActions';
 import { buildBajaCertificate, buildReactivacionCertificate } from '../../domain/members/bajaCertificate';
 import { exportBajaCertificatePdf } from '../../domain/members/exportBajaCertificatePdf';
+import {
+  duesStandingDisplayAmount,
+  memberDuesStandingSummary,
+} from '../../domain/accounting/appMonthlyDebts';
 import { libreDeudaClub } from '../../domain/accounting/libreDeuda';
 import { allocateNextMemberNumber, attachHouseholdToMembers, assignDistinctStatColors, buildPadronHouseholdStats, familyGroupMatchesQuery, isFamilyDependent, isLiveMember, isTitularMember, listFamilyGroups, memberMatchesDirectoryQuery, mergeMemberRecord, mergeMembersById, rankMemberSearchHit, resolveFamilyForDisplay } from '../../domain/members/households';
 import { portalAccessEmailCandidates, portalLoginFromEmail } from '../../domain/auth/credentials';
@@ -2723,20 +2727,19 @@ export default function MembersTab({
                     <MemberWhatsAppLink phone={m.phone} name={m.name} />
                   </td>
                   <td data-label="Cuota">
+                    {(() => {
+                      const standing = memberDuesStandingSummary(m);
+                      return (
                     <span style={{
                       fontWeight: '600',
-                      color: isFamilyDependent(m) || isDuesExemptMember(m)
-                        ? 'var(--text-secondary)'
-                        : (Number(m.outstandingBalance) || 0) > 0
-                          ? 'var(--warning-accent)'
-                          : quotaHeadline(m).kind === 'clear'
-                            ? 'var(--emerald-accent)'
-                            : 'var(--text-secondary)'
+                      color: standing.clear
+                        ? (standing.kind === 'clear' ? 'var(--emerald-accent)' : 'var(--text-secondary)')
+                        : 'var(--warning-accent)'
                      }}>
-                      {isFamilyDependent(m) || isDuesExemptMember(m) || (Number(m.outstandingBalance) || 0) <= 0
-                        ? quotaHeadline(m).title
-                        : formatCurrency(m.outstandingBalance)}
+                      {duesStandingDisplayAmount(standing, formatCurrency)}
                     </span>
+                      );
+                    })()}
                   </td>
                   <td data-label="Acciones" className="members-padron-actions">
                     <div className="member-row-actions">

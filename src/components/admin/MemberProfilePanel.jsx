@@ -31,6 +31,11 @@ import { formatDateTimeAR, formatInstantAR, todayISODateAR } from '../../lib/arD
 import { formatPaymentWhen, paymentWhenStamp } from '../../domain/members/paymentHistory';
 import { DEFAULT_POOL_SETTINGS } from '../../domain/pool/poolAccess';
 import { piletaPayAccess } from '../../domain/pool/seasonDuesGate';
+import {
+  duesStandingDisplayAmount,
+  duesStandingDisplayHint,
+  memberDuesStandingSummary,
+} from '../../domain/accounting/appMonthlyDebts';
 import { cobranzasSeed, filterAccessinCobranzas } from '../../domain/accounting/cobranzas';
 import { buildDetailedCcAccountEntries } from '../../domain/accounting/detailedCurrentAccounts';
 import useSnapshots from '../../hooks/useSnapshots';
@@ -958,10 +963,9 @@ export default function MemberProfilePanel({
   const status = STATUS_COPY[member.status] || STATUS_COPY.pending;
   const appAccess = memberAppAccess(member);
   const duesExempt = isDuesExemptMember(member);
-  const balance = (isFamilyDependent(member) || duesExempt)
-    ? 0
-    : (Number(member.outstandingBalance) || 0);
-  const hasDebt = balance > 0;
+  const duesStanding = memberDuesStandingSummary(member);
+  const balance = duesStanding.clear ? 0 : duesStanding.totalDebt;
+  const hasDebt = !duesStanding.clear && balance > 0;
   const quota = quotaHeadline(member);
   const poolPay = piletaPayAccess(member, { settings: poolSettings, members });
   const tierName = getTierDisplayName(member.tier, tierCatalog);
@@ -1048,22 +1052,22 @@ export default function MemberProfilePanel({
           aria-label="Estado de cuota y pileta"
         >
           <div className="mp-balance-label">
-            {hideCurrentAccount ? 'Estado de cuenta' : (hasDebt ? 'Saldo de cuota' : 'Estado de cuota')}
+            {hideCurrentAccount ? 'Estado de cuenta' : (hasDebt ? 'Deuda de cuota' : 'Estado de cuota')}
             {selfService ? null : <CurrentAccountCutNote members={members} />}
           </div>
           <div className="mp-balance-value">
             {!hasDebt
-              ? (quota.title || 'Al día')
+              ? (duesStanding.title || quota.title || 'Al día')
               : hideCurrentAccount
                 ? 'En administración'
-                : formatCurrency(balance)}
+                : duesStandingDisplayAmount(duesStanding, formatCurrency)}
           </div>
           <div className="mp-balance-hint">
             {!hasDebt
-              ? (quota.hint || 'Sin deuda de cuota')
+              ? (duesStanding.hint || quota.hint || 'Sin deuda de cuota')
               : hideCurrentAccount
                 ? 'Consultá el detalle en administración'
-                : (quota.hint
+                : (duesStandingDisplayHint(duesStanding, formatCurrency)
                   || (!dueFact.value
                     ? 'Pendiente de cobro'
                     : (dueFact.overdue

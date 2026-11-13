@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { appMonthlyDebtForMember } from '../domain/accounting/appMonthlyDebts';
 import { formatMonthsBehind, isDuesExemptMember } from '../domain/members/dues';
 import { collectionPreview } from '../domain/members/memberPayments';
 import {
@@ -147,25 +148,34 @@ export function useMemberDuesStanding(member) {
     const rpcNext = persisted?.nextDue || null;
     const histNext = fromHistory.nextDue || null;
     const nextDue = [rpcNext, histNext].filter(Boolean).sort()[0] || histNext;
-    const monthsBehind = Math.max(
-      Number(persisted?.monthsBehind) || 0,
-      fromHistory.monthsBehind || 0,
-    );
-    // Mismo total que Cobrar cuota: el recargo va dentro del importe, no solo en el texto.
-    const preview = collectionPreview({
+    const memberForDebt = {
       ...memberForHistory,
       outstandingBalance: outstanding,
       nextDueDate: nextDue || memberForHistory?.nextDueDate,
       lastPaymentDate: persisted?.lastPaymentDate || fromHistory.lastDuesDate || memberForHistory?.lastPaymentDate,
-    }, today);
-    const owes = outstanding > 0.01;
-    const surcharge = owes ? (Number(preview.surcharge) || 0) : 0;
-    const quota = owes ? (Number(preview.quota) || outstanding) : 0;
-    const nextAmount = owes
-      ? (Number(preview.cash) > 0.01 ? Number(preview.cash) : outstanding)
-      : fromHistory.nextAmount;
+    };
+    // Misma deuda que Consultar deuda / PDF: capital + 10 % + sin imputar.
+    const debt = appMonthlyDebtForMember(memberForDebt, { today });
+    const preview = collectionPreview(memberForDebt, today);
+    const monthsBehind = Math.max(
+      Number(debt?.monthsBehind) || 0,
+      Number(persisted?.monthsBehind) || 0,
+      fromHistory.monthsBehind || 0,
+    );
+    const owes = Boolean(debt) || outstanding > 0.01;
+    const surcharge = debt
+      ? (Number(debt.interest) || 0)
+      : (owes ? (Number(preview.surcharge) || 0) : 0);
+    const quota = debt
+      ? ((Number(debt.capital) || 0) + (Number(debt.unallocated) || 0))
+      : (owes ? (Number(preview.quota) || outstanding) : 0);
+    const nextAmount = debt
+      ? (Number(debt.totalDebt) || 0)
+      : (owes
+        ? (Number(preview.cash) > 0.01 ? Number(preview.cash) : outstanding)
+        : fromHistory.nextAmount);
     const chargeDue = owes
-      ? (preview.periods?.[0]?.dueOn || nextDue)
+      ? (debt?.months?.[debt.months.length - 1]?.dueOn || preview.periods?.[0]?.dueOn || nextDue)
       : nextDue;
     return {
       ...fromHistory,
@@ -178,6 +188,9 @@ export function useMemberDuesStanding(member) {
       nextAmount,
       surcharge,
       dueDay: persisted?.dueDay || fromHistory.dueDay,
+      debtMonths: debt?.months || [],
+      unallocated: Number(debt?.unallocated) || 0,
+      standing: debt?.standing || (owes ? 'Con saldo' : 'Al día'),
     };
   }, [history, memberForHistory, today, persisted]);
 

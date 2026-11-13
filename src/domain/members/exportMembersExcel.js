@@ -1,8 +1,8 @@
 import { loadXlsx } from '../../lib/office.js';
-import { isDuesExemptMember, quotaHeadline } from './dues';
 import { buildPadronPdfModel } from './exportMembersPdf';
 import { getTierDisplayName } from './tiers';
 import { todayAR } from '../../lib/arDate';
+import { memberDuesStandingSummary } from '../accounting/appMonthlyDebts';
 
 
 function statusLabel(status) {
@@ -25,9 +25,8 @@ function documentLabel(member) {
 }
 
 function saldoValue(member) {
-  if (isDuesExemptMember(member)) return 0;
-  const amount = Number(member?.outstandingBalance) || 0;
-  return amount > 0 ? amount : 0;
+  const standing = memberDuesStandingSummary(member);
+  return standing.clear ? 0 : (Number(standing.totalDebt) || 0);
 }
 
 export const PADRON_EXCEL_HEADERS = [
@@ -56,7 +55,7 @@ export function buildPadronExcelAoA(members = [], { tierCatalog } = {}) {
   const model = buildPadronPdfModel(members);
   const dataRows = model.rows.map((row, index) => {
     const m = row.member;
-    const quota = quotaHeadline(m);
+    const standing = memberDuesStandingSummary(m);
     const saldo = saldoValue(m);
     return [
       index + 1,
@@ -68,7 +67,7 @@ export function buildPadronExcelAoA(members = [], { tierCatalog } = {}) {
       m.phone || '',
       m.email || '',
       statusLabel(m.status),
-      saldo > 0 ? 'Con deuda' : quota.title,
+      saldo > 0 ? (standing.standing || 'Con deuda') : (standing.title || 'Al día'),
       saldo,
       m.joinDate || '',
       m.address || '',

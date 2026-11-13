@@ -14,6 +14,10 @@ import {
 } from '../../domain/sports/disciplines';
 import { FACILITIES } from '../../domain/reservations/facilities';
 import { getTierDisplayName } from '../../domain/members/tiers';
+import {
+  duesStandingDisplayAmount,
+  memberDuesStandingSummary,
+} from '../../domain/accounting/appMonthlyDebts';
 
 function formatCurrency(amount) {
   return new Intl.NumberFormat('es-AR', {
@@ -500,9 +504,14 @@ export default function DisciplinesTab({
                               <div className="disc-muted">{m.memberId}</div>
                             </td>
                             <td style={{ textTransform: 'capitalize' }}>{m.tier}</td>
-                            <td style={{ color: m.outstandingBalance > 0 ? '#f59e0b' : 'var(--emerald-accent)' }}>
-                              {m.outstandingBalance > 0 ? formatCurrency(m.outstandingBalance) : 'Al día'}
+                            {(() => {
+                              const standing = memberDuesStandingSummary(m);
+                              return (
+                            <td style={{ color: standing.clear ? 'var(--emerald-accent)' : '#f59e0b' }}>
+                              {duesStandingDisplayAmount(standing, formatCurrency)}
                             </td>
+                              );
+                            })()}
                             <td>{m.phone || '—'}</td>
                             <td className="disc-row-actions">
                               {onOpenMember && (
