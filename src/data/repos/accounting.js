@@ -182,6 +182,83 @@ export async function listCashMovements() {
  * Alinea asiento + movimientos de caja al nuevo medio de un cobro de cuota.
  * Cambia la cuenta de tesorería del debe y el texto del concepto.
  */
+async function findDuesJournalEntryIdForPayment(payId) {
+  if (!isUuid(payId)) return null;
+  try {
+    const bySource = await unwrap(
+      sb()
+        .from('journal_entries')
+        .select('id')
+        .eq('source_module', 'cuotas')
+        .eq('source_id', payId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      'No se pudo buscar el asiento',
+    );
+    if (bySource?.id) return bySource.id;
+  } catch {
+    /* seguir con fallback */
+  }
+
+  // Cobros viejos a veces no tienen source_id ni journal_entry_id: buscar por Cred. + fecha.
+  let payment = null;
+  try {
+    payment = await unwrap(
+      sb()
+        .from('member_payments')
+        .select('id, amount, paid_at, member_id, meta')
+        .eq('id', payId)
+        .maybeSingle(),
+      'No se pudo leer el cobro',
+    );
+  } catch {
+    return null;
+  }
+  if (!payment) return null;
+
+  let cred = '';
+  try {
+    const member = await unwrap(
+      sb()
+        .from('members')
+        .select('member_number, meta')
+        .eq('id', payment.member_id)
+        .maybeSingle(),
+      'No se pudo leer el socio del cobro',
+    );
+    cred = String(member?.member_number || member?.meta?.credentialNumber || '').replace(/\D/g, '');
+  } catch {
+    cred = '';
+  }
+  if (!cred) {
+    const blob = JSON.stringify(payment.meta || {});
+    const match = blob.match(/Cred\.?\s*(\d+)/i) || blob.match(/"memberId"\s*:\s*"?(\d+)/i);
+    cred = match ? match[1] : '';
+  }
+  if (!cred) return null;
+
+  const paidOn = String(payment.paid_at || '').slice(0, 10);
+  try {
+    let query = sb()
+      .from('journal_entries')
+      .select('id, concept, entry_date, source_id')
+      .eq('source_module', 'cuotas')
+      .ilike('concept', `%Cred. ${cred}%`)
+      .order('created_at', { ascending: false })
+      .limit(8);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(paidOn)) {
+      query = query.eq('entry_date', paidOn);
+    }
+    const rows = await unwrap(query, 'No se pudo buscar el asiento por socio');
+    const list = Array.isArray(rows) ? rows : (rows ? [rows] : []);
+    const orphan = list.find((row) => !row.source_id) || list[0];
+    return orphan?.id || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function syncDuesPaymentMethodAccounting({
   paymentId,
   journalEntryId = null,
@@ -192,25 +269,15 @@ export async function syncDuesPaymentMethodAccounting({
   const payId = isUuid(paymentId) ? paymentId : null;
   let entryId = isUuid(journalEntryId) ? journalEntryId : null;
   if (!entryId && payId) {
-    try {
-      const bySource = await unwrap(
-        sb()
-          .from('journal_entries')
-          .select('id')
-          .eq('source_module', 'cuotas')
-          .eq('source_id', payId)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-        'No se pudo buscar el asiento',
-      );
-      entryId = bySource?.id || null;
-    } catch {
-      entryId = null;
-    }
+    entryId = await findDuesJournalEntryIdForPayment(payId);
   }
   if (!entryId) {
-    return { journalEntryId: null, updatedLines: 0, updatedMovements: 0 };
+    return {
+      journalEntryId: null,
+      updatedLines: 0,
+      updatedMovements: 0,
+      error: 'No se encontró el asiento de caja para este cobro',
+    };
   }
 
   const chart = await listChartOfAccounts();
@@ -227,12 +294,18 @@ export async function syncDuesPaymentMethodAccounting({
   if (!entry) return { journalEntryId: entryId, updatedLines: 0, updatedMovements: 0 };
 
   const nextConcept = rewriteDuesCobroConcept(entry.concept, methodLabel);
+  const entryPatch = {
+    updated_at: new Date().toISOString(),
+  };
   if (nextConcept && nextConcept !== entry.concept) {
+    entryPatch.concept = nextConcept;
+  }
+  if (payId && String(entry.source_id || '') !== payId) {
+    entryPatch.source_id = payId;
+  }
+  if (Object.keys(entryPatch).length > 1) {
     await unwrap(
-      sb().from('journal_entries').update({
-        concept: nextConcept,
-        updated_at: new Date().toISOString(),
-      }).eq('id', entryId),
+      sb().from('journal_entries').update(entryPatch).eq('id', entryId),
       'No se pudo actualizar el concepto del asiento',
     );
   }
@@ -288,7 +361,7 @@ export async function syncDuesPaymentMethodAccounting({
     by: actorName || null,
   });
 
-  if (payId && !journalEntryId) {
+  if (payId) {
     try {
       await unwrap(
         sb().from('member_payments').update({ journal_entry_id: entryId }).eq('id', payId),
