@@ -28,15 +28,20 @@ function inviteHtml(input: {
   password: string;
   portalUrl: string;
   logoUrl: string;
+  kind: string;
 }) {
   const who = escapeHtml(input.name || "socio");
   const user = escapeHtml(input.username);
   const mail = escapeHtml(input.loginEmail);
   const pass = escapeHtml(input.password);
   const href = escapeHtml(input.portalUrl);
+  const changed = input.kind === "password_changed";
   const logo = /^https:\/\//i.test(input.logoUrl)
     ? `<img src="${escapeHtml(input.logoUrl)}" width="72" height="72" alt="Jockey Club San Juan" style="display:block;margin:0 auto 12px;border:0;" />`
     : "";
+  const lead = changed
+    ? "Actualizamos tu clave de acceso al portal. Guardá estos datos:"
+    : "Secretaría ya dejó listo tu usuario del portal. Guardá estos datos: el ingreso es personal y la contraseña se puede cambiar apenas entres.";
   return `<!DOCTYPE html>
 <html lang="es">
 <body style="margin:0;padding:0;background:#efe6d4;font-family:Georgia,'Times New Roman',serif;color:#1a1612;">
@@ -54,8 +59,7 @@ function inviteHtml(input: {
           <td style="padding:28px 28px 8px;">
             <p style="margin:0 0 12px;font-size:18px;">Hola ${who},</p>
             <p style="margin:0 0 18px;font-size:15px;line-height:1.55;color:#3f3830;">
-              Secretaría ya dejó listo tu usuario del portal. Guardá estos datos:
-              el ingreso es personal y la contraseña se puede cambiar apenas entres.
+              ${lead}
             </p>
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4efe4;border:1px solid #e2d3b4;margin:0 0 20px;">
               <tr><td style="padding:16px 18px;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1a1612;">
@@ -116,6 +120,9 @@ Deno.serve(async (req) => {
     const username = String(body.username || "").trim();
     const loginEmail = String(body.loginEmail || "").trim();
     const password = String(body.password || "").trim();
+    const kind = String(body.kind || "invite").trim().toLowerCase() === "password_changed"
+      ? "password_changed"
+      : "invite";
     const portalUrl = "https://jockeyclubsj.com.ar/";
     const logoUrl = "https://jockeyclubsj.com.ar/logo-jockey-club.png";
 
@@ -125,18 +132,24 @@ Deno.serve(async (req) => {
     }
 
     const from = Deno.env.get("RESEND_FROM") || "Jockey Club San Juan <onboarding@resend.dev>";
-    const subject = "Tu acceso al portal · Jockey Club San Juan";
+    const subject = kind === "password_changed"
+      ? "Tu nueva clave · Jockey Club San Juan"
+      : "Tu acceso al portal · Jockey Club San Juan";
     const text = [
       name ? `Hola ${name}` : "Hola",
       "",
-      "Ya tenés acceso al portal de socios.",
+      kind === "password_changed"
+        ? "Actualizamos tu clave de acceso al portal."
+        : "Ya tenés acceso al portal de socios.",
       portalUrl,
       "",
       ...(username.toLowerCase() === loginEmail.toLowerCase() ? [] : [`Usuario: ${username}`]),
       `Email de ingreso: ${loginEmail}`,
       `Contraseña: ${password}`,
       "",
-      "Ingresá con esos datos y cambiá la contraseña cuando puedas.",
+      kind === "password_changed"
+        ? "Ingresá con estos datos. Si no pediste el cambio, avisá a Secretaría."
+        : "Ingresá con esos datos y cambiá la contraseña cuando puedas.",
     ].join("\n");
 
     const res = await fetch("https://api.resend.com/emails", {
@@ -150,7 +163,7 @@ Deno.serve(async (req) => {
         to: [to],
         subject,
         text,
-        html: inviteHtml({ name, username, loginEmail, password, portalUrl, logoUrl }),
+        html: inviteHtml({ name, username, loginEmail, password, portalUrl, logoUrl, kind }),
       }),
     });
     const payload = await res.json().catch(() => ({}));

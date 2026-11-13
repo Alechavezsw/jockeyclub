@@ -378,6 +378,7 @@ export async function sendAccessInviteEmail({
   password,
   portalUrl,
   logoUrl,
+  kind = 'invite',
 } = {}) {
   const dest = String(to || '').trim();
   if (!dest || !dest.includes('@')) {
@@ -396,6 +397,7 @@ export async function sendAccessInviteEmail({
       password,
       portalUrl,
       logoUrl,
+      kind: kind === 'password_changed' ? 'password_changed' : 'invite',
     },
   });
   if (error) {

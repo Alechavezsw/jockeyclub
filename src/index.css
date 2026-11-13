@@ -18830,9 +18830,45 @@ a.ops-outline-btn {
 }
 .session-status-bar__meta strong { color: var(--text-secondary); font-weight: 600; }
 .session-status-bar__shield { color: var(--emerald-accent); flex-shrink: 0; }
-.session-status-bar__seat { margin-left: auto; text-align: right; }
+.session-status-bar__actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.session-status-bar__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: 1px solid var(--border-glass);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  border-radius: 999px;
+  padding: 0.22rem 0.65rem;
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+.session-status-bar__btn:hover {
+  border-color: rgba(var(--primary-gold-rgb), 0.45);
+  color: var(--primary-gold);
+}
+.session-status-bar__seat { text-align: right; }
+.session-status-bar__notice {
+  margin: -0.55rem 0 0.85rem;
+  font-size: 0.78rem;
+  color: var(--emerald-accent);
+}
+.change-password-modal .modal-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
 @media (max-width: 900px) {
-  .session-status-bar__seat { margin-left: 0; text-align: left; }
+  .session-status-bar__actions { margin-left: 0; justify-content: flex-start; }
+  .session-status-bar__seat { text-align: left; }
 }
 
 /* CMS Revista Digital */

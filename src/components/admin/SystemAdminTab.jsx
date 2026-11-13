@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   UserRound, Plus, Check, X, Loader2, Camera, Trash2,
-  RefreshCw, Copy, Eye, EyeOff, Pencil, History, Search, Power, MoreHorizontal,
+  RefreshCw, Copy, Eye, EyeOff, Pencil, History, Search, Power, MoreHorizontal, KeyRound,
 } from 'lucide-react';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { repos } from '../../data/bootstrap';
@@ -20,6 +20,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { splitMemberName } from '../../domain/members/memberAdminActions';
 import ModalDialog from '../ModalDialog';
+import ChangePasswordDialog from '../ChangePasswordDialog';
 const ROLE_OPTIONS = PORTAL_ROLE_OPTIONS;
 
 const DOC_TYPES = ['Arg-DNI', 'Pasaporte', 'CUIL', 'Otro'];
@@ -456,8 +457,8 @@ function RowActionsMenu({
                 disabled={busy}
                 onClick={() => run(onResetPassword)}
               >
-                <RefreshCw size={14} />
-                Regenerar clave
+                <KeyRound size={14} />
+                Cambiar clave
               </button>
             ) : null}
           </div>,
@@ -502,6 +503,9 @@ export default function SystemAdminTab({
   const [memberSearchBusy, setMemberSearchBusy] = useState(false);
   const [memberPicked, setMemberPicked] = useState(null);
   const [pickingMember, setPickingMember] = useState(false);
+  const [passwordTarget, setPasswordTarget] = useState(null);
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
   const photoRef = useRef(null);
 
   useEffect(() => {
@@ -982,24 +986,58 @@ export default function SystemAdminTab({
     }
   };
 
-  const resetExistingPassword = async (profile) => {
+  const openResetPassword = (profile) => {
     if (!canEditProfiles) {
       setFlash('Solo el superadministrador puede modificar perfiles.');
       return;
     }
-    const nextPassword = generatePassword();
+    setPasswordError('');
+    setPasswordTarget(profile);
+  };
+
+  const resetExistingPassword = async ({ password: nextPassword }) => {
+    const profile = passwordTarget;
+    if (!profile?.id) return;
+    if (!canEditProfiles) {
+      setPasswordError('Solo el superadministrador puede modificar perfiles.');
+      return;
+    }
+    setPasswordBusy(true);
+    setPasswordError('');
     setBusyId(profile.id);
     try {
-      await repos.resetPortalUserPassword(profile.id, nextPassword);
+      await repos.resetPortalUserPassword(profile.id, nextPassword, profile.email);
+      const username = profile.username || String(profile.email || '').split('@')[0];
       setLastCreatedCreds({
-        username: profile.username || String(profile.email || '').split('@')[0],
+        username,
         email: profile.email,
         password: nextPassword,
       });
-      setFlash(`Contraseña regenerada para ${profile.email}.`);
+      const to = String(profile.contactEmail || profile.email || '').trim();
+      let mailNote = '';
+      if (to.includes('@')) {
+        try {
+          await repos.sendAccessInviteEmail({
+            to,
+            name: profile.fullName || [profile.firstName, profile.lastName].filter(Boolean).join(' '),
+            username,
+            loginEmail: profile.email || to,
+            password: nextPassword,
+            kind: 'password_changed',
+          });
+          mailNote = ` Mail enviado a ${to}.`;
+        } catch (mailErr) {
+          mailNote = ` La clave quedó, pero el mail falló: ${mailErr?.message || 'error'}.`;
+        }
+      } else {
+        mailNote = ' Sin mail de contacto para avisar.';
+      }
+      setPasswordTarget(null);
+      setFlash(`Clave actualizada para ${profile.email}.${mailNote}`);
     } catch (err) {
-      setFlash(err.message || 'No se pudo regenerar la contraseña.');
+      setPasswordError(err.message || 'No se pudo regenerar la contraseña.');
     } finally {
+      setPasswordBusy(false);
       setBusyId(null);
     }
   };
@@ -1698,7 +1736,7 @@ export default function SystemAdminTab({
                         onEdit={openEditUser}
                         onHistory={openHistory}
                         onToggleActive={toggleActive}
-                        onResetPassword={resetExistingPassword}
+                        onResetPassword={() => openResetPassword(u)}
                       />
                     </td>
                   </tr>
@@ -1771,6 +1809,17 @@ export default function SystemAdminTab({
             </div>
           </ModalDialog>
         )}
+
+        <ChangePasswordDialog
+          open={Boolean(passwordTarget)}
+          onClose={() => (!passwordBusy ? setPasswordTarget(null) : null)}
+          title="Cambiar clave del usuario"
+          subtitle={`Regenerá o escribí una clave para ${passwordTarget?.email || 'este usuario'}. Resend manda el aviso.`}
+          confirmLabel="Guardar y enviar mail"
+          busy={passwordBusy}
+          error={passwordError}
+          onSubmit={resetExistingPassword}
+        />
 
         {rolesModalProfile && (
           <ModalDialog

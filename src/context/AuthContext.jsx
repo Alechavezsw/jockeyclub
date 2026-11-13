@@ -59,6 +59,8 @@ function mapProfile(sessionUser, profileRow) {
     id: sessionUser.id,
     email: sessionUser.email,
     fullName: profileRow?.full_name || sessionUser.user_metadata?.full_name || sessionUser.email,
+    username: profileRow?.username || sessionUser.user_metadata?.username || null,
+    contactEmail: profileRow?.contact_email || null,
     role: primary,
     roles: roles.length
       ? roles
@@ -79,7 +81,7 @@ async function loadUserFromSession(sessionUser) {
   const [profileRes, roleRes, memberByProfile, memberByEmail] = await Promise.all([
     supabase
       .from('profiles')
-      .select('full_name, role, document_number')
+      .select('full_name, role, document_number, username, contact_email')
       .eq('id', sessionUser.id)
       .maybeSingle(),
     supabase
