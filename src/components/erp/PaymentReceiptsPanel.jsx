@@ -665,6 +665,7 @@ export default function PaymentReceiptsPanel({
                     const rowBusy = busyKey.endsWith(`:${payment.id}`);
                     const actionsOpen = openActionsId === payment.id;
                     const voided = !isActivePayment(payment);
+                    const voidedBy = paymentVoidedByLabel(payment);
                     return (
                       <tr key={payment.id} className={voided ? 'payment-receipts-row-void' : undefined}>
                         <td>{payment.date ? formatAccessinCashDate(payment.date) : '—'}</td>
@@ -674,9 +675,17 @@ export default function PaymentReceiptsPanel({
                           <div className="payment-receipts-method-cell">
                             <strong>{receiptMethodLabel(payment)}</strong>
                             {voided ? (
-                              <span className="payment-receipts-void-badge">
-                                Anulado · {paymentVoidedByLabel(payment)}
-                              </span>
+                              <div className="payment-receipts-void-stamp" title={payment.voidReason || 'Cobro anulado'}>
+                                <span className="payment-receipts-void-stamp-mark">Anulado</span>
+                                <span className="payment-receipts-void-stamp-who">
+                                  por <b>{voidedBy}</b>
+                                </span>
+                                {payment.voidedAt ? (
+                                  <span className="payment-receipts-void-stamp-when">
+                                    {formatInstantAR(payment.voidedAt)}
+                                  </span>
+                                ) : null}
+                              </div>
                             ) : null}
                             {payment.methodChangedByName && !voided ? (
                               <small>
@@ -686,19 +695,25 @@ export default function PaymentReceiptsPanel({
                                   : ''}
                               </small>
                             ) : null}
-                            {voided ? (
-                              <small>
-                                Anuló {paymentVoidedByLabel(payment)}
-                                {payment.voidedAt ? ` · ${formatInstantAR(payment.voidedAt)}` : ''}
-                                {payment.voidReason ? ` · ${payment.voidReason}` : ''}
+                            {voided && payment.voidReason ? (
+                              <small className="payment-receipts-void-reason">
+                                {payment.voidReason}
                               </small>
                             ) : null}
                           </div>
                         </td>
-                        <td style={{ fontWeight: 700 }}>{formatCurrency(payment.amount)}</td>
-                        <td className="tabular-nums">{receiptNo}</td>
                         <td>
-                          <div className={`payment-receipts-actions-wrap${actionsOpen ? ' is-open' : ''}`}>
+                          <span className={`payment-receipts-amount${voided ? ' is-void' : ''}`}>
+                            {formatCurrency(payment.amount)}
+                          </span>
+                        </td>
+                        <td>
+                          <code className={`payment-receipts-rc${voided ? ' is-void' : ''}`}>
+                            {receiptNo}
+                          </code>
+                        </td>
+                        <td>
+                          <div className={`payment-receipts-actions-wrap${actionsOpen ? ' is-open' : ''}${voided ? ' is-void' : ''}`}>
                             <button
                               type="button"
                               className="payment-receipts-actions-toggle"
@@ -706,49 +721,59 @@ export default function PaymentReceiptsPanel({
                               aria-controls={`payment-actions-${payment.id}`}
                               onClick={() => setOpenActionsId(actionsOpen ? null : payment.id)}
                             >
-                              <span>Acciones</span>
+                              <span>{voided ? 'Detalle' : 'Acciones'}</span>
                               <ChevronDown size={14} aria-hidden="true" />
                             </button>
                             {actionsOpen ? (
                               <div
                                 id={`payment-actions-${payment.id}`}
-                                className="payment-receipts-actions-panel"
+                                className={`payment-receipts-actions-panel${voided ? ' is-void' : ''}`}
                               >
-                                <dl className="payment-receipts-op-meta">
-                                  <div>
-                                    <dt>Hora</dt>
-                                    <dd>{paymentOperationInstant(payment)}</dd>
+                                {voided ? (
+                                  <div className="payment-receipts-void-card">
+                                    <p className="payment-receipts-void-card-title">Cobro anulado</p>
+                                    <dl className="payment-receipts-op-meta">
+                                      <div>
+                                        <dt>Anuló</dt>
+                                        <dd>{voidedBy}</dd>
+                                      </div>
+                                      <div>
+                                        <dt>Cuándo</dt>
+                                        <dd>{payment.voidedAt ? formatInstantAR(payment.voidedAt) : '—'}</dd>
+                                      </div>
+                                      <div>
+                                        <dt>Motivo</dt>
+                                        <dd>{payment.voidReason || '—'}</dd>
+                                      </div>
+                                      <div>
+                                        <dt>Cobró</dt>
+                                        <dd>{paymentOperatorLabel(payment)}</dd>
+                                      </div>
+                                    </dl>
                                   </div>
-                                  <div>
-                                    <dt>Usuario</dt>
-                                    <dd>{paymentOperatorLabel(payment)}</dd>
-                                  </div>
-                                  {payment.methodChangedByName ? (
+                                ) : (
+                                  <dl className="payment-receipts-op-meta">
                                     <div>
-                                      <dt>Medio editado</dt>
-                                      <dd>
-                                        {payment.methodChangedByName}
-                                        {payment.methodChangeReason
-                                          ? ` · ${payment.methodChangeReason}`
-                                          : ''}
-                                      </dd>
+                                      <dt>Hora</dt>
+                                      <dd>{paymentOperationInstant(payment)}</dd>
                                     </div>
-                                  ) : null}
-                                  {voided ? (
                                     <div>
-                                      <dt>Anuló</dt>
-                                      <dd>
-                                        {paymentVoidedByLabel(payment)}
-                                        {payment.voidedAt
-                                          ? ` · ${formatInstantAR(payment.voidedAt)}`
-                                          : ''}
-                                        {payment.voidReason
-                                          ? ` · ${payment.voidReason}`
-                                          : ''}
-                                      </dd>
+                                      <dt>Usuario</dt>
+                                      <dd>{paymentOperatorLabel(payment)}</dd>
                                     </div>
-                                  ) : null}
-                                </dl>
+                                    {payment.methodChangedByName ? (
+                                      <div>
+                                        <dt>Medio editado</dt>
+                                        <dd>
+                                          {payment.methodChangedByName}
+                                          {payment.methodChangeReason
+                                            ? ` · ${payment.methodChangeReason}`
+                                            : ''}
+                                        </dd>
+                                      </div>
+                                    ) : null}
+                                  </dl>
+                                )}
                                 <div className="payment-receipts-actions" role="group" aria-label="Acciones del comprobante">
                                   <button
                                     type="button"
@@ -763,72 +788,72 @@ export default function PaymentReceiptsPanel({
                                       : <Download size={13} aria-hidden="true" />}
                                     <span>PDF</span>
                                   </button>
-                                  <button
-                                    type="button"
-                                    className="payment-receipts-chip tone-wa"
-                                    disabled={rowBusy || voided || !share.whatsappUrl}
-                                    title={share.whatsappUrl ? 'Abrir WhatsApp' : 'Sin celular en ficha'}
-                                    aria-label="Enviar por WhatsApp"
-                                    onClick={() => runAction(payment, 'whatsapp')}
-                                  >
-                                    <Phone size={13} aria-hidden="true" />
-                                    <span>WA</span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="payment-receipts-chip tone-mail"
-                                    disabled={rowBusy || voided || !share.email}
-                                    title={share.email ? 'Enviar por mail' : 'Sin mail real en ficha'}
-                                    aria-label="Enviar por mail"
-                                    onClick={() => runAction(payment, 'mail')}
-                                  >
-                                    {busyKey === `mail:${payment.id}`
-                                      ? <Loader2 size={13} className="spin" aria-hidden="true" />
-                                      : <Mail size={13} aria-hidden="true" />}
-                                    <span>Mail</span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="payment-receipts-chip tone-md"
-                                    disabled={rowBusy || voided || typeof onSendMessage !== 'function'}
-                                    title="Enviar por mensajería interna (MD)"
-                                    aria-label="Enviar por MD"
-                                    onClick={() => runAction(payment, 'md')}
-                                  >
-                                    {busyKey === `md:${payment.id}`
-                                      ? <Loader2 size={13} className="spin" aria-hidden="true" />
-                                      : <MessageSquare size={13} aria-hidden="true" />}
-                                    <span>MD</span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="payment-receipts-chip tone-edit"
-                                    disabled={rowBusy || voided || String(payment.method || '').toLowerCase() === 'mixto'}
-                                    title={voided
-                                      ? 'Cobro anulado'
-                                      : (String(payment.method || '').toLowerCase() === 'mixto'
-                                        ? 'Pago mixto: anulá y cobrá de nuevo'
-                                        : 'Cambiar medio de pago')}
-                                    aria-label="Cambiar medio de pago"
-                                    onClick={() => openMethodEdit(payment)}
-                                  >
-                                    <Pencil size={13} aria-hidden="true" />
-                                    <span>Medio</span>
-                                  </button>
-                                  {canVoid ? (
-                                    <button
-                                      type="button"
-                                      className="payment-receipts-chip tone-void"
-                                      disabled={rowBusy || voided}
-                                      title={voided
-                                        ? 'Ya está anulado'
-                                        : 'Anular cobro · revierte saldo, imputaciones y caja'}
-                                      aria-label="Anular cobro"
-                                      onClick={() => openVoidEdit(payment)}
-                                    >
-                                      <Ban size={13} aria-hidden="true" />
-                                      <span>Anular</span>
-                                    </button>
+                                  {!voided ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        className="payment-receipts-chip tone-wa"
+                                        disabled={rowBusy || !share.whatsappUrl}
+                                        title={share.whatsappUrl ? 'Abrir WhatsApp' : 'Sin celular en ficha'}
+                                        aria-label="Enviar por WhatsApp"
+                                        onClick={() => runAction(payment, 'whatsapp')}
+                                      >
+                                        <Phone size={13} aria-hidden="true" />
+                                        <span>WA</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="payment-receipts-chip tone-mail"
+                                        disabled={rowBusy || !share.email}
+                                        title={share.email ? 'Enviar por mail' : 'Sin mail real en ficha'}
+                                        aria-label="Enviar por mail"
+                                        onClick={() => runAction(payment, 'mail')}
+                                      >
+                                        {busyKey === `mail:${payment.id}`
+                                          ? <Loader2 size={13} className="spin" aria-hidden="true" />
+                                          : <Mail size={13} aria-hidden="true" />}
+                                        <span>Mail</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="payment-receipts-chip tone-md"
+                                        disabled={rowBusy || typeof onSendMessage !== 'function'}
+                                        title="Enviar por mensajería interna (MD)"
+                                        aria-label="Enviar por MD"
+                                        onClick={() => runAction(payment, 'md')}
+                                      >
+                                        {busyKey === `md:${payment.id}`
+                                          ? <Loader2 size={13} className="spin" aria-hidden="true" />
+                                          : <MessageSquare size={13} aria-hidden="true" />}
+                                        <span>MD</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="payment-receipts-chip tone-edit"
+                                        disabled={rowBusy || String(payment.method || '').toLowerCase() === 'mixto'}
+                                        title={String(payment.method || '').toLowerCase() === 'mixto'
+                                          ? 'Pago mixto: anulá y cobrá de nuevo'
+                                          : 'Cambiar medio de pago'}
+                                        aria-label="Cambiar medio de pago"
+                                        onClick={() => openMethodEdit(payment)}
+                                      >
+                                        <Pencil size={13} aria-hidden="true" />
+                                        <span>Medio</span>
+                                      </button>
+                                      {canVoid ? (
+                                        <button
+                                          type="button"
+                                          className="payment-receipts-chip tone-void"
+                                          disabled={rowBusy}
+                                          title="Anular cobro · revierte saldo, imputaciones y caja"
+                                          aria-label="Anular cobro"
+                                          onClick={() => openVoidEdit(payment)}
+                                        >
+                                          <Ban size={13} aria-hidden="true" />
+                                          <span>Anular</span>
+                                        </button>
+                                      ) : null}
+                                    </>
                                   ) : null}
                                 </div>
                                 {methodEditId === payment.id ? (
