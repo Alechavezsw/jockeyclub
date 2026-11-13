@@ -62,7 +62,7 @@ function cashWalletKind(row) {
 }
 
 function cashAccountName(kind) {
-  return kind === 'bank' ? 'Banco Nación' : 'Caja General';
+  return kind === 'bank' ? 'Banco Macro' : 'Caja General';
 }
 
 export function buildLilaCashJournalEntries(movements = []) {

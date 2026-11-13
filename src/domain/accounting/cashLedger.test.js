@@ -146,7 +146,7 @@ describe('saldo de caja al día', () => {
 
 describe('enrichCashMovementsWithMembers', () => {
   it('lee Cred. aunque la descripción traiga fechas y GF', () => {
-    const desc = 'Cobro cuota social (Transferencia Banco Nación) - Socio: Maria Florencia Ramirez Pericas (Cred. 101600) · Comp: Manual · GF-101600-20261109';
+    const desc = 'Cobro cuota social (Transferencia Banco Macro) - Socio: Maria Florencia Ramirez Pericas (Cred. 101600) · Comp: Manual · GF-101600-20261109';
     expect(cashMovementMemberDigits({ description: desc })).toBe('101600');
     const [row] = enrichCashMovementsWithMembers(
       [{ id: '1', description: desc, memberNumber: '' }],

@@ -96,20 +96,20 @@ describe('exportPaymentReceiptPdf helpers', () => {
   it('muestra Transferencia bancaria sin el nombre del banco', () => {
     expect(receiptMethodLabel({
       method: 'transferencia',
-      methodLabel: 'Transferencia Banco Nación',
-      bankName: 'Banco Nación',
+      methodLabel: 'Transferencia Banco Macro',
+      bankName: 'Banco Macro',
     })).toBe('Transferencia bancaria');
   });
 
-  it('no pone Banco Nación como cuenta; usa el alias', () => {
+  it('no pone Banco Macro como cuenta; usa el alias', () => {
     expect(accountLabel({
       method: 'transferencia',
-      bankId: 'nacion',
-      bankName: 'Banco Nación',
+      bankId: 'macro',
+      bankName: 'Banco Macro',
     })).toBe('Alias Jockey.club.sj');
     expect(accountLabel({
       method: 'transferencia',
-      bankName: 'Banco Nación',
+      bankName: 'Banco Macro',
     })).not.toMatch(/nación/i);
   });
 });

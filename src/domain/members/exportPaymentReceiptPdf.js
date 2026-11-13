@@ -202,7 +202,7 @@ export function receiptMethodLabel(payment) {
 
 /**
  * Destino acreditado (solo alias / caja).
- * Nunca el nombre del banco (“Banco Nación”): eso no es la cuenta del recibo.
+ * Nunca el nombre del banco (“Banco Macro”): eso no es la cuenta del recibo.
  */
 export function accountLabel(payment) {
   if (payment?.method === 'mercadopago') {

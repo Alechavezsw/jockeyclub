@@ -136,7 +136,7 @@ export default function MonthClosePanel({
           <p>Cuentas de gasto del mes</p>
         </div>
         <div className="mb-folio-kpi is-cash">
-          <dt>Banco Nación</dt>
+          <dt>Banco Macro</dt>
           <dd>{formatCurrency(report.bankAmount)}</dd>
           <p>Saldo de libro para el extracto</p>
         </div>

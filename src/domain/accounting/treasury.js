@@ -214,7 +214,7 @@ export function buildUnidentifiedMatchEntry(item, chart) {
     date: item.date || todayISODateAR(),
     description: `Cobranza identificada ${item.bankRef || item.originLabel || ''}`.trim(),
     lines: [
-      { account: 'Banco Nación', type: 'debit', amount },
+      { account: 'Banco Macro', type: 'debit', amount },
       { account: 'Cuotas Sociales', type: 'credit', amount },
     ],
     sourceModule: 'tesoreria',
@@ -230,7 +230,7 @@ export function buildGaliciaSettledEntry(item, chart) {
     date: item.scheduledDate || todayISODateAR(),
     description: `Débito Galicia acreditado — ${item.memberName || item.memberId || ''}`.trim(),
     lines: [
-      { account: 'Banco Nación', type: 'debit', amount },
+      { account: 'Banco Macro', type: 'debit', amount },
       { account: 'Cuotas Sociales', type: 'credit', amount },
     ],
     sourceModule: 'tesoreria',
@@ -247,7 +247,7 @@ export function buildPaymentOrderPaidEntry(order, chart) {
     description: `Orden de pago ${order.number || ''} — ${order.payee || order.beneficiary || ''}`.trim(),
     lines: [
       { account: 'Servicios e Insumos', type: 'debit', amount },
-      { account: 'Banco Nación', type: 'credit', amount },
+      { account: 'Banco Macro', type: 'credit', amount },
     ],
     sourceModule: 'tesoreria',
     chart,

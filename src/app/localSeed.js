@@ -91,7 +91,7 @@ export const DEFAULT_JOURNAL_ENTRIES = [
     date: '2026-05-01',
     description: 'Suscripción e integración de capital social inicial por socios fundadores JCSJ',
     lines: [
-      { account: 'Banco Nación', type: 'debit', amount: 3000000 },
+      { account: 'Banco Macro', type: 'debit', amount: 3000000 },
       { account: 'Caja', type: 'debit', amount: 2000000 },
       { account: 'Capital Social', type: 'credit', amount: 5000000 }
     ]
@@ -135,9 +135,9 @@ export const DEFAULT_JOURNAL_ENTRIES = [
   {
     id: 6,
     date: '2026-04-05',
-    description: 'Cobro cuota social (Transferencia Banco Nación) - Socio: Alejandro Chávez (Cred. 202688...)',
+    description: 'Cobro cuota social (Transferencia Banco Macro) - Socio: Alejandro Chávez (Cred. 202688...)',
     lines: [
-      { account: 'Banco Nación', type: 'debit', amount: 45000 },
+      { account: 'Banco Macro', type: 'debit', amount: 45000 },
       { account: 'Cuotas Sociales', type: 'credit', amount: 45000 }
     ],
     sourceModule: 'cuotas',
@@ -157,7 +157,7 @@ export const DEFAULT_JOURNAL_ENTRIES = [
     date: '2026-06-02',
     description: 'Cobro cuota social (Mercado Pago) - Socio: Victoria Cantoni (Cred. 202044...)',
     lines: [
-      { account: 'Banco Nación', type: 'debit', amount: 38000 },
+      { account: 'Mercado Pago', type: 'debit', amount: 38000 },
       { account: 'Cuotas Sociales', type: 'credit', amount: 38000 }
     ],
     sourceModule: 'cuotas',
@@ -334,7 +334,7 @@ export const DEFAULT_STAFF = [
     activities: [
       { id: 1, time: '08:30', date: '2026-05-19', description: 'Apertura de terminal and arqueo inicial de caja.' },
       { id: 2, time: '11:00', date: '2026-05-19', description: 'Procesó pagos de cuotas sociales de socios en secretaría.' },
-      { id: 3, time: '15:30', date: '2026-05-19', description: 'Conciliación de transferencias de Banco Nación recibidas.' }
+      { id: 3, time: '15:30', date: '2026-05-19', description: 'Conciliación de transferencias de Banco Macro recibidas.' }
     ],
     attendance: [
       { date: '2026-07-22', checkIn: '08:00', checkOut: '16:00', status: 'present' },

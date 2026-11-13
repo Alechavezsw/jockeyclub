@@ -1851,8 +1851,8 @@ export default function AccountingTab({
             const result = recordDuesCollection(member, {
               method: 'transferencia',
               amount: payAmt > 0 ? payAmt : null,
-              bankId: 'nacion',
-              bankName: 'Banco Nación',
+              bankId: 'macro',
+              bankName: 'Banco Macro',
               receiptName: matched.bankRef || matched.originLabel || 'Cobranza identificada',
               treasuryMatch: true,
               members,

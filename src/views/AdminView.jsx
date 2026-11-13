@@ -867,7 +867,7 @@ export default function AdminView({
     return accountsArray.reduce((sum, acc) => sum + getAccountBalance(acc), 0);
   };
 
-  const journalCash = getCategoryTotal(['Caja General', 'Caja Cantina', 'Banco Nación', 'AMET']);
+  const journalCash = getCategoryTotal(['Caja General', 'Caja Cantina', 'Banco Macro', 'Mercado Pago', 'AMET']);
   const totalPasivos = getCategoryTotal(['Proveedores Hípicos', 'Sueldos a Pagar', 'Impuestos Pendientes']);
   const totalPatrimonioNetoBase = getCategoryTotal(['Capital Social', 'Resultados Acumulados']);
 

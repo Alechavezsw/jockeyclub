@@ -52,7 +52,7 @@ describe('libro diario oficial', () => {
     expect(cashIn.lines[0].amount).toBe(60000);
     expect(cashIn.description).toMatch(/2 ingresos/);
     expect(cashOut.lines[0].amount).toBe(5000);
-    expect(bankIn.lines[0].account).toBe('Banco Nación');
+    expect(bankIn.lines[0].account).toBe('Banco Macro');
     expect(entries.every((row) => row.origin === 'lila')).toBe(true);
   });
 

@@ -225,7 +225,7 @@ export function buildMonthCloseReport({
       order: 3,
       title: 'Controlar cajas y medios de cobro',
       tone: 'watch',
-      detail: `Banco Nación ${pesos(bank?.amount)}. Se confronta con el extracto. En caja ${pesos(month.totalIncomeCash)}. Egresos de caja ${pesos(month.cashOut)}.${methods.length ? ` Medios: ${methods.map((row) => `${row.label} ${pesos(row.amount)}`).join(', ')}.` : ''}`,
+      detail: `Banco Macro ${pesos(bank?.amount)}. Se confronta con el extracto. En caja ${pesos(month.totalIncomeCash)}. Egresos de caja ${pesos(month.cashOut)}.${methods.length ? ` Medios: ${methods.map((row) => `${row.label} ${pesos(row.amount)}`).join(', ')}.` : ''}`,
       lines: cashLines,
     },
     {

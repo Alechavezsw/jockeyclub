@@ -2,12 +2,20 @@
 
 export const CLUB_BANK_ACCOUNTS = [
   {
-    id: 'nacion',
-    name: 'Banco Nación',
+    id: 'macro',
+    name: 'Banco Macro',
     accountName: 'Jockey Club San Juan',
-    cbu: '0110599520000001234567',
+    cbu: '2850590940094123456789',
     alias: 'Jockey.club.sj',
-    journalAccount: 'Banco Nación',
+    journalAccount: 'Banco Macro',
+  },
+  {
+    id: 'mercadopago',
+    name: 'Mercado Pago',
+    accountName: 'Jockey Club San Juan',
+    cbu: '',
+    alias: 'jockey.club.sj.mp',
+    journalAccount: 'Mercado Pago',
   },
 ];
 
@@ -16,7 +24,7 @@ export const MERCADO_PAGO = {
   name: 'Mercado Pago',
   alias: 'jockey.club.sj.mp',
   cvu: '0000003100012345678901',
-  journalAccount: 'Banco Nación',
+  journalAccount: 'Mercado Pago',
 };
 
 export const AMET_CASH_ACCOUNT = {

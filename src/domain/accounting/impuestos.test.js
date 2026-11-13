@@ -327,7 +327,7 @@ describe('posición fiscal viva', () => {
         date: '2026-10-13',
         status: 'posted',
         lines: [
-          { account: 'Banco Nación', type: 'debit', amount: 1462000 },
+          { account: 'Banco Macro', type: 'debit', amount: 1462000 },
           { account: 'Cuentas a Cobrar', type: 'credit', amount: 1462000 },
         ],
       }],
@@ -337,14 +337,14 @@ describe('posición fiscal viva', () => {
     expect(live.activity.some((row) => row.origin === 'cobro' && row.total === 1462000)).toBe(true);
   });
 
-  it('trata Banco Nación como tesorería aunque el plan no lo marque caja', () => {
+  it('trata Banco Macro como tesorería aunque el plan no lo marque caja', () => {
     const live = buildLiveImpuestos({
       period: '2026-10',
       profile: DEFAULT_FISCAL_PROFILE,
       chartOfAccounts: [{
         id: 'bank-1',
         code: '1.1.03',
-        name: 'Banco Nación',
+        name: 'Banco Macro',
         accountType: 'asset',
         isCashAccount: false,
       }],
@@ -352,7 +352,7 @@ describe('posición fiscal viva', () => {
         date: '2026-10-13',
         status: 'posted',
         lines: [
-          { account: 'Banco Nación', type: 'debit', amount: 3385635 },
+          { account: 'Banco Macro', type: 'debit', amount: 3385635 },
           { account: 'Cuentas a Cobrar', type: 'credit', amount: 3385635 },
         ],
       }],

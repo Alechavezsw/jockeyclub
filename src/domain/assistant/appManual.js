@@ -231,7 +231,7 @@ export const APP_MANUAL = [
     steps: [
       'El aviso del socio llega como mensaje a la bandeja de Operaciones (Comunicación → Mensajería → MD), con el comprobante adjunto.',
       'Verificá en el banco que la plata esté acreditada. El aviso solo avisa: no cobra ni cambia el saldo.',
-      'Con socio conocido: Abrí la ficha → Cobrar → Transferencia. Entra directo como cuota (saldo + Banco Nación / Cuotas). No pasa por caja para “imputar después”.',
+      'Con socio conocido: Abrí la ficha → Cobrar → Transferencia. Entra directo como cuota (saldo + Banco Macro / Mercado Pago / Cuotas). No pasa por caja para “imputar después”.',
       'Adjuntá el comprobante: sin archivo no confirma. El recibo le llega al socio por mensaje.',
       'Si el socio no es el titular, el cobro entra en la cuenta del titular.',
       'Sin número de socio o número inexistente: Contabilidad → Sin identificar. Al identificar el socio, también entra directo como cuota (baja la cuenta corriente). Jev avisa mientras esté pendiente.',

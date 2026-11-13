@@ -21,7 +21,7 @@ const event = {
 const member = { memberId: '123', name: 'Ana Pérez', status: 'active' };
 const chart = [
   { id: 'coa-1.1.01', code: '1.1.01', name: 'Caja General' },
-  { id: 'coa-1.1.03', code: '1.1.03', name: 'Banco Nación' },
+  { id: 'coa-1.1.03', code: '1.1.03', name: 'Banco Macro' },
   { id: 'coa-4.1.03', code: '4.1.03', name: 'Eventos y Fiestas' },
 ];
 

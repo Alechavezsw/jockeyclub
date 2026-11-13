@@ -14,9 +14,10 @@ describe('journalAccountForPayment', () => {
     expect(journalAccountForPayment('tarjeta')).toBe(CASH_JOURNAL_ACCOUNT);
   });
 
-  it('Mercado Pago y transferencia usan el banco del club', () => {
-    expect(journalAccountForPayment('mercadopago')).toBe(MERCADO_PAGO.journalAccount);
-    expect(journalAccountForPayment('transferencia', 'nacion')).toBe('Banco Nación');
+  it('Mercado Pago y transferencia usan las cuentas del club', () => {
+    expect(journalAccountForPayment('mercadopago')).toBe('Mercado Pago');
+    expect(journalAccountForPayment('transferencia', 'macro')).toBe('Banco Macro');
+    expect(journalAccountForPayment('transferencia', 'mercadopago')).toBe('Mercado Pago');
     expect(journalAccountForPayment('transferencia', 'desconocido')).toBe(CLUB_BANK_ACCOUNTS[0].journalAccount);
   });
 });
@@ -38,11 +39,11 @@ describe('buildMercadoPagoQrPayload', () => {
 });
 
 describe('cuentas institucionales', () => {
-  it('tiene Nación, MP y AMET con cuenta de asiento', () => {
-    expect(CLUB_BANK_ACCOUNTS[0].id).toBe('nacion');
+  it('tiene Macro y Mercado Pago (sin Nación)', () => {
+    expect(CLUB_BANK_ACCOUNTS.map((b) => b.id)).toEqual(['macro', 'mercadopago']);
+    expect(CLUB_BANK_ACCOUNTS.some((b) => b.id === 'nacion')).toBe(false);
     expect(CLUB_BANK_ACCOUNTS[0].alias).toBe('Jockey.club.sj');
-    expect(CLUB_BANK_ACCOUNTS[0].cbu).toHaveLength(22);
-    expect(MERCADO_PAGO.journalAccount).toBeTruthy();
+    expect(MERCADO_PAGO.journalAccount).toBe('Mercado Pago');
     expect(AMET_CASH_ACCOUNT.journalAccount).toBe('AMET');
   });
 });

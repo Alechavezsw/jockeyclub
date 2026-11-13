@@ -177,7 +177,7 @@ const TREASURY_ACCOUNT_BY_METHOD = {
   cheque: 'coa-1.1.01',
   tarjeta: 'coa-1.1.01',
   transferencia: 'coa-1.1.03',
-  mercadopago: 'coa-1.1.03',
+  mercadopago: 'coa-1.1.08',
   debito: 'coa-1.1.03',
   otro: 'coa-1.1.01',
 };

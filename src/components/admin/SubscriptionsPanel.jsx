@@ -64,7 +64,7 @@ export default function SubscriptionsPanel() {
         </p>
         <p className="ops-muted" style={{ margin: 0, maxWidth: 760 }}>
           El débito del día 10 cobra la cuota de ese mes, sin el 10 % y sin los meses atrasados.
-          Cuando Mercado Pago confirma, el dinero entra en Caja: débito en Banco Nación y crédito en Cuotas Sociales.
+          Cuando Mercado Pago confirma, el dinero entra en Caja: débito en Mercado Pago y crédito en Cuotas Sociales.
           Baja el capital de la cuota, el recibo nombra el mes y se manda solo. La mora y la deuda anterior se cobran aparte.
         </p>
       </article>

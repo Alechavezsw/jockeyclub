@@ -14,8 +14,8 @@ import {
 const base = {
   id: 'bank-1',
   accessinId: 1,
-  walletId: 'wallet-nacion',
-  bankName: 'Banco Nación',
+  walletId: 'wallet-macro',
+  bankName: 'Banco Macro',
   subtitle: 'Cuenta corriente',
   cbu: '0110599520000001234567',
   balance: 1000,
@@ -54,14 +54,14 @@ describe('normalizeBankAccountInput', () => {
 describe('upsert y baja', () => {
   it('alta al frente y edición por id', () => {
     const list = upsertBankAccount([], {
-      bankName: 'Banco Nación',
+      bankName: 'Banco Macro',
       cbu: '0110599520000001234567',
       balance: 10,
     });
     expect(list).toHaveLength(1);
     const edited = upsertBankAccount(list, {
       id: list[0].id,
-      bankName: 'Banco Nación',
+      bankName: 'Banco Macro',
       cbu: '0110599520000001234567',
       balance: 99,
     });
@@ -83,7 +83,7 @@ describe('filterBankAccounts y total', () => {
       { ...base, id: 'bank-2', accessinId: 2, bankName: 'Galicia', balance: 500, isActive: false },
     ];
     expect(bankAccountsTotal(rows)).toBe(1000);
-    expect(filterBankAccounts(rows, 'nación')).toHaveLength(1);
+    expect(filterBankAccounts(rows, 'macro')).toHaveLength(1);
     expect(filterBankAccounts(rows, 'galicia')).toHaveLength(0);
   });
 });
@@ -98,7 +98,7 @@ describe('applyBankAccountEntry', () => {
     expect(accounts[0].balance).toBe(750);
     expect(movement.movementType).toBe('expense');
     expect(movement.amount).toBe(250);
-    expect(movement.walletId).toBe('wallet-nacion');
+    expect(movement.walletId).toBe('wallet-macro');
   });
 
   it('rechaza monto 0 o cuenta inexistente', () => {
@@ -110,9 +110,9 @@ describe('applyBankAccountEntry', () => {
 describe('movementsForBankAccount / snapshot / resolve', () => {
   it('lista movimientos del wallet', () => {
     const list = movementsForBankAccount([
-      { walletId: 'wallet-nacion', date: '2026-10-02', amount: 1 },
+      { walletId: 'wallet-macro', date: '2026-10-02', amount: 1 },
       { walletId: 'other', date: '2026-10-03', amount: 2 },
-      { walletName: 'Banco Nación', date: '2026-10-01', amount: 3 },
+      { walletName: 'Banco Macro', date: '2026-10-01', amount: 3 },
     ], base);
     expect(list.map((m) => m.date)).toEqual(['2026-10-02', '2026-10-01']);
   });

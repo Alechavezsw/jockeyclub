@@ -208,7 +208,7 @@ describe('payMemberDues', () => {
 
     expect(() => validatePaymentSplits([
       { method: 'efectivo', amount: 500 },
-      { method: 'transferencia', amount: 500, bankId: 'nacion', bankName: 'Banco Nación' },
+      { method: 'transferencia', amount: 500, bankId: 'macro', bankName: 'Banco Macro' },
     ], 1000)).toThrow(/comprobante de la transferencia/i);
 
     const ok = validatePaymentSplits([
@@ -216,8 +216,8 @@ describe('payMemberDues', () => {
       {
         method: 'transferencia',
         amount: 500,
-        bankId: 'nacion',
-        bankName: 'Banco Nación',
+        bankId: 'macro',
+        bankName: 'Banco Macro',
         receiptName: 'tr.pdf',
         receiptAttachment: { path: '1/tr.pdf', bucket: 'dues-receipts', name: 'tr.pdf' },
       },
@@ -267,8 +267,8 @@ describe('payMemberDues', () => {
         {
           method: 'transferencia',
           amount: 19600,
-          bankId: 'nacion',
-          bankName: 'Banco Nación',
+          bankId: 'macro',
+          bankName: 'Banco Macro',
           receiptName: 'tr.pdf',
           receiptAttachment: {
             path: '11017/tr.pdf',
@@ -285,7 +285,7 @@ describe('payMemberDues', () => {
     expect(result.payment.paymentSplits).toHaveLength(2);
     expect(result.journalEntry.lines.filter((l) => l.type === 'debit')).toEqual([
       { account: 'Caja General', type: 'debit', amount: 20000 },
-      { account: 'Banco Nación', type: 'debit', amount: 19600 },
+      { account: 'Banco Macro', type: 'debit', amount: 19600 },
     ]);
     expect(result.journalEntry.lines.find((l) => l.type === 'credit')?.amount).toBe(39600);
   });
@@ -338,8 +338,8 @@ describe('payMemberDues', () => {
     };
     const result = recordDuesCollection(member, {
       method: 'transferencia',
-      bankId: 'nacion',
-      bankName: 'Banco Nación',
+      bankId: 'macro',
+      bankName: 'Banco Macro',
       receiptName: 'comprobante.pdf',
       receiptAttachment: {
         path: '11017/abc.pdf',
@@ -352,7 +352,7 @@ describe('payMemberDues', () => {
     });
     expect(result.payment.receiptName).toBe('comprobante.pdf');
     expect(result.payment.receiptPath).toBe('11017/abc.pdf');
-    expect(result.journalEntry.lines[0].account).toBe('Banco Nación');
+    expect(result.journalEntry.lines[0].account).toBe('Banco Macro');
     expect(result.journalEntry.description).toMatch(/Comp: comprobante.pdf/);
   });
 
@@ -365,14 +365,14 @@ describe('payMemberDues', () => {
 
     const result = recordDuesCollection(member, {
       method: 'transferencia',
-      bankId: 'nacion',
-      bankName: 'Banco Nación',
+      bankId: 'macro',
+      bankName: 'Banco Macro',
       receiptParse: {
         source: 'manual',
         reference: 'OP-8841',
         amount: 1000,
         date: '2026-09-05',
-        bankOrCard: 'Banco Nación',
+        bankOrCard: 'Banco Macro',
       },
       today: new Date('2026-09-05T12:00:00'),
     });
@@ -410,8 +410,8 @@ describe('payMemberDues', () => {
     };
     const result = recordDuesCollection(member, {
       method: 'transferencia',
-      bankId: 'nacion',
-      bankName: 'Banco Nación',
+      bankId: 'macro',
+      bankName: 'Banco Macro',
       receiptName: 'REF-BANCO',
       treasuryMatch: true,
       amount: 32000,
@@ -419,7 +419,7 @@ describe('payMemberDues', () => {
     });
     expect(result.member.outstandingBalance).toBe(0);
     expect(result.payment.method).toBe('transferencia');
-    expect(result.journalEntry.lines[0].account).toBe('Banco Nación');
+    expect(result.journalEntry.lines[0].account).toBe('Banco Macro');
     expect(result.journalEntry.lines[1].account).toBe('Cuotas Sociales');
   });
 
@@ -712,8 +712,8 @@ describe('payMemberDues', () => {
         {
           method: 'transferencia',
           amount: 19600,
-          bankId: 'nacion',
-          bankName: 'Banco Nación',
+          bankId: 'macro',
+          bankName: 'Banco Macro',
           receiptName: 'tr.pdf',
           receiptAttachment: {
             path: '11017/tr.pdf',
@@ -734,7 +734,7 @@ describe('payMemberDues', () => {
     expect(voided.member.outstandingBalance).toBe(39600);
     expect(voided.journalEntry.lines.filter((l) => l.type === 'credit')).toEqual([
       { account: 'Caja General', type: 'credit', amount: 20000 },
-      { account: 'Banco Nación', type: 'credit', amount: 19600 },
+      { account: 'Banco Macro', type: 'credit', amount: 19600 },
     ]);
     expect(voided.journalEntry.lines.find((l) => l.type === 'debit')?.amount).toBe(39600);
   });

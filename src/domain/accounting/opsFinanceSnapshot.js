@@ -137,6 +137,8 @@ export function buildOpsFinanceSnapshot({
   const cashToday = typeof getAccountBalance === 'function'
     ? (Number(getAccountBalance('Caja General')) || 0)
       + (Number(getAccountBalance('Caja Cantina')) || 0)
+      + (Number(getAccountBalance('Banco Macro')) || 0)
+      + (Number(getAccountBalance('Mercado Pago')) || 0)
       + (Number(getAccountBalance('Banco Nación')) || 0)
     : 0;
 

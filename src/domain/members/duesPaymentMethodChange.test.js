@@ -16,8 +16,8 @@ describe('changeDuesPaymentMethod', () => {
   it('cambia efectivo a transferencia y deja rastro', () => {
     const next = changeDuesPaymentMethod(base, {
       method: 'transferencia',
-      bankId: 'nacion',
-      bankName: 'Banco Nación',
+      bankId: 'macro',
+      bankName: 'Banco Macro',
       changedBy: 'user-1',
       changedByName: 'Paula Cuello',
       reason: 'Se cargó efectivo por error',
@@ -50,7 +50,7 @@ describe('changeDuesPaymentMethod', () => {
   it('reescribe el concepto del asiento con el nuevo medio', () => {
     expect(rewriteDuesCobroConcept(
       'Cobro cuota social (Efectivo) - Socio: Ana (Cred. 1)',
-      'Transferencia Banco Nación',
-    )).toBe('Cobro cuota social (Transferencia Banco Nación) - Socio: Ana (Cred. 1)');
+      'Transferencia Banco Macro',
+    )).toBe('Cobro cuota social (Transferencia Banco Macro) - Socio: Ana (Cred. 1)');
   });
 });

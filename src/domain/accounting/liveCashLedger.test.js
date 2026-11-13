@@ -55,7 +55,7 @@ describe('liveCashLedger', () => {
       chartOfAccounts: DEFAULT_CHART_OF_ACCOUNTS,
       journalEntries: [
         cobro({ id: 'je-live-1', date: '2026-10-15', amount: 50 }),
-        cobro({ id: 'je-live-2', date: '2026-10-16', amount: 80, account: 'Banco Nación' }),
+        cobro({ id: 'je-live-2', date: '2026-10-16', amount: 80, account: 'Banco Macro' }),
         cobro({ id: 'je-old', date: '2026-10-12', amount: 999 }),
       ],
       today: TODAY,

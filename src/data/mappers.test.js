@@ -405,7 +405,7 @@ describe('mappers', () => {
       meta: {
         paymentSplits: [
           { method: 'efectivo', amount: 20000 },
-          { method: 'transferencia', amount: 30000, bankName: 'Banco Nación' },
+          { method: 'transferencia', amount: 30000, bankName: 'Banco Macro' },
         ],
       },
     });
