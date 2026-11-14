@@ -4,13 +4,16 @@ import {
   appPaymentRequestAmountLabel,
   appPaymentRequestBankId,
   appPaymentRequestCollectMethod,
+  appPaymentRequestCollectionLabel,
   appPaymentRequestMemberId,
   appPaymentRequestMethodLabel,
   appPaymentRequestReceipt,
+  findAppPaymentRequestCollection,
   isAppPaymentAuto,
   isAppPaymentRequest,
   isOpenAppPaymentRequest,
   listOpenAppPaymentRequests,
+  parseAppPaymentAmountLabel,
   withAppPaymentHandled,
 } from './appPaymentRequests';
 
@@ -62,5 +65,34 @@ describe('appPaymentRequests', () => {
     expect(appPaymentRequestCollectMethod(transfer)).toBe('transferencia');
     expect(appPaymentRequestBankId(transfer)).toBe('macro');
     expect(appPaymentRequestReceipt(transfer)?.path).toBe('uid/comp.jpg');
+  });
+
+  it('detecta si la solicitud ya tiene cobro imputado', () => {
+    expect(parseAppPaymentAmountLabel('$ 77.000')).toBe(77000);
+    const notice = {
+      ...transfer,
+      date: '2026-11-12',
+      content: 'Leonardo envió el comprobante.\nImporte: $ 77.000',
+      meta: { kind: 'dues_payment', method: 'transferencia' },
+    };
+    const member = {
+      memberId: '101559',
+      paymentHistory: [
+        {
+          amount: 70000,
+          method: 'transferencia',
+          date: '2026-11-12',
+          receiptNumber: 'RC-101559-20261112',
+          status: 'paid',
+        },
+      ],
+    };
+    const hit = findAppPaymentRequestCollection(notice, member);
+    expect(hit?.receiptNumber).toBe('RC-101559-20261112');
+    expect(appPaymentRequestCollectionLabel(hit)).toMatch(/Ya imputado y cobrado/);
+    expect(findAppPaymentRequestCollection(notice, {
+      ...member,
+      paymentHistory: [{ amount: 1000, method: 'efectivo', date: '2026-11-12' }],
+    })).toBeNull();
   });
 });

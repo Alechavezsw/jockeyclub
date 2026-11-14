@@ -28515,6 +28515,18 @@ button.debit-moves-row:disabled {
   background: var(--bg-secondary);
 }
 
+.members-app-desk__incoming-card.is-collected {
+  border-color: color-mix(in srgb, var(--emerald-accent, #096755) 35%, var(--border-glass));
+  background: color-mix(in srgb, var(--emerald-accent, #096755) 8%, var(--bg-secondary));
+}
+
+.members-app-desk__incoming-status {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--emerald-accent, #096755);
+}
+
 .members-app-desk__incoming-main {
   display: grid;
   gap: 0.2rem;

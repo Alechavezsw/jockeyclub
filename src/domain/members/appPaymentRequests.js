@@ -79,6 +79,105 @@ export function appPaymentRequestAmountLabel(message) {
   return match ? String(match[1] || '').trim() : '';
 }
 
+/** Parsea «$ 77.000» / «77000» a número. */
+export function parseAppPaymentAmountLabel(label) {
+  const raw = String(label || '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/[^\d,.-]/g, '')
+    .trim();
+  if (!raw) return null;
+  if (raw.includes(',') && raw.includes('.')) {
+    const n = Number(raw.replace(/\./g, '').replace(',', '.'));
+    return Number.isFinite(n) ? n : null;
+  }
+  if (raw.includes(',')) {
+    const n = Number(raw.replace(',', '.'));
+    return Number.isFinite(n) ? n : null;
+  }
+  if (/^\d{1,3}(\.\d{3})+$/.test(raw)) {
+    const n = Number(raw.replace(/\./g, ''));
+    return Number.isFinite(n) ? n : null;
+  }
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+function paymentDay(row) {
+  return String(row?.date || row?.paidAt || row?.createdAt || '').slice(0, 10);
+}
+
+function daysBetween(a, b) {
+  const left = Date.parse(`${a}T12:00:00`);
+  const right = Date.parse(`${b}T12:00:00`);
+  if (!Number.isFinite(left) || !Number.isFinite(right)) return Infinity;
+  return Math.abs(left - right) / 86400000;
+}
+
+function methodsCompatible(noticeMethod, paymentMethod) {
+  const notice = String(noticeMethod || '').toLowerCase();
+  const pay = String(paymentMethod || '').toLowerCase();
+  if (!notice || !pay) return false;
+  if (notice === pay) return true;
+  if (notice === 'mercadopago' && (pay === 'mercadopago' || pay === 'debito')) return true;
+  if (notice === 'debito' && (pay === 'debito' || pay === 'mercadopago')) return true;
+  if (notice === 'transferencia' && pay === 'transferencia') return true;
+  if (notice === 'tarjeta' && (pay === 'tarjeta' || pay === 'card')) return true;
+  return false;
+}
+
+/**
+ * Si ya hay un cobro del socio que cuadra con la solicitud (mismo medio,
+ * importe parecido, ±7 días), la operación ya estaba imputada.
+ */
+export function findAppPaymentRequestCollection(message, member, { windowDays = 7 } = {}) {
+  if (!isAppPaymentRequest(message) || !member) return null;
+  const history = Array.isArray(member.paymentHistory) ? member.paymentHistory : [];
+  if (!history.length) return null;
+
+  const noticeMethod = String(message?.meta?.method || '').toLowerCase();
+  const noticeAmount = parseAppPaymentAmountLabel(appPaymentRequestAmountLabel(message));
+  const noticeDay = String(message?.date || message?.createdAt || '').slice(0, 10);
+  if (!noticeDay) return null;
+
+  let best = null;
+  let bestScore = Infinity;
+  for (const row of history) {
+    if (String(row?.status || 'paid').toLowerCase() === 'void') continue;
+    if (!methodsCompatible(noticeMethod, row?.method)) continue;
+    const day = paymentDay(row);
+    if (!day || daysBetween(noticeDay, day) > windowDays) continue;
+    const paid = Number(row?.amount);
+    if (!Number.isFinite(paid) || paid <= 0) continue;
+    if (noticeAmount != null && noticeAmount > 0) {
+      const ratio = paid / noticeAmount;
+      // Exacto, o aviso con 10 % vs cobro solo capital (y al revés).
+      const close = Math.abs(paid - noticeAmount) <= 1
+        || Math.abs(paid - noticeAmount / 1.1) <= 1
+        || Math.abs(paid - noticeAmount * 1.1) <= 1
+        || (ratio >= 0.85 && ratio <= 1.15);
+      if (!close) continue;
+    }
+    const score = daysBetween(noticeDay, day) + (noticeAmount != null
+      ? Math.abs(paid - noticeAmount) / Math.max(noticeAmount, 1)
+      : 0);
+    if (score < bestScore) {
+      bestScore = score;
+      best = row;
+    }
+  }
+  return best || null;
+}
+
+export function appPaymentRequestCollectionLabel(payment) {
+  if (!payment) return '';
+  const receipt = payment.receiptNumber || payment.receipt || '';
+  const day = paymentDay(payment);
+  if (receipt && day) return `Ya imputado y cobrado · ${receipt} · ${day}`;
+  if (receipt) return `Ya imputado y cobrado · ${receipt}`;
+  if (day) return `Ya imputado y cobrado · ${day}`;
+  return 'Ya imputado y cobrado';
+}
+
 /** Comprobante ya subido por el socio (path en Storage). */
 export function appPaymentRequestReceipt(message) {
   const attachment = message?.meta?.attachment;

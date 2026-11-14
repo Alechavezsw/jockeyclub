@@ -57,10 +57,12 @@ import {
   appPaymentRequestAmountLabel,
   appPaymentRequestBankId,
   appPaymentRequestCollectMethod,
+  appPaymentRequestCollectionLabel,
   appPaymentRequestKindLabel,
   appPaymentRequestMemberId,
   appPaymentRequestMethodLabel,
   appPaymentRequestReceipt,
+  findAppPaymentRequestCollection,
   isAppPaymentAuto,
   listOpenAppPaymentRequests,
   withAppPaymentHandled,
@@ -201,6 +203,8 @@ export default function MembersWithAppPanel({
   const [msgBody, setMsgBody] = useState('');
   const [msgBusy, setMsgBusy] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
+  /** messageId → cobro ya imputado (si cuadra con la solicitud). */
+  const [incomingCollectedById, setIncomingCollectedById] = useState({});
 
   const withApp = useMemo(
     () => (members || []).filter((m) => memberHasPortalAccess(m)),
@@ -211,6 +215,58 @@ export default function MembersWithAppPanel({
     () => listOpenAppPaymentRequests(messages),
     [messages],
   );
+
+  const incomingSignature = useMemo(
+    () => incomingPayments.map((row) => row.id).join('|'),
+    [incomingPayments],
+  );
+
+  useEffect(() => {
+    if (listFilter !== 'incoming' || !incomingPayments.length) {
+      setIncomingCollectedById({});
+      return undefined;
+    }
+    let cancelled = false;
+    const run = async () => {
+      const byNumber = new Map();
+      for (const msg of incomingPayments) {
+        const number = appPaymentRequestMemberId(msg);
+        if (!number) continue;
+        if (!byNumber.has(number)) byNumber.set(number, []);
+        byNumber.get(number).push(msg);
+      }
+
+      const loaded = new Map();
+      await Promise.all([...byNumber.keys()].map(async (number) => {
+        const fromList = (members || []).find((row) => String(row.memberId) === String(number));
+        if (Array.isArray(fromList?.paymentHistory) && fromList.paymentHistory.length) {
+          loaded.set(number, fromList);
+          return;
+        }
+        if (!isSupabaseConfigured) {
+          if (fromList) loaded.set(number, fromList);
+          return;
+        }
+        try {
+          const fresh = await repos.getMemberByNumber(number, { withPayments: true });
+          if (fresh) loaded.set(number, fresh);
+          else if (fromList) loaded.set(number, fromList);
+        } catch {
+          if (fromList) loaded.set(number, fromList);
+        }
+      }));
+      if (cancelled) return;
+
+      const next = {};
+      for (const msg of incomingPayments) {
+        const number = appPaymentRequestMemberId(msg);
+        next[msg.id] = findAppPaymentRequestCollection(msg, loaded.get(number) || null) || null;
+      }
+      setIncomingCollectedById(next);
+    };
+    void run();
+    return () => { cancelled = true; };
+  }, [listFilter, incomingSignature, incomingPayments, members]);
 
   const filteredWithApp = useMemo(() => {
     if (listFilter === 'debt') {
@@ -836,10 +892,18 @@ export default function MembersWithAppPanel({
             <ul className="members-app-desk__incoming-list">
               {incomingPayments.map((msg) => {
                 const memberId = appPaymentRequestMemberId(msg);
-                const member = withApp.find((row) => String(row.memberId) === memberId);
+                const member = withApp.find((row) => String(row.memberId) === memberId)
+                  || (members || []).find((row) => String(row.memberId) === memberId);
                 const amount = appPaymentRequestAmountLabel(msg);
+                const collected = incomingCollectedById[msg.id]
+                  || findAppPaymentRequestCollection(msg, member);
+                const collectedLabel = appPaymentRequestCollectionLabel(collected);
+                const auto = isAppPaymentAuto(msg) || msg.meta?.kind === 'booking_payment';
                 return (
-                  <li key={msg.id} className="members-app-desk__incoming-card">
+                  <li
+                    key={msg.id}
+                    className={`members-app-desk__incoming-card${collected ? ' is-collected' : ''}`}
+                  >
                     <div className="members-app-desk__incoming-main">
                       <strong>{msg.sender || member?.name || `Socio Nº ${memberId || '—'}`}</strong>
                       <span>
@@ -850,28 +914,47 @@ export default function MembersWithAppPanel({
                         {appPaymentRequestMethodLabel(msg)}
                         {amount ? ` · ${amount}` : ''}
                       </span>
-                      <p>{String(msg.content || '').split('\n').slice(0, 2).join(' · ')}</p>
+                      {collectedLabel ? (
+                        <p className="members-app-desk__incoming-status" role="status">
+                          {collectedLabel}
+                        </p>
+                      ) : (
+                        <p>{String(msg.content || '').split('\n').slice(0, 2).join(' · ')}</p>
+                      )}
                       <RequestAttachment attachment={msg.meta?.attachment} />
                     </div>
                     <div className="members-app-desk__incoming-actions">
                       <span className="members-app-desk__incoming-when">
                         {formatShortDate(msg.date || String(msg.createdAt || '').slice(0, 10))}
                       </span>
-                      <button
-                        type="button"
-                        className="members-app-desk__action-btn is-collect"
-                        onClick={() => void openIncomingRequest(msg)}
-                      >
-                        <Check size={14} />
-                        {isAppPaymentAuto(msg) || msg.meta?.kind === 'booking_payment' ? 'Ver' : 'Imputar'}
-                      </button>
-                      <button
-                        type="button"
-                        className="members-app-desk__action-btn"
-                        onClick={() => void markRequestHandled(msg.id)}
-                      >
-                        Marcar leída
-                      </button>
+                      {collected ? (
+                        <button
+                          type="button"
+                          className="members-app-desk__action-btn is-collect"
+                          onClick={() => void markRequestHandled(msg.id)}
+                        >
+                          <Check size={14} />
+                          Cerrar
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className="members-app-desk__action-btn is-collect"
+                            onClick={() => void openIncomingRequest(msg)}
+                          >
+                            <Check size={14} />
+                            {auto ? 'Ver' : 'Imputar'}
+                          </button>
+                          <button
+                            type="button"
+                            className="members-app-desk__action-btn"
+                            onClick={() => void markRequestHandled(msg.id)}
+                          >
+                            Marcar leída
+                          </button>
+                        </>
+                      )}
                     </div>
                   </li>
                 );
