@@ -122,6 +122,15 @@ describe('exportPaymentReceiptPdf helpers', () => {
     })).toBe('Transferencia bancaria');
   });
 
+  it('a cuenta figura como medio y nombra el pago a cuenta', () => {
+    expect(receiptMethodLabel({ method: 'a_cuenta' })).toBe('A cuenta');
+    expect(paymentCorrespondsTo({
+      method: 'a_cuenta',
+      periodDueOns: ['2026-09-10', '2026-10-10'],
+      amount: 50000,
+    })).toMatch(/^Pago a cuenta ·/);
+  });
+
   it('no pone Banco Macro como cuenta; usa el alias', () => {
     expect(accountLabel({
       method: 'transferencia',

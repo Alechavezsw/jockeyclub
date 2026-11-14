@@ -4,6 +4,7 @@ import {
   appMonthlyDebtForMember,
   buildAppMonthlyDebts,
   duesStandingDisplayAmount,
+  duesStandingDisplayHint,
   memberDuesStandingSummary,
 } from './appMonthlyDebts';
 
@@ -178,6 +179,30 @@ describe('appMonthlyDebts', () => {
     expect(clear.clear).toBe(true);
     expect(clear.title).toBe('Al día');
     expect(duesStandingDisplayAmount(clear)).toBe('Al día');
+  });
+
+  it('memberDuesStandingSummary muestra saldo a favor', () => {
+    const standing = memberDuesStandingSummary(
+      {
+        ...familiar(),
+        outstandingBalance: -15000,
+        unpaidCapital: 0,
+        nextDueDate: '2026-12-10',
+        lastPaymentDate: '2026-11-05',
+        paymentHistory: [{
+          id: 'p1',
+          status: 'paid',
+          amount: 85000,
+          periodDueOns: ['2026-11-10'],
+          date: '2026-11-05',
+        }],
+      },
+      { today: TODAY },
+    );
+    expect(standing.kind).toBe('credit');
+    expect(standing.credit).toBe(15000);
+    expect(duesStandingDisplayAmount(standing, (n) => `$${n}`)).toBe('$15000');
+    expect(duesStandingDisplayHint(standing)).toMatch(/próximo cobro/i);
   });
 
   it('familiar + abono tenis $12.000: 11 meses = $979.000', () => {

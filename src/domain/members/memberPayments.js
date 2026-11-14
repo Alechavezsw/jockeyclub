@@ -41,11 +41,30 @@ export const DUES_METHOD_LABELS = {
   mixto: 'Pago mixto',
   mercadopago: 'Mercado Pago',
   debito: 'Débito',
+  a_cuenta: 'A cuenta',
   caja: 'Efectivo',
 };
 
 /** Medios que se pueden combinar en un pago mixto (sin QR async). */
 export const MIXED_DUES_METHODS = ['efectivo', 'transferencia', 'tarjeta'];
+
+/** Entrega parcial o a favor: se imputa del mes más viejo al más nuevo. */
+export function isOnAccountDuesMethod(method) {
+  const raw = String(method || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ');
+  return raw === 'a cuenta' || raw === 'acuenta' || raw === 'pago a cuenta';
+}
+
+/** Saldo a favor vivo en ficha (outstanding negativo). */
+export function memberCreditBalance(member) {
+  const stored = Number(member?.outstandingBalance) || 0;
+  return stored < -0.01 ? money(-stored) : 0;
+}
 
 /** Transferencia, tarjeta y débito exigen comprobante (archivo o carga a mano). */
 export function duesMethodNeedsReceipt(method) {
@@ -129,6 +148,7 @@ export function manualDuesReceiptLabel(receiptParse) {
 }
 
 export function duesMethodLabel(method, bankName) {
+  if (isOnAccountDuesMethod(method)) return DUES_METHOD_LABELS.a_cuenta;
   if (method === 'transferencia') {
     return bankName ? `Transferencia ${bankName}` : 'Transferencia';
   }
@@ -489,39 +509,70 @@ export function payMemberDues(member, {
     selected = null;
     selectedChoices = choices;
   }
+  const preview = collectionPreview(member, today, {
+    periodDueOns: selected,
+    skipSurcharge: skipInterest,
+  });
   const split = duesChargeBreakdown(member, {
     paidOn: today,
     periodDueOns: selected,
     ...(stored > 0 || !(requested > 0) ? {} : { amount: requested }),
   });
-  let due = selected
+  const creditApplied = money(preview.creditApplied || 0);
+  let classicDue = selected
     ? selectedChoices.reduce(
       (sum, row) => sum + (Number(skipInterest ? row.capital : row.payable) || 0),
       0,
     )
     : (skipInterest ? money(split.quota) : split.total);
-  if (!(stored > 0) && requested > 0 && !selected) due = requested;
-  if (due <= 0) throw new Error('No hay saldo pendiente para abonar.');
+  if (!(stored > 0) && requested > 0 && !selected) classicDue = requested;
+  // Con saldo a favor usamos el preview (efectivo = bruto − crédito).
+  // Sin crédito, el desglose clásico respeta el saldo de ficha.
+  const grossDue = creditApplied > 0.01 && preview.gross > 0.01
+    ? preview.gross
+    : classicDue;
+  const cashDue = creditApplied > 0.01 && preview.gross > 0.01
+    ? preview.cash
+    : classicDue;
+  let due = cashDue;
+  if (due <= 0 && creditApplied <= 0.01) throw new Error('No hay saldo pendiente para abonar.');
+  if (due <= 0 && creditApplied > 0.01) due = 0;
 
+  const onAccount = isOnAccountDuesMethod(method);
   const paidAmount = requested > 0 ? requested : due;
-  if (!paidAmount || paidAmount <= 0) throw new Error('Importe inválido.');
-  if (paidAmount > due + 0.01) throw new Error('El importe supera el saldo pendiente.');
+  if ((!paidAmount || paidAmount <= 0) && creditApplied <= 0.01) {
+    throw new Error('Importe inválido.');
+  }
+  if (paidAmount > due + 0.01 && !onAccount) {
+    throw new Error('El importe supera el saldo pendiente.');
+  }
   const covered = selectedChoices.length ? selectedChoices : choices;
   const coveredCapital = money(covered.reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
-  const scheduleAmount = coveredCapital > 0 ? coveredCapital : stored;
+  const scheduleAmount = coveredCapital > 0 ? coveredCapital : Math.max(0, stored);
   const schedule = scheduleAmount > 0
     ? openPeriodsFromChoices(covered, scheduleAmount).map((row) => (
       skipInterest ? { ...row, lateBase: 0 } : row
     ))
     : [];
+  // El saldo a favor se imputa al saldar el efectivo debido. En un a cuenta
+  // parcial el crédito sigue embebido en el saldo de ficha hasta el próximo cobro.
+  const creditLeftover = onAccount
+    ? money(Math.max(0, paidAmount - cashDue))
+    : 0;
+  const settleCash = paidAmount + 0.01 >= cashDue;
+  const creditInPool = settleCash || !onAccount ? creditApplied : 0;
+  const imputePool = money(Math.min(
+    money(Math.max(0, paidAmount) + creditInPool),
+    money(grossDue + creditLeftover),
+  ));
   const imputed = schedule.length
-    ? imputeDuesPayment(schedule, paidAmount, todayISODateAR(today))
+    ? imputeDuesPayment(schedule, imputePool, todayISODateAR(today))
     : null;
 
   const date = todayISODateAR(today);
   const time = nowTimeAR(today);
   const paidAt = today.toISOString();
-  const lines = paidAmount + 0.01 >= due
+  const lines = paidAmount + creditApplied + 0.01 >= grossDue
     ? (selected
       ? {
         quota: money(selectedChoices.reduce((sum, row) => sum + (Number(row.capital) || 0), 0)),
@@ -533,24 +584,43 @@ export function payMemberDues(member, {
       : (skipInterest
         ? { ...split, surcharge: 0, total: money(split.quota), waivedSurcharge: 0 }
         : split))
-    : duesChargeBreakdown(member, { paidOn: today, amount: paidAmount, periodDueOns: selected });
-  const monthPhrase = duesMonthsPhrase(selectedChoices.map((row) => row.dueOn));
+    : duesChargeBreakdown(member, {
+      paidOn: today,
+      amount: imputePool,
+      periodDueOns: selected,
+    });
+  const imputedDueOns = (imputed?.allocations || [])
+    .filter((row) => (Number(row.capital) || 0) > 0.009 || (Number(row.surcharge) || 0) > 0.009)
+    .map((row) => row.dueOn);
+  const monthPhrase = duesMonthsPhrase(
+    imputedDueOns.length ? imputedDueOns : selectedChoices.map((row) => row.dueOn),
+  );
   const periodLabel = monthPhrase
     || today.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
   const quotaPaid = imputed ? imputed.capital : lines.quota;
   const surchargePaid = skipInterest ? 0 : (imputed ? imputed.surcharge : lines.surcharge);
+  const methodLabel = duesMethodLabel(method);
+  let concept = onAccount
+    ? (monthPhrase ? `A cuenta · ${monthPhrase}` : `A cuenta · ${methodLabel}`)
+    : (monthPhrase ? `Cuota social · ${monthPhrase}` : `Cuota social · ${methodLabel}`);
+  if (creditInPool > 0.01) {
+    concept = `${concept} · saldo a favor imputado ${creditInPool}`;
+  }
+  if (creditLeftover > 0.01) {
+    concept = `${concept} · saldo a favor ${creditLeftover}`;
+  }
   const payment = {
     id: `pay-${member.memberId}-${Date.now()}`,
     date,
     time,
     paidAt,
     createdAt: paidAt,
-    concept: monthPhrase ? `Cuota social · ${monthPhrase}` : `Cuota social · ${duesMethodLabel(method)}`,
+    concept,
     amount: paidAmount,
     quota: quotaPaid,
     surcharge: surchargePaid,
     waivedSurcharge: 0,
-    method,
+    method: onAccount ? 'a_cuenta' : method,
     status: 'paid',
     receipt: receiptNumberFor(member, date),
     receiptNumber: receiptNumberFor(member, date),
@@ -562,10 +632,12 @@ export function payMemberDues(member, {
     balanceBefore: Number(member.outstandingBalance) || 0,
     nextDueBefore: member.nextDueDate || null,
     lastPaymentBefore: member.lastPaymentDate || null,
+    ...(creditInPool > 0.01 ? { creditApplied: creditInPool } : {}),
+    ...(creditLeftover > 0.01 ? { creditLeftover } : {}),
   };
 
   const history = [payment, ...(member.paymentHistory || [])];
-  const remainingCash = due - paidAmount;
+  const remainingCash = money(cashDue - paidAmount);
   const remainingChoices = selected
     ? choices.filter((row) => !selected.includes(String(row.dueOn).slice(0, 10)))
     : [];
@@ -584,7 +656,7 @@ export function payMemberDues(member, {
       && capitalLeft <= embedded + 0.01;
     if ((capitalLeft <= 0.01 && !openDue) || duesSettled) {
       const cleared = afterCollectDues(member, today);
-      const balanceLeft = duesSettled ? 0 : capitalLeft;
+      const balanceLeft = money(creditLeftover > 0.01 ? -creditLeftover : 0);
       return {
         member: { ...cleared, outstandingBalance: balanceLeft, lastPaymentDate: date, paymentHistory: history },
         payment,
@@ -613,7 +685,7 @@ export function payMemberDues(member, {
   if (remainingCash > 0.01) {
     const next = {
       ...withPaidParts(member, paidCapital, paidSurcharge),
-      outstandingBalance: money(remainingCash),
+      outstandingBalance: money(Math.max(0, stored - paidCapital)),
       lastPaymentDate: date,
       paymentHistory: history,
     };
@@ -645,8 +717,13 @@ export function payMemberDues(member, {
   }
 
   const cleared = afterCollectDues(member, today);
+  const leftoverCredit = creditLeftover > 0.01
+    ? creditLeftover
+    : money(preview.leftover || 0);
+  const balanceLeft = leftoverCredit > 0.01 ? money(-leftoverCredit) : 0;
   const next = {
     ...cleared,
+    outstandingBalance: balanceLeft,
     lastPaymentDate: date,
     paymentHistory: history,
   };
@@ -654,7 +731,7 @@ export function payMemberDues(member, {
     member: next,
     payment,
     fullyPaid: true,
-    ledgerEntry: ledgerPago(next, payment),
+    ledgerEntry: paidAmount > 0.01 ? ledgerPago(next, payment) : null,
   };
 }
 
@@ -662,6 +739,10 @@ export function payMemberDues(member, {
  * Próximo cobro. Si hay saldo a favor, se descuenta en este pago.
  * Lo que sobra queda a favor para el siguiente.
  * `periodDueOns` marca qué meses entran en el recibo.
+ *
+ * El crédito vive como outstanding negativo. Si la liquidación ya lo neteó
+ * (capital de meses > saldo de ficha), la diferencia también se muestra como
+ * saldo a favor imputado y baja el efectivo a cobrar.
  */
 export function collectionPreview(member, today = new Date(), {
   periodDueOns = null,
@@ -673,6 +754,7 @@ export function collectionPreview(member, today = new Date(), {
     : choices.map((row) => row.dueOn);
   const selectedChoices = choices.filter((row) => selected.includes(String(row.dueOn).slice(0, 10)));
   const stored = Number(member?.outstandingBalance) || 0;
+  const explicitCredit = memberCreditBalance(member);
 
   if (selectedChoices.some((row) => row.kind === 'overdue') || stored > 0.01) {
     const quota = money(selectedChoices.reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
@@ -680,13 +762,27 @@ export function collectionPreview(member, today = new Date(), {
       ? 0
       : money(selectedChoices.reduce((sum, row) => sum + (Number(row.surcharge) || 0), 0));
     const gross = money(quota + surcharge);
+    const capitalInFicha = money(Math.max(0, stored));
+    // Crédito neteado al liquidar: unpaidCapital (meses) > saldo de ficha.
+    // No confundir con meses a tarifa vigente mayores que un saldo viejo.
+    const unpaidRaw = member?.unpaidCapital;
+    const unpaid = unpaidRaw != null && unpaidRaw !== ''
+      ? money(Math.max(0, Number(unpaidRaw) || 0))
+      : null;
+    const absorbed = unpaid != null
+      && unpaid > capitalInFicha + 0.01
+      && quota > capitalInFicha + 0.01
+      ? money(Math.min(quota, unpaid) - Math.min(quota, capitalInFicha))
+      : 0;
+    const credit = money(explicitCredit + absorbed);
+    const creditApplied = money(Math.min(credit, gross));
     return {
       quota,
       surcharge,
       gross,
-      creditApplied: 0,
-      cash: gross,
-      leftover: 0,
+      creditApplied,
+      cash: money(gross - creditApplied),
+      leftover: money(credit - creditApplied),
       periods: selectedChoices,
       choices,
       clear: false,
@@ -725,7 +821,7 @@ export function collectionPreview(member, today = new Date(), {
       || capitalOnly,
     );
   const split = duesChargeBreakdown(member, { paidOn: today, dueOn, on: dueOn, amount: gross });
-  const credit = stored < 0 ? money(-stored) : 0;
+  const credit = explicitCredit;
   const creditApplied = money(Math.min(credit, gross));
   const surcharge = skipSurcharge ? 0 : split.surcharge;
   const quota = skipSurcharge ? gross : split.quota;
@@ -845,7 +941,9 @@ export function recordDuesCollection(member, {
     mixed = validatePaymentSplits(paymentSplits, previewCash > 0 ? previewCash : amount, { treasuryMatch });
   }
 
-  const resolvedMethod = mixed ? 'mixto' : method;
+  const resolvedMethod = mixed
+    ? 'mixto'
+    : (isOnAccountDuesMethod(method) ? 'a_cuenta' : method);
   const skipSurcharge = !mixed && duesMethodSkipsSurcharge(resolvedMethod);
   const manual = !mixed && isManualDuesReceipt(receiptParse);
   if (!mixed && receiptParse?.source === 'manual' && !manual) {
@@ -940,10 +1038,31 @@ export function recordDuesCollection(member, {
     paymentHistory: [payment, ...(paid.member.paymentHistory || []).filter((row) => row.id !== paid.payment.id)],
   };
 
+  // Comprobante a cuenta: cuánto entregó y cuánto queda de deuda (con mora viva).
+  const remainingPreview = collectionPreview(memberNext, today, {
+    skipSurcharge: skipSurcharge,
+  });
+  const storedAfter = Number(memberNext.outstandingBalance) || 0;
+  const balanceRemaining = storedAfter < -0.01
+    ? 0
+    : money(remainingPreview.clear ? 0 : remainingPreview.cash);
+  const creditAfter = storedAfter < -0.01 ? money(-storedAfter) : money(payment.creditLeftover || 0);
+  const paymentWithBalance = {
+    ...payment,
+    methodLabel: label,
+    balanceRemaining,
+    ...(creditAfter > 0.01 ? { creditLeftover: creditAfter } : {}),
+  };
+  memberNext.paymentHistory = [
+    paymentWithBalance,
+    ...(memberNext.paymentHistory || []).filter((row) => row.id !== payment.id),
+  ];
+
   const discountNote = concession.discount > 0 ? ` · Descuento ${concession.detail}` : '';
+  const cobroLabel = resolvedMethod === 'a_cuenta' ? 'Cobro a cuenta' : 'Cobro cuota social';
   let journalEntry = null;
-  if (payment.amount > 0 || concession.discount > 0) {
-    const income = money(payment.amount + concession.discount);
+  if (paymentWithBalance.amount > 0 || concession.discount > 0) {
+    const income = money(paymentWithBalance.amount + concession.discount);
     const discountLine = concession.discount > 0
       ? [{ account: DUES_DISCOUNT_ACCOUNT, type: 'debit', amount: concession.discount }]
       : [];
@@ -954,8 +1073,8 @@ export function recordDuesCollection(member, {
         byAccount.set(key, money((byAccount.get(key) || 0) + row.amount));
       });
       journalEntry = {
-        date: payment.date,
-        description: `Cobro cuota social (${label}) - Socio: ${account.name} (Cred. ${account.memberId})${discountNote}`,
+        date: paymentWithBalance.date,
+        description: `${cobroLabel} (${label}) - Socio: ${account.name} (Cred. ${account.memberId})${discountNote}`,
         lines: [
           ...[...byAccount.entries()].map(([accountName, value]) => ({
             account: accountName,
@@ -966,22 +1085,22 @@ export function recordDuesCollection(member, {
           { account: 'Cuotas Sociales', type: 'credit', amount: income },
         ],
         sourceModule: 'cuotas',
-        sourceId: payment.id,
+        sourceId: paymentWithBalance.id,
         memberId: account.memberId,
       };
     } else {
       journalEntry = {
-        date: payment.date,
-        description: `Cobro cuota social (${label}) - Socio: ${account.name} (Cred. ${account.memberId})${receiptNote}${planNote}${discountNote}`,
+        date: paymentWithBalance.date,
+        description: `${cobroLabel} (${label}) - Socio: ${account.name} (Cred. ${account.memberId})${receiptNote}${planNote}${discountNote}`,
         lines: [
-          ...(payment.amount > 0
-            ? [{ account: cashAccount, type: 'debit', amount: payment.amount }]
+          ...(paymentWithBalance.amount > 0
+            ? [{ account: cashAccount, type: 'debit', amount: paymentWithBalance.amount }]
             : []),
           ...discountLine,
           { account: 'Cuotas Sociales', type: 'credit', amount: income },
         ],
         sourceModule: 'cuotas',
-        sourceId: payment.id,
+        sourceId: paymentWithBalance.id,
         memberId: account.memberId,
       };
     }
@@ -989,9 +1108,9 @@ export function recordDuesCollection(member, {
 
   return {
     member: memberNext,
-    payment,
+    payment: paymentWithBalance,
     fullyPaid: paid.fullyPaid,
-    ledgerEntry: paid.ledgerEntry ? ledgerPago(memberNext, payment) : null,
+    ledgerEntry: paid.ledgerEntry ? ledgerPago(memberNext, paymentWithBalance) : null,
     journalEntry,
   };
 }
@@ -1245,6 +1364,9 @@ export function cobroPeriods(member, payment) {
     paidAtReason: payment.paidAtReason || payment.backdateReason || null,
     time: payment.time || null,
     balanceBefore: payment.balanceBefore ?? null,
+    balanceRemaining: payment.balanceRemaining != null ? Number(payment.balanceRemaining) : null,
+    creditLeftover: payment.creditLeftover != null ? Number(payment.creditLeftover) : null,
+    methodLabel: payment.methodLabel || duesMethodLabel(payment.method, payment.bankName),
     nextDueBefore: payment.nextDueBefore ?? null,
     lastPaymentBefore: payment.lastPaymentBefore ?? null,
     nextDueDate: member.nextDueDate || null,
@@ -1437,12 +1559,28 @@ export async function persistDuesCollection(result, {
   }
   if (isSupabaseConfigured && payment && !isPersistedPaymentId(payment.id)) {
     const committed = await commitDuesCollection(result.member, payment);
+    // El PDF / MD del a cuenta necesitan entregado + deuda restante aunque la fila
+    // venga de la base sin esos campos todavía.
+    const mergedPayment = {
+      ...payment,
+      ...committed.payment,
+      balanceRemaining: committed.payment?.balanceRemaining ?? payment.balanceRemaining ?? null,
+      creditLeftover: committed.payment?.creditLeftover ?? payment.creditLeftover ?? null,
+      methodLabel: committed.payment?.methodLabel || payment.methodLabel || null,
+      imputations: committed.payment?.imputations || payment.imputations || [],
+    };
     next = {
       ...result,
-      member: committed.member,
-      payment: committed.payment,
+      member: {
+        ...committed.member,
+        paymentHistory: [
+          mergedPayment,
+          ...(committed.member.paymentHistory || []).filter((row) => row && row.id !== mergedPayment.id),
+        ],
+      },
+      payment: mergedPayment,
       journalEntry: result.journalEntry
-        ? { ...result.journalEntry, sourceId: committed.payment.id }
+        ? { ...result.journalEntry, sourceId: mergedPayment.id }
         : result.journalEntry,
     };
   }

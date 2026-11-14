@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { X, Banknote, Landmark, QrCode, CreditCard, Upload, Copy, Check, Split, WalletCards } from 'lucide-react';
+import { X, Banknote, Landmark, QrCode, CreditCard, Upload, Copy, Check, Split, WalletCards, Wallet } from 'lucide-react';
 import ModalDialog from '../ModalDialog';
 import MercadoPagoCheckout from '../MercadoPagoCheckout';
 import {
@@ -16,6 +16,7 @@ import {
   duesMethodUsesBank,
   duesReceiptRequiredMessage,
   isManualDuesReceipt,
+  isOnAccountDuesMethod,
   manualDuesReceiptLabel,
   MIXED_DUES_METHODS,
 } from '../../domain/members/memberPayments';
@@ -30,6 +31,7 @@ import * as repos from '../../data/repos';
 
 const METHODS = [
   { id: 'efectivo', label: 'Efectivo', icon: Banknote, hint: 'Cobro en sede / caja' },
+  { id: 'a_cuenta', label: 'A cuenta', icon: Wallet, hint: 'Entrega parcial · imputa deuda · caja' },
   { id: 'transferencia', label: 'Transferencia', icon: Landmark, hint: 'Bancos del club + comprobante' },
   { id: 'tarjeta', label: 'Tarjeta', icon: CreditCard, hint: 'POS / voucher + comprobante' },
   { id: 'debito', label: 'Débito', icon: WalletCards, hint: 'Débito bancario · sin recargo · comprobante o a mano' },
@@ -291,9 +293,11 @@ export default function CollectDuesModal({
   const choiceKey = periodChoices.map((row) => row.dueOn).join('|');
   const [selectedDueOns, setSelectedDueOns] = useState([]);
   const [method, setMethod] = useState('efectivo');
+  const [onAccountInput, setOnAccountInput] = useState('');
   useEffect(() => {
     setSelectedDueOns(choiceKey ? choiceKey.split('|') : []);
   }, [choiceKey]);
+  const isOnAccount = isOnAccountDuesMethod(method);
   const skipSurcharge = duesMethodSkipsSurcharge(method);
   const split = useMemo(() => {
     if (duesExempt) {
@@ -304,16 +308,27 @@ export default function CollectDuesModal({
       skipSurcharge,
     });
   }, [duesExempt, account, selectedDueOns, skipSurcharge]);
-  const amount = duesExempt || hydrating ? 0 : split.cash;
+  const quotedAmount = duesExempt || hydrating ? 0 : split.cash;
+  const onAccountAmount = money(onAccountInput === '' ? 0 : onAccountInput);
+  const amount = isOnAccount ? onAccountAmount : quotedAmount;
   const [discountInput, setDiscountInput] = useState('');
   const [discountDetail, setDiscountDetail] = useState('');
   const discountValue = money(discountInput === '' ? 0 : discountInput);
-  const discountOver = discountValue < 0 || discountValue > amount + 0.01;
-  const cash = discountOver ? amount : money(Math.max(0, amount - Math.max(0, discountValue)));
+  const discountBase = isOnAccount ? onAccountAmount : quotedAmount;
+  const discountOver = discountValue < 0 || discountValue > discountBase + 0.01;
+  const cash = discountOver
+    ? amount
+    : money(Math.max(0, amount - Math.max(0, discountValue)));
+  // A cuenta de más: el sobrante queda a favor para la próxima cuota.
+  const projectedCredit = isOnAccount && onAccountAmount > quotedAmount + 0.01
+    ? money(onAccountAmount - quotedAmount)
+    : money(Math.max(0, Number(split.leftover) || 0));
   const isClear = !duesExempt && !hydrating && Boolean(split.clear);
   const nextDueLabel = formatShortDate(account?.nextDueDate) || null;
   const routed = account?.memberId && liveMember?.memberId && account.memberId !== liveMember.memberId;
-  const methods = duesExempt ? METHODS.filter((row) => row.id !== 'mercadopago') : METHODS;
+  const methods = duesExempt
+    ? METHODS.filter((row) => row.id !== 'mercadopago' && row.id !== 'a_cuenta')
+    : METHODS;
   const plans = useMemo(() => activePaymentPlans(paymentPlans), [paymentPlans]);
   const [bankId, setBankId] = useState(CLUB_BANK_ACCOUNTS[0]?.id || '');
   const [planId, setPlanId] = useState('');
@@ -530,6 +545,16 @@ export default function CollectDuesModal({
 
   const handleConfirm = async () => {
     setError('');
+    if (isDuesExemptMember(account)) {
+      setError('Esta categoría no abona cuota social.');
+      return;
+    }
+    if (isOnAccount) {
+      if (!(onAccountAmount > 0.009)) {
+        setError('Ingresá el importe entregado a cuenta.');
+        return;
+      }
+    }
     let concession;
     try {
       concession = collectionDiscount(amount, { discount: discountValue, detail: discountDetail });
@@ -537,13 +562,12 @@ export default function CollectDuesModal({
       setError(err?.message || 'El descuento no es válido.');
       return;
     }
-    if (isDuesExemptMember(account)) {
-      setError('Esta categoría no abona cuota social.');
-      return;
-    }
-    const chargeDueOns = selectedDueOns.length
-      ? selectedDueOns
-      : periodChoices.map((row) => String(row.dueOn).slice(0, 10));
+    // A cuenta: imputa toda la deuda abierta, del mes más viejo al más nuevo.
+    const chargeDueOns = isOnAccount
+      ? periodChoices.map((row) => String(row.dueOn).slice(0, 10))
+      : (selectedDueOns.length
+        ? selectedDueOns
+        : periodChoices.map((row) => String(row.dueOn).slice(0, 10)));
     if (!chargeDueOns.length) {
       setError('No hay saldo pendiente para abonar.');
       return;
@@ -699,7 +723,9 @@ export default function CollectDuesModal({
                 ? ' · Actualizando saldo…'
                 : (duesExempt
                   ? ' · Exento de cuota'
-                  : (isClear ? ' · Al día' : ` · ${formatCurrency(cash)}`))}
+                  : (isClear
+                    ? ' · Al día'
+                    : ` · ${formatCurrency(isOnAccount && !(onAccountAmount > 0.009) ? quotedAmount : cash)}`))}
             </p>
             {routed ? (
               <p style={{ margin: '0.35rem 0 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
@@ -743,7 +769,7 @@ export default function CollectDuesModal({
           </div>
         ) : null}
 
-        {!isClear && canPickMonths ? (
+        {!isClear && canPickMonths && !isOnAccount ? (
           <div style={{ marginBottom: '1rem' }}>
             <p style={{ margin: '0 0 0.55rem', fontSize: '0.78rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-gold)' }}>
               Meses del recibo
@@ -791,10 +817,39 @@ export default function CollectDuesModal({
           </div>
         ) : null}
 
+        {!isClear && isOnAccount && periodChoices.length ? (
+          <div style={{ marginBottom: '1rem' }}>
+            <p style={{ margin: '0 0 0.55rem', fontSize: '0.78rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-gold)' }}>
+              Deuda abierta (se imputa en orden)
+            </p>
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: '0.35rem' }}>
+              {periodChoices.map((row) => (
+                <li
+                  key={row.dueOn}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: '0.65rem',
+                    padding: '0.45rem 0.65rem',
+                    borderRadius: 8,
+                    border: '1px solid var(--border-glass)',
+                    fontSize: '0.86rem',
+                  }}
+                >
+                  <span>{row.label}</span>
+                  <b className="tabular-nums" style={{ color: 'var(--text-gold)' }}>
+                    {formatCurrency(row.payable)}
+                  </b>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
         {!isClear && split.gross > 0 ? (
           <div style={{
             display: 'grid',
-            gridTemplateColumns: `repeat(${1 + (split.surcharge > 0 ? 1 : 0) + (split.creditApplied > 0 ? 1 : 0) + (split.surcharge > 0 || split.creditApplied > 0 || canPickMonths ? 1 : 0)}, minmax(0, 1fr))`,
+            gridTemplateColumns: `repeat(${1 + (split.surcharge > 0 ? 1 : 0) + ((split.creditApplied > 0 || projectedCredit > 0) ? 1 : 0) + (split.surcharge > 0 || split.creditApplied > 0 || projectedCredit > 0 || canPickMonths ? 1 : 0)}, minmax(0, 1fr))`,
             gap: '0.45rem',
             marginBottom: '1rem',
           }}>
@@ -810,15 +865,20 @@ export default function CollectDuesModal({
                 </div>
               </div>
             ) : null}
-            {split.creditApplied > 0 ? (
+            {split.creditApplied > 0.009 || projectedCredit > 0.009 ? (
               <div style={{ padding: '0.55rem 0.65rem', borderRadius: 8, border: '1px solid var(--border-glass)' }}>
-                <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>A favor</div>
+                <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Saldo a favor</div>
                 <div className="tabular-nums" style={{ fontWeight: 700, color: 'var(--emerald-accent)' }}>
-                  {formatCurrency(split.creditApplied)}
+                  {formatCurrency(projectedCredit > 0.009 ? projectedCredit : split.creditApplied)}
+                </div>
+                <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                  {projectedCredit > 0.009
+                    ? 'Queda para la próxima cuota'
+                    : 'Se descuenta de este cobro'}
                 </div>
               </div>
             ) : null}
-            {split.surcharge > 0 || split.creditApplied > 0 || canPickMonths || discountValue > 0.009 ? (
+            {split.surcharge > 0 || split.creditApplied > 0 || projectedCredit > 0 || canPickMonths || discountValue > 0.009 ? (
               <div style={{ padding: '0.55rem 0.65rem', borderRadius: 8, border: '1px solid var(--border-glass)' }}>
                 <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Total</div>
                 <div className="tabular-nums" style={{ fontWeight: 700, color: 'var(--text-gold)' }}>{formatCurrency(cash)}</div>
@@ -827,7 +887,7 @@ export default function CollectDuesModal({
           </div>
         ) : null}
 
-        {!isClear && amount > 0 ? (
+        {!isClear && !isOnAccount && quotedAmount > 0 ? (
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 160px) minmax(0, 1fr)', gap: '0.55rem', marginBottom: '1rem' }}>
             <label className="form-group" style={{ margin: 0 }}>
               <span className="form-label">Descuento</span>
@@ -882,9 +942,12 @@ export default function CollectDuesModal({
                   setMethod(m.id);
                   setError('');
                   if (!duesMethodNeedsReceipt(m.id)) clearReceipt();
+                  if (m.id === 'a_cuenta' && onAccountInput === '' && quotedAmount > 0) {
+                    setOnAccountInput('');
+                  }
                   if (m.id === 'mixto') {
-                    const half = cash > 0 ? money(cash / 2) : '';
-                    const rest = cash > 0 ? money(cash - Number(half || 0)) : '';
+                    const half = quotedAmount > 0 ? money(quotedAmount / 2) : '';
+                    const rest = quotedAmount > 0 ? money(quotedAmount - Number(half || 0)) : '';
                     setMixLines([
                       emptyMixLine('efectivo', half === '' ? '' : String(half)),
                       emptyMixLine('transferencia', rest === '' ? '' : String(rest)),
@@ -915,6 +978,41 @@ export default function CollectDuesModal({
             <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
               Confirme el cobro en efectivo. Se registrará en <strong style={{ color: 'var(--text-gold)' }}>Caja General</strong>.
             </p>
+          </div>
+        )}
+
+        {isOnAccount && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', padding: '0.9rem', borderRadius: 10, border: '1px solid var(--border-glass)', marginBottom: '1rem' }}>
+            <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
+              El socio entrega un importe a cuenta. Se imputa del mes más viejo al más nuevo (con el 10&nbsp;% si corresponde).
+              Lo que no cubre un mes queda pendiente; si sobra, queda a favor. Entra en <strong style={{ color: 'var(--text-gold)' }}>Caja General</strong>.
+              El comprobante indica cuánto entregó y la deuda restante.
+            </p>
+            <label className="form-group" style={{ marginBottom: 0 }}>
+              <span className="form-label">Importe entregado *</span>
+              <input
+                className="form-input"
+                type="number"
+                min="0"
+                step="0.01"
+                inputMode="decimal"
+                value={onAccountInput}
+                onChange={(e) => {
+                  setOnAccountInput(e.target.value);
+                  setError('');
+                }}
+                placeholder={quotedAmount > 0 ? `Deuda ${formatCurrency(quotedAmount)}` : '0'}
+              />
+            </label>
+            {onAccountAmount > 0.009 && quotedAmount > 0.009 ? (
+              <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                {onAccountAmount + 0.01 < quotedAmount
+                  ? `Quedarán ${formatCurrency(money(quotedAmount - onAccountAmount))} pendientes.`
+                  : onAccountAmount > quotedAmount + 0.01
+                    ? `Cubre la deuda y deja ${formatCurrency(money(onAccountAmount - quotedAmount))} a favor.`
+                    : 'Cubre la deuda seleccionada.'}
+              </p>
+            ) : null}
           </div>
         )}
 
@@ -1253,18 +1351,28 @@ export default function CollectDuesModal({
               type="button"
               className="btn btn-primary"
               onClick={handleConfirm}
-              disabled={hydrating || submitting || readingReceipt || mixReading || (!selectedDueOns.length && !periodChoices.length)}
+              disabled={
+                hydrating
+                || submitting
+                || readingReceipt
+                || mixReading
+                || (!periodChoices.length)
+                || (isOnAccount ? !(onAccountAmount > 0.009) : (!selectedDueOns.length && !periodChoices.length))
+                || (isOnAccount && discountOver)
+              }
               style={{ minWidth: 160 }}
             >
               {submitting
                 ? 'Guardando…'
                 : (method === 'efectivo'
                   ? 'Acreditar efectivo'
-                  : method === 'mixto'
-                    ? 'Registrar pago mixto'
-                    : method === 'debito'
-                      ? 'Registrar débito'
-                      : 'Registrar con comprobante')}
+                  : method === 'a_cuenta'
+                    ? 'Registrar a cuenta'
+                    : method === 'mixto'
+                      ? 'Registrar pago mixto'
+                      : method === 'debito'
+                        ? 'Registrar débito'
+                        : 'Registrar con comprobante')}
             </button>
           ) : null}
         </div>

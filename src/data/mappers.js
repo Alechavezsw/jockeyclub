@@ -212,6 +212,8 @@ export function paymentFromRow(row) {
     voidedByName: meta.voidedByName || null,
     journalAccount: meta.journalAccount || null,
     balanceBefore: meta.balanceBefore != null ? Number(meta.balanceBefore) : null,
+    balanceRemaining: meta.balanceRemaining != null ? Number(meta.balanceRemaining) : null,
+    creditLeftover: meta.creditLeftover != null ? Number(meta.creditLeftover) : null,
     nextDueBefore: meta.nextDueBefore || null,
     lastPaymentBefore: meta.lastPaymentBefore || null,
     journalEntryId: row.journal_entry_id || null,

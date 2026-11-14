@@ -87,6 +87,25 @@ describe('duesPaymentNotice', () => {
     expect(msg.content).not.toMatch(/saldo/i);
   });
 
+  it('el comprobante a cuenta dice entregado y deuda restante', () => {
+    const msg = duesReceiptMessage({
+      member: { name: 'Dario', memberId: '10896' },
+      payment: {
+        method: 'a_cuenta',
+        concept: 'A cuenta · Septiembre de 2026',
+        amount: 50000,
+        balanceRemaining: 929000,
+        date: '2026-11-12',
+        receiptNumber: 'RC-10896',
+      },
+    });
+    expect(msg.subject).toMatch(/a cuenta/i);
+    expect(msg.content).toMatch(/Entregado:/);
+    expect(msg.content).toMatch(/Deuda restante:/);
+    expect(msg.content).toMatch(/50\.000|50000/);
+    expect(msg.content).toMatch(/929\.000|929000/);
+  });
+
   it('el recibo nombra el descuento y su detalle', () => {
     const msg = duesReceiptMessage({
       member: { name: 'Ana', memberId: '111' },

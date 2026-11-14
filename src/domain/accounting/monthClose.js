@@ -112,14 +112,16 @@ const METHOD_LABELS = {
   mercadopago: 'Mercado Pago',
   tarjeta: 'Tarjeta',
   debito: 'Débito',
+  a_cuenta: 'A cuenta',
   cheque: 'Cheque',
 };
 
 function methodLabel(row) {
-  const raw = String(row?.paymentMethod || row?.method || '').toLowerCase();
+  const raw = String(row?.paymentMethod || row?.method || '').toLowerCase().replace(/-/g, '_');
   if (METHOD_LABELS[raw]) return METHOD_LABELS[raw];
   const blob = `${row?.concept || ''} ${row?.typeLabel || ''} ${row?.description || ''}`;
   if (/mercado\s*pago|\bqr\b/i.test(blob)) return 'Mercado Pago';
+  if (/a\s*cuenta/i.test(blob)) return 'A cuenta';
   if (/transfer|banco/i.test(blob)) return 'Transferencia';
   if (/tarjeta|cr[eé]dito/i.test(blob)) return 'Tarjeta';
   if (/d[eé]bito/i.test(blob)) return 'Débito';

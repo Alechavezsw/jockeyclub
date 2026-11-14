@@ -159,16 +159,22 @@ export function paymentCorrespondsTo(payment, { isBooking = false } = {}) {
     return [scope, space, paymentPeriodLabel(payment)].filter((p) => p && p !== '—').join(' · ') || 'Reserva';
   }
 
+  const onAccount = isOnAccountPayment(payment);
   const selectedDueOns = Array.isArray(payment?.periodDueOns)
     ? payment.periodDueOns.map((value) => String(value || '').slice(0, 10)).filter(Boolean)
     : [];
   // Meses marcados en el cobro: el recibo nombra esos, no un adelanto a diciembre.
   if (selectedDueOns.length === 1) {
-    return duesPaymentDescription(selectedDueOns[0]);
+    const one = duesPaymentDescription(selectedDueOns[0]);
+    return onAccount ? one.replace(/^Pago de cuota social/i, 'Pago a cuenta') : one;
   }
   if (selectedDueOns.length > 1) {
     const phrase = duesMonthsPhrase(selectedDueOns);
-    if (phrase) return `Pago de cuota social · ${phrase}`;
+    if (phrase) {
+      return onAccount
+        ? `Pago a cuenta · ${phrase}`
+        : `Pago de cuota social · ${phrase}`;
+    }
   }
 
   const imputations = Array.isArray(payment?.imputations)
@@ -177,16 +183,28 @@ export function paymentCorrespondsTo(payment, { isBooking = false } = {}) {
   const charges = receiptChargeLines(payment);
   const monthCharges = charges.filter((row) => String(row.dueOn || '').slice(0, 10) > '1900-01-10');
   if (monthCharges.length === 1 && !(Number(imputations.find((row) => !isOpeningDue(row.dueOn))?.surcharge) > 0.01)) {
-    return duesPaymentDescription(monthCharges[0].dueOn);
+    const one = duesPaymentDescription(monthCharges[0].dueOn);
+    return onAccount ? one.replace(/^Pago de cuota social/i, 'Pago a cuenta') : one;
   }
-  if (charges.length) return charges.map((row) => row.detail).join(' · ');
+  if (charges.length) {
+    const detail = charges.map((row) => row.detail).join(' · ');
+    return onAccount ? `Pago a cuenta · ${detail}` : detail;
+  }
 
   const period = paymentPeriodLabel(payment);
   const raw = String(payment?.concept || '').trim();
   const cleaned = raw
-    .replace(/\s*[·•|-]\s*(Transferencia|Efectivo|Tarjeta|Mercado Pago|Caja|Débito|Comp:)[^·•|-]*/gi, '')
+    .replace(/\s*[·•|-]\s*(Transferencia|Efectivo|Tarjeta|Mercado Pago|Caja|Débito|A cuenta|Comp:|saldo a favor)[^·•|-]*/gi, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
+  if (/^a cuenta/i.test(cleaned) || /^pago a cuenta/i.test(cleaned)) {
+    const due = selectedDueOns[0] || (Array.isArray(payment?.imputations) ? payment.imputations.find((row) => !isOpeningDue(row?.dueOn))?.dueOn : null);
+    if (due) return duesPaymentDescription(due).replace(/^Pago de cuota social/i, 'Pago a cuenta');
+    if (period && period !== '—') {
+      return duesPaymentDescription(period).replace(/^Pago de cuota social/i, 'Pago a cuenta');
+    }
+    return 'Pago a cuenta';
+  }
   if (/^cuota social/i.test(cleaned) || /^pago de cuota social/i.test(cleaned)) {
     const due = selectedDueOns[0] || (Array.isArray(payment?.imputations) ? payment.imputations.find((row) => !isOpeningDue(row?.dueOn))?.dueOn : null);
     if (due) return duesPaymentDescription(due);
@@ -197,7 +215,7 @@ export function paymentCorrespondsTo(payment, { isBooking = false } = {}) {
   }
   if (cleaned) return cleaned;
   if (period && period !== '—') return duesPaymentDescription(period);
-  return 'Pago de cuota social';
+  return onAccount ? 'Pago a cuenta' : 'Pago de cuota social';
 }
 
 const METHOD = {
@@ -207,11 +225,15 @@ const METHOD = {
   tarjeta: 'Tarjeta',
   caja: 'Caja / Secretaría',
   mercadopago: 'Mercado Pago',
+  a_cuenta: 'A cuenta',
 };
 
 /** Medio de pago para el recibo (genérico; el banco va en CUENTA). */
 export function receiptMethodLabel(payment) {
   const method = String(payment?.method || '').trim().toLowerCase();
+  if (method === 'a_cuenta' || /a\s*cuenta/i.test(String(payment?.methodLabel || ''))) {
+    return 'A cuenta';
+  }
   if (method === 'transferencia' || /transferencia/i.test(String(payment?.methodLabel || ''))) {
     return 'Transferencia bancaria';
   }
@@ -221,6 +243,11 @@ export function receiptMethodLabel(payment) {
     return label.replace(/^Transferencia\s+.+$/i, 'Transferencia bancaria');
   }
   return method || '—';
+}
+
+function isOnAccountPayment(payment) {
+  const method = String(payment?.method || '').trim().toLowerCase();
+  return method === 'a_cuenta' || /a\s*cuenta/i.test(String(payment?.methodLabel || payment?.concept || ''));
 }
 
 /**
@@ -235,7 +262,12 @@ export function accountLabel(payment) {
     const bank = CLUB_BANK_ACCOUNTS.find((b) => b.id === payment.bankId) || CLUB_BANK_ACCOUNTS[0];
     return bank?.alias ? `Alias ${bank.alias}` : null;
   }
-  if (payment?.method === 'efectivo' || payment?.method === 'caja' || payment?.method === 'tarjeta') {
+  if (
+    payment?.method === 'efectivo'
+    || payment?.method === 'caja'
+    || payment?.method === 'tarjeta'
+    || payment?.method === 'a_cuenta'
+  ) {
     return 'Caja General';
   }
   return null;
@@ -288,6 +320,9 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
   doc.setFontSize(9);
   doc.setTextColor(60, 60, 60);
   const balanceRemaining = Number(payment.balanceRemaining);
+  const creditLeftover = Number(payment.creditLeftover);
+  const creditApplied = Number(payment.creditApplied);
+  const onAccount = !isBooking && isOnAccountPayment(payment);
   const totalPrice = Number(payment.totalPrice);
   const infoRows = [
     ['SOCIO', String(member?.name || '—').toUpperCase()],
@@ -302,6 +337,16 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
       : ['FECHA', formatLongDateAr(payment.date)],
     ['FECHA PAGO', formatLongDateAr(payment.date)],
     ['COMPROBANTE', String(receiptNo)],
+    ...(onAccount ? [['ENTREGADO', formatCurrency(payment.amount)]] : []),
+    ...(Number.isFinite(creditApplied) && creditApplied > 0.01
+      ? [['SALDO A FAVOR IMPUTADO', formatCurrency(creditApplied)]]
+      : []),
+    ...(onAccount && Number.isFinite(balanceRemaining)
+      ? [['DEUDA RESTANTE', formatCurrency(Math.max(0, balanceRemaining))]]
+      : []),
+    ...(Number.isFinite(creditLeftover) && creditLeftover > 0.01
+      ? [['SALDO A FAVOR', formatCurrency(creditLeftover)]]
+      : []),
   ];
   infoRows.forEach(([label, value]) => {
     doc.setFont('helvetica', 'bold');
@@ -360,13 +405,33 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
       bodyRows.push(['', 'Saldo pendiente', formatCurrency(0), 'Saldado']);
     }
   }
+  if (Number.isFinite(creditApplied) && creditApplied > 0.01 && !onAccount) {
+    bodyRows.push(['', 'Saldo a favor imputado', formatCurrency(creditApplied), formatCurrency(creditApplied)]);
+  }
+  if (onAccount) {
+    bodyRows.push(['', 'Entregado a cuenta', formatCurrency(payment.amount), formatCurrency(payment.amount)]);
+    if (Number.isFinite(creditApplied) && creditApplied > 0.01) {
+      bodyRows.push(['', 'Saldo a favor imputado', formatCurrency(creditApplied), formatCurrency(creditApplied)]);
+    }
+    if (Number.isFinite(balanceRemaining)) {
+      bodyRows.push([
+        '',
+        balanceRemaining > 0.01 ? 'Deuda restante' : 'Deuda restante',
+        formatCurrency(Math.max(0, balanceRemaining)),
+        balanceRemaining > 0.01 ? '' : 'Saldado',
+      ]);
+    }
+    if (Number.isFinite(creditLeftover) && creditLeftover > 0.01) {
+      bodyRows.push(['', 'Saldo a favor', formatCurrency(creditLeftover), '']);
+    }
+  }
 
   autoTable(doc, {
     startY: y + 4,
     head: [['FECHA', 'CORRESPONDE A', 'MONTO', 'ABONADO']],
     body: bodyRows,
     foot: [
-      ['', '', 'TOTAL PAGO', formatCurrency(payment.amount)],
+      ['', '', onAccount ? 'ENTREGADO' : 'TOTAL PAGO', formatCurrency(payment.amount)],
     ],
     styles: { fontSize: 9, cellPadding: 2.4 },
     headStyles: { fillColor: BRAND.green, textColor: BRAND.cream, fontStyle: 'bold' },
@@ -385,20 +450,29 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
   doc.text(`${(member?.name || '—').toUpperCase()} (${member?.memberId || '—'}) · ${category}`, 14, footY);
   footY += 6;
 
+  const duesBalanceExtra = onAccount
+    ? (6 + (Number.isFinite(balanceRemaining) ? 6 : 0) + (Number.isFinite(creditLeftover) && creditLeftover > 0.01 ? 6 : 0))
+    : 0;
   const bookingExtra = isBooking && Number.isFinite(balanceRemaining) && balanceRemaining > 0 ? 10 : 0;
   doc.setDrawColor(...BRAND.muted);
   doc.setLineWidth(0.2);
-  doc.rect(14, footY, 182, 22 + bookingExtra);
+  doc.rect(14, footY, 182, 22 + bookingExtra + duesBalanceExtra);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9);
   const credited = accountLabel(payment);
   const footRows = [
     ['TIPO', methodText],
     ...(credited ? [['DESTINO', credited]] : []),
-    ['MONTO', formatCurrency(payment.amount)],
+    [onAccount ? 'ENTREGADO' : 'MONTO', formatCurrency(payment.amount)],
   ];
   if (isBooking && Number.isFinite(balanceRemaining) && balanceRemaining > 0) {
     footRows.push(['SALDO', formatCurrency(balanceRemaining)]);
+  }
+  if (onAccount && Number.isFinite(balanceRemaining)) {
+    footRows.push(['DEUDA RESTANTE', formatCurrency(Math.max(0, balanceRemaining))]);
+  }
+  if (onAccount && Number.isFinite(creditLeftover) && creditLeftover > 0.01) {
+    footRows.push(['A FAVOR', formatCurrency(creditLeftover)]);
   }
   let fy = footY + 6;
   footRows.forEach(([label, value]) => {
@@ -417,7 +491,11 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
       ? 'Comprobante de seña. El saldo del alquiler queda pendiente en la cuenta del socio.'
       : isBooking
         ? 'Comprobante de alquiler. El espacio queda saldado.'
-        : 'Comprobante emitido por el Portal del Socio. Conservelo como constancia de pago.';
+        : onAccount
+          ? (Number.isFinite(balanceRemaining) && balanceRemaining > 0.01
+            ? 'Comprobante de pago a cuenta. La deuda restante queda en la ficha del socio.'
+            : 'Comprobante de pago a cuenta. La deuda de cuota quedó saldada.')
+          : 'Comprobante emitido por el Portal del Socio. Conservelo como constancia de pago.';
   doc.text(closing, 14, fy + 6, { maxWidth: 180 });
 
   drawReportFooter(doc);

@@ -16,6 +16,8 @@ import {
   portalLoginUrl,
   portalAccountUrl,
   requestStatusLabel,
+  membershipApplicationStatusLabel,
+  membershipInquiryContact,
   searchRequestDirectoryHits,
   buildRequestDetail,
   requestPdfFileName,
@@ -229,9 +231,23 @@ describe('selfService', () => {
       requestedTier: 'grupo_familiar_familiar',
       status: 'pending',
     }, { tierLabel: 'GRUPO FAMILIAR (Familiar)' });
-    expect(detail.title).toBe('Solicitud de ingreso');
+    expect(detail.title).toBe('Quiere asociarse');
+    expect(detail.notice).toMatch(/requisitos/i);
     expect(detail.rows.find(([label]) => label === 'Celular')[1]).toBe('+5492645468012');
     expect(requestPdfFileName(detail)).toBe('solicitud-ingreso-ale-chavez.pdf');
+  });
+
+  it('contacto de asociarse arma WhatsApp y mail sin dar acceso', () => {
+    const contact = membershipInquiryContact({
+      fullName: 'Luciana Ponce',
+      phone: '+5492644108712',
+      email: 'luciana@mail.com',
+    });
+    expect(contact.whatsappUrl).toContain('https://wa.me/5492644108712');
+    expect(contact.whatsappUrl).toMatch(/asociarte|requisitos/i);
+    expect(contact.mailUrl).toMatch(/^mailto:/);
+    expect(membershipApplicationStatusLabel('approved')).toBe('Contactado');
+    expect(membershipApplicationStatusLabel('pending')).toBe('Pendiente');
   });
 
   it('arma WhatsApp y mail con usuario, clave y link', () => {

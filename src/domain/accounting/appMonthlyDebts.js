@@ -343,8 +343,29 @@ export function memberDuesStandingSummary(member, { today = new Date(), entries 
     };
   }
 
+  const stored = Number(member?.outstandingBalance) || 0;
+  const credit = stored < -0.01 ? money(-stored) : 0;
   const debt = appMonthlyDebtForMember(member, { today, entries });
   if (!debt) {
+    if (credit > 0.01) {
+      return {
+        clear: true,
+        kind: 'credit',
+        standing: 'Saldo a favor',
+        title: 'Saldo a favor',
+        hint: 'Se descuenta en el próximo cobro',
+        totalDebt: 0,
+        capital: 0,
+        interest: 0,
+        unallocated: 0,
+        credit,
+        monthsBehind: 0,
+        months: [],
+        monthsPhrase: '',
+        billing: true,
+        debt: null,
+      };
+    }
     return {
       clear: true,
       kind: 'clear',
@@ -355,6 +376,7 @@ export function memberDuesStandingSummary(member, { today = new Date(), entries 
       capital: 0,
       interest: 0,
       unallocated: 0,
+      credit: 0,
       monthsBehind: 0,
       months: [],
       monthsPhrase: '',
@@ -375,6 +397,7 @@ export function memberDuesStandingSummary(member, { today = new Date(), entries 
     capital: Number(debt.capital) || 0,
     interest: Number(debt.interest) || 0,
     unallocated: Number(debt.unallocated) || 0,
+    credit: 0,
     monthsBehind: Number(debt.monthsBehind) || 0,
     months: debt.months || [],
     monthsPhrase,
@@ -383,9 +406,14 @@ export function memberDuesStandingSummary(member, { today = new Date(), entries 
   };
 }
 
-/** Monto a mostrar: total con intereses, o etiqueta Al día / exento. */
+/** Monto a mostrar: total con intereses, saldo a favor, o etiqueta Al día / exento. */
 export function duesStandingDisplayAmount(summary, formatCurrency) {
-  if (!summary || summary.clear) return summary?.title || 'Al día';
+  if (!summary) return 'Al día';
+  if (summary.kind === 'credit' && Number(summary.credit) > 0.01) {
+    if (typeof formatCurrency === 'function') return formatCurrency(summary.credit);
+    return String(summary.credit);
+  }
+  if (summary.clear) return summary?.title || 'Al día';
   if (typeof formatCurrency === 'function') return formatCurrency(summary.totalDebt);
   return String(summary.totalDebt);
 }
@@ -393,6 +421,9 @@ export function duesStandingDisplayAmount(summary, formatCurrency) {
 /** Texto secundario: meses + desglose capital/recargo. */
 export function duesStandingDisplayHint(summary, formatCurrency, { compact = false } = {}) {
   if (!summary) return '';
+  if (summary.kind === 'credit') {
+    return compact ? 'A favor' : (summary.hint || 'Se descuenta en el próximo cobro');
+  }
   if (summary.clear) return summary.hint || '';
   const parts = [];
   const monthsBehind = Number(summary.monthsBehind) || (summary.months || []).length || 0;

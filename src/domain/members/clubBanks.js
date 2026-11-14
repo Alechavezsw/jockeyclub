@@ -50,7 +50,10 @@ export function buildMercadoPagoQrPayload({ amount, memberId, memberName, concep
 }
 
 export function journalAccountForPayment(method, bankId) {
-  if (method === 'efectivo' || method === 'tarjeta') return CASH_JOURNAL_ACCOUNT;
+  // A cuenta: entrega en sede → Caja General (mismo bolsillo que efectivo).
+  if (method === 'efectivo' || method === 'tarjeta' || method === 'a_cuenta' || method === 'caja') {
+    return CASH_JOURNAL_ACCOUNT;
+  }
   if (method === 'mercadopago') return MERCADO_PAGO.journalAccount;
   // Transferencia y débito (comprobante / manual) acreditan en el banco o alias elegido.
   if (method === 'transferencia' || method === 'debito') {

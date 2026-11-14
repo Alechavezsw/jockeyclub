@@ -172,6 +172,110 @@ describe('payMemberDues', () => {
     expect(result.payment.receiptNumber).toMatch(/^RC-/);
   });
 
+  it('a cuenta imputa un importe parcial y deja el resto de deuda', () => {
+    setRuntimeTierCatalog([
+      { id: 'socio_familiar', name: 'SOCIO FAMILIAR', monthlyDues: 70000, sortOrder: 1 },
+    ]);
+    try {
+      const member = {
+        memberId: '10896',
+        name: 'Dario',
+        tier: 'socio_familiar',
+        cuotaCategories: ['SOCIO FAMILIAR'],
+        outstandingBalance: 140000,
+        unpaidCapital: 140000,
+        nextDueDate: '2026-09-10',
+        paymentHistory: [],
+      };
+      const today = new Date('2026-11-12T15:00:00-03:00');
+      const result = recordDuesCollection(member, {
+        method: 'a_cuenta',
+        amount: 50000,
+        today,
+      });
+      expect(result.payment.method).toBe('a_cuenta');
+      expect(result.payment.amount).toBe(50000);
+      expect(result.payment.concept).toMatch(/^A cuenta/i);
+      expect(result.payment.balanceRemaining).toBeGreaterThan(0);
+      expect(result.payment.methodLabel).toMatch(/a cuenta/i);
+      expect(result.journalEntry.lines[0]).toEqual({
+        account: 'Caja General',
+        type: 'debit',
+        amount: 50000,
+      });
+      expect(result.journalEntry.description).toMatch(/Cobro a cuenta/i);
+      expect(result.member.outstandingBalance).toBeLessThan(140000);
+      expect(result.member.outstandingBalance).toBeGreaterThan(0);
+      expect(result.fullyPaid).toBe(false);
+    } finally {
+      setRuntimeTierCatalog(null);
+    }
+  });
+
+  it('a cuenta puede dejar saldo a favor si entrega de más', () => {
+    setRuntimeTierCatalog([
+      { id: 'socio_familiar', name: 'SOCIO FAMILIAR', monthlyDues: 70000, sortOrder: 1 },
+    ]);
+    try {
+      const member = {
+        memberId: '2201',
+        name: 'Sobra',
+        tier: 'socio_familiar',
+        cuotaCategories: ['SOCIO FAMILIAR'],
+        outstandingBalance: 70000,
+        unpaidCapital: 70000,
+        nextDueDate: '2026-11-10',
+        paymentHistory: [],
+      };
+      // Antes del 11: sin recargo. $80.000 cubren $70.000 y dejan $10.000 a favor.
+      const result = recordDuesCollection(member, {
+        method: 'a_cuenta',
+        amount: 80000,
+        today: new Date('2026-11-05T15:00:00-03:00'),
+      });
+      expect(result.payment.method).toBe('a_cuenta');
+      expect(result.payment.amount).toBe(80000);
+      expect(result.member.outstandingBalance).toBe(-10000);
+      expect(result.payment.creditLeftover).toBe(10000);
+    } finally {
+      setRuntimeTierCatalog(null);
+    }
+  });
+
+  it('después de liquidar, el saldo a favor neteado baja el efectivo del próximo cobro', () => {
+    setRuntimeTierCatalog([
+      { id: 'socio_familiar', name: 'SOCIO FAMILIAR', monthlyDues: 70000, sortOrder: 1 },
+    ]);
+    try {
+      // Liquidación: -10.000 a favor + 70.000 del mes → ficha 60.000 / unpaid 70.000.
+      const member = {
+        memberId: '2202',
+        name: 'Crédito neto',
+        tier: 'socio_familiar',
+        cuotaCategories: ['SOCIO FAMILIAR'],
+        outstandingBalance: 60000,
+        unpaidCapital: 70000,
+        nextDueDate: '2026-11-10',
+        lastPaymentDate: '2026-10-20',
+        paymentHistory: [],
+      };
+      const today = new Date('2026-11-12T15:00:00-03:00');
+      const preview = collectionPreview(member, today);
+      expect(preview.quota).toBe(70000);
+      expect(preview.creditApplied).toBe(10000);
+      expect(preview.cash).toBe(preview.gross - 10000);
+      const result = recordDuesCollection(member, {
+        method: 'efectivo',
+        today,
+      });
+      expect(result.payment.creditApplied).toBe(10000);
+      expect(result.payment.amount).toBe(preview.cash);
+      expect(result.member.outstandingBalance).toBe(0);
+    } finally {
+      setRuntimeTierCatalog(null);
+    }
+  });
+
   it('no cobra cuota a vitalicio', () => {
     expect(() => recordDuesCollection({
       memberId: '1622',

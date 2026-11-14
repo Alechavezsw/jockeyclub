@@ -1057,14 +1057,18 @@ export default function MemberProfilePanel({
           </div>
           <div className="mp-balance-value">
             {!hasDebt
-              ? (duesStanding.title || quota.title || 'Al día')
+              ? (duesStanding.kind === 'credit'
+                ? duesStandingDisplayAmount(duesStanding, formatCurrency)
+                : (duesStanding.title || quota.title || 'Al día'))
               : hideCurrentAccount
                 ? 'En administración'
                 : duesStandingDisplayAmount(duesStanding, formatCurrency)}
           </div>
           <div className="mp-balance-hint">
             {!hasDebt
-              ? (duesStanding.hint || quota.hint || 'Sin deuda de cuota')
+              ? (duesStanding.kind === 'credit'
+                ? (duesStandingDisplayHint(duesStanding, formatCurrency) || 'Se descuenta en el próximo cobro')
+                : (duesStanding.hint || quota.hint || 'Sin deuda de cuota'))
               : hideCurrentAccount
                 ? 'Consultá el detalle en administración'
                 : (duesStandingDisplayHint(duesStanding, formatCurrency)
@@ -1703,6 +1707,12 @@ export default function MemberProfilePanel({
                         <div className="mp-list-sub">Cuota {formatCurrency(p.quota)} · Recargo {formatCurrency(p.surcharge)}</div>
                       ) : p.removedSurcharge > 0 ? (
                         <div className="mp-list-sub">Recargo borrado{p.surchargeRemovedBy ? ` · ${p.surchargeRemovedBy}` : ''}</div>
+                      ) : null}
+                      {Number(p.creditApplied) > 0.01 ? (
+                        <div className="mp-list-sub">Saldo a favor imputado {formatCurrency(p.creditApplied)}</div>
+                      ) : null}
+                      {Number(p.creditLeftover) > 0.01 ? (
+                        <div className="mp-list-sub">Saldo a favor {formatCurrency(p.creditLeftover)}</div>
                       ) : null}
                       {p.imputations?.length ? (
                         <div className="mp-list-sub">

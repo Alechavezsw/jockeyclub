@@ -10,9 +10,10 @@ export default function MemberRequestDetailModal({
   busy = false,
   invite = null,
   deliverError = '',
+  contact = null,
   onClose,
   onDeliver,
-  onAlta,
+  onContacted,
   onReject,
 }) {
   const [exporting, setExporting] = useState(false);
@@ -29,6 +30,7 @@ export default function MemberRequestDetailModal({
   };
 
   const creds = invite?.creds;
+  const isJoinInquiry = detail.kind === 'alta';
 
   return (
     <ModalDialog
@@ -52,6 +54,11 @@ export default function MemberRequestDetailModal({
           <p style={{ margin: '0.35rem 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
             {detail.subtitle}
           </p>
+          {detail.notice ? (
+            <p style={{ margin: '0.45rem 0 0', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+              {detail.notice}
+            </p>
+          ) : null}
         </div>
         <button type="button" className="btn btn-secondary btn-sm" onClick={onClose} disabled={busy} aria-label="Cerrar">
           <X size={14} />
@@ -121,14 +128,32 @@ export default function MemberRequestDetailModal({
         </div>
       ) : (
         <div className="member-request-detail-actions">
-          {pending && onDeliver ? (
+          {isJoinInquiry && pending ? (
+            <>
+              {contact?.whatsappUrl ? (
+                <a className="btn btn-emerald" href={contact.whatsappUrl} target="_blank" rel="noopener noreferrer">
+                  WhatsApp
+                </a>
+              ) : (
+                <p className="member-request-invite-miss">Sin celular válido para WhatsApp.</p>
+              )}
+              {contact?.mailUrl ? (
+                <a className="btn btn-tan" href={contact.mailUrl}>
+                  <Mail size={16} /> Mail
+                </a>
+              ) : (
+                <p className="member-request-invite-miss">Sin email de contacto.</p>
+              )}
+              {onContacted ? (
+                <button type="button" className="btn btn-secondary" onClick={onContacted} disabled={busy}>
+                  {busy ? 'Guardando…' : 'Ya contactado'}
+                </button>
+              ) : null}
+            </>
+          ) : null}
+          {pending && !isJoinInquiry && onDeliver ? (
             <button type="button" className="btn btn-emerald" onClick={onDeliver} disabled={busy}>
               {busy ? 'Generando acceso y enviando mail…' : 'Generar acceso y enviar mail'}
-            </button>
-          ) : null}
-          {pending && detail.kind === 'alta' && onAlta ? (
-            <button type="button" className="btn btn-secondary" onClick={onAlta} disabled={busy}>
-              Completar ficha a mano
             </button>
           ) : null}
           <button type="button" className="btn btn-tan" onClick={download} disabled={exporting || busy}>

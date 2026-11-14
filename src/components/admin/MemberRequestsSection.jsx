@@ -11,6 +11,8 @@ import {
   formatRequestWhen,
   matchMemberForAccessRequest,
   accessInviteMailError,
+  membershipApplicationStatusLabel,
+  membershipInquiryContact,
   requestStatusLabel,
   splitAccessRequestInbox,
 } from '../../domain/members/selfService';
@@ -28,7 +30,6 @@ export default function MemberRequestsSection({
   portalAccessRequests = [],
   setPortalAccessRequests,
   onOpenAccessCredentials,
-  onPrefillAlta,
   onDeliverAccess,
   embedded = false,
 }) {
@@ -196,6 +197,21 @@ export default function MemberRequestsSection({
     }
   };
 
+  /** Asociarse: solo contacto. El alta real exige más requisitos fuera de esta bandeja. */
+  const handleJoinContacted = async (item) => {
+    setBusyId(item.id);
+    try {
+      await persistJoin({
+        ...item,
+        status: 'approved',
+        notes: item.notes || 'Contactado por secretaría · pendiente de requisitos de ingreso',
+        ...reviewStamp(),
+      });
+    } finally {
+      setBusyId('');
+    }
+  };
+
   const openAccessDetail = (item) => {
     const match = accessMatch(item);
     const stored = invitesById[item.id];
@@ -274,13 +290,13 @@ export default function MemberRequestsSection({
   };
 
   const startDeliver = async (kind, item) => {
-    if (!item || typeof onDeliverAccess !== 'function') return;
-    if (kind === 'acceso') openAccessDetail(item);
-    else openJoinDetail(item);
+    // Asociarse no entrega acceso: hace falta el proceso de ingreso completo.
+    if (kind !== 'acceso' || !item || typeof onDeliverAccess !== 'function') return;
+    openAccessDetail(item);
     setBusyId(item.id);
     setDeliverError('');
     try {
-      const known = kind === 'acceso' ? accessMatch(item) : null;
+      const known = accessMatch(item);
       const next = await onDeliverAccess(kind, item, known, (ready) => {
         setInvite(ready);
         setInvitesById((prev) => ({ ...prev, [item.id]: ready }));
@@ -300,8 +316,8 @@ export default function MemberRequestsSection({
   };
 
   const handleDeliver = async () => {
-    if (!detail?.item) return;
-    await startDeliver(detail.kind, detail.item);
+    if (!detail?.item || detail.kind !== 'acceso') return;
+    await startDeliver('acceso', detail.item);
   };
 
   const accessRows = showClosed ? accessInbox.hidden : accessInbox.open;
@@ -318,13 +334,17 @@ export default function MemberRequestsSection({
 
   const openTotal = accessInbox.open.length + pendingJoin.length;
   const inboxTitle = showClosed
-    ? 'Pedidos cerrados'
+    ? 'Aprobados'
     : view === 'acceso'
       ? 'Piden acceso a la app'
       : 'Quieren asociarse';
   const inboxHint = showClosed
-    ? 'Ya revisados o rechazados'
-    : 'Formulario público · se guardan 7 días';
+    ? (view === 'alta'
+      ? 'Contactados o rechazados'
+      : 'Entregados, contactados o rechazados')
+    : view === 'alta'
+      ? 'Solo contactar · el ingreso tiene más requisitos (no se da alta ni acceso acá)'
+      : 'Formulario público · se guardan 7 días';
 
   return (
     <>
@@ -390,14 +410,14 @@ export default function MemberRequestsSection({
             className={showClosed ? 'is-on is-muted' : 'is-muted'}
             onClick={() => setShowClosed((on) => !on)}
           >
-            Cerrados
+            Aprobados
             {closedCount ? <b className="tabular-nums">{closedCount.toLocaleString('es-AR')}</b> : null}
           </button>
         </div>
 
       {rows.length === 0 ? (
         <p className="member-requests-empty">
-          {showClosed ? 'No hay pedidos cerrados para mostrar.' : 'Nada pendiente en esta bandeja.'}
+          {showClosed ? 'No hay pedidos aprobados para mostrar.' : 'Nada pendiente en esta bandeja.'}
         </p>
       ) : (
         <ul className="member-requests-list">
@@ -470,6 +490,7 @@ export default function MemberRequestsSection({
             })
             : joinRows.map((item) => {
               const match = joinMatch(item);
+              const contact = membershipInquiryContact(item);
               const color = item.status === 'rejected' ? '#c23b3b' : item.status === 'approved' ? '#1f7a4d' : 'var(--primary-gold)';
               const pending = item.status === 'pending';
               return (
@@ -488,17 +509,38 @@ export default function MemberRequestsSection({
                       <p className="member-requests-card-match">
                         Ya es socio: {match.name} · Nº {match.memberId}
                       </p>
-                    ) : null}
+                    ) : (
+                      <p className="member-requests-card-match is-miss">
+                        Pedido de ingreso · contactar para requisitos
+                      </p>
+                    )}
                   </div>
                   <div className="member-requests-card-side">
-                    <span className="membership-moves-chip">{requestStatusLabel(item.status)}</span>
+                    <span className="membership-moves-chip">{membershipApplicationStatusLabel(item.status)}</span>
                     {pending ? (
                       <div className="member-requests-card-actions">
-                        <button type="button" className="btn btn-primary btn-sm" disabled={busyId === item.id} onClick={() => startDeliver('alta', item)}>
-                          {match ? 'Actualizar y enviar' : 'Alta + acceso'}
-                        </button>
-                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => onPrefillAlta?.(item)}>
-                          Solo alta
+                        {contact.whatsappUrl ? (
+                          <a
+                            className="btn btn-primary btn-sm"
+                            href={contact.whatsappUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            WhatsApp
+                          </a>
+                        ) : null}
+                        {contact.mailUrl ? (
+                          <a className="btn btn-secondary btn-sm" href={contact.mailUrl}>
+                            Mail
+                          </a>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          disabled={busyId === item.id}
+                          onClick={() => handleJoinContacted(item)}
+                        >
+                          Ya contactado
                         </button>
                         <button
                           type="button"
@@ -541,10 +583,11 @@ export default function MemberRequestsSection({
         busy={busyId === detail?.item?.id}
         invite={invite}
         deliverError={deliverError}
+        contact={detail?.kind === 'alta' ? membershipInquiryContact(detail.item) : null}
         onClose={closeDetail}
-        onDeliver={onDeliverAccess ? handleDeliver : undefined}
-        onAlta={detailPending && detail?.kind === 'alta' ? () => {
-          onPrefillAlta?.(detail.item);
+        onDeliver={detail?.kind === 'acceso' && onDeliverAccess ? handleDeliver : undefined}
+        onContacted={detailPending && detail?.kind === 'alta' ? async () => {
+          await handleJoinContacted(detail.item);
           closeDetail();
         } : undefined}
         onReject={detailPending ? () => {

@@ -9,6 +9,7 @@ const METHOD_LABELS = {
   mixto: 'Pago mixto',
   mercadopago: 'Mercado Pago',
   debito: 'Débito',
+  a_cuenta: 'A cuenta',
   caja: 'Efectivo',
 };
 
@@ -17,6 +18,7 @@ function methodUsesBank(method) {
 }
 
 function methodLabelOf(method, bankName) {
+  if (method === 'a_cuenta') return METHOD_LABELS.a_cuenta;
   if (method === 'transferencia') {
     return bankName ? `Transferencia ${bankName}` : 'Transferencia';
   }
@@ -27,7 +29,7 @@ function methodLabelOf(method, bankName) {
 }
 
 /** Medios editables en comprobantes (no mixto: hay que anular y volver a cobrar). */
-export const EDITABLE_DUES_METHODS = ['efectivo', 'transferencia', 'tarjeta', 'mercadopago', 'debito'];
+export const EDITABLE_DUES_METHODS = ['efectivo', 'transferencia', 'tarjeta', 'mercadopago', 'debito', 'a_cuenta'];
 
 /** Reescribe el concepto del asiento / movimiento de caja con el nuevo medio. */
 export function rewriteDuesCobroConcept(concept, methodLabel) {

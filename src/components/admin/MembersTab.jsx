@@ -32,6 +32,7 @@ import {
   markApplicationApproved,
   matchMemberForAccessRequest,
   portalLoginUrl,
+  membershipApplicationStatusLabel,
   requestStatusLabel,
   searchRequestDirectoryHits,
   splitAccessRequestInbox,
@@ -1000,27 +1001,6 @@ export default function MembersTab({
     }, 40);
   };
 
-  const prefillFromApplication = (app) => {
-    setAltaSuccess(null);
-    setForm({
-      ...emptyMemberForm(),
-      name: app.fullName || '',
-      email: app.email || '',
-      phone: app.phone || '+549264',
-      documentType: app.documentType || 'DNI',
-      documentNumber: app.documentNumber || '',
-      birthDate: app.birthDate || '',
-      address: app.address || '',
-      city: app.city || 'San Juan',
-      province: app.province || 'San Juan',
-      tier: app.requestedTier || defaultTierId,
-      notes: app.notes || '',
-    });
-    setPendingApplicationId(app.id);
-    setFormError('');
-    setShowAddForm(true);
-  };
-
   useEffect(() => {
     if (!showAddForm) return undefined;
     const timer = window.setTimeout(() => {
@@ -1401,30 +1381,14 @@ export default function MembersTab({
   };
 
   const deliverAccessFromRequest = async (kind, item, existingMember = null, onReady) => {
-    const lookup = kind === 'acceso'
-      ? item
-      : {
-        memberNumber: item.memberNumber,
-        documentNumber: item.documentNumber,
-      };
-    let matched = existingMember || matchMemberForAccessRequest(members, lookup);
-    if (!matched && kind === 'acceso' && isSupabaseConfigured) {
+    if (kind === 'alta') {
+      throw new Error('Asociarse no entrega acceso acá: hay que completar los requisitos de ingreso con secretaría.');
+    }
+    let matched = existingMember || matchMemberForAccessRequest(members, item);
+    if (!matched && isSupabaseConfigured) {
       matched = await repos.resolveMemberForApplication(item);
     }
-    let nextId = null;
-    if (kind === 'alta' && !matched) {
-      nextId = allocateNextMemberNumber(members);
-      if (isSupabaseConfigured && typeof repos.nextClubMemberNumber === 'function') {
-        try {
-          nextId = await repos.nextClubMemberNumber(members);
-        } catch {
-          /* correlativo local */
-        }
-      }
-    }
-    let member = kind === 'alta'
-      ? applyJoinApplicationToMember(item, matched, { members, memberId: nextId })
-      : matched;
+    let member = matched;
     if (!member) {
       throw new Error('No hay ficha para vincular. Revisá DNI o Nº de socio.');
     }
@@ -1503,11 +1467,7 @@ export default function MembersTab({
       putMemberInList(member);
     }
 
-    if (kind === 'alta') {
-      await persistApplication(markApplicationApproved(item, member));
-    } else {
-      await persistAccessRequest(markAccessApproved(item, member));
-    }
+    await persistAccessRequest(markAccessApproved(item, member));
 
     const invite = buildAccessInvite({
       name: member.name || item.fullName,
@@ -1746,22 +1706,13 @@ export default function MembersTab({
                   <span>
                     {hit.kind === 'alta' ? 'Solicitó asociarse' : 'Pidió acceso a la app'}
                     {' · '}
-                    {requestStatusLabel(hit.status)}
+                    {hit.kind === 'alta' ? membershipApplicationStatusLabel(hit.status) : requestStatusLabel(hit.status)}
                     {hit.documentNumber ? ` · DNI ${hit.documentNumber}` : ''}
                     {hit.memberNumber ? ` · Nº ${hit.memberNumber}` : ''}
                     {hit.email ? ` · ${hit.email}` : ''}
                     {hit.phone ? ` · ${hit.phone}` : ''}
                   </span>
                 </button>
-                {hit.kind === 'alta' && hit.status === 'pending' && allowPadronWrite ? (
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => prefillFromApplication(hit.source)}
-                  >
-                    Dar de alta
-                  </button>
-                ) : null}
               </li>
             ))}
           </ul>
@@ -2542,7 +2493,6 @@ export default function MembersTab({
             setCredsFromRequest(request);
             openCredentials(member);
           }}
-          onPrefillAlta={prefillFromApplication}
           onDeliverAccess={deliverAccessFromRequest}
         />
       ) : null}

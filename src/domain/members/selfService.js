@@ -338,6 +338,31 @@ export function requestStatusLabel(status) {
   return 'Pendiente';
 }
 
+/** Pedidos de asociarse: “approved” = ya contactados, no dados de alta. */
+export function membershipApplicationStatusLabel(status) {
+  if (status === 'approved') return 'Contactado';
+  return requestStatusLabel(status);
+}
+
+/** WhatsApp / mail para coordinar requisitos de ingreso (sin dar acceso). */
+export function membershipInquiryContact(item) {
+  const name = String(item?.fullName || '').trim() || 'hola';
+  const digits = toWhatsAppPhone(item?.phone);
+  const email = String(item?.email || '').trim();
+  const message = `Hola ${name}, te escribimos del Jockey Club San Juan por tu solicitud para asociarte. El ingreso tiene requisitos y lo coordinamos con secretaría.`;
+  const subject = 'Solicitud de ingreso · Jockey Club San Juan';
+  return {
+    whatsappUrl: digits
+      ? `https://wa.me/${digits}?text=${encodeURIComponent(message)}`
+      : null,
+    mailUrl: email
+      ? `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`
+      : null,
+    phoneLabel: String(item?.phone || '').trim() || null,
+    emailLabel: email || null,
+  };
+}
+
 /** El socio ve la contraseña en pantalla. No hace falta el nombre de la secreta. */
 export function accessInviteMailError(message) {
   const raw = String(message || '').trim();
@@ -393,8 +418,9 @@ export function buildRequestDetail(kind, item, extras = {}) {
   const address = [item?.address, item?.city, item?.province].filter(Boolean).join(', ');
   return {
     kind,
-    title: 'Solicitud de ingreso',
+    title: 'Quiere asociarse',
     subtitle: dash(item?.fullName),
+    notice: 'Solo contactar · el ingreso tiene más requisitos (no se da alta ni acceso acá)',
     filePrefix: 'solicitud-ingreso',
     rows: [
       ['Nombre', dash(item?.fullName)],
@@ -405,7 +431,7 @@ export function buildRequestDetail(kind, item, extras = {}) {
       ['Domicilio', dash(address)],
       ['Categoría pedida', extras.tierLabel || 'A definir con secretaría'],
       ['Comentario', dash(item?.notes)],
-      ['Estado', status],
+      ['Estado', membershipApplicationStatusLabel(item?.status)],
       ['Recibido', formatRequestWhen(item?.createdAt)],
       ['Ficha en padrón', extras.matchName || 'Sin coincidencia automática'],
     ],

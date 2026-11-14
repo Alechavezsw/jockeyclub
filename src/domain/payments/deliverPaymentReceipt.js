@@ -44,6 +44,7 @@ export const PAYMENT_RECEIPT_TRIGGERS = Object.freeze([
   'debito_automatico',
   'app_socio',
   'efectivo',
+  'a_cuenta',
   'mercadopago',
   'tarjeta',
   'transferencia',

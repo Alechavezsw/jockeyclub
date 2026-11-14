@@ -363,7 +363,7 @@ export function isImportedCollectionPayment(payment) {
 
 function walletKindForPaymentMethod(method, bankName = '') {
   const raw = `${method || ''} ${bankName || ''}`.toLowerCase();
-  if (/efectivo|caja/.test(raw)) return 'cash';
+  if (/efectivo|caja|a[_\s-]?cuenta/.test(raw)) return 'cash';
   if (/transfer|banco|mercado\s*pago|mp\b|d[eé]bit|tarjeta|electr/.test(raw)) return 'bank';
   return 'bank';
 }

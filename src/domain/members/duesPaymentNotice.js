@@ -103,23 +103,33 @@ export function duesReceiptMessage({ member, payment, attachment }) {
   const surcharge = Number(payment?.surcharge);
   const total = payment?.amount != null ? payment.amount : (Number.isFinite(quota) ? quota + (Number.isFinite(surcharge) ? surcharge : 0) : null);
   const balance = Number(payment?.balanceRemaining);
+  const credit = Number(payment?.creditLeftover);
+  const creditApplied = Number(payment?.creditApplied);
+  const onAccount = String(payment?.method || '').toLowerCase() === 'a_cuenta'
+    || /a\s*cuenta/i.test(String(payment?.methodLabel || payment?.concept || ''));
   const lines = [
-    `Hola ${who}, registramos tu pago de ${payment?.concept || (isBooking ? 'reserva' : 'cuota social')}.`,
+    `Hola ${who}, registramos tu pago de ${payment?.concept || (isBooking ? 'reserva' : (onAccount ? 'pago a cuenta' : 'cuota social'))}.`,
     payment?.facilityName ? `Espacio: ${payment.facilityName}` : '',
     payment?.period && isBooking ? `Evento: ${payment.period}` : '',
-    Number.isFinite(quota) && quota > 0 ? moneyLine('Cuota', quota) : '',
-    Number.isFinite(surcharge) && surcharge > 0 ? moneyLine('Interés', surcharge) : '',
+    Number.isFinite(quota) && quota > 0 && !onAccount ? moneyLine('Cuota', quota) : '',
+    Number.isFinite(surcharge) && surcharge > 0 && !onAccount ? moneyLine('Interés', surcharge) : '',
+    Number.isFinite(creditApplied) && creditApplied > 0.01
+      ? moneyLine('Saldo a favor imputado', creditApplied)
+      : '',
     Number(payment?.discount) > 0.009
       ? `${moneyLine('Descuento', payment.discount)}${payment.discountDetail ? ` · ${String(payment.discountDetail).trim()}` : ''}`
       : '',
-    total != null ? moneyLine(isBooking ? 'Abonado' : 'Total', total) : '',
+    total != null ? moneyLine(onAccount ? 'Entregado' : (isBooking ? 'Abonado' : 'Total'), total) : '',
     isBooking && Number.isFinite(Number(payment?.totalPrice))
       ? moneyLine('Precio total alquiler', payment.totalPrice)
       : '',
-    isBooking && Number.isFinite(balance)
+    (isBooking || onAccount) && Number.isFinite(balance)
       ? (balance > 0
-        ? moneyLine('Saldo pendiente', balance)
-        : 'Saldo pendiente: $ 0 (saldado)')
+        ? moneyLine(onAccount ? 'Deuda restante' : 'Saldo pendiente', balance)
+        : (onAccount ? 'Deuda restante: $ 0 (saldada)' : 'Saldo pendiente: $ 0 (saldado)'))
+      : '',
+    Number.isFinite(credit) && credit > 0.01
+      ? moneyLine('Saldo a favor', credit)
       : '',
     payment?.date ? `Fecha: ${payment.date}` : '',
     payment?.receiptNumber || payment?.receipt ? `Comprobante: ${payment.receiptNumber || payment.receipt}` : '',
@@ -134,7 +144,7 @@ export function duesReceiptMessage({ member, payment, attachment }) {
       ? (payment?.bookingScope === 'deposit' || (Number.isFinite(balance) && balance > 0)
         ? 'Comprobante de seña de reserva'
         : 'Comprobante de alquiler')
-      : 'Recibo de pago de cuota',
+      : (onAccount ? 'Comprobante de pago a cuenta' : 'Recibo de pago de cuota'),
     content: lines.filter(Boolean).join('\n'),
   });
   msg.meta = {
