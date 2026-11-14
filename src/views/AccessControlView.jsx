@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft, CheckCircle2, AlertCircle, Camera, CameraOff, History, CalendarRange,
+  ArrowLeft, CheckCircle2, AlertCircle, Camera, CameraOff, History, CalendarRange, X,
 } from 'lucide-react';
 import { parseCredentialQRPayload } from '../domain/credentials/qr';
 import { createCredentialVerifier } from '../domain/credentials/credentialCheck';
@@ -17,8 +17,7 @@ import {
 import { todayISODateAR } from '../lib/arDate';
 import { mergePoolSearchHits, mergePoolSettings, searchPoolMembers } from '../domain/pool/poolAccess';
 import { isPoolSeasonLive } from '../domain/pool/poolSeason';
-import { accountHolderOf, SEASON_DUES_GATE_COPY, seasonDuesGate } from '../domain/pool/seasonDuesGate';
-import { socialDuesStoredBalance } from '../domain/members/dues';
+import { accessDuesDebt, SEASON_DUES_GATE_COPY, seasonDuesGate } from '../domain/pool/seasonDuesGate';
 import { familyPrincipalOf, isFamilyDependent, memberNumberOf } from '../domain/members/households';
 import { isActiveReservation, reservationDay } from '../domain/reservations/memberBookings';
 import {
@@ -78,7 +77,7 @@ function reservationStatusLabel(status) {
   return s || 'OK';
 }
 
-/** Cuánto queda el cartel. Una credencial distinta lo reemplaza al instante; la misma no se vuelve a leer. */
+/** Evita re-leer la misma credencial seguida. El cartel no se apaga solo: lo cierra el operador. */
 const COOLDOWN_MS = 2200;
 
 let sharedAudioCtx = null;
@@ -165,13 +164,21 @@ export default function AccessControlView({
   const manualRef = useRef(null);
   const poolCfg = mergePoolSettings(poolSettings);
 
-  // Cuánto dura el cartel. No frena la cámara: la credencial siguiente lo reemplaza al instante.
-  const beginCooldown = useCallback((ms = COOLDOWN_MS) => {
-    if (cooldownTimerRef.current) clearTimeout(cooldownTimerRef.current);
-    cooldownTimerRef.current = setTimeout(() => {
-      setResult(null);
+  // Antes apagaba el cartel solo. Ahora solo deja pasar otra lectura: el operador cierra a mano.
+  const beginCooldown = useCallback(() => {
+    if (cooldownTimerRef.current) {
+      clearTimeout(cooldownTimerRef.current);
       cooldownTimerRef.current = null;
-    }, ms);
+    }
+  }, []);
+
+  const dismissResult = useCallback(() => {
+    if (cooldownTimerRef.current) {
+      clearTimeout(cooldownTimerRef.current);
+      cooldownTimerRef.current = null;
+    }
+    setResult(null);
+    lastPayloadRef.current = { raw: '', at: 0 };
   }, []);
 
   const [verifier] = useState(() => createCredentialVerifier({
@@ -200,9 +207,8 @@ export default function AccessControlView({
     const isSuspended = member.status !== 'active';
     const duesGate = seasonDuesGate(member, { today: clubDay, settings: poolCfg, members: gateMembers });
     // El adherente no tiene cuenta propia: la deuda y la mora son las del titular.
-    const holder = accountHolderOf(member, gateMembers);
-    const owed = socialDuesStoredBalance(holder);
-    const hasDebt = owed > 0;
+    // Vitalicio / fundador / comisión no abonan → nunca «CON DEUDA».
+    const { holder, owed, hasDebt } = accessDuesDebt(member, gateMembers);
     const isAllowed = !isSuspended && !duesGate.blocked;
     const status = isAllowed ? 'granted' : 'denied';
     const debtNote = holder !== member ? 'Deuda del titular' : 'Deuda';
@@ -212,7 +218,10 @@ export default function AccessControlView({
         ? duesGate.reason
         : hasDebt
           ? `Ingreso OK · ${debtNote} ${formatCurrency(owed)}`
-          : 'Acceso aprobado · Sin deuda pendiente';
+          : 'Acceso aprobado · Al día';
+    const standingLabel = hasDebt
+      ? `${debtNote} ${formatCurrency(owed)}`
+      : 'Al día';
 
     // Misma credencial dos veces en poco rato: un QR prestado o mandado por WhatsApp se nota así.
     // Solo avisa; quien decide es el portero (puede haber salido y vuelto).
@@ -222,7 +231,9 @@ export default function AccessControlView({
     setResult({
       status,
       title: isAllowed ? (hasDebt ? 'ACCESO CON DEUDA' : 'ACCESO AUTORIZADO') : (duesGate.blocked ? 'ACCESO DENEGADO · MORA' : 'ACCESO DENEGADO'),
-      detail: `${member.name} · ${isAllowed ? (member.tier?.toUpperCase() || 'SOCIO') : notes}`,
+      detail: isAllowed
+        ? `${member.name} · ${member.tier?.toUpperCase() || 'SOCIO'} · ${standingLabel}`
+        : `${member.name} · ${notes}`,
       warning,
       memberName: member.name,
       photo: member.photo,
@@ -604,25 +615,40 @@ export default function AccessControlView({
     [reservations, clubDay],
   );
 
-  const resultCard = result ? (
-    <div className={`access-result-card ${result.status}${result.tone ? ` ${result.tone}` : ''}`} role="status" aria-live="assertive">
-      {result.photo ? (
-        <img
-          src={result.photo}
-          alt=""
-          width={64}
-          height={64}
-          className="access-result-photo"
-        />
-      ) : null}
-      {result.status === 'granted'
-        ? <CheckCircle2 size={44} aria-hidden="true" />
-        : <AlertCircle size={44} aria-hidden="true" />}
-      <h2 className="serif-font access-result-title">{result.title}</h2>
-      <p className="access-result-detail">{result.detail}</p>
-      {result.warning ? <p className="access-result-warning">{result.warning}</p> : null}
-    </div>
-  ) : null;
+  const renderResultCard = (extraClass = '') => (
+    result ? (
+      <div
+        className={`access-result-card ${result.status}${result.tone ? ` ${result.tone}` : ''}${extraClass ? ` ${extraClass}` : ''}`}
+        role="status"
+        aria-live="assertive"
+      >
+        <button
+          type="button"
+          className="access-result-close"
+          onClick={dismissResult}
+          aria-label="Cerrar cartel"
+        >
+          <X size={18} aria-hidden="true" />
+          <span>Cerrar</span>
+        </button>
+        {result.photo ? (
+          <img
+            src={result.photo}
+            alt=""
+            width={64}
+            height={64}
+            className="access-result-photo"
+          />
+        ) : null}
+        {result.status === 'granted'
+          ? <CheckCircle2 size={44} aria-hidden="true" />
+          : <AlertCircle size={44} aria-hidden="true" />}
+        <h2 className="serif-font access-result-title">{result.title}</h2>
+        <p className="access-result-detail">{result.detail}</p>
+        {result.warning ? <p className="access-result-warning">{result.warning}</p> : null}
+      </div>
+    ) : null
+  );
 
   return (
     <div className="access-gate fade-in">
@@ -789,14 +815,41 @@ export default function AccessControlView({
           border-radius: 18px;
         }
         .access-result-card {
+          position: relative;
           display: flex;
           flex-direction: column;
           align-items: center;
           justify-content: center;
           gap: 0.35rem;
-          padding: 1.15rem 1rem;
+          padding: 1.15rem 1rem 1.25rem;
           border-radius: 18px;
           text-align: center;
+        }
+        .access-result-close {
+          position: absolute;
+          top: 0.55rem;
+          right: 0.55rem;
+          display: inline-flex;
+          align-items: center;
+          gap: 0.3rem;
+          min-height: 2.1rem;
+          padding: 0.35rem 0.7rem;
+          border-radius: 999px;
+          border: 1px solid rgba(255, 255, 255, 0.28);
+          background: rgba(0, 0, 0, 0.35);
+          color: #fff;
+          font: inherit;
+          font-size: 0.78rem;
+          font-weight: 700;
+          letter-spacing: 0.02em;
+          cursor: pointer;
+          z-index: 2;
+        }
+        .access-result-close:hover,
+        .access-result-close:focus-visible {
+          background: rgba(0, 0, 0, 0.55);
+          outline: 2px solid rgba(255, 255, 255, 0.45);
+          outline-offset: 1px;
         }
         .access-result-card.granted {
           background: rgba(6, 40, 28, 0.92);
@@ -1005,7 +1058,7 @@ export default function AccessControlView({
           </p>
         ) : null}
 
-        {!cameraOn && resultCard}
+        {!cameraOn && renderResultCard()}
 
         {cameraOn ? (
           <div className="access-scanner-shell">
@@ -1016,19 +1069,7 @@ export default function AccessControlView({
               onError={handleCameraError}
               onLiveChange={setCameraLive}
             />
-            {result ? (
-              <div className={`access-result-card ${result.status}${result.tone ? ` ${result.tone}` : ''}`} role="status" aria-live="assertive">
-                {result.photo ? (
-                  <img src={result.photo} alt="" width={64} height={64} className="access-result-photo" />
-                ) : null}
-                {result.status === 'granted'
-                  ? <CheckCircle2 size={44} aria-hidden="true" />
-                  : <AlertCircle size={44} aria-hidden="true" />}
-                <h2 className="serif-font access-result-title">{result.title}</h2>
-                <p className="access-result-detail">{result.detail}</p>
-                {result.warning ? <p className="access-result-warning">{result.warning}</p> : null}
-              </div>
-            ) : null}
+            {renderResultCard()}
           </div>
         ) : null}
 

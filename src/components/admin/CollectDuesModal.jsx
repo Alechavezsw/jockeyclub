@@ -30,13 +30,13 @@ import { isSupabaseConfigured } from '../../lib/supabase';
 import * as repos from '../../data/repos';
 
 const METHODS = [
-  { id: 'efectivo', label: 'Efectivo', icon: Banknote, hint: 'Cobro en sede / caja' },
-  { id: 'a_cuenta', label: 'A cuenta', icon: Wallet, hint: 'Entrega parcial · imputa deuda · caja' },
-  { id: 'transferencia', label: 'Transferencia', icon: Landmark, hint: 'Bancos del club + comprobante' },
-  { id: 'tarjeta', label: 'Tarjeta', icon: CreditCard, hint: 'POS / voucher + comprobante' },
-  { id: 'debito', label: 'Débito', icon: WalletCards, hint: 'Débito bancario · sin recargo · comprobante o a mano' },
-  { id: 'mixto', label: 'Mixto', icon: Split, hint: 'Combiná efectivo, transferencia y tarjeta' },
-  { id: 'mercadopago', label: 'Mercado Pago', icon: QrCode, hint: 'QR de mostrador y acreditación automática' },
+  { id: 'efectivo', label: 'Efectivo', icon: Banknote, hint: 'Caja general' },
+  { id: 'a_cuenta', label: 'A cuenta', icon: Wallet, hint: 'Parcial · queda a favor si sobra' },
+  { id: 'transferencia', label: 'Transfer.', icon: Landmark, hint: 'Banco del club + comprobante' },
+  { id: 'tarjeta', label: 'Tarjeta', icon: CreditCard, hint: 'POS + voucher' },
+  { id: 'debito', label: 'Débito', icon: WalletCards, hint: 'Sin recargo · con comprobante' },
+  { id: 'mixto', label: 'Mixto', icon: Split, hint: 'Efectivo + transferencia + tarjeta' },
+  { id: 'mercadopago', label: 'MP', icon: QrCode, hint: 'QR de mostrador' },
 ];
 
 const MIX_METHOD_OPTIONS = MIXED_DUES_METHODS.map((id) => ({
@@ -922,13 +922,71 @@ export default function CollectDuesModal({
 
         {!isClear ? (
         <>
-        <p style={{ margin: '0 0 0.65rem', fontSize: '0.78rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-gold)' }}>
-          Método de pago
-        </p>
-        <div className="collect-methods-grid" style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(methods.length, 2)}, minmax(0, 1fr))`, gap: '0.5rem', marginBottom: '1.1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '0.75rem', marginBottom: '0.45rem' }}>
+          <p style={{ margin: 0, fontSize: '0.72rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-gold)', fontWeight: 600 }}>
+            Método
+          </p>
+          <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.2 }}>
+            {methods.find((row) => row.id === method)?.hint || ''}
+          </p>
+        </div>
+        <div className="collect-methods-grid" role="radiogroup" aria-label="Método de pago">
           <style>{`
-            @media (min-width: 520px) {
-              .collect-methods-grid { grid-template-columns: repeat(${methods.length}, minmax(0, 1fr)) !important; }
+            .collect-methods-grid {
+              display: grid;
+              grid-template-columns: repeat(auto-fit, minmax(4.6rem, 1fr));
+              gap: 0.35rem;
+              margin-bottom: 0.85rem;
+            }
+            .collect-method-tile {
+              position: relative;
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              gap: 0.22rem;
+              min-height: 3.35rem;
+              padding: 0.4rem 0.25rem;
+              border-radius: 9px;
+              border: 1px solid var(--border-glass);
+              background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01));
+              color: var(--text-secondary);
+              cursor: pointer;
+              font-family: inherit;
+              transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+            }
+            .collect-method-tile:hover {
+              border-color: rgba(var(--primary-gold-rgb), 0.45);
+              color: var(--text-primary);
+              transform: translateY(-1px);
+            }
+            .collect-method-tile.is-on {
+              border-color: var(--primary-gold);
+              background: linear-gradient(180deg, rgba(var(--primary-gold-rgb), 0.2), rgba(var(--primary-gold-rgb), 0.06));
+              color: var(--text-gold);
+              box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 0 0 1px rgba(var(--primary-gold-rgb), 0.18);
+            }
+            .collect-method-tile.is-on::after {
+              content: '';
+              position: absolute;
+              top: 5px;
+              right: 5px;
+              width: 5px;
+              height: 5px;
+              border-radius: 50%;
+              background: var(--primary-gold);
+              box-shadow: 0 0 6px rgba(var(--primary-gold-rgb), 0.7);
+            }
+            .collect-method-tile__label {
+              font-size: 0.68rem;
+              font-weight: 700;
+              letter-spacing: 0.01em;
+              line-height: 1.1;
+              white-space: nowrap;
+            }
+            @media (prefers-reduced-motion: reduce) {
+              .collect-method-tile { transition: none; }
+              .collect-method-tile:hover { transform: none; }
             }
           `}</style>
           {methods.map((m) => {
@@ -938,6 +996,10 @@ export default function CollectDuesModal({
               <button
                 key={m.id}
                 type="button"
+                role="radio"
+                aria-checked={active}
+                title={m.hint}
+                className={`collect-method-tile${active ? ' is-on' : ''}`}
                 onClick={() => {
                   setMethod(m.id);
                   setError('');
@@ -954,20 +1016,9 @@ export default function CollectDuesModal({
                     ]);
                   }
                 }}
-                style={{
-                  padding: '0.75rem 0.5rem',
-                  borderRadius: 10,
-                  border: active ? '1px solid var(--primary-gold)' : '1px solid var(--border-glass)',
-                  background: active ? 'rgba(var(--primary-gold-rgb),0.12)' : 'rgba(255,255,255,0.02)',
-                  color: active ? 'var(--text-gold)' : 'var(--text-secondary)',
-                  cursor: 'pointer',
-                  fontFamily: 'inherit',
-                  textAlign: 'center',
-                }}
               >
-                <Icon size={18} style={{ margin: '0 auto 0.35rem', display: 'block' }} />
-                <div style={{ fontSize: '0.8rem', fontWeight: 700 }}>{m.label}</div>
-                <div style={{ fontSize: '0.68rem', marginTop: 2, opacity: 0.8, lineHeight: 1.25 }}>{m.hint}</div>
+                <Icon size={15} aria-hidden="true" strokeWidth={2.1} />
+                <span className="collect-method-tile__label">{m.label}</span>
               </button>
             );
           })}

@@ -29,6 +29,19 @@ export function accountHolderOf(member, members = []) {
   return holder || member;
 }
 
+/**
+ * Deuda de cuota para carteles de acceso / asistencia.
+ * Exentos = 0. Adherente = saldo del titular. Misma fuente que mora de temporada.
+ */
+export function accessDuesDebt(member, members = []) {
+  const holder = accountHolderOf(member, members);
+  if (!holder || isDuesExemptMember(holder)) {
+    return { holder, owed: 0, hasDebt: false };
+  }
+  const owed = socialDuesStoredBalance(holder);
+  return { holder, owed, hasDebt: owed > 0.01 };
+}
+
 function dependsOnHolder(member, holder) {
   return Boolean(member && holder && holder !== member);
 }

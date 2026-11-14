@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { accountHolderOf, isCurrentMonthDuesUnpaid, piletaPayAccess, seasonDuesGate } from './seasonDuesGate';
+import {
+  accessDuesDebt,
+  accountHolderOf,
+  isCurrentMonthDuesUnpaid,
+  piletaPayAccess,
+  seasonDuesGate,
+} from './seasonDuesGate';
 
 const familiar = {
   memberId: '1',
@@ -151,6 +157,41 @@ describe('adherente: la mora es la del titular', () => {
 
   it('un titular se evalúa a sí mismo', () => {
     expect(accountHolderOf(titular, members)).toBe(titular);
+  });
+});
+
+describe('accessDuesDebt', () => {
+  it('exentos no tienen deuda aunque el saldo esté sucio', () => {
+    expect(accessDuesDebt({
+      memberId: '8377',
+      tier: 'comision',
+      cuotaCategories: ['COMISION'],
+      outstandingBalance: 1466000,
+      status: 'active',
+    }).hasDebt).toBe(false);
+  });
+
+  it('saldo a favor y unpaidCapital 0 son al día', () => {
+    expect(accessDuesDebt({
+      memberId: '1',
+      tier: 'socio_individual',
+      outstandingBalance: -5000,
+      unpaidCapital: 0,
+    }).hasDebt).toBe(false);
+  });
+
+  it('adherente hereda el saldo del titular', () => {
+    const titular = { ...familiar, memberId: '1001' };
+    const adherente = {
+      memberId: '1002',
+      tier: 'socio_familiar',
+      familyPrincipalNumber: '1001',
+      outstandingBalance: 0,
+    };
+    const debt = accessDuesDebt(adherente, [titular, adherente]);
+    expect(debt.hasDebt).toBe(true);
+    expect(debt.owed).toBe(70000);
+    expect(debt.holder).toBe(titular);
   });
 });
 

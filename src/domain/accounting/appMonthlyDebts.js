@@ -15,8 +15,10 @@ import {
   firstUnpaidDuesDate,
   isMemberBillingActive,
   isDuesExemptMember,
+  lilaUnpaidCapital,
   monthsBehindOnDues,
   pinDuesDueDate,
+  socialDuesStoredBalance,
 } from '../members/dues';
 import { duesMonthsPhrase } from '../members/duesImputations';
 import { duesNoticeCalendar, duesNoticeStagesForDay } from '../members/duesNotices';
@@ -215,7 +217,9 @@ export function appMonthlyDebtForMember(member, { today = new Date(), entries = 
   if (!memberNumber) return null;
 
   const todayIso = asIsoDate(today);
-  const persisted = Number(member.outstandingBalance) || 0;
+  // Misma fuente que molinete / mora: unpaidCapital LILA si hay; si no, outstanding.
+  const lila = lilaUnpaidCapital(member);
+  const persisted = socialDuesStoredBalance(member);
   const billingActive = isMemberBillingActive(member);
   const exempt = isDuesExemptMember(member);
   if (exempt) return null;
@@ -227,6 +231,8 @@ export function appMonthlyDebtForMember(member, { today = new Date(), entries = 
   });
 
   if (persisted <= EPS) {
+    // Corte LILA en 0 = al día; no inventar meses por nextDue viejo.
+    if (lila != null) return null;
     if (!billingActive || monthsBehind <= 0) return null;
   }
 

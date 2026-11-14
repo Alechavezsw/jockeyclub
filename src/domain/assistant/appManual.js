@@ -181,7 +181,7 @@ export const APP_MANUAL = [
     who: 'Portería, caja, personal, admin, superadmin.',
     steps: [
       'Acceso QR abre /acceso: es el molinete de la sede, no el libro.',
-      'Escaneá la credencial o buscá DNI / apellido / número a mano. No hace falta esperar a que se vaya el cartel: la credencial siguiente lo reemplaza al instante.',
+      'Escaneá la credencial o buscá DNI / apellido / número a mano. El cartel no se apaga solo: el operador lo cierra con Cerrar. La credencial siguiente también lo reemplaza al instante.',
       'ACCESO AUTORIZADO: dejalo pasar. ACCESO CON DEUDA: pasa igual; invitalo a regularizar en Caja.',
       'Si aparece un aviso amarillo «Ya ingresó hace N min», esa misma credencial entró hace poco. Puede haber salido y vuelto, pero también puede ser un QR prestado o mandado por WhatsApp: mirá que la persona sea el socio. El aviso no bloquea; decidís vos.',
       RULES.gateMora,
@@ -567,7 +567,7 @@ export const APP_MANUAL = [
     who: 'Portería, caja, personal, admin, superadmin.',
     steps: [
       'Rail Acceso QR o /acceso. La pantalla de la tablet queda encendida mientras está abierta.',
-      'Escaneá o escribí DNI, apellido, número o código JCSJ. El lector sigue leyendo mientras se muestra el cartel: pasá la credencial siguiente sin esperar.',
+      'Escaneá o escribí DNI, apellido, número o código JCSJ. El cartel queda hasta que el operador lo cierre; el lector sigue leyendo y la credencial siguiente lo reemplaza al instante.',
       'Resultados: ACCESO AUTORIZADO, ACCESO CON DEUDA, ACCESO DENEGADO (suspendido o mora en temporada), INVITADO AUTORIZADO, ANFITRIÓN EN MORA, PASE INVÁLIDO, QR no válido, QR adulterado, Socio no encontrado y NO SE PUDO VERIFICAR (sin conexión).',
       'El adherente se evalúa con su titular: si el titular está en mora, el grupo no ingresa en temporada.',
       'Los pases de invitado se consultan en el momento: uno que el socio generó hace un rato vale aunque la tablet haya abierto antes.',

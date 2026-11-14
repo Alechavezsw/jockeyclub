@@ -83,13 +83,13 @@ export default function TeacherAttendanceView({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return roster.filter((m) => {
-      const dues = duesStatus(m);
+      const dues = duesStatus(m, { members });
       if (onlyDebt && dues.ok) return false;
       if (!q) return true;
       const hay = `${m.name || ''} ${m.memberId || ''} ${m.phone || ''}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [roster, query, onlyDebt]);
+  }, [roster, query, onlyDebt, members]);
 
   const summary = summarizeSession(session, roster.length);
 
@@ -114,7 +114,7 @@ export default function TeacherAttendanceView({
     setAttendanceSessions((prev) => {
       let next = prev;
       for (const m of roster) {
-        const dues = duesStatus(m);
+        const dues = duesStatus(m, { members });
         if (!dues.ok) continue;
         next = upsertAttendanceMark(next, {
           date,
@@ -229,7 +229,7 @@ export default function TeacherAttendanceView({
       ) : (
         <ul className="teach-att-list">
           {filtered.map((member) => {
-            const dues = duesStatus(member);
+            const dues = duesStatus(member, { members });
             const mark = markForMember(session, member.memberId);
             const status = mark?.status || null;
 

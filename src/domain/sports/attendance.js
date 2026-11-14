@@ -1,4 +1,4 @@
-import { isDuesExemptMember } from '../members/dues';
+import { accessDuesDebt } from '../pool/seasonDuesGate';
 
 /** Asistencia de disciplinas — toma simple por clase / día. */
 
@@ -16,8 +16,8 @@ export function toISODate(date = new Date()) {
   return `${y}-${m}-${day}`;
 }
 
-export function duesStatus(member) {
-  const balance = Number(member?.outstandingBalance) || 0;
+/** Misma lógica que el molinete: saldo LILA / titular / exentos. */
+export function duesStatus(member, { members = [] } = {}) {
   const status = String(member?.status || 'active').toLowerCase();
   if (status === 'suspended') {
     return { id: 'suspended', label: 'Suspendido', ok: false };
@@ -28,11 +28,14 @@ export function duesStatus(member) {
   if (status === 'pending') {
     return { id: 'pending', label: 'Pendiente', ok: false };
   }
-  if (isDuesExemptMember(member)) {
-    return { id: 'ok', label: 'Al día', ok: true, balance: 0 };
-  }
-  if (balance > 0) {
-    return { id: 'debt', label: 'Con deuda', ok: false, balance };
+  const { holder, owed, hasDebt } = accessDuesDebt(member, members);
+  if (hasDebt) {
+    return {
+      id: 'debt',
+      label: holder !== member ? 'Deuda del titular' : 'Con deuda',
+      ok: false,
+      balance: owed,
+    };
   }
   return { id: 'ok', label: 'Al día', ok: true, balance: 0 };
 }

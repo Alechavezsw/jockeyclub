@@ -335,7 +335,7 @@ function duesExemptHeadline(member) {
  */
 export function quotaHeadline(member) {
   const status = String(member?.status || 'active').toLowerCase();
-  const balance = Number(member?.outstandingBalance) || 0;
+  const balance = socialDuesStoredBalance(member);
   const billing = isMemberBillingActive(member);
 
   if (isDuesExemptMember(member)) {

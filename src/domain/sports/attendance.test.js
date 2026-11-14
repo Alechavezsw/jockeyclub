@@ -13,9 +13,31 @@ describe('duesStatus', () => {
     expect(duesStatus({ outstandingBalance: 0 }).ok).toBe(true);
     expect(duesStatus({ outstandingBalance: 12000 }).id).toBe('debt');
     expect(duesStatus({ outstandingBalance: 32000, tier: 'socio_vitalicio' }).ok).toBe(true);
+    expect(duesStatus({ outstandingBalance: 1466000, tier: 'comision', cuotaCategories: ['COMISION'] }).ok).toBe(true);
+    expect(duesStatus({ outstandingBalance: 70000, unpaidCapital: 0 }).ok).toBe(true);
     expect(duesStatus({ status: 'suspended' }).id).toBe('suspended');
     expect(duesStatus({ status: 'inactive', outstandingBalance: 0 }).id).toBe('inactive');
     expect(duesStatus({ status: 'inactive', outstandingBalance: 0 }).ok).toBe(false);
+  });
+
+  it('adherente usa la deuda del titular', () => {
+    const titular = {
+      memberId: '1001',
+      tier: 'socio_familiar',
+      outstandingBalance: 70000,
+      status: 'active',
+    };
+    const adherente = {
+      memberId: '1002',
+      tier: 'socio_familiar',
+      familyPrincipalNumber: '1001',
+      outstandingBalance: 0,
+      status: 'active',
+    };
+    const dues = duesStatus(adherente, { members: [titular, adherente] });
+    expect(dues.id).toBe('debt');
+    expect(dues.label).toMatch(/titular/i);
+    expect(dues.balance).toBe(70000);
   });
 });
 
