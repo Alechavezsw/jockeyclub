@@ -11,12 +11,14 @@ import { familyPrincipalOf, isFamilyDependent, memberNumberOf } from '../members
 import { isPoolSeasonLive } from './poolSeason';
 
 export const SEASON_DUES_GATE_COPY = {
-  lead: 'Durante la temporada de pileta, solo están habilitados para ingresar al club los socios al día con la cuota social del mes en curso.',
-  mora: 'A partir del día 10, quien no abonó está en mora y no ingresa al establecimiento hasta regularizar.',
+  lead: 'Solo ingresan socios al día con la cuota social. Con deuda, el acceso queda denegado hasta regularizar en Caja o Mi Cuenta.',
+  mora: 'En temporada de pileta (diciembre a marzo), desde el día 10, quien no abonó el mes en curso también queda en mora de ingreso.',
 };
 
 export const SEASON_DUES_BLOCK_REASON = 'En mora · no abonó la cuota del mes. No ingresa hasta regularizar.';
 export const SEASON_DUES_BLOCK_REASON_GROUP = 'El titular está en mora · no abonó la cuota del mes. No ingresa hasta regularizar.';
+export const DUES_DEBT_BLOCK_REASON = 'Con deuda de cuota. No ingresa hasta regularizar.';
+export const DUES_DEBT_BLOCK_REASON_GROUP = 'El titular tiene deuda de cuota. No ingresa hasta regularizar.';
 
 /**
  * El adherente no tiene cuenta propia: la mora es la del titular del grupo.
@@ -40,6 +42,62 @@ export function accessDuesDebt(member, members = []) {
   }
   const owed = socialDuesStoredBalance(holder);
   return { holder, owed, hasDebt: owed > 0.01 };
+}
+
+/**
+ * Puerta de la sede: sin deuda de cuota (todo el año) y, en temporada, sin mora del mes.
+ * Exentos y saldo a favor pasan. El adherente hereda al titular.
+ */
+export function clubEntryGate(member, {
+  today = new Date(),
+  settings = {},
+  members = [],
+} = {}) {
+  if (!member) {
+    return {
+      blocked: false,
+      reason: '',
+      title: '',
+      hasDebt: false,
+      owed: 0,
+      holder: null,
+      season: { blocked: false, inSeason: false, mora: false, reason: '' },
+    };
+  }
+  const debt = accessDuesDebt(member, members);
+  const season = seasonDuesGate(member, { today, settings, members });
+  if (debt.hasDebt) {
+    const group = dependsOnHolder(member, debt.holder);
+    return {
+      blocked: true,
+      reason: group ? DUES_DEBT_BLOCK_REASON_GROUP : DUES_DEBT_BLOCK_REASON,
+      title: 'ACCESO DENEGADO · DEUDA',
+      hasDebt: true,
+      owed: debt.owed,
+      holder: debt.holder,
+      season,
+    };
+  }
+  if (season.blocked) {
+    return {
+      blocked: true,
+      reason: season.reason,
+      title: 'ACCESO DENEGADO · MORA',
+      hasDebt: false,
+      owed: 0,
+      holder: debt.holder,
+      season,
+    };
+  }
+  return {
+    blocked: false,
+    reason: '',
+    title: '',
+    hasDebt: false,
+    owed: 0,
+    holder: debt.holder,
+    season,
+  };
 }
 
 function dependsOnHolder(member, holder) {

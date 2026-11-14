@@ -20,7 +20,7 @@ import { familyPrincipalOf, isFamilyDependent, memberNumberOf } from '../members
 import { memberHasPortalAccess } from '../members/memberAdminActions';
 import { getTierDisplayName } from '../members/tiers';
 import { mergePoolSettings } from '../pool/poolAccess';
-import { piletaPayAccess, seasonDuesGate } from '../pool/seasonDuesGate';
+import { clubEntryGate, piletaPayAccess } from '../pool/seasonDuesGate';
 
 function fold(value) {
   return String(value || '')
@@ -119,11 +119,12 @@ export function memberFacts(member, { today = new Date(), poolSettings = {}, mem
     ? duesChargeBreakdown(member, { paidOn: when })
     : null;
 
-  const gate = seasonDuesGate(member, { today: when, settings, members });
-  const entryBlocked = status !== 'active' || gate.blocked;
+  const entry = clubEntryGate(member, { today: when, settings, members });
+  const gate = entry.season;
+  const entryBlocked = status !== 'active' || entry.blocked;
   const entryReason = status !== 'active'
     ? `cuenta ${STATUS_LABEL[status] || status}`
-    : (gate.blocked ? gate.reason : '');
+    : (entry.blocked ? entry.reason : '');
   const pool = piletaPayAccess(member, { today: when, settings, members });
 
   let titularNumber = null;

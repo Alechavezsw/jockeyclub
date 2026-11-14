@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   accessDuesDebt,
   accountHolderOf,
+  clubEntryGate,
   isCurrentMonthDuesUnpaid,
   piletaPayAccess,
   seasonDuesGate,
@@ -157,6 +158,36 @@ describe('adherente: la mora es la del titular', () => {
 
   it('un titular se evalúa a sí mismo', () => {
     expect(accountHolderOf(titular, members)).toBe(titular);
+  });
+});
+
+describe('clubEntryGate', () => {
+  it('con deuda no ingresa fuera de temporada', () => {
+    const gate = clubEntryGate(familiar, { today: '2026-10-15' });
+    expect(gate.blocked).toBe(true);
+    expect(gate.hasDebt).toBe(true);
+    expect(gate.title).toMatch(/DEUDA/i);
+  });
+
+  it('al día ingresa', () => {
+    const gate = clubEntryGate({
+      ...familiar,
+      outstandingBalance: 0,
+      lastPaymentDate: '2026-10-10',
+      nextDueDate: '2026-11-10',
+    }, { today: '2026-10-15' });
+    expect(gate.blocked).toBe(false);
+    expect(gate.hasDebt).toBe(false);
+  });
+
+  it('exento ingresa aunque el saldo esté sucio', () => {
+    expect(clubEntryGate({
+      memberId: '8377',
+      tier: 'comision',
+      cuotaCategories: ['COMISION'],
+      outstandingBalance: 1466000,
+      status: 'active',
+    }, { today: '2026-10-15' }).blocked).toBe(false);
   });
 });
 

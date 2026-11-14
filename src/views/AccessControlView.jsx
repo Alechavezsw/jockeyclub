@@ -17,7 +17,7 @@ import {
 import { todayISODateAR } from '../lib/arDate';
 import { mergePoolSearchHits, mergePoolSettings, searchPoolMembers } from '../domain/pool/poolAccess';
 import { isPoolSeasonLive } from '../domain/pool/poolSeason';
-import { accessDuesDebt, SEASON_DUES_GATE_COPY, seasonDuesGate } from '../domain/pool/seasonDuesGate';
+import { clubEntryGate, SEASON_DUES_GATE_COPY } from '../domain/pool/seasonDuesGate';
 import { familyPrincipalOf, isFamilyDependent, memberNumberOf } from '../domain/members/households';
 import { isActiveReservation, reservationDay } from '../domain/reservations/memberBookings';
 import {
@@ -205,23 +205,17 @@ export default function AccessControlView({
     lastAdmitRef.current = { id: member.memberId, at: nowMs };
 
     const isSuspended = member.status !== 'active';
-    const duesGate = seasonDuesGate(member, { today: clubDay, settings: poolCfg, members: gateMembers });
-    // El adherente no tiene cuenta propia: la deuda y la mora son las del titular.
-    // Vitalicio / fundador / comisión no abonan → nunca «CON DEUDA».
-    const { holder, owed, hasDebt } = accessDuesDebt(member, gateMembers);
-    const isAllowed = !isSuspended && !duesGate.blocked;
+    // Sin al día no entra: deuda de cuota cierra la puerta todo el año (titular / adherente / exentos).
+    const entry = clubEntryGate(member, { today: clubDay, settings: poolCfg, members: gateMembers });
+    const { holder, owed, hasDebt } = entry;
+    const isAllowed = !isSuspended && !entry.blocked;
     const status = isAllowed ? 'granted' : 'denied';
-    const debtNote = holder !== member ? 'Deuda del titular' : 'Deuda';
+    const debtNote = holder && holder !== member ? 'Deuda del titular' : 'Deuda';
     const notes = isSuspended
       ? 'Cuenta suspendida'
-      : duesGate.blocked
-        ? duesGate.reason
-        : hasDebt
-          ? `Ingreso OK · ${debtNote} ${formatCurrency(owed)}`
-          : 'Acceso aprobado · Al día';
-    const standingLabel = hasDebt
-      ? `${debtNote} ${formatCurrency(owed)}`
-      : 'Al día';
+      : entry.blocked
+        ? (hasDebt ? `${debtNote} ${formatCurrency(owed)}. ${entry.reason}` : entry.reason)
+        : 'Acceso aprobado · Al día';
 
     // Misma credencial dos veces en poco rato: un QR prestado o mandado por WhatsApp se nota así.
     // Solo avisa; quien decide es el portero (puede haber salido y vuelto).
@@ -230,9 +224,11 @@ export default function AccessControlView({
 
     setResult({
       status,
-      title: isAllowed ? (hasDebt ? 'ACCESO CON DEUDA' : 'ACCESO AUTORIZADO') : (duesGate.blocked ? 'ACCESO DENEGADO · MORA' : 'ACCESO DENEGADO'),
+      title: isAllowed
+        ? 'ACCESO AUTORIZADO'
+        : (isSuspended ? 'ACCESO DENEGADO' : (entry.title || 'ACCESO DENEGADO')),
       detail: isAllowed
-        ? `${member.name} · ${member.tier?.toUpperCase() || 'SOCIO'} · ${standingLabel}`
+        ? `${member.name} · ${member.tier?.toUpperCase() || 'SOCIO'} · Al día`
         : `${member.name} · ${notes}`,
       warning,
       memberName: member.name,
@@ -248,10 +244,10 @@ export default function AccessControlView({
         group: tierToGroup(member.tier),
         activity: isSuspended
           ? 'Acceso denegado'
-          : duesGate.blocked
-            ? 'Acceso denegado · mora'
-            : hasDebt
-              ? 'Ingreso con deuda'
+          : hasDebt
+            ? 'Acceso denegado · deuda'
+            : entry.blocked
+              ? 'Acceso denegado · mora'
               : 'Ingreso sede',
         status,
         notes: warning ? `${notes} · ${warning}` : notes,
@@ -326,17 +322,23 @@ export default function AccessControlView({
         );
         return;
       }
-      const hostBlocked = host
-        ? seasonDuesGate(host, { today: clubDay, settings: poolCfg, members }).blocked
-        : false;
+      const hostEntry = host
+        ? clubEntryGate(host, { today: clubDay, settings: poolCfg, members })
+        : null;
+      const hostBlocked = Boolean(hostEntry?.blocked);
+      const hostDebt = Boolean(hostEntry?.hasDebt);
       const valid = pass && isGuestPassValid(pass, { parsed: guestParsed }) && host?.status === 'active' && !hostBlocked;
       setResult({
         status: valid ? 'granted' : 'denied',
-        title: valid ? 'INVITADO AUTORIZADO' : (hostBlocked ? 'ANFITRIÓN EN MORA' : 'PASE INVÁLIDO'),
+        title: valid
+          ? 'INVITADO AUTORIZADO'
+          : (hostBlocked ? (hostDebt ? 'ANFITRIÓN CON DEUDA' : 'ANFITRIÓN EN MORA') : 'PASE INVÁLIDO'),
         detail: valid
           ? `${pass.guestName} · invitado de ${host?.name || 'socio'}`
           : hostBlocked
-            ? 'El socio anfitrión no regularizó la cuota del mes.'
+            ? (hostDebt
+              ? 'El socio anfitrión tiene deuda de cuota.'
+              : 'El socio anfitrión no regularizó la cuota del mes.')
             : 'Pase vencido, revocado o no registrado.',
         memberName: pass?.guestName || null,
       });
@@ -352,7 +354,7 @@ export default function AccessControlView({
           notes: valid
             ? `Pase ${pass.id} · anfitrión ${host?.name || ''}`
             : hostBlocked
-              ? 'Anfitrión en mora'
+              ? (hostDebt ? 'Anfitrión con deuda' : 'Anfitrión en mora')
               : 'Pase vencido, revocado o no registrado',
           operator: operatorName,
         }),

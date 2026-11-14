@@ -76,15 +76,16 @@ describe('memberFacts', () => {
     expect(facts.charge.surcharge).toBeGreaterThan(0);
     expect(facts.canPayPool).toBe(false);
     expect(facts.poolReason).toMatch(/mora/i);
-    // octubre no es temporada: la deuda no cierra la puerta
-    expect(facts.canEnterToday).toBe(true);
+    // Con deuda no ingresa, aunque sea fuera de temporada
+    expect(facts.canEnterToday).toBe(false);
+    expect(facts.entryReason).toMatch(/deuda/i);
   });
 
   it('en temporada la mora cierra la puerta', () => {
     const facts = memberFacts({ ...titular, nextDueDate: '2026-12-10' }, { today: '2026-12-15', members: all });
     expect(facts.inPoolSeason).toBe(true);
     expect(facts.canEnterToday).toBe(false);
-    expect(facts.entryReason).toMatch(/mora/i);
+    expect(facts.entryReason).toMatch(/deuda|mora/i);
   });
 
   it('el adherente no tiene cuenta: paga el titular', () => {
