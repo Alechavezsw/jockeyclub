@@ -433,6 +433,11 @@ export function duesAmountForTier(tier, catalog, on = new Date()) {
   if (id === 'socio_familiar' && october != null && isFamiliarLiftedTariffMonth(when)) {
     return october;
   }
+  // Abono tenis: $ 12.000 también en meses abiertos anteriores a octubre
+  // (misma ventana que el lift del familiar). No reabrir a $ 10.000.
+  if (id === 'abono_tenis' && october != null && isFamiliarLiftedTariffMonth(when)) {
+    return october;
+  }
   if (from && when >= from && october != null) return october;
   if (from && when < from && september != null) {
     const listed = findTier(tier, catalog);
@@ -776,11 +781,19 @@ function periodChoiceFromDue(member, dueOn, paidOn, kind = 'overdue') {
   };
 }
 
-/** Cuánto del saldo de ficha consume un mes. El lift 60→70 no inventa capital extra en la ficha. */
+/**
+ * Cuánto del saldo de ficha consume un mes.
+ * Lift 60→70 del familiar: Lila guardó $ 60.000 y el recibo muestra $ 70.000.
+ * Si el mes lleva abono (tenis u otro), el capital ya es el de cobro: no restar.
+ */
 function fichaCostForChoice(row) {
   const cap = Number(row?.capital) || 0;
   if (!(cap > 0)) return 0;
-  if (isFamiliarTariffLiftDueOn(row.dueOn) && cap + 0.01 >= 70000) return money(cap - 10000);
+  if (!isFamiliarTariffLiftDueOn(row.dueOn)) return money(cap);
+  const lateBase = money(Number(row?.lateBase) || 0);
+  const addOns = money(Math.max(0, cap - lateBase));
+  // Familiar solo a tarifa liftada: ficha a $ 60.000.
+  if (addOns <= 0.01 && lateBase + 0.01 >= 70000) return money(cap - 10000);
   return money(cap);
 }
 

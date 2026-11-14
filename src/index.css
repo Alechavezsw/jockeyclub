@@ -28287,6 +28287,9 @@ button.debit-moves-row:disabled {
   font-size: 0.75rem;
   color: var(--text-muted);
   white-space: nowrap;
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .cdd-desk-hit-chevron {

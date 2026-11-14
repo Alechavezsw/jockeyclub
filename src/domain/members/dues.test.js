@@ -488,6 +488,48 @@ describe('tarifa desde octubre 2026', () => {
     }, october)).toBe(82000);
   });
 
+  it('abono tenis en meses previos a octubre también va a $ 12.000', () => {
+    const september = new Date('2026-09-10T12:00:00');
+    const june = new Date('2026-06-10T12:00:00');
+    expect(duesAmountForMember({ tier: 'abono_tenis', adherents: [] }, september)).toBe(12000);
+    expect(duesAmountForMember({
+      tier: 'socio_familiar',
+      cuotaCategories: ['SOCIO FAMILIAR', 'ABONO TENIS'],
+      adherents: [],
+    }, june)).toBe(82000);
+    expect(duesPayableForMember({
+      tier: 'socio_familiar',
+      cuotaCategories: ['SOCIO FAMILIAR', 'ABONO TENIS'],
+      adherents: [],
+    }, { paidOn: afterDue, dueOn: '2026-09-10', on: '2026-09-10' })).toBe(89000);
+  });
+
+  it('familiar + tenis $12.000: 11 meses = $979.000 sin abrir diciembre de más', () => {
+    const today = new Date('2026-11-12T15:00:00-03:00');
+    const member = {
+      memberId: '10896',
+      name: 'Dario Sebastian Pereyra',
+      tier: 'socio_familiar',
+      status: 'active',
+      outstandingBalance: 902000,
+      unpaidCapital: 902000,
+      unpaidSurcharges: 77000,
+      nextDueDate: '2026-01-10',
+      cuotaCategories: ['ABONO TENIS', 'SOCIO FAMILIAR'],
+      adherents: [],
+    };
+    const choices = collectionPeriodChoices(member, today);
+    expect(choices).toHaveLength(11);
+    expect(choices.every((row) => row.capital === 82000 && row.surcharge === 7000 && row.payable === 89000)).toBe(true);
+    expect(choices[0].dueOn).toBe('2026-01-10');
+    expect(choices[choices.length - 1].dueOn).toBe('2026-11-10');
+    expect(choices.some((row) => String(row.dueOn).startsWith('2025-12'))).toBe(false);
+    const preview = collectionPreview(member, today);
+    expect(preview.quota).toBe(902000);
+    expect(preview.surcharge).toBe(77000);
+    expect(preview.cash).toBe(979000);
+  });
+
   it('el individual es 40.000 en septiembre, en noviembre y en cualquier mes', () => {
     const member = { tier: 'socio_individual', adherents: [] };
     expect(duesAmountForMember(member, new Date('2026-09-29T12:00:00'))).toBe(40000);
@@ -558,11 +600,11 @@ describe('tarifa desde octubre 2026', () => {
     expect(duesChargeBreakdown({
       ...member,
       cuotaCategories: ['SOCIO FAMILIAR', 'ABONO TENIS'],
-      outstandingBalance: 162000,
+      outstandingBalance: 164000,
     }, { paidOn: '2026-10-22' })).toMatchObject({
-      quota: 162000,
+      quota: 164000,
       surcharge: 14000,
-      total: 176000,
+      total: 178000,
     });
   });
 

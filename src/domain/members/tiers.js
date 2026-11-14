@@ -64,7 +64,7 @@ const SEP_FAMILIAR = 60000;
 const SEP_INDIVIDUAL = 36000;
 const OCT_FAMILIAR = 70000;
 const OCT_INDIVIDUAL = 40000;
-/** Abono tenis: $10.000 hasta sept 2026; $12.000 desde la liquidación de octubre (LILA). */
+/** Abono tenis: catálogo sept $10.000; en deuda abierta / lift pre-oct se cobra $12.000 (oct). */
 const ABONO_TENIS_SEP = 10000;
 const ABONO_TENIS_OCT = 12000;
 

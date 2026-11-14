@@ -391,14 +391,21 @@ export function duesStandingDisplayAmount(summary, formatCurrency) {
 }
 
 /** Texto secundario: meses + desglose capital/recargo. */
-export function duesStandingDisplayHint(summary, formatCurrency) {
+export function duesStandingDisplayHint(summary, formatCurrency, { compact = false } = {}) {
   if (!summary) return '';
   if (summary.clear) return summary.hint || '';
   const parts = [];
-  if (summary.monthsPhrase) parts.push(summary.monthsPhrase);
+  const monthsBehind = Number(summary.monthsBehind) || (summary.months || []).length || 0;
+  if (compact) {
+    if (monthsBehind > 0) {
+      parts.push(monthsBehind === 1 ? '1 mes' : `${monthsBehind} meses`);
+    }
+  } else if (summary.monthsPhrase) {
+    parts.push(summary.monthsPhrase);
+  }
   if (Number(summary.interest) > 0 && typeof formatCurrency === 'function') {
     parts.push(`capital ${formatCurrency(summary.capital)} + recargo ${formatCurrency(summary.interest)}`);
-  } else if (summary.hint) {
+  } else if (!compact && summary.hint) {
     return summary.hint;
   }
   if (Number(summary.unallocated) > 0 && typeof formatCurrency === 'function') {

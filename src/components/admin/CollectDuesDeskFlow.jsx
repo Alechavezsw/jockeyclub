@@ -371,17 +371,18 @@ export default function CollectDuesDeskFlow({
               const toCollect = standing && !standing.clear
                 ? money(standing.totalDebt)
                 : money(preview.cash);
-              const capital = standing
-                ? money((Number(standing.capital) || 0) + (Number(standing.unallocated) || 0))
-                : money(Math.max(0, Number(row.outstandingBalance) || 0));
-              const hint = standing && !standing.clear
+              const hintFull = standing && !standing.clear
                 ? duesStandingDisplayHint(standing, formatCurrency)
+                : '';
+              const hint = standing && !standing.clear
+                ? duesStandingDisplayHint(standing, formatCurrency, { compact: true })
                 : '';
               return (
                 <li key={String(row.memberId || nro)}>
                   <button
                     type="button"
                     className="btn btn-secondary cdd-desk-hit"
+                    title={hintFull || undefined}
                     onClick={() => pickMember(row)}
                   >
                     <span className="cdd-desk-hit-main">
@@ -405,9 +406,6 @@ export default function CollectDuesDeskFlow({
                             </span>
                             <span className="cdd-desk-hit-capital">
                               {hint || 'a cobrar'}
-                              {!hint && capital > 0.01 && Math.abs(capital - toCollect) > 0.01
-                                ? ` · capital ${formatCurrency(capital)}`
-                                : ''}
                             </span>
                           </>
                         )}

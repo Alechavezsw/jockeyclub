@@ -180,6 +180,26 @@ describe('appMonthlyDebts', () => {
     expect(duesStandingDisplayAmount(clear)).toBe('Al día');
   });
 
+  it('familiar + abono tenis $12.000: 11 meses = $979.000', () => {
+    const standing = memberDuesStandingSummary(
+      familiar({
+        memberId: '10896',
+        cuotaCategories: ['SOCIO FAMILIAR', 'ABONO TENIS'],
+        outstandingBalance: 902000,
+        unpaidCapital: 902000,
+        nextDueDate: '2026-01-10',
+        lastPaymentDate: null,
+      }),
+      { today: new Date('2026-11-12T15:00:00-03:00') },
+    );
+    expect(standing.clear).toBe(false);
+    expect(standing.months).toHaveLength(11);
+    expect(standing.capital).toBe(902000);
+    expect(standing.interest).toBe(77000);
+    expect(standing.totalDebt).toBe(979000);
+    expect(standing.months.every((row) => row.capital === 82000 && row.interest === 7000)).toBe(true);
+  });
+
   it('incluye baja con deuda previa y arma el listado filtrable por mes', () => {
     const snapshot = buildAppMonthlyDebts(
       [

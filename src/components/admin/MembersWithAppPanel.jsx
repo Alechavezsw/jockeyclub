@@ -722,9 +722,9 @@ export default function MembersWithAppPanel({
                       {selectedStanding && !selectedStanding.clear ? (
                         <span className="members-app-desk__balance" title={duesStandingDisplayHint(selectedStanding, formatCurrency)}>
                           {duesStandingDisplayAmount(selectedStanding, formatCurrency)}
-                          {selectedStanding.monthsPhrase ? (
+                          {selectedStanding.monthsBehind > 0 || selectedStanding.monthsPhrase ? (
                             <em style={{ display: 'block', fontStyle: 'normal', fontWeight: 500, fontSize: '0.78em', opacity: 0.85 }}>
-                              {duesStandingDisplayHint(selectedStanding, formatCurrency)}
+                              {duesStandingDisplayHint(selectedStanding, formatCurrency, { compact: true })}
                             </em>
                           ) : null}
                         </span>
