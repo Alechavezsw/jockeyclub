@@ -26,9 +26,25 @@ export function isAppPaymentAuto(message) {
   return String(message?.meta?.method || '').toLowerCase() === 'mercadopago';
 }
 
-/** Solicitud todavía abierta: sin leer en el buzón de operaciones. */
+/** Solicitud todavía abierta: falta imputar / atender (no basta con marcar leída en MD). */
 export function isOpenAppPaymentRequest(message) {
-  return isAppPaymentRequest(message) && !message?.isRead;
+  if (!isAppPaymentRequest(message)) return false;
+  if (message?.meta?.paymentHandled === true) return false;
+  return true;
+}
+
+/** Cierra la operación en Pagos entrantes (tras cobro, Ver en MP o dismiss). */
+export function withAppPaymentHandled(message, at = new Date().toISOString()) {
+  if (!message) return message;
+  return {
+    ...message,
+    isRead: true,
+    meta: {
+      ...(message.meta || {}),
+      paymentHandled: true,
+      paymentHandledAt: at,
+    },
+  };
 }
 
 export function listOpenAppPaymentRequests(messages = []) {

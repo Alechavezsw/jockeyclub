@@ -96,6 +96,15 @@ export async function updateMessage(id, patch) {
   const row = {};
   if (patch.isRead != null) row.is_read = patch.isRead;
   if (patch.content != null) row.body = patch.content;
+  if (patch.meta != null) {
+    row.meta = patch.meta;
+  } else if (patch.metaMerge != null && typeof patch.metaMerge === 'object') {
+    const current = await unwrap(
+      sb().from('messages').select('meta').eq('id', id).maybeSingle(),
+      'No se pudo leer el mensaje'
+    );
+    row.meta = { ...(current?.meta && typeof current.meta === 'object' ? current.meta : {}), ...patch.metaMerge };
+  }
   const saved = await unwrap(
     sb().from('messages').update(row).eq('id', id).select().single()
   );

@@ -11,6 +11,7 @@ import {
   isAppPaymentRequest,
   isOpenAppPaymentRequest,
   listOpenAppPaymentRequests,
+  withAppPaymentHandled,
 } from './appPaymentRequests';
 
 describe('appPaymentRequests', () => {
@@ -43,13 +44,14 @@ describe('appPaymentRequests', () => {
     expect(isAppPaymentAuto(transfer)).toBe(false);
   });
 
-  it('solo las no leídas quedan abiertas', () => {
+  it('quedan abiertas hasta paymentHandled, aunque estén leídas en MD', () => {
     expect(isOpenAppPaymentRequest(transfer)).toBe(true);
-    expect(isOpenAppPaymentRequest({ ...transfer, isRead: true })).toBe(false);
+    expect(isOpenAppPaymentRequest({ ...transfer, isRead: true })).toBe(true);
+    expect(isOpenAppPaymentRequest(withAppPaymentHandled(transfer))).toBe(false);
     expect(listOpenAppPaymentRequests([
       transfer,
-      { ...transfer, id: '2', isRead: true },
-      { ...transfer, id: '3', createdAt: '2026-11-14T13:00:00.000Z' },
+      withAppPaymentHandled({ ...transfer, id: '2' }),
+      { ...transfer, id: '3', isRead: true, createdAt: '2026-11-14T13:00:00.000Z' },
     ]).map((m) => m.id)).toEqual(['3', '1']);
   });
 

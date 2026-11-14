@@ -51,7 +51,7 @@ import {
   memberDuesStandingSummary,
 } from '../../domain/accounting/appMonthlyDebts';
 import { downloadDuesDebtPdf } from '../../domain/accounting/exportDuesDebtPdf';
-import { createMessage, MAILBOX, markMessageRead } from '../../domain/messaging/messages';
+import { createMessage, MAILBOX } from '../../domain/messaging/messages';
 import { formatPaymentWhen } from '../../domain/members/paymentHistory';
 import {
   appPaymentRequestAmountLabel,
@@ -63,6 +63,7 @@ import {
   appPaymentRequestReceipt,
   isAppPaymentAuto,
   listOpenAppPaymentRequests,
+  withAppPaymentHandled,
 } from '../../domain/members/appPaymentRequests';
 import VirtualCard from '../VirtualCard';
 import CollectDuesModal from './CollectDuesModal';
@@ -365,13 +366,22 @@ export default function MembersWithAppPanel({
 
   const markRequestHandled = async (messageId) => {
     if (!messageId) return;
+    const handledAt = new Date().toISOString();
+    const patchLocal = (prev) => (prev || []).map((row) => (
+      String(row.id) === String(messageId)
+        ? withAppPaymentHandled(row, handledAt)
+        : row
+    ));
     if (typeof setMessages === 'function') {
-      setMessages((prev) => markMessageRead(prev, messageId));
+      setMessages(patchLocal);
     }
-    setLiveMessages((prev) => markMessageRead(prev, messageId));
+    setLiveMessages(patchLocal);
     if (isSupabaseConfigured) {
       try {
-        await repos.updateMessage(messageId, { isRead: true });
+        await repos.updateMessage(messageId, {
+          isRead: true,
+          metaMerge: { paymentHandled: true, paymentHandledAt: handledAt },
+        });
       } catch {
         /* best-effort */
       }
@@ -815,13 +825,13 @@ export default function MembersWithAppPanel({
             <div>
               <strong>Pagos entrantes</strong>
               <p>
-                Operaciones desde la app: transferencia, débito y tarjeta para imputar;
-                Mercado Pago también aparece acá, pero acredita solo.
+                Operaciones desde la app pendientes de atender. Quedan acá hasta imputar,
+                Ver (Mercado Pago) o marcar leída — no se cierran solo por abrir el MD.
               </p>
             </div>
           </div>
           {incomingPayments.length === 0 ? (
-            <EmptyBlock text="No hay solicitudes de pago pendientes." />
+            <EmptyBlock text="No hay pagos entrantes pendientes." />
           ) : (
             <ul className="members-app-desk__incoming-list">
               {incomingPayments.map((msg) => {
