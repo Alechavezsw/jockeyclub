@@ -20,22 +20,24 @@ export function duesPaymentNotice({
   let lines = [`${who}${cred ? ` (${cred})` : ''} avisó un pago de cuota.`];
 
   if (method === 'mercadopago') {
-    subject = 'Pago por Mercado Pago';
+    subject = 'Operación Mercado Pago · cuota';
     lines = [
-      `${who}${cred ? ` (${cred})` : ''} generó un QR de Mercado Pago para la cuota.`,
+      `${who}${cred ? ` (${cred})` : ''} inició un pago de cuota por Mercado Pago desde la app.`,
       money,
       when,
       `Alias: ${MERCADO_PAGO.alias}`,
       qrRef ? `Referencia: ${qrRef}` : '',
+      'Mercado Pago acredita solo: no hace falta imputar a mano. La operación queda en Pagos entrantes.',
     ];
   } else if (method === 'transferencia') {
-    subject = 'Comprobante de transferencia';
+    subject = 'Solicitud de pago · transferencia';
     lines = [
-      `${who}${cred ? ` (${cred})` : ''} envió el comprobante de una transferencia.`,
+      `${who}${cred ? ` (${cred})` : ''} envió el comprobante de una transferencia desde la app.`,
       money,
       when,
       bankName ? `Banco: ${bankName}` : '',
       attachment?.name ? `Archivo: ${attachment.name}` : '',
+      'Es una solicitud de pago: acreditá en Socios con app o en Cobrar cuando veas el movimiento en el banco.',
     ];
   } else if (method === 'debito') {
     subject = 'Solicitud de débito automático';
@@ -56,6 +58,8 @@ export function duesPaymentNotice({
   msg.meta = {
     kind: 'dues_payment',
     method,
+    paymentRequest: method === 'transferencia' || method === 'debito' || method === 'tarjeta',
+    paymentAuto: method === 'mercadopago',
     ...(attachment ? { attachment } : {}),
   };
   return msg;
@@ -224,22 +228,24 @@ export function bookingPaymentNotice({
   let lines = [`${head} avisó el pago de una reserva.`, place, money];
 
   if (method === 'mercadopago') {
-    subject = 'Pago de reserva por Mercado Pago';
+    subject = 'Operación Mercado Pago · reserva';
     lines = [
-      `${head} generó un QR de Mercado Pago para una reserva.`,
+      `${head} inició un pago de reserva por Mercado Pago desde la app.`,
       place,
       money,
       `Alias: ${MERCADO_PAGO.alias}`,
       qrRef ? `Referencia: ${qrRef}` : '',
+      'Mercado Pago acredita solo: la operación queda en Pagos entrantes.',
     ];
   } else if (method === 'transferencia') {
-    subject = 'Comprobante de reserva';
+    subject = 'Solicitud de pago · reserva';
     lines = [
-      `${head} envió el comprobante de una reserva.`,
+      `${head} envió el comprobante de una reserva desde la app.`,
       place,
       money,
       bankName ? `Banco: ${bankName}` : '',
       attachment?.name ? `Archivo: ${attachment.name}` : '',
+      'Es una solicitud de pago: acreditá cuando veas el movimiento en el banco.',
     ];
   } else if (method === 'debito') {
     subject = 'Reserva con débito automático';
@@ -260,6 +266,8 @@ export function bookingPaymentNotice({
   msg.meta = {
     kind: 'booking_payment',
     method,
+    paymentRequest: method === 'transferencia' || method === 'debito' || method === 'tarjeta',
+    paymentAuto: method === 'mercadopago',
     ...(attachment ? { attachment } : {}),
   };
   return msg;

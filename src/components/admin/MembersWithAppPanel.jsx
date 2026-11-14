@@ -14,6 +14,8 @@ import {
   DoorOpen,
   ClipboardList,
   Banknote,
+  Inbox,
+  Paperclip,
 } from 'lucide-react';
 import { formatShortDate, isDuesExemptMember, toWhatsAppPhone } from '../../domain/members/dues';
 import { imputationPeriodLabel } from '../../domain/members/duesImputations';
@@ -49,8 +51,19 @@ import {
   memberDuesStandingSummary,
 } from '../../domain/accounting/appMonthlyDebts';
 import { downloadDuesDebtPdf } from '../../domain/accounting/exportDuesDebtPdf';
-import { createMessage, MAILBOX } from '../../domain/messaging/messages';
+import { createMessage, MAILBOX, markMessageRead } from '../../domain/messaging/messages';
 import { formatPaymentWhen } from '../../domain/members/paymentHistory';
+import {
+  appPaymentRequestAmountLabel,
+  appPaymentRequestBankId,
+  appPaymentRequestCollectMethod,
+  appPaymentRequestKindLabel,
+  appPaymentRequestMemberId,
+  appPaymentRequestMethodLabel,
+  appPaymentRequestReceipt,
+  isAppPaymentAuto,
+  listOpenAppPaymentRequests,
+} from '../../domain/members/appPaymentRequests';
 import VirtualCard from '../VirtualCard';
 import CollectDuesModal from './CollectDuesModal';
 import ModalDialog from '../ModalDialog';
@@ -58,6 +71,7 @@ import { MemberCredentialsModal } from './MemberAdminModals';
 import { useAuth } from '../../context/AuthContext';
 import { isSupabaseConfigured, supabase } from '../../lib/supabase';
 import { repos } from '../../data/bootstrap';
+import { signedDuesReceiptUrl } from '../../data/storage';
 
 const DETAIL_TABS = [
   { id: 'pagos', label: 'Pagos', icon: Wallet },
@@ -107,6 +121,32 @@ function EmptyBlock({ text }) {
   return <p className="members-app-desk__empty">{text}</p>;
 }
 
+function RequestAttachment({ attachment }) {
+  const [url, setUrl] = useState(attachment?.dataUrl || '');
+  useEffect(() => {
+    if (!attachment?.path) return undefined;
+    let cancelled = false;
+    signedDuesReceiptUrl(attachment.path).then((signed) => {
+      if (!cancelled && signed) setUrl(signed);
+    });
+    return () => { cancelled = true; };
+  }, [attachment?.path]);
+  if (!attachment) return null;
+  const name = attachment.name || 'Comprobante';
+  return (
+    <a
+      className="members-app-desk__req-file"
+      href={url || undefined}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => { if (!url) e.preventDefault(); }}
+    >
+      <Paperclip size={13} aria-hidden="true" />
+      {url ? name : 'Preparando comprobante…'}
+    </a>
+  );
+}
+
 /**
  * Escritorio de socios con portal: listado + interacción completa
  * (pagos, reservas, ingresos, mensajes, reclamos y acciones).
@@ -129,13 +169,16 @@ export default function MembersWithAppPanel({
   entryLogs = [],
   claims = [],
   messages = [],
+  setMessages,
 }) {
   const { user } = useAuth();
   const actorName = user?.name || user?.email || 'Administración';
 
   const [query, setQuery] = useState('');
+  const [listFilter, setListFilter] = useState('all');
   const [selectedId, setSelectedId] = useState('');
   const [detailTab, setDetailTab] = useState('pagos');
+  const [activeRequestId, setActiveRequestId] = useState('');
   const [hydrated, setHydrated] = useState(null);
   const [liveBookings, setLiveBookings] = useState([]);
   const [liveEntries, setLiveEntries] = useState([]);
@@ -144,6 +187,7 @@ export default function MembersWithAppPanel({
   const [liveReady, setLiveReady] = useState(false);
   const [flash, setFlash] = useState('');
   const [collectMember, setCollectMember] = useState(null);
+  const [collectRequest, setCollectRequest] = useState(null);
   const [cardMember, setCardMember] = useState(null);
   const [credsTarget, setCredsTarget] = useState(null);
   const [credsResult, setCredsResult] = useState(null);
@@ -162,17 +206,36 @@ export default function MembersWithAppPanel({
     [members],
   );
 
+  const incomingPayments = useMemo(
+    () => listOpenAppPaymentRequests(messages),
+    [messages],
+  );
+
+  const filteredWithApp = useMemo(() => {
+    if (listFilter === 'debt') {
+      return withApp.filter((m) => !memberDuesStandingSummary(m).clear);
+    }
+    if (listFilter === 'clear') {
+      return withApp.filter((m) => memberDuesStandingSummary(m).clear);
+    }
+    if (listFilter === 'incoming') {
+      const ids = new Set(incomingPayments.map((row) => appPaymentRequestMemberId(row)).filter(Boolean));
+      return withApp.filter((m) => ids.has(String(m.memberId || '')));
+    }
+    return withApp;
+  }, [withApp, listFilter, incomingPayments]);
+
   const suggestions = useMemo(() => {
     if (selectedId) return [];
     const q = String(query || '').trim();
     if (q.length < 2 && q.replace(/\D/g, '').length < 3) return [];
-    return withApp
+    return filteredWithApp
       .filter((m) => memberMatchesDirectoryQuery(m, q))
       .map((m) => ({ m, rank: rankMemberSearchHit(m, q) }))
       .sort((a, b) => b.rank - a.rank || String(a.m.name || '').localeCompare(String(b.m.name || ''), 'es'))
       .slice(0, 12)
       .map((h) => h.m);
-  }, [withApp, query, selectedId]);
+  }, [filteredWithApp, query, selectedId]);
 
   const listMember = useMemo(
     () => (members || []).find((m) => m.memberId === selectedId) || null,
@@ -292,8 +355,28 @@ export default function MembersWithAppPanel({
       const standing = memberDuesStandingSummary(m);
       return !standing.clear;
     }).length;
-    return { total: withApp.length, debt, clear: withApp.length - debt };
-  }, [withApp]);
+    return {
+      total: withApp.length,
+      debt,
+      clear: withApp.length - debt,
+      incoming: incomingPayments.length,
+    };
+  }, [withApp, incomingPayments]);
+
+  const markRequestHandled = async (messageId) => {
+    if (!messageId) return;
+    if (typeof setMessages === 'function') {
+      setMessages((prev) => markMessageRead(prev, messageId));
+    }
+    setLiveMessages((prev) => markMessageRead(prev, messageId));
+    if (isSupabaseConfigured) {
+      try {
+        await repos.updateMessage(messageId, { isRead: true });
+      } catch {
+        /* best-effort */
+      }
+    }
+  };
 
   const payments = useMemo(() => {
     const rows = [...(selected?.paymentHistory || [])];
@@ -356,8 +439,20 @@ export default function MembersWithAppPanel({
     if (saved.memberId === selectedId) setHydrated(saved);
   };
 
+  const openCollect = (member, request = null) => {
+    setCollectRequest(request || null);
+    setActiveRequestId(request?.id || '');
+    setCollectMember(member);
+  };
+
+  const closeCollect = () => {
+    setCollectMember(null);
+    setCollectRequest(null);
+  };
+
   const handleConfirmCollect = async (payload) => {
     const member = collectMember;
+    const request = collectRequest;
     if (!member) return;
     if (payload?.alreadyApplied) {
       if (member.memberId) {
@@ -365,7 +460,8 @@ export default function MembersWithAppPanel({
           .then((fresh) => { if (fresh) putMemberInList(fresh); })
           .catch(() => {});
       }
-      setCollectMember(null);
+      if (request?.id) await markRequestHandled(request.id);
+      closeCollect();
       return;
     }
     try {
@@ -382,9 +478,11 @@ export default function MembersWithAppPanel({
         kind: 'cuota',
       });
       putMemberInList(result.member);
-      setCollectMember(null);
-      setFlash(`Cobro registrado · ${member.name}`);
+      if (request?.id) await markRequestHandled(request.id);
+      closeCollect();
+      setFlash(`Cobro registrado · ${member.name}${request ? ' · solicitud cerrada' : ''}`);
       setDetailTab('pagos');
+      setListFilter((prev) => (prev === 'incoming' ? 'incoming' : prev));
       window.setTimeout(() => setFlash(''), 3200);
     } catch (err) {
       window.alert(err?.message || 'No se pudo registrar el cobro.');
@@ -610,16 +708,60 @@ export default function MembersWithAppPanel({
   const wa = selected ? toWhatsAppPhone(selected.phone) : '';
   const access = selected ? memberAppAccess(selected) : null;
 
-  const pickMember = (m) => {
+  const pickMember = (m, { tab = 'pagos', requestId = '' } = {}) => {
     setSelectedId(m.memberId);
-    setDetailTab('pagos');
+    setDetailTab(tab);
+    setActiveRequestId(requestId || '');
     setQuery(String(m.name || '').trim());
   };
 
   const clearPick = () => {
     setSelectedId('');
     setHydrated(null);
+    setActiveRequestId('');
     setQuery('');
+  };
+
+  const openIncomingRequest = async (msg) => {
+    const memberId = appPaymentRequestMemberId(msg);
+    const member = (members || []).find((row) => String(row.memberId) === memberId)
+      || withApp.find((row) => String(row.memberId) === memberId);
+    if (!member) {
+      setFlash(memberId
+        ? `Operación de Nº ${memberId}: buscá al socio para continuar.`
+        : 'Operación recibida. Buscá al socio para continuar.');
+      setListFilter('incoming');
+      return;
+    }
+    pickMember(member, { tab: 'mensajes', requestId: msg.id });
+
+    // Mercado Pago: la operación llega, pero el cobro ya corre solo.
+    if (isAppPaymentAuto(msg)) {
+      await markRequestHandled(msg.id);
+      setFlash('Mercado Pago: operación registrada. El cobro se acredita solo; no hace falta imputar.');
+      setDetailTab('pagos');
+      window.setTimeout(() => setFlash(''), 4200);
+      return;
+    }
+
+    if (msg.meta?.kind === 'booking_payment') {
+      setFlash('Es un pago de reserva. Revisá la pestaña Reservas / Mensajes; la cuota se cobra aparte.');
+      window.setTimeout(() => setFlash(''), 4200);
+      return;
+    }
+    if (isFamilyDependent(member)) {
+      const holderId = member.familyPrincipalNumber || member.meta?.familyPrincipalNumber;
+      const holder = (members || []).find((row) => String(row.memberId) === String(holderId || '')) || member;
+      setFlash('La cuota va a la cuenta del titular.');
+      pickMember(holder, { tab: 'mensajes', requestId: msg.id });
+      if (!isDuesExemptMember(holder)) openCollect(holder, msg);
+      return;
+    }
+    if (isDuesExemptMember(member)) {
+      setFlash('Esta categoría no abona cuota. Marcá la solicitud como leída si corresponde.');
+      return;
+    }
+    openCollect(member, msg);
   };
 
   return (
@@ -638,15 +780,95 @@ export default function MembersWithAppPanel({
             </p>
           </div>
         </div>
-        <div className="members-app-desk__stats" role="status">
-          <span><strong>{stats.total}</strong> con app</span>
-          <span><strong>{stats.debt}</strong> con deuda</span>
-          <span><strong>{stats.clear}</strong> al día / exentos</span>
+        <div className="members-app-desk__filters" role="toolbar" aria-label="Filtros de socios con app">
+          {[
+            { id: 'all', label: 'con app', value: stats.total },
+            { id: 'debt', label: 'con deuda', value: stats.debt },
+            { id: 'clear', label: 'al día / exentos', value: stats.clear },
+            { id: 'incoming', label: 'pagos entrantes', value: stats.incoming },
+          ].map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              className={`members-app-desk__filter${listFilter === opt.id ? ' is-on' : ''}${opt.id === 'incoming' && opt.value > 0 ? ' is-alert' : ''}`}
+              aria-pressed={listFilter === opt.id}
+              onClick={() => {
+                setListFilter((prev) => (prev === opt.id && opt.id !== 'all' ? 'all' : opt.id));
+                if (opt.id === 'incoming') clearPick();
+              }}
+            >
+              <strong>{opt.value}</strong>
+              <span>{opt.label}</span>
+            </button>
+          ))}
         </div>
       </header>
 
       {flash ? (
         <p className="members-app-desk__flash" role="status">{flash}</p>
+      ) : null}
+
+      {listFilter === 'incoming' ? (
+        <div className="members-app-desk__incoming" aria-label="Pagos entrantes desde la app">
+          <div className="members-app-desk__incoming-head">
+            <Inbox size={16} aria-hidden="true" />
+            <div>
+              <strong>Pagos entrantes</strong>
+              <p>
+                Operaciones desde la app: transferencia, débito y tarjeta para imputar;
+                Mercado Pago también aparece acá, pero acredita solo.
+              </p>
+            </div>
+          </div>
+          {incomingPayments.length === 0 ? (
+            <EmptyBlock text="No hay solicitudes de pago pendientes." />
+          ) : (
+            <ul className="members-app-desk__incoming-list">
+              {incomingPayments.map((msg) => {
+                const memberId = appPaymentRequestMemberId(msg);
+                const member = withApp.find((row) => String(row.memberId) === memberId);
+                const amount = appPaymentRequestAmountLabel(msg);
+                return (
+                  <li key={msg.id} className="members-app-desk__incoming-card">
+                    <div className="members-app-desk__incoming-main">
+                      <strong>{msg.sender || member?.name || `Socio Nº ${memberId || '—'}`}</strong>
+                      <span>
+                        {memberId ? `Nº ${memberId}` : 'Sin Nº'}
+                        {' · '}
+                        {appPaymentRequestKindLabel(msg)}
+                        {' · '}
+                        {appPaymentRequestMethodLabel(msg)}
+                        {amount ? ` · ${amount}` : ''}
+                      </span>
+                      <p>{String(msg.content || '').split('\n').slice(0, 2).join(' · ')}</p>
+                      <RequestAttachment attachment={msg.meta?.attachment} />
+                    </div>
+                    <div className="members-app-desk__incoming-actions">
+                      <span className="members-app-desk__incoming-when">
+                        {formatShortDate(msg.date || String(msg.createdAt || '').slice(0, 10))}
+                      </span>
+                      <button
+                        type="button"
+                        className="members-app-desk__action-btn is-collect"
+                        onClick={() => void openIncomingRequest(msg)}
+                      >
+                        <Check size={14} />
+                        {isAppPaymentAuto(msg) || msg.meta?.kind === 'booking_payment' ? 'Ver' : 'Imputar'}
+                      </button>
+                      <button
+                        type="button"
+                        className="members-app-desk__action-btn"
+                        onClick={() => void markRequestHandled(msg.id)}
+                      >
+                        Marcar leída
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
       ) : null}
 
       <div className="members-app-desk__search-wrap">
@@ -739,7 +961,7 @@ export default function MembersWithAppPanel({
                       <Pencil size={14} /> Ficha
                     </button>
                     {canCollect ? (
-                      <button type="button" className="members-app-desk__action-btn is-collect" onClick={() => setCollectMember(selected)}>
+                      <button type="button" className="members-app-desk__action-btn is-collect" onClick={() => openCollect(selected, null)}>
                         <Check size={14} /> Cobrar
                       </button>
                     ) : null}
@@ -865,15 +1087,20 @@ export default function MembersWithAppPanel({
                       <EmptyBlock text="Sin mensajes vinculados." />
                     ) : (
                       memberMessages.map((m) => (
-                        <div key={m.id} className="mp-claim-row">
+                        <div
+                          key={m.id}
+                          className={`mp-claim-row${activeRequestId && String(m.id) === String(activeRequestId) ? ' is-request' : ''}`}
+                        >
                           <div className="mp-claim-top">
                             <strong>{m.subject}</strong>
                             <span>{formatShortDate(m.date || (m.createdAt || '').slice(0, 10))}</span>
                           </div>
                           <div className="mp-list-sub">
                             De: {m.sender || m.senderId} → {m.recipientId === selected.memberId ? 'Este socio' : m.recipientId}
+                            {m.meta?.paymentRequest ? ' · Solicitud de pago' : ''}
                           </div>
                           <div className="mp-claim-body">{m.content}</div>
+                          <RequestAttachment attachment={m.meta?.attachment} />
                         </div>
                       ))
                     )
@@ -926,10 +1153,16 @@ export default function MembersWithAppPanel({
           member={collectMember}
           members={members}
           formatCurrency={formatCurrency}
-          onClose={() => setCollectMember(null)}
+          onClose={closeCollect}
           onConfirm={handleConfirmCollect}
           paymentPlans={paymentPlans}
           paymentTolerance={paymentTolerance}
+          initialMethod={collectRequest ? appPaymentRequestCollectMethod(collectRequest) : null}
+          initialBankId={collectRequest ? appPaymentRequestBankId(collectRequest) : null}
+          seedReceipt={collectRequest ? appPaymentRequestReceipt(collectRequest) : null}
+          sourceNotice={collectRequest
+            ? `Solicitud de pago desde la app · ${appPaymentRequestMethodLabel(collectRequest)}`
+            : ''}
         />
       ) : null}
 

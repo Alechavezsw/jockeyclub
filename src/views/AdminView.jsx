@@ -1428,6 +1428,7 @@ export default function AdminView({
           entryLogs={entryLogs}
           claims={claims}
           messages={messages}
+          setMessages={setMessages}
         />
       )}
 

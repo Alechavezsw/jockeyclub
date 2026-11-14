@@ -23,7 +23,7 @@ import {
 import { todayISODateAR } from '../../lib/arDate';
 import { billingAccountMember, memberNumberOf } from '../../domain/members/households';
 import { activePaymentPlans } from '../../domain/system/paymentPlans';
-import { uploadDuesReceipt } from '../../data/storage';
+import { signedDuesReceiptUrl, uploadDuesReceipt } from '../../data/storage';
 import { parseDuesReceipt } from '../../data/parseDuesReceipt';
 import { money } from '../../domain/money';
 import { isSupabaseConfigured } from '../../lib/supabase';
@@ -245,9 +245,18 @@ export default function CollectDuesModal({
   onConfirm,
   paymentPlans = [],
   paymentTolerance = 1000,
+  /** Prefill desde una solicitud de pago de la app (transferencia / débito / tarjeta). */
+  initialMethod = null,
+  initialBankId = null,
+  seedReceipt = null,
+  sourceNotice = '',
 }) {
   const [liveMember, setLiveMember] = useState(member);
   const [hydrating, setHydrating] = useState(Boolean(isSupabaseConfigured && member));
+  const [seededAttachment, setSeededAttachment] = useState(() => (
+    seedReceipt?.path || seedReceipt?.dataUrl ? seedReceipt : null
+  ));
+  const [seedPreviewUrl, setSeedPreviewUrl] = useState(() => seedReceipt?.dataUrl || '');
 
   useEffect(() => {
     setLiveMember(member);
@@ -292,11 +301,23 @@ export default function CollectDuesModal({
   );
   const choiceKey = periodChoices.map((row) => row.dueOn).join('|');
   const [selectedDueOns, setSelectedDueOns] = useState([]);
-  const [method, setMethod] = useState('efectivo');
+  const [method, setMethod] = useState(() => {
+    const seed = String(initialMethod || '').toLowerCase();
+    if (seed === 'transferencia' || seed === 'debito' || seed === 'tarjeta' || seed === 'efectivo') return seed;
+    return 'efectivo';
+  });
   const [onAccountInput, setOnAccountInput] = useState('');
   useEffect(() => {
     setSelectedDueOns(choiceKey ? choiceKey.split('|') : []);
   }, [choiceKey]);
+
+  useEffect(() => {
+    const seed = String(initialMethod || '').toLowerCase();
+    if (seed === 'transferencia' || seed === 'debito' || seed === 'tarjeta' || seed === 'efectivo') {
+      setMethod(seed);
+    }
+  }, [initialMethod, member?.memberId]);
+
   const isOnAccount = isOnAccountDuesMethod(method);
   const skipSurcharge = duesMethodSkipsSurcharge(method);
   const split = useMemo(() => {
@@ -330,11 +351,14 @@ export default function CollectDuesModal({
     ? METHODS.filter((row) => row.id !== 'mercadopago' && row.id !== 'a_cuenta')
     : METHODS;
   const plans = useMemo(() => activePaymentPlans(paymentPlans), [paymentPlans]);
-  const [bankId, setBankId] = useState(CLUB_BANK_ACCOUNTS[0]?.id || '');
+  const [bankId, setBankId] = useState(() => {
+    if (initialBankId && CLUB_BANK_ACCOUNTS.some((b) => b.id === initialBankId)) return initialBankId;
+    return CLUB_BANK_ACCOUNTS[0]?.id || '';
+  });
   const [planId, setPlanId] = useState('');
   const [receiptMode, setReceiptMode] = useState('file');
   const [receiptFile, setReceiptFile] = useState(null);
-  const [receiptName, setReceiptName] = useState('');
+  const [receiptName, setReceiptName] = useState(() => seedReceipt?.name || '');
   const [receiptPreview, setReceiptPreview] = useState('');
   const [receiptParse, setReceiptParse] = useState(null);
   const [readingReceipt, setReadingReceipt] = useState(false);
@@ -344,6 +368,33 @@ export default function CollectDuesModal({
   ]);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (initialBankId && CLUB_BANK_ACCOUNTS.some((b) => b.id === initialBankId)) {
+      setBankId(initialBankId);
+    }
+  }, [initialBankId, member?.memberId]);
+
+  useEffect(() => {
+    if (!(seedReceipt?.path || seedReceipt?.dataUrl)) {
+      setSeededAttachment(null);
+      setSeedPreviewUrl('');
+      return undefined;
+    }
+    setSeededAttachment(seedReceipt);
+    setReceiptName(seedReceipt.name || 'Comprobante app');
+    setReceiptFile(null);
+    setReceiptMode('file');
+    setSeedPreviewUrl(seedReceipt.dataUrl || '');
+    if (!seedReceipt.dataUrl && seedReceipt.path) {
+      let cancelled = false;
+      signedDuesReceiptUrl(seedReceipt.path).then((signed) => {
+        if (!cancelled && signed) setSeedPreviewUrl(signed);
+      }).catch(() => {});
+      return () => { cancelled = true; };
+    }
+    return undefined;
+  }, [seedReceipt?.path, seedReceipt?.dataUrl, seedReceipt?.name, member?.memberId]);
   const canPickMonths = periodChoices.length > 1;
   const needsReceipt = duesMethodNeedsReceipt(method);
   const isMixed = method === 'mixto';
@@ -409,6 +460,8 @@ export default function CollectDuesModal({
     setReceiptPreview('');
     setReceiptParse(null);
     setReadingReceipt(false);
+    setSeededAttachment(null);
+    setSeedPreviewUrl('');
   };
 
   const beginManualReceipt = () => {
@@ -417,6 +470,8 @@ export default function CollectDuesModal({
     setReceiptName('');
     setReceiptPreview('');
     setReadingReceipt(false);
+    setSeededAttachment(null);
+    setSeedPreviewUrl('');
     setReceiptParse((prev) => (
       prev?.source === 'manual'
         ? prev
@@ -484,6 +539,8 @@ export default function CollectDuesModal({
       clearReceipt();
       return;
     }
+    setSeededAttachment(null);
+    setSeedPreviewUrl('');
     setReceiptFile(file);
     setReceiptName(file.name);
     setReceiptParse(null);
@@ -600,7 +657,7 @@ export default function CollectDuesModal({
         setError('Completá la referencia del comprobante manual.');
         return;
       }
-      if (needsReceipt && !manual && !receiptFile) {
+      if (needsReceipt && !manual && !receiptFile && !seededAttachment?.path && !seededAttachment?.dataUrl) {
         setError(duesReceiptRequiredMessage(method));
         return;
       }
@@ -656,6 +713,15 @@ export default function CollectDuesModal({
         const manual = receiptMode === 'manual' && isManualDuesReceipt(receiptParse);
         if (needsReceipt && receiptFile && !manual) {
           receiptAttachment = await uploadDuesReceipt(receiptFile, account.memberId || member.memberId);
+        } else if (needsReceipt && !manual && seededAttachment?.path) {
+          // Comprobante ya subido por el socio desde la app: no se vuelve a subir.
+          receiptAttachment = {
+            path: seededAttachment.path,
+            bucket: seededAttachment.bucket || 'dues-receipts',
+            name: seededAttachment.name || receiptName || 'Comprobante app',
+            mimeType: seededAttachment.mimeType || '',
+            size: Number(seededAttachment.size) || 0,
+          };
         }
         const recordMethod = isMixed ? 'efectivo' : method;
         const journalAccount = journalAccountForPayment(recordMethod, bankId);
@@ -676,6 +742,7 @@ export default function CollectDuesModal({
           paymentPlanId: recordMethod === 'tarjeta' ? (selectedPlan?.id || null) : null,
           paymentPlanLabel: recordMethod === 'tarjeta' ? (selectedPlan?.label || null) : null,
           receiptParse: needsReceipt ? receiptParse : null,
+          treasuryMatch: Boolean(needsReceipt && !manual && !receiptFile && seededAttachment?.path),
         });
       }
     } catch (err) {
@@ -1299,6 +1366,34 @@ export default function CollectDuesModal({
         {needsReceipt && !isMixed ? (
           <div className="form-group" style={{ marginBottom: '1rem' }}>
             <label className="form-label">Comprobante *</label>
+            {seededAttachment && !receiptFile ? (
+              <div
+                style={{
+                  marginBottom: '0.65rem',
+                  padding: '0.75rem 0.85rem',
+                  borderRadius: 10,
+                  border: '1px solid color-mix(in srgb, var(--emerald-accent) 35%, var(--border-glass))',
+                  background: 'color-mix(in srgb, var(--emerald-accent) 10%, transparent)',
+                }}
+              >
+                <p style={{ margin: 0, fontSize: '0.86rem', color: 'var(--text-primary)' }}>
+                  {sourceNotice || 'Comprobante enviado por el socio desde la app.'}
+                </p>
+                <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                  {seededAttachment.name || receiptName || 'Comprobante'} · listo para imputar
+                </p>
+                {seedPreviewUrl ? (
+                  <a
+                    href={seedPreviewUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ display: 'inline-block', marginTop: 8, fontSize: '0.8rem', color: 'var(--emerald-accent)' }}
+                  >
+                    Ver comprobante
+                  </a>
+                ) : null}
+              </div>
+            ) : null}
             <ReceiptModeSwitch
               mode={receiptMode}
               onChange={(next) => {
@@ -1327,7 +1422,9 @@ export default function CollectDuesModal({
                   }}
                 >
                   <Upload size={16} color="var(--text-gold)" />
-                  {receiptName || 'Adjuntar imagen o PDF del comprobante'}
+                  {seededAttachment && !receiptFile
+                    ? 'Reemplazar comprobante (opcional)'
+                    : (receiptName || 'Adjuntar imagen o PDF del comprobante')}
                   <input
                     type="file"
                     accept="image/*,.pdf,application/pdf"
@@ -1335,9 +1432,9 @@ export default function CollectDuesModal({
                     style={{ display: 'none' }}
                   />
                 </label>
-                {receiptPreview && (
+                {(receiptPreview || (seededAttachment && seedPreviewUrl && !/\.pdf$/i.test(seededAttachment.name || ''))) && (
                   <img
-                    src={receiptPreview}
+                    src={receiptPreview || seedPreviewUrl}
                     alt="Vista previa del comprobante"
                     style={{ marginTop: 8, maxWidth: '100%', maxHeight: 160, borderRadius: 8, border: '1px solid var(--border-glass)' }}
                   />

@@ -28428,6 +28428,140 @@ button.debit-moves-row:disabled {
   font-variant-numeric: tabular-nums;
 }
 
+.members-app-desk__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: flex-end;
+}
+
+.members-app-desk__filter {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  border: 1px solid var(--border-glass);
+  background: color-mix(in srgb, var(--bg-primary) 55%, transparent);
+  color: var(--text-secondary);
+  border-radius: 999px;
+  padding: 0.28rem 0.7rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.members-app-desk__filter strong {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.members-app-desk__filter.is-on {
+  border-color: color-mix(in srgb, var(--emerald-accent) 45%, var(--border-glass));
+  background: color-mix(in srgb, var(--emerald-accent) 14%, transparent);
+  color: var(--text-primary);
+}
+
+.members-app-desk__filter.is-alert:not(.is-on) {
+  border-color: color-mix(in srgb, var(--primary-gold) 40%, var(--border-glass));
+}
+
+.members-app-desk__filter.is-alert strong {
+  color: var(--primary-gold);
+}
+
+.members-app-desk__incoming {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0.85rem 0 0.35rem;
+  padding: 0.85rem 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--primary-gold) 28%, var(--border-glass));
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--primary-gold) 7%, transparent);
+}
+
+.members-app-desk__incoming-head {
+  display: flex;
+  gap: 0.65rem;
+  align-items: flex-start;
+  color: var(--primary-gold);
+}
+
+.members-app-desk__incoming-head strong {
+  display: block;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+}
+
+.members-app-desk__incoming-head p {
+  margin: 0.15rem 0 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.members-app-desk__incoming-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.members-app-desk__incoming-card {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+  padding: 0.75rem 0.8rem;
+  border-radius: 0.65rem;
+  border: 1px solid var(--border-glass);
+  background: var(--bg-secondary);
+}
+
+.members-app-desk__incoming-main {
+  display: grid;
+  gap: 0.2rem;
+  min-width: min(100%, 18rem);
+  flex: 1 1 16rem;
+}
+
+.members-app-desk__incoming-main strong {
+  color: var(--text-primary);
+}
+
+.members-app-desk__incoming-main > span,
+.members-app-desk__incoming-main > p {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.members-app-desk__incoming-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.members-app-desk__incoming-when {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-right: 0.25rem;
+}
+
+.members-app-desk__req-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--emerald-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.mp-claim-row.is-request {
+  border-color: color-mix(in srgb, var(--primary-gold) 40%, var(--border-glass));
+  box-shadow: inset 3px 0 0 var(--primary-gold);
+}
+
 .members-app-desk__flash {
   margin: 0;
   padding: 0.55rem 0.85rem;
@@ -28465,12 +28599,6 @@ button.debit-moves-row:disabled {
   color: var(--text-primary);
   font-size: 0.92rem;
   outline: none;
-}
-
-.members-app-desk__filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
 }
 
 .members-app-desk__list {

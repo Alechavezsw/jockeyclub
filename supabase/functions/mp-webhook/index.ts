@@ -363,7 +363,8 @@ async function deliverMpReceipt(admin: Admin, intentId: string) {
   const meta = (intent.meta || {}) as Record<string, unknown>;
   const alreadyMessage = Boolean(meta.receipt_message_id);
   const alreadyEmail = Boolean(meta.receipt_email_id);
-  if (alreadyMessage && alreadyEmail) return { skip: "already" };
+  const alreadyOpsNotice = Boolean(meta.ops_payment_notice_id);
+  if (alreadyMessage && alreadyEmail && alreadyOpsNotice) return { skip: "already" };
 
   const { data: member } = await admin
     .from("members")
@@ -407,96 +408,140 @@ async function deliverMpReceipt(admin: Admin, intentId: string) {
     discountDetail,
   });
 
-  const pdf = buildReceiptPdf([
-    copy.lead,
-    `Comprobante: ${receiptNumber}`,
-    `Importe: ${copy.money}`,
-    discount > 0.009 ? `Descuento: ${mpReceiptMoney(discount)} ${discountDetail}`.trim() : "",
-    `Concepto: ${concept}`,
-    `Medio: Mercado Pago · ${copy.via}`,
-    paidAt ? `Fecha: ${longDate(paidAt)}` : "",
-    period ? `Periodo: ${period}` : "",
-    memberNumber ? `Socio N ${memberNumber}` : "",
-    name,
-  ].filter(Boolean));
-  const filename = `recibo-${receiptNumber}.pdf`;
-
-  let attachment: { name: string; path: string } | undefined;
-  const folder = String(member?.member_number || member?.profile_id || "").trim();
-  if (folder && !alreadyMessage) {
-    const path = `${folder}/${filename}`;
-    const uploaded = await admin.storage.from("dues-receipts").upload(path, pdf, {
-      contentType: "application/pdf",
-      upsert: true,
-    });
-    if (!uploaded.error) attachment = { name: filename, path };
-  }
-
   let messageId = String(meta.receipt_message_id || "");
-  if (!alreadyMessage) {
-    const recipient = memberNumber.replace(/[^a-zA-Z0-9._-]/g, "");
-    if (recipient) {
-      const inserted = await admin
-        .from("messages")
-        .insert({
-          sender_name: "Secretaría del Jockey Club",
-          sender_key: "ops",
-          recipient_key: recipient,
-          subject: copy.subject,
-          body: copy.text,
-          is_read: false,
-          meta: {
-            kind: copy.kind,
-            method: "mercadopago",
-            receiptNumber,
-            mp_intent_id: intent.id,
-            channel,
-            ...(attachment ? { attachment } : {}),
-          },
-        })
-        .select("id")
-        .single();
-      messageId = inserted.data?.id || "";
-    }
-  }
-
   let emailId = String(meta.receipt_email_id || "");
   let emailError = String(meta.receipt_email_error || "");
-  const contact = String((member?.meta as Record<string, unknown> | null)?.contactEmail || "");
-  const email = mpReceiptDeliverableEmail(member?.email) || mpReceiptDeliverableEmail(contact);
-  if (!alreadyEmail) {
-    const apiKey = Deno.env.get("RESEND_API_KEY") || "";
-    if (!email) {
-      emailId = "no-email";
-      emailError = "Sin mail real";
-    } else if (!apiKey) {
-      emailError = "Falta RESEND_API_KEY";
-    } else {
-      const from = Deno.env.get("RESEND_FROM") || DEFAULT_FROM;
-      const res = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-          "Idempotency-Key": `mp-receipt/${intent.id}`,
-        },
-        body: JSON.stringify({
-          from,
-          to: [email],
-          subject: copy.subject,
-          text: copy.text,
-          html: copy.html,
-          attachments: [{ filename, content: bytesToB64(pdf) }],
-        }),
+  let attachment: { name: string; path: string } | undefined;
+  const filename = `recibo-${receiptNumber}.pdf`;
+
+  if (!alreadyMessage || !alreadyEmail) {
+    const pdf = buildReceiptPdf([
+      copy.lead,
+      `Comprobante: ${receiptNumber}`,
+      `Importe: ${copy.money}`,
+      discount > 0.009 ? `Descuento: ${mpReceiptMoney(discount)} ${discountDetail}`.trim() : "",
+      `Concepto: ${concept}`,
+      `Medio: Mercado Pago · ${copy.via}`,
+      paidAt ? `Fecha: ${longDate(paidAt)}` : "",
+      period ? `Periodo: ${period}` : "",
+      memberNumber ? `Socio N ${memberNumber}` : "",
+      name,
+    ].filter(Boolean));
+
+    const folder = String(member?.member_number || member?.profile_id || "").trim();
+    if (folder && !alreadyMessage) {
+      const path = `${folder}/${filename}`;
+      const uploaded = await admin.storage.from("dues-receipts").upload(path, pdf, {
+        contentType: "application/pdf",
+        upsert: true,
       });
-      const payload = await res.json().catch(() => ({})) as { id?: string; message?: string };
-      if (res.ok && payload.id) {
-        emailId = payload.id;
-        emailError = "";
-      } else {
-        emailError = String(payload.message || `Resend ${res.status}`);
+      if (!uploaded.error) attachment = { name: filename, path };
+    }
+
+    if (!alreadyMessage) {
+      const recipient = memberNumber.replace(/[^a-zA-Z0-9._-]/g, "");
+      if (recipient) {
+        const inserted = await admin
+          .from("messages")
+          .insert({
+            sender_name: "Secretaría del Jockey Club",
+            sender_key: "ops",
+            recipient_key: recipient,
+            subject: copy.subject,
+            body: copy.text,
+            is_read: false,
+            meta: {
+              kind: copy.kind,
+              method: "mercadopago",
+              receiptNumber,
+              mp_intent_id: intent.id,
+              channel,
+              ...(attachment ? { attachment } : {}),
+            },
+          })
+          .select("id")
+          .single();
+        messageId = inserted.data?.id || "";
       }
     }
+
+    const contact = String((member?.meta as Record<string, unknown> | null)?.contactEmail || "");
+    const email = mpReceiptDeliverableEmail(member?.email) || mpReceiptDeliverableEmail(contact);
+    if (!alreadyEmail) {
+      const apiKey = Deno.env.get("RESEND_API_KEY") || "";
+      if (!email) {
+        emailId = "no-email";
+        emailError = "Sin mail real";
+      } else if (!apiKey) {
+        emailError = "Falta RESEND_API_KEY";
+      } else {
+        const from = Deno.env.get("RESEND_FROM") || DEFAULT_FROM;
+        const res = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+            "Idempotency-Key": `mp-receipt/${intent.id}`,
+          },
+          body: JSON.stringify({
+            from,
+            to: [email],
+            subject: copy.subject,
+            text: copy.text,
+            html: copy.html,
+            attachments: [{ filename, content: bytesToB64(pdf) }],
+          }),
+        });
+        const payload = await res.json().catch(() => ({})) as { id?: string; message?: string };
+        if (res.ok && payload.id) {
+          emailId = payload.id;
+          emailError = "";
+        } else {
+          emailError = String(payload.message || `Resend ${res.status}`);
+        }
+      }
+    }
+  }
+
+  // Aviso a operaciones: la operación entra en «Pagos entrantes» aunque MP acredite solo.
+  let opsNoticeId = String(meta.ops_payment_notice_id || "");
+  if (!opsNoticeId) {
+    const opsKind = intentKind === "booking" || intentKind === "reservation"
+      ? "booking_payment"
+      : "dues_payment";
+    const opsSubject = opsKind === "booking_payment"
+      ? "Operación Mercado Pago · reserva acreditada"
+      : "Operación Mercado Pago · cuota acreditada";
+    const opsBody = [
+      `${name}${memberNumber ? ` (Nº ${memberNumber})` : ""} pagó por Mercado Pago desde la app.`,
+      `Importe: ${copy.money}`,
+      `Comprobante: ${receiptNumber}`,
+      concept ? `Concepto: ${concept}` : "",
+      period ? `Período: ${period}` : "",
+      "Mercado Pago acredita solo: no hace falta imputar a mano.",
+    ].filter(Boolean).join("\n");
+    const opsInserted = await admin
+      .from("messages")
+      .insert({
+        sender_name: name,
+        sender_key: memberNumber.replace(/[^a-zA-Z0-9._-]/g, "") || null,
+        recipient_key: "ops",
+        subject: opsSubject,
+        body: opsBody,
+        is_read: false,
+        meta: {
+          kind: opsKind,
+          method: "mercadopago",
+          paymentAuto: true,
+          paymentRequest: false,
+          receiptNumber,
+          mp_intent_id: intent.id,
+          channel,
+        },
+      })
+      .select("id")
+      .single();
+    opsNoticeId = opsInserted.data?.id || "";
   }
 
   const nextMeta = {
@@ -506,6 +551,7 @@ async function deliverMpReceipt(admin: Admin, intentId: string) {
     receipt_email_id: emailId || meta.receipt_email_id || null,
     receipt_email_error: emailError || null,
     receipt_number: receiptNumber,
+    ops_payment_notice_id: opsNoticeId || meta.ops_payment_notice_id || null,
   };
   await admin.from("mp_intents").update({ meta: nextMeta }).eq("id", intent.id);
 
@@ -513,6 +559,7 @@ async function deliverMpReceipt(admin: Admin, intentId: string) {
     ok: true,
     receiptNumber,
     messageId: messageId || null,
+    opsNoticeId: opsNoticeId || null,
     emailed: Boolean(emailId && emailId !== "no-email"),
     emailError: emailError || null,
   };

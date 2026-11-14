@@ -14,7 +14,8 @@ describe('duesPaymentNotice', () => {
       qrRef: 'JCSJ-111',
     });
     expect(msg.recipientId).toBe(MAILBOX.OPERATIONS);
-    expect(msg.subject).toBe('Pago por Mercado Pago');
+    expect(msg.subject).toBe('Operación Mercado Pago · cuota');
+    expect(msg.meta.paymentAuto).toBe(true);
     expect(msg.content).toMatch(/jockey.club.sj.mp/);
     expect(msg.content).toMatch(/JCSJ-111/);
   });
@@ -71,8 +72,9 @@ describe('duesPaymentNotice', () => {
       method: 'transferencia',
       attachment: { name: 'recibo.jpg', path: 'uid/recibo.jpg' },
     });
-    expect(msg.subject).toBe('Comprobante de transferencia');
+    expect(msg.subject).toBe('Solicitud de pago · transferencia');
     expect(msg.content).toMatch(/recibo.jpg/);
+    expect(msg.meta.paymentRequest).toBe(true);
     expect(msg.meta.attachment.path).toBe('uid/recibo.jpg');
   });
 
@@ -147,7 +149,8 @@ describe('duesPaymentNotice', () => {
       qrRef: 'JCSJ-111',
     });
     expect(msg.recipientId).toBe(MAILBOX.OPERATIONS);
-    expect(msg.subject).toBe('Pago de reserva por Mercado Pago');
+    expect(msg.subject).toBe('Operación Mercado Pago · reserva');
+    expect(msg.meta.paymentAuto).toBe(true);
     expect(msg.content).toMatch(/Salón Bustos/);
     expect(msg.content).toMatch(/18:00/);
     expect(msg.meta.kind).toBe('booking_payment');
