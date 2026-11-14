@@ -13220,6 +13220,60 @@ a.ops-outline-btn {
   color: var(--text-muted);
 }
 
+.sys-admin-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.55rem 1rem;
+  margin: 0 0 0.7rem;
+  padding: 0.45rem 0.15rem 0.55rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-glass) 80%, transparent);
+}
+
+.sys-admin-filter-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.45rem;
+  min-width: 0;
+}
+
+.sys-admin-filter-label {
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.sys-admin-filters .sys-role-chip em {
+  font-style: normal;
+  margin-left: 0.28rem;
+  opacity: 0.72;
+  font-variant-numeric: tabular-nums;
+}
+
+.sys-admin-filter-clear {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  padding: 0.15rem 0;
+}
+
+.sys-admin-filter-clear:hover {
+  color: var(--text-primary);
+}
+
+.sys-admin-filter-clear.is-inline {
+  margin-left: 0;
+  display: inline;
+}
+
 .sys-admin-card-actions {
   display: flex;
   align-items: center;

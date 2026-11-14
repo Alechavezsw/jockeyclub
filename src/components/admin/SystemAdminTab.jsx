@@ -291,6 +291,29 @@ function profileMatchesQuery(profile, query) {
   return profileSearchHaystack(profile).includes(q);
 }
 
+function profileRoleKeys(profile) {
+  const keys = new Set();
+  const primary = String(profile?.role || '').toLowerCase().trim();
+  if (primary) keys.add(primary);
+  for (const row of profile?.roles || []) {
+    const key = String(row?.roleKey || row?.key || '').toLowerCase().trim();
+    if (key) keys.add(key);
+  }
+  return keys;
+}
+
+function profileHasRole(profile, roleKey) {
+  const want = String(roleKey || '').toLowerCase().trim();
+  if (!want) return true;
+  return profileRoleKeys(profile).has(want);
+}
+
+function profileMatchesStatus(profile, status) {
+  if (status === 'active') return profile?.isActive !== false;
+  if (status === 'inactive') return profile?.isActive === false;
+  return true;
+}
+
 function Field({ label, children, className = '', as: Tag = 'label' }) {
   return (
     <Tag className={`sys-user-field ${className}`.trim()}>
@@ -484,6 +507,8 @@ export default function SystemAdminTab({
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [usersError, setUsersError] = useState('');
   const [userQuery, setUserQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [roleFilter, setRoleFilter] = useState('');
   const [busyId, setBusyId] = useState(null);
   const [flash, setFlash] = useState('');
   const [historyProfileId, setHistoryProfileId] = useState(null);
@@ -543,10 +568,36 @@ export default function SystemAdminTab({
     [profiles],
   );
 
+  const roleFilterOptions = useMemo(() => {
+    const counts = new Map();
+    for (const profile of adminProfiles) {
+      for (const key of profileRoleKeys(profile)) {
+        if (!ROLE_LABELS[key]) continue;
+        counts.set(key, (counts.get(key) || 0) + 1);
+      }
+    }
+    return [...counts.entries()]
+      .sort((a, b) => roleRank(b[0]) - roleRank(a[0]) || String(ROLE_LABELS[a[0]] || a[0])
+        .localeCompare(ROLE_LABELS[b[0]] || b[0], 'es'))
+      .map(([key, count]) => ({ key, count, label: ROLE_LABELS[key] || key }));
+  }, [adminProfiles]);
+
+  const filtersActive = Boolean(userQuery.trim()) || statusFilter !== 'all' || Boolean(roleFilter);
+
   const filteredProfiles = useMemo(
-    () => adminProfiles.filter((p) => profileMatchesQuery(p, userQuery)),
-    [adminProfiles, userQuery],
+    () => adminProfiles.filter((p) => (
+      profileMatchesQuery(p, userQuery)
+      && profileMatchesStatus(p, statusFilter)
+      && profileHasRole(p, roleFilter)
+    )),
+    [adminProfiles, userQuery, statusFilter, roleFilter],
   );
+
+  const clearListFilters = () => {
+    setUserQuery('');
+    setStatusFilter('all');
+    setRoleFilter('');
+  };
 
   const setUF = (key, value) => setUserForm((f) => ({ ...f, [key]: value }));
 
@@ -1156,6 +1207,62 @@ export default function SystemAdminTab({
           </div>
         </header>
 
+        <div className="sys-admin-filters" aria-label="Filtros de administradores">
+          <div className="sys-admin-filter-group" role="group" aria-label="Estado">
+            <span className="sys-admin-filter-label">Estado</span>
+            <div className="sys-role-chips is-compact">
+              {[
+                { id: 'all', label: 'Todos' },
+                { id: 'active', label: 'Activos' },
+                { id: 'inactive', label: 'Inactivos' },
+              ].map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  className={`sys-role-chip${statusFilter === opt.id ? ' is-on' : ''}`}
+                  aria-pressed={statusFilter === opt.id}
+                  onClick={() => setStatusFilter(opt.id)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {roleFilterOptions.length > 0 ? (
+            <div className="sys-admin-filter-group" role="group" aria-label="Rol">
+              <span className="sys-admin-filter-label">Rol</span>
+              <div className="sys-role-chips is-compact">
+                <button
+                  type="button"
+                  className={`sys-role-chip${!roleFilter ? ' is-on' : ''}`}
+                  aria-pressed={!roleFilter}
+                  onClick={() => setRoleFilter('')}
+                >
+                  Todos
+                </button>
+                {roleFilterOptions.map((opt) => (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    className={`sys-role-chip${roleFilter === opt.key ? ' is-on' : ''}`}
+                    aria-pressed={roleFilter === opt.key}
+                    title={`${opt.count} usuario${opt.count === 1 ? '' : 's'}`}
+                    onClick={() => setRoleFilter((prev) => (prev === opt.key ? '' : opt.key))}
+                  >
+                    {opt.label}
+                    <em>{opt.count}</em>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {filtersActive ? (
+            <button type="button" className="sys-admin-filter-clear" onClick={clearListFilters}>
+              Limpiar filtros
+            </button>
+          ) : null}
+        </div>
+
         {lastCreatedCreds && (
           <div className="sys-creds-banner" role="status">
             <div>
@@ -1668,11 +1775,21 @@ export default function SystemAdminTab({
           <p className="ops-muted">Todavía no hay administradores del sistema.</p>
         ) : filteredProfiles.length === 0 ? (
           <p className="ops-muted">
-            Ningún usuario coincide con «{userQuery.trim()}».
+            {filtersActive
+              ? 'Ningún usuario coincide con los filtros.'
+              : 'Ningún usuario para mostrar.'}
+            {filtersActive ? (
+              <>
+                {' '}
+                <button type="button" className="sys-admin-filter-clear is-inline" onClick={clearListFilters}>
+                  Limpiar filtros
+                </button>
+              </>
+            ) : null}
           </p>
         ) : (
           <div className="sys-admin-table-wrap">
-            {userQuery.trim() ? (
+            {filtersActive ? (
               <p className="sys-user-search-count">
                 Encontrados {filteredProfiles.length} de {adminProfiles.length}
               </p>
@@ -1741,7 +1858,7 @@ export default function SystemAdminTab({
                         onEdit={openEditUser}
                         onHistory={openHistory}
                         onToggleActive={toggleActive}
-                        onResetPassword={() => openResetPassword(u)}
+                        onResetPassword={openResetPassword}
                       />
                     </td>
                   </tr>
