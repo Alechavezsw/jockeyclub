@@ -1,52 +1,125 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { ChevronLeft, ChevronRight, ClipboardList, UserRound } from 'lucide-react';
+import { formatShortDate } from '../../domain/members/dues';
+
+const PAGE_SIZE = 10;
+
+function claimTitle(claim) {
+  return String(claim?.subject || claim?.title || 'Solicitud').trim() || 'Solicitud';
+}
+
+function claimType(claim) {
+  return String(claim?.category || claim?.type || 'General').trim() || 'General';
+}
+
+function claimResponse(claim) {
+  return String(claim?.resolution || claim?.response || '').trim();
+}
+
+function claimMemberLabel(claim) {
+  const name = String(claim?.memberName || 'Socio').trim() || 'Socio';
+  const number = String(claim?.memberId || '').trim();
+  return number ? `${name} · Nº ${number}` : name;
+}
+
+function statusLabel(status) {
+  if (status === 'pending') return 'Pendiente';
+  if (status === 'in_progress') return 'En proceso';
+  if (status === 'resolved') return 'Resuelto';
+  return String(status || 'Pendiente');
+}
+
+function statusTone(status) {
+  if (status === 'pending') return 'is-pending';
+  if (status === 'in_progress') return 'is-progress';
+  if (status === 'resolved') return 'is-resolved';
+  return 'is-pending';
+}
+
+function sortClaims(list = []) {
+  const rank = { pending: 0, in_progress: 1, resolved: 2 };
+  return [...(list || [])].sort((a, b) => {
+    const ra = rank[a?.status] ?? 9;
+    const rb = rank[b?.status] ?? 9;
+    if (ra !== rb) return ra - rb;
+    return String(b?.createdAt || b?.date || '').localeCompare(String(a?.createdAt || a?.date || ''));
+  });
+}
 
 /** Buzón de pedidos y reclamos de socios, con asignación al personal de guardia. */
-export default function ClaimsTab({ claims, setClaims, staffMembers, setStaffMembers }) {
+export default function ClaimsTab({ claims = [], setClaims, staffMembers = [], setStaffMembers }) {
   const [editingClaimId, setEditingClaimId] = useState(null);
   const [claimResponseText, setClaimResponseText] = useState('');
   const [claimAssignStaff, setClaimAssignStaff] = useState('');
+  const [page, setPage] = useState(1);
+  const [statusFilter, setStatusFilter] = useState('open');
 
-  // Al asignar personal, registra la actividad en la bitácora del empleado
+  const sorted = useMemo(() => sortClaims(claims), [claims]);
+
+  const filtered = useMemo(() => {
+    if (statusFilter === 'all') return sorted;
+    if (statusFilter === 'open') {
+      return sorted.filter((c) => c.status === 'pending' || c.status === 'in_progress');
+    }
+    return sorted.filter((c) => c.status === statusFilter);
+  }, [sorted, statusFilter]);
+
+  const pendingCount = sorted.filter((c) => c.status === 'pending').length;
+  const progressCount = sorted.filter((c) => c.status === 'in_progress').length;
+  const resolvedCount = sorted.filter((c) => c.status === 'resolved').length;
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageRows = useMemo(() => {
+    const start = (safePage - 1) * PAGE_SIZE;
+    return filtered.slice(start, start + PAGE_SIZE);
+  }, [filtered, safePage]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [statusFilter]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
   const handleAssignAndResolveClaim = (claimId, newStatus) => {
-    const claim = claims.find(c => c.id === claimId);
+    const claim = claims.find((c) => c.id === claimId);
     if (!claim) return;
 
     const assignedEmpName = claimAssignStaff || claim.assignedStaff;
-    const response = claimResponseText.trim() || claim.response;
+    const response = claimResponseText.trim() || claimResponse(claim);
 
-    if (assignedEmpName && assignedEmpName !== claim.assignedStaff) {
-      const targetEmp = staffMembers.find(s => s.name === assignedEmpName);
+    if (assignedEmpName && assignedEmpName !== claim.assignedStaff && typeof setStaffMembers === 'function') {
+      const targetEmp = staffMembers.find((s) => s.name === assignedEmpName);
       if (targetEmp) {
         const newActivity = {
           id: Date.now(),
           time: new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
           date: new Date().toISOString().split('T')[0],
-          description: `Asignación de reclamo #${claim.id}: "${claim.title}" por Administración.`
+          description: `Asignación de reclamo: "${claimTitle(claim)}" por Administración.`,
         };
 
-        setStaffMembers(staffMembers.map(s => {
-          if (s.id === targetEmp.id) {
-            return {
-              ...s,
-              currentTask: `Atendiendo: ${claim.title.slice(0, 30)}...`,
-              activities: [newActivity, ...(s.activities || [])]
-            };
-          }
-          return s;
+        setStaffMembers(staffMembers.map((s) => {
+          if (s.id !== targetEmp.id) return s;
+          return {
+            ...s,
+            currentTask: `Atendiendo: ${claimTitle(claim).slice(0, 30)}…`,
+            activities: [newActivity, ...(s.activities || [])],
+          };
         }));
       }
     }
 
-    setClaims(claims.map(c => {
-      if (c.id === claimId) {
-        return {
-          ...c,
-          status: newStatus,
-          assignedStaff: assignedEmpName,
-          response: response
-        };
-      }
-      return c;
+    setClaims(claims.map((c) => {
+      if (c.id !== claimId) return c;
+      return {
+        ...c,
+        status: newStatus,
+        assignedStaff: assignedEmpName,
+        response,
+        resolution: response,
+      };
     }));
 
     setEditingClaimId(null);
@@ -54,157 +127,223 @@ export default function ClaimsTab({ claims, setClaims, staffMembers, setStaffMem
     setClaimAssignStaff('');
   };
 
+  const from = filtered.length === 0 ? 0 : ((safePage - 1) * PAGE_SIZE) + 1;
+  const to = Math.min(safePage * PAGE_SIZE, filtered.length);
+
   return (
-    <div className="glass-card fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-      <div>
-        <h3 className="serif-font" style={{ fontSize: '1.4rem', margin: 0 }}>Buzón Ejecutivo de Pedidos, Solicitudes y Reclamos</h3>
-        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
-          Gestione y asigne las solicitudes enviadas por los socios al personal técnico o guardas de área.
-        </p>
+    <section className="claims-desk glass-card fade-in" aria-labelledby="claims-desk-title">
+      <header className="claims-desk__head">
+        <div className="claims-desk__title-row">
+          <span className="claims-desk__icon" aria-hidden="true">
+            <ClipboardList size={22} />
+          </span>
+          <div>
+            <h2 id="claims-desk-title" className="serif-font claims-desk__title">
+              Buzón de pedidos y reclamos
+            </h2>
+            <p className="claims-desk__lead">
+              Solicitudes de socios para asignar a guardia o área técnica. Hasta {PAGE_SIZE} por hoja.
+            </p>
+          </div>
+        </div>
+        <div className="claims-desk__stats" aria-label="Resumen del buzón">
+          <span className="claims-desk__stat is-pending">
+            <strong>{pendingCount}</strong>
+            pendientes
+          </span>
+          <span className="claims-desk__stat is-progress">
+            <strong>{progressCount}</strong>
+            en proceso
+          </span>
+          <span className="claims-desk__stat is-resolved">
+            <strong>{resolvedCount}</strong>
+            resueltos
+          </span>
+        </div>
+      </header>
+
+      <div className="claims-desk__filters" role="toolbar" aria-label="Filtro de estado">
+        {[
+          { id: 'open', label: 'Abiertos', value: pendingCount + progressCount },
+          { id: 'pending', label: 'Pendientes', value: pendingCount },
+          { id: 'in_progress', label: 'En proceso', value: progressCount },
+          { id: 'resolved', label: 'Resueltos', value: resolvedCount },
+          { id: 'all', label: 'Todos', value: sorted.length },
+        ].map((opt) => (
+          <button
+            key={opt.id}
+            type="button"
+            className={`claims-desk__filter${statusFilter === opt.id ? ' is-on' : ''}`}
+            aria-pressed={statusFilter === opt.id}
+            onClick={() => setStatusFilter(opt.id)}
+          >
+            <strong>{opt.value}</strong>
+            <span>{opt.label}</span>
+          </button>
+        ))}
       </div>
 
-      {claims.length === 0 ? (
-        <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', textAlign: 'center', padding: '3rem 1.5rem' }}>
-          No existen solicitudes registradas de los socios de momento.
+      {filtered.length === 0 ? (
+        <p className="claims-desk__empty">
+          {claims.length === 0
+            ? 'Todavía no hay pedidos ni reclamos de socios.'
+            : 'No hay solicitudes en este filtro.'}
         </p>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          {claims.map(clm => (
-            <div
-              key={clm.id}
-              className="glass-panel"
-              style={{
-                padding: '1.25rem',
-                background: 'rgba(255,255,255,0.01)',
-                borderColor: editingClaimId === clm.id ? 'var(--primary-gold)' : 'var(--border-glass)',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '0.6rem'
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <span className={`badge-tier ${clm.type === 'Mantenimiento' ? 'gold' : clm.type === 'Gourmet' ? 'royal' : 'platinum'}`} style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem' }}>
-                    {clm.type}
-                  </span>
-                  <strong style={{ fontSize: '1rem', color: 'var(--text-strong)' }}>{clm.title}</strong>
-                </div>
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Enviado: {clm.date}</span>
-              </div>
-
-              <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
-                <strong>Socio:</strong> {clm.memberName} (ID: {clm.memberId.slice(0, 8)}...)
-              </p>
-
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontStyle: 'italic', background: 'rgba(0,0,0,0.1)', padding: '0.5rem', borderRadius: '4px' }}>
-                "{clm.description}"
-              </p>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.04)', paddingTop: '0.6rem', fontSize: '0.82rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                  <span>
-                    <strong>Estado:</strong>{' '}
-                    <span style={{
-                      color: clm.status === 'pending' ? 'var(--warning-accent)' : clm.status === 'in_progress' ? '#3b82f6' : 'var(--emerald-accent)',
-                      fontWeight: '600'
-                    }}>
-                      {clm.status === 'pending' ? 'Pendiente' : clm.status === 'in_progress' ? 'En Proceso' : 'Resuelto'}
+        <>
+          <ul className="claims-desk__list">
+            {pageRows.map((clm) => {
+              const editing = editingClaimId === clm.id;
+              const reply = claimResponse(clm);
+              return (
+                <li
+                  key={clm.id}
+                  className={`claims-desk__card ${statusTone(clm.status)}${editing ? ' is-editing' : ''}`}
+                >
+                  <div className="claims-desk__card-top">
+                    <div className="claims-desk__card-titles">
+                      <span className="claims-desk__type">{claimType(clm)}</span>
+                      <strong className="claims-desk__subject">{claimTitle(clm)}</strong>
+                    </div>
+                    <span className={`claims-desk__status ${statusTone(clm.status)}`}>
+                      {statusLabel(clm.status)}
                     </span>
-                  </span>
+                  </div>
 
-                  <span>
-                    <strong>Asignado a:</strong>{' '}
-                    <span style={{ color: 'var(--text-gold)' }}>
-                      {clm.assignedStaff || 'Nadie de Guardia'}
+                  <div className="claims-desk__meta">
+                    <span>
+                      <UserRound size={13} aria-hidden="true" />
+                      {claimMemberLabel(clm)}
                     </span>
-                  </span>
-                </div>
+                    <span>Enviado {formatShortDate(clm.date || String(clm.createdAt || '').slice(0, 10))}</span>
+                    <span>
+                      Asignado:{' '}
+                      <em>{clm.assignedStaff || 'Sin asignar'}</em>
+                    </span>
+                  </div>
 
-                {editingClaimId !== clm.id ? (
-                  <button
-                    onClick={() => {
-                      setEditingClaimId(clm.id);
-                      setClaimResponseText(clm.response || '');
-                      setClaimAssignStaff(clm.assignedStaff || '');
-                    }}
-                    className="btn btn-secondary btn-sm"
-                    style={{ padding: '0.25rem 0.65rem' }}
-                  >
-                    Gestionar / Responder
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => setEditingClaimId(null)}
-                    className="btn btn-danger btn-sm"
-                    style={{ padding: '0.25rem 0.65rem' }}
-                  >
-                    Cancelar
-                  </button>
-                )}
-              </div>
+                  {clm.description ? (
+                    <p className="claims-desk__body">{clm.description}</p>
+                  ) : null}
 
-              {/* Bloque de Edición / Asignación */}
-              {editingClaimId === clm.id && (
-                <div className="glass-panel fade-in" style={{ padding: '1rem', background: 'rgba(0,0,0,0.15)', marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '1rem' }} className="responsive-form-grid">
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label" style={{ fontSize: '0.72rem' }}>Asignar Tarea a Empleado de Guardia</label>
-                      <select
-                        className="form-input"
-                        style={{ padding: '0.45rem', fontSize: '0.8rem' }}
-                        value={claimAssignStaff}
-                        onChange={(e) => setClaimAssignStaff(e.target.value)}
+                  {reply && !editing ? (
+                    <p className="claims-desk__reply">
+                      <strong>Respuesta del Club</strong>
+                      {reply}
+                    </p>
+                  ) : null}
+
+                  <div className="claims-desk__actions">
+                    {!editing ? (
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => {
+                          setEditingClaimId(clm.id);
+                          setClaimResponseText(reply);
+                          setClaimAssignStaff(clm.assignedStaff || '');
+                        }}
                       >
-                        <option value="">-- No asignar a nadie --</option>
-                        {staffMembers.map(emp => (
-                          <option key={emp.id} value={emp.name} style={{ background: 'var(--bg-secondary)' }}>
-                            {emp.name} ({emp.role} - {emp.status === 'active' ? 'EN GUARDIA' : 'Fuera de Servicio'})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label" style={{ fontSize: '0.72rem' }}>Respuesta Oficial del Club</label>
-                      <input
-                        type="text"
-                        className="form-input"
-                        style={{ padding: '0.45rem', fontSize: '0.8rem' }}
-                        placeholder="Ej: Se ha derivado al Greenkeeper para soldar la contención."
-                        value={claimResponseText}
-                        onChange={(e) => setClaimResponseText(e.target.value)}
-                      />
-                    </div>
+                        Gestionar
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn btn-danger btn-sm"
+                        onClick={() => {
+                          setEditingClaimId(null);
+                          setClaimResponseText('');
+                          setClaimAssignStaff('');
+                        }}
+                      >
+                        Cancelar
+                      </button>
+                    )}
                   </div>
 
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-                    <button
-                      onClick={() => handleAssignAndResolveClaim(clm.id, 'in_progress')}
-                      className="btn btn-secondary btn-sm"
-                      style={{ fontSize: '0.75rem', borderColor: '#3b82f6', color: '#3b82f6' }}
-                    >
-                      Marcar "En Proceso"
-                    </button>
-                    <button
-                      onClick={() => handleAssignAndResolveClaim(clm.id, 'resolved')}
-                      className="btn btn-primary btn-sm"
-                      style={{ fontSize: '0.75rem', background: 'var(--emerald-accent)', color: '#060e0a' }}
-                    >
-                      Resolver e Informar
-                    </button>
-                  </div>
-                </div>
-              )}
+                  {editing ? (
+                    <div className="claims-desk__editor fade-in">
+                      <div className="claims-desk__editor-grid">
+                        <label className="claims-desk__field">
+                          <span>Asignar a guardia</span>
+                          <select
+                            className="form-input"
+                            value={claimAssignStaff}
+                            onChange={(e) => setClaimAssignStaff(e.target.value)}
+                          >
+                            <option value="">Sin asignar</option>
+                            {staffMembers.map((emp) => (
+                              <option key={emp.id} value={emp.name}>
+                                {emp.name} · {emp.role}
+                                {emp.status === 'active' ? ' · en guardia' : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="claims-desk__field">
+                          <span>Respuesta del Club</span>
+                          <input
+                            type="text"
+                            className="form-input"
+                            placeholder="Ej.: Derivado a mantenimiento de canchas."
+                            value={claimResponseText}
+                            onChange={(e) => setClaimResponseText(e.target.value)}
+                          />
+                        </label>
+                      </div>
+                      <div className="claims-desk__editor-actions">
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => handleAssignAndResolveClaim(clm.id, 'in_progress')}
+                        >
+                          En proceso
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-sm claims-desk__resolve"
+                          onClick={() => handleAssignAndResolveClaim(clm.id, 'resolved')}
+                        >
+                          Resolver e informar
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
 
-              {clm.response && (
-                <div style={{ fontSize: '0.8rem', background: 'rgba(16, 185, 129, 0.04)', border: '1px solid rgba(16, 185, 129, 0.1)', padding: '0.5rem 0.75rem', borderRadius: '4px', marginTop: '0.2rem' }}>
-                  <strong style={{ color: 'var(--emerald-accent)' }}>Respuesta del Club:</strong> "{clm.response}"
-                </div>
-              )}
+          <nav className="claims-desk__pager" aria-label="Paginación del buzón">
+            <span className="claims-desk__pager-range">
+              {from}–{to} de {filtered.length}
+            </span>
+            <div className="claims-desk__pager-controls">
+              <button
+                type="button"
+                className="claims-desk__pager-btn"
+                disabled={safePage <= 1}
+                aria-label="Hoja anterior"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                <ChevronLeft size={18} aria-hidden="true" />
+              </button>
+              <span className="claims-desk__pager-page">
+                {safePage} / {totalPages}
+              </span>
+              <button
+                type="button"
+                className="claims-desk__pager-btn"
+                disabled={safePage >= totalPages}
+                aria-label="Hoja siguiente"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              >
+                <ChevronRight size={18} aria-hidden="true" />
+              </button>
             </div>
-          ))}
-        </div>
+          </nav>
+        </>
       )}
-    </div>
+    </section>
   );
 }
