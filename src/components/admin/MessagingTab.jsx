@@ -9,6 +9,7 @@ import {
   ExternalLink,
   FileText,
   Paperclip,
+  PenLine,
   Search,
   X,
   ChevronLeft,
@@ -166,6 +167,9 @@ export default function MessagingTab({
     `Estimado/a *{nombre}*, le saludamos cordialmente de la Comisión Directiva del Jockey Club San Juan (Sede Rivadavia). Le recordamos amablemente que posee un saldo pendiente de cuota social de *{saldo}*. Puede regularizar su situación en la administración central o mediante transferencia al alias ${CLUB_BANK_ACCOUNTS[0].alias} ¡Muchas gracias!`
   );
   const [virtualSentLogs, setVirtualSentLogs] = useState([]);
+  const [showMailCompose, setShowMailCompose] = useState(false);
+  const [showMdCompose, setShowMdCompose] = useState(false);
+  const [waSearchQuery, setWaSearchQuery] = useState('');
 
   const loadMails = useCallback(async ({ quiet = false } = {}) => {
     if (!quiet) setMailBusy(true);
@@ -243,7 +247,9 @@ export default function MessagingTab({
   }, [mdBox, searchQuery]);
 
   useEffect(() => {
-    if (replyToId) setSection('md');
+    if (!replyToId) return;
+    setSection('md');
+    setShowMdCompose(true);
   }, [replyToId]);
 
   const opsInbox = useMemo(() => (
@@ -392,12 +398,13 @@ export default function MessagingTab({
   const selected = mdList.find((m) => String(m.id) === String(selectedId)) || null;
   const debtors = useMemo(() => {
     const owing = (members || []).filter((m) => !memberDuesStandingSummary(m).clear);
-    if (!searchActive) return owing;
+    const needle = waSearchQuery.trim() || (section === 'whatsapp' ? '' : searchQuery);
+    if (!normalizeMsgSearch(needle)) return owing;
     return owing.filter((m) => matchesMsgQuery(
       [m.name, m.memberId, m.phone, m.documentNumber].join(' '),
-      searchQuery,
+      needle,
     ));
-  }, [members, searchActive, searchQuery]);
+  }, [members, searchQuery, section, waSearchQuery]);
 
   const openInboxMessage = (msg) => {
     setSelectedId(msg.id);
@@ -415,6 +422,14 @@ export default function MessagingTab({
     )));
   };
 
+  const openCompose = (kind) => {
+    if (kind === 'mail') setShowMailCompose(true);
+    else setShowMdCompose(true);
+    window.setTimeout(() => {
+      document.getElementById('ops-compose-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 40);
+  };
+
   const replyToSelected = () => {
     if (!selected) return;
     const to = selected.senderId && selected.senderId !== MAILBOX.OPERATIONS
@@ -427,6 +442,7 @@ export default function MessagingTab({
     setMsgError('');
     setSection('md');
     setReplyToId(to);
+    setShowMdCompose(true);
     window.setTimeout(() => {
       document.getElementById('ops-compose-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 40);
@@ -459,6 +475,8 @@ export default function MessagingTab({
   const openSection = (id) => {
     setSection(id);
     setMsgError('');
+    if (id !== 'mail') setShowMailCompose(false);
+    if (id !== 'md') setShowMdCompose(false);
   };
 
   const openThread = async (id) => {
@@ -477,7 +495,7 @@ export default function MessagingTab({
       <div className="page-header ops-msg-header">
         <div>
           <h1 className="page-title">Mensajería</h1>
-          <p className="page-subtitle">Elegí el canal, leé la bandeja y redactá el comunicado abajo</p>
+          <p className="page-subtitle">Elegí el canal, leé la bandeja y abrí Nuevo mail o Nuevo MD cuando quieras redactar</p>
         </div>
         <div className="ops-msg-search">
           <Search size={16} aria-hidden="true" />
@@ -537,7 +555,7 @@ export default function MessagingTab({
           <div className="glass-card fade-in ops-msg-pane ops-msg-pane--mail">
             <div className="ops-msg-pane-head">
               <div>
-                <p className="ops-msg-pane-kicker">Paso 1 · Leer</p>
+                <p className="ops-msg-pane-kicker">Bandeja</p>
                 <h3 className="serif-font ops-msg-title">
                   <Inbox size={18} /> Bandeja de mail
                 </h3>
@@ -547,21 +565,39 @@ export default function MessagingTab({
                     : `Comunicados enviados desde acá${mailCampaigns.length ? ` · ${mailCampaigns.length} envíos` : ''} · hojas de ${MAIL_PAGE_SIZE}.`}
                 </p>
               </div>
-              <div className="ops-msg-seg" role="tablist" aria-label="Recibidos o enviados">
+              <div className="ops-msg-pane-tools">
+                <div className="ops-msg-seg" role="tablist" aria-label="Recibidos o enviados">
+                  <button
+                    type="button"
+                    className={`ops-msg-seg-btn${mailBox === 'in' ? ' is-on' : ''}`}
+                    onClick={() => setMailBox('in')}
+                  >
+                    Recibidos
+                    {unreadInbox > 0 ? ` (${unreadInbox})` : ''}
+                  </button>
+                  <button
+                    type="button"
+                    className={`ops-msg-seg-btn${mailBox === 'out' ? ' is-on' : ''}`}
+                    onClick={() => setMailBox('out')}
+                  >
+                    Enviados
+                  </button>
+                </div>
                 <button
                   type="button"
-                  className={`ops-msg-seg-btn${mailBox === 'in' ? ' is-on' : ''}`}
-                  onClick={() => setMailBox('in')}
+                  className={`btn btn-sm${showMailCompose ? ' btn-secondary' : ' btn-primary'}`}
+                  aria-expanded={showMailCompose}
+                  aria-controls="ops-compose-form"
+                  onClick={() => {
+                    if (showMailCompose) {
+                      setShowMailCompose(false);
+                      return;
+                    }
+                    openCompose('mail');
+                  }}
                 >
-                  Recibidos
-                  {unreadInbox > 0 ? ` (${unreadInbox})` : ''}
-                </button>
-                <button
-                  type="button"
-                  className={`ops-msg-seg-btn${mailBox === 'out' ? ' is-on' : ''}`}
-                  onClick={() => setMailBox('out')}
-                >
-                  Enviados
+                  <PenLine size={14} aria-hidden="true" />
+                  {showMailCompose ? 'Cerrar redacción' : 'Nuevo mail'}
                 </button>
               </div>
             </div>
@@ -744,13 +780,15 @@ export default function MessagingTab({
               </>
             )}
           </div>
-          <NoticeComposeCard
-            members={members}
-            onSendMessage={onSendMessage}
-            senderName={user?.fullName || 'Administración Jockey Club'}
-            channel="mail"
-            onSent={() => { void loadMails(); }}
-          />
+          {showMailCompose ? (
+            <NoticeComposeCard
+              members={members}
+              onSendMessage={onSendMessage}
+              senderName={user?.fullName || 'Administración Jockey Club'}
+              channel="mail"
+              onSent={() => { void loadMails(); }}
+            />
+          ) : null}
         </>
       ) : null}
 
@@ -759,7 +797,7 @@ export default function MessagingTab({
           <div className="glass-card fade-in ops-msg-pane ops-msg-pane--md">
             <div className="ops-msg-pane-head">
               <div>
-                <p className="ops-msg-pane-kicker">Paso 1 · Leer</p>
+                <p className="ops-msg-pane-kicker">Bandeja</p>
                 <h3 className="serif-font ops-msg-title">
                   <Inbox size={18} /> Bandeja de MD
                 </h3>
@@ -799,6 +837,23 @@ export default function MessagingTab({
                   onClick={() => navigate('/mensajes')}
                 >
                   <ExternalLink size={14} /> Vista completa
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-sm${showMdCompose ? ' btn-secondary' : ' btn-primary'}`}
+                  aria-expanded={showMdCompose}
+                  aria-controls="ops-compose-form"
+                  onClick={() => {
+                    if (showMdCompose) {
+                      setShowMdCompose(false);
+                      setReplyToId('');
+                      return;
+                    }
+                    openCompose('md');
+                  }}
+                >
+                  <PenLine size={14} aria-hidden="true" />
+                  {showMdCompose ? 'Cerrar redacción' : 'Nuevo MD'}
                 </button>
               </div>
             </div>
@@ -914,13 +969,15 @@ export default function MessagingTab({
             <div role="alert" className="ops-notice-err">{msgError}</div>
           ) : null}
 
-          <NoticeComposeCard
-            members={members}
-            onSendMessage={onSendMessage}
-            senderName={user?.fullName || 'Administración Jockey Club'}
-            replyToId={replyToId}
-            channel="dm"
-          />
+          {showMdCompose ? (
+            <NoticeComposeCard
+              members={members}
+              onSendMessage={onSendMessage}
+              senderName={user?.fullName || 'Administración Jockey Club'}
+              replyToId={replyToId}
+              channel="dm"
+            />
+          ) : null}
         </>
       ) : null}
 
@@ -948,10 +1005,35 @@ export default function MessagingTab({
           </div>
 
           <div className="ops-msg-wa-list">
-            <h5 className="serif-font">Socios con cuotas pendientes</h5>
+            <div className="ops-msg-wa-list-head">
+              <h5 className="serif-font">Socios con cuotas pendientes</h5>
+              <div className="ops-msg-search ops-msg-wa-search">
+                <Search size={16} aria-hidden="true" />
+                <label className="sr-only" htmlFor="ops-wa-search-input">Buscar socios con deuda</label>
+                <input
+                  id="ops-wa-search-input"
+                  type="search"
+                  className="ops-msg-search-input"
+                  value={waSearchQuery}
+                  onChange={(e) => setWaSearchQuery(e.target.value)}
+                  placeholder="Nombre, n°, DNI o celular…"
+                  autoComplete="off"
+                />
+                {waSearchQuery ? (
+                  <button
+                    type="button"
+                    className="ops-msg-search-clear"
+                    aria-label="Limpiar búsqueda de deudores"
+                    onClick={() => setWaSearchQuery('')}
+                  >
+                    <X size={14} />
+                  </button>
+                ) : null}
+              </div>
+            </div>
             {debtors.length === 0 ? (
               <p className="ops-msg-empty">
-                {searchActive
+                {waSearchQuery.trim()
                   ? 'Ningún deudor coincide con la búsqueda.'
                   : 'No hay socios con deuda social de momento.'}
               </p>

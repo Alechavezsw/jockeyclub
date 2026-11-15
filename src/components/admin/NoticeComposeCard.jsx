@@ -307,7 +307,7 @@ export default function NoticeComposeCard({
           {channel === 'dm' ? <MessageSquare size={20} /> : <Mail size={20} />}
         </span>
         <div>
-          <p className="ops-notice-kicker">Paso 2 · Redactar y enviar</p>
+          <p className="ops-notice-kicker">Redactar y enviar</p>
           <h3 className="serif-font ops-notice-title">{channelTitle}</h3>
           <p className="ops-notice-lead">{channelLead}</p>
         </div>
