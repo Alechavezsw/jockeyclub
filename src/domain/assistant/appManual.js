@@ -496,7 +496,7 @@ export const APP_MANUAL = [
     steps: [
       'Si tu perfil no liquida, la sección se llama Saldos y es solo de consulta.',
       'Consultar: Saldos, CC detalladas, Comprobantes (buscar socio y mes, descargar PDF o reenviar por WhatsApp / mail / MD), Créditos, Deudas mes a mes.',
-      'Operar (administración, contador y superadmin): Importar cobranzas (Excel), Imputar eventos, Control de mora y Liquidar.',
+      'Operar (administración, contador y superadmin): Importar cobranzas (Excel), Control de mora y Liquidar.',
       `Control de mora lista a quien venció, con meses atrasados y lo que debe. ${RULES.controlMora}`,
       'WhatsApp de vencimiento sale de la franja de mora, con el teléfono de la ficha.',
       RULES.noticesLine(DUES_NOTICE_ADVANCE_DAYS),
@@ -628,7 +628,7 @@ export const APP_MANUAL = [
     who: 'Administración.',
     steps: [
       'Club → Fiestas: cargá el evento, cupo e inscripción.',
-      'El alquiler se registra en Cuotas → Imputar eventos. No queda en la deuda: esa deuda es solo cuota y recargo.',
+      'El alquiler de salón o espacio va a la cuenta del titular al confirmar la reserva (seña 50 %). No queda en la deuda de cuota: esa deuda es solo cuota y recargo.',
       'No es la reserva de cancha ni el salón suelto.',
     ],
     dont: 'Un cumpleaños de cancha va a Reservas. Una cena del club, a Fiestas.',
