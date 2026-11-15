@@ -1652,6 +1652,8 @@ export default function AdminView({
             alerts={erp.alerts || []}
             publishAlert={erp.publishAlert}
             deactivateAlert={erp.deactivateAlert}
+            onSendMessage={sendMessage}
+            senderName={user?.fullName || user?.name || 'Administración Jockey Club'}
           />
         </div>
       )}

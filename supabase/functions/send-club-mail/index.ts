@@ -212,6 +212,43 @@ Deno.serve(async (req) => {
           error: "Ese socio no tiene un mail real.",
         });
       }
+    } else if (audience === "staff" || audience === "admin") {
+      const roles = audience === "admin"
+        ? ["admin", "superadmin", "accountant"]
+        : [
+          "staff",
+          "hr",
+          "admin_employee",
+          "gate_operator",
+          "pool_operator",
+          "cashier",
+          "accountant",
+          "admin",
+          "superadmin",
+        ];
+      const { data, error } = await admin
+        .from("profiles")
+        .select("email, role")
+        .in("role", roles)
+        .not("email", "is", null);
+      if (error) return json(500, { error: error.message });
+      for (const row of data || []) {
+        const email = deliverableEmail(row.email);
+        if (!email || done.has(email)) continue;
+        done.add(email);
+        ready.push({ email, memberNumber: "" });
+      }
+      if (!ready.length) {
+        return json(200, {
+          ok: true,
+          campaignId,
+          sent: 0,
+          failed: 0,
+          skipped: 0,
+          more: false,
+          error: "No hay mails reales para esa audiencia de personal.",
+        });
+      }
     } else {
       const need = BATCH * MAX_BATCHES;
       let fromRow = 0;
