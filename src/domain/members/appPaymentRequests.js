@@ -62,10 +62,25 @@ export function appPaymentRequestMethodLabel(message) {
   return 'Pago app';
 }
 
+export function isAppPaymentBookingRequest(message) {
+  return isAppPaymentRequest(message) && String(message?.meta?.kind || '') === 'booking_payment';
+}
+
+export function isAppPaymentDuesRequest(message) {
+  return isAppPaymentRequest(message) && !isAppPaymentBookingRequest(message);
+}
+
 export function appPaymentRequestKindLabel(message) {
-  const kind = String(message?.meta?.kind || '');
-  if (kind === 'booking_payment') return 'Reserva';
+  if (isAppPaymentBookingRequest(message)) return 'Reserva';
   return 'Cuota';
+}
+
+/** Agrupa operaciones abiertas: cuota y reserva por separado. */
+export function groupOpenAppPaymentRequests(messages = []) {
+  const open = listOpenAppPaymentRequests(messages);
+  const dues = open.filter(isAppPaymentDuesRequest);
+  const bookings = open.filter(isAppPaymentBookingRequest);
+  return { dues, bookings, all: open };
 }
 
 export function appPaymentRequestMemberId(message) {

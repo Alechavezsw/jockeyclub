@@ -28504,6 +28504,63 @@ button.debit-moves-row:disabled {
   gap: 0.65rem;
 }
 
+.members-app-desk__incoming-section {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.85rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-glass);
+}
+
+.members-app-desk__incoming-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.members-app-desk__incoming-section-head strong {
+  display: block;
+  font-size: 0.92rem;
+  color: var(--text-primary);
+}
+
+.members-app-desk__incoming-section-head p {
+  margin: 0.15rem 0 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.members-app-desk__incoming-section-count {
+  min-width: 1.6rem;
+  height: 1.6rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.78rem;
+  font-weight: 700;
+  background: var(--bg-tertiary, var(--bg-secondary));
+  color: var(--text-secondary);
+}
+
+.members-app-desk__incoming-section.is-dues .members-app-desk__incoming-section-count {
+  background: color-mix(in srgb, #096755 16%, transparent);
+  color: #096755;
+}
+
+.members-app-desk__incoming-section.is-booking .members-app-desk__incoming-section-count {
+  background: color-mix(in srgb, #ca390c 16%, transparent);
+  color: #ca390c;
+}
+
+.members-app-desk__incoming-empty {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
 .members-app-desk__incoming-card {
   display: flex;
   flex-wrap: wrap;
@@ -28515,9 +28572,45 @@ button.debit-moves-row:disabled {
   background: var(--bg-secondary);
 }
 
+.members-app-desk__incoming-card.is-dues {
+  border-left: 3px solid #096755;
+}
+
+.members-app-desk__incoming-card.is-booking {
+  border-left: 3px solid #ca390c;
+}
+
 .members-app-desk__incoming-card.is-collected {
   border-color: color-mix(in srgb, var(--emerald-accent, #096755) 35%, var(--border-glass));
   background: color-mix(in srgb, var(--emerald-accent, #096755) 8%, var(--bg-secondary));
+}
+
+.members-app-desk__incoming-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.55rem;
+}
+
+.members-app-desk__incoming-kind {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.members-app-desk__incoming-kind.is-dues {
+  background: color-mix(in srgb, #096755 14%, transparent);
+  color: #096755;
+}
+
+.members-app-desk__incoming-kind.is-booking {
+  background: color-mix(in srgb, #ca390c 14%, transparent);
+  color: #ca390c;
 }
 
 .members-app-desk__incoming-status {

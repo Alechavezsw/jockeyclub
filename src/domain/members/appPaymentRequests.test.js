@@ -9,7 +9,10 @@ import {
   appPaymentRequestMethodLabel,
   appPaymentRequestReceipt,
   findAppPaymentRequestCollection,
+  groupOpenAppPaymentRequests,
   isAppPaymentAuto,
+  isAppPaymentBookingRequest,
+  isAppPaymentDuesRequest,
   isAppPaymentRequest,
   isOpenAppPaymentRequest,
   listOpenAppPaymentRequests,
@@ -65,6 +68,19 @@ describe('appPaymentRequests', () => {
     expect(appPaymentRequestCollectMethod(transfer)).toBe('transferencia');
     expect(appPaymentRequestBankId(transfer)).toBe('macro');
     expect(appPaymentRequestReceipt(transfer)?.path).toBe('uid/comp.jpg');
+  });
+
+  it('separa cuota y reserva en pagos entrantes', () => {
+    const booking = {
+      ...transfer,
+      id: 'b1',
+      meta: { kind: 'booking_payment', method: 'transferencia', paymentRequest: true },
+    };
+    expect(isAppPaymentDuesRequest(transfer)).toBe(true);
+    expect(isAppPaymentBookingRequest(booking)).toBe(true);
+    const grouped = groupOpenAppPaymentRequests([transfer, booking, withAppPaymentHandled({ ...booking, id: 'b2' })]);
+    expect(grouped.dues.map((m) => m.id)).toEqual(['1']);
+    expect(grouped.bookings.map((m) => m.id)).toEqual(['b1']);
   });
 
   it('detecta si la solicitud ya tiene cobro imputado', () => {

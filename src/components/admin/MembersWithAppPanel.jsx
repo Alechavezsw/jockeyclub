@@ -63,7 +63,9 @@ import {
   appPaymentRequestMethodLabel,
   appPaymentRequestReceipt,
   findAppPaymentRequestCollection,
+  groupOpenAppPaymentRequests,
   isAppPaymentAuto,
+  isAppPaymentBookingRequest,
   listOpenAppPaymentRequests,
   withAppPaymentHandled,
 } from '../../domain/members/appPaymentRequests';
@@ -213,6 +215,11 @@ export default function MembersWithAppPanel({
 
   const incomingPayments = useMemo(
     () => listOpenAppPaymentRequests(messages),
+    [messages],
+  );
+
+  const incomingGrouped = useMemo(
+    () => groupOpenAppPaymentRequests(messages),
     [messages],
   );
 
@@ -416,9 +423,11 @@ export default function MembersWithAppPanel({
       total: withApp.length,
       debt,
       clear: withApp.length - debt,
-      incoming: incomingPayments.length,
+      incoming: incomingGrouped.all.length,
+      incomingDues: incomingGrouped.dues.length,
+      incomingBookings: incomingGrouped.bookings.length,
     };
-  }, [withApp, incomingPayments]);
+  }, [withApp, incomingGrouped]);
 
   const markRequestHandled = async (messageId) => {
     if (!messageId) return;
@@ -851,7 +860,13 @@ export default function MembersWithAppPanel({
             { id: 'all', label: 'con app', value: stats.total },
             { id: 'debt', label: 'con deuda', value: stats.debt },
             { id: 'clear', label: 'al día / exentos', value: stats.clear },
-            { id: 'incoming', label: 'pagos entrantes', value: stats.incoming },
+            {
+              id: 'incoming',
+              label: stats.incoming > 0
+                ? `entrantes · ${stats.incomingDues} cuota · ${stats.incomingBookings} reserva`
+                : 'pagos entrantes',
+              value: stats.incoming,
+            },
           ].map((opt) => (
             <button
               key={opt.id}
@@ -881,85 +896,125 @@ export default function MembersWithAppPanel({
             <div>
               <strong>Pagos entrantes</strong>
               <p>
-                Operaciones desde la app pendientes de atender. Quedan acá hasta imputar,
-                Ver (Mercado Pago) o marcar leída — no se cierran solo por abrir el MD.
+                Cuota social y reservas van aparte. Quedan acá hasta imputar, Ver (Mercado Pago)
+                o marcar leída — no se cierran solo por abrir el MD.
               </p>
             </div>
           </div>
           {incomingPayments.length === 0 ? (
             <EmptyBlock text="No hay pagos entrantes pendientes." />
           ) : (
-            <ul className="members-app-desk__incoming-list">
-              {incomingPayments.map((msg) => {
-                const memberId = appPaymentRequestMemberId(msg);
-                const member = withApp.find((row) => String(row.memberId) === memberId)
-                  || (members || []).find((row) => String(row.memberId) === memberId);
-                const amount = appPaymentRequestAmountLabel(msg);
-                const collected = incomingCollectedById[msg.id]
-                  || findAppPaymentRequestCollection(msg, member);
-                const collectedLabel = appPaymentRequestCollectionLabel(collected);
-                const auto = isAppPaymentAuto(msg) || msg.meta?.kind === 'booking_payment';
-                return (
-                  <li
-                    key={msg.id}
-                    className={`members-app-desk__incoming-card${collected ? ' is-collected' : ''}`}
-                  >
-                    <div className="members-app-desk__incoming-main">
-                      <strong>{msg.sender || member?.name || `Socio Nº ${memberId || '—'}`}</strong>
-                      <span>
-                        {memberId ? `Nº ${memberId}` : 'Sin Nº'}
-                        {' · '}
-                        {appPaymentRequestKindLabel(msg)}
-                        {' · '}
-                        {appPaymentRequestMethodLabel(msg)}
-                        {amount ? ` · ${amount}` : ''}
-                      </span>
-                      {collectedLabel ? (
-                        <p className="members-app-desk__incoming-status" role="status">
-                          {collectedLabel}
-                        </p>
-                      ) : (
-                        <p>{String(msg.content || '').split('\n').slice(0, 2).join(' · ')}</p>
-                      )}
-                      <RequestAttachment attachment={msg.meta?.attachment} />
+            <>
+              {[
+                {
+                  key: 'dues',
+                  title: 'Cuota social',
+                  hint: 'Transferencia, débito o tarjeta para imputar a la cuenta del titular.',
+                  rows: incomingGrouped.dues,
+                },
+                {
+                  key: 'booking',
+                  title: 'Reservas',
+                  hint: 'Seña o saldo de salón / cancha / pileta. No es mora de cuota.',
+                  rows: incomingGrouped.bookings,
+                },
+              ].map((section) => (
+                <section
+                  key={section.key}
+                  className={`members-app-desk__incoming-section is-${section.key}`}
+                  aria-label={section.title}
+                >
+                  <header className="members-app-desk__incoming-section-head">
+                    <div>
+                      <strong>{section.title}</strong>
+                      <p>{section.hint}</p>
                     </div>
-                    <div className="members-app-desk__incoming-actions">
-                      <span className="members-app-desk__incoming-when">
-                        {formatShortDate(msg.date || String(msg.createdAt || '').slice(0, 10))}
-                      </span>
-                      {collected ? (
-                        <button
-                          type="button"
-                          className="members-app-desk__action-btn is-collect"
-                          onClick={() => void markRequestHandled(msg.id)}
-                        >
-                          <Check size={14} />
-                          Cerrar
-                        </button>
-                      ) : (
-                        <>
-                          <button
-                            type="button"
-                            className="members-app-desk__action-btn is-collect"
-                            onClick={() => void openIncomingRequest(msg)}
+                    <span className="members-app-desk__incoming-section-count">
+                      {section.rows.length}
+                    </span>
+                  </header>
+                  {section.rows.length === 0 ? (
+                    <p className="members-app-desk__incoming-empty">Ninguna pendiente.</p>
+                  ) : (
+                    <ul className="members-app-desk__incoming-list">
+                      {section.rows.map((msg) => {
+                        const memberId = appPaymentRequestMemberId(msg);
+                        const member = withApp.find((row) => String(row.memberId) === memberId)
+                          || (members || []).find((row) => String(row.memberId) === memberId);
+                        const amount = appPaymentRequestAmountLabel(msg);
+                        const collected = incomingCollectedById[msg.id]
+                          || findAppPaymentRequestCollection(msg, member);
+                        const collectedLabel = appPaymentRequestCollectionLabel(collected);
+                        const booking = isAppPaymentBookingRequest(msg);
+                        const auto = isAppPaymentAuto(msg) || booking;
+                        return (
+                          <li
+                            key={msg.id}
+                            className={`members-app-desk__incoming-card${booking ? ' is-booking' : ' is-dues'}${collected ? ' is-collected' : ''}`}
                           >
-                            <Check size={14} />
-                            {auto ? 'Ver' : 'Imputar'}
-                          </button>
-                          <button
-                            type="button"
-                            className="members-app-desk__action-btn"
-                            onClick={() => void markRequestHandled(msg.id)}
-                          >
-                            Marcar leída
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
+                            <div className="members-app-desk__incoming-main">
+                              <div className="members-app-desk__incoming-title-row">
+                                <strong>{msg.sender || member?.name || `Socio Nº ${memberId || '—'}`}</strong>
+                                <span className={`members-app-desk__incoming-kind${booking ? ' is-booking' : ' is-dues'}`}>
+                                  {appPaymentRequestKindLabel(msg)}
+                                </span>
+                              </div>
+                              <span>
+                                {memberId ? `Nº ${memberId}` : 'Sin Nº'}
+                                {' · '}
+                                {appPaymentRequestMethodLabel(msg)}
+                                {amount ? ` · ${amount}` : ''}
+                              </span>
+                              {collectedLabel ? (
+                                <p className="members-app-desk__incoming-status" role="status">
+                                  {collectedLabel}
+                                </p>
+                              ) : (
+                                <p>{String(msg.content || '').split('\n').slice(0, 2).join(' · ')}</p>
+                              )}
+                              <RequestAttachment attachment={msg.meta?.attachment} />
+                            </div>
+                            <div className="members-app-desk__incoming-actions">
+                              <span className="members-app-desk__incoming-when">
+                                {formatShortDate(msg.date || String(msg.createdAt || '').slice(0, 10))}
+                              </span>
+                              {collected ? (
+                                <button
+                                  type="button"
+                                  className="members-app-desk__action-btn is-collect"
+                                  onClick={() => void markRequestHandled(msg.id)}
+                                >
+                                  <Check size={14} />
+                                  Cerrar
+                                </button>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="members-app-desk__action-btn is-collect"
+                                    onClick={() => void openIncomingRequest(msg)}
+                                  >
+                                    <Check size={14} />
+                                    {auto ? 'Ver' : 'Imputar'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="members-app-desk__action-btn"
+                                    onClick={() => void markRequestHandled(msg.id)}
+                                  >
+                                    Marcar leída
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </section>
+              ))}
+            </>
           )}
         </div>
       ) : null}
