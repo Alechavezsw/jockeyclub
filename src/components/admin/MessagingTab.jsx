@@ -33,9 +33,27 @@ import {
 } from '../../domain/accounting/appMonthlyDebts';
 
 const SECTIONS = [
-  { id: 'mail', label: 'Mail', Icon: Mail },
-  { id: 'md', label: 'MD', Icon: MessageSquare },
-  { id: 'whatsapp', label: 'WhatsApp', Icon: Phone },
+  {
+    id: 'mail',
+    label: 'Mail',
+    kicker: 'Correo',
+    hint: 'socios@jockeyclubsj.com.ar',
+    Icon: Mail,
+  },
+  {
+    id: 'md',
+    label: 'MD',
+    kicker: 'Interno',
+    hint: 'Bandeja de la app',
+    Icon: MessageSquare,
+  },
+  {
+    id: 'whatsapp',
+    label: 'WhatsApp',
+    kicker: 'Celular',
+    hint: 'Recordatorios de cuota',
+    Icon: Phone,
+  },
 ];
 
 const MAIL_PAGE_SIZE = 12;
@@ -455,11 +473,11 @@ export default function MessagingTab({
   };
 
   return (
-    <div className="ops-msg">
+    <div className={`ops-msg ops-msg--${section}`}>
       <div className="page-header ops-msg-header">
         <div>
           <h1 className="page-title">Mensajería</h1>
-          <p className="page-subtitle">Mail, MD internos y WhatsApp · buscá por socio, asunto o contenido</p>
+          <p className="page-subtitle">Elegí el canal, leé la bandeja y redactá el comunicado abajo</p>
         </div>
         <div className="ops-msg-search">
           <Search size={16} aria-hidden="true" />
@@ -486,32 +504,40 @@ export default function MessagingTab({
         </div>
       </div>
 
-      <div className="ops-msg-tabs" role="tablist" aria-label="Salas de mensajería">
-        {SECTIONS.map(({ id, label, Icon }) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={section === id}
-            className={`ops-msg-tab${section === id ? ' is-on' : ''}`}
-            onClick={() => openSection(id)}
-          >
-            <Icon size={15} aria-hidden /> {label}
-            {id === 'mail' && unreadInbox > 0 ? (
-              <span className="ops-msg-tab-badge" aria-label={`${unreadInbox} sin leer`}>{unreadInbox}</span>
-            ) : null}
-            {id === 'md' && unreadOps > 0 ? (
-              <span className="ops-msg-tab-badge" aria-label={`${unreadOps} sin leer`}>{unreadOps}</span>
-            ) : null}
-          </button>
-        ))}
+      <div className="ops-msg-rooms" role="tablist" aria-label="Canales de mensajería">
+        {SECTIONS.map(({ id, label, kicker, hint, Icon }) => {
+          const unread = id === 'mail' ? unreadInbox : id === 'md' ? unreadOps : 0;
+          return (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={section === id}
+              className={`ops-msg-room ops-msg-room--${id}${section === id ? ' is-on' : ''}`}
+              onClick={() => openSection(id)}
+            >
+              <span className="ops-msg-room-icon" aria-hidden="true">
+                <Icon size={18} />
+              </span>
+              <span className="ops-msg-room-copy">
+                <span className="ops-msg-room-kicker">{kicker}</span>
+                <strong className="ops-msg-room-label">{label}</strong>
+                <span className="ops-msg-room-hint">{hint}</span>
+              </span>
+              {unread > 0 ? (
+                <span className="ops-msg-tab-badge" aria-label={`${unread} sin leer`}>{unread}</span>
+              ) : null}
+            </button>
+          );
+        })}
       </div>
 
       {section === 'mail' ? (
         <>
-          <div className="glass-card fade-in ops-msg-pane">
+          <div className="glass-card fade-in ops-msg-pane ops-msg-pane--mail">
             <div className="ops-msg-pane-head">
               <div>
+                <p className="ops-msg-pane-kicker">Paso 1 · Leer</p>
                 <h3 className="serif-font ops-msg-title">
                   <Inbox size={18} /> Bandeja de mail
                 </h3>
@@ -521,10 +547,10 @@ export default function MessagingTab({
                     : `Comunicados enviados desde acá${mailCampaigns.length ? ` · ${mailCampaigns.length} envíos` : ''} · hojas de ${MAIL_PAGE_SIZE}.`}
                 </p>
               </div>
-              <div className="ops-msg-tabs" role="tablist" aria-label="Recibidos o enviados">
+              <div className="ops-msg-seg" role="tablist" aria-label="Recibidos o enviados">
                 <button
                   type="button"
-                  className={`ops-msg-tab${mailBox === 'in' ? ' is-on' : ''}`}
+                  className={`ops-msg-seg-btn${mailBox === 'in' ? ' is-on' : ''}`}
                   onClick={() => setMailBox('in')}
                 >
                   Recibidos
@@ -532,7 +558,7 @@ export default function MessagingTab({
                 </button>
                 <button
                   type="button"
-                  className={`ops-msg-tab${mailBox === 'out' ? ' is-on' : ''}`}
+                  className={`ops-msg-seg-btn${mailBox === 'out' ? ' is-on' : ''}`}
                   onClick={() => setMailBox('out')}
                 >
                   Enviados
@@ -730,9 +756,10 @@ export default function MessagingTab({
 
       {section === 'md' ? (
         <>
-          <div className="glass-card fade-in ops-msg-pane">
+          <div className="glass-card fade-in ops-msg-pane ops-msg-pane--md">
             <div className="ops-msg-pane-head">
               <div>
+                <p className="ops-msg-pane-kicker">Paso 1 · Leer</p>
                 <h3 className="serif-font ops-msg-title">
                   <Inbox size={18} /> Bandeja de MD
                 </h3>
@@ -742,11 +769,11 @@ export default function MessagingTab({
                     : `Comprobantes, avisos y respuestas enviadas a socios · ${opsSent.length} MD · hojas de ${MAIL_PAGE_SIZE}.`}
                 </p>
               </div>
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                <div className="ops-msg-tabs" role="tablist" aria-label="Recibidos o enviados">
+              <div className="ops-msg-pane-tools">
+                <div className="ops-msg-seg" role="tablist" aria-label="Recibidos o enviados">
                   <button
                     type="button"
-                    className={`ops-msg-tab${mdBox === 'in' ? ' is-on' : ''}`}
+                    className={`ops-msg-seg-btn${mdBox === 'in' ? ' is-on' : ''}`}
                     onClick={() => {
                       setMdBox('in');
                       setSelectedId(null);
@@ -757,7 +784,7 @@ export default function MessagingTab({
                   </button>
                   <button
                     type="button"
-                    className={`ops-msg-tab${mdBox === 'out' ? ' is-on' : ''}`}
+                    className={`ops-msg-seg-btn${mdBox === 'out' ? ' is-on' : ''}`}
                     onClick={() => {
                       setMdBox('out');
                       setSelectedId(null);
@@ -898,8 +925,9 @@ export default function MessagingTab({
       ) : null}
 
       {section === 'whatsapp' ? (
-        <div className="glass-card fade-in ops-msg-pane">
+        <div className="glass-card fade-in ops-msg-pane ops-msg-pane--wa">
           <div>
+            <p className="ops-msg-pane-kicker">Canal · WhatsApp</p>
             <h3 className="serif-font ops-msg-title">Cobranza vía WhatsApp</h3>
             <p className="ops-msg-lead">
               Recordatorios de saldo pendiente, directo al celular del socio.

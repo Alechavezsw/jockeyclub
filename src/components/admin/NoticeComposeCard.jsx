@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Mail, MessageSquare, Search, Send, Sparkles, X } from 'lucide-react';
+import { ChevronDown, Mail, MessageSquare, Search, Send, Sparkles, Users, UserRound, X } from 'lucide-react';
 import { askJevCompose } from '../../data/jevChat';
 import { repos } from '../../data/bootstrap';
 import { isSupabaseConfigured } from '../../lib/supabase';
@@ -79,6 +79,7 @@ export default function NoticeComposeCard({
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
   const [progress, setProgress] = useState('');
+  const [showAdvancedPick, setShowAdvancedPick] = useState(false);
 
   useEffect(() => {
     if (channel === 'mail') {
@@ -289,231 +290,279 @@ export default function NoticeComposeCard({
     }
   };
 
+  const channelTone = channel === 'mail' ? 'mail' : channel === 'dm' ? 'md' : 'both';
+  const channelTitle = channel === 'mail' ? 'Nuevo mail' : channel === 'dm' ? 'Nuevo MD' : 'Comunicado';
+  const channelLead = channel === 'mail'
+    ? 'Sale por correo a un socio o a todo el padrón con mail real.'
+    : channel === 'dm'
+      ? 'Queda en la bandeja interna de la app del socio.'
+      : 'Mensaje interno, mail, o los dos.';
+  const destStep = channel === 'both' ? '2' : '1';
+  const msgStep = channel === 'both' ? '3' : '2';
+
   return (
-    <div id="ops-compose-form" className="glass-card fade-in ops-notice">
+    <div id="ops-compose-form" className={`glass-card fade-in ops-notice ops-notice--${channelTone}`}>
       <div className="ops-notice-head">
-        <img
-          className="club-mark ops-notice-logo"
-          src="/logo-jockey-club.png?v=clavos-blancos"
-          alt=""
-          width={48}
-          height={48}
-        />
+        <span className={`ops-notice-mark ops-notice-mark--${channelTone}`} aria-hidden="true">
+          {channel === 'dm' ? <MessageSquare size={20} /> : <Mail size={20} />}
+        </span>
         <div>
-          <h3 className="serif-font" style={{ fontSize: '1.3rem', color: 'var(--text-gold)', margin: 0 }}>
-            Comunicado
-          </h3>
-          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
-            {channel === 'mail'
-              ? 'Mail a un socio o a todos. La IA puede redactarlo.'
-              : channel === 'dm'
-                ? 'Mensaje interno a un socio o a todos. La IA puede redactarlo.'
-                : 'Mensaje interno, mail, o los dos. A un socio o a todos. La IA puede redactarlo.'}
-          </p>
+          <p className="ops-notice-kicker">Paso 2 · Redactar y enviar</p>
+          <h3 className="serif-font ops-notice-title">{channelTitle}</h3>
+          <p className="ops-notice-lead">{channelLead}</p>
         </div>
       </div>
 
       <form onSubmit={handleSend} className="ops-notice-form">
         {channel === 'both' ? (
-          <fieldset className="ops-notice-set">
-            <legend>Canal</legend>
-            <label className={`ops-notice-chip${sendDm ? ' is-on' : ''}`}>
-              <input type="checkbox" checked={sendDm} onChange={(e) => { setSendDm(e.target.checked); setConfirmMass(false); }} />
-              <MessageSquare size={14} aria-hidden /> Mensaje interno
-            </label>
-            <label className={`ops-notice-chip${sendMail ? ' is-on' : ''}`}>
-              <input type="checkbox" checked={sendMail} onChange={(e) => { setSendMail(e.target.checked); setConfirmMass(false); }} />
-              <Mail size={14} aria-hidden /> Mail
-            </label>
-          </fieldset>
-        ) : null}
-
-        <fieldset className="ops-notice-set">
-          <legend>Destino</legend>
-          <button
-            type="button"
-            className={`ops-notice-chip${audience === 'one' ? ' is-on' : ''}`}
-            onClick={() => { setAudience('one'); setConfirmMass(false); }}
-          >
-            Un socio
-          </button>
-          <button
-            type="button"
-            className={`ops-notice-chip${audience === 'all' ? ' is-on' : ''}`}
-            onClick={() => { setAudience('all'); setRecipientId(''); setConfirmMass(false); }}
-          >
-            Todos los socios
-          </button>
-        </fieldset>
-
-        {audience === 'one' ? (
-          <div className="ops-notice-pick">
-            {recipientId ? (
-              <div className="ops-notice-picked">
-                <span>
-                  <small>Seleccionado</small>
-                  <strong>{selectedLabel}</strong>
-                  {sendMail ? (
-                    <em>{selectedHasMail ? selectedMember.email : 'Sin mail real'}</em>
-                  ) : null}
-                </span>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => {
-                    setRecipientId('');
-                    setMemberQuery('');
-                    setMemberPick(EMPTY_PICK);
-                  }}
-                >
-                  <X size={14} /> Cambiar
-                </button>
+          <section className="ops-notice-block">
+            <header className="ops-notice-block-head">
+              <span className="ops-notice-step">1</span>
+              <div>
+                <h4>Canal</h4>
+                <p>Elegí por dónde sale el aviso.</p>
               </div>
-            ) : (
-              <>
-                <div className="ops-notice-search">
-                  <Search size={15} aria-hidden />
-                  <input
-                    type="search"
-                    className="form-input"
-                    value={memberQuery}
-                    onChange={(e) => setMemberQuery(e.target.value)}
-                    placeholder="Nombre, apellido, DNI, n° de socio, mail o teléfono…"
-                    autoComplete="off"
-                    aria-label="Buscar socio"
-                  />
+            </header>
+            <fieldset className="ops-notice-set">
+              <legend className="sr-only">Canal</legend>
+              <label className={`ops-notice-chip ops-notice-chip--md${sendDm ? ' is-on' : ''}`}>
+                <input type="checkbox" checked={sendDm} onChange={(e) => { setSendDm(e.target.checked); setConfirmMass(false); }} />
+                <MessageSquare size={14} aria-hidden /> Mensaje interno
+              </label>
+              <label className={`ops-notice-chip ops-notice-chip--mail${sendMail ? ' is-on' : ''}`}>
+                <input type="checkbox" checked={sendMail} onChange={(e) => { setSendMail(e.target.checked); setConfirmMass(false); }} />
+                <Mail size={14} aria-hidden /> Mail
+              </label>
+            </fieldset>
+          </section>
+        ) : null}
+
+        <section className="ops-notice-block">
+          <header className="ops-notice-block-head">
+            <span className="ops-notice-step">{destStep}</span>
+            <div>
+              <h4>Destino</h4>
+              <p>Un socio puntual o todo el padrón.</p>
+            </div>
+          </header>
+          <fieldset className="ops-notice-set ops-notice-set--dest">
+            <legend className="sr-only">Destino</legend>
+            <button
+              type="button"
+              className={`ops-notice-dest${audience === 'one' ? ' is-on' : ''}`}
+              onClick={() => { setAudience('one'); setConfirmMass(false); }}
+            >
+              <UserRound size={18} aria-hidden />
+              <span>
+                <strong>Un socio</strong>
+                <em>Buscá por nombre, DNI o n°</em>
+              </span>
+            </button>
+            <button
+              type="button"
+              className={`ops-notice-dest${audience === 'all' ? ' is-on' : ''}`}
+              onClick={() => { setAudience('all'); setRecipientId(''); setConfirmMass(false); }}
+            >
+              <Users size={18} aria-hidden />
+              <span>
+                <strong>Todos los socios</strong>
+                <em>{sendMail ? `${mailCounts.withMail} mails` : 'Bandeja interna'}</em>
+              </span>
+            </button>
+          </fieldset>
+
+          {audience === 'one' ? (
+            <div className="ops-notice-pick">
+              {recipientId ? (
+                <div className="ops-notice-picked">
+                  <span>
+                    <small>Seleccionado</small>
+                    <strong>{selectedLabel}</strong>
+                    {sendMail ? (
+                      <em>{selectedHasMail ? selectedMember.email : 'Sin mail real'}</em>
+                    ) : null}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => {
+                      setRecipientId('');
+                      setMemberQuery('');
+                      setMemberPick(EMPTY_PICK);
+                    }}
+                  >
+                    <X size={14} /> Cambiar
+                  </button>
                 </div>
-                <div className="ops-notice-filters">
-                  <label>
-                    <span className="form-label">Nombre</span>
+              ) : (
+                <>
+                  <div className="ops-notice-search">
+                    <Search size={15} aria-hidden />
                     <input
+                      type="search"
                       className="form-input"
-                      value={memberPick.firstName}
-                      onChange={(e) => setMemberPick((prev) => ({ ...prev, firstName: e.target.value }))}
+                      value={memberQuery}
+                      onChange={(e) => setMemberQuery(e.target.value)}
+                      placeholder="Nombre, apellido, DNI, n° de socio, mail o teléfono…"
                       autoComplete="off"
+                      aria-label="Buscar socio"
                     />
-                  </label>
-                  <label>
-                    <span className="form-label">Apellido</span>
-                    <input
-                      className="form-input"
-                      value={memberPick.lastName}
-                      onChange={(e) => setMemberPick((prev) => ({ ...prev, lastName: e.target.value }))}
-                      autoComplete="off"
-                    />
-                  </label>
-                  <label>
-                    <span className="form-label">DNI</span>
-                    <input
-                      className="form-input"
-                      inputMode="numeric"
-                      value={memberPick.dni}
-                      onChange={(e) => setMemberPick((prev) => ({ ...prev, dni: e.target.value }))}
-                      autoComplete="off"
-                    />
-                  </label>
-                  <label>
-                    <span className="form-label">N° de socio</span>
-                    <input
-                      className="form-input"
-                      inputMode="numeric"
-                      value={memberPick.memberNumber}
-                      onChange={(e) => setMemberPick((prev) => ({ ...prev, memberNumber: e.target.value }))}
-                      autoComplete="off"
-                    />
-                  </label>
-                  <label>
-                    <span className="form-label">Grupo familiar</span>
-                    <input
-                      className="form-input"
-                      value={memberPick.familyId}
-                      onChange={(e) => setMemberPick((prev) => ({ ...prev, familyId: e.target.value }))}
-                      autoComplete="off"
-                    />
-                  </label>
-                </div>
-                <div className="ops-notice-hits">
-                  {filteredMembers.length === 0 ? (
-                    <p>{remoteBusy ? 'Buscando en el padrón…' : 'No se encontraron socios con ese criterio.'}</p>
-                  ) : filteredMembers.map((m) => (
-                    <button
-                      key={m.memberId}
-                      type="button"
-                      onClick={() => {
-                        setRecipientId(m.memberId);
-                        setMemberQuery('');
-                        setMemberPick(EMPTY_PICK);
-                        setConfirmMass(false);
-                      }}
-                    >
-                      <strong>{m.name}</strong>
-                      <span>{memberHitLine(m)}</span>
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
+                  </div>
+                  <button
+                    type="button"
+                    className={`ops-notice-advanced-toggle${showAdvancedPick ? ' is-open' : ''}`}
+                    aria-expanded={showAdvancedPick}
+                    onClick={() => setShowAdvancedPick((v) => !v)}
+                  >
+                    Búsqueda avanzada
+                    <ChevronDown size={15} aria-hidden />
+                  </button>
+                  {showAdvancedPick ? (
+                    <div className="ops-notice-filters">
+                      <label>
+                        <span className="form-label">Nombre</span>
+                        <input
+                          className="form-input"
+                          value={memberPick.firstName}
+                          onChange={(e) => setMemberPick((prev) => ({ ...prev, firstName: e.target.value }))}
+                          autoComplete="off"
+                        />
+                      </label>
+                      <label>
+                        <span className="form-label">Apellido</span>
+                        <input
+                          className="form-input"
+                          value={memberPick.lastName}
+                          onChange={(e) => setMemberPick((prev) => ({ ...prev, lastName: e.target.value }))}
+                          autoComplete="off"
+                        />
+                      </label>
+                      <label>
+                        <span className="form-label">DNI</span>
+                        <input
+                          className="form-input"
+                          inputMode="numeric"
+                          value={memberPick.dni}
+                          onChange={(e) => setMemberPick((prev) => ({ ...prev, dni: e.target.value }))}
+                          autoComplete="off"
+                        />
+                      </label>
+                      <label>
+                        <span className="form-label">N° de socio</span>
+                        <input
+                          className="form-input"
+                          inputMode="numeric"
+                          value={memberPick.memberNumber}
+                          onChange={(e) => setMemberPick((prev) => ({ ...prev, memberNumber: e.target.value }))}
+                          autoComplete="off"
+                        />
+                      </label>
+                      <label>
+                        <span className="form-label">Grupo familiar</span>
+                        <input
+                          className="form-input"
+                          value={memberPick.familyId}
+                          onChange={(e) => setMemberPick((prev) => ({ ...prev, familyId: e.target.value }))}
+                          autoComplete="off"
+                        />
+                      </label>
+                    </div>
+                  ) : null}
+                  <div className="ops-notice-hits">
+                    {filteredMembers.length === 0 ? (
+                      <p>{remoteBusy ? 'Buscando en el padrón…' : 'No se encontraron socios con ese criterio.'}</p>
+                    ) : filteredMembers.map((m) => (
+                      <button
+                        key={m.memberId}
+                        type="button"
+                        onClick={() => {
+                          setRecipientId(m.memberId);
+                          setMemberQuery('');
+                          setMemberPick(EMPTY_PICK);
+                          setConfirmMass(false);
+                        }}
+                      >
+                        <strong>{m.name}</strong>
+                        <span>{memberHitLine(m)}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          ) : (
+            <p className="ops-notice-count">
+              {sendDm ? 'El mensaje interno lo ven todos en la bandeja. ' : ''}
+              {sendMail
+                ? `El mail sale a ${mailCounts.withMail} direcciones${mailCounts.withoutMail ? ` · ${mailCounts.withoutMail} fichas sin mail real` : ''}.`
+                : ''}
+            </p>
+          )}
+        </section>
+
+        <section className="ops-notice-block">
+          <header className="ops-notice-block-head">
+            <span className="ops-notice-step">{msgStep}</span>
+            <div>
+              <h4>Mensaje</h4>
+              <p>Escribilo vos o pedile un borrador a la IA.</p>
+            </div>
+          </header>
+
+          <div className="ops-notice-ai">
+            <label className="form-label" htmlFor="ops-notice-ai">Ayuda de IA</label>
+            <div className="ops-notice-ai-row">
+              <textarea
+                id="ops-notice-ai"
+                className="form-input"
+                rows={2}
+                value={aiPrompt}
+                onChange={(e) => setAiPrompt(e.target.value)}
+                placeholder="Ej.: canchas cerradas el sábado por el zonda."
+              />
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={draftWithGemini}
+                disabled={Boolean(busy)}
+              >
+                <Sparkles size={14} />
+                {busy === 'ai' ? 'Redactando…' : (subject || content ? 'Mejorar' : 'Redactar')}
+              </button>
+            </div>
           </div>
-        ) : (
-          <p className="ops-notice-count">
-            {sendDm ? 'El mensaje interno lo ven todos en la bandeja. ' : ''}
-            {sendMail
-              ? `El mail sale a ${mailCounts.withMail} direcciones${mailCounts.withoutMail ? ` · ${mailCounts.withoutMail} fichas sin mail real` : ''}.`
-              : ''}
-          </p>
-        )}
 
-        <div className="ops-notice-ai">
-          <label className="form-label" htmlFor="ops-notice-ai">Redactar con IA</label>
-          <textarea
-            id="ops-notice-ai"
+          {ok ? (
+            <div role="status" className="ops-notice-ok">{ok}</div>
+          ) : null}
+          {error ? (
+            <div role="alert" className="ops-notice-err">{error}</div>
+          ) : null}
+          {progress ? (
+            <p className="ops-notice-progress">{progress}</p>
+          ) : null}
+
+          <label className="form-label" htmlFor="ops-notice-subject">Asunto</label>
+          <input
+            id="ops-notice-subject"
             className="form-input"
-            rows={2}
-            value={aiPrompt}
-            onChange={(e) => setAiPrompt(e.target.value)}
-            placeholder="Ej: canchas cerradas el sábado por el zonda, o convocar a asamblea el 20."
+            value={subject}
+            onChange={(e) => { setSubject(e.target.value); setConfirmMass(false); }}
+            placeholder="Asunto del comunicado"
+            required
           />
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            onClick={draftWithGemini}
-            disabled={Boolean(busy)}
-          >
-            <Sparkles size={14} /> {busy === 'ai' ? 'Redactando…' : (subject || content ? 'Mejorar con IA' : 'Redactar con IA')}
-          </button>
-        </div>
 
-        {ok ? (
-          <div role="status" className="ops-notice-ok">{ok}</div>
-        ) : null}
-        {error ? (
-          <div role="alert" className="ops-notice-err">{error}</div>
-        ) : null}
-        {progress ? (
-          <p className="ops-notice-progress">{progress}</p>
-        ) : null}
-
-        <label className="form-label" htmlFor="ops-notice-subject">Asunto</label>
-        <input
-          id="ops-notice-subject"
-          className="form-input"
-          value={subject}
-          onChange={(e) => { setSubject(e.target.value); setConfirmMass(false); }}
-          placeholder="Asunto del comunicado"
-          required
-        />
-
-        <label className="form-label" htmlFor="ops-notice-body">Mensaje</label>
-        <textarea
-          id="ops-notice-body"
-          className="form-input"
-          rows={14}
-          value={content}
-          onChange={(e) => { setContent(e.target.value); setConfirmMass(false); }}
-          placeholder="Cuerpo del comunicado"
-          required
-          style={{ resize: 'vertical', fontFamily: 'inherit' }}
-        />
+          <label className="form-label" htmlFor="ops-notice-body">Cuerpo</label>
+          <textarea
+            id="ops-notice-body"
+            className="form-input"
+            rows={8}
+            value={content}
+            onChange={(e) => { setContent(e.target.value); setConfirmMass(false); }}
+            placeholder="Texto que recibe el socio"
+            required
+          />
+        </section>
 
         {confirmMass ? (
           <div className="ops-notice-confirm" role="status">
@@ -521,14 +570,23 @@ export default function NoticeComposeCard({
           </div>
         ) : null}
 
-        <button type="submit" className="btn btn-primary" disabled={Boolean(busy)}>
-          <Send size={16} />
-          {busy === 'send'
-            ? 'Enviando…'
-            : confirmMass
-              ? 'Confirmar envío'
-              : (channels ? `Enviar ${channels}` : 'Enviar')}
-        </button>
+        <div className="ops-notice-sendbar">
+          <p className="ops-notice-sendbar-hint">
+            {audience === 'one' && selectedLabel
+              ? `Para ${selectedLabel}`
+              : audience === 'all'
+                ? 'Envío masivo al padrón'
+                : 'Elegí un destino para enviar'}
+          </p>
+          <button type="submit" className="btn btn-primary" disabled={Boolean(busy)}>
+            <Send size={16} />
+            {busy === 'send'
+              ? 'Enviando…'
+              : confirmMass
+                ? 'Confirmar envío'
+                : (channels ? `Enviar ${channels}` : 'Enviar')}
+          </button>
+        </div>
       </form>
     </div>
   );
