@@ -184,6 +184,17 @@ function typeLabelFor(movementType) {
   return 'Ingreso';
 }
 
+/** Quién rindió en asientos de portería/estacionamiento: `… — rindió Nombre · …`. */
+export function porterNameFromJournalText(text) {
+  const blob = String(text || '');
+  const match = blob.match(/rindió\s+([^·\n]+)/i);
+  return match ? String(match[1] || '').trim() : '';
+}
+
+function isPorteriaJournalText(text) {
+  return /porter[ií]a|estacionamiento/i.test(String(text || ''));
+}
+
 export function asLedgerRowFromAppMovement(row, {
   registers = [],
   sessions = [],
@@ -476,18 +487,24 @@ export function asLedgerRowsFromJournal(entries = [], chart = DEFAULT_CHART_OF_A
       if (!amount) return;
       const movementType = debit ? 'income' : 'expense';
       const walletKind = walletKindForAccount(account);
+      const conceptText = entry.description || entry.concept || 'Movimiento de tesorería';
+      const porterName = porterNameFromJournalText(conceptText);
+      const porteria = isPorteriaJournalText(conceptText);
       rows.push({
         id: `live-je-${entry.id}-${account.id}`,
         accessinId: null,
         date,
         amount,
         movementType,
-        typeLabel: typeLabelFor(movementType),
-        description: entry.description || 'Movimiento de tesorería',
+        typeLabel: porteria && movementType === 'income'
+          ? (/estacionamiento/i.test(conceptText) ? 'RENDICION ESTACIONAMIENTO' : 'RENDICION PORTERIA')
+          : typeLabelFor(movementType),
+        description: conceptText,
         walletKind,
         walletName: account.name,
         memberNumber: memberNumberFromEntry(entry),
-        memberName: '',
+        memberName: porterName || '',
+        group: porteria ? 'porteria' : null,
         origin: 'app',
         journalEntryId: entry.id,
       });

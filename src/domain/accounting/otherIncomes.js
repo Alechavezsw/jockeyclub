@@ -263,7 +263,9 @@ export function journalForOtherIncome(item, chart) {
   let description = isPorteria && who
     ? `${prefix} — rindió ${who}`
     : `${prefix}: ${item.concept}${item.payerName ? ` — ${item.payerName}` : ''}`;
-  if (isPorteria && book) description += ` · talonario ${book}`;
+  const detailAlreadyHasBook = book
+    && new RegExp(`talonario\\s*${book.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i').test(detail);
+  if (isPorteria && book && !detailAlreadyHasBook) description += ` · talonario ${book}`;
   if (isPorteria && detail) description += ` · ${detail}`;
   return buildPostedEntry({
     date: String(item.date || '').slice(0, 10),

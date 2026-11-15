@@ -297,6 +297,33 @@ describe('liveCashLedger', () => {
     expect(live.extraCount).toBe(1);
   });
 
+  it('la rendición de estacionamiento muestra quién rindió en el libro', () => {
+    const live = buildLiveCashLedger({
+      snapshot: SNAPSHOT,
+      bankAccounts: BANKS,
+      journalEntries: [{
+        id: 'je-park-1',
+        date: '2026-10-17',
+        status: 'posted',
+        sourceModule: 'otros_ingresos',
+        origin: 'app',
+        description: 'Rendición estacionamiento — rindió Adrian Pablo Suarez · talonario 928 · total $ 150.000',
+        lines: [
+          { accountId: 'coa-1.1.01', debit: 150000, credit: 0 },
+          { accountId: 'coa-4.1.03', debit: 0, credit: 150000 },
+        ],
+      }],
+      today: TODAY,
+    });
+    const row = live.ledger.find((item) => item.journalEntryId === 'je-park-1');
+    expect(row).toMatchObject({
+      amount: 150000,
+      memberName: 'Adrian Pablo Suarez',
+      typeLabel: 'RENDICION ESTACIONAMIENTO',
+      group: 'porteria',
+    });
+  });
+
   it('el pago de impuestos baja caja viva', () => {
     const live = buildLiveCashLedger({
       snapshot: SNAPSHOT,

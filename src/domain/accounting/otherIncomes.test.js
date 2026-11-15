@@ -126,6 +126,25 @@ describe('otherIncomes', () => {
     expect(entry.description).toBe('Rendición portería — rindió Ana López · talonario 145 · Visitas del sábado');
   });
 
+  it('no duplica el talonario si ya está en la nota', () => {
+    const income = createOtherIncome({
+      date: '2026-11-13',
+      payerName: 'Adrian Pablo Suarez',
+      renderedBy: 'Adrian Pablo Suarez',
+      concept: 'Rendición estacionamiento',
+      group: 'porteria',
+      paymentMethod: 'efectivo',
+      amount: 150000,
+      bookNumber: '928',
+      notes: 'talonario 928 - se vendio 19 tiket x2000',
+    });
+    const entry = journalForOtherIncome(income, DEFAULT_CHART_OF_ACCOUNTS);
+    expect(entry.description).toBe(
+      'Rendición estacionamiento — rindió Adrian Pablo Suarez · talonario 928 - se vendio 19 tiket x2000',
+    );
+    expect(entry.description.match(/talonario 928/gi)).toHaveLength(1);
+  });
+
   it('en el plan de la nube el debe cae en Caja General', () => {
     const chart = [
       { id: 'aaaaaaaa-0001-0001-0001-000000000111', code: '1.1.01', name: 'Caja General', isPostable: true, accountType: 'asset' },
