@@ -145,6 +145,23 @@ function reservationCreatedAt(res) {
   return String(res?.createdAt || '').trim();
 }
 
+function reservationCancelledAt(res) {
+  if (String(res?.status || '') !== 'cancelled') return '';
+  return String(res?.cancelledAt || res?.updatedAt || '').trim();
+}
+
+function formatBookingInstant(iso) {
+  if (!iso) return '';
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return '';
+  return at.toLocaleString('es-AR', {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 /** Más reciente primero; pendientes arriba cuando no hay día filtrado. */
 function compareReservationsLatest(a, b, { pendingFirst = false } = {}) {
   if (pendingFirst) {
@@ -665,6 +682,11 @@ export default function BookingsTab({
                     <span className={`bookings-status ${res.status}`}>
                       {statusLabel(res.status)}
                     </span>
+                    {res.status === 'cancelled' && reservationCancelledAt(res) ? (
+                      <small style={{ display: 'block', color: 'var(--text-muted)', marginTop: 4 }}>
+                        {formatBookingInstant(reservationCancelledAt(res))}
+                      </small>
+                    ) : null}
                     {res.status !== 'cancelled' && reservationOpenBalance(res) > 0 ? (
                       <button
                         type="button"
@@ -2065,9 +2087,11 @@ export default function BookingsTab({
                         <span>
                           <span className={`bookings-status ${res.status}`}>{statusLabel(res.status)}</span>
                           {money ? ` · ${money}` : ''}
-                          {reservationCreatedAt(res)
-                            ? ` · alta ${formatRelativeCreated(reservationCreatedAt(res))}`
-                            : ''}
+                          {res.status === 'cancelled' && reservationCancelledAt(res)
+                            ? ` · ${formatBookingInstant(reservationCancelledAt(res))}`
+                            : reservationCreatedAt(res)
+                              ? ` · alta ${formatRelativeCreated(reservationCreatedAt(res))}`
+                              : ''}
                         </span>
                       </div>
                       <div className="bookings-app-card-actions">
@@ -2434,6 +2458,16 @@ export default function BookingsTab({
                     : '—'}
                 </strong>
               </div>
+              {detailReservation.status === 'cancelled' ? (
+                <div className="is-wide">
+                  <span>Cancelada</span>
+                  <strong>
+                    {reservationCancelledAt(detailReservation)
+                      ? new Date(reservationCancelledAt(detailReservation)).toLocaleString('es-AR')
+                      : '—'}
+                  </strong>
+                </div>
+              ) : null}
               {detailReservation.guestNames ? (
                 <div className="is-wide">
                   <span>Nombres de invitados</span>

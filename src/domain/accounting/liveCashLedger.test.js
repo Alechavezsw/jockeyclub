@@ -345,6 +345,29 @@ describe('liveCashLedger', () => {
     expect(live.efectivo).toBeCloseTo(560, 2);
   });
 
+  it('incluye señas de reserva (source reservas) cuando tocan banco/caja', () => {
+    const live = buildLiveCashLedger({
+      snapshot: SNAPSHOT,
+      bankAccounts: BANKS,
+      journalEntries: [{
+        id: 'je-senia-1',
+        date: '2026-10-18',
+        status: 'posted',
+        sourceModule: 'reservas',
+        origin: 'app',
+        description: 'Seña reserva · Salón Maurin · 2026-11-15 11:00',
+        lines: [
+          { account: 'Banco Macro', type: 'debit', amount: 65000 },
+          { account: 'Reservas e Instalaciones', type: 'credit', amount: 65000 },
+        ],
+      }],
+      today: TODAY,
+    });
+    expect(live.extraCount).toBe(1);
+    expect(live.ledger.some((row) => /Seña reserva/i.test(row.description || ''))).toBe(true);
+    expect(live.bancos).toBeCloseTo(65400, 2);
+  });
+
   it('no duplica un movimiento de caja que ya tiene asiento', () => {
     const live = buildLiveCashLedger({
       snapshot: SNAPSHOT,

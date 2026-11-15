@@ -1,11 +1,17 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import {
-  ArrowLeft, Eye, FileDown, LifeBuoy, List, Lock, Plus, Printer, RefreshCw, Search, Share2, Trash2, Users, X,
+  ArrowLeft, Eye, FileDown, LifeBuoy, List, Lock, Plus, Printer, Search, Trash2, Users, X,
 } from 'lucide-react';
 import CuotasDeskToolbar, { CuotasTool } from './CuotasDeskToolbar';
 import { exportAccountPaymentPdf } from '../../domain/accounting/exportAccountPaymentPdf';
 import { exportPaymentBoletoPdf } from '../../domain/accounting/exportPaymentBoleto';
-import { isFamilyDependent, memberNumberOf, resolveFamilyForDisplay } from '../../domain/members/households';
+import { isDuesExemptMember } from '../../domain/members/dues';
+import {
+  billingAccountMember,
+  isFamilyDependent,
+  memberNumberOf,
+  resolveFamilyForDisplay,
+} from '../../domain/members/households';
 import {
   ACCOUNT_ENTRY_TYPES,
   accountSummaryMeta,
@@ -142,10 +148,15 @@ function MemberBalancesContent({
   const safePage = Math.min(page, totalPages - 1);
   const pageRows = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
 
-  const ledgerTitular = useMemo(
-    () => (selectedMember ? memberNumberOf(selectedMember) : ''),
-    [selectedMember]
-  );
+  /** Extractos LILA / soporte van a la cuenta del titular del grupo. */
+  const ledgerTitular = useMemo(() => {
+    if (!selectedMember) return '';
+    try {
+      return memberNumberOf(billingAccountMember(selectedMember, members)) || memberNumberOf(selectedMember);
+    } catch {
+      return memberNumberOf(selectedMember);
+    }
+  }, [selectedMember, members]);
 
   useEffect(() => {
     if (view !== 'summary' || !ledgerTitular || !isSupabaseConfigured) return undefined;
@@ -251,16 +262,21 @@ function MemberBalancesContent({
     if (!member) return;
     setError('');
     try {
-      const amounts = resolvePaymentBoletoAmounts(member);
-      setSelectedMember(member);
+      const account = billingAccountMember(member, members);
+      if (isDuesExemptMember(account)) {
+        throw new Error('Vitalicio, fundador y comisión no abonan cuota.');
+      }
+      const amounts = resolvePaymentBoletoAmounts(account);
+      setSelectedMember(account);
       const now = new Date();
       const y = now.getFullYear();
       const m = now.getMonth();
       const periodLabel = `${['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'][m]} del ${y}`;
       const due1 = `${y}-${String(m + 1).padStart(2, '0')}-10`;
-      const due2 = `${y}-${String(m + 1).padStart(2, '0')}-30`;
+      const lastDay = new Date(y, m + 1, 0).getDate();
+      const due2 = `${y}-${String(m + 1).padStart(2, '0')}-${String(Math.min(30, lastDay)).padStart(2, '0')}`;
       // Como Lila: capital al 10; capital + recargos (ya cargados o del cobro) después.
-      setBoleto(buildPaymentBoleto(member, {
+      setBoleto(buildPaymentBoleto(account, {
         periodLabel,
         amount: amounts.capital,
         dueDate1: due1,
@@ -557,7 +573,6 @@ function MemberBalancesContent({
             >
               <FileDown size={14} /> {exportBusy === 'payment-pdf' ? 'Generando…' : 'Descargar PDF'}
             </button>
-            <button type="button" className="btn btn-tan"><Share2 size={14} /> Compartir</button>
           </div>
         </section>
       </div>
@@ -699,8 +714,8 @@ function MemberBalancesContent({
               {!(summaryMode === 'support' && supportLoading) && monthGroups.length === 0 ? (
                 <tr>
                   <td colSpan={cols} style={{ color: 'var(--text-muted)' }}>
-                    {summaryMode === 'support' && support.status === 'ready' && !support.account
-                      ? 'El soporte de esta cuenta todavía no está cargado.'
+                    {summaryMode === 'support' && (support.status === 'ready' || support.status === 'missing') && !support.account
+                      ? 'No hay extracto de soporte importado para este socio. Usá Resumen de cuenta o CC detalladas.'
                       : 'Sin movimientos en el período.'}
                   </td>
                 </tr>
@@ -942,23 +957,47 @@ function MemberBalancesContent({
                   <td>{memberStatusLabel(m)}</td>
                   <td>
                     <div className="cash-lila-row-actions">
-                      <button type="button" className="cash-lila-icon-btn is-edit" title="Resumen de cuenta familiar" aria-label="Resumen de cuenta familiar" onClick={() => openSummary(m, 'family')}>
-                        <Users size={13} />
-                      </button>
-                      <button type="button" className="cash-lila-icon-btn is-edit" title="Resumen de cuenta" aria-label="Resumen de cuenta" onClick={() => openSummary(m, 'member')}>
+                      <button
+                        type="button"
+                        className="cash-lila-icon-btn is-edit"
+                        title="Resumen de cuenta"
+                        aria-label={`Resumen de cuenta de ${m.name}`}
+                        onClick={() => openSummary(m, 'member')}
+                      >
                         <List size={13} />
                       </button>
-                      <button type="button" className="cash-lila-icon-btn is-edit" title="Resumen de cuenta para soporte" aria-label="Resumen de cuenta para soporte" onClick={() => openSummary(m, 'support')}>
+                      <button
+                        type="button"
+                        className="cash-lila-icon-btn is-edit"
+                        title="Resumen familiar"
+                        aria-label={`Resumen familiar de ${m.name}`}
+                        onClick={() => openSummary(m, 'family')}
+                      >
+                        <Users size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        className="cash-lila-icon-btn is-edit"
+                        title="Soporte (cargos y pagos imputados)"
+                        aria-label={`Soporte de cuenta de ${m.name}`}
+                        onClick={() => openSummary(m, 'support')}
+                      >
                         <LifeBuoy size={13} />
                       </button>
-                      <button type="button" className="cash-lila-icon-btn is-edit" title="Regenerar Boleto de Pago" aria-label="Regenerar Boleto de Pago" onClick={() => openBoleto(m)}>
-                        <RefreshCw size={13} />
-                      </button>
-                      <button type="button" className="cash-lila-icon-btn is-edit" title="Boleto de Pago" aria-label="Boleto de Pago" onClick={() => openBoleto(m)}>
+                      <button
+                        type="button"
+                        className="cash-lila-icon-btn is-edit"
+                        title={
+                          isDuesExemptMember(billingAccountMember(m, members))
+                            ? 'Sin boleto (exento de cuota)'
+                            : dependent
+                              ? 'Boleto del titular'
+                              : 'Boleto de pago'
+                        }
+                        aria-label={`Boleto de pago de ${m.name}`}
+                        onClick={() => openBoleto(m)}
+                      >
                         <Printer size={13} />
-                      </button>
-                      <button type="button" className="cash-lila-icon-btn is-edit" title="Ver cuenta corriente" aria-label="Ver cuenta corriente" onClick={() => openSummary(m, 'member')}>
-                        <Eye size={13} />
                       </button>
                     </div>
                   </td>

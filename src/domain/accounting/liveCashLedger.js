@@ -475,8 +475,8 @@ export function asLedgerRowsFromJournal(entries = [], chart = DEFAULT_CHART_OF_A
     // de la app del mismo día (después del export) no están en el snapshot.
     if (!date || (after && date < after)) return;
     const source = String(entry.sourceModule || '');
-    // Impuestos / otros ingresos también mueven tesorería cuando asientan contra caja o banco.
-    if (source && !['cuotas', 'caja', 'gastos', 'pileta', 'eventos', 'otros_ingresos', 'impuestos'].includes(source)) return;
+    // Impuestos / otros ingresos / reservas (seña MP, saldo) mueven tesorería si asientan contra caja o banco.
+    if (source && !['cuotas', 'caja', 'gastos', 'pileta', 'eventos', 'otros_ingresos', 'impuestos', 'reservas'].includes(source)) return;
     normalizeLines(entry.lines || [], list).forEach((line) => {
       const accountId = resolveAccountId(list, line.accountId) || line.accountId;
       const account = getAccountById(list, accountId);

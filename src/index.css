@@ -18881,7 +18881,7 @@ a.ops-outline-btn {
 .dues-kpi-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1rem;
+  gap: 0.85rem;
 }
 
 .dues-flash {
@@ -18895,62 +18895,145 @@ a.ops-outline-btn {
 }
 
 .dues-kpi {
-  padding: 1rem;
-  border-radius: 14px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.85rem;
+  align-items: start;
+  padding: 1.05rem 1.15rem;
+  border-radius: 16px;
   text-align: left;
   cursor: pointer;
   font-family: inherit;
   border: 1px solid transparent;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.dues-kpi::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  border-radius: 16px 0 0 16px;
+  opacity: 0.95;
+}
+
+.dues-kpi:hover {
+  transform: translateY(-1px);
+}
+
+.dues-kpi:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary-gold) 70%, transparent);
+  outline-offset: 2px;
+}
+
+.dues-kpi-icon {
+  display: grid;
+  place-items: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+
+.dues-kpi-body {
+  min-width: 0;
 }
 
 .dues-kpi.is-overdue,
 .dues-kpi.is-mora {
-  border-color: rgba(239, 68, 68, 0.35);
-  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.28);
+  background:
+    linear-gradient(145deg, rgba(239, 68, 68, 0.14) 0%, rgba(239, 68, 68, 0.04) 55%, rgba(0, 0, 0, 0.08) 100%);
+}
+
+.dues-kpi.is-overdue::before,
+.dues-kpi.is-mora::before {
+  background: #ef4444;
+}
+
+.dues-kpi.is-overdue .dues-kpi-icon,
+.dues-kpi.is-mora .dues-kpi-icon {
+  color: #fecaca;
+  background: rgba(239, 68, 68, 0.22);
 }
 
 .dues-kpi.is-due {
-  border-color: rgba(37, 99, 235, 0.35);
-  background: rgba(37, 99, 235, 0.08);
+  border-color: rgba(59, 130, 246, 0.3);
+  background:
+    linear-gradient(145deg, rgba(59, 130, 246, 0.14) 0%, rgba(59, 130, 246, 0.04) 55%, rgba(0, 0, 0, 0.08) 100%);
+}
+
+.dues-kpi.is-due::before {
+  background: #3b82f6;
+}
+
+.dues-kpi.is-due .dues-kpi-icon {
+  color: #bfdbfe;
+  background: rgba(59, 130, 246, 0.22);
 }
 
 .dues-kpi.is-upcoming {
-  border-color: rgba(245, 158, 11, 0.35);
-  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.32);
+  background:
+    linear-gradient(145deg, rgba(245, 158, 11, 0.16) 0%, rgba(245, 158, 11, 0.05) 55%, rgba(0, 0, 0, 0.08) 100%);
+}
+
+.dues-kpi.is-upcoming::before {
+  background: #f59e0b;
+}
+
+.dues-kpi.is-upcoming .dues-kpi-icon {
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.22);
 }
 
 .dues-kpi.is-active {
-  box-shadow: 0 0 0 1px rgba(var(--primary-gold-rgb), 0.35);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--primary-gold) 55%, transparent),
+    0 10px 28px rgba(0, 0, 0, 0.22);
 }
 
 .dues-kpi-label {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  font-size: 0.8rem;
+  font-size: 0.72rem;
   font-weight: 700;
-  margin-bottom: 0.35rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 0.25rem;
+  opacity: 0.92;
 }
 
 .dues-kpi.is-overdue .dues-kpi-label,
-.dues-kpi.is-mora .dues-kpi-label { color: #ef4444; }
-.dues-kpi.is-due .dues-kpi-label { color: #60a5fa; }
-.dues-kpi.is-upcoming .dues-kpi-label { color: #f59e0b; }
+.dues-kpi.is-mora .dues-kpi-label { color: #fca5a5; }
+.dues-kpi.is-due .dues-kpi-label { color: #93c5fd; }
+.dues-kpi.is-upcoming .dues-kpi-label { color: #fcd34d; }
 
 .dues-kpi-value {
-  font-size: 1.6rem;
+  font-size: 2rem;
   font-weight: 800;
-  line-height: 1.1;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
 }
 
 .dues-kpi.is-overdue .dues-kpi-value,
-.dues-kpi.is-mora .dues-kpi-value { color: #ef4444; }
-.dues-kpi.is-due .dues-kpi-value { color: #60a5fa; }
-.dues-kpi.is-upcoming .dues-kpi-value { color: #f59e0b; }
+.dues-kpi.is-mora .dues-kpi-value { color: #fecaca; }
+.dues-kpi.is-due .dues-kpi-value { color: #bfdbfe; }
+.dues-kpi.is-upcoming .dues-kpi-value { color: #fde68a; }
+
+.dues-kpi-amount {
+  margin-top: 0.45rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
 
 .dues-kpi-sub {
-  font-size: 0.78rem;
+  font-size: 0.74rem;
   margin-top: 0.2rem;
+  opacity: 0.85;
 }
 
 .dues-kpi.is-overdue .dues-kpi-sub,
@@ -18959,9 +19042,50 @@ a.ops-outline-btn {
 .dues-kpi.is-upcoming .dues-kpi-sub { color: #fcd34d; }
 
 .dues-kpi-hint {
-  margin-top: 0.35rem;
+  margin-top: 0.4rem;
   font-size: 0.72rem;
   color: var(--text-muted);
+}
+
+.dues-section-pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  padding: 0.75rem 1.1rem 0.95rem;
+  border-top: 1px solid var(--border-glass);
+  background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
+}
+
+.dues-section-pager-meta {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.dues-section-pager-btns {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.dues-section-pager-page {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  min-width: 3.5rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dues-kpi {
+    transition: none;
+  }
+  .dues-kpi:hover {
+    transform: none;
+  }
 }
 
 .dues-section {

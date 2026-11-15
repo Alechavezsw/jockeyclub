@@ -376,6 +376,7 @@ export async function upsertOtherIncome(item) {
       bookNumber: item.bookNumber || '',
       signatureLegend: item.signatureLegend || '',
       attachments: item.attachments || [],
+      journalEntryId: item.journalEntryId || prevMeta.journalEntryId || null,
       createdAt: item.createdAt || null,
     },
   };

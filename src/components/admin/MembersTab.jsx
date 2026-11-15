@@ -2405,21 +2405,16 @@ export default function MembersTab({
             selectMembersPanel('padron');
           }}
         />
-        <PadronStatCard
-          label="Inactivos"
-          value={(inactiveReady
-            ? members.filter((m) => (m.status || '') === 'inactive').length
-            : inactiveCount) ?? 0}
-          color={PADRON_FIXED_CARD_COLORS.inactivos}
-          active={false}
-          onClick={() => {
-            setInactiveOpenToken((token) => token + 1);
-            selectMembersPanel('inactive');
-          }}
-        />
         {[
           household.byTier.find((tier) => tier.name?.toUpperCase() === 'SOCIO INDIVIDUAL'),
-          household.byTier.find((tier) => tier.name?.toUpperCase() === 'SOCIO (VITALICIO)'),
+          household.byTier.find((tier) => String(tier.id).toLowerCase() === 'socio_individual_amet'
+            || tier.name?.toUpperCase() === 'SOCIO INDIVIDUAL (AMET)'),
+          household.byTier.find((tier) => String(tier.id).toLowerCase() === 'grupo_familiar_familiar'
+            || tier.name?.toUpperCase() === 'GRUPO FAMILIAR (FAMILIAR)'),
+          household.byTier.find((tier) => String(tier.id).toLowerCase() === 'socio_familiar_amet'
+            || tier.name?.toUpperCase() === 'SOCIO FAMILIAR (AMET)'),
+          household.byTier.find((tier) => String(tier.id).toLowerCase() === 'grupo_familiar_amet'
+            || tier.name?.toUpperCase() === 'GRUPO FAMILIAR (AMET)'),
         ].filter(Boolean).map((tier) => (
           <PadronStatCard
             key={tier.id}

@@ -215,6 +215,22 @@ describe('mappers', () => {
     expect(row.member_id).toBe('m-db');
   });
 
+  it('expone cancelledAt desde meta o updated_at si está cancelada', () => {
+    const ui = reservationFromRow({
+      id: 'r-cancel',
+      facility_id: 'salon_anhelo',
+      member_number: '101434',
+      member_name: 'Test',
+      reservation_date: '2026-11-13',
+      time_slot: '20:00',
+      status: 'cancelled',
+      updated_at: '2026-11-13T20:07:14.573Z',
+      meta: { facilityName: 'Salón Anhelo' },
+    });
+    expect(ui.cancelledAt).toBe('2026-11-13T20:07:14.573Z');
+    expect(ui.updatedAt).toBe('2026-11-13T20:07:14.573Z');
+  });
+
   it('persiste quién tomó la reserva en meta', () => {
     const ui = reservationFromRow({
       id: 'r2',

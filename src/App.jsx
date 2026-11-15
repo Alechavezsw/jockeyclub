@@ -12,8 +12,10 @@ import { useAuth } from './context/AuthContext';
 import { canAccessAdmin, allowedAdminTabs } from './domain/auth/roles';
 import { isDemoFacilityId, isRealBookableSpace, OFFICIAL_FACILITY_IDS, RETIRED_FACILITY_IDS, FACILITIES } from './domain/reservations/facilities';
 import { accountEntriesFromImputedReservations } from './domain/accounting/eventImputation';
+import { buildReservationCashJournal } from './domain/accounting/reservationCash';
+import { DEFAULT_CHART_OF_ACCOUNTS } from './domain/accounting/chartOfAccounts';
 import { buildFacilityCatalog } from './domain/reservations/facilityConfig';
-import { validateMemberBooking } from './domain/reservations/bookingRules';
+import { validateMemberBooking, reservationCollectedAmount } from './domain/reservations/bookingRules';
 import { countUnread, markMessageRead, messageReaderKey, rememberReadMessage, withRememberedReads } from './domain/messaging/messages';
 import {
   buildNotifications,
@@ -719,6 +721,61 @@ function ClubPortal() {
   };
 
   // Agregar una reserva (con guardia de dominio contra turnos duplicados)
+  /** Seña / confirmación cobrada → asiento de caja o banco (no MP ni cuenta corriente). */
+  const postReservationCashCollection = async (reservation, { confirm = false } = {}) => {
+    if (!reservation || String(reservation.status || '') === 'cancelled') return reservation;
+    if (reservation.depositJournalId) return reservation;
+    const amount = reservationCollectedAmount(reservation);
+    if (!(amount > 0)) return reservation;
+    const total = Math.round(Number(reservation?.estimatedPrice) || 0);
+    try {
+      if (cloudMode && reservation.id && String(reservation.id).includes('-')) {
+        const result = await repos.recordInitialReservationPayment(reservation.id);
+        if (result?.journalEntryId && result?.concept && !result?.already && !result?.skipped) {
+          setJournalEntries((prev) => {
+            if ((prev || []).some((row) => row.id === result.journalEntryId)) return prev;
+            return [{
+              id: result.journalEntryId,
+              date: todayAR(),
+              description: result.concept,
+              concept: result.concept,
+              status: 'posted',
+              sourceModule: 'reservas',
+              sourceId: reservation.id,
+            }, ...(prev || [])];
+          });
+        }
+        if (!result?.journalEntryId) return reservation;
+        return {
+          ...reservation,
+          depositJournalId: result.journalEntryId,
+          cashJournalId: result.scope === 'total'
+            ? result.journalEntryId
+            : (reservation.cashJournalId || null),
+        };
+      }
+
+      const entry = buildReservationCashJournal({
+        reservation,
+        amount,
+        method: reservation.paymentMethod,
+        confirm: confirm || reservation.status === 'confirmed',
+        chart: DEFAULT_CHART_OF_ACCOUNTS,
+        date: todayAR(),
+      });
+      if (!entry) return reservation;
+      setJournalEntries((prev) => [entry, ...(prev || [])]);
+      return {
+        ...reservation,
+        depositJournalId: entry.id,
+        cashJournalId: total > 0 && amount + 0.5 >= total ? entry.id : (reservation.cashJournalId || null),
+      };
+    } catch (err) {
+      console.warn('[reservas] No se pudo asentar el cobro en caja:', err?.message || err);
+      return reservation;
+    }
+  };
+
   const addReservation = async (newRes) => {
     const catalog = buildFacilityCatalog(FACILITIES, facilityCatalog);
     const facility = catalog.find((item) => item.id === newRes?.facilityId);
@@ -750,19 +807,28 @@ function ClubPortal() {
     if (cloudMode) {
       try {
         const dbId = memberDbIds[booking.memberId] || await repos.findMemberDbIdByNumber(booking.memberId);
-        const saved = await repos.createReservation(booking, dbId);
-        setReservations((prev) => [saved, ...prev]);
+        let saved = await repos.createReservation(booking, dbId);
+        if (saved.status === 'confirmed') {
+          saved = await postReservationCashCollection(saved, { confirm: true }) || saved;
+        }
+        setReservations((prev) => {
+          const without = (prev || []).filter((row) => row.id !== saved.id);
+          return [saved, ...without];
+        });
         return { ok: true, reservation: saved };
       } catch (err) {
         return { ok: false, error: err.message || 'No se pudo guardar la reserva en la base.' };
       }
     }
-    const resWithId = {
+    let resWithId = {
       ...booking,
       id: Date.now()
     };
+    if (resWithId.status === 'confirmed') {
+      resWithId = await postReservationCashCollection(resWithId, { confirm: true }) || resWithId;
+    }
     setReservations(prev => [resWithId, ...prev]);
-    return { ok: true };
+    return { ok: true, reservation: resWithId };
   };
 
   const pushReservationMessage = (msg) => {
@@ -928,7 +994,20 @@ function ClubPortal() {
         saved = await repos.cancelReservationByClub(resId);
         setReservations((prev) => prev.map((row) => (row.id === saved.id ? { ...row, ...saved } : row)));
       } else {
-        saved = await persistReservation({ ...current, status: nextStatus }, { requireCloud: cloudMode });
+        const patch = { ...current, status: nextStatus };
+        if (nextStatus === 'cancelled' && prevStatus !== 'cancelled') {
+          patch.cancelledAt = new Date().toISOString();
+        }
+        saved = await persistReservation(patch, { requireCloud: cloudMode });
+      }
+      if (nextStatus === 'confirmed' && prevStatus !== 'confirmed') {
+        saved = await postReservationCashCollection(saved || { ...current, status: nextStatus }, { confirm: true })
+          || saved;
+        if (saved?.id) {
+          setReservations((prev) => (prev || []).map((row) => (
+            row.id === saved.id ? { ...row, ...saved } : row
+          )));
+        }
       }
       if (nextStatus === 'cancelled' && prevStatus !== 'cancelled') {
         const notice = clubCancelledReservationNotice(saved || current);

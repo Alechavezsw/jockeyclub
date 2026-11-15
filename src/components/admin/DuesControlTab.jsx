@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  AlertTriangle, CalendarClock, Clock3, Search, Users, Download, ExternalLink, Banknote,
+  AlertTriangle, CalendarClock, ChevronLeft, ChevronRight, Clock3, Search, Users, Download, ExternalLink, Banknote,
 } from 'lucide-react';
 import {
   formatShortDate,
@@ -162,6 +162,51 @@ function DuesTableHead({ labels }) {
   );
 }
 
+const DUES_PAGE_SIZE = 25;
+
+function pageSlice(list, page) {
+  const start = page * DUES_PAGE_SIZE;
+  return list.slice(start, start + DUES_PAGE_SIZE);
+}
+
+function DuesSectionPager({ page, total, onPageChange }) {
+  const totalPages = Math.max(1, Math.ceil(total / DUES_PAGE_SIZE));
+  if (total <= DUES_PAGE_SIZE) return null;
+  const safePage = Math.min(page, totalPages - 1);
+  const from = safePage * DUES_PAGE_SIZE + 1;
+  const to = Math.min(total, (safePage + 1) * DUES_PAGE_SIZE);
+  return (
+    <div className="dues-section-pager">
+      <span className="dues-section-pager-meta">
+        {from}–{to} de {total}
+      </span>
+      <div className="dues-section-pager-btns">
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          disabled={safePage <= 0}
+          onClick={() => onPageChange(safePage - 1)}
+          aria-label="Página anterior"
+        >
+          <ChevronLeft size={14} /> Anterior
+        </button>
+        <span className="dues-section-pager-page">
+          {safePage + 1} / {totalPages}
+        </span>
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          disabled={safePage >= totalPages - 1}
+          onClick={() => onPageChange(safePage + 1)}
+          aria-label="Página siguiente"
+        >
+          Siguiente <ChevronRight size={14} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function DuesControlTab({
   members = [],
   setMembers,
@@ -180,6 +225,9 @@ export default function DuesControlTab({
   const [sortBy, setSortBy] = useState('amount');
   const [collectMember, setCollectMember] = useState(null);
   const [flash, setFlash] = useState('');
+  const [overduePage, setOverduePage] = useState(0);
+  const [duePage, setDuePage] = useState(0);
+  const [upcomingPage, setUpcomingPage] = useState(0);
   const tiers = useMemo(() => getActiveTiers(tierCatalog), [tierCatalog]);
   const canCollectHere = typeof setMembers === 'function';
 
@@ -187,6 +235,12 @@ export default function DuesControlTab({
   const overdueAll = useMemo(() => getOverdueMembers(members), [members]);
   const dueTodayAll = useMemo(() => getDueTodayMembers(members), [members]);
   const upcomingAll = useMemo(() => getUpcomingDuesMembers(members), [members]);
+
+  useEffect(() => {
+    setOverduePage(0);
+    setDuePage(0);
+    setUpcomingPage(0);
+  }, [search, tierFilter, sortBy, statusFilter]);
 
   const applyListFilters = (list, tone) => {
     let next = list.filter((m) => matchesSearch(m, search) && memberMatchesDuesTier(m, tierFilter));
@@ -217,6 +271,21 @@ export default function DuesControlTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [upcomingAll, search, tierFilter, sortBy]
   );
+
+  useEffect(() => {
+    const max = Math.max(0, Math.ceil(overdue.length / DUES_PAGE_SIZE) - 1);
+    if (overduePage > max) setOverduePage(max);
+  }, [overdue.length, overduePage]);
+
+  useEffect(() => {
+    const max = Math.max(0, Math.ceil(dueToday.length / DUES_PAGE_SIZE) - 1);
+    if (duePage > max) setDuePage(max);
+  }, [dueToday.length, duePage]);
+
+  useEffect(() => {
+    const max = Math.max(0, Math.ceil(upcoming.length / DUES_PAGE_SIZE) - 1);
+    if (upcomingPage > max) setUpcomingPage(max);
+  }, [upcoming.length, upcomingPage]);
 
   const overdueTotalAll = overdueAll.reduce((s, m) => s + (Number(m.amountDue) || 0), 0);
   const dueTodayTotalAll = dueTodayAll.reduce((s, m) => s + (Number(m.amountDue) || 0), 0);
@@ -443,42 +512,54 @@ export default function DuesControlTab({
         </div>
       </div>
 
-      <div className="dues-kpi-grid">
+      <div className="dues-kpi-grid" role="group" aria-label="Resumen de cuotas">
         <button
           type="button"
           className={`dues-kpi is-mora${statusFilter === 'mora' ? ' is-active' : ''}`}
           onClick={() => setStatusFilter(statusFilter === 'mora' ? 'all' : 'mora')}
         >
-          <div className="dues-kpi-label"><AlertTriangle size={16} /> En mora</div>
-          <div className="dues-kpi-value">{overdueAll.length}</div>
-          <div className="dues-kpi-sub">{formatCurrency(overdueTotalAll)} después del 10</div>
-          {filteredHint && overdue.length !== overdueAll.length && (
-            <div className="dues-kpi-hint">{overdue.length} con filtro actual</div>
-          )}
+          <span className="dues-kpi-icon" aria-hidden="true"><AlertTriangle size={18} /></span>
+          <div className="dues-kpi-body">
+            <div className="dues-kpi-label">En mora</div>
+            <div className="dues-kpi-value">{overdueAll.length.toLocaleString('es-AR')}</div>
+            <div className="dues-kpi-amount">{formatCurrency(overdueTotalAll)}</div>
+            <div className="dues-kpi-sub">Después del 10 · con recargo</div>
+            {filteredHint && overdue.length !== overdueAll.length ? (
+              <div className="dues-kpi-hint">{overdue.length} con filtro actual</div>
+            ) : null}
+          </div>
         </button>
         <button
           type="button"
           className={`dues-kpi is-due${statusFilter === 'due' ? ' is-active' : ''}`}
           onClick={() => setStatusFilter(statusFilter === 'due' ? 'all' : 'due')}
         >
-          <div className="dues-kpi-label"><CalendarClock size={16} /> Vence hoy</div>
-          <div className="dues-kpi-value">{dueTodayAll.length}</div>
-          <div className="dues-kpi-sub">{formatCurrency(dueTodayTotalAll)} · sin recargo</div>
-          {filteredHint && dueToday.length !== dueTodayAll.length && (
-            <div className="dues-kpi-hint">{dueToday.length} con filtro actual</div>
-          )}
+          <span className="dues-kpi-icon" aria-hidden="true"><CalendarClock size={18} /></span>
+          <div className="dues-kpi-body">
+            <div className="dues-kpi-label">Vence hoy</div>
+            <div className="dues-kpi-value">{dueTodayAll.length.toLocaleString('es-AR')}</div>
+            <div className="dues-kpi-amount">{formatCurrency(dueTodayTotalAll)}</div>
+            <div className="dues-kpi-sub">Sin recargo si abonan hoy</div>
+            {filteredHint && dueToday.length !== dueTodayAll.length ? (
+              <div className="dues-kpi-hint">{dueToday.length} con filtro actual</div>
+            ) : null}
+          </div>
         </button>
         <button
           type="button"
           className={`dues-kpi is-upcoming${statusFilter === 'upcoming' ? ' is-active' : ''}`}
           onClick={() => setStatusFilter(statusFilter === 'upcoming' ? 'all' : 'upcoming')}
         >
-          <div className="dues-kpi-label"><Clock3 size={16} /> A vencer</div>
-          <div className="dues-kpi-value">{upcomingAll.length}</div>
-          <div className="dues-kpi-sub">{formatCurrency(upcomingTotalAll)} · hasta el 10</div>
-          {filteredHint && upcoming.length !== upcomingAll.length && (
-            <div className="dues-kpi-hint">{upcoming.length} con filtro actual</div>
-          )}
+          <span className="dues-kpi-icon" aria-hidden="true"><Clock3 size={18} /></span>
+          <div className="dues-kpi-body">
+            <div className="dues-kpi-label">A vencer</div>
+            <div className="dues-kpi-value">{upcomingAll.length.toLocaleString('es-AR')}</div>
+            <div className="dues-kpi-amount">{formatCurrency(upcomingTotalAll)}</div>
+            <div className="dues-kpi-sub">Al día · hasta el 10</div>
+            {filteredHint && upcoming.length !== upcomingAll.length ? (
+              <div className="dues-kpi-hint">{upcoming.length} con filtro actual</div>
+            ) : null}
+          </div>
         </button>
       </div>
 
@@ -493,16 +574,19 @@ export default function DuesControlTab({
           {overdue.length === 0 ? (
             <p className="dues-empty">No hay resultados con los filtros actuales.</p>
           ) : (
-            overdue.map((m) => (
-              <MemberDuesRow
-                key={m.memberId}
-                member={m}
-                formatCurrency={formatCurrency}
-                tone="mora"
-                onOpen={openMember}
-                onCollect={handleCollect}
-              />
-            ))
+            <>
+              {pageSlice(overdue, overduePage).map((m) => (
+                <MemberDuesRow
+                  key={m.memberId}
+                  member={m}
+                  formatCurrency={formatCurrency}
+                  tone="mora"
+                  onOpen={openMember}
+                  onCollect={handleCollect}
+                />
+              ))}
+              <DuesSectionPager page={overduePage} total={overdue.length} onPageChange={setOverduePage} />
+            </>
           )}
         </section>
       )}
@@ -518,16 +602,19 @@ export default function DuesControlTab({
           {dueToday.length === 0 ? (
             <p className="dues-empty">Hoy no vence ninguna cuota al día.</p>
           ) : (
-            dueToday.map((m) => (
-              <MemberDuesRow
-                key={m.memberId}
-                member={m}
-                formatCurrency={formatCurrency}
-                tone="due"
-                onOpen={openMember}
-                onCollect={handleCollect}
-              />
-            ))
+            <>
+              {pageSlice(dueToday, duePage).map((m) => (
+                <MemberDuesRow
+                  key={m.memberId}
+                  member={m}
+                  formatCurrency={formatCurrency}
+                  tone="due"
+                  onOpen={openMember}
+                  onCollect={handleCollect}
+                />
+              ))}
+              <DuesSectionPager page={duePage} total={dueToday.length} onPageChange={setDuePage} />
+            </>
           )}
         </section>
       )}
@@ -543,16 +630,19 @@ export default function DuesControlTab({
           {upcoming.length === 0 ? (
             <p className="dues-empty"><Users size={14} /> No hay cuotas al día por vencer hasta el 10.</p>
           ) : (
-            upcoming.map((m) => (
-              <MemberDuesRow
-                key={m.memberId}
-                member={m}
-                formatCurrency={formatCurrency}
-                tone="upcoming"
-                onOpen={openMember}
-                onCollect={handleCollect}
-              />
-            ))
+            <>
+              {pageSlice(upcoming, upcomingPage).map((m) => (
+                <MemberDuesRow
+                  key={m.memberId}
+                  member={m}
+                  formatCurrency={formatCurrency}
+                  tone="upcoming"
+                  onOpen={openMember}
+                  onCollect={handleCollect}
+                />
+              ))}
+              <DuesSectionPager page={upcomingPage} total={upcoming.length} onPageChange={setUpcomingPage} />
+            </>
           )}
         </section>
       )}

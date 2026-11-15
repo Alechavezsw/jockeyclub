@@ -82,7 +82,8 @@ export async function updateReservation(id, patch) {
     'depositAmount', 'depositRate', 'paymentMethod', 'mpIntentId',
     'paidInFull', 'balancePaidAt', 'balanceAmount', 'balancePaymentMethod',
     'imputed', 'feeImputed', 'imputedAt', 'imputationEntryId',
-    'accountEntry', 'balanceBefore',
+    'accountEntry', 'balanceBefore', 'cancelledAt',
+    'depositJournalId', 'cashJournalId', 'balanceJournalId',
   ];
   const touchesMeta = Boolean(patch.meta) || metaFields.some((key) => patch[key] !== undefined);
   if (touchesMeta) {
@@ -106,6 +107,15 @@ export async function updateReservation(id, patch) {
     rethrowReservation(err);
   }
   return M.reservationFromRow(saved);
+}
+
+/** Seña / confirmación cobrada → asiento de caja o banco. */
+export async function recordInitialReservationPayment(id) {
+  const data = await unwrap(
+    sb().rpc('registrar_cobro_inicial_reserva', { p_id: id }),
+    'No se pudo registrar el cobro de la reserva',
+  );
+  return data || {};
 }
 
 /** Cobra el saldo del alquiler y lo deja saldado. El asiento queda en la base. */

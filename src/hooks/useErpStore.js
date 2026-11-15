@@ -1380,15 +1380,19 @@ export default function useErpStore({
   }, []);
 
   const createOtherIncomeRecord = useCallback(async (item) => {
-    const entry = journalForOtherIncome(item, chartOfAccounts);
-    let saved = { ...item, journalEntryId: entry.id };
     if (cloud()) {
+      // Primero el ingreso (UUID real), después el asiento con sourceId = id.
+      let saved = await repos.upsertOtherIncome({ ...item, journalEntryId: null });
+      const entry = journalForOtherIncome({ ...item, ...saved, id: saved.id }, chartOfAccounts);
       const savedEntry = await repos.insertJournalEntry(entry, { createdBy: userId });
       saved = await repos.upsertOtherIncome({ ...saved, journalEntryId: savedEntry.id });
       setJournalEntries((prev) => [savedEntry, ...prev]);
-    } else {
-      setJournalEntries((prev) => [entry, ...prev]);
+      setOtherIncomes((prev) => [saved, ...prev.filter((row) => row.id !== saved.id)]);
+      return saved;
     }
+    const entry = journalForOtherIncome(item, chartOfAccounts);
+    const saved = { ...item, journalEntryId: entry.id };
+    setJournalEntries((prev) => [entry, ...prev]);
     setOtherIncomes((prev) => [saved, ...prev]);
     return saved;
   }, [chartOfAccounts, setJournalEntries, userId]);
