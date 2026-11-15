@@ -4,6 +4,14 @@ import { formatShortDate } from '../../domain/members/dues';
 
 const PAGE_SIZE = 10;
 
+const FILTERS = [
+  { id: 'open', label: 'Abiertos' },
+  { id: 'pending', label: 'Pendientes' },
+  { id: 'in_progress', label: 'En proceso' },
+  { id: 'resolved', label: 'Resueltos' },
+  { id: 'all', label: 'Todos' },
+];
+
 function claimTitle(claim) {
   return String(claim?.subject || claim?.title || 'Solicitud').trim() || 'Solicitud';
 }
@@ -22,28 +30,48 @@ function claimMemberLabel(claim) {
   return number ? `${name} · Nº ${number}` : name;
 }
 
+/** Normaliza status legacy (`open`) y variantes al set de la UI. */
+function normalizeStatus(status) {
+  const raw = String(status || 'pending').trim().toLowerCase();
+  if (!raw || raw === 'open' || raw === 'nuevo' || raw === 'pendiente') return 'pending';
+  if (raw === 'in_progress' || raw === 'in-progress' || raw === 'progress' || raw === 'en_proceso') {
+    return 'in_progress';
+  }
+  if (raw === 'resolved' || raw === 'closed' || raw === 'done' || raw === 'resuelto') return 'resolved';
+  return raw;
+}
+
 function statusLabel(status) {
-  if (status === 'pending') return 'Pendiente';
-  if (status === 'in_progress') return 'En proceso';
-  if (status === 'resolved') return 'Resuelto';
+  const s = normalizeStatus(status);
+  if (s === 'pending') return 'Pendiente';
+  if (s === 'in_progress') return 'En proceso';
+  if (s === 'resolved') return 'Resuelto';
   return String(status || 'Pendiente');
 }
 
 function statusTone(status) {
-  if (status === 'pending') return 'is-pending';
-  if (status === 'in_progress') return 'is-progress';
-  if (status === 'resolved') return 'is-resolved';
+  const s = normalizeStatus(status);
+  if (s === 'pending') return 'is-pending';
+  if (s === 'in_progress') return 'is-progress';
+  if (s === 'resolved') return 'is-resolved';
   return 'is-pending';
 }
 
 function sortClaims(list = []) {
   const rank = { pending: 0, in_progress: 1, resolved: 2 };
   return [...(list || [])].sort((a, b) => {
-    const ra = rank[a?.status] ?? 9;
-    const rb = rank[b?.status] ?? 9;
+    const ra = rank[normalizeStatus(a?.status)] ?? 9;
+    const rb = rank[normalizeStatus(b?.status)] ?? 9;
     if (ra !== rb) return ra - rb;
     return String(b?.createdAt || b?.date || '').localeCompare(String(a?.createdAt || a?.date || ''));
   });
+}
+
+function matchesFilter(claim, filterId) {
+  const status = normalizeStatus(claim?.status);
+  if (filterId === 'all') return true;
+  if (filterId === 'open') return status === 'pending' || status === 'in_progress';
+  return status === filterId;
 }
 
 /** Buzón de pedidos y reclamos de socios, con asignación al personal de guardia. */
@@ -56,17 +84,29 @@ export default function ClaimsTab({ claims = [], setClaims, staffMembers = [], s
 
   const sorted = useMemo(() => sortClaims(claims), [claims]);
 
-  const filtered = useMemo(() => {
-    if (statusFilter === 'all') return sorted;
-    if (statusFilter === 'open') {
-      return sorted.filter((c) => c.status === 'pending' || c.status === 'in_progress');
+  const counts = useMemo(() => {
+    let pending = 0;
+    let progress = 0;
+    let resolved = 0;
+    for (const c of sorted) {
+      const s = normalizeStatus(c.status);
+      if (s === 'pending') pending += 1;
+      else if (s === 'in_progress') progress += 1;
+      else if (s === 'resolved') resolved += 1;
     }
-    return sorted.filter((c) => c.status === statusFilter);
-  }, [sorted, statusFilter]);
+    return {
+      open: pending + progress,
+      pending,
+      in_progress: progress,
+      resolved,
+      all: sorted.length,
+    };
+  }, [sorted]);
 
-  const pendingCount = sorted.filter((c) => c.status === 'pending').length;
-  const progressCount = sorted.filter((c) => c.status === 'in_progress').length;
-  const resolvedCount = sorted.filter((c) => c.status === 'resolved').length;
+  const filtered = useMemo(
+    () => sorted.filter((c) => matchesFilter(c, statusFilter)),
+    [sorted, statusFilter],
+  );
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -77,6 +117,7 @@ export default function ClaimsTab({ claims = [], setClaims, staffMembers = [], s
 
   useEffect(() => {
     setPage(1);
+    setEditingClaimId(null);
   }, [statusFilter]);
 
   useEffect(() => {
@@ -100,7 +141,7 @@ export default function ClaimsTab({ claims = [], setClaims, staffMembers = [], s
           description: `Asignación de reclamo: "${claimTitle(claim)}" por Administración.`,
         };
 
-        setStaffMembers(staffMembers.map((s) => {
+        setStaffMembers((prev) => (prev || []).map((s) => {
           if (s.id !== targetEmp.id) return s;
           return {
             ...s,
@@ -111,7 +152,7 @@ export default function ClaimsTab({ claims = [], setClaims, staffMembers = [], s
       }
     }
 
-    setClaims(claims.map((c) => {
+    setClaims((prev) => (prev || []).map((c) => {
       if (c.id !== claimId) return c;
       return {
         ...c,
@@ -119,6 +160,11 @@ export default function ClaimsTab({ claims = [], setClaims, staffMembers = [], s
         assignedStaff: assignedEmpName,
         response,
         resolution: response,
+        meta: {
+          ...(c.meta || {}),
+          assignedStaff: assignedEmpName || null,
+          response: response || null,
+        },
       };
     }));
 
@@ -129,6 +175,7 @@ export default function ClaimsTab({ claims = [], setClaims, staffMembers = [], s
 
   const from = filtered.length === 0 ? 0 : ((safePage - 1) * PAGE_SIZE) + 1;
   const to = Math.min(safePage * PAGE_SIZE, filtered.length);
+  const activeFilterLabel = FILTERS.find((f) => f.id === statusFilter)?.label || 'Abiertos';
 
   return (
     <section className="claims-desk glass-card fade-in" aria-labelledby="claims-desk-title">
@@ -146,52 +193,50 @@ export default function ClaimsTab({ claims = [], setClaims, staffMembers = [], s
             </p>
           </div>
         </div>
-        <div className="claims-desk__stats" aria-label="Resumen del buzón">
-          <span className="claims-desk__stat is-pending">
-            <strong>{pendingCount}</strong>
-            pendientes
-          </span>
-          <span className="claims-desk__stat is-progress">
-            <strong>{progressCount}</strong>
-            en proceso
-          </span>
-          <span className="claims-desk__stat is-resolved">
-            <strong>{resolvedCount}</strong>
-            resueltos
-          </span>
-        </div>
       </header>
 
       <div className="claims-desk__filters" role="toolbar" aria-label="Filtro de estado">
-        {[
-          { id: 'open', label: 'Abiertos', value: pendingCount + progressCount },
-          { id: 'pending', label: 'Pendientes', value: pendingCount },
-          { id: 'in_progress', label: 'En proceso', value: progressCount },
-          { id: 'resolved', label: 'Resueltos', value: resolvedCount },
-          { id: 'all', label: 'Todos', value: sorted.length },
-        ].map((opt) => (
-          <button
-            key={opt.id}
-            type="button"
-            className={`claims-desk__filter${statusFilter === opt.id ? ' is-on' : ''}`}
-            aria-pressed={statusFilter === opt.id}
-            onClick={() => setStatusFilter(opt.id)}
-          >
-            <strong>{opt.value}</strong>
-            <span>{opt.label}</span>
-          </button>
-        ))}
+        {FILTERS.map((opt) => {
+          const value = counts[opt.id] ?? 0;
+          const isOn = statusFilter === opt.id;
+          const tone =
+            opt.id === 'pending' || opt.id === 'open'
+              ? 'is-pending'
+              : opt.id === 'in_progress'
+                ? 'is-progress'
+                : opt.id === 'resolved'
+                  ? 'is-resolved'
+                  : '';
+          return (
+            <button
+              key={opt.id}
+              type="button"
+              className={`claims-desk__filter${tone ? ` ${tone}` : ''}${isOn ? ' is-on' : ''}`}
+              aria-pressed={isOn}
+              onClick={() => setStatusFilter(opt.id)}
+            >
+              <strong>{value}</strong>
+              <span>{opt.label}</span>
+            </button>
+          );
+        })}
       </div>
+
+      <p className="claims-desk__result" aria-live="polite">
+        {filtered.length === 0
+          ? `Sin solicitudes en «${activeFilterLabel}».`
+          : `Mostrando ${from}–${to} de ${filtered.length} · ${activeFilterLabel}`}
+      </p>
 
       {filtered.length === 0 ? (
         <p className="claims-desk__empty">
           {claims.length === 0
             ? 'Todavía no hay pedidos ni reclamos de socios.'
-            : 'No hay solicitudes en este filtro.'}
+            : 'Probá otro filtro para ver el resto del buzón.'}
         </p>
       ) : (
         <>
-          <ul className="claims-desk__list">
+          <ul className="claims-desk__list" key={`claims-${statusFilter}-${safePage}`}>
             {pageRows.map((clm) => {
               const editing = editingClaimId === clm.id;
               const reply = claimResponse(clm);

@@ -120,6 +120,8 @@ export async function listClaims({ limit, memberNumber } = {}) {
 }
 
 export async function upsertClaim(claim, memberDbId = null) {
+  const resolution = claim.resolution || claim.response || null;
+  const assignedStaff = claim.assignedStaff || claim.meta?.assignedStaff || null;
   const row = {
     member_id: memberDbId,
     member_number: claim.memberId || null,
@@ -127,10 +129,14 @@ export async function upsertClaim(claim, memberDbId = null) {
     category: claim.category || null,
     subject: claim.subject || claim.title || 'Reclamo',
     body: claim.description || claim.body || '',
-    status: claim.status || 'open',
+    status: claim.status || 'pending',
     priority: claim.priority || 'normal',
-    resolution: claim.resolution || null,
-    meta: claim.meta || {},
+    resolution,
+    meta: {
+      ...(claim.meta || {}),
+      assignedStaff,
+      response: claim.response || resolution,
+    },
   };
   if (claim.id && String(claim.id).includes('-')) {
     const saved = await unwrap(

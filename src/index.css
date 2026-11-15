@@ -29128,37 +29128,10 @@ button.debit-moves-row:disabled {
   max-width: 38rem;
 }
 
-.claims-desk__stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-
-.claims-desk__stat {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.3rem;
-  padding: 0.28rem 0.65rem;
-  border-radius: 999px;
-  font-size: 0.74rem;
-  color: var(--text-secondary);
-  border: 1px solid var(--border-glass);
-  background: color-mix(in srgb, var(--bg-primary) 45%, transparent);
-}
-
-.claims-desk__stat strong {
-  font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
-}
-
-.claims-desk__stat.is-pending strong { color: var(--warning-accent, #c48a1a); }
-.claims-desk__stat.is-progress strong { color: #3b82f6; }
-.claims-desk__stat.is-resolved strong { color: var(--emerald-accent, #096755); }
-
 .claims-desk__filters {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem;
+  gap: 0.45rem;
 }
 
 .claims-desk__filter {
@@ -29169,9 +29142,10 @@ button.debit-moves-row:disabled {
   background: color-mix(in srgb, var(--bg-primary) 55%, transparent);
   color: var(--text-secondary);
   border-radius: 999px;
-  padding: 0.28rem 0.7rem;
-  font-size: 0.78rem;
+  padding: 0.38rem 0.85rem;
+  font-size: 0.8rem;
   cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
 }
 
 .claims-desk__filter strong {
@@ -29179,10 +29153,37 @@ button.debit-moves-row:disabled {
   font-variant-numeric: tabular-nums;
 }
 
+.claims-desk__filter.is-pending.is-on,
+.claims-desk__filter.is-on.is-pending {
+  border-color: color-mix(in srgb, var(--warning-accent, #c48a1a) 55%, var(--border-glass));
+  background: color-mix(in srgb, var(--warning-accent, #c48a1a) 16%, transparent);
+  color: var(--text-primary);
+}
+
+.claims-desk__filter.is-progress.is-on {
+  border-color: color-mix(in srgb, #3b82f6 55%, var(--border-glass));
+  background: color-mix(in srgb, #3b82f6 16%, transparent);
+  color: var(--text-primary);
+}
+
+.claims-desk__filter.is-resolved.is-on {
+  border-color: color-mix(in srgb, var(--emerald-accent, #096755) 55%, var(--border-glass));
+  background: color-mix(in srgb, var(--emerald-accent, #096755) 16%, transparent);
+  color: var(--text-primary);
+}
+
 .claims-desk__filter.is-on {
   border-color: color-mix(in srgb, var(--emerald-accent, #096755) 45%, var(--border-glass));
   background: color-mix(in srgb, var(--emerald-accent, #096755) 14%, transparent);
   color: var(--text-primary);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--emerald-accent, #096755) 18%, transparent);
+}
+
+.claims-desk__result {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .claims-desk__empty {
