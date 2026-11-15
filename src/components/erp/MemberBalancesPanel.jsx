@@ -583,13 +583,6 @@ function MemberBalancesContent({
           </button>
           <div className="cuotas-actions">
             <CuotasTool
-              icon={Plus}
-              label="Entradas"
-              hint="Cargar un movimiento"
-              tone="emerald"
-              onClick={() => openEntry(selectedMember)}
-            />
-            <CuotasTool
               icon={Lock}
               label="Boleto de pago"
               hint="Imprimir liquidación"
@@ -825,13 +818,6 @@ function MemberBalancesContent({
         onBack={onBack}
         onGo={goDesk}
         consultOnly={consultOnly}
-        extraOperate={consultOnly ? [] : [{
-          id: 'entries',
-          icon: Plus,
-          label: 'Entradas',
-          hint: 'Cargar un movimiento',
-          onClick: () => openEntry(),
-        }]}
       />
 
       <section className="supplier-pay-import-block member-balances-smart-search">
