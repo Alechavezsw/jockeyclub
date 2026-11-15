@@ -6,6 +6,7 @@ import {
   isPorteriaIncomeItem,
   OTHER_INCOME_PAYMENT_METHODS,
   porterIncomeBooks,
+  totalAmountHintFromNotes,
 } from '../../domain/accounting/otherIncomes';
 import { downloadPorteriaIncomeReceiptPdf } from '../../domain/accounting/exportPorteriaIncomeReceiptPdf';
 import { repos } from '../../data/bootstrap';
@@ -138,6 +139,18 @@ export default function PorteriaIncomePanel({
       setError('Indicá el número de talonario.');
       return;
     }
+    const entered = Number(amount);
+    if (!(entered > 0)) {
+      setError('Indicá el importe.');
+      return;
+    }
+    const hinted = totalAmountHintFromNotes(description);
+    if (hinted && Math.abs(hinted - entered) >= 1) {
+      setError(
+        `La descripción habla de un total de ${formatCurrency(hinted)} y el importe cargado es ${formatCurrency(entered)}. Igualalos antes de registrar.`,
+      );
+      return;
+    }
     const preset = KINDS.find((item) => item.id === kind) || KINDS[0];
     const method = PAY_METHODS.some((item) => item.id === paymentMethod) ? paymentMethod : 'efectivo';
     setBusy(true);
@@ -153,7 +166,7 @@ export default function PorteriaIncomePanel({
         concept: preset.concept,
         group: 'porteria',
         paymentMethod: method,
-        amount: Number(amount),
+        amount: entered,
         notes: description,
         bookNumber: book,
       });

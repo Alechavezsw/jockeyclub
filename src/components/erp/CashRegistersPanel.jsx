@@ -110,8 +110,17 @@ function formatCashAmount(value, { withArs = false } = {}) {
 function CashMemberCell({ row }) {
   const num = String(row?.memberNumber || row?.memberId || '').replace(/\D/g, '');
   const name = String(row?.memberName || '').trim();
+  const porteria = row?.group === 'porteria'
+    || /porter[ií]a|estacionamiento|rindió/i.test(`${row?.typeLabel || ''} ${row?.description || ''}`);
   if (!num && !name) return '—';
-  if (!num) return name;
+  if (!num) {
+    return porteria ? (
+      <span className="cash-lila-porter">
+        <small>Rindió</small>
+        <strong>{name}</strong>
+      </span>
+    ) : name;
+  }
   return (
     <Link
       to={`/panel/members/${encodeURIComponent(num)}`}
@@ -913,7 +922,7 @@ function CashRegistersContent({
                         <th>Fecha</th>
                         <th>Tipo</th>
                         <th>Descripción</th>
-                        <th>Socio</th>
+                        <th>Socio / rindió</th>
                         <th>Grupo familiar</th>
                         <th>Monto</th>
                         <th>Acciones</th>

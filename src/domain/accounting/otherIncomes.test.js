@@ -4,6 +4,7 @@ import { sumCredits, sumDebits } from './journal';
 import {
   createOtherIncome,
   journalForOtherIncome,
+  totalAmountHintFromNotes,
   lineTotal,
   linesTotal,
   porterIncomeBooks,
@@ -11,6 +12,13 @@ import {
 } from './otherIncomes';
 
 describe('otherIncomes', () => {
+  it('lee el total declarado en la nota de rendición', () => {
+    expect(totalAmountHintFromNotes(
+      '… $ 104.000 EFECTIVO- total entre efectivo y QR $ 150.000',
+    )).toBe(150000);
+    expect(totalAmountHintFromNotes('sin total')).toBeNull();
+  });
+
   it('calcula total de líneas', () => {
     expect(lineTotal({ quantity: 2, unitPrice: 150 })).toBe(300);
     expect(linesTotal([

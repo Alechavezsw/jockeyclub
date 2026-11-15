@@ -49,6 +49,20 @@ export function isPorteriaIncomeItem(item) {
     || /porter[ií]a|estacionamiento/i.test(String(item.concept || ''));
 }
 
+/**
+ * Si la nota declara un total (“total … $ 150.000”), lo devolvemos para contrastar
+ * con el importe cargado y evitar otro desfasaje en caja.
+ */
+export function totalAmountHintFromNotes(notes) {
+  const blob = String(notes || '');
+  const match = blob.match(/total(?:\s+entre\s+efectivo\s+y\s+QR)?[^$0-9]{0,24}\$\s*([\d.]+)/i)
+    || blob.match(/total[^$0-9]{0,16}([\d.]+)\s*(?:pesos|$)/i);
+  if (!match) return null;
+  const raw = String(match[1] || '').replace(/\./g, '');
+  const amount = Number(raw);
+  return Number.isFinite(amount) && amount > 0 ? amount : null;
+}
+
 function porterBookKey(item, porters) {
   const id = String(item?.renderedById || '').trim();
   if (id) return id;

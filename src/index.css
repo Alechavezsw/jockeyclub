@@ -23212,6 +23212,24 @@ a.ops-outline-btn {
 .cash-lila-member-link:hover .cash-lila-member-nro {
   color: var(--text-gold);
 }
+.cash-lila-porter {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  line-height: 1.2;
+}
+.cash-lila-porter small {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.cash-lila-porter strong {
+  font-size: 0.88rem;
+  color: var(--text-primary);
+}
 .cash-lila-row-actions {
   display: inline-flex;
   gap: 0.3rem;
