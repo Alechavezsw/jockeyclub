@@ -43,6 +43,22 @@ describe('appMonthlyDebts', () => {
     expect(row.standing).toBe('En mora');
   });
 
+  it('un caso con duesCapitalOnly deja la cuenta en 70.000', () => {
+    const row = appMonthlyDebtForMember(
+      familiar({ duesCapitalOnly: true }),
+      { today: TODAY },
+    );
+    expect(row.capital).toBe(70000);
+    expect(row.interest).toBe(0);
+    expect(row.totalDebt).toBe(70000);
+    const standing = memberDuesStandingSummary(
+      familiar({ duesCapitalOnly: true }),
+      { today: TODAY },
+    );
+    expect(standing.totalDebt).toBe(70000);
+    expect(standing.interest).toBe(0);
+  });
+
   it('sin next_due en noviembre lista noviembre, no inventa octubre', () => {
     const row = appMonthlyDebtForMember(
       familiar({

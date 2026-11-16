@@ -506,6 +506,12 @@ function asDiscountPerson(row, titular) {
   };
 }
 
+/** Caso particular: la cuenta queda en el capital. No suma el 10 %. El resto del padrón no lo tiene. */
+function memberKeepsFlatDuesAccount(member) {
+  const flag = member?.duesCapitalOnly ?? member?.meta?.duesCapitalOnly;
+  return flag === true || flag === 'true';
+}
+
 /** Caso particular: capital de un mes cargado en la ficha. El resto del padrón no lo tiene. */
 function memberSocialMonthCapital(member, tierId, on) {
   const table = member?.duesMonthCapital;
@@ -691,6 +697,9 @@ export function duesPayableForMember(member, { paidOn = new Date(), dueOn, on, r
   if (isDuesExemptMember(member) || isFamilyDependent(member)) return 0;
   const when = on || dueOn || paidOn;
   const discountRules = resolveDiscountRules(rules);
+  if (memberKeepsFlatDuesAccount(member)) {
+    return duesAmountForMember(member, when, { rules: discountRules });
+  }
   const own = payableForTierIds(member, billedTierIds(member), {
     paidOn, dueOn, on: when, rules: discountRules,
   });
@@ -762,6 +771,7 @@ export function duesAmountForMember(member, on = new Date(), options = {}) {
 
 /** Capital del mes que sí lleva 10 % (familiar e individual). El abono no. */
 export function lateBaseForMember(member, on) {
+  if (memberKeepsFlatDuesAccount(member)) return 0;
   return money(duesChargeSlicesForMember(member, on).reduce((sum, slice) => {
     const id = String(slice.tierId || '').trim().toLowerCase();
     if (id && !DUES_LATE_TIER_IDS.has(id)) return sum;
@@ -1065,15 +1075,18 @@ function lumpMonthsAtCurrentCuota(member, paidOn, paidSet) {
 
   const day = duesDueDayForMember(member);
   const tier = String(member?.tier || '').trim().toLowerCase();
+  const flatAccount = memberKeepsFlatDuesAccount(member);
   // Misma regla que el 10 % del recibo: sin categoría también hay recargo.
-  const lateBase = tier && !DUES_LATE_TIER_IDS.has(tier) ? 0 : monthly;
+  const lateBase = flatAccount || (tier && !DUES_LATE_TIER_IDS.has(tier)) ? 0 : monthly;
   let cursor = duesDateOnDueDay(paidOn.getFullYear(), paidOn.getMonth(), day);
   const rows = [];
   for (let i = 0; i < count; i += 1) {
     const dueOn = toISODate(cursor);
     if (dueOnAlreadyCovered(dueOn, paidSet) || !duesPeriodMonthStarted(dueOn, paidOn)) return null;
     const kind = cursor < paidOn ? 'overdue' : 'upcoming';
-    const payable = money(duesPayableAmount(monthly, { paidOn, dueOn, tier: member?.tier }));
+    const payable = flatAccount
+      ? monthly
+      : money(duesPayableAmount(monthly, { paidOn, dueOn, tier: member?.tier }));
     rows.unshift({
       id: dueOn,
       dueOn,

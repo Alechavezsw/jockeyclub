@@ -1319,4 +1319,26 @@ describe('collectionPeriodChoices vs saldo de ficha', () => {
     ]);
     expect(nextChoices.some((row) => row.capital === 20000)).toBe(false);
   });
+
+  it('un caso con la cuenta en capital no suma el 10 %', () => {
+    const today = new Date('2026-11-16T12:00:00-03:00');
+    const member = {
+      memberId: '111638',
+      tier: 'socio_familiar',
+      status: 'active',
+      outstandingBalance: 70000,
+      unpaidCapital: 70000,
+      duesCapitalOnly: true,
+    };
+    const choices = collectionPeriodChoices(member, today);
+    expect(choices).toHaveLength(1);
+    expect(choices[0]).toMatchObject({
+      dueOn: '2026-11-10',
+      capital: 70000,
+      surcharge: 0,
+      payable: 70000,
+    });
+    const other = collectionPeriodChoices({ ...member, duesCapitalOnly: false }, today);
+    expect(other[0]).toMatchObject({ capital: 70000, surcharge: 7000, payable: 77000 });
+  });
 });
