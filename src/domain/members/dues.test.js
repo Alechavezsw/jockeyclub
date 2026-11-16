@@ -718,6 +718,15 @@ describe('atraso desde último pago (vence el 10)', () => {
     expect(formatMonthsBehind(1)).toBe('1 mes atrasado');
   });
 
+  it('sin next_due ni último pago: ancla el mes en curso aunque ya pasó el 10', () => {
+    expect(firstUnpaidDuesDate({
+      today: new Date('2026-11-16T12:00:00'),
+    })).toBe('2026-11-10');
+    expect(monthsBehindOnDues({
+      today: new Date('2026-11-16T12:00:00'),
+    })).toBe(1);
+  });
+
   it('nextDueDate gana: no reabre meses anteriores ya cerrados en ficha', () => {
     // lastPayment viejo no debe inventar jul–sep si el vencimiento abierto es octubre.
     expect(monthsBehindOnDues({

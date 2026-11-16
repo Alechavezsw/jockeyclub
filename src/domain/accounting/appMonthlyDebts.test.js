@@ -35,11 +35,57 @@ describe('appMonthlyDebts', () => {
     const row = appMonthlyDebtForMember(familiar(), { today: TODAY });
     expect(row.months).toHaveLength(1);
     expect(row.months[0].periodKey).toBe('2026-10');
+    expect(row.months[0].periodLabel).toBe('Octubre de 2026');
     expect(row.months[0].capital).toBe(70000);
     expect(row.months[0].interest).toBe(7000);
     expect(row.totalDebt).toBe(77000);
     expect(row.unallocated).toBe(0);
     expect(row.standing).toBe('En mora');
+  });
+
+  it('sin next_due en noviembre lista noviembre, no inventa octubre', () => {
+    const row = appMonthlyDebtForMember(
+      familiar({
+        lastPaymentDate: null,
+        nextDueDate: null,
+        outstandingBalance: 70000,
+        unpaidCapital: 70000,
+      }),
+      { today: new Date('2026-11-16T12:00:00') },
+    );
+    expect(row.months).toHaveLength(1);
+    expect(row.months[0].periodKey).toBe('2026-11');
+    expect(row.months[0].periodLabel).toBe('Noviembre de 2026');
+    expect(row.months[0].capital).toBe(70000);
+    expect(row.months[0].interest).toBe(7000);
+    expect(row.totalDebt).toBe(77000);
+  });
+
+  it('noviembre ya figura desde el día 1 aunque el 10 no haya llegado', () => {
+    const row = appMonthlyDebtForMember(
+      familiar({
+        lastPaymentDate: null,
+        nextDueDate: null,
+        outstandingBalance: 70000,
+      }),
+      { today: new Date('2026-11-05T12:00:00') },
+    );
+    expect(row.months.map((m) => m.periodKey)).toEqual(['2026-11']);
+    expect(row.months[0].interest).toBe(0);
+    expect(row.totalDebt).toBe(70000);
+  });
+
+  it('next_due en diciembre no reabre noviembre: el saldo viejo va hacia atrás', () => {
+    const row = appMonthlyDebtForMember(
+      familiar({
+        lastPaymentDate: '2026-11-05',
+        nextDueDate: '2026-12-10',
+        outstandingBalance: 140000,
+      }),
+      { today: new Date('2026-11-16T12:00:00') },
+    );
+    expect(row.months.map((m) => m.periodKey)).toEqual(['2026-09', '2026-10']);
+    expect(row.months.every((m) => m.periodKey !== '2026-11')).toBe(true);
   });
 
   it('no aplica recargo a AMET y usa la tarifa de octubre', () => {

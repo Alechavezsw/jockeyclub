@@ -68,9 +68,12 @@ function sameHex(left: string, right: string) {
   return diff === 0;
 }
 
-/** Id que Mercado Pago firma: el query `data.id`, o el del cuerpo si no vino en la URL. */
+/** Id que Mercado Pago firma: `data.id` (nuevo), `id` (IPN viejo), o el del cuerpo. */
 function signedResourceId(req: Request, rawBody: string) {
-  const fromQuery = new URL(req.url).searchParams.get("data.id") || "";
+  const url = new URL(req.url);
+  const fromQuery = url.searchParams.get("data.id")
+    || url.searchParams.get("id")
+    || "";
   if (fromQuery.trim()) return fromQuery.trim();
   try {
     const parsed = JSON.parse(rawBody || "{}") as { data?: { id?: string | number }; id?: string | number };
@@ -78,6 +81,160 @@ function signedResourceId(req: Request, rawBody: string) {
   } catch {
     return "";
   }
+}
+
+async function resolveIntentId(admin: Admin, ref: string) {
+  const raw = String(ref || "").trim();
+  if (!raw) return "";
+  const { data: byId } = await admin.from("mp_intents").select("id").eq("id", raw).maybeSingle();
+  if (byId?.id) return String(byId.id);
+  const { data: byExt } = await admin
+    .from("mp_intents")
+    .select("id")
+    .eq("external_reference", raw)
+    .maybeSingle();
+  if (byExt?.id) return String(byExt.id);
+  return raw;
+}
+
+async function applyCheckoutPayment(
+  admin: Admin,
+  intentId: string,
+  providerPaymentId: string,
+  status: string,
+  paidAmount: number,
+) {
+  const resolved = await resolveIntentId(admin, intentId);
+  if (!resolved) return { error: "Sin cobro vinculado." };
+  const { error } = await admin.rpc("apply_mp_approved_payment", {
+    p_intent_id: resolved,
+    p_provider_payment_id: providerPaymentId,
+    p_status: status,
+    p_paid_amount: paidAmount,
+  });
+  if (error) return { error: error.message, intentId: resolved };
+  const receipt = await afterApprovedPayment(admin, resolved);
+  return { ok: true, intentId: resolved, receipt };
+}
+
+/** Preferencias / Checkout Pro: merchant_order → pagos. */
+async function applyMerchantOrder(admin: Admin, token: string, remoteId: string) {
+  const order = await mpGet(`/merchant_orders/${remoteId}`, token);
+  const payments = Array.isArray(order.payments)
+    ? (order.payments as Array<Record<string, unknown>>)
+    : [];
+  const pick = payments.find((row) => mpPaidStatus(row.status) === "approved")
+    || payments.find((row) => mpApiStatus(row.status))
+    || null;
+  if (!pick?.id) {
+    return { ok: true, ignored: true, reason: "no-payment", orderId: remoteId };
+  }
+  const payment = await mpGet(`/v1/payments/${pick.id}`, token);
+  const intentId = String(
+    payment.external_reference
+    || order.external_reference
+    || (payment.metadata as { intent_id?: string } | undefined)?.intent_id
+    || "",
+  );
+  const status = mpPaidStatus(payment.status || pick.status) || "pending";
+  const paidAmount = Number(payment.transaction_amount || pick.transaction_amount || order.paid_amount || 0);
+  if (!intentId) return { ok: true, ignored: true, reason: "no-intent", orderId: remoteId };
+  const applied = await applyCheckoutPayment(
+    admin,
+    intentId,
+    String(payment.id || pick.id),
+    status,
+    paidAmount,
+  );
+  return { ok: true, kind: "merchant_order", orderId: remoteId, ...applied };
+}
+
+async function applyPaymentId(admin: Admin, token: string, remoteId: string) {
+  const payment = await mpGet(`/v1/payments/${remoteId}`, token);
+  const metadata = payment.metadata as { intent_id?: string } | undefined;
+  const intentId = String(payment.external_reference || metadata?.intent_id || "");
+  const paymentStatus = mpApiStatus(payment.status);
+  if (!intentId || !paymentStatus) return { ok: true, ignored: true };
+  return {
+    ok: true,
+    kind: "payment",
+    ...await applyCheckoutPayment(
+      admin,
+      intentId,
+      String(payment.id || remoteId),
+      paymentStatus,
+      Number(payment.transaction_amount || 0),
+    ),
+  };
+}
+
+/** Repara intents pending buscando el pago aprobado en Mercado Pago. */
+async function repairPendingIntents(admin: Admin, token: string, body: Record<string, unknown>) {
+  const results: Array<Record<string, unknown>> = [];
+  const paymentIds = Array.isArray(body.paymentIds)
+    ? body.paymentIds.map((id) => String(id || "").trim()).filter(Boolean)
+    : [];
+  const merchantOrderIds = Array.isArray(body.merchantOrderIds)
+    ? body.merchantOrderIds.map((id) => String(id || "").trim()).filter(Boolean)
+    : [];
+
+  for (const id of paymentIds) {
+    try {
+      results.push(await applyPaymentId(admin, token, id));
+    } catch (err) {
+      results.push({ paymentId: id, error: err instanceof Error ? err.message : "falló" });
+    }
+  }
+  for (const id of merchantOrderIds) {
+    try {
+      results.push(await applyMerchantOrder(admin, token, id));
+    } catch (err) {
+      results.push({ merchantOrderId: id, error: err instanceof Error ? err.message : "falló" });
+    }
+  }
+
+  if (!paymentIds.length && !merchantOrderIds.length) {
+    const { data: pending } = await admin
+      .from("mp_intents")
+      .select("id, kind, amount, status, applied_at, preference_id, created_at")
+      .is("applied_at", null)
+      .eq("status", "pending")
+      .order("created_at", { ascending: false })
+      .limit(40);
+    for (const intent of pending || []) {
+      try {
+        const search = await mpGet(
+          `/v1/payments/search?sort=date_created&criteria=desc&external_reference=${encodeURIComponent(String(intent.id))}&range=date_created&begin_date=NOW-90DAYS&end_date=NOW`,
+          token,
+        );
+        const rows = Array.isArray((search as { results?: unknown[] }).results)
+          ? ((search as { results: Array<Record<string, unknown>> }).results)
+          : [];
+        const approved = rows.find((row) => mpPaidStatus(row.status) === "approved");
+        if (!approved?.id) {
+          results.push({ intentId: intent.id, skipped: true, reason: "sin-pago-aprobado" });
+          continue;
+        }
+        results.push({
+          intentId: intent.id,
+          ...await applyCheckoutPayment(
+            admin,
+            String(intent.id),
+            String(approved.id),
+            "approved",
+            Number(approved.transaction_amount || intent.amount || 0),
+          ),
+        });
+      } catch (err) {
+        results.push({
+          intentId: intent.id,
+          error: err instanceof Error ? err.message : "falló",
+        });
+      }
+    }
+  }
+
+  return { ok: true, kind: "repair", count: results.length, results };
 }
 
 async function mpSignatureOk(req: Request, rawBody: string, secret: string) {
@@ -659,18 +816,34 @@ Deno.serve(async (req) => {
     const secret = Deno.env.get("MP_WEBHOOK_SECRET") || "";
     const url = new URL(req.url);
     const rawBody = await req.text();
-    if (!secret || !(await mpSignatureOk(req, rawBody, secret))) {
-      return json(401, { error: "Firma inválida." });
-    }
     const body = (() => {
       try { return JSON.parse(rawBody || "{}") as Record<string, unknown>; }
       catch { return {} as Record<string, unknown>; }
     })();
+    const admin = createClient(supabaseUrl, serviceKey);
+
+    // Reconcile interno (service role): acredita pagos QR/app que el webhook no impactó.
+    if (body.repair === true) {
+      const auth = String(req.headers.get("Authorization") || "");
+      if (auth !== `Bearer ${serviceKey}`) {
+        return json(401, { error: "No autorizado." });
+      }
+      return json(200, await repairPendingIntents(admin, token, body));
+    }
+
+    if (!secret || !(await mpSignatureOk(req, rawBody, secret))) {
+      return json(401, { error: "Firma inválida." });
+    }
     const topic = topicOf(body, url);
     const remoteId = signedResourceId(req, rawBody);
     if (!remoteId) return json(401, { error: "Firma inválida." });
 
-    const admin = createClient(supabaseUrl, serviceKey);
+    // Checkout Pro / preferencias de la app: merchant_order (numérico).
+    if (topic.includes("merchant_order") || topic.includes("topic_merchant_order")) {
+      const result = await applyMerchantOrder(admin, token, remoteId);
+      if (result.error) return json(500, { error: result.error, ...result });
+      return json(200, result);
+    }
 
     if (remoteId.toLowerCase().startsWith("ord") || (topic.includes("order") && !topic.includes("merchant"))) {
       const order = await mpGet(`/v1/orders/${remoteId}`, token);
@@ -679,15 +852,15 @@ Deno.serve(async (req) => {
       const payments = (order.transactions as { payments?: Array<Record<string, unknown>> } | undefined)?.payments || [];
       const pay = payments[0] || {};
       const status = mpPaidStatus(pay.status || order.status) || "pending";
-      const { error } = await admin.rpc("apply_mp_approved_payment", {
-        p_intent_id: intentId,
-        p_provider_payment_id: String(pay.id || remoteId),
-        p_status: status,
-        p_paid_amount: Number(pay.amount || order.total_amount || 0),
-      });
-      if (error) return json(500, { error: error.message });
-      const receipt = await afterApprovedPayment(admin, intentId);
-      return json(200, { ok: true, kind: "qr_order", receipt });
+      const applied = await applyCheckoutPayment(
+        admin,
+        intentId,
+        String(pay.id || remoteId),
+        status,
+        Number(pay.amount || order.total_amount || 0),
+      );
+      if (applied.error) return json(500, { error: applied.error, ...applied });
+      return json(200, { ok: true, kind: "qr_order", ...applied });
     }
 
     if (topic.includes("preapproval") && !topic.includes("authorized_payment")) {
@@ -776,21 +949,9 @@ Deno.serve(async (req) => {
       return json(200, { ok: true, kind: "subscription_charge", receipt });
     }
 
-    const payment = await mpGet(`/v1/payments/${remoteId}`, token);
-    const metadata = payment.metadata as { intent_id?: string } | undefined;
-    const intentId = String(payment.external_reference || metadata?.intent_id || "");
-    const paymentStatus = mpApiStatus(payment.status);
-    if (!intentId || !paymentStatus) return json(200, { ok: true, ignored: true });
-
-    const { error } = await admin.rpc("apply_mp_approved_payment", {
-      p_intent_id: intentId,
-      p_provider_payment_id: String(payment.id || remoteId),
-      p_status: paymentStatus,
-      p_paid_amount: Number(payment.transaction_amount || 0),
-    });
-    if (error) return json(500, { error: error.message });
-    const receipt = await afterApprovedPayment(admin, intentId);
-    return json(200, { ok: true, kind: "payment", receipt });
+    const result = await applyPaymentId(admin, token, remoteId);
+    if (result.error) return json(500, { error: result.error, ...result });
+    return json(200, result);
   } catch (err) {
     return json(500, { error: err instanceof Error ? err.message : "Webhook Mercado Pago falló." });
   }

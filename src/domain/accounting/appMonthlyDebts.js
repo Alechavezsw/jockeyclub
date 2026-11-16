@@ -20,7 +20,7 @@ import {
   pinDuesDueDate,
   socialDuesStoredBalance,
 } from '../members/dues';
-import { duesMonthsPhrase } from '../members/duesImputations';
+import { duesMonthLabel, duesMonthsPhrase } from '../members/duesImputations';
 import { duesNoticeCalendar, duesNoticeStagesForDay } from '../members/duesNotices';
 import { isFamilyDependent, memberNumberOf } from '../members/households';
 import { getTierDisplayName } from '../members/tiers';
@@ -52,13 +52,18 @@ export function formatMonthlyDebtsAsOf(iso) {
 
 function periodFromDueOn(dueOn) {
   const stamp = asIsoDate(dueOn);
-  const y = stamp.slice(0, 4);
-  const month = Number(stamp.slice(5, 7));
   return {
     periodKey: stamp.slice(0, 7),
-    periodLabel: `${MONTHS_ES[month - 1] || stamp} del ${y}`,
+    periodLabel: duesMonthLabel(stamp) || stamp,
     dueOn: stamp,
   };
+}
+
+/** La cuota del mes existe desde el día 1; no esperar al día 10 para listarla. */
+function periodMonthOpened(dueOn, todayIso) {
+  const dueYm = String(dueOn || '').slice(0, 7);
+  const todayYm = String(todayIso || '').slice(0, 7);
+  return Boolean(dueYm && todayYm && dueYm <= todayYm);
 }
 
 function shiftDue(iso, monthDelta, member) {
@@ -181,7 +186,8 @@ function allocateMonths(member, { remaining, firstUnpaid, lastPaymentDate, today
 
   let dueOn = firstUnpaid;
   for (let i = 0; i < MAX_MONTHS && leftover > EPS; i += 1) {
-    if (!dueOn || dueOn > todayIso) break;
+    // Mes abierto desde el día 1 (no recién cuando dueOn <= hoy).
+    if (!dueOn || !periodMonthOpened(dueOn, todayIso)) break;
     const taken = takeMonth(current, member, dueOn, leftover, { today });
     leftover = taken.leftover;
     if (taken.status === 'zero' || taken.status === 'short') break;
@@ -189,9 +195,15 @@ function allocateMonths(member, { remaining, firstUnpaid, lastPaymentDate, today
   }
 
   const lastPaidDue = pinDuesDueDate(lastPaymentDate, member);
+  // Atrás desde el mes anterior al ya listado. Si current vacío y el ancla es futura
+  // (next_due en diciembre = noviembre pago), no reabrir ese mes: ir al previo.
   let olderDue = lastPaidDue
     ? prevDueBefore(lastPaidDue, member)
-    : prevDueBefore(current[0]?.dueOn || latestOccurredDue(todayIso, member), member);
+    : (current[0]?.dueOn
+      ? prevDueBefore(current[0].dueOn, member)
+      : (firstUnpaid && !periodMonthOpened(firstUnpaid, todayIso)
+        ? prevDueBefore(latestOccurredDue(todayIso, member), member)
+        : latestOccurredDue(todayIso, member)));
 
   for (let i = 0; i < MAX_MONTHS && leftover > EPS; i += 1) {
     if (!olderDue || current.length + older.length >= MAX_MONTHS) break;

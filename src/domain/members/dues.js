@@ -265,7 +265,10 @@ export function firstUnpaidDuesDate({ lastPaymentDate, nextDueDate, today = new 
   if (paid) {
     return toISODate(duesDateOnDueDay(paid.getFullYear(), paid.getMonth() + 1, day));
   }
-  return nextDuesDueDate(today, member);
+  // Sin ficha: mes en curso (día 1+), no el próximo mes después del 10.
+  // nextDuesDueDate salta a diciembre desde el 11 y Consultar deuda inventaba octubre.
+  const anchor = asDueAnchor(today);
+  return toISODate(duesDateOnDueDay(anchor.getFullYear(), anchor.getMonth(), day));
 }
 
 /** Cuántos vencimientos quedaron sin pagar desde el último cobro. */
