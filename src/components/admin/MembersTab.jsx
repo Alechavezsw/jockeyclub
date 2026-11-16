@@ -227,9 +227,9 @@ const PADRON_RESERVED_COLORS = [
 ];
 
 function memberStatusTone(status) {
-  if (status === 'inactive') return { text: '● Baja', color: '#c23b3b' };
-  if (status === 'suspended') return { text: '○ Cuenta Suspendida', color: '#c9a227' };
-  return { text: '● Cuenta Habilitada', color: 'var(--emerald-accent)' };
+  if (status === 'inactive') return { text: 'Baja', tone: 'baja' };
+  if (status === 'suspended') return { text: 'Suspendida', tone: 'suspendida' };
+  return { text: 'Habilitada', tone: 'ok' };
 }
 
 function memberInitials(name = '') {
@@ -2641,15 +2641,23 @@ export default function MembersTab({
                           )}
                         </div>
                         <div className="member-identity-copy">
-                          <strong>{m.name}</strong>
-                          <span className="member-identity-meta" style={{ color: memberStatusTone(m.status).color }}>
-                            {memberStatusTone(m.status).text}
-                            {m.status === 'inactive' && m.bajaMotivo ? ` · ${m.bajaMotivo}` : ''}
-                            {m.status === 'inactive' && m.bajaActorName ? ` · ${m.bajaActorName}` : ''}
-                            {m.status === 'active' && m.reactivateActorName ? ` · Reactivado por ${m.reactivateActorName}` : ''}
-                            <span>
-                              · {memberAppAccess(m).label} · Ver perfil
+                          <strong className="member-identity-name">{m.name}</strong>
+                          <span className="member-identity-meta">
+                            <span className={`member-status-chip is-${memberStatusTone(m.status).tone}`}>
+                              {memberStatusTone(m.status).text}
                             </span>
+                            <span className={`member-app-chip${memberAppAccess(m).hasAccess ? ' is-on' : ''}`}>
+                              {memberAppAccess(m).label}
+                            </span>
+                            {m.status === 'inactive' && m.bajaMotivo ? (
+                              <span className="member-identity-note">{m.bajaMotivo}</span>
+                            ) : null}
+                            {m.status === 'inactive' && m.bajaActorName ? (
+                              <span className="member-identity-note">{m.bajaActorName}</span>
+                            ) : null}
+                            {m.status === 'active' && m.reactivateActorName ? (
+                              <span className="member-identity-note">Reactivado por {m.reactivateActorName}</span>
+                            ) : null}
                           </span>
                         </div>
                       </button>

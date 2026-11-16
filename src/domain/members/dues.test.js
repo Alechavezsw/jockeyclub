@@ -27,6 +27,8 @@ import {
   unpaidSocialDuesAmount,
   canChargeSocialDues,
   isAmetDuesMember,
+  duesAmetQuotaAmount,
+  duesAmetInterestAmount,
   duesDueDayForMember,
   duesOnJoin,
   isMemberBillingActive,
@@ -234,6 +236,11 @@ describe('dues classification', () => {
     expect(nextDuesDueDate('2026-10-19', amet)).toBe('2026-11-18');
     expect(duesPayableAmount(68250, { paidOn: '2026-10-19', dueOn: '2026-10-18', tier: 'socio_familiar_amet' })).toBe(68250);
     expect(getOverdueMembers([amet], new Date('2026-10-11T12:00:00'))).toHaveLength(0);
+    expect(getOverdueMembers([{
+      ...amet,
+      outstandingBalance: 68250,
+      nextDueDate: '2026-10-18',
+    }], new Date('2026-10-25T12:00:00'))).toHaveLength(0);
     expect(getDueTodayMembers([{ ...amet, nextDueDate: '2026-10-18' }], new Date('2026-10-18T12:00:00'))).toHaveLength(1);
     const charged = applyAutomaticDues([{ ...amet, nextDueDate: '2026-10-18' }], new Date('2026-10-19T12:00:00'))[0];
     expect(charged.outstandingBalance).toBe(68250);
@@ -474,6 +481,27 @@ describe('tarifa desde octubre 2026', () => {
     expect(duesAmountForMember({ tier: 'socio_familiar', adherents: [] }, october)).toBe(70000);
     expect(duesAmountForMember({ tier: 'socio_individual_amet', adherents: [] }, october)).toBe(39000);
     expect(duesAmountForMember({ tier: 'socio_familiar_amet', adherents: [] }, october)).toBe(68250);
+    // Con interés 2,5 % en categorías, la cuota AMET sigue siendo 68.250 / 39.000.
+    expect(duesAmetQuotaAmount({
+      tier: 'socio_familiar_amet',
+      cuotaCategories: ['SOCIO FAMILIAR (AMET)', 'INTERES POR TRANSACCIÓN 2,5% GRUPO FAMILIAR (AMET)'],
+      adherents: [],
+    }, october)).toBe(68250);
+    expect(duesAmetInterestAmount({
+      tier: 'socio_familiar_amet',
+      cuotaCategories: ['SOCIO FAMILIAR (AMET)', 'INTERES POR TRANSACCIÓN 2,5% GRUPO FAMILIAR (AMET)'],
+      adherents: [],
+    }, october)).toBe(1750);
+    expect(duesAmetQuotaAmount({
+      tier: 'socio_individual_amet',
+      cuotaCategories: ['SOCIO INDIVIDUAL (AMET)', 'INTERES POR TRANSACCIÓN 2,5% SOCIO INDIVIDUAL (AMET)'],
+      adherents: [],
+    }, october)).toBe(39000);
+    expect(duesAmetInterestAmount({
+      tier: 'socio_individual_amet',
+      cuotaCategories: ['SOCIO INDIVIDUAL (AMET)', 'INTERES POR TRANSACCIÓN 2,5% SOCIO INDIVIDUAL (AMET)'],
+      adherents: [],
+    }, october)).toBe(1000);
     expect(duesAmountForMember({ tier: 'abono_tenis', adherents: [] }, october)).toBe(12000);
     expect(duesAmountForMember({ tier: 'grupo_familiar_familiar', adherents: [] }, october)).toBe(0);
     expect(duesAmountForMember({ tier: 'socio_vitalicio', adherents: [] }, october)).toBe(0);

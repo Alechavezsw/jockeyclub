@@ -1,6 +1,6 @@
 /** Avisos reales de cuota: 5 días antes, el día de vencimiento y el siguiente (mora). */
 
-import { canChargeSocialDues, duesDueDayForMember } from './dues';
+import { canChargeSocialDues, duesDueDayForMember, isAmetDuesMember } from './dues';
 import { portalAccountUrl } from './selfService';
 
 export const DUES_NOTICE_ACCOUNT_URL = portalAccountUrl();
@@ -20,10 +20,11 @@ export const MORA_CONSEQUENCES = [
   'Tampoco se puede pagar pileta hasta estar al día.',
 ];
 
+/** AMET no entra en mora: copy solo para avisos de vencimiento (sin etapa mora). */
 export const AMET_MORA_CONSEQUENCES = [
   'La cuota AMET vence el día 18. El 2,5 % es la tarifa, no un recargo de mora.',
-  'En mora no se ingresa al club hasta regularizar la cuota.',
-  'Tampoco se puede pagar pileta hasta estar al día.',
+  'AMET no entra en mora ni paga el recargo del 10 %.',
+  'Regularizá el saldo para seguir usando pileta e instalaciones sin bloqueo por mora.',
 ];
 
 export function duesNoticeCalendar(dueDay = 10, advanceDays = DUES_NOTICE_ADVANCE_DAYS) {
@@ -61,7 +62,10 @@ export function duesNoticeStagesForDay(todayIso, dueDay = 10, advanceDays = DUES
 }
 
 export function duesNoticeStagesForMember(member, todayIso, advanceDays = DUES_NOTICE_ADVANCE_DAYS) {
-  return duesNoticeStagesForDay(todayIso, duesDueDayForMember(member), advanceDays);
+  const stages = duesNoticeStagesForDay(todayIso, duesDueDayForMember(member), advanceDays);
+  // AMET: avisos upcoming/due; nunca etapa mora.
+  if (isAmetDuesMember(member)) return stages.filter((s) => s !== 'mora');
+  return stages;
 }
 
 export function duesNoticeKind(stage) {

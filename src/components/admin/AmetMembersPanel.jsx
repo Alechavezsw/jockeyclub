@@ -3,16 +3,15 @@ import {
   Banknote,
   ChevronLeft,
   ChevronRight,
-  ExternalLink,
   Search,
   BadgePercent,
 } from 'lucide-react';
 import {
   DUES_AMET_DUE_DAY,
-  duesAmountForMember,
+  duesAmetInterestAmount,
+  duesAmetQuotaAmount,
   duesRuleSentences,
   formatShortDate,
-  getOverdueMembers,
   isAmetDuesMember,
   pinDuesDueDate,
   toWhatsAppPhone,
@@ -45,7 +44,7 @@ function WhatsAppIcon({ size = 14 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <path
-        fill="#25D366"
+        fill="currentColor"
         d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.435 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"
       />
     </svg>
@@ -61,6 +60,12 @@ function TierChip({ tier, catalog }) {
       {sub ? <span className="tier-chip-sub">{sub}</span> : null}
     </span>
   );
+}
+
+function standingLabel(standing) {
+  if (standing === 'mora') return 'Mora';
+  if (standing === 'deuda') return 'Deuda';
+  return 'Al día';
 }
 
 /**
@@ -83,31 +88,30 @@ export default function AmetMembersPanel({
   const rules = useMemo(() => duesRuleSentences(), []);
   const ametCutPct = Math.round(DUES_AMET_RATE * 1000) / 10;
   const [query, setQuery] = useState('');
-  const [kindFilter, setKindFilter] = useState('all'); // all | familiar | individual | debt
+  const [kindFilter, setKindFilter] = useState('all');
   const [page, setPage] = useState(0);
   const [collectMember, setCollectMember] = useState(null);
   const [flash, setFlash] = useState('');
 
   const ametMembers = useMemo(() => {
     const today = new Date();
-    const overdueIds = new Set(
-      getOverdueMembers(members || [], today).map((m) => String(m.memberId || m.id || '')),
-    );
     return (members || [])
       .filter((m) => isLiveMember(m) && isTitularMember(m) && isAmetDuesMember(m))
       .map((m) => {
-        const monthly = Number(duesAmountForMember(m, today)) || 0;
+        const monthly = Number(duesAmetQuotaAmount(m, today)) || 0;
+        const interest = Number(duesAmetInterestAmount(m, today)) || 0;
         const balance = Math.max(0, Number(m.outstandingBalance) || 0);
         const dueIso = pinDuesDueDate(m.nextDueDate, m) || m.nextDueDate || null;
-        const mora = overdueIds.has(String(m.memberId || m.id || ''));
         return {
           ...m,
           ametKind: ametKind(m),
           monthlyDues: monthly,
+          interestDues: interest,
           balance,
           dueIso,
-          mora,
-          standing: mora ? 'mora' : (balance > 0 ? 'deuda' : 'al_dia'),
+          mora: false,
+          // AMET nunca entra en mora: solo deuda o al día.
+          standing: balance > 0 ? 'deuda' : 'al_dia',
         };
       })
       .toSorted((a, b) => (b.balance - a.balance)
@@ -148,8 +152,12 @@ export default function AmetMembersPanel({
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages - 1);
   const pageRows = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
-
   const canCollect = typeof setMembers === 'function';
+
+  const setFilter = (next) => {
+    setKindFilter((cur) => (cur === next && next !== 'all' ? 'all' : next));
+    setPage(0);
+  };
 
   const handleConfirmCollect = async (payload) => {
     if (!collectMember) return;
@@ -181,57 +189,37 @@ export default function AmetMembersPanel({
       <header className="amet-desk__head">
         <div className="amet-desk__title-row">
           <span className="amet-desk__icon" aria-hidden="true">
-            <BadgePercent size={20} />
+            <BadgePercent size={18} />
           </span>
           <div>
-            <h2 className="serif-font" style={{ margin: 0 }}>AMET</h2>
+            <h2 className="amet-desk__title">AMET</h2>
             <p className="amet-desk__lead">
-              {rules.ametLine}
+              Vence el {DUES_AMET_DUE_DAY} · cuota con −{String(ametCutPct).replace('.', ',')} % (tarifa, no mora).
               {' '}
-              Sin recargo de mora. Vence el día {DUES_AMET_DUE_DAY}.
+              Sin recargo.
             </p>
           </div>
         </div>
+        <p className="amet-desk__hint" title={rules.ametLine}>
+          {ametMembers.length.toLocaleString('es-AR')} titulares · {formatCurrency(monthTotal)} / mes
+        </p>
       </header>
 
       {flash ? <p className="dues-flash" role="status">{flash}</p> : null}
 
-      <div className="amet-desk__kpis" role="group" aria-label="Resumen AMET">
-        <button
-          type="button"
-          className={`amet-desk__kpi${kindFilter === 'all' ? ' is-on' : ''}`}
-          onClick={() => { setKindFilter('all'); setPage(0); }}
-        >
-          <span>Titulares AMET</span>
-          <strong>{ametMembers.length.toLocaleString('es-AR')}</strong>
-          <em>{formatCurrency(monthTotal)} / mes</em>
+      <div className="amet-desk__filters" role="group" aria-label="Filtros AMET">
+        <button type="button" className={`amet-desk__filter${kindFilter === 'all' ? ' is-on' : ''}`} onClick={() => setFilter('all')}>
+          Todos <b>{ametMembers.length}</b>
         </button>
-        <button
-          type="button"
-          className={`amet-desk__kpi is-familiar${kindFilter === 'familiar' ? ' is-on' : ''}`}
-          onClick={() => { setKindFilter(kindFilter === 'familiar' ? 'all' : 'familiar'); setPage(0); }}
-        >
-          <span>Familiar AMET</span>
-          <strong>{familiar.length.toLocaleString('es-AR')}</strong>
-          <em>Vence el {DUES_AMET_DUE_DAY}</em>
+        <button type="button" className={`amet-desk__filter${kindFilter === 'familiar' ? ' is-on' : ''}`} onClick={() => setFilter('familiar')}>
+          Familiar <b>{familiar.length}</b>
         </button>
-        <button
-          type="button"
-          className={`amet-desk__kpi is-individual${kindFilter === 'individual' ? ' is-on' : ''}`}
-          onClick={() => { setKindFilter(kindFilter === 'individual' ? 'all' : 'individual'); setPage(0); }}
-        >
-          <span>Individual AMET</span>
-          <strong>{individual.length.toLocaleString('es-AR')}</strong>
-          <em>Tarifa −{String(ametCutPct).replace('.', ',')} %</em>
+        <button type="button" className={`amet-desk__filter${kindFilter === 'individual' ? ' is-on' : ''}`} onClick={() => setFilter('individual')}>
+          Individual <b>{individual.length}</b>
         </button>
-        <button
-          type="button"
-          className={`amet-desk__kpi is-debt${kindFilter === 'debt' ? ' is-on' : ''}`}
-          onClick={() => { setKindFilter(kindFilter === 'debt' ? 'all' : 'debt'); setPage(0); }}
-        >
-          <span>Con saldo</span>
-          <strong>{withDebt.length.toLocaleString('es-AR')}</strong>
-          <em>{formatCurrency(debtTotal)}</em>
+        <button type="button" className={`amet-desk__filter is-debt${kindFilter === 'debt' ? ' is-on' : ''}`} onClick={() => setFilter('debt')}>
+          Con saldo <b>{withDebt.length}</b>
+          <span>{formatCurrency(debtTotal)}</span>
         </button>
       </div>
 
@@ -248,65 +236,68 @@ export default function AmetMembersPanel({
           />
         </label>
         <p className="amet-desk__count">
-          {membersLoading ? 'Cargando padrón…' : `${filtered.length.toLocaleString('es-AR')} socios`}
+          {membersLoading ? 'Cargando…' : `${filtered.length.toLocaleString('es-AR')} en la lista`}
         </p>
       </div>
 
-      <div className="table-responsive">
+      <div className="table-responsive amet-desk__wrap">
         <table className="admin-table amet-desk__table">
           <thead>
             <tr>
-              <th>Nº</th>
               <th>Socio</th>
               <th>Categoría</th>
-              <th>Cuota mes</th>
-              <th>Vencimiento</th>
-              <th>Saldo</th>
-              <th>Estado</th>
+              <th className="amet-desk__num">Cuota</th>
+              <th className="amet-desk__num">Vence</th>
+              <th className="amet-desk__num">Saldo</th>
               <th>Acciones</th>
             </tr>
           </thead>
           <tbody>
             {pageRows.length === 0 ? (
               <tr>
-                <td colSpan={8} style={{ color: 'var(--text-muted)' }}>
+                <td colSpan={6} className="amet-desk__empty">
                   {membersLoading ? 'Cargando…' : 'No hay socios AMET con este filtro.'}
                 </td>
               </tr>
             ) : pageRows.map((m) => {
               const wa = toWhatsAppPhone(m.phone);
-              const dueLabel = formatShortDate(m.dueIso) || `Día ${DUES_AMET_DUE_DAY}`;
+              const nro = memberNumberOf(m) || '—';
+              const dueLabel = formatShortDate(m.dueIso) || `${DUES_AMET_DUE_DAY}`;
               return (
                 <tr key={m.memberId || m.id}>
-                  <td className="tabular-nums">{memberNumberOf(m) || '—'}</td>
                   <td>
-                    <button
-                      type="button"
-                      className="member-balances-open"
-                      onClick={() => onOpenProfile?.(m.memberId)}
-                    >
-                      {m.name}
-                      <ExternalLink size={12} aria-hidden="true" />
-                    </button>
+                    <div className="amet-desk__who">
+                      <button
+                        type="button"
+                        className="amet-desk__name"
+                        onClick={() => onOpenProfile?.(m.memberId)}
+                      >
+                        {m.name}
+                      </button>
+                      <span className="amet-desk__nro">Nº {nro}</span>
+                    </div>
                   </td>
                   <td><TierChip tier={m.tier} catalog={tierCatalog} /></td>
-                  <td className="tabular-nums" style={{ fontWeight: 700 }}>
-                    {formatCurrency(m.monthlyDues)}
+                  <td className="amet-desk__num">
+                    <div className="amet-desk__cuota">
+                      <strong className="tabular-nums">{formatCurrency(m.monthlyDues)}</strong>
+                      {m.interestDues > 0 ? (
+                        <span className="amet-desk__interes tabular-nums">
+                          + {formatCurrency(m.interestDues)} interés 2,5 %
+                        </span>
+                      ) : null}
+                    </div>
                   </td>
-                  <td className="tabular-nums">{dueLabel}</td>
-                  <td
-                    className="tabular-nums"
-                    style={{
-                      fontWeight: 700,
-                      color: m.balance > 0 ? 'var(--danger-accent)' : 'var(--emerald-accent)',
-                    }}
-                  >
-                    {formatCurrency(m.balance)}
-                  </td>
-                  <td>
-                    <span className={`amet-desk__status is-${m.standing}`}>
-                      {m.standing === 'mora' ? 'En mora' : m.standing === 'deuda' ? 'Con saldo' : 'Al día'}
-                    </span>
+                  <td className="amet-desk__num tabular-nums">{dueLabel}</td>
+                  <td className="amet-desk__num">
+                    <div className="amet-desk__saldo">
+                      <strong className={m.balance > 0 ? 'is-debt' : 'is-ok'}>
+                        {formatCurrency(m.balance)}
+                      </strong>
+                      <span className={`amet-desk__status is-${m.standing}`}>
+                        {standingLabel(m.standing)}
+                      </span>
+                    </div>
                   </td>
                   <td>
                     <div className="amet-desk__actions">
@@ -315,10 +306,11 @@ export default function AmetMembersPanel({
                           href={`https://wa.me/${wa}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="dues-wa"
+                          className="amet-desk__wa"
                           title={`WhatsApp ${m.phone}`}
+                          aria-label={`WhatsApp ${m.name}`}
                         >
-                          <WhatsAppIcon size={14} />
+                          <WhatsAppIcon size={15} />
                         </a>
                       ) : null}
                       {canCollect && m.balance > 0 ? (
@@ -329,7 +321,9 @@ export default function AmetMembersPanel({
                         >
                           <Banknote size={14} /> Cobrar
                         </button>
-                      ) : null}
+                      ) : (
+                        <span className="amet-desk__idle">—</span>
+                      )}
                     </div>
                   </td>
                 </tr>

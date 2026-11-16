@@ -48,7 +48,7 @@ describe('duesNotices', () => {
     expect(mora.accountUrl).toBe('https://www.jockeyclubsj.com.ar/cuenta');
   });
 
-  it('AMET avisa el 13, vence el 18 y mora el 19, sin recargo del 10 %', () => {
+  it('AMET avisa el 13, vence el 18 y nunca entra en etapa mora', () => {
     expect(duesNoticeCalendar(18)).toEqual({
       dueDay: 18,
       advanceDays: 5,
@@ -58,7 +58,7 @@ describe('duesNotices', () => {
     const amet = { status: 'active', tier: 'socio_familiar_amet', cuotaCategories: ['SOCIO FAMILIAR (AMET)'] };
     expect(duesNoticeStagesForMember(amet, '2026-10-13')).toEqual(['upcoming']);
     expect(duesNoticeStagesForMember(amet, '2026-10-18')).toEqual(['due']);
-    expect(duesNoticeStagesForMember(amet, '2026-10-19')).toEqual(['mora']);
+    expect(duesNoticeStagesForMember(amet, '2026-10-19')).toEqual([]);
     expect(duesNoticeStagesForMember(amet, '2026-10-11')).toEqual([]);
     const copy = duesNoticeCopy({ name: 'Paula', dueOn: '2026-10-18', stage: 'due', amet: true });
     expect(copy.lead).toMatch(/AMET/i);

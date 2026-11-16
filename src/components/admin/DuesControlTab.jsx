@@ -423,7 +423,7 @@ export default function DuesControlTab({
           <p>
             {accountCut.asOf ? `Cuentas corrientes al ${formatISODateLongAR(accountCut.asOf)}. ` : ''}
             Cuota social viva sobre el padrón: el 10 vence sin recargo, desde el 11 está en mora
-            (familiar e individual, recargo 10 %). AMET vence el 18; el 2,5 % es tarifa, no mora.
+            (familiar e individual, recargo 10 %). AMET vence el 18, sin mora; el 2,5 % es tarifa.
             El saldo de cuota del padrón entra acá. Un alquiler queda afuera si el mes ya está pago. Cobrar usa el recaudo de caja.
           </p>
         </div>

@@ -65,8 +65,8 @@ export function duesRuleSentences() {
     banner: `el ${DUES_DUE_DAY} de cada mes (AMET, el ${DUES_AMET_DUE_DAY})`,
     collectLine: `El recargo del ${late} es el de cada mes vencido, por separado, desde el día siguiente al vencimiento y solo en socio familiar e individual; AMET no lleva.`,
     moraWhen: `El día ${DUES_DUE_DAY} (AMET, el ${DUES_AMET_DUE_DAY}) vence la cuota. Hasta ese día no lleva recargo.`,
-    moraAfter: `Desde el día siguiente (el ${moraDay}; AMET, el ${ametMoraDay}) es mora. En socio familiar e individual corre el recargo del ${late}; AMET no lleva recargo.`,
-    glossaryAmet: `AMET: categoría que vence el ${DUES_AMET_DUE_DAY}, con la cuota en base menos ${ametCut}; ese ${ametCut} es tarifa, no mora, y no lleva recargo.`,
+    moraAfter: `Desde el día siguiente (el ${moraDay}) es mora en socio familiar e individual, con recargo del ${late}. AMET no entra en mora ni lleva ese recargo.`,
+    glossaryAmet: `AMET: categoría que vence el ${DUES_AMET_DUE_DAY}, con la cuota en base menos ${ametCut}; ese ${ametCut} es tarifa. No entra en mora y no lleva el recargo del ${late}.`,
     glossaryMora: `Mora: cuota vencida y sin pagar, desde el día siguiente al vencimiento. Recargo: ${late} de la cuota de cada mes vencido, por separado, solo familiar e individual.`,
     controlMora: `Desde el día siguiente al vencimiento corre el recargo del ${late} (familiar e individual).`,
     gateMora: `ACCESO DENEGADO · DEUDA: si debe cuota social, no ingresa (todo el año). En temporada de pileta (diciembre a marzo), desde el ${DUES_DUE_DAY}, también aplica ACCESO DENEGADO · MORA si no pagó el mes. Un adherente queda igual que su titular.`,
@@ -81,7 +81,7 @@ export function duesRuleSentences() {
     noticesLine(advanceDays) {
       const upcoming = DUES_DUE_DAY - advanceDays;
       const ametUpcoming = DUES_AMET_DUE_DAY - advanceDays;
-      return `Avisos reales, uno de cada etapa por socio: desde ${advanceDays} días antes del vencimiento, el día que vence y desde el día siguiente (mora). Para casi todos eso es desde el ${upcoming}, el ${DUES_DUE_DAY} y desde el ${moraDay}; para AMET, desde el ${ametUpcoming}, el ${DUES_AMET_DUE_DAY} y desde el ${ametMoraDay}. Llegan por mensaje interno y mail, con las consecuencias de mora. La regla está en Configuración.`;
+      return `Avisos reales, uno de cada etapa por socio: desde ${advanceDays} días antes del vencimiento, el día que vence y desde el día siguiente (mora). Para socio familiar e individual eso es desde el ${upcoming}, el ${DUES_DUE_DAY} y desde el ${moraDay}. AMET avisa desde el ${ametUpcoming} y el ${DUES_AMET_DUE_DAY}; no tiene etapa mora. Llegan por mensaje interno y mail. La regla está en Configuración.`;
     },
     poolGate: `Pileta: canon socio e invitado, apto médico (días), invitados por socio, nombre de la temporada, si el socio carga el apto, y Mora desde el ${DUES_DUE_DAY} bloquea el ingreso (en temporada, diciembre a marzo; vale para sede y pileta).`,
   };
@@ -110,6 +110,40 @@ export function isAmetDuesMember(member) {
   const ids = billedTierIds(member);
   const pool = ids.length ? ids : [String(member?.tier || '').trim().toLowerCase()].filter(Boolean);
   return pool.some((id) => isSocialQuotaTierId(id) && id.includes('amet'));
+}
+
+/** Línea Lila «interés por transacción 2,5 %» (tarifa AMET, no mora). */
+export function isAmetInterestTierId(id) {
+  const key = String(id || '').trim().toLowerCase();
+  return key.includes('interes_por_transaccion') && key.includes('amet');
+}
+
+function ametSocialTierIds(member) {
+  const ids = billedTierIds(member).filter((id) => isSocialQuotaTierId(id) && id.includes('amet'));
+  if (ids.length) return ids;
+  const tier = String(member?.tier || '').trim().toLowerCase();
+  return (isSocialQuotaTierId(tier) && tier.includes('amet')) ? [tier] : [];
+}
+
+/**
+ * Cuota AMET del mes: base − 2,5 % (familiar $ 68.250 / individual $ 39.000).
+ * No suma la línea de interés 2,5 % (va aparte en la liquidación).
+ */
+export function duesAmetQuotaAmount(member, on = new Date()) {
+  if (!isAmetDuesMember(member) || isDuesExemptMember(member) || isFamilyDependent(member)) return 0;
+  return money(ametSocialTierIds(member).reduce(
+    (sum, id) => sum + duesAmountForTier(id, undefined, on),
+    0,
+  ));
+}
+
+/** Interés 2,5 % AMET del mes (tarifa aparte; no es recargo de mora). */
+export function duesAmetInterestAmount(member, on = new Date()) {
+  if (!isAmetDuesMember(member) || isDuesExemptMember(member) || isFamilyDependent(member)) return 0;
+  return money(billedTierIds(member).filter(isAmetInterestTierId).reduce(
+    (sum, id) => sum + duesAmountForTier(id, undefined, on),
+    0,
+  ));
 }
 
 export function duesDueDayForMember(member) {
@@ -581,6 +615,8 @@ function socialDuesAmountDue(member, todayStart) {
 
 function isSocialDuesMora(member, todayStart) {
   if (!isMemberBillingActive(member) || isDuesExemptMember(member) || isFamilyDependent(member)) return false;
+  // AMET: sin mora ni recargo del 10 %. Puede deber saldo, pero no entra al listado de mora.
+  if (isAmetDuesMember(member)) return false;
   const due = parseDueDate(member?.nextDueDate, member);
   if (due && due < todayStart) return true;
   if (monthsBehindOnDues({
