@@ -1,6 +1,13 @@
 import { createAccountEntry } from '../accounting/accountEntries';
 import { applyEntryToMembers } from '../accounting/memberBalances';
 import { todayAR } from '../../lib/arDate';
+import {
+  journalAccountForPayment,
+} from '../members/clubBanks';
+import {
+  POOL_DESK_PAYMENT_METHODS,
+  poolMethodLabel,
+} from './poolAccess';
 
 
 export const POOL_MP_PENDING = 'El canon de Mercado Pago se acredita cuando confirma el pago.';
@@ -48,7 +55,7 @@ export function buildPoolAccountEntries({ entry, member } = {}) {
       description: `Pago ${description}`,
       source: 'pool_canon',
       voucher,
-      paymentMethods: [{ method: 'efectivo', amount }],
+      paymentMethods: [{ method, amount }],
     }),
   ];
 }
@@ -61,11 +68,11 @@ export function applyPoolAccountPass(members = [], accountEntries = []) {
 }
 
 /**
- * El canon en efectivo entra en la caja abierta y en el libro,
- * y deja cargo+pago en la cuenta del socio (sin mover la deuda de cuota).
+ * Canon acreditado en mostrador (efectivo / transferencia / tarjeta / débito):
+ * asiento + cargo/pago en la cuenta del socio (sin mover la deuda de cuota).
  * La asistencia no cobra. Mercado Pago lo acredita el webhook.
  */
-export async function chargePoolCanon({ entry, member, recordPoolCanon }) {
+export async function chargePoolCanon({ entry, member, recordPoolCanon, bankId = null }) {
   const amount = Number(entry?.payment?.amount) || 0;
   const method = entry?.payment?.method || 'efectivo';
   const memberDbId = member?.id || entry?.memberDbId || null;
@@ -78,26 +85,35 @@ export async function chargePoolCanon({ entry, member, recordPoolCanon }) {
     }
     throw new Error(POOL_MP_PENDING);
   }
-  if (method !== 'efectivo') {
-    throw new Error('Cobrá el canon en efectivo para que entre en la caja.');
+  if (!POOL_DESK_PAYMENT_METHODS.includes(method)) {
+    throw new Error('Medio de pago inválido para el canon de pileta.');
   }
   if (typeof recordPoolCanon !== 'function') {
-    throw new Error('No se pudo registrar el canon en caja. Reintentá en unos segundos.');
+    throw new Error('No se pudo registrar el canon. Reintentá en unos segundos.');
   }
   const who = entry.kind === 'guest'
     ? `${entry.guestName || 'invitado'} (anfitrión ${member?.name || entry.memberName || 'socio'})`
     : (member?.name || entry.memberName || 'socio');
+  const bankJournal = journalAccountForPayment(method, bankId);
   const saved = await recordPoolCanon({
     amount,
     concept: `Canon pileta — ${who}`,
     memberDbId,
     date: entry.date,
+    method,
+    bankJournal,
   });
   const charged = {
     ...entry,
     memberDbId,
     journalEntryId: saved?.journalEntry?.id || null,
     cashMovementId: saved?.movement?.id || null,
+    payment: {
+      ...(entry.payment || {}),
+      method,
+      methodLabel: poolMethodLabel(method),
+      bankJournal: method === 'transferencia' || method === 'debito' ? bankJournal : null,
+    },
   };
   return {
     ...charged,

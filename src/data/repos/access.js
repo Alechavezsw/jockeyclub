@@ -127,14 +127,23 @@ export async function insertPoolAccess(entry, memberDbId = null) {
   return M.poolAccessFromRow(saved);
 }
 
-/** Canon de pileta: asiento en Caja General y movimiento de la caja abierta, a nombre de quien cobra. */
-export async function recordPoolCanon({ amount, concept, memberDbId, date }) {
+/** Canon de pileta: asiento (caja o banco) y, si es efectivo/tarjeta, movimiento de la caja abierta. */
+export async function recordPoolCanon({
+  amount,
+  concept,
+  memberDbId,
+  date,
+  method = 'efectivo',
+  bankJournal = null,
+}) {
   const data = await unwrap(
     sb().rpc('record_pool_canon', {
       p_amount: Number(amount),
       p_concept: concept || 'Canon pileta',
       p_member_id: isUuid(memberDbId) ? memberDbId : null,
       p_date: date || todayAR(),
+      p_method: method || 'efectivo',
+      p_bank_journal: bankJournal || null,
     }),
     'No se pudo registrar el canon de pileta',
   );
@@ -142,6 +151,8 @@ export async function recordPoolCanon({ amount, concept, memberDbId, date }) {
     journalEntry: { id: data?.journal_entry_id || null },
     movement: { id: data?.cash_movement_id || null },
     sessionId: data?.cash_session_id || null,
+    paymentMethod: data?.payment_method || method || 'efectivo',
+    bankJournal: data?.bank_journal || bankJournal || null,
   };
 }
 

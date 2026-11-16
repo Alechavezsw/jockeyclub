@@ -228,7 +228,7 @@ export function asLedgerRowFromAppMovement(row, {
 
 const COBRANZA_TYPE_BY_SOURCE = {
   cuotas: 'Cuotas',
-  pileta: 'Varios',
+  pileta: 'Pileta',
   eventos: 'Eventos',
 };
 

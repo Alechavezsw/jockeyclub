@@ -757,53 +757,135 @@ export default function useErpStore({
   );
 
   const recordPoolCanon = useCallback(
-    async ({ amount, concept, memberDbId, date }) => {
+    async ({ amount, concept, memberDbId, date, method = 'efectivo', bankJournal = null }) => {
       const fee = Number(amount);
       if (!fee || fee <= 0) throw new Error('Importe de canon inválido.');
       const description = String(concept || 'Canon pileta').trim();
       const when = date || todayAR();
+      const payMethod = String(method || 'efectivo').toLowerCase();
       if (cloud()) {
-        return repos.recordPoolCanon({
+        const saved = await repos.recordPoolCanon({
           amount: fee,
           concept: description,
           memberDbId: memberDbId || null,
           date: when,
+          method: payMethod,
+          bankJournal: bankJournal || null,
         });
+        // Hidrata libro + caja en memoria para que Tesorería / cobranzas vean el canon al toque.
+        // Operario de pileta no lee journal/cash por RLS: armamos el espejo desde el plan local.
+        const journalId = saved?.journalEntry?.id || null;
+        const movementId = saved?.movement?.id || null;
+        const needsCash = payMethod === 'efectivo' || payMethod === 'tarjeta';
+        const incomeAccountId = resolveAccountId(chartOfAccounts, 'Reservas e Instalaciones');
+        const debitAccountId = needsCash
+          ? (pickGeneralCashRegister(cashRegisters, chartOfAccounts)?.accountId
+            || resolveAccountId(chartOfAccounts, 'Caja General'))
+          : resolveAccountId(chartOfAccounts, bankJournal || 'Banco Macro');
+        let journal = null;
+        let movement = null;
+        try {
+          [journal, movement] = await Promise.all([
+            journalId && typeof repos.getJournalEntry === 'function' ? repos.getJournalEntry(journalId) : null,
+            movementId && typeof repos.getCashMovement === 'function' ? repos.getCashMovement(movementId) : null,
+          ]);
+        } catch {
+          journal = null;
+          movement = null;
+        }
+        if (!journal && journalId && incomeAccountId && debitAccountId) {
+          journal = {
+            id: journalId,
+            date: when,
+            concept: description,
+            description,
+            status: 'posted',
+            sourceModule: 'pileta',
+            lines: [
+              { accountId: debitAccountId, debit: fee, credit: 0, memo: needsCash ? 'Caja General' : (bankJournal || 'Banco') },
+              { accountId: incomeAccountId, debit: 0, credit: fee, memo: 'Canon pileta' },
+            ],
+          };
+        }
+        if (!movement && movementId && needsCash) {
+          const register = pickGeneralCashRegister(cashRegisters, chartOfAccounts);
+          const session = register ? getOpenSession(cashSessions, register.id) : null;
+          movement = {
+            id: movementId,
+            cashSessionId: saved?.sessionId || session?.id || null,
+            movementType: 'income',
+            amount: fee,
+            concept: description,
+            relatedAccountId: incomeAccountId || null,
+            memberId: memberDbId || null,
+            journalEntryId: journalId,
+            createdAt: new Date().toISOString(),
+          };
+        }
+        if (journal?.id) {
+          setJournalEntries((prev) => (
+            prev.some((row) => String(row.id) === String(journal.id)) ? prev : [journal, ...prev]
+          ));
+        }
+        if (movement?.id) {
+          setCashMovements((prev) => (
+            prev.some((row) => String(row.id) === String(movement.id)) ? prev : [movement, ...prev]
+          ));
+        }
+        return {
+          ...saved,
+          journalEntry: journal || saved.journalEntry,
+          movement: movement || saved.movement,
+        };
       }
       const incomeAccountId = resolveAccountId(chartOfAccounts, 'Reservas e Instalaciones');
       if (!incomeAccountId) throw new Error('Falta la cuenta Reservas e Instalaciones en el plan.');
-      const register = pickGeneralCashRegister(cashRegisters, chartOfAccounts);
-      if (!register) throw new Error('No hay Caja General configurada.');
-      let session = getOpenSession(cashSessions, register.id);
-      if (!session) {
-        session = await openRegister(register.id, 0);
+      const needsCash = payMethod === 'efectivo' || payMethod === 'tarjeta';
+      let debitAccountId = null;
+      let session = null;
+      let register = null;
+      if (needsCash) {
+        register = pickGeneralCashRegister(cashRegisters, chartOfAccounts);
+        if (!register) throw new Error('No hay Caja General configurada.');
+        debitAccountId = register.accountId;
+        session = getOpenSession(cashSessions, register.id);
+        if (!session) {
+          session = await openRegister(register.id, 0);
+        }
+      } else {
+        const bankName = bankJournal || 'Banco Macro';
+        debitAccountId = resolveAccountId(chartOfAccounts, bankName);
+        if (!debitAccountId) throw new Error(`No está la cuenta ${bankName} en el plan.`);
       }
       const entry = buildPostedEntry({
         date: when,
         description,
         lines: [
-          { accountId: register.accountId, debit: fee, credit: 0 },
+          { accountId: debitAccountId, debit: fee, credit: 0 },
           { accountId: incomeAccountId, debit: 0, credit: fee },
         ],
         sourceModule: 'pileta',
         chart: chartOfAccounts,
       });
-      const movement = {
-        id: `cm-${Date.now()}`,
-        cashSessionId: session.id,
-        movementType: 'income',
-        amount: fee,
-        concept: entry.description,
-        relatedAccountId: incomeAccountId,
-        memberId: memberDbId || null,
-        journalEntryId: entry.id,
-        createdAt: new Date().toISOString(),
-      };
-      setCashMovements((prev) => [movement, ...prev]);
+      let movement = null;
+      if (needsCash && session) {
+        movement = {
+          id: `cm-${Date.now()}`,
+          cashSessionId: session.id,
+          movementType: 'income',
+          amount: fee,
+          concept: entry.description,
+          relatedAccountId: incomeAccountId,
+          memberId: memberDbId || null,
+          journalEntryId: entry.id,
+          createdAt: new Date().toISOString(),
+        };
+        setCashMovements((prev) => [movement, ...prev]);
+      }
       setJournalEntries((prev) => [entry, ...prev]);
-      return { journalEntry: entry, movement };
+      return { journalEntry: entry, movement, paymentMethod: payMethod, bankJournal: needsCash ? null : (bankJournal || 'Banco Macro') };
     },
-    [cashRegisters, cashSessions, chartOfAccounts, setJournalEntries, userId, openRegister]
+    [cashRegisters, cashSessions, chartOfAccounts, setJournalEntries, setCashMovements, openRegister]
   );
 
   const openPoolDayCash = useCallback(async () => {

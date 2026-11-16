@@ -14,10 +14,31 @@ export const DEFAULT_POOL_SETTINGS = {
   seasonBlocksUnpaidDues: true,
 };
 
+/** Mismos medios de cobro que en la app (cuotas), sin mixto: el canon de pileta es un solo importe. */
 export const POOL_PAYMENT_METHODS = [
   { id: 'efectivo', label: 'Efectivo' },
+  { id: 'transferencia', label: 'Transferencia' },
+  { id: 'tarjeta', label: 'Tarjeta' },
+  { id: 'debito', label: 'Débito' },
   { id: 'mercadopago', label: 'Mercado Pago' },
 ];
+
+export const POOL_DESK_PAYMENT_METHODS = POOL_PAYMENT_METHODS
+  .filter((m) => m.id !== 'mercadopago')
+  .map((m) => m.id);
+
+export function poolMethodUsesCash(method) {
+  return method === 'efectivo' || method === 'tarjeta';
+}
+
+export function poolMethodUsesBank(method) {
+  return method === 'transferencia' || method === 'debito';
+}
+
+export function poolMethodLabel(method) {
+  return POOL_PAYMENT_METHODS.find((m) => m.id === method)?.label
+    || (method === 'asistencia' ? 'Asistencia' : String(method || ''));
+}
 
 function todayISO(d = new Date()) {
   return todayAR(d);
@@ -243,7 +264,10 @@ export function enableMemberPoolAccess({
 
   const fee = amount != null ? Number(amount) : mergePoolSettings(settings).memberDayFee;
   if (fee < 0) throw new Error('Importe inválido.');
-  if (!['efectivo', 'mercadopago'].includes(method)) throw new Error('Medio de pago inválido.');
+  const resolvedMethod = String(method || 'efectivo').toLowerCase();
+  if (!POOL_PAYMENT_METHODS.some((m) => m.id === resolvedMethod)) {
+    throw new Error('Medio de pago inválido.');
+  }
 
   const entry = {
     id: `pool-${Date.now().toString(36)}`,
@@ -255,7 +279,7 @@ export function enableMemberPoolAccess({
     hostMemberId: null,
     payment: {
       amount: fee,
-      method,
+      method: resolvedMethod,
       paidAt: new Date().toISOString(),
       ref: paymentRef || null,
       concept: 'Canon pileta socio',

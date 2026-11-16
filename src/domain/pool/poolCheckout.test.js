@@ -72,6 +72,22 @@ describe('chargePoolCanon', () => {
       recordPoolCanon: async () => ({ journalEntry: { id: 'x' }, movement: { id: 'y' } }),
     })).rejects.toThrow(POOL_MP_PENDING);
   });
+
+  it('acredita transferencia en el banco elegido', async () => {
+    const charged = await chargePoolCanon({
+      entry: { ...entry, payment: { ...entry.payment, method: 'transferencia' } },
+      member: { id: 'm1', memberId: '100', name: 'Ana Pérez' },
+      bankId: 'macro',
+      recordPoolCanon: async (payload) => {
+        expect(payload.method).toBe('transferencia');
+        expect(payload.bankJournal).toBe('Banco Macro');
+        return { journalEntry: { id: 'je-t' }, movement: null };
+      },
+    });
+    expect(charged.journalEntryId).toBe('je-t');
+    expect(charged.payment.method).toBe('transferencia');
+    expect(charged.accountEntries[1].paymentMethods[0].method).toBe('transferencia');
+  });
 });
 
 describe('buildPoolAccountEntries / applyPoolAccountPass', () => {

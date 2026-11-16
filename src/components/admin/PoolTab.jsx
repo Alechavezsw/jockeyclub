@@ -19,14 +19,20 @@ import {
   poolSearchFlags,
   memberPoolHistory,
   isPoolDayCashOpen,
+  POOL_PAYMENT_METHODS,
+  poolMethodUsesCash,
+  poolMethodUsesBank,
+  poolMethodLabel,
 } from '../../domain/pool/poolAccess';
 import {
   applyPoolAccountPass,
   chargePoolCanon,
   withChargedPoolEntry,
 } from '../../domain/pool/poolCheckout';
+import { verifyPoolCanonCircle } from '../../domain/pool/poolCircle';
 import { deliverPaymentReceipt } from '../../domain/payments/deliverPaymentReceipt';
 import { poolIngressToAccessLog } from '../../domain/credentials/accessLog';
+import { CLUB_BANK_ACCOUNTS } from '../../domain/members/clubBanks';
 import { todayISODateAR } from '../../lib/arDate';
 import MercadoPagoCheckout from '../MercadoPagoCheckout';
 import ModalDialog from '../ModalDialog';
@@ -88,6 +94,8 @@ export default function PoolTab({
   const [error, setError] = useState('');
   const [payMethod, setPayMethod] = useState('efectivo');
   const [guestMethod, setGuestMethod] = useState('efectivo');
+  const [payBankId, setPayBankId] = useState(CLUB_BANK_ACCOUNTS[0]?.id || 'macro');
+  const [guestBankId, setGuestBankId] = useState(CLUB_BANK_ACCOUNTS[0]?.id || 'macro');
   const [feeDraft, setFeeDraft] = useState({
     memberDayFee: settings.memberDayFee,
     guestDayFee: settings.guestDayFee,
@@ -211,6 +219,10 @@ export default function PoolTab({
       setError('En mora · regularizá la cuota para pagar pileta.');
       return;
     }
+    if (payMethod === 'mercadopago') {
+      setError('Usá el QR de Mercado Pago para este medio.');
+      return;
+    }
     setSelectedId(member.memberId);
     setBusy(true);
     setError('');
@@ -218,13 +230,22 @@ export default function PoolTab({
       const { entry, accesses } = enableMemberPoolAccess({
         member,
         accesses: poolAccesses,
-        method: 'efectivo',
+        method: payMethod,
         today,
         settings,
         actorName,
         members,
       });
-      const charged = await chargePoolCanon({ entry, member, recordPoolCanon });
+      const charged = await chargePoolCanon({
+        entry,
+        member,
+        recordPoolCanon,
+        bankId: poolMethodUsesBank(payMethod) ? payBankId : null,
+      });
+      const circle = verifyPoolCanonCircle({ entry, charged, method: payMethod });
+      if (!circle.ok) {
+        throw new Error(`Canon incompleto: ${circle.issues.join(' · ')}`);
+      }
       setPoolAccesses(withChargedPoolEntry(accesses, entry, charged));
       for (const row of charged.accountEntries || []) onUpsertMemberAccountEntry?.(row);
       if (typeof setMembers === 'function' && charged.accountEntries?.length) {
@@ -235,14 +256,15 @@ export default function PoolTab({
         if (log) setEntryLogs((prev) => [log, ...(prev || [])]);
       }
       const amount = Number(charged?.payment?.amount) || 0;
-      if (amount > 0 && charged?.payment?.method === 'efectivo') {
+      const method = charged?.payment?.method || payMethod;
+      if (amount > 0 && method !== 'mercadopago') {
         void deliverPaymentReceipt({
           member,
           payment: {
             amount,
             date: charged.date || today,
-            method: 'efectivo',
-            methodLabel: 'Efectivo',
+            method,
+            methodLabel: poolMethodLabel(method),
             receiptNumber: charged.cashMovementId || charged.journalEntryId || charged.id,
             concept: `Canon pileta · ${member.name || 'socio'}`,
           },
@@ -250,7 +272,7 @@ export default function PoolTab({
           kind: 'pileta',
         });
       }
-      showFlash(`Habilitado · ${member.name}`);
+      showFlash(`Habilitado · ${member.name} · asiento en caja`);
     } catch (err) {
       setError(err?.message || 'No se pudo habilitar el acceso.');
     } finally {
@@ -260,6 +282,10 @@ export default function PoolTab({
 
   const handleEnableGuest = async () => {
     if (!selected) return;
+    if (guestMethod === 'mercadopago') {
+      setError('Usá el QR de Mercado Pago para este medio.');
+      return;
+    }
     setBusy(true);
     setError('');
     try {
@@ -267,12 +293,21 @@ export default function PoolTab({
         host: selected,
         guestName,
         accesses: poolAccesses,
-        method: 'efectivo',
+        method: guestMethod,
         today,
         settings,
         actorName,
       });
-      const charged = await chargePoolCanon({ entry, member: selected, recordPoolCanon });
+      const charged = await chargePoolCanon({
+        entry,
+        member: selected,
+        recordPoolCanon,
+        bankId: poolMethodUsesBank(guestMethod) ? guestBankId : null,
+      });
+      const circle = verifyPoolCanonCircle({ entry, charged, method: guestMethod });
+      if (!circle.ok) {
+        throw new Error(`Canon incompleto: ${circle.issues.join(' · ')}`);
+      }
       setPoolAccesses(withChargedPoolEntry(accesses, entry, charged));
       for (const row of charged.accountEntries || []) onUpsertMemberAccountEntry?.(row);
       if (typeof setMembers === 'function' && charged.accountEntries?.length) {
@@ -284,14 +319,15 @@ export default function PoolTab({
         if (log) setEntryLogs((prev) => [log, ...(prev || [])]);
       }
       const amount = Number(charged?.payment?.amount) || 0;
-      if (amount > 0 && charged?.payment?.method === 'efectivo') {
+      const method = charged?.payment?.method || guestMethod;
+      if (amount > 0 && method !== 'mercadopago') {
         void deliverPaymentReceipt({
           member: selected,
           payment: {
             amount,
             date: charged.date || today,
-            method: 'efectivo',
-            methodLabel: 'Efectivo',
+            method,
+            methodLabel: poolMethodLabel(method),
             receiptNumber: charged.cashMovementId || charged.journalEntryId || charged.id,
             concept: `Canon pileta invitado · ${charged.guestName || 'invitado'}`,
           },
@@ -323,7 +359,8 @@ export default function PoolTab({
           <p className="pool-kicker"><Waves size={14} aria-hidden="true" /> Pileta</p>
           <h2 className="serif-font">{settings.seasonLabel}</h2>
           <p>
-            La caja permanece siempre abierta. Cada Habilitar cobra el canon en caja y lo anota en la cuenta del socio.
+            Cada Habilitar acredita el canon en Caja General (o banco / Mercado Pago), deja el asiento en el libro,
+            anota el movimiento en la cuenta del socio y manda el comprobante.
           </p>
         </div>
         <button
@@ -522,19 +559,35 @@ export default function PoolTab({
               ) : !eval_.alreadyIn ? (
                 <div className="pool-pay">
                   <div className="pool-entrance-methods">
-                    <button type="button" className={`pool-method${payMethod === 'efectivo' ? ' is-active' : ''}`} onClick={() => setPayMethod('efectivo')}>Efectivo</button>
-                    <button type="button" className={`pool-method${payMethod === 'mercadopago' ? ' is-active' : ''}`} onClick={() => setPayMethod('mercadopago')}>Mercado Pago</button>
+                    {POOL_PAYMENT_METHODS.map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        className={`pool-method${payMethod === m.id ? ' is-active' : ''}`}
+                        onClick={() => setPayMethod(m.id)}
+                      >
+                        {m.label}
+                      </button>
+                    ))}
                   </div>
-                  {payMethod === 'efectivo' ? (
-                    <button
-                      type="button"
-                      className="btn btn-primary pool-enable-btn"
-                      disabled={busy || !dayCashOpen || !eval_.canEnable}
-                      onClick={() => handleEnableMember(selected)}
-                    >
-                      <UserCheck size={16} /> Habilitar · {formatCurrency(settings.memberDayFee)}
-                    </button>
-                  ) : (
+                  {poolMethodUsesBank(payMethod) ? (
+                    <label className="form-group" style={{ marginTop: '0.65rem', marginBottom: 0 }}>
+                      <span className="form-label">Banco / alias</span>
+                      <select
+                        className="form-input"
+                        value={payBankId}
+                        onChange={(e) => setPayBankId(e.target.value)}
+                      >
+                        {CLUB_BANK_ACCOUNTS.map((bank) => (
+                          <option key={bank.id} value={bank.id}>
+                            {bank.name}
+                            {bank.alias ? ` · ${bank.alias}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
+                  {payMethod === 'mercadopago' ? (
                     <MercadoPagoCheckout
                       kind="pool"
                       mode="qr"
@@ -548,11 +601,24 @@ export default function PoolTab({
                         showFlash(`Pago Mercado Pago · ${selected.name}`);
                       }}
                     />
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn btn-primary pool-enable-btn"
+                      disabled={busy || (poolMethodUsesCash(payMethod) && !dayCashOpen) || !eval_.canEnable}
+                      onClick={() => handleEnableMember(selected)}
+                    >
+                      <UserCheck size={16} /> Habilitar · {formatCurrency(settings.memberDayFee)}
+                    </button>
                   )}
                   <p className="ops-muted">
-                    {payMethod === 'efectivo'
-                      ? 'Efectivo en Caja General. Queda el asiento y el ingreso a tu nombre.'
-                      : 'El socio paga en el teléfono. Cuando Mercado Pago confirma, entra el canon y el ingreso.'}
+                    {payMethod === 'mercadopago'
+                      ? 'El socio paga en el teléfono. Cuando Mercado Pago confirma, entra el canon y el ingreso.'
+                      : poolMethodUsesBank(payMethod)
+                        ? `${poolMethodLabel(payMethod)} acredita en el banco o alias elegido. Queda el asiento y el ingreso.`
+                        : payMethod === 'tarjeta'
+                          ? 'Tarjeta en Caja General. Queda el asiento y el ingreso a tu nombre.'
+                          : 'Efectivo en Caja General. Queda el asiento y el ingreso a tu nombre.'}
                   </p>
                   {eval_.blockers.length > 0 ? (
                     <ul className="pool-blockers">
@@ -590,20 +656,35 @@ export default function PoolTab({
                     />
                   </div>
                   <div className="pool-entrance-methods" style={{ marginTop: '0.65rem' }}>
-                    <button type="button" className={`pool-method${guestMethod === 'efectivo' ? ' is-active' : ''}`} onClick={() => setGuestMethod('efectivo')}>Efectivo</button>
-                    <button type="button" className={`pool-method${guestMethod === 'mercadopago' ? ' is-active' : ''}`} onClick={() => setGuestMethod('mercadopago')}>Mercado Pago</button>
+                    {POOL_PAYMENT_METHODS.map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        className={`pool-method${guestMethod === m.id ? ' is-active' : ''}`}
+                        onClick={() => setGuestMethod(m.id)}
+                      >
+                        {m.label}
+                      </button>
+                    ))}
                   </div>
-                  {guestMethod === 'efectivo' ? (
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      disabled={busy || !dayCashOpen || !guestName.trim() || hostGuests.length >= settings.maxGuestsPerMember}
-                      onClick={handleEnableGuest}
-                      style={{ width: '100%', marginTop: '0.65rem' }}
-                    >
-                      <UserPlus size={16} /> Sumar invitado · {formatCurrency(settings.guestDayFee)}
-                    </button>
-                  ) : (
+                  {poolMethodUsesBank(guestMethod) ? (
+                    <label className="form-group" style={{ marginTop: '0.65rem', marginBottom: 0 }}>
+                      <span className="form-label">Banco / alias</span>
+                      <select
+                        className="form-input"
+                        value={guestBankId}
+                        onChange={(e) => setGuestBankId(e.target.value)}
+                      >
+                        {CLUB_BANK_ACCOUNTS.map((bank) => (
+                          <option key={bank.id} value={bank.id}>
+                            {bank.name}
+                            {bank.alias ? ` · ${bank.alias}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
+                  {guestMethod === 'mercadopago' ? (
                     <MercadoPagoCheckout
                       kind="pool"
                       mode="qr"
@@ -619,6 +700,16 @@ export default function PoolTab({
                         showFlash('Invitado pago por Mercado Pago');
                       }}
                     />
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      disabled={busy || (poolMethodUsesCash(guestMethod) && !dayCashOpen) || !guestName.trim() || hostGuests.length >= settings.maxGuestsPerMember}
+                      onClick={handleEnableGuest}
+                      style={{ width: '100%', marginTop: '0.65rem' }}
+                    >
+                      <UserPlus size={16} /> Sumar invitado · {formatCurrency(settings.guestDayFee)}
+                    </button>
                   )}
                 </div>
               )}

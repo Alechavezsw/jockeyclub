@@ -64,6 +64,26 @@ export async function listJournalEntries() {
   }
 }
 
+/** Un asiento con sus líneas (para hidratar caja / libro tras un cobro cloud). */
+export async function getJournalEntry(id) {
+  if (!isUuid(id)) return null;
+  const entry = await unwrap(
+    sb().from('journal_entries').select('*, journal_lines(*)').eq('id', id).maybeSingle(),
+    'No se pudo leer el asiento',
+  );
+  if (!entry) return null;
+  return M.journalFromRow(entry, entry.journal_lines || []);
+}
+
+export async function getCashMovement(id) {
+  if (!isUuid(id)) return null;
+  const row = await unwrap(
+    sb().from('cash_movements').select('*').eq('id', id).maybeSingle(),
+    'No se pudo leer el movimiento de caja',
+  );
+  return row ? M.cashMovementFromRow(row) : null;
+}
+
 function journalRpcMissing(error) {
   const code = String(error?.code || '');
   return code === 'PGRST202' || code === '42883';

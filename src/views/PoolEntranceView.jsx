@@ -14,6 +14,10 @@ import {
   mergePoolSearchHits,
   poolEntranceVerdict,
   guestDayAccessesForHost,
+  POOL_PAYMENT_METHODS,
+  poolMethodUsesCash,
+  poolMethodUsesBank,
+  poolMethodLabel,
 } from '../domain/pool/poolAccess';
 import { todayISODateAR } from '../lib/arDate';
 import { isSupabaseConfigured } from '../lib/supabase';
@@ -24,7 +28,9 @@ import {
   chargePoolCanon,
   withChargedPoolEntry,
 } from '../domain/pool/poolCheckout';
+import { verifyPoolCanonCircle } from '../domain/pool/poolCircle';
 import { deliverPaymentReceipt } from '../domain/payments/deliverPaymentReceipt';
+import { CLUB_BANK_ACCOUNTS } from '../domain/members/clubBanks';
 import MercadoPagoCheckout from '../components/MercadoPagoCheckout';
 import { listPoolAccesses } from '../data/repos';
 import { isPoolSeasonLive } from '../domain/pool/poolSeason';
@@ -71,6 +77,7 @@ export default function PoolEntranceView({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [payMethod, setPayMethod] = useState('efectivo');
+  const [payBankId, setPayBankId] = useState(CLUB_BANK_ACCOUNTS[0]?.id || 'macro');
   // false = la base dice que no hay caja del día abierta; null = todavía no se sabe.
   const cashClosed = dayCashOpen === false;
 
@@ -174,19 +181,32 @@ export default function PoolEntranceView({
 
   const handleEnable = async () => {
     if (!selected) return;
+    if (payMethod === 'mercadopago') {
+      setError('Usá el QR de Mercado Pago para este medio.');
+      return;
+    }
     setBusy(true);
     setError('');
     try {
       const { entry, accesses } = enableMemberPoolAccess({
         member: selected,
         accesses: poolAccesses,
-        method: 'efectivo',
+        method: payMethod,
         today,
         settings,
         actorName,
         members: directory,
       });
-      const charged = await chargePoolCanon({ entry, member: selected, recordPoolCanon });
+      const charged = await chargePoolCanon({
+        entry,
+        member: selected,
+        recordPoolCanon,
+        bankId: poolMethodUsesBank(payMethod) ? payBankId : null,
+      });
+      const circle = verifyPoolCanonCircle({ entry, charged, method: payMethod });
+      if (!circle.ok) {
+        throw new Error(`Canon incompleto: ${circle.issues.join(' · ')}`);
+      }
       setPoolAccesses(withChargedPoolEntry(accesses, entry, charged));
       for (const row of charged.accountEntries || []) onUpsertMemberAccountEntry?.(row);
       if (typeof setMembers === 'function' && charged.accountEntries?.length) {
@@ -197,14 +217,15 @@ export default function PoolEntranceView({
         if (log) setEntryLogs((prev) => [log, ...(prev || [])]);
       }
       const amount = Number(charged?.payment?.amount) || 0;
-      if (amount > 0 && charged?.payment?.method === 'efectivo') {
+      const method = charged?.payment?.method || payMethod;
+      if (amount > 0 && method !== 'mercadopago') {
         void deliverPaymentReceipt({
           member: selected,
           payment: {
             amount,
             date: charged.date || today,
-            method: 'efectivo',
-            methodLabel: 'Efectivo',
+            method,
+            methodLabel: poolMethodLabel(method),
             receiptNumber: charged.cashMovementId || charged.journalEntryId || charged.id,
             concept: `Canon pileta · ${selected.name || 'socio'}`,
           },
@@ -414,31 +435,35 @@ export default function PoolEntranceView({
           {eval_.canEnable ? (
             <div className="pool-entrance-paybox">
               <div className="pool-entrance-methods">
-                <button
-                  type="button"
-                  className={`pool-method${payMethod === 'efectivo' ? ' is-active' : ''}`}
-                  onClick={() => setPayMethod('efectivo')}
-                >
-                  Efectivo
-                </button>
-                <button
-                  type="button"
-                  className={`pool-method${payMethod === 'mercadopago' ? ' is-active' : ''}`}
-                  onClick={() => setPayMethod('mercadopago')}
-                >
-                  Mercado Pago
-                </button>
+                {POOL_PAYMENT_METHODS.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    className={`pool-method${payMethod === m.id ? ' is-active' : ''}`}
+                    onClick={() => setPayMethod(m.id)}
+                  >
+                    {m.label}
+                  </button>
+                ))}
               </div>
-              {payMethod === 'efectivo' ? (
-                <button
-                  type="button"
-                  className="btn btn-primary pool-entrance-pay"
-                  disabled={busy || !eval_.canEnable || cashClosed}
-                  onClick={handleEnable}
-                >
-                  Cobrar canon e ingresar · {formatCurrency(settings.memberDayFee)}
-                </button>
-              ) : (
+              {poolMethodUsesBank(payMethod) ? (
+                <label className="form-group" style={{ marginTop: '0.65rem', marginBottom: 0 }}>
+                  <span className="form-label">Banco / alias</span>
+                  <select
+                    className="form-input"
+                    value={payBankId}
+                    onChange={(e) => setPayBankId(e.target.value)}
+                  >
+                    {CLUB_BANK_ACCOUNTS.map((bank) => (
+                      <option key={bank.id} value={bank.id}>
+                        {bank.name}
+                        {bank.alias ? ` · ${bank.alias}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+              {payMethod === 'mercadopago' ? (
                 <MercadoPagoCheckout
                   kind="pool"
                   mode="qr"
@@ -455,6 +480,15 @@ export default function PoolEntranceView({
                     }
                   }}
                 />
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-primary pool-entrance-pay"
+                  disabled={busy || !eval_.canEnable || (poolMethodUsesCash(payMethod) && cashClosed)}
+                  onClick={handleEnable}
+                >
+                  Cobrar canon e ingresar · {formatCurrency(settings.memberDayFee)}
+                </button>
               )}
             </div>
           ) : null}
