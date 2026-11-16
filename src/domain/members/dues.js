@@ -126,8 +126,8 @@ function ametSocialTierIds(member) {
 }
 
 /**
- * Cuota AMET del mes: base − 2,5 % (familiar $ 68.250 / individual $ 39.000).
- * No suma la línea de interés 2,5 % (va aparte en la liquidación).
+ * Cuota AMET del mes: lo que se cobra = base − 2,5 % (familiar $ 68.250 / individual $ 39.000).
+ * La línea Lila «interés 2,5 %» no se cobra: documenta el descuento, no un cargo extra.
  */
 export function duesAmetQuotaAmount(member, on = new Date()) {
   if (!isAmetDuesMember(member) || isDuesExemptMember(member) || isFamilyDependent(member)) return 0;
@@ -137,13 +137,20 @@ export function duesAmetQuotaAmount(member, on = new Date()) {
   ));
 }
 
-/** Interés 2,5 % AMET del mes (tarifa aparte; no es recargo de mora). */
+/**
+ * Monto del −2,5 % AMET (referencia / catálogo Lila). No se imputa ni se suma al cobro.
+ */
 export function duesAmetInterestAmount(member, on = new Date()) {
   if (!isAmetDuesMember(member) || isDuesExemptMember(member) || isFamilyDependent(member)) return 0;
-  return money(billedTierIds(member).filter(isAmetInterestTierId).reduce(
+  const fromCatalog = money(billedTierIds(member).filter(isAmetInterestTierId).reduce(
     (sum, id) => sum + duesAmountForTier(id, undefined, on),
     0,
   ));
+  if (fromCatalog > 0) return fromCatalog;
+  // Si no trae la línea Lila, el descuento es el 2,5 % de la base (cuota / 0,975 − cuota).
+  const quota = duesAmetQuotaAmount(member, on);
+  if (quota <= 0) return 0;
+  return money(quota / (1 - DUES_AMET_RATE) - quota);
 }
 
 export function duesDueDayForMember(member) {
@@ -525,6 +532,7 @@ function discountedTierAmount(member, id, on, rules) {
 
 function payableForTierIds(person, ids, { paidOn, dueOn, on, rules, addOnsOnly = false } = {}) {
   return (ids || []).reduce((sum, id) => {
+    if (isAmetInterestTierId(id)) return sum; // −2,5 % AMET: no se cobra como línea aparte
     if (addOnsOnly && !isAddOnDuesTierId(id)) return sum;
     return sum + duesPayableAmount(
       discountedTierAmount(person, id, on, rules),
@@ -708,6 +716,8 @@ export function duesAmountForHousehold(titularTier, familyGroup = [], on = new D
 }
 
 function pushChargeSlice(slices, person, id, on, rules) {
+  // AMET: se cobra solo la cuota (base − 2,5 %). La línea «interés» no entra.
+  if (isAmetInterestTierId(id)) return;
   const amount = money(discountedTierAmount(person, id, on, rules));
   if (amount <= 0) return;
   const prev = slices.get(id);

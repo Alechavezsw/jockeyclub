@@ -481,8 +481,13 @@ describe('tarifa desde octubre 2026', () => {
     expect(duesAmountForMember({ tier: 'socio_familiar', adherents: [] }, october)).toBe(70000);
     expect(duesAmountForMember({ tier: 'socio_individual_amet', adherents: [] }, october)).toBe(39000);
     expect(duesAmountForMember({ tier: 'socio_familiar_amet', adherents: [] }, october)).toBe(68250);
-    // Con interés 2,5 % en categorías, la cuota AMET sigue siendo 68.250 / 39.000.
+    // Con la línea Lila de interés en categorías, se cobra solo base − 2,5 % (no se suma el 2,5 %).
     expect(duesAmetQuotaAmount({
+      tier: 'socio_familiar_amet',
+      cuotaCategories: ['SOCIO FAMILIAR (AMET)', 'INTERES POR TRANSACCIÓN 2,5% GRUPO FAMILIAR (AMET)'],
+      adherents: [],
+    }, october)).toBe(68250);
+    expect(duesAmountForMember({
       tier: 'socio_familiar_amet',
       cuotaCategories: ['SOCIO FAMILIAR (AMET)', 'INTERES POR TRANSACCIÓN 2,5% GRUPO FAMILIAR (AMET)'],
       adherents: [],
@@ -493,6 +498,11 @@ describe('tarifa desde octubre 2026', () => {
       adherents: [],
     }, october)).toBe(1750);
     expect(duesAmetQuotaAmount({
+      tier: 'socio_individual_amet',
+      cuotaCategories: ['SOCIO INDIVIDUAL (AMET)', 'INTERES POR TRANSACCIÓN 2,5% SOCIO INDIVIDUAL (AMET)'],
+      adherents: [],
+    }, october)).toBe(39000);
+    expect(duesAmountForMember({
       tier: 'socio_individual_amet',
       cuotaCategories: ['SOCIO INDIVIDUAL (AMET)', 'INTERES POR TRANSACCIÓN 2,5% SOCIO INDIVIDUAL (AMET)'],
       adherents: [],
@@ -508,7 +518,7 @@ describe('tarifa desde octubre 2026', () => {
     expect(duesAmountForMember({
       tier: 'interes_por_transaccion_25_grupo_familiar_amet',
       adherents: [],
-    }, october)).toBe(1750);
+    }, october)).toBe(0);
     expect(duesAmountForMember({
       tier: 'socio_familiar',
       cuotaCategories: ['SOCIO FAMILIAR', 'ABONO TENIS'],

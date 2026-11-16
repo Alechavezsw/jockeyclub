@@ -99,14 +99,14 @@ export default function AmetMembersPanel({
       .filter((m) => isLiveMember(m) && isTitularMember(m) && isAmetDuesMember(m))
       .map((m) => {
         const monthly = Number(duesAmetQuotaAmount(m, today)) || 0;
-        const interest = Number(duesAmetInterestAmount(m, today)) || 0;
+        const cut = Number(duesAmetInterestAmount(m, today)) || 0;
         const balance = Math.max(0, Number(m.outstandingBalance) || 0);
         const dueIso = pinDuesDueDate(m.nextDueDate, m) || m.nextDueDate || null;
         return {
           ...m,
           ametKind: ametKind(m),
           monthlyDues: monthly,
-          interestDues: interest,
+          ametCut: cut,
           balance,
           dueIso,
           mora: false,
@@ -281,11 +281,10 @@ export default function AmetMembersPanel({
                   <td className="amet-desk__num">
                     <div className="amet-desk__cuota">
                       <strong className="tabular-nums">{formatCurrency(m.monthlyDues)}</strong>
-                      {m.interestDues > 0 ? (
-                        <span className="amet-desk__interes tabular-nums">
-                          + {formatCurrency(m.interestDues)} interés 2,5 %
-                        </span>
-                      ) : null}
+                      <span className="amet-desk__interes tabular-nums">
+                        −{String(ametCutPct).replace('.', ',')} %
+                        {m.ametCut > 0 ? ` (${formatCurrency(m.ametCut)})` : ''}
+                      </span>
                     </div>
                   </td>
                   <td className="amet-desk__num tabular-nums">{dueLabel}</td>

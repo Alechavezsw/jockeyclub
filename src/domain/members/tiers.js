@@ -49,7 +49,7 @@ export const DUES_SOCIAL_QUOTA_TIER_IDS = new Set([
 ]);
 /** Conceptos que un adherente sí puede llevar a la cuenta del titular. */
 export const DUES_ADD_ON_TIER_IDS = new Set(['abono_tenis']);
-/** La cuota AMET es la base menos 2,5 %. Ese 2,5 % va en la línea de interés. */
+/** AMET se cobra a la base menos 2,5 %. La línea Lila de «interés 2,5 %» solo documenta ese descuento. */
 export const DUES_AMET_RATE = 0.025;
 
 export function isSocialQuotaTierId(id) {
