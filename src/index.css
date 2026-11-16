@@ -29907,8 +29907,7 @@ button.debit-moves-row:disabled {
     justify-content: center;
   }
 }
-
-/* ——— AMET desk (Socios ? AMET) ——— */
+/* --- AMET desk (Socios > AMET) --- */
 .amet-desk {
   padding: 1.15rem 1.25rem 1.35rem;
   display: flex;

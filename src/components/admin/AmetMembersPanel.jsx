@@ -12,8 +12,8 @@ import {
   duesAmountForMember,
   duesRuleSentences,
   formatShortDate,
+  getOverdueMembers,
   isAmetDuesMember,
-  isSocialDuesMora,
   pinDuesDueDate,
   toWhatsAppPhone,
 } from '../../domain/members/dues';
@@ -90,13 +90,16 @@ export default function AmetMembersPanel({
 
   const ametMembers = useMemo(() => {
     const today = new Date();
+    const overdueIds = new Set(
+      getOverdueMembers(members || [], today).map((m) => String(m.memberId || m.id || '')),
+    );
     return (members || [])
       .filter((m) => isLiveMember(m) && isTitularMember(m) && isAmetDuesMember(m))
       .map((m) => {
         const monthly = Number(duesAmountForMember(m, today)) || 0;
         const balance = Math.max(0, Number(m.outstandingBalance) || 0);
         const dueIso = pinDuesDueDate(m.nextDueDate, m) || m.nextDueDate || null;
-        const mora = isSocialDuesMora(m, today);
+        const mora = overdueIds.has(String(m.memberId || m.id || ''));
         return {
           ...m,
           ametKind: ametKind(m),
