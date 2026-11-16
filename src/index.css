@@ -30279,7 +30279,8 @@ button.debit-moves-row:disabled {
   .amet-desk__who { max-width: 12rem; }
 }
 
-/* —— Estadísticas de socios (rail Socios) —— */
+
+/* --- Estadisticas de socios (rail Socios) --- */
 .ms-stats {
   display: flex;
   flex-direction: column;
