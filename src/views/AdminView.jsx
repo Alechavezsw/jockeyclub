@@ -4,7 +4,7 @@ import {
   Users, Calendar, DollarSign, Activity, ShieldAlert,
   BookOpen, Book, ClipboardList, MessageSquare, Phone, Wallet, PieChart,
   FileSpreadsheet, Radio, Database, BellRing, PartyPopper, Trophy, Store, DoorOpen, QrCode, Newspaper, CreditCard,
-  LayoutDashboard, ChevronRight, Briefcase, Headset, Settings, SlidersHorizontal, Building2, Waves, GraduationCap, Sparkles, TicketCheck, Banknote, Smartphone, BadgePercent,
+  LayoutDashboard, ChevronRight, Briefcase, Headset, Settings, SlidersHorizontal, Building2, Waves, GraduationCap, Sparkles, TicketCheck, Banknote, Smartphone, BadgePercent, BarChart3,
 } from 'lucide-react';
 import { DEFAULT_POOL_SETTINGS } from '../domain/pool/poolAccess';
 import { DEFAULT_CHART_OF_ACCOUNTS, resolveAccountId } from '../domain/accounting/chartOfAccounts';
@@ -51,6 +51,7 @@ const AdminDashboardTab = lazy(() => import('../components/admin/AdminDashboardT
 const MembersTab = lazy(() => import('../components/admin/MembersTab'));
 const MembersWithAppPanel = lazy(() => import('../components/admin/MembersWithAppPanel'));
 const AmetMembersPanel = lazy(() => import('../components/admin/AmetMembersPanel'));
+const MembersStatsPanel = lazy(() => import('../components/admin/MembersStatsPanel'));
 const MemberProfilePanel = lazy(() => import('../components/admin/MemberProfilePanel'));
 const StaffProfilePanel = lazy(() => import('../components/admin/StaffProfilePanel'));
 const BookingsTab = lazy(() => import('../components/admin/BookingsTab'));
@@ -90,6 +91,7 @@ const TAB_PREFETCH = {
   members: () => import('../components/admin/MembersTab'),
   members_app: () => import('../components/admin/MembersWithAppPanel'),
   members_amet: () => import('../components/admin/AmetMembersPanel'),
+  members_stats: () => import('../components/admin/MembersStatsPanel'),
   dues: () => import('../components/erp/CuotasPanel'),
   dashboard: () => import('../components/admin/AdminDashboardTab'),
   reports: () => import('../components/admin/ReportsTab'),
@@ -252,6 +254,7 @@ export default function AdminView({
       permittedTabs.includes(routeTab)
       || (routeTab === 'members_app' && permittedTabs.includes('members'))
       || (routeTab === 'members_amet' && permittedTabs.includes('members'))
+      || (routeTab === 'members_stats' && permittedTabs.includes('members'))
       || (routeTab === 'pool_gate' && permittedTabs.includes('pool'))
     ),
   );
@@ -626,6 +629,7 @@ export default function AdminView({
             children: [
               { key: 'members_app', icon: Smartphone, label: 'Socios con app' },
               { key: 'members_amet', icon: BadgePercent, label: 'AMET' },
+              { key: 'members_stats', icon: BarChart3, label: 'Estadísticas' },
             ],
           },
           { key: 'dues', icon: ShieldAlert, label: liquidateDues ? 'Cuotas' : 'Saldos' },
@@ -725,7 +729,7 @@ export default function AdminView({
             if (!tab.children?.length) return tab;
             const children = tab.children.filter((child) => {
               if (child.key === 'pool_gate') return permittedTabs.includes('pool');
-              if (child.key === 'members_app' || child.key === 'members_amet') {
+              if (child.key === 'members_app' || child.key === 'members_amet' || child.key === 'members_stats') {
                 return permittedTabs.includes('members');
               }
               return permittedTabs.includes(child.key);
@@ -771,7 +775,8 @@ export default function AdminView({
     }
     setProfileLookupDone(false);
     const local = findMemberForProfile(members, routeEntityId);
-    if (local?.recordScope === 'full') setFetchedProfile(local);
+    // No conservar la ficha del socio anterior: si no, merge pisa el nuevo Nº con el viejo.
+    setFetchedProfile(local?.recordScope === 'full' ? local : null);
     let cancelled = false;
     const applyFresh = (row) => {
       if (cancelled || !row) return;
@@ -855,8 +860,11 @@ export default function AdminView({
   const listedProfile = activeTab === 'members' && routeEntityId
     ? findMemberForProfile(members, routeEntityId)
     : null;
+  const fetchedForRoute = activeTab === 'members' && routeEntityId
+    ? findMemberForProfile(fetchedProfile ? [fetchedProfile] : [], routeEntityId)
+    : null;
   const profileMember = activeTab === 'members' && routeEntityId
-    ? mergeMemberRecord(listedProfile, fetchedProfile) || listedProfile || fetchedProfile
+    ? mergeMemberRecord(listedProfile, fetchedForRoute) || listedProfile || fetchedForRoute
     : null;
   const profileStaff = activeTab === 'staff' && routeEntityId
     ? staffMembers.find((e) => e.id === routeEntityId) || null
@@ -1193,7 +1201,7 @@ export default function AdminView({
       <div className="admin-main">
       <div className="page-stage">
       {/* Cabecera solo fuera del Inicio (el dashboard ya trae su propia intro) */}
-      {activeTab !== 'dashboard' && activeTab !== 'events' && activeTab !== 'accounting' && activeTab !== 'books' && activeTab !== 'informes' && activeTab !== 'caja' && activeTab !== 'operation' && activeTab !== 'jev' && activeTab !== 'messaging' && activeTab !== 'members_app' && activeTab !== 'members_amet' && (
+      {activeTab !== 'dashboard' && activeTab !== 'events' && activeTab !== 'accounting' && activeTab !== 'books' && activeTab !== 'informes' && activeTab !== 'caja' && activeTab !== 'operation' && activeTab !== 'jev' && activeTab !== 'messaging' && activeTab !== 'members_app' && activeTab !== 'members_amet' && activeTab !== 'members_stats' && (
         <div className="page-header" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
           <div>
             <h1 className="page-title">{panelMeta.title}</h1>
@@ -1451,6 +1459,15 @@ export default function AdminView({
           tierCatalog={tierCatalog}
           paymentPlans={paymentPlans}
           paymentTolerance={duesSettings?.paymentTolerance}
+        />
+      )}
+
+      {activeTab === 'members_stats' && (
+        <MembersStatsPanel
+          members={members}
+          membersLoading={membersLoading}
+          entryLogs={entryLogs}
+          formatCurrency={formatCurrency}
         />
       )}
 

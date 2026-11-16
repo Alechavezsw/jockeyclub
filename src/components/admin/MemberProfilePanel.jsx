@@ -402,6 +402,18 @@ export default function MemberProfilePanel({
     return fromCatalog.length ? fromCatalog : DISCIPLINE_OPTIONS;
   }, [disciplineCatalog]);
 
+  const profileMemberId = memberNumberOf(member) || String(member?.memberId || member?.id || '');
+  useEffect(() => {
+    setSection('ficha');
+    setEditForm(null);
+    setEditMsg('');
+    setCollectOpen(false);
+    setCollectFlash('');
+    setCardMember(null);
+    setFamilyEdit(null);
+    setFamilyEditMsg('');
+  }, [profileMemberId]);
+
   useEffect(() => {
     if (selfService || !member || searchParams.get('cobrar') !== '1') return undefined;
     if (canCollect && !isDuesExemptMember(member) && !isFamilyDependent(member)) {
@@ -1177,8 +1189,22 @@ export default function MemberProfilePanel({
               const rowId = String(adh.memberId || '').replace(/\D/g, '');
               const isSelf = rowId && rowId === selfId;
               const source = findMemberByNumber(familySource, adh.memberId);
+              const canOpen = Boolean(onOpenMember && adh.memberId && !isSelf);
+              const ageYears = ageFromBirth(adh.birthDate || source?.birthDate);
               return (
-                <div key={rowId || adh.id || adh.name} className="mp-family-row">
+                <div
+                  key={rowId || adh.id || adh.name}
+                  className={`mp-family-row${canOpen ? ' is-clickable' : ''}`}
+                  role={canOpen ? 'button' : undefined}
+                  tabIndex={canOpen ? 0 : undefined}
+                  onClick={canOpen ? () => onOpenMember(adh.memberId) : undefined}
+                  onKeyDown={canOpen ? (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      onOpenMember(adh.memberId);
+                    }
+                  } : undefined}
+                >
                   <div className="mp-family-avatar">
                     {adh.photo ? (
                       <img src={adh.photo} alt="" />
@@ -1189,8 +1215,9 @@ export default function MemberProfilePanel({
                   <div>
                     <strong>{adh.name}{isSelf ? ' · Vos' : ''}</strong>
                     <div className="mp-family-meta">
-                      {adh.relationship}
+                      {adh.relationship || 'Parentesco sin cargar'}
                       {adh.memberId ? ` · Nº ${adh.memberId}` : ''}
+                      {ageYears != null ? ` · ${ageYears} años` : ''}
                     </div>
                   </div>
                   <span className="mp-tier-pill" style={tierBadgeStyle(adh.tier, tierCatalog)}>
@@ -1200,7 +1227,10 @@ export default function MemberProfilePanel({
                     <button
                       type="button"
                       className="btn btn-secondary btn-sm"
-                      onClick={() => setCardMember(source || familyCardMember(adh, member))}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCardMember(source || familyCardMember(adh, member));
+                      }}
                     >
                       <CreditCard size={13} /> Tarjeta
                     </button>
@@ -1593,6 +1623,7 @@ export default function MemberProfilePanel({
                   const isSelf = rowId && rowId === selfId;
                   const canOpen = Boolean(onOpenMember && adh.memberId && !isSelf);
                   const source = findMemberByNumber(familySource, adh.memberId);
+                  const ageYears = ageFromBirth(adh.birthDate || source?.birthDate);
                   return (
                     <div
                       key={rowId || adh.id || adh.name}
@@ -1617,8 +1648,9 @@ export default function MemberProfilePanel({
                       <div>
                         <strong>{adh.name}</strong>
                         <div className="mp-family-meta">
-                          {adh.relationship}
+                          {adh.relationship || 'Parentesco sin cargar'}
                           {adh.memberId ? ` · Nº ${adh.memberId}` : ''}
+                          {ageYears != null ? ` · ${ageYears} años` : ''}
                           {' · '}
                           {(adh.disciplines || []).join(', ') || 'Sin disciplina'}
                           {adh.relationship !== 'Titular' && familyChildStanding(source || adh).label ? (
@@ -2121,7 +2153,7 @@ export default function MemberProfilePanel({
               />
             </div>
             <div className="mp-edit-field">
-              <label className="form-label">Vínculo</label>
+              <label className="form-label">Parentesco</label>
               <select
                 className="form-input"
                 value={familyEdit.form.relationship}
@@ -2147,6 +2179,20 @@ export default function MemberProfilePanel({
                 className="form-input"
                 value={familyEdit.form.birthDate}
                 onChange={(ev) => setFamilyEdit((curr) => curr ? { ...curr, form: { ...curr.form, birthDate: ev.target.value } } : curr)}
+              />
+            </div>
+            <div className="mp-edit-field">
+              <label className="form-label">Edad</label>
+              <input
+                className="form-input"
+                readOnly
+                tabIndex={-1}
+                value={(() => {
+                  const years = ageFromBirth(familyEdit.form.birthDate);
+                  if (years == null) return 'Sin fecha de nacimiento';
+                  return `${years} año${years === 1 ? '' : 's'}`;
+                })()}
+                aria-live="polite"
               />
             </div>
             <div className="mp-edit-field">

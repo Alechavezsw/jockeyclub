@@ -138,6 +138,17 @@ export default function JevChatDesk({
         : openingBriefing({ ...brief, today: todayISODateAR() })),
     },
   ]);
+  useEffect(() => {
+    try {
+      const draft = sessionStorage.getItem('jockey-jev-draft');
+      if (!draft) return undefined;
+      sessionStorage.removeItem('jockey-jev-draft');
+      setInput(draft);
+    } catch {
+      /* ignore */
+    }
+    return undefined;
+  }, []);
   const scroller = useRef(null);
   const lastMember = useRef({ member: null, at: -99 });
   const reading = useMemo(() => monthReading({ ...brief, today: brief.today || todayISODateAR() }), [brief]);
