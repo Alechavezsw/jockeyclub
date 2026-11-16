@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
   CreditCard,
@@ -15,7 +15,9 @@ import { downloadPaymentReceiptPdf } from '../domain/members/exportPaymentReceip
 import { useMemberDuesStanding } from '../hooks/useMemberDuesStanding';
 import { CLUB_BANK_ACCOUNTS } from '../domain/members/clubBanks';
 import { collectionPeriodChoices, duesAmountForMember, duesDueDayForMember, isDuesExemptMember, quotaHeadline } from '../domain/members/dues';
-import { duesMonthsPhrase } from '../domain/members/duesImputations';
+import { duesMonthLabel, duesMonthsPhrase } from '../domain/members/duesImputations';
+import { accountPaymentPlan, duesPaymentSchedule } from '../domain/members/memberPayments';
+import { money } from '../domain/money';
 import { todayISODateAR } from '../lib/arDate';
 import { duesPaymentNotice } from '../domain/members/duesPaymentNotice';
 import { uploadDuesReceipt } from '../data/storage';
@@ -79,6 +81,24 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
     : (Number(summary.nextAmount) > 0
       ? Number(summary.nextAmount)
       : mpPayNowAmount(summary.outstanding, monthly));
+  const [accountInput, setAccountInput] = useState('');
+  const accountCharge = useMemo(() => {
+    const text = accountInput.trim().replace(',', '.');
+    if (!text) return { amount: money(payable), error: '' };
+    const value = Number(text);
+    if (!Number.isFinite(value) || value <= 0) {
+      return { amount: 0, error: 'El pago a cuenta tiene que ser mayor a cero.' };
+    }
+    const cash = money(value);
+    if (cash > payable + 0.01) {
+      return { amount: cash, error: 'El pago a cuenta no puede superar la deuda.' };
+    }
+    return { amount: cash, error: '' };
+  }, [accountInput, payable]);
+  const payAmount = accountCharge.amount;
+  const accountPlan = !duesExempt && payAmount > 0
+    ? accountPaymentPlan(standingForCharge, payAmount)
+    : null;
   const subscribeAmount = duesExempt ? 0 : mpSubscribeAmount(monthly);
   const todayIso = todayISODateAR();
   const chargeDue = summary.chargeDue || summary.nextDue;
@@ -101,7 +121,7 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
     ].filter(Boolean).join(' · ')
     : null;
 
-  const noticeKey = `${method}:${profile?.memberId || ''}:${payable}:${receiptFile?.name || ''}`;
+  const noticeKey = `${method}:${profile?.memberId || ''}:${payAmount}:${receiptFile?.name || ''}`;
 
   useEffect(() => {
     const flag = new URLSearchParams(window.location.search).get('mp');
@@ -128,7 +148,11 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
 
   const handleNotify = async () => {
     if (standingPending) return;
-    const charge = Number(payable) || 0;
+    if (accountCharge.error) {
+      setError(accountCharge.error);
+      return;
+    }
+    const charge = Number(payAmount) || 0;
     if (charge <= 0) {
       setError('No se pudo calcular el importe de la cuota.');
       return;
@@ -278,20 +302,53 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
         </p>
         {!duesExempt ? (
           <>
+        {payable > 0 ? (
+          <label className="form-group" style={{ display: 'block', margin: '0 0 0.85rem' }}>
+            <span className="form-label">Pago a cuenta</span>
+            <input
+              className="form-input"
+              type="number"
+              min="0"
+              step="0.01"
+              inputMode="decimal"
+              value={accountInput}
+              placeholder={String(Math.round(payable))}
+              onChange={(event) => {
+                setAccountInput(event.target.value);
+                setError('');
+                setMessage('');
+                setNotifiedKey('');
+              }}
+            />
+            <small style={{ display: 'block', marginTop: '0.35rem' }}>
+              {accountPlan?.partial && accountPlan.touched[0]
+                ? `Entra en ${duesMonthLabel(accountPlan.touched[0].dueOn)}${accountPlan.touched[0].capitalOpen > 0.009 ? `. Quedan ${formatCurrency(accountPlan.touched[0].capitalOpen)} de esa cuota.` : ' y sigue con la siguiente.'}`
+                : 'Si el importe es menor, entra en la cuota más vieja y sigue con la siguiente.'}
+            </small>
+            {accountCharge.error ? (
+              <small style={{ display: 'block', marginTop: '0.3rem' }}>{accountCharge.error}</small>
+            ) : null}
+          </label>
+        ) : null}
         <div className="pay-hist-mp-grid">
           <article className="pay-hist-mp-card">
             <h3>Pagar ahora</h3>
             <p>
-              {alDia
-                ? `Adelantás ${formatCurrency(payable)} de la cuota.`
-                : `Regularizás ${formatCurrency(payable)} en un solo cobro.`}
+              {accountPlan?.partial
+                ? `Pagás ${formatCurrency(payAmount)} a cuenta.`
+                : alDia
+                  ? `Adelantás ${formatCurrency(payable)} de la cuota.`
+                  : `Regularizás ${formatCurrency(payable)} en un solo cobro.`}
             </p>
             <MercadoPagoCheckout
               kind="dues"
-              amount={payable}
+              amount={payAmount}
+              schedule={duesPaymentSchedule(standingForCharge)}
               memberNumber={profile?.memberId}
-              concept={`Cuota social · ${duesMonthsPhrase(collectionPeriodChoices(standingForCharge).map((row) => row.dueOn)) || profile?.name || 'socio'}`}
-              disabled={standingPending || payable <= 0}
+              concept={accountPlan?.partial
+                ? `Cuota social · Pago a cuenta · ${duesMonthsPhrase(accountPlan.touched.map((row) => row.dueOn)) || profile?.name || 'socio'}`
+                : `Cuota social · ${duesMonthsPhrase(collectionPeriodChoices(standingForCharge).map((row) => row.dueOn)) || profile?.name || 'socio'}`}
+              disabled={standingPending || payAmount <= 0 || Boolean(accountCharge.error)}
               onApproved={() => setMessage('Pago acreditado. Ya figura en tu cuenta.')}
             />
           </article>
@@ -334,7 +391,7 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
               <button
                 type="button"
                 className="btn btn-secondary"
-                disabled={standingPending || paying || payable <= 0 || notifiedKey === noticeKey}
+                disabled={standingPending || paying || payAmount <= 0 || Boolean(accountCharge.error) || notifiedKey === noticeKey}
                 onClick={() => {
                   setMethod('transferencia');
                   void handleNotify();

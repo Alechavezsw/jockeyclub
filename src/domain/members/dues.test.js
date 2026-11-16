@@ -36,7 +36,7 @@ import {
   memberCoveredDueOns,
   memberDueFact,
 } from './dues';
-import { collectionPreview } from './memberPayments';
+import { accountPaymentPlan, collectionPreview, payMemberDues } from './memberPayments';
 import { setRuntimeTierCatalog } from './tiers';
 import { setRuntimeDiscountRules } from '../accounting/discountApplication';
 
@@ -1272,5 +1272,51 @@ describe('collectionPeriodChoices vs saldo de ficha', () => {
     }
     const capital = choices.reduce((sum, row) => sum + (Number(row.capital) || 0), 0);
     expect(capital).toBeLessThanOrEqual(376000 + 40000 + 0.01);
+  });
+
+  it('un pago a cuenta descuenta la cuota más vieja y no recorta la más nueva', () => {
+    const today = new Date('2026-11-11T12:00:00-03:00');
+    const member = {
+      memberId: '200',
+      name: 'Pago a cuenta',
+      tier: 'socio_familiar',
+      status: 'active',
+      outstandingBalance: 210000,
+      unpaidCapital: 210000,
+      nextDueDate: '2026-09-10',
+      cuotaCategories: ['SOCIO FAMILIAR'],
+    };
+    const plan = accountPaymentPlan(member, 10000, today);
+    expect(plan.partial).toBe(true);
+    expect(plan.touched).toHaveLength(1);
+    expect(plan.touched[0]).toMatchObject({
+      dueOn: '2026-09-10',
+      capital: 10000,
+      surcharge: 0,
+      capitalOpen: 60000,
+    });
+    expect(plan.schedule.map((row) => row.dueOn)).toEqual(['2026-09-10', '2026-10-10', '2026-11-10']);
+
+    const paid = payMemberDues(member, { amount: 10000, method: 'transferencia', today });
+    expect(paid.payment.concept).toBe('Cuota social · Septiembre de 2026');
+    expect(paid.member.duesOpenPeriods.map((row) => [row.dueOn, row.capital])).toEqual([
+      ['2026-09-10', 60000],
+      ['2026-10-10', 70000],
+      ['2026-11-10', 70000],
+    ]);
+    expect(paid.member.unpaidCapital).toBe(200000);
+
+    const nextChoices = collectionPeriodChoices({
+      ...member,
+      outstandingBalance: 200000,
+      unpaidCapital: 200000,
+      duesOpenPeriods: paid.member.duesOpenPeriods,
+    }, today);
+    expect(nextChoices.map((row) => [row.dueOn, row.capital])).toEqual([
+      ['2026-09-10', 60000],
+      ['2026-10-10', 70000],
+      ['2026-11-10', 70000],
+    ]);
+    expect(nextChoices.some((row) => row.capital === 20000)).toBe(false);
   });
 });

@@ -216,7 +216,7 @@ export function collectMemberMeta(member = {}) {
     'poolMedicalStatus', 'poolMedicalNote',
     'regularidadCertificates',
     'automaticDebitKind', 'debitMoves', 'mpAdhesion', 'cardExpiry', 'lastDebitCardNumber',
-    'duesFreeThrough', 'duesMonthCapital',
+    'duesFreeThrough', 'duesMonthCapital', 'duesOpenPeriods', 'unpaidCapital',
   ];
   for (const k of keys) {
     if (member[k] != null && member[k] !== '' && base[k] == null) base[k] = member[k];

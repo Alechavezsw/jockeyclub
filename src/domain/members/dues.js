@@ -1094,10 +1094,79 @@ function lumpMonthsAtCurrentCuota(member, paidOn, paidSet) {
  * Meses que se pueden marcar en el cobro (atrasados y mes en curso).
  * Si el saldo supera lo vencido, suma el mes actual (si ya empezó) y completa hacia atrás.
  */
+/**
+ * Meses ya guardados de un pago a cuenta. El más viejo puede estar a medias.
+ * No se reescribe: si no, agosto y septiembre vuelven a la tarifa llena
+ * y el saldo parcial se corre al mes más nuevo.
+ */
+function choicesFromStoredOpenPeriods(member, paidOn, paidSet) {
+  const raw = member?.duesOpenPeriods;
+  if (!Array.isArray(raw) || !raw.length) return null;
+  const balance = money(Math.max(0, Number(member?.outstandingBalance) || 0));
+  const owed = capitalOwedForChoices(member);
+  const stored = [];
+  for (const row of raw) {
+    const dueOn = String(row?.dueOn || row?.due_on || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dueOn) || dueOn <= '1900-01-10') continue;
+    if (dueOnAlreadyCovered(dueOn, paidSet)) continue;
+    const capital = money(row.capital ?? row.capitalOpen ?? row.capital_open);
+    if (!(capital > 0)) continue;
+    const lateBase = money(row.lateBase ?? row.late_base ?? 0);
+    const due = parseDate(dueOn);
+    const overdue = Boolean(due && due < paidOn);
+    const surcharge = overdue ? money(lateBase * 0.1) : 0;
+    stored.push({
+      id: dueOn,
+      dueOn,
+      monthKey: dueOn.slice(0, 7),
+      label: periodChoiceLabel(dueOn),
+      capital,
+      lateBase,
+      surcharge,
+      payable: money(capital + surcharge),
+      kind: overdue ? 'overdue' : 'upcoming',
+    });
+  }
+  if (!stored.length) return null;
+  stored.sort((a, b) => a.dueOn.localeCompare(b.dueOn));
+  let rows = stored;
+  let covered = money(rows.reduce((sum, row) => sum + row.capital, 0));
+  if (balance + 0.01 < covered && owed + 0.01 < covered) return null;
+  const target = money(Math.max(owed, balance));
+  if (covered + 0.01 < target) {
+    const day = duesDueDayForMember(member);
+    let guard = 0;
+    while (covered + 0.01 < target && guard < 6) {
+      guard += 1;
+      const last = parseDate(rows[rows.length - 1].dueOn);
+      if (!last) break;
+      const nextDue = toISODate(duesDateOnDueDay(last.getFullYear(), last.getMonth() + 1, day));
+      if (rows.some((row) => row.dueOn === nextDue)) break;
+      if (!duesPeriodMonthStarted(nextDue, paidOn) || dueOnAlreadyCovered(nextDue, paidSet)) break;
+      const nextDate = parseDate(nextDue);
+      const full = periodChoiceFromDue(
+        member,
+        nextDue,
+        paidOn,
+        nextDate && nextDate < paidOn ? 'overdue' : 'upcoming',
+      );
+      const gap = money(target - covered);
+      if (!full || full.capital > gap + 0.01) break;
+      rows = [...rows, full];
+      covered = money(covered + full.capital);
+    }
+  }
+  if (Math.abs(covered - owed) <= 0.01 || Math.abs(covered - balance) <= 0.01) return rows;
+  if (covered + 0.01 >= owed && covered <= target + 0.01) return rows;
+  return null;
+}
+
 export function collectionPeriodChoices(member, today = new Date()) {
   if (!member || isDuesExemptMember(member) || isFamilyDependent(member)) return [];
   const paidOn = startOfDay(today);
   const paidSet = memberCoveredDueOns(member);
+  const storedChoices = choicesFromStoredOpenPeriods(member, paidOn, paidSet);
+  if (storedChoices) return storedChoices;
   // Sin vencimiento, el saldo son N cuotas vigentes. No se abre agosto con el recargo.
   if (!pinDuesDueDate(member?.nextDueDate, member)) {
     const lump = lumpMonthsAtCurrentCuota(member, paidOn, paidSet);

@@ -19,6 +19,8 @@ import {
   imputationSummary,
   imputeDuesPayment,
   nextOpenDue,
+  OPENING_DUE_ON,
+  openPeriodsAfterPayment,
   openPeriodsFromChoices,
 } from './duesImputations';
 import { isSupabaseConfigured } from '../../lib/supabase';
@@ -480,6 +482,75 @@ export function revertImportedMemberPayment(member, snapshot = {}) {
   };
 }
 
+function duesOpenSnapshot(schedule, imputed, remainingChoices = []) {
+  const open = openPeriodsAfterPayment(schedule, imputed?.allocations || [])
+    .filter((row) => String(row.dueOn) > OPENING_DUE_ON && row.capital > 0.009);
+  for (const row of remainingChoices || []) {
+    const dueOn = String(row?.dueOn || '').slice(0, 10);
+    if (!dueOn || dueOn <= OPENING_DUE_ON || !(Number(row.capital) > 0)) continue;
+    if (open.some((item) => item.dueOn === dueOn)) continue;
+    open.push({
+      dueOn,
+      capital: money(row.capital),
+      lateBase: money(row.lateBase ?? row.capital),
+    });
+  }
+  open.sort((a, b) => a.dueOn.localeCompare(b.dueOn));
+  return {
+    duesOpenPeriods: open,
+    unpaidCapital: money(open.reduce((sum, row) => sum + (Number(row.capital) || 0), 0)),
+  };
+}
+
+/** Meses abiertos, del más viejo al más nuevo, para imputar un pago a cuenta. */
+export function duesPaymentSchedule(member, today = new Date(), periodDueOns = null) {
+  const choices = collectionPeriodChoices(member, today);
+  const selected = Array.isArray(periodDueOns) && periodDueOns.length
+    ? periodDueOns.map((value) => String(value || '').slice(0, 10))
+    : null;
+  const rows = selected
+    ? choices.filter((row) => selected.includes(String(row.dueOn).slice(0, 10)))
+    : choices;
+  const capital = money(rows.reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
+  if (!(capital > 0)) return [];
+  return openPeriodsFromChoices(rows, capital)
+    .filter((row) => String(row.dueOn) > OPENING_DUE_ON)
+    .map((row) => ({
+      dueOn: String(row.dueOn).slice(0, 10),
+      capital: money(row.capital),
+      lateBase: money(row.lateBase),
+    }));
+}
+
+/**
+ * Reparte un importe a cuenta: primero la cuota más vieja, después la siguiente.
+ * El 10 % entra recién cuando el capital de ese mes ya quedó cubierto.
+ */
+export function accountPaymentPlan(member, amount, today = new Date(), periodDueOns = null) {
+  const choices = collectionPeriodChoices(member, today);
+  const selected = Array.isArray(periodDueOns) && periodDueOns.length
+    ? new Set(periodDueOns.map((value) => String(value || '').slice(0, 10)))
+    : null;
+  const rows = selected
+    ? choices.filter((row) => selected.has(String(row.dueOn).slice(0, 10)))
+    : choices;
+  const payable = money(rows.reduce((sum, row) => sum + (Number(row.payable) || 0), 0));
+  const schedule = duesPaymentSchedule(member, today, periodDueOns);
+  const cash = money(amount);
+  const imputed = imputeDuesPayment(schedule, cash, todayISODateAR(today));
+  const touched = (imputed.allocations || []).filter((row) => (
+    (Number(row.capital) || 0) > 0.009 || (Number(row.surcharge) || 0) > 0.009
+  ));
+  return {
+    payable,
+    schedule,
+    cash,
+    partial: payable > 0.01 && cash > 0.009 && cash + 0.01 < payable,
+    over: cash > payable + 0.01,
+    touched,
+  };
+}
+
 /**
  * Registra un pago de cuota del socio (portal / caja).
  * Actualiza saldo, próximo vencimiento e historial.
@@ -616,6 +687,8 @@ export function payMemberDues(member, {
     paidAt,
     createdAt: paidAt,
     concept,
+    duesOpenPeriodsBefore: Array.isArray(member?.duesOpenPeriods) ? member.duesOpenPeriods : null,
+    unpaidCapitalBefore: member?.unpaidCapital ?? null,
     amount: paidAmount,
     quota: quotaPaid,
     surcharge: surchargePaid,
@@ -641,6 +714,9 @@ export function payMemberDues(member, {
   const remainingChoices = selected
     ? choices.filter((row) => !selected.includes(String(row.dueOn).slice(0, 10)))
     : [];
+  const openSnapshot = imputed
+    ? duesOpenSnapshot(schedule, imputed, remainingChoices)
+    : null;
 
   if (imputed && stored > 0) {
     const capitalLeft = money(stored - imputed.capital);
@@ -658,7 +734,13 @@ export function payMemberDues(member, {
       const cleared = afterCollectDues(member, today);
       const balanceLeft = money(creditLeftover > 0.01 ? -creditLeftover : 0);
       return {
-        member: { ...cleared, outstandingBalance: balanceLeft, lastPaymentDate: date, paymentHistory: history },
+        member: {
+          ...cleared,
+          ...openSnapshot,
+          outstandingBalance: balanceLeft,
+          lastPaymentDate: date,
+          paymentHistory: history,
+        },
         payment,
         fullyPaid: true,
         ledgerEntry: ledgerPago({ ...cleared, outstandingBalance: balanceLeft }, payment),
@@ -666,6 +748,7 @@ export function payMemberDues(member, {
     }
     const next = {
       ...withPaidParts(member, imputed.capital, imputed.surcharge),
+      ...openSnapshot,
       outstandingBalance: capitalLeft,
       nextDueDate: openDue || member.nextDueDate,
       lastPaymentDate: date,
@@ -685,6 +768,7 @@ export function payMemberDues(member, {
   if (remainingCash > 0.01) {
     const next = {
       ...withPaidParts(member, paidCapital, paidSurcharge),
+      ...openSnapshot,
       outstandingBalance: money(Math.max(0, stored - paidCapital)),
       lastPaymentDate: date,
       paymentHistory: history,
@@ -703,6 +787,7 @@ export function payMemberDues(member, {
     );
     const next = {
       ...withPaidParts(member, paidCapital, paidSurcharge),
+      ...openSnapshot,
       outstandingBalance: remainingCapital,
       nextDueDate: remainingChoices[0].dueOn,
       lastPaymentDate: date,
@@ -723,6 +808,7 @@ export function payMemberDues(member, {
   const balanceLeft = leftoverCredit > 0.01 ? money(-leftoverCredit) : 0;
   const next = {
     ...cleared,
+    ...openSnapshot,
     outstandingBalance: balanceLeft,
     lastPaymentDate: date,
     paymentHistory: history,
@@ -1327,6 +1413,12 @@ function cobroSchedule(member, payment) {
     outstandingBalance: payment.balanceBefore ?? member.outstandingBalance,
     nextDueDate: payment && 'nextDueBefore' in payment ? payment.nextDueBefore : member.nextDueDate,
     lastPaymentDate: payment && 'lastPaymentBefore' in payment ? payment.lastPaymentBefore : member.lastPaymentDate,
+    duesOpenPeriods: payment && 'duesOpenPeriodsBefore' in payment
+      ? payment.duesOpenPeriodsBefore
+      : member.duesOpenPeriods,
+    unpaidCapital: payment && 'unpaidCapitalBefore' in payment
+      ? payment.unpaidCapitalBefore
+      : member.unpaidCapital,
   };
   const paidOn = payment.paidAt || payment.date || new Date();
   const balance = Math.max(Number(before.outstandingBalance) || 0, 0);

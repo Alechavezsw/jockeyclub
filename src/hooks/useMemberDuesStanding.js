@@ -67,24 +67,19 @@ export function useMemberDuesStanding(member) {
       try {
         const dbId = knownId || await repos.findMemberDbIdByNumber(number);
         if (!alive) return;
-        const rows = dbId ? await repos.listMemberPayments(dbId) : [];
+        const [rows, ficha] = await Promise.all([
+          dbId ? repos.listMemberPayments(dbId) : Promise.resolve([]),
+          dbId ? repos.getMember(dbId, { withPayments: false }) : Promise.resolve(null),
+        ]);
         if (!alive) return;
         if (rows.length) setRemoteHistory(rows);
+        if (ficha) setRemoteFicha(ficha);
       } catch {
         /* se conserva lo que ya se ve */
       } finally {
         if (alive) setLoading(false);
       }
     })();
-
-    if (number && (!member?.joinDate || !knownId)) {
-      repos.getMemberByNumber(number, { withPayments: false })
-        .then((ficha) => {
-          if (!alive || !ficha) return;
-          setRemoteFicha(ficha);
-        })
-        .catch(() => {});
-    }
 
     return () => { alive = false; };
   }, [member?.id, member?.memberId, member?.joinDate]);

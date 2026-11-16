@@ -29,6 +29,26 @@ function money(value: unknown) {
   return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : 0;
 }
 
+/** Meses abiertos para que el cobro entre en la cuota más vieja. */
+function duesScheduleOf(raw: unknown) {
+  if (!Array.isArray(raw)) return undefined;
+  const rows: Array<{ dueOn: string; capital: number; lateBase: number }> = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const dueOn = String((item as { dueOn?: unknown }).dueOn || "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dueOn) || dueOn <= "1900-01-10") continue;
+    const capital = Math.round(Number((item as { capital?: unknown }).capital) * 100) / 100;
+    let lateBase = Math.round(Number((item as { lateBase?: unknown }).lateBase ?? capital) * 100) / 100;
+    if (!Number.isFinite(capital) || capital <= 0 || capital > 5000000) continue;
+    if (!Number.isFinite(lateBase) || lateBase < 0) lateBase = 0;
+    if (lateBase > capital) lateBase = capital;
+    rows.push({ dueOn, capital, lateBase });
+    if (rows.length >= 24) break;
+  }
+  rows.sort((a, b) => a.dueOn.localeCompare(b.dueOn));
+  return rows.length ? rows : undefined;
+}
+
 function moneyText(value: number) {
   return value.toFixed(2);
 }
@@ -372,6 +392,7 @@ Deno.serve(async (req) => {
           ...(discount > 0 && (kind === "dues" || kind === "subscription")
             ? { discount, discountDetail }
             : {}),
+          ...(kind === "dues" ? { schedule: duesScheduleOf(body?.schedule) } : {}),
           ...(bookingMeta ? { booking: bookingMeta } : {}),
         },
       })

@@ -127,6 +127,22 @@ export function imputeDuesPayment(periods = [], cash, paidOn) {
   };
 }
 
+/** Meses que siguen abiertos después de aplicar el cobro. */
+export function openPeriodsAfterPayment(periods = [], allocations = []) {
+  const taken = new Map((allocations || []).map((row) => [String(row.dueOn).slice(0, 10), row]));
+  const rows = [];
+  for (const period of [...(periods || [])].toSorted(byDue)) {
+    const dueOn = String(period.dueOn || '').slice(0, 10);
+    if (!dueOn) continue;
+    const hit = taken.get(dueOn);
+    const capital = hit ? money(hit.capitalOpen) : money(period.capitalOpen ?? period.capital);
+    if (!(capital > 0.009)) continue;
+    const lateBase = hit ? money(hit.lateBase) : money(period.lateBase);
+    rows.push({ dueOn, capital, lateBase });
+  }
+  return rows;
+}
+
 /** Primer vencimiento real que sigue con capital. */
 export function nextOpenDue(periods = [], allocations = []) {
   const taken = new Map((allocations || []).map((row) => [String(row.dueOn).slice(0, 10), row]));
