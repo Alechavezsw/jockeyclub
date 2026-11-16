@@ -4,13 +4,19 @@ import { todayAR } from '../../lib/arDate';
 import { isUuid, sb, audit } from './shared.js';
 
 // ---- Access ----
-export async function listAccessLogs({ limit = 500, memberNumber } = {}) {
+export async function listAccessLogs({ limit = 500, memberNumber, sinceDays } = {}) {
   let q = sb()
     .from('access_logs')
     .select('*')
     .order('created_at', { ascending: false })
     .limit(Math.max(1, Number(limit) || 500));
   if (memberNumber) q = q.eq('member_number', String(memberNumber));
+  const days = Number(sinceDays);
+  if (Number.isFinite(days) && days > 0) {
+    const from = new Date();
+    from.setDate(from.getDate() - Math.floor(days));
+    q = q.gte('logged_on', todayAR(from));
+  }
   const rows = await unwrap(q, 'No se pudieron cargar accesos');
   return (rows || []).map(M.accessLogFromRow);
 }

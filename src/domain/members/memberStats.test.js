@@ -73,6 +73,22 @@ describe('memberStats entries & payments', () => {
     expect(stats.methods[0].amount).toBeGreaterThan(0);
   });
 
+  it('usa paymentRows de la base cuando el padrón no trae historial', () => {
+    const stats = buildPaymentStats([
+      { memberId: '1', status: 'active', outstandingBalance: 1000, paymentHistory: [] },
+    ], {
+      months: 6,
+      on: '2026-11-16',
+      paymentRows: [
+        { date: '2026-10-12', amount: 40000, method: 'efectivo' },
+        { date: '2026-11-03', amount: 40000, method: 'mercadopago' },
+      ],
+    });
+    expect(stats.payments).toBe(2);
+    expect(stats.amount).toBe(80000);
+    expect(stats.withDebt).toBe(1);
+  });
+
   it('arma prompt para JEV', () => {
     const bundle = buildMemberStatsBundle([
       { memberId: '1', status: 'active', birthDate: '1990-01-01' },

@@ -49,6 +49,7 @@ const MEMBERS_LIST_SELECT = [
   'unpaid_capital:meta->unpaidCapital',
   'fecha_alta_raw:meta->>fechaAltaRaw',
   'dues_free_through:meta->>duesFreeThrough',
+  'birth_date',
 ].join(', ');
 
 /** Solo listado de bajas / inactivos: el padrón activo no los necesita. */
@@ -114,6 +115,7 @@ function listRowToMember(row) {
     email: row.email || '',
     documentType: row.document_type || '',
     documentNumber: row.document_number || '',
+    birthDate: row.birth_date ? String(row.birth_date).slice(0, 10) : (row.birthDate || ''),
     tier,
     status: row.status,
     outstandingBalance: Number(row.outstanding_balance) || 0,
@@ -188,6 +190,30 @@ const membersListCache = { active: null, inactive: null };
 export function invalidateMembersListCache() {
   membersListCache.active = null;
   membersListCache.inactive = null;
+}
+
+/**
+ * Cobros recientes para el escritorio Estadísticas (el padrón listado no trae paymentHistory).
+ */
+export async function listMemberPaymentsForStats({ months = 6 } = {}) {
+  const n = Math.max(1, Math.min(24, Number(months) || 6));
+  const from = new Date();
+  from.setMonth(from.getMonth() - n);
+  const fromIso = todayAR(from);
+  const rows = await fetchAllRows(
+    (fromIdx, toIdx) => sb()
+      .from('member_payments')
+      .select('amount, paid_at, method')
+      .gte('paid_at', fromIso)
+      .order('paid_at', { ascending: false })
+      .range(fromIdx, toIdx),
+    'No se pudieron cargar cobros para estadísticas',
+  );
+  return (rows || []).map((row) => ({
+    date: row.paid_at ? String(row.paid_at).slice(0, 10) : '',
+    amount: Number(row.amount) || 0,
+    method: row.method || 'caja',
+  }));
 }
 
 /** Activos en el arranque. Inactivos, suspendidos y bajas solo si se piden. */

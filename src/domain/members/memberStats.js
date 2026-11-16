@@ -202,11 +202,11 @@ function methodKey(row) {
 }
 
 /**
- * Pagos desde paymentHistory de fichas + saldos vivos.
+ * Pagos: saldos vivos del padrón + historial de fichas o filas de `member_payments`.
  * @param {object[]} members
- * @param {{ months?: number, on?: Date|string }} [opts]
+ * @param {{ months?: number, on?: Date|string, paymentRows?: object[] }} [opts]
  */
-export function buildPaymentStats(members = [], { months = 6, on = new Date() } = {}) {
+export function buildPaymentStats(members = [], { months = 6, on = new Date(), paymentRows } = {}) {
   const live = (members || []).filter(isLiveMember);
   const asOf = String(on instanceof Date ? todayISODateAR(on) : on).slice(0, 10);
   const [yy, mm] = asOf.split('-').map(Number);
@@ -231,8 +231,14 @@ export function buildPaymentStats(members = [], { months = 6, on = new Date() } 
     } else {
       alDia += 1;
     }
-    for (const row of getMemberPaymentHistory(m, { allowDemo: false }) || []) {
-      const when = String(row.date || row.paidOn || '').slice(0, 10);
+  }
+
+  const ledger = Array.isArray(paymentRows) && paymentRows.length
+    ? paymentRows
+    : live.flatMap((m) => getMemberPaymentHistory(m, { allowDemo: false }) || []);
+
+  for (const row of ledger) {
+      const when = String(row.date || row.paidOn || row.paid_at || '').slice(0, 10);
       const mk = when.slice(0, 7);
       const pay = money(row.amount);
       if (pay <= 0) continue;
@@ -247,7 +253,6 @@ export function buildPaymentStats(members = [], { months = 6, on = new Date() } 
       prev.count += 1;
       prev.amount += pay;
       byMethod.set(key, prev);
-    }
   }
 
   const methods = [...byMethod.values()].toSorted((a, b) => b.amount - a.amount);
@@ -303,7 +308,11 @@ export function buildMemberStatsBundle(members = [], entryLogs = [], opts = {}) 
     days: opts.entryDays ?? 30,
     today: opts.today || todayISODateAR(on),
   });
-  const payments = buildPaymentStats(members, { months: opts.paymentMonths ?? 6, on });
+  const payments = buildPaymentStats(members, {
+    months: opts.paymentMonths ?? 6,
+    on,
+    paymentRows: opts.paymentRows,
+  });
   const categories = buildCategoryStats(members);
   return {
     generatedAt: new Date().toISOString(),

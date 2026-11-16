@@ -20,6 +20,8 @@ import {
   exportMemberStatsPdf,
 } from '../../domain/members/exportMemberStats';
 import { todayISODateAR } from '../../lib/arDate';
+import { isSupabaseConfigured } from '../../lib/supabase';
+import { repos } from '../../data/bootstrap';
 
 const ENTRY_WINDOWS = [
   { id: 7, label: '7 días' },
@@ -159,27 +161,75 @@ export default function MembersStatsPanel({
 }) {
   const navigate = useNavigate();
   const [entryDays, setEntryDays] = useState(30);
-  const [tick, setTick] = useState(0);
+  const [refreshKey, setRefreshKey] = useState(0);
   const [busy, setBusy] = useState('');
   const [flash, setFlash] = useState('');
+  const [hydratedMembers, setHydratedMembers] = useState(members);
+  const [hydratedLogs, setHydratedLogs] = useState(entryLogs);
+  const [paymentRows, setPaymentRows] = useState([]);
+  const [hydrating, setHydrating] = useState(false);
+  const [clock, setClock] = useState(() => new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }));
 
   useEffect(() => {
-    const id = window.setInterval(() => setTick((n) => n + 1), 60_000);
+    setHydratedMembers(members);
+  }, [members]);
+
+  useEffect(() => {
+    setHydratedLogs(entryLogs);
+  }, [entryLogs]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setClock(new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }));
+    }, 60_000);
     return () => window.clearInterval(id);
   }, []);
 
+  useEffect(() => {
+    if (!isSupabaseConfigured) return undefined;
+    let cancelled = false;
+    setHydrating(true);
+    (async () => {
+      try {
+        // El padrón en RAM puede ser anterior a birth_date en el listado: forzar recarga.
+        repos.invalidateMembersListCache?.();
+        const [fresh, payments] = await Promise.all([
+          repos.listMembers({ scope: 'active' }).catch(() => null),
+          repos.listMemberPaymentsForStats({ months: 6 }).catch(() => []),
+        ]);
+        if (cancelled) return;
+        if (Array.isArray(fresh) && fresh.length) setHydratedMembers(fresh);
+        setPaymentRows(Array.isArray(payments) ? payments : []);
+        setClock(new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }));
+      } finally {
+        if (!cancelled) setHydrating(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [refreshKey]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return undefined;
+    let cancelled = false;
+    (async () => {
+      const logs = await repos.listAccessLogs({ limit: 8000, sinceDays: entryDays }).catch(() => null);
+      if (!cancelled && Array.isArray(logs)) setHydratedLogs(logs);
+    })();
+    return () => { cancelled = true; };
+  }, [entryDays, refreshKey]);
+
   const bundle = useMemo(
-    () => buildMemberStatsBundle(members, entryLogs, {
+    () => buildMemberStatsBundle(hydratedMembers, hydratedLogs, {
       entryDays,
       today: todayISODateAR(),
+      paymentRows,
     }),
-    [members, entryLogs, entryDays, tick],
+    [hydratedMembers, hydratedLogs, entryDays, paymentRows],
   );
 
   const ages = bundle.ages;
   const entries = bundle.entries;
   const payments = bundle.payments;
-  const clock = useMemo(() => new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }), [tick, bundle.generatedAt]);
 
   async function runExport(kind) {
     setBusy(kind);
@@ -216,7 +266,7 @@ export default function MembersStatsPanel({
           </p>
         </div>
         <div className="ms-stats__hero-actions">
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => setTick((n) => n + 1)}>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => setRefreshKey((n) => n + 1)}>
             <RefreshCw size={14} /> Actualizar
           </button>
           <button
@@ -242,8 +292,10 @@ export default function MembersStatsPanel({
       </header>
 
       {flash ? <p className="ms-stats__flash" role="status">{flash}</p> : null}
-      {membersLoading ? (
-        <p className="ms-stats__loading" role="status">Cargando padrón…</p>
+      {membersLoading || hydrating ? (
+        <p className="ms-stats__loading" role="status">
+          {hydrating ? 'Actualizando edades, ingresos y pagos desde la base…' : 'Cargando padrón…'}
+        </p>
       ) : null}
 
       <div className="ms-stats__kpis">
