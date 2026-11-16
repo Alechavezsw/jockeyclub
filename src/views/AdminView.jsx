@@ -4,7 +4,7 @@ import {
   Users, Calendar, DollarSign, Activity, ShieldAlert,
   BookOpen, Book, ClipboardList, MessageSquare, Phone, Wallet, PieChart,
   FileSpreadsheet, Radio, Database, BellRing, PartyPopper, Trophy, Store, DoorOpen, QrCode, Newspaper, CreditCard,
-  LayoutDashboard, ChevronRight, Briefcase, Headset, Settings, SlidersHorizontal, Building2, Waves, GraduationCap, Sparkles, TicketCheck, Banknote, BadgePercent, BarChart3,
+  LayoutDashboard, ChevronRight, Briefcase, Headset, Settings, SlidersHorizontal, Building2, Waves, GraduationCap, Sparkles, TicketCheck, Banknote, Smartphone, BadgePercent, BarChart3,
 } from 'lucide-react';
 import { DEFAULT_POOL_SETTINGS } from '../domain/pool/poolAccess';
 import { DEFAULT_CHART_OF_ACCOUNTS, resolveAccountId } from '../domain/accounting/chartOfAccounts';
@@ -49,6 +49,7 @@ const AlertsPanel = lazy(() => import('../components/erp/AlertsPanel'));
 const ClubEventsPanel = lazy(() => import('../components/erp/ClubEventsPanel'));
 const AdminDashboardTab = lazy(() => import('../components/admin/AdminDashboardTab'));
 const MembersTab = lazy(() => import('../components/admin/MembersTab'));
+const MembersWithAppPanel = lazy(() => import('../components/admin/MembersWithAppPanel'));
 const AmetMembersPanel = lazy(() => import('../components/admin/AmetMembersPanel'));
 const MembersStatsPanel = lazy(() => import('../components/admin/MembersStatsPanel'));
 const MemberProfilePanel = lazy(() => import('../components/admin/MemberProfilePanel'));
@@ -88,6 +89,7 @@ const TAB_PREFETCH = {
   operation: () => import('../components/AccountingTab'),
   caja: () => import('../components/AccountingTab'),
   members: () => import('../components/admin/MembersTab'),
+  members_app: () => import('../components/admin/MembersWithAppPanel'),
   members_amet: () => import('../components/admin/AmetMembersPanel'),
   members_stats: () => import('../components/admin/MembersStatsPanel'),
   dues: () => import('../components/erp/CuotasPanel'),
@@ -250,6 +252,7 @@ export default function AdminView({
     routeTab
     && (
       permittedTabs.includes(routeTab)
+      || (routeTab === 'members_app' && permittedTabs.includes('members'))
       || (routeTab === 'members_amet' && permittedTabs.includes('members'))
       || (routeTab === 'members_stats' && permittedTabs.includes('members'))
       || (routeTab === 'pool_gate' && permittedTabs.includes('pool'))
@@ -624,6 +627,7 @@ export default function AdminView({
             icon: Users,
             label: 'Socios',
             children: [
+              { key: 'members_app', icon: Smartphone, label: 'Socios con app' },
               { key: 'members_amet', icon: BadgePercent, label: 'AMET' },
               { key: 'members_stats', icon: BarChart3, label: 'Estadísticas' },
             ],
@@ -725,7 +729,7 @@ export default function AdminView({
             if (!tab.children?.length) return tab;
             const children = tab.children.filter((child) => {
               if (child.key === 'pool_gate') return permittedTabs.includes('pool');
-              if (child.key === 'members_amet' || child.key === 'members_stats') {
+              if (child.key === 'members_app' || child.key === 'members_amet' || child.key === 'members_stats') {
                 return permittedTabs.includes('members');
               }
               return permittedTabs.includes(child.key);
@@ -1197,7 +1201,7 @@ export default function AdminView({
       <div className="admin-main">
       <div className="page-stage">
       {/* Cabecera solo fuera del Inicio (el dashboard ya trae su propia intro) */}
-      {activeTab !== 'dashboard' && activeTab !== 'events' && activeTab !== 'accounting' && activeTab !== 'books' && activeTab !== 'informes' && activeTab !== 'caja' && activeTab !== 'operation' && activeTab !== 'jev' && activeTab !== 'messaging' && activeTab !== 'members_amet' && activeTab !== 'members_stats' && (
+      {activeTab !== 'dashboard' && activeTab !== 'events' && activeTab !== 'accounting' && activeTab !== 'books' && activeTab !== 'informes' && activeTab !== 'caja' && activeTab !== 'operation' && activeTab !== 'jev' && activeTab !== 'messaging' && activeTab !== 'members_app' && activeTab !== 'members_amet' && activeTab !== 'members_stats' && (
         <div className="page-header" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
           <div>
             <h1 className="page-title">{panelMeta.title}</h1>
@@ -1419,7 +1423,30 @@ export default function AdminView({
         )
       )}
 
-{activeTab === 'members_amet' && (
+      {activeTab === 'members_app' && (
+        <MembersWithAppPanel
+          members={members}
+          membersLoading={membersLoading}
+          setMembers={memberSet}
+          updateMember={memberWrite}
+          addJournalEntry={addJournalEntry}
+          onAccountEntry={erp.upsertMemberAccountEntryRecord}
+          formatCurrency={formatCurrency}
+          onOpenProfile={(id) => navigate(`/panel/members/${id}`)}
+          onSendMessage={sendMessage}
+          tierCatalog={tierCatalog}
+          paymentPlans={paymentPlans}
+          paymentTolerance={duesSettings?.paymentTolerance}
+          journalEntries={journalEntries}
+          reservations={reservations}
+          entryLogs={entryLogs}
+          claims={claims}
+          messages={messages}
+          setMessages={setMessages}
+        />
+      )}
+
+      {activeTab === 'members_amet' && (
         <AmetMembersPanel
           members={members}
           membersLoading={membersLoading}
