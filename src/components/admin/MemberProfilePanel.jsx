@@ -5,7 +5,7 @@ import {
   MessageSquare, ClipboardList, Activity, Phone, Mail, MapPin,
   Pencil, FileText, Ticket, Bell, IdCard, Cake, Heart, Flag, Clock,
   ShieldCheck, CalendarClock, Banknote, Building2, AlertTriangle,
-  Camera, X, Plus, Loader2,
+  Camera, X, Plus, Loader2, UserMinus,
 } from 'lucide-react';
 import VirtualCard from '../VirtualCard';
 import GuestPassPanel from '../GuestPassPanel';
@@ -46,10 +46,12 @@ import {
   allocateNextMemberNumber,
   applyMemberListRefresh,
   attachHouseholdToMembers,
+  detachMemberFromFamilyGroup,
   familyPrincipalOf,
   householdMemberAsAdherent,
   isFamilyDependent,
   memberNumberOf,
+  suggestedTierAfterFamilyDetach,
   uniqueFamilyMembers,
 } from '../../domain/members/households';
 import {
@@ -378,6 +380,9 @@ export default function MemberProfilePanel({
   const [cardMember, setCardMember] = useState(null);
   const [familyEdit, setFamilyEdit] = useState(null);
   const [familyEditMsg, setFamilyEditMsg] = useState('');
+  const [familyDetach, setFamilyDetach] = useState(null);
+  const [familyDetachMsg, setFamilyDetachMsg] = useState('');
+  const [familyDetachBusy, setFamilyDetachBusy] = useState(false);
   const [householdPayments, setHouseholdPayments] = useState([]);
   const [householdExtras, setHouseholdExtras] = useState([]);
   const [householdReady, setHouseholdReady] = useState(false);
@@ -1697,6 +1702,25 @@ export default function MemberProfilePanel({
                             <Pencil size={13} /> Editar
                           </button>
                         ) : null}
+                        {canEditFamily
+                          && adh.relationship !== 'Titular'
+                          && source
+                          && isFamilyDependent(source) ? (
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm mp-family-detach"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setFamilyDetachMsg('');
+                              setFamilyDetach({
+                                source,
+                                form: { tier: suggestedTierAfterFamilyDetach(source) },
+                              });
+                            }}
+                          >
+                            <UserMinus size={13} /> Sacar del grupo
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           className="btn btn-secondary btn-sm"
@@ -2284,6 +2308,114 @@ export default function MemberProfilePanel({
                 {familyEdit.isNew ? 'Agregar al grupo' : 'Guardar'}
               </button>
               {familyEditMsg ? <span className="mp-edit-ok" style={{ color: '#f87171' }}>{familyEditMsg}</span> : null}
+            </div>
+          </form>
+        </ModalDialog>
+      ) : null}
+
+      {familyDetach ? (
+        <ModalDialog
+          onClose={() => {
+            if (familyDetachBusy) return;
+            setFamilyDetach(null);
+            setFamilyDetachMsg('');
+          }}
+          labelledBy="family-detach-title"
+          contentClassName="modal-content glass-panel"
+          contentStyle={{
+            width: '92%',
+            maxWidth: 480,
+            background: 'var(--bg-secondary)',
+            border: '1px solid var(--border-glass)',
+            padding: '1.25rem',
+          }}
+        >
+          <div className="mp-family-modal-head">
+            <h4 id="family-detach-title" className="serif-font" style={{ margin: 0, fontSize: '1.15rem', color: 'var(--text-gold)' }}>
+              Sacar del grupo familiar
+            </h4>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={familyDetachBusy}
+              onClick={() => {
+                setFamilyDetach(null);
+                setFamilyDetachMsg('');
+              }}
+            >
+              <X size={14} /> Cerrar
+            </button>
+          </div>
+          <form
+            className="mp-edit-form"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!updateMember || familyDetachBusy) return;
+              setFamilyDetachBusy(true);
+              setFamilyDetachMsg('');
+              try {
+                const next = withProfileEditTrace(
+                  familyDetach.source,
+                  detachMemberFromFamilyGroup(familyDetach.source, {
+                    tier: familyDetach.form.tier,
+                  }),
+                  { actorId, actorName, source: 'familia-detach' },
+                );
+                const saved = await updateMember(next);
+                if (typeof setMembers === 'function' && saved) {
+                  const id = memberNumberOf(saved);
+                  setMembers((prev) => (prev || []).map((row) => (
+                    memberNumberOf(row) === id ? saved : row
+                  )));
+                }
+                setFamilyDetach(null);
+                setHouseholdEpoch((n) => n + 1);
+              } catch (err) {
+                setFamilyDetachMsg(err?.message || 'No se pudo sacar del grupo.');
+              } finally {
+                setFamilyDetachBusy(false);
+              }
+            }}
+          >
+            <p className="mp-family-detach-lead">
+              {familyDetach.source.name || 'El integrante'} deja el hogar del titular
+              {' '}
+              Nº {familyPrincipalOf(familyDetach.source) || '—'}
+              . Sigue en el padrón como socio titular con su propia cuota.
+              No es una baja.
+            </p>
+            <div className="mp-edit-field" style={{ gridColumn: '1 / -1' }}>
+              <label className="form-label">Nueva categoría</label>
+              <select
+                className="form-input"
+                value={familyDetach.form.tier}
+                onChange={(ev) => setFamilyDetach((curr) => (
+                  curr ? { ...curr, form: { ...curr.form, tier: ev.target.value } } : curr
+                ))}
+              >
+                {tiers.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="mp-edit-actions">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={familyDetachBusy}
+                onClick={() => {
+                  setFamilyDetach(null);
+                  setFamilyDetachMsg('');
+                }}
+              >
+                Cancelar
+              </button>
+              <button type="submit" className="btn btn-primary" disabled={!updateMember || familyDetachBusy}>
+                {familyDetachBusy ? 'Sacando…' : 'Sacar del grupo'}
+              </button>
+              {familyDetachMsg ? (
+                <span className="mp-edit-ok" style={{ color: '#f87171' }}>{familyDetachMsg}</span>
+              ) : null}
             </div>
           </form>
         </ModalDialog>

@@ -103,6 +103,51 @@ export function porterIncomeBooks(incomes = [], porters = [], today = '') {
   return [...books.values()].sort((a, b) => a.name.localeCompare(b.name, 'es'));
 }
 
+/**
+ * Rendiciones agrupadas por fecha (más nueva primero).
+ * Cada día lista lo que rindió cada portero ese día.
+ */
+export function porterIncomeBooksByDate(incomes = [], porters = []) {
+  const byDate = new Map();
+  for (const item of incomes) {
+    if (!isPorteriaIncomeItem(item)) continue;
+    const amount = money(item.amount);
+    if (amount <= 0) continue;
+    const day = String(item.date || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+    const key = porterBookKey(item, porters);
+    if (!key) continue;
+    let dayBooks = byDate.get(day);
+    if (!dayBooks) {
+      dayBooks = new Map();
+      byDate.set(day, dayBooks);
+    }
+    let book = dayBooks.get(key);
+    if (!book) {
+      const name = String(item.renderedBy || item.payerName || 'Portero').trim()
+        || (porters || []).find((porter) => String(porter?.id || '') === key)?.fullName
+        || 'Portero';
+      book = { id: key, name, total: 0, count: 0 };
+      dayBooks.set(key, book);
+    }
+    book.total = money(book.total + amount);
+    book.count += 1;
+  }
+  return [...byDate.entries()]
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([date, map]) => {
+      const books = [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'es'));
+      return {
+        date,
+        books,
+        total: money(books.reduce((sum, book) => sum + book.total, 0)),
+        count: books.reduce((sum, book) => sum + book.count, 0),
+      };
+    });
+}
+
+export const PORTERIA_TABLE_PAGE_SIZE = 20;
+
 export const OTHER_INCOME_PAYMENT_METHODS = {
   efectivo: 'Efectivo',
   transferencia: 'Transferencia',

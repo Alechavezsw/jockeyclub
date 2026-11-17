@@ -15,6 +15,8 @@ import {
   familyGroupMatchesQuery,
   memberMatchesDirectoryQuery,
   rankMemberSearchHit,
+  detachMemberFromFamilyGroup,
+  suggestedTierAfterFamilyDetach,
 } from './households';
 
 const catalog = [
@@ -59,6 +61,34 @@ describe('households', () => {
     expect(memberMayOperateAccount(hijo)).toBe(false);
     expect(billingAccountMember(hijo, [titular, hijo])).toEqual(titular);
     expect(billingAccountMember(titular, [titular, hijo])).toEqual(titular);
+  });
+
+  it('saca al integrante del grupo y lo deja titular individual', () => {
+    expect(suggestedTierAfterFamilyDetach(hijo)).toBe('socio_individual');
+    expect(suggestedTierAfterFamilyDetach({
+      ...hijo,
+      tier: 'grupo_familiar_amet',
+    })).toBe('socio_individual_amet');
+
+    const next = detachMemberFromFamilyGroup({
+      ...hijo,
+      relationship: 'Grupo familiar',
+      meta: {
+        familyPrincipalNumber: 10009,
+        familyGroupName: 'GF - Rojo',
+        portalUsername: 'milagros',
+      },
+    });
+    expect(isFamilyDependent(next)).toBe(false);
+    expect(isTitularMember(next)).toBe(true);
+    expect(next.tier).toBe('socio_individual');
+    expect(next.familyPrincipalNumber).toBeNull();
+    expect(next.familyGroupName).toBeNull();
+    expect(next.meta.familyPrincipalNumber).toBeUndefined();
+    expect(next.meta.familyGroupName).toBeUndefined();
+    expect(next.meta.portalUsername).toBe('milagros');
+    expect(next.relationship).toBe('');
+    expect(() => detachMemberFromFamilyGroup(titular)).toThrow(/no es integrante/i);
   });
 
   it('resume padrón por hogares', () => {

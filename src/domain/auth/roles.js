@@ -442,10 +442,12 @@ export function canRemoveDuesSurcharge(roleOrRolesOrProfile) {
   return keys.includes('superadmin');
 }
 
-/** Editar ficha / padrón: solo administrador y superadministrador. */
+/** Editar ficha / padrón: administrador, superadministrador y empleado de administración. */
 export function canManageMembers(roleOrRoles) {
   const keys = collectRoleKeys(roleOrRoles).map((key) => String(key || '').toLowerCase());
-  return keys.includes('admin') || keys.includes('superadmin');
+  return keys.includes('admin')
+    || keys.includes('superadmin')
+    || keys.includes('admin_employee');
 }
 
 /**

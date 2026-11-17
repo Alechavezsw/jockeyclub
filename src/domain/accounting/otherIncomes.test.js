@@ -8,6 +8,8 @@ import {
   lineTotal,
   linesTotal,
   porterIncomeBooks,
+  porterIncomeBooksByDate,
+  PORTERIA_TABLE_PAGE_SIZE,
   validateOtherIncomeAttachment,
 } from './otherIncomes';
 
@@ -185,6 +187,26 @@ describe('otherIncomes', () => {
     ], porters, '2026-11-10');
     expect(books).toEqual([
       { id: 'p1', name: 'Ana López', today: 10000, total: 15000, count: 2 },
+    ]);
+  });
+
+  it('agrupa el acumulado por fecha, más nueva primero', () => {
+    const porters = [
+      { id: 'p1', fullName: 'Ana López' },
+      { id: 'p2', fullName: 'Jorge Galdeano' },
+    ];
+    const days = porterIncomeBooksByDate([
+      { group: 'porteria', renderedById: 'p1', renderedBy: 'Ana López', date: '2026-11-10', amount: 10000, status: 'posted' },
+      { group: 'porteria', renderedById: 'p2', renderedBy: 'Jorge Galdeano', date: '2026-11-16', amount: 40000, status: 'posted' },
+      { group: 'porteria', renderedById: 'p1', renderedBy: 'Ana López', date: '2026-11-16', amount: 5000, status: 'posted' },
+      { group: 'porteria', renderedById: 'p1', date: '2026-11-16', amount: 1000, status: 'void' },
+    ], porters);
+    expect(PORTERIA_TABLE_PAGE_SIZE).toBe(20);
+    expect(days.map((row) => row.date)).toEqual(['2026-11-16', '2026-11-10']);
+    expect(days[0]).toMatchObject({ date: '2026-11-16', total: 45000, count: 2 });
+    expect(days[0].books).toEqual([
+      { id: 'p1', name: 'Ana López', total: 5000, count: 1 },
+      { id: 'p2', name: 'Jorge Galdeano', total: 40000, count: 1 },
     ]);
   });
 });

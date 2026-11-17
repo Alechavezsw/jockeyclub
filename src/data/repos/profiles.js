@@ -1,6 +1,7 @@
 import * as M from '../mappers';
 import { unwrap, throwOnError } from '../errors';
 import { SYSTEM_ADMIN_ROLES } from '../../domain/auth/roles';
+import { dedupeGateOperators } from '../../domain/auth/gatePorters';
 import { isUuid, sb, audit } from './shared.js';
 
 /** Usuarios con cuenta en el portal (public.profiles). */
@@ -89,14 +90,18 @@ export async function listGateOperators() {
   ].filter(Boolean))];
   if (!ids.length) return [];
   const rows = await unwrap(
-    sb().from('profiles').select('id, full_name, first_name, last_name, is_active').in('id', ids),
+    sb().from('profiles').select('id, full_name, first_name, last_name, role, is_active').in('id', ids),
     'No se pudieron cargar los porteros'
   );
-  return (rows || [])
-    .filter((row) => row.is_active !== false)
-    .map((row) => ({ id: row.id, fullName: porterDisplayName(row) }))
-    .filter((row) => row.fullName)
-    .sort((a, b) => a.fullName.localeCompare(b.fullName, 'es'));
+  return dedupeGateOperators(
+    (rows || [])
+      .filter((row) => row.is_active !== false)
+      .map((row) => ({
+        id: row.id,
+        fullName: porterDisplayName(row),
+        role: row.role,
+      })),
+  );
 }
 
 export async function getProfile(profileId) {

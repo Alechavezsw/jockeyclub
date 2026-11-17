@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { collectMemberMeta } from './memberAdminActions';
 import { memberFromRow, memberToRow } from '../../data/mappers';
+import { detachMemberFromFamilyGroup, isFamilyDependent } from './households';
 
 /**
  * Mismo shape que MemberProfilePanel.persistNewFamilyMember → upsertMember.
@@ -64,5 +65,35 @@ describe('alta de familiar (payload cloud)', () => {
     expect(meta.familyPrincipalNumber).toBe(111635);
     expect(meta.familyGroupName).toBe('Grupo 111635');
     expect(meta.name).toBeUndefined();
+  });
+
+  it('sacar del grupo limpia el vínculo en el payload cloud', () => {
+    const linked = {
+      name: 'Familiar de Prueba',
+      memberId: '99999111636',
+      tier: 'grupo_familiar_familiar',
+      status: 'active',
+      familyPrincipalNumber: 111635,
+      familyGroupName: 'Grupo 111635',
+      meta: collectMemberMeta({
+        familyPrincipalNumber: 111635,
+        familyGroupName: 'Grupo 111635',
+      }),
+    };
+    const detached = detachMemberFromFamilyGroup(linked);
+    const row = memberToRow(detached);
+    row.meta = { ...collectMemberMeta(detached), ...(row.meta || {}) };
+    expect(isFamilyDependent(detached)).toBe(false);
+    expect(row.tier).toBe('socio_individual');
+    expect(row.meta.familyPrincipalNumber).toBeUndefined();
+    expect(row.meta.familyGroupName).toBeUndefined();
+
+    const ui = memberFromRow({
+      ...row,
+      id: '00000000-0000-4000-8000-000000000002',
+      member_adherents: [],
+    }, []);
+    expect(ui.familyPrincipalNumber == null || ui.familyPrincipalNumber === '').toBe(true);
+    expect(isFamilyDependent(ui)).toBe(false);
   });
 });

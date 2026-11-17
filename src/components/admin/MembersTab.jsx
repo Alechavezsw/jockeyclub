@@ -22,7 +22,7 @@ import {
   memberDuesStandingSummary,
 } from '../../domain/accounting/appMonthlyDebts';
 import { libreDeudaClub } from '../../domain/accounting/libreDeuda';
-import { allocateNextMemberNumber, attachHouseholdToMembers, assignDistinctStatColors, buildPadronHouseholdStats, familyGroupMatchesQuery, isFamilyDependent, isLiveMember, isTitularMember, listFamilyGroups, memberMatchesDirectoryQuery, mergeMemberRecord, mergeMembersById, rankMemberSearchHit, resolveFamilyForDisplay } from '../../domain/members/households';
+import { allocateNextMemberNumber, attachHouseholdToMembers, assignDistinctStatColors, buildPadronHouseholdStats, detachMemberFromFamilyGroup, familyGroupMatchesQuery, isFamilyDependent, isLiveMember, isTitularMember, listFamilyGroups, memberMatchesDirectoryQuery, mergeMemberRecord, mergeMembersById, rankMemberSearchHit, resolveFamilyForDisplay, suggestedTierAfterFamilyDetach } from '../../domain/members/households';
 import { portalAccessEmailCandidates, portalLoginFromEmail } from '../../domain/auth/credentials';
 import {
   accessInviteMailError,
@@ -2963,16 +2963,50 @@ export default function MembersTab({
                                     </span>
                                   </td>
                                   <td style={{ fontSize: '0.8rem', padding: '0.4rem', textAlign: 'right' }}>
-                                    <div style={{ display: 'inline-flex', gap: '0.25rem' }}>
+                                    <div style={{ display: 'inline-flex', gap: '0.25rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                                       {adh.fromPadron && adh.memberId ? (
-                                        <button
-                                          type="button"
-                                          onClick={() => onOpenProfile?.(adh.memberId)}
-                                          className="btn btn-secondary btn-sm"
-                                          style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem' }}
-                                        >
-                                          Ver ficha
-                                        </button>
+                                        <>
+                                          <button
+                                            type="button"
+                                            onClick={() => onOpenProfile?.(adh.memberId)}
+                                            className="btn btn-secondary btn-sm"
+                                            style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem' }}
+                                          >
+                                            Ver ficha
+                                          </button>
+                                          {allowPadronWrite && (() => {
+                                            const source = members.find((row) => String(row.memberId) === String(adh.memberId));
+                                            if (!source || !isFamilyDependent(source)) return null;
+                                            return (
+                                              <button
+                                                type="button"
+                                                className="btn btn-secondary btn-sm"
+                                                style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                                                title="Sacar del grupo: queda titular con categoría propia"
+                                                onClick={async () => {
+                                                  if (!updateMember) return;
+                                                  const ok = window.confirm(
+                                                    `¿Sacar a ${source.name || adh.name} del grupo familiar?\n`
+                                                    + `Queda en el padrón como ${suggestedTierAfterFamilyDetach(source).replace(/_/g, ' ')}.\n`
+                                                    + 'No es una baja.',
+                                                  );
+                                                  if (!ok) return;
+                                                  try {
+                                                    const next = detachMemberFromFamilyGroup(source);
+                                                    await updateMember(next);
+                                                    setActionFlash(`${source.name || adh.name} salió del grupo familiar.`);
+                                                    setTimeout(() => setActionFlash(''), 3200);
+                                                  } catch (err) {
+                                                    setActionFlash(err?.message || 'No se pudo sacar del grupo.');
+                                                    setTimeout(() => setActionFlash(''), 4200);
+                                                  }
+                                                }}
+                                              >
+                                                <UserMinus size={10} /> Sacar
+                                              </button>
+                                            );
+                                          })()}
+                                        </>
                                       ) : (
                                         <>
                                           <button

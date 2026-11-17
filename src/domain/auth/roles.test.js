@@ -274,10 +274,11 @@ describe('canEditFeePackAmounts', () => {
 });
 
 describe('canManageMembers', () => {
-  it('solo administrador y superadministrador editan el padrón', () => {
+  it('administración y superadministrador editan el padrón', () => {
     expect(canManageMembers('superadmin')).toBe(true);
     expect(canManageMembers('admin')).toBe(true);
-    for (const role of ['accountant', 'cashier', 'gate_operator', 'admin_employee', 'pool_operator', 'staff', 'hr', 'teacher', 'member']) {
+    expect(canManageMembers('admin_employee')).toBe(true);
+    for (const role of ['accountant', 'cashier', 'gate_operator', 'pool_operator', 'staff', 'hr', 'teacher', 'member']) {
       expect(canManageMembers(role)).toBe(false);
     }
   });

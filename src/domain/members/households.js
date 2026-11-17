@@ -292,6 +292,44 @@ export function isTitularMember(member) {
   return !isFamilyDependent(member);
 }
 
+/** Categoría al salir del grupo: individual (AMET si venía de grupo AMET). */
+export function suggestedTierAfterFamilyDetach(member) {
+  const tier = String(member?.tier || '');
+  if (/amet/i.test(tier)) return 'socio_individual_amet';
+  return 'socio_individual';
+}
+
+/**
+ * Saca a un integrante del hogar: corta familyPrincipalNumber / familyGroupName
+ * y lo deja titular con categoría propia. Sigue activo en el padrón.
+ */
+export function detachMemberFromFamilyGroup(member, { tier } = {}) {
+  if (!member) throw new Error('Falta el socio.');
+  if (!isFamilyDependent(member)) {
+    throw new Error('Este socio no es integrante de un grupo familiar.');
+  }
+  const nextTier = String(tier || suggestedTierAfterFamilyDetach(member) || 'socio_individual').trim()
+    || 'socio_individual';
+  const meta = member.meta && typeof member.meta === 'object' && !Array.isArray(member.meta)
+    ? { ...member.meta }
+    : {};
+  delete meta.familyPrincipalNumber;
+  delete meta.familyGroupName;
+  const relationship = String(member.relationship || '').trim();
+  const keepRelationship = relationship && !/grupo\s*familiar/i.test(relationship)
+    ? relationship
+    : '';
+  return {
+    ...member,
+    tier: nextTier,
+    relationship: keepRelationship,
+    familyPrincipalNumber: null,
+    familyGroupName: null,
+    meta,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 /** El adherente no paga ni alquila: la cuenta y las reservas son del titular. */
 export function memberMayOperateAccount(member) {
   return isTitularMember(member);
