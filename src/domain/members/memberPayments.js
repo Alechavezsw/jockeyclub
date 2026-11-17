@@ -561,6 +561,7 @@ export function payMemberDues(member, {
   today = new Date(),
   periodDueOns = null,
   skipSurcharge = false,
+  chargeScope = 'all',
 } = {}) {
   if (!member) throw new Error('Socio no encontrado.');
   if (isFamilyDependent(member)) throw new Error('El cobro va a la cuenta del titular.');
@@ -571,7 +572,7 @@ export function payMemberDues(member, {
   let selected = Array.isArray(periodDueOns) && periodDueOns.length
     ? periodDueOns.map((value) => String(value || '').slice(0, 10)).filter(Boolean)
     : null;
-  const choices = collectionPeriodChoices(member, today);
+  const choices = collectionPeriodChoices(member, today, { chargeScope });
   let selectedChoices = selected
     ? choices.filter((row) => selected.includes(String(row.dueOn).slice(0, 10)))
     : choices;
@@ -583,6 +584,7 @@ export function payMemberDues(member, {
   const preview = collectionPreview(member, today, {
     periodDueOns: selected,
     skipSurcharge: skipInterest,
+    chargeScope,
   });
   const split = duesChargeBreakdown(member, {
     paidOn: today,
@@ -833,8 +835,9 @@ export function payMemberDues(member, {
 export function collectionPreview(member, today = new Date(), {
   periodDueOns = null,
   skipSurcharge = false,
+  chargeScope = 'all',
 } = {}) {
-  const choices = collectionPeriodChoices(member, today);
+  const choices = collectionPeriodChoices(member, today, { chargeScope });
   const selected = Array.isArray(periodDueOns) && periodDueOns.length
     ? periodDueOns.map((value) => String(value || '').slice(0, 10)).filter(Boolean)
     : choices.map((row) => row.dueOn);

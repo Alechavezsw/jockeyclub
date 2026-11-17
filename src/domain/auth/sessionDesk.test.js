@@ -6,6 +6,8 @@ import {
   isDualDeskUser,
   resolveSessionDesk,
   effectiveRoleForDesk,
+  homePathForDesk,
+  opsLandingPath,
 } from './sessionDesk';
 
 const superadminSocio = {
@@ -71,5 +73,13 @@ describe('session desks', () => {
       role: 'member',
       roles: [{ roleKey: 'member' }, { roleKey: 'superadmin' }],
     }, 'ops')).toBe('superadmin');
+  });
+
+  it('portería abre en Acceso QR y pileta en su entrada', () => {
+    expect(opsLandingPath('gate_operator')).toBe('/acceso');
+    expect(opsLandingPath('pool_operator')).toBe('/entrada-pileta');
+    expect(opsLandingPath('cashier')).toBe('/panel');
+    expect(homePathForDesk(SESSION_DESK.ops, 'gate_operator')).toBe('/acceso');
+    expect(homePathForDesk(SESSION_DESK.member)).toBe('/');
   });
 });

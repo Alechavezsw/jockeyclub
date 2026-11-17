@@ -56,7 +56,7 @@ export function duesRuleSentences() {
     ametLine: `AMET (socio familiar AMET y socio individual AMET) vence el ${DUES_AMET_DUE_DAY}. Su cuota es la base menos ${ametCut}; ese ${ametCut} es tarifa, no mora ni recargo.`,
     lateLine: `El recargo es del ${late}, corre desde el día siguiente al vencimiento y solo en socio familiar e individual. AMET no lleva recargo.`,
     exemptLine: 'Vitalicio, fundador y comisión no abonan cuota. Para todo el padrón: sin mora, sin saldo, sin avisos, sin Mercado Pago y sin cobro en caja ni en el portal.',
-    householdLine: 'En un grupo familiar la cuota es una sola, la del titular. El adherente no tiene cuenta propia. Un abono de tenis de un integrante sí se suma a la cuenta del titular.',
+    householdLine: 'En un grupo familiar la cuota es una sola, la del titular. El adherente no tiene cuenta propia. Un abono de tenis de un integrante sí se suma a la cuenta del titular, y se puede cobrar aparte de la cuota social.',
     groupMoraLine: 'La mora del titular alcanza al grupo: en temporada el adherente no ingresa ni paga pileta si el titular está en mora.',
     paymentLine: `Un pago cubre el mes en que se hizo: si el último pago fue en agosto, el próximo vencimiento es el ${DUES_DUE_DAY} de septiembre.`,
     deskLine: 'El recargo se cobra siempre. Un administrador puede borrarlo después en la ficha: el importe cobrado queda y el recargo pasa a saldo a favor.',
@@ -612,14 +612,19 @@ export function lilaUnpaidCapital(member) {
 }
 
 /**
- * Saldo de cuota para mora / “cuánto debe”.
- * Tras importar débitos, unpaidCapital LILA es la verdad; la columna
- * outstanding_balance a veces quedó vieja y metía cobrados en mora.
+ * Saldo de cuota para mora / “cuánto debe” / padrón / Consultar deuda / cobro.
+ * Misma cifra en todos lados.
+ * - outstanding_balance ≤ 0 (al día o a favor): manda la ficha. No reabrir deuda
+ *   con un unpaidCapital LILA viejo después de un cobro.
+ * - Si hay saldo en ficha y unpaidCapital LILA, el capital LILA es la verdad
+ *   (la columna a veces quedó vieja tras importar débitos).
  */
 export function socialDuesStoredBalance(member) {
+  const outstanding = money(Number(member?.outstandingBalance) || 0);
+  if (outstanding <= 0.01) return 0;
   const lila = lilaUnpaidCapital(member);
   if (lila != null) return Math.max(0, money(lila));
-  return Math.max(0, money(Number(member?.outstandingBalance) || 0));
+  return Math.max(0, outstanding);
 }
 
 function socialDuesAmountDue(member, todayStart) {
@@ -693,16 +698,29 @@ export function duesPayableAmount(base, { paidOn = new Date(), dueOn, tier } = {
 }
 
 /** Suma cada categoría del socio y aplica el recargo solo donde corresponde. */
-export function duesPayableForMember(member, { paidOn = new Date(), dueOn, on, rules } = {}) {
+export function duesPayableForMember(member, {
+  paidOn = new Date(),
+  dueOn,
+  on,
+  rules,
+  chargeScope = 'all',
+} = {}) {
   if (isDuesExemptMember(member) || isFamilyDependent(member)) return 0;
   const when = on || dueOn || paidOn;
   const discountRules = resolveDiscountRules(rules);
+  const scope = normalizeDuesChargeScope(chargeScope);
   if (memberKeepsFlatDuesAccount(member)) {
-    return duesAmountForMember(member, when, { rules: discountRules });
+    return duesAmountForMember(member, when, { rules: discountRules, chargeScope: scope });
   }
-  const own = payableForTierIds(member, billedTierIds(member), {
+  const ownIds = billedTierIds(member).filter((id) => {
+    if (scope === 'social') return !isAddOnDuesTierId(id);
+    if (scope === 'addon') return isAddOnDuesTierId(id);
+    return true;
+  });
+  const own = payableForTierIds(member, ownIds, {
     paidOn, dueOn, on: when, rules: discountRules,
   });
+  if (scope === 'social') return own;
   const extra = activeAdherentsOf(member).reduce((sum, row) => {
     const person = asDiscountPerson(row, member);
     return sum + payableForTierIds(person, billedTierIds(person), {
@@ -744,23 +762,70 @@ function pushChargeSlice(slices, person, id, on, rules) {
   });
 }
 
+/** all = cuota + abono · social = solo cuota · addon = solo tenis (u otro abono). */
+export function normalizeDuesChargeScope(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw === 'social' || raw === 'cuota' || raw === 'quota') return 'social';
+  if (raw === 'addon' || raw === 'tenis' || raw === 'abono' || raw === 'abono_tenis') return 'addon';
+  return 'all';
+}
+
+export function duesChargeScopeLabel(scope) {
+  const normalized = normalizeDuesChargeScope(scope);
+  if (normalized === 'social') return 'Solo cuota social';
+  if (normalized === 'addon') return 'Solo abono tenis';
+  return 'Cuota y abono';
+}
+
+function sliceMatchesChargeScope(slice, chargeScope) {
+  const scope = normalizeDuesChargeScope(chargeScope);
+  const id = String(slice?.tierId || '').trim().toLowerCase();
+  if (scope === 'social') return !isAddOnDuesTierId(id);
+  if (scope === 'addon') return isAddOnDuesTierId(id);
+  return true;
+}
+
+/** True si el titular tiene cuota social y abono (tenis) en el mismo mes. */
+export function memberHasSeparableAddOn(member, on = new Date()) {
+  const slices = duesChargeSlicesForMember(member, on, { chargeScope: 'all' });
+  const hasSocial = slices.some((row) => !isAddOnDuesTierId(row.tierId));
+  const hasAddon = slices.some((row) => isAddOnDuesTierId(row.tierId));
+  return hasSocial && hasAddon;
+}
+
 /**
  * Una deuda por categoría con importe. Familiar y abono de tenis no se mezclan.
  * El tenis de un adherente entra en la deuda de tenis del titular.
+ * `chargeScope`: all | social | addon — permite cobrar cuota y tenis por separado.
  */
 export function duesChargeSlicesForMember(member, on = new Date(), options = {}) {
   if (isDuesExemptMember(member) || isFamilyDependent(member)) return [];
   const rules = resolveDiscountRules(options?.rules);
+  const scope = normalizeDuesChargeScope(options?.chargeScope);
   const slices = new Map();
-  for (const id of billedTierIds(member)) pushChargeSlice(slices, member, id, on, rules);
-  for (const row of activeAdherentsOf(member)) {
-    const person = asDiscountPerson(row, member);
-    for (const id of billedTierIds(person)) {
+  if (scope !== 'addon') {
+    for (const id of billedTierIds(member)) {
+      if (scope === 'social' && isAddOnDuesTierId(id)) continue;
+      pushChargeSlice(slices, member, id, on, rules);
+    }
+  } else {
+    for (const id of billedTierIds(member)) {
       if (!isAddOnDuesTierId(id)) continue;
-      pushChargeSlice(slices, person, id, on, rules);
+      pushChargeSlice(slices, member, id, on, rules);
     }
   }
-  return [...slices.values()].toSorted((a, b) => a.category.localeCompare(b.category, 'es'));
+  if (scope !== 'social') {
+    for (const row of activeAdherentsOf(member)) {
+      const person = asDiscountPerson(row, member);
+      for (const id of billedTierIds(person)) {
+        if (!isAddOnDuesTierId(id)) continue;
+        pushChargeSlice(slices, person, id, on, rules);
+      }
+    }
+  }
+  return [...slices.values()]
+    .filter((row) => sliceMatchesChargeScope(row, scope))
+    .toSorted((a, b) => a.category.localeCompare(b.category, 'es'));
 }
 
 /** Cuota vigente: titular (estatuto + abonos propios) + tenis de adherentes. El grupo no suma cuota social. */
@@ -770,9 +835,9 @@ export function duesAmountForMember(member, on = new Date(), options = {}) {
 }
 
 /** Capital del mes que sí lleva 10 % (familiar e individual). El abono no. */
-export function lateBaseForMember(member, on) {
+export function lateBaseForMember(member, on, options = {}) {
   if (memberKeepsFlatDuesAccount(member)) return 0;
-  return money(duesChargeSlicesForMember(member, on).reduce((sum, slice) => {
+  return money(duesChargeSlicesForMember(member, on, options).reduce((sum, slice) => {
     const id = String(slice.tierId || '').trim().toLowerCase();
     if (id && !DUES_LATE_TIER_IDS.has(id)) return sum;
     return sum + (Number(slice.amount) || 0);
@@ -783,9 +848,10 @@ export function lateBaseForMember(member, on) {
  * Meses vencidos y todavía impagos. Cada uno trae su cuota y su propio 10 %.
  * El mes que todavía no venció no entra.
  */
-export function overdueSocialMonths(member, paidOn) {
+export function overdueSocialMonths(member, paidOn, { chargeScope = 'all' } = {}) {
   const todayStart = startOfDay(paidOn);
   const day = duesDueDayForMember(member);
+  const scopeOpts = { chargeScope };
   const first = parseDate(firstUnpaidDuesDate({
     lastPaymentDate: member?.lastPaymentDate,
     nextDueDate: member?.nextDueDate,
@@ -796,16 +862,17 @@ export function overdueSocialMonths(member, paidOn) {
   const months = [];
   let cursor = first;
   while (cursor < todayStart && months.length < 24) {
-    const capital = money(duesAmountForMember(member, cursor));
+    const capital = money(duesAmountForMember(member, cursor, scopeOpts));
     const payable = money(duesPayableForMember(member, {
       paidOn: todayStart,
       dueOn: cursor,
       on: cursor,
+      chargeScope,
     }) || 0);
     months.push({
       dueOn: toISODate(cursor),
       capital,
-      lateBase: lateBaseForMember(member, cursor),
+      lateBase: lateBaseForMember(member, cursor, scopeOpts),
       payable,
       surcharge: Math.max(0, payable - capital),
     });
@@ -818,14 +885,16 @@ function periodChoiceLabel(dueOn) {
   return duesMonthLabel(dueOn) || String(dueOn || '').slice(0, 10);
 }
 
-function periodChoiceFromDue(member, dueOn, paidOn, kind = 'overdue') {
+function periodChoiceFromDue(member, dueOn, paidOn, kind = 'overdue', { chargeScope = 'all' } = {}) {
   const on = parseDate(dueOn) || paidOn;
-  const capital = money(duesAmountForMember(member, on));
+  const scopeOpts = { chargeScope };
+  const capital = money(duesAmountForMember(member, on, scopeOpts));
   if (!(capital > 0)) return null;
   const payable = money(duesPayableForMember(member, {
     paidOn,
     dueOn,
     on,
+    chargeScope,
   }) || 0);
   return {
     id: dueOn,
@@ -833,10 +902,11 @@ function periodChoiceFromDue(member, dueOn, paidOn, kind = 'overdue') {
     monthKey: String(dueOn).slice(0, 7),
     label: periodChoiceLabel(dueOn),
     capital,
-    lateBase: lateBaseForMember(member, on),
+    lateBase: lateBaseForMember(member, on, scopeOpts),
     surcharge: Math.max(0, payable - capital),
     payable,
     kind,
+    chargeScope: normalizeDuesChargeScope(chargeScope),
   };
 }
 
@@ -879,7 +949,8 @@ function duesPeriodMonthStarted(dueOn, paidOn) {
 }
 
 /** Meses ya cubiertos por cobros (periodDueOns / imputaciones). No se vuelven a ofrecer. */
-export function memberCoveredDueOns(member) {
+export function memberCoveredDueOns(member, { chargeScope = 'all' } = {}) {
+  const scope = normalizeDuesChargeScope(chargeScope);
   const set = new Set();
   const push = (value) => {
     const iso = String(value || '').slice(0, 10);
@@ -894,7 +965,41 @@ export function memberCoveredDueOns(member) {
     ) {
       continue;
     }
+    const payScope = normalizeDuesChargeScope(
+      payment?.chargeScope || payment?.meta?.chargeScope || 'all',
+    );
+    if (scope === 'addon') {
+      // Solo tenis: no cuenta un cobro de «solo cuota».
+      if (payScope === 'social') continue;
+      const addonDues = payment?.addonPeriodDueOns || payment?.meta?.addonPeriodDueOns;
+      if (Array.isArray(addonDues) && addonDues.length) {
+        for (const due of addonDues) push(due);
+        continue;
+      }
+      // Cobro completo (o tenis sin lista aparte): los meses del recibo cubren el abono.
+      if (payScope === 'all' || payScope === 'addon') {
+        for (const due of payment?.periodDueOns || []) push(due);
+        for (const row of payment?.imputations || []) {
+          if (row?.voidedAt) continue;
+          push(row?.dueOn);
+        }
+      }
+      continue;
+    }
+    if (scope === 'social') {
+      // Solo cuota: no cuenta un cobro de «solo tenis».
+      if (payScope === 'addon') continue;
+      for (const due of payment?.periodDueOns || []) push(due);
+      for (const row of payment?.imputations || []) {
+        if (row?.voidedAt) continue;
+        if (row?.tierId && isAddOnDuesTierId(row.tierId)) continue;
+        push(row?.dueOn);
+      }
+      continue;
+    }
+    // Vista completa: cualquier cobro (cuota, tenis o ambos) marca el mes.
     for (const due of payment?.periodDueOns || []) push(due);
+    for (const due of payment?.addonPeriodDueOns || payment?.meta?.addonPeriodDueOns || []) push(due);
     for (const row of payment?.imputations || []) {
       if (row?.voidedAt) continue;
       push(row?.dueOn);
@@ -926,15 +1031,16 @@ function capitalOwedForChoices(member) {
   return balance;
 }
 
-function expandChoicesToCoverBalance(member, choices, paidOn, coveredDueOns = null) {
+function expandChoicesToCoverBalance(member, choices, paidOn, coveredDueOns = null, { chargeScope = 'all' } = {}) {
   const owed = capitalOwedForChoices(member);
   if (!(owed > 0.01)) return choices;
   const day = duesDueDayForMember(member);
-  const paidSet = coveredDueOns || memberCoveredDueOns(member);
+  const scopeOpts = { chargeScope };
+  const paidSet = coveredDueOns || memberCoveredDueOns(member, scopeOpts);
   let rows = [...(choices || [])].filter((row) => !dueOnAlreadyCovered(row.dueOn, paidSet));
   // Semilla: meses enteros a tarifa; el costo de ficha respeta el lift 60→70.
   rows = rows.map((row) => {
-    const full = periodChoiceFromDue(member, row.dueOn, paidOn, row.kind || 'overdue');
+    const full = periodChoiceFromDue(member, row.dueOn, paidOn, row.kind || 'overdue', scopeOpts);
     return full || row;
   }).filter((row) => (Number(row.capital) || 0) > 0);
   let fichaUsed = money(rows.reduce((sum, row) => sum + fichaCostForChoice(row), 0));
@@ -968,7 +1074,7 @@ function expandChoicesToCoverBalance(member, choices, paidOn, coveredDueOns = nu
     }
     const dueDate = parseDate(nextDue);
     const kind = dueDate && dueDate < paidOn ? 'overdue' : 'upcoming';
-    const full = periodChoiceFromDue(member, nextDue, paidOn, kind);
+    const full = periodChoiceFromDue(member, nextDue, paidOn, kind, scopeOpts);
     const row = appendPeriodChoiceCovering(rows, full, money(owed - fichaUsed));
     if (!row) break;
     rows.push(row);
@@ -1001,7 +1107,7 @@ function expandChoicesToCoverBalance(member, choices, paidOn, coveredDueOns = nu
       });
       continue;
     }
-    const full = periodChoiceFromDue(member, prevDue, paidOn, 'overdue');
+    const full = periodChoiceFromDue(member, prevDue, paidOn, 'overdue', scopeOpts);
     const row = appendPeriodChoiceCovering(rows, full, money(owed - fichaUsed));
     if (!row) break;
     rows.unshift(row);
@@ -1059,13 +1165,13 @@ function cuotaTariffStep(member, paidOn) {
  * Un capital como 116.000 (36.000 + 40.000 + 40.000) no abre agosto por el
  * recargo ni baja septiembre: septiembre también sale a la cuota vigente.
  */
-function lumpMonthsAtCurrentCuota(member, paidOn, paidSet) {
+function lumpMonthsAtCurrentCuota(member, paidOn, paidSet, { chargeScope = 'all' } = {}) {
   if (pinDuesDueDate(member?.nextDueDate, member)) return null;
   const balance = money(Math.max(0, Number(member?.outstandingBalance) || 0));
   const lila = lilaUnpaidCapital(member);
   const capital = lila != null && lila > 0.01 && lila <= balance + 0.01 ? money(lila) : balance;
   if (!(capital > 0.01)) return null;
-  const monthly = money(duesAmountForMember(member, paidOn));
+  const monthly = money(duesAmountForMember(member, paidOn, { chargeScope }));
   if (!(monthly > 0)) return null;
   const count = Math.round(capital / monthly);
   if (count < 1 || count > 18) return null;
@@ -1106,13 +1212,14 @@ function lumpMonthsAtCurrentCuota(member, paidOn, paidSet) {
 /**
  * Meses que se pueden marcar en el cobro (atrasados y mes en curso).
  * Si el saldo supera lo vencido, suma el mes actual (si ya empezó) y completa hacia atrás.
+ * `chargeScope`: all | social | addon — cuota y abono tenis se pueden cobrar aparte.
  */
 /**
  * Meses ya guardados de un pago a cuenta. El más viejo puede estar a medias.
  * No se reescribe: si no, agosto y septiembre vuelven a la tarifa llena
  * y el saldo parcial se corre al mes más nuevo.
  */
-function choicesFromStoredOpenPeriods(member, paidOn, paidSet) {
+function choicesFromStoredOpenPeriods(member, paidOn, paidSet, scopeOpts = {}) {
   const raw = member?.duesOpenPeriods;
   if (!Array.isArray(raw) || !raw.length) return null;
   const balance = money(Math.max(0, Number(member?.outstandingBalance) || 0));
@@ -1138,6 +1245,7 @@ function choicesFromStoredOpenPeriods(member, paidOn, paidSet) {
       surcharge,
       payable: money(capital + surcharge),
       kind: overdue ? 'overdue' : 'upcoming',
+      chargeScope: normalizeDuesChargeScope(scopeOpts.chargeScope),
     });
   }
   if (!stored.length) return null;
@@ -1162,6 +1270,7 @@ function choicesFromStoredOpenPeriods(member, paidOn, paidSet) {
         nextDue,
         paidOn,
         nextDate && nextDate < paidOn ? 'overdue' : 'upcoming',
+        scopeOpts,
       );
       const gap = money(target - covered);
       if (!full || full.capital > gap + 0.01) break;
@@ -1174,18 +1283,19 @@ function choicesFromStoredOpenPeriods(member, paidOn, paidSet) {
   return null;
 }
 
-export function collectionPeriodChoices(member, today = new Date()) {
+export function collectionPeriodChoices(member, today = new Date(), { chargeScope = 'all' } = {}) {
   if (!member || isDuesExemptMember(member) || isFamilyDependent(member)) return [];
   const paidOn = startOfDay(today);
-  const paidSet = memberCoveredDueOns(member);
-  const storedChoices = choicesFromStoredOpenPeriods(member, paidOn, paidSet);
+  const scopeOpts = { chargeScope };
+  const paidSet = memberCoveredDueOns(member, scopeOpts);
+  const storedChoices = choicesFromStoredOpenPeriods(member, paidOn, paidSet, scopeOpts);
   if (storedChoices) return storedChoices;
   // Sin vencimiento, el saldo son N cuotas vigentes. No se abre agosto con el recargo.
   if (!pinDuesDueDate(member?.nextDueDate, member)) {
-    const lump = lumpMonthsAtCurrentCuota(member, paidOn, paidSet);
+    const lump = lumpMonthsAtCurrentCuota(member, paidOn, paidSet, scopeOpts);
     if (lump) return lump;
   }
-  const overdue = overdueSocialMonths(member, paidOn)
+  const overdue = overdueSocialMonths(member, paidOn, scopeOpts)
     .filter((row) => row.capital > 0 && !dueOnAlreadyCovered(row.dueOn, paidSet))
     .map((row) => ({
       id: row.dueOn,
@@ -1197,8 +1307,9 @@ export function collectionPeriodChoices(member, today = new Date()) {
       surcharge: row.surcharge,
       payable: row.payable,
       kind: 'overdue',
+      chargeScope: normalizeDuesChargeScope(chargeScope),
     }));
-  if (overdue.length) return expandChoicesToCoverBalance(member, overdue, paidOn, paidSet);
+  if (overdue.length) return expandChoicesToCoverBalance(member, overdue, paidOn, paidSet, scopeOpts);
 
   const owed = money(Math.max(0, Number(member?.outstandingBalance) || 0));
   if (owed > 0.01) {
@@ -1219,17 +1330,17 @@ export function collectionPeriodChoices(member, today = new Date()) {
     if (!dueOnAlreadyCovered(seedDue, paidSet)) {
       const seedDate = parseDate(seedDue);
       const seedKind = seedDate && seedDate < paidOn ? 'overdue' : 'upcoming';
-      const seed = periodChoiceFromDue(member, seedDue, paidOn, seedKind);
-      if (seed) return expandChoicesToCoverBalance(member, [seed], paidOn, paidSet);
+      const seed = periodChoiceFromDue(member, seedDue, paidOn, seedKind, scopeOpts);
+      if (seed) return expandChoicesToCoverBalance(member, [seed], paidOn, paidSet, scopeOpts);
     }
     // El mes que todavía no empezó no se cobra: lo genera la liquidación del día 1.
-    return expandChoicesToCoverBalance(member, [], paidOn, paidSet);
+    return expandChoicesToCoverBalance(member, [], paidOn, paidSet, scopeOpts);
   }
 
   const dueOn = pinDuesDueDate(member.nextDueDate, member) || nextDuesDueDate(today, member);
   if (!duesPeriodMonthStarted(dueOn, paidOn)) return [];
   if (dueOnAlreadyCovered(dueOn, paidSet)) return [];
-  const upcoming = periodChoiceFromDue(member, dueOn, paidOn, 'upcoming');
+  const upcoming = periodChoiceFromDue(member, dueOn, paidOn, 'upcoming', scopeOpts);
   return upcoming ? [upcoming] : [];
 }
 

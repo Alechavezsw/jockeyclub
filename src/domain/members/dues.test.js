@@ -35,6 +35,7 @@ import {
   collectionPeriodChoices,
   memberCoveredDueOns,
   memberDueFact,
+  socialDuesStoredBalance,
 } from './dues';
 import { accountPaymentPlan, collectionPreview, payMemberDues } from './memberPayments';
 import { setRuntimeTierCatalog } from './tiers';
@@ -114,6 +115,21 @@ describe('dues classification', () => {
     ], new Date('2026-11-08T12:00:00'));
     expect(overdue.map((m) => m.memberId)).toEqual(['10559']);
     expect(overdue[0].amountDue).toBe(717000);
+  });
+
+  it('ficha en 0 no reabre deuda con unpaidCapital viejo (padrón = cobro = Consultar deuda)', () => {
+    expect(socialDuesStoredBalance({
+      outstandingBalance: 0,
+      unpaidCapital: 98000,
+    })).toBe(0);
+    expect(socialDuesStoredBalance({
+      outstandingBalance: 0,
+      unpaidCapital: 0,
+    })).toBe(0);
+    expect(socialDuesStoredBalance({
+      outstandingBalance: 70000,
+      unpaidCapital: 98000,
+    })).toBe(98000);
   });
 
   it('un alquiler en la cuenta no es mora de cuota', () => {

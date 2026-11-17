@@ -388,9 +388,9 @@ export function AuthProvider({ children }) {
     if (next !== SESSION_DESK.member && next !== SESSION_DESK.ops) return;
     persistSessionDesk(next);
     if (typeof window !== 'undefined') {
-      window.location.assign(homePathForDesk(next));
+      window.location.assign(homePathForDesk(next, effectiveRoleForDesk(user, next)));
     }
-  }, []);
+  }, [user]);
 
   const needsDeskChoice = Boolean(user) && !desk && isDualDeskUser(user);
   const effectiveRole = user ? effectiveRoleForDesk(user, desk) : null;

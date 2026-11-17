@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Sun, Moon, Shield, User, Menu, X, Bell, LogOut, Mail, LayoutDashboard,
-  Home, CalendarDays, Wallet, Newspaper, ClipboardCheck,
+  Home, CalendarDays, Wallet, Newspaper, ClipboardCheck, QrCode,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { navItemsForRole, ROLE_LABELS, sessionGreetLabel } from '../domain/auth/roles';
+import { canAccessQrGate, navItemsForRole, ROLE_LABELS, sessionGreetLabel } from '../domain/auth/roles';
 import { formatLongDateAR, todayISODateAR } from '../lib/arDate';
 import { preventButtonScroll } from '../lib/scrollPage';
 import { APP_NAME } from '../domain/system/appBrand';
@@ -53,10 +53,25 @@ export default function Navbar({
   const headerDate = formatLongDateAR();
   const headerDateISO = todayISODateAR();
   const greetName = sessionGreetLabel(user?.fullName || '', role);
+  const isQrGate = /^\/acceso\/?$/.test(location.pathname)
+    || location.pathname.startsWith('/acceso/');
   const isPanelHome = isOperative && (
-    /^\/panel\/?$/.test(location.pathname)
-    || location.pathname === '/panel/dashboard'
+    role === 'gate_operator'
+      ? isQrGate
+      : role === 'pool_operator'
+        ? (location.pathname.startsWith('/entrada-pileta') || location.pathname.startsWith('/pileta'))
+        : (
+          /^\/panel\/?$/.test(location.pathname)
+          || location.pathname === '/panel/dashboard'
+        )
   );
+  const showQrBtn = canAccessQrGate(role)
+    || (roles || []).some((r) => canAccessQrGate(r.roleKey || r));
+  const goQrGate = () => {
+    navigate('/acceso');
+    setIsOpen(false);
+    closeNotifs();
+  };
 
   const visibleNotifs = showNotifs ? notifSnapshot : notifications;
   const pendingCount = notifications.length;
@@ -104,7 +119,9 @@ export default function Navbar({
   };
 
   const goHome = () => {
-    if (isOperative) navigate('/panel/dashboard');
+    if (role === 'gate_operator') navigate('/acceso');
+    else if (role === 'pool_operator') navigate('/entrada-pileta');
+    else if (isOperative) navigate('/panel/dashboard');
     else if (isTeacher) navigate('/asistencia');
     else handleNavClick('dashboard');
     setIsOpen(false);
@@ -154,6 +171,19 @@ export default function Navbar({
               Inicio
             </button>
           )}
+          {showQrBtn ? (
+            <button
+              type="button"
+              onClick={goQrGate}
+              aria-current={isQrGate ? 'page' : undefined}
+              aria-label="Acceso QR · molinete"
+              title="Acceso QR"
+              className={`nav-qr-btn${isQrGate ? ' is-active' : ''}`}
+            >
+              <QrCode size={17} strokeWidth={isQrGate ? 2.5 : 2.2} aria-hidden="true" />
+              QR
+            </button>
+          ) : null}
         </div>
 
         {visibleItems.length > 0 ? (
@@ -501,6 +531,17 @@ export default function Navbar({
               <LayoutDashboard size={16} aria-hidden="true" /> Inicio
             </button>
           )}
+
+          {showQrBtn ? (
+            <button
+              type="button"
+              onClick={goQrGate}
+              aria-current={isQrGate ? 'page' : undefined}
+              className={`nav-qr-btn nav-qr-btn--mobile${isQrGate ? ' is-active' : ''}`}
+            >
+              <QrCode size={18} aria-hidden="true" /> QR · Acceso
+            </button>
+          ) : null}
 
           {visibleItems.map((item) => {
             const Icon = NAV_ICONS[item.id];

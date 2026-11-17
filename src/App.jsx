@@ -228,17 +228,22 @@ function ClubPortal() {
   const isOperativeRole = Boolean(sessionCanAccessAdmin);
 
   const pathForView = useCallback((viewId) => {
+    const opsHome = userRole === 'gate_operator'
+      ? '/acceso'
+      : userRole === 'pool_operator'
+        ? '/entrada-pileta'
+        : '/panel';
     switch (viewId) {
-      case 'reservations': return isOperativeRole ? '/panel' : '/reservas';
+      case 'reservations': return isOperativeRole ? opsHome : '/reservas';
       case 'attendance': return '/asistencia';
       case 'news': return '/revista';
       case 'messages': return '/mensajes';
       case 'payments': return '/cuenta';
       case 'profile': return '/perfil';
       case 'concessions': return '/panel/concessions';
-      case 'admin': return isOperativeRole ? '/panel' : (userRole === 'teacher' ? '/asistencia' : '/');
+      case 'admin': return isOperativeRole ? opsHome : (userRole === 'teacher' ? '/asistencia' : '/');
       case 'dashboard':
-      default: return isOperativeRole ? '/panel' : (userRole === 'teacher' ? '/asistencia' : '/');
+      default: return isOperativeRole ? opsHome : (userRole === 'teacher' ? '/asistencia' : '/');
     }
   }, [isOperativeRole, userRole]);
 

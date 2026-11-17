@@ -48,9 +48,10 @@ export function withAppPaymentHandled(message, at = new Date().toISOString()) {
 }
 
 export function listOpenAppPaymentRequests(messages = []) {
-  return (messages || [])
+  const open = (messages || [])
     .filter(isOpenAppPaymentRequest)
     .toSorted((a, b) => String(b.createdAt || b.date || '').localeCompare(String(a.createdAt || a.date || '')));
+  return dedupeOpenAppPaymentRequests(open).messages;
 }
 
 export function appPaymentRequestMethodLabel(message) {
@@ -94,7 +95,7 @@ export function appPaymentRequestAmountLabel(message) {
   return match ? String(match[1] || '').trim() : '';
 }
 
-/** Parsea «$ 77.000» / «77000» a número. */
+/** Parsea «$ 77.000» / «$ 88,000.00» / «77000» a número. */
 export function parseAppPaymentAmountLabel(label) {
   const raw = String(label || '')
     .replace(/\u00a0/g, ' ')
@@ -102,11 +103,23 @@ export function parseAppPaymentAmountLabel(label) {
     .trim();
   if (!raw) return null;
   if (raw.includes(',') && raw.includes('.')) {
+    const lastComma = raw.lastIndexOf(',');
+    const lastDot = raw.lastIndexOf('.');
+    // El separador decimal es el último: 88,000.00 (US) vs 88.000,00 (AR).
+    if (lastDot > lastComma) {
+      const n = Number(raw.replace(/,/g, ''));
+      return Number.isFinite(n) ? n : null;
+    }
     const n = Number(raw.replace(/\./g, '').replace(',', '.'));
     return Number.isFinite(n) ? n : null;
   }
   if (raw.includes(',')) {
-    const n = Number(raw.replace(',', '.'));
+    const parts = raw.split(',');
+    if (parts.length === 2 && /^\d{1,2}$/.test(parts[1])) {
+      const n = Number(`${parts[0].replace(/\./g, '')}.${parts[1]}`);
+      return Number.isFinite(n) ? n : null;
+    }
+    const n = Number(raw.replace(/,/g, ''));
     return Number.isFinite(n) ? n : null;
   }
   if (/^\d{1,3}(\.\d{3})+$/.test(raw)) {
@@ -133,17 +146,127 @@ function methodsCompatible(noticeMethod, paymentMethod) {
   const pay = String(paymentMethod || '').toLowerCase();
   if (!notice || !pay) return false;
   if (notice === pay) return true;
-  if (notice === 'mercadopago' && (pay === 'mercadopago' || pay === 'debito')) return true;
-  if (notice === 'debito' && (pay === 'debito' || pay === 'mercadopago')) return true;
-  if (notice === 'transferencia' && pay === 'transferencia') return true;
+  // MP a veces llega como «transferencia» con el PDF del pago (Comprobante_<id>.pdf).
+  if (
+    (notice === 'mercadopago' || notice === 'transferencia' || notice === 'debito')
+    && (pay === 'mercadopago' || pay === 'transferencia' || pay === 'debito')
+  ) {
+    return true;
+  }
   if (notice === 'tarjeta' && (pay === 'tarjeta' || pay === 'card')) return true;
   return false;
+}
+
+/** Id de pago MP en el nombre del archivo o en el cuerpo (Comprobante_188540448227.pdf). */
+export function appPaymentRequestProviderId(message) {
+  const fromMeta = String(
+    message?.meta?.provider_payment_id
+    || message?.meta?.providerPaymentId
+    || message?.meta?.mpPaymentId
+    || '',
+  ).trim();
+  if (/^\d{8,}$/.test(fromMeta) || /^PAY/i.test(fromMeta)) return fromMeta;
+  const blob = [
+    message?.meta?.attachment?.name,
+    message?.content,
+    message?.body,
+    message?.subject,
+  ].map((value) => String(value || '')).join(' ');
+  const named = blob.match(/comprobante[_\s-]*([0-9]{10,}|PAY[0-9A-Z]+)/i);
+  if (named?.[1]) return named[1];
+  const bare = blob.match(/\b(PAY[0-9A-Z]{8,}|\d{11,})\b/i);
+  return bare?.[1] || '';
+}
+
+function amountsClose(left, right) {
+  if (left == null || right == null) return left == null && right == null;
+  if (!(left > 0) || !(right > 0)) return false;
+  if (Math.abs(left - right) <= 1) return true;
+  if (Math.abs(left - right / 1.1) <= 1 || Math.abs(left - right * 1.1) <= 1) return true;
+  const ratio = left / right;
+  return ratio >= 0.85 && ratio <= 1.15;
+}
+
+function preferIncomingNotice(current, candidate) {
+  const curAuto = isAppPaymentAuto(current);
+  const nextAuto = isAppPaymentAuto(candidate);
+  if (nextAuto && !curAuto) return candidate;
+  if (curAuto && !nextAuto) return current;
+  const curTs = String(current?.createdAt || current?.date || '');
+  const nextTs = String(candidate?.createdAt || candidate?.date || '');
+  return nextTs.localeCompare(curTs) >= 0 ? candidate : current;
+}
+
+/**
+ * Un solo aviso por el mismo cobro en Pagos entrantes:
+ * mismo socio + mismo importe (±10 %) o mismo id de Mercado Pago en el PDF.
+ * Prefiere el aviso automático de MP sobre la «transferencia» del mismo pago.
+ */
+export function dedupeOpenAppPaymentRequests(messages = []) {
+  const sorted = [...(messages || [])].toSorted((a, b) => (
+    String(b.createdAt || b.date || '').localeCompare(String(a.createdAt || a.date || ''))
+  ));
+  const kept = [];
+  const duplicateIds = [];
+
+  for (const row of sorted) {
+    const member = appPaymentRequestMemberId(row);
+    const kind = String(row?.meta?.kind || 'dues_payment');
+    const amount = parseAppPaymentAmountLabel(appPaymentRequestAmountLabel(row));
+    const providerId = appPaymentRequestProviderId(row);
+    const day = String(row?.createdAt || row?.date || '').slice(0, 10);
+
+    let matchIndex = -1;
+    for (let i = 0; i < kept.length; i += 1) {
+      const other = kept[i];
+      if (appPaymentRequestMemberId(other) !== member) continue;
+      if (String(other?.meta?.kind || 'dues_payment') !== kind) continue;
+      const otherProvider = appPaymentRequestProviderId(other);
+      if (providerId && otherProvider && providerId === otherProvider) {
+        matchIndex = i;
+        break;
+      }
+      const otherAmount = parseAppPaymentAmountLabel(appPaymentRequestAmountLabel(other));
+      const otherDay = String(other?.createdAt || other?.date || '').slice(0, 10);
+      if (!amountsClose(amount, otherAmount)) continue;
+      if (day && otherDay && daysBetween(day, otherDay) > 14) continue;
+      matchIndex = i;
+      break;
+    }
+
+    if (matchIndex < 0) {
+      kept.push(row);
+      continue;
+    }
+    const winner = preferIncomingNotice(kept[matchIndex], row);
+    const loser = winner === row ? kept[matchIndex] : row;
+    kept[matchIndex] = winner;
+    if (loser?.id) duplicateIds.push(loser.id);
+  }
+
+  return {
+    messages: kept.toSorted((a, b) => (
+      String(b.createdAt || b.date || '').localeCompare(String(a.createdAt || a.date || ''))
+    )),
+    duplicateIds: [...new Set(duplicateIds.filter(Boolean))],
+  };
 }
 
 /**
  * Si ya hay un cobro del socio que cuadra con la solicitud (mismo medio,
  * importe parecido, ±7 días), la operación ya estaba imputada.
  */
+function paymentProviderId(row) {
+  return String(
+    row?.meta?.provider_payment_id
+    || row?.meta?.providerPaymentId
+    || row?.provider_payment_id
+    || row?.providerPaymentId
+    || row?.mpPaymentId
+    || '',
+  ).trim();
+}
+
 export function findAppPaymentRequestCollection(message, member, { windowDays = 7 } = {}) {
   if (!isAppPaymentRequest(message) || !member) return null;
   const history = Array.isArray(member.paymentHistory) ? member.paymentHistory : [];
@@ -152,6 +275,16 @@ export function findAppPaymentRequestCollection(message, member, { windowDays = 
   const noticeMethod = String(message?.meta?.method || '').toLowerCase();
   const noticeAmount = parseAppPaymentAmountLabel(appPaymentRequestAmountLabel(message));
   const noticeDay = String(message?.date || message?.createdAt || '').slice(0, 10);
+  const noticeProvider = appPaymentRequestProviderId(message);
+
+  if (noticeProvider) {
+    const byProvider = history.find((row) => {
+      if (String(row?.status || 'paid').toLowerCase() === 'void') return false;
+      return paymentProviderId(row) === noticeProvider;
+    });
+    if (byProvider) return byProvider;
+  }
+
   if (!noticeDay) return null;
 
   let best = null;

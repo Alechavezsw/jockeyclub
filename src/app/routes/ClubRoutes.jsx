@@ -7,6 +7,7 @@ import {
   canTakeAttendance,
   canWriteMemberLedger,
 } from '../../domain/auth/roles';
+import { opsLandingPath } from '../../domain/auth/sessionDesk';
 import RouteFallback from './RouteFallback';
 
 const DashboardView = lazy(() => import('../../views/DashboardView'));
@@ -346,7 +347,7 @@ export default function ClubRoutes({
   );
 
   const homeElement = isOperativeRole
-    ? <Navigate to="/panel" replace />
+    ? <Navigate to={opsLandingPath(userRole)} replace />
     : userRole === 'teacher'
       ? attendanceView
       : memberDashboard;

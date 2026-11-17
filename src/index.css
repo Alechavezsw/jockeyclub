@@ -726,6 +726,71 @@ body.has-modal .app-footer {
   box-shadow: 0 3px 10px rgba(11, 122, 85, 0.22);
 }
 
+/* Acceso QR: atajo visible en la barra (molinete /acceso). */
+.nav-qr-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: 0.2rem;
+  min-height: 38px;
+  padding: 0.4rem 0.95rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--primary-gold) 55%, transparent);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--primary-gold) 92%, #fff) 0%,
+    var(--primary-gold) 52%,
+    color-mix(in srgb, var(--primary-gold) 72%, #000) 100%
+  );
+  color: #1a1408;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(var(--primary-gold-rgb), 0.35);
+  transition: transform 0.15s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+.nav-qr-btn:hover {
+  filter: brightness(1.06);
+  box-shadow: 0 6px 18px rgba(var(--primary-gold-rgb), 0.45);
+  transform: translateY(-1px);
+}
+
+.nav-qr-btn:focus-visible {
+  outline: 2px solid var(--primary-gold);
+  outline-offset: 2px;
+}
+
+.nav-qr-btn.is-active {
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--bg-primary) 80%, transparent),
+    0 0 0 4px var(--primary-gold),
+    0 6px 18px rgba(var(--primary-gold-rgb), 0.4);
+}
+
+.nav-qr-btn--mobile {
+  width: 100%;
+  justify-content: flex-start;
+  margin: 0.15rem 0 0.35rem;
+  min-height: 48px;
+  border-radius: 12px;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  font-size: 1rem;
+}
+
+@media (max-width: 720px) {
+  .nav-qr-btn:not(.nav-qr-btn--mobile) {
+    min-height: 36px;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.8rem;
+  }
+}
+
 .nav-header-date--mobile {
   display: block;
   border-left: none;

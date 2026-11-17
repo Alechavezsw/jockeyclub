@@ -8,6 +8,8 @@ import {
   appPaymentRequestMemberId,
   appPaymentRequestMethodLabel,
   appPaymentRequestReceipt,
+  appPaymentRequestProviderId,
+  dedupeOpenAppPaymentRequests,
   findAppPaymentRequestCollection,
   groupOpenAppPaymentRequests,
   isAppPaymentAuto,
@@ -54,11 +56,64 @@ describe('appPaymentRequests', () => {
     expect(isOpenAppPaymentRequest(transfer)).toBe(true);
     expect(isOpenAppPaymentRequest({ ...transfer, isRead: true })).toBe(true);
     expect(isOpenAppPaymentRequest(withAppPaymentHandled(transfer))).toBe(false);
+    // Mismo socio + mismo importe → un solo aviso (el más reciente).
     expect(listOpenAppPaymentRequests([
       transfer,
       withAppPaymentHandled({ ...transfer, id: '2' }),
       { ...transfer, id: '3', isRead: true, createdAt: '2026-11-14T13:00:00.000Z' },
-    ]).map((m) => m.id)).toEqual(['3', '1']);
+    ]).map((m) => m.id)).toEqual(['3']);
+  });
+
+  it('no repite el mismo cobro MP como transferencia y Mercado Pago', () => {
+    const mp = {
+      ...transfer,
+      id: 'mp-auto',
+      senderId: '100714',
+      createdAt: '2026-11-14T18:00:00.000Z',
+      content: 'Adrian Fernandez (Nº 100714) pagó por Mercado Pago.\nImporte: $ 88,000.00',
+      meta: { kind: 'dues_payment', method: 'mercadopago', paymentAuto: true },
+    };
+    const transferMpPdf = {
+      ...transfer,
+      id: 'xfer-mp',
+      senderId: '100714',
+      createdAt: '2026-11-14T12:00:00.000Z',
+      content: 'Adrian Fernandez (Nº 100714) envió el comprobante de una transferencia.\nImporte: $ 88.000\nArchivo: Comprobante_188540448227.pdf',
+      meta: {
+        kind: 'dues_payment',
+        method: 'transferencia',
+        attachment: { name: 'Comprobante_188540448227.pdf', path: 'x/y.pdf', bucket: 'dues-receipts' },
+      },
+    };
+    expect(appPaymentRequestProviderId(transferMpPdf)).toBe('188540448227');
+    const open = listOpenAppPaymentRequests([transferMpPdf, mp]);
+    expect(open.map((m) => m.id)).toEqual(['mp-auto']);
+    expect(dedupeOpenAppPaymentRequests([transferMpPdf, mp]).duplicateIds).toEqual(['xfer-mp']);
+  });
+
+  it('vincula transferencia al cobro MP por id del comprobante', () => {
+    const notice = {
+      ...transfer,
+      date: '2026-11-14',
+      content: 'Adrian envió el comprobante.\nImporte: $ 88.000\nArchivo: Comprobante_188540448227.pdf',
+      meta: {
+        kind: 'dues_payment',
+        method: 'transferencia',
+        attachment: { name: 'Comprobante_188540448227.pdf', path: 'x/y.pdf' },
+      },
+    };
+    const hit = findAppPaymentRequestCollection(notice, {
+      memberId: '100714',
+      paymentHistory: [{
+        amount: 88000,
+        method: 'mercadopago',
+        date: '2026-11-14',
+        receiptNumber: 'RC-MP',
+        status: 'paid',
+        meta: { provider_payment_id: '188540448227' },
+      }],
+    });
+    expect(hit?.receiptNumber).toBe('RC-MP');
   });
 
   it('lee socio, importe, banco y comprobante del aviso', () => {

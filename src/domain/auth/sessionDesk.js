@@ -101,6 +101,14 @@ export function effectiveRoleForDesk(user, desk) {
   return user.role || null;
 }
 
-export function homePathForDesk(desk) {
-  return desk === SESSION_DESK.ops ? '/panel' : '/';
+/** Primera pantalla del oficio (portero → QR, pileta → entrada). */
+export function opsLandingPath(role) {
+  if (role === 'gate_operator') return '/acceso';
+  if (role === 'pool_operator') return '/entrada-pileta';
+  return '/panel';
+}
+
+export function homePathForDesk(desk, role = null) {
+  if (desk === SESSION_DESK.ops) return opsLandingPath(role);
+  return '/';
 }

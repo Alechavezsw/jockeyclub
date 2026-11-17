@@ -16,8 +16,7 @@ import {
 } from '../domain/credentials/accessLog';
 import { todayISODateAR } from '../lib/arDate';
 import { mergePoolSearchHits, mergePoolSettings, searchPoolMembers } from '../domain/pool/poolAccess';
-import { isPoolSeasonLive } from '../domain/pool/poolSeason';
-import { clubEntryGate, SEASON_DUES_GATE_COPY } from '../domain/pool/seasonDuesGate';
+import { clubEntryGate } from '../domain/pool/seasonDuesGate';
 import { familyPrincipalOf, isFamilyDependent, memberNumberOf } from '../domain/members/households';
 import { isActiveReservation, reservationDay } from '../domain/reservations/memberBookings';
 import {
@@ -29,9 +28,24 @@ import {
 import { isSupabaseConfigured } from '../lib/supabase';
 import { useWakeLock } from '../hooks/useWakeLock';
 import QrLiveScanner from '../components/QrLiveScanner';
+import { loadWasmReader } from '../lib/qrWasm';
 
-/** Ficha completa + titular del grupo si hace falta (lookup remoto no trae saldo). */
-async function hydrateGateMember(seed, roster = []) {
+/** ¿La ficha del padrón en memoria ya alcanza para decidir ingreso? */
+export function gateMemberReady(member) {
+  if (!member?.memberId && !memberNumberOf(member)) return false;
+  if (!member.status) return false;
+  return (
+    member.unpaidCapital != null
+    || member.outstandingBalance != null
+    || member.balance != null
+    || member.nextDueDate != null
+    || member.duesExempt === true
+    || member.tierExempt === true
+  );
+}
+
+/** Ficha + titular del grupo. Usa el padrón en memoria primero; remoto solo si falta dato. */
+export async function hydrateGateMember(seed, roster = []) {
   let member = seed;
   const gateMembers = [...(roster || [])];
   const pushUnique = (row) => {
@@ -42,19 +56,26 @@ async function hydrateGateMember(seed, roster = []) {
     if (idx >= 0) gateMembers[idx] = { ...gateMembers[idx], ...row };
     else gateMembers.push(row);
   };
-  if (isSupabaseConfigured && seed?.memberId) {
+  const fromRoster = (roster || []).find(
+    (row) => row?.memberId === seed?.memberId || memberNumberOf(row) === memberNumberOf(seed),
+  );
+  if (fromRoster) {
+    member = { ...seed, ...fromRoster };
+  }
+  pushUnique(member);
+
+  if (isSupabaseConfigured && seed?.memberId && !gateMemberReady(member)) {
     try {
       const full = await getMemberByNumber(seed.memberId);
       if (full) {
-        member = { ...seed, ...full };
+        member = { ...member, ...full };
         pushUnique(member);
       }
     } catch {
       /* sin red: se usa lo que haya */
     }
-  } else {
-    pushUnique(member);
   }
+
   if (isFamilyDependent(member)) {
     const key = familyPrincipalOf(member);
     let holder = gateMembers.find((row) => memberNumberOf(row) === key);
@@ -65,6 +86,8 @@ async function hydrateGateMember(seed, roster = []) {
       } catch {
         /* titular no disponible */
       }
+    } else if (holder) {
+      pushUnique(holder);
     }
   }
   return { member, gateMembers };
@@ -512,12 +535,12 @@ export default function AccessControlView({
     void processRef.current?.(raw);
   }, []);
 
-  const startCamera = useCallback(() => {
+  const startCamera = useCallback(({ remount = false } = {}) => {
     setCameraError('');
     setResult(null);
     setCameraLive(false);
+    if (remount) setScannerGen((n) => n + 1);
     setCameraOn(true);
-    setScannerGen((n) => n + 1);
   }, []);
 
   const handleCameraError = useCallback((msg) => {
@@ -525,6 +548,11 @@ export default function AccessControlView({
     setCameraError(text);
     setCameraOn(false);
     setCameraLive(false);
+  }, []);
+
+  // Precalienta el lector; la cámara solo con el botón.
+  useEffect(() => {
+    void loadWasmReader().catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -697,13 +725,6 @@ export default function AccessControlView({
           height: 44px;
           flex-shrink: 0;
         }
-        .access-gate .season-dues-rule {
-          margin: 0;
-          font-size: 0.72rem;
-          line-height: 1.35;
-          color: var(--text-muted);
-          text-align: center;
-        }
         .access-panel {
           display: flex;
           flex-direction: column;
@@ -738,8 +759,7 @@ export default function AccessControlView({
           text-align: center;
           border-radius: 14px;
         }
-        .access-manual .btn,
-        .access-actions .btn {
+        .access-manual .btn {
           width: 100%;
           min-height: 52px;
           font-weight: 700;
@@ -791,8 +811,18 @@ export default function AccessControlView({
           font-variant-numeric: tabular-nums;
         }
         .access-actions {
-          display: grid;
-          gap: 0.5rem;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+        }
+        .access-actions .access-camera-btn {
+          width: auto;
+          min-width: 0;
+          min-height: 34px;
+          padding: 0.35rem 0.85rem;
+          border-radius: 999px;
+          font-size: 0.8rem;
+          font-weight: 650;
         }
         .access-camera-error {
           margin: 0;
@@ -1051,15 +1081,6 @@ export default function AccessControlView({
           </button>
         </header>
 
-        {poolCfg.seasonBlocksUnpaidDues !== false ? (
-          <p className="season-dues-rule">
-            {SEASON_DUES_GATE_COPY.lead}
-            {' '}
-            {SEASON_DUES_GATE_COPY.mora}
-            {isPoolSeasonLive(clubDay) ? '' : ' Rige en temporada, diciembre a marzo.'}
-          </p>
-        ) : null}
-
         {!cameraOn && renderResultCard()}
 
         {cameraOn ? (
@@ -1169,17 +1190,21 @@ export default function AccessControlView({
 
           <div className="access-actions">
             {!cameraOn ? (
-              <button type="button" className="btn btn-tan" onClick={startCamera}>
-                <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                  <Camera size={18} aria-hidden="true" />
-                  {cameraError ? 'Reintentar cámara' : 'Abrir cámara'}
+              <button
+                type="button"
+                className="btn btn-tan btn-sm access-camera-btn"
+                onClick={() => startCamera({ remount: Boolean(cameraError) })}
+              >
+                <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                  <Camera size={14} aria-hidden="true" />
+                  {cameraError ? 'Reintentar' : 'Cámara'}
                 </span>
               </button>
             ) : (
-              <button type="button" className="btn btn-secondary" onClick={stopCamera}>
-                <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                  <CameraOff size={18} aria-hidden="true" />
-                  Detener cámara
+              <button type="button" className="btn btn-secondary btn-sm access-camera-btn" onClick={stopCamera}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                  <CameraOff size={14} aria-hidden="true" />
+                  Detener
                 </span>
               </button>
             )}

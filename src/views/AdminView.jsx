@@ -456,8 +456,14 @@ export default function AdminView({
   const [openGroups, setOpenGroups] = useState(() => new Set());
 
   useEffect(() => {
-    if (userRole !== 'pool_operator' || routeTab) return;
-    navigate('/entrada-pileta', { replace: true });
+    if (routeTab) return;
+    if (userRole === 'pool_operator') {
+      navigate('/entrada-pileta', { replace: true });
+      return;
+    }
+    if (userRole === 'gate_operator') {
+      navigate('/acceso', { replace: true });
+    }
   }, [userRole, routeTab, navigate]);
 
   // Libros, Informes y Operación desprendidos de Contabilidad: redirige enlaces viejos.

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Search,
   Smartphone,
@@ -62,10 +62,12 @@ import {
   appPaymentRequestMemberId,
   appPaymentRequestMethodLabel,
   appPaymentRequestReceipt,
+  dedupeOpenAppPaymentRequests,
   findAppPaymentRequestCollection,
   groupOpenAppPaymentRequests,
   isAppPaymentAuto,
   isAppPaymentBookingRequest,
+  isOpenAppPaymentRequest,
   listOpenAppPaymentRequests,
   withAppPaymentHandled,
 } from '../../domain/members/appPaymentRequests';
@@ -207,6 +209,8 @@ export default function MembersWithAppPanel({
   const [pdfBusy, setPdfBusy] = useState(false);
   /** messageId → cobro ya imputado (si cuadra con la solicitud). */
   const [incomingCollectedById, setIncomingCollectedById] = useState({});
+  const incomingDupesHandledRef = useRef(new Set());
+  const incomingCollectedHandledRef = useRef(new Set());
 
   const withApp = useMemo(
     () => (members || []).filter((m) => memberHasPortalAccess(m)),
@@ -452,6 +456,41 @@ export default function MembersWithAppPanel({
       }
     }
   };
+
+  // Mismo cobro (MP auto + transferencia con el PDF): un solo card y cierra el sobrante.
+  useEffect(() => {
+    const open = (messages || []).filter(isOpenAppPaymentRequest);
+    const { duplicateIds } = dedupeOpenAppPaymentRequests(open);
+    const pending = duplicateIds.filter((id) => !incomingDupesHandledRef.current.has(String(id)));
+    if (!pending.length) return undefined;
+    pending.forEach((id) => incomingDupesHandledRef.current.add(String(id)));
+    let cancelled = false;
+    (async () => {
+      for (const id of pending) {
+        if (cancelled) return;
+        await markRequestHandled(id);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [messages]);
+
+  // Si el aviso ya tiene cobro en ficha (p. ej. transferencia del mismo MP), ciérralo.
+  useEffect(() => {
+    const pending = Object.entries(incomingCollectedById)
+      .filter(([, payment]) => payment)
+      .map(([id]) => id)
+      .filter((id) => !incomingCollectedHandledRef.current.has(String(id)));
+    if (!pending.length) return undefined;
+    pending.forEach((id) => incomingCollectedHandledRef.current.add(String(id)));
+    let cancelled = false;
+    (async () => {
+      for (const id of pending) {
+        if (cancelled) return;
+        await markRequestHandled(id);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [incomingCollectedById]);
 
   const payments = useMemo(() => {
     const rows = [...(selected?.paymentHistory || [])];

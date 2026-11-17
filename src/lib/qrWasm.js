@@ -22,10 +22,10 @@ export function loadWasmReader(overrides = null) {
         };
       }
       await prepareZXingModule({ overrides: moduleOverrides, fireImmediately: true });
-      return async (imageData, { invert = false } = {}) => {
+      return async (imageData, { invert = false, tryHarder = false } = {}) => {
         const results = await readBarcodes(imageData, {
           formats: ['QRCode'],
-          tryHarder: true,
+          tryHarder: Boolean(tryHarder),
           tryRotate: false,
           tryInvert: invert,
           maxNumberOfSymbols: 1,

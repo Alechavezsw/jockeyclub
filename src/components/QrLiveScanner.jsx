@@ -3,6 +3,11 @@ import { Aperture, Flashlight, FlashlightOff, ImagePlus, RefreshCw } from 'lucid
 
 import { fitSize, JSQR_MAX_SIDE, planDecode } from '../lib/qrDecode';
 import { loadWasmReader } from '../lib/qrWasm';
+import {
+  cameraErrorMessage,
+  openCameraStream,
+  pickBackCameraIndex,
+} from '../lib/qrCamera';
 
 let jsQRPromise = null;
 
@@ -12,6 +17,10 @@ function loadJsQR() {
   }
   return jsQRPromise;
 }
+
+/** Precalienta wasm + jsQR al importar el módulo (antes del click). */
+void loadWasmReader().catch(() => {});
+void loadJsQR().catch(() => {});
 
 function capAt(range, t) {
   if (!range || typeof range !== 'object') return undefined;
@@ -196,7 +205,10 @@ export default function QrLiveScanner({
       const frame = grabFrame(video, canvas, ctx, plan.wasm.maxSide, plan.wasm.crop);
       if (frame) {
         try {
-          const text = await wasmReadRef.current(frame, { invert: plan.wasm.invert });
+          const text = await wasmReadRef.current(frame, {
+            invert: plan.wasm.invert,
+            tryHarder: plan.wasm.tryHarder,
+          });
           if (text) return text;
         } catch {
           /* el lector WebAssembly falló: queda jsQR de respaldo */
@@ -220,46 +232,16 @@ export default function QrLiveScanner({
     setStarting(true);
     setHint('Iniciando cámara…');
     void loadJsQR();
-
-    const attempts = [
-      {
-        audio: false,
-        video: deviceId
-          ? {
-              deviceId: { exact: deviceId },
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
-              frameRate: { ideal: 30 },
-              facingMode: { ideal: 'environment' },
-            }
-          : {
-              facingMode: { ideal: 'environment' },
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
-              frameRate: { ideal: 30 },
-            },
-      },
-      {
-        audio: false,
-        video: deviceId
-          ? { deviceId: { exact: deviceId } }
-          : { facingMode: { ideal: 'environment' } },
-      },
-      { audio: false, video: true },
-    ];
+    void loadWasmReader().then((read) => { wasmReadRef.current = read; }).catch(() => {});
 
     try {
-      let stream = null;
-      let lastErr = null;
-      for (const constraints of attempts) {
-        try {
-          stream = await navigator.mediaDevices.getUserMedia(constraints);
-          break;
-        } catch (err) {
-          lastErr = err;
-        }
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('Sin cámara');
       }
-      if (!stream) throw lastErr || new Error('Sin cámara');
+      const stream = await openCameraStream(
+        (constraints) => navigator.mediaDevices.getUserMedia(constraints),
+        deviceId,
+      );
 
       streamRef.current = stream;
       const track = stream.getVideoTracks()[0];
@@ -277,61 +259,63 @@ export default function QrLiveScanner({
         /* ignore */
       }
 
-      await new Promise((resolve) => {
-        if (video.readyState >= 2) resolve();
-        else {
-          video.onloadeddata = () => resolve();
-          setTimeout(resolve, 1000);
-        }
-      });
+      // Mostrar preview al instante; no esperar foco ni BarcodeDetector.
+      setLive(true);
+      setStarting(false);
+      setHint('Acercá el QR al marco · lectura al instante');
+      onError?.('');
 
-      await applyCloseFocus(track);
-      // Re-pedir foco cercano sin tocar brillo cada tanto
-      focusTimerRef.current = window.setInterval(() => {
-        const t = trackRef.current;
-        if (!t?.applyConstraints) return;
-        const caps = t.getCapabilities?.() || {};
-        const near = capAt(caps.focusDistance, 0.12);
-        if (near == null) return;
-        t.applyConstraints({ advanced: [{ focusDistance: near }] }).catch(() => {});
-      }, 3500);
-
-      const caps = track.getCapabilities?.() || {};
-      setTorchSupported(Boolean(caps.torch));
-
-      detectorRef.current = null;
-      if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
+      // Ajustes en segundo plano (no bloquean el preview ni el loop).
+      void (async () => {
         try {
-          const formats = await window.BarcodeDetector.getSupportedFormats?.();
-          if (!formats || formats.includes('qr_code')) {
-            detectorRef.current = new window.BarcodeDetector({ formats: ['qr_code'] });
-          }
+          await applyCloseFocus(track);
         } catch {
+          /* ignore */
+        }
+        if (focusTimerRef.current) clearInterval(focusTimerRef.current);
+        focusTimerRef.current = window.setInterval(() => {
+          const t = trackRef.current;
+          if (!t?.applyConstraints) return;
+          const caps = t.getCapabilities?.() || {};
+          const near = capAt(caps.focusDistance, 0.12);
+          if (near == null) return;
+          t.applyConstraints({ advanced: [{ focusDistance: near }] }).catch(() => {});
+        }, 4000);
+
+        try {
+          const caps = track.getCapabilities?.() || {};
+          setTorchSupported(Boolean(caps.torch));
+        } catch {
+          setTorchSupported(false);
+        }
+
+        detectorRef.current = null;
+        if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
           try {
             detectorRef.current = new window.BarcodeDetector({ formats: ['qr_code'] });
           } catch {
             detectorRef.current = null;
           }
         }
-      }
 
-      setLive(true);
-      setHint('Acercá el QR al marco · lectura al instante');
-      setStarting(false);
-      onError?.('');
+        try {
+          const after = await navigator.mediaDevices.enumerateDevices();
+          const videos = after.filter((d) => d.kind === 'videoinput');
+          devicesRef.current = videos;
+          if (!deviceId && videos.length) {
+            const backIdx = pickBackCameraIndex(videos);
+            if (backIdx >= 0) deviceIndexRef.current = backIdx;
+          }
+        } catch {
+          /* ignore */
+        }
+      })();
     } catch (err) {
       setStarting(false);
       setLive(false);
       setHint('Cámara no disponible');
       stopStream();
-      const msg = String(err?.name || err?.message || err || '');
-      onError?.(
-        /NotAllowed|Permission|Denied/i.test(msg)
-          ? 'Permití el acceso a la cámara para leer credenciales.'
-          : /NotFound|DevicesNotFound/i.test(msg)
-            ? 'No se encontró cámara en este dispositivo.'
-            : 'No se pudo iniciar la cámara en este navegador.'
-      );
+      onError?.(cameraErrorMessage(err));
     }
   }, [applyCloseFocus, onError, stopStream]);
 
@@ -340,24 +324,8 @@ export default function QrLiveScanner({
       onError?.('Este dispositivo no soporta cámara en el navegador.');
       return;
     }
-    try {
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const videos = devices.filter((d) => d.kind === 'videoinput');
-      devicesRef.current = videos;
-      const backIdx = videos.findIndex((d) =>
-        /back|rear|environment|trasera|atrás|atras|world/i.test(d.label || '')
-      );
-      deviceIndexRef.current = backIdx >= 0 ? backIdx : Math.max(0, videos.length - 1);
-      await startWithDevice(videos[deviceIndexRef.current]?.deviceId || null);
-      try {
-        const after = await navigator.mediaDevices.enumerateDevices();
-        devicesRef.current = after.filter((d) => d.kind === 'videoinput');
-      } catch {
-        /* ignore */
-      }
-    } catch {
-      await startWithDevice(null);
-    }
+    // Abrir ya con facingMode; enumerateDevices después (con permiso) para "cambiar cámara".
+    await startWithDevice(null);
   }, [onError, startWithDevice]);
 
   const switchCamera = useCallback(async () => {
@@ -422,7 +390,10 @@ export default function QrLiveScanner({
       let text = '';
       try {
         const read = wasmReadRef.current || await loadWasmReader();
-        text = await read(ctx.getImageData(0, 0, canvas.width, canvas.height), { invert: true });
+        text = await read(ctx.getImageData(0, 0, canvas.width, canvas.height), {
+          invert: true,
+          tryHarder: true,
+        });
       } catch {
         /* sin WebAssembly: sigue el nativo y jsQR */
       }

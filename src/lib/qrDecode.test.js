@@ -44,17 +44,17 @@ describe('planDecode', () => {
     expect(runs).toEqual([false, false, true, false, false, true]);
   });
 
-  it('el cuadro chico es el normal; cada tanto recorta el centro y cada tanto mira entero a resolución completa', () => {
-    const steps = [1, 2, 3, 4, 5, 6].map((tick) => planDecode(tick, { wasmReady: true }).wasm);
-    expect(steps.map((s) => [s.maxSide, s.crop])).toEqual([
-      [WASM_MAX_SIDE, 1],
-      [WASM_MAX_SIDE, 1],
-      [WASM_NATIVE_SIDE, WASM_ROI_RATIO],
-      [WASM_MAX_SIDE, 1],
-      [WASM_MAX_SIDE, 1],
-      [WASM_FULL_SIDE, 1],
+  it('el cuadro chico es el normal; cada tanto ROI o full con tryHarder', () => {
+    const steps = [1, 2, 3, 4, 5, 8].map((tick) => planDecode(tick, { wasmReady: true }).wasm);
+    expect(steps.map((s) => [s.maxSide, s.crop, s.tryHarder])).toEqual([
+      [WASM_MAX_SIDE, 1, false],
+      [WASM_MAX_SIDE, 1, false],
+      [WASM_MAX_SIDE, 1, false],
+      [WASM_NATIVE_SIDE, WASM_ROI_RATIO, true],
+      [WASM_MAX_SIDE, 1, false],
+      [WASM_FULL_SIDE, 1, true],
     ]);
-    expect(planDecode(12, { wasmReady: true }).wasm.crop).toBe(1);
+    expect(planDecode(12, { wasmReady: true }).wasm.crop).toBe(WASM_ROI_RATIO);
   });
 
   it('solo cada tanto prueba el QR invertido', () => {
@@ -201,16 +201,15 @@ describe('lector WebAssembly con credenciales reales', () => {
     expect(await read(frame, { invert: true })).toBe(payload);
   });
 
-  it('un QR lejos solo se lee recortando el centro a resolución nativa, no achicando el cuadro', async () => {
+  it('un QR muy lejos se recupera recortando el centro (ROI), no solo achicando', async () => {
     const read = await readerPromise;
     const payload = buildCredentialQRPayload(old);
-    // 1920x1080, el QR ocupa el 12 % del alto: ~130 px para 29 módulos + margen.
-    const frame = cameraFrame(qrMatrix(payload, 'M'), { W: 1920, H: 1080, fill: 0.12 });
+    // 1920×1080, QR ~8 % del alto: al achicar a WASM_MAX_SIDE los módulos se pierden.
+    const frame = cameraFrame(qrMatrix(payload, 'M'), { W: 1920, H: 1080, fill: 0.08 });
     const centro = cropCenter(frame, WASM_ROI_RATIO);
-    expect(await read(centro)).toBe(payload);
-    // achicado a 720 de lado, cada módulo queda en menos de 1 píxel: no se puede leer
+    expect(await read(centro, { tryHarder: true })).toBe(payload);
     const chico = boxDownscale(frame, WASM_MAX_SIDE);
-    expect(await read(chico)).toBe('');
+    expect(await read(chico, { tryHarder: false })).toBe('');
   });
 
   it('un cuadro sin QR devuelve vacío', async () => {
