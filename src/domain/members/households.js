@@ -1,4 +1,9 @@
-import { isExampleMemberTier, isGeneratedTierId, SIN_CATEGORIA_TIER } from './tiers';
+import {
+  isExampleMemberTier,
+  isGeneratedTierId,
+  isHouseholdIntegranteTierId,
+  SIN_CATEGORIA_TIER,
+} from './tiers';
 
 /**
  * Relación titular ↔ grupo familiar del padrón datita.
@@ -154,7 +159,18 @@ export function mergeMemberRecord(current, incoming) {
     if (incoming[key] !== undefined) next[key] = incoming[key];
   }
   for (const key of LIST_META_FIELDS) {
-    if (metaFieldPresent(incoming[key])) next[key] = incoming[key];
+    if (incoming[key] === undefined) continue;
+    if (metaFieldPresent(incoming[key])) {
+      next[key] = incoming[key];
+      continue;
+    }
+    // Permitir cortar el vínculo familiar (null / '') al refrescar el padrón.
+    if (
+      (key === 'familyPrincipalNumber' || key === 'familyGroupName')
+      && (incoming[key] === null || incoming[key] === '')
+    ) {
+      next[key] = null;
+    }
   }
   return next;
 }
@@ -299,9 +315,26 @@ export function suggestedTierAfterFamilyDetach(member) {
   return 'socio_individual';
 }
 
+/** Corta el vínculo del hogar sin cambiar categoría ni estado. */
+export function clearFamilyHouseholdLink(member) {
+  if (!member) return member;
+  const meta = member.meta && typeof member.meta === 'object' && !Array.isArray(member.meta)
+    ? { ...member.meta }
+    : {};
+  delete meta.familyPrincipalNumber;
+  delete meta.familyGroupName;
+  return {
+    ...member,
+    familyPrincipalNumber: null,
+    familyGroupName: null,
+    meta,
+  };
+}
+
 /**
  * Saca a un integrante del hogar: corta familyPrincipalNumber / familyGroupName
  * y lo deja titular con categoría propia. Sigue activo en el padrón.
+ * No es una baja.
  */
 export function detachMemberFromFamilyGroup(member, { tier } = {}) {
   if (!member) throw new Error('Falta el socio.');
@@ -310,24 +343,36 @@ export function detachMemberFromFamilyGroup(member, { tier } = {}) {
   }
   const nextTier = String(tier || suggestedTierAfterFamilyDetach(member) || 'socio_individual').trim()
     || 'socio_individual';
-  const meta = member.meta && typeof member.meta === 'object' && !Array.isArray(member.meta)
-    ? { ...member.meta }
-    : {};
-  delete meta.familyPrincipalNumber;
-  delete meta.familyGroupName;
+  if (isHouseholdIntegranteTierId(nextTier)) {
+    throw new Error('Elegí una categoría de titular (individual o familiar), no de integrante del grupo.');
+  }
+  const cleared = clearFamilyHouseholdLink(member);
   const relationship = String(member.relationship || '').trim();
   const keepRelationship = relationship && !/grupo\s*familiar/i.test(relationship)
     ? relationship
     : '';
   return {
-    ...member,
+    ...cleared,
     tier: nextTier,
     relationship: keepRelationship,
-    familyPrincipalNumber: null,
-    familyGroupName: null,
-    meta,
     updatedAt: new Date().toISOString(),
   };
+}
+
+/** Baja de un integrante: sale del padrón activo y del hogar (sin quedar colgado al titular). */
+export function prepareFamilyMemberForBaja(member) {
+  if (!member) throw new Error('Falta el socio.');
+  if (!isFamilyDependent(member)) return member;
+  return {
+    ...clearFamilyHouseholdLink(member),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+/** Visible en el desglose del grupo: no baja / inactive. Suspendidos sí se ven. */
+export function isFamilyGroupVisibleMember(member) {
+  const status = String(member?.status || 'active').toLowerCase();
+  return status !== 'inactive' && status !== 'baja';
 }
 
 /** El adherente no paga ni alquila: la cuenta y las reservas son del titular. */

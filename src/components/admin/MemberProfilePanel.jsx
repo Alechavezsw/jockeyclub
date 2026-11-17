@@ -5,12 +5,13 @@ import {
   MessageSquare, ClipboardList, Activity, Phone, Mail, MapPin,
   Pencil, FileText, Ticket, Bell, IdCard, Cake, Heart, Flag, Clock,
   ShieldCheck, CalendarClock, Banknote, Building2, AlertTriangle,
-  Camera, X, Plus, Loader2, UserMinus,
+  Camera, X, Plus, Loader2, UserMinus, Trash2,
 } from 'lucide-react';
 import VirtualCard from '../VirtualCard';
 import GuestPassPanel from '../GuestPassPanel';
 import CollectDuesModal from './CollectDuesModal';
 import ModalDialog from '../ModalDialog';
+import { MemberLifecycleModal } from './MemberAdminModals';
 import {
   dbMemberIsDuesExempt,
   formatShortDate,
@@ -39,8 +40,19 @@ import {
 import { cobranzasSeed, filterAccessinCobranzas } from '../../domain/accounting/cobranzas';
 import { buildDetailedCcAccountEntries } from '../../domain/accounting/detailedCurrentAccounts';
 import useSnapshots from '../../hooks/useSnapshots';
-import { collectMemberMeta, isPendingBaja, memberAppAccess } from '../../domain/members/memberAdminActions';
-import { getActiveTiers, getTierDisplayName, tierBadgeStyle } from '../../domain/members/tiers';
+import {
+  buildLifecycleMeta,
+  collectMemberMeta,
+  isPendingBaja,
+  memberAppAccess,
+  reasonLabel as lifecycleReasonLabel,
+} from '../../domain/members/memberAdminActions';
+import {
+  getActiveTiers,
+  getTierDisplayName,
+  isHouseholdIntegranteTierId,
+  tierBadgeStyle,
+} from '../../domain/members/tiers';
 import { DISCIPLINE_OPTIONS, getDisciplineOptions, normalizeLabel } from '../../domain/sports/disciplines';
 import {
   allocateNextMemberNumber,
@@ -50,7 +62,9 @@ import {
   familyPrincipalOf,
   householdMemberAsAdherent,
   isFamilyDependent,
+  isFamilyGroupVisibleMember,
   memberNumberOf,
+  prepareFamilyMemberForBaja,
   suggestedTierAfterFamilyDetach,
   uniqueFamilyMembers,
 } from '../../domain/members/households';
@@ -383,6 +397,9 @@ export default function MemberProfilePanel({
   const [familyDetach, setFamilyDetach] = useState(null);
   const [familyDetachMsg, setFamilyDetachMsg] = useState('');
   const [familyDetachBusy, setFamilyDetachBusy] = useState(false);
+  const [familyBajaTarget, setFamilyBajaTarget] = useState(null);
+  const [familyBajaBusy, setFamilyBajaBusy] = useState(false);
+  const [familyBajaError, setFamilyBajaError] = useState('');
   const [householdPayments, setHouseholdPayments] = useState([]);
   const [householdExtras, setHouseholdExtras] = useState([]);
   const [householdReady, setHouseholdReady] = useState(false);
@@ -497,8 +514,10 @@ export default function MemberProfilePanel({
       || householdExtras.find((row) => !isFamilyDependent(row))
       || null;
     const titularId = memberNumberOf(titular) || householdPrincipal;
-    // El RPC ya acota al hogar: todos los que no son el titular son integrantes.
-    const dependents = householdExtras.filter((row) => memberNumberOf(row) !== titularId);
+    // El RPC ya acota al hogar; ocultamos bajas del desglose vivo.
+    const dependents = householdExtras.filter((row) => (
+      memberNumberOf(row) !== titularId && isFamilyGroupVisibleMember(row)
+    ));
     return {
       titular,
       members: dependents.map((row) => householdMemberAsAdherent(row)),
@@ -521,12 +540,80 @@ export default function MemberProfilePanel({
   const familySource = householdExtras;
   const canEditFamily = !selfService && allowEdit;
   const tiers = useMemo(() => getActiveTiers(tierCatalog), [tierCatalog]);
+  const detachTiers = useMemo(
+    () => tiers.filter((t) => !isHouseholdIntegranteTierId(t.id)),
+    [tiers],
+  );
   const defaultFamilyTier = useMemo(() => {
     const fromGroup = familyRows.find((row) => row.relationship !== 'Titular')?.tier;
     if (fromGroup) return fromGroup;
     const fam = tiers.find((t) => /grupo.?familiar/i.test(`${t.id} ${t.name}`));
     return fam?.id || member?.tier || tiers[0]?.id || '';
   }, [familyRows, tiers, member?.tier]);
+
+  const commitFamilyMemberBaja = async (person, payload) => {
+    const prepared = prepareFamilyMemberForBaja(person);
+    const presentedOn = payload.presentedOn || todayISODateAR();
+    const nextMeta = buildLifecycleMeta(collectMemberMeta(prepared), {
+      action: 'delete',
+      reasonId: payload.reasonId,
+      reasonLabel: payload.reasonLabel || lifecycleReasonLabel('delete', payload.reasonId),
+      detail: payload.detail,
+      actorName,
+      actorId,
+      actorEmail: user?.email || '',
+      presentedOn,
+      amount: payload.amount,
+    });
+    const nextStatus = nextMeta.pendingBaja ? 'active' : 'inactive';
+    const next = {
+      ...prepared,
+      status: nextStatus,
+      meta: nextMeta,
+      bajaMotivo: nextMeta.bajaMotivo,
+      bajaFecha: nextMeta.bajaFecha,
+      bajaPresentada: nextMeta.bajaPresentada,
+      bajaMonto: nextMeta.bajaMonto,
+      bajaDetail: nextMeta.bajaDetail,
+      bajaKind: nextMeta.bajaKind,
+      bajaActorId: nextMeta.bajaActorId,
+      bajaActorName: nextMeta.bajaActorName,
+      bajaActorEmail: nextMeta.bajaActorEmail,
+      bajaRegistradaAt: nextMeta.bajaRegistradaAt,
+      pendingBaja: nextMeta.pendingBaja,
+    };
+
+    let savedMember = next;
+    if (isSupabaseConfigured && typeof repos.setMemberLifecycle === 'function') {
+      const saved = await repos.setMemberLifecycle(next, {
+        status: nextStatus,
+        action: 'delete',
+        reasonId: payload.reasonId,
+        reasonLabel: payload.reasonLabel || lifecycleReasonLabel('delete', payload.reasonId),
+        detail: payload.detail,
+        actorName,
+        actorId,
+        actorEmail: user?.email || '',
+        presentedOn,
+        amount: payload.amount,
+      });
+      savedMember = saved || next;
+      // La RPC de estado puede no cortar el hogar: forzamos el vínculo vacío.
+      if (familyPrincipalOf(savedMember) && typeof updateMember === 'function') {
+        savedMember = await updateMember(prepareFamilyMemberForBaja(savedMember)) || prepareFamilyMemberForBaja(savedMember);
+      }
+    } else if (typeof updateMember === 'function') {
+      savedMember = await updateMember(next) || next;
+    }
+
+    if (typeof setMembers === 'function' && savedMember) {
+      const id = memberNumberOf(savedMember);
+      setMembers((prev) => (prev || []).map((row) => (
+        memberNumberOf(row) === id ? { ...row, ...savedMember } : row
+      )));
+    }
+    return savedMember;
+  };
 
   const openAddFamily = () => {
     setFamilyEditMsg('');
@@ -1731,6 +1818,23 @@ export default function MemberProfilePanel({
                         >
                           <CreditCard size={13} /> Tarjeta
                         </button>
+                        {canEditFamily
+                          && adh.relationship !== 'Titular'
+                          && source
+                          && String(source.status || '') !== 'inactive' ? (
+                          <button
+                            type="button"
+                            className="btn btn-danger btn-sm"
+                            title="Dar de baja con motivo (sale del padrón y del grupo)"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setFamilyBajaError('');
+                              setFamilyBajaTarget(source);
+                            }}
+                          >
+                            <Trash2 size={13} /> Baja
+                          </button>
+                        ) : null}
                       </div>
                     </div>
                   );
@@ -2393,7 +2497,7 @@ export default function MemberProfilePanel({
                   curr ? { ...curr, form: { ...curr.form, tier: ev.target.value } } : curr
                 ))}
               >
-                {tiers.map((t) => (
+                {(detachTiers.length ? detachTiers : tiers).map((t) => (
                   <option key={t.id} value={t.id}>{t.name}</option>
                 ))}
               </select>
@@ -2420,6 +2524,38 @@ export default function MemberProfilePanel({
           </form>
         </ModalDialog>
       ) : null}
+
+      <MemberLifecycleModal
+        key={familyBajaTarget ? `baja-${familyBajaTarget.memberId}` : 'baja-closed'}
+        open={Boolean(familyBajaTarget)}
+        member={familyBajaTarget}
+        action="delete"
+        busy={familyBajaBusy}
+        error={familyBajaError}
+        onClose={() => {
+          if (familyBajaBusy) return;
+          setFamilyBajaTarget(null);
+          setFamilyBajaError('');
+        }}
+        onConfirm={async (payload) => {
+          if (payload?.error) {
+            setFamilyBajaError(payload.error);
+            return;
+          }
+          if (!familyBajaTarget) return;
+          setFamilyBajaBusy(true);
+          setFamilyBajaError('');
+          try {
+            await commitFamilyMemberBaja(familyBajaTarget, payload);
+            setFamilyBajaTarget(null);
+            setHouseholdEpoch((n) => n + 1);
+          } catch (err) {
+            setFamilyBajaError(err?.message || 'No se pudo registrar la baja.');
+          } finally {
+            setFamilyBajaBusy(false);
+          }
+        }}
+      />
     </div>
   );
 }

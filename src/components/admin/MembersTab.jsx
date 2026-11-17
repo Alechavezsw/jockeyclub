@@ -22,7 +22,7 @@ import {
   memberDuesStandingSummary,
 } from '../../domain/accounting/appMonthlyDebts';
 import { libreDeudaClub } from '../../domain/accounting/libreDeuda';
-import { allocateNextMemberNumber, attachHouseholdToMembers, assignDistinctStatColors, buildPadronHouseholdStats, detachMemberFromFamilyGroup, familyGroupMatchesQuery, isFamilyDependent, isLiveMember, isTitularMember, listFamilyGroups, memberMatchesDirectoryQuery, mergeMemberRecord, mergeMembersById, rankMemberSearchHit, resolveFamilyForDisplay, suggestedTierAfterFamilyDetach } from '../../domain/members/households';
+import { allocateNextMemberNumber, attachHouseholdToMembers, assignDistinctStatColors, buildPadronHouseholdStats, detachMemberFromFamilyGroup, familyGroupMatchesQuery, isFamilyDependent, isLiveMember, isTitularMember, listFamilyGroups, memberMatchesDirectoryQuery, mergeMemberRecord, mergeMembersById, prepareFamilyMemberForBaja, rankMemberSearchHit, resolveFamilyForDisplay, suggestedTierAfterFamilyDetach } from '../../domain/members/households';
 import { portalAccessEmailCandidates, portalLoginFromEmail } from '../../domain/auth/credentials';
 import {
   accessInviteMailError,
@@ -1060,7 +1060,8 @@ export default function MembersTab({
   };
 
   const commitLifecycle = async (member, action, payload) => {
-    const nextMeta = buildLifecycleMeta(collectMemberMeta(member), {
+    const baseMember = action === 'delete' ? prepareFamilyMemberForBaja(member) : member;
+    const nextMeta = buildLifecycleMeta(collectMemberMeta(baseMember), {
       action,
       reasonId: payload.reasonId,
       reasonLabel: payload.reasonLabel || lifecycleReasonLabel(action, payload.reasonId),
@@ -1077,7 +1078,7 @@ export default function MembersTab({
         ? 'suspended'
         : (nextMeta.pendingBaja ? 'active' : 'inactive');
     const next = {
-      ...member,
+      ...baseMember,
       status: nextStatus,
       meta: nextMeta,
         bajaMotivo: nextMeta.bajaMotivo,
@@ -2978,32 +2979,45 @@ export default function MembersTab({
                                             const source = members.find((row) => String(row.memberId) === String(adh.memberId));
                                             if (!source || !isFamilyDependent(source)) return null;
                                             return (
-                                              <button
-                                                type="button"
-                                                className="btn btn-secondary btn-sm"
-                                                style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                                                title="Sacar del grupo: queda titular con categoría propia"
-                                                onClick={async () => {
-                                                  if (!updateMember) return;
-                                                  const ok = window.confirm(
-                                                    `¿Sacar a ${source.name || adh.name} del grupo familiar?\n`
-                                                    + `Queda en el padrón como ${suggestedTierAfterFamilyDetach(source).replace(/_/g, ' ')}.\n`
-                                                    + 'No es una baja.',
-                                                  );
-                                                  if (!ok) return;
-                                                  try {
-                                                    const next = detachMemberFromFamilyGroup(source);
-                                                    await updateMember(next);
-                                                    setActionFlash(`${source.name || adh.name} salió del grupo familiar.`);
-                                                    setTimeout(() => setActionFlash(''), 3200);
-                                                  } catch (err) {
-                                                    setActionFlash(err?.message || 'No se pudo sacar del grupo.');
-                                                    setTimeout(() => setActionFlash(''), 4200);
-                                                  }
-                                                }}
-                                              >
-                                                <UserMinus size={10} /> Sacar
-                                              </button>
+                                              <>
+                                                <button
+                                                  type="button"
+                                                  className="btn btn-secondary btn-sm"
+                                                  style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                                                  title="Sacar del grupo: queda titular con categoría propia"
+                                                  onClick={async () => {
+                                                    if (!updateMember) return;
+                                                    const ok = window.confirm(
+                                                      `¿Sacar a ${source.name || adh.name} del grupo familiar?\n`
+                                                      + `Queda en el padrón como ${suggestedTierAfterFamilyDetach(source).replace(/_/g, ' ')}.\n`
+                                                      + 'No es una baja.',
+                                                    );
+                                                    if (!ok) return;
+                                                    try {
+                                                      const next = detachMemberFromFamilyGroup(source);
+                                                      await updateMember(next);
+                                                      setActionFlash(`${source.name || adh.name} salió del grupo familiar.`);
+                                                      setTimeout(() => setActionFlash(''), 3200);
+                                                    } catch (err) {
+                                                      setActionFlash(err?.message || 'No se pudo sacar del grupo.');
+                                                      setTimeout(() => setActionFlash(''), 4200);
+                                                    }
+                                                  }}
+                                                >
+                                                  <UserMinus size={10} /> Sacar
+                                                </button>
+                                                {String(source.status || '') !== 'inactive' ? (
+                                                  <button
+                                                    type="button"
+                                                    className="btn btn-danger btn-sm"
+                                                    style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                                                    title="Dar de baja con motivo"
+                                                    onClick={() => openLifecycle(source, 'delete')}
+                                                  >
+                                                    <Trash2 size={10} /> Baja
+                                                  </button>
+                                                ) : null}
+                                              </>
                                             );
                                           })()}
                                         </>

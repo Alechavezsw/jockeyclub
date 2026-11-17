@@ -60,6 +60,13 @@ export function isAddOnDuesTierId(id) {
   return DUES_ADD_ON_TIER_IDS.has(String(id || '').trim().toLowerCase());
 }
 
+/** Categoría de integrante del hogar (canon $ 0), no de titular que abona. */
+export function isHouseholdIntegranteTierId(id) {
+  const key = String(id || '').trim().toLowerCase();
+  if (!key) return false;
+  return key.startsWith('grupo_familiar') || key.startsWith('interes_por_transaccion');
+}
+
 const SEP_FAMILIAR = 60000;
 const SEP_INDIVIDUAL = 36000;
 const OCT_FAMILIAR = 70000;

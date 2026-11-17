@@ -397,9 +397,11 @@ export const APP_MANUAL = [
       'Un suspendido no ingresa y su cuota queda en pausa: no se liquida.',
       'Dar de baja pide un motivo (renuncia, fallecimiento, mora irrecuperable, duplicado, corrección de padrón, otro). La nota es con un mes de anticipación: el mes en curso se cobra y deja de facturar el 1.º del mes siguiente. Queda auditado. La deuda previa se informa y no se devuelve.',
       'Un adherente se suspende o se habilita desde el desglose del grupo familiar, en la fila del titular.',
-      'Sacar del grupo: en la ficha, Grupo familiar → «Sacar del grupo». Corta el vínculo con el titular, lo deja activo como socio individual (u otra categoría que elijas) y no es una baja. También desde el desglose del padrón en la fila del titular. Lo puede hacer administrador, superadministrador o empleado de administración.',
+      'Sacar del grupo: en la ficha, Grupo familiar → «Sacar del grupo». Corta el vínculo con el titular, lo deja activo como socio individual (u otra categoría de titular) y no es una baja.',
+      'Baja de un integrante: en la misma fila, «Baja» (junto a Tarjeta). Pide motivo, sale del padrón activo y también del grupo familiar. No lo dejes colgado al titular.',
+      'Ambas acciones las puede hacer administrador, superadministrador o empleado de administración.',
     ],
-    dont: 'No des de baja un duplicado sin revisar cuál es la ficha buena: la baja queda auditada. Si solo sale del hogar, usá «Sacar del grupo».',
+    dont: 'No des de baja un duplicado sin revisar cuál es la ficha buena: la baja queda auditada. Si solo sale del hogar y sigue socio, usá «Sacar del grupo», no Baja.',
   },
   {
     id: 'invitados',

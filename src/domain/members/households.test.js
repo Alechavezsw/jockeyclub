@@ -15,7 +15,10 @@ import {
   familyGroupMatchesQuery,
   memberMatchesDirectoryQuery,
   rankMemberSearchHit,
+  clearFamilyHouseholdLink,
   detachMemberFromFamilyGroup,
+  isFamilyGroupVisibleMember,
+  prepareFamilyMemberForBaja,
   suggestedTierAfterFamilyDetach,
 } from './households';
 
@@ -89,6 +92,42 @@ describe('households', () => {
     expect(next.meta.portalUsername).toBe('milagros');
     expect(next.relationship).toBe('');
     expect(() => detachMemberFromFamilyGroup(titular)).toThrow(/no es integrante/i);
+    expect(() => detachMemberFromFamilyGroup(hijo, { tier: 'grupo_familiar_familiar' }))
+      .toThrow(/categoría de titular/i);
+  });
+
+  it('baja de integrante corta el vínculo del hogar y oculta inactivos del desglose', () => {
+    const linked = {
+      ...hijo,
+      meta: { familyPrincipalNumber: 10009, familyGroupName: 'GF - Rojo' },
+    };
+    const cleared = clearFamilyHouseholdLink(linked);
+    expect(cleared.familyPrincipalNumber).toBeNull();
+    expect(isFamilyDependent(cleared)).toBe(false);
+
+    const forBaja = prepareFamilyMemberForBaja(linked);
+    expect(isFamilyDependent(forBaja)).toBe(false);
+    expect(prepareFamilyMemberForBaja(titular)).toEqual(titular);
+
+    expect(isFamilyGroupVisibleMember({ status: 'active' })).toBe(true);
+    expect(isFamilyGroupVisibleMember({ status: 'suspended' })).toBe(true);
+    expect(isFamilyGroupVisibleMember({ status: 'inactive' })).toBe(false);
+  });
+
+  it('el refresh del padrón puede limpiar familyPrincipalNumber', () => {
+    const current = {
+      ...hijo,
+      recordScope: 'list',
+      familyPrincipalNumber: 10009,
+      familyGroupName: 'GF - Rojo',
+    };
+    const merged = mergeMemberRecord(current, {
+      memberId: '3501',
+      familyPrincipalNumber: null,
+      familyGroupName: null,
+    });
+    expect(merged.familyPrincipalNumber).toBeNull();
+    expect(merged.familyGroupName).toBeNull();
   });
 
   it('resume padrón por hogares', () => {
