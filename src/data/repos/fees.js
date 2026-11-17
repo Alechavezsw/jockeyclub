@@ -140,6 +140,7 @@ export async function applyMemberBalanceDeltas(deltas = []) {
     .map((row) => ({
       memberId: String(row.memberId || row.memberNumber || '').trim(),
       amount: Number(row.amount ?? row.addAmount) || 0,
+      ...(row.addOnOnly ? { addOnOnly: true } : {}),
       periods: Array.isArray(row.periods)
         ? row.periods.map((period) => ({
           dueOn: String(period?.dueOn || '').slice(0, 10),

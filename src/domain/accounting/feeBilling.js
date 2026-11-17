@@ -1,13 +1,12 @@
 import {
-  dbMemberIsDuesExempt,
   duesAmountForTier,
   duesChargeSlicesForMember,
   duesDueDayForMember,
-  isDuesExemptMember,
   isMemberBillingActive,
 } from '../members/dues';
 import { attachHouseholdToMembers, isTitularMember } from '../members/households';
 import {
+  DUES_ADD_ON_TIER_IDS,
   DUES_LATE_TIER_IDS,
   getTierAccessinCategoryId,
   getTierDisplayName,
@@ -425,9 +424,7 @@ export function buildFeePeriodCharges(members = [], period, today = new Date(), 
   const rules = resolveDiscountRules(discountRules);
   return billed.flatMap((member) => {
     if (!member || !isMemberBillingActive(member, today) || !isTitularMember(member)) return [];
-    if (isDuesExemptMember(member)) return [];
-    // Alineado con el trigger Postgres: no inventar cargo que apply_member_balance_deltas va a saltar.
-    if (dbMemberIsDuesExempt(member.tier, { cuotaCategories: member.cuotaCategories })) return [];
+    // Vitalicio / fundador / comisión: duesChargeSlicesForMember solo devuelve abono tenis.
     // Caso particular: meta.duesFreeThrough (AAAA-MM) deja ese mes y los anteriores sin cargo.
     // El resto del padrón no lo tiene. El mes siguiente se liquida normal.
     const freeThrough = String(member.duesFreeThrough || member.meta?.duesFreeThrough || '').slice(0, 7);
@@ -640,11 +637,18 @@ export function aggregateFeeChargeDeltas(charges = []) {
     const memberId = String(charge?.memberId || charge?.memberNumber || '').trim();
     const amount = Number(charge?.addAmount ?? charge?.amount) || 0;
     if (!memberId || !(amount > 0)) continue;
-    const row = byId.get(memberId) || { memberId, amount: 0, periods: new Map() };
+    const tierId = String(charge?.tierId || '').trim().toLowerCase();
+    const row = byId.get(memberId) || {
+      memberId,
+      amount: 0,
+      periods: new Map(),
+      addOnOnly: true,
+    };
     row.amount += amount;
+    if (tierId && !DUES_ADD_ON_TIER_IDS.has(tierId)) row.addOnOnly = false;
+    if (!tierId) row.addOnOnly = false;
     const dueOn = String(charge?.dueOn || '').slice(0, 10);
     if (/^\d{4}-\d{2}-\d{2}$/.test(dueOn)) {
-      const tierId = String(charge?.tierId || '').trim().toLowerCase();
       const late = !tierId || DUES_LATE_TIER_IDS.has(tierId) ? amount : 0;
       const period = row.periods.get(dueOn) || { dueOn, capital: 0, lateBase: 0 };
       period.capital += amount;
@@ -656,6 +660,7 @@ export function aggregateFeeChargeDeltas(charges = []) {
   return [...byId.values()].map((row) => ({
     memberId: row.memberId,
     amount: money(row.amount),
+    ...(row.addOnOnly ? { addOnOnly: true } : {}),
     periods: [...row.periods.values()].map((period) => ({
       dueOn: period.dueOn,
       capital: money(period.capital),

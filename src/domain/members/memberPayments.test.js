@@ -13,6 +13,7 @@ import {
   journalEntryBelongsToMember,
   normalizePaymentSplits,
   payMemberDues,
+  payTennisAbono,
   persistDuesCollection,
   recordDuesCollection,
   removeDuesSurcharge,
@@ -150,6 +151,68 @@ describe('payMemberDues', () => {
       expect(periods.surcharge).toBe(8000);
     } finally {
       setRuntimeTierCatalog(null);
+    }
+  });
+
+  it('payTennisAbono cobra solo el abono y deja la cuota del mes abierta', () => {
+    const member = {
+      memberId: 't-pay',
+      name: 'Tenista',
+      tier: 'socio_familiar',
+      status: 'active',
+      cuotaCategories: ['SOCIO FAMILIAR', 'ABONO TENIS'],
+      outstandingBalance: 82000,
+      nextDueDate: '2026-11-10',
+      adherents: [],
+      paymentHistory: [],
+    };
+    const { member: next, payment } = payTennisAbono(member, {
+      method: 'efectivo',
+      today: new Date('2026-11-12T15:00:00-03:00'),
+      periodDueOns: ['2026-11-10'],
+    });
+    expect(payment.chargeScope).toBe('abono_tenis');
+    expect(payment.amount).toBe(12000);
+    expect(payment.surcharge).toBe(0);
+    expect(String(payment.concept)).toMatch(/^Abono tenis/);
+    expect(next.outstandingBalance).toBe(70000);
+    expect(next.nextDueDate).toBe('2026-11-10');
+  });
+
+  it('payTennisAbono cobra a vitalicio y fundador (exentos de cuota)', () => {
+    const today = new Date('2026-11-12T15:00:00-03:00');
+    for (const base of [
+      {
+        memberId: 'v-pay',
+        name: 'Vitalicio Tenis',
+        tier: 'socio_vitalicio',
+        cuotaCategories: ['SOCIO (Vitalicio)', 'ABONO TENIS'],
+      },
+      {
+        memberId: 'f-pay',
+        name: 'Fundador Tenis',
+        tier: 'fundador',
+        cuotaCategories: ['FUNDADOR', 'ABONO TENIS'],
+      },
+    ]) {
+      const member = {
+        ...base,
+        status: 'active',
+        outstandingBalance: 12000,
+        nextDueDate: null,
+        adherents: [],
+        paymentHistory: [],
+      };
+      const { member: next, payment } = payTennisAbono(member, {
+        method: 'efectivo',
+        today,
+        periodDueOns: ['2026-11-10'],
+      });
+      expect(payment.chargeScope).toBe('abono_tenis');
+      expect(payment.amount).toBe(12000);
+      expect(payment.surcharge).toBe(0);
+      expect(next.outstandingBalance).toBe(0);
+      expect(next.nextDueDate).toBeNull();
     }
   });
 

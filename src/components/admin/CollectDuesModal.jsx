@@ -6,7 +6,13 @@ import {
   CLUB_BANK_ACCOUNTS,
   journalAccountForPayment,
 } from '../../domain/members/clubBanks';
-import { collectionPeriodChoices, formatShortDate, isDuesExemptMember } from '../../domain/members/dues';
+import {
+  collectionPeriodChoices,
+  collectionTennisPreview,
+  collectionTennisPeriodChoices,
+  formatShortDate,
+  isDuesExemptMember,
+} from '../../domain/members/dues';
 import { duesMonthsPhrase } from '../../domain/members/duesImputations';
 import {
   collectionDiscount,
@@ -250,7 +256,12 @@ export default function CollectDuesModal({
   initialBankId = null,
   seedReceipt = null,
   sourceNotice = '',
+  /** `abono_tenis`: cobra el abono aparte de la cuota social (sin 10 %). */
+  chargeScope = null,
+  /** Monto mensual de tenis (fila del padrón); si falta, se usa el de la cuenta. */
+  tennisMonthlyAmount = null,
 }) {
+  const tennisOnly = String(chargeScope || '').trim().toLowerCase() === 'abono_tenis';
   const [liveMember, setLiveMember] = useState(member);
   const [hydrating, setHydrating] = useState(Boolean(isSupabaseConfigured && member));
   const [seededAttachment, setSeededAttachment] = useState(() => (
@@ -294,11 +305,31 @@ export default function CollectDuesModal({
       return liveMember;
     }
   })();
-  const duesExempt = isDuesExemptMember(account);
-  const periodChoices = useMemo(
-    () => (duesExempt || hydrating ? [] : collectionPeriodChoices(account)),
-    [duesExempt, hydrating, account?.memberId, account?.outstandingBalance, account?.unpaidCapital, account?.duesMonthCapital, account?.nextDueDate, account?.lastPaymentDate, account?.tier],
-  );
+  const duesExempt = !tennisOnly && isDuesExemptMember(account);
+  const periodChoices = useMemo(() => {
+    if (hydrating) return [];
+    if (tennisOnly) {
+      return collectionTennisPeriodChoices(account, new Date(), {
+        monthlyAmount: tennisMonthlyAmount,
+      });
+    }
+    if (duesExempt) return [];
+    return collectionPeriodChoices(account);
+  }, [
+    tennisOnly,
+    tennisMonthlyAmount,
+    duesExempt,
+    hydrating,
+    account?.memberId,
+    account?.outstandingBalance,
+    account?.unpaidCapital,
+    account?.duesMonthCapital,
+    account?.nextDueDate,
+    account?.lastPaymentDate,
+    account?.tier,
+    account?.cuotaCategories,
+    account?.paymentHistory,
+  ]);
   const choiceKey = periodChoices.map((row) => row.dueOn).join('|');
   const [selectedDueOns, setSelectedDueOns] = useState([]);
   const [method, setMethod] = useState(() => {
@@ -319,8 +350,14 @@ export default function CollectDuesModal({
   }, [initialMethod, member?.memberId]);
 
   const isOnAccount = isOnAccountDuesMethod(method);
-  const skipSurcharge = duesMethodSkipsSurcharge(method);
+  const skipSurcharge = tennisOnly || duesMethodSkipsSurcharge(method);
   const split = useMemo(() => {
+    if (tennisOnly) {
+      return collectionTennisPreview(account, new Date(), {
+        periodDueOns: selectedDueOns,
+        monthlyAmount: tennisMonthlyAmount,
+      });
+    }
     if (duesExempt) {
       return { quota: 0, surcharge: 0, gross: 0, creditApplied: 0, cash: 0, leftover: 0, periods: [], choices: [] };
     }
@@ -328,8 +365,8 @@ export default function CollectDuesModal({
       periodDueOns: selectedDueOns,
       skipSurcharge,
     });
-  }, [duesExempt, account, selectedDueOns, skipSurcharge]);
-  const quotedAmount = duesExempt || hydrating ? 0 : split.cash;
+  }, [tennisOnly, tennisMonthlyAmount, duesExempt, account, selectedDueOns, skipSurcharge]);
+  const quotedAmount = (!tennisOnly && duesExempt) || hydrating ? 0 : split.cash;
   const onAccountAmount = money(onAccountInput === '' ? 0 : onAccountInput);
   const amount = isOnAccount ? onAccountAmount : quotedAmount;
   const [discountInput, setDiscountInput] = useState('');
@@ -347,7 +384,7 @@ export default function CollectDuesModal({
   const isClear = !duesExempt && !hydrating && Boolean(split.clear);
   const nextDueLabel = formatShortDate(account?.nextDueDate) || null;
   const routed = account?.memberId && liveMember?.memberId && account.memberId !== liveMember.memberId;
-  const methods = duesExempt
+  const methods = (!tennisOnly && duesExempt)
     ? METHODS.filter((row) => row.id !== 'mercadopago' && row.id !== 'a_cuenta')
     : METHODS;
   const plans = useMemo(() => activePaymentPlans(paymentPlans), [paymentPlans]);
@@ -602,7 +639,7 @@ export default function CollectDuesModal({
 
   const handleConfirm = async () => {
     setError('');
-    if (isDuesExemptMember(account)) {
+    if (!tennisOnly && isDuesExemptMember(account)) {
       setError('Esta categoría no abona cuota social.');
       return;
     }
@@ -626,7 +663,7 @@ export default function CollectDuesModal({
         ? selectedDueOns
         : periodChoices.map((row) => String(row.dueOn).slice(0, 10)));
     if (!chargeDueOns.length) {
-      setError('No hay saldo pendiente para abonar.');
+      setError(tennisOnly ? 'No hay abono de tenis pendiente para cobrar.' : 'No hay saldo pendiente para abonar.');
       return;
     }
     const settling = concession.cash > 0.009;
@@ -707,6 +744,7 @@ export default function CollectDuesModal({
           discountDetail: concession.detail,
           periodDueOns: chargeDueOns,
           paymentSplits,
+          ...(tennisOnly ? { chargeScope: 'abono_tenis', monthlyAmount: tennisMonthlyAmount } : {}),
         });
       } else {
         let receiptAttachment = null;
@@ -743,6 +781,7 @@ export default function CollectDuesModal({
           paymentPlanLabel: recordMethod === 'tarjeta' ? (selectedPlan?.label || null) : null,
           receiptParse: needsReceipt ? receiptParse : null,
           treasuryMatch: Boolean(needsReceipt && !manual && !receiptFile && seededAttachment?.path),
+          ...(tennisOnly ? { chargeScope: 'abono_tenis', monthlyAmount: tennisMonthlyAmount } : {}),
         });
       }
     } catch (err) {
@@ -782,7 +821,7 @@ export default function CollectDuesModal({
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', marginBottom: '1.15rem' }}>
           <div>
             <h4 id="collect-dues-title" className="serif-font" style={{ margin: 0, fontSize: '1.55rem', color: 'var(--text-gold)' }}>
-              Cobrar cuota
+              {tennisOnly ? 'Cobrar abono tenis' : 'Cobrar cuota'}
             </h4>
             <p style={{ margin: '0.3rem 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
               {account?.name || liveMember?.name || member?.name}
@@ -791,9 +830,14 @@ export default function CollectDuesModal({
                 : (duesExempt
                   ? ' · Exento de cuota'
                   : (isClear
-                    ? ' · Al día'
+                    ? (tennisOnly ? ' · Abono al día' : ' · Al día')
                     : ` · ${formatCurrency(isOnAccount && !(onAccountAmount > 0.009) ? quotedAmount : cash)}`))}
             </p>
+            {tennisOnly ? (
+              <p style={{ margin: '0.35rem 0 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                Independiente de la cuota social · sin recargo del 10 %.
+              </p>
+            ) : null}
             {routed ? (
               <p style={{ margin: '0.35rem 0 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
                 El pago de {liveMember?.name || member?.name} entra en la cuenta del titular.
@@ -827,11 +871,15 @@ export default function CollectDuesModal({
               background: 'rgba(16, 185, 129, 0.08)',
             }}
           >
-            <p style={{ margin: 0, fontWeight: 700, color: 'var(--emerald-accent)' }}>Al día</p>
+            <p style={{ margin: 0, fontWeight: 700, color: 'var(--emerald-accent)' }}>
+              {tennisOnly ? 'Abono al día' : 'Al día'}
+            </p>
             <p style={{ margin: '0.35rem 0 0', fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
-              {nextDueLabel
-                ? `No debe cuota ahora. Próximo vencimiento ${nextDueLabel}.`
-                : 'No debe cuota ahora.'}
+              {tennisOnly
+                ? 'No hay abono de tenis pendiente en los meses abiertos.'
+                : (nextDueLabel
+                  ? `No debe cuota ahora. Próximo vencimiento ${nextDueLabel}.`
+                  : 'No debe cuota ahora.')}
             </p>
           </div>
         ) : null}
@@ -1466,7 +1514,7 @@ export default function CollectDuesModal({
               discount={discountOver ? 0 : discountValue}
               discountDetail={discountDetail}
               memberNumber={account.memberId}
-              concept={`Cuota social · ${duesMonthsPhrase(selectedDueOns.length ? selectedDueOns : periodChoices.map((row) => String(row.dueOn).slice(0, 10))) || account.name || 'socio'}`}
+              concept={`${tennisOnly ? 'Abono tenis' : 'Cuota social'} · ${duesMonthsPhrase(selectedDueOns.length ? selectedDueOns : periodChoices.map((row) => String(row.dueOn).slice(0, 10))) || account.name || 'socio'}`}
               disabled={duesExempt || cash <= 0 || (!selectedDueOns.length && !periodChoices.length) || discountOver || (discountValue > 0.009 && discountDetail.trim().length < 3)}
               onApproved={() => {
                 onConfirm({

@@ -5,6 +5,7 @@ const ADMIN_SECTIONS = [
   { key: 'members', title: 'Socios', keywords: 'socios padron ficha alta' },
   { key: 'members_app', title: 'Socios con app', keywords: 'socios app portal acceso credenciales con app' },
   { key: 'members_amet', title: 'AMET', keywords: 'amet cuota familiar individual vencimiento 18 tarifa 2,5' },
+  { key: 'members_tenis', title: 'Tenis', keywords: 'tenis abono cancha padron disciplina 12000' },
   { key: 'members_stats', title: 'Estadísticas', keywords: 'estadisticas edades rango etario ingresos horarios pagos padrón graficos excel pdf jev' },
   { key: 'dues', title: 'Cuotas', keywords: 'cuotas socios liquidacion vencimiento saldos cuentas' },
   { key: 'bookings', title: 'Reservas', keywords: 'reservas canchas turnos' },
@@ -103,7 +104,7 @@ export function searchSession({
   ADMIN_SECTIONS.forEach((section) => {
     const permittedKey = section.key === 'pool_gate'
       ? 'pool'
-      : (section.key === 'members_app' || section.key === 'members_amet' || section.key === 'members_stats')
+      : (section.key === 'members_app' || section.key === 'members_amet' || section.key === 'members_tenis' || section.key === 'members_stats')
         ? 'members'
         : section.key;
     if (!allowed.has(permittedKey)) return;
@@ -119,7 +120,7 @@ export function searchSession({
       keywords: section.keywords,
       subtitle: section.key === 'pool_gate'
         ? 'Pileta'
-        : (section.key === 'members_app' || section.key === 'members_amet' || section.key === 'members_stats')
+        : (section.key === 'members_app' || section.key === 'members_amet' || section.key === 'members_tenis' || section.key === 'members_stats')
           ? 'Socios'
           : 'Sección',
       path,

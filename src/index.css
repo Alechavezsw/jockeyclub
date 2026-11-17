@@ -30438,6 +30438,396 @@ button.debit-moves-row:disabled {
 }
 
 
+/* --- Tenis (rail Socios) --- */
+.tenis-desk {
+  padding: 1.1rem 1.2rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.tenis-desk__hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 1rem 1.35rem;
+  padding: 1.15rem 1.2rem 1.2rem;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, #1f6b45 34%, var(--border-glass));
+  background:
+    linear-gradient(90deg, rgba(232, 214, 90, 0.08) 0 2px, transparent 2px) 0 0 / 42px 100%,
+    linear-gradient(90deg, transparent calc(100% - 2px), rgba(232, 214, 90, 0.08) 0) 100% 0 / 42px 100%,
+    radial-gradient(90% 120% at 0% 0%, rgba(232, 214, 90, 0.16), transparent 52%),
+    linear-gradient(145deg, rgba(20, 84, 54, 0.34), rgba(14, 56, 38, 0.12) 55%, transparent);
+}
+
+.tenis-desk__hero-copy {
+  display: flex;
+  gap: 0.8rem;
+  align-items: flex-start;
+  min-width: 0;
+  flex: 1 1 16rem;
+}
+
+.tenis-desk__icon {
+  display: grid;
+  place-items: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 999px;
+  color: #efe56a;
+  background: radial-gradient(circle at 35% 30%, #f4ec7a, #c4b42a 70%);
+  border: 1px solid color-mix(in srgb, #efe56a 45%, var(--border-glass));
+  box-shadow: 0 0 0 3px rgba(31, 107, 69, 0.18);
+  flex-shrink: 0;
+}
+
+.tenis-desk__eyebrow {
+  margin: 0 0 0.15rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: #c9d98a;
+}
+
+.tenis-desk__title {
+  margin: 0;
+  font-size: clamp(1.4rem, 2.5vw, 1.85rem);
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  color: var(--text-gold);
+}
+
+.tenis-desk__lead {
+  margin: 0.35rem 0 0;
+  max-width: 38rem;
+  color: var(--text-secondary);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.tenis-desk__kpis {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(5.5rem, 1fr));
+  gap: 0.45rem;
+  align-self: center;
+}
+
+.tenis-desk__kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 5.5rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, #1f6b45 28%, var(--border-glass));
+  background: color-mix(in srgb, rgba(14, 56, 38, 0.45) 55%, var(--bg-secondary));
+}
+
+.tenis-desk__kpi span {
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.tenis-desk__kpi strong {
+  font-size: 1.05rem;
+  font-weight: 750;
+  color: var(--text-primary);
+}
+
+.tenis-desk__kpi.is-debt strong {
+  color: #fcd34d;
+}
+
+.tenis-desk__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.tenis-desk__filter {
+  appearance: none;
+  font: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-glass);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.tenis-desk__filter b {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.tenis-desk__filter span {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.tenis-desk__filter:hover {
+  border-color: color-mix(in srgb, #2f9e64 45%, var(--border-glass));
+}
+
+.tenis-desk__filter.is-on {
+  border-color: color-mix(in srgb, #2f9e64 55%, var(--border-glass));
+  background: color-mix(in srgb, #1f6b45 22%, var(--bg-secondary));
+  color: #d8f0c8;
+}
+
+.tenis-desk__filter.is-debt.is-on {
+  border-color: color-mix(in srgb, #ef4444 45%, var(--border-glass));
+  background: rgba(239, 68, 68, 0.12);
+  color: #fecaca;
+}
+
+.tenis-desk__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  justify-content: space-between;
+}
+
+.tenis-desk__search {
+  position: relative;
+  flex: 1 1 220px;
+  max-width: 20rem;
+}
+
+.tenis-desk__search svg {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.tenis-desk__search .form-input {
+  padding-left: 2.35rem;
+  background: var(--bg-secondary);
+}
+
+.tenis-desk__count {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.tenis-desk__wrap {
+  border: 1px solid var(--border-glass);
+  border-radius: 12px;
+  overflow: auto;
+}
+
+.tenis-desk__table {
+  width: 100%;
+  margin: 0;
+  border-collapse: collapse;
+}
+
+.tenis-desk__table th,
+.tenis-desk__table td {
+  vertical-align: middle;
+  padding: 0.7rem 0.85rem;
+  border-bottom: 1px solid var(--border-glass);
+}
+
+.tenis-desk__table thead th {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  background: color-mix(in srgb, rgba(20, 84, 54, 0.22) 40%, var(--bg-secondary));
+  white-space: nowrap;
+}
+
+.tenis-desk__table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.tenis-desk__num {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.tenis-desk__who {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 10rem;
+  max-width: 18rem;
+}
+
+.tenis-desk__name {
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.tenis-desk__name:hover {
+  color: #d8f0c8;
+}
+
+.tenis-desk__nro {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.tenis-desk__account {
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.tenis-desk__account:hover {
+  color: var(--text-gold);
+}
+
+.tenis-desk__account.is-self {
+  cursor: default;
+  font-weight: 550;
+  color: var(--text-muted);
+}
+
+.tenis-desk__cuota {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.15rem;
+}
+
+.tenis-desk__cuota strong {
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.tenis-desk__tag {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #c9d98a;
+}
+
+.tenis-desk__saldo {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.2rem;
+}
+
+.tenis-desk__saldo strong {
+  font-size: 0.92rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.tenis-desk__saldo strong.is-debt { color: #fca5a5; }
+.tenis-desk__saldo strong.is-ok { color: #6ee7b7; }
+
+.tenis-desk__status {
+  display: inline-flex;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.tenis-desk__status.is-al_dia {
+  color: #6ee7b7;
+  background: rgba(16, 185, 129, 0.14);
+}
+
+.tenis-desk__status.is-deuda {
+  color: #fcd34d;
+  background: rgba(245, 158, 11, 0.14);
+}
+
+.tenis-desk__status.is-mora {
+  color: #fecaca;
+  background: rgba(239, 68, 68, 0.16);
+}
+
+.tenis-desk__actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  min-width: 7.5rem;
+}
+
+.tenis-desk__wa {
+  display: inline-grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 8px;
+  color: #25D366;
+  border: 1px solid color-mix(in srgb, #25D366 30%, var(--border-glass));
+  background: rgba(37, 211, 102, 0.08);
+}
+
+.tenis-desk__wa:hover {
+  background: rgba(37, 211, 102, 0.16);
+}
+
+.tenis-desk__idle {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.tenis-desk__empty {
+  color: var(--text-muted);
+  text-align: center;
+  padding: 1.5rem 1rem !important;
+}
+
+@media (max-width: 720px) {
+  .tenis-desk__kpis { width: 100%; grid-template-columns: repeat(3, 1fr); }
+  .tenis-desk__who { max-width: 12rem; }
+}
+
+
 /* --- Estadisticas de socios (rail Socios) --- */
 .ms-stats {
   display: flex;

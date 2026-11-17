@@ -31,4 +31,9 @@ describe('searchSession', () => {
     });
     expect(rows[0]?.path).toBe('/panel/members/9');
   });
+
+  it('encuentra el escritorio Tenis bajo Socios', () => {
+    const rows = searchSession({ query: 'tenis abono', tabs, accountingTabs });
+    expect(rows.some((row) => row.path === '/panel/members_tenis')).toBe(true);
+  });
 });

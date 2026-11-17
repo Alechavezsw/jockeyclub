@@ -179,6 +179,7 @@ export function paymentFromRow(row) {
     concept: row.concept || '',
     period: row.period_label || row.period || '',
     periodDueOns: Array.isArray(meta.periodDueOns) ? meta.periodDueOns : [],
+    chargeScope: meta.chargeScope || null,
     quota: meta.quota != null ? Number(meta.quota) : undefined,
     surcharge: meta.surcharge != null ? Number(meta.surcharge) : undefined,
     discount: meta.discount != null ? Number(meta.discount) : 0,

@@ -140,6 +140,65 @@ describe('liquidateFeePeriod', () => {
   });
 
 
+  it('vitalicio y fundador con ABONO TENIS liquidan solo el tenis (addOnOnly)', () => {
+    const members = [
+      {
+        memberId: 'v1',
+        status: 'active',
+        tier: 'socio_vitalicio',
+        cuotaCategories: ['SOCIO (Vitalicio)', 'ABONO TENIS'],
+      },
+      {
+        memberId: 'f1',
+        status: 'active',
+        tier: 'fundador',
+        cuotaCategories: ['FUNDADOR', 'ABONO TENIS'],
+      },
+      {
+        memberId: 'c1',
+        status: 'active',
+        tier: 'comision',
+        cuotaCategories: ['COMISION'],
+      },
+    ];
+    const charges = buildFeePeriodCharges(
+      members,
+      { year: 2026, month: 11 },
+      new Date('2026-11-15T12:00:00'),
+    );
+    expect(charges).toEqual([
+      {
+        memberId: 'v1',
+        addAmount: 12000,
+        tierId: 'abono_tenis',
+        category: 'ABONO TENIS',
+        dueOn: '2026-11-10',
+      },
+      {
+        memberId: 'f1',
+        addAmount: 12000,
+        tierId: 'abono_tenis',
+        category: 'ABONO TENIS',
+        dueOn: '2026-11-10',
+      },
+    ]);
+    const deltas = aggregateFeeChargeDeltas(charges);
+    expect(deltas).toEqual([
+      {
+        memberId: 'v1',
+        amount: 12000,
+        addOnOnly: true,
+        periods: [{ dueOn: '2026-11-10', capital: 12000, lateBase: 0 }],
+      },
+      {
+        memberId: 'f1',
+        amount: 12000,
+        addOnOnly: true,
+        periods: [{ dueOn: '2026-11-10', capital: 12000, lateBase: 0 }],
+      },
+    ]);
+  });
+
   it('el abono de tenis del adherente se liquida en el titular', () => {
     const result = liquidateFeePeriod(
       ACCESSIN_FEE_PERIODS,

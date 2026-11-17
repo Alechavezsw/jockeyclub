@@ -1,11 +1,15 @@
 import {
   afterCollectDues,
   collectionPeriodChoices,
+  collectionTennisPeriodChoices,
+  collectionTennisPreview,
   duesAmountForMember,
   duesChargeBreakdown,
   duesPayableForMember,
+  duesTennisAbonoAmountForAccount,
   isDuesExemptMember,
   nextDuesDueDate,
+  paymentIsTennisAbonoOnly,
 } from './dues';
 import { billingAccountMember, isFamilyDependent } from './households';
 import { referenceMonthlyDues } from './paymentHistory';
@@ -24,7 +28,12 @@ import {
   openPeriodsFromChoices,
 } from './duesImputations';
 import { isSupabaseConfigured } from '../../lib/supabase';
-import { quitarRecargoCuota, registrarCobro, revertDuesPayment } from '../../data/repos';
+import {
+  patchMemberPaymentChargeScope,
+  quitarRecargoCuota,
+  registrarCobro,
+  revertDuesPayment,
+} from '../../data/repos';
 
 /** Resta capital (y recargos de stock LILA) del desglose vivo tras un cobro. */
 function withPaidParts(member, capitalPaid = 0, surchargePaid = 0) {
@@ -1205,6 +1214,290 @@ export function recordDuesCollection(member, {
 }
 
 /**
+ * Cobro solo del abono tenis (independiente de la cuota social).
+ * Sin 10 %; no marca los meses de cuota como pagos; baja el saldo de ficha si hay capital.
+ */
+export function payTennisAbono(member, {
+  method = 'efectivo',
+  amount = null,
+  today = new Date(),
+  periodDueOns = null,
+  monthlyAmount = null,
+} = {}) {
+  if (!member) throw new Error('Socio no encontrado.');
+  if (isFamilyDependent(member)) throw new Error('El cobro va a la cuenta del titular.');
+  const preview = collectionTennisPreview(member, today, { periodDueOns, monthlyAmount });
+  if (!preview.periods.length) throw new Error('No hay abono de tenis pendiente para cobrar.');
+  const due = money(preview.cash);
+  const onAccount = isOnAccountDuesMethod(method);
+  const paidAmount = amount != null ? money(amount) : due;
+  if (!(paidAmount > 0.009)) throw new Error('Importe inválido.');
+  if (paidAmount > due + 0.01 && !onAccount) {
+    throw new Error('El importe supera el abono de tenis seleccionado.');
+  }
+
+  const date = todayISODateAR(today);
+  const time = nowTimeAR(today);
+  const paidAt = today.toISOString();
+  const dueOns = preview.periods.map((row) => String(row.dueOn).slice(0, 10));
+  const monthPhrase = duesMonthsPhrase(dueOns);
+  const methodLabel = duesMethodLabel(method);
+  const concept = monthPhrase
+    ? `Abono tenis · ${monthPhrase}`
+    : `Abono tenis · ${methodLabel}`;
+  const imputations = preview.periods.map((row) => ({
+    dueOn: String(row.dueOn).slice(0, 10),
+    capital: money(row.capital),
+    surcharge: 0,
+    capitalOpen: 0,
+    surchargeOpen: 0,
+    lateBase: 0,
+    lateBaseTaken: 0,
+    tierId: 'abono_tenis',
+  }));
+  const payment = {
+    id: `pay-tenis-${member.memberId}-${Date.now()}`,
+    date,
+    time,
+    paidAt,
+    createdAt: paidAt,
+    concept,
+    amount: paidAmount,
+    quota: money(Math.min(paidAmount, due)),
+    surcharge: 0,
+    waivedSurcharge: 0,
+    method: onAccount ? 'a_cuenta' : method,
+    status: 'paid',
+    receipt: receiptNumberFor(member, date),
+    receiptNumber: receiptNumberFor(member, date),
+    period: monthPhrase || imputationSummary(imputations),
+    periodDueOns: dueOns,
+    imputations,
+    chargeScope: 'abono_tenis',
+    balanceBefore: Number(member.outstandingBalance) || 0,
+    nextDueBefore: member.nextDueDate || null,
+    lastPaymentBefore: member.lastPaymentDate || null,
+  };
+
+  const stored = money(Math.max(0, Number(member.outstandingBalance) || 0));
+  const capitalCut = money(Math.min(stored, payment.quota));
+  const nextBalance = money(stored - capitalCut);
+  const next = withPaidParts({
+    ...member,
+    outstandingBalance: nextBalance,
+    lastPaymentDate: date,
+    // El vencimiento de cuota social no avanza: solo se pagó tenis.
+    nextDueDate: member.nextDueDate,
+    paymentHistory: [payment, ...(member.paymentHistory || [])],
+  }, capitalCut, 0);
+
+  return {
+    member: next,
+    payment,
+    fullyPaid: paidAmount + 0.01 >= due,
+    ledgerEntry: paidAmount > 0 ? ledgerPago(next, payment) : null,
+  };
+}
+
+/** Persistencia operativa del cobro de abono tenis (misma caja / comprobante que cuota). */
+export function recordTennisAbonoCollection(member, {
+  method = 'efectivo',
+  bankId = null,
+  bankName = null,
+  journalAccount = null,
+  receiptName = null,
+  receiptAttachment = null,
+  amount = null,
+  today = new Date(),
+  members = [],
+  periodDueOns = null,
+  monthlyAmount = null,
+  treasuryMatch = false,
+  paymentPlanId = null,
+  paymentPlanLabel = null,
+  receiptParse = null,
+  paymentSplits = null,
+  discount = 0,
+  discountDetail = '',
+} = {}) {
+  if (!member) throw new Error('Socio no encontrado.');
+  const account = billingAccountMember(member, members);
+  const tennisMonthly = monthlyAmount != null && monthlyAmount !== ''
+    ? money(Number(monthlyAmount) || 0)
+    : duesTennisAbonoAmountForAccount(account, today);
+  if (!(tennisMonthly > 0.01) && !(monthlyAmount > 0)) {
+    throw new Error('Esta cuenta no tiene abono de tenis.');
+  }
+
+  const wantsMixed = method === 'mixto'
+    || (Array.isArray(paymentSplits) && paymentSplits.filter((row) => Number(row?.amount) > 0).length >= 2);
+  const received = amount != null ? money(amount) : null;
+  const quotedGross = received == null
+    ? collectionTennisPreview(account, today, { periodDueOns, monthlyAmount: tennisMonthly }).cash
+    : money(received + money(discount || 0));
+  const concession = collectionDiscount(quotedGross, { discount, detail: discountDetail });
+  let mixed = null;
+  if (wantsMixed) {
+    const previewCash = received != null ? received : concession.cash;
+    mixed = validatePaymentSplits(paymentSplits, previewCash > 0 ? previewCash : amount, { treasuryMatch });
+  }
+
+  const resolvedMethod = mixed
+    ? 'mixto'
+    : (isOnAccountDuesMethod(method) ? 'a_cuenta' : method);
+  const manual = !mixed && isManualDuesReceipt(receiptParse);
+  if (!mixed && receiptParse?.source === 'manual' && !manual) {
+    throw new Error('Completá la referencia del comprobante manual.');
+  }
+  const attachmentName = receiptAttachment?.name
+    || receiptName
+    || (manual ? manualDuesReceiptLabel(receiptParse) : null);
+  const attachmentPath = receiptAttachment?.path || null;
+  if (!mixed && !(concession.discount > 0.009 && concession.cash <= 0.009)) {
+    const needsReceipt = duesMethodNeedsReceipt(resolvedMethod);
+    if (needsReceipt && !attachmentName) {
+      throw new Error(duesReceiptRequiredMessage(resolvedMethod));
+    }
+    if (needsReceipt && !attachmentPath && !treasuryMatch && !manual) {
+      throw new Error('No se pudo guardar el comprobante en Supabase.');
+    }
+  }
+
+  const collectAmount = concession.discount > 0
+    ? concession.gross
+    : (mixed ? mixed.total : amount);
+  const paid = payTennisAbono(account, {
+    method: resolvedMethod,
+    amount: collectAmount,
+    today,
+    periodDueOns,
+    monthlyAmount: tennisMonthly,
+  });
+
+  const label = mixed
+    ? `Pago mixto (${mixed.splits.map((row) => row.label).join(' + ')})`
+    : duesMethodLabel(resolvedMethod, bankName);
+  const cashAccount = mixed
+    ? null
+    : (journalAccount || journalAccountForPayment(resolvedMethod, bankId));
+  const receiptNote = !mixed && attachmentName ? ` · Comp: ${attachmentName}` : '';
+  const planLabel = String(paymentPlanLabel || '').trim();
+  const planNote = !mixed && resolvedMethod === 'tarjeta' && planLabel ? ` · Plan: ${planLabel}` : '';
+  const mixedNote = mixed
+    ? ` · ${mixed.splits.map((row) => `${row.label} ${row.amount}`).join(' + ')}`
+    : '';
+  const primarySplit = mixed?.splits[0] || null;
+  const payment = {
+    ...paid.payment,
+    method: resolvedMethod,
+    bankId: mixed ? null : (duesMethodUsesBank(resolvedMethod) ? bankId : null),
+    bankName: mixed ? null : (duesMethodUsesBank(resolvedMethod) ? bankName : null),
+    journalAccount: cashAccount,
+    receiptName: mixed ? (primarySplit?.receiptName || null) : attachmentName,
+    receiptPath: mixed ? (primarySplit?.receiptPath || null) : attachmentPath,
+    receiptBucket: mixed
+      ? (primarySplit?.receiptBucket || null)
+      : (receiptAttachment?.bucket || (attachmentPath ? 'dues-receipts' : null)),
+    receiptMime: mixed ? (primarySplit?.receiptMime || null) : (receiptAttachment?.mimeType || null),
+    receiptSize: mixed ? (primarySplit?.receiptSize ?? null) : (receiptAttachment?.size || null),
+    receiptAttachment: mixed
+      ? (primarySplit?.receiptAttachment || null)
+      : (attachmentPath
+        ? {
+          path: attachmentPath,
+          bucket: receiptAttachment?.bucket || 'dues-receipts',
+          name: attachmentName,
+          mimeType: receiptAttachment?.mimeType || '',
+          size: receiptAttachment?.size || 0,
+        }
+        : null),
+    receiptNumber: paid.payment.receiptNumber || paid.payment.receipt,
+    receipt: paid.payment.receiptNumber || paid.payment.receipt,
+    concept: `${paid.payment.concept}${receiptNote}${planNote}${mixedNote}`,
+    collectedFromMemberId: account.memberId !== member.memberId ? member.memberId : null,
+    collectedFromName: account.memberId !== member.memberId ? member.name : null,
+    paymentPlanId: mixed ? null : (resolvedMethod === 'tarjeta' ? (paymentPlanId || null) : null),
+    paymentPlanLabel: mixed ? null : (resolvedMethod === 'tarjeta' ? (planLabel || null) : null),
+    receiptParse: mixed ? null : (receiptParse && typeof receiptParse === 'object' ? receiptParse : null),
+    paymentSplits: mixed ? mixed.splits : null,
+    amount: concession.discount > 0 ? concession.cash : paid.payment.amount,
+    discount: concession.discount,
+    discountDetail: concession.detail || null,
+    chargeScope: 'abono_tenis',
+  };
+
+  const memberNext = {
+    ...paid.member,
+    paymentHistory: [payment, ...(paid.member.paymentHistory || []).filter((row) => row.id !== paid.payment.id)],
+  };
+  const paymentWithBalance = {
+    ...payment,
+    methodLabel: label,
+    balanceRemaining: money(Math.max(0, Number(memberNext.outstandingBalance) || 0)),
+  };
+  memberNext.paymentHistory = [
+    paymentWithBalance,
+    ...(memberNext.paymentHistory || []).filter((row) => row.id !== payment.id),
+  ];
+
+  const discountNote = concession.discount > 0 ? ` · Descuento ${concession.detail}` : '';
+  const cobroLabel = 'Cobro abono tenis';
+  let journalEntry = null;
+  if (paymentWithBalance.amount > 0 || concession.discount > 0) {
+    const income = money(paymentWithBalance.amount + concession.discount);
+    const discountLine = concession.discount > 0
+      ? [{ account: DUES_DISCOUNT_ACCOUNT, type: 'debit', amount: concession.discount }]
+      : [];
+    if (mixed) {
+      const byAccount = new Map();
+      mixed.splits.forEach((row) => {
+        const key = row.journalAccount || 'Caja General';
+        byAccount.set(key, money((byAccount.get(key) || 0) + row.amount));
+      });
+      journalEntry = {
+        date: paymentWithBalance.date,
+        description: `${cobroLabel} (${label}) - Socio: ${account.name} (Cred. ${account.memberId})${discountNote}`,
+        lines: [
+          ...[...byAccount.entries()].map(([accountName, value]) => ({
+            account: accountName,
+            type: 'debit',
+            amount: value,
+          })),
+          ...discountLine,
+          { account: 'Cuotas Sociales', type: 'credit', amount: income },
+        ],
+        sourceModule: 'cuotas',
+        sourceId: paymentWithBalance.id,
+        memberId: account.memberId,
+      };
+    } else {
+      journalEntry = {
+        date: paymentWithBalance.date,
+        description: `${cobroLabel} (${label}) - Socio: ${account.name} (Cred. ${account.memberId})${receiptNote}${planNote}${discountNote}`,
+        lines: [
+          ...(paymentWithBalance.amount > 0
+            ? [{ account: cashAccount, type: 'debit', amount: paymentWithBalance.amount }]
+            : []),
+          ...discountLine,
+          { account: 'Cuotas Sociales', type: 'credit', amount: income },
+        ],
+        sourceModule: 'cuotas',
+        sourceId: paymentWithBalance.id,
+        memberId: account.memberId,
+      };
+    }
+  }
+
+  return {
+    member: memberNext,
+    payment: paymentWithBalance,
+    fullyPaid: paid.fullyPaid,
+    ledgerEntry: paid.ledgerEntry ? ledgerPago(memberNext, paymentWithBalance) : null,
+    journalEntry,
+  };
+}
+
+/**
  * Borra el recargo de un cobro ya registrado. El importe cobrado queda.
  * El recargo pasa a saldo a favor. No se perdona en el mostrador.
  */
@@ -1424,6 +1717,20 @@ function cobroSchedule(member, payment) {
       : member.unpaidCapital,
   };
   const paidOn = payment.paidAt || payment.date || new Date();
+  if (paymentIsTennisAbonoOnly(payment)) {
+    const monthly = payment.monthlyAmount != null
+      ? money(Number(payment.monthlyAmount) || 0)
+      : null;
+    const tennisChoices = collectionTennisPeriodChoices(before, paidOn, {
+      monthlyAmount: monthly > 0 ? monthly : undefined,
+    });
+    const selected = Array.isArray(payment.periodDueOns) && payment.periodDueOns.length
+      ? payment.periodDueOns.map((value) => String(value || '').slice(0, 10))
+      : tennisChoices.map((row) => row.dueOn);
+    const rows = tennisChoices.filter((row) => selected.includes(String(row.dueOn).slice(0, 10)));
+    const tennisCapital = money(rows.reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
+    return openPeriodsFromChoices(rows, tennisCapital).map((row) => ({ ...row, lateBase: 0 }));
+  }
   const balance = Math.max(Number(before.outstandingBalance) || 0, 0);
   const choices = collectionPeriodChoices(before, paidOn);
   const choiceCapital = choices.reduce((sum, row) => sum + (Number(row.capital) || 0), 0);
@@ -1435,13 +1742,14 @@ function cobroSchedule(member, payment) {
 }
 
 export function cobroPeriods(member, payment) {
-  const skipSurcharge = duesMethodSkipsSurcharge(payment?.method);
+  const tennisOnly = paymentIsTennisAbonoOnly(payment);
+  const skipSurcharge = tennisOnly || duesMethodSkipsSurcharge(payment?.method);
   const schedule = cobroSchedule(member, payment).map((row) => (
     skipSurcharge ? { ...row, lateBase: 0 } : row
   ));
   const scheduleCapital = schedule.reduce((sum, row) => sum + (Number(row.capital) || 0), 0);
   const balance = Math.max(Number(payment.balanceBefore ?? member?.outstandingBalance) || 0, 0);
-  const bakedSurcharge = scheduleCapital > 0.01 && balance > scheduleCapital + 0.01
+  const bakedSurcharge = !tennisOnly && scheduleCapital > 0.01 && balance > scheduleCapital + 0.01
     ? Math.round((balance - scheduleCapital) * 100) / 100
     : 0;
   return {
@@ -1481,6 +1789,7 @@ export function cobroPeriods(member, payment) {
     discountDetail: payment.discountDetail || null,
     adelanto: payment.adelanto === true,
     importSource: payment.importSource || null,
+    ...(tennisOnly ? { chargeScope: 'abono_tenis' } : {}),
   };
 }
 
@@ -1528,14 +1837,35 @@ export async function commitDuesCollection(member, payment) {
     });
   }
   const history = (member.paymentHistory || []).filter((row) => row && row.id !== payment.id);
+  const tennisOnly = paymentIsTennisAbonoOnly(payment);
+  // Abono tenis independiente: no avanza el vencimiento de la cuota social.
+  const nextDueDate = tennisOnly
+    ? (payment.nextDueBefore || member.nextDueDate || null)
+    : (saved.nextDueDate || member.nextDueDate);
+  const mergedPayment = {
+    ...saved.payment,
+    ...(tennisOnly ? { chargeScope: 'abono_tenis' } : {}),
+    ...(payment.chargeScope ? { chargeScope: payment.chargeScope } : {}),
+  };
+  if (tennisOnly && mergedPayment.id) {
+    try {
+      const patched = await patchMemberPaymentChargeScope(mergedPayment.id, 'abono_tenis', {
+        memberDbId: memberDbId,
+        nextDueDate,
+      });
+      if (patched) Object.assign(mergedPayment, patched, { chargeScope: 'abono_tenis' });
+    } catch {
+      /* best-effort: el concept Abono tenis alcanza para el dedupe local */
+    }
+  }
   const nextMember = {
     ...member,
     outstandingBalance: saved.outstandingBalance,
-    nextDueDate: saved.nextDueDate || member.nextDueDate,
+    nextDueDate,
     lastPaymentDate: saved.payment?.date || member.lastPaymentDate,
-    paymentHistory: [saved.payment, ...history],
+    paymentHistory: [mergedPayment, ...history],
   };
-  return { member: nextMember, payment: saved.payment, idempotent: saved.idempotent };
+  return { member: nextMember, payment: mergedPayment, idempotent: saved.idempotent };
 }
 
 /**

@@ -31,12 +31,14 @@ Aplica a **todos** los socios que abonan, no a un caso puntual:
 
 ## Exentos
 
-**Vitalicio, fundador y comisión no abonan cuota.** Para todo el padrón, no un socio:
+**Vitalicio, fundador y comisión no abonan cuota social.** Para todo el padrón, no un socio:
 
-- Nunca mora, saldo inventado ni $ 32.000 de fallback
+- Nunca mora, saldo inventado ni $ 32.000 de fallback de cuota
 - Nunca MD, mail ni WhatsApp de cuota
 - Nunca Mercado Pago de cuota ni suscripción
-- Nunca cobro en caja / portal
+- Nunca cobro de cuota social en caja / portal
 - Usar `isDuesExemptMember` / `member_is_dues_exempt` / `member_id_is_dues_exempt`
+
+**Sí pagan abono tenis** si tienen `ABONO TENIS` (ellos o un integrante del hogar, a la cuenta del titular): $ 12.000 / mes, sin 10 %, cobro aparte (`chargeScope: abono_tenis` / Socios → Tenis). La liquidación imputa solo el add-on (`addOnOnly`); el saldo de ficha puede ser deuda de tenis.
 
 Mi cuenta en avisos y checkout: **https://www.jockeyclubsj.com.ar/cuenta** (nunca `jockeyclubsj.org`).

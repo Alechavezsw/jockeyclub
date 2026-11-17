@@ -650,7 +650,7 @@ export async function listCoveredDueOnsByMember(memberIds) {
   const rows = await unwrap(
     sb()
       .from('member_payments')
-      .select('member_id, meta')
+      .select('member_id, concept, meta')
       .in('member_id', ids)
       .gte('paid_at', '2026-01-01')
       .limit(400),
@@ -660,9 +660,18 @@ export async function listCoveredDueOnsByMember(memberIds) {
   for (const row of rows || []) {
     const dueOns = Array.isArray(row?.meta?.periodDueOns) ? row.meta.periodDueOns : [];
     if (!dueOns.length || row?.meta?.status === 'void' || row?.meta?.voidedAt) continue;
+    // Abono tenis independiente: no tapa los meses de cuota social.
+    const scope = String(row?.meta?.chargeScope || '').toLowerCase();
+    const concept = String(row?.concept || row?.meta?.concept || '').toLowerCase();
+    if (scope === 'abono_tenis' || scope === 'tenis' || concept.startsWith('abono tenis')) continue;
     const id = String(row.member_id);
     const list = out[id] || [];
-    list.push({ periodDueOns: dueOns, status: 'paid' });
+    list.push({
+      periodDueOns: dueOns,
+      status: 'paid',
+      chargeScope: row?.meta?.chargeScope || null,
+      concept: row?.concept || null,
+    });
     out[id] = list;
   }
   return out;
@@ -1292,6 +1301,7 @@ export async function insertMemberPayment(memberDbId, payment) {
       ...(Array.isArray(payment.paymentSplits) && payment.paymentSplits.length
         ? { paymentSplits: payment.paymentSplits }
         : {}),
+      ...(payment.chargeScope ? { chargeScope: payment.chargeScope } : {}),
     },
   };
   const saved = await unwrap(
@@ -1299,6 +1309,47 @@ export async function insertMemberPayment(memberDbId, payment) {
     'No se pudo registrar pago'
   );
   await audit('create', 'member_payments', saved.id, row);
+  return M.paymentFromRow(saved);
+}
+
+/**
+ * Marca un cobro como abono tenis (independiente de la cuota social).
+ * Opcionalmente restaura next_due_date si el RPC lo había avanzado.
+ */
+export async function patchMemberPaymentChargeScope(paymentId, chargeScope = 'abono_tenis', {
+  memberDbId = null,
+  nextDueDate = null,
+} = {}) {
+  const id = String(paymentId || '').trim();
+  if (!isUuid(id)) return null;
+  const scope = String(chargeScope || '').trim();
+  if (!scope) return null;
+  const row = await unwrap(
+    sb().from('member_payments').select('id, meta, member_id').eq('id', id).maybeSingle(),
+    'No se encontró el cobro',
+  );
+  if (!row) return null;
+  const meta = { ...(row.meta && typeof row.meta === 'object' ? row.meta : {}), chargeScope: scope };
+  const saved = await unwrap(
+    sb().from('member_payments').update({ meta }).eq('id', id).select().single(),
+    'No se pudo marcar el abono tenis',
+  );
+  const memberId = memberDbId || row.member_id;
+  if (memberId && nextDueDate !== undefined) {
+    const due = nextDueDate == null || nextDueDate === ''
+      ? null
+      : String(nextDueDate).slice(0, 10);
+    if (due == null || /^\d{4}-\d{2}-\d{2}$/.test(due)) {
+      try {
+        await unwrap(
+          sb().from('members').update({ next_due_date: due }).eq('id', memberId),
+          'No se pudo restaurar el vencimiento',
+        );
+      } catch {
+        /* best-effort */
+      }
+    }
+  }
   return M.paymentFromRow(saved);
 }
 

@@ -27,13 +27,18 @@ import {
   unpaidSocialDuesAmount,
   canChargeSocialDues,
   isAmetDuesMember,
+  memberHasTennisAbono,
+  duesTennisAbonoAmount,
+  collectionTennisPeriodChoices,
+  collectionTennisPreview,
+  memberCoveredDueOns,
+  paymentIsTennisAbonoOnly,
   duesAmetQuotaAmount,
   duesAmetInterestAmount,
   duesDueDayForMember,
   duesOnJoin,
   isMemberBillingActive,
   collectionPeriodChoices,
-  memberCoveredDueOns,
   memberDueFact,
   socialDuesStoredBalance,
 } from './dues';
@@ -480,6 +485,45 @@ describe('dues classification', () => {
     expect(after[0].outstandingBalance).toBe(0);
   });
 
+  it('vitalicio y fundador con ABONO TENIS siguen exentos de cuota pero liquidan tenis', () => {
+    const october = new Date('2026-10-10T12:00:00');
+    const vitalicio = {
+      memberId: 'v-tenis',
+      status: 'active',
+      tier: 'socio_vitalicio',
+      cuotaCategories: ['SOCIO (Vitalicio)', 'ABONO TENIS'],
+      adherents: [],
+      outstandingBalance: 0,
+      paymentHistory: [],
+    };
+    const fundador = {
+      memberId: 'f-tenis',
+      status: 'active',
+      tier: 'fundador',
+      cuotaCategories: ['FUNDADOR', 'ABONO TENIS'],
+      adherents: [],
+      outstandingBalance: 12000,
+      nextDueDate: '2026-10-10',
+      paymentHistory: [],
+    };
+    expect(isDuesExemptMember(vitalicio)).toBe(true);
+    expect(isDuesExemptMember(fundador)).toBe(true);
+    expect(canChargeSocialDues(vitalicio)).toBe(false);
+    expect(canChargeSocialDues(fundador)).toBe(false);
+    expect(duesAmountForMember(vitalicio, october)).toBe(12000);
+    expect(duesAmountForMember(fundador, october)).toBe(12000);
+    expect(duesPayableForMember(vitalicio, { paidOn: '2026-10-11', dueOn: '2026-10-10', on: october })).toBe(12000);
+    expect(duesOnJoin(vitalicio, october).outstandingBalance).toBe(12000);
+    expect(quotaHeadline(vitalicio).hint).toMatch(/sí abono tenis/i);
+    expect(quotaHeadline(fundador).title).toBe('Abono tenis');
+    expect(collectionPeriodChoices(fundador, october)).toEqual([]);
+    const tennisChoices = collectionTennisPeriodChoices(fundador, october);
+    expect(tennisChoices.some((row) => row.dueOn === '2026-10-10')).toBe(true);
+    expect(tennisChoices[0].capital).toBe(12000);
+    expect(tennisChoices[0].surcharge).toBe(0);
+    expect(getOverdueMembers([fundador], new Date('2026-10-20T12:00:00'))).toHaveLength(0);
+  });
+
   it('un saldo de cuenta no es mora si la cuota todavía no venció', () => {
     const overdue = getOverdueMembers([
       { memberId: 'x', name: 'X', tier: 'socio_individual', outstandingBalance: 1000, status: 'active', nextDueDate: '2026-09-01' },
@@ -540,6 +584,63 @@ describe('tarifa desde octubre 2026', () => {
       cuotaCategories: ['SOCIO FAMILIAR', 'ABONO TENIS'],
       adherents: [],
     }, october)).toBe(82000);
+  });
+
+  it('detecta abono tenis y monto mensual sin mezclar cuota social', () => {
+    const october = new Date('2026-10-10T12:00:00');
+    const withTennis = {
+      tier: 'socio_familiar',
+      cuotaCategories: ['SOCIO FAMILIAR', 'ABONO TENIS'],
+      adherents: [],
+    };
+    const without = { tier: 'socio_familiar', cuotaCategories: ['SOCIO FAMILIAR'], adherents: [] };
+    expect(memberHasTennisAbono(withTennis)).toBe(true);
+    expect(memberHasTennisAbono(without)).toBe(false);
+    expect(duesTennisAbonoAmount(withTennis, october)).toBe(12000);
+    expect(duesTennisAbonoAmount(without, october)).toBe(0);
+    expect(duesPayableAmount(12000, {
+      paidOn: '2026-10-11',
+      dueOn: '2026-10-10',
+      tier: 'abono_tenis',
+    })).toBe(12000);
+  });
+
+  it('abono tenis se ofrece y cobra aparte sin marcar la cuota del mes', () => {
+    const today = new Date('2026-11-12T15:00:00-03:00');
+    const member = {
+      memberId: 't1',
+      tier: 'socio_familiar',
+      cuotaCategories: ['SOCIO FAMILIAR', 'ABONO TENIS'],
+      outstandingBalance: 82000,
+      nextDueDate: '2026-11-10',
+      adherents: [],
+      paymentHistory: [],
+    };
+    const tennis = collectionTennisPeriodChoices(member, today);
+    expect(tennis.some((row) => row.dueOn === '2026-11-10')).toBe(true);
+    expect(tennis[0].capital).toBe(12000);
+    expect(tennis[0].surcharge).toBe(0);
+    expect(collectionTennisPreview(member, today, {
+      periodDueOns: ['2026-11-10'],
+    }).cash).toBe(12000);
+
+    const afterTennis = {
+      ...member,
+      outstandingBalance: 70000,
+      paymentHistory: [{
+        id: 'pay-tenis-1',
+        status: 'paid',
+        chargeScope: 'abono_tenis',
+        concept: 'Abono tenis · Noviembre de 2026',
+        periodDueOns: ['2026-11-10'],
+        amount: 12000,
+      }],
+    };
+    expect(paymentIsTennisAbonoOnly(afterTennis.paymentHistory[0])).toBe(true);
+    expect(memberCoveredDueOns(afterTennis).has('2026-11-10')).toBe(false);
+    const social = collectionPeriodChoices(afterTennis, today);
+    const nov = social.find((row) => row.dueOn === '2026-11-10');
+    expect(nov?.capital).toBe(70000);
   });
 
   it('abono tenis en meses previos a octubre también va a $ 12.000', () => {
