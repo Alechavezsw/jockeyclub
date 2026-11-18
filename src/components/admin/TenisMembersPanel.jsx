@@ -3,16 +3,18 @@ import {
   Banknote,
   ChevronLeft,
   ChevronRight,
+  Download,
   Search,
 } from 'lucide-react';
 import {
   collectionTennisPeriodChoices,
   duesTennisAbonoAmount,
-  formatShortDate,
   memberHasTennisAbono,
-  pinDuesDueDate,
+  paymentIsTennisAbonoOnly,
+  paymentIsVoided,
   toWhatsAppPhone,
 } from '../../domain/members/dues';
+import { downloadPaymentReceiptPdf } from '../../domain/members/exportPaymentReceiptPdf';
 import { getTierDisplayName, splitTierDisplayName, tierChipVars } from '../../domain/members/tiers';
 import {
   billingAccountMember,
@@ -25,6 +27,23 @@ import {
 import { persistDuesCollection, recordTennisAbonoCollection } from '../../domain/members/memberPayments';
 import { deliverPaymentReceipt } from '../../domain/payments/deliverPaymentReceipt';
 import CollectDuesModal from './CollectDuesModal';
+import CollectReceiptActionsBanner from '../erp/CollectReceiptActionsBanner';
+
+function latestTennisPayment(account) {
+  const history = Array.isArray(account?.paymentHistory) ? account.paymentHistory : [];
+  let best = null;
+  for (const payment of history) {
+    if (paymentIsVoided(payment) || !paymentIsTennisAbonoOnly(payment)) continue;
+    if (!best) {
+      best = payment;
+      continue;
+    }
+    const a = `${String(payment.date || '').slice(0, 10)}|${payment.id || ''}`;
+    const b = `${String(best.date || '').slice(0, 10)}|${best.id || ''}`;
+    if (a > b) best = payment;
+  }
+  return best;
+}
 
 const PAGE_SIZE = 25;
 
@@ -39,17 +58,41 @@ function WhatsAppIcon({ size = 14 }) {
   );
 }
 
-function TennisBallIcon({ size = 18 }) {
+function TennisBallIcon({ size = 28 }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <circle cx="12" cy="12" r="9.25" fill="currentColor" opacity="0.92" />
+    <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden="true" focusable="false">
+      <defs>
+        <radialGradient id="tenisBallBody" cx="34%" cy="30%" r="68%">
+          <stop offset="0%" stopColor="#fff8b0" />
+          <stop offset="42%" stopColor="#e8d84a" />
+          <stop offset="100%" stopColor="#b7a318" />
+        </radialGradient>
+        <radialGradient id="tenisBallShade" cx="70%" cy="78%" r="55%">
+          <stop offset="0%" stopColor="rgba(70, 55, 0, 0)" />
+          <stop offset="100%" stopColor="rgba(55, 42, 0, 0.28)" />
+        </radialGradient>
+        <linearGradient id="tenisBallSeam" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#f7f4e8" />
+          <stop offset="100%" stopColor="#d9d2b8" />
+        </linearGradient>
+      </defs>
+      <circle cx="24" cy="24" r="18.5" fill="url(#tenisBallBody)" />
+      <circle cx="24" cy="24" r="18.5" fill="url(#tenisBallShade)" />
       <path
-        d="M6.2 5.4c2.8 1.6 4.6 4.4 4.6 7.6s-1.8 6-4.6 7.6M17.8 5.4c-2.8 1.6-4.6 4.4-4.6 7.6s1.8 6 4.6 7.6"
+        d="M11.2 11.4c5.4 3.2 8.9 8.6 8.9 14.6s-3.5 11.4-8.9 14.6"
         fill="none"
-        stroke="rgba(20, 60, 40, 0.55)"
-        strokeWidth="1.35"
+        stroke="url(#tenisBallSeam)"
+        strokeWidth="2.2"
         strokeLinecap="round"
       />
+      <path
+        d="M36.8 11.4c-5.4 3.2-8.9 8.6-8.9 14.6s3.5 11.4 8.9 14.6"
+        fill="none"
+        stroke="url(#tenisBallSeam)"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+      />
+      <ellipse cx="17.5" cy="15.5" rx="5.2" ry="3.4" fill="rgba(255,255,255,0.38)" transform="rotate(-28 17.5 15.5)" />
     </svg>
   );
 }
@@ -93,6 +136,8 @@ export default function TenisMembersPanel({
   const [page, setPage] = useState(0);
   const [collectTarget, setCollectTarget] = useState(null);
   const [flash, setFlash] = useState('');
+  const [receiptBanner, setReceiptBanner] = useState(null);
+  const [pdfBusyId, setPdfBusyId] = useState('');
 
   const tennisRows = useMemo(() => {
     const today = new Date();
@@ -104,11 +149,11 @@ export default function TenisMembersPanel({
         const account = billingAccountMember(m, list) || m;
         const tennisAmount = Number(duesTennisAbonoAmount(m, today)) || 0;
         const balance = Math.max(0, Number(account.outstandingBalance) || 0);
-        const dueIso = pinDuesDueDate(account.nextDueDate, account) || account.nextDueDate || null;
         const dependent = isFamilyDependent(m) || !isTitularMember(m);
         const tennisOpen = collectionTennisPeriodChoices(account, today, {
           monthlyAmount: tennisAmount,
         });
+        const lastTennisPayment = latestTennisPayment(account);
         return {
           ...m,
           tennisAmount,
@@ -117,7 +162,7 @@ export default function TenisMembersPanel({
           accountName: account.name || '',
           accountNumber: memberNumberOf(account) || '',
           balance,
-          dueIso,
+          lastTennisPayment,
           role: dependent ? 'familiar' : 'titular',
           standing: balance > 0 ? 'deuda' : 'al_dia',
           tennisPending: tennisOpen.length > 0,
@@ -186,6 +231,19 @@ export default function TenisMembersPanel({
     setPage(0);
   };
 
+  const handleDownloadTennisReceipt = async (account, payment) => {
+    if (!account || !payment) return;
+    const key = String(payment.id || payment.receiptNumber || account.memberId || '');
+    setPdfBusyId(key);
+    try {
+      await downloadPaymentReceiptPdf({ member: account, payment });
+    } catch (err) {
+      window.alert(err?.message || 'No se pudo generar el PDF del abono tenis.');
+    } finally {
+      setPdfBusyId('');
+    }
+  };
+
   const handleConfirmCollect = async (payload) => {
     if (!collectTarget?.account) return;
     const account = collectTarget.account;
@@ -205,14 +263,17 @@ export default function TenisMembersPanel({
       addJournalEntry,
       onAccountEntry,
     });
+    const paidMember = saved?.member || result.member;
+    const payment = saved?.payment || result.payment;
     void deliverPaymentReceipt({
-      member: saved?.member || result.member,
-      payment: saved?.payment || result.payment,
+      member: paidMember,
+      payment,
       onSendMessage,
       kind: 'cuota',
     });
     setCollectTarget(null);
-    setFlash(`Abono tenis · ${formatCurrency((saved?.payment || result.payment).amount)} · ${(saved?.member || result.member).name}`);
+    setReceiptBanner({ member: paidMember, payment });
+    setFlash(`Abono tenis · ${formatCurrency(payment.amount)} · ${paidMember.name}`);
     window.setTimeout(() => setFlash(''), 5000);
   };
 
@@ -221,7 +282,7 @@ export default function TenisMembersPanel({
       <header className="tenis-desk__hero">
         <div className="tenis-desk__hero-copy">
           <span className="tenis-desk__icon" aria-hidden="true">
-            <TennisBallIcon size={20} />
+            <TennisBallIcon size={30} />
           </span>
           <div>
             <p className="tenis-desk__eyebrow">Disciplina</p>
@@ -248,6 +309,16 @@ export default function TenisMembersPanel({
       </header>
 
       {flash ? <p className="dues-flash" role="status">{flash}</p> : null}
+      {receiptBanner?.payment ? (
+        <CollectReceiptActionsBanner
+          member={receiptBanner.member}
+          payment={receiptBanner.payment}
+          message={`Abono tenis cobrado · ${formatCurrency(receiptBanner.payment.amount)} · ${receiptBanner.member?.name || 'Socio'}`}
+          onSendMessage={onSendMessage}
+          formatCurrency={formatCurrency}
+          onClose={() => setReceiptBanner(null)}
+        />
+      ) : null}
 
       <div className="tenis-desk__filters" role="group" aria-label="Filtros tenis">
         <button type="button" className={`tenis-desk__filter${kindFilter === 'all' ? ' is-on' : ''}`} onClick={() => setFilter('all')}>
@@ -290,7 +361,6 @@ export default function TenisMembersPanel({
               <th>Cuenta</th>
               <th>Categoría</th>
               <th className="tenis-desk__num">Abono</th>
-              <th className="tenis-desk__num">Vence</th>
               <th className="tenis-desk__num">Saldo cuenta</th>
               <th>Acciones</th>
             </tr>
@@ -298,15 +368,17 @@ export default function TenisMembersPanel({
           <tbody>
             {pageRows.length === 0 ? (
               <tr>
-                <td colSpan={7} className="tenis-desk__empty">
+                <td colSpan={6} className="tenis-desk__empty">
                   {membersLoading ? 'Cargando…' : 'No hay abonos de tenis con este filtro.'}
                 </td>
               </tr>
             ) : pageRows.map((m) => {
               const wa = toWhatsAppPhone(m.phone || m.account?.phone);
               const nro = memberNumberOf(m) || '—';
-              const dueLabel = formatShortDate(m.dueIso) || '—';
               const sameAccount = String(m.accountId || '') === String(m.memberId || m.id || '');
+              const receipt = m.lastTennisPayment;
+              const receiptKey = String(receipt?.id || receipt?.receiptNumber || m.accountId || '');
+              const hasActions = Boolean(wa || (canCollect && m.tennisPending) || receipt);
               return (
                 <tr key={m.memberId || m.id}>
                   <td>
@@ -348,7 +420,6 @@ export default function TenisMembersPanel({
                       <span className="tenis-desk__tag">Sin mora 10 %</span>
                     </div>
                   </td>
-                  <td className="tenis-desk__num tabular-nums">{dueLabel}</td>
                   <td className="tenis-desk__num">
                     <div className="tenis-desk__saldo">
                       <strong className={m.balance > 0 ? 'is-debt' : 'is-ok'}>
@@ -373,21 +444,35 @@ export default function TenisMembersPanel({
                           <WhatsAppIcon size={15} />
                         </a>
                       ) : null}
+                      {receipt ? (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-secondary tenis-desk__pdf"
+                          disabled={pdfBusyId === receiptKey}
+                          title="Descargar recibo de abono tenis"
+                          aria-label={`Descargar recibo de ${m.name}`}
+                          onClick={() => handleDownloadTennisReceipt(m.account, receipt)}
+                        >
+                          <Download size={14} />
+                          {pdfBusyId === receiptKey ? 'PDF…' : 'Recibo'}
+                        </button>
+                      ) : null}
                       {canCollect && m.tennisPending ? (
                         <button
                           type="button"
-                          className="btn btn-sm btn-primary"
+                          className="btn btn-primary tenis-desk__collect"
                           onClick={() => setCollectTarget({
                             account: m.account,
                             tennisAmount: m.tennisAmount,
                             personName: m.name,
                           })}
                         >
-                          <Banknote size={14} /> Cobrar abono
+                          <Banknote size={12} /> Cobrar
                         </button>
-                      ) : (
+                      ) : null}
+                      {!hasActions ? (
                         <span className="tenis-desk__idle">—</span>
-                      )}
+                      ) : null}
                     </div>
                   </td>
                 </tr>

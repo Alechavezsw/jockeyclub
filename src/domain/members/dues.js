@@ -1039,8 +1039,8 @@ function duesPeriodMonthStarted(dueOn, paidOn) {
   return dueYm <= paidYm;
 }
 
-/** Meses ya cubiertos por cobros (periodDueOns / imputaciones). No se vuelven a ofrecer. */
-function paymentIsVoided(payment) {
+/** Cobro anulado / cancelado: no cuenta para meses cubiertos ni recibos. */
+export function paymentIsVoided(payment) {
   return Boolean(
     payment?.status === 'void'
     || payment?.status === 'cancelled'

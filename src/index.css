@@ -30474,22 +30474,76 @@ button.debit-moves-row:disabled {
 }
 
 .tenis-desk__icon {
+  position: relative;
   display: grid;
   place-items: center;
-  width: 2.1rem;
-  height: 2.1rem;
+  width: 2.85rem;
+  height: 2.85rem;
   border-radius: 999px;
-  color: #1f3d28;
-  background: radial-gradient(circle at 32% 28%, #f6ef8a, #c9b82e 72%);
-  border: 1px solid color-mix(in srgb, #d4c64a 40%, var(--border-glass));
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--tenis-green-deep) 28%, transparent);
+  color: transparent;
+  background:
+    radial-gradient(circle at 30% 26%, rgba(255, 255, 255, 0.22), transparent 46%),
+    radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--tenis-green) 28%, transparent), transparent 72%),
+    linear-gradient(160deg, color-mix(in srgb, var(--tenis-green-deep) 55%, #0b1f14), #123224);
+  border: 1px solid color-mix(in srgb, var(--tenis-mint) 42%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--tenis-green) 24%, transparent),
+    0 8px 18px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
   flex-shrink: 0;
+  overflow: hidden;
+}
+
+.tenis-desk__icon::before {
+  content: '';
+  position: absolute;
+  inset: -35%;
+  background: conic-gradient(
+    from 210deg,
+    transparent 0 62%,
+    color-mix(in srgb, var(--tenis-mint) 26%, transparent) 72%,
+    transparent 86% 100%
+  );
+  animation: tenis-desk-icon-spin 9s linear infinite;
+  pointer-events: none;
+}
+
+.tenis-desk__icon::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border-radius: inherit;
+  background: radial-gradient(circle at 50% 60%, transparent 42%, rgba(0, 0, 0, 0.18) 100%);
+  pointer-events: none;
+}
+
+.tenis-desk__icon svg {
+  position: relative;
+  z-index: 1;
+  filter: drop-shadow(0 2px 3px rgba(20, 40, 20, 0.35));
+  animation: tenis-desk-icon-bob 2.8s ease-in-out infinite;
+}
+
+@keyframes tenis-desk-icon-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes tenis-desk-icon-bob {
+  0%, 100% { transform: translateY(0) rotate(-4deg); }
+  50% { transform: translateY(-1.5px) rotate(4deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tenis-desk__icon::before,
+  .tenis-desk__icon svg {
+    animation: none;
+  }
 }
 
 .tenis-desk__eyebrow {
   margin: 0 0 0.05rem;
   font-size: 0.62rem;
-  font-weight: 700;
+  font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--tenis-mint);
@@ -30818,18 +30872,48 @@ button.debit-moves-row:disabled {
 }
 
 .tenis-desk__wa {
-  display: inline-grid;
-  place-items: center;
-  width: 1.85rem;
-  height: 1.85rem;
-  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.15rem;
   color: #25D366;
-  border: 1px solid color-mix(in srgb, #25D366 30%, var(--border-glass));
-  background: rgba(37, 211, 102, 0.08);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  line-height: 1;
+  text-decoration: none;
 }
 
 .tenis-desk__wa:hover {
-  background: rgba(37, 211, 102, 0.16);
+  color: #1ebe57;
+  background: transparent;
+  opacity: 0.9;
+}
+
+.tenis-desk__pdf {
+  gap: 0.28rem;
+  white-space: nowrap;
+}
+
+.tenis-desk__collect {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.16rem 0.42rem;
+  min-height: 0;
+  height: auto;
+  width: auto;
+  font-size: 0.66rem;
+  font-weight: 650;
+  line-height: 1.15;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.tenis-desk__collect svg {
+  width: 0.7rem;
+  height: 0.7rem;
+  flex-shrink: 0;
 }
 
 .tenis-desk__idle {

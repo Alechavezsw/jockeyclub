@@ -7,6 +7,7 @@ import {
   loadClubLogoDataUrl,
 } from '../reports/pdfBrand';
 import { CLUB_BANK_ACCOUNTS, MERCADO_PAGO } from './clubBanks';
+import { paymentIsTennisAbonoOnly } from './dues';
 import { getTierDisplayName } from './tiers';
 import { duesMonthLabel, duesMonthsPhrase } from './duesImputations';
 
@@ -74,6 +75,7 @@ function chargeLineFromImputation(row) {
 
 /** Una línea por mes: capital e intereses, o el mes sin intereses. Sin saldo anterior. */
 export function receiptChargeLines(payment) {
+  const tennis = paymentIsTennisAbonoOnly(payment);
   const imputations = Array.isArray(payment?.imputations)
     ? payment.imputations.filter((row) => row && !row.voidedAt && !isOpeningDue(row.dueOn))
     : [];
@@ -92,7 +94,7 @@ export function receiptChargeLines(payment) {
     if (amount > 0.01) {
       return [{
         dueOn,
-        detail: duesPaymentDescription(dueOn),
+        detail: duesPaymentDescription(dueOn, { tennis }),
         payable: amount,
       }];
     }
@@ -116,21 +118,23 @@ export function receiptChargeLines(payment) {
     .filter((row) => row.payable > 0.01);
 }
 
-/** Descripción corta de cuota: «Pago de cuota social Noviembre 2026». */
-export function duesPaymentDescription(dueOnOrLabel) {
+/** Descripción corta: «Pago de cuota social Noviembre 2026» o «Pago de abono tenis …». */
+export function duesPaymentDescription(dueOnOrLabel, { tennis = false } = {}) {
+  const noun = tennis ? 'abono tenis' : 'cuota social';
   const raw = String(dueOnOrLabel || '').trim();
   const fromDue = /^\d{4}-\d{2}-\d{2}/.test(raw) ? periodLabelFromDueOn(raw) : '';
   const label = fromDue || raw;
-  if (!label || label === '—') return 'Pago de cuota social';
-  if (/^pago de cuota social/i.test(label)) {
+  if (!label || label === '—') return `Pago de ${noun}`;
+  if (new RegExp(`^pago de ${noun}`, 'i').test(label)) {
     return label.replace(/\s+de\s+(\d{4})\b/i, ' $1');
   }
   const month = label
+    .replace(/^abono tenis\s*[·•|-]?\s*/i, '')
     .replace(/^cuota social\s*[·•|-]?\s*/i, '')
     .replace(/^pago de\s+/i, '')
     .replace(/\s+de\s+(\d{4})\b/i, ' $1')
     .trim();
-  return month ? `Pago de cuota social ${month}` : 'Pago de cuota social';
+  return month ? `Pago de ${noun} ${month}` : `Pago de ${noun}`;
 }
 
 /** Línea de descuento del recibo. El mes y el recargo quedan como se cobraron. */
@@ -160,20 +164,22 @@ export function paymentCorrespondsTo(payment, { isBooking = false } = {}) {
   }
 
   const onAccount = isOnAccountPayment(payment);
+  const tennis = paymentIsTennisAbonoOnly(payment);
   const selectedDueOns = Array.isArray(payment?.periodDueOns)
     ? payment.periodDueOns.map((value) => String(value || '').slice(0, 10)).filter(Boolean)
     : [];
+  const toAccountLabel = (text) => String(text || '').replace(/^Pago de (cuota social|abono tenis)/i, 'Pago a cuenta');
   // Meses marcados en el cobro: el recibo nombra esos, no un adelanto a diciembre.
   if (selectedDueOns.length === 1) {
-    const one = duesPaymentDescription(selectedDueOns[0]);
-    return onAccount ? one.replace(/^Pago de cuota social/i, 'Pago a cuenta') : one;
+    const one = duesPaymentDescription(selectedDueOns[0], { tennis });
+    return onAccount ? toAccountLabel(one) : one;
   }
   if (selectedDueOns.length > 1) {
     const phrase = duesMonthsPhrase(selectedDueOns);
     if (phrase) {
       return onAccount
         ? `Pago a cuenta · ${phrase}`
-        : `Pago de cuota social · ${phrase}`;
+        : `Pago de ${tennis ? 'abono tenis' : 'cuota social'} · ${phrase}`;
     }
   }
 
@@ -183,8 +189,8 @@ export function paymentCorrespondsTo(payment, { isBooking = false } = {}) {
   const charges = receiptChargeLines(payment);
   const monthCharges = charges.filter((row) => String(row.dueOn || '').slice(0, 10) > '1900-01-10');
   if (monthCharges.length === 1 && !(Number(imputations.find((row) => !isOpeningDue(row.dueOn))?.surcharge) > 0.01)) {
-    const one = duesPaymentDescription(monthCharges[0].dueOn);
-    return onAccount ? one.replace(/^Pago de cuota social/i, 'Pago a cuenta') : one;
+    const one = duesPaymentDescription(monthCharges[0].dueOn, { tennis });
+    return onAccount ? toAccountLabel(one) : one;
   }
   if (charges.length) {
     const detail = charges.map((row) => row.detail).join(' · ');
@@ -199,23 +205,28 @@ export function paymentCorrespondsTo(payment, { isBooking = false } = {}) {
     .trim();
   if (/^a cuenta/i.test(cleaned) || /^pago a cuenta/i.test(cleaned)) {
     const due = selectedDueOns[0] || (Array.isArray(payment?.imputations) ? payment.imputations.find((row) => !isOpeningDue(row?.dueOn))?.dueOn : null);
-    if (due) return duesPaymentDescription(due).replace(/^Pago de cuota social/i, 'Pago a cuenta');
+    if (due) return toAccountLabel(duesPaymentDescription(due, { tennis }));
     if (period && period !== '—') {
-      return duesPaymentDescription(period).replace(/^Pago de cuota social/i, 'Pago a cuenta');
+      return toAccountLabel(duesPaymentDescription(period, { tennis }));
     }
     return 'Pago a cuenta';
   }
-  if (/^cuota social/i.test(cleaned) || /^pago de cuota social/i.test(cleaned)) {
+  if (
+    /^cuota social/i.test(cleaned)
+    || /^pago de cuota social/i.test(cleaned)
+    || /^abono tenis/i.test(cleaned)
+    || /^pago de abono tenis/i.test(cleaned)
+  ) {
     const due = selectedDueOns[0] || (Array.isArray(payment?.imputations) ? payment.imputations.find((row) => !isOpeningDue(row?.dueOn))?.dueOn : null);
-    if (due) return duesPaymentDescription(due);
-    if (period && period !== '—') return duesPaymentDescription(period);
+    if (due) return duesPaymentDescription(due, { tennis });
+    if (period && period !== '—') return duesPaymentDescription(period, { tennis });
   }
   if (cleaned && period && period !== '—' && !cleaned.toLowerCase().includes(period.toLowerCase())) {
     return `${cleaned} · ${period}`;
   }
   if (cleaned) return cleaned;
-  if (period && period !== '—') return duesPaymentDescription(period);
-  return onAccount ? 'Pago a cuenta' : 'Pago de cuota social';
+  if (period && period !== '—') return duesPaymentDescription(period, { tennis });
+  return onAccount ? 'Pago a cuenta' : `Pago de ${tennis ? 'abono tenis' : 'cuota social'}`;
 }
 
 const METHOD = {
@@ -361,6 +372,8 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
   const surcharge = Number(payment.surcharge);
   const hasSplit = Number.isFinite(quota) && quota > 0;
   const period = paymentPeriodLabel(payment);
+  const tennis = !isBooking && paymentIsTennisAbonoOnly(payment);
+  const chargeNoun = tennis ? 'Abono tenis' : 'Cuota social';
   const chargeLines = isBooking ? [] : receiptChargeLines(payment);
   const bodyRows = chargeLines.length
     ? chargeLines.map((line, index) => [
@@ -373,7 +386,7 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
     ? [
       [
         formatShortDateAr(payment.date),
-        period && period !== '—' ? `Cuota social · ${period}` : 'Cuota social',
+        period && period !== '—' ? `${chargeNoun} · ${period}` : chargeNoun,
         formatCurrency(quota),
         formatCurrency(quota),
       ],

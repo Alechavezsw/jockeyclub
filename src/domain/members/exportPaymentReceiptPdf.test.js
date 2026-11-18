@@ -16,6 +16,28 @@ describe('exportPaymentReceiptPdf helpers', () => {
       .toBe('GRUPO FAMILIAR (FAMILIAR)');
   });
 
+  it('el abono tenis no se etiqueta como cuota social', () => {
+    expect(paymentCorrespondsTo({
+      chargeScope: 'abono_tenis',
+      concept: 'Abono tenis · Efectivo',
+      periodDueOns: ['2026-11-10'],
+      amount: 12000,
+      imputations: [{ dueOn: '2026-11-10', capital: 12000, surcharge: 0 }],
+    })).toBe('Pago de abono tenis Noviembre 2026');
+
+    expect(receiptChargeLines({
+      chargeScope: 'abono_tenis',
+      concept: 'Abono tenis · Noviembre de 2026',
+      amount: 12000,
+      periodDueOns: ['2026-11-10'],
+      imputations: [{ dueOn: '2026-11-10', capital: 12000, surcharge: 0 }],
+    })).toEqual([{
+      dueOn: '2026-11-10',
+      detail: 'Pago de abono tenis Noviembre 2026',
+      payable: 12000,
+    }]);
+  });
+
   it('arma a qué corresponde el cobro sin mezclar el medio', () => {
     expect(paymentCorrespondsTo({
       concept: 'Cuota social · Transferencia',
