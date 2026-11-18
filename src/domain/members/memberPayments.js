@@ -1021,6 +1021,7 @@ export function recordDuesCollection(member, {
 } = {}) {
   if (!member) throw new Error('Socio no encontrado.');
   const account = billingAccountMember(member, members);
+  if (!account) throw new Error('El cobro va a la cuenta del titular. No está en el padrón.');
   if (isDuesExemptMember(account)) throw new Error('Esta categoría no abona cuota social.');
 
   const wantsMixed = method === 'mixto'
@@ -1322,6 +1323,7 @@ export function recordTennisAbonoCollection(member, {
 } = {}) {
   if (!member) throw new Error('Socio no encontrado.');
   const account = billingAccountMember(member, members);
+  if (!account) throw new Error('El cobro va a la cuenta del titular. No está en el padrón.');
   const tennisMonthly = monthlyAmount != null && monthlyAmount !== ''
     ? money(Number(monthlyAmount) || 0)
     : duesTennisAbonoAmountForAccount(account, today);

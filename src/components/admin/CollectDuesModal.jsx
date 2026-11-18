@@ -298,13 +298,7 @@ export default function CollectDuesModal({
     return () => { cancelled = true; };
   }, [member?.id, member?.memberId]);
 
-  const account = (() => {
-    try {
-      return billingAccountMember(liveMember, members);
-    } catch {
-      return liveMember;
-    }
-  })();
+  const account = billingAccountMember(liveMember, members) || liveMember;
   const duesExempt = !tennisOnly && isDuesExemptMember(account);
   const periodChoices = useMemo(() => {
     if (hydrating) return [];

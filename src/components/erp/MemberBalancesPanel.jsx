@@ -151,11 +151,9 @@ function MemberBalancesContent({
   /** Extractos LILA / soporte van a la cuenta del titular del grupo. */
   const ledgerTitular = useMemo(() => {
     if (!selectedMember) return '';
-    try {
-      return memberNumberOf(billingAccountMember(selectedMember, members)) || memberNumberOf(selectedMember);
-    } catch {
-      return memberNumberOf(selectedMember);
-    }
+    return memberNumberOf(billingAccountMember(selectedMember, members))
+      || memberNumberOf(selectedMember)
+      || '';
   }, [selectedMember, members]);
 
   useEffect(() => {
@@ -263,6 +261,9 @@ function MemberBalancesContent({
     setError('');
     try {
       const account = billingAccountMember(member, members);
+      if (!account) {
+        throw new Error('El cobro va a la cuenta del titular. No está en el padrón.');
+      }
       if (isDuesExemptMember(account)) {
         throw new Error('Vitalicio, fundador y comisión no abonan cuota.');
       }
@@ -988,7 +989,7 @@ function MemberBalancesContent({
                         type="button"
                         className="cash-lila-icon-btn is-edit"
                         title={
-                          isDuesExemptMember(billingAccountMember(m, members))
+                          isDuesExemptMember(billingAccountMember(m, members) || m)
                             ? 'Sin boleto (exento de cuota)'
                             : dependent
                               ? 'Boleto del titular'

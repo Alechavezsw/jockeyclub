@@ -380,14 +380,15 @@ export function memberMayOperateAccount(member) {
   return isTitularMember(member);
 }
 
-/** Ficha donde impacta un cobro: titular del grupo, o la misma si ya es titular. */
+/**
+ * Ficha donde impacta un cobro: titular del grupo, o la misma si ya es titular.
+ * Si el titular no está en la lista, devuelve null (no tira: la UI no debe caerse).
+ */
 export function billingAccountMember(member, members = []) {
   if (!member || isTitularMember(member)) return member;
   const key = familyPrincipalOf(member);
-  const titular = (members || []).find((row) => memberNumberOf(row) === key);
-  if (!titular) {
-    throw new Error('El cobro va a la cuenta del titular. No está en el padrón.');
-  }
+  if (!key) return null;
+  const titular = (members || []).find((row) => memberNumberOf(row) === key) || null;
   return titular;
 }
 

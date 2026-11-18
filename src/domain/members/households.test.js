@@ -64,6 +64,8 @@ describe('households', () => {
     expect(memberMayOperateAccount(hijo)).toBe(false);
     expect(billingAccountMember(hijo, [titular, hijo])).toEqual(titular);
     expect(billingAccountMember(titular, [titular, hijo])).toEqual(titular);
+    expect(billingAccountMember(hijo, [hijo])).toBeNull();
+    expect(billingAccountMember(hijo, [])).toBeNull();
   });
 
   it('saca al integrante del grupo y lo deja titular individual', () => {

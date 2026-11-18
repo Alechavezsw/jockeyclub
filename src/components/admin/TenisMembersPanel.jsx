@@ -100,6 +100,7 @@ export default function TenisMembersPanel({
     return list
       .filter((m) => isLiveMember(m) && memberHasTennisAbono(m))
       .map((m) => {
+        // Cuenta = titular del hogar (lista completa del padrón). Si falta, no tumbar la UI.
         const account = billingAccountMember(m, list) || m;
         const tennisAmount = Number(duesTennisAbonoAmount(m, today)) || 0;
         const balance = Math.max(0, Number(account.outstandingBalance) || 0);

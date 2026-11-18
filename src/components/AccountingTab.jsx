@@ -1845,6 +1845,10 @@ export default function AccountingTab({
               return;
             }
             const account = billingAccountMember(member, members);
+            if (!account) {
+              upsertUnidentifiedCollection(matched);
+              return;
+            }
             const due = Number(collectionPreview(account).cash) || 0;
             const transferAmt = Number(matched.amount) || 0;
             const payAmt = due > 0 ? Math.min(transferAmt, due) : transferAmt;
