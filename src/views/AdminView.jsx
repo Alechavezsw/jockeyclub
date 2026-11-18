@@ -40,8 +40,7 @@ import { cashSeed } from '../domain/accounting/cashLedger';
 import { cobranzasSeed } from '../domain/accounting/cobranzas';
 import { composeClubFinance, financeFromMonthlySummary, financeFromSummary, lilaContabilidadFromSnapshots } from '../domain/accounting/opsFinanceSnapshot';
 import { useSnapshotSeed } from '../hooks/useSnapshots';
-import { todayAR, todayISODateAR } from '../lib/arDate';
-import { exportWeekReservationsPdf } from '../domain/reservations/exportWeekReservationsPdf';
+import { todayISODateAR } from '../lib/arDate';
 
 const AccountingTab = lazy(() => import('../components/AccountingTab'));
 const StaffTab = lazy(() => import('../components/StaffTab'));
@@ -94,6 +93,8 @@ const TAB_PREFETCH = {
   members_amet: () => import('../components/admin/AmetMembersPanel'),
   members_tenis: () => import('../components/admin/TenisMembersPanel'),
   members_stats: () => import('../components/admin/MembersStatsPanel'),
+  settings: () => import('../components/admin/SystemSettingsTab'),
+  settings_bookings: () => import('../components/admin/ClubFacilitiesPanel'),
   dues: () => import('../components/erp/CuotasPanel'),
   dashboard: () => import('../components/admin/AdminDashboardTab'),
   reports: () => import('../components/admin/ReportsTab'),
@@ -259,6 +260,7 @@ export default function AdminView({
       || (routeTab === 'members_tenis' && permittedTabs.includes('members'))
       || (routeTab === 'members_stats' && permittedTabs.includes('members'))
       || (routeTab === 'pool_gate' && permittedTabs.includes('pool'))
+      || (routeTab === 'settings_bookings' && permittedTabs.includes('settings'))
     ),
   );
   const activeTab = routeTabAllowed ? routeTab : permittedTabs[0] || 'dashboard';
@@ -721,7 +723,14 @@ export default function AdminView({
         id: 'sys',
         label: 'Sistema',
         tabs: [
-          { key: 'settings', icon: SlidersHorizontal, label: 'Configuración' },
+          {
+            key: 'settings',
+            icon: SlidersHorizontal,
+            label: 'Configuración',
+            children: [
+              { key: 'settings_bookings', icon: Calendar, label: 'Reservas' },
+            ],
+          },
           { key: 'migration', icon: Database, label: 'Migración' },
         ],
       },
@@ -742,6 +751,7 @@ export default function AdminView({
               if (child.key === 'members_app' || child.key === 'members_amet' || child.key === 'members_tenis' || child.key === 'members_stats') {
                 return permittedTabs.includes('members');
               }
+              if (child.key === 'settings_bookings') return permittedTabs.includes('settings');
               return permittedTabs.includes(child.key);
             });
             return children.length ? { ...tab, children } : { ...tab, children: undefined };
@@ -1211,14 +1221,14 @@ export default function AdminView({
       <div className="admin-main">
       <div className="page-stage">
       {/* Cabecera solo fuera del Inicio (el dashboard ya trae su propia intro) */}
-      {activeTab !== 'dashboard' && activeTab !== 'events' && activeTab !== 'accounting' && activeTab !== 'books' && activeTab !== 'informes' && activeTab !== 'caja' && activeTab !== 'operation' && activeTab !== 'jev' && activeTab !== 'messaging' && activeTab !== 'members_app' && activeTab !== 'members_amet' && activeTab !== 'members_tenis' && activeTab !== 'members_stats' && (
+      {activeTab !== 'dashboard' && activeTab !== 'events' && activeTab !== 'accounting' && activeTab !== 'books' && activeTab !== 'informes' && activeTab !== 'caja' && activeTab !== 'operation' && activeTab !== 'jev' && activeTab !== 'messaging' && activeTab !== 'members_app' && activeTab !== 'members_amet' && activeTab !== 'members_tenis' && activeTab !== 'members_stats' && activeTab !== 'settings_bookings' && (
         <div className="page-header" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
           <div>
             <h1 className="page-title">{panelMeta.title}</h1>
             <p className="page-subtitle">{panelMeta.subtitle}</p>
           </div>
-          <div className="page-header-aside">
-            {activeTab === 'members' ? (
+          {activeTab === 'members' ? (
+            <div className="page-header-aside">
               <div className="page-header-member-tools">
                 <div
                   className="page-header-member-count"
@@ -1231,23 +1241,8 @@ export default function AdminView({
                   <span className="page-header-member-count-hint">todas las categorías · sin bajas</span>
                 </div>
               </div>
-            ) : null}
-            {activeTab === 'bookings' ? (
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}
-                title="Descargar PDF con todas las reservas de esta semana (lun–dom)"
-                onClick={() => {
-                  void exportWeekReservationsPdf(reservations, { weekOf: todayAR() }).catch((err) => {
-                    window.alert(err?.message || 'No se pudo generar el PDF de la semana.');
-                  });
-                }}
-              >
-                PDF semana
-              </button>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
         </div>
       )}
 
@@ -1831,17 +1826,17 @@ export default function AdminView({
         />
       )}
 
-      {activeTab === 'migration' && (
-        <MigrationTab setMembers={manageMembers ? setMembers : null} setReservations={setReservations} />
-      )}
-
-      {activeTab === 'bookings' && (
+      {activeTab === 'settings_bookings' && (
         <ClubFacilitiesPanel
           reservations={reservations}
           isZondaActive={isZondaActive}
           facilityCatalog={facilityCatalog}
           setFacilityCatalog={setFacilityCatalog}
         />
+      )}
+
+      {activeTab === 'migration' && (
+        <MigrationTab setMembers={manageMembers ? setMembers : null} setReservations={setReservations} />
       )}
       </Suspense>
       </div>

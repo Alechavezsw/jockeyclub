@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   accountLabel,
+  isTennisAbonoPayment,
   paymentCorrespondsTo,
   paymentPeriodLabel,
   receiptCategoryLabel,
   receiptChargeLines,
   receiptDiscountLine,
+  receiptDuesKindLabel,
   receiptMethodLabel,
 } from './exportPaymentReceiptPdf';
 
@@ -163,5 +165,21 @@ describe('exportPaymentReceiptPdf helpers', () => {
       method: 'transferencia',
       bankName: 'Banco Macro',
     })).not.toMatch(/nación/i);
+  });
+
+  it('abono tenis no se etiqueta como cuota social', () => {
+    const tennis = {
+      chargeScope: 'abono_tenis',
+      concept: 'Abono tenis · Octubre de 2026',
+      period: 'Octubre de 2026',
+      periodDueOns: ['2026-10-10'],
+      amount: 14000,
+      quota: 14000,
+    };
+    expect(isTennisAbonoPayment(tennis)).toBe(true);
+    expect(receiptDuesKindLabel(tennis)).toBe('Abono tenis');
+    expect(paymentCorrespondsTo(tennis)).toMatch(/^Abono tenis/);
+    expect(paymentCorrespondsTo(tennis)).not.toMatch(/cuota social/i);
+    expect(receiptChargeLines(tennis)[0].detail).toMatch(/^Abono tenis/);
   });
 });

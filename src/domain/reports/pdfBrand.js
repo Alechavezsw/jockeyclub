@@ -9,21 +9,66 @@ export const BRAND = {
   muted: [100, 100, 100],
 };
 
-/** Carga el logo institucional como data URL para jsPDF. */
-export async function loadClubLogoDataUrl(url = LOGO_URL) {
+function logoFormatFromDataUrl(dataUrl) {
+  const raw = String(dataUrl || '');
+  if (raw.startsWith('data:image/jpeg') || raw.startsWith('data:image/jpg')) return 'JPEG';
+  return 'PNG';
+}
+
+/** En Node/vitest no hay servidor: lee public/logo-jockey-club*. */
+async function loadClubLogoFromDisk() {
+  if (typeof window !== 'undefined') return null;
+  if (typeof process === 'undefined' || typeof process.cwd !== 'function') return null;
   try {
-    const res = await fetch(url || LOGO_URL);
-    if (!res.ok) return null;
-    const blob = await res.blob();
-    return await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
+    const [{ existsSync, readFileSync }, { join }] = await Promise.all([
+      import('node:fs'),
+      import('node:path'),
+    ]);
+    const root = process.cwd();
+    const candidates = [
+      join(root, 'public', 'logo-jockey-club-print.jpg'),
+      join(root, 'public', 'logo-jockey-club.png'),
+      join(root, 'public', 'logo-jockey-club.nails.png'),
+    ];
+    for (const file of candidates) {
+      if (!existsSync(file)) continue;
+      const buf = readFileSync(file);
+      const lower = file.toLowerCase();
+      const mime = lower.endsWith('.jpg') || lower.endsWith('.jpeg')
+        ? 'image/jpeg'
+        : 'image/png';
+      return `data:${mime};base64,${buf.toString('base64')}`;
+    }
   } catch {
     return null;
   }
+  return null;
+}
+
+/** Carga el logo institucional como data URL para jsPDF. */
+export async function loadClubLogoDataUrl(url = LOGO_URL) {
+  try {
+    if (typeof fetch === 'function') {
+      const res = await fetch(url || LOGO_URL);
+      if (res.ok) {
+        const blob = await res.blob();
+        if (typeof FileReader !== 'undefined') {
+          return await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+        }
+        const buf = Buffer.from(await blob.arrayBuffer());
+        const mime = blob.type || 'image/png';
+        return `data:${mime};base64,${buf.toString('base64')}`;
+      }
+    }
+  } catch {
+    /* fallback a disco */
+  }
+  return loadClubLogoFromDisk();
 }
 
 /**
@@ -36,7 +81,7 @@ export function drawLogoPastilla(doc, logoDataUrl, { x = 8, y = 3.4, size = 18 }
   doc.setFillColor(255, 250, 244);
   doc.roundedRect(x, y, box, box, 6.2, 6.2, 'F');
   if (logoDataUrl) {
-    doc.addImage(logoDataUrl, 'PNG', x + pad, y + pad, size, size);
+    doc.addImage(logoDataUrl, logoFormatFromDataUrl(logoDataUrl), x + pad, y + pad, size, size);
   }
   return { width: box, height: box, textX: x + box + 4 };
 }

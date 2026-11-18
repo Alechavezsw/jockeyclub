@@ -189,7 +189,61 @@ export function deriveHoursFromSchedule(weeklySchedule = []) {
   const first = enabled[0];
   const same = enabled.every((r) => r.open === first.open && r.close === first.close);
   if (same) return `${first.open} - ${first.close}`;
-  return 'Horario variable';
+  return formatWeeklyScheduleSummary(weeklySchedule);
+}
+
+/** Agrupa días con el mismo rango, p. ej. «Lun–Vie 08:00–22:00 · Sáb 10:00–18:00». */
+export function formatWeeklyScheduleSummary(weeklySchedule = []) {
+  const enabled = (weeklySchedule || [])
+    .filter((r) => r?.enabled)
+    .map((r) => ({
+      day: Number(r.day),
+      open: String(r.open || '').slice(0, 5),
+      close: String(r.close || '').slice(0, 5),
+    }))
+    .filter((r) => Number.isFinite(r.day) && r.open && r.close)
+    .sort((a, b) => a.day - b.day);
+  if (!enabled.length) return 'Cerrado';
+
+  const groups = [];
+  for (const row of enabled) {
+    const key = `${row.open}|${row.close}`;
+    const last = groups[groups.length - 1];
+    if (last && last.key === key) last.days.push(row.day);
+    else groups.push({ key, open: row.open, close: row.close, days: [row.day] });
+  }
+
+  const short = (dayId) => (WEEK_DAYS.find((d) => d.id === dayId)?.label || '').slice(0, 3);
+
+  return groups.map((g) => {
+    const days = g.days;
+    let label;
+    if (days.length === 1) label = short(days[0]);
+    else {
+      const consecutive = days.every((d, i) => i === 0 || d === days[i - 1] + 1);
+      label = consecutive
+        ? `${short(days[0])}–${short(days[days.length - 1])}`
+        : days.map(short).join(', ');
+    }
+    return `${label} ${g.open}–${g.close}`;
+  }).join(' · ');
+}
+
+/** Texto de horarios que ve el socio (turnos fijos o agenda semanal). */
+export function formatFacilityMemberHours(facility = {}) {
+  if (Array.isArray(facility.turns) && facility.turns.length) {
+    return facility.turns.map((turn) => {
+      if (turn.openDay) return turn.label || 'Horario libre';
+      const range = turn.endTime
+        ? `${turn.time}–${turn.endTime}${turn.endsNextDay ? ' (+1)' : ''}`
+        : String(turn.time || '');
+      const name = turn.label && turn.label !== turn.time ? turn.label : '';
+      return name ? `${name} ${range}` : range;
+    }).filter(Boolean).join(' · ');
+  }
+  const fromSchedule = formatWeeklyScheduleSummary(facility.weeklySchedule);
+  if (fromSchedule && fromSchedule !== 'Cerrado') return fromSchedule;
+  return String(facility.hours || '').trim() || '—';
 }
 
 export function deriveSlotsFromSchedule(weeklySchedule = [], durationHours = 1.5) {
@@ -242,11 +296,19 @@ function mergeOfficialFacility(seed, over) {
     : seed.image;
   const seedVersion = seed.lilaRulesVersion || LILA_RULES_VERSION;
   if (!over || over.lilaRulesVersion !== seedVersion) {
+    // Nueva versión de reglas LILA: se reinician reglas, pero se conservan
+    // nombre, descripción, imagen y horarios editados (los ve el socio).
     return normalizeFacilityConfig({
       ...seed,
       name: over?.name || seed.name,
       description: over?.description || seed.description,
       image,
+      hours: over?.hours || seed.hours,
+      turns: Array.isArray(over?.turns) && over.turns.length ? over.turns : seed.turns,
+      weeklySchedule: Array.isArray(over?.weeklySchedule) && over.weeklySchedule.length === 7
+        ? over.weeklySchedule
+        : seed.weeklySchedule,
+      slots: Array.isArray(over?.slots) && over.slots.length ? over.slots : seed.slots,
       lilaRulesVersion: seedVersion,
     });
   }

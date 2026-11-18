@@ -255,12 +255,16 @@ export default function FacilityEditorModal({
         <Field label="Link externo (mensaje)">
           <input className="form-input" value={draft.externalLinkMsg || ''} onChange={(e) => patch({ externalLinkMsg: e.target.value })} />
         </Field>
-        <Field label="Descripción">
+        <Field
+          label="Descripción"
+          hint="Texto libre (horarios, turnos, reglas). Se muestra en la cuenta del socio al reservar."
+        >
           <textarea
             className="form-input"
             rows={3}
             value={draft.description || ''}
             onChange={(e) => patch({ description: e.target.value })}
+            placeholder="Ej.: Turno día 11:00–19:00 · Turno noche 20:00–03:30"
           />
         </Field>
         <Field label="Exterior / Interior">
@@ -317,7 +321,8 @@ export default function FacilityEditorModal({
           })}
         </div>
         <p className="fac-edit-hint">
-          Configurá distintos días, horarios y precios. Deshabilitá una fila para no usarla sin borrarla.
+          Configurá distintos días, horarios y precios. Se muestran en la cuenta del socio.
+          Deshabilitá una fila para no usarla sin borrarla.
         </p>
       </Section>
 

@@ -154,11 +154,11 @@ export default function ClubFacilitiesPanel({
   };
 
   return (
-    <section className="glass-card club-facilities" style={{ marginTop: '1.75rem' }}>
+    <section className="glass-card club-facilities fade-in">
       <div className="club-facilities-head">
         <div>
-          <h3 className="serif-font">Espacios del club</h3>
-          <p>Salones y Espacio Verde — los espacios reales reservables del club.</p>
+          <h3 className="serif-font">Configuración de reservas</h3>
+          <p>Espacios del club — salones y Espacio Verde, horarios, precios y reglas.</p>
           {viewMode === 'live' ? (
             <div className="club-facilities-live-clock">
               <span className="pulse" aria-hidden="true" />

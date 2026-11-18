@@ -42,6 +42,12 @@ function openExternal(url) {
   window.open(url, '_blank', 'noopener,noreferrer');
 }
 
+/** Fecha de la reserva anterior a hoy (sigue en BD y en el calendario). */
+function reservationDatePassed(res, todayKey) {
+  const day = String(res?.date || '').slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(day) && day < String(todayKey || '').slice(0, 10);
+}
+
 function memberForReservation(res, members = []) {
   return (members || []).find((row) => String(row.memberId) === String(res?.memberId)) || {
     memberId: res?.memberId,
@@ -95,8 +101,14 @@ function monthLabel(year, month) {
   return raw.charAt(0).toUpperCase() + raw.slice(1);
 }
 
-function statusLabel(status) {
-  if (status === 'confirmed') return 'Confirmada';
+function statusLabel(status, reservation = null) {
+  if (status === 'confirmed') {
+    // Con saldo abierto: solo seña / parcial → Reservada. Al saldar el resto → Confirmada.
+    const total = reservation ? reservationTotalPrice(null, reservation) : 0;
+    const open = reservation ? reservationOpenBalance(reservation) : 0;
+    if (total > 0 && open > 0) return 'Reservada';
+    return 'Confirmada';
+  }
   if (status === 'pending') return 'Pendiente';
   if (status === 'rejected') return 'Rechazada';
   return 'Cancelada';
@@ -110,7 +122,7 @@ function calendarDayTooltip(dayRes = []) {
     const time = r.endTime ? `${r.time || '—'}–${r.endTime}` : (r.time || '—');
     const place = r.facilityName || r.facilityId || 'Espacio';
     const who = r.memberName || (r.memberId ? `Nº ${r.memberId}` : 'Socio');
-    return `${time} · ${place} · ${who} · ${statusLabel(r.status)}`;
+    return `${time} · ${place} · ${who} · ${statusLabel(r.status, r)}`;
   });
   const head = active.length === 1 ? '1 reserva' : `${active.length} reservas`;
   return [head, ...lines].join('\n');
@@ -213,7 +225,7 @@ function reservationSearchHaystack(res) {
     res?.recordedByName,
     reservationAppNumber(res),
     isAppReservation(res) ? 'app portal' : '',
-    statusLabel(res?.status),
+    statusLabel(res?.status, res),
     reservationTakenByLabel(res),
   ].filter(Boolean).join(' '));
 }
@@ -360,9 +372,11 @@ export default function BookingsTab({
 
   const monthReservations = useMemo(
     () => (reservations || []).filter((r) => (
-      !r.occupancyOnly && String(r.date || '').slice(0, 7) === currentMonthKey
+      !r.occupancyOnly
+      && String(r.date || '').slice(0, 7) === currentMonthKey
+      && !reservationDatePassed(r, todayKey)
     )),
-    [reservations, currentMonthKey],
+    [reservations, currentMonthKey, todayKey],
   );
 
   const pendingReservations = useMemo(
@@ -381,8 +395,12 @@ export default function BookingsTab({
   const searchActive = Boolean(normalizeBookingSearch(searchQuery));
 
   const appReservations = useMemo(
-    () => (reservations || []).filter((r) => !r.occupancyOnly && isAppReservation(r)),
-    [reservations],
+    () => (reservations || []).filter((r) => (
+      !r.occupancyOnly
+      && isAppReservation(r)
+      && !reservationDatePassed(r, todayKey)
+    )),
+    [reservations, todayKey],
   );
   const appPendingCount = useMemo(
     () => appReservations.filter((r) => r.status === 'pending').length,
@@ -396,6 +414,7 @@ export default function BookingsTab({
 
   const filteredReservations = useMemo(() => {
     const onlyApp = listScope === 'app';
+    // Búsqueda y día del calendario: también las pasadas. La tabla del mes, no.
     if (searchActive) {
       return (reservations || [])
         .filter((r) => !r.occupancyOnly && reservationMatchesQuery(r, searchQuery))
@@ -404,7 +423,9 @@ export default function BookingsTab({
     }
     if (onlyApp) {
       const pool = selectedDate
-        ? appReservations.filter((r) => r.date === selectedDate)
+        ? (reservations || []).filter((r) => (
+          !r.occupancyOnly && isAppReservation(r) && r.date === selectedDate
+        ))
         : appReservations;
       return [...pool].toSorted((a, b) => (
         selectedDate
@@ -414,7 +435,7 @@ export default function BookingsTab({
     }
     if (selectedDate) {
       return reservations
-        .filter((r) => r.date === selectedDate)
+        .filter((r) => !r.occupancyOnly && r.date === selectedDate)
         .toSorted((a, b) => String(a.time || '').localeCompare(String(b.time || '')));
     }
     return [...monthReservations]
@@ -680,7 +701,7 @@ export default function BookingsTab({
                 <td>
                   <div className="bookings-settle">
                     <span className={`bookings-status ${res.status}`}>
-                      {statusLabel(res.status)}
+                      {statusLabel(res.status, res)}
                     </span>
                     {res.status === 'cancelled' && reservationCancelledAt(res) ? (
                       <small style={{ display: 'block', color: 'var(--text-muted)', marginTop: 4 }}>
@@ -1112,6 +1133,12 @@ export default function BookingsTab({
             justify-content: flex-start;
           }
         }
+        .bookings-tab {
+          width: 100%;
+          max-width: 100%;
+          min-width: 0;
+          box-sizing: border-box;
+        }
         .bookings-tab-toolbar {
           display: flex;
           align-items: center;
@@ -1119,6 +1146,7 @@ export default function BookingsTab({
           flex-wrap: wrap;
           padding-bottom: 0.35rem;
           border-bottom: 1px solid var(--border-glass);
+          min-width: 0;
         }
         .bookings-search {
           position: relative;
@@ -1211,9 +1239,14 @@ export default function BookingsTab({
           flex-direction: column;
           gap: 1.5rem;
           width: 100%;
+          min-width: 0;
+          max-width: 100%;
         }
         .bookings-cal {
           width: 100%;
+          min-width: 0;
+          max-width: 100%;
+          box-sizing: border-box;
           padding: 1.25rem 1.35rem 1.4rem;
           border: 1px solid var(--border-glass);
           border-radius: 16px;
@@ -1421,14 +1454,21 @@ export default function BookingsTab({
         .bookings-settle {
           display: flex;
           flex-direction: column;
-          align-items: stretch;
+          align-items: flex-start;
           gap: 0.3rem;
-          min-width: 10.5rem;
+          min-width: 0;
+          max-width: 100%;
         }
-        .bookings-settle > .bookings-status,
+        .bookings-settle > .bookings-status {
+          width: fit-content;
+          max-width: 100%;
+          min-height: 1.7rem;
+          box-sizing: border-box;
+        }
         .bookings-settle > .bookings-settle-btn,
         .bookings-settle > .bookings-settle-note {
           width: 100%;
+          max-width: 100%;
           min-height: 1.7rem;
           box-sizing: border-box;
         }
@@ -1476,10 +1516,11 @@ export default function BookingsTab({
         .bookings-settle-btn-copy {
           display: inline-flex;
           align-items: baseline;
+          flex-wrap: wrap;
+          justify-content: center;
           gap: 0.28rem;
           min-width: 0;
           line-height: 1.2;
-          white-space: nowrap;
         }
         .bookings-settle-btn-copy strong {
           font-size: inherit;
@@ -1511,7 +1552,7 @@ export default function BookingsTab({
           margin: 0;
           font-size: 0.68rem;
           line-height: 1.3;
-          max-width: 11rem;
+          max-width: 100%;
         }
         .bookings-status.pending {
           color: var(--warning-accent);
@@ -1525,7 +1566,8 @@ export default function BookingsTab({
         }
         .bookings-when {
           font-variant-numeric: tabular-nums;
-          white-space: nowrap;
+          white-space: normal;
+          line-height: 1.25;
         }
         .bookings-when small {
           display: block;
@@ -1559,6 +1601,8 @@ export default function BookingsTab({
         }
         .bookings-list-panel {
           width: 100%;
+          min-width: 0;
+          max-width: 100%;
           border: 1px solid var(--border-glass);
           border-radius: 14px;
           overflow: hidden;
@@ -1733,14 +1777,46 @@ export default function BookingsTab({
         .bookings-list-body {
           border-top: 1px solid var(--border-glass);
           max-height: min(70vh, 640px);
-          overflow: auto;
+          overflow-x: hidden;
+          overflow-y: auto;
+        }
+        .bookings-list-body.table-responsive {
+          overflow-x: hidden;
+        }
+        .bookings-list-body .admin-table {
+          width: 100%;
+          table-layout: fixed;
+          font-size: 0.82rem;
+        }
+        .bookings-list-body .admin-table th,
+        .bookings-list-body .admin-table td {
+          padding: 0.55rem 0.4rem;
+          vertical-align: top;
+          word-break: break-word;
+          overflow-wrap: anywhere;
+        }
+        .bookings-list-body .admin-table th {
+          font-size: 0.68rem;
+          letter-spacing: 0.03em;
+        }
+        .bookings-list-body .admin-table th:nth-child(1),
+        .bookings-list-body .admin-table td:nth-child(1) { width: 3.6rem; }
+        .bookings-list-body .admin-table th:nth-child(2),
+        .bookings-list-body .admin-table td:nth-child(2) { width: 18%; }
+        .bookings-list-body .admin-table th:nth-child(3),
+        .bookings-list-body .admin-table td:nth-child(3) { width: 14%; }
+        .bookings-list-body .admin-table th:last-child,
+        .bookings-list-body .admin-table td:last-child {
+          width: 6.25rem;
+          position: relative;
         }
         .bookings-list-actions {
           display: flex;
           flex-direction: column;
           align-items: flex-end;
           gap: 0.45rem;
-          min-width: 11rem;
+          min-width: 0;
+          width: 100%;
         }
         .bookings-actions-wrap {
           display: flex;
@@ -1748,6 +1824,7 @@ export default function BookingsTab({
           align-items: flex-end;
           gap: 0.45rem;
           width: 100%;
+          position: relative;
         }
         .bookings-actions-toggle {
           display: inline-flex;
@@ -1773,15 +1850,20 @@ export default function BookingsTab({
           transform: rotate(180deg);
         }
         .bookings-actions-panel {
+          position: absolute;
+          right: 0;
+          top: calc(100% + 0.3rem);
+          z-index: 6;
           display: flex;
           flex-direction: column;
           gap: 0.55rem;
-          width: 100%;
-          max-width: 16rem;
+          width: min(16rem, calc(100vw - 2.5rem));
+          max-width: min(16rem, 70vw);
           padding: 0.55rem 0.6rem;
           border-radius: 0.75rem;
           background: color-mix(in srgb, var(--border-glass) 35%, var(--surface-card, transparent));
           border: 1px solid color-mix(in srgb, var(--border-glass) 75%, transparent);
+          box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
           text-align: left;
         }
         .bookings-taken-by {
@@ -2085,7 +2167,7 @@ export default function BookingsTab({
                           {res.endTime ? `–${res.endTime}` : ''}
                         </span>
                         <span>
-                          <span className={`bookings-status ${res.status}`}>{statusLabel(res.status)}</span>
+                          <span className={`bookings-status ${res.status}`}>{statusLabel(res.status, res)}</span>
                           {money ? ` · ${money}` : ''}
                           {res.status === 'cancelled' && reservationCancelledAt(res)
                             ? ` · ${formatBookingInstant(reservationCancelledAt(res))}`
@@ -2219,7 +2301,7 @@ export default function BookingsTab({
           </div>
 
           <div className="bookings-legend">
-            <span><i className="bookings-cal-dot confirmed" /> Confirmada</span>
+            <span><i className="bookings-cal-dot confirmed" /> Reservada / Confirmada</span>
             <span><i className="bookings-cal-dot pending" /> Pendiente</span>
             <span><i className="bookings-cal-dot cancelled" /> Cancelada</span>
           </div>
@@ -2250,7 +2332,7 @@ export default function BookingsTab({
                       </div>
                       <div className="bookings-day-side">
                         {money ? <span className="bookings-money">{money}</span> : null}
-                        <span className={`bookings-status ${res.status}`}>{statusLabel(res.status)}</span>
+                        <span className={`bookings-status ${res.status}`}>{statusLabel(res.status, res)}</span>
                       </div>
                     </div>
                   );
@@ -2356,7 +2438,7 @@ export default function BookingsTab({
                     </span>
                   </div>
                   <div className="bookings-inbox-meta">
-                    <span className={`bookings-status ${res.status}`}>{statusLabel(res.status)}</span>
+                    <span className={`bookings-status ${res.status}`}>{statusLabel(res.status, res)}</span>
                     <small>{formatRelativeCreated(reservationCreatedAt(res)) || '—'}</small>
                   </div>
                 </button>
@@ -2411,7 +2493,7 @@ export default function BookingsTab({
 
             <div className="bookings-detail-status-row">
               <span className={`bookings-status ${detailReservation.status}`}>
-                {statusLabel(detailReservation.status)}
+                {statusLabel(detailReservation.status, detailReservation)}
               </span>
               {isAppReservation(detailReservation) ? (
                 <span className="bookings-status confirmed" style={{ color: 'var(--primary-gold)', borderColor: 'color-mix(in srgb, var(--primary-gold) 40%, transparent)', background: 'color-mix(in srgb, var(--primary-gold) 14%, transparent)' }}>

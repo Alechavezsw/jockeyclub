@@ -5,6 +5,8 @@ import {
   applyFacilityEditorPatch,
   buildFacilityCatalog,
   deriveHoursFromSchedule,
+  formatFacilityMemberHours,
+  formatWeeklyScheduleSummary,
 } from './facilityConfig.js';
 
 describe('facilityConfig', () => {
@@ -30,6 +32,21 @@ describe('facilityConfig', () => {
     expect(deriveHoursFromSchedule(next.weeklySchedule)).toBe('10:00 - 18:00');
     expect(next.hours).toBe('10:00 - 18:00');
     expect(next.slots.length).toBeGreaterThan(0);
+  });
+
+  it('resume horarios semanales y turnos para la cuenta del socio', () => {
+    const summary = formatWeeklyScheduleSummary([
+      { day: 1, open: '08:00', close: '22:00', enabled: true },
+      { day: 2, open: '08:00', close: '22:00', enabled: true },
+      { day: 3, open: '08:00', close: '22:00', enabled: true },
+      { day: 6, open: '10:00', close: '18:00', enabled: true },
+      { day: 0, open: '10:00', close: '14:00', enabled: false },
+    ]);
+    expect(summary).toContain('Lun–Mié 08:00–22:00');
+    expect(summary).toContain('Sáb 10:00–18:00');
+
+    const salon = normalizeFacilityConfig(FACILITIES.find((f) => f.id === 'salon_anhelo') || FACILITIES[0]);
+    expect(formatFacilityMemberHours(salon)).toMatch(/11:00/);
   });
 
   it('buildFacilityCatalog mergea overrides y conserva extras', () => {

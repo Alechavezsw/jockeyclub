@@ -318,14 +318,26 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
   doc.line(14, startY + 10, 196, startY + 10);
 
   let y = startY + 14;
-  const pill = drawLabelPastilla(doc, methodText, {
+  const methodPill = drawLabelPastilla(doc, methodText, {
     x: 14,
     y,
     fill: [255, 255, 255],
     textColor: BRAND.green,
     border: BRAND.green,
   });
-  y += pill.height + 6;
+  let pillX = 14 + (methodPill.width || 0) + (methodPill.width ? 4 : 0);
+  let pillH = methodPill.height || 0;
+  if (!isBooking && paymentIsTennisAbonoOnly(payment)) {
+    const kindPill = drawLabelPastilla(doc, 'Abono tenis', {
+      x: pillX,
+      y,
+      fill: [255, 255, 255],
+      textColor: BRAND.green,
+      border: BRAND.green,
+    });
+    pillH = Math.max(pillH, kindPill.height || 0);
+  }
+  y += pillH + 6;
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9);

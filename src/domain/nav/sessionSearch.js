@@ -8,7 +8,8 @@ const ADMIN_SECTIONS = [
   { key: 'members_tenis', title: 'Tenis', keywords: 'tenis abono cancha padron disciplina 12000' },
   { key: 'members_stats', title: 'Estadísticas', keywords: 'estadisticas edades rango etario ingresos horarios pagos padrón graficos excel pdf jev' },
   { key: 'dues', title: 'Cuotas', keywords: 'cuotas socios liquidacion vencimiento saldos cuentas' },
-  { key: 'bookings', title: 'Reservas', keywords: 'reservas canchas turnos' },
+  { key: 'bookings', title: 'Reservas', keywords: 'reservas canchas turnos libro' },
+  { key: 'settings_bookings', title: 'Configuración de reservas', keywords: 'configuracion reservas espacios salones horarios precios canchas' },
   { key: 'disciplines', title: 'Disciplinas', keywords: 'disciplinas deportes' },
   { key: 'pool', title: 'Pileta', keywords: 'pileta natacion canon' },
   { key: 'pool_gate', title: 'Entrada pileta', keywords: 'entrada pileta puerta apto invitado' },
@@ -28,7 +29,7 @@ const ADMIN_SECTIONS = [
   { key: 'reports', title: 'Reportes', keywords: 'reportes exportaciones estadisticas' },
   { key: 'surveys', title: 'Encuestas', keywords: 'encuestas' },
   { key: 'system', title: 'Usuarios y altas', keywords: 'usuarios altas permisos' },
-  { key: 'settings', title: 'Configuración', keywords: 'configuracion sistema sede pileta zonda vencimiento' },
+  { key: 'settings', title: 'Configuración', keywords: 'configuracion sistema sede pileta zonda vencimiento mercado pago' },
   { key: 'migration', title: 'Migración', keywords: 'migracion datos' },
   { key: 'jev', title: 'IA', keywords: 'ia inteligencia artificial revision jev chat gemini analisis libro consulta predicciones manual uso' },
 ];

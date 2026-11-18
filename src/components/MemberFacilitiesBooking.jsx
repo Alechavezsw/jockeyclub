@@ -21,7 +21,7 @@ import {
   Upload,
 } from 'lucide-react';
 import { FACILITIES, facilitiesByGroup, sortFacilitiesForDisplay, isRealBookableSpace } from '../domain/reservations/facilities';
-import { buildFacilityCatalog } from '../domain/reservations/facilityConfig';
+import { buildFacilityCatalog, formatFacilityMemberHours } from '../domain/reservations/facilityConfig';
 import { getFacilityLiveStatus, isSeasonOpen } from '../domain/reservations/availability';
 import { facilityDayTaken, hasReservationConflict } from '../domain/reservations/conflicts';
 import {
@@ -789,10 +789,15 @@ export default function MemberFacilitiesBooking({
                     </div>
                     <div className="mfb-tile-body">
                       <h3>{fac.name}</h3>
-                      <p className="mfb-tile-desc">{fac.description}</p>
+                      {fac.description ? (
+                        <p className="mfb-tile-desc">{fac.description}</p>
+                      ) : null}
+                      <p className="mfb-tile-hours">
+                        <Clock size={12} aria-hidden="true" />
+                        <span>{formatFacilityMemberHours(fac)}</span>
+                      </p>
                       <p className="mfb-card-detail">{live?.detail}</p>
                       <div className="mfb-card-meta">
-                        <span><Clock size={12} /> {fac.hours}</span>
                         <span><Users size={12} /> {fac.capacity}</span>
                       </div>
                       <div className="mfb-tile-foot">
@@ -828,6 +833,13 @@ export default function MemberFacilitiesBooking({
                 <p className="mfb-book-kicker">Reservar turno</p>
                 <h3 id="mfb-book-title" className="serif-font">{selectedFacility.name}</h3>
                 <p className="mfb-book-date">{selectedDateLabel}</p>
+                <p className="mfb-book-hours">
+                  <Clock size={13} aria-hidden="true" />
+                  {formatFacilityMemberHours(selectedFacility)}
+                </p>
+                {selectedFacility.description ? (
+                  <p className="mfb-book-desc">{selectedFacility.description}</p>
+                ) : null}
               </div>
               <button type="button" onClick={closeBooking} className="mfb-icon-btn" aria-label="Cerrar">
                 <X size={20} aria-hidden="true" />

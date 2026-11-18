@@ -181,6 +181,13 @@ export const CLUB_GUIDE = [
     teach: 'Configuración está en Sistema, al lado de Migración. Ahí se guarda la sede, el día de las cuotas, los avisos del 5, el 10 y el 11, el canon de pileta, Mercado Pago y el Zonda. Vive en el libro.',
   },
   {
+    id: 'config-reservas',
+    tab: 'settings_bookings',
+    title: 'Configuración de reservas',
+    keywords: 'configuracion reservas espacios salones horarios precios reglas cancha anhelo bustos maurin refugio',
+    teach: 'En Configuración → Reservas se editan los espacios reservables: horarios, precios, reglas e invitados. El libro de reservas del día está en Operación → Reservas.',
+  },
+  {
     id: 'migracion',
     tab: 'migration',
     title: 'Migración',
@@ -235,7 +242,7 @@ export const CLUB_TOOLS = [
 
 export const ALL_GUIDE_TOPICS = [...CLUB_GUIDE, ...CLUB_TOOLS];
 
-export const JEV_TABS = 'dashboard|jev|members|members_app|members_amet|members_tenis|members_stats|dues|bookings|disciplines|pool|pool_gate|access|qr_gate|accounting|staff|teachers|events|alerts|claims|messaging|news|reports|surveys|system|settings|migration|concessions';
+export const JEV_TABS = 'dashboard|jev|members|members_app|members_amet|members_tenis|members_stats|dues|bookings|disciplines|pool|pool_gate|access|qr_gate|accounting|staff|teachers|events|alerts|claims|messaging|news|reports|surveys|system|settings|settings_bookings|migration|concessions';
 
 export const APP_ROLES = 'Socio (portal), Profesor (/asistencia), Personal, RR.HH., Empleado de administración, Operador de portería, Operario de pileta (puerta y cobro del canon), Cajero, Contador, Administrador (caja y contabilidad), Superadministrador (todo, únicos que crean perfiles).';
 

@@ -10695,9 +10695,45 @@ a.ops-outline-btn {
   line-height: 1.4;
   color: var(--text-secondary);
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 4;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  white-space: pre-line;
+}
+
+.mfb-tile-hours {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  margin: 0;
+  font-size: 0.76rem;
+  font-weight: 650;
+  line-height: 1.35;
+  color: var(--text-gold, var(--primary-gold));
+}
+
+.mfb-tile-hours svg {
+  flex-shrink: 0;
+  margin-top: 0.15rem;
+}
+
+.mfb-book-hours {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  margin: 0.35rem 0 0;
+  font-size: 0.82rem;
+  font-weight: 650;
+  line-height: 1.35;
+  color: var(--text-gold, var(--primary-gold));
+}
+
+.mfb-book-desc {
+  margin: 0.4rem 0 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  white-space: pre-line;
 }
 
 .mfb-card-detail {
