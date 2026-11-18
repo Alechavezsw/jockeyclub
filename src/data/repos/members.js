@@ -958,6 +958,8 @@ async function updateMemberWithoutPrivilegeColumns(memberId, row) {
   delete safe.tier;
   delete safe.status;
   delete safe.meta;
+  // El saldo lo fijan entries + triggers; el cliente no lo pisa.
+  delete safe.outstanding_balance;
   return unwrap(
     sb().from('members').update(safe).eq('id', memberId).select().single(),
     'No se pudo actualizar socio'
@@ -983,6 +985,34 @@ export async function eximirCuotaSocio(memberId, tier, reason) {
       p_reason: clean,
     }),
     'No se pudo eximir la cuota'
+  );
+}
+
+/** Ajuste de capital abierto al cambiar (o corregir) categoría. Transacción en RPC. */
+export async function applyCategoryDuesAdjust({
+  memberDbId,
+  tier,
+  amount = 0,
+  reason,
+  periods = [],
+  idempotencyKey = null,
+} = {}) {
+  if (!isUuid(memberDbId)) throw new Error('Falta el socio.');
+  const clean = String(reason || '').trim();
+  if (Math.abs(Number(amount) || 0) > 0.009 && clean.length < 8) {
+    throw new Error('Falta el motivo del ajuste (mínimo 8 caracteres).');
+  }
+  invalidateMembersListCache();
+  return unwrap(
+    sb().rpc('cambiar_categoria_socio', {
+      p_member_id: memberDbId,
+      p_tier: tier,
+      p_adjust_amount: Number(amount) || 0,
+      p_reason: clean || null,
+      p_periods: Array.isArray(periods) ? periods : [],
+      p_idempotency_key: idempotencyKey || null,
+    }),
+    'No se pudo ajustar la cuota por categoría'
   );
 }
 
@@ -1027,8 +1057,17 @@ export async function upsertMember(member) {
     if (nextExempt && (!prevExempt || tierChanged)) {
       await eximirCuotaSocio(targetId, row.tier, member.exemptionReason);
     } else if (tierChanged) {
+      const adjust = member.categoryChangeAdjust || null;
+      const adjustAmount = Number(adjust?.amount) || 0;
       await unwrap(
-        sb().rpc('cambiar_categoria_socio', { p_member_id: targetId, p_tier: row.tier }),
+        sb().rpc('cambiar_categoria_socio', {
+          p_member_id: targetId,
+          p_tier: row.tier,
+          p_adjust_amount: adjustAmount,
+          p_reason: adjust?.reason || null,
+          p_periods: Array.isArray(adjust?.periods) ? adjust.periods : [],
+          p_idempotency_key: adjust?.idempotencyKey || null,
+        }),
         'No se pudo cambiar la categoría'
       );
     }

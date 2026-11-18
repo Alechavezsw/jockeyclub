@@ -19,6 +19,10 @@ import {
   memberDueFact,
   quotaHeadline,
 } from '../../domain/members/dues';
+import {
+  categoryChangeIdempotencyKey,
+  previewCategoryChangeDues,
+} from '../../domain/members/categoryChangeDues';
 import { imputationPeriodLabel } from '../../domain/members/duesImputations';
 import { familyChildStanding, regularidadOf, upsertRegularidad } from '../../domain/members/familyStanding';
 import {
@@ -389,6 +393,8 @@ export default function MemberProfilePanel({
   const [section, setSection] = useState('ficha');
   const [editForm, setEditForm] = useState(null);
   const [editMsg, setEditMsg] = useState('');
+  const [categoryChangePreview, setCategoryChangePreview] = useState(null);
+  const [categoryChangeBusy, setCategoryChangeBusy] = useState(false);
   const [collectOpen, setCollectOpen] = useState(false);
   const [collectFlash, setCollectFlash] = useState('');
   const [cardMember, setCardMember] = useState(null);
@@ -1495,6 +1501,19 @@ export default function MemberProfilePanel({
                 }
                 updated = { ...updated, exemptionReason: reason.trim() };
               }
+              const tierChanged = !selfService
+                && String(updated.tier || '') !== String(member.tier || '');
+              if (tierChanged && !willExempt) {
+                const preview = previewCategoryChangeDues(member, updated.tier);
+                if (preview.blocked) {
+                  setEditMsg(preview.blockReason || 'No se puede ajustar la cuota con este cambio.');
+                  return;
+                }
+                if (preview.needsAdjustment || preview.periods.length) {
+                  setCategoryChangePreview({ updated, preview });
+                  return;
+                }
+              }
               const saved = await updateMember(updated);
               if (!saved) {
                 setEditMsg('No se pudo guardar.');
@@ -2127,6 +2146,148 @@ export default function MemberProfilePanel({
           paymentPlans={paymentPlans}
           paymentTolerance={paymentTolerance}
         />
+      ) : null}
+
+      {categoryChangePreview ? (
+        <ModalDialog
+          onClose={() => !categoryChangeBusy && setCategoryChangePreview(null)}
+          labelledBy="category-change-title"
+          contentClassName="modal-content glass-panel"
+          contentStyle={{
+            width: '94%',
+            maxWidth: 560,
+            background: 'var(--bg-secondary)',
+            border: '1px solid var(--border-glass)',
+            padding: '1.25rem',
+          }}
+        >
+          {(() => {
+            const { updated, preview } = categoryChangePreview;
+            const delta = Number(preview.totalDelta) || 0;
+            return (
+              <>
+                <div className="mp-family-modal-head">
+                  <div>
+                    <h4 id="category-change-title" className="serif-font" style={{ margin: 0, fontSize: '1.15rem', color: 'var(--text-gold)' }}>
+                      Cambio de categoría — Socio {member.memberId}
+                    </h4>
+                    <p style={{ margin: '0.35rem 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                      Revisá el impacto en las cuotas pendientes antes de confirmar.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={categoryChangeBusy}
+                    onClick={() => setCategoryChangePreview(null)}
+                  >
+                    <X size={14} /> Cancelar
+                  </button>
+                </div>
+                <table className="admin-table" style={{ width: '100%', marginTop: '0.85rem', fontSize: '0.84rem' }}>
+                  <thead>
+                    <tr>
+                      <th>Concepto</th>
+                      <th>Antes</th>
+                      <th>Después</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>Categoría</td>
+                      <td>{preview.fromLabel}</td>
+                      <td>{preview.toLabel}</td>
+                    </tr>
+                    <tr>
+                      <td>Saldo abierto</td>
+                      <td>{formatCurrency(preview.oldBalance)}</td>
+                      <td>{formatCurrency(preview.newBalance)}</td>
+                    </tr>
+                    <tr>
+                      <td>Diferencia</td>
+                      <td>—</td>
+                      <td style={{ color: delta > 0 ? 'var(--warning-accent)' : delta < 0 ? 'var(--emerald-accent)' : undefined }}>
+                        {delta === 0 ? '—' : `${delta > 0 ? '+' : ''}${formatCurrency(delta)}`}
+                      </td>
+                    </tr>
+                    {preview.periods.map((row) => (
+                      <tr key={row.dueOn}>
+                        <td>{row.label}</td>
+                        <td>{formatCurrency(row.oldCapital)}</td>
+                        <td>{formatCurrency(row.newCapital)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p style={{ margin: '0.85rem 0 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                  No se modifican pagos ni recibos ya emitidos. Solo se ajusta el capital pendiente con un movimiento trazable.
+                </p>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1rem' }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    disabled={categoryChangeBusy}
+                    onClick={() => setCategoryChangePreview(null)}
+                  >
+                    Volver
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    disabled={categoryChangeBusy}
+                    onClick={async () => {
+                      if (!updateMember) return;
+                      setCategoryChangeBusy(true);
+                      setEditMsg('');
+                      try {
+                        const reason = `Cambio de categoría ${preview.fromLabel} → ${preview.toLabel}`;
+                        const payload = {
+                          ...updated,
+                          categoryChangeAdjust: preview.needsAdjustment
+                            ? {
+                              amount: preview.totalDelta,
+                              reason,
+                              periods: preview.periods.map((row) => ({
+                                dueOn: row.dueOn,
+                                label: row.label,
+                                oldCapital: row.oldCapital,
+                                newCapital: row.newCapital,
+                                delta: row.delta,
+                              })),
+                              idempotencyKey: categoryChangeIdempotencyKey(
+                                member.id,
+                                preview.fromTier,
+                                preview.toTier,
+                                preview.periods,
+                              ),
+                            }
+                            : null,
+                        };
+                        const saved = await updateMember(payload);
+                        if (!saved) {
+                          setEditMsg('No se pudo guardar el cambio de categoría.');
+                          return;
+                        }
+                        setCategoryChangePreview(null);
+                        setEditMsg(
+                          preview.needsAdjustment
+                            ? `Categoría actualizada · deuda ${formatCurrency(preview.oldBalance)} → ${formatCurrency(preview.newBalance)}`
+                            : 'Categoría actualizada.',
+                        );
+                      } catch (err) {
+                        setEditMsg(err?.message || 'No se pudo guardar el cambio de categoría.');
+                      } finally {
+                        setCategoryChangeBusy(false);
+                      }
+                    }}
+                  >
+                    {categoryChangeBusy ? 'Guardando…' : 'Confirmar cambio'}
+                  </button>
+                </div>
+              </>
+            );
+          })()}
+        </ModalDialog>
       ) : null}
 
       {cardMember ? (

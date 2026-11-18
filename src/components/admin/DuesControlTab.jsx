@@ -11,6 +11,11 @@ import {
   memberMatchesDuesTier,
   toWhatsAppPhone,
 } from '../../domain/members/dues';
+import {
+  categoryChangeIdempotencyKey,
+  findCategoryDuesMismatches,
+  previewCategoryChangeDues,
+} from '../../domain/members/categoryChangeDues';
 import { persistDuesCollection, recordDuesCollection } from '../../domain/members/memberPayments';
 import { deliverPaymentReceipt } from '../../domain/payments/deliverPaymentReceipt';
 import * as repos from '../../data/repos';
@@ -228,6 +233,8 @@ export default function DuesControlTab({
   const [overduePage, setOverduePage] = useState(0);
   const [duePage, setDuePage] = useState(0);
   const [upcomingPage, setUpcomingPage] = useState(0);
+  const [categoryAuditOpen, setCategoryAuditOpen] = useState(false);
+  const [categoryFixBusy, setCategoryFixBusy] = useState('');
   const tiers = useMemo(() => getActiveTiers(tierCatalog), [tierCatalog]);
   const canCollectHere = typeof setMembers === 'function';
 
@@ -235,6 +242,10 @@ export default function DuesControlTab({
   const overdueAll = useMemo(() => getOverdueMembers(members), [members]);
   const dueTodayAll = useMemo(() => getDueTodayMembers(members), [members]);
   const upcomingAll = useMemo(() => getUpcomingDuesMembers(members), [members]);
+  const categoryMismatches = useMemo(
+    () => (categoryAuditOpen ? findCategoryDuesMismatches(members) : []),
+    [categoryAuditOpen, members],
+  );
 
   useEffect(() => {
     setOverduePage(0);
@@ -427,12 +438,144 @@ export default function DuesControlTab({
             El saldo de cuota del padrón entra acá. Un alquiler queda afuera si el mes ya está pago. Cobrar usa el recaudo de caja.
           </p>
         </div>
-        <button type="button" className="btn btn-secondary" onClick={handleExport}>
-          <Download size={14} /> Exportar vista CSV
-        </button>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => setCategoryAuditOpen((open) => !open)}
+          >
+            <AlertTriangle size={14} />
+            {categoryAuditOpen ? 'Ocultar auditoría categoría' : 'Auditar categoría vs cuota'}
+          </button>
+          <button type="button" className="btn btn-secondary" onClick={handleExport}>
+            <Download size={14} /> Exportar vista CSV
+          </button>
+        </div>
       </div>
 
       {flash ? <p className="dues-flash" role="status">{flash}</p> : null}
+
+      {categoryAuditOpen ? (
+        <div className="glass-card" style={{ marginBottom: '1rem', padding: '1rem 1.1rem' }}>
+          <h3 style={{ margin: '0 0 0.35rem', fontSize: '1rem' }}>Inconsistencias categoría / deuda</h3>
+          <p style={{ margin: '0 0 0.75rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+            Socios con saldo abierto que no cierra con la tarifa de su categoría actual.
+            La corrección suma un ajuste trazable; no reescribe pagos.
+          </p>
+          {categoryMismatches.length === 0 ? (
+            <p style={{ margin: 0, color: 'var(--emerald-accent)', fontSize: '0.85rem' }}>
+              No hay inconsistencias en el padrón cargado.
+            </p>
+          ) : (
+            <div className="table-responsive">
+              <table className="admin-table" style={{ width: '100%', fontSize: '0.82rem' }}>
+                <thead>
+                  <tr>
+                    <th>Socio</th>
+                    <th>Categoría</th>
+                    <th>Saldo</th>
+                    <th>Esperado</th>
+                    <th>Diferencia</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {categoryMismatches.map((row) => {
+                    const delta = Number(row.suggested?.deltaToFix) || 0;
+                    const busy = categoryFixBusy === row.memberId;
+                    return (
+                      <tr key={row.memberId}>
+                        <td>
+                          <strong>{row.name}</strong>
+                          <div style={{ color: 'var(--text-muted)' }}>Nº {row.memberId}</div>
+                        </td>
+                        <td>{row.tierLabel}</td>
+                        <td>{formatCurrency(row.balance)}</td>
+                        <td>
+                          {row.suggested
+                            ? formatCurrency(row.suggested.expectedAtCurrent)
+                            : '—'}
+                        </td>
+                        <td style={{ color: delta ? 'var(--warning-accent)' : undefined }}>
+                          {delta ? `${delta > 0 ? '+' : ''}${formatCurrency(delta)}` : '—'}
+                        </td>
+                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => openMember({ memberId: row.memberId })}
+                          >
+                            Ver
+                          </button>
+                          {row.suggested && canCollectHere ? (
+                            <button
+                              type="button"
+                              className="btn btn-primary btn-sm"
+                              style={{ marginLeft: 6 }}
+                              disabled={busy}
+                              onClick={async () => {
+                                const member = (members || []).find(
+                                  (m) => String(m.memberId) === String(row.memberId),
+                                );
+                                if (!member?.id) {
+                                  setFlash('Abrí la ficha del socio para corregir (falta id interno).');
+                                  return;
+                                }
+                                if (!window.confirm(
+                                  `¿Ajustar la deuda de ${row.name} en ${formatCurrency(delta)} para alinear con ${row.tierLabel}?`,
+                                )) {
+                                  return;
+                                }
+                                setCategoryFixBusy(row.memberId);
+                                try {
+                                  const preview = previewCategoryChangeDues(
+                                    { ...member, tier: row.suggested.fromTier },
+                                    member.tier,
+                                  );
+                                  await repos.applyCategoryDuesAdjust({
+                                    memberDbId: member.id,
+                                    tier: member.tier,
+                                    amount: preview.needsAdjustment ? preview.totalDelta : delta,
+                                    reason: `Corrección deuda vs categoría (${row.suggested.fromLabel} → ${row.tierLabel})`,
+                                    periods: preview.periods,
+                                    idempotencyKey: categoryChangeIdempotencyKey(
+                                      member.id,
+                                      row.suggested.fromTier,
+                                      member.tier,
+                                      preview.periods,
+                                    ),
+                                  });
+                                  const fresh = await repos.getMemberByNumber(member.memberId, {
+                                    withPayments: true,
+                                  });
+                                  if (fresh && typeof setMembers === 'function') {
+                                    setMembers((prev) => (prev || []).map((m) => (
+                                      String(m.memberId) === String(fresh.memberId)
+                                        ? { ...m, ...fresh }
+                                        : m
+                                    )));
+                                  }
+                                  setFlash(`Deuda corregida · ${row.name} · ${formatCurrency(delta)}`);
+                                } catch (err) {
+                                  setFlash(err?.message || 'No se pudo corregir la deuda.');
+                                } finally {
+                                  setCategoryFixBusy('');
+                                }
+                              }}
+                            >
+                              {busy ? '…' : 'Corregir'}
+                            </button>
+                          ) : null}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ) : null}
 
       <div className="glass-card dues-filters">
         <div>
