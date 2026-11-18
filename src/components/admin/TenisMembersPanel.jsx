@@ -227,9 +227,7 @@ export default function TenisMembersPanel({
             <p className="tenis-desk__eyebrow">Disciplina</p>
             <h2 className="tenis-desk__title">Tenis</h2>
             <p className="tenis-desk__lead">
-              Padrón del abono tenis · $ 12.000 / mes · se cobra aparte de la cuota social (sin 10 %).
-              Vitalicios, fundadores y comisión también lo pagan si lo tienen.
-              Entra en la cuenta del titular, con el mismo recibo automático de la app.
+              Abono $ 12.000 / mes · aparte de la cuota · sin 10 %. También vitalicios y fundadores.
             </p>
           </div>
         </div>
