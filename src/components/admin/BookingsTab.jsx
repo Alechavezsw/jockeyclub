@@ -643,7 +643,7 @@ export default function BookingsTab({
             <th>Horario</th>
             {showCreatedColumn ? <th>Alta</th> : null}
             <th>Importe</th>
-            <th>Estado</th>
+            <th className="bookings-col-estado">Estado</th>
             <th style={{ textAlign: 'right' }}>Gestión</th>
           </tr>
         </thead>
@@ -698,13 +698,13 @@ export default function BookingsTab({
                     <span style={{ color: 'var(--text-muted)' }}>—</span>
                   )}
                 </td>
-                <td>
+                <td className="bookings-col-estado">
                   <div className="bookings-settle">
                     <span className={`bookings-status ${res.status}`}>
                       {statusLabel(res.status, res)}
                     </span>
                     {res.status === 'cancelled' && reservationCancelledAt(res) ? (
-                      <small style={{ display: 'block', color: 'var(--text-muted)', marginTop: 4 }}>
+                      <small className="bookings-settle-cancelled-at">
                         {formatBookingInstant(reservationCancelledAt(res))}
                       </small>
                     ) : null}
@@ -1435,7 +1435,8 @@ export default function BookingsTab({
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          width: fit-content;
+          width: max-content;
+          max-width: 100%;
           min-height: 1.7rem;
           padding: 0.18rem 0.55rem;
           border-radius: 999px;
@@ -1445,6 +1446,7 @@ export default function BookingsTab({
           line-height: 1.2;
           border: 1px solid transparent;
           box-sizing: border-box;
+          white-space: nowrap;
         }
         .bookings-status.confirmed {
           color: var(--emerald-accent);
@@ -1456,30 +1458,26 @@ export default function BookingsTab({
           flex-direction: column;
           align-items: flex-start;
           gap: 0.3rem;
-          min-width: 0;
+          width: max-content;
           max-width: 100%;
         }
-        .bookings-settle > .bookings-status {
-          width: fit-content;
-          max-width: 100%;
-          min-height: 1.7rem;
-          box-sizing: border-box;
-        }
-        .bookings-settle > .bookings-settle-btn,
-        .bookings-settle > .bookings-settle-note {
-          width: 100%;
-          max-width: 100%;
-          min-height: 1.7rem;
-          box-sizing: border-box;
+        .bookings-settle-cancelled-at {
+          display: block;
+          color: var(--text-muted);
+          margin-top: 0.1rem;
+          font-size: 0.68rem;
+          line-height: 1.25;
+          white-space: nowrap;
         }
         .bookings-settle-btn {
           display: inline-flex;
           align-items: center;
-          justify-content: center;
-          gap: 0.28rem;
-          width: 100%;
+          justify-content: flex-start;
+          gap: 0.32rem;
+          width: max-content;
+          max-width: 100%;
           min-height: 1.7rem;
-          padding: 0.18rem 0.55rem;
+          padding: 0.22rem 0.65rem;
           border: 1px solid color-mix(in srgb, var(--primary-gold) 55%, var(--border-glass));
           border-radius: 999px;
           background: color-mix(in srgb, var(--primary-gold) 18%, var(--surface-card, transparent));
@@ -1490,7 +1488,8 @@ export default function BookingsTab({
           letter-spacing: 0.01em;
           line-height: 1.2;
           cursor: pointer;
-          text-align: center;
+          text-align: left;
+          white-space: nowrap;
           transition: background 0.15s ease, border-color 0.15s ease;
           box-sizing: border-box;
         }
@@ -1516,10 +1515,9 @@ export default function BookingsTab({
         .bookings-settle-btn-copy {
           display: inline-flex;
           align-items: baseline;
-          flex-wrap: wrap;
-          justify-content: center;
+          flex-wrap: nowrap;
           gap: 0.28rem;
-          min-width: 0;
+          white-space: nowrap;
           line-height: 1.2;
         }
         .bookings-settle-btn-copy strong {
@@ -1528,12 +1526,14 @@ export default function BookingsTab({
           letter-spacing: inherit;
           text-transform: none;
           color: inherit;
+          white-space: nowrap;
         }
         .bookings-settle-btn-copy b {
           font-size: inherit;
           font-weight: inherit;
           font-variant-numeric: tabular-nums;
           color: var(--text-gold, var(--primary-gold));
+          white-space: nowrap;
         }
         .bookings-settle-spin {
           animation: bookings-settle-spin 0.8s linear infinite;
@@ -1552,7 +1552,7 @@ export default function BookingsTab({
           margin: 0;
           font-size: 0.68rem;
           line-height: 1.3;
-          max-width: 100%;
+          white-space: nowrap;
         }
         .bookings-status.pending {
           color: var(--warning-accent);
@@ -1802,12 +1802,20 @@ export default function BookingsTab({
         .bookings-list-body .admin-table th:nth-child(1),
         .bookings-list-body .admin-table td:nth-child(1) { width: 3.6rem; }
         .bookings-list-body .admin-table th:nth-child(2),
-        .bookings-list-body .admin-table td:nth-child(2) { width: 18%; }
+        .bookings-list-body .admin-table td:nth-child(2) { width: 16%; }
         .bookings-list-body .admin-table th:nth-child(3),
-        .bookings-list-body .admin-table td:nth-child(3) { width: 14%; }
+        .bookings-list-body .admin-table td:nth-child(3) { width: 12%; }
+        .bookings-list-body .admin-table th.bookings-col-estado,
+        .bookings-list-body .admin-table td.bookings-col-estado {
+          width: 11.5rem;
+          min-width: 11.5rem;
+          word-break: normal;
+          overflow-wrap: normal;
+        }
         .bookings-list-body .admin-table th:last-child,
         .bookings-list-body .admin-table td:last-child {
           width: 6.25rem;
+          min-width: 6.25rem;
           position: relative;
         }
         .bookings-list-actions {
