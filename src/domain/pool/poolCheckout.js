@@ -74,7 +74,8 @@ export function applyPoolAccountPass(members = [], accountEntries = []) {
  */
 export async function chargePoolCanon({ entry, member, recordPoolCanon, bankId = null }) {
   const amount = Number(entry?.payment?.amount) || 0;
-  const method = entry?.payment?.method || 'efectivo';
+  const rawMethod = String(entry?.payment?.method || 'efectivo').trim().toLowerCase();
+  const method = rawMethod === 'pos' || rawMethod === 'pago pos' ? 'tarjeta' : rawMethod;
   const memberDbId = member?.id || entry?.memberDbId || null;
   if (amount <= 0 || method === 'asistencia') {
     return { ...entry, memberDbId, accountEntries: [] };
@@ -110,9 +111,11 @@ export async function chargePoolCanon({ entry, member, recordPoolCanon, bankId =
     cashMovementId: saved?.movement?.id || null,
     payment: {
       ...(entry.payment || {}),
-      method,
+      method: method === 'pos' ? 'tarjeta' : method,
       methodLabel: poolMethodLabel(method),
-      bankJournal: method === 'transferencia' || method === 'debito' ? bankJournal : null,
+      bankJournal: (method === 'transferencia' || method === 'debito' || method === 'tarjeta' || method === 'pos')
+        ? bankJournal
+        : null,
     },
   };
   return {

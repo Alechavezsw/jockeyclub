@@ -72,6 +72,21 @@ describe('otherIncomes', () => {
     expect(entry.lines.some((line) => line.accountId === 'coa-1.1.03' && line.debit === 500)).toBe(true);
   });
 
+  it('Pago POS asienta en Tarjetas a cobrar, no en Caja', () => {
+    const income = createOtherIncome({
+      date: '2026-11-18',
+      payerName: 'Evento',
+      concept: 'Salón Anhelo',
+      group: 'eventos',
+      paymentMethod: 'tarjeta',
+      amount: 80000,
+    });
+    expect(income.paymentMethodLabel).toBe('Pago POS');
+    const entry = journalForOtherIncome(income, DEFAULT_CHART_OF_ACCOUNTS);
+    expect(entry.lines.some((line) => line.accountId === 'coa-1.1.09' && line.debit === 80000)).toBe(true);
+    expect(entry.lines.some((line) => line.accountId === 'coa-1.1.01' && line.debit > 0)).toBe(false);
+  });
+
   it('la rendición de portería entra a caja como otro ingreso, no como cuota', () => {
     const income = createOtherIncome({
       date: '2026-10-22',

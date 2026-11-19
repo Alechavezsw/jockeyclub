@@ -187,6 +187,7 @@ export default function MemberFacilitiesBooking({
   const [query, setQuery] = useState('');
   const [onlyAvailable, setOnlyAvailable] = useState(false);
   const [selectedFacility, setSelectedFacility] = useState(null);
+  const [dayPickOpen, setDayPickOpen] = useState(false);
   const [time, setTime] = useState('');
   const [guests, setGuests] = useState(0);
   const [guestNameList, setGuestNameList] = useState([]);
@@ -272,6 +273,7 @@ export default function MemberFacilitiesBooking({
   const openBooking = (facility) => {
     const live = liveById.get(facility.id);
     if (live?.status === 'suspended' || live?.status === 'season_closed') return;
+    setDayPickOpen(false);
     setSelectedFacility(facility);
     setTime('');
     setGuests(0);
@@ -284,6 +286,34 @@ export default function MemberFacilitiesBooking({
     setReceiptPreview('');
     setPaying(false);
   };
+
+  /** Click en un día del calendario → modal para elegir espacio ese día. */
+  const openDayPick = (iso) => {
+    setSelectedDate(iso);
+    setTime('');
+    setDayPickOpen(true);
+  };
+
+  const dayPickOptions = useMemo(() => {
+    if (!dayPickOpen || !selectedDate) return [];
+    return sortFacilitiesForDisplay(calendarFacilities)
+      .map((fac) => {
+        const live = liveById.get(fac.id);
+        const freeToday = freeSlotsForFacility(fac, selectedDate, reservations, {
+          isZondaActive,
+          now,
+        }).length;
+        const canOpen = live?.status !== 'suspended' && live?.status !== 'season_closed';
+        return {
+          fac,
+          live,
+          freeToday,
+          canOpen,
+          bookable: freeToday > 0 && canOpen,
+        };
+      })
+      .filter((row) => row.canOpen);
+  }, [dayPickOpen, selectedDate, calendarFacilities, liveById, reservations, isZondaActive, now]);
 
   const myWaitlist = useMemo(
     () => (waitlist || []).filter((e) => e.memberId === member?.memberId && e.status === 'waiting'),
@@ -642,10 +672,7 @@ export default function MemberFacilitiesBooking({
                     !past && !fullyBooked && hasBookings ? 'is-tight' : '',
                     !past && !fullyBooked && !hasBookings && heat > 0 && heat <= 0.35 ? 'is-tight' : '',
                   ].filter(Boolean).join(' ')}
-                  onClick={() => {
-                    setSelectedDate(iso);
-                    setTime('');
-                  }}
+                  onClick={() => openDayPick(iso)}
                 >
                   <span>{day.getDate()}</span>
                   {!past && score && (
@@ -821,6 +848,59 @@ export default function MemberFacilitiesBooking({
           )}
         </div>
       </div>
+
+      {dayPickOpen && !selectedFacility ? (
+        <ModalDialog
+          onClose={() => setDayPickOpen(false)}
+          labelledBy="mfb-day-pick-title"
+          contentClassName="modal-content glass-panel mfb-modal"
+        >
+          <div className="modal-header mfb-book-head">
+            <div>
+              <p className="mfb-book-kicker">Elegí el espacio</p>
+              <h3 id="mfb-day-pick-title" className="serif-font">{selectedDateLabel}</h3>
+              <p className="mfb-book-date">
+                {selectedDayScore.spacesFree}/{selectedDayScore.spacesOpen} espacios libres
+                {selectedDayScore.reservationCount > 0
+                  ? ` · ${selectedDayScore.reservationCount} reserva${selectedDayScore.reservationCount === 1 ? '' : 's'}`
+                  : ''}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setDayPickOpen(false)}
+              className="mfb-icon-btn"
+              aria-label="Cerrar"
+            >
+              <X size={18} />
+            </button>
+          </div>
+          <div className="modal-body" style={{ display: 'grid', gap: '0.65rem' }}>
+            {dayPickOptions.length === 0 ? (
+              <p className="mfb-empty" style={{ margin: 0, padding: '1rem 0' }}>
+                No hay espacios disponibles para reservar ese día.
+              </p>
+            ) : (
+              dayPickOptions.map(({ fac, freeToday, bookable }) => (
+                <button
+                  key={fac.id}
+                  type="button"
+                  className="mfb-day-pick-row"
+                  onClick={() => openBooking(fac)}
+                >
+                  <span className="mfb-day-pick-name">{fac.name}</span>
+                  <span className="mfb-day-pick-meta">
+                    {bookable
+                      ? `${freeToday} turno${freeToday === 1 ? '' : 's'} libre${freeToday === 1 ? '' : 's'}`
+                      : 'Sin turnos · lista de espera'}
+                  </span>
+                  <span className="mfb-day-pick-cta">{bookable ? 'Reservar' : 'Ver'}</span>
+                </button>
+              ))
+            )}
+          </div>
+        </ModalDialog>
+      ) : null}
 
       {selectedFacility && (
         <ModalDialog

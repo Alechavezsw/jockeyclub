@@ -58,7 +58,7 @@ export function duesPaymentNotice({
   msg.meta = {
     kind: 'dues_payment',
     method,
-    paymentRequest: method === 'transferencia' || method === 'debito' || method === 'tarjeta',
+    paymentRequest: method === 'transferencia' || method === 'debito' || method === 'tarjeta' || method === 'pos',
     paymentAuto: method === 'mercadopago',
     ...(attachment ? { attachment } : {}),
   };
@@ -266,7 +266,7 @@ export function bookingPaymentNotice({
   msg.meta = {
     kind: 'booking_payment',
     method,
-    paymentRequest: method === 'transferencia' || method === 'debito' || method === 'tarjeta',
+    paymentRequest: method === 'transferencia' || method === 'debito' || method === 'tarjeta' || method === 'pos',
     paymentAuto: method === 'mercadopago',
     ...(attachment ? { attachment } : {}),
   };

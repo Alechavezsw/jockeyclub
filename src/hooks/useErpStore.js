@@ -776,12 +776,16 @@ export default function useErpStore({
         // Operario de pileta no lee journal/cash por RLS: armamos el espejo desde el plan local.
         const journalId = saved?.journalEntry?.id || null;
         const movementId = saved?.movement?.id || null;
-        const needsCash = payMethod === 'efectivo' || payMethod === 'tarjeta';
+        const needsCash = payMethod === 'efectivo';
+        const isCardPos = payMethod === 'tarjeta' || payMethod === 'pos';
         const incomeAccountId = resolveAccountId(chartOfAccounts, 'Reservas e Instalaciones');
+        const debitAccountName = needsCash
+          ? 'Caja General'
+          : (isCardPos ? (bankJournal || 'Tarjetas a cobrar') : (bankJournal || 'Banco Macro'));
         const debitAccountId = needsCash
           ? (pickGeneralCashRegister(cashRegisters, chartOfAccounts)?.accountId
             || resolveAccountId(chartOfAccounts, 'Caja General'))
-          : resolveAccountId(chartOfAccounts, bankJournal || 'Banco Macro');
+          : resolveAccountId(chartOfAccounts, debitAccountName);
         let journal = null;
         let movement = null;
         try {
@@ -802,7 +806,7 @@ export default function useErpStore({
             status: 'posted',
             sourceModule: 'pileta',
             lines: [
-              { accountId: debitAccountId, debit: fee, credit: 0, memo: needsCash ? 'Caja General' : (bankJournal || 'Banco') },
+              { accountId: debitAccountId, debit: fee, credit: 0, memo: debitAccountName },
               { accountId: incomeAccountId, debit: 0, credit: fee, memo: 'Canon pileta' },
             ],
           };
@@ -840,10 +844,12 @@ export default function useErpStore({
       }
       const incomeAccountId = resolveAccountId(chartOfAccounts, 'Reservas e Instalaciones');
       if (!incomeAccountId) throw new Error('Falta la cuenta Reservas e Instalaciones en el plan.');
-      const needsCash = payMethod === 'efectivo' || payMethod === 'tarjeta';
+      const needsCash = payMethod === 'efectivo';
+      const isCardPos = payMethod === 'tarjeta' || payMethod === 'pos';
       let debitAccountId = null;
       let session = null;
       let register = null;
+      let debitName = 'Caja General';
       if (needsCash) {
         register = pickGeneralCashRegister(cashRegisters, chartOfAccounts);
         if (!register) throw new Error('No hay Caja General configurada.');
@@ -853,9 +859,11 @@ export default function useErpStore({
           session = await openRegister(register.id, 0);
         }
       } else {
-        const bankName = bankJournal || 'Banco Macro';
-        debitAccountId = resolveAccountId(chartOfAccounts, bankName);
-        if (!debitAccountId) throw new Error(`No está la cuenta ${bankName} en el plan.`);
+        debitName = isCardPos
+          ? (bankJournal || 'Tarjetas a cobrar')
+          : (bankJournal || 'Banco Macro');
+        debitAccountId = resolveAccountId(chartOfAccounts, debitName);
+        if (!debitAccountId) throw new Error(`No está la cuenta ${debitName} en el plan.`);
       }
       const entry = buildPostedEntry({
         date: when,
@@ -883,7 +891,12 @@ export default function useErpStore({
         setCashMovements((prev) => [movement, ...prev]);
       }
       setJournalEntries((prev) => [entry, ...prev]);
-      return { journalEntry: entry, movement, paymentMethod: payMethod, bankJournal: needsCash ? null : (bankJournal || 'Banco Macro') };
+      return {
+        journalEntry: entry,
+        movement,
+        paymentMethod: payMethod,
+        bankJournal: needsCash ? null : debitName,
+      };
     },
     [cashRegisters, cashSessions, chartOfAccounts, setJournalEntries, setCashMovements, openRegister]
   );

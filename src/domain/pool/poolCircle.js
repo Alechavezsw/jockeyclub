@@ -2,9 +2,9 @@
  * Circuito completo del canon de pileta (fuente de verdad = Supabase en cloud).
  *
  * 1. Apto médico + cuota al día (si aplica) + socio activo
- * 2. Medio: efectivo/tarjeta → Caja General; transferencia/débito → banco; MP → QR/webhook
+ * 2. Medio: efectivo → Caja General; Pago POS → Tarjetas a cobrar; transferencia/débito → banco; MP → QR/webhook
  * 3. record_pool_canon / apply_mp → asiento source_module=pileta (Reservas e Instalaciones)
- * 4. Movimiento de caja si el medio usa caja
+ * 4. Movimiento de caja solo si el medio es efectivo
  * 5. pool_accesses con journal_entry_id (+ cash_movement_id si hubo)
  * 6. Cargo + pago en cuenta del socio (neto 0; no mueve deuda de cuota)
  * 7. Comprobante automático (mail + MD)

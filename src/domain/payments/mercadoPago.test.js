@@ -46,11 +46,11 @@ describe('mercadoPago', () => {
     expect(mpChannelFor({ mode: 'redirect' })).toBe('online');
   });
 
-  it('el débito usa la cuota del mes y el pago único puede ser el saldo', () => {
+  it('el débito usa la cuota del mes y el pago único es solo el saldo (sin adelanto inventado)', () => {
     expect(mpSubscribeAmount(40000)).toBe(40000);
     expect(mpSubscribeAmount(120000)).toBe(120000);
     expect(mpPayNowAmount(120000, 40000)).toBe(120000);
-    expect(mpPayNowAmount(0, 40000)).toBe(40000);
+    expect(mpPayNowAmount(0, 40000)).toBe(0);
     expect(isMpDeliverableEmail('socio@correo.com')).toBe(true);
     expect(isMpDeliverableEmail('5586118@jockeyclubsj.com')).toBe(false);
     expect(firstMpDeliverableEmail('5586118@jockeyclubsj.com', 'socio@correo.com')).toBe('socio@correo.com');

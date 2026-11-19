@@ -205,6 +205,7 @@ export function paymentFromRow(row) {
     paymentPlanId: meta.paymentPlanId || null,
     paymentPlanLabel: meta.paymentPlanLabel || null,
     receiptParse: meta.receiptParse && typeof meta.receiptParse === 'object' ? meta.receiptParse : null,
+    voucherAmount: meta.voucherAmount != null ? Number(meta.voucherAmount) : null,
     paymentSplits: Array.isArray(meta.paymentSplits) ? meta.paymentSplits : null,
     status: meta.status === 'void' || meta.voidedAt ? 'void' : 'paid',
     voidReason: meta.voidReason || null,

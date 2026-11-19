@@ -26,7 +26,8 @@ export const SUPPLIER_PAYMENT_METHODS = {
   efectivo: 'Efectivo',
   transferencia: 'Transferencia',
   cheque: 'Cheque',
-  tarjeta: 'Tarjeta',
+  tarjeta: 'Pago POS',
+  pos: 'Pago POS',
   mercadopago: 'Mercado Pago',
   otro: 'Otro',
 };

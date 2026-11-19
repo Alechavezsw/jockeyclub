@@ -18,7 +18,7 @@ export const DEFAULT_POOL_SETTINGS = {
 export const POOL_PAYMENT_METHODS = [
   { id: 'efectivo', label: 'Efectivo' },
   { id: 'transferencia', label: 'Transferencia' },
-  { id: 'tarjeta', label: 'Tarjeta' },
+  { id: 'tarjeta', label: 'Pago POS' },
   { id: 'debito', label: 'Débito' },
   { id: 'mercadopago', label: 'Mercado Pago' },
 ];
@@ -28,7 +28,13 @@ export const POOL_DESK_PAYMENT_METHODS = POOL_PAYMENT_METHODS
   .map((m) => m.id);
 
 export function poolMethodUsesCash(method) {
-  return method === 'efectivo' || method === 'tarjeta';
+  return method === 'efectivo';
+}
+
+/** Terminal POS / cupón: no entra en Caja General. */
+export function poolMethodUsesCardPos(method) {
+  const raw = String(method || '').trim().toLowerCase();
+  return raw === 'tarjeta' || raw === 'pos' || raw === 'pago pos';
 }
 
 export function poolMethodUsesBank(method) {
@@ -36,6 +42,7 @@ export function poolMethodUsesBank(method) {
 }
 
 export function poolMethodLabel(method) {
+  if (poolMethodUsesCardPos(method)) return 'Pago POS';
   return POOL_PAYMENT_METHODS.find((m) => m.id === method)?.label
     || (method === 'asistencia' ? 'Asistencia' : String(method || ''));
 }

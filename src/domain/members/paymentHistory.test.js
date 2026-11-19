@@ -111,6 +111,30 @@ describe('summarizePaymentHistory', () => {
     expect(summary.dueDay).toBe(10);
   });
 
+  it('al día con nextDue futuro no ofrece adelanto de un mes no abierto', () => {
+    setRuntimeTierCatalog(null);
+    const today = new Date('2026-11-18T12:00:00');
+    const summary = summarizePaymentHistory([
+      {
+        id: 'p-nov',
+        date: '2026-11-05',
+        amount: 40000,
+        method: 'transferencia',
+        status: 'paid',
+        concept: 'Cuota social · Noviembre de 2026',
+      },
+    ], {
+      tier: 'socio_individual',
+      outstandingBalance: 0,
+      lastPaymentDate: '2026-11-05',
+      nextDueDate: '2026-12-10',
+    }, { today });
+    expect(summary.outstanding).toBe(0);
+    expect(summary.monthsBehind).toBe(0);
+    expect(summary.nextDue).toBe('2026-12-10');
+    expect(summary.nextAmount).toBe(0);
+  });
+
   it('AMET vence el 18 y no lleva recargo de mora', () => {
     setRuntimeTierCatalog(null);
     const today = new Date('2026-11-03T12:00:00');

@@ -6,7 +6,9 @@ import { QRCodeCanvas } from 'qrcode.react';
 import { loadClubLogoDataUrl } from '../reports/pdfBrand';
 import { getTierDisplayName, tierCardStyle } from '../members/tiers';
 import { isFamilyDependent } from '../members/households';
+import JsBarcode from 'jsbarcode';
 import { buildCredentialQRPayload } from './qr';
+import { BARCODE_FORMAT, buildCredentialBarcodePayload } from './barcode';
 
 export function formatCredentialNumber(id = '') {
   const digits = String(id).replace(/\D/g, '');
@@ -25,6 +27,28 @@ export function hexToRgb(hex, fallback = [202, 57, 12]) {
   if (!/^[0-9a-fA-F]{6}$/.test(full)) return fallback;
   const n = Number.parseInt(full, 16);
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function renderBarcodePng(member, { height = 90, scale = 3 } = {}) {
+  const payload = buildCredentialBarcodePayload(member);
+  if (!payload || typeof document === 'undefined') return null;
+  const canvas = document.createElement('canvas');
+  try {
+    JsBarcode(canvas, payload, {
+      format: BARCODE_FORMAT,
+      width: scale,
+      height,
+      displayValue: true,
+      fontSize: 14,
+      textMargin: 6,
+      margin: 16,
+      background: '#ffffff',
+      lineColor: '#060e0a',
+    });
+    return canvas.toDataURL('image/png');
+  } catch {
+    return null;
+  }
 }
 
 function renderQrPng(value, size = 420) {
@@ -80,6 +104,8 @@ export async function exportCredentialPdf(member) {
     imageToDataUrl(member.photo),
   ]);
   const qrDataUrl = renderQrPng(buildCredentialQRPayload(member), 480);
+  const barcodeDataUrl = renderBarcodePng(member, { height: 72, scale: 2.4 });
+  const barcodePayload = buildCredentialBarcodePayload(member);
   const style = tierCardStyle(member.tier);
   const gold = hexToRgb(style.accent);
   const fileName = credentialPdfFileName(member);
@@ -151,6 +177,39 @@ export async function exportCredentialPdf(member) {
     doc.roundedRect(w - 21.4, h - 21.2, 17.4, 17.4, 1, 1, 'F');
     doc.addImage(qrDataUrl, 'PNG', w - 20.4, h - 20.2, 15.4, 15.4);
   }
+
+  // Reverso: Code 128 a lo ancho para pistola láser (quiet zone + altura útil).
+  doc.addPage([85.6, 53.98], 'landscape');
+  doc.setFillColor(250, 246, 232);
+  doc.rect(0, 0, w, h, 'F');
+  doc.setDrawColor(...gold);
+  doc.setLineWidth(0.25);
+  doc.rect(1.4, 1.4, w - 2.8, h - 2.8, 'S');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7);
+  doc.setTextColor(...gold);
+  doc.text('JOCKEY CLUB SAN JUAN', 4.4, 8);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(5.2);
+  doc.setTextColor(80, 70, 50);
+  doc.text('Código de barras · acceso portería', 4.4, 12);
+  if (barcodeDataUrl) {
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(4, 16, w - 8, 28, 1.2, 1.2, 'F');
+    try {
+      doc.addImage(barcodeDataUrl, 'PNG', 6, 18, w - 12, 24);
+    } catch { /* barcode opcional */ }
+  } else if (barcodePayload) {
+    doc.setFont('courier', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(20, 20, 20);
+    doc.text(barcodePayload, w / 2, 32, { align: 'center' });
+  }
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(4.8);
+  doc.setTextColor(100, 90, 70);
+  doc.text(String(member.name || '').toUpperCase(), 4.4, 49);
+  doc.text(`Nº ${number}`, w - 4.4, 49, { align: 'right' });
 
   doc.save(fileName);
   return fileName;

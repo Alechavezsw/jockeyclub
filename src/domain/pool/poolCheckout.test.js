@@ -88,6 +88,23 @@ describe('chargePoolCanon', () => {
     expect(charged.payment.method).toBe('transferencia');
     expect(charged.accountEntries[1].paymentMethods[0].method).toBe('transferencia');
   });
+
+  it('Pago POS va a Tarjetas a cobrar sin movimiento de caja', async () => {
+    const charged = await chargePoolCanon({
+      entry: { ...entry, payment: { ...entry.payment, method: 'pos' } },
+      member: { id: 'm1', memberId: '100', name: 'Ana Pérez' },
+      recordPoolCanon: async (payload) => {
+        expect(payload.method).toBe('tarjeta');
+        expect(payload.bankJournal).toBe('Tarjetas a cobrar');
+        return { journalEntry: { id: 'je-pos' }, movement: null };
+      },
+    });
+    expect(charged.journalEntryId).toBe('je-pos');
+    expect(charged.cashMovementId).toBeNull();
+    expect(charged.payment.method).toBe('tarjeta');
+    expect(charged.payment.methodLabel).toBe('Pago POS');
+    expect(charged.payment.bankJournal).toBe('Tarjetas a cobrar');
+  });
 });
 
 describe('buildPoolAccountEntries / applyPoolAccountPass', () => {

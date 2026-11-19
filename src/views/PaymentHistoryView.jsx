@@ -255,7 +255,9 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
               : duesExempt
                 ? (quota.hint || 'No abona cuota social')
                 : alDia
-                  ? `Próximo cobro ${formatDate(summary.nextDue)} · ${formatCurrency(summary.nextAmount)}`
+                  ? (Number(summary.nextAmount) > 0
+                    ? `Cuota abierta ${formatDate(summary.nextDue)} · ${formatCurrency(summary.nextAmount)}`
+                    : `Próximo vencimiento ${formatDate(summary.nextDue)} · sin cuota abierta`)
                   : `${lateLabel ? `${lateLabel}. ` : ''}${debtHint || ''}`}
           </small>
         </article>
@@ -288,7 +290,7 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
             : duesExempt
               ? quota.title
               : alDia
-                ? 'Pagar cuota anticipada'
+                ? (payable > 0 ? 'Pagar cuota del mes' : 'Al día')
                 : 'Pagar cuota pendiente'}
         </h2>
         <p>
@@ -297,7 +299,9 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
             : duesExempt
               ? (quota.hint || 'Esta categoría no liquida cuota social.')
               : alDia
-                ? `Podés adelantar ${formatCurrency(payable)} y quedar al día hasta ${formatDate(summary.nextDue)}.`
+                ? (payable > 0
+                  ? `Podés abonar ${formatCurrency(payable)} de la cuota ya abierta.`
+                  : `No hay cuota abierta para pagar. Próximo vencimiento ${formatDate(summary.nextDue)}.`)
                 : `${lateLabel ? `${lateLabel}. ` : ''}Saldo a abonar: ${formatCurrency(payable)}${surcharge > 0 ? ` (cuota ${formatCurrency(quotaDue)} + recargo ${formatCurrency(surcharge)})` : ''}. ${dueDayLabel.charAt(0).toUpperCase()}${dueDayLabel.slice(1)}.`}
         </p>
         {!duesExempt ? (
@@ -331,14 +335,13 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
           </label>
         ) : null}
         <div className="pay-hist-mp-grid">
+          {payable > 0 ? (
           <article className="pay-hist-mp-card">
             <h3>Pagar ahora</h3>
             <p>
               {accountPlan?.partial
                 ? `Pagás ${formatCurrency(payAmount)} a cuenta.`
-                : alDia
-                  ? `Adelantás ${formatCurrency(payable)} de la cuota.`
-                  : `Regularizás ${formatCurrency(payable)} en un solo cobro.`}
+                : `Regularizás ${formatCurrency(payable)} en un solo cobro.`}
             </p>
             <MercadoPagoCheckout
               kind="dues"
@@ -352,6 +355,7 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
               onApproved={() => setMessage('Pago acreditado. Ya figura en tu cuenta.')}
             />
           </article>
+          ) : null}
           <article className="pay-hist-mp-card">
             <h3>Débito cada mes</h3>
             <p>
@@ -374,7 +378,7 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
             )}
           </article>
         </div>
-        {bank ? (
+        {bank && payable > 0 ? (
           <div className="pay-hist-transfer">
             <h3>Transferencia al club</h3>
             <div className="pay-alias">

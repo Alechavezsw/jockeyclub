@@ -1337,10 +1337,19 @@ export async function insertMemberPayment(memberDbId, payment) {
       ...(payment.receiptParse && typeof payment.receiptParse === 'object'
         ? { receiptParse: payment.receiptParse }
         : {}),
+      ...(Number(payment.voucherAmount) > 0.01
+        ? { voucherAmount: Number(payment.voucherAmount) }
+        : {}),
       ...(Array.isArray(payment.paymentSplits) && payment.paymentSplits.length
         ? { paymentSplits: payment.paymentSplits }
         : {}),
       ...(payment.chargeScope ? { chargeScope: payment.chargeScope } : {}),
+      ...(payment.methodLabel ? { methodLabel: payment.methodLabel } : {}),
+      ...(payment.balanceRemaining != null ? { balanceRemaining: Number(payment.balanceRemaining) } : {}),
+      ...(payment.creditLeftover != null && Number(payment.creditLeftover) > 0.01
+        ? { creditLeftover: Number(payment.creditLeftover) }
+        : {}),
+      ...(payment.adelanto === true ? { adelanto: true } : {}),
     },
   };
   const saved = await unwrap(

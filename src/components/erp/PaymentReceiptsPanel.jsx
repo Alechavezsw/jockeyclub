@@ -277,7 +277,8 @@ export default function PaymentReceiptsPanel({
   };
 
   const openMethodEdit = (payment) => {
-    const current = String(payment?.method || 'efectivo').toLowerCase();
+    const raw = String(payment?.method || 'efectivo').toLowerCase();
+    const current = raw === 'pos' ? 'tarjeta' : raw;
     setVoidEditId(null);
     setVoidReason('');
     setMethodEditId(payment.id);

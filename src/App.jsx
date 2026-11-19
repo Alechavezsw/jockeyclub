@@ -37,7 +37,7 @@ import {
   DEFAULT_SYSTEM_RULES,
   mergeSystemRules,
 } from './domain/system/clubSettings';
-import { DEFAULT_PAYMENT_PLANS, mergePaymentPlans } from './domain/system/paymentPlans';
+import { DEFAULT_PAYMENT_PLANS, ensureOfficialPaymentPlans, mergePaymentPlans } from './domain/system/paymentPlans';
 import { applyMemberListRefresh, attachHouseholdToMembers } from './domain/members/households';
 // Los saldos de cuenta corriente vienen de la base: public.members.outstanding_balance
 // más el desglose en members.meta (ver scripts/sync-accessin-balances.mjs). El snapshot
@@ -416,11 +416,11 @@ function ClubPortal() {
   });
 
   const [paymentPlans, setPaymentPlans] = useState(() => {
-    if (isSupabaseConfigured) return DEFAULT_PAYMENT_PLANS;
+    if (isSupabaseConfigured) return ensureOfficialPaymentPlans(DEFAULT_PAYMENT_PLANS);
     try {
-      return mergePaymentPlans(JSON.parse(localStorage.getItem('jockey-payment-plans') || 'null'));
+      return ensureOfficialPaymentPlans(JSON.parse(localStorage.getItem('jockey-payment-plans') || 'null'));
     } catch {
-      return DEFAULT_PAYMENT_PLANS;
+      return ensureOfficialPaymentPlans(DEFAULT_PAYMENT_PLANS);
     }
   });
 
@@ -639,7 +639,7 @@ function ClubPortal() {
     [makeSettingSetter],
   );
   const savePaymentPlans = useMemo(
-    () => makeSettingSetter(setPaymentPlans, SETTINGS_KEYS.paymentPlans, mergePaymentPlans),
+    () => makeSettingSetter(setPaymentPlans, SETTINGS_KEYS.paymentPlans, ensureOfficialPaymentPlans),
     [makeSettingSetter],
   );
   const saveTierCatalog = useMemo(
@@ -1140,7 +1140,7 @@ function ClubPortal() {
         setSystemRules(mergeSystemRules(app.systemRules));
       }
       if (Array.isArray(app.paymentPlans)) {
-        setPaymentPlans(mergePaymentPlans(app.paymentPlans));
+        setPaymentPlans(ensureOfficialPaymentPlans(app.paymentPlans));
       }
       if (app.facilityCatalog && typeof app.facilityCatalog === 'object') {
         setFacilityCatalog(app.facilityCatalog);

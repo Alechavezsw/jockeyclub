@@ -99,11 +99,9 @@ export function firstMpDeliverableEmail(...candidates) {
   return candidates.find((value) => isMpDeliverableEmail(value)) || '';
 }
 
-/** Un cobro: la deuda de la ficha, o la cuota del mes si está al día. */
-export function mpPayNowAmount(outstanding, monthly) {
-  const due = mpMoney(outstanding);
-  if (due > 0) return due;
-  return mpMoney(monthly);
+/** Un cobro: solo la deuda de la ficha. Sin inventar adelanto de un mes no liquidado. */
+export function mpPayNowAmount(outstanding, _monthly) {
+  return mpMoney(outstanding);
 }
 
 /** El débito mensual cobra la cuota del mes, nunca el saldo atrasado. */

@@ -54,4 +54,33 @@ describe('verifyPoolCanonCircle', () => {
     });
     expect(result.ok).toBe(true);
   });
+
+  it('Pago POS exige asiento y cuenta, sin movimiento de caja', () => {
+    const bad = verifyPoolCanonCircle({
+      method: 'tarjeta',
+      charged: {
+        payment: { amount: 5000, method: 'tarjeta' },
+        accountEntries: [
+          { type: 'otro', source: 'pool_canon', value: 5000 },
+          { type: 'pago', source: 'pool_canon', value: -5000 },
+        ],
+      },
+    });
+    expect(bad.ok).toBe(false);
+    expect(bad.issues.some((m) => /asiento/i.test(m))).toBe(true);
+
+    const good = verifyPoolCanonCircle({
+      method: 'tarjeta',
+      charged: {
+        journalEntryId: 'je-pos',
+        payment: { amount: 5000, method: 'tarjeta', bankJournal: 'Tarjetas a cobrar' },
+        accountEntries: [
+          { type: 'otro', source: 'pool_canon', value: 5000 },
+          { type: 'pago', source: 'pool_canon', value: -5000 },
+        ],
+      },
+    });
+    expect(good.ok).toBe(true);
+    expect(good.issues).toEqual([]);
+  });
 });

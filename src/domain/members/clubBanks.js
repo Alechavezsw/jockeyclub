@@ -35,6 +35,8 @@ export const AMET_CASH_ACCOUNT = {
 };
 
 export const CASH_JOURNAL_ACCOUNT = 'Caja General';
+/** POS / Visa pendiente de liquidación: no es efectivo de caja. */
+export const CARD_JOURNAL_ACCOUNT = 'Tarjetas a cobrar';
 
 /** Payload de respaldo (alias) si el checkout todavía no está habilitado. */
 export function buildMercadoPagoQrPayload({ amount, memberId, memberName, concept }) {
@@ -50,8 +52,13 @@ export function buildMercadoPagoQrPayload({ amount, memberId, memberName, concep
 }
 
 export function journalAccountForPayment(method, bankId) {
-  // A cuenta: entrega en sede → Caja General (mismo bolsillo que efectivo).
-  if (method === 'efectivo' || method === 'tarjeta' || method === 'a_cuenta' || method === 'caja') {
+  // Pago POS / tarjeta: activo a cobrar hasta liquidar el cupón (no Caja General).
+  const methodKey = String(method || '').trim().toLowerCase();
+  if (methodKey === 'tarjeta' || methodKey === 'pos' || methodKey === 'pago pos' || methodKey === 'card') {
+    return CARD_JOURNAL_ACCOUNT;
+  }
+  // A cuenta / efectivo: entrega en sede → Caja General.
+  if (method === 'efectivo' || method === 'a_cuenta' || method === 'caja') {
     return CASH_JOURNAL_ACCOUNT;
   }
   if (method === 'mercadopago') return MERCADO_PAGO.journalAccount;

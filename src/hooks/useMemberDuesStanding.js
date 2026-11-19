@@ -164,11 +164,12 @@ export function useMemberDuesStanding(member) {
     const quota = debt
       ? ((Number(debt.capital) || 0) + (Number(debt.unallocated) || 0))
       : (owes ? (Number(preview.quota) || outstanding) : 0);
+    // Al día: solo meses ya abiertos. No ofrecer adelanto de un mes no liquidado.
     const nextAmount = debt
       ? (Number(debt.totalDebt) || 0)
       : (owes
         ? (Number(preview.cash) > 0.01 ? Number(preview.cash) : outstanding)
-        : fromHistory.nextAmount);
+        : (Number(preview.cash) > 0.01 ? Number(preview.cash) : 0));
     const chargeDue = owes
       ? (debt?.months?.[debt.months.length - 1]?.dueOn || preview.periods?.[0]?.dueOn || nextDue)
       : nextDue;

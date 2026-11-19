@@ -5,6 +5,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { buildCredentialQRPayload } from '../domain/credentials/qr';
 import { exportCredentialPdf } from '../domain/credentials/exportCredentialPdf';
 import { findTier, getTierDisplayName, tierCardStyle } from '../domain/members/tiers';
+import CredentialBarcode from './CredentialBarcode';
 
 function formatMemberId(id) {
   if (!id) return '•••• •••• •••• ••••';
@@ -554,7 +555,7 @@ export default function VirtualCard({ member }) {
               </div>
             </div>
             {zoom < 1.25 ? (
-              <div className="vc-secure-scan" aria-label="Código QR para acceso">
+              <div className="vc-secure-scan" aria-label="Códigos de acceso">
                 <QRCodeSVG
                   value={buildCredentialQRPayload(member)}
                   size={196}
@@ -563,6 +564,20 @@ export default function VirtualCard({ member }) {
                   bgColor="#ffffff"
                   fgColor="#000000"
                 />
+                <CredentialBarcode
+                  member={member}
+                  height={64}
+                  style={{ marginTop: 14, width: '100%', maxWidth: 320 }}
+                />
+                <p style={{
+                  margin: '0.55rem 0 0',
+                  fontSize: '0.72rem',
+                  color: 'rgba(255,255,255,0.65)',
+                  textAlign: 'center',
+                  lineHeight: 1.35,
+                }}>
+                  QR para cámara · barras para pistola de portería
+                </p>
               </div>
             ) : null}
             <p className="vc-secure-foot">

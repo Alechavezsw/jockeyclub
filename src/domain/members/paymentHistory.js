@@ -31,7 +31,8 @@ const METHOD_LABELS = {
   transferencia: 'Transferencia',
   efectivo: 'Efectivo',
   debito: 'Débito automático',
-  tarjeta: 'Tarjeta',
+  tarjeta: 'Pago POS',
+  pos: 'Pago POS',
   caja: 'Caja / Secretaría',
 };
 
@@ -227,7 +228,9 @@ export function summarizePaymentHistory(history = [], member, { today = new Date
     { ...standingMember, outstandingBalance: outstanding },
     { paidOn: today },
   );
-  const nextAmount = outstanding > 0 ? (split.total || outstanding) : monthly;
+  // Al día (sin saldo): no inventar adelanto. El portal usa collectionPreview para
+  // ofrecer solo un mes ya abierto/liquidado.
+  const nextAmount = outstanding > 0.01 ? (split.total || outstanding) : 0;
 
   return {
     totalPaid,

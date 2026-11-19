@@ -616,8 +616,8 @@ export default function PoolTab({
                       ? 'El socio paga en el teléfono. Cuando Mercado Pago confirma, entra el canon y el ingreso.'
                       : poolMethodUsesBank(payMethod)
                         ? `${poolMethodLabel(payMethod)} acredita en el banco o alias elegido. Queda el asiento y el ingreso.`
-                        : payMethod === 'tarjeta'
-                          ? 'Tarjeta en Caja General. Queda el asiento y el ingreso a tu nombre.'
+                        : payMethod === 'tarjeta' || payMethod === 'pos'
+                          ? 'Pago POS en Tarjetas a cobrar. Queda el asiento y el ingreso a tu nombre.'
                           : 'Efectivo en Caja General. Queda el asiento y el ingreso a tu nombre.'}
                   </p>
                   {eval_.blockers.length > 0 ? (

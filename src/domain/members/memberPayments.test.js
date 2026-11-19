@@ -473,7 +473,59 @@ describe('payMemberDues', () => {
     })).toThrow(/suman/i);
   });
 
-  it('recordDuesCollection exige comprobante en tarjeta y asienta en Caja General', () => {
+  it('mixto MP + DATA guarda cupón mayor y asienta solo el imputado', () => {
+    const member = {
+      memberId: '10508',
+      name: 'Socio',
+      outstandingBalance: 693000,
+      paymentHistory: [],
+    };
+    const result = recordDuesCollection(member, {
+      method: 'mixto',
+      amount: 693000,
+      paymentSplits: [
+        {
+          method: 'transferencia',
+          amount: 300000,
+          bankId: 'mercadopago',
+          bankName: 'Mercado Pago',
+          receiptName: 'mp.pdf',
+          receiptAttachment: {
+            path: '10508/mp.pdf',
+            bucket: 'dues-receipts',
+            name: 'mp.pdf',
+            mimeType: 'application/pdf',
+            size: 100,
+          },
+        },
+        {
+          method: 'tarjeta',
+          amount: 393000,
+          paymentPlanId: 'data-3',
+          paymentPlanLabel: 'DATA 3 cuotas',
+          voucherAmount: 432000,
+          receiptParse: {
+            source: 'manual',
+            reference: '1300-305',
+            amount: 432000,
+            bankOrCard: 'DATA 3 cuotas',
+          },
+          receiptName: 'Manual · 1300-305',
+        },
+      ],
+      today: new Date('2026-11-18T12:00:00'),
+    });
+    const card = result.payment.paymentSplits.find((row) => row.method === 'tarjeta');
+    expect(card.voucherAmount).toBe(432000);
+    expect(card.amount).toBe(393000);
+    expect(result.journalEntry.lines.filter((l) => l.type === 'debit')).toEqual([
+      { account: 'Mercado Pago', type: 'debit', amount: 300000 },
+      { account: 'Tarjetas a cobrar', type: 'debit', amount: 393000 },
+    ]);
+    expect(result.journalEntry.lines.find((l) => l.type === 'credit')?.amount).toBe(693000);
+  });
+
+  it('recordDuesCollection exige comprobante en tarjeta y asienta en Tarjetas a cobrar', () => {
     const member = { memberId: '11017', name: 'Socio', outstandingBalance: 1000, paymentHistory: [] };
     expect(() => recordDuesCollection(member, { method: 'tarjeta' }))
       .toThrow(/comprobante/i);
@@ -496,7 +548,7 @@ describe('payMemberDues', () => {
     expect(result.payment.paymentPlanId).toBe('visa-3');
     expect(result.payment.paymentPlanLabel).toBe('Visa 3 cuotas');
     expect(result.payment.receiptParse?.reference).toBe('OP-1');
-    expect(result.journalEntry.lines[0].account).toBe('Caja General');
+    expect(result.journalEntry.lines[0].account).toBe('Tarjetas a cobrar');
     expect(result.payment.concept).toMatch(/Plan: Visa 3 cuotas/);
   });
 

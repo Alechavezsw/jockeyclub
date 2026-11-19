@@ -21,6 +21,7 @@ import {
   duesMethodSkipsSurcharge,
   duesMethodUsesBank,
   duesReceiptRequiredMessage,
+  isCardPosDuesMethod,
   isManualDuesReceipt,
   isOnAccountDuesMethod,
   manualDuesReceiptLabel,
@@ -39,15 +40,15 @@ const METHODS = [
   { id: 'efectivo', label: 'Efectivo', icon: Banknote, hint: 'Caja general' },
   { id: 'a_cuenta', label: 'A cuenta', icon: Wallet, hint: 'Parcial · queda a favor si sobra' },
   { id: 'transferencia', label: 'Transfer.', icon: Landmark, hint: 'Banco del club + comprobante' },
-  { id: 'tarjeta', label: 'Tarjeta', icon: CreditCard, hint: 'POS + voucher' },
+  { id: 'tarjeta', label: 'Pago POS', icon: CreditCard, hint: 'Terminal + voucher' },
   { id: 'debito', label: 'Débito', icon: WalletCards, hint: 'Sin recargo · con comprobante' },
-  { id: 'mixto', label: 'Mixto', icon: Split, hint: 'Efectivo + transferencia + tarjeta' },
+  { id: 'mixto', label: 'Mixto', icon: Split, hint: 'Efectivo + transferencia + POS' },
   { id: 'mercadopago', label: 'MP', icon: QrCode, hint: 'QR de mostrador' },
 ];
 
 const MIX_METHOD_OPTIONS = MIXED_DUES_METHODS.map((id) => ({
   id,
-  label: id === 'efectivo' ? 'Efectivo' : id === 'transferencia' ? 'Transferencia' : 'Tarjeta',
+  label: id === 'efectivo' ? 'Efectivo' : id === 'transferencia' ? 'Transferencia' : 'Pago POS',
 }));
 
 function emptyMixLine(method = 'efectivo', amount = '') {
@@ -144,9 +145,19 @@ function ReceiptParsePanel({
       </div>
       {mismatch ? (
         <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-gold)', lineHeight: 1.35 }}>
-          El comprobante muestra {formatCurrency(parsedAmount)}. Se registra el cobro por{' '}
-          <strong style={{ color: 'var(--emerald-accent)' }}>{formatCurrency(amount)}</strong>
-          {' '}(meses marcados). Podés seguir: no hace falta que coincidan.
+          {parsedAmount > Number(amount || 0) + 0.01 ? (
+            <>
+              Cupón / voucher {formatCurrency(parsedAmount)}. A la deuda del club se imputa{' '}
+              <strong style={{ color: 'var(--emerald-accent)' }}>{formatCurrency(amount)}</strong>
+              {' '}(DATA/POS: la diferencia la financia el socio). Queda en el recibo como cupón.
+            </>
+          ) : (
+            <>
+              El comprobante muestra {formatCurrency(parsedAmount)}. Se registra el cobro por{' '}
+              <strong style={{ color: 'var(--emerald-accent)' }}>{formatCurrency(amount)}</strong>
+              {' '}(meses marcados). Podés seguir: no hace falta que coincidan.
+            </>
+          )}
         </p>
       ) : null}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.5rem' }}>
@@ -328,7 +339,9 @@ export default function CollectDuesModal({
   const [selectedDueOns, setSelectedDueOns] = useState([]);
   const [method, setMethod] = useState(() => {
     const seed = String(initialMethod || '').toLowerCase();
-    if (seed === 'transferencia' || seed === 'debito' || seed === 'tarjeta' || seed === 'efectivo') return seed;
+    if (seed === 'transferencia' || seed === 'debito' || seed === 'tarjeta' || seed === 'pos' || seed === 'efectivo') {
+      return seed === 'pos' ? 'tarjeta' : seed;
+    }
     return 'efectivo';
   });
   const [onAccountInput, setOnAccountInput] = useState('');
@@ -338,8 +351,8 @@ export default function CollectDuesModal({
 
   useEffect(() => {
     const seed = String(initialMethod || '').toLowerCase();
-    if (seed === 'transferencia' || seed === 'debito' || seed === 'tarjeta' || seed === 'efectivo') {
-      setMethod(seed);
+    if (seed === 'transferencia' || seed === 'debito' || seed === 'tarjeta' || seed === 'pos' || seed === 'efectivo') {
+      setMethod(seed === 'pos' ? 'tarjeta' : seed);
     }
   }, [initialMethod, member?.memberId]);
 
@@ -459,7 +472,7 @@ export default function CollectDuesModal({
   const mixReading = mixLines.some((row) => row.reading);
 
   useEffect(() => {
-    if (method !== 'tarjeta') return;
+    if (!isCardPosDuesMethod(method)) return;
     if (!plans.length) {
       setPlanId('');
       return;
@@ -677,8 +690,8 @@ export default function CollectDuesModal({
           setError(duesReceiptRequiredMessage(row.method, { mixed: true }).replace('pago mixto', 'mixto'));
           return;
         }
-        if (row.method === 'tarjeta' && plans.length && !row.planId) {
-          setError('Elegí el plan de tarjeta en la línea correspondiente.');
+        if (isCardPosDuesMethod(row.method) && plans.length && !row.planId) {
+          setError('Elegí el plan de Pago POS en la línea correspondiente.');
           return;
         }
       }
@@ -692,8 +705,8 @@ export default function CollectDuesModal({
         setError(duesReceiptRequiredMessage(method));
         return;
       }
-      if (method === 'tarjeta' && plans.length && !selectedPlan) {
-        setError('Elegí el plan con la tarjeta.');
+      if (isCardPosDuesMethod(method) && plans.length && !selectedPlan) {
+        setError('Elegí el plan de Pago POS.');
         return;
       }
     }
@@ -721,8 +734,12 @@ export default function CollectDuesModal({
             bankId: duesMethodUsesBank(row.method) ? row.bankId : null,
             bankName: duesMethodUsesBank(row.method) ? bank?.name : null,
             journalAccount: journalAccountForPayment(row.method, row.bankId),
-            paymentPlanId: row.method === 'tarjeta' ? (plan?.id || null) : null,
-            paymentPlanLabel: row.method === 'tarjeta' ? (plan?.label || null) : null,
+            paymentPlanId: isCardPosDuesMethod(row.method) ? (plan?.id || null) : null,
+            paymentPlanLabel: isCardPosDuesMethod(row.method) ? (plan?.label || null) : null,
+            // Cupón DATA/POS (puede ser > imputado); el asiento usa `amount`.
+            voucherAmount: isCardPosDuesMethod(row.method)
+              ? (Number(row.receiptParse?.amount) || null)
+              : null,
             receiptName: receiptAttachment?.name
               || (lineManual ? manualDuesReceiptLabel(row.receiptParse) : null)
               || row.receiptName
@@ -771,8 +788,8 @@ export default function CollectDuesModal({
           discount: concession.discount,
           discountDetail: concession.detail,
           periodDueOns: chargeDueOns,
-          paymentPlanId: recordMethod === 'tarjeta' ? (selectedPlan?.id || null) : null,
-          paymentPlanLabel: recordMethod === 'tarjeta' ? (selectedPlan?.label || null) : null,
+          paymentPlanId: isCardPosDuesMethod(recordMethod) ? (selectedPlan?.id || null) : null,
+          paymentPlanLabel: isCardPosDuesMethod(recordMethod) ? (selectedPlan?.label || null) : null,
           receiptParse: needsReceipt ? receiptParse : null,
           treasuryMatch: Boolean(needsReceipt && !manual && !receiptFile && seededAttachment?.path),
           ...(tennisOnly ? { chargeScope: 'abono_tenis', monthlyAmount: tennisMonthlyAmount } : {}),
@@ -1210,14 +1227,14 @@ export default function CollectDuesModal({
           </div>
         )}
 
-        {method === 'tarjeta' && (
+        {isCardPosDuesMethod(method) && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '1rem' }}>
             <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
-              Se registra en <strong style={{ color: 'var(--text-gold)' }}>Caja General</strong>. El plan es el acuerdo con la tarjeta; no financia la deuda del club.
+              Se registra en <strong style={{ color: 'var(--text-gold)' }}>Tarjetas a cobrar</strong>. El plan es el acuerdo del POS; no financia la deuda del club.
             </p>
             {plans.length ? (
               <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Plan con la tarjeta *</label>
+                <label className="form-label">Plan POS *</label>
                 <select
                   className="form-input"
                   value={planId}
@@ -1242,7 +1259,8 @@ export default function CollectDuesModal({
         {isMixed ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '1rem' }}>
             <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
-              Combiná medios. La suma debe ser {formatCurrency(cash)}. Mercado Pago QR no entra en el mixto.
+              Combiná medios. La suma debe ser {formatCurrency(cash)}. Alias Mercado Pago sí (transferencia).
+              QR Mercado Pago one-shot no entra en el mixto. En Pago POS el cupón DATA puede ser mayor al imputado.
             </p>
             {mixLines.map((line, index) => {
               const lineNeedsReceipt = duesMethodNeedsReceipt(line.method);
@@ -1282,7 +1300,7 @@ export default function CollectDuesModal({
                           receiptName: '',
                           receiptPreview: '',
                           receiptParse: null,
-                          planId: e.target.value === 'tarjeta' && plans[0] ? plans[0].id : '',
+                          planId: isCardPosDuesMethod(e.target.value) && plans[0] ? plans[0].id : '',
                         })}
                       >
                         {MIX_METHOD_OPTIONS.map((opt) => (
@@ -1316,7 +1334,7 @@ export default function CollectDuesModal({
                       </select>
                     </label>
                   ) : null}
-                  {line.method === 'tarjeta' && plans.length ? (
+                  {isCardPosDuesMethod(line.method) && plans.length ? (
                     <label className="form-group" style={{ margin: 0 }}>
                       <span className="form-label">Plan</span>
                       <select

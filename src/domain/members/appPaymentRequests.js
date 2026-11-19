@@ -58,7 +58,7 @@ export function appPaymentRequestMethodLabel(message) {
   const method = String(message?.meta?.method || '').toLowerCase();
   if (method === 'transferencia') return 'Transferencia';
   if (method === 'debito') return 'Débito';
-  if (method === 'tarjeta') return 'Tarjeta';
+  if (method === 'tarjeta' || method === 'pos') return 'Pago POS';
   if (method === 'mercadopago') return 'Mercado Pago';
   return 'Pago app';
 }
@@ -357,6 +357,8 @@ export function appPaymentRequestBankId(message) {
 /** Método sugerido para el modal de cobro. */
 export function appPaymentRequestCollectMethod(message) {
   const method = String(message?.meta?.method || '').toLowerCase();
-  if (method === 'transferencia' || method === 'debito' || method === 'tarjeta') return method;
+  if (method === 'transferencia' || method === 'debito' || method === 'tarjeta' || method === 'pos') {
+    return method === 'pos' ? 'tarjeta' : method;
+  }
   return 'transferencia';
 }

@@ -18,6 +18,14 @@ export const DEFAULT_PAYMENT_PLANS = [
     notes: '',
   },
   {
+    id: 'data-3',
+    label: 'DATA 3 cuotas',
+    cardBrand: 'DATA',
+    installments: 3,
+    active: true,
+    notes: 'POSNET / DATA: el cupón puede ser mayor al imputado (financia el socio).',
+  },
+  {
     id: 'mastercard-contado',
     label: 'Mastercard contado',
     cardBrand: 'Mastercard',
@@ -63,6 +71,16 @@ export function mergePaymentPlans(raw) {
     plans.push(plan);
   });
   return plans.length ? plans : DEFAULT_PAYMENT_PLANS.map((row, i) => normalizePaymentPlan(row, i));
+}
+
+/** Agrega planes oficiales faltantes (p. ej. DATA 3 cuotas) sin pisar los ya cargados. */
+export function ensureOfficialPaymentPlans(raw) {
+  const list = mergePaymentPlans(raw);
+  const ids = new Set(list.map((row) => row.id));
+  const missing = DEFAULT_PAYMENT_PLANS
+    .map((row, i) => normalizePaymentPlan(row, i))
+    .filter((row) => !ids.has(row.id));
+  return missing.length ? [...list, ...missing] : list;
 }
 
 export function activePaymentPlans(plans = DEFAULT_PAYMENT_PLANS) {

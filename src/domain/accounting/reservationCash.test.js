@@ -28,10 +28,11 @@ describe('reservationCash', () => {
     expect(reservationCashShouldPost('transferencia')).toBe(true);
   });
 
-  it('elige banco en transferencia y caja en efectivo', () => {
+  it('elige banco en transferencia, Tarjetas a cobrar en POS y caja en efectivo', () => {
     expect(reservationCashTreasuryAccount('transferencia')).toBe('Banco Macro');
     expect(reservationCashTreasuryAccount('efectivo')).toBe('Caja General');
-    expect(reservationCashTreasuryAccount('tarjeta')).toBe('Caja General');
+    expect(reservationCashTreasuryAccount('tarjeta')).toBe('Tarjetas a cobrar');
+    expect(reservationCashTreasuryAccount('pos')).toBe('Tarjetas a cobrar');
   });
 
   it('arma concepto de confirmación / seña', () => {

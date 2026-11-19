@@ -48,7 +48,8 @@ function withPaidParts(member, capitalPaid = 0, surchargePaid = 0) {
 export const DUES_METHOD_LABELS = {
   efectivo: 'Efectivo',
   transferencia: 'Transferencia',
-  tarjeta: 'Tarjeta',
+  tarjeta: 'Pago POS',
+  pos: 'Pago POS',
   mixto: 'Pago mixto',
   mercadopago: 'Mercado Pago',
   debito: 'Débito',
@@ -58,6 +59,18 @@ export const DUES_METHOD_LABELS = {
 
 /** Medios que se pueden combinar en un pago mixto (sin QR async). */
 export const MIXED_DUES_METHODS = ['efectivo', 'transferencia', 'tarjeta'];
+
+/** Terminal POS / cupón Visa (histórico `tarjeta` y alias `pos`). */
+export function isCardPosDuesMethod(method) {
+  const raw = String(method || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ');
+  return raw === 'tarjeta' || raw === 'pos' || raw === 'pago pos' || raw === 'card';
+}
 
 /** Entrega parcial o a favor: se imputa del mes más viejo al más nuevo. */
 export function isOnAccountDuesMethod(method) {
@@ -77,9 +90,9 @@ export function memberCreditBalance(member) {
   return stored < -0.01 ? money(-stored) : 0;
 }
 
-/** Transferencia, tarjeta y débito exigen comprobante (archivo o carga a mano). */
+/** Transferencia, POS y débito exigen comprobante (archivo o carga a mano). */
 export function duesMethodNeedsReceipt(method) {
-  return method === 'transferencia' || method === 'tarjeta' || method === 'debito';
+  return method === 'transferencia' || isCardPosDuesMethod(method) || method === 'debito';
 }
 
 /** Medios que acreditan en banco / alias del club (no caja). */
@@ -108,10 +121,10 @@ export function duesMethodSkipsSurcharge(method) {
 }
 
 export function duesReceiptRequiredMessage(method, { mixed = false } = {}) {
-  if (method === 'tarjeta') {
+  if (isCardPosDuesMethod(method)) {
     return mixed
-      ? 'Adjunte el comprobante de la tarjeta en el pago mixto.'
-      : 'Adjunte el comprobante de la tarjeta.';
+      ? 'Adjunte el comprobante del POS en el pago mixto.'
+      : 'Adjunte el comprobante del POS (voucher / cupón).';
   }
   if (method === 'debito') {
     return mixed
@@ -160,6 +173,7 @@ export function manualDuesReceiptLabel(receiptParse) {
 
 export function duesMethodLabel(method, bankName) {
   if (isOnAccountDuesMethod(method)) return DUES_METHOD_LABELS.a_cuenta;
+  if (isCardPosDuesMethod(method)) return DUES_METHOD_LABELS.tarjeta;
   if (method === 'transferencia') {
     return bankName ? `Transferencia ${bankName}` : 'Transferencia';
   }
@@ -174,11 +188,26 @@ export {
   changeDuesPaymentMethod,
 } from './duesPaymentMethodChange';
 
+/**
+ * Cupón POS/DATA mayor al imputado: lo que figura en el voucher (financia el socio).
+ * El club solo asienta el `amount` del tramo / cobro.
+ */
+export function duesVoucherAmount(row, imputedAmount = null) {
+  const imputed = money(imputedAmount != null ? imputedAmount : row?.amount);
+  const raw = Number(row?.voucherAmount ?? row?.receiptParse?.amount);
+  if (!Number.isFinite(raw) || !(raw > 0)) return null;
+  const voucher = money(raw);
+  if (imputed > 0 && voucher > imputed + 0.01) return voucher;
+  if (!(imputed > 0) && voucher > 0.01) return voucher;
+  return null;
+}
+
 /** Normaliza líneas de un pago mixto. */
 export function normalizePaymentSplits(raw = []) {
   return (Array.isArray(raw) ? raw : [])
     .map((row, index) => {
-      const method = String(row?.method || '').trim();
+      const rawMethod = String(row?.method || '').trim().toLowerCase();
+      const method = isCardPosDuesMethod(rawMethod) ? 'tarjeta' : rawMethod;
       if (!MIXED_DUES_METHODS.includes(method)) return null;
       const amount = money(row?.amount);
       if (!(amount > 0)) return null;
@@ -197,9 +226,10 @@ export function normalizePaymentSplits(raw = []) {
         || (manual ? manualDuesReceiptLabel(row.receiptParse) : null);
       const bankId = duesMethodUsesBank(method) ? (row.bankId || null) : null;
       const bankName = duesMethodUsesBank(method) ? (row.bankName || null) : null;
-      const paymentPlanId = method === 'tarjeta' ? (row.paymentPlanId || null) : null;
-      const paymentPlanLabel = method === 'tarjeta' ? (String(row.paymentPlanLabel || '').trim() || null) : null;
+      const paymentPlanId = isCardPosDuesMethod(method) ? (row.paymentPlanId || null) : null;
+      const paymentPlanLabel = isCardPosDuesMethod(method) ? (String(row.paymentPlanLabel || '').trim() || null) : null;
       const journalAccount = row.journalAccount || journalAccountForPayment(method, bankId);
+      const voucherAmount = isCardPosDuesMethod(method) ? duesVoucherAmount(row, amount) : null;
       return {
         id: row.id || `split-${index + 1}`,
         method,
@@ -209,6 +239,7 @@ export function normalizePaymentSplits(raw = []) {
         journalAccount,
         paymentPlanId,
         paymentPlanLabel,
+        voucherAmount,
         receiptName,
         receiptPath: attachment?.path || row.receiptPath || null,
         receiptBucket: attachment?.bucket || row.receiptBucket || null,
@@ -1089,7 +1120,7 @@ export function recordDuesCollection(member, {
     : (journalAccount || journalAccountForPayment(resolvedMethod, bankId));
   const receiptNote = !mixed && attachmentName ? ` · Comp: ${attachmentName}` : '';
   const planLabel = String(paymentPlanLabel || '').trim();
-  const planNote = !mixed && resolvedMethod === 'tarjeta' && planLabel ? ` · Plan: ${planLabel}` : '';
+  const planNote = !mixed && isCardPosDuesMethod(resolvedMethod) && planLabel ? ` · Plan: ${planLabel}` : '';
   const mixedNote = mixed
     ? ` · ${mixed.splits.map((row) => `${row.label} ${row.amount}`).join(' + ')}`
     : '';
@@ -1123,9 +1154,17 @@ export function recordDuesCollection(member, {
     concept: `${paid.payment.concept}${receiptNote}${planNote}${mixedNote}`,
     collectedFromMemberId: account.memberId !== member.memberId ? member.memberId : null,
     collectedFromName: account.memberId !== member.memberId ? member.name : null,
-    paymentPlanId: mixed ? null : (resolvedMethod === 'tarjeta' ? (paymentPlanId || null) : null),
-    paymentPlanLabel: mixed ? null : (resolvedMethod === 'tarjeta' ? (planLabel || null) : null),
+    paymentPlanId: mixed ? null : (isCardPosDuesMethod(resolvedMethod) ? (paymentPlanId || null) : null),
+    paymentPlanLabel: mixed ? null : (isCardPosDuesMethod(resolvedMethod) ? (planLabel || null) : null),
     receiptParse: mixed ? null : (receiptParse && typeof receiptParse === 'object' ? receiptParse : null),
+    voucherAmount: mixed
+      ? null
+      : (isCardPosDuesMethod(resolvedMethod)
+        ? duesVoucherAmount(
+          { receiptParse },
+          concession.discount > 0 ? concession.cash : paid.payment.amount,
+        )
+        : null),
     paymentSplits: mixed ? mixed.splits : null,
     amount: concession.discount > 0 ? concession.cash : paid.payment.amount,
     discount: concession.discount,
@@ -1384,7 +1423,7 @@ export function recordTennisAbonoCollection(member, {
     : (journalAccount || journalAccountForPayment(resolvedMethod, bankId));
   const receiptNote = !mixed && attachmentName ? ` · Comp: ${attachmentName}` : '';
   const planLabel = String(paymentPlanLabel || '').trim();
-  const planNote = !mixed && resolvedMethod === 'tarjeta' && planLabel ? ` · Plan: ${planLabel}` : '';
+  const planNote = !mixed && isCardPosDuesMethod(resolvedMethod) && planLabel ? ` · Plan: ${planLabel}` : '';
   const mixedNote = mixed
     ? ` · ${mixed.splits.map((row) => `${row.label} ${row.amount}`).join(' + ')}`
     : '';
@@ -1418,9 +1457,17 @@ export function recordTennisAbonoCollection(member, {
     concept: `${paid.payment.concept}${receiptNote}${planNote}${mixedNote}`,
     collectedFromMemberId: account.memberId !== member.memberId ? member.memberId : null,
     collectedFromName: account.memberId !== member.memberId ? member.name : null,
-    paymentPlanId: mixed ? null : (resolvedMethod === 'tarjeta' ? (paymentPlanId || null) : null),
-    paymentPlanLabel: mixed ? null : (resolvedMethod === 'tarjeta' ? (planLabel || null) : null),
+    paymentPlanId: mixed ? null : (isCardPosDuesMethod(resolvedMethod) ? (paymentPlanId || null) : null),
+    paymentPlanLabel: mixed ? null : (isCardPosDuesMethod(resolvedMethod) ? (planLabel || null) : null),
     receiptParse: mixed ? null : (receiptParse && typeof receiptParse === 'object' ? receiptParse : null),
+    voucherAmount: mixed
+      ? null
+      : (isCardPosDuesMethod(resolvedMethod)
+        ? duesVoucherAmount(
+          { receiptParse },
+          concession.discount > 0 ? concession.cash : paid.payment.amount,
+        )
+        : null),
     paymentSplits: mixed ? mixed.splits : null,
     amount: concession.discount > 0 ? concession.cash : paid.payment.amount,
     discount: concession.discount,

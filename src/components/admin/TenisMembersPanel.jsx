@@ -285,11 +285,7 @@ export default function TenisMembersPanel({
             <TennisBallIcon size={30} />
           </span>
           <div>
-            <p className="tenis-desk__eyebrow">Disciplina</p>
             <h2 className="tenis-desk__title">Tenis</h2>
-            <p className="tenis-desk__lead">
-              Abono $ 12.000 / mes · aparte de la cuota · sin 10 %. También vitalicios y fundadores.
-            </p>
           </div>
         </div>
         <div className="tenis-desk__kpis" aria-label="Resumen tenis">

@@ -110,7 +110,8 @@ const METHOD_LABELS = {
   efectivo: 'Efectivo',
   transferencia: 'Transferencia',
   mercadopago: 'Mercado Pago',
-  tarjeta: 'Tarjeta',
+  tarjeta: 'Pago POS',
+  pos: 'Pago POS',
   debito: 'Débito',
   a_cuenta: 'A cuenta',
   cheque: 'Cheque',
@@ -123,7 +124,7 @@ function methodLabel(row) {
   if (/mercado\s*pago|\bqr\b/i.test(blob)) return 'Mercado Pago';
   if (/a\s*cuenta/i.test(blob)) return 'A cuenta';
   if (/transfer|banco/i.test(blob)) return 'Transferencia';
-  if (/tarjeta|cr[eé]dito/i.test(blob)) return 'Tarjeta';
+  if (/pago\s*pos|\bpos\b|tarjeta|cr[eé]dito/i.test(blob)) return 'Pago POS';
   if (/d[eé]bito/i.test(blob)) return 'Débito';
   if (/cheque/i.test(blob)) return 'Cheque';
   if (/efectivo/i.test(blob)) return 'Efectivo';

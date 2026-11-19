@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_PAYMENT_PLANS,
   activePaymentPlans,
+  ensureOfficialPaymentPlans,
   findPaymentPlan,
   mergePaymentPlans,
 } from './paymentPlans';
@@ -11,6 +12,7 @@ describe('paymentPlans', () => {
     const plans = mergePaymentPlans(null);
     expect(plans.length).toBe(DEFAULT_PAYMENT_PLANS.length);
     expect(plans[0].label).toMatch(/Visa/i);
+    expect(findPaymentPlan(plans, 'data-3')?.label).toMatch(/DATA/i);
   });
 
   it('limpia ids, cuotas y activos', () => {
@@ -23,6 +25,15 @@ describe('paymentPlans', () => {
     expect(plans[0].installments).toBe(6);
     expect(plans[0].active).toBe(false);
     expect(activePaymentPlans(plans)).toHaveLength(0);
+  });
+
+  it('agrega planes oficiales faltantes sin pisar los cargados', () => {
+    const plans = ensureOfficialPaymentPlans([
+      { id: 'visa-3', label: 'Visa 3 cuotas custom', installments: 3 },
+    ]);
+    expect(findPaymentPlan(plans, 'visa-3')?.label).toBe('Visa 3 cuotas custom');
+    expect(findPaymentPlan(plans, 'data-3')?.installments).toBe(3);
+    expect(plans.length).toBeGreaterThanOrEqual(DEFAULT_PAYMENT_PLANS.length);
   });
 
   it('busca por id entre los planes activos', () => {

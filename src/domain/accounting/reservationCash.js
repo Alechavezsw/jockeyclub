@@ -24,10 +24,11 @@ export function reservationCashShouldPost(method) {
   return !SKIP_METHODS.has(key);
 }
 
-/** Caja General (efectivo/tarjeta) o Banco Macro (transferencia). */
+/** Caja General (efectivo), Tarjetas a cobrar (POS) o Banco Macro (transferencia). */
 export function reservationCashTreasuryAccount(method) {
   const key = reservationCashMethodKey(method);
   if (key === 'transferencia' || key === 'transfer') return 'Banco Macro';
+  if (key === 'tarjeta' || key === 'pos' || key === 'pago pos') return 'Tarjetas a cobrar';
   return 'Caja General';
 }
 

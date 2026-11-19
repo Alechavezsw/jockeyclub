@@ -4,6 +4,11 @@ import {
   ArrowLeft, CheckCircle2, AlertCircle, Camera, CameraOff, History, CalendarRange, X,
 } from 'lucide-react';
 import { parseCredentialQRPayload } from '../domain/credentials/qr';
+import {
+  parseCredentialBarcodePayload,
+  resolveAccessScanPayload,
+  sanitizeBarcodeScan,
+} from '../domain/credentials/barcode';
 import { createCredentialVerifier } from '../domain/credentials/credentialCheck';
 import { parseGuestPassPayload, isGuestPassValid } from '../domain/credentials/guestPass';
 import {
@@ -218,7 +223,7 @@ export default function AccessControlView({
     setCameraError('');
   }, []);
 
-  const admitMember = useCallback(async (seed) => {
+  const admitMember = useCallback(async (seed, { via = 'manual' } = {}) => {
     if (!seed) return;
     const { member, gateMembers } = await hydrateGateMember(seed, members);
     if (!member?.memberId) return;
@@ -234,11 +239,16 @@ export default function AccessControlView({
     const isAllowed = !isSuspended && !entry.blocked;
     const status = isAllowed ? 'granted' : 'denied';
     const debtNote = holder && holder !== member ? 'Deuda del titular' : 'Deuda';
+    const viaNote = via === 'barcode'
+      ? 'Código de barras'
+      : via === 'qr'
+        ? 'QR'
+        : 'Búsqueda manual';
     const notes = isSuspended
       ? 'Cuenta suspendida'
       : entry.blocked
         ? (hasDebt ? `${debtNote} ${formatCurrency(owed)}. ${entry.reason}` : entry.reason)
-        : 'Acceso aprobado · Al día';
+        : `Acceso aprobado · Al día · ${viaNote}`;
 
     // Misma credencial dos veces en poco rato: un QR prestado o mandado por WhatsApp se nota así.
     // Solo avisa; quien decide es el portero (puede haber salido y vuelto).
@@ -387,15 +397,28 @@ export default function AccessControlView({
       return;
     }
 
-    const parsed = parseCredentialQRPayload(text);
+    // Pistola HID / Code 128 del carnet, o QR de la app.
+    const barcode = parseCredentialBarcodePayload(text);
+    const qrParsed = barcode ? null : parseCredentialQRPayload(sanitizeBarcodeScan(text) || text);
+    const parsed = barcode
+      ? {
+        memberId: barcode.memberId,
+        token: null,
+        signed: false,
+        scanKind: 'barcode',
+        checkOk: barcode.checkOk,
+      }
+      : (qrParsed ? { ...qrParsed, scanKind: 'qr' } : null);
     const memberId = parsed?.memberId || null;
-    if (!memberId || (!parsed.signed && !allowUnsignedNumber)) {
+    // Barras del carnet son sin firma (Nº + check): se admiten en molinete con pistola.
+    const allowUnsigned = allowUnsignedNumber || parsed?.scanKind === 'barcode';
+    if (!memberId || (!parsed.signed && !allowUnsigned)) {
       setResult({
         status: 'denied',
-        title: 'QR no válido',
+        title: parsed?.scanKind === 'barcode' ? 'Código de barras no válido' : 'QR no válido',
         detail: parsed && !parsed.signed
           ? 'Esta credencial no está firmada. Pedí al socio que abra la app o ingresá el número a mano.'
-          : 'Acercá la credencial digital del Jockey Club (pantalla completa).',
+          : 'Acercá la credencial digital del Jockey Club (pantalla completa) o pasá el carnet por la pistola.',
         memberName: null,
       });
       playBeep(false);
@@ -405,9 +428,9 @@ export default function AccessControlView({
           memberId: null,
           role: '—',
           group: '—',
-          activity: 'QR inválido',
+          activity: parsed?.scanKind === 'barcode' ? 'Barras inválido' : 'QR inválido',
           status: 'denied',
-          notes: 'QR no válido / no es credencial Jockey Club',
+          notes: 'Credencial no válida / no es Jockey Club',
           operator: operatorName,
         }),
         ...(prev || []),
@@ -523,7 +546,7 @@ export default function AccessControlView({
       return;
     }
 
-    void admitMember(member);
+    void admitMember(member, { via: parsed.scanKind === 'barcode' ? 'barcode' : 'qr' });
   }, [members, guestPasses, setEntryLogs, beginCooldown, admitMember, showUnverified, verifier, clubDay, poolCfg, operatorName]);
 
   // El lector llama siempre a la versión más nueva sin reiniciar la cámara cada vez que cambia algo.
@@ -1103,7 +1126,9 @@ export default function AccessControlView({
               e.preventDefault();
               const raw = manualCode.trim();
               if (!raw) return;
-              if (/^JCSJ:/i.test(raw) || parseGuestPassPayload(raw)) {
+              // Pistola HID: Enter al final → resolveAccessScanPayload (QR / barras / invitado).
+              const scan = resolveAccessScanPayload(raw);
+              if (scan?.kind === 'guest' || scan?.kind === 'qr' || scan?.kind === 'barcode') {
                 processPayload(raw, { allowUnsignedNumber: true });
                 setManualCode('');
                 setManualHint('');
@@ -1111,7 +1136,7 @@ export default function AccessControlView({
               }
               const exact = pickExactHit(hits, raw);
               if (exact) {
-                admitMember(exact);
+                admitMember(exact, { via: 'manual' });
                 return;
               }
               if (hits.length > 1) {
@@ -1148,7 +1173,7 @@ export default function AccessControlView({
                   setManualCode(e.target.value);
                   setManualHint('');
                 }}
-                placeholder="DNI, apellido o N°…"
+                placeholder="DNI, apellido, N° o pistola…"
                 inputMode="search"
                 enterKeyHint="search"
                 autoComplete="off"

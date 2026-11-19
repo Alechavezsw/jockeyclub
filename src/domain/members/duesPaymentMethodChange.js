@@ -5,7 +5,8 @@ import { CLUB_BANK_ACCOUNTS, journalAccountForPayment } from './clubBanks';
 const METHOD_LABELS = {
   efectivo: 'Efectivo',
   transferencia: 'Transferencia',
-  tarjeta: 'Tarjeta',
+  tarjeta: 'Pago POS',
+  pos: 'Pago POS',
   mixto: 'Pago mixto',
   mercadopago: 'Mercado Pago',
   debito: 'Débito',
@@ -62,11 +63,14 @@ export function changeDuesPaymentMethod(payment, {
   if (payment.status === 'void' || payment.status === 'cancelled' || payment.voidedAt) {
     throw new Error('Ese cobro está anulado.');
   }
-  const prevMethod = String(payment.method || '').trim().toLowerCase();
-  if (prevMethod === 'mixto') {
+  const prevRaw = String(payment.method || '').trim().toLowerCase();
+  if (prevRaw === 'mixto') {
     throw new Error('Un pago mixto no se puede cambiar de medio. Anulalo y cobrá de nuevo.');
   }
-  const nextMethod = String(method || '').trim().toLowerCase();
+  const prevMethod = prevRaw === 'pos' ? 'tarjeta' : prevRaw;
+  const nextMethod = String(method || '').trim().toLowerCase() === 'pos'
+    ? 'tarjeta'
+    : String(method || '').trim().toLowerCase();
   if (!EDITABLE_DUES_METHODS.includes(nextMethod)) {
     throw new Error('Medio de pago no válido.');
   }

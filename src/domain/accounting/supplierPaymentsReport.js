@@ -16,7 +16,8 @@ const METHOD_LABELS = {
   transferencia: 'Transferencia',
   cheque: 'Cheque',
   debito: 'Débito',
-  tarjeta: 'Tarjeta',
+  tarjeta: 'Pago POS',
+  pos: 'Pago POS',
   otros: 'Otros',
 };
 

@@ -11,6 +11,14 @@ import { paymentIsTennisAbonoOnly } from './dues';
 import { getTierDisplayName } from './tiers';
 import { duesMonthLabel, duesMonthsPhrase } from './duesImputations';
 
+export function isTennisAbonoPayment(payment) {
+  return paymentIsTennisAbonoOnly(payment);
+}
+
+export function receiptDuesKindLabel(payment) {
+  return paymentIsTennisAbonoOnly(payment) ? 'Abono tenis' : 'Cuota social';
+}
+
 function formatCurrency(amount) {
   return new Intl.NumberFormat('es-AR', {
     style: 'currency',
@@ -200,7 +208,7 @@ export function paymentCorrespondsTo(payment, { isBooking = false } = {}) {
   const period = paymentPeriodLabel(payment);
   const raw = String(payment?.concept || '').trim();
   const cleaned = raw
-    .replace(/\s*[·•|-]\s*(Transferencia|Efectivo|Tarjeta|Mercado Pago|Caja|Débito|A cuenta|Comp:|saldo a favor)[^·•|-]*/gi, '')
+    .replace(/\s*[·•|-]\s*(Transferencia|Efectivo|Tarjeta|Pago POS|Mercado Pago|Caja|Débito|A cuenta|Comp:|saldo a favor)[^·•|-]*/gi, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
   if (/^a cuenta/i.test(cleaned) || /^pago a cuenta/i.test(cleaned)) {
@@ -233,25 +241,95 @@ const METHOD = {
   transferencia: 'Transferencia bancaria',
   efectivo: 'Efectivo',
   debito: 'Débito',
-  tarjeta: 'Tarjeta',
+  tarjeta: 'Pago POS',
+  pos: 'Pago POS',
   caja: 'Caja / Secretaría',
   mercadopago: 'Mercado Pago',
   a_cuenta: 'A cuenta',
+  mixto: 'Pago mixto',
 };
+
+/** Referencia visible en el recibo: plan / cupón, no nombre de archivo adjunto. */
+function receiptSplitReference(row) {
+  const plan = String(row?.paymentPlanLabel || '').trim();
+  if (plan) return plan;
+  const parsedRef = String(row?.receiptParse?.reference || '').trim();
+  if (parsedRef) return parsedRef;
+  const name = String(row?.receiptName || '').trim();
+  if (!name) return '';
+  if (/\.(jpe?g|png|webp|pdf|heic)$/i.test(name)) return '';
+  if (/^manual\s*·/i.test(name)) {
+    return name.replace(/^manual\s*·\s*/i, '').trim();
+  }
+  return name;
+}
+
+/** Tramos de un cobro mixto (importe > 0). */
+export function receiptPaymentSplits(payment) {
+  return (Array.isArray(payment?.paymentSplits) ? payment.paymentSplits : [])
+    .filter((row) => row && (Number(row.amount) || 0) > 0.009)
+    .map((row) => {
+      const amount = Number(row.amount) || 0;
+      const voucherRaw = Number(row.voucherAmount ?? row.receiptParse?.amount);
+      const voucherAmount = Number.isFinite(voucherRaw) && voucherRaw > amount + 0.01
+        ? Math.round(voucherRaw)
+        : 0;
+      return {
+        method: String(row.method || '').trim().toLowerCase(),
+        label: String(row.label || METHOD[String(row.method || '').trim().toLowerCase()] || row.method || 'Medio').trim(),
+        amount,
+        voucherAmount,
+        reference: receiptSplitReference(row),
+        journalAccount: String(row.journalAccount || '').trim(),
+      };
+    });
+}
+
+/**
+ * Adelanto / saldo a favor del cobro.
+ * Usa creditLeftover guardado o la diferencia cobro − (cuota + recargo).
+ */
+export function receiptCreditLeftover(payment) {
+  // Si el cobro trae creditLeftover (aunque sea 0), no inventar adelanto por la diferencia.
+  if (Object.prototype.hasOwnProperty.call(payment || {}, 'creditLeftover')) {
+    const stored = Number(payment.creditLeftover);
+    return Number.isFinite(stored) && stored > 0.01 ? stored : 0;
+  }
+  const paid = Number(payment?.amount) || 0;
+  const quota = Number(payment?.quota);
+  const surcharge = Number(payment?.surcharge) || 0;
+  if (Number.isFinite(quota) && quota > 0.01 && paid > 0.01) {
+    const leftover = Math.round((paid - quota - surcharge) * 100) / 100;
+    if (leftover > 0.01) return leftover;
+  }
+  const charges = receiptChargeLines(payment)
+    .reduce((sum, row) => sum + (Number(row.payable) || 0), 0);
+  const discount = Number(payment?.discount) || 0;
+  if (charges > 0.01 && paid > 0.01) {
+    const leftover = Math.round((paid - (charges - discount)) * 100) / 100;
+    if (leftover > 0.01) return leftover;
+  }
+  return 0;
+}
 
 /** Medio de pago para el recibo (genérico; el banco va en CUENTA). */
 export function receiptMethodLabel(payment) {
+  const splits = receiptPaymentSplits(payment);
   const method = String(payment?.method || '').trim().toLowerCase();
-  if (method === 'a_cuenta' || /a\s*cuenta/i.test(String(payment?.methodLabel || ''))) {
+  const methodLabel = String(payment?.methodLabel || '').trim();
+  // Mixto: no confundir con transferencia porque el methodLabel nombra los tramos.
+  if (method === 'mixto' || splits.length >= 2 || /^pago mixto/i.test(methodLabel)) {
+    return 'Pago mixto';
+  }
+  if (method === 'a_cuenta' || /a\s*cuenta/i.test(methodLabel)) {
     return 'A cuenta';
   }
-  if (method === 'transferencia' || /transferencia/i.test(String(payment?.methodLabel || ''))) {
+  if (method === 'transferencia' || (/^transferencia/i.test(methodLabel) && !/mixto/i.test(methodLabel))) {
     return 'Transferencia bancaria';
   }
   if (METHOD[method]) return METHOD[method];
-  const label = String(payment?.methodLabel || '').trim();
-  if (label) {
-    return label.replace(/^Transferencia\s+.+$/i, 'Transferencia bancaria');
+  if (methodLabel) {
+    return methodLabel.replace(/^Transferencia\s+.+$/i, 'Transferencia bancaria');
   }
   return method || '—';
 }
@@ -273,13 +351,27 @@ export function accountLabel(payment) {
     const bank = CLUB_BANK_ACCOUNTS.find((b) => b.id === payment.bankId) || CLUB_BANK_ACCOUNTS[0];
     return bank?.alias ? `Alias ${bank.alias}` : null;
   }
+  if (payment?.method === 'tarjeta' || payment?.method === 'pos') {
+    return 'Tarjetas a cobrar';
+  }
   if (
     payment?.method === 'efectivo'
     || payment?.method === 'caja'
-    || payment?.method === 'tarjeta'
     || payment?.method === 'a_cuenta'
   ) {
     return 'Caja General';
+  }
+  // Mixto: destino por tramo (MP / Tarjetas a cobrar), nunca Caja General inventada.
+  const splits = receiptPaymentSplits(payment);
+  if (payment?.method === 'mixto' || splits.length >= 2) {
+    const accounts = [...new Set(splits.map((row) => {
+      if (row.journalAccount) return row.journalAccount;
+      if (row.method === 'tarjeta' || row.method === 'pos') return 'Tarjetas a cobrar';
+      if (row.method === 'mercadopago') return 'Mercado Pago';
+      if (row.method === 'efectivo' || row.method === 'a_cuenta') return 'Caja General';
+      return '';
+    }).filter(Boolean))];
+    return accounts.length ? accounts.join(' + ') : null;
   }
   return null;
 }
@@ -343,10 +435,11 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
   doc.setFontSize(9);
   doc.setTextColor(60, 60, 60);
   const balanceRemaining = Number(payment.balanceRemaining);
-  const creditLeftover = Number(payment.creditLeftover);
+  const creditLeftover = receiptCreditLeftover(payment);
   const creditApplied = Number(payment.creditApplied);
   const onAccount = !isBooking && isOnAccountPayment(payment);
   const totalPrice = Number(payment.totalPrice);
+  const splits = !isBooking ? receiptPaymentSplits(payment) : [];
   const infoRows = [
     ['SOCIO', String(member?.name || '—').toUpperCase()],
     ['N° SOCIO', String(member?.memberId || '—')],
@@ -360,6 +453,25 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
       : ['FECHA', formatLongDateAr(payment.date)],
     ['FECHA PAGO', formatLongDateAr(payment.date)],
     ['COMPROBANTE', String(receiptNo)],
+    ...(splits.length >= 2
+      ? splits.map((row, index) => {
+        const amount = formatCurrency(row.amount);
+        // Misma estructura en cada tramo para que no quede una línea corta al lado de otra.
+        const detail = row.reference && !row.label.includes(row.reference)
+          ? `${row.label} · ${row.reference}`
+          : row.label;
+        // Cupón DATA/POS mayor al imputado: el socio financia; al club entra el monto del tramo.
+        const voucherNote = row.voucherAmount > 0
+          ? ` · cupón ${formatCurrency(row.voucherAmount)}`
+          : '';
+        return [
+          splits.length === 2
+            ? (index === 0 ? 'MEDIO 1' : 'MEDIO 2')
+            : (index === 0 ? 'MEDIOS' : ''),
+          `${detail}: ${amount}${voucherNote}`,
+        ];
+      })
+      : []),
     ...(onAccount ? [['ENTREGADO', formatCurrency(payment.amount)]] : []),
     ...(Number.isFinite(creditApplied) && creditApplied > 0.01
       ? [['SALDO A FAVOR IMPUTADO', formatCurrency(creditApplied)]]
@@ -367,16 +479,25 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
     ...(onAccount && Number.isFinite(balanceRemaining)
       ? [['DEUDA RESTANTE', formatCurrency(Math.max(0, balanceRemaining))]]
       : []),
-    ...(Number.isFinite(creditLeftover) && creditLeftover > 0.01
-      ? [['SALDO A FAVOR', formatCurrency(creditLeftover)]]
+    ...(creditLeftover > 0.01
+      ? [['SALDO A FAVOR / ADELANTO', formatCurrency(creditLeftover)]]
       : []),
+    ...(() => {
+      if (splits.length >= 2) return [];
+      const voucher = Number(payment?.voucherAmount ?? payment?.receiptParse?.amount);
+      const paid = Number(payment?.amount) || 0;
+      if (!(voucher > paid + 0.01)) return [];
+      return [['CUPÓN POS / DATA', formatCurrency(voucher)]];
+    })(),
   ];
   infoRows.forEach(([label, value]) => {
     doc.setFont('helvetica', 'bold');
-    doc.text(`${label}:`, 16, y);
+    const labelText = `${label}:`;
+    doc.text(labelText, 16, y);
+    const valueX = Math.max(58, 16 + doc.getTextWidth(labelText) + 3);
     doc.setFont('helvetica', 'normal');
-    const lines = doc.splitTextToSize(value, 140);
-    doc.text(lines, 58, y);
+    const lines = doc.splitTextToSize(value, Math.max(40, 196 - valueX));
+    doc.text(lines, valueX, y);
     y += Math.max(6, lines.length * 5);
   });
 
@@ -433,6 +554,9 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
   if (Number.isFinite(creditApplied) && creditApplied > 0.01 && !onAccount) {
     bodyRows.push(['', 'Saldo a favor imputado', formatCurrency(creditApplied), formatCurrency(creditApplied)]);
   }
+  if (creditLeftover > 0.01 && !onAccount) {
+    bodyRows.push(['', 'Saldo a favor / adelanto', formatCurrency(creditLeftover), formatCurrency(creditLeftover)]);
+  }
   if (onAccount) {
     bodyRows.push(['', 'Entregado a cuenta', formatCurrency(payment.amount), formatCurrency(payment.amount)]);
     if (Number.isFinite(creditApplied) && creditApplied > 0.01) {
@@ -446,8 +570,8 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
         balanceRemaining > 0.01 ? '' : 'Saldado',
       ]);
     }
-    if (Number.isFinite(creditLeftover) && creditLeftover > 0.01) {
-      bodyRows.push(['', 'Saldo a favor', formatCurrency(creditLeftover), '']);
+    if (creditLeftover > 0.01) {
+      bodyRows.push(['', 'Saldo a favor / adelanto', formatCurrency(creditLeftover), '']);
     }
   }
 
@@ -468,45 +592,14 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
     margin: { left: 14, right: 14 },
   });
 
-  let footY = (doc.lastAutoTable?.finalY || y + 30) + 10;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.setTextColor(30, 30, 30);
-  doc.text(`${(member?.name || '—').toUpperCase()} (${member?.memberId || '—'}) · ${category}`, 14, footY);
-  footY += 6;
-
-  const duesBalanceExtra = onAccount
-    ? (6 + (Number.isFinite(balanceRemaining) ? 6 : 0) + (Number.isFinite(creditLeftover) && creditLeftover > 0.01 ? 6 : 0))
-    : 0;
-  const bookingExtra = isBooking && Number.isFinite(balanceRemaining) && balanceRemaining > 0 ? 10 : 0;
-  doc.setDrawColor(...BRAND.muted);
-  doc.setLineWidth(0.2);
-  doc.rect(14, footY, 182, 22 + bookingExtra + duesBalanceExtra);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9);
-  const credited = accountLabel(payment);
-  const footRows = [
-    ['TIPO', methodText],
-    ...(credited ? [['DESTINO', credited]] : []),
-    [onAccount ? 'ENTREGADO' : 'MONTO', formatCurrency(payment.amount)],
-  ];
-  if (isBooking && Number.isFinite(balanceRemaining) && balanceRemaining > 0) {
-    footRows.push(['SALDO', formatCurrency(balanceRemaining)]);
+  const pageH = doc.internal.pageSize.getHeight();
+  // Reserva del pie de página (línea en h-12 + texto).
+  const footerReserve = 18;
+  let closeY = (doc.lastAutoTable?.finalY || y + 30) + 8;
+  if (closeY + 10 > pageH - footerReserve) {
+    doc.addPage();
+    closeY = 20;
   }
-  if (onAccount && Number.isFinite(balanceRemaining)) {
-    footRows.push(['DEUDA RESTANTE', formatCurrency(Math.max(0, balanceRemaining))]);
-  }
-  if (onAccount && Number.isFinite(creditLeftover) && creditLeftover > 0.01) {
-    footRows.push(['A FAVOR', formatCurrency(creditLeftover)]);
-  }
-  let fy = footY + 6;
-  footRows.forEach(([label, value]) => {
-    doc.setFont('helvetica', 'bold');
-    doc.text(`${label}:`, 18, fy);
-    doc.setFont('helvetica', 'normal');
-    doc.text(String(value), 55, fy, { maxWidth: 135 });
-    fy += 6;
-  });
 
   doc.setFontSize(8);
   doc.setTextColor(...BRAND.muted);
@@ -521,7 +614,7 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
             ? 'Comprobante de pago a cuenta. La deuda restante queda en la ficha del socio.'
             : 'Comprobante de pago a cuenta. La deuda de cuota quedó saldada.')
           : 'Comprobante emitido por el Portal del Socio. Conservelo como constancia de pago.';
-  doc.text(closing, 14, fy + 6, { maxWidth: 180 });
+  doc.text(closing, 14, closeY, { maxWidth: 180 });
 
   drawReportFooter(doc);
   return doc;

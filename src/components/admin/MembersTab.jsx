@@ -2086,7 +2086,7 @@ export default function MembersTab({
                   <option value="transferencia">Transferencia</option>
                   <option value="efectivo">Efectivo en sede</option>
                   <option value="debito">Débito automático</option>
-                  <option value="tarjeta">Tarjeta</option>
+                  <option value="tarjeta">Pago POS</option>
                 </select>
               </div>
             </div>

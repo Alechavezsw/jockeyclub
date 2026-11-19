@@ -6,9 +6,11 @@ import {
   paymentPeriodLabel,
   receiptCategoryLabel,
   receiptChargeLines,
+  receiptCreditLeftover,
   receiptDiscountLine,
   receiptDuesKindLabel,
   receiptMethodLabel,
+  receiptPaymentSplits,
 } from './exportPaymentReceiptPdf';
 
 describe('exportPaymentReceiptPdf helpers', () => {
@@ -138,6 +140,42 @@ describe('exportPaymentReceiptPdf helpers', () => {
     expect(paymentPeriodLabel({ periodDueOns: ['2026-11-10'] })).toMatch(/Noviembre( de)? 2026/i);
   });
 
+  it('pago mixto no se etiqueta como sola transferencia y detalla tramos', () => {
+    const payment = {
+      method: 'mixto',
+      methodLabel: 'Pago mixto (Transferencia Mercado Pago + Pago POS · POSNET EN 3 CUOTAS)',
+      amount: 693000,
+      quota: 620000,
+      surcharge: 62000,
+      paymentSplits: [
+        {
+          method: 'transferencia',
+          label: 'Transferencia Mercado Pago',
+          amount: 300000,
+          bankId: 'mercadopago',
+          journalAccount: 'Mercado Pago',
+          receiptName: 'plan de pago.jpeg',
+        },
+        {
+          method: 'tarjeta',
+          label: 'Tarjeta DATA · 3 cuotas',
+          amount: 393000,
+          paymentPlanLabel: 'DATA 3 cuotas',
+          journalAccount: 'Tarjetas a cobrar',
+          voucherAmount: 432000,
+        },
+      ],
+    };
+    expect(receiptMethodLabel(payment)).toBe('Pago mixto');
+    expect(receiptPaymentSplits(payment).map((row) => row.amount)).toEqual([300000, 393000]);
+    expect(receiptPaymentSplits(payment)[0].reference).toBe('');
+    expect(receiptPaymentSplits(payment)[1].reference).toBe('DATA 3 cuotas');
+    expect(receiptPaymentSplits(payment)[1].voucherAmount).toBe(432000);
+    expect(accountLabel(payment)).toBe('Mercado Pago + Tarjetas a cobrar');
+    expect(receiptCreditLeftover(payment)).toBe(11000);
+    expect(receiptCreditLeftover({ ...payment, creditLeftover: 0 })).toBe(0);
+  });
+
   it('muestra Transferencia bancaria sin el nombre del banco', () => {
     expect(receiptMethodLabel({
       method: 'transferencia',
@@ -178,8 +216,8 @@ describe('exportPaymentReceiptPdf helpers', () => {
     };
     expect(isTennisAbonoPayment(tennis)).toBe(true);
     expect(receiptDuesKindLabel(tennis)).toBe('Abono tenis');
-    expect(paymentCorrespondsTo(tennis)).toMatch(/^Abono tenis/);
+    expect(paymentCorrespondsTo(tennis)).toMatch(/^Pago de abono tenis/);
     expect(paymentCorrespondsTo(tennis)).not.toMatch(/cuota social/i);
-    expect(receiptChargeLines(tennis)[0].detail).toMatch(/^Abono tenis/);
+    expect(receiptChargeLines(tennis)[0].detail).toMatch(/^Pago de abono tenis/);
   });
 });

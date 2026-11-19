@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   AMET_CASH_ACCOUNT,
+  CARD_JOURNAL_ACCOUNT,
   CASH_JOURNAL_ACCOUNT,
   CLUB_BANK_ACCOUNTS,
   MERCADO_PAGO,
@@ -9,9 +10,10 @@ import {
 } from './clubBanks';
 
 describe('journalAccountForPayment', () => {
-  it('efectivo y tarjeta van a Caja General', () => {
+  it('efectivo va a Caja General y POS/tarjeta a Tarjetas a cobrar', () => {
     expect(journalAccountForPayment('efectivo')).toBe(CASH_JOURNAL_ACCOUNT);
-    expect(journalAccountForPayment('tarjeta')).toBe(CASH_JOURNAL_ACCOUNT);
+    expect(journalAccountForPayment('tarjeta')).toBe(CARD_JOURNAL_ACCOUNT);
+    expect(journalAccountForPayment('pos')).toBe(CARD_JOURNAL_ACCOUNT);
   });
 
   it('Mercado Pago y transferencia usan las cuentas del club', () => {
