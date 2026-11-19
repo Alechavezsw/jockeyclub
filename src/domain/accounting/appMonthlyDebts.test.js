@@ -43,6 +43,24 @@ describe('appMonthlyDebts', () => {
     expect(row.standing).toBe('En mora');
   });
 
+  it('el mes de ingreso es cuota de alta a $ 70.000 y no lleva recargo', () => {
+    const row = appMonthlyDebtForMember(
+      familiar({ joinDate: '2026-10-04' }),
+      { today: TODAY },
+    );
+    expect(row.months).toHaveLength(1);
+    expect(row.months[0].periodLabel).toBe('Cuota de alta');
+    expect(row.months[0].capital).toBe(70000);
+    expect(row.months[0].interest).toBe(0);
+    expect(row.totalDebt).toBe(70000);
+    const standing = memberDuesStandingSummary(
+      familiar({ joinDate: '2026-10-04' }),
+      { today: TODAY },
+    );
+    expect(duesStandingDisplayHint(standing, (n) => `$${n}`)).toBe('Cuota de alta');
+    expect(standing.totalDebt).toBe(70000);
+  });
+
   it('un caso con duesCapitalOnly deja la cuenta en 70.000', () => {
     const row = appMonthlyDebtForMember(
       familiar({ duesCapitalOnly: true }),

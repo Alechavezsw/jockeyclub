@@ -7,6 +7,11 @@ import {
 } from './duesImputations';
 
 describe('duesMonthsPhrase', () => {
+  it('nombra la cuota de alta y no un mes', () => {
+    expect(duesMonthsPhrase(['1899-12-10'])).toBe('Cuota de alta');
+    expect(duesMonthsPhrase(['1899-12-10', '2026-11-10'])).toBe('Cuota de alta y Noviembre de 2026');
+  });
+
   it('nombra noviembre en el recibo', () => {
     expect(duesMonthsPhrase(['2026-09-10', '2026-10-10', '2026-11-10']))
       .toBe('Septiembre de 2026, Octubre de 2026 y Noviembre de 2026');

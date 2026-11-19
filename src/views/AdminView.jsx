@@ -31,7 +31,6 @@ import { useAuth } from '../context/AuthContext';
 import { repos } from '../data/bootstrap';
 import { buildClubReview } from '../domain/review/buildClubReview';
 import { membershipMovesSeed } from '../domain/members/membershipMoves';
-import { currentAccountBalancesSeed } from '../domain/accounting/currentAccountBalances';
 import { feeAccountDetailsForPeriod, feeAccountDetailsSeed } from '../domain/accounting/feeAccountDetails';
 import { monthlyBalanceCards, monthlyBalanceSeed } from '../domain/accounting/monthlyBalance';
 import { monthlyBalanceSummarySeed } from '../domain/accounting/monthlyBalanceSummary';
@@ -294,10 +293,6 @@ export default function AdminView({
     readLilaMetrics,
   );
   const movesSeed = useSnapshotSeed(needClubReviewSeeds ? ['societasMembershipMoves'] : [], membershipMovesSeed);
-  const balancesSeed = useSnapshotSeed(
-    heavySeeds && needClubReviewSeeds ? ['accessinCurrentAccountBalances'] : [],
-    currentAccountBalancesSeed,
-  );
   const feeDetailsSeed = useSnapshotSeed(
     heavySeeds && needClubReviewSeeds ? ['accessinFeeAccountDetails'] : [],
     feeAccountDetailsSeed,
@@ -419,10 +414,6 @@ export default function AdminView({
     membershipApplications,
     claims,
     messages,
-    accountBalances: {
-      asOf: balancesSeed?.ACCESSIN_CURRENT_ACCOUNT_BALANCES_AS_OF || '',
-      byNumber: balancesSeed?.ACCESSIN_CURRENT_ACCOUNT_BALANCES_BY_NUMBER || {},
-    },
     feeChargedNumbers,
     accountLedgers: { loaded: ledgerCount },
     loading: membersLoading && !(members || []).length,
@@ -452,7 +443,6 @@ export default function AdminView({
     membershipApplications,
     claims,
     messages,
-    balancesSeed,
     feeChargedNumbers,
     ledgerCount,
     membersLoading,

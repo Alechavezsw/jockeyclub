@@ -636,15 +636,15 @@ export default function BookingsTab({
       <table className="admin-table">
         <thead>
           <tr>
-            <th>Nº</th>
-            <th>Socio</th>
+            <th className="bookings-col-num">Nº</th>
+            <th className="bookings-col-socio">Socio</th>
             <th>Instalación</th>
             <th>Fecha</th>
             <th>Horario</th>
             {showCreatedColumn ? <th>Alta</th> : null}
             <th>Importe</th>
             <th className="bookings-col-estado">Estado</th>
-            <th style={{ textAlign: 'right' }}>Gestión</th>
+            <th className="bookings-col-gestion">Gestión</th>
           </tr>
         </thead>
         <tbody>
@@ -663,7 +663,7 @@ export default function BookingsTab({
                 key={res.id}
                 className={detailReservationId === res.id ? 'is-selected-booking' : undefined}
               >
-                <td>
+                <td className="bookings-col-num">
                   <button
                     type="button"
                     className={`bookings-res-num${isAppReservation(res) ? ' is-app' : ''}`}
@@ -673,9 +673,9 @@ export default function BookingsTab({
                     #{reservationAppNumber(res)}
                   </button>
                 </td>
-                <td>
-                  <strong>{res.memberName}</strong>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                <td className="bookings-col-socio">
+                  <strong className="bookings-member-name">{res.memberName}</strong>
+                  <div className="bookings-member-id">
                     Nº {res.memberId}
                     {isAppReservation(res) ? ' · App' : ''}
                   </div>
@@ -736,7 +736,7 @@ export default function BookingsTab({
                     ) : null}
                   </div>
                 </td>
-                <td style={{ textAlign: 'right' }}>
+                <td className="bookings-col-gestion">
                   {(() => {
                     const actionsOpen = openActionsId === res.id;
                     const canReceipt = res.status !== 'cancelled'
@@ -763,7 +763,7 @@ export default function BookingsTab({
                             }}
                           >
                             <span>Gestión</span>
-                            <ChevronDown size={11} aria-hidden="true" />
+                            <ChevronDown size={10} aria-hidden="true" />
                           </button>
                           {actionsOpen ? (
                             <div
@@ -924,19 +924,18 @@ export default function BookingsTab({
         .bookings-res-num {
           display: inline-flex;
           align-items: center;
-          max-width: 100%;
-          min-height: 1.35rem;
-          padding: 0.08rem 0.4rem;
+          min-height: 1.5rem;
+          padding: 0.12rem 0.55rem;
           border-radius: 999px;
           border: 1px solid color-mix(in srgb, var(--border-glass) 80%, transparent);
           background: color-mix(in srgb, var(--border-glass) 30%, transparent);
           color: var(--text-primary);
           font: inherit;
-          font-size: 0.62rem;
+          font-size: 0.78rem;
           font-weight: 700;
           font-variant-numeric: tabular-nums;
-          letter-spacing: 0.02em;
-          line-height: 1.15;
+          letter-spacing: 0.03em;
+          line-height: 1.2;
           white-space: nowrap;
           cursor: pointer;
         }
@@ -1860,12 +1859,37 @@ export default function BookingsTab({
           font-size: 0.68rem;
           letter-spacing: 0.03em;
         }
-        .bookings-list-body .admin-table th:nth-child(1),
-        .bookings-list-body .admin-table td:nth-child(1) { width: 3.1rem; }
-        .bookings-list-body .admin-table th:nth-child(2),
-        .bookings-list-body .admin-table td:nth-child(2) { width: 16%; }
+        .bookings-list-body .admin-table th.bookings-col-num,
+        .bookings-list-body .admin-table td.bookings-col-num {
+          width: 6.85rem;
+          padding-left: 0.65rem;
+          padding-right: 0.5rem;
+          white-space: nowrap;
+          word-break: normal;
+          overflow-wrap: normal;
+        }
+        .bookings-list-body .admin-table th.bookings-col-socio,
+        .bookings-list-body .admin-table td.bookings-col-socio {
+          width: 24%;
+          padding-left: 0.65rem;
+          padding-right: 0.7rem;
+          word-break: normal;
+          overflow-wrap: break-word;
+        }
+        .bookings-member-name {
+          display: block;
+          font-weight: 700;
+          line-height: 1.35;
+        }
+        .bookings-member-id {
+          margin-top: 0.2rem;
+          font-size: 0.78rem;
+          line-height: 1.3;
+          color: var(--text-muted);
+          white-space: nowrap;
+        }
         .bookings-list-body .admin-table th:nth-child(3),
-        .bookings-list-body .admin-table td:nth-child(3) { width: 12%; }
+        .bookings-list-body .admin-table td:nth-child(3) { width: 11%; }
         .bookings-list-body .admin-table th.bookings-col-estado,
         .bookings-list-body .admin-table td.bookings-col-estado {
           width: 9.5rem;
@@ -1873,10 +1897,17 @@ export default function BookingsTab({
           word-break: normal;
           overflow-wrap: normal;
         }
-        .bookings-list-body .admin-table th:last-child,
-        .bookings-list-body .admin-table td:last-child {
-          width: 5.25rem;
-          min-width: 5.25rem;
+        .bookings-list-body .admin-table th.bookings-col-gestion,
+        .bookings-list-body .admin-table td.bookings-col-gestion {
+          width: 5.4rem;
+          min-width: 5.4rem;
+          padding-left: 0.15rem;
+          padding-right: 0.35rem;
+          text-align: right;
+          white-space: nowrap;
+          word-break: normal;
+          overflow-wrap: normal;
+          letter-spacing: 0;
           position: relative;
         }
         .bookings-list-actions {
@@ -1898,18 +1929,21 @@ export default function BookingsTab({
         .bookings-actions-toggle {
           display: inline-flex;
           align-items: center;
-          gap: 0.22rem;
-          min-height: 1.35rem;
-          padding: 0.12rem 0.5rem;
+          gap: 0.12rem;
+          flex-shrink: 0;
+          min-height: 1.25rem;
+          padding: 0.06rem 0.38rem;
           border: 1px solid color-mix(in srgb, var(--emerald-accent) 42%, var(--border-glass));
           border-radius: 999px;
           background: var(--bg-tertiary, #0a1a15);
           color: var(--text-primary);
           font: inherit;
-          font-size: 0.6rem;
+          font-size: 0.58rem;
           font-weight: 750;
-          letter-spacing: 0.03em;
+          letter-spacing: 0.01em;
+          line-height: 1;
           text-transform: uppercase;
+          white-space: nowrap;
           cursor: pointer;
           box-shadow:
             0 1px 0 rgba(255, 255, 255, 0.06) inset,

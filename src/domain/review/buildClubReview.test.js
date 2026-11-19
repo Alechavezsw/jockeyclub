@@ -362,19 +362,17 @@ describe('buildClubReview', () => {
     });
 
     const ids = review.items.map((item) => item.id);
-    expect(ids).toContain('balance-gap');
+    expect(ids).not.toContain('balance-gap');
     expect(ids).toContain('mp-notice');
     expect(ids).toContain('no-birth');
     expect(ids).toContain('portal-email');
     expect(ids).toContain('booking-pending');
     expect(ids).toContain('fee-missing');
     expect(ids).toContain('inbox-stale');
-    expect(ids.indexOf('balance-gap')).toBeLessThan(ids.indexOf('no-birth'));
     expect(ids.indexOf('no-birth')).toBeLessThan(ids.indexOf('portal-email'));
     expect(ids.indexOf('portal-email')).toBeLessThan(ids.indexOf('booking-pending'));
     expect(ids.indexOf('booking-pending')).toBeLessThan(ids.indexOf('fee-missing'));
     expect(ids.indexOf('fee-missing')).toBeLessThan(ids.indexOf('inbox-stale'));
-    expect(review.items.find((item) => item.id === 'balance-gap').count).toBe(1);
     expect(review.items.find((item) => item.id === 'fee-missing').samples[0].label).toMatch(/Eva Portal/);
     expect(review.items.find((item) => item.id === 'inbox-stale').count).toBe(1);
     expect(review.counts.bien).toBe(3);

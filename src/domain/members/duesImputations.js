@@ -3,6 +3,15 @@ import { money } from '../money';
 /** Deuda anterior al detalle por mes. Se cobra primero y no inventa un vencimiento. */
 export const OPENING_DUE_ON = '1900-01-10';
 
+/** Cuota de alta: un solo cargo de $ 70.000, no es un mes de cuota social y no lleva el 10 %. */
+export const JOIN_FEE_DUE_ON = '1899-12-10';
+export const JOIN_FEE_LABEL = 'Cuota de alta';
+export const JOIN_FEE_AMOUNT = 70000;
+
+export function isJoinFeeDueOn(dueOn) {
+  return String(dueOn || '').slice(0, 10) === JOIN_FEE_DUE_ON;
+}
+
 const MONTHS_ES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
@@ -10,6 +19,7 @@ const MONTHS_ES = [
 
 export function imputationPeriodLabel(dueOn) {
   const iso = String(dueOn || '').slice(0, 10);
+  if (isJoinFeeDueOn(iso)) return JOIN_FEE_LABEL;
   if (!iso || iso <= OPENING_DUE_ON) return 'Saldo anterior';
   const month = Number(iso.slice(5, 7));
   const name = MONTHS_ES[month - 1] || iso;
@@ -19,6 +29,7 @@ export function imputationPeriodLabel(dueOn) {
 /** Mes en español para el recibo: «Noviembre de 2026». */
 export function duesMonthLabel(dueOn) {
   const iso = String(dueOn || '').slice(0, 10);
+  if (isJoinFeeDueOn(iso)) return JOIN_FEE_LABEL;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso) || iso <= OPENING_DUE_ON) return '';
   const name = MONTHS_ES[Number(iso.slice(5, 7)) - 1];
   return name ? `${name} de ${iso.slice(0, 4)}` : '';
@@ -148,7 +159,7 @@ export function nextOpenDue(periods = [], allocations = []) {
   const taken = new Map((allocations || []).map((row) => [String(row.dueOn).slice(0, 10), row]));
   for (const period of [...(periods || [])].toSorted(byDue)) {
     const dueOn = String(period.dueOn || '').slice(0, 10);
-    if (!dueOn || dueOn <= OPENING_DUE_ON) continue;
+    if (!dueOn || (dueOn <= OPENING_DUE_ON && !isJoinFeeDueOn(dueOn))) continue;
     const hit = taken.get(dueOn);
     const open = hit ? money(hit.capitalOpen) : money(period.capitalOpen ?? period.capital);
     if (open > 0.009) return dueOn;

@@ -15,12 +15,13 @@ import {
   firstUnpaidDuesDate,
   isMemberBillingActive,
   isDuesExemptMember,
+  isMemberJoinFeeMonth,
   lilaUnpaidCapital,
   monthsBehindOnDues,
   pinDuesDueDate,
   socialDuesStoredBalance,
 } from '../members/dues';
-import { duesMonthLabel, duesMonthsPhrase } from '../members/duesImputations';
+import { duesMonthLabel, duesMonthsPhrase, JOIN_FEE_DUE_ON } from '../members/duesImputations';
 import { duesNoticeCalendar, duesNoticeStagesForDay } from '../members/duesNotices';
 import { isFamilyDependent, memberNumberOf } from '../members/households';
 import { getTierDisplayName } from '../members/tiers';
@@ -169,10 +170,11 @@ function takeMonth(list, member, dueOn, leftover, { today }) {
     return { leftover, status: 'short' };
   }
   const capital = capitalBase;
-  const interest = Math.max(0, interestBase);
+  const joinFee = isMemberJoinFeeMonth(member, dueOn);
+  const interest = joinFee ? 0 : Math.max(0, interestBase);
   const next = money(leftover - capital);
   list.push({
-    ...periodFromDueOn(dueOn),
+    ...periodFromDueOn(joinFee ? JOIN_FEE_DUE_ON : dueOn),
     capital,
     interest,
   });

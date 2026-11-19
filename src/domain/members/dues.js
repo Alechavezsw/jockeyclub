@@ -20,7 +20,13 @@ import { isFamilyDependent, isTitularMember } from './households';
 import { familyDependentShouldLeave } from './familyStanding';
 import { todayAR } from '../../lib/arDate';
 import { money } from '../money';
-import { duesMonthLabel } from './duesImputations';
+import {
+  duesMonthLabel,
+  isJoinFeeDueOn,
+  JOIN_FEE_AMOUNT,
+  JOIN_FEE_DUE_ON,
+  JOIN_FEE_LABEL,
+} from './duesImputations';
 
 const DAY_MS = 86400000;
 
@@ -57,6 +63,7 @@ export function duesRuleSentences() {
     lateLine: `El recargo es del ${late}, corre desde el día siguiente al vencimiento y solo en socio familiar e individual. AMET no lleva recargo.`,
     exemptLine: 'Vitalicio, fundador y comisión no abonan cuota social: sin mora, sin avisos ni Mercado Pago de cuota. Si tienen abono de tenis, ese abono sí se liquida y se cobra (aparte, sin el 10 %).',
     householdLine: 'En un grupo familiar la cuota es una sola, la del titular. El adherente no tiene cuenta propia. Un abono de tenis de un integrante sí se suma a la cuenta del titular, y se puede cobrar aparte de la cuota social.',
+    joinLine: `La cuota de alta es de ${new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(70000)}. Es un solo cargo al ingresar, no es un mes de cuota social y no lleva el recargo del ${late}. El mes siguiente ya es la cuota social.`,
     groupMoraLine: 'La deuda del titular alcanza al grupo: si debe meses anteriores, el adherente no entra a la sede. Si solo debe el mes en curso, sí puede pasar. Pileta sigue la mora del titular (temporada / desde el vencimiento).',
     paymentLine: `Un pago cubre el mes en que se hizo: si el último pago fue en agosto, el próximo vencimiento es el ${DUES_DUE_DAY} de septiembre.`,
     deskLine: 'El recargo se cobra siempre. Un administrador puede borrarlo después en la ficha: el importe cobrado queda y el recargo pasa a saldo a favor.',
@@ -739,6 +746,7 @@ function argentinaDay(value) {
 export function duesPayableAmount(base, { paidOn = new Date(), dueOn, tier } = {}) {
   const amount = money(base);
   if (amount <= 0) return 0;
+  if (isJoinFeeDueOn(dueOn)) return amount;
   const paidIso = argentinaDay(paidOn);
   const dueIso = dueOn
     ? argentinaDay(dueOn)
@@ -1113,7 +1121,62 @@ export function memberCoveredDueOns(member, { chargeScope = 'all' } = {}) {
       push(row?.dueOn);
     }
   }
+  const joinDue = joinMonthDueOn(member);
+  if (joinDue && set.has(JOIN_FEE_DUE_ON)) set.add(joinDue);
   return set;
+}
+
+export function memberJoinMonthKey(member) {
+  const join = String(member?.joinDate || member?.meta?.joinDate || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(join)) return '';
+  return join.slice(0, 7);
+}
+
+function joinMonthDueOn(member) {
+  const key = memberJoinMonthKey(member);
+  if (!key) return '';
+  const [year, month] = key.split('-').map(Number);
+  const day = String(duesDueDayForMember(member)).padStart(2, '0');
+  return `${year}-${String(month).padStart(2, '0')}-${day}`;
+}
+
+export function isMemberJoinFeeMonth(member, dueOn) {
+  const key = memberJoinMonthKey(member);
+  const due = String(dueOn || '').slice(0, 7);
+  return Boolean(key && due === key);
+}
+
+/** El mes de ingreso es la cuota de alta: $ 70.000, sin recargo y sin nombre de mes. */
+function rewriteJoinFeeRows(member, rows) {
+  if (!member || isDuesExemptMember(member) || isFamilyDependent(member)) return rows || [];
+  const joinDue = joinMonthDueOn(member);
+  if (!joinDue) return rows || [];
+  let seen = false;
+  const next = [];
+  for (const row of rows || []) {
+    const due = String(row?.dueOn || '').slice(0, 10);
+    const isAlta = isJoinFeeDueOn(due) || due.slice(0, 7) === joinDue.slice(0, 7);
+    if (!isAlta) {
+      next.push(row);
+      continue;
+    }
+    if (seen) continue;
+    seen = true;
+    const capital = money(row.capital);
+    next.push({
+      ...row,
+      id: JOIN_FEE_DUE_ON,
+      dueOn: JOIN_FEE_DUE_ON,
+      monthKey: 'alta',
+      label: JOIN_FEE_LABEL,
+      capital,
+      lateBase: 0,
+      surcharge: 0,
+      payable: capital,
+      kind: 'alta',
+    });
+  }
+  return next;
 }
 
 function dueOnAlreadyCovered(dueOn, coveredDueOns) {
@@ -1335,7 +1398,8 @@ function choicesFromStoredOpenPeriods(member, paidOn, paidSet, scopeOpts = {}) {
   const stored = [];
   for (const row of raw) {
     const dueOn = String(row?.dueOn || row?.due_on || '').slice(0, 10);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(dueOn) || dueOn <= '1900-01-10') continue;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dueOn)) continue;
+    if (dueOn <= '1900-01-10' && !isJoinFeeDueOn(dueOn)) continue;
     if (dueOnAlreadyCovered(dueOn, paidSet)) continue;
     const capital = money(row.capital ?? row.capitalOpen ?? row.capital_open);
     if (!(capital > 0)) continue;
@@ -1482,11 +1546,11 @@ export function collectionPeriodChoices(member, today = new Date(), { chargeScop
   const scopeOpts = { chargeScope };
   const paidSet = memberCoveredDueOns(member, scopeOpts);
   const storedChoices = choicesFromStoredOpenPeriods(member, paidOn, paidSet, scopeOpts);
-  if (storedChoices) return storedChoices;
+  if (storedChoices) return rewriteJoinFeeRows(member, storedChoices);
   // Sin vencimiento, el saldo son N cuotas vigentes. No se abre agosto con el recargo.
   if (!pinDuesDueDate(member?.nextDueDate, member)) {
     const lump = lumpMonthsAtCurrentCuota(member, paidOn, paidSet, scopeOpts);
-    if (lump) return lump;
+    if (lump) return rewriteJoinFeeRows(member, lump);
   }
   const overdue = overdueSocialMonths(member, paidOn, scopeOpts)
     .filter((row) => row.capital > 0 && !dueOnAlreadyCovered(row.dueOn, paidSet))
@@ -1502,7 +1566,12 @@ export function collectionPeriodChoices(member, today = new Date(), { chargeScop
       kind: 'overdue',
       chargeScope: normalizeDuesChargeScope(chargeScope),
     }));
-  if (overdue.length) return expandChoicesToCoverBalance(member, overdue, paidOn, paidSet, scopeOpts);
+  if (overdue.length) {
+    return rewriteJoinFeeRows(
+      member,
+      expandChoicesToCoverBalance(member, overdue, paidOn, paidSet, scopeOpts),
+    );
+  }
 
   const owed = money(Math.max(0, Number(member?.outstandingBalance) || 0));
   if (owed > 0.01) {
@@ -1524,17 +1593,25 @@ export function collectionPeriodChoices(member, today = new Date(), { chargeScop
       const seedDate = parseDate(seedDue);
       const seedKind = seedDate && seedDate < paidOn ? 'overdue' : 'upcoming';
       const seed = periodChoiceFromDue(member, seedDue, paidOn, seedKind, scopeOpts);
-      if (seed) return expandChoicesToCoverBalance(member, [seed], paidOn, paidSet, scopeOpts);
+      if (seed) {
+        return rewriteJoinFeeRows(
+          member,
+          expandChoicesToCoverBalance(member, [seed], paidOn, paidSet, scopeOpts),
+        );
+      }
     }
     // El mes que todavía no empezó no se cobra: lo genera la liquidación del día 1.
-    return expandChoicesToCoverBalance(member, [], paidOn, paidSet, scopeOpts);
+    return rewriteJoinFeeRows(
+      member,
+      expandChoicesToCoverBalance(member, [], paidOn, paidSet, scopeOpts),
+    );
   }
 
   const dueOn = pinDuesDueDate(member.nextDueDate, member) || nextDuesDueDate(today, member);
   if (!duesPeriodMonthStarted(dueOn, paidOn)) return [];
   if (dueOnAlreadyCovered(dueOn, paidSet)) return [];
   const upcoming = periodChoiceFromDue(member, dueOn, paidOn, 'upcoming', scopeOpts);
-  return upcoming ? [upcoming] : [];
+  return rewriteJoinFeeRows(member, upcoming ? [upcoming] : []);
 }
 
 /**
@@ -1865,25 +1942,26 @@ export function diffAutomaticDues(before = [], after = []) {
 }
 
 /**
- * Alta a mitad de mes: paga el mes entero.
- * Si entra antes del vencimiento, vence ese mes; si entra después, cobra el mes
- * en curso sin recargo y el próximo vencimiento es el del mes siguiente.
+ * Cuota de alta: $ 70.000, una sola vez, sin recargo y sin nombre de mes.
+ * Reemplaza la cuota social del mes de ingreso. El mes siguiente ya es cuota social.
+ * Exentos: solo el abono de tenis, si lo tienen.
  */
 export function duesOnJoin(member, joinDate = new Date()) {
   const join = asDueAnchor(joinDate);
-  // Exentos: solo abono tenis (si lo tienen). El resto: cuota + abonos.
-  const outstandingBalance = money(
-    isDuesExemptMember(member)
-      ? duesTennisAbonoAmountForAccount(member, join)
-      : (Array.isArray(member?.familyGroup) && member.familyGroup.length
-        ? duesAmountForHousehold(member.tier, member.familyGroup, join)
-        : duesAmountForMember(member, join)),
-  );
-  const dueDay = duesDueDayForMember(member);
-  const nextDueDate = join.getDate() <= dueDay
-    ? pinDuesDueDate(join, member)
-    : nextDuesDueDate(join, member);
-  return { outstandingBalance, nextDueDate };
+  const exempt = isDuesExemptMember(member);
+  const tennis = money(duesTennisAbonoAmountForAccount(member, join));
+  const alta = exempt ? 0 : JOIN_FEE_AMOUNT;
+  const outstandingBalance = money(alta + tennis);
+  const day = duesDueDayForMember(member);
+  const nextDueDate = toISODate(duesDateOnDueDay(join.getFullYear(), join.getMonth() + 1, day));
+  const duesOpenPeriods = alta > 0
+    ? [{ dueOn: JOIN_FEE_DUE_ON, capital: alta, lateBase: 0, kind: 'alta' }]
+    : undefined;
+  return {
+    outstandingBalance,
+    nextDueDate,
+    ...(duesOpenPeriods ? { duesOpenPeriods } : {}),
+  };
 }
 
 /** Tras cobrar, deja al día y programa el próximo vencimiento (10 o 18 si es AMET). */

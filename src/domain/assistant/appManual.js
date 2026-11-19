@@ -540,6 +540,7 @@ export const APP_MANUAL = [
       RULES.lateLine,
       RULES.exemptLine,
       RULES.householdLine,
+      RULES.joinLine,
       RULES.groupMoraLine,
       RULES.paymentLine,
       RULES.deskLine,

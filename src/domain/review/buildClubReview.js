@@ -15,7 +15,6 @@ import { memberMoveKey, uniqueBajas } from '../members/membershipMoves';
 import { memberHasPortalAccess } from '../members/memberAdminActions';
 import { familyChildStanding } from '../members/familyStanding';
 import { shouldOfferVitalicio } from '../members/membership';
-import { latestMemberPaymentDate } from '../accounting/currentAccountBalances';
 import { MAILBOX } from '../messaging/messages';
 import { getMedicalStatus, listDayAccesses } from '../pool/poolAccess';
 
@@ -323,7 +322,6 @@ export function buildClubReview({
   membershipApplications = [],
   claims = [],
   messages = [],
-  accountBalances = null,
   feeChargedNumbers = [],
   accountLedgers = null,
   today = new Date(),
@@ -398,41 +396,8 @@ export function buildClubReview({
     }),
   });
 
-  const balanceBook = accountBalances?.byNumber || null;
-  const balanceAsOf = String(accountBalances?.asOf || '').slice(0, 10);
-  const balanceGap = balanceBook ? live.filter((member) => {
-    const key = numberKey(memberNumberOf(member));
-    if (!key) return false;
-    if (member.outstandingBalance == null || member.outstandingBalance === '') return false;
-    const hit = balanceBook[key] || balanceBook[String(memberNumberOf(member) || '')];
-    if (!hit || hit.balance == null || hit.balance === '') return false;
-    const ficha = Number(member.outstandingBalance);
-    const book = Number(hit.balance);
-    if (!Number.isFinite(ficha) || !Number.isFinite(book)) return false;
-    if (Math.abs(ficha - book) <= 0.5) return false;
-    const paid = latestMemberPaymentDate(member);
-    return !(paid && balanceAsOf && paid > balanceAsOf);
-  }) : [];
-  row(items, {
-    id: 'balance-gap',
-    tier: 'contabilidad',
-    count: balanceGap.length,
-    title: balanceGap.length === 1
-      ? '1 saldo de socio no coincide con la cuenta corriente'
-      : `${balanceGap.length} saldos de socio no coinciden con la cuenta corriente`,
-    detail: 'La ficha dice una cifra y el libro otra, y no hay un cobro posterior que lo explique.',
-    why: 'Hasta mirarlo, no se sabe cuál de las dos cifras es la deuda.',
-    tab: 'operation',
-    focus: 'balances',
-    samples: take(balanceGap, (member) => {
-      const key = numberKey(memberNumberOf(member));
-      const hit = balanceBook[key] || balanceBook[String(memberNumberOf(member) || '')];
-      return asSample(
-        `${labelOf(member)} · ficha ${Number(member.outstandingBalance)} / cuenta ${Number(hit?.balance)}`,
-        memberHref(member),
-      );
-    }),
-  });
+  // El saldo de la ficha es la cuenta corriente. El corte Accessin (5/11) es apertura,
+  // no un segundo libro: liquidaciones y cobros posteriores lo dejan atrás a propósito.
 
   const ledgersLoaded = accountLedgers && Number.isFinite(Number(accountLedgers.loaded))
     ? Number(accountLedgers.loaded)
@@ -1286,7 +1251,6 @@ export function buildClubReview({
     hasMovesList
     && (
       !movesAsOf
-      || (balanceAsOf && movesAsOf < balanceAsOf)
       || (todayIso && movesAsOf < addIsoDays(todayIso, -3))
     ),
   );
@@ -1300,9 +1264,7 @@ export function buildClubReview({
         : 'Altas y bajas del padrón sin fecha de corte')
       : 'Altas y bajas al día',
     detail: movesStale
-      ? (balanceAsOf && movesAsOf && movesAsOf < balanceAsOf
-        ? `El corte de saldos es ${balanceAsOf}. Hay que volver a cargar altas y bajas.`
-        : 'El listado de altas y bajas no está al día con el padrón vivo.')
+      ? 'El listado de altas y bajas no está al día con el padrón vivo.'
       : 'El corte de altas y bajas acompaña el padrón.',
     why: 'Sin altas y bajas al día, el borrador de cuotas liquida de más o de menos.',
     tab: 'members',
@@ -1347,7 +1309,6 @@ export function buildClubReview({
     const joined = String(member.joinDate || '').slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(joined)) return false;
     if (movesAsOf && joined <= movesAsOf) return false;
-    if (!movesAsOf && balanceAsOf && joined <= balanceAsOf) return false;
     return true;
   });
   row(items, {

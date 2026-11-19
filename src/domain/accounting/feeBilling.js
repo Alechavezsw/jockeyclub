@@ -3,6 +3,7 @@ import {
   duesChargeSlicesForMember,
   duesDueDayForMember,
   isMemberBillingActive,
+  memberJoinMonthKey,
 } from '../members/dues';
 import { attachHouseholdToMembers, isTitularMember } from '../members/households';
 import {
@@ -10,6 +11,7 @@ import {
   DUES_LATE_TIER_IDS,
   getTierAccessinCategoryId,
   getTierDisplayName,
+  isAddOnDuesTierId,
   isFeePackLiquidationTier,
   parseCuotaCategories,
   slugifyTierId,
@@ -431,7 +433,11 @@ export function buildFeePeriodCharges(members = [], period, today = new Date(), 
     const periodKey = `${period.year}-${pad2(period.month)}`;
     if (/^\d{4}-\d{2}$/.test(freeThrough) && periodKey <= freeThrough) return [];
     const dueOn = `${period.year}-${pad2(period.month)}-${pad2(duesDueDayForMember(member))}`;
-    return duesChargeSlicesForMember(member, periodDate, { rules }).map((slice) => ({
+    const joinKey = memberJoinMonthKey(member);
+    const skipSocial = Boolean(joinKey && periodKey === joinKey);
+    return duesChargeSlicesForMember(member, periodDate, { rules })
+      .filter((slice) => !skipSocial || isAddOnDuesTierId(slice.tierId))
+      .map((slice) => ({
       memberId: member.memberId,
       addAmount: slice.amount,
       tierId: slice.tierId,
