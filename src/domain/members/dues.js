@@ -57,7 +57,7 @@ export function duesRuleSentences() {
     lateLine: `El recargo es del ${late}, corre desde el día siguiente al vencimiento y solo en socio familiar e individual. AMET no lleva recargo.`,
     exemptLine: 'Vitalicio, fundador y comisión no abonan cuota social: sin mora, sin avisos ni Mercado Pago de cuota. Si tienen abono de tenis, ese abono sí se liquida y se cobra (aparte, sin el 10 %).',
     householdLine: 'En un grupo familiar la cuota es una sola, la del titular. El adherente no tiene cuenta propia. Un abono de tenis de un integrante sí se suma a la cuenta del titular, y se puede cobrar aparte de la cuota social.',
-    groupMoraLine: 'La mora del titular alcanza al grupo: en temporada el adherente no ingresa ni paga pileta si el titular está en mora.',
+    groupMoraLine: 'La deuda del titular alcanza al grupo: si debe meses anteriores, el adherente no entra a la sede. Si solo debe el mes en curso, sí puede pasar. Pileta sigue la mora del titular (temporada / desde el vencimiento).',
     paymentLine: `Un pago cubre el mes en que se hizo: si el último pago fue en agosto, el próximo vencimiento es el ${DUES_DUE_DAY} de septiembre.`,
     deskLine: 'El recargo se cobra siempre. Un administrador puede borrarlo después en la ficha: el importe cobrado queda y el recargo pasa a saldo a favor.',
     creditLine: 'El saldo a favor se descuenta solo en el próximo cobro. Si cubre la cuota, lo que sobra queda para el siguiente.',

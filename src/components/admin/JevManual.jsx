@@ -47,7 +47,9 @@ export default function JevManual({ goToTab }) {
         <div>
           <p className="jev-desk-kicker">Manual</p>
           <h2 className="jev-desk-name">Cómo se usa</h2>
-          <p className="jev-desk-sub">El oficio, el quién y el paso. Completo y concreto.</p>
+          <p className="jev-desk-sub">
+            Oficio, quién y paso a paso — alineado con la app de hoy (puerta, cuota, Jev, reservas).
+          </p>
         </div>
         <p className="jev-desk-live" aria-live="polite">
           <i />

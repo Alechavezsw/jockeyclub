@@ -131,7 +131,7 @@ export const APP_MANUAL = [
       'Abrí la ficha. El saldo y el vencimiento están en la cabecera. Tocá Cobrar (también se cobra desde Cuotas → Saldos).',
       `El cobro separa Cuota, Recargo y Total. ${RULES.collectLine}`,
       'Si debe más de un mes, en Meses del recibo marcá cuáles entran en este cobro. El total se recalcula; lo no marcado sigue pendiente.',
-      'Elegí el medio: Efectivo, A cuenta, Transferencia, Pago POS, Débito, Mixto o Mercado Pago por QR. Transferencia, POS y débito exigen comprobante (archivo o a mano; se guarda en Supabase); Gemini lo lee y desglosa importe, fecha y referencia. En Pago POS elegí el plan (acuerdo del terminal) si hay planes activos. El débito acredita en el banco o alias elegido y cobra solo capital (sin el 10 % de mora).',
+      'Elegí el medio: Efectivo, A cuenta, Transferencia, Pago POS, Débito, Mixto o Mercado Pago por QR. Transferencia, POS y débito exigen comprobante (archivo o a mano; se guarda en Supabase); la app lo lee y desglosa importe, fecha y referencia. En Pago POS elegí el plan (acuerdo del terminal) si hay planes activos. El débito acredita en el banco o alias elegido y cobra solo capital (sin el 10 % de mora).',
       'A cuenta: el socio entrega un importe (parcial o total) en sede. Se imputa del mes más viejo al más nuevo, con el 10 % si corresponde; lo que sobra queda a favor y se descuenta solo en el próximo cobro. El comprobante indica entregado, deuda restante y saldo a favor. Entra en Caja General, sin comprobante de transferencia.',
       'Pago mixto: combiná efectivo, transferencia y Pago POS en un mismo cobro. La suma de los medios tiene que cerrar con el total; cada transferencia/POS lleva su comprobante. Mercado Pago QR no entra en el mixto.',
       'Si cobrás a un adherente, el pago entra en la cuenta del titular y el aviso del cobro lo dice.',
@@ -235,13 +235,13 @@ export const APP_MANUAL = [
     keywords: 'jev consulta ia dictamen manual libro',
     who: 'Personal del club con sesión.',
     steps: [
-      'IA → Consulta. Escribí un número de socio, el mes, o cómo se hace algo. Los atajos de arriba (El mes, Qué conviene, La puerta, Enseñame) hacen la pregunta por vos.',
+      'IA → Consulta. Escribí un número de socio, el mes, o cómo se hace algo. Los atajos (El mes, Qué conviene, Caja, La puerta, Enseñame) hacen la pregunta por vos.',
       'Para un socio, escribí su número, su DNI o nombre y apellido: «¿por qué el socio 1234 no puede pagar pileta?». Jev contesta con las mismas reglas que usan la caja y la puerta: categoría, titular o adherente, mora y recargo, si entra hoy y si puede pagar pileta. Podés repreguntar sobre el mismo socio.',
       'También contesta dudas: «¿por qué no lo deja pasar?», «¿qué pasa si entra en mora?», «¿qué significa AMET?». Si el manual no lo cubre, te lo dice y te manda a Secretaría; no inventa.',
-      'Revisión es el padrón sucio: lo que falta, lo que se repite y lo que no cierra. Se baja a Excel. Ahí también está Jev: Priorizá, La plata o Las fichas, con la misma cola de revisión.',
-      `Predicciones proyecta el ${RULES.dueDay} y la pileta.`,
-      'Manual es la sala de al lado: el paso escrito de cada oficio, con captura y botón Ir a esa sección.',
-      'Jev lee el libro de esta sesión (cuotas, portería, reservas, pileta, reclamos) y contesta con esas cifras y el manual. No inventa. No escribe en el libro.',
+      'Revisión muestra la cola en vivo del padrón y la plata (lo que falta, se repite o no cierra). Se baja a Excel. Pedile Priorizá, La plata o Las fichas: usa esa misma cola.',
+      `Predicciones proyecta el ${RULES.dueDay} y la pileta con el padrón de la sesión.`,
+      'Manual (esta sala): el paso escrito de cada oficio, con captura y botón Ir a esa sección. Es la fuente de cómo se hace.',
+      'Jev no usa una IA externa: lee solo el libro de esta sesión y este manual. No inventa montos ni pantallas. No escribe en el libro.',
     ],
     dont: 'No le pidas a Jev que cobre, liquide o publique. Lee y te lleva.',
   },
@@ -272,16 +272,16 @@ export const APP_MANUAL = [
     steps: [
       'Leé el título del resultado: dice el motivo.',
       RULES.gateReason,
-      'En un adherente, la mora es la de su titular: si el titular no pagó, el grupo no ingresa en temporada. Regulariza el titular.',
+      'En un adherente, la cuenta es la del titular: si el titular debe meses anteriores, el grupo no entra. Si solo debe el mes en curso, sí puede pasar. Regularizá al titular.',
       'ACCESO DENEGADO: cuenta suspendida u otro bloqueo. Se rehabilita en la ficha, con motivo, desde Socios.',
       'NO SE PUDO VERIFICAR (amarillo): no hay conexión para comprobar la firma. No es un rechazo: buscá al socio por DNI o número y dejalo pasar a mano.',
       'QR no válido o adulterado: es un QR que no es del club, uno cortado, o de un carnet viejo sin firma. Que abra la app de nuevo, o buscalo por DNI, apellido o número.',
       'Socio no encontrado: el número no está en el padrón. Avisá a Secretaría; no improvises un pase.',
-      'Invitado: ANFITRIÓN EN MORA significa que el socio que lo invitó está bloqueado; PASE INVÁLIDO es un pase vencido, anulado o con anfitrión suspendido. Los pases valen solo el día.',
+      'Invitado: ANFITRIÓN CON DEUDA = el socio que lo invitó debe meses anteriores; PASE INVÁLIDO = pase vencido, anulado o anfitrión suspendido. Los pases valen solo el día.',
       'Aviso amarillo «Ya ingresó hace N min» sobre un ACCESO AUTORIZADO: la misma credencial entró hace poco. Puede ser un QR prestado; confirmá que sea el socio.',
       'El motivo de cada lectura queda en Operación → Ingresos.',
     ],
-    dont: 'No dejes pasar a un denegado por mora “por esta vez” ni inventes un pase. La regla de mora se prende o apaga en Configuración → Pileta, no en la puerta.',
+    dont: 'No dejes pasar a un denegado por deuda de meses anteriores “por esta vez” ni inventes un pase. La mora que cierra pileta se configura en Configuración → Pileta; la sede usa la regla de meses anteriores.',
   },
   {
     id: 'credencial-qr',
@@ -295,7 +295,7 @@ export const APP_MANUAL = [
       'El QR no se puede inventar con el número, pero sí se puede copiar: una captura del QR vigente pasa. Por eso el molinete avisa en amarillo «Ya ingresó hace N min» si la misma credencial entra dos veces en 20 minutos.',
       'Si el lector no toma el QR: subir el brillo del celular, acercarlo, o buscarlo por DNI, apellido o número en Acceso QR. Un carnet impreso de antes de la firma no vale.',
       'El QR es más simple que antes (menos puntos) y se lee más rápido y desde más lejos. Los QR de antes que un socio tenga guardados siguen valiendo.',
-      'Código de barras: el PDF de la credencial lleva el Code 128 al dorso. En Acceso QR la pistola escribe en el campo de búsqueda y da Enter; mismas reglas de deuda/mora. El check del código atrapa lecturas cortadas.',
+      'Código de barras: la credencial virtual y el PDF llevan Code 128. En Acceso QR la pistola escribe en el campo de búsqueda y da Enter; mismas reglas de deuda (meses anteriores bloquean; mes corriente deja pasar). El check del código atrapa lecturas cortadas.',
       'Socio sin carnet ni celular: en Acceso QR escribí el DNI, el apellido, el número o el código JCSJ en Código manual. Se aplican las mismas reglas que con el QR.',
       'Un QR no válido o adulterado queda registrado en Ingresos.',
     ],
@@ -430,7 +430,7 @@ export const APP_MANUAL = [
     who: 'Portería, pileta y atención al socio.',
     steps: [
       'Pase de invitado (puerta de la sede): el socio lo genera en Inicio con el nombre del invitado. Máximo 3 activos por día y por socio; vale solo ese día.',
-      'Si el anfitrión está suspendido o en mora (en temporada), el invitado no entra.',
+      'Si el anfitrión está suspendido o tiene deuda de meses anteriores, el invitado no entra a la sede.',
       'Invitados de pileta: es otro cupo, el que fija Configuración → Pileta (hoy 3 por día), con un canon por invitado que se cobra en la caja de pileta, después de habilitar al socio.',
       'En la ficha del socio, la sección Invitados muestra y genera los pases.',
     ],
@@ -560,7 +560,8 @@ export const APP_MANUAL = [
       'El socio entra a Reservar Canchas (/reservas), no al rail. Elige espacio, día y horario libre. Del turno ocupado ve solo que está ocupado.',
       'Las reservas las hace el titular de la cuenta. Un adherente que intenta reservar recibe “Las reservas las hace el titular de la cuenta”.',
       'Cada espacio tiene su regla en Sistema → Configuración → Reservas: hasta cuántos días antes se reserva, horas mínimas de anticipación, máximo de invitados, qué categorías pueden, una reserva vigente por espacio, si queda confirmada o pendiente de aprobación y si se carga a la cuenta corriente del socio.',
-      'Salones y Espacio Verde: seña del 50 % del alquiler, aparte de la cuota. Comisión no paga ese canon: reserva a costo 0 (sin seña ni cobro). Canchas sí cobran su tarifa.',
+      'Salones y Espacio Verde: seña del 50 % del alquiler, aparte de la cuota. Comisión no paga ese canon: reserva a costo 0 (sin seña ni cobro; queda nota en la reserva). Canchas sí cobran su tarifa.',
+      'En el libro de Reservas: las notas se ven en la tabla, el día y el detalle. PDF semana incluye la columna Notas. Comprobante está en el detalle de la reserva.',
       'Con Zonda declarado se suspende lo que está al aire libre; lo cubierto sigue.',
       'Fiestas no es esta agenda: Fiestas son eventos con inscripción.',
     ],
@@ -591,7 +592,7 @@ export const APP_MANUAL = [
       'Rail Acceso QR o /acceso. La pantalla de la tablet queda encendida mientras está abierta.',
       'Escaneá el QR, pasá el carnet por la pistola (código de barras) o escribí DNI, apellido, número o código JCSJ. El cartel queda hasta que el operador lo cierre; el lector sigue leyendo y la credencial siguiente lo reemplaza al instante.',
       'Resultados: ACCESO AUTORIZADO (al día o solo debe el mes corriente), ACCESO DENEGADO · DEUDA (meses anteriores), ACCESO DENEGADO (suspendido), INVITADO AUTORIZADO, ANFITRIÓN CON DEUDA, PASE INVÁLIDO, QR no válido, QR adulterado, Socio no encontrado y NO SE PUDO VERIFICAR (sin conexión).',
-      'El adherente se evalúa con su titular: si el titular está en mora, el grupo no ingresa en temporada.',
+      'El adherente se evalúa con su titular: si el titular debe meses anteriores, el grupo no entra; si solo debe el mes en curso, sí puede pasar.',
       'Los pases de invitado se consultan en el momento: uno que el socio generó hace un rato vale aunque la tablet haya abierto antes.',
       'Los pases y denegados quedan anotados, con quién los leyó. El detalle se ve en Ingresos.',
     ],
@@ -606,8 +607,8 @@ export const APP_MANUAL = [
     who: 'Control de pileta.',
     steps: [
       'Rail Entrada pileta o /entrada-pileta.',
-      'Controla apto médico, canon e invitados. Distinto de la puerta QR de Entrada pileta.',
-      `En temporada (diciembre a marzo), desde el ${RULES.dueDay}, sin la cuota del mes no entra al club: aparece “En mora · no abonó la cuota del mes”. La regla está en Configuración → Pileta.`,
+      'Controla apto médico, canon e invitados. Distinto del molinete de la sede (/acceso).',
+      `En temporada de pileta (diciembre a marzo), desde el ${RULES.dueDay}, sin la cuota del mes no se habilita pileta: “En mora · no abonó la cuota del mes”. Eso no cierra la sede por el mes corriente.`,
       'Un socio en mora tampoco puede pagar pileta, esté o no en temporada, hasta regularizar.',
       'La temporada y los montos se editan en Configuración → Pileta.',
     ],
@@ -1162,9 +1163,8 @@ export function manualForPrompt() {
 const CORE_LESSON_IDS = ['reglas-cuota', 'roles'];
 
 /**
- * El manual que ve Gemini para una pregunta: las lecciones que corresponden, completas,
- * más las reglas fijas, y un índice de títulos del resto para que sepa adónde mandar.
- * Entra en `limit` caracteres, así que nunca se corta a la mitad de una lección.
+ * Recorte del manual para una pregunta: lecciones que calzan, reglas fijas,
+ * e índice de títulos del resto. Entra en `limit` caracteres sin cortar a mitad de lección.
  */
 export function manualPromptFor(query = '', { limit = 9000, top = 4 } = {}) {
   const matches = matchManualLessons(query).slice(0, top);
