@@ -1,4 +1,4 @@
-/** En temporada, desde el 10, sin la cuota del mes no se entra al club. */
+/** Acceso sede: deuda de meses anteriores bloquea; solo mes corriente (aunque vencido) deja pasar. */
 
 import {
   duesAmountForMember,
@@ -11,14 +11,14 @@ import { familyPrincipalOf, isFamilyDependent, memberNumberOf } from '../members
 import { isPoolSeasonLive } from './poolSeason';
 
 export const SEASON_DUES_GATE_COPY = {
-  lead: 'Solo ingresan socios al día con la cuota social. Con deuda, el acceso queda denegado hasta regularizar en Caja o Mi Cuenta.',
-  mora: 'En temporada de pileta (diciembre a marzo), desde el día 10, quien no abonó el mes en curso también queda en mora de ingreso.',
+  lead: 'En la puerta de la sede no ingresan socios con deuda de meses anteriores. Si solo deben el mes en curso (aunque ya esté vencido), sí pueden pasar.',
+  mora: 'Pileta (diciembre a marzo): desde el día 10, sin la cuota del mes no se habilita pileta hasta regularizar. La sede sigue la regla de meses anteriores.',
 };
 
 export const SEASON_DUES_BLOCK_REASON = 'En mora · no abonó la cuota del mes. No ingresa hasta regularizar.';
 export const SEASON_DUES_BLOCK_REASON_GROUP = 'El titular está en mora · no abonó la cuota del mes. No ingresa hasta regularizar.';
-export const DUES_DEBT_BLOCK_REASON = 'Con deuda de cuota. No ingresa hasta regularizar.';
-export const DUES_DEBT_BLOCK_REASON_GROUP = 'El titular tiene deuda de cuota. No ingresa hasta regularizar.';
+export const DUES_DEBT_BLOCK_REASON = 'Con deuda de meses anteriores. No ingresa hasta regularizar.';
+export const DUES_DEBT_BLOCK_REASON_GROUP = 'El titular tiene deuda de meses anteriores. No ingresa hasta regularizar.';
 
 /**
  * El adherente no tiene cuenta propia: la mora es la del titular del grupo.
@@ -32,21 +32,71 @@ export function accountHolderOf(member, members = []) {
 }
 
 /**
- * Deuda de cuota para carteles de acceso / asistencia.
- * Exentos = 0. Adherente = saldo del titular. Misma fuente que mora de temporada.
+ * True si el saldo de cuota incluye meses anteriores al corriente.
+ * Solo el mes en curso (vencido o no) → false: la puerta deja pasar.
  */
-export function accessDuesDebt(member, members = []) {
-  const holder = accountHolderOf(member, members);
-  if (!holder || isDuesExemptMember(holder)) {
-    return { holder, owed: 0, hasDebt: false };
+export function hasPriorMonthDuesDebt(member, today = new Date()) {
+  if (!member || isDuesExemptMember(member)) return false;
+  const when = asDay(today);
+  const stored = socialDuesStoredBalance(member);
+  if (stored <= 0.01) return false;
+
+  // pinDuesDueDate → ISO YYYY-MM-DD (string comparable).
+  const thisDue = pinDuesDueDate(when, member);
+  const nextDue = pinDuesDueDate(member?.nextDueDate, member);
+  const monthly = duesAmountForMember(member, when);
+
+  if (thisDue && nextDue) {
+    if (nextDue < thisDue) return true;
+    // nextDue = vencimiento del mes corriente → solo ese mes (aunque ya venció).
+    if (nextDue === thisDue) return false;
+    // nextDue a futuro: si el capital supera una cuota, hay atraso viejo mal tipiado.
+    if (monthly > 0.01 && stored > monthly + 0.01) return true;
+    return false;
   }
-  const owed = socialDuesStoredBalance(holder);
-  return { holder, owed, hasDebt: owed > 0.01 };
+
+  if (monthly > 0.01) return stored > monthly + 0.01;
+  return true;
 }
 
 /**
- * Puerta de la sede: sin deuda de cuota (todo el año) y, en temporada, sin mora del mes.
+ * Deuda de cuota para carteles de acceso / asistencia.
+ * Exentos = 0. Adherente = saldo del titular.
+ * hasDebt = solo meses anteriores (bloquea puerta). currentMonthOnly = debe el mes y puede pasar.
+ */
+export function accessDuesDebt(member, members = [], { today = new Date() } = {}) {
+  const holder = accountHolderOf(member, members);
+  if (!holder || isDuesExemptMember(holder)) {
+    return {
+      holder,
+      owed: 0,
+      hasDebt: false,
+      currentMonthOnly: false,
+    };
+  }
+  const owed = socialDuesStoredBalance(holder);
+  if (owed <= 0.01) {
+    return {
+      holder,
+      owed: 0,
+      hasDebt: false,
+      currentMonthOnly: false,
+    };
+  }
+  const prior = hasPriorMonthDuesDebt(holder, today);
+  return {
+    holder,
+    owed,
+    hasDebt: prior,
+    currentMonthOnly: !prior,
+  };
+}
+
+/**
+ * Puerta de la sede: bloquea deuda de meses anteriores.
+ * Si solo debe el mes corriente (aunque vencido / en temporada), ingresa.
  * Exentos y saldo a favor pasan. El adherente hereda al titular.
+ * La mora de pileta (seasonDuesGate) no cierra la sede por el mes en curso.
  */
 export function clubEntryGate(member, {
   today = new Date(),
@@ -61,10 +111,11 @@ export function clubEntryGate(member, {
       hasDebt: false,
       owed: 0,
       holder: null,
+      currentMonthOnly: false,
       season: { blocked: false, inSeason: false, mora: false, reason: '' },
     };
   }
-  const debt = accessDuesDebt(member, members);
+  const debt = accessDuesDebt(member, members, { today });
   const season = seasonDuesGate(member, { today, settings, members });
   if (debt.hasDebt) {
     const group = dependsOnHolder(member, debt.holder);
@@ -75,17 +126,7 @@ export function clubEntryGate(member, {
       hasDebt: true,
       owed: debt.owed,
       holder: debt.holder,
-      season,
-    };
-  }
-  if (season.blocked) {
-    return {
-      blocked: true,
-      reason: season.reason,
-      title: 'ACCESO DENEGADO · MORA',
-      hasDebt: false,
-      owed: 0,
-      holder: debt.holder,
+      currentMonthOnly: false,
       season,
     };
   }
@@ -94,8 +135,9 @@ export function clubEntryGate(member, {
     reason: '',
     title: '',
     hasDebt: false,
-    owed: 0,
+    owed: debt.owed,
     holder: debt.holder,
+    currentMonthOnly: Boolean(debt.currentMonthOnly),
     season,
   };
 }

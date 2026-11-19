@@ -20,11 +20,14 @@ export function receiptDuesKindLabel(payment) {
 }
 
 function formatCurrency(amount) {
+  const n = Number(amount) || 0;
+  const hasCents = Math.abs(n % 1) > 0.001;
   return new Intl.NumberFormat('es-AR', {
     style: 'currency',
     currency: 'ARS',
-    minimumFractionDigits: 0,
-  }).format(Number(amount) || 0);
+    minimumFractionDigits: hasCents ? 2 : 0,
+    maximumFractionDigits: hasCents ? 2 : 0,
+  }).format(n);
 }
 
 function formatLongDateAr(iso) {
@@ -272,7 +275,7 @@ export function receiptPaymentSplits(payment) {
       const amount = Number(row.amount) || 0;
       const voucherRaw = Number(row.voucherAmount ?? row.receiptParse?.amount);
       const voucherAmount = Number.isFinite(voucherRaw) && voucherRaw > amount + 0.01
-        ? Math.round(voucherRaw)
+        ? Math.round(voucherRaw * 100) / 100
         : 0;
       return {
         method: String(row.method || '').trim().toLowerCase(),

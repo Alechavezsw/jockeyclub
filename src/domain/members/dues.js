@@ -69,8 +69,8 @@ export function duesRuleSentences() {
     glossaryAmet: `AMET: categoría que vence el ${DUES_AMET_DUE_DAY}, con la cuota en base menos ${ametCut}; ese ${ametCut} es tarifa. No entra en mora y no lleva el recargo del ${late}.`,
     glossaryMora: `Mora: cuota vencida y sin pagar, desde el día siguiente al vencimiento. Recargo: ${late} de la cuota de cada mes vencido, por separado, solo familiar e individual.`,
     controlMora: `Desde el día siguiente al vencimiento corre el recargo del ${late} (familiar e individual).`,
-    gateMora: `ACCESO DENEGADO · DEUDA: si debe cuota social, no ingresa (todo el año). En temporada de pileta (diciembre a marzo), desde el ${DUES_DUE_DAY}, también aplica ACCESO DENEGADO · MORA si no pagó el mes. Un adherente queda igual que su titular.`,
-    gateReason: `ACCESO DENEGADO · DEUDA: tiene saldo de cuota. Que regularice en Caja o en Mi Cuenta; cuando se acredita, pasa. En temporada, desde el ${DUES_DUE_DAY}, la mora del mes también cierra la puerta.`,
+    gateMora: `ACCESO DENEGADO · DEUDA: si debe meses anteriores de cuota social, no ingresa (todo el año). Si solo debe el mes en curso —aunque ya venció el ${DUES_DUE_DAY}— sí puede pasar. Un adherente queda igual que su titular. La mora de pileta no cierra la sede por el mes corriente.`,
+    gateReason: `ACCESO DENEGADO · DEUDA: tiene deuda de meses anteriores. Que regularice en Caja o en Mi Cuenta; cuando se acredita, pasa. Si solo debe el mes en curso (vencido o no), la puerta lo deja entrar.`,
     poolMora: `Un socio en mora (desde el ${DUES_DUE_DAY}, o con saldo) no puede pagar pileta hasta regularizar la cuota. La ficha lo dice: Puede pagar pileta / No puede pagar pileta.`,
     inicio: `Vencimiento del mes (${DUES_DUE_DAY}; AMET, ${DUES_AMET_DUE_DAY}), recaudado del mes con su cobrabilidad, caja y alertas vivas.`,
     configDue: `Cuotas: Vence el día (1 al 28; hoy el ${DUES_DUE_DAY}), tolerancia de pago, gracia de la credencial, deuda máxima, cuenta protegida y si los socios ven su cuenta corriente. AMET vence el ${DUES_AMET_DUE_DAY} por regla de la categoría, no por este campo.`,
@@ -83,7 +83,7 @@ export function duesRuleSentences() {
       const ametUpcoming = DUES_AMET_DUE_DAY - advanceDays;
       return `Avisos reales, uno de cada etapa por socio: desde ${advanceDays} días antes del vencimiento, el día que vence y desde el día siguiente (mora). Para socio familiar e individual eso es desde el ${upcoming}, el ${DUES_DUE_DAY} y desde el ${moraDay}. AMET avisa desde el ${ametUpcoming} y el ${DUES_AMET_DUE_DAY}; no tiene etapa mora. Llegan por mensaje interno y mail. La regla está en Configuración.`;
     },
-    poolGate: `Pileta: canon socio e invitado, apto médico (días), invitados por socio, nombre de la temporada, si el socio carga el apto, y Mora desde el ${DUES_DUE_DAY} bloquea el ingreso (en temporada, diciembre a marzo; vale para sede y pileta).`,
+    poolGate: `Pileta: canon socio e invitado, apto médico (días), invitados por socio, nombre de la temporada, si el socio carga el apto, y mora desde el ${DUES_DUE_DAY} bloquea pileta (temporada dic–mar). La sede solo bloquea deuda de meses anteriores; el mes corriente deja pasar.`,
   };
 }
 

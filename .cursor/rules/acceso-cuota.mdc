@@ -1,0 +1,20 @@
+# Acceso / molinete vs cuota social
+
+Regla de la **puerta de la sede** (`/acceso`, `clubEntryGate`). No es la regla de pileta.
+
+## Obligatorio
+
+1. **Deuda de meses anteriores → no ingresa.** Titular o adherente (hereda al titular): `ACCESO DENEGADO · DEUDA` hasta regularizar en Caja o Mi Cuenta.
+2. **Solo el mes corriente → sí ingresa**, aunque la cuota ya esté vencida (después del 10; AMET, del 18). No es mora de sede.
+3. Exentos (vitalicio, fundador, comisión) siempre pasan por cuota.
+4. Helpers: `hasPriorMonthDuesDebt`, `accessDuesDebt`, `clubEntryGate` en `seasonDuesGate.js`.
+
+## Pileta (aparte)
+
+- En temporada, sin la cuota del mes desde el vencimiento, **pileta** puede bloquear (`seasonDuesGate` / `isPiletaMora` / `piletaPayAccess`).
+- Eso **no** cierra la sede por el mes en curso.
+
+## Prohibido
+
+- Bloquear la sede solo porque el mes actual está liquidado y vencido.
+- Tratar “debe noviembre en noviembre” igual que “debe octubre en noviembre”.

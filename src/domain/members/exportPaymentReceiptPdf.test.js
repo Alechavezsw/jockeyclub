@@ -162,7 +162,7 @@ describe('exportPaymentReceiptPdf helpers', () => {
           amount: 393000,
           paymentPlanLabel: 'DATA 3 cuotas',
           journalAccount: 'Tarjetas a cobrar',
-          voucherAmount: 432000,
+          voucherAmount: 432383.78,
         },
       ],
     };
@@ -170,7 +170,7 @@ describe('exportPaymentReceiptPdf helpers', () => {
     expect(receiptPaymentSplits(payment).map((row) => row.amount)).toEqual([300000, 393000]);
     expect(receiptPaymentSplits(payment)[0].reference).toBe('');
     expect(receiptPaymentSplits(payment)[1].reference).toBe('DATA 3 cuotas');
-    expect(receiptPaymentSplits(payment)[1].voucherAmount).toBe(432000);
+    expect(receiptPaymentSplits(payment)[1].voucherAmount).toBe(432383.78);
     expect(accountLabel(payment)).toBe('Mercado Pago + Tarjetas a cobrar');
     expect(receiptCreditLeftover(payment)).toBe(11000);
     expect(receiptCreditLeftover({ ...payment, creditLeftover: 0 })).toBe(0);

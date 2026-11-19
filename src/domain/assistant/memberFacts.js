@@ -258,7 +258,7 @@ export function memberFactsForPrompt(facts) {
     lines.push(`Cuota: ${facts.quota}${facts.quotaHint ? ` (${facts.quotaHint})` : ''}.`);
   }
   lines.push(facts.canEnterToday
-    ? `Puerta hoy: puede ingresar${facts.saldo > 0 && !facts.exempt ? ' (con deuda, informada)' : ''}.`
+    ? `Puerta hoy: puede ingresar${facts.saldo > 0 && !facts.exempt ? ' (solo mes corriente pendiente; meses anteriores sí bloquean)' : ''}.`
     : `Puerta hoy: NO ingresa (${facts.entryReason}).`);
   lines.push(facts.canPayPool
     ? 'Pileta: puede pagar.'

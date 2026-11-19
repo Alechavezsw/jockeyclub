@@ -233,9 +233,9 @@ export default function AccessControlView({
     lastAdmitRef.current = { id: member.memberId, at: nowMs };
 
     const isSuspended = member.status !== 'active';
-    // Sin al día no entra: deuda de cuota cierra la puerta todo el año (titular / adherente / exentos).
+    // Meses anteriores bloquean; solo mes corriente (aunque vencido) deja pasar.
     const entry = clubEntryGate(member, { today: clubDay, settings: poolCfg, members: gateMembers });
-    const { holder, owed, hasDebt } = entry;
+    const { holder, owed, hasDebt, currentMonthOnly } = entry;
     const isAllowed = !isSuspended && !entry.blocked;
     const status = isAllowed ? 'granted' : 'denied';
     const debtNote = holder && holder !== member ? 'Deuda del titular' : 'Deuda';
@@ -244,11 +244,14 @@ export default function AccessControlView({
       : via === 'qr'
         ? 'QR'
         : 'Búsqueda manual';
+    const standingNote = currentMonthOnly
+      ? `Mes en curso pendiente${owed > 0.01 ? ` (${formatCurrency(owed)})` : ''} · puede pasar`
+      : 'Al día';
     const notes = isSuspended
       ? 'Cuenta suspendida'
       : entry.blocked
         ? (hasDebt ? `${debtNote} ${formatCurrency(owed)}. ${entry.reason}` : entry.reason)
-        : `Acceso aprobado · Al día · ${viaNote}`;
+        : `Acceso aprobado · ${standingNote} · ${viaNote}`;
 
     // Misma credencial dos veces en poco rato: un QR prestado o mandado por WhatsApp se nota así.
     // Solo avisa; quien decide es el portero (puede haber salido y vuelto).
@@ -261,7 +264,7 @@ export default function AccessControlView({
         ? 'ACCESO AUTORIZADO'
         : (isSuspended ? 'ACCESO DENEGADO' : (entry.title || 'ACCESO DENEGADO')),
       detail: isAllowed
-        ? `${member.name} · ${member.tier?.toUpperCase() || 'SOCIO'} · Al día`
+        ? `${member.name} · ${member.tier?.toUpperCase() || 'SOCIO'} · ${standingNote}`
         : `${member.name} · ${notes}`,
       warning,
       memberName: member.name,
@@ -365,13 +368,13 @@ export default function AccessControlView({
         status: valid ? 'granted' : 'denied',
         title: valid
           ? 'INVITADO AUTORIZADO'
-          : (hostBlocked ? (hostDebt ? 'ANFITRIÓN CON DEUDA' : 'ANFITRIÓN EN MORA') : 'PASE INVÁLIDO'),
+          : (hostBlocked ? 'ANFITRIÓN CON DEUDA' : 'PASE INVÁLIDO'),
         detail: valid
           ? `${pass.guestName} · invitado de ${host?.name || 'socio'}`
           : hostBlocked
             ? (hostDebt
-              ? 'El socio anfitrión tiene deuda de cuota.'
-              : 'El socio anfitrión no regularizó la cuota del mes.')
+              ? 'El socio anfitrión tiene deuda de meses anteriores.'
+              : 'El socio anfitrión no puede autorizar el ingreso.')
             : 'Pase vencido, revocado o no registrado.',
         memberName: pass?.guestName || null,
       });
@@ -387,7 +390,7 @@ export default function AccessControlView({
           notes: valid
             ? `Pase ${pass.id} · anfitrión ${host?.name || ''}`
             : hostBlocked
-              ? (hostDebt ? 'Anfitrión con deuda' : 'Anfitrión en mora')
+              ? 'Anfitrión con deuda de meses anteriores'
               : 'Pase vencido, revocado o no registrado',
           operator: operatorName,
         }),

@@ -26,16 +26,19 @@ export default function CredentialBarcode({
     try {
       JsBarcode(node, payload, {
         format: BARCODE_FORMAT,
-        width: 2.2,
+        width: displayValue ? 2.2 : 1.6,
         height,
         displayValue,
-        fontSize: 12,
-        textMargin: 4,
-        margin: 12,
+        fontSize: displayValue ? 12 : 0,
+        textMargin: displayValue ? 4 : 0,
+        margin: displayValue ? 10 : 6,
         background: '#ffffff',
         lineColor: '#060e0a',
-        flat: false,
+        flat: true,
       });
+      node.style.width = '100%';
+      node.style.height = 'auto';
+      node.style.display = 'block';
     } catch {
       node.replaceChildren();
     }
@@ -50,15 +53,16 @@ export default function CredentialBarcode({
         background: '#ffffff',
         borderRadius: 10,
         padding: '10px 12px 6px',
-        display: 'inline-flex',
+        display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
+        overflow: 'hidden',
         ...style,
       }}
       aria-label={`Código de barras ${payload}`}
     >
-      <svg ref={svgRef} id={`cred-barcode-${reactId}`} role="img" />
+      <svg ref={svgRef} id={`cred-barcode-${reactId}`} role="img" style={{ width: '100%', height: 'auto' }} />
     </div>
   );
 }

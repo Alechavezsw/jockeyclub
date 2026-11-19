@@ -503,11 +503,11 @@ describe('payMemberDues', () => {
           amount: 393000,
           paymentPlanId: 'data-3',
           paymentPlanLabel: 'DATA 3 cuotas',
-          voucherAmount: 432000,
+          voucherAmount: 432383.78,
           receiptParse: {
             source: 'manual',
             reference: '1300-305',
-            amount: 432000,
+            amount: 432383.78,
             bankOrCard: 'DATA 3 cuotas',
           },
           receiptName: 'Manual · 1300-305',
@@ -516,7 +516,7 @@ describe('payMemberDues', () => {
       today: new Date('2026-11-18T12:00:00'),
     });
     const card = result.payment.paymentSplits.find((row) => row.method === 'tarjeta');
-    expect(card.voucherAmount).toBe(432000);
+    expect(card.voucherAmount).toBe(432383.78);
     expect(card.amount).toBe(393000);
     expect(result.journalEntry.lines.filter((l) => l.type === 'debit')).toEqual([
       { account: 'Mercado Pago', type: 'debit', amount: 300000 },

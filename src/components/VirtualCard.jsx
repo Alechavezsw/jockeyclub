@@ -46,7 +46,7 @@ function CardFace({
     position: 'relative',
     width: '100%',
     maxWidth: '100%',
-    aspectRatio: '1.586 / 1',
+    // Alto natural: deja franja Code 128 visible (ISO 1.586 recortaba el barcode).
     height: 'auto',
     borderRadius: isFull ? 22 : 18,
     background: t.bg,
@@ -60,8 +60,9 @@ function CardFace({
     overflow: 'hidden',
     display: 'flex',
     flexDirection: 'column',
-    justifyContent: 'space-between',
-    padding: isFull ? '1.65rem 1.75rem' : '1.4rem 1.5rem',
+    justifyContent: 'flex-start',
+    gap: isFull ? '0.85rem' : '0.55rem',
+    padding: isFull ? '1.45rem 1.55rem 1.15rem' : '1.05rem 1.15rem 0.85rem',
     WebkitUserSelect: 'none',
     userSelect: 'none',
     WebkitTouchCallout: 'none',
@@ -194,8 +195,8 @@ function CardFace({
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: '0.65rem', minWidth: 0 }}>
           {member?.photo ? (
             <div style={{
-              width: isFull ? 96 : 72,
-              height: isFull ? 96 : 72,
+              width: isFull ? 88 : 56,
+              height: isFull ? 88 : 56,
               borderRadius: 12,
               overflow: 'hidden',
               flexShrink: 0,
@@ -269,13 +270,13 @@ function CardFace({
           alignItems: 'center',
           justifyContent: 'center',
           boxShadow: '0 4px 16px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.1)',
-          width: isFull ? 96 : 48,
-          height: isFull ? 96 : 48,
+          width: isFull ? 88 : 44,
+          height: isFull ? 88 : 44,
           flexShrink: 0,
         }}>
           <QRCodeSVG
             value={buildCredentialQRPayload(member)}
-            size={isFull ? 80 : 38}
+            size={isFull ? 72 : 34}
             level="M"
             includeMargin={isFull}
             bgColor="#ffffff"
@@ -283,12 +284,38 @@ function CardFace({
           />
         </div>
       </div>
+
+      {/* Code 128 en la cara: pistola / láser (quiet zone + alto útil). */}
+      <div
+        style={{
+          position: 'relative',
+          zIndex: 2,
+          width: '100%',
+          flexShrink: 0,
+          marginTop: isFull ? '0.15rem' : 0,
+        }}
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+      >
+        <CredentialBarcode
+          member={member}
+          height={isFull ? 44 : 30}
+          displayValue={false}
+          style={{
+            width: '100%',
+            borderRadius: isFull ? 10 : 8,
+            padding: isFull ? '6px 8px 4px' : '4px 5px 3px',
+            boxShadow: '0 2px 10px rgba(0,0,0,0.4)',
+          }}
+        />
+      </div>
     </div>
   );
 }
 
 const CARD_BASE_W = 360;
-const CARD_BASE_H = CARD_BASE_W / 1.586;
+/** Alto de la cara con franja Code 128 (ya no ISO 1.586). */
+const CARD_BASE_H = 300;
 
 export default function VirtualCard({ member }) {
   const cardRef = useRef(null);
@@ -628,7 +655,7 @@ export default function VirtualCard({ member }) {
           width: 100% !important;
           max-width: 100% !important;
           height: auto !important;
-          aspect-ratio: 1.586 / 1;
+          aspect-ratio: auto !important;
         }
         @media print {
           .vc-wrap { display: none !important; }

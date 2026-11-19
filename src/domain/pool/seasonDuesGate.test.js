@@ -3,6 +3,7 @@ import {
   accessDuesDebt,
   accountHolderOf,
   clubEntryGate,
+  hasPriorMonthDuesDebt,
   isCurrentMonthDuesUnpaid,
   piletaPayAccess,
   seasonDuesGate,
@@ -162,11 +163,38 @@ describe('adherente: la mora es la del titular', () => {
 });
 
 describe('clubEntryGate', () => {
-  it('con deuda no ingresa fuera de temporada', () => {
-    const gate = clubEntryGate(familiar, { today: '2026-10-15' });
+  it('con deuda de meses anteriores no ingresa', () => {
+    const gate = clubEntryGate({
+      ...familiar,
+      nextDueDate: '2026-09-10',
+      outstandingBalance: 140000,
+    }, { today: '2026-10-15' });
     expect(gate.blocked).toBe(true);
     expect(gate.hasDebt).toBe(true);
     expect(gate.title).toMatch(/DEUDA/i);
+  });
+
+  it('si solo debe el mes corriente (vencido) sí ingresa', () => {
+    const gate = clubEntryGate({
+      ...familiar,
+      outstandingBalance: 70000,
+      nextDueDate: '2026-10-10',
+      lastPaymentDate: '2026-09-10',
+    }, { today: '2026-10-15' });
+    expect(gate.blocked).toBe(false);
+    expect(gate.hasDebt).toBe(false);
+    expect(gate.currentMonthOnly).toBe(true);
+  });
+
+  it('en temporada, mora del mes corriente no cierra la sede', () => {
+    const gate = clubEntryGate({
+      ...familiar,
+      outstandingBalance: 70000,
+      nextDueDate: '2026-12-10',
+    }, { today: '2026-12-15' });
+    expect(gate.blocked).toBe(false);
+    expect(gate.season.blocked).toBe(true);
+    expect(gate.currentMonthOnly).toBe(true);
   });
 
   it('al día ingresa', () => {
@@ -191,6 +219,24 @@ describe('clubEntryGate', () => {
   });
 });
 
+describe('hasPriorMonthDuesDebt', () => {
+  it('mes corriente solo no es prior', () => {
+    expect(hasPriorMonthDuesDebt({
+      ...familiar,
+      nextDueDate: '2026-11-10',
+      outstandingBalance: 70000,
+    }, '2026-11-18')).toBe(false);
+  });
+
+  it('nextDue de un mes anterior sí es prior', () => {
+    expect(hasPriorMonthDuesDebt({
+      ...familiar,
+      nextDueDate: '2026-09-10',
+      outstandingBalance: 140000,
+    }, '2026-11-18')).toBe(true);
+  });
+});
+
 describe('accessDuesDebt', () => {
   it('exentos no tienen deuda aunque el saldo esté sucio', () => {
     expect(accessDuesDebt({
@@ -199,7 +245,7 @@ describe('accessDuesDebt', () => {
       cuotaCategories: ['COMISION'],
       outstandingBalance: 1466000,
       status: 'active',
-    }).hasDebt).toBe(false);
+    }, [], { today: '2026-10-15' }).hasDebt).toBe(false);
   });
 
   it('saldo a favor y unpaidCapital 0 son al día', () => {
@@ -208,21 +254,37 @@ describe('accessDuesDebt', () => {
       tier: 'socio_individual',
       outstandingBalance: -5000,
       unpaidCapital: 0,
-    }).hasDebt).toBe(false);
+    }, [], { today: '2026-10-15' }).hasDebt).toBe(false);
   });
 
-  it('adherente hereda el saldo del titular', () => {
-    const titular = { ...familiar, memberId: '1001' };
+  it('adherente hereda deuda prior del titular', () => {
+    const titular = {
+      ...familiar,
+      memberId: '1001',
+      nextDueDate: '2026-09-10',
+      outstandingBalance: 140000,
+    };
     const adherente = {
       memberId: '1002',
       tier: 'socio_familiar',
       familyPrincipalNumber: '1001',
       outstandingBalance: 0,
     };
-    const debt = accessDuesDebt(adherente, [titular, adherente]);
+    const debt = accessDuesDebt(adherente, [titular, adherente], { today: '2026-10-15' });
     expect(debt.hasDebt).toBe(true);
-    expect(debt.owed).toBe(70000);
+    expect(debt.owed).toBe(140000);
     expect(debt.holder).toBe(titular);
+  });
+
+  it('solo mes corriente no bloquea (hasDebt false)', () => {
+    const debt = accessDuesDebt({
+      ...familiar,
+      nextDueDate: '2026-10-10',
+      outstandingBalance: 70000,
+    }, [], { today: '2026-10-20' });
+    expect(debt.hasDebt).toBe(false);
+    expect(debt.currentMonthOnly).toBe(true);
+    expect(debt.owed).toBe(70000);
   });
 });
 
