@@ -433,7 +433,16 @@ function priorityInsight(brief) {
   const reading = monthReading(brief);
   const fichas = Number(brief.fichas) || 0;
   const deudores = Number(brief.deudores) || 0;
+  const queue = (brief.reviewItems || []).filter((item) => Number(item?.count) > 0 || item?.title);
   const picks = [];
+  if (queue[0]) {
+    picks.push({
+      score: 6,
+      line: `Primero revisión: ${queue[0].title}${queue[0].detail ? ` · ${queue[0].detail}` : ''}.`,
+      go: queue[0].tab || 'jev',
+      focus: queue[0].focus || null,
+    });
+  }
   if (reading.liquidated > 0 && reading.pct < 70) {
     picks.push({
       score: reading.due.phase === 'after' ? 5 : 4,
@@ -462,7 +471,7 @@ function priorityInsight(brief) {
       go: 'dashboard',
     });
   }
-  const ranked = picks.toSorted((a, b) => b.score - a.score);
+  const ranked = picks.toSorted((a, b) => b.score - a.score).slice(0, 3);
   const top = ranked[0];
   return {
     verdict: top.line,
@@ -474,6 +483,7 @@ function priorityInsight(brief) {
     ],
     next: 'Hago una cosa por vez. Decime si seguimos por plata, ficha, puerta o una sección.',
     go: top.go,
+    focus: top.focus || null,
   };
 }
 
@@ -594,7 +604,7 @@ export function openingBriefing(brief = {}) {
       prettyDay(brief.today) ? `Hoy ${prettyDay(brief.today)}.` : '',
       hasMoney ? `${reading.month} lleva ${formatGuideMoney(reading.collected)} de ${formatGuideMoney(reading.liquidated)}.` : '',
       bien != null ? `Padrón: ${formatGuideCount(bien)} fichas en orden de ${formatGuideCount(activos)} activos.` : '',
-      'Preguntame libre: un socio, el mes, caja, reservas, o qué conviene hacer. Gemini lee el libro y contesta con criterio.',
+      'Preguntame libre: un socio, el mes, caja, reservas, o qué conviene hacer. Contesto con el libro de esta sesión, sin inventar.',
     ].filter(Boolean).join(' '),
     figures: [
       hasMoney ? { label: 'Avance', value: `${reading.pct}%` } : null,
@@ -654,7 +664,7 @@ export function composeInsight(query = '', brief = {}, { member = null } = {}) {
   return priorityInsight(brief);
 }
 
-/** Respuesta inmediata si no hace falta Gemini: cómo usar o un dato del brief. */
+/** Respuesta inmediata del libro (sin IA externa). */
 export function answerFromBrief(query = '', brief = {}) {
   const insight = composeInsight(query, brief);
   if (!insight) return null;
@@ -680,29 +690,28 @@ export function parseJevReply(payload) {
   return { text: raw, source: payload.source, tab: payload.tab || null };
 }
 
+/** El libro local manda siempre; un remoto solo rellena huecos. */
 export function mergeJevReply(local, remote) {
   const parsed = parseJevReply(remote);
-  const geminiText = String(parsed?.text || '').trim();
-  const geminiLooksBroken = !geminiText || geminiText.startsWith('{') || geminiText.startsWith('```');
-  // Gemini (más inteligencia) manda si contestó bien; el libro es respaldo.
-  const fromGemini = remote?.source === 'gemini' && geminiText && !geminiLooksBroken;
-  const geminiFigures = Array.isArray(parsed?.figures) && parsed.figures.length ? parsed.figures : null;
+  const remoteText = String(parsed?.text || '').trim();
+  const remoteLooksBroken = !remoteText || remoteText.startsWith('{') || remoteText.startsWith('```');
+  const localText = String(local?.text || '').trim();
+  const remoteFigures = Array.isArray(parsed?.figures) && parsed.figures.length ? parsed.figures : null;
   return {
-    verdict: parsed?.verdict && !String(parsed.verdict).startsWith('{')
-      ? parsed.verdict
-      : (local?.verdict || null),
-    text: fromGemini ? geminiText : (local?.text || geminiText || ''),
-    figures: fromGemini
-      ? (geminiFigures || local?.figures || [])
-      : (local?.figures || geminiFigures || []),
-    next: parsed?.next || local?.next || null,
-    go: parsed?.tab || parsed?.go || local?.go || null,
-    focus: parsed?.focus || local?.focus || null,
-    source: fromGemini ? 'gemini' : (remote?.source || 'libro'),
+    verdict: local?.verdict
+      || (parsed?.verdict && !String(parsed.verdict).startsWith('{') ? parsed.verdict : null),
+    text: localText || (!remoteLooksBroken ? remoteText : '') || '',
+    figures: (Array.isArray(local?.figures) && local.figures.length)
+      ? local.figures
+      : (remoteFigures || []),
+    next: local?.next || parsed?.next || null,
+    go: local?.go || parsed?.tab || parsed?.go || null,
+    focus: local?.focus || parsed?.focus || null,
+    source: 'libro',
   };
 }
 
-const ANSWER_RULES = `CÓMO CONTESTAR (Jev + Gemini):
+const ANSWER_RULES = `CÓMO CONTESTAR (Jev · solo libro):
 - Sacá la duda completa con el LIBRO y el MANUAL. No mandes a leer el manual entero.
 - Pensá como secretario: cruzá mes, padrón, mora, puerta, caja y revisión cuando ayuden a la respuesta.
 - "¿Cómo se hace…?": pasos numerados (1. 2. 3., máximo 6) en text, y la sección en tab.
@@ -721,7 +730,7 @@ Portal socio: https://www.jockeyclubsj.com.ar/cuenta (Mi cuenta) · /reservas /r
 Profesor: /asistencia
 Portería QR: /acceso · Pileta: /pileta · Entrada pileta: /entrada-pileta · Concesiones: /panel/concessions`;
 
-/** Cola de Revisión para el prompt de Gemini (prioridad del club). */
+/** Cola de Revisión para el prompt / dictamen (prioridad del club). */
 export function reviewQueueForPrompt(items = [], { limit = 2200 } = {}) {
   const rows = (items || [])
     .filter((item) => Number(item?.count) > 0 || item?.title)
@@ -746,9 +755,8 @@ export function reviewQueueForPrompt(items = [], { limit = 2200 } = {}) {
 }
 
 /**
- * Lo que Gemini lee para esta pregunta: cómo contestar, el socio consultado (si hay),
+ * Contexto de la pregunta: cómo contestar, el socio consultado (si hay),
  * la cola de revisión (si hay), las reglas fijas y las lecciones del manual.
- * Entra en `limit` caracteres (la función del servidor corta en 12.000).
  */
 export function guideForPrompt(query = '', { member = null, reviewItems = null, limit = 11800 } = {}) {
   const facts = member ? `SOCIO CONSULTADO (ya calculado):\n${memberFactsForPrompt(member)}` : '';
@@ -766,7 +774,7 @@ export function openingReviewBriefing(_brief = {}, reviewItems = []) {
   if (!total) {
     return {
       verdict: 'Nada pendiente en lo que podés ver.',
-      text: 'La revisión está limpia. Si aparece algo nuevo, Gemini lo lee acá igual que en Consulta.',
+      text: 'La revisión está limpia. Si aparece algo nuevo, lo ves acá igual que en Consulta.',
       figures: [],
       next: 'Podés preguntarme por un socio o volver a Consulta.',
       go: null,
@@ -776,7 +784,7 @@ export function openingReviewBriefing(_brief = {}, reviewItems = []) {
     verdict: total === 1 ? 'Hay 1 bloque para revisar.' : `Hay ${total} bloques para revisar.`,
     text: [
       first ? `Primero: ${first.title}. ${first.detail || ''}`.trim() : '',
-      'Pedime priorizar o preguntame por un ítem: Gemini lee esta cola y el libro.',
+      'Pedime priorizar o preguntame por un ítem: uso esta cola y el libro de la sesión.',
     ].filter(Boolean).join(' '),
     figures: [
       { label: 'Bloques', value: formatGuideCount(total) },

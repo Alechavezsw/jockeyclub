@@ -36,6 +36,7 @@ describe('buildWeekReservationsModel', () => {
         status: 'pending',
         chargedPrice: 50000,
         estimatedPrice: 100000,
+        notes: 'Miembro de la comisión. Pago: total alquiler',
       },
       {
         id: '3',
@@ -50,7 +51,9 @@ describe('buildWeekReservationsModel', () => {
 
     expect(model.total).toBe(2);
     expect(model.rows[0].member).toBe('A');
+    expect(model.rows[0].notes).toMatch(/comisión/i);
     expect(model.rows[1].member).toBe('B');
+    expect(model.rows[1].notes).toBe('');
     expect(model.rows.map((r) => r.date)).toEqual(['2026-11-03', '2026-11-08']);
   });
 });

@@ -31,7 +31,7 @@ const ADMIN_SECTIONS = [
   { key: 'system', title: 'Usuarios y altas', keywords: 'usuarios altas permisos' },
   { key: 'settings', title: 'Configuración', keywords: 'configuracion sistema sede pileta zonda vencimiento mercado pago' },
   { key: 'migration', title: 'Migración', keywords: 'migracion datos' },
-  { key: 'jev', title: 'IA', keywords: 'ia inteligencia artificial revision jev chat gemini analisis libro consulta predicciones manual uso' },
+  { key: 'jev', title: 'IA', keywords: 'ia inteligencia artificial revision jev chat analisis libro consulta predicciones manual uso' },
 ];
 
 const ACCOUNTING_TOOLS = [

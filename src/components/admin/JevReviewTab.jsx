@@ -394,7 +394,7 @@ export default function JevReviewTab({
 
           <p className="jev-note">
             El orden es plata, número de socios, ficha, puerta de hoy, cierre del mes y notas.
-            Gemini también lee esta cola: pedile priorizar arriba. Abrir muestra la lista; cada nombre abre la ficha.
+            Jev lee esta cola: pedile priorizar arriba. Abrir muestra la lista; cada nombre abre la ficha.
           </p>
 
           <JevChatDesk

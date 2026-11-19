@@ -123,6 +123,17 @@ export default function MemberReservationCard({
                 {reservation.guestNames ? ` · ${reservation.guestNames}` : ''}
               </p>
             ) : null}
+            {String(reservation.notes || '').trim() ? (
+              <p className="mfb-res-notes" style={{
+                fontSize: '0.74rem',
+                color: 'var(--text-gold)',
+                margin: '0.35rem 0 0',
+                lineHeight: 1.35,
+                whiteSpace: 'pre-wrap',
+              }}>
+                {String(reservation.notes).trim()}
+              </p>
+            ) : null}
           </div>
         </div>
         <span className={`status-tag ${reservation.status}`} style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem', alignSelf: 'flex-start' }}>

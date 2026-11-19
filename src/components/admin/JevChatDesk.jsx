@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { askJevChat } from '../../data/jevChat';
 import {
   composeInsight,
   formatGuideCount,
   formatGuideMoney,
-  mergeJevReply,
   monthReading,
   openingBriefing,
   openingReviewBriefing,
@@ -79,7 +77,7 @@ function JevSlip({ row, goToTab }) {
       <p className="jev-slip-meta">
         <span>{row.role === 'user' ? 'Consulta' : 'Dictamen'}</span>
         <time dateTime={row.at}>{slipTime(row.at)}</time>
-        {row.source === 'gemini' ? <em>Jev</em> : row.role === 'assistant' ? <em>del libro</em> : null}
+        {row.role === 'assistant' ? <em>Jev</em> : null}
       </p>
       {row.verdict ? <h3 className="jev-slip-verdict">{row.verdict}</h3> : null}
       <p className="jev-slip-text">{row.text}</p>
@@ -217,7 +215,7 @@ export default function JevChatDesk({
     if (node) node.scrollTop = node.scrollHeight;
   }, [messages, busy]);
 
-  const send = async (raw) => {
+  const send = (raw) => {
     const text = String(raw || input).trim();
     if (!text || busy) return;
     setInput('');
@@ -225,10 +223,6 @@ export default function JevChatDesk({
     const userMsg = { id: `u-${Date.now()}`, role: 'user', at: new Date().toISOString(), text };
     setMessages((curr) => [...curr, userMsg]);
     setBusy(true);
-    const history = [...messages, userMsg]
-      .filter((row) => row.id !== 'open')
-      .slice(-10)
-      .map((row) => ({ role: row.role, content: row.text }));
     const today = brief.today || todayISODateAR();
     const folded = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
     const turn = messages.length;
@@ -236,53 +230,39 @@ export default function JevChatDesk({
       || (FOLLOW_UP.test(folded) && turn - lastMember.current.at <= 4 ? lastMember.current.member : null);
     if (asked) lastMember.current = { member: asked, at: turn };
     const facts = asked ? memberFacts(asked, { today, poolSettings, members }) : null;
-    const local = composeInsight(text, { ...brief, today }, { member: facts });
-    try {
-      const reply = await askJevChat({
-        messages: history,
-        brief: { ...brief, reviewItems: queue },
-        member: facts,
-        reviewItems: queue,
-      });
-      const merged = mergeJevReply(local, reply);
-      setMessages((curr) => [...curr, {
-        id: `a-${Date.now()}`,
-        role: 'assistant',
-        at: new Date().toISOString(),
-        ...merged,
-      }]);
-    } catch (err) {
-      if (local?.text || local?.verdict) {
-        setMessages((curr) => [...curr, {
-          id: `a-${Date.now()}`,
-          role: 'assistant',
-          source: 'libro',
-          at: new Date().toISOString(),
-          ...local,
-        }]);
-      } else {
-        setError(err?.message || 'Jev no pudo leer el libro.');
-      }
-    } finally {
-      setBusy(false);
-    }
+    // Solo el libro en vivo de la sesión: sin Gemini (evita cifras inventadas o viejas).
+    const local = composeInsight(text, { ...brief, today, reviewItems: queue }, { member: facts });
+    setMessages((curr) => [...curr, {
+      id: `a-${Date.now()}`,
+      role: 'assistant',
+      source: 'libro',
+      at: new Date().toISOString(),
+      ...(local || {
+        verdict: 'No tengo ese dato en el libro.',
+        text: 'Preguntame por un socio (número), el mes, caja, puerta o cómo se hace algo. No invento lo que no está en la sesión.',
+        figures: [],
+        next: 'El Manual de al lado tiene cada oficio paso a paso.',
+        go: null,
+      }),
+    }]);
+    setBusy(false);
   };
 
   return (
-    <section className="jev-desk" aria-label={isReview ? 'Jev, revisión con Gemini' : 'Jev, consulta del club'}>
+    <section className="jev-desk" aria-label={isReview ? 'Jev, revisión del club' : 'Jev, consulta del club'}>
       <header className="jev-desk-plate">
         <div>
           <p className="jev-desk-kicker">{isReview ? 'Revisión' : 'Consulta'}</p>
           <h2 className="jev-desk-name">Jev</h2>
           <p className="jev-desk-sub">
             {isReview
-              ? 'Gemini lee la cola de revisión y el libro. Prioriza y te lleva a la sección.'
-              : 'Gemini lee el libro entero y contesta con criterio. El Manual de al lado tiene cada oficio.'}
+              ? 'Lee la cola de revisión y el libro de esta sesión. Prioriza y te lleva a la sección.'
+              : 'Lee el libro de esta sesión (mes, padrón, caja, puerta) y contesta con esas cifras. El Manual de al lado tiene cada oficio.'}
           </p>
         </div>
         <p className="jev-desk-live" aria-live="polite">
           <i />
-          <span>{busy ? 'Gemini pensando…' : 'Listo para preguntar'}</span>
+          <span>{busy ? 'Leyendo el libro…' : 'Listo para preguntar'}</span>
         </p>
       </header>
 
@@ -296,7 +276,7 @@ export default function JevChatDesk({
         {messages.map((row) => (
           <JevSlip key={row.id} row={row} goToTab={goToTab} />
         ))}
-        {busy ? <p className="jev-desk-wait">Gemini está cruzando el libro…</p> : null}
+        {busy ? <p className="jev-desk-wait">Jev está leyendo el libro…</p> : null}
       </div>
 
       <div className="jev-desk-starters">
@@ -339,7 +319,7 @@ export default function JevChatDesk({
             rows={2}
             placeholder={isReview
               ? 'Priorizá, sin identificar, fichas…'
-              : 'Preguntale a Gemini: socio, mes, caja, reservas, qué conviene…'}
+              : 'Preguntale a Jev: socio, mes, caja, reservas, qué conviene…'}
             disabled={busy}
           />
         </label>

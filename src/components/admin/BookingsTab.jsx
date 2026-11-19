@@ -682,6 +682,11 @@ export default function BookingsTab({
                 </td>
                 <td>
                   <span style={{ color: 'var(--text-gold)', fontWeight: 600 }}>{res.facilityName}</span>
+                  {String(res.notes || '').trim() ? (
+                    <div className="bookings-notes-line" title={String(res.notes).trim()}>
+                      {String(res.notes).trim()}
+                    </div>
+                  ) : null}
                 </td>
                 <td className="bookings-when">{formatBookingDate(res.date)}</td>
                 <td className="bookings-when">
@@ -717,8 +722,8 @@ export default function BookingsTab({
                       >
                         <span className="bookings-settle-btn-icon" aria-hidden="true">
                           {actionsBusyKey === `settle:${res.id}`
-                            ? <Loader2 size={12} className="bookings-settle-spin" />
-                            : <Banknote size={12} strokeWidth={2.25} />}
+                            ? <Loader2 size={10} className="bookings-settle-spin" />
+                            : <Banknote size={10} strokeWidth={2.25} />}
                         </span>
                         <span className="bookings-settle-btn-copy">
                           <strong>{actionsBusyKey === `settle:${res.id}` ? 'Guardando…' : 'Completar pago'}</strong>
@@ -758,7 +763,7 @@ export default function BookingsTab({
                             }}
                           >
                             <span>Gestión</span>
-                            <ChevronDown size={14} aria-hidden="true" />
+                            <ChevronDown size={11} aria-hidden="true" />
                           </button>
                           {actionsOpen ? (
                             <div
@@ -919,17 +924,20 @@ export default function BookingsTab({
         .bookings-res-num {
           display: inline-flex;
           align-items: center;
-          min-height: 1.7rem;
-          padding: 0.15rem 0.55rem;
+          max-width: 100%;
+          min-height: 1.35rem;
+          padding: 0.08rem 0.4rem;
           border-radius: 999px;
           border: 1px solid color-mix(in srgb, var(--border-glass) 80%, transparent);
           background: color-mix(in srgb, var(--border-glass) 30%, transparent);
           color: var(--text-primary);
           font: inherit;
-          font-size: 0.72rem;
-          font-weight: 750;
+          font-size: 0.62rem;
+          font-weight: 700;
           font-variant-numeric: tabular-nums;
-          letter-spacing: 0.03em;
+          letter-spacing: 0.02em;
+          line-height: 1.15;
+          white-space: nowrap;
           cursor: pointer;
         }
         .bookings-res-num.is-app {
@@ -1054,6 +1062,30 @@ export default function BookingsTab({
           bottom: 0;
           background: linear-gradient(180deg, transparent, #14261c 28%);
           padding-bottom: 0.15rem;
+        }
+        .bookings-detail-receipt-btn {
+          border: 1px solid color-mix(in srgb, var(--primary-gold) 70%, transparent);
+          background: linear-gradient(
+            135deg,
+            color-mix(in srgb, var(--primary-gold) 88%, #fff) 0%,
+            var(--primary-gold) 55%,
+            var(--primary-gold-hover, #a82e0a) 100%
+          );
+          color: #fff;
+          font-weight: 800;
+          letter-spacing: 0.03em;
+          text-transform: uppercase;
+          box-shadow:
+            0 0 0 1px color-mix(in srgb, var(--primary-gold) 35%, transparent),
+            0 6px 18px color-mix(in srgb, var(--primary-gold) 45%, transparent);
+        }
+        .bookings-detail-receipt-btn:hover,
+        .bookings-detail-receipt-btn:focus-visible {
+          filter: brightness(1.08);
+          outline: none;
+          box-shadow:
+            0 0 0 2px color-mix(in srgb, var(--primary-gold) 55%, transparent),
+            0 8px 22px color-mix(in srgb, var(--primary-gold) 55%, transparent);
         }
         @media (max-width: 520px) {
           .bookings-detail-grid {
@@ -1406,6 +1438,35 @@ export default function BookingsTab({
           letter-spacing: 0;
           color: var(--text-muted);
         }
+        .bookings-notes-line {
+          display: block;
+          margin-top: 0.28rem;
+          padding: 0.28rem 0.45rem;
+          border-radius: 0.45rem;
+          background: color-mix(in srgb, var(--primary-gold) 14%, var(--bg-tertiary, #0a1a15));
+          border: 1px solid color-mix(in srgb, var(--primary-gold) 35%, transparent);
+          color: var(--text-gold);
+          font-size: 0.7rem;
+          font-weight: 600;
+          line-height: 1.3;
+          white-space: pre-wrap;
+          word-break: break-word;
+        }
+        [data-theme='light'] .bookings-notes-line {
+          background: color-mix(in srgb, var(--primary-gold) 10%, #fff);
+          border-color: color-mix(in srgb, var(--primary-gold) 28%, rgba(0, 0, 0, 0.12));
+        }
+        .bookings-detail-notes {
+          background: color-mix(in srgb, var(--primary-gold) 16%, transparent);
+          border: 1px solid color-mix(in srgb, var(--primary-gold) 40%, transparent);
+          border-radius: 0.65rem;
+          padding: 0.55rem 0.7rem;
+        }
+        .bookings-detail-notes span {
+          color: var(--text-gold) !important;
+          font-weight: 800;
+          letter-spacing: 0.04em;
+        }
         .bookings-day-copy {
           min-width: 0;
         }
@@ -1473,20 +1534,20 @@ export default function BookingsTab({
           display: inline-flex;
           align-items: center;
           justify-content: flex-start;
-          gap: 0.32rem;
+          gap: 0.22rem;
           width: max-content;
           max-width: 100%;
-          min-height: 1.7rem;
-          padding: 0.22rem 0.65rem;
+          min-height: 1.3rem;
+          padding: 0.12rem 0.45rem;
           border: 1px solid color-mix(in srgb, var(--primary-gold) 55%, var(--border-glass));
           border-radius: 999px;
           background: color-mix(in srgb, var(--primary-gold) 18%, var(--surface-card, transparent));
           color: var(--text-primary);
           font: inherit;
-          font-size: 0.68rem;
+          font-size: 0.6rem;
           font-weight: 650;
           letter-spacing: 0.01em;
-          line-height: 1.2;
+          line-height: 1.15;
           cursor: pointer;
           text-align: left;
           white-space: nowrap;
@@ -1516,9 +1577,9 @@ export default function BookingsTab({
           display: inline-flex;
           align-items: baseline;
           flex-wrap: nowrap;
-          gap: 0.28rem;
+          gap: 0.2rem;
           white-space: nowrap;
-          line-height: 1.2;
+          line-height: 1.15;
         }
         .bookings-settle-btn-copy strong {
           font-size: inherit;
@@ -1800,22 +1861,22 @@ export default function BookingsTab({
           letter-spacing: 0.03em;
         }
         .bookings-list-body .admin-table th:nth-child(1),
-        .bookings-list-body .admin-table td:nth-child(1) { width: 3.6rem; }
+        .bookings-list-body .admin-table td:nth-child(1) { width: 3.1rem; }
         .bookings-list-body .admin-table th:nth-child(2),
         .bookings-list-body .admin-table td:nth-child(2) { width: 16%; }
         .bookings-list-body .admin-table th:nth-child(3),
         .bookings-list-body .admin-table td:nth-child(3) { width: 12%; }
         .bookings-list-body .admin-table th.bookings-col-estado,
         .bookings-list-body .admin-table td.bookings-col-estado {
-          width: 11.5rem;
-          min-width: 11.5rem;
+          width: 9.5rem;
+          min-width: 9.5rem;
           word-break: normal;
           overflow-wrap: normal;
         }
         .bookings-list-body .admin-table th:last-child,
         .bookings-list-body .admin-table td:last-child {
-          width: 6.25rem;
-          min-width: 6.25rem;
+          width: 5.25rem;
+          min-width: 5.25rem;
           position: relative;
         }
         .bookings-list-actions {
@@ -1837,19 +1898,35 @@ export default function BookingsTab({
         .bookings-actions-toggle {
           display: inline-flex;
           align-items: center;
-          gap: 0.35rem;
-          min-height: 1.85rem;
-          padding: 0.25rem 0.7rem;
-          border: 1px solid color-mix(in srgb, var(--border-glass) 80%, transparent);
+          gap: 0.22rem;
+          min-height: 1.35rem;
+          padding: 0.12rem 0.5rem;
+          border: 1px solid color-mix(in srgb, var(--emerald-accent) 42%, var(--border-glass));
           border-radius: 999px;
-          background: color-mix(in srgb, var(--border-glass) 40%, var(--surface-card, transparent));
+          background: var(--bg-tertiary, #0a1a15);
           color: var(--text-primary);
           font: inherit;
-          font-size: 0.72rem;
-          font-weight: 700;
+          font-size: 0.6rem;
+          font-weight: 750;
           letter-spacing: 0.03em;
           text-transform: uppercase;
           cursor: pointer;
+          box-shadow:
+            0 1px 0 rgba(255, 255, 255, 0.06) inset,
+            0 2px 8px rgba(0, 0, 0, 0.28);
+        }
+        .bookings-actions-toggle:hover,
+        .bookings-actions-toggle:focus-visible {
+          border-color: color-mix(in srgb, var(--emerald-accent) 70%, var(--border-glass));
+          background: color-mix(in srgb, var(--emerald-accent) 22%, var(--bg-tertiary, #0a1a15));
+          outline: none;
+        }
+        .bookings-actions-wrap.is-open .bookings-actions-toggle {
+          border-color: color-mix(in srgb, var(--emerald-accent) 75%, transparent);
+          background: color-mix(in srgb, var(--emerald-accent) 28%, var(--bg-tertiary, #0a1a15));
+          box-shadow:
+            0 0 0 1px color-mix(in srgb, var(--emerald-accent) 35%, transparent),
+            0 6px 16px rgba(0, 0, 0, 0.4);
         }
         .bookings-actions-toggle svg {
           transition: transform 0.16s ease;
@@ -1861,18 +1938,41 @@ export default function BookingsTab({
           position: absolute;
           right: 0;
           top: calc(100% + 0.3rem);
-          z-index: 6;
+          z-index: 40;
           display: flex;
           flex-direction: column;
           gap: 0.55rem;
           width: min(16rem, calc(100vw - 2.5rem));
           max-width: min(16rem, 70vw);
-          padding: 0.55rem 0.6rem;
-          border-radius: 0.75rem;
-          background: color-mix(in srgb, var(--border-glass) 35%, var(--surface-card, transparent));
-          border: 1px solid color-mix(in srgb, var(--border-glass) 75%, transparent);
-          box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
+          padding: 0.65rem 0.7rem;
+          border-radius: 0.8rem;
+          background: var(--bg-secondary, #06110d);
+          border: 1px solid color-mix(in srgb, var(--emerald-accent) 38%, var(--border-glass));
+          box-shadow:
+            0 18px 42px rgba(0, 0, 0, 0.55),
+            0 0 0 1px rgba(255, 255, 255, 0.06);
           text-align: left;
+          backdrop-filter: none;
+          -webkit-backdrop-filter: none;
+        }
+        [data-theme='light'] .bookings-actions-toggle {
+          background: #ffffff;
+          border-color: rgba(0, 0, 0, 0.16);
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+        [data-theme='light'] .bookings-actions-toggle:hover,
+        [data-theme='light'] .bookings-actions-toggle:focus-visible,
+        [data-theme='light'] .bookings-actions-wrap.is-open .bookings-actions-toggle {
+          background: color-mix(in srgb, var(--emerald-accent) 10%, #ffffff);
+          border-color: color-mix(in srgb, var(--emerald-accent) 45%, rgba(0, 0, 0, 0.18));
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+        }
+        [data-theme='light'] .bookings-actions-panel {
+          background: #ffffff;
+          border-color: rgba(0, 0, 0, 0.14);
+          box-shadow:
+            0 16px 36px rgba(0, 0, 0, 0.16),
+            0 0 0 1px rgba(0, 0, 0, 0.06);
         }
         .bookings-taken-by {
           display: grid;
@@ -2174,6 +2274,9 @@ export default function BookingsTab({
                           {res.time ? ` · ${res.time}` : ''}
                           {res.endTime ? `–${res.endTime}` : ''}
                         </span>
+                        {String(res.notes || '').trim() ? (
+                          <span className="bookings-notes-line">{String(res.notes).trim()}</span>
+                        ) : null}
                         <span>
                           <span className={`bookings-status ${res.status}`}>{statusLabel(res.status, res)}</span>
                           {money ? ` · ${money}` : ''}
@@ -2337,6 +2440,9 @@ export default function BookingsTab({
                       <div className="bookings-day-copy">
                         <strong>{res.memberName}</strong>
                         <span className="bookings-day-place">{res.facilityName}</span>
+                        {String(res.notes || '').trim() ? (
+                          <span className="bookings-notes-line">{String(res.notes).trim()}</span>
+                        ) : null}
                       </div>
                       <div className="bookings-day-side">
                         {money ? <span className="bookings-money">{money}</span> : null}
@@ -2444,6 +2550,9 @@ export default function BookingsTab({
                       {formatBookingDate(res.date)}
                       {res.time ? ` · ${res.time}` : ''}
                     </span>
+                    {String(res.notes || '').trim() ? (
+                      <span className="bookings-notes-line">{String(res.notes).trim()}</span>
+                    ) : null}
                   </div>
                   <div className="bookings-inbox-meta">
                     <span className={`bookings-status ${res.status}`}>{statusLabel(res.status, res)}</span>
@@ -2565,7 +2674,7 @@ export default function BookingsTab({
                 </div>
               ) : null}
               {detailReservation.notes ? (
-                <div className="is-wide">
+                <div className="is-wide bookings-detail-notes">
                   <span>Notas</span>
                   <strong style={{ whiteSpace: 'pre-wrap' }}>{detailReservation.notes}</strong>
                 </div>
@@ -2642,7 +2751,7 @@ export default function BookingsTab({
                 && reservationTotalPrice(null, detailReservation) > 0 ? (
                 <button
                   type="button"
-                  className="btn btn-secondary btn-sm"
+                  className="btn btn-sm bookings-detail-receipt-btn"
                   onClick={() => openReceiptMenu(detailReservation)}
                 >
                   Comprobante

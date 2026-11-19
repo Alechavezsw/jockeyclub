@@ -1320,6 +1320,18 @@ export default function AccessControlView({
                         {res.memberName || 'Socio'}
                         {res.memberId ? ` · N° ${res.memberId}` : ''}
                       </em>
+                      {String(res.notes || '').trim() ? (
+                        <div style={{
+                          marginTop: 4,
+                          fontSize: '0.68rem',
+                          color: 'var(--text-gold)',
+                          fontWeight: 600,
+                          lineHeight: 1.3,
+                          whiteSpace: 'pre-wrap',
+                        }}>
+                          {String(res.notes).trim()}
+                        </div>
+                      ) : null}
                     </div>
                     <span className={`access-today-bookings-status${pending ? ' is-pending' : ' is-ok'}`}>
                       {reservationStatusLabel(status)}

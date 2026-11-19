@@ -147,14 +147,18 @@ describe('clubGuide', () => {
     expect(openingReviewBriefing({}, items).verdict).toMatch(/2 bloques/);
   });
 
-  it('si Gemini contestó bien, manda su respuesta; si no, queda la del libro', () => {
+  it('el libro local manda; el remoto solo rellena si no hay texto local', () => {
     const local = composeInsight('cómo cobro un socio', {});
-    const bien = mergeJevReply(local, { source: 'gemini', text: 'Abrí la ficha y tocá Cobrar.', tab: 'members' });
-    expect(bien.text).toBe('Abrí la ficha y tocá Cobrar.');
-    expect(bien.go).toBe('members');
-    const roto = mergeJevReply(local, { source: 'gemini', text: '{"verdict":' });
-    expect(roto.text).toBe(local.text);
-    const sinIa = mergeJevReply(local, { source: 'libro', text: 'otra cosa' });
-    expect(sinIa.text).toBe(local.text);
+    const conLocal = mergeJevReply(local, { source: 'gemini', text: 'Abrí la ficha y tocá Cobrar.', tab: 'members' });
+    expect(conLocal.text).toBe(local.text);
+    expect(conLocal.source).toBe('libro');
+    expect(conLocal.go).toBe(local.go || 'members');
+    const sinLocal = mergeJevReply(
+      { verdict: null, text: '', figures: [], next: null, go: null },
+      { source: 'gemini', text: 'Abrí la ficha y tocá Cobrar.', tab: 'members' },
+    );
+    expect(sinLocal.text).toBe('Abrí la ficha y tocá Cobrar.');
+    expect(sinLocal.go).toBe('members');
+    expect(sinLocal.source).toBe('libro');
   });
 });

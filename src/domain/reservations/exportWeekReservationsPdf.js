@@ -96,6 +96,7 @@ export function buildWeekReservationsModel(reservations = [], { weekOf = todayAR
       status: statusLabel(res.status),
       statusRaw: res.status,
       amount: formatMoney(res.chargedPrice || reservationTotalPrice(null, res)),
+      notes: String(res.notes || '').trim(),
     }));
 
   return { ...range, rows, total: rows.length };
@@ -133,45 +134,59 @@ export async function exportWeekReservationsPdf(reservations = [], {
     String(row.memberId),
     row.status,
     row.amount,
+    row.notes || '—',
   ]);
 
   autoTable(doc, {
     startY,
-    head: [['Día', 'Horario', 'Espacio', 'Socio', 'Nº', 'Estado', 'Importe']],
+    head: [['Día', 'Horario', 'Espacio', 'Socio', 'Nº', 'Estado', 'Importe', 'Notas']],
     body: body.length
       ? body
-      : [['—', '', 'Sin reservas esta semana', '', '', '', '']],
+      : [['—', '', 'Sin reservas esta semana', '', '', '', '', '']],
     styles: {
-      fontSize: 8.5,
-      cellPadding: 2.2,
+      fontSize: 8,
+      cellPadding: 2,
       overflow: 'linebreak',
-      valign: 'middle',
+      valign: 'top',
     },
     headStyles: {
       fillColor: BRAND.green,
       textColor: BRAND.cream,
       fontStyle: 'bold',
+      valign: 'middle',
     },
     alternateRowStyles: { fillColor: [248, 246, 240] },
     columnStyles: {
-      0: { cellWidth: 28 },
-      1: { cellWidth: 26 },
-      2: { cellWidth: 48 },
-      3: { cellWidth: 55 },
-      4: { cellWidth: 22 },
-      5: { cellWidth: 28 },
-      6: { cellWidth: 28, halign: 'right' },
+      0: { cellWidth: 24 },
+      1: { cellWidth: 22 },
+      2: { cellWidth: 36 },
+      3: { cellWidth: 40 },
+      4: { cellWidth: 18 },
+      5: { cellWidth: 24 },
+      6: { cellWidth: 24, halign: 'right' },
+      7: { cellWidth: 'auto', fontSize: 7.5 },
     },
-    margin: { left: 14, right: 14 },
+    margin: { left: 12, right: 12 },
     didParseCell(data) {
-      if (data.section !== 'body' || data.column.index !== 5) return;
-      const status = model.rows[data.row.index]?.statusRaw;
-      if (status === 'cancelled' || status === 'rejected') {
-        data.cell.styles.textColor = [180, 40, 40];
-      } else if (status === 'pending') {
-        data.cell.styles.textColor = [180, 110, 20];
-      } else if (status === 'confirmed') {
-        data.cell.styles.textColor = [20, 120, 80];
+      if (data.section !== 'body') return;
+      if (data.column.index === 5) {
+        const status = model.rows[data.row.index]?.statusRaw;
+        if (status === 'cancelled' || status === 'rejected') {
+          data.cell.styles.textColor = [180, 40, 40];
+        } else if (status === 'pending') {
+          data.cell.styles.textColor = [180, 110, 20];
+        } else if (status === 'confirmed') {
+          data.cell.styles.textColor = [20, 120, 80];
+        }
+      }
+      if (data.column.index === 7) {
+        const notes = model.rows[data.row.index]?.notes;
+        if (notes) {
+          data.cell.styles.fontStyle = 'italic';
+          data.cell.styles.textColor = [40, 55, 48];
+        } else {
+          data.cell.styles.textColor = [150, 150, 150];
+        }
       }
     },
   });
