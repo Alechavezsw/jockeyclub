@@ -1049,10 +1049,35 @@ export function recordDuesCollection(member, {
   paymentSplits = null,
   discount = 0,
   discountDetail = '',
+  chargeScope = 'all',
+  monthlyAmount = null,
 } = {}) {
   if (!member) throw new Error('Socio no encontrado.');
   const account = billingAccountMember(member, members);
   if (!account) throw new Error('El cobro va a la cuenta del titular. No está en el padrón.');
+  const scope = String(chargeScope || '').trim().toLowerCase();
+  if (scope === 'abono_tenis' || scope === 'addon' || scope === 'tenis') {
+    return recordTennisAbonoCollection(member, {
+      method,
+      bankId,
+      bankName,
+      journalAccount,
+      receiptName,
+      receiptAttachment,
+      amount,
+      today,
+      members,
+      periodDueOns,
+      monthlyAmount,
+      treasuryMatch,
+      paymentPlanId,
+      paymentPlanLabel,
+      receiptParse,
+      paymentSplits,
+      discount,
+      discountDetail,
+    });
+  }
   if (isDuesExemptMember(account)) throw new Error('Esta categoría no abona cuota social.');
 
   const wantsMixed = method === 'mixto'
@@ -1062,6 +1087,7 @@ export function recordDuesCollection(member, {
     ? collectionPreview(account, today, {
       periodDueOns,
       skipSurcharge: !wantsMixed && duesMethodSkipsSurcharge(method),
+      chargeScope,
     }).cash
     : money(received + money(discount || 0));
   const concession = collectionDiscount(quotedGross, { discount, detail: discountDetail });
@@ -1093,7 +1119,7 @@ export function recordDuesCollection(member, {
     }
   }
 
-  const choices = collectionPeriodChoices(account, today);
+  const choices = collectionPeriodChoices(account, today, { chargeScope });
   const hasOverdue = choices.some((row) => row.kind === 'overdue');
   const due = Number(account.outstandingBalance) || 0;
   if (concession.discount > 0 && !(due > 0 || hasOverdue)) {
@@ -1109,6 +1135,7 @@ export function recordDuesCollection(member, {
       today,
       periodDueOns,
       skipSurcharge,
+      chargeScope,
     })
     : payUpcomingDues(account, { method: resolvedMethod, today });
 

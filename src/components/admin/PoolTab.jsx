@@ -103,7 +103,8 @@ export default function PoolTab({
   );
 
   const searchHits = useMemo(() => {
-    return searchPoolMembers(members, query, { limit: 50 }).map((member) => ({
+    // Misma cota que Acceso / ingreso: pocas mejores coincidencias, no un listado largo.
+    return searchPoolMembers(members, query, { limit: 8 }).map((member) => ({
       member,
       snap: evaluatePoolAccess(member, { accesses: poolAccesses, today, settings, members }),
       dues: poolDuesOwed(member),
@@ -371,14 +372,6 @@ export default function PoolTab({
             anota el movimiento en la cuenta del socio y manda el comprobante.
           </p>
         </div>
-        <button
-          type="button"
-          className="btn btn-primary pool-day-cash"
-          disabled={dayCashOpen || openingCash || typeof onOpenDayCash !== 'function'}
-          onClick={openDayCash}
-        >
-          {dayCashOpen ? 'Caja abierta' : (openingCash ? 'Asegurando caja…' : 'Asegurar caja')}
-        </button>
         <div className="pool-hero-kpis">
           <div><strong>{stats.members}</strong><span>Socios hoy</span></div>
           <div><strong>{stats.guests}</strong><span>Invitados</span></div>
@@ -422,8 +415,10 @@ export default function PoolTab({
             </div>
             <p className="members-search-hint">
               {query.trim()
-                ? `${searchHits.length.toLocaleString('es-AR')} coincidencia${searchHits.length === 1 ? '' : 's'}`
-                : 'Apellido y nombre, en cualquier orden. También un pedazo de cada uno, el DNI o el número de socio.'}
+                ? (searchHits.length
+                  ? `${searchHits.length.toLocaleString('es-AR')} mejor${searchHits.length === 1 ? '' : 'es'} coincidencia${searchHits.length === 1 ? '' : 's'} · afiná con DNI o Nº`
+                  : 'Sin coincidencias · probá DNI o número de socio')
+                : 'Apellido y nombre, DNI o Nº de socio. Se muestran hasta 8 resultados.'}
             </p>
           </div>
           {searchHits.length > 0 && !selected && (

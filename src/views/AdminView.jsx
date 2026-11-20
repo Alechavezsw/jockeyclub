@@ -4,7 +4,7 @@ import {
   Users, Calendar, DollarSign, Activity, ShieldAlert,
   BookOpen, Book, ClipboardList, MessageSquare, Phone, Wallet, PieChart,
   FileSpreadsheet, Radio, Database, BellRing, PartyPopper, Trophy, Store, DoorOpen, QrCode, Newspaper, CreditCard,
-  LayoutDashboard, ChevronRight, Briefcase, Headset, Settings, SlidersHorizontal, Building2, Waves, GraduationCap, Sparkles, TicketCheck, Banknote, Smartphone, BadgePercent, BarChart3, CircleDot,
+  LayoutDashboard, ChevronRight, Briefcase, Headset, Settings, SlidersHorizontal, Building2, Waves, GraduationCap, Sparkles, TicketCheck, Banknote, Smartphone, BadgePercent, BarChart3, CircleDot, NotebookTabs,
 } from 'lucide-react';
 import { DEFAULT_POOL_SETTINGS } from '../domain/pool/poolAccess';
 import { DEFAULT_CHART_OF_ACCOUNTS, resolveAccountId } from '../domain/accounting/chartOfAccounts';
@@ -64,6 +64,7 @@ const CuotasPanel = lazy(() => import('../components/erp/CuotasPanel'));
 const DisciplinesTab = lazy(() => import('../components/admin/DisciplinesTab'));
 const AccessLogsTab = lazy(() => import('../components/admin/AccessLogsTab'));
 const PorteriaIncomePanel = lazy(() => import('../components/erp/PorteriaIncomePanel'));
+const PorteriaBooksPanel = lazy(() => import('../components/erp/PorteriaBooksPanel'));
 const ClubFacilitiesPanel = lazy(() => import('../components/admin/ClubFacilitiesPanel'));
 const NewsCmsTab = lazy(() => import('../components/admin/NewsCmsTab'));
 const SystemAdminTab = lazy(() => import('../components/admin/SystemAdminTab'));
@@ -259,6 +260,7 @@ export default function AdminView({
       || (routeTab === 'members_tenis' && permittedTabs.includes('members'))
       || (routeTab === 'members_stats' && permittedTabs.includes('members'))
       || (routeTab === 'pool_gate' && permittedTabs.includes('pool'))
+      || (routeTab === 'gate_porter_books' && permittedTabs.includes('gate_income'))
       || (routeTab === 'settings_bookings' && permittedTabs.includes('settings'))
     ),
   );
@@ -643,7 +645,14 @@ export default function AdminView({
             badge: (reservations || []).filter((r) => r?.status === 'pending' && !r?.occupancyOnly).length || null,
           },
           { key: 'access', icon: DoorOpen, label: 'Ingresos' },
-          { key: 'gate_income', icon: Banknote, label: 'Ingresos portería' },
+          {
+            key: 'gate_income',
+            icon: Banknote,
+            label: 'Ingresos portería',
+            children: [
+              { key: 'gate_porter_books', icon: NotebookTabs, label: 'Lo que lleva cada portero' },
+            ],
+          },
           { key: 'qr_gate', icon: QrCode, label: 'Acceso QR' },
           {
             key: 'pool',
@@ -738,6 +747,7 @@ export default function AdminView({
             if (!tab.children?.length) return tab;
             const children = tab.children.filter((child) => {
               if (child.key === 'pool_gate') return permittedTabs.includes('pool');
+              if (child.key === 'gate_porter_books') return permittedTabs.includes('gate_income');
               if (child.key === 'members_app' || child.key === 'members_amet' || child.key === 'members_tenis' || child.key === 'members_stats') {
                 return permittedTabs.includes('members');
               }
@@ -1211,7 +1221,7 @@ export default function AdminView({
       <div className="admin-main">
       <div className="page-stage">
       {/* Cabecera solo fuera del Inicio (el dashboard ya trae su propia intro) */}
-      {activeTab !== 'dashboard' && activeTab !== 'events' && activeTab !== 'accounting' && activeTab !== 'books' && activeTab !== 'informes' && activeTab !== 'caja' && activeTab !== 'operation' && activeTab !== 'jev' && activeTab !== 'messaging' && activeTab !== 'members_app' && activeTab !== 'members_amet' && activeTab !== 'members_tenis' && activeTab !== 'members_stats' && activeTab !== 'settings_bookings' && (
+      {activeTab !== 'dashboard' && activeTab !== 'events' && activeTab !== 'accounting' && activeTab !== 'books' && activeTab !== 'informes' && activeTab !== 'caja' && activeTab !== 'operation' && activeTab !== 'jev' && activeTab !== 'messaging' && activeTab !== 'members_app' && activeTab !== 'members_amet' && activeTab !== 'members_tenis' && activeTab !== 'members_stats' && activeTab !== 'settings_bookings' && activeTab !== 'gate_porter_books' && (
         <div className="page-header" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
           <div>
             <h1 className="page-title">{panelMeta.title}</h1>
@@ -1543,6 +1553,15 @@ export default function AdminView({
           rendererIsPorter={user?.role === 'gate_operator' || (user?.roles || []).some((role) => role?.roleKey === 'gate_operator')}
           receiverId={user?.id || ''}
           receiverName={user?.fullName || ''}
+        />
+      )}
+
+      {activeTab === 'gate_porter_books' && (
+        <PorteriaBooksPanel
+          items={erp.otherIncomes}
+          rendererId={user?.id || ''}
+          rendererName={user?.fullName || ''}
+          rendererIsPorter={user?.role === 'gate_operator' || (user?.roles || []).some((role) => role?.roleKey === 'gate_operator')}
         />
       )}
 

@@ -745,6 +745,23 @@ export default function AccessControlView({
           justify-content: space-between;
           gap: 0.5rem;
         }
+        .access-gate-header-actions {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.35rem;
+          flex-shrink: 0;
+        }
+        .access-camera-icon-btn {
+          width: 32px;
+          height: 32px;
+          min-width: 32px;
+          min-height: 32px;
+          padding: 0;
+          border-radius: 999px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+        }
         .access-gate-brand {
           display: flex;
           align-items: center;
@@ -833,20 +850,6 @@ export default function AccessControlView({
           font-size: 0.74rem;
           color: var(--text-muted);
           font-variant-numeric: tabular-nums;
-        }
-        .access-actions {
-          display: flex;
-          justify-content: center;
-          align-items: center;
-        }
-        .access-actions .access-camera-btn {
-          width: auto;
-          min-width: 0;
-          min-height: 34px;
-          padding: 0.35rem 0.85rem;
-          border-radius: 999px;
-          font-size: 0.8rem;
-          font-weight: 650;
         }
         .access-camera-error {
           margin: 0;
@@ -1095,14 +1098,37 @@ export default function AccessControlView({
               </div>
             </div>
           </div>
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            onClick={() => navigate('/panel')}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-          >
-            <ArrowLeft size={14} /> Panel
-          </button>
+          <div className="access-gate-header-actions">
+            {!cameraOn ? (
+              <button
+                type="button"
+                className="btn btn-tan btn-sm access-camera-icon-btn"
+                onClick={() => startCamera({ remount: Boolean(cameraError) })}
+                title={cameraError ? 'Reintentar cámara' : 'Abrir cámara'}
+                aria-label={cameraError ? 'Reintentar cámara' : 'Abrir cámara'}
+              >
+                <Camera size={15} aria-hidden="true" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm access-camera-icon-btn"
+                onClick={stopCamera}
+                title="Detener cámara"
+                aria-label="Detener cámara"
+              >
+                <CameraOff size={15} aria-hidden="true" />
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => navigate('/panel')}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            >
+              <ArrowLeft size={14} /> Panel
+            </button>
+          </div>
         </header>
 
         {!cameraOn && renderResultCard()}
@@ -1211,28 +1237,6 @@ export default function AccessControlView({
           {cameraError ? (
             <p className="access-camera-error" role="alert">{cameraError}</p>
           ) : null}
-
-          <div className="access-actions">
-            {!cameraOn ? (
-              <button
-                type="button"
-                className="btn btn-tan btn-sm access-camera-btn"
-                onClick={() => startCamera({ remount: Boolean(cameraError) })}
-              >
-                <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                  <Camera size={14} aria-hidden="true" />
-                  {cameraError ? 'Reintentar' : 'Cámara'}
-                </span>
-              </button>
-            ) : (
-              <button type="button" className="btn btn-secondary btn-sm access-camera-btn" onClick={stopCamera}>
-                <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                  <CameraOff size={14} aria-hidden="true" />
-                  Detener
-                </span>
-              </button>
-            )}
-          </div>
 
           <button
             type="button"

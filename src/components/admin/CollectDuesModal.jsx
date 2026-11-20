@@ -12,6 +12,7 @@ import {
   collectionTennisPeriodChoices,
   formatShortDate,
   isDuesExemptMember,
+  memberHasSeparableAddOn,
 } from '../../domain/members/dues';
 import { duesMonthsPhrase } from '../../domain/members/duesImputations';
 import {
@@ -272,9 +273,12 @@ export default function CollectDuesModal({
   /** Monto mensual de tenis (fila del padrón); si falta, se usa el de la cuenta. */
   tennisMonthlyAmount = null,
 }) {
-  const tennisOnly = String(chargeScope || '').trim().toLowerCase() === 'abono_tenis';
+  const forcedTennis = String(chargeScope || '').trim().toLowerCase() === 'abono_tenis';
+  const forcedSocial = ['social', 'cuota', 'quota'].includes(String(chargeScope || '').trim().toLowerCase());
   const [liveMember, setLiveMember] = useState(member);
   const [hydrating, setHydrating] = useState(Boolean(isSupabaseConfigured && member));
+  const [includeSocial, setIncludeSocial] = useState(!forcedTennis);
+  const [includeTennis, setIncludeTennis] = useState(forcedTennis);
   const [seededAttachment, setSeededAttachment] = useState(() => (
     seedReceipt?.path || seedReceipt?.dataUrl ? seedReceipt : null
   ));
@@ -310,18 +314,65 @@ export default function CollectDuesModal({
   }, [member?.id, member?.memberId]);
 
   const account = billingAccountMember(liveMember, members) || liveMember;
+  const separable = !forcedTennis && !forcedSocial && !hydrating && memberHasSeparableAddOn(account);
+  const tennisOnly = forcedTennis || (separable && includeTennis && !includeSocial);
+  const socialOnly = forcedSocial || (separable && includeSocial && !includeTennis);
   const duesExempt = !tennisOnly && isDuesExemptMember(account);
+
+  useEffect(() => {
+    if (forcedTennis) {
+      setIncludeSocial(false);
+      setIncludeTennis(true);
+      return;
+    }
+    if (forcedSocial) {
+      setIncludeSocial(true);
+      setIncludeTennis(false);
+      return;
+    }
+    if (!hydrating && memberHasSeparableAddOn(account)) {
+      // Por defecto cuota social; el tenis se marca a propósito (no mezclar 70k+12k).
+      setIncludeSocial(true);
+      setIncludeTennis(false);
+    }
+  }, [forcedTennis, forcedSocial, hydrating, account?.memberId, account?.cuotaCategories, account?.tier]);
+
   const periodChoices = useMemo(() => {
     if (hydrating) return [];
+    const tag = (rows, scope, suffix) => (rows || []).map((row) => ({
+      ...row,
+      selectKey: `${scope}:${String(row.dueOn).slice(0, 10)}`,
+      displayLabel: suffix ? `${row.label} · ${suffix}` : row.label,
+      rowScope: scope,
+    }));
     if (tennisOnly) {
-      return collectionTennisPeriodChoices(account, new Date(), {
+      return tag(collectionTennisPeriodChoices(account, new Date(), {
         monthlyAmount: tennisMonthlyAmount,
-      });
+      }), 'tenis', separable ? 'Abono tenis' : '');
     }
     if (duesExempt) return [];
-    return collectionPeriodChoices(account);
+    if (separable && includeSocial && includeTennis) {
+      return [
+        ...tag(collectionPeriodChoices(account, new Date(), { chargeScope: 'social' }), 'social', 'Cuota social'),
+        ...tag(collectionTennisPeriodChoices(account, new Date(), {
+          monthlyAmount: tennisMonthlyAmount,
+        }), 'tenis', 'Abono tenis'),
+      ];
+    }
+    if (socialOnly) {
+      return tag(
+        collectionPeriodChoices(account, new Date(), { chargeScope: 'social' }),
+        'social',
+        separable ? 'Cuota social' : '',
+      );
+    }
+    return tag(collectionPeriodChoices(account), 'all', '');
   }, [
     tennisOnly,
+    socialOnly,
+    separable,
+    includeSocial,
+    includeTennis,
     tennisMonthlyAmount,
     duesExempt,
     hydrating,
@@ -334,8 +385,9 @@ export default function CollectDuesModal({
     account?.tier,
     account?.cuotaCategories,
     account?.paymentHistory,
+    account?.duesOpenPeriods,
   ]);
-  const choiceKey = periodChoices.map((row) => row.dueOn).join('|');
+  const choiceKey = periodChoices.map((row) => row.selectKey || row.dueOn).join('|');
   const [selectedDueOns, setSelectedDueOns] = useState([]);
   const [method, setMethod] = useState(() => {
     const seed = String(initialMethod || '').toLowerCase();
@@ -358,10 +410,57 @@ export default function CollectDuesModal({
 
   const isOnAccount = isOnAccountDuesMethod(method);
   const skipSurcharge = tennisOnly || duesMethodSkipsSurcharge(method);
+  const selectedRows = useMemo(() => {
+    if (!selectedDueOns.length) return periodChoices;
+    return periodChoices.filter((row) => selectedDueOns.includes(row.selectKey || String(row.dueOn).slice(0, 10)));
+  }, [periodChoices, selectedDueOns]);
+  const selectedSocialDueOns = useMemo(
+    () => selectedRows
+      .filter((row) => row.rowScope !== 'tenis')
+      .map((row) => String(row.dueOn).slice(0, 10)),
+    [selectedRows],
+  );
+  const selectedTennisDueOns = useMemo(
+    () => selectedRows
+      .filter((row) => row.rowScope === 'tenis')
+      .map((row) => String(row.dueOn).slice(0, 10)),
+    [selectedRows],
+  );
   const split = useMemo(() => {
+    if (separable && includeSocial && includeTennis) {
+      const socialPrev = selectedSocialDueOns.length
+        ? collectionPreview(account, new Date(), {
+          periodDueOns: selectedSocialDueOns,
+          skipSurcharge,
+          chargeScope: 'social',
+        })
+        : { quota: 0, surcharge: 0, gross: 0, creditApplied: 0, cash: 0, leftover: 0, periods: [], clear: true };
+      const tennisPrev = selectedTennisDueOns.length
+        ? collectionTennisPreview(account, new Date(), {
+          periodDueOns: selectedTennisDueOns,
+          monthlyAmount: tennisMonthlyAmount,
+        })
+        : { quota: 0, surcharge: 0, gross: 0, creditApplied: 0, cash: 0, leftover: 0, periods: [], clear: true };
+      const quota = money((socialPrev.quota || 0) + (tennisPrev.quota || 0));
+      const surcharge = money(socialPrev.surcharge || 0);
+      const creditApplied = money(socialPrev.creditApplied || 0);
+      const cashDue = money((socialPrev.cash || 0) + (tennisPrev.cash || 0));
+      return {
+        quota,
+        surcharge,
+        gross: money(quota + surcharge),
+        creditApplied,
+        cash: cashDue,
+        leftover: money(socialPrev.leftover || 0),
+        periods: [...(socialPrev.periods || []), ...(tennisPrev.periods || [])],
+        choices: periodChoices,
+        clear: !selectedRows.length,
+        skipSurcharge: Boolean(skipSurcharge),
+      };
+    }
     if (tennisOnly) {
       return collectionTennisPreview(account, new Date(), {
-        periodDueOns: selectedDueOns,
+        periodDueOns: selectedTennisDueOns.length ? selectedTennisDueOns : selectedSocialDueOns,
         monthlyAmount: tennisMonthlyAmount,
       });
     }
@@ -369,10 +468,25 @@ export default function CollectDuesModal({
       return { quota: 0, surcharge: 0, gross: 0, creditApplied: 0, cash: 0, leftover: 0, periods: [], choices: [] };
     }
     return collectionPreview(account, new Date(), {
-      periodDueOns: selectedDueOns,
+      periodDueOns: selectedSocialDueOns,
       skipSurcharge,
+      chargeScope: socialOnly ? 'social' : 'all',
     });
-  }, [tennisOnly, tennisMonthlyAmount, duesExempt, account, selectedDueOns, skipSurcharge]);
+  }, [
+    separable,
+    includeSocial,
+    includeTennis,
+    tennisOnly,
+    socialOnly,
+    tennisMonthlyAmount,
+    duesExempt,
+    account,
+    selectedSocialDueOns,
+    selectedTennisDueOns,
+    selectedRows,
+    periodChoices,
+    skipSurcharge,
+  ]);
   const quotedAmount = (!tennisOnly && duesExempt) || hydrating ? 0 : split.cash;
   const onAccountAmount = money(onAccountInput === '' ? 0 : onAccountInput);
   const amount = isOnAccount ? onAccountAmount : quotedAmount;
@@ -439,29 +553,35 @@ export default function CollectDuesModal({
     }
     return undefined;
   }, [seedReceipt?.path, seedReceipt?.dataUrl, seedReceipt?.name, member?.memberId]);
-  const canPickMonths = periodChoices.length > 1;
+  const canPickMonths = periodChoices.length > 1 || separable;
   const needsReceipt = duesMethodNeedsReceipt(method);
   const isMixed = method === 'mixto';
   const quotaMonthLabel = useMemo(() => {
-    const periods = Array.isArray(split.periods) && split.periods.length
-      ? split.periods
-      : periodChoices.filter((row) => selectedDueOns.includes(String(row.dueOn).slice(0, 10)));
-    if (!periods.length) return 'Cuota';
+    const periods = selectedRows.length
+      ? selectedRows
+      : (Array.isArray(split.periods) ? split.periods : []);
+    if (!periods.length) return tennisOnly ? 'Abono tenis' : 'Cuota';
     const names = periods.map((row) => {
+      const fromDisplay = String(row.displayLabel || '').trim();
+      if (fromDisplay) return fromDisplay.replace(/\s+de\s+\d{4}/i, '').replace(/\s+\d{4}$/i, '').trim();
       const fromLabel = String(row.label || '')
         .replace(/\s+de\s+\d{4}/i, '')
         .replace(/\s+\d{4}$/i, '')
         .trim();
-      if (fromLabel) return fromLabel;
+      if (fromLabel) {
+        if (row.rowScope === 'tenis') return `${fromLabel} · Abono tenis`;
+        if (row.rowScope === 'social' && separable) return `${fromLabel} · Cuota social`;
+        return fromLabel;
+      }
       const iso = String(row.dueOn || row.monthKey || '').slice(0, 10);
       const match = iso.match(/^(\d{4})-(\d{2})/);
       if (!match) return '';
       const date = new Date(Number(match[1]), Number(match[2]) - 1, 1);
       return date.toLocaleDateString('es-AR', { month: 'long' });
     }).filter(Boolean);
-    if (!names.length) return 'Cuota';
+    if (!names.length) return tennisOnly ? 'Abono tenis' : 'Cuota';
     return names.join(' · ');
-  }, [split.periods, periodChoices, selectedDueOns]);
+  }, [selectedRows, split.periods, separable, tennisOnly]);
 
   const selectedBank = CLUB_BANK_ACCOUNTS.find((b) => b.id === bankId) || CLUB_BANK_ACCOUNTS[0];
   const selectedPlan = plans.find((row) => row.id === planId) || null;
@@ -565,15 +685,30 @@ export default function CollectDuesModal({
     });
   };
 
-  const togglePeriod = (dueOn) => {
+  const togglePeriod = (key) => {
     setError('');
     setSelectedDueOns((prev) => {
-      const has = prev.includes(dueOn);
+      const has = prev.includes(key);
       if (has) {
         if (prev.length <= 1) return prev;
-        return prev.filter((value) => value !== dueOn);
+        return prev.filter((value) => value !== key);
       }
-      return [...prev, dueOn].sort();
+      return [...prev, key].sort();
+    });
+  };
+
+  const toggleScope = (scope) => {
+    setError('');
+    if (scope === 'social') {
+      setIncludeSocial((prev) => {
+        if (prev && !includeTennis) return prev;
+        return !prev;
+      });
+      return;
+    }
+    setIncludeTennis((prev) => {
+      if (prev && !includeSocial) return prev;
+      return !prev;
     });
   };
 
@@ -664,13 +799,26 @@ export default function CollectDuesModal({
       return;
     }
     // A cuenta: imputa toda la deuda abierta, del mes más viejo al más nuevo.
-    const chargeDueOns = isOnAccount
-      ? periodChoices.map((row) => String(row.dueOn).slice(0, 10))
-      : (selectedDueOns.length
-        ? selectedDueOns
-        : periodChoices.map((row) => String(row.dueOn).slice(0, 10)));
-    if (!chargeDueOns.length) {
+    const socialDueOns = isOnAccount
+      ? periodChoices.filter((row) => row.rowScope !== 'tenis').map((row) => String(row.dueOn).slice(0, 10))
+      : selectedSocialDueOns;
+    const tennisDueOns = isOnAccount
+      ? periodChoices.filter((row) => row.rowScope === 'tenis').map((row) => String(row.dueOn).slice(0, 10))
+      : selectedTennisDueOns;
+    const chargeDueOns = [...new Set([
+      ...(tennisOnly ? tennisDueOns : socialDueOns),
+      ...((separable && includeTennis && !tennisOnly) ? tennisDueOns : []),
+    ])];
+    if (!socialDueOns.length && !tennisDueOns.length) {
       setError(tennisOnly ? 'No hay abono de tenis pendiente para cobrar.' : 'No hay saldo pendiente para abonar.');
+      return;
+    }
+    if (separable && !includeSocial && !includeTennis) {
+      setError('Elegí cuota social o abono tenis.');
+      return;
+    }
+    if (separable && socialDueOns.length && tennisDueOns.length) {
+      setError('Cobrál la cuota social y el abono tenis por separado: dejá marcado solo uno arriba.');
       return;
     }
     const settling = concession.cash > 0.009;
@@ -748,14 +896,22 @@ export default function CollectDuesModal({
             receiptParse: row.receiptParse,
           });
         }
+        const scopePayload = tennisOnly || (tennisDueOns.length && !socialDueOns.length)
+          ? { chargeScope: 'abono_tenis', monthlyAmount: tennisMonthlyAmount }
+          : (socialOnly || (socialDueOns.length && !tennisDueOns.length)
+            ? { chargeScope: 'social' }
+            : {});
+        const dueOnsPayload = (tennisOnly || (tennisDueOns.length && !socialDueOns.length))
+          ? tennisDueOns
+          : socialDueOns;
         await onConfirm({
           method: 'mixto',
           amount: concession.cash,
           discount: concession.discount,
           discountDetail: concession.detail,
-          periodDueOns: chargeDueOns,
+          periodDueOns: dueOnsPayload.length ? dueOnsPayload : chargeDueOns,
           paymentSplits,
-          ...(tennisOnly ? { chargeScope: 'abono_tenis', monthlyAmount: tennisMonthlyAmount } : {}),
+          ...scopePayload,
         });
       } else {
         let receiptAttachment = null;
@@ -774,6 +930,14 @@ export default function CollectDuesModal({
         }
         const recordMethod = isMixed ? 'efectivo' : method;
         const journalAccount = journalAccountForPayment(recordMethod, bankId);
+        const scopePayload = tennisOnly || (tennisDueOns.length && !socialDueOns.length)
+          ? { chargeScope: 'abono_tenis', monthlyAmount: tennisMonthlyAmount }
+          : (socialOnly || (socialDueOns.length && !tennisDueOns.length)
+            ? { chargeScope: 'social' }
+            : {});
+        const dueOnsPayload = (tennisOnly || (tennisDueOns.length && !socialDueOns.length))
+          ? tennisDueOns
+          : socialDueOns;
         await onConfirm({
           method: recordMethod,
           bankId: duesMethodUsesBank(recordMethod) ? bankId : null,
@@ -787,12 +951,12 @@ export default function CollectDuesModal({
           amount: concession.cash,
           discount: concession.discount,
           discountDetail: concession.detail,
-          periodDueOns: chargeDueOns,
+          periodDueOns: dueOnsPayload.length ? dueOnsPayload : chargeDueOns,
           paymentPlanId: isCardPosDuesMethod(recordMethod) ? (selectedPlan?.id || null) : null,
           paymentPlanLabel: isCardPosDuesMethod(recordMethod) ? (selectedPlan?.label || null) : null,
           receiptParse: needsReceipt ? receiptParse : null,
           treasuryMatch: Boolean(needsReceipt && !manual && !receiptFile && seededAttachment?.path),
-          ...(tennisOnly ? { chargeScope: 'abono_tenis', monthlyAmount: tennisMonthlyAmount } : {}),
+          ...scopePayload,
         });
       }
     } catch (err) {
@@ -895,6 +1059,45 @@ export default function CollectDuesModal({
           </div>
         ) : null}
 
+        {separable && !isClear ? (
+          <div style={{ marginBottom: '1rem' }}>
+            <p style={{ margin: '0 0 0.55rem', fontSize: '0.78rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-gold)' }}>
+              Qué cobrás
+            </p>
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: '0.4rem' }}>
+              {[
+                { id: 'social', label: 'Cuota social', checked: includeSocial, hint: 'Familiar / individual · puede llevar 10 %' },
+                { id: 'tenis', label: 'Abono tenis', checked: includeTennis, hint: 'Independiente · sin recargo del 10 %' },
+              ].map((row) => (
+                <li key={row.id}>
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.65rem',
+                      padding: '0.55rem 0.7rem',
+                      borderRadius: 8,
+                      border: row.checked ? '1px solid var(--primary-gold)' : '1px solid var(--border-glass)',
+                      background: row.checked ? 'rgba(var(--primary-gold-rgb),0.1)' : 'transparent',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={row.checked}
+                      onChange={() => toggleScope(row.id)}
+                    />
+                    <span style={{ flex: 1 }}>
+                      <strong style={{ display: 'block', color: 'var(--text-primary)' }}>{row.label}</strong>
+                      <small style={{ color: 'var(--text-muted)' }}>{row.hint}</small>
+                    </span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
         {!isClear && canPickMonths && !isOnAccount ? (
           <div style={{ marginBottom: '1rem' }}>
             <p style={{ margin: '0 0 0.55rem', fontSize: '0.78rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-gold)' }}>
@@ -902,9 +1105,11 @@ export default function CollectDuesModal({
             </p>
             <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: '0.4rem' }}>
               {periodChoices.map((row) => {
-                const checked = selectedDueOns.includes(row.dueOn);
+                const key = row.selectKey || String(row.dueOn).slice(0, 10);
+                const checked = selectedDueOns.includes(key);
+                const rowSkipSurcharge = skipSurcharge || row.rowScope === 'tenis';
                 return (
-                  <li key={row.dueOn}>
+                  <li key={key}>
                     <label
                       style={{
                         display: 'flex',
@@ -920,20 +1125,22 @@ export default function CollectDuesModal({
                       <input
                         type="checkbox"
                         checked={checked}
-                        onChange={() => togglePeriod(row.dueOn)}
+                        onChange={() => togglePeriod(key)}
                       />
                       <span style={{ flex: 1 }}>
-                        <strong style={{ display: 'block', color: 'var(--text-primary)' }}>{row.label}</strong>
+                        <strong style={{ display: 'block', color: 'var(--text-primary)' }}>
+                          {row.displayLabel || row.label}
+                        </strong>
                         <small style={{ color: 'var(--text-muted)' }}>
-                          {skipSurcharge
-                            ? 'débito · sin recargo'
+                          {rowSkipSurcharge
+                            ? (row.rowScope === 'tenis' ? 'abono tenis · sin recargo' : 'débito · sin recargo')
                             : (row.surcharge > 0
                               ? `capital ${formatCurrency(row.capital)} · intereses ${formatCurrency(row.surcharge)}`
                               : 'sin intereses')}
                         </small>
                       </span>
                       <b className="tabular-nums" style={{ color: 'var(--text-gold)' }}>
-                        {formatCurrency(skipSurcharge ? row.capital : row.payable)}
+                        {formatCurrency(rowSkipSurcharge ? row.capital : row.payable)}
                       </b>
                     </label>
                   </li>

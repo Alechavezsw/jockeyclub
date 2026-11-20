@@ -15,6 +15,7 @@ const ADMIN_SECTIONS = [
   { key: 'pool_gate', title: 'Entrada pileta', keywords: 'entrada pileta puerta apto invitado' },
   { key: 'access', title: 'Ingresos', keywords: 'ingresos porteria acceso' },
   { key: 'gate_income', title: 'Ingresos portería', keywords: 'ingresos porteria rendicion estacionamiento rindio' },
+  { key: 'gate_porter_books', title: 'Lo que lleva cada portero', keywords: 'portero acumulado rendicion dia lleva cada portero libros' },
   { key: 'accounting', title: 'Contabilidad', keywords: 'contabilidad padron catalogo' },
   { key: 'books', title: 'Libros', keywords: 'libros diario mayor asientos contabilidad partida doble' },
   { key: 'informes', title: 'Informes', keywords: 'informes balance resultados graficos reportes contables' },
@@ -105,9 +106,11 @@ export function searchSession({
   ADMIN_SECTIONS.forEach((section) => {
     const permittedKey = section.key === 'pool_gate'
       ? 'pool'
-      : (section.key === 'members_app' || section.key === 'members_amet' || section.key === 'members_tenis' || section.key === 'members_stats')
-        ? 'members'
-        : section.key;
+      : section.key === 'gate_porter_books'
+        ? 'gate_income'
+        : (section.key === 'members_app' || section.key === 'members_amet' || section.key === 'members_tenis' || section.key === 'members_stats')
+          ? 'members'
+          : section.key;
     if (!allowed.has(permittedKey)) return;
     const path = section.key === 'pool'
       ? '/pileta'
@@ -121,9 +124,11 @@ export function searchSession({
       keywords: section.keywords,
       subtitle: section.key === 'pool_gate'
         ? 'Pileta'
-        : (section.key === 'members_app' || section.key === 'members_amet' || section.key === 'members_tenis' || section.key === 'members_stats')
-          ? 'Socios'
-          : 'Sección',
+        : section.key === 'gate_porter_books'
+          ? 'Ingresos portería'
+          : (section.key === 'members_app' || section.key === 'members_amet' || section.key === 'members_tenis' || section.key === 'members_stats')
+            ? 'Socios'
+            : 'Sección',
       path,
     }, tokens);
   });

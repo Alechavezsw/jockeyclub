@@ -139,8 +139,8 @@ export default function PoolEntranceView({
   const dayStats = poolDayStats(poolAccesses, today);
 
   const hits = useMemo(() => {
-    const local = searchPoolMembers(directory, query, { limit: 30 });
-    return mergePoolSearchHits(local, remoteHits, { limit: 30 }).map((member) => ({
+    const local = searchPoolMembers(directory, query, { limit: 8 });
+    return mergePoolSearchHits(local, remoteHits, { limit: 8 }).map((member) => ({
       member,
       snap: evaluatePoolAccess(member, { accesses: poolAccesses, today, settings, members: directory }),
       dues: poolDuesOwed(member),

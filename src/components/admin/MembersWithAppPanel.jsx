@@ -209,6 +209,8 @@ export default function MembersWithAppPanel({
   const [pdfBusy, setPdfBusy] = useState(false);
   /** messageId → cobro ya imputado (si cuadra con la solicitud). */
   const [incomingCollectedById, setIncomingCollectedById] = useState({});
+  /** Inbox ops en vivo (pagos entrantes); null = aún no hidrató → usa props. */
+  const [opsInbox, setOpsInbox] = useState(null);
   const incomingDupesHandledRef = useRef(new Set());
   const incomingCollectedHandledRef = useRef(new Set());
 
@@ -217,14 +219,16 @@ export default function MembersWithAppPanel({
     [members],
   );
 
+  const inboxMessages = opsInbox ?? messages;
+
   const incomingPayments = useMemo(
-    () => listOpenAppPaymentRequests(messages),
-    [messages],
+    () => listOpenAppPaymentRequests(inboxMessages),
+    [inboxMessages],
   );
 
   const incomingGrouped = useMemo(
-    () => groupOpenAppPaymentRequests(messages),
-    [messages],
+    () => groupOpenAppPaymentRequests(inboxMessages),
+    [inboxMessages],
   );
 
   const incomingSignature = useMemo(
@@ -317,6 +321,78 @@ export default function MembersWithAppPanel({
     }
     return listMember;
   }, [listMember, hydrated]);
+
+  // Pagos entrantes: poll corto + realtime (no esperar el poll global de 12s).
+  useEffect(() => {
+    let cancelled = false;
+    let timer = 0;
+    let debounce = 0;
+
+    const isUuid = (id) =>
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(id || ''));
+
+    const applyInbox = (list) => {
+      if (cancelled) return;
+      const fromDb = Array.isArray(list) ? list : [];
+      setOpsInbox(fromDb);
+      if (typeof setMessages !== 'function') return;
+      setMessages((prev) => {
+        const dbIds = new Set(fromDb.map((m) => String(m.id)));
+        const dbClientIds = new Set(fromDb.map((m) => m.clientId).filter(Boolean).map(String));
+        const pending = (prev || []).filter(
+          (m) => !isUuid(m.id) && !dbIds.has(String(m.id)) && !dbClientIds.has(String(m.clientId || '')),
+        );
+        return pending.length ? [...pending, ...fromDb] : fromDb;
+      });
+    };
+
+    const refreshInbox = async () => {
+      if (!isSupabaseConfigured) {
+        applyInbox(messages);
+        return;
+      }
+      try {
+        const list = await repos.listMessages({ limit: 120, forStaff: true });
+        applyInbox(list);
+      } catch {
+        /* conservar último corte */
+      }
+    };
+
+    const schedule = () => {
+      window.clearTimeout(debounce);
+      debounce = window.setTimeout(() => { void refreshInbox(); }, 180);
+    };
+
+    void refreshInbox();
+    timer = window.setInterval(() => { void refreshInbox(); }, 4000);
+
+    let channel = null;
+    if (isSupabaseConfigured && supabase) {
+      channel = supabase
+        .channel('members-app-ops-inbox')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, schedule)
+        .subscribe();
+    }
+
+    const onVis = () => {
+      if (document.visibilityState === 'visible') void refreshInbox();
+    };
+    const onFocus = () => { void refreshInbox(); };
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('focus', onFocus);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.clearTimeout(debounce);
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('focus', onFocus);
+      if (channel) supabase?.removeChannel(channel);
+    };
+    // messages solo alimenta el fallback local sin cloud
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setMessages estable; messages es snapshot inicial
+  }, [setMessages]);
 
   useEffect(() => {
     if (!selectedId) {
@@ -444,6 +520,7 @@ export default function MembersWithAppPanel({
     if (typeof setMessages === 'function') {
       setMessages(patchLocal);
     }
+    setOpsInbox((prev) => (prev == null ? prev : patchLocal(prev)));
     setLiveMessages(patchLocal);
     if (isSupabaseConfigured) {
       try {
@@ -459,7 +536,7 @@ export default function MembersWithAppPanel({
 
   // Mismo cobro (MP auto + transferencia con el PDF): un solo card y cierra el sobrante.
   useEffect(() => {
-    const open = (messages || []).filter(isOpenAppPaymentRequest);
+    const open = (inboxMessages || []).filter(isOpenAppPaymentRequest);
     const { duplicateIds } = dedupeOpenAppPaymentRequests(open);
     const pending = duplicateIds.filter((id) => !incomingDupesHandledRef.current.has(String(id)));
     if (!pending.length) return undefined;
@@ -472,7 +549,7 @@ export default function MembersWithAppPanel({
       }
     })();
     return () => { cancelled = true; };
-  }, [messages]);
+  }, [inboxMessages]);
 
   // Si el aviso ya tiene cobro en ficha (p. ej. transferencia del mismo MP), ciérralo.
   useEffect(() => {

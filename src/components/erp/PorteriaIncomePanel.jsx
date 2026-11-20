@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Banknote, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Loader2,
+  Banknote, ChevronLeft, ChevronRight, Download, Loader2,
 } from 'lucide-react';
 import { formatCurrency } from '../../domain/accounting/journal';
 import {
   createOtherIncome,
   isPorteriaIncomeItem,
   OTHER_INCOME_PAYMENT_METHODS,
-  porterIncomeBooksByDate,
   PORTERIA_TABLE_PAGE_SIZE,
   totalAmountHintFromNotes,
 } from '../../domain/accounting/otherIncomes';
@@ -33,16 +32,6 @@ function entryLabel(item) {
   return name ? `${kind} — rindió ${name}` : kind;
 }
 
-function matchesPorterFilter(item, activeBookId, porters) {
-  if (!activeBookId) return true;
-  const id = String(item.renderedById || '').trim();
-  if (id) return id === activeBookId;
-  const porter = (porters || []).find((row) => row.id === activeBookId);
-  if (!porter) return false;
-  return String(item.renderedBy || item.payerName || '').trim().toLowerCase()
-    === String(porter.fullName || '').trim().toLowerCase();
-}
-
 export default function PorteriaIncomePanel({
   items = [],
   onCreate,
@@ -60,9 +49,6 @@ export default function PorteriaIncomePanel({
   const [bookNumber, setBookNumber] = useState('');
   const [porters, setPorters] = useState([]);
   const [porterId, setPorterId] = useState('');
-  const [openBookId, setOpenBookId] = useState('');
-  const [openDates, setOpenDates] = useState(() => new Set());
-  const [booksFolded, setBooksFolded] = useState(false);
   const [tablePage, setTablePage] = useState(0);
   const [loadingPorters, setLoadingPorters] = useState(true);
   const [error, setError] = useState('');
@@ -74,33 +60,21 @@ export default function PorteriaIncomePanel({
     () => (items || []).filter(isPorteriaIncomeItem),
     [items],
   );
-  const dayGroups = useMemo(
-    () => {
-      const groups = porterIncomeBooksByDate(rows, porters);
-      if (!(rendererIsPorter && rendererId)) return groups;
-      return groups
-        .map((group) => ({
-          ...group,
-          books: group.books.filter((book) => book.id === rendererId),
-        }))
-        .filter((group) => group.books.length > 0)
-        .map((group) => ({
-          ...group,
-          total: group.books.reduce((sum, book) => sum + book.total, 0),
-          count: group.books.reduce((sum, book) => sum + book.count, 0),
-        }));
-    },
-    [rows, porters, rendererIsPorter, rendererId],
-  );
-  const activeBookId = rendererIsPorter && rendererId ? rendererId : openBookId;
   const visibleRows = useMemo(() => {
-    const filtered = rows.filter((item) => matchesPorterFilter(item, activeBookId, porters));
-    return filtered.toSorted((a, b) => {
+    const scoped = (rendererIsPorter && rendererId)
+      ? rows.filter((item) => {
+        const id = String(item.renderedById || '').trim();
+        if (id) return id === rendererId;
+        return String(item.renderedBy || item.payerName || '').trim().toLowerCase()
+          === String(rendererName || '').trim().toLowerCase();
+      })
+      : rows;
+    return scoped.toSorted((a, b) => {
       const byDate = String(b.date || '').localeCompare(String(a.date || ''));
       if (byDate) return byDate;
       return String(b.createdAt || b.id || '').localeCompare(String(a.createdAt || a.id || ''));
     });
-  }, [rows, activeBookId, porters]);
+  }, [rows, rendererIsPorter, rendererId, rendererName]);
 
   const totalPages = Math.max(1, Math.ceil(visibleRows.length / PORTERIA_TABLE_PAGE_SIZE));
   const safePage = Math.min(tablePage, totalPages - 1);
@@ -113,15 +87,7 @@ export default function PorteriaIncomePanel({
 
   useEffect(() => {
     setTablePage(0);
-  }, [activeBookId, visibleRows.length]);
-
-  useEffect(() => {
-    if (!dayGroups.length) return;
-    setOpenDates((prev) => {
-      if (prev.size) return prev;
-      return new Set([dayGroups[0].date]);
-    });
-  }, [dayGroups]);
+  }, [visibleRows.length]);
 
   useEffect(() => {
     let cancelled = false;
@@ -153,15 +119,6 @@ export default function PorteriaIncomePanel({
 
   const selectedPorter = porters.find((row) => row.id === porterId) || null;
   const whoReceives = String(receiverName || rendererName || '').trim();
-
-  const toggleDate = (day) => {
-    setOpenDates((prev) => {
-      const next = new Set(prev);
-      if (next.has(day)) next.delete(day);
-      else next.add(day);
-      return next;
-    });
-  };
 
   const exportReceipt = async (item) => {
     if (!item?.id) return;
@@ -358,82 +315,6 @@ export default function PorteriaIncomePanel({
           {busy ? 'Registrando…' : 'Registrar rendición'}
         </button>
       </form>
-
-      <section className="gate-income-books" aria-label="Acumulado por portero y fecha">
-        <button
-          type="button"
-          className="gate-income-books-toggle"
-          aria-expanded={!booksFolded}
-          onClick={() => setBooksFolded((v) => !v)}
-        >
-          <span>
-            Lo que lleva cada portero
-            <small>
-              {dayGroups.length
-                ? `${dayGroups.length} ${dayGroups.length === 1 ? 'día' : 'días'}`
-                : 'Sin movimientos'}
-            </small>
-          </span>
-          {booksFolded ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronUp size={16} aria-hidden="true" />}
-        </button>
-
-        {!booksFolded ? (
-          dayGroups.length === 0 ? (
-            <p className="gate-income-books-empty">Todavía no hay rendiciones para acumular.</p>
-          ) : dayGroups.map((group) => {
-            const open = openDates.has(group.date);
-            return (
-              <div key={group.date} className={`gate-income-day${open ? ' is-open' : ''}`}>
-                <button
-                  type="button"
-                  className="gate-income-day-toggle"
-                  aria-expanded={open}
-                  onClick={() => toggleDate(group.date)}
-                >
-                  <span className="gate-income-day-label">
-                    <strong>{formatInstantAR(group.date)}</strong>
-                    <small>
-                      {group.count === 1 ? '1 rendición' : `${group.count} rendiciones`}
-                      {' · '}
-                      {formatCurrency(group.total)}
-                    </small>
-                  </span>
-                  {open ? <ChevronUp size={15} aria-hidden="true" /> : <ChevronDown size={15} aria-hidden="true" />}
-                </button>
-                {open ? (
-                  <div className="gate-income-day-body">
-                    {group.books.map((book) => {
-                      const selected = activeBookId === book.id;
-                      return (
-                        <button
-                          key={`${group.date}-${book.id}`}
-                          type="button"
-                          className={`gate-income-book${selected ? ' is-on' : ''}`}
-                          aria-pressed={selected}
-                          onClick={() => {
-                            if (rendererIsPorter) return;
-                            setOpenBookId(selected ? '' : book.id);
-                            setPorterId(book.id);
-                          }}
-                        >
-                          <span className="gate-income-book-name">
-                            {book.name}
-                            <small>{book.count === 1 ? '1 rendición' : `${book.count} rendiciones`}</small>
-                          </span>
-                          <span className="gate-income-book-figure is-total">
-                            <span>Del día</span>
-                            <b className="tabular-nums">{formatCurrency(book.total)}</b>
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : null}
-              </div>
-            );
-          })
-        ) : null}
-      </section>
 
       <div className="table-responsive">
         <table className="admin-table">

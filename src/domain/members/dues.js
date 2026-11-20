@@ -1191,9 +1191,21 @@ function dueOnAlreadyCovered(dueOn, coveredDueOns) {
  * Si hay de más (ficha ya cobrada / nextDue desfasado), recorta al saldo: no re-cobra meses pagos.
  */
 /** Capital a repartir en meses. El recargo que Lila dejó en el saldo no abre otro mes. */
-function capitalOwedForChoices(member) {
+function capitalOwedForChoices(member, chargeScope = 'all') {
+  const scope = normalizeDuesChargeScope(chargeScope);
   const balance = money(Math.max(0, Number(member?.outstandingBalance) || 0));
   const lila = lilaUnpaidCapital(member);
+  // Abono tenis: no usar el unpaidCapital mezclado (cuota + tenis).
+  if (scope === 'addon') return 0;
+  // Cuota social: si Lila guardó cuota+tenis juntos, restar el abono de los meses abiertos.
+  if (scope === 'social' && lila != null) {
+    const tennis = money(duesTennisAbonoAmountForAccount(member));
+    const openN = Array.isArray(member?.duesOpenPeriods) && member.duesOpenPeriods.length
+      ? member.duesOpenPeriods.length
+      : 1;
+    const socialCap = tennis > 0.01 ? money(Math.max(0, lila - tennis * openN)) : money(Math.max(0, lila));
+    return socialCap;
+  }
   // El corte Lila es la cuota. Si la apertura quedó más baja (8063 en 28.000
   // con individual a 40.000), no se cobra ese importe viejo.
   if (lila != null) return money(Math.max(0, lila));
@@ -1203,7 +1215,7 @@ function capitalOwedForChoices(member) {
 }
 
 function expandChoicesToCoverBalance(member, choices, paidOn, coveredDueOns = null, { chargeScope = 'all' } = {}) {
-  const owed = capitalOwedForChoices(member);
+  const owed = capitalOwedForChoices(member, chargeScope);
   if (!(owed > 0.01)) return choices;
   const day = duesDueDayForMember(member);
   const scopeOpts = { chargeScope };
@@ -1393,8 +1405,24 @@ function lumpMonthsAtCurrentCuota(member, paidOn, paidSet, { chargeScope = 'all'
 function choicesFromStoredOpenPeriods(member, paidOn, paidSet, scopeOpts = {}) {
   const raw = member?.duesOpenPeriods;
   if (!Array.isArray(raw) || !raw.length) return null;
+  const scope = normalizeDuesChargeScope(scopeOpts.chargeScope);
+  // Cuota o tenis por separado: no reusar el capital mezclado del corte (ej. 82.000).
+  if (scope !== 'all') {
+    const rebuilt = [];
+    for (const row of raw) {
+      const dueOn = String(row?.dueOn || row?.due_on || '').slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dueOn)) continue;
+      if (dueOn <= '1900-01-10' && !isJoinFeeDueOn(dueOn)) continue;
+      if (dueOnAlreadyCovered(dueOn, paidSet)) continue;
+      const due = parseDate(dueOn);
+      const kind = due && due < paidOn ? 'overdue' : 'upcoming';
+      const full = periodChoiceFromDue(member, dueOn, paidOn, kind, scopeOpts);
+      if (full && full.capital > 0.01) rebuilt.push(full);
+    }
+    return rebuilt.length ? rebuilt : null;
+  }
   const balance = money(Math.max(0, Number(member?.outstandingBalance) || 0));
-  const owed = capitalOwedForChoices(member);
+  const owed = capitalOwedForChoices(member, scope);
   const stored = [];
   for (const row of raw) {
     const dueOn = String(row?.dueOn || row?.due_on || '').slice(0, 10);
@@ -1417,7 +1445,7 @@ function choicesFromStoredOpenPeriods(member, paidOn, paidSet, scopeOpts = {}) {
       surcharge,
       payable: money(capital + surcharge),
       kind: overdue ? 'overdue' : 'upcoming',
-      chargeScope: normalizeDuesChargeScope(scopeOpts.chargeScope),
+      chargeScope: scope,
     });
   }
   if (!stored.length) return null;

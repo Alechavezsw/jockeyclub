@@ -169,6 +169,8 @@ export default function CollectDuesDeskFlow({
     if (member) return [];
     const q = query.trim();
     if (!q) return [];
+    const digits = q.replace(/\D/g, '');
+    const isActive = (m) => String(m?.status || 'active').toLowerCase() === 'active';
     const local = (members || [])
       .filter((m) => memberMatches(m, q))
       .toSorted((a, b) => rankMemberSearchHit(a, q) - rankMemberSearchHit(b, q))
@@ -178,8 +180,25 @@ export default function CollectDuesDeskFlow({
       const id = String(row.memberId || '');
       if (id && !byId.has(id)) byId.set(id, row);
     }
-    return [...byId.values()]
-      .toSorted((a, b) => rankMemberSearchHit(a, q) - rankMemberSearchHit(b, q))
+    const merged = [...byId.values()]
+      .toSorted((a, b) => {
+        const activeDelta = Number(isActive(b)) - Number(isActive(a));
+        if (activeDelta) return activeDelta;
+        return rankMemberSearchHit(a, q) - rankMemberSearchHit(b, q);
+      });
+    // Misma persona activa + baja: si no buscan el Nº exacto de la baja, ocultar inactivos.
+    const activeNames = new Set(
+      merged.filter(isActive).map((m) => String(m.name || m.fullName || '').trim().toLowerCase()),
+    );
+    return merged
+      .filter((m) => {
+        if (isActive(m)) return true;
+        const nro = String(memberNumberOf(m) || m.memberId || '').replace(/\D/g, '');
+        if (digits.length >= 3 && nro && nro === digits) return true;
+        const name = String(m.name || m.fullName || '').trim().toLowerCase();
+        if (name && activeNames.has(name)) return false;
+        return true;
+      })
       .slice(0, 12);
   }, [members, query, remoteHits, member]);
 
@@ -357,6 +376,7 @@ export default function CollectDuesDeskFlow({
               const nro = memberNumberOf(row) || row.memberId;
               const doc = row.documentNumber || row.dni || '';
               const category = hitCategoryLabel(row, tierCatalog);
+              const inactive = String(row.status || 'active').toLowerCase() !== 'active';
               const exempt = isDuesExemptMember(row);
               const covered = coveredByMember[row.id];
               const forPreview = covered?.length
@@ -391,6 +411,7 @@ export default function CollectDuesDeskFlow({
                         Nº {nro}
                         {doc ? ` · DNI ${doc}` : ''}
                         {category && category !== '—' ? ` · ${category}` : ''}
+                        {inactive ? ' · Baja' : ''}
                       </span>
                     </span>
                     <span className="cdd-desk-hit-side">
