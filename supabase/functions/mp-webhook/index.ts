@@ -106,6 +106,47 @@ async function applyCheckoutPayment(
 ) {
   const resolved = await resolveIntentId(admin, intentId);
   if (!resolved) return { error: "Sin cobro vinculado." };
+  
+  // Verify the intent exists and get its expected amount
+  const { data: intent, error: intentError } = await admin
+    .from("mp_intents")
+    .select("id, amount, status, applied_at, provider_payment_id")
+    .eq("id", resolved)
+    .maybeSingle();
+  
+  if (intentError || !intent) {
+    console.error(`Intent ${resolved} not found or error: ${intentError?.message}`);
+    return { error: "Cobro no encontrado.", intentId: resolved };
+  }
+  
+  // Check if already applied (idempotency)
+  if (intent.applied_at) {
+    return { ok: true, already: true, intentId: resolved };
+  }
+  
+  // Validate amount matches (with 1% tolerance for rounding)
+  const expectedAmount = Number(intent.amount) || 0;
+  const tolerance = expectedAmount * 0.01;
+  if (Math.abs(paidAmount - expectedAmount) > tolerance && paidAmount > 0 && expectedAmount > 0) {
+    console.error(`Amount mismatch for intent ${resolved}: expected ${expectedAmount}, got ${paidAmount}`);
+    // Log but don't reject - MP may have small differences
+  }
+  
+  // Check for duplicate provider_payment_id on different intent
+  if (providerPaymentId) {
+    const { data: existingPayment } = await admin
+      .from("mp_intents")
+      .select("id")
+      .eq("provider_payment_id", providerPaymentId)
+      .neq("id", resolved)
+      .maybeSingle();
+    
+    if (existingPayment) {
+      console.error(`Provider payment ${providerPaymentId} already used on intent ${existingPayment.id}`);
+      return { error: "Este pago ya fue aplicado a otro cobro.", intentId: resolved, duplicate: true };
+    }
+  }
+  
   const { error } = await admin.rpc("apply_mp_approved_payment", {
     p_intent_id: resolved,
     p_provider_payment_id: providerPaymentId,
@@ -130,6 +171,14 @@ async function applyMerchantOrder(admin: Admin, token: string, remoteId: string)
     return { ok: true, ignored: true, reason: "no-payment", orderId: remoteId };
   }
   const payment = await mpGet(`/v1/payments/${pick.id}`, token);
+  
+  // Validate currency is ARS
+  const currency = String(payment.currency_id || order.currency_id || "").toUpperCase();
+  if (currency && currency !== "ARS") {
+    console.error(`Merchant order ${remoteId} has unexpected currency: ${currency}`);
+    return { ok: false, error: "Moneda no soportada", currency, orderId: remoteId };
+  }
+  
   const intentId = String(
     payment.external_reference
     || order.external_reference
@@ -155,6 +204,14 @@ async function applyPaymentId(admin: Admin, token: string, remoteId: string) {
   const intentId = String(payment.external_reference || metadata?.intent_id || "");
   const paymentStatus = mpApiStatus(payment.status);
   if (!intentId || !paymentStatus) return { ok: true, ignored: true };
+  
+  // Validate currency is ARS
+  const currency = String(payment.currency_id || "").toUpperCase();
+  if (currency && currency !== "ARS") {
+    console.error(`Payment ${remoteId} has unexpected currency: ${currency}`);
+    return { ok: false, error: "Moneda no soportada", currency };
+  }
+  
   return {
     ok: true,
     kind: "payment",
@@ -237,23 +294,64 @@ async function repairPendingIntents(admin: Admin, token: string, body: Record<st
   return { ok: true, kind: "repair", count: results.length, results };
 }
 
-async function mpSignatureOk(req: Request, rawBody: string, secret: string) {
+/**
+ * Tolerancia máxima para el timestamp de la firma (en segundos).
+ * Mercado Pago puede reintentar webhooks hasta 48h, pero aceptamos hasta 5 minutos
+ * para prevenir ataques de replay. Reintentos legítimos llegan con firma nueva.
+ */
+const SIGNATURE_TIMESTAMP_TOLERANCE_SECONDS = 300;
+
+type SignatureValidationResult = {
+  valid: boolean;
+  reason?: string;
+};
+
+async function mpSignatureOk(req: Request, rawBody: string, secret: string): Promise<SignatureValidationResult> {
   const header = String(req.headers.get("x-signature") || "").trim();
   const requestId = String(req.headers.get("x-request-id") || "").trim();
-  if (!header || !secret) return false;
+  
+  if (!secret) return { valid: false, reason: "missing-secret" };
+  if (!header) return { valid: false, reason: "missing-signature-header" };
+  
   const parts: Record<string, string> = {};
   for (const chunk of header.split(",")) {
     const [key, ...rest] = chunk.split("=");
     if (key) parts[key.trim()] = rest.join("=").trim();
   }
+  
   const ts = parts.ts || "";
   const hash = String(parts.v1 || "").toLowerCase();
   const dataId = signedResourceId(req, rawBody).toLowerCase();
-  if (!ts || !hash || !dataId) return false;
+  
+  if (!ts) return { valid: false, reason: "missing-timestamp" };
+  if (!hash) return { valid: false, reason: "missing-hash" };
+  if (!dataId) return { valid: false, reason: "missing-data-id" };
+  
+  // Validate timestamp is not too old (prevent replay attacks)
+  const tsNum = parseInt(ts, 10);
+  if (!Number.isFinite(tsNum) || tsNum <= 0) {
+    return { valid: false, reason: "invalid-timestamp-format" };
+  }
+  
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const age = nowSeconds - tsNum;
+  
+  // Reject if timestamp is in the future (clock skew tolerance: 60 seconds)
+  if (age < -60) {
+    return { valid: false, reason: "timestamp-in-future" };
+  }
+  
+  // Reject if timestamp is too old
+  if (age > SIGNATURE_TIMESTAMP_TOLERANCE_SECONDS) {
+    return { valid: false, reason: "timestamp-expired" };
+  }
+  
+  // Build manifest following Mercado Pago's signature protocol
   const chunks = [`id:${dataId}`];
   if (requestId) chunks.push(`request-id:${requestId}`);
   chunks.push(`ts:${ts}`);
   const manifest = `${chunks.join(";")};`;
+  
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
@@ -262,7 +360,12 @@ async function mpSignatureOk(req: Request, rawBody: string, secret: string) {
     ["sign"],
   );
   const signed = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(manifest));
-  return sameHex(hexOf(signed), hash);
+  
+  if (!sameHex(hexOf(signed), hash)) {
+    return { valid: false, reason: "signature-mismatch" };
+  }
+  
+  return { valid: true };
 }
 
 /** Estado tal como lo devolvió la API. Nunca se inventa "approved". */
@@ -831,12 +934,18 @@ Deno.serve(async (req) => {
       return json(200, await repairPendingIntents(admin, token, body));
     }
 
-    if (!secret || !(await mpSignatureOk(req, rawBody, secret))) {
+    const sigResult = await mpSignatureOk(req, rawBody, secret);
+    if (!sigResult.valid) {
+      // Log reason for debugging but don't expose details in response
+      console.error(`Webhook signature validation failed: ${sigResult.reason}`);
       return json(401, { error: "Firma inválida." });
     }
     const topic = topicOf(body, url);
     const remoteId = signedResourceId(req, rawBody);
-    if (!remoteId) return json(401, { error: "Firma inválida." });
+    if (!remoteId) {
+      console.error("Webhook missing resource ID after signature validation");
+      return json(401, { error: "Firma inválida." });
+    }
 
     // Checkout Pro / preferencias de la app: merchant_order (numérico).
     if (topic.includes("merchant_order") || topic.includes("topic_merchant_order")) {
