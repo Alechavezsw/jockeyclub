@@ -1119,8 +1119,8 @@ export default function CollectDuesModal({
                       checked={row.checked}
                       onChange={() => toggleScope(row.id)}
                     />
-                    <span style={{ flex: 1 }}>
-                      <strong style={{ display: 'block', color: 'var(--text-primary)' }}>{row.label}</strong>
+                    <span style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                      <strong style={{ color: 'var(--text-primary)' }}>{row.label}</strong>
                       <small style={{ color: 'var(--text-muted)' }}>{row.hint}</small>
                     </span>
                   </label>
