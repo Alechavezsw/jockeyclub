@@ -38,6 +38,7 @@ import {
   splitAccessRequestInbox,
 } from '../../domain/members/selfService';
 import { memberMoveKey, membershipMovesSeed, uniqueBajas } from '../../domain/members/membershipMoves';
+import { filterOperationalSearchHits } from '../../domain/members/memberDuplicates';
 import { useSnapshotSeed } from '../../hooks/useSnapshots';
 import VirtualCard from '../VirtualCard';
 import CollectDuesModal from './CollectDuesModal';
@@ -682,8 +683,10 @@ export default function MembersTab({
         || String(m.tier || '').toLowerCase() === String(tierFilter).toLowerCase();
       return matchesTier;
     });
-    if (!q) return hits;
-    return hits.toSorted((a, b) => {
+    // Duplicados históricos (ej. 10698 Yacante) no deben verse en padrón/búsqueda.
+    const operational = filterOperationalSearchHits(hits, raw);
+    if (!q) return operational;
+    return operational.toSorted((a, b) => {
       const rank = rankMemberSearchHit(a, raw) - rankMemberSearchHit(b, raw);
       if (rank !== 0) return rank;
       return String(a.name || '').localeCompare(String(b.name || ''), 'es');

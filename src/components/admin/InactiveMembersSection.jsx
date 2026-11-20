@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Search } from 'lucide-react';
 import { memberMatchesDirectoryQuery, mergeMembersById } from '../../domain/members/households';
+import { filterOperationalSearchHits } from '../../domain/members/memberDuplicates';
 import { repos } from '../../data/bootstrap';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import FoldableSection from './FoldableSection';
@@ -67,7 +68,8 @@ export default function InactiveMembersSection({
         remoteIds.has(String(member.memberId || ''))
         || memberMatchesDirectoryQuery(member, raw)
       ));
-    return rows.toSorted((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'es'));
+    return filterOperationalSearchHits(rows, raw)
+      .toSorted((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'es'));
   }, [inactive, query, remoteHits]);
   const pages = Math.max(1, Math.ceil(filtered.length / PAGE));
   const safePage = Math.min(page, pages);

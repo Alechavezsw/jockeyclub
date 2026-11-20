@@ -93,7 +93,7 @@ export function membersLikelySamePerson(a, b) {
 
 /**
  * Ocultar ficha histórica / baja cuando ya hay una operativa de la misma persona.
- * Solo se muestra si buscan el Nº exacto de la baja.
+ * Los marcados historicalDuplicate no aparecen en padrón/cobranza salvo Nº exacto.
  */
 export function shouldHideDuplicateFromOperationalSearch(member, { peers = [], query = '' } = {}) {
   if (!member) return true;
@@ -105,15 +105,8 @@ export function shouldHideDuplicateFromOperationalSearch(member, { peers = [], q
   const nro = normalizeMemberNumber(member.memberId || member.memberNumber);
   if (digits.length >= 3 && nro && nro === digits) return false;
 
-  if (isHistoricalDuplicateMember(member)) {
-    const hasCanonicalPeer = (peers || []).some((row) => {
-      if (row === member) return false;
-      const peerNro = normalizeMemberNumber(row.memberId || row.memberNumber);
-      const canon = canonicalMemberNumberOf(member);
-      return peerNro && canon && peerNro === canon && String(row.status || 'active').toLowerCase() === 'active';
-    });
-    if (hasCanonicalPeer) return true;
-  }
+  // Ficha canónica reemplazada: no debe existir en listados operativos.
+  if (isHistoricalDuplicateMember(member)) return true;
 
   if (status !== 'active') {
     const name = foldPersonName(member.name || member.fullName);

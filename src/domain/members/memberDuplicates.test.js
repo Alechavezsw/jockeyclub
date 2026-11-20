@@ -44,9 +44,9 @@ describe('memberDuplicates', () => {
     )).toBe(false);
   });
 
-  it('oculta 10698 en búsqueda operativa si está 12143', () => {
+  it('oculta 10698 en padrón aunque no venga 12143 en la misma página', () => {
+    expect(shouldHideDuplicateFromOperationalSearch(rutInactive, { peers: [rutInactive], query: 'yacante' })).toBe(true);
     const hits = [rutActive, rutInactive, yashira];
-    expect(shouldHideDuplicateFromOperationalSearch(rutInactive, { peers: hits, query: 'yacante' })).toBe(true);
     expect(shouldHideDuplicateFromOperationalSearch(rutActive, { peers: hits, query: 'yacante' })).toBe(false);
     expect(filterOperationalSearchHits(hits, 'yacante').map((m) => m.memberId)).toEqual(['12143', '12144']);
   });
