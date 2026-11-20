@@ -249,15 +249,39 @@ export default function QrLiveScanner({
 
       const video = videoRef.current;
       if (!video) throw new Error('Video no disponible');
-      video.srcObject = stream;
+      // Atributos antes de srcObject: Chrome exige muted + playsInline para autoplay.
+      video.muted = true;
+      video.defaultMuted = true;
+      video.playsInline = true;
       video.setAttribute('playsinline', 'true');
       video.setAttribute('webkit-playsinline', 'true');
-      video.muted = true;
-      try {
-        await video.play();
-      } catch {
-        /* ignore */
+      video.setAttribute('muted', '');
+      video.srcObject = stream;
+
+      // Esperar metadata real antes de play (evita AbortError en Chrome).
+      if (video.readyState < 1) {
+        await new Promise((resolve, reject) => {
+          let settled = false;
+          const finish = (fn, arg) => {
+            if (settled) return;
+            settled = true;
+            window.clearTimeout(timer);
+            video.removeEventListener('loadedmetadata', onMeta);
+            video.removeEventListener('error', onErr);
+            fn(arg);
+          };
+          const onMeta = () => finish(resolve);
+          const onErr = () => finish(reject, new Error('No se pudo cargar el video de la cámara'));
+          const timer = window.setTimeout(() => {
+            if (video.readyState >= 1) finish(resolve);
+            else finish(reject, new Error('Tiempo de espera de la cámara'));
+          }, 8000);
+          video.addEventListener('loadedmetadata', onMeta);
+          video.addEventListener('error', onErr);
+          if (video.readyState >= 1) finish(resolve);
+        });
       }
+      await video.play();
 
       // Mostrar preview al instante; no esperar foco ni BarcodeDetector.
       setLive(true);
@@ -514,6 +538,12 @@ export default function QrLiveScanner({
           cursor: crosshair;
           touch-action: manipulation;
         }
+        /* Chrome: no usar atributo HTML hidden — rompe play()/getUserMedia.
+           Se tapa con opacity hasta que el stream está live. */
+        .qr-live video.qr-live-video--pending {
+          opacity: 0;
+          pointer-events: none;
+        }
         .qr-live-frame {
           position: absolute;
           inset: 12%;
@@ -663,18 +693,19 @@ export default function QrLiveScanner({
 
       <video
         ref={videoRef}
+        className={live ? undefined : 'qr-live-video--pending'}
         playsInline
         muted
         autoPlay
-        hidden={!live}
         onClick={(e) => focusAt(e.clientX, e.clientY)}
         aria-label="Vista de cámara del lector QR"
+        aria-hidden={!live}
       />
       {!live ? (
         <div className="qr-live-empty" aria-live="polite">
           <strong>{starting ? 'Iniciando cámara…' : 'Cámara no disponible'}</strong>
           {!starting ? (
-            <p>Cargá una foto del QR o ingresá el número de socio a mano.</p>
+            <p>Cargá una foto del QR o ingresá el número de socio a mano. Si Chrome bloqueó la cámara, abrí el candado de la barra → Cámara → Permitir.</p>
           ) : null}
         </div>
       ) : null}

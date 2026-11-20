@@ -76,7 +76,16 @@ describe('memberFacts', () => {
     expect(facts.charge.surcharge).toBeGreaterThan(0);
     expect(facts.canPayPool).toBe(false);
     expect(facts.poolReason).toMatch(/mora/i);
-    // Con deuda no ingresa, aunque sea fuera de temporada
+    // Fuera de temporada: solo el mes corriente no cierra la sede
+    expect(facts.canEnterToday).toBe(true);
+  });
+
+  it('con deuda de meses anteriores no ingresa a la sede', () => {
+    const facts = memberFacts({
+      ...titular,
+      nextDueDate: '2026-09-10',
+      outstandingBalance: 140000,
+    }, opts);
     expect(facts.canEnterToday).toBe(false);
     expect(facts.entryReason).toMatch(/deuda/i);
   });

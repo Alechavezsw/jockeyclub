@@ -327,7 +327,7 @@ export function buildPoolSeason({
   const canonPace = canonPrev > 0
     ? canonPrev / prevDays
     : (canonNow > 0 && daysElapsed ? canonNow / daysElapsed : 0);
-  const fee = money(settings.memberDayFee);
+  const fee = money(settings.memberSeasonFee ?? settings.memberDayFee);
   const forecastVisits = Math.round(visitsNow + visitPace * daysLeft);
   const forecastCanon = money(
     canonNow + (canonPace > 0 ? canonPace * daysLeft : visitPace * daysLeft * fee),
@@ -359,7 +359,9 @@ export function buildPoolSeason({
     forecastVisits,
     forecastCanon,
     memberFee: fee,
+    memberSeasonFee: fee,
     guestFee: money(settings.guestDayFee),
+    maxPayingPerHousehold: Number(settings.maxPayingPerHousehold) || 4,
     source,
     verdict,
     months: upcomingMonths.map((bar, index) => ({

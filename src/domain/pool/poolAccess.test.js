@@ -35,29 +35,55 @@ describe('poolAccess', () => {
     expect(status.expiresAt).toBe('2027-01-15');
   });
 
-  it('habilita socio con médico y registra invitado', () => {
+  it('marca revisación con el número del talonario, sin archivo', () => {
+    const withMed = attachPoolMedical(member, {
+      talonario: '45821',
+      uploadedAt: '2026-12-01T12:00:00.000Z',
+      validityDays: 365,
+      actorName: 'Caja pileta',
+    });
+    expect(withMed.meta.poolMedicalTalonario).toBe('45821');
+    expect(withMed.meta.poolMedicalSource).toBe('talonario');
+    const status = getMedicalStatus(withMed, { today: '2026-12-15' });
+    expect(status.ok).toBe(true);
+    expect(status.label).toMatch(/talón 45821/i);
+    expect(status.doc.talonario).toBe('45821');
+  });
+
+  it('exige talonario o archivo', () => {
+    expect(() => attachPoolMedical(member, {})).toThrow(/talonario|archivo/i);
+  });
+
+  it('habilita socio con médico, cobra temporada y registra invitado', () => {
     const withMed = attachPoolMedical(member, { fileName: 'apto.pdf', uploadedAt: '2026-08-01T12:00:00.000Z' });
-    const eval_ = evaluatePoolAccess(withMed, { today: '2026-08-30', accesses: [] });
+    const eval_ = evaluatePoolAccess(withMed, { today: '2026-12-05', accesses: [] });
     expect(eval_.canEnable).toBe(true);
+    expect(eval_.seasonAmountDue).toBe(90000);
 
     const { entry, accesses } = enableMemberPoolAccess({
       member: withMed,
       accesses: [],
       method: 'efectivo',
-      today: '2026-08-30',
+      today: '2026-12-05',
     });
     expect(entry.kind).toBe('member');
     expect(entry.payment.method).toBe('efectivo');
+    expect(entry.payment.amount).toBe(90000);
+    expect(entry.payment.scope).toBe('season');
+
+    const again = evaluatePoolAccess(withMed, { today: '2026-12-20', accesses });
+    expect(again.seasonPaid).toBe(true);
+    expect(again.seasonAmountDue).toBe(0);
 
     const guest = enableGuestPoolAccess({
       host: withMed,
       guestName: 'Juan Invitado',
       accesses,
       method: 'mercadopago',
-      today: '2026-08-30',
+      today: '2026-12-05',
     });
     expect(guest.entry.kind).toBe('guest');
-    expect(poolDayStats(guest.accesses, '2026-08-30').total).toBe(2);
+    expect(poolDayStats(guest.accesses, '2026-12-05').total).toBe(2);
   });
 
   it('da veredicto de entrada según canon y apto', () => {

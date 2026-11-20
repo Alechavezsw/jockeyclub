@@ -19,13 +19,14 @@ const familiar = {
 };
 
 describe('seasonDuesGate', () => {
-  it('antes del 10 no corta, aunque deba', () => {
+  it('el día 10 todavía no corta, aunque deba', () => {
     expect(isCurrentMonthDuesUnpaid(familiar, '2026-12-09')).toBe(false);
-    expect(seasonDuesGate(familiar, { today: '2026-12-09' }).blocked).toBe(false);
+    expect(isCurrentMonthDuesUnpaid(familiar, '2026-12-10')).toBe(false);
+    expect(seasonDuesGate(familiar, { today: '2026-12-10' }).blocked).toBe(false);
   });
 
-  it('en temporada, desde el 10, mora bloquea sede y pileta', () => {
-    const gate = seasonDuesGate(familiar, { today: '2026-12-10' });
+  it('en temporada, desde el 11, mora bloquea sede y pileta', () => {
+    const gate = seasonDuesGate(familiar, { today: '2026-12-11' });
     expect(gate.blocked).toBe(true);
     expect(gate.inSeason).toBe(true);
     expect(gate.reason).toMatch(/mora/i);
@@ -186,15 +187,26 @@ describe('clubEntryGate', () => {
     expect(gate.currentMonthOnly).toBe(true);
   });
 
-  it('en temporada, mora del mes corriente no cierra la sede', () => {
+  it('en temporada, desde el 11 la mora del mes corriente cierra la sede', () => {
     const gate = clubEntryGate({
       ...familiar,
       outstandingBalance: 70000,
       nextDueDate: '2026-12-10',
     }, { today: '2026-12-15' });
-    expect(gate.blocked).toBe(false);
+    expect(gate.blocked).toBe(true);
+    expect(gate.title).toMatch(/MORA/i);
     expect(gate.season.blocked).toBe(true);
     expect(gate.currentMonthOnly).toBe(true);
+  });
+
+  it('en temporada, el día 10 con cuota del mes aún puede ingresar a la sede', () => {
+    const gate = clubEntryGate({
+      ...familiar,
+      outstandingBalance: 70000,
+      nextDueDate: '2026-12-10',
+    }, { today: '2026-12-10' });
+    expect(gate.blocked).toBe(false);
+    expect(gate.season.blocked).toBe(false);
   });
 
   it('al día ingresa', () => {
@@ -304,7 +316,8 @@ describe('AMET vence el 18', () => {
     expect(seasonDuesGate(amet, { today: '2026-12-15' }).blocked).toBe(false);
   });
 
-  it('desde el 18 sin pagar, sí', () => {
+  it('el día 18 todavía puede pagar al día; desde el 19 sin pagar, sí mora', () => {
+    expect(isCurrentMonthDuesUnpaid(amet, '2026-12-18')).toBe(false);
     expect(isCurrentMonthDuesUnpaid(amet, '2026-12-19')).toBe(true);
     expect(seasonDuesGate(amet, { today: '2026-12-19' }).blocked).toBe(true);
   });

@@ -213,7 +213,7 @@ export function collectMemberMeta(member = {}) {
     'hasSocietasApp', 'societasAppAsOf', 'societasEmail',
     'documents',
     'poolMedicalExpiresAt', 'poolMedicalFileName', 'poolMedicalUploadedAt',
-    'poolMedicalStatus', 'poolMedicalNote',
+    'poolMedicalStatus', 'poolMedicalNote', 'poolMedicalTalonario', 'poolMedicalSource',
     'regularidadCertificates',
     'automaticDebitKind', 'debitMoves', 'mpAdhesion', 'cardExpiry', 'lastDebitCardNumber',
     'duesFreeThrough', 'duesMonthCapital', 'duesOpenPeriods', 'unpaidCapital', 'duesCapitalOnly',

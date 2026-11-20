@@ -1,20 +1,22 @@
 # Acceso / molinete vs cuota social
 
-Regla de la **puerta de la sede** (`/acceso`, `clubEntryGate`). No es la regla de pileta.
+Regla de la **puerta de la sede** (`/acceso`, `clubEntryGate`).
 
 ## Obligatorio
 
 1. **Deuda de meses anteriores → no ingresa.** Titular o adherente (hereda al titular): `ACCESO DENEGADO · DEUDA` hasta regularizar en Caja o Mi Cuenta.
-2. **Solo el mes corriente → sí ingresa**, aunque la cuota ya esté vencida (después del 10; AMET, del 18). No es mora de sede.
-3. Exentos (vitalicio, fundador, comisión) siempre pasan por cuota.
-4. Helpers: `hasPriorMonthDuesDebt`, `accessDuesDebt`, `clubEntryGate` en `seasonDuesGate.js`.
+2. **Fuera de temporada de pileta**, solo el mes corriente → **sí ingresa**, aunque la cuota ya esté vencida (después del 10; AMET, del 18).
+3. **En temporada de pileta (1 dic–31 mar)**: desde el **día 11** (AMET: día 19), sin la cuota del mes → **no ingresa al club** ni a pileta hasta regularizar (`seasonDuesGate` + `clubEntryGate`). El día de vencimiento (10 / 18) todavía puede pagar al día.
+4. Exentos (vitalicio, fundador, comisión) siempre pasan por cuota.
+5. Helpers: `hasPriorMonthDuesDebt`, `accessDuesDebt`, `clubEntryGate`, `seasonDuesGate` en `seasonDuesGate.js`.
 
-## Pileta (aparte)
+## Pileta (aparte del molinete)
 
-- En temporada, sin la cuota del mes desde el vencimiento, **pileta** puede bloquear (`seasonDuesGate` / `isPiletaMora` / `piletaPayAccess`).
-- Eso **no** cierra la sede por el mes en curso.
+- Canon de **temporada** (no diario): $90.000 / persona del grupo familiar, hasta 4 pagan, menores de 4 años no pagan (`poolSeasonBilling.js`).
+- Invitados del día: canon aparte (`guestDayFee`).
+- Apto médico + temporada abonada (o exenta) para habilitar.
 
 ## Prohibido
 
-- Bloquear la sede solo porque el mes actual está liquidado y vencido.
-- Tratar “debe noviembre en noviembre” igual que “debe octubre en noviembre”.
+- Bloquear la sede fuera de temporada solo porque el mes actual está liquidado y vencido.
+- Tratar “debe noviembre en noviembre” (fuera de temporada) igual que “debe octubre en noviembre”.

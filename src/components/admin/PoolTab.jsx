@@ -19,7 +19,6 @@ import {
   poolSearchFlags,
   memberPoolHistory,
   isPoolDayCashOpen,
-  POOL_PAYMENT_METHODS,
   poolMethodUsesCash,
   poolMethodUsesBank,
   poolMethodLabel,
@@ -36,6 +35,7 @@ import { CLUB_BANK_ACCOUNTS } from '../../domain/members/clubBanks';
 import { todayISODateAR } from '../../lib/arDate';
 import MercadoPagoCheckout from '../MercadoPagoCheckout';
 import ModalDialog from '../ModalDialog';
+import PaymentMethodTiles from '../PaymentMethodTiles';
 import { listPoolAccesses } from '../../data/repos';
 import { isDuesExemptMember } from '../../domain/members/dues';
 
@@ -77,7 +77,6 @@ export default function PoolTab({
   setPoolAccesses,
   setEntryLogs,
   poolSettings = DEFAULT_POOL_SETTINGS,
-  setPoolSettings,
   onSendMessage = null,
 }) {
   const { user } = useAuth();
@@ -96,17 +95,7 @@ export default function PoolTab({
   const [guestMethod, setGuestMethod] = useState('efectivo');
   const [payBankId, setPayBankId] = useState(CLUB_BANK_ACCOUNTS[0]?.id || 'macro');
   const [guestBankId, setGuestBankId] = useState(CLUB_BANK_ACCOUNTS[0]?.id || 'macro');
-  const [feeDraft, setFeeDraft] = useState({
-    memberDayFee: settings.memberDayFee,
-    guestDayFee: settings.guestDayFee,
-  });
-
-  useEffect(() => {
-    setFeeDraft({
-      memberDayFee: settings.memberDayFee,
-      guestDayFee: settings.guestDayFee,
-    });
-  }, [settings.memberDayFee, settings.guestDayFee]);
+  const [medicalTalonario, setMedicalTalonario] = useState('');
 
   const selected = useMemo(
     () => members.find((m) => m.memberId === selectedId) || null,
@@ -188,6 +177,7 @@ export default function PoolTab({
   const closeSelected = () => {
     setSelectedId(null);
     setGuestName('');
+    setMedicalTalonario('');
     setError('');
   };
 
@@ -200,13 +190,40 @@ export default function PoolTab({
       const next = attachPoolMedical(selected, {
         fileName: file.name,
         dataUrl,
+        talonario: medicalTalonario,
         actorName,
         validityDays: settings.medicalValidityDays,
       });
       await persistMember(next);
+      setMedicalTalonario('');
       showFlash(`Revisación médica cargada · ${selected.name}`);
     } catch (err) {
       setError(err?.message || 'No se pudo subir la revisación.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleMarkMedicalTalonario = async () => {
+    if (!selected) return;
+    const ticket = String(medicalTalonario || '').trim();
+    if (!ticket) {
+      setError('Indicá el número del talonario de la revisación.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      const next = attachPoolMedical(selected, {
+        talonario: ticket,
+        actorName,
+        validityDays: settings.medicalValidityDays,
+      });
+      await persistMember(next);
+      setMedicalTalonario('');
+      showFlash(`Revisación marcada · talón ${ticket} · ${selected.name}`);
+    } catch (err) {
+      setError(err?.message || 'No se pudo marcar la revisación.');
     } finally {
       setBusy(false);
     }
@@ -341,15 +358,6 @@ export default function PoolTab({
     } finally {
       setBusy(false);
     }
-  };
-
-  const saveFees = () => {
-    setPoolSettings?.({
-      ...settings,
-      memberDayFee: Math.max(0, Number(feeDraft.memberDayFee) || 0),
-      guestDayFee: Math.max(0, Number(feeDraft.guestDayFee) || 0),
-    });
-    showFlash('Tarifas de pileta actualizadas');
   };
 
   return (
@@ -512,42 +520,74 @@ export default function PoolTab({
                       : 'Pagó / al día'}
                   </span>
                 </div>
-                <div className={`pool-check ${eval_.paidToday ? 'is-ok' : 'is-bad'}`}>
-                  <strong>Canon pileta de hoy</strong>
-                  <span>
-                    {eval_.paidToday
-                      ? `Pagó · ${formatCurrency(settings.memberDayFee)}`
-                      : `No pagó · ${formatCurrency(settings.memberDayFee)}`}
-                    {eval_.alreadyIn ? ' · ya ingresó' : ''}
-                  </span>
-                </div>
                 <div className={`pool-check ${eval_.medical?.ok ? 'is-ok' : 'is-bad'}`}>
                   <strong>Revisación médica</strong>
                   <span>
                     {eval_.medical?.label}
                     {eval_.medical?.expiresAt ? ` · vence ${eval_.medical.expiresAt}` : ''}
                   </span>
-                  {!eval_.medical?.ok ? (
-                    <label className="pool-upload">
-                      <Upload size={14} />
-                      Subir revisación
-                      <input
-                        type="file"
-                        accept="image/*,.pdf,application/pdf"
-                        hidden
-                        disabled={busy}
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          e.target.value = '';
-                          if (file) handleUploadMedical(file);
-                        }}
-                      />
-                    </label>
-                  ) : (
+                  {eval_.medical?.ok ? (
                     <span className="pool-file-hint">
-                      <FileHeart size={13} /> {eval_.medical.doc?.fileName || 'Documento cargado'}
+                      <FileHeart size={13} />{' '}
+                      {eval_.medical.doc?.talonario
+                        ? `Talón ${eval_.medical.doc.talonario}`
+                        : (eval_.medical.doc?.fileName || 'Documento cargado')}
                     </span>
+                  ) : (
+                    <div className="pool-medical-actions">
+                      <div className="pool-talonario-row">
+                        <input
+                          className="form-input"
+                          type="text"
+                          inputMode="numeric"
+                          autoComplete="off"
+                          placeholder="Nº talonario"
+                          value={medicalTalonario}
+                          disabled={busy}
+                          onChange={(e) => setMedicalTalonario(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              void handleMarkMedicalTalonario();
+                            }
+                          }}
+                          aria-label="Número del talonario de revisación médica"
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          disabled={busy || !String(medicalTalonario || '').trim()}
+                          onClick={() => void handleMarkMedicalTalonario()}
+                        >
+                          Marcar
+                        </button>
+                      </div>
+                      <label className="pool-upload">
+                        <Upload size={14} />
+                        Subir archivo
+                        <input
+                          type="file"
+                          accept="image/*,.pdf,application/pdf"
+                          hidden
+                          disabled={busy}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            e.target.value = '';
+                            if (file) handleUploadMedical(file);
+                          }}
+                        />
+                      </label>
+                    </div>
                   )}
+                </div>
+                <div className={`pool-check ${eval_.seasonPaid || eval_.paidToday ? 'is-ok' : 'is-bad'}`}>
+                  <strong>Canon de temporada</strong>
+                  <span>
+                    {eval_.seasonPaid || eval_.paidToday
+                      ? `Abonado${eval_.seasonReason ? ` · ${eval_.seasonReason}` : ''}`
+                      : `Pendiente · ${formatCurrency(eval_.seasonAmountDue ?? settings.memberSeasonFee)}`}
+                    {eval_.alreadyIn ? ' · ya ingresó hoy' : ''}
+                  </span>
                 </div>
               </div>
 
@@ -558,68 +598,77 @@ export default function PoolTab({
                 </p>
               ) : !eval_.alreadyIn ? (
                 <div className="pool-pay">
-                  <div className="pool-entrance-methods">
-                    {POOL_PAYMENT_METHODS.map((m) => (
-                      <button
-                        key={m.id}
-                        type="button"
-                        className={`pool-method${payMethod === m.id ? ' is-active' : ''}`}
-                        onClick={() => setPayMethod(m.id)}
-                      >
-                        {m.label}
-                      </button>
-                    ))}
-                  </div>
-                  {poolMethodUsesBank(payMethod) ? (
-                    <label className="form-group" style={{ marginTop: '0.65rem', marginBottom: 0 }}>
-                      <span className="form-label">Banco / alias</span>
-                      <select
-                        className="form-input"
-                        value={payBankId}
-                        onChange={(e) => setPayBankId(e.target.value)}
-                      >
-                        {CLUB_BANK_ACCOUNTS.map((bank) => (
-                          <option key={bank.id} value={bank.id}>
-                            {bank.name}
-                            {bank.alias ? ` · ${bank.alias}` : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  ) : null}
-                  {payMethod === 'mercadopago' ? (
-                    <MercadoPagoCheckout
-                      kind="pool"
-                      mode="qr"
-                      amount={settings.memberDayFee}
-                      memberNumber={selected.memberId}
-                      concept={`Canon pileta · ${selected.name}`}
-                      disabled={busy || !eval_.canEnable}
-                      onApproved={async () => {
-                        const rows = await listPoolAccesses();
-                        setPoolAccesses(rows);
-                        showFlash(`Pago Mercado Pago · ${selected.name}`);
-                      }}
-                    />
+                  {(Number(eval_.seasonAmountDue) || 0) > 0 ? (
+                    <>
+                      <PaymentMethodTiles
+                        value={payMethod}
+                        onChange={setPayMethod}
+                        disabled={busy}
+                        ariaLabel="Método de pago del canon de temporada"
+                      />
+                      {payMethod === 'efectivo' ? (
+                        <p className="pool-pay-note">
+                          Confirme el cobro en efectivo. Se registrará en <strong>Caja General</strong>.
+                        </p>
+                      ) : null}
+                      {poolMethodUsesBank(payMethod) ? (
+                        <div className="form-group" style={{ marginBottom: '0.85rem' }}>
+                          <label className="form-label" htmlFor="pool-pay-bank">Alias</label>
+                          <select
+                            id="pool-pay-bank"
+                            className="form-input"
+                            value={payBankId}
+                            onChange={(e) => setPayBankId(e.target.value)}
+                            disabled={busy}
+                          >
+                            {CLUB_BANK_ACCOUNTS.map((bank) => (
+                              <option key={bank.id} value={bank.id}>
+                                {bank.alias || bank.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ) : null}
+                      {payMethod === 'tarjeta' || payMethod === 'pos' ? (
+                        <p className="pool-pay-note">
+                          Pago POS: queda en <strong>Tarjetas a cobrar</strong> con el asiento y el ingreso.
+                        </p>
+                      ) : null}
+                      {payMethod === 'mercadopago' ? (
+                        <MercadoPagoCheckout
+                          kind="pool"
+                          mode="qr"
+                          amount={Number(eval_.seasonAmountDue) || 0}
+                          memberNumber={selected.memberId}
+                          concept={`Canon pileta temporada · ${selected.name}`}
+                          disabled={busy || !eval_.canEnable || !(Number(eval_.seasonAmountDue) > 0)}
+                          onApproved={async () => {
+                            const rows = await listPoolAccesses();
+                            setPoolAccesses(rows);
+                            showFlash(`Pago Mercado Pago · ${selected.name}`);
+                          }}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn-primary pool-enable-btn"
+                          disabled={busy || (poolMethodUsesCash(payMethod) && !dayCashOpen) || !eval_.canEnable}
+                          onClick={() => handleEnableMember(selected)}
+                        >
+                          <UserCheck size={16} /> Habilitar · {formatCurrency(eval_.seasonAmountDue)}
+                        </button>
+                      )}
+                    </>
                   ) : (
                     <button
                       type="button"
                       className="btn btn-primary pool-enable-btn"
-                      disabled={busy || (poolMethodUsesCash(payMethod) && !dayCashOpen) || !eval_.canEnable}
+                      disabled={busy || !eval_.canEnable}
                       onClick={() => handleEnableMember(selected)}
                     >
-                      <UserCheck size={16} /> Habilitar · {formatCurrency(settings.memberDayFee)}
+                      <UserCheck size={16} /> Habilitar ingreso
                     </button>
                   )}
-                  <p className="ops-muted">
-                    {payMethod === 'mercadopago'
-                      ? 'El socio paga en el teléfono. Cuando Mercado Pago confirma, entra el canon y el ingreso.'
-                      : poolMethodUsesBank(payMethod)
-                        ? `${poolMethodLabel(payMethod)} acredita en el banco o alias elegido. Queda el asiento y el ingreso.`
-                        : payMethod === 'tarjeta' || payMethod === 'pos'
-                          ? 'Pago POS en Tarjetas a cobrar. Queda el asiento y el ingreso a tu nombre.'
-                          : 'Efectivo en Caja General. Queda el asiento y el ingreso a tu nombre.'}
-                  </p>
                   {eval_.blockers.length > 0 ? (
                     <ul className="pool-blockers">
                       {eval_.blockers.map((b) => (
@@ -655,34 +704,34 @@ export default function PoolTab({
                       placeholder="Apellido y nombre"
                     />
                   </div>
-                  <div className="pool-entrance-methods" style={{ marginTop: '0.65rem' }}>
-                    {POOL_PAYMENT_METHODS.map((m) => (
-                      <button
-                        key={m.id}
-                        type="button"
-                        className={`pool-method${guestMethod === m.id ? ' is-active' : ''}`}
-                        onClick={() => setGuestMethod(m.id)}
-                      >
-                        {m.label}
-                      </button>
-                    ))}
-                  </div>
+                  <PaymentMethodTiles
+                    value={guestMethod}
+                    onChange={setGuestMethod}
+                    disabled={busy}
+                    ariaLabel="Método de pago del invitado"
+                  />
+                  {guestMethod === 'efectivo' ? (
+                    <p className="pool-pay-note">
+                      Confirme el cobro en efectivo. Se registrará en <strong>Caja General</strong>.
+                    </p>
+                  ) : null}
                   {poolMethodUsesBank(guestMethod) ? (
-                    <label className="form-group" style={{ marginTop: '0.65rem', marginBottom: 0 }}>
-                      <span className="form-label">Banco / alias</span>
+                    <div className="form-group" style={{ marginBottom: '0.85rem' }}>
+                      <label className="form-label" htmlFor="pool-guest-bank">Alias</label>
                       <select
+                        id="pool-guest-bank"
                         className="form-input"
                         value={guestBankId}
                         onChange={(e) => setGuestBankId(e.target.value)}
+                        disabled={busy}
                       >
                         {CLUB_BANK_ACCOUNTS.map((bank) => (
                           <option key={bank.id} value={bank.id}>
-                            {bank.name}
-                            {bank.alias ? ` · ${bank.alias}` : ''}
+                            {bank.alias || bank.name}
                           </option>
                         ))}
                       </select>
-                    </label>
+                    </div>
                   ) : null}
                   {guestMethod === 'mercadopago' ? (
                     <MercadoPagoCheckout
@@ -772,35 +821,6 @@ export default function PoolTab({
                 ))}
               </ul>
             )}
-          </section>
-
-          <section className="glass-card pool-panel">
-            <h3>Tarifas del día</h3>
-            <div className="pool-fees">
-              <label>
-                <span>Canon socio</span>
-                <input
-                  className="form-input"
-                  type="number"
-                  min={0}
-                  value={feeDraft.memberDayFee}
-                  onChange={(e) => setFeeDraft((p) => ({ ...p, memberDayFee: e.target.value }))}
-                />
-              </label>
-              <label>
-                <span>Canon invitado</span>
-                <input
-                  className="form-input"
-                  type="number"
-                  min={0}
-                  value={feeDraft.guestDayFee}
-                  onChange={(e) => setFeeDraft((p) => ({ ...p, guestDayFee: e.target.value }))}
-                />
-              </label>
-              <button type="button" className="btn btn-secondary" onClick={saveFees}>
-                Guardar tarifas
-              </button>
-            </div>
           </section>
         </aside>
       </div>

@@ -70,8 +70,10 @@ export default function SystemSettingsTab({
   const [duesDraft, setDuesDraft] = useState(dues);
   const [plansDraft, setPlansDraft] = useState(() => mergePaymentPlans(paymentPlans));
   const [poolDraft, setPoolDraft] = useState({
-    memberDayFee: pool.memberDayFee,
+    memberSeasonFee: pool.memberSeasonFee,
     guestDayFee: pool.guestDayFee,
+    maxPayingPerHousehold: pool.maxPayingPerHousehold,
+    freeUnderAgeYears: pool.freeUnderAgeYears,
     medicalValidityDays: pool.medicalValidityDays,
     maxGuestsPerMember: pool.maxGuestsPerMember,
     seasonLabel: pool.seasonLabel,
@@ -95,8 +97,10 @@ export default function SystemSettingsTab({
   useEffect(() => {
     const next = mergePoolSettings(poolSettings);
     setPoolDraft({
-      memberDayFee: next.memberDayFee,
+      memberSeasonFee: next.memberSeasonFee,
       guestDayFee: next.guestDayFee,
+      maxPayingPerHousehold: next.maxPayingPerHousehold,
+      freeUnderAgeYears: next.freeUnderAgeYears,
       medicalValidityDays: next.medicalValidityDays,
       maxGuestsPerMember: next.maxGuestsPerMember,
       seasonLabel: next.seasonLabel,
@@ -172,10 +176,14 @@ export default function SystemSettingsTab({
   };
 
   const savePool = async () => {
+    const memberSeasonFee = Math.max(0, Number(poolDraft.memberSeasonFee) || 0);
     const next = mergePoolSettings({
       ...pool,
-      memberDayFee: Math.max(0, Number(poolDraft.memberDayFee) || 0),
+      memberSeasonFee,
+      memberDayFee: memberSeasonFee,
       guestDayFee: Math.max(0, Number(poolDraft.guestDayFee) || 0),
+      maxPayingPerHousehold: Math.max(0, Number(poolDraft.maxPayingPerHousehold) || 0),
+      freeUnderAgeYears: Math.max(0, Number(poolDraft.freeUnderAgeYears) || 0),
       medicalValidityDays: Math.max(1, Number(poolDraft.medicalValidityDays) || 365),
       maxGuestsPerMember: Math.max(0, Number(poolDraft.maxGuestsPerMember) || 0),
       seasonLabel: poolDraft.seasonLabel,
@@ -409,19 +417,25 @@ export default function SystemSettingsTab({
         <article className="sys-set-card">
           <header>
             <p>Pileta</p>
-            <b>Canon del día y reglas de la temporada. La caja de pileta usa estos números.</b>
+            <b>Canon de temporada (1 dic 2026 – 31 mar 2027) y reglas del hogar. La caja de pileta usa estos números.</b>
           </header>
           <div className="sys-set-grid is-tight">
-            <Field label="Canon socio">
-              <input className="form-input" type="number" min={0} value={poolDraft.memberDayFee} onChange={(e) => setPoolDraft((p) => ({ ...p, memberDayFee: e.target.value }))} />
+            <Field label="Canon temporada / persona">
+              <input className="form-input" type="number" min={0} value={poolDraft.memberSeasonFee} onChange={(e) => setPoolDraft((p) => ({ ...p, memberSeasonFee: e.target.value }))} />
             </Field>
-            <Field label="Canon invitado">
+            <Field label="Máx. personas que pagan por grupo">
+              <input className="form-input" type="number" min={0} value={poolDraft.maxPayingPerHousehold} onChange={(e) => setPoolDraft((p) => ({ ...p, maxPayingPerHousehold: e.target.value }))} />
+            </Field>
+            <Field label="Menores de (años) no pagan">
+              <input className="form-input" type="number" min={0} value={poolDraft.freeUnderAgeYears} onChange={(e) => setPoolDraft((p) => ({ ...p, freeUnderAgeYears: e.target.value }))} />
+            </Field>
+            <Field label="Canon invitado (día)">
               <input className="form-input" type="number" min={0} value={poolDraft.guestDayFee} onChange={(e) => setPoolDraft((p) => ({ ...p, guestDayFee: e.target.value }))} />
             </Field>
             <Field label="Apto médico (días)">
               <input className="form-input" type="number" min={1} value={poolDraft.medicalValidityDays} onChange={(e) => setPoolDraft((p) => ({ ...p, medicalValidityDays: e.target.value }))} />
             </Field>
-            <Field label="Invitados por socio">
+            <Field label="Invitados por socio (día)">
               <input className="form-input" type="number" min={0} value={poolDraft.maxGuestsPerMember} onChange={(e) => setPoolDraft((p) => ({ ...p, maxGuestsPerMember: e.target.value }))} />
             </Field>
           </div>
@@ -439,8 +453,8 @@ export default function SystemSettingsTab({
             </select>
           </Field>
           <Field
-            label="Mora desde el 10 bloquea el ingreso"
-            hint="En temporada (diciembre a marzo). Vale para sede y pileta."
+            label="Desde el día 11, mora bloquea el ingreso"
+            hint="En temporada (diciembre a marzo). Vale para sede y pileta. El día 10 todavía puede pagar al día."
           >
             <YesNo
               value={poolDraft.seasonBlocksUnpaidDues !== false}

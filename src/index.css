@@ -21835,6 +21835,28 @@ a.ops-outline-btn {
   width: fit-content;
 }
 
+.pool-medical-actions {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.45rem;
+}
+
+.pool-talonario-row {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.pool-talonario-row .form-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.pool-talonario-row .btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .pool-file-hint {
   display: inline-flex;
   align-items: center;
@@ -21866,6 +21888,7 @@ a.ops-outline-btn {
   gap: 0.45rem;
 }
 
+/* Legacy pills (eventos); el cobro de pileta usa collect-method-tile */
 .pool-method {
   display: inline-flex;
   align-items: center;
@@ -21886,6 +21909,124 @@ a.ops-outline-btn {
   border-color: var(--primary-gold);
   color: var(--text-gold);
   background: color-mix(in srgb, var(--primary-gold) 12%, transparent);
+}
+
+/* Mismos tiles que CollectDuesModal (caja / cuotas / pileta) */
+.pay-method-block {
+  margin-bottom: 0.35rem;
+}
+
+.pay-method-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.45rem;
+}
+
+.pay-method-kicker {
+  margin: 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-gold);
+  font-weight: 600;
+}
+
+.pay-method-hint {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.2;
+  text-align: right;
+}
+
+.collect-methods-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(4.6rem, 1fr));
+  gap: 0.35rem;
+  margin-bottom: 0.85rem;
+}
+
+.collect-method-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.22rem;
+  min-height: 3.35rem;
+  padding: 0.4rem 0.25rem;
+  border-radius: 9px;
+  border: 1px solid var(--border-glass);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01));
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.collect-method-tile:hover:not(:disabled) {
+  border-color: rgba(var(--primary-gold-rgb), 0.45);
+  color: var(--text-primary);
+  transform: translateY(-1px);
+}
+
+.collect-method-tile:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.collect-method-tile.is-on {
+  border-color: var(--primary-gold);
+  background: linear-gradient(180deg, rgba(var(--primary-gold-rgb), 0.2), rgba(var(--primary-gold-rgb), 0.06));
+  color: var(--text-gold);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 0 1px rgba(var(--primary-gold-rgb), 0.18);
+}
+
+.collect-method-tile.is-on::after {
+  content: '';
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--primary-gold);
+  box-shadow: 0 0 6px rgba(var(--primary-gold-rgb), 0.7);
+}
+
+.collect-method-tile__label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.pool-pay-note {
+  margin: 0 0 0.75rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 10px;
+  border: 1px solid var(--border-glass);
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  line-height: 1.35;
+}
+
+.pool-pay-note strong {
+  color: var(--text-gold);
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .collect-method-tile {
+    transition: none;
+  }
+
+  .collect-method-tile:hover:not(:disabled) {
+    transform: none;
+  }
 }
 
 .pool-qr-box {

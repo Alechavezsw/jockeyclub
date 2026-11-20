@@ -1057,64 +1057,6 @@ export default function CollectDuesModal({
           </p>
         </div>
         <div className="collect-methods-grid" role="radiogroup" aria-label="Método de pago">
-          <style>{`
-            .collect-methods-grid {
-              display: grid;
-              grid-template-columns: repeat(auto-fit, minmax(4.6rem, 1fr));
-              gap: 0.35rem;
-              margin-bottom: 0.85rem;
-            }
-            .collect-method-tile {
-              position: relative;
-              display: flex;
-              flex-direction: column;
-              align-items: center;
-              justify-content: center;
-              gap: 0.22rem;
-              min-height: 3.35rem;
-              padding: 0.4rem 0.25rem;
-              border-radius: 9px;
-              border: 1px solid var(--border-glass);
-              background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01));
-              color: var(--text-secondary);
-              cursor: pointer;
-              font-family: inherit;
-              transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
-            }
-            .collect-method-tile:hover {
-              border-color: rgba(var(--primary-gold-rgb), 0.45);
-              color: var(--text-primary);
-              transform: translateY(-1px);
-            }
-            .collect-method-tile.is-on {
-              border-color: var(--primary-gold);
-              background: linear-gradient(180deg, rgba(var(--primary-gold-rgb), 0.2), rgba(var(--primary-gold-rgb), 0.06));
-              color: var(--text-gold);
-              box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 0 0 1px rgba(var(--primary-gold-rgb), 0.18);
-            }
-            .collect-method-tile.is-on::after {
-              content: '';
-              position: absolute;
-              top: 5px;
-              right: 5px;
-              width: 5px;
-              height: 5px;
-              border-radius: 50%;
-              background: var(--primary-gold);
-              box-shadow: 0 0 6px rgba(var(--primary-gold-rgb), 0.7);
-            }
-            .collect-method-tile__label {
-              font-size: 0.68rem;
-              font-weight: 700;
-              letter-spacing: 0.01em;
-              line-height: 1.1;
-              white-space: nowrap;
-            }
-            @media (prefers-reduced-motion: reduce) {
-              .collect-method-tile { transition: none; }
-              .collect-method-tile:hover { transform: none; }
-            }
-          `}</style>
           {methods.map((m) => {
             const Icon = m.icon;
             const active = method === m.id;

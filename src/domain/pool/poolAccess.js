@@ -1,15 +1,24 @@
-/** Acceso a pileta: revisación médica, canon del día e invitados. */
+/** Acceso a pileta: revisación médica, canon de temporada e invitados del día. */
 
 import { piletaPayAccess, seasonDuesGate } from './seasonDuesGate';
 import { todayAR } from '../../lib/arDate';
+import {
+  memberHasPoolSeasonPass,
+  quotePersonPoolSeason,
+} from './poolSeasonBilling';
 
 
+/** Temporada 2026-12-01 → 2027-03-31: $90.000 / persona, máx. 4, menores de 4 libres. */
 export const DEFAULT_POOL_SETTINGS = {
-  memberDayFee: 5000,
+  memberSeasonFee: 90000,
+  /** Alias legacy: mismo importe de temporada (no es cobro diario). */
+  memberDayFee: 90000,
   guestDayFee: 8000,
+  maxPayingPerHousehold: 4,
+  freeUnderAgeYears: 4,
   medicalValidityDays: 365,
   maxGuestsPerMember: 3,
-  seasonLabel: 'Temporada de pileta',
+  seasonLabel: 'Temporada de pileta 2026/2027',
   memberCanUploadMedical: true,
   seasonBlocksUnpaidDues: true,
 };
@@ -58,8 +67,30 @@ function addDaysISO(isoDate, days) {
 }
 
 export function mergePoolSettings(raw = {}) {
-  const next = { ...DEFAULT_POOL_SETTINGS, ...(raw || {}) };
-  next.seasonBlocksUnpaidDues = raw?.seasonBlocksUnpaidDues !== false;
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const next = { ...DEFAULT_POOL_SETTINGS, ...src };
+  next.seasonBlocksUnpaidDues = src.seasonBlocksUnpaidDues !== false;
+
+  // Migración: el viejo “canon del día” ($5.000) pasa a temporada ($90.000).
+  const legacyDay = src.memberDayFee != null ? Number(src.memberDayFee) : null;
+  const seasonRaw = src.memberSeasonFee != null ? Number(src.memberSeasonFee) : null;
+  if (seasonRaw != null && Number.isFinite(seasonRaw)) {
+    next.memberSeasonFee = Math.max(0, seasonRaw);
+  } else if (legacyDay != null && Number.isFinite(legacyDay)) {
+    next.memberSeasonFee = legacyDay === 5000 ? 90000 : Math.max(0, legacyDay);
+  } else {
+    next.memberSeasonFee = DEFAULT_POOL_SETTINGS.memberSeasonFee;
+  }
+  next.memberDayFee = next.memberSeasonFee;
+  next.maxPayingPerHousehold = Math.max(
+    0,
+    Number(src.maxPayingPerHousehold ?? DEFAULT_POOL_SETTINGS.maxPayingPerHousehold) || 0,
+  );
+  next.freeUnderAgeYears = Math.max(
+    0,
+    Number(src.freeUnderAgeYears ?? DEFAULT_POOL_SETTINGS.freeUnderAgeYears) || 0,
+  );
+  next.guestDayFee = Math.max(0, Number(next.guestDayFee) || 0);
   return next;
 }
 
@@ -67,9 +98,22 @@ export function mergePoolSettings(raw = {}) {
 export function getPoolMedicalDoc(member) {
   if (!member) return null;
   const fromDocs = (member.documents || []).find((d) => d.type === 'medical');
-  if (fromDocs) return fromDocs;
+  if (fromDocs) {
+    const meta = member.meta && typeof member.meta === 'object' ? member.meta : {};
+    return {
+      ...fromDocs,
+      talonario: fromDocs.talonario || meta.poolMedicalTalonario || member.poolMedicalTalonario || null,
+      source: fromDocs.source || meta.poolMedicalSource || null,
+    };
+  }
   const meta = member.meta && typeof member.meta === 'object' ? member.meta : {};
-  if (meta.poolMedicalExpiresAt || meta.poolMedicalFileName || member.poolMedicalExpiresAt) {
+  if (
+    meta.poolMedicalExpiresAt
+    || meta.poolMedicalFileName
+    || meta.poolMedicalTalonario
+    || member.poolMedicalExpiresAt
+    || member.poolMedicalTalonario
+  ) {
     return {
       type: 'medical',
       fileName: meta.poolMedicalFileName || member.poolMedicalFileName || 'revisacion-medica',
@@ -78,6 +122,8 @@ export function getPoolMedicalDoc(member) {
       dataUrl: meta.poolMedicalDataUrl || member.poolMedicalDataUrl || null,
       status: meta.poolMedicalStatus || 'approved',
       note: meta.poolMedicalNote || '',
+      talonario: meta.poolMedicalTalonario || member.poolMedicalTalonario || null,
+      source: meta.poolMedicalSource || member.poolMedicalSource || null,
     };
   }
   return null;
@@ -101,26 +147,47 @@ export function getMedicalStatus(member, {
   if (String(expiresAt).slice(0, 10) < today) {
     return { ok: false, code: 'expired', label: 'Revisación vencida', expiresAt, doc };
   }
-  return { ok: true, code: 'valid', label: 'Revisación vigente', expiresAt, doc };
+  const talonario = String(doc.talonario || '').trim();
+  const label = talonario
+    ? `Revisación vigente · talón ${talonario}`
+    : 'Revisación vigente';
+  return { ok: true, code: 'valid', label, expiresAt, doc };
 }
 
+/**
+ * Marca revisación médica: archivo subido y/o número del talonario (papel).
+ * Con talonario alcanza; el archivo es opcional.
+ */
 export function attachPoolMedical(member, {
   fileName,
   dataUrl = null,
   note = '',
+  talonario = '',
   uploadedAt = new Date().toISOString(),
   validityDays = DEFAULT_POOL_SETTINGS.medicalValidityDays,
   actorName = '',
 } = {}) {
   if (!member) throw new Error('Socio requerido.');
-  if (!fileName && !dataUrl) throw new Error('Subí el archivo de la revisación médica.');
+  const ticket = String(talonario || '').trim();
+  if (!fileName && !dataUrl && !ticket) {
+    throw new Error('Indicá el número del talonario o subí el archivo de la revisación.');
+  }
   const expiresAt = addDaysISO(String(uploadedAt).slice(0, 10), validityDays);
+  const source = ticket && !dataUrl && !fileName ? 'talonario' : (ticket ? 'mixed' : 'upload');
+  const resolvedName = fileName
+    || (ticket ? `talonario-${ticket}` : 'revisacion-medica.pdf');
+  const resolvedNote = note
+    || (ticket
+      ? `Revisación médica pileta · talón ${ticket}`
+      : 'Revisación médica pileta');
   const row = {
     id: 'doc-medical',
     type: 'medical',
-    fileName: fileName || 'revisacion-medica.pdf',
+    fileName: resolvedName,
     dataUrl: dataUrl || null,
-    note: note || 'Revisación médica pileta',
+    note: resolvedNote,
+    talonario: ticket || null,
+    source,
     uploadedAt,
     expiresAt,
     status: 'approved',
@@ -139,6 +206,8 @@ export function attachPoolMedical(member, {
     poolMedicalUploadedAt: uploadedAt,
     poolMedicalStatus: 'approved',
     poolMedicalNote: row.note,
+    poolMedicalTalonario: ticket || null,
+    poolMedicalSource: source,
   };
   return { ...member, documents: docs, meta };
 }
@@ -192,10 +261,17 @@ export function evaluatePoolAccess(member, {
   if (!duesGate.blocked && payAccess.mora) blockers.push(payAccess.detail);
 
   const alreadyIn = Boolean(memberDayAccess(accesses, member.memberId, today));
-  const paidToday = listDayAccesses(accesses, today).some(
+  const seasonPaid = memberHasPoolSeasonPass(accesses, member.memberId, today, cfg);
+  const personQuote = quotePersonPoolSeason(member, {
+    today,
+    settings: cfg,
+    members,
+    accesses,
+  });
+  const paidToday = seasonPaid || listDayAccesses(accesses, today).some(
     (a) => a.kind === 'member'
       && String(a.memberId) === String(member.memberId)
-      && Number(a.payment?.amount) > 0
+      && (Number(a.payment?.amount) > 0 || a.payment?.scope === 'season')
   );
 
   return {
@@ -206,8 +282,11 @@ export function evaluatePoolAccess(member, {
     duesBlocked: duesGate.blocked,
     payBlocked: Boolean(payAccess.mora),
     paidToday,
+    seasonPaid,
+    seasonAmountDue: Number(personQuote.amount) || 0,
+    seasonReason: personQuote.reason || '',
     alreadyIn,
-    memberFee: cfg.memberDayFee,
+    memberFee: cfg.memberSeasonFee,
     guestFee: cfg.guestDayFee,
     maxGuests: cfg.maxGuestsPerMember,
   };
@@ -220,9 +299,10 @@ export function poolSearchFlags(snap, dues, formatMoney) {
   if (snap?.payBlocked) {
     flags.push({ tone: 'bad', label: 'En mora · no paga pileta' });
   } else {
+    const seasonOk = Boolean(snap?.seasonPaid || snap?.paidToday);
     flags.push({
-      tone: snap?.paidToday ? 'ok' : 'bad',
-      label: snap?.paidToday ? 'Canon pago' : 'Canon impago',
+      tone: seasonOk ? 'ok' : 'bad',
+      label: seasonOk ? 'Temporada abonada' : 'Temporada impaga',
     });
   }
   flags.push({
@@ -269,12 +349,22 @@ export function enableMemberPoolAccess({
   if (!eval_.medical?.ok) throw new Error(eval_.medical?.label || 'Falta revisación médica.');
   if (member.status !== 'active') throw new Error('Solo socios activos pueden ingresar a pileta.');
 
-  const fee = amount != null ? Number(amount) : mergePoolSettings(settings).memberDayFee;
+  const cfg = mergePoolSettings(settings);
+  const personQuote = quotePersonPoolSeason(member, {
+    today,
+    settings: cfg,
+    members,
+    accesses,
+  });
+  const fee = amount != null ? Number(amount) : Number(personQuote.amount) || 0;
   if (fee < 0) throw new Error('Importe inválido.');
-  const resolvedMethod = String(method || 'efectivo').toLowerCase();
-  if (!POOL_PAYMENT_METHODS.some((m) => m.id === resolvedMethod)) {
+  const resolvedMethod = fee > 0
+    ? String(method || 'efectivo').toLowerCase()
+    : 'asistencia';
+  if (fee > 0 && !POOL_PAYMENT_METHODS.some((m) => m.id === resolvedMethod)) {
     throw new Error('Medio de pago inválido.');
   }
+  const isSeasonCharge = fee > 0 || personQuote.alreadyPaid || personQuote.pays === false;
 
   const entry = {
     id: `pool-${Date.now().toString(36)}`,
@@ -289,7 +379,10 @@ export function enableMemberPoolAccess({
       method: resolvedMethod,
       paidAt: new Date().toISOString(),
       ref: paymentRef || null,
-      concept: 'Canon pileta socio',
+      concept: fee > 0
+        ? 'Canon pileta temporada'
+        : (personQuote.reason || 'Acceso pileta temporada'),
+      scope: isSeasonCharge ? 'season' : 'day',
     },
     medicalExpiresAt: eval_.medical.expiresAt,
     enabledAt: new Date().toISOString(),
@@ -411,11 +504,18 @@ export function poolEntranceVerdict(member, eval_ = {}, dues = 0) {
   if (eval_.alreadyIn) {
     return { status: 'granted', title: 'ASISTIÓ', detail: 'Anotado en ingresos de hoy' };
   }
-  if (member.status === 'active' && eval_.medical?.ok && eval_.paidToday) {
-    return { status: 'granted', title: 'PUEDE INGRESAR', detail: 'Canon pago · apto médico vigente' };
+  if (member.status === 'active' && eval_.medical?.ok && (eval_.paidToday || eval_.seasonPaid)) {
+    return {
+      status: 'granted',
+      title: 'PUEDE INGRESAR',
+      detail: eval_.seasonPaid
+        ? 'Temporada abonada · apto médico vigente'
+        : 'Canon pago · apto médico vigente',
+    };
   }
   const blockers = eval_.blockers || [];
-  const first = blockers[0] || (!eval_.paidToday ? 'No pagó el canon de pileta.' : 'No puede ingresar.');
+  const first = blockers[0]
+    || (!(eval_.paidToday || eval_.seasonPaid) ? 'No abonó el canon de temporada de pileta.' : 'No puede ingresar.');
   return {
     status: 'denied',
     title: 'NO INGRESA',

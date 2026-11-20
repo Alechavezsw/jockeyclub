@@ -11,8 +11,8 @@ import { familyPrincipalOf, isFamilyDependent, memberNumberOf } from '../members
 import { isPoolSeasonLive } from './poolSeason';
 
 export const SEASON_DUES_GATE_COPY = {
-  lead: 'En la puerta de la sede no ingresan socios con deuda de meses anteriores. Si solo deben el mes en curso (aunque ya esté vencido), sí pueden pasar.',
-  mora: 'Pileta (diciembre a marzo): desde el día 10, sin la cuota del mes no se habilita pileta hasta regularizar. La sede sigue la regla de meses anteriores.',
+  lead: 'Deuda de meses anteriores: no ingresa a la sede en ningún momento del año.',
+  mora: 'Temporada de pileta (1 dic–31 mar): desde el día 11, sin la cuota del mes no ingresa al club ni a pileta hasta regularizar. Fuera de temporada, el mes corriente vencido no cierra la sede.',
 };
 
 export const SEASON_DUES_BLOCK_REASON = 'En mora · no abonó la cuota del mes. No ingresa hasta regularizar.';
@@ -93,10 +93,12 @@ export function accessDuesDebt(member, members = [], { today = new Date() } = {}
 }
 
 /**
- * Puerta de la sede: bloquea deuda de meses anteriores.
- * Si solo debe el mes corriente (aunque vencido / en temporada), ingresa.
+ * Puerta de la sede:
+ * 1) Deuda de meses anteriores → no ingresa (todo el año).
+ * 2) En temporada de pileta (dic–mar), desde el día 11 sin la cuota del mes → no ingresa
+ *    (sede y pileta) hasta regularizar.
+ * 3) Fuera de temporada, solo el mes corriente vencido → sí ingresa.
  * Exentos y saldo a favor pasan. El adherente hereda al titular.
- * La mora de pileta (seasonDuesGate) no cierra la sede por el mes en curso.
  */
 export function clubEntryGate(member, {
   today = new Date(),
@@ -127,6 +129,18 @@ export function clubEntryGate(member, {
       owed: debt.owed,
       holder: debt.holder,
       currentMonthOnly: false,
+      season,
+    };
+  }
+  if (season.blocked) {
+    return {
+      blocked: true,
+      reason: season.reason,
+      title: 'ACCESO DENEGADO · MORA',
+      hasDebt: false,
+      owed: debt.owed,
+      holder: debt.holder,
+      currentMonthOnly: Boolean(debt.currentMonthOnly),
       season,
     };
   }
@@ -161,11 +175,14 @@ function paidThisMonth(member, today) {
   return paid.getFullYear() === today.getFullYear() && paid.getMonth() === today.getMonth();
 }
 
-/** True si, llegado el día de vencimiento (el 10; AMET, el 18), el socio no cubrió la cuota de este mes. */
+/**
+ * True si, pasado el día de vencimiento (el 10 → desde el 11; AMET el 18 → desde el 19),
+ * el socio no cubrió la cuota de este mes. El día de vencimiento todavía puede pagar al día.
+ */
 export function isCurrentMonthDuesUnpaid(member, today = new Date()) {
   if (isDuesExemptMember(member)) return false;
   const when = asDay(today);
-  if (when.getDate() < duesDueDayForMember(member)) return false;
+  if (when.getDate() <= duesDueDayForMember(member)) return false;
   if (duesAmountForMember(member, when) <= 0) return false;
   // Misma fuente que admin (`unpaidCapital` LILA si hay; si no, outstandingBalance).
   if (socialDuesStoredBalance(member) > 0) return true;

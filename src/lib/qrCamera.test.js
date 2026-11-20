@@ -1,10 +1,14 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   buildCameraConstraintAttempts,
   cameraErrorMessage,
   openCameraStream,
   pickBackCameraIndex,
 } from './qrCamera';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe('pickBackCameraIndex', () => {
   it('elige la trasera por label', () => {
@@ -30,10 +34,23 @@ describe('pickBackCameraIndex', () => {
 });
 
 describe('buildCameraConstraintAttempts', () => {
-  it('empieza liviano (facingMode) antes que 1280×720', () => {
+  it('en escritorio empieza con video:true (Chrome)', () => {
+    vi.stubGlobal('navigator', {
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0',
+      maxTouchPoints: 0,
+    });
+    const attempts = buildCameraConstraintAttempts(null);
+    expect(attempts[0]).toEqual({ audio: false, video: true });
+    expect(attempts.at(-1).video).toEqual({ facingMode: { ideal: 'user' } });
+  });
+
+  it('en móvil prioriza facingMode environment', () => {
+    vi.stubGlobal('navigator', {
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)',
+      maxTouchPoints: 5,
+    });
     const attempts = buildCameraConstraintAttempts(null);
     expect(attempts[0].video).toEqual({ facingMode: { ideal: 'environment' } });
-    expect(attempts[1].video.width).toEqual({ ideal: 1280 });
     expect(attempts.at(-1)).toEqual({ audio: false, video: true });
   });
 
@@ -54,16 +71,18 @@ describe('openCameraStream', () => {
     expect(getUserMedia).toHaveBeenCalledTimes(2);
   });
 
-  it('si todos fallan, propaga el último error', async () => {
+  it('si NotAllowed, no reintenta otros constraints', async () => {
     const getUserMedia = vi.fn().mockRejectedValue(new DOMException('Denied', 'NotAllowedError'));
     await expect(openCameraStream(getUserMedia)).rejects.toMatchObject({ name: 'NotAllowedError' });
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
   });
 });
 
 describe('cameraErrorMessage', () => {
   it('traduce permiso y sin dispositivo', () => {
-    expect(cameraErrorMessage({ name: 'NotAllowedError' })).toMatch(/Permití/);
+    expect(cameraErrorMessage({ name: 'NotAllowedError' })).toMatch(/Permitir/);
     expect(cameraErrorMessage({ name: 'NotFoundError' })).toMatch(/No se encontró/);
+    expect(cameraErrorMessage({ name: 'NotReadableError' })).toMatch(/en uso/);
     expect(cameraErrorMessage({ message: 'boom' })).toMatch(/No se pudo iniciar/);
   });
 });

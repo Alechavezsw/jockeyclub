@@ -570,7 +570,12 @@ export default function AccessControlView({
   }, []);
 
   const handleCameraError = useCallback((msg) => {
-    const text = String(msg || '').trim() || 'No se pudo iniciar la cámara en este navegador.';
+    const text = String(msg || '').trim();
+    // Éxito limpia el error con '' — no apagar la cámara.
+    if (!text) {
+      setCameraError('');
+      return;
+    }
     setCameraError(text);
     setCameraOn(false);
     setCameraLive(false);
@@ -783,13 +788,6 @@ export default function AccessControlView({
           min-height: 52px;
           font-size: 1.05rem;
           text-align: center;
-          border-radius: 14px;
-        }
-        .access-manual .btn {
-          width: 100%;
-          min-height: 52px;
-          font-weight: 700;
-          font-size: 1rem;
           border-radius: 14px;
         }
         .access-manual-hint {
@@ -1188,9 +1186,6 @@ export default function AccessControlView({
                 aria-controls="access-manual-hits"
                 translate="no"
               />
-              <button type="submit" className="btn btn-tan">
-                Ingresar
-              </button>
             </div>
             {hits.length > 0 ? (
               <ul id="access-manual-hits" className="access-manual-hits" role="listbox" aria-label="Socios encontrados">
@@ -1208,7 +1203,8 @@ export default function AccessControlView({
               </ul>
             ) : null}
             <p id="access-manual-hint" className="access-manual-hint">
-              {manualHint || 'DNI, apellido o número. También código JCSJ y pases.'}
+              {manualHint
+                || 'Escribí DNI, apellido o N° y elegí de la lista. Pistola / código: Enter verifica solo.'}
             </p>
           </form>
 

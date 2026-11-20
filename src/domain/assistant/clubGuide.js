@@ -59,7 +59,7 @@ export const CLUB_GUIDE = [
     tab: 'pool_gate',
     title: 'Entrada pileta',
     keywords: 'entrada pileta ticket invitado pase',
-    teach: 'Entrada pileta abre /entrada-pileta: el control de ingreso a pileta (la caja del club queda siempre abierta). En temporada, desde el 10, sin la cuota del mes no entra.',
+    teach: 'Entrada pileta abre /entrada-pileta: el control de ingreso a pileta (la caja del club queda siempre abierta). Canon de temporada $90.000/persona (máx. 4; menores de 4 libres). En temporada, desde el 11, sin la cuota del mes no entra a pileta ni a la sede.',
   },
   {
     id: 'pileta',
