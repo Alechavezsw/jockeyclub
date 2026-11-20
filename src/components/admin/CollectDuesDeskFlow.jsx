@@ -4,6 +4,7 @@ import ModalDialog from '../ModalDialog';
 import CollectDuesModal from './CollectDuesModal';
 import { isDuesExemptMember } from '../../domain/members/dues';
 import { memberNumberOf, rankMemberSearchHit } from '../../domain/members/households';
+import { filterOperationalSearchHits } from '../../domain/members/memberDuplicates';
 import { getTierDisplayName, SIN_CATEGORIA_TIER } from '../../domain/members/tiers';
 import { collectionPreview, persistDuesCollection, recordDuesCollection } from '../../domain/members/memberPayments';
 import { deliverPaymentReceipt } from '../../domain/payments/deliverPaymentReceipt';
@@ -169,7 +170,6 @@ export default function CollectDuesDeskFlow({
     if (member) return [];
     const q = query.trim();
     if (!q) return [];
-    const digits = q.replace(/\D/g, '');
     const isActive = (m) => String(m?.status || 'active').toLowerCase() === 'active';
     const local = (members || [])
       .filter((m) => memberMatches(m, q))
@@ -186,20 +186,8 @@ export default function CollectDuesDeskFlow({
         if (activeDelta) return activeDelta;
         return rankMemberSearchHit(a, q) - rankMemberSearchHit(b, q);
       });
-    // Misma persona activa + baja: si no buscan el Nº exacto de la baja, ocultar inactivos.
-    const activeNames = new Set(
-      merged.filter(isActive).map((m) => String(m.name || m.fullName || '').trim().toLowerCase()),
-    );
-    return merged
-      .filter((m) => {
-        if (isActive(m)) return true;
-        const nro = String(memberNumberOf(m) || m.memberId || '').replace(/\D/g, '');
-        if (digits.length >= 3 && nro && nro === digits) return true;
-        const name = String(m.name || m.fullName || '').trim().toLowerCase();
-        if (name && activeNames.has(name)) return false;
-        return true;
-      })
-      .slice(0, 12);
+    // Misma persona activa + baja / histórico: ocultar salvo Nº exacto de la baja.
+    return filterOperationalSearchHits(merged, q).slice(0, 12);
   }, [members, query, remoteHits, member]);
 
   const hitKey = hits.map((row) => row.id).filter(Boolean).join(',');

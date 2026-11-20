@@ -220,6 +220,8 @@ export function collectMemberMeta(member = {}) {
     'automaticDebitKind', 'debitMoves', 'mpAdhesion', 'cardExpiry', 'lastDebitCardNumber',
     'duesFreeThrough', 'duesMonthCapital', 'duesOpenPeriods', 'unpaidCapital', 'duesCapitalOnly',
     'creditBalance', 'creditBalanceSource', 'creditBalanceAsOf',
+    'historicalDuplicate', 'canonicalMemberNumber', 'duplicateOfMemberNumber',
+    'duplicateReviewNote', 'duplicateReviewedAt',
   ];
   for (const k of keys) {
     if (member[k] != null && member[k] !== '' && base[k] == null) base[k] = member[k];
