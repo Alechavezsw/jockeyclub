@@ -693,11 +693,21 @@ export function applyFeeChargeDeltasToMembers(members = [], deltas = []) {
     const prevBalance = Number(member.outstandingBalance) || 0;
     const prevCapital = member.unpaidCapital != null && member.unpaidCapital !== ''
       ? Number(member.unpaidCapital) || 0
-      : prevBalance;
+      : Math.max(0, prevBalance);
+    const prevCredit = money(Math.max(
+      0,
+      Number(member.creditBalance ?? member.meta?.creditBalance) || 0,
+    ));
+    // Crédito previo: se acarrea explícito. No dejar unpaid > outstanding como “crédito”.
+    const carriedCredit = prevBalance < -0.01
+      ? money(prevCredit - prevBalance)
+      : prevCredit;
+    const nextBalance = money(Math.max(0, prevBalance) + capitalAdd);
     return {
       ...member,
-      outstandingBalance: money(prevBalance + capitalAdd),
-      unpaidCapital: money(prevCapital + capitalAdd),
+      outstandingBalance: nextBalance,
+      unpaidCapital: money(Math.max(0, prevCapital) + capitalAdd),
+      ...(carriedCredit > 0.01 ? { creditBalance: carriedCredit } : { creditBalance: 0 }),
     };
   });
 }
