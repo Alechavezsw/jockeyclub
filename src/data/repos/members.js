@@ -41,6 +41,9 @@ const MEMBERS_LIST_SELECT = [
   'document_number',
   'document_type',
   'joined_at',
+  'years_active',
+  'verified_tenure_years:meta->>verifiedTenureYears',
+  'tenure_join_date_under_review:meta->>tenureOriginalJoinDatePendingReview',
   'last_payment_date:meta->>lastPaymentDate',
   'family_principal:meta->>familyPrincipalNumber',
   'family_group_name:meta->>familyGroupName',
@@ -133,6 +136,11 @@ function listRowToMember(row) {
     recordScope: 'list',
   };
   if (cats) member.cuotaCategories = cats;
+  if (row.years_active != null) member.yearsActive = Number(row.years_active) || 0;
+  const verified = row.verified_tenure_years ?? row.verifiedTenureYears;
+  if (verified != null && verified !== '') member.verifiedTenureYears = Number(verified);
+  const tenureReview = row.tenure_join_date_under_review ?? row.tenureOriginalJoinDatePendingReview;
+  if (tenureReview != null) member.tenureOriginalJoinDatePendingReview = tenureReview === true || tenureReview === 'true';
   if (row.unpaid_capital != null && row.unpaid_capital !== '') {
     member.unpaidCapital = Number(row.unpaid_capital) || 0;
   } else if (row.unpaidCapital != null && row.unpaidCapital !== '') {
@@ -387,7 +395,10 @@ async function downloadMembersListPaged({ onBatch, scope = 'active' } = {}) {
           .replace(', cuota_categories:meta->cuotaCategories', '')
           .replace(', current_account_as_of:meta->>currentAccountAsOf', '')
           .replace(', unpaid_capital:meta->unpaidCapital', '')
-          .replace(', dues_free_through:meta->>duesFreeThrough', '');
+          .replace(', dues_free_through:meta->>duesFreeThrough', '')
+          .replace(', years_active', '')
+          .replace(', verified_tenure_years:meta->>verifiedTenureYears', '')
+          .replace(', tenure_join_date_under_review:meta->>tenureOriginalJoinDatePendingReview', '');
         const req = applyMemberScope(
           sb().from('members').select(listSelect, selectOpts),
           scope,

@@ -33,6 +33,7 @@ export function memberFromRow(row, payments = []) {
   const meta = row.meta && typeof row.meta === 'object' ? row.meta : {};
   return {
     ...meta,
+    meta,
     id: row.id,
     memberId: row.member_number,
     name: row.full_name,
@@ -120,7 +121,8 @@ export function memberToRow(member) {
     tier: canonicalMemberTier(member.tier),
     status: member.status || 'active',
     // El saldo no se manda: lo calcula la base (deuda menos pagos).
-    years_active: Number(member.yearsActive) || 0,
+    // La grilla RPC puede omitir yearsActive. Nunca sustituir la antigüedad validada por 0.
+    ...(member.yearsActive != null ? { years_active: Number(member.yearsActive) || 0 } : {}),
     next_due_date: pinDuesDueDate(member.nextDueDate, member) || null,
     overdue_since: member.overdueSince || null,
     photo_url: member.photo || null,

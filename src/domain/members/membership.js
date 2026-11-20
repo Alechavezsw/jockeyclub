@@ -41,7 +41,18 @@ export function isUsableJoinDate(joinDate, { birthDate } = {}) {
   return true;
 }
 
+/** Antigüedad validada por administración, separada de una fecha de alta en revisión. */
+export function verifiedMemberTenureYears(member) {
+  const raw = member?.verifiedTenureYears ?? member?.meta?.verifiedTenureYears;
+  if (raw == null || String(raw).trim() === '') return null;
+  const years = Number(raw);
+  return Number.isInteger(years) && years >= 0 && years <= 120 ? years : null;
+}
+
 export function effectiveJoinDate(member) {
+  const disputed = member?.tenureOriginalJoinDatePendingReview
+    ?? member?.meta?.tenureOriginalJoinDatePendingReview;
+  if (disputed === true || disputed === 'true') return null;
   const join = String(member?.joinDate || '').slice(0, 10);
   if (!isUsableJoinDate(join, { birthDate: member?.birthDate })) return null;
   return join;
@@ -49,6 +60,11 @@ export function effectiveJoinDate(member) {
 
 export function yearsOnClub(member, today = new Date()) {
   const now = today instanceof Date ? today : new Date(`${String(today).slice(0, 10)}T12:00:00`);
+  const verified = verifiedMemberTenureYears(member);
+  if (verified !== null) {
+    const age = ageOn(member?.birthDate, now);
+    return age == null ? verified : Math.min(verified, age);
+  }
   const join = effectiveJoinDate(member);
   const rawJoin = String(member?.joinDate || '').slice(0, 10);
   let years = 0;
@@ -78,6 +94,11 @@ export function formatJoinYear(joinDate, { birthDate } = {}) {
 /** Texto corto bajo “Ingreso al club” (años / meses / null si no hay dato). */
 export function membershipTenureLabel(member, today = new Date()) {
   const now = today instanceof Date ? today : new Date(`${String(today).slice(0, 10)}T12:00:00`);
+  if (verifiedMemberTenureYears(member) !== null) {
+    const years = yearsOnClub(member, now);
+    if (!(years > 0)) return null;
+    return years === 1 ? '1 año de antigüedad' : `${years} años de antigüedad`;
+  }
   const join = effectiveJoinDate(member);
   if (join) {
     const started = parseDay(join);

@@ -23,6 +23,22 @@ describe('membership display', () => {
     expect(yearsOnClub({ yearsActive: 5 }, today)).toBe(5);
   });
 
+  it('muestra antigüedad validada sin falsificar fecha de alta ni perderla en el portal', () => {
+    const today = new Date('2026-11-20T12:00:00');
+    const member = {
+      joinDate: '2025-01-03',
+      yearsActive: 3,
+      meta: { verifiedTenureYears: 3, tenureOriginalJoinDatePendingReview: true },
+      birthDate: '1995-05-21',
+    };
+    expect(effectiveJoinDate(member)).toBeNull();
+    expect(yearsOnClub(member, today)).toBe(3);
+    expect(membershipTenureLabel(member, today)).toBe('3 años de antigüedad');
+    expect(membershipCaption(member, today)).toBe('3 años en el club');
+    expect(yearsOnClub({ joinDate: '2025-01-03', yearsActive: 0, meta: { verifiedTenureYears: 3 } }, today)).toBe(3);
+    expect(yearsOnClub({ joinDate: '2025-01-03', yearsActive: 0, meta: { verifiedTenureYears: 130 } }, today)).toBe(1);
+  });
+
   it('ignora el placeholder 1900 y no inventa 126 años con nacimiento en 1986', () => {
     const today = new Date('2026-11-07T12:00:00');
     const member = {

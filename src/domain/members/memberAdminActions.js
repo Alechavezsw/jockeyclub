@@ -207,6 +207,8 @@ export function collectMemberMeta(member = {}) {
     'reactivateMotivo', 'reactivateKind', 'reactivateDetail', 'reactivateFecha', 'reactivateAt',
     'reactivateActorId', 'reactivateActorName', 'reactivateActorEmail', 'reactivateRegistradaAt', 'reactivateMonto',
     'joinedAtFallback', 'fechaAltaRaw', 'joinTime', 'lifecycleHistory', 'lastLifecycle',
+    'verifiedTenureYears', 'verifiedTenureAsOf', 'verifiedTenureSource',
+    'tenureOriginalJoinDatePendingReview', 'duesCoveredThrough', 'duesCoveredThroughSource',
     'altaActorId', 'altaActorName', 'altaActorEmail', 'altaRegistradaAt', 'registeredByName',
     'profileEditHistory', 'lastProfileEdit',
     'suspendMotivo', 'suspendAt', 'suspendDetail', 'portalUsername', 'portalProvisionedAt', 'portalProvisionedBy',
