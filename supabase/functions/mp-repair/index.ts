@@ -1,5 +1,11 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import {
+  mpAmountMatchesIntent,
+  mpCurrencyOk,
+  mpIsPaymentCreditableStatus,
+  mpNormalizeStatus,
+} from "../_shared/mpWebhookSecurity.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -22,15 +28,6 @@ async function mpGet(path: string, token: string) {
   return data as Record<string, unknown>;
 }
 
-function mpStatus(value: unknown) {
-  return String(value || "").trim().toLowerCase();
-}
-
-function isPaid(value: unknown) {
-  const s = mpStatus(value);
-  return s === "approved" || s === "authorized" || s === "accredited" || s === "processed";
-}
-
 async function resolveIntentId(admin: ReturnType<typeof createClient>, ref: string) {
   const raw = String(ref || "").trim();
   if (!raw) return "";
@@ -47,12 +44,30 @@ async function applyOne(
   providerPaymentId: string,
   status: string,
   paidAmount: number,
+  currency?: string,
 ) {
   const resolved = await resolveIntentId(admin, intentId);
+  if (!resolved) return { intentId: "", error: "Sin cobro vinculado." };
+
+  const { data: intent } = await admin
+    .from("mp_intents")
+    .select("id, amount, currency, applied_at")
+    .eq("id", resolved)
+    .maybeSingle();
+  if (!intent?.id) return { intentId: resolved, error: "Sin cobro vinculado." };
+
+  const normalized = mpNormalizeStatus(status) || "pending";
+  if (!mpCurrencyOk(currency ?? intent.currency)) {
+    return { intentId: resolved, ignored: true, reason: "currency_mismatch", status: normalized };
+  }
+  if (mpIsPaymentCreditableStatus(normalized) && !mpAmountMatchesIntent(paidAmount, intent.amount)) {
+    return { intentId: resolved, ignored: true, reason: "amount_mismatch", status: normalized };
+  }
+
   const { data, error } = await admin.rpc("apply_mp_approved_payment", {
     p_intent_id: resolved,
     p_provider_payment_id: providerPaymentId,
-    p_status: status,
+    p_status: normalized,
     p_paid_amount: paidAmount,
   });
   if (error) return { intentId: resolved, error: error.message };
@@ -102,8 +117,9 @@ Deno.serve(async (req) => {
             admin,
             intentId,
             String(payment.id || id),
-            isPaid(payment.status) ? "approved" : mpStatus(payment.status),
+            mpNormalizeStatus(payment.status),
             Number(payment.transaction_amount || 0),
+            String(payment.currency_id || "ARS"),
           ),
         });
       } catch (err) {
@@ -117,7 +133,7 @@ Deno.serve(async (req) => {
         const payments = Array.isArray(order.payments)
           ? (order.payments as Array<Record<string, unknown>>)
           : [];
-        const pick = payments.find((row) => isPaid(row.status)) || payments[0];
+        const pick = payments.find((row) => mpIsPaymentCreditableStatus(row.status)) || payments[0];
         if (!pick?.id) {
           results.push({ merchantOrderId: id, skipped: true, reason: "sin-pago" });
           continue;
@@ -134,8 +150,9 @@ Deno.serve(async (req) => {
             admin,
             intentId,
             String(payment.id || pick.id),
-            isPaid(payment.status || pick.status) ? "approved" : mpStatus(payment.status || pick.status),
+            mpNormalizeStatus(payment.status || pick.status),
             Number(payment.transaction_amount || pick.transaction_amount || order.paid_amount || 0),
+            String(payment.currency_id || order.currency_id || "ARS"),
           ),
         });
       } catch (err) {
@@ -160,7 +177,7 @@ Deno.serve(async (req) => {
           const rows = Array.isArray((search as { results?: unknown[] }).results)
             ? (search as { results: Array<Record<string, unknown>> }).results
             : [];
-          const approved = rows.find((row) => isPaid(row.status));
+          const approved = rows.find((row) => mpIsPaymentCreditableStatus(row.status));
           if (!approved?.id) {
             results.push({ intentId: intent.id, skipped: true, reason: "sin-pago-aprobado" });
             continue;
@@ -173,6 +190,7 @@ Deno.serve(async (req) => {
               String(approved.id),
               "approved",
               Number(approved.transaction_amount || intent.amount || 0),
+              String(approved.currency_id || "ARS"),
             ),
           });
         } catch (err) {

@@ -3,6 +3,7 @@ import {
   firstMpDeliverableEmail,
   isMpDeliverableEmail,
   isMpKind,
+  isMpCreditedStatus,
   isMpPaidStatus,
   mergeMercadoPagoSettings,
   mpBackPath,
@@ -40,6 +41,8 @@ describe('mercadoPago', () => {
     expect(mpMoney('1500.456')).toBe(1500.46);
     expect(isMpPaidStatus('approved')).toBe(true);
     expect(isMpPaidStatus('pending')).toBe(false);
+    expect(isMpCreditedStatus('approved')).toBe(true);
+    expect(isMpCreditedStatus('authorized')).toBe(false);
     expect(mpChannelFor({ mode: 'qr' })).toBe('onsite');
     expect(mpChannelFor({ kind: 'subscription' })).toBe('subscription');
     expect(mpChannelFor({ subscribe: true, mode: 'qr' })).toBe('subscription');

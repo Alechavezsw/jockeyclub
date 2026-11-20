@@ -39,9 +39,18 @@ export function isMpKind(value) {
   return MP_KINDS.includes(String(value || ''));
 }
 
+/**
+ * UI: cobro acreditado (`approved`) o adhesión de débito (`authorized`).
+ * La Edge Function / RPC solo acreditan dinero con `approved`.
+ */
 export function isMpPaidStatus(status) {
   const next = String(status || '').toLowerCase();
   return next === 'approved' || next === 'authorized';
+}
+
+/** Dinero efectivamente acreditado por Payments API (no adhesión). */
+export function isMpCreditedStatus(status) {
+  return String(status || '').toLowerCase() === 'approved';
 }
 
 /** Adhesión de débito confirmada por Mercado Pago. No alcanza con “débito” en la ficha. */

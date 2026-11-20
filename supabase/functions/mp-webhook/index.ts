@@ -1,9 +1,18 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import {
+  extractMpSignedResourceId,
+  mpAmountMatchesIntent,
+  mpCurrencyOk,
+  mpIsPaymentCreditableStatus,
+  mpNormalizeStatus,
+  mpWebhookTsToleranceSeconds,
+  verifyMpWebhookSignature,
+} from "../_shared/mpWebhookSecurity.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-signature, x-request-id",
 };
 
 const AR_TZ = "America/Argentina/Buenos_Aires";
@@ -57,32 +66,6 @@ function topicOf(body: Record<string, unknown>, url: URL) {
   return String(body.type || body.topic || url.searchParams.get("type") || url.searchParams.get("topic") || "").toLowerCase();
 }
 
-function hexOf(buffer: ArrayBuffer) {
-  return [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-function sameHex(left: string, right: string) {
-  if (left.length !== right.length) return false;
-  let diff = 0;
-  for (let i = 0; i < left.length; i += 1) diff |= left.charCodeAt(i) ^ right.charCodeAt(i);
-  return diff === 0;
-}
-
-/** Id que Mercado Pago firma: `data.id` (nuevo), `id` (IPN viejo), o el del cuerpo. */
-function signedResourceId(req: Request, rawBody: string) {
-  const url = new URL(req.url);
-  const fromQuery = url.searchParams.get("data.id")
-    || url.searchParams.get("id")
-    || "";
-  if (fromQuery.trim()) return fromQuery.trim();
-  try {
-    const parsed = JSON.parse(rawBody || "{}") as { data?: { id?: string | number }; id?: string | number };
-    return String(parsed?.data?.id || parsed?.id || "").trim();
-  } catch {
-    return "";
-  }
-}
-
 async function resolveIntentId(admin: Admin, ref: string) {
   const raw = String(ref || "").trim();
   if (!raw) return "";
@@ -97,24 +80,57 @@ async function resolveIntentId(admin: Admin, ref: string) {
   return raw;
 }
 
+async function loadIntent(admin: Admin, intentId: string) {
+  const resolved = await resolveIntentId(admin, intentId);
+  if (!resolved) return null;
+  const { data } = await admin
+    .from("mp_intents")
+    .select("id, amount, currency, status, applied_at, kind, provider_payment_id")
+    .eq("id", resolved)
+    .maybeSingle();
+  return data || null;
+}
+
+/** Acredita solo tras validar intent + API (moneda/importe). Nunca confía en el body del webhook. */
 async function applyCheckoutPayment(
   admin: Admin,
   intentId: string,
   providerPaymentId: string,
   status: string,
   paidAmount: number,
+  currency?: string,
 ) {
-  const resolved = await resolveIntentId(admin, intentId);
-  if (!resolved) return { error: "Sin cobro vinculado." };
+  const intent = await loadIntent(admin, intentId);
+  if (!intent?.id) return { error: "Sin cobro vinculado." };
+  const normalized = mpNormalizeStatus(status) || "pending";
+
+  if (!mpCurrencyOk(currency ?? intent.currency)) {
+    return { ok: true, ignored: true, reason: "currency_mismatch", intentId: intent.id, status: normalized };
+  }
+
+  if (mpIsPaymentCreditableStatus(normalized)) {
+    if (!mpAmountMatchesIntent(paidAmount, intent.amount)) {
+      return { ok: true, ignored: true, reason: "amount_mismatch", intentId: intent.id, status: normalized };
+    }
+    if (intent.provider_payment_id
+      && providerPaymentId
+      && String(intent.provider_payment_id) !== String(providerPaymentId)
+      && intent.applied_at) {
+      return { ok: true, already: true, intentId: intent.id };
+    }
+  }
+
   const { error } = await admin.rpc("apply_mp_approved_payment", {
-    p_intent_id: resolved,
+    p_intent_id: intent.id,
     p_provider_payment_id: providerPaymentId,
-    p_status: status,
+    p_status: normalized,
     p_paid_amount: paidAmount,
   });
-  if (error) return { error: error.message, intentId: resolved };
-  const receipt = await afterApprovedPayment(admin, resolved);
-  return { ok: true, intentId: resolved, receipt };
+  if (error) return { error: error.message, intentId: intent.id };
+  const receipt = mpIsPaymentCreditableStatus(normalized)
+    ? await afterApprovedPayment(admin, intent.id)
+    : null;
+  return { ok: true, intentId: intent.id, receipt };
 }
 
 /** Preferencias / Checkout Pro: merchant_order → pagos. */
@@ -123,8 +139,8 @@ async function applyMerchantOrder(admin: Admin, token: string, remoteId: string)
   const payments = Array.isArray(order.payments)
     ? (order.payments as Array<Record<string, unknown>>)
     : [];
-  const pick = payments.find((row) => mpPaidStatus(row.status) === "approved")
-    || payments.find((row) => mpApiStatus(row.status))
+  const pick = payments.find((row) => mpIsPaymentCreditableStatus(row.status))
+    || payments.find((row) => mpNormalizeStatus(row.status))
     || null;
   if (!pick?.id) {
     return { ok: true, ignored: true, reason: "no-payment", orderId: remoteId };
@@ -136,8 +152,9 @@ async function applyMerchantOrder(admin: Admin, token: string, remoteId: string)
     || (payment.metadata as { intent_id?: string } | undefined)?.intent_id
     || "",
   );
-  const status = mpPaidStatus(payment.status || pick.status) || "pending";
+  const status = mpNormalizeStatus(payment.status || pick.status) || "pending";
   const paidAmount = Number(payment.transaction_amount || pick.transaction_amount || order.paid_amount || 0);
+  const currency = String(payment.currency_id || order.currency_id || "ARS");
   if (!intentId) return { ok: true, ignored: true, reason: "no-intent", orderId: remoteId };
   const applied = await applyCheckoutPayment(
     admin,
@@ -145,6 +162,7 @@ async function applyMerchantOrder(admin: Admin, token: string, remoteId: string)
     String(payment.id || pick.id),
     status,
     paidAmount,
+    currency,
   );
   return { ok: true, kind: "merchant_order", orderId: remoteId, ...applied };
 }
@@ -153,7 +171,7 @@ async function applyPaymentId(admin: Admin, token: string, remoteId: string) {
   const payment = await mpGet(`/v1/payments/${remoteId}`, token);
   const metadata = payment.metadata as { intent_id?: string } | undefined;
   const intentId = String(payment.external_reference || metadata?.intent_id || "");
-  const paymentStatus = mpApiStatus(payment.status);
+  const paymentStatus = mpNormalizeStatus(payment.status);
   if (!intentId || !paymentStatus) return { ok: true, ignored: true };
   return {
     ok: true,
@@ -164,6 +182,7 @@ async function applyPaymentId(admin: Admin, token: string, remoteId: string) {
       String(payment.id || remoteId),
       paymentStatus,
       Number(payment.transaction_amount || 0),
+      String(payment.currency_id || "ARS"),
     ),
   };
 }
@@ -210,7 +229,7 @@ async function repairPendingIntents(admin: Admin, token: string, body: Record<st
         const rows = Array.isArray((search as { results?: unknown[] }).results)
           ? ((search as { results: Array<Record<string, unknown>> }).results)
           : [];
-        const approved = rows.find((row) => mpPaidStatus(row.status) === "approved");
+        const approved = rows.find((row) => mpIsPaymentCreditableStatus(row.status));
         if (!approved?.id) {
           results.push({ intentId: intent.id, skipped: true, reason: "sin-pago-aprobado" });
           continue;
@@ -223,6 +242,7 @@ async function repairPendingIntents(admin: Admin, token: string, body: Record<st
             String(approved.id),
             "approved",
             Number(approved.transaction_amount || intent.amount || 0),
+            String(approved.currency_id || "ARS"),
           ),
         });
       } catch (err) {
@@ -237,45 +257,9 @@ async function repairPendingIntents(admin: Admin, token: string, body: Record<st
   return { ok: true, kind: "repair", count: results.length, results };
 }
 
-async function mpSignatureOk(req: Request, rawBody: string, secret: string) {
-  const header = String(req.headers.get("x-signature") || "").trim();
-  const requestId = String(req.headers.get("x-request-id") || "").trim();
-  if (!header || !secret) return false;
-  const parts: Record<string, string> = {};
-  for (const chunk of header.split(",")) {
-    const [key, ...rest] = chunk.split("=");
-    if (key) parts[key.trim()] = rest.join("=").trim();
-  }
-  const ts = parts.ts || "";
-  const hash = String(parts.v1 || "").toLowerCase();
-  const dataId = signedResourceId(req, rawBody).toLowerCase();
-  if (!ts || !hash || !dataId) return false;
-  const chunks = [`id:${dataId}`];
-  if (requestId) chunks.push(`request-id:${requestId}`);
-  chunks.push(`ts:${ts}`);
-  const manifest = `${chunks.join(";")};`;
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const signed = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(manifest));
-  return sameHex(hexOf(signed), hash);
-}
-
 /** Estado tal como lo devolvió la API. Nunca se inventa "approved". */
 function mpApiStatus(value: unknown) {
-  return String(value || "").trim().toLowerCase();
-}
-
-function mpPaidStatus(value: unknown) {
-  const status = mpApiStatus(value);
-  if (status === "approved" || status === "authorized" || status === "accredited" || status === "processed") {
-    return "approved";
-  }
-  return status;
+  return mpNormalizeStatus(value);
 }
 
 function escapeHtml(value: string) {
@@ -831,11 +815,18 @@ Deno.serve(async (req) => {
       return json(200, await repairPendingIntents(admin, token, body));
     }
 
-    if (!secret || !(await mpSignatureOk(req, rawBody, secret))) {
+    const remoteId = extractMpSignedResourceId(req, rawBody);
+    const signature = await verifyMpWebhookSignature({
+      xSignature: String(req.headers.get("x-signature") || ""),
+      xRequestId: String(req.headers.get("x-request-id") || ""),
+      dataId: remoteId,
+      secret,
+      toleranceSeconds: mpWebhookTsToleranceSeconds(),
+    });
+    if (!signature.ok) {
       return json(401, { error: "Firma inválida." });
     }
     const topic = topicOf(body, url);
-    const remoteId = signedResourceId(req, rawBody);
     if (!remoteId) return json(401, { error: "Firma inválida." });
 
     // Checkout Pro / preferencias de la app: merchant_order (numérico).
@@ -850,14 +841,15 @@ Deno.serve(async (req) => {
       const intentId = String(order.external_reference || "");
       if (!intentId) return json(200, { ok: true, ignored: true });
       const payments = (order.transactions as { payments?: Array<Record<string, unknown>> } | undefined)?.payments || [];
-      const pay = payments[0] || {};
-      const status = mpPaidStatus(pay.status || order.status) || "pending";
+      const pay = payments.find((row) => mpIsPaymentCreditableStatus(row.status)) || payments[0] || {};
+      const status = mpNormalizeStatus(pay.status || order.status) || "pending";
       const applied = await applyCheckoutPayment(
         admin,
         intentId,
         String(pay.id || remoteId),
         status,
         Number(pay.amount || order.total_amount || 0),
+        String(pay.currency_id || order.currency || "ARS"),
       );
       if (applied.error) return json(500, { error: applied.error, ...applied });
       return json(200, { ok: true, kind: "qr_order", ...applied });
@@ -931,17 +923,30 @@ Deno.serve(async (req) => {
           .single();
       if (chargeErr || !charge) return json(500, { error: chargeErr?.message || "No se pudo anotar el débito." });
 
+      const paidAmount = amount || Number(sub.amount) || 0;
+      if (mpIsPaymentCreditableStatus(status) && !mpAmountMatchesIntent(paidAmount, sub.amount)) {
+        return json(200, { ok: true, ignored: true, reason: "amount_mismatch", status });
+      }
+      const currency = String(
+        (pay as { currency_id?: string }).currency_id
+        || (payment as { currency_id?: string } | undefined)?.currency_id
+        || "ARS",
+      );
+      if (!mpCurrencyOk(currency)) {
+        return json(200, { ok: true, ignored: true, reason: "currency_mismatch", status });
+      }
       const { error } = await admin.rpc("apply_mp_approved_payment", {
         p_intent_id: charge.id,
         p_provider_payment_id: String(payment?.id || remoteId),
         p_status: status || "pending",
-        p_paid_amount: amount || sub.amount,
+        p_paid_amount: paidAmount,
       });
       if (error) return json(500, { error: error.message });
-      if (!/approv|authoriz/i.test(status || "")) {
+      // Débito mensual: solo `approved` acredita. authorized/processed no alcanzan.
+      if (!mpIsPaymentCreditableStatus(status)) {
         const notice = await notifyDebitFailed(admin, sub, {
           status: status || "rejected",
-          amount: amount || Number(sub.amount) || 0,
+          amount: paidAmount,
         });
         return json(200, { ok: true, kind: "subscription_charge_failed", status, notice });
       }
