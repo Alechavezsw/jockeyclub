@@ -1489,12 +1489,22 @@ function choicesFromStoredOpenPeriods(member, paidOn, paidSet, scopeOpts = {}) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dueOn)) continue;
     if (dueOn <= '1900-01-10' && !isJoinFeeDueOn(dueOn)) continue;
     if (dueOnAlreadyCovered(dueOn, paidSet)) continue;
-    const capital = money(row.capital ?? row.capitalOpen ?? row.capital_open);
-    if (!(capital > 0)) continue;
+    const storedCap = money(row.capital ?? row.capitalOpen ?? row.capital_open);
+    if (!(storedCap > 0)) continue;
     const alta = isJoinFeeDueOn(dueOn);
-    const lateBase = alta ? 0 : money(row.lateBase ?? row.late_base ?? 0);
     const due = parseDate(dueOn);
     const overdue = Boolean(!alta && due && due < paidOn);
+    const kind = overdue ? 'overdue' : 'upcoming';
+    // Tarifa entera del mes; el capital guardado solo si es parcial real (< 95 %).
+    const full = alta ? null : periodChoiceFromDue(member, dueOn, paidOn, kind, scopeOpts);
+    const tariff = money(full?.capital || 0);
+    const partial = tariff > 0.01 && storedCap + 0.01 < money(tariff * 0.95);
+    const capital = partial ? storedCap : (tariff > 0.01 ? tariff : storedCap);
+    const lateBase = alta
+      ? 0
+      : (partial
+        ? money(row.lateBase ?? row.late_base ?? 0)
+        : money(full?.lateBase ?? row.lateBase ?? row.late_base ?? capital));
     const surcharge = overdue ? money(lateBase * 0.1) : 0;
     stored.push({
       id: dueOn,
@@ -1505,7 +1515,7 @@ function choicesFromStoredOpenPeriods(member, paidOn, paidSet, scopeOpts = {}) {
       lateBase,
       surcharge,
       payable: money(capital + surcharge),
-      kind: overdue ? 'overdue' : 'upcoming',
+      kind,
       chargeScope: scope,
     });
   }
