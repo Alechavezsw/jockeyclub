@@ -698,21 +698,26 @@ export function payMemberDues(member, {
     ...(stored > 0 || !(requested > 0) ? {} : { amount: requested }),
   });
   const creditApplied = money(preview.creditApplied || 0);
+  const covered = selectedChoices.length ? selectedChoices : choices;
+  // Obligación = meses a tarifa (capital + mora). No topear por ficha corta.
+  const tariffCapital = money(covered.reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
+  const tariffSurcharge = skipInterest
+    ? 0
+    : money(covered.reduce((sum, row) => sum + (Number(row.surcharge) || 0), 0));
+  const tariffGross = money(tariffCapital + tariffSurcharge);
   let classicDue = selected
-    ? selectedChoices.reduce(
-      (sum, row) => sum + (Number(skipInterest ? row.capital : row.payable) || 0),
-      0,
-    )
+    ? tariffGross
     : (skipInterest ? money(split.quota) : split.total);
   if (!(stored > 0) && requested > 0 && !selected) classicDue = requested;
-  // Con saldo a favor usamos el preview (efectivo = bruto − crédito).
-  // Sin crédito, el desglose clásico respeta el saldo de ficha.
+  // Meses marcados en el recibo: tarifa entera (no topear por ficha corta).
+  // Sin marca: desglose clásico / residual de ficha.
+  const obligationGross = selected && tariffGross > 0.01 ? tariffGross : classicDue;
   const grossDue = creditApplied > 0.01 && preview.gross > 0.01
     ? preview.gross
-    : classicDue;
+    : obligationGross;
   const cashDue = creditApplied > 0.01 && preview.gross > 0.01
     ? preview.cash
-    : classicDue;
+    : obligationGross;
   let due = cashDue;
   if (due <= 0 && creditApplied <= 0.01) throw new Error('No hay saldo pendiente para abonar.');
   if (due <= 0 && creditApplied > 0.01) due = 0;
@@ -722,22 +727,21 @@ export function payMemberDues(member, {
   if ((!paidAmount || paidAmount <= 0) && creditApplied <= 0.01) {
     throw new Error('Importe inválido.');
   }
-  if (paidAmount > due + 0.01 && !onAccount) {
+  if (paidAmount > obligationGross + 0.01 && !onAccount) {
     throw new Error('El importe supera el saldo pendiente.');
   }
-  const covered = selectedChoices.length ? selectedChoices : choices;
-  const coveredCapital = money(covered.reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
+  const coveredCapital = tariffCapital > 0 ? tariffCapital : money(covered.reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
+  // Schedule siempre a tarifa de los meses elegidos; nunca encoger al outstanding.
   const scheduleAmount = coveredCapital > 0 ? coveredCapital : Math.max(0, stored);
   const schedule = scheduleAmount > 0
     ? openPeriodsFromChoices(covered, scheduleAmount)
       .map((row) => (skipInterest ? { ...row, lateBase: 0 } : row))
       .filter((row) => !(skipInterest && String(row.dueOn) <= OPENING_DUE_ON))
     : [];
-  // El saldo a favor se imputa al saldar el efectivo debido. En un a cuenta
-  // parcial el crédito sigue embebido en el saldo de ficha hasta el próximo cobro.
+  // Adelanto solo si el efectivo supera la obligación a tarifa (o a cuenta real).
   const creditLeftover = onAccount
     ? money(Math.max(0, paidAmount - cashDue))
-    : 0;
+    : money(Math.max(0, paidAmount - obligationGross));
   const settleCash = paidAmount + 0.01 >= cashDue;
   const creditInPool = settleCash || !onAccount ? creditApplied : 0;
   const imputePool = money(Math.min(
@@ -1883,12 +1887,17 @@ function cobroSchedule(member, payment) {
   }
   const balance = Math.max(Number(before.outstandingBalance) || 0, 0);
   const choices = collectionPeriodChoices(before, paidOn);
-  const choiceCapital = choices.reduce((sum, row) => sum + (Number(row.capital) || 0), 0);
-  // El saldo puede traer recargos de Lila. Esos no son otra cuota.
-  const scheduleBalance = choiceCapital > 0.01 && choiceCapital < balance - 0.01
-    ? choiceCapital
-    : balance;
-  return openPeriodsFromChoices(choices, scheduleBalance);
+  const marked = Array.isArray(payment?.periodDueOns) && payment.periodDueOns.length
+    ? payment.periodDueOns.map((value) => String(value || '').slice(0, 10))
+    : null;
+  const rows = marked
+    ? choices.filter((row) => marked.includes(String(row.dueOn).slice(0, 10)))
+    : choices;
+  const choiceCapital = money(rows.reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
+  // Meses a tarifa: no encoger el schedule al outstanding (evita adelanto ficticio).
+  // Si la ficha trae de más (recargo Lila), el excess queda fuera del schedule de cuotas.
+  const scheduleBalance = choiceCapital > 0.01 ? choiceCapital : balance;
+  return openPeriodsFromChoices(rows.length ? rows : choices, scheduleBalance);
 }
 
 export function cobroPeriods(member, payment) {

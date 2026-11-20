@@ -72,6 +72,25 @@ export function detectMemberDuesAnomalies(member, { today = new Date() } = {}) {
     });
   }
 
+  // Saldo a favor sin anticipo voluntario: típico de ficha corta vs tarifa.
+  if (outstanding < -0.01) {
+    const open = Array.isArray(member.duesOpenPeriods) ? member.duesOpenPeriods : [];
+    const staleOpen = open.some((row) => Number(row?.capital) > 0.01);
+    findings.push({
+      code: 'negative_balance_review',
+      severity: staleOpen ? 'high' : 'medium',
+      message: staleOpen
+        ? 'Saldo a favor con períodos abiertos en meta (posible adelanto ficticio)'
+        : 'Saldo a favor: verificar si es anticipo real o diferencia de imputación',
+      outstanding,
+      credit,
+      staleOpenPeriods: staleOpen,
+      memberId: member.memberId || member.id,
+      memberNumber: member.memberNumber || member.memberId,
+      name: member.name || member.fullName,
+    });
+  }
+
   const stored = socialDuesStoredBalance(member);
   const unpaid = lilaUnpaidCapital(member);
   if (unpaid != null && unpaid > stored + 0.01 && outstanding > 0.01) {
