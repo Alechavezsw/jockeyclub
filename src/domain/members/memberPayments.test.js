@@ -305,19 +305,20 @@ describe('payMemberDues', () => {
     }
   });
 
-  it('después de liquidar, el saldo a favor neteado baja el efectivo del próximo cobro', () => {
+  it('después de liquidar, el crédito explícito baja el efectivo del próximo cobro', () => {
     setRuntimeTierCatalog([
       { id: 'socio_familiar', name: 'SOCIO FAMILIAR', monthlyDues: 70000, sortOrder: 1 },
     ]);
     try {
-      // Liquidación: -10.000 a favor + 70.000 del mes → ficha 60.000 / unpaid 70.000.
+      // Liquidación con acarreo explícito: ficha 70.000 + creditBalance 10.000.
       const member = {
         memberId: '2202',
         name: 'Crédito neto',
         tier: 'socio_familiar',
         cuotaCategories: ['SOCIO FAMILIAR'],
-        outstandingBalance: 60000,
+        outstandingBalance: 70000,
         unpaidCapital: 70000,
+        creditBalance: 10000,
         nextDueDate: '2026-11-10',
         lastPaymentDate: '2026-10-20',
         paymentHistory: [],
@@ -334,6 +335,69 @@ describe('payMemberDues', () => {
       expect(result.payment.creditApplied).toBe(10000);
       expect(result.payment.amount).toBe(preview.cash);
       expect(result.member.outstandingBalance).toBe(0);
+      expect(result.member.creditBalance || 0).toBe(0);
+    } finally {
+      setRuntimeTierCatalog(null);
+    }
+  });
+
+  it('socio 9751: desync unpaid 70k / ficha 7k no inventa crédito de 63k', () => {
+    setRuntimeTierCatalog([
+      { id: 'socio_familiar', name: 'SOCIO FAMILIAR', monthlyDues: 70000, sortOrder: 1 },
+    ]);
+    try {
+      const member = {
+        memberId: '9751',
+        name: 'Jorge Maximilia Calderon Luna',
+        tier: 'socio_familiar',
+        cuotaCategories: ['SOCIO FAMILIAR'],
+        outstandingBalance: 7000,
+        unpaidCapital: 70000,
+        nextDueDate: '2026-12-10',
+        lastPaymentDate: '2026-11-01',
+        paymentHistory: [{
+          amount: 70000,
+          method: 'transferencia',
+          paidAt: '2026-11-01',
+          period: 'Octubre del 2026',
+          receiptNumber: '03656347',
+        }],
+      };
+      const today = new Date('2026-11-20T12:00:00-03:00');
+      const preview = collectionPreview(member, today);
+      expect(preview.creditApplied).toBe(0);
+      expect(preview.balanceDesync?.code).toBe('unpaid_above_outstanding');
+      expect(preview.balanceDesync?.gap).toBe(63000);
+      expect(preview.cash).toBe(preview.gross);
+      expect(preview.cash).toBe(7000);
+      expect(preview.quota).toBe(0);
+    } finally {
+      setRuntimeTierCatalog(null);
+    }
+  });
+
+  it('un crédito real no se aplica dos veces', () => {
+    setRuntimeTierCatalog([
+      { id: 'socio_familiar', name: 'SOCIO FAMILIAR', monthlyDues: 70000, sortOrder: 1 },
+    ]);
+    try {
+      const member = {
+        memberId: '9751-credit',
+        name: 'Crédito real',
+        tier: 'socio_familiar',
+        cuotaCategories: ['SOCIO FAMILIAR'],
+        outstandingBalance: 70000,
+        unpaidCapital: 70000,
+        creditBalance: 10000,
+        nextDueDate: '2026-11-10',
+        paymentHistory: [],
+      };
+      const today = new Date('2026-11-12T15:00:00-03:00');
+      const first = recordDuesCollection(member, { method: 'efectivo', today });
+      expect(first.payment.creditApplied).toBe(10000);
+      expect(first.member.creditBalance || 0).toBe(0);
+      const second = collectionPreview(first.member, today);
+      expect(second.creditApplied).toBe(0);
     } finally {
       setRuntimeTierCatalog(null);
     }

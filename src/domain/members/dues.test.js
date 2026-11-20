@@ -120,7 +120,8 @@ describe('dues classification', () => {
       },
     ], new Date('2026-11-08T12:00:00'));
     expect(overdue.map((m) => m.memberId)).toEqual(['10559']);
-    expect(overdue[0].amountDue).toBe(717000);
+    // Manda la ficha (entries); unpaidCapital no infla la mora.
+    expect(overdue[0].amountDue).toBe(709000);
   });
 
   it('ficha en 0 no reabre deuda con unpaidCapital viejo (padrón = cobro = Consultar deuda)', () => {
@@ -132,10 +133,11 @@ describe('dues classification', () => {
       outstandingBalance: 0,
       unpaidCapital: 0,
     })).toBe(0);
+    // Desync: unpaid alto no reemplaza el saldo de ficha.
     expect(socialDuesStoredBalance({
       outstandingBalance: 70000,
       unpaidCapital: 98000,
-    })).toBe(98000);
+    })).toBe(70000);
   });
 
   it('un alquiler en la cuenta no es mora de cuota', () => {

@@ -85,10 +85,63 @@ export function isOnAccountDuesMethod(method) {
   return raw === 'a cuenta' || raw === 'acuenta' || raw === 'pago a cuenta';
 }
 
-/** Saldo a favor vivo en ficha (outstanding negativo). */
+/**
+ * Saldo a favor con respaldo en ficha.
+ * Solo cuenta outstanding negativo o `creditBalance` explícito (p. ej. acarreo
+ * tras liquidar). Nunca una diferencia entre unpaidCapital y outstanding.
+ */
 export function memberCreditBalance(member) {
   const stored = Number(member?.outstandingBalance) || 0;
-  return stored < -0.01 ? money(-stored) : 0;
+  const fromNegative = stored < -0.01 ? money(-stored) : 0;
+  const explicitRaw = member?.creditBalance ?? member?.meta?.creditBalance;
+  const explicit = explicitRaw != null && explicitRaw !== ''
+    ? money(Math.max(0, Number(explicitRaw) || 0))
+    : 0;
+  return money(fromNegative + explicit);
+}
+
+/** Consume crédito explícito al imputar; el resto a favor vive en outstanding negativo. */
+export function withCreditBalanceAfterApply(member, { creditApplied = 0, creditLeftover = 0 } = {}) {
+  if (creditLeftover > 0.01) {
+    return { ...member, creditBalance: 0 };
+  }
+  const prevExplicit = money(Math.max(0, Number(member?.creditBalance ?? member?.meta?.creditBalance) || 0));
+  if (!(prevExplicit > 0.01) && !(creditApplied > 0.01)) return member;
+  const nextExplicit = money(Math.max(0, prevExplicit - money(creditApplied)));
+  return { ...member, creditBalance: nextExplicit > 0.01 ? nextExplicit : 0 };
+}
+
+/** Desync unpaidCapital vs outstanding: alerta, no dinero. */
+export function duesBalanceDesync(member) {
+  const outstanding = money(Number(member?.outstandingBalance) || 0);
+  const unpaidRaw = member?.unpaidCapital ?? member?.meta?.unpaidCapital;
+  if (unpaidRaw == null || unpaidRaw === '') return null;
+  const unpaid = money(Number(unpaidRaw) || 0);
+  if (outstanding <= 0.01) {
+    if (unpaid > 0.01) {
+      return {
+        code: 'stale_unpaid_while_clear',
+        severity: 'high',
+        outstanding,
+        unpaid,
+        gap: unpaid,
+        message: 'unpaidCapital positivo con ficha en 0 o a favor',
+      };
+    }
+    return null;
+  }
+  const gap = money(unpaid - outstanding);
+  if (Math.abs(gap) <= 0.01) return null;
+  return {
+    code: gap > 0 ? 'unpaid_above_outstanding' : 'unpaid_below_outstanding',
+    severity: Math.abs(gap) >= 1000 ? 'high' : 'medium',
+    outstanding,
+    unpaid,
+    gap,
+    message: gap > 0
+      ? 'unpaidCapital mayor que el saldo de ficha (no es crédito)'
+      : 'unpaidCapital menor que el saldo de ficha',
+  };
 }
 
 /** Transferencia, POS y débito exigen comprobante (archivo o carga a mano). */
@@ -760,6 +813,10 @@ export function payMemberDues(member, {
   const openSnapshot = imputed
     ? duesOpenSnapshot(schedule, imputed, remainingChoices)
     : null;
+  const stampCredit = (row) => withCreditBalanceAfterApply(row, {
+    creditApplied: creditInPool,
+    creditLeftover,
+  });
 
   if (imputed && stored > 0) {
     const capitalLeft = money(stored - imputed.capital);
@@ -776,27 +833,28 @@ export function payMemberDues(member, {
     if ((capitalLeft <= 0.01 && !openDue) || duesSettled) {
       const cleared = afterCollectDues(member, today);
       const balanceLeft = money(creditLeftover > 0.01 ? -creditLeftover : 0);
+      const settled = stampCredit({
+        ...cleared,
+        ...openSnapshot,
+        outstandingBalance: balanceLeft,
+        lastPaymentDate: date,
+        paymentHistory: history,
+      });
       return {
-        member: {
-          ...cleared,
-          ...openSnapshot,
-          outstandingBalance: balanceLeft,
-          lastPaymentDate: date,
-          paymentHistory: history,
-        },
+        member: settled,
         payment,
         fullyPaid: true,
-        ledgerEntry: ledgerPago({ ...cleared, outstandingBalance: balanceLeft }, payment),
+        ledgerEntry: ledgerPago(settled, payment),
       };
     }
-    const next = {
+    const next = stampCredit({
       ...withPaidParts(member, imputed.capital, imputed.surcharge),
       ...openSnapshot,
       outstandingBalance: capitalLeft,
       nextDueDate: openDue || member.nextDueDate,
       lastPaymentDate: date,
       paymentHistory: history,
-    };
+    });
     return {
       member: next,
       payment,
@@ -809,13 +867,13 @@ export function payMemberDues(member, {
   const paidSurcharge = imputed ? imputed.surcharge : (lines.surcharge || 0);
 
   if (remainingCash > 0.01) {
-    const next = {
+    const next = stampCredit({
       ...withPaidParts(member, paidCapital, paidSurcharge),
       ...openSnapshot,
       outstandingBalance: money(Math.max(0, stored - paidCapital)),
       lastPaymentDate: date,
       paymentHistory: history,
-    };
+    });
     return {
       member: next,
       payment,
@@ -828,14 +886,14 @@ export function payMemberDues(member, {
     const remainingCapital = money(
       remainingChoices.reduce((sum, row) => sum + (Number(row.capital) || 0), 0),
     );
-    const next = {
+    const next = stampCredit({
       ...withPaidParts(member, paidCapital, paidSurcharge),
       ...openSnapshot,
       outstandingBalance: remainingCapital,
       nextDueDate: remainingChoices[0].dueOn,
       lastPaymentDate: date,
       paymentHistory: history,
-    };
+    });
     return {
       member: next,
       payment,
@@ -849,13 +907,13 @@ export function payMemberDues(member, {
     ? creditLeftover
     : money(preview.leftover || 0);
   const balanceLeft = leftoverCredit > 0.01 ? money(-leftoverCredit) : 0;
-  const next = {
+  const next = stampCredit({
     ...cleared,
     ...openSnapshot,
     outstandingBalance: balanceLeft,
     lastPaymentDate: date,
     paymentHistory: history,
-  };
+  });
   return {
     member: next,
     payment,
@@ -869,9 +927,8 @@ export function payMemberDues(member, {
  * Lo que sobra queda a favor para el siguiente.
  * `periodDueOns` marca qué meses entran en el recibo.
  *
- * El crédito vive como outstanding negativo. Si la liquidación ya lo neteó
- * (capital de meses > saldo de ficha), la diferencia también se muestra como
- * saldo a favor imputado y baja el efectivo a cobrar.
+ * Crédito = outstanding negativo o `creditBalance` explícito.
+ * Nunca la diferencia unpaidCapital − outstanding (eso es desync / alerta).
  */
 export function collectionPreview(member, today = new Date(), {
   periodDueOns = null,
@@ -885,26 +942,19 @@ export function collectionPreview(member, today = new Date(), {
   const selectedChoices = choices.filter((row) => selected.includes(String(row.dueOn).slice(0, 10)));
   const stored = Number(member?.outstandingBalance) || 0;
   const explicitCredit = memberCreditBalance(member);
+  const desync = duesBalanceDesync(member);
 
   if (selectedChoices.some((row) => row.kind === 'overdue') || stored > 0.01) {
     const quota = money(selectedChoices.reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
     const surcharge = skipSurcharge
       ? 0
       : money(selectedChoices.reduce((sum, row) => sum + (Number(row.surcharge) || 0), 0));
-    const gross = money(quota + surcharge);
-    const capitalInFicha = money(Math.max(0, stored));
-    // Crédito neteado al liquidar: unpaidCapital (meses) > saldo de ficha.
-    // No confundir con meses a tarifa vigente mayores que un saldo viejo.
-    const unpaidRaw = member?.unpaidCapital;
-    const unpaid = unpaidRaw != null && unpaidRaw !== ''
-      ? money(Math.max(0, Number(unpaidRaw) || 0))
-      : null;
-    const absorbed = unpaid != null
-      && unpaid > capitalInFicha + 0.01
-      && quota > capitalInFicha + 0.01
-      ? money(Math.min(quota, unpaid) - Math.min(quota, capitalInFicha))
-      : 0;
-    const credit = money(explicitCredit + absorbed);
+    let gross = money(quota + surcharge);
+    // Saldo de ficha sin mes entero a tarifa: cobrar el residual, no inventar mes ni crédito.
+    if (!(gross > 0.01) && stored > 0.01) {
+      gross = money(Math.max(0, stored));
+    }
+    const credit = explicitCredit;
     const creditApplied = money(Math.min(credit, gross));
     return {
       quota,
@@ -917,6 +967,8 @@ export function collectionPreview(member, today = new Date(), {
       choices,
       clear: false,
       skipSurcharge: Boolean(skipSurcharge),
+      ...(desync ? { balanceDesync: desync } : {}),
+      ...(!(quota > 0.01) && stored > 0.01 ? { residualBalance: true } : {}),
     };
   }
 

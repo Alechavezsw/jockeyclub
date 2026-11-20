@@ -674,14 +674,15 @@ export function lilaUnpaidCapital(member) {
  * Misma cifra en todos lados.
  * - outstanding_balance ≤ 0 (al día o a favor): manda la ficha. No reabrir deuda
  *   con un unpaidCapital LILA viejo después de un cobro.
- * - Si hay saldo en ficha y unpaidCapital LILA, el capital LILA es la verdad
- *   (la columna a veces quedó vieja tras importar débitos).
+ * - unpaidCapital = 0 tras un cobro: no reabrir con ficha vieja.
+ * - Si ambos son positivos y discrepan: manda la ficha (entries → outstanding).
+ *   unpaidCapital no puede inflar la deuda ni inventar crédito.
  */
 export function socialDuesStoredBalance(member) {
   const outstanding = money(Number(member?.outstandingBalance) || 0);
   if (outstanding <= 0.01) return 0;
   const lila = lilaUnpaidCapital(member);
-  if (lila != null) return Math.max(0, money(lila));
+  if (lila != null && lila <= 0.01) return 0;
   return Math.max(0, outstanding);
 }
 
@@ -1232,13 +1233,25 @@ function dueOnAlreadyCovered(dueOn, coveredDueOns) {
  * No adelanta meses futuros: diciembre recién cuando estamos en diciembre.
  * Si hay de más (ficha ya cobrada / nextDue desfasado), recorta al saldo: no re-cobra meses pagos.
  */
-/** Capital a repartir en meses. El recargo que Lila dejó en el saldo no abre otro mes. */
+/**
+ * Capital a repartir en meses. El recargo que Lila dejó en el saldo no abre otro mes.
+ * Apertura vieja bajo tarifa (p. ej. 28k → 40k): manda unpaid/tarifa.
+ * Desync grave (unpaid − ficha ≥ media cuota): manda la ficha; no abrir meses de más.
+ */
 function capitalOwedForChoices(member, chargeScope = 'all') {
   const scope = normalizeDuesChargeScope(chargeScope);
   const balance = money(Math.max(0, Number(member?.outstandingBalance) || 0));
   const lila = lilaUnpaidCapital(member);
   // Abono tenis: no usar el unpaidCapital mezclado (cuota + tenis).
   if (scope === 'addon') return 0;
+  const resolveOwed = (capital) => {
+    const unpaid = money(Math.max(0, capital));
+    if (!(balance > 0.01) || !(unpaid > balance + 0.01)) return unpaid;
+    const monthly = money(duesAmountForMember(member) || 0) || unpaid;
+    const gap = money(unpaid - balance);
+    if (gap + 0.01 >= money(monthly * 0.5)) return balance;
+    return unpaid;
+  };
   // Cuota social: si Lila guardó cuota+tenis juntos, restar el abono de los meses abiertos.
   if (scope === 'social' && lila != null) {
     const tennis = money(duesTennisAbonoAmountForAccount(member));
@@ -1246,11 +1259,10 @@ function capitalOwedForChoices(member, chargeScope = 'all') {
       ? member.duesOpenPeriods.length
       : 1;
     const socialCap = tennis > 0.01 ? money(Math.max(0, lila - tennis * openN)) : money(Math.max(0, lila));
-    return socialCap;
+    return resolveOwed(socialCap);
   }
-  // El corte Lila es la cuota. Si la apertura quedó más baja (8063 en 28.000
-  // con individual a 40.000), no se cobra ese importe viejo.
-  if (lila != null) return money(Math.max(0, lila));
+  // Corte Lila / tarifa: lift chico OK; hueco grande = desync → ficha.
+  if (lila != null) return resolveOwed(lila);
   const surcharge = money(Math.max(0, Number(member?.unpaidSurcharges) || 0));
   if (surcharge > 0.01 && balance > surcharge + 0.01) return money(balance - surcharge);
   return balance;
@@ -1355,6 +1367,12 @@ function expandChoicesToCoverBalance(member, choices, paidOn, coveredDueOns = nu
     const used = money(kept.reduce((sum, row) => sum + fichaCostForChoice(row), 0));
     if (used <= owed + 0.01) break;
     kept.pop();
+  }
+  // Un solo mes a tarifa vigente puede superar una apertura vieja (lift); se mantiene.
+  // Si el capital a cubrir es mucho menor que ese mes (desync), no ofrecerlo.
+  if (kept.length === 1) {
+    const sole = fichaCostForChoice(kept[0]);
+    if (sole > owed + 0.01 && owed + 0.01 < money(sole * 0.5)) return [];
   }
   return kept.length ? kept : rows;
 }
