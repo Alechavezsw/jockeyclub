@@ -15,7 +15,7 @@ import { downloadPaymentReceiptPdf } from '../domain/members/exportPaymentReceip
 import { useMemberDuesStanding } from '../hooks/useMemberDuesStanding';
 import { CLUB_BANK_ACCOUNTS } from '../domain/members/clubBanks';
 import { collectionPeriodChoices, duesAmountForMember, duesDueDayForMember, isDuesExemptMember, quotaHeadline } from '../domain/members/dues';
-import { duesMonthLabel, duesMonthsPhrase } from '../domain/members/duesImputations';
+import { duesChargeConcept, duesMonthLabel, duesMonthsPhrase } from '../domain/members/duesImputations';
 import { accountPaymentPlan, duesPaymentSchedule } from '../domain/members/memberPayments';
 import { money } from '../domain/money';
 import { todayISODateAR } from '../lib/arDate';
@@ -349,8 +349,13 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
               schedule={duesPaymentSchedule(standingForCharge)}
               memberNumber={profile?.memberId}
               concept={accountPlan?.partial
-                ? `Cuota social · Pago a cuenta · ${duesMonthsPhrase(accountPlan.touched.map((row) => row.dueOn)) || profile?.name || 'socio'}`
-                : `Cuota social · ${duesMonthsPhrase(collectionPeriodChoices(standingForCharge).map((row) => row.dueOn)) || profile?.name || 'socio'}`}
+                ? duesChargeConcept(duesMonthsPhrase(accountPlan.touched.map((row) => row.dueOn)), {
+                  prefix: 'Cuota social · Pago a cuenta',
+                  empty: `Cuota social · Pago a cuenta · ${profile?.name || 'socio'}`,
+                })
+                : duesChargeConcept(duesMonthsPhrase(collectionPeriodChoices(standingForCharge).map((row) => row.dueOn)), {
+                  empty: `Cuota social · ${profile?.name || 'socio'}`,
+                })}
               disabled={standingPending || payAmount <= 0 || Boolean(accountCharge.error)}
               onApproved={() => setMessage('Pago acreditado. Ya figura en tu cuenta.')}
             />

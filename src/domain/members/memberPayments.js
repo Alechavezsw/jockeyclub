@@ -19,6 +19,7 @@ import { journalAccountForPayment } from './clubBanks';
 import { nowTimeAR, todayISODateAR } from '../../lib/arDate';
 import { money } from '../money';
 import {
+  duesChargeConcept,
   duesMonthsPhrase,
   imputationSummary,
   imputeDuesPayment,
@@ -714,8 +715,8 @@ export function payMemberDues(member, {
   const surchargePaid = skipInterest ? 0 : (imputed ? imputed.surcharge : lines.surcharge);
   const methodLabel = duesMethodLabel(method);
   let concept = onAccount
-    ? (monthPhrase ? `A cuenta · ${monthPhrase}` : `A cuenta · ${methodLabel}`)
-    : (monthPhrase ? `Cuota social · ${monthPhrase}` : `Cuota social · ${methodLabel}`);
+    ? duesChargeConcept(monthPhrase, { prefix: 'A cuenta', empty: `A cuenta · ${methodLabel}` })
+    : duesChargeConcept(monthPhrase, { empty: `Cuota social · ${methodLabel}` });
   if (creditInPool > 0.01) {
     concept = `${concept} · saldo a favor imputado ${creditInPool}`;
   }
@@ -988,9 +989,10 @@ export function payUpcomingDues(member, { method = 'transferencia', today = new 
     time,
     paidAt,
     createdAt: paidAt,
-    concept: monthPhrase
-      ? `Cuota social anticipada · ${monthPhrase}`
-      : `Cuota social anticipada · ${duesMethodLabel(method)}`,
+    concept: duesChargeConcept(monthPhrase, {
+      prefix: 'Cuota social anticipada',
+      empty: `Cuota social anticipada · ${duesMethodLabel(method)}`,
+    }),
     amount: preview.cash,
     adelanto: true,
     quota: preview.quota,

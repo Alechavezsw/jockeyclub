@@ -86,6 +86,7 @@ type MemberLite = {
   familyGroupName: string;
   bajaFecha: string;
   duesFreeThrough: string;
+  joinedAt: string;
   adherents: Array<{
     memberId?: string;
     name?: string;
@@ -330,7 +331,10 @@ function buildCharges(members: MemberLite[], year: number, month: number, todayI
     const periodKey = `${year}-${pad2(month)}`;
     if (/^\d{4}-\d{2}$/.test(freeThrough) && periodKey <= freeThrough) continue;
     const dueOn = `${year}-${pad2(month)}-${pad2(duesDueDayForMember(member))}`;
+    const joinKey = String(member.joinedAt || "").slice(0, 7);
+    const skipSocial = /^\d{4}-\d{2}$/.test(joinKey) && joinKey === periodKey;
     for (const slice of chargeSlicesForMember(member, onIso, rules)) {
+      if (skipSocial && !DUES_ADD_ON_TIER_IDS.has(slice.tierId)) continue;
       charges.push({
         memberId: member.memberId,
         addAmount: slice.amount,
@@ -449,7 +453,7 @@ async function loadMembers(admin: SupabaseClient): Promise<MemberLite[]> {
   for (let from = 0; ; from += pageSize) {
     const { data, error } = await admin
       .from("members")
-      .select("id, member_number, tier, status, meta")
+      .select("id, member_number, tier, status, joined_at, meta")
       .eq("status", "active")
       .order("id")
       .range(from, from + pageSize - 1);
@@ -469,6 +473,7 @@ async function loadMembers(admin: SupabaseClient): Promise<MemberLite[]> {
         familyGroupName: String(meta.familyGroupName || ""),
         bajaFecha: String(meta.bajaFecha || "").slice(0, 10),
         duesFreeThrough: String(meta.duesFreeThrough || "").slice(0, 7),
+        joinedAt: String(row.joined_at || "").slice(0, 10),
         adherents: [],
       });
     }

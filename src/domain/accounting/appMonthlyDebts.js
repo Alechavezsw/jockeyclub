@@ -17,11 +17,18 @@ import {
   isDuesExemptMember,
   isMemberJoinFeeMonth,
   lilaUnpaidCapital,
+  joinFeeAmountForMember,
+  memberJoinMonthKey,
   monthsBehindOnDues,
   pinDuesDueDate,
   socialDuesStoredBalance,
 } from '../members/dues';
-import { duesMonthLabel, duesMonthsPhrase, JOIN_FEE_DUE_ON } from '../members/duesImputations';
+import {
+  duesMonthLabel,
+  duesMonthsPhrase,
+  isJoinFeeDueOn,
+  JOIN_FEE_DUE_ON,
+} from '../members/duesImputations';
 import { duesNoticeCalendar, duesNoticeStagesForDay } from '../members/duesNotices';
 import { isFamilyDependent, memberNumberOf } from '../members/households';
 import { getTierDisplayName } from '../members/tiers';
@@ -181,6 +188,42 @@ function takeMonth(list, member, dueOn, leftover, { today }) {
   return { leftover: next, status: 'ok' };
 }
 
+function monthAfterKey(yearMonth) {
+  const [year, month] = String(yearMonth || '').split('-').map(Number);
+  if (!year || !month) return '';
+  const next = new Date(year, month, 1);
+  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/**
+ * Cuota de alta: un solo cargo, sin recargo y sin meses atrás.
+ * El mes siguiente aparece cuando se liquida, no antes.
+ */
+function allocateJoinFee(member, remaining) {
+  const periods = Array.isArray(member?.duesOpenPeriods) ? member.duesOpenPeriods : [];
+  const stored = periods.find((row) => isJoinFeeDueOn(row?.dueOn) || String(row?.kind || '') === 'alta');
+  let capital = stored ? money(stored.capital) : 0;
+  if (!(capital > EPS)) {
+    const joinKey = memberJoinMonthKey(member);
+    const nextKey = String(member?.nextDueDate || '').slice(0, 7);
+    if (!joinKey || nextKey !== monthAfterKey(joinKey)) return null;
+    if (member?.lastPaymentDate) return null;
+    const expected = joinFeeAmountForMember(member);
+    if (!(expected > EPS) || Math.abs(remaining - expected) > 0.01) return null;
+    capital = expected;
+  }
+  if (!(capital > EPS) || Math.abs(remaining - capital) > 0.01) return null;
+  return {
+    months: [{
+      ...periodFromDueOn(JOIN_FEE_DUE_ON),
+      capital,
+      interest: 0,
+      accumulated: capital,
+    }],
+    unallocated: 0,
+  };
+}
+
 function allocateMonths(member, { remaining, firstUnpaid, lastPaymentDate, todayIso, today }) {
   let leftover = remaining;
   const current = [];
@@ -263,7 +306,8 @@ export function appMonthlyDebtForMember(member, { today = new Date(), entries = 
     if (remaining <= EPS) return null;
   }
 
-  const { months, unallocated } = allocateMonths(member, {
+  const joinFee = allocateJoinFee(member, remaining);
+  const { months, unallocated } = joinFee || allocateMonths(member, {
     remaining,
     firstUnpaid,
     lastPaymentDate: member.lastPaymentDate,

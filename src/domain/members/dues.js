@@ -23,7 +23,6 @@ import { money } from '../money';
 import {
   duesMonthLabel,
   isJoinFeeDueOn,
-  JOIN_FEE_AMOUNT,
   JOIN_FEE_DUE_ON,
   JOIN_FEE_LABEL,
 } from './duesImputations';
@@ -63,7 +62,7 @@ export function duesRuleSentences() {
     lateLine: `El recargo es del ${late}, corre desde el día siguiente al vencimiento y solo en socio familiar e individual. AMET no lleva recargo.`,
     exemptLine: 'Vitalicio, fundador y comisión no abonan cuota social: sin mora, sin avisos ni Mercado Pago de cuota. Si tienen abono de tenis, ese abono sí se liquida y se cobra (aparte, sin el 10 %).',
     householdLine: 'En un grupo familiar la cuota es una sola, la del titular. El adherente no tiene cuenta propia. Un abono de tenis de un integrante sí se suma a la cuenta del titular, y se puede cobrar aparte de la cuota social.',
-    joinLine: `La cuota de alta es de ${new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(70000)}. Es un solo cargo al ingresar, no es un mes de cuota social y no lleva el recargo del ${late}. El mes siguiente ya es la cuota social.`,
+    joinLine: `La cuota de alta es la tarifa de la categoría, una sola vez: socio individual ${new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(40000)} y socio familiar ${new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(70000)}. No es un mes de cuota social y no lleva el recargo del ${late}. El mes siguiente ya es la cuota social.`,
     groupMoraLine: 'La deuda del titular alcanza al grupo: si debe meses anteriores, el adherente no entra a la sede. En temporada de pileta, desde el día 11 sin la cuota del mes tampoco. Fuera de temporada, si solo debe el mes en curso, sí puede pasar. Pileta sigue la mora del titular.',
     paymentLine: `Un pago cubre el mes en que se hizo: si el último pago fue en agosto, el próximo vencimiento es el ${DUES_DUE_DAY} de septiembre.`,
     deskLine: 'El recargo se cobra siempre. Un administrador puede borrarlo después en la ficha: el importe cobrado queda y el recargo pasa a saldo a favor.',
@@ -1146,7 +1145,7 @@ export function isMemberJoinFeeMonth(member, dueOn) {
   return Boolean(key && due === key);
 }
 
-/** El mes de ingreso es la cuota de alta: $ 70.000, sin recargo y sin nombre de mes. */
+/** El mes de ingreso es la cuota de alta: la tarifa de la categoría, sin recargo y sin nombre de mes. */
 function rewriteJoinFeeRows(member, rows) {
   if (!member || isDuesExemptMember(member) || isFamilyDependent(member)) return rows || [];
   const joinDue = joinMonthDueOn(member);
@@ -1431,9 +1430,10 @@ function choicesFromStoredOpenPeriods(member, paidOn, paidSet, scopeOpts = {}) {
     if (dueOnAlreadyCovered(dueOn, paidSet)) continue;
     const capital = money(row.capital ?? row.capitalOpen ?? row.capital_open);
     if (!(capital > 0)) continue;
-    const lateBase = money(row.lateBase ?? row.late_base ?? 0);
+    const alta = isJoinFeeDueOn(dueOn);
+    const lateBase = alta ? 0 : money(row.lateBase ?? row.late_base ?? 0);
     const due = parseDate(dueOn);
-    const overdue = Boolean(due && due < paidOn);
+    const overdue = Boolean(!alta && due && due < paidOn);
     const surcharge = overdue ? money(lateBase * 0.1) : 0;
     stored.push({
       id: dueOn,
@@ -1969,16 +1969,21 @@ export function diffAutomaticDues(before = [], after = []) {
   });
 }
 
+/** Cuota de alta: la tarifa de la categoría, una sola vez. Individual $ 40.000, familiar $ 70.000. */
+export function joinFeeAmountForMember(member) {
+  if (!member || isDuesExemptMember(member) || isFamilyDependent(member)) return 0;
+  return money(duesAmountForTier(member.tier));
+}
+
 /**
- * Cuota de alta: $ 70.000, una sola vez, sin recargo y sin nombre de mes.
+ * Cuota de alta: la tarifa de la categoría, una sola vez, sin recargo y sin nombre de mes.
  * Reemplaza la cuota social del mes de ingreso. El mes siguiente ya es cuota social.
  * Exentos: solo el abono de tenis, si lo tienen.
  */
 export function duesOnJoin(member, joinDate = new Date()) {
   const join = asDueAnchor(joinDate);
-  const exempt = isDuesExemptMember(member);
   const tennis = money(duesTennisAbonoAmountForAccount(member, join));
-  const alta = exempt ? 0 : JOIN_FEE_AMOUNT;
+  const alta = joinFeeAmountForMember(member);
   const outstandingBalance = money(alta + tennis);
   const day = duesDueDayForMember(member);
   const nextDueDate = toISODate(duesDateOnDueDay(join.getFullYear(), join.getMonth() + 1, day));

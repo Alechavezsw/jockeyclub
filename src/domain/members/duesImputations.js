@@ -3,10 +3,9 @@ import { money } from '../money';
 /** Deuda anterior al detalle por mes. Se cobra primero y no inventa un vencimiento. */
 export const OPENING_DUE_ON = '1900-01-10';
 
-/** Cuota de alta: un solo cargo de $ 70.000, no es un mes de cuota social y no lleva el 10 %. */
+/** Cuota de alta: la tarifa de la categoría, una sola vez. No es un mes y no lleva el 10 %. */
 export const JOIN_FEE_DUE_ON = '1899-12-10';
 export const JOIN_FEE_LABEL = 'Cuota de alta';
-export const JOIN_FEE_AMOUNT = 70000;
 
 export function isJoinFeeDueOn(dueOn) {
   return String(dueOn || '').slice(0, 10) === JOIN_FEE_DUE_ON;
@@ -33,6 +32,25 @@ export function duesMonthLabel(dueOn) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso) || iso <= OPENING_DUE_ON) return '';
   const name = MONTHS_ES[Number(iso.slice(5, 7)) - 1];
   return name ? `${name} de ${iso.slice(0, 4)}` : '';
+}
+
+function phraseIsJoinFee(phrase) {
+  return phrase === JOIN_FEE_LABEL
+    || phrase.startsWith(`${JOIN_FEE_LABEL} `)
+    || phrase.startsWith(`${JOIN_FEE_LABEL},`);
+}
+
+/**
+ * Título del cobro. La cuota de alta no se antepone con «Cuota social».
+ * El resto de los meses sí: «Cuota social · Noviembre de 2026».
+ */
+export function duesChargeConcept(monthPhrase, { prefix = 'Cuota social', empty = 'Cuota social' } = {}) {
+  const phrase = String(monthPhrase || '').trim();
+  if (phraseIsJoinFee(phrase)) {
+    return prefix === 'Cuota social' ? phrase : `${prefix} · ${phrase}`;
+  }
+  if (!phrase) return empty;
+  return `${prefix} · ${phrase}`;
 }
 
 /** «Septiembre de 2026, Octubre de 2026 y Noviembre de 2026». */
@@ -104,7 +122,7 @@ export function imputeDuesPayment(periods = [], cash, paidOn) {
     if (!(left > 0.009)) break;
     const capitalOpen = money(period.capitalOpen ?? period.capital);
     const due = String(period.dueOn).slice(0, 10);
-    const storedBase = money(period.lateBase);
+    const storedBase = isJoinFeeDueOn(due) ? 0 : money(period.lateBase);
     // Desde octubre, si el mes está en mora y no quedó base, el 10 % es de la cuota abierta.
     const lateBase = storedBase > 0.009
       ? storedBase

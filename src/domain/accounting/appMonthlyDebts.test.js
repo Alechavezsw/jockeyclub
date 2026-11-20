@@ -43,6 +43,53 @@ describe('appMonthlyDebts', () => {
     expect(row.standing).toBe('En mora');
   });
 
+  it('el alta de un socio individual es $ 40.000 y no se parte en octubre', () => {
+    const member = {
+      memberId: '111678',
+      name: 'Lahoz Piantanida',
+      tier: 'socio_individual',
+      status: 'active',
+      joinDate: '2026-11-19',
+      lastPaymentDate: null,
+      nextDueDate: '2026-12-10',
+      outstandingBalance: 40000,
+      duesOpenPeriods: [{ dueOn: '1899-12-10', capital: 40000, lateBase: 0, kind: 'alta' }],
+    };
+    const today = new Date('2026-11-19T15:00:00');
+    const row = appMonthlyDebtForMember(member, { today });
+    expect(row.months).toHaveLength(1);
+    expect(row.months[0].periodLabel).toBe('Cuota de alta');
+    expect(row.months[0].capital).toBe(40000);
+    expect(row.months[0].interest).toBe(0);
+    expect(row.unallocated).toBe(0);
+    expect(row.totalDebt).toBe(40000);
+  });
+
+  it('el alta de un grupo familiar es $ 70.000 y no se parte en octubre', () => {
+    const member = {
+      memberId: '111678',
+      name: 'Lahoz Piantanida',
+      tier: 'socio_familiar',
+      status: 'active',
+      joinDate: '2026-11-19',
+      lastPaymentDate: null,
+      nextDueDate: '2026-12-10',
+      outstandingBalance: 70000,
+      duesOpenPeriods: [{ dueOn: '1899-12-10', capital: 70000, lateBase: 0, kind: 'alta' }],
+    };
+    const today = new Date('2026-11-19T15:00:00');
+    const row = appMonthlyDebtForMember(member, { today });
+    expect(row.months).toHaveLength(1);
+    expect(row.months[0].periodLabel).toBe('Cuota de alta');
+    expect(row.months[0].capital).toBe(70000);
+    expect(row.months[0].interest).toBe(0);
+    expect(row.unallocated).toBe(0);
+    expect(row.totalDebt).toBe(70000);
+    const standing = memberDuesStandingSummary(member, { today });
+    expect(duesStandingDisplayHint(standing, (n) => `$${n}`)).toBe('Cuota de alta');
+    expect(duesStandingDisplayAmount(standing, (n) => `$${n}`)).toBe('$70000');
+  });
+
   it('el mes de ingreso es cuota de alta a $ 70.000 y no lleva recargo', () => {
     const row = appMonthlyDebtForMember(
       familiar({ joinDate: '2026-10-04' }),

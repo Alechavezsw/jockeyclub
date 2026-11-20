@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Search, Filter, Plus, Check, CheckCircle2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Trash2, Users, UserMinus, UserPlus, X, CreditCard, Camera, FileDown, FileSpreadsheet, Pencil, KeyRound, MoreVertical } from 'lucide-react';
-import { duesOnJoin, isDuesExemptMember, pinDuesDueDate, quotaHeadline, toWhatsAppPhone } from '../../domain/members/dues';
-import { JOIN_FEE_AMOUNT } from '../../domain/members/duesImputations';
+import { duesOnJoin, isDuesExemptMember, joinFeeAmountForMember, pinDuesDueDate, quotaHeadline, toWhatsAppPhone } from '../../domain/members/dues';
 import { persistDuesCollection, recordDuesCollection } from '../../domain/members/memberPayments';
 import { deliverPaymentReceipt } from '../../domain/payments/deliverPaymentReceipt';
 import { exportMembersExcel } from '../../domain/members/exportMembersExcel';
@@ -398,7 +397,8 @@ export default function MembersTab({
     }, form.joinDate || todayISODateAR()).outstandingBalance,
     [form.tier, form.status, form.familyGroup, form.joinDate],
   );
-  const duesAddOns = Math.max(0, duesPreview - (isDuesExemptMember({ tier: form.tier, status: form.status }) ? 0 : JOIN_FEE_AMOUNT));
+  const joinFee = joinFeeAmountForMember({ tier: form.tier, status: form.status });
+  const duesAddOns = Math.max(0, duesPreview - joinFee);
 
   const updateForm = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -2110,7 +2110,7 @@ export default function MembersTab({
                 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 4 }}>
                     <span>Cuota de alta</span>
-                    <span style={{ color: 'var(--text-primary)' }}>{formatCurrency(isDuesExemptMember({ tier: form.tier, status: form.status }) ? 0 : JOIN_FEE_AMOUNT)}</span>
+                    <span style={{ color: 'var(--text-primary)' }}>{formatCurrency(joinFee)}</span>
                   </div>
                   {duesAddOns > 0 ? (
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 4 }}>
