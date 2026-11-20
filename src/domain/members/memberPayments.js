@@ -481,8 +481,10 @@ export function applyImportedMemberPayment(member, {
   const skipSurcharge = duesMethodSkipsSurcharge(method);
 
   if (due > 0.01) {
+    // Débito: el resto de apertura (mora embebida) no es un período a cobrar.
     const schedule = openPeriodsFromChoices(collectionPeriodChoices(member, when), due)
-      .map((row) => (skipSurcharge ? { ...row, lateBase: 0 } : row));
+      .map((row) => (skipSurcharge ? { ...row, lateBase: 0 } : row))
+      .filter((row) => !(skipSurcharge && String(row.dueOn) <= OPENING_DUE_ON));
     const imputed = imputeDuesPayment(schedule, paid, iso);
     payment.imputations = imputed.allocations;
     payment.quota = imputed.capital;
@@ -495,9 +497,19 @@ export function applyImportedMemberPayment(member, {
     const capitalLeft = money(due - imputed.capital);
     leftover = imputed.unapplied;
     const openDue = nextOpenDue(schedule, imputed.allocations);
-    if (capitalLeft <= 0.01) {
+    const scheduleCapital = money(
+      schedule.reduce((sum, row) => sum + (Number(row.capital) || 0), 0),
+    );
+    // Débito: si cubrió el capital de los meses, no deja el 10 % embebido en ficha.
+    const debitClearsResidual = skipSurcharge
+      && imputed.capital + 0.01 >= scheduleCapital
+      && capitalLeft > 0.01;
+    if (capitalLeft <= 0.01 || debitClearsResidual) {
       current = afterCollectDues(member, when);
-      current = { ...current, outstandingBalance: capitalLeft };
+      current = {
+        ...current,
+        outstandingBalance: capitalLeft <= 0.01 ? capitalLeft : 0,
+      };
     } else {
       current = {
         ...withPaidParts(member, imputed.capital, skipSurcharge ? 0 : imputed.surcharge),
@@ -717,9 +729,9 @@ export function payMemberDues(member, {
   const coveredCapital = money(covered.reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
   const scheduleAmount = coveredCapital > 0 ? coveredCapital : Math.max(0, stored);
   const schedule = scheduleAmount > 0
-    ? openPeriodsFromChoices(covered, scheduleAmount).map((row) => (
-      skipInterest ? { ...row, lateBase: 0 } : row
-    ))
+    ? openPeriodsFromChoices(covered, scheduleAmount)
+      .map((row) => (skipInterest ? { ...row, lateBase: 0 } : row))
+      .filter((row) => !(skipInterest && String(row.dueOn) <= OPENING_DUE_ON))
     : [];
   // El saldo a favor se imputa al saldar el efectivo debido. En un a cuenta
   // parcial el crédito sigue embebido en el saldo de ficha hasta el próximo cobro.
@@ -825,12 +837,20 @@ export function payMemberDues(member, {
     const embedded = lilaRaw != null && lilaRaw !== ''
       ? money(Math.max(0, stored - money(Math.max(0, Number(lilaRaw) || 0))))
       : money(Math.max(0, Number(member?.unpaidSurcharges) || 0));
+    const scheduleCapital = money(
+      schedule.reduce((sum, row) => sum + (Number(row.capital) || 0), 0),
+    );
+    // Débito / Galicia: al saldar el capital no genera ni deja el 10 % de mora.
+    const debitClearsResidual = skipInterest
+      && imputed.capital + 0.01 >= scheduleCapital
+      && capitalLeft > 0.01
+      && remainingCash <= 0.01;
     const duesSettled = !openDue
       && remainingCash <= 0.01
       && remainingChoices.length === 0
       && embedded > 0.01
       && capitalLeft <= embedded + 0.01;
-    if ((capitalLeft <= 0.01 && !openDue) || duesSettled) {
+    if ((capitalLeft <= 0.01 && !openDue) || duesSettled || debitClearsResidual) {
       const cleared = afterCollectDues(member, today);
       const balanceLeft = money(creditLeftover > 0.01 ? -creditLeftover : 0);
       const settled = stampCredit({

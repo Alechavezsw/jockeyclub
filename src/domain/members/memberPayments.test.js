@@ -1227,6 +1227,54 @@ describe('débito como medio de cobro', () => {
     }
   });
 
+  it('débito sobre apertura con mora embebida no deja los $7.000 (caso 9751)', () => {
+    setRuntimeTierCatalog([
+      { id: 'socio_familiar', name: 'SOCIO FAMILIAR', monthlyDues: 70000, sortOrder: 1 },
+    ]);
+    const member = {
+      memberId: '9751',
+      name: 'Jorge Maximilia Calderon Luna',
+      tier: 'socio_familiar',
+      status: 'active',
+      cuotaCategories: ['SOCIO FAMILIAR'],
+      outstandingBalance: 77000,
+      unpaidCapital: 70000,
+      nextDueDate: '2026-10-10',
+      paymentHistory: [],
+    };
+    const today = new Date('2026-11-01T12:00:00-03:00');
+    try {
+      const imported = applyImportedMemberPayment(member, {
+        amount: 70000,
+        date: '2026-11-01',
+        method: 'debito',
+        voucher: '03656347',
+        bankName: 'Banco Macro',
+        paidAtReason: 'Importación débitos LILA noviembre 2026',
+      });
+      expect(imported.payment.surcharge || 0).toBe(0);
+      expect(imported.member.outstandingBalance).toBe(0);
+
+      const collected = recordDuesCollection(member, {
+        method: 'debito',
+        bankId: 'macro',
+        bankName: 'Banco Macro',
+        today,
+        amount: 70000,
+        receiptParse: {
+          source: 'manual',
+          reference: '03656347',
+          amount: 70000,
+          date: '2026-11-01',
+        },
+      });
+      expect(collected.payment.surcharge || 0).toBe(0);
+      expect(collected.member.outstandingBalance).toBe(0);
+    } finally {
+      setRuntimeTierCatalog(null);
+    }
+  });
+
   it('importación marcada como débito no adelanta con el 10 %', () => {
     setRuntimeTierCatalog([
       { id: 'socio_individual', name: 'SOCIO INDIVIDUAL', monthlyDues: 40000, sortOrder: 1 },

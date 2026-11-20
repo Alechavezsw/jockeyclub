@@ -11,18 +11,18 @@ Rama: `fix/dues-credit-source-of-truth`
 | `meta.unpaidCapital` (antes) | $ 70.000 |
 | `next_due_date` | 2026-12-10 |
 | `member_dues_entries` | opening +77.000 (2026-11-03) + payment −70.000 (pago 2026-11-01) |
-| `member_payments` | $ 70.000 transferencia, cpr **03656347**, período octubre 2026 |
+| `member_payments` | $ 70.000 **débito** (import LILA; estaba mal como transferencia), cpr **03656347**, período octubre 2026 |
 | `member_dues_periods` / `dues_imputations` | vacíos |
 
 **Reconstrucción**
 
 1. Apertura 03/11: $ 77.000 (= capital $ 70.000 + 10 % $ 7.000 embebido en el corte).
-2. Pago 01/11 importado: $ 70.000 capital de octubre (sin mora).
-3. Remanente real en ficha: **$ 7.000** (entries netean exactamente).
-4. `unpaidCapital` quedó en $ 70.000 (stale) → la UI de libro podía mostrar “noviembre $ 70.000”.
-5. `collectionPreview` trataba `unpaid − outstanding = $ 63.000` como **crédito absorbido** → crédito ficticio.
+2. Pago 01/11 importado: $ 70.000 capital de octubre por **débito** (el débito no cobra el 10 %; `surcharge: 0` en meta). El import lo guardó mal como `transferencia`; corregido a `debito`.
+3. Tras el débito, la ficha **no debe** quedar en $ 7.000: el débito no genera mora. Se cargó un ajuste auditado −$ 7.000 y `outstanding_balance` / `unpaidCapital` = **0**.
+4. `unpaidCapital` había quedado en $ 70.000 (stale) y podía mostrar “noviembre $ 70.000”.
+5. `collectionPreview` trataba `unpaid − outstanding = $ 63.000` como **crédito absorbido** → crédito ficticio (corregido en código).
 
-Los $ 7.000 **no** son un crédito ni un mes de noviembre: son el remanente de la apertura tras el pago de capital de octubre.
+Regla: cobro por débito que cubre el capital de los meses abiertos **no deja** el 10 % embebido en la apertura.
 
 `next_due_date` 10/12 indica próximo vencimiento de quien ya pasó noviembre en ficha; **no** es deuda de diciembre.
 
