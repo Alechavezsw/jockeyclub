@@ -97,15 +97,67 @@ async function resolveIntentId(admin: Admin, ref: string) {
   return raw;
 }
 
+const AMOUNT_TOLERANCE_PERCENT = 0.01;
+
 async function applyCheckoutPayment(
   admin: Admin,
   intentId: string,
   providerPaymentId: string,
   status: string,
   paidAmount: number,
+  currency?: string,
 ) {
   const resolved = await resolveIntentId(admin, intentId);
   if (!resolved) return { error: "Sin cobro vinculado." };
+
+  const { data: intent } = await admin
+    .from("mp_intents")
+    .select("id, amount, status, applied_at, provider_payment_id, member_id")
+    .eq("id", resolved)
+    .maybeSingle();
+
+  if (!intent) return { error: "Intent no encontrado.", intentId: resolved };
+
+  if (intent.applied_at) {
+    return { ok: true, already: true, intentId: resolved };
+  }
+
+  if (providerPaymentId) {
+    const { data: existingPayment } = await admin
+      .from("mp_intents")
+      .select("id")
+      .eq("provider_payment_id", providerPaymentId)
+      .neq("id", resolved)
+      .maybeSingle();
+    if (existingPayment) {
+      console.error(`Duplicate provider_payment_id ${providerPaymentId} on intent ${existingPayment.id}`);
+      return { error: "Este pago ya fue aplicado a otro cobro.", intentId: resolved, duplicate: true };
+    }
+  }
+
+  if (currency) {
+    const normalizedCurrency = currency.toUpperCase().trim();
+    if (normalizedCurrency !== "ARS") {
+      console.error(`Payment ${providerPaymentId}: unexpected currency ${normalizedCurrency}`);
+      return { error: `Moneda no soportada: ${normalizedCurrency}. Solo se acepta ARS.`, intentId: resolved };
+    }
+  }
+
+  const expectedAmount = Number(intent.amount || 0);
+  if (expectedAmount > 0 && paidAmount > 0) {
+    const diff = Math.abs(paidAmount - expectedAmount);
+    const tolerance = expectedAmount * AMOUNT_TOLERANCE_PERCENT;
+    if (diff > tolerance) {
+      console.error(`Payment ${providerPaymentId}: expected ${expectedAmount} ARS, got ${paidAmount} ARS (diff: ${diff})`);
+      return {
+        error: `Monto incorrecto: esperado $${expectedAmount}, recibido $${paidAmount}.`,
+        intentId: resolved,
+        expectedAmount,
+        paidAmount,
+      };
+    }
+  }
+
   const { error } = await admin.rpc("apply_mp_approved_payment", {
     p_intent_id: resolved,
     p_provider_payment_id: providerPaymentId,
@@ -138,6 +190,7 @@ async function applyMerchantOrder(admin: Admin, token: string, remoteId: string)
   );
   const status = mpPaidStatus(payment.status || pick.status) || "pending";
   const paidAmount = Number(payment.transaction_amount || pick.transaction_amount || order.paid_amount || 0);
+  const currency = String(payment.currency_id || order.currency_id || "");
   if (!intentId) return { ok: true, ignored: true, reason: "no-intent", orderId: remoteId };
   const applied = await applyCheckoutPayment(
     admin,
@@ -145,6 +198,7 @@ async function applyMerchantOrder(admin: Admin, token: string, remoteId: string)
     String(payment.id || pick.id),
     status,
     paidAmount,
+    currency,
   );
   return { ok: true, kind: "merchant_order", orderId: remoteId, ...applied };
 }
@@ -154,6 +208,7 @@ async function applyPaymentId(admin: Admin, token: string, remoteId: string) {
   const metadata = payment.metadata as { intent_id?: string } | undefined;
   const intentId = String(payment.external_reference || metadata?.intent_id || "");
   const paymentStatus = mpApiStatus(payment.status);
+  const currency = String(payment.currency_id || "");
   if (!intentId || !paymentStatus) return { ok: true, ignored: true };
   return {
     ok: true,
@@ -164,6 +219,7 @@ async function applyPaymentId(admin: Admin, token: string, remoteId: string) {
       String(payment.id || remoteId),
       paymentStatus,
       Number(payment.transaction_amount || 0),
+      currency,
     ),
   };
 }
@@ -237,10 +293,19 @@ async function repairPendingIntents(admin: Admin, token: string, body: Record<st
   return { ok: true, kind: "repair", count: results.length, results };
 }
 
-async function mpSignatureOk(req: Request, rawBody: string, secret: string) {
+const SIGNATURE_TIMESTAMP_TOLERANCE_SECONDS = 300;
+
+type SignatureValidationResult = {
+  valid: boolean;
+  reason?: string;
+};
+
+async function mpSignatureOk(req: Request, rawBody: string, secret: string): Promise<SignatureValidationResult> {
   const header = String(req.headers.get("x-signature") || "").trim();
   const requestId = String(req.headers.get("x-request-id") || "").trim();
-  if (!header || !secret) return false;
+  if (!header) return { valid: false, reason: "missing-header" };
+  if (!secret) return { valid: false, reason: "missing-secret" };
+
   const parts: Record<string, string> = {};
   for (const chunk of header.split(",")) {
     const [key, ...rest] = chunk.split("=");
@@ -249,7 +314,18 @@ async function mpSignatureOk(req: Request, rawBody: string, secret: string) {
   const ts = parts.ts || "";
   const hash = String(parts.v1 || "").toLowerCase();
   const dataId = signedResourceId(req, rawBody).toLowerCase();
-  if (!ts || !hash || !dataId) return false;
+  if (!ts) return { valid: false, reason: "missing-timestamp" };
+  if (!hash) return { valid: false, reason: "missing-hash" };
+  if (!dataId) return { valid: false, reason: "missing-data-id" };
+
+  const tsNum = parseInt(ts, 10);
+  if (Number.isNaN(tsNum)) return { valid: false, reason: "invalid-timestamp" };
+
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const age = nowSeconds - tsNum;
+  if (age < -60) return { valid: false, reason: "timestamp-in-future" };
+  if (age > SIGNATURE_TIMESTAMP_TOLERANCE_SECONDS) return { valid: false, reason: "timestamp-expired" };
+
   const chunks = [`id:${dataId}`];
   if (requestId) chunks.push(`request-id:${requestId}`);
   chunks.push(`ts:${ts}`);
@@ -262,7 +338,9 @@ async function mpSignatureOk(req: Request, rawBody: string, secret: string) {
     ["sign"],
   );
   const signed = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(manifest));
-  return sameHex(hexOf(signed), hash);
+  if (!sameHex(hexOf(signed), hash)) return { valid: false, reason: "signature-mismatch" };
+
+  return { valid: true };
 }
 
 /** Estado tal como lo devolvió la API. Nunca se inventa "approved". */
@@ -831,7 +909,9 @@ Deno.serve(async (req) => {
       return json(200, await repairPendingIntents(admin, token, body));
     }
 
-    if (!secret || !(await mpSignatureOk(req, rawBody, secret))) {
+    const sigResult = await mpSignatureOk(req, rawBody, secret);
+    if (!sigResult.valid) {
+      console.error(`Webhook signature validation failed: ${sigResult.reason}`);
       return json(401, { error: "Firma inválida." });
     }
     const topic = topicOf(body, url);
@@ -852,12 +932,14 @@ Deno.serve(async (req) => {
       const payments = (order.transactions as { payments?: Array<Record<string, unknown>> } | undefined)?.payments || [];
       const pay = payments[0] || {};
       const status = mpPaidStatus(pay.status || order.status) || "pending";
+      const currency = String((pay as Record<string, unknown>).currency_id || order.currency_id || "");
       const applied = await applyCheckoutPayment(
         admin,
         intentId,
         String(pay.id || remoteId),
         status,
         Number(pay.amount || order.total_amount || 0),
+        currency,
       );
       if (applied.error) return json(500, { error: applied.error, ...applied });
       return json(200, { ok: true, kind: "qr_order", ...applied });
