@@ -21,6 +21,9 @@ export const DEFAULT_POOL_SETTINGS = {
   seasonLabel: 'Temporada de pileta 2026/2027',
   memberCanUploadMedical: true,
   seasonBlocksUnpaidDues: true,
+  /** Guest tariff configuration - read from app_settings.pool in cloud */
+  guestEnabled: false,
+  guestTariffApproved: false,
 };
 
 /** Mismos medios de cobro que en la app (cuotas), sin mixto: el canon de pileta es un solo importe. */
@@ -90,8 +93,62 @@ export function mergePoolSettings(raw = {}) {
     0,
     Number(src.freeUnderAgeYears ?? DEFAULT_POOL_SETTINGS.freeUnderAgeYears) || 0,
   );
-  next.guestDayFee = Math.max(0, Number(next.guestDayFee) || 0);
+  
+  // Guest configuration - must be explicitly approved
+  next.guestEnabled = src.guestEnabled === true;
+  next.guestTariffApproved = src.guestTariffApproved === true;
+  // Only set guest fee if tariff is approved; otherwise null indicates unapproved
+  if (next.guestTariffApproved && src.guestDayFee != null) {
+    next.guestDayFee = Math.max(0, Number(src.guestDayFee) || 0);
+  } else if (!next.guestTariffApproved) {
+    next.guestDayFee = null; // Explicitly null when not approved
+  } else {
+    next.guestDayFee = Math.max(0, Number(next.guestDayFee) || 0);
+  }
+  
   return next;
+}
+
+/**
+ * Check if guest access is currently allowed.
+ * Returns an object with enabled status and reason if disabled.
+ */
+export function getGuestAccessStatus(settings = {}) {
+  const cfg = mergePoolSettings(settings);
+  
+  if (!cfg.guestEnabled) {
+    return {
+      allowed: false,
+      reason: 'Ingreso de invitados deshabilitado',
+      tariffApproved: false,
+      fee: null,
+    };
+  }
+  
+  if (!cfg.guestTariffApproved) {
+    return {
+      allowed: false,
+      reason: 'Tarifa de invitados pendiente de definición',
+      tariffApproved: false,
+      fee: null,
+    };
+  }
+  
+  if (cfg.guestDayFee == null || cfg.guestDayFee < 0) {
+    return {
+      allowed: false,
+      reason: 'Tarifa de invitados no definida',
+      tariffApproved: false,
+      fee: null,
+    };
+  }
+  
+  return {
+    allowed: true,
+    reason: null,
+    tariffApproved: true,
+    fee: cfg.guestDayFee,
+  };
 }
 
 /** Documento médico de pileta (apto / revisación). */
@@ -268,10 +325,18 @@ export function evaluatePoolAccess(member, {
     members,
     accesses,
   });
+  
+  // Determine if exempt (minor under age or household cap)
+  const isExempt = !personQuote.pays && personQuote.amount === 0 && !personQuote.alreadyPaid;
+  const exemptReason = isExempt ? personQuote.reason : null;
+  
+  // paidToday: actual payment made today (NOT attendance at $0)
+  // Must have scope='season' OR positive amount to count as payment
   const paidToday = seasonPaid || listDayAccesses(accesses, today).some(
     (a) => a.kind === 'member'
       && String(a.memberId) === String(member.memberId)
-      && (Number(a.payment?.amount) > 0 || a.payment?.scope === 'season')
+      && a.source !== 'attendance' // Exclude attendance records
+      && (a.payment?.scope === 'season' || Number(a.payment?.amount) > 0)
   );
 
   return {
@@ -283,12 +348,15 @@ export function evaluatePoolAccess(member, {
     payBlocked: Boolean(payAccess.mora),
     paidToday,
     seasonPaid,
+    isExempt,
+    exemptReason,
     seasonAmountDue: Number(personQuote.amount) || 0,
     seasonReason: personQuote.reason || '',
     alreadyIn,
     memberFee: cfg.memberSeasonFee,
     guestFee: cfg.guestDayFee,
     maxGuests: cfg.maxGuestsPerMember,
+    guestTariffApproved: cfg.guestTariffApproved,
   };
 }
 
@@ -391,20 +459,77 @@ export function enableMemberPoolAccess({
   return { entry, accesses: [entry, ...(accesses || [])] };
 }
 
-/** Marca asistencia en puerta: cuenta en ingresos del día, sin exigir apto ni cobro. */
+/**
+ * Marca asistencia en puerta: registro administrativo del día.
+ * 
+ * IMPORTANTE: Esta función es solo para registro administrativo.
+ * NO autoriza el ingreso físico a pileta. El socio debe:
+ * 1. Estar activo
+ * 2. Tener derecho de temporada pagado o exención válida
+ * 3. Tener apto médico vigente
+ * 4. Cumplir condiciones de cuota social
+ * 
+ * El registro de asistencia ($0, method='asistencia', source='attendance')
+ * NO cuenta como pago de temporada y NO otorga derecho de ingreso.
+ */
 export function recordPoolAttendance({
   member,
   accesses = [],
   actorName = '',
   today = todayISO(),
   members = [],
+  settings = DEFAULT_POOL_SETTINGS,
+  validateEntry = true,
 } = {}) {
   if (!member?.memberId) throw new Error('Seleccioná un socio.');
+  
+  // Check social dues gate
   const duesGate = seasonDuesGate(member, { today, members });
   if (duesGate.blocked) throw new Error(duesGate.reason);
+  
+  // Check if already registered today
   if (memberDayAccess(accesses, member.memberId, today)) {
     throw new Error('El socio ya está anotado hoy.');
   }
+  
+  // If validateEntry is true, check all entry requirements
+  if (validateEntry) {
+    // Check member status
+    if (member.status !== 'active') {
+      throw new Error('Solo socios activos pueden ingresar a pileta.');
+    }
+    
+    // Check medical clearance
+    const medical = getMedicalStatus(member, { today });
+    if (!medical.ok) {
+      throw new Error(medical.label || 'Falta revisación médica vigente.');
+    }
+    
+    // Check season pass (using corrected logic that excludes $0 attendance)
+    const cfg = mergePoolSettings(settings);
+    const hasPass = memberHasPoolSeasonPass(accesses, member.memberId, today, cfg);
+    if (!hasPass) {
+      // Check if exempt (minor under age threshold)
+      const birthDate = member.birthDate || member.birth_date;
+      let age = null;
+      if (birthDate) {
+        const birth = new Date(birthDate);
+        const ref = typeof today === 'string' ? new Date(`${today}T12:00:00`) : today;
+        if (!isNaN(birth.getTime()) && !isNaN(ref.getTime())) {
+          age = ref.getFullYear() - birth.getFullYear();
+          const monthDiff = ref.getMonth() - birth.getMonth();
+          if (monthDiff < 0 || (monthDiff === 0 && ref.getDate() < birth.getDate())) {
+            age -= 1;
+          }
+        }
+      }
+      const freeUnder = cfg.freeUnderAgeYears || 4;
+      if (age === null || age >= freeUnder) {
+        throw new Error('No abonó el canon de temporada de pileta.');
+      }
+    }
+  }
+  
   const medical = getMedicalStatus(member, { today });
   const entry = {
     id: `pool-a-${Date.now().toString(36)}`,
@@ -420,6 +545,7 @@ export function recordPoolAttendance({
       paidAt: new Date().toISOString(),
       ref: null,
       concept: 'Asistencia pileta',
+      scope: 'attendance', // Explicitly NOT 'season'
     },
     medicalExpiresAt: medical.expiresAt || null,
     enabledAt: new Date().toISOString(),
@@ -447,6 +573,13 @@ export function enableGuestPoolAccess({
   if (host.status !== 'active') throw new Error('El anfitrión debe estar activo.');
 
   const cfg = mergePoolSettings(settings);
+  
+  // Check if guest access is allowed
+  const guestStatus = getGuestAccessStatus(settings);
+  if (!guestStatus.allowed) {
+    throw new Error(guestStatus.reason || 'Tarifa de invitados pendiente de definición');
+  }
+  
   const hostAccess = memberDayAccess(accesses, host.memberId, today);
   if (!hostAccess) throw new Error('Habilitá primero el acceso del socio titular.');
 
@@ -455,7 +588,11 @@ export function enableGuestPoolAccess({
     throw new Error(`Máximo ${cfg.maxGuestsPerMember} invitados por socio y día.`);
   }
 
-  const fee = amount != null ? Number(amount) : cfg.guestDayFee;
+  // Use provided amount or the approved guest fee
+  const fee = amount != null ? Number(amount) : guestStatus.fee;
+  if (fee == null || fee < 0) {
+    throw new Error('Tarifa de invitados no definida');
+  }
   const entry = {
     id: `pool-g-${Date.now().toString(36)}`,
     date: today,
@@ -496,25 +633,72 @@ export function memberPoolHistory(accesses = [], memberId) {
       || String(b.enabledAt || '').localeCompare(String(a.enabledAt || '')));
 }
 
+/**
+ * Determine pool entrance verdict for display.
+ * 
+ * A member can only enter when ALL of:
+ * 1. Active status
+ * 2. Season pass paid OR legitimate exemption (under age, household cap)
+ * 3. Valid medical clearance
+ * 4. Social dues requirements met (not blocked by dues gate)
+ * 
+ * Note: Having a previous attendance record is NOT sufficient for entry.
+ * The 'alreadyIn' flag only indicates they're already registered today,
+ * not that they can enter without meeting requirements.
+ */
 export function poolEntranceVerdict(member, eval_ = {}, dues = 0) {
   if (!member) {
     return { status: 'idle', title: 'Buscá un socio', detail: 'Nombre, DNI o número de socio.' };
   }
+  
+  // Already registered today - but they still needed to meet requirements to get in
   if (eval_.alreadyIn) {
     return { status: 'granted', title: 'ASISTIÓ', detail: 'Anotado en ingresos de hoy' };
   }
-  if (member.status === 'active' && eval_.medical?.ok && (eval_.paidToday || eval_.seasonPaid)) {
+  
+  // Check all entry requirements
+  const blockers = [...(eval_.blockers || [])];
+  
+  // Check member status
+  if (member.status !== 'active') {
+    const statusLabel = member.status === 'inactive' ? 'Dado de baja' 
+      : member.status === 'suspended' ? 'Suspendido' 
+      : 'Cuenta no habilitada';
+    if (!blockers.some(b => /baja|suspend|habilita/i.test(b))) {
+      blockers.push(statusLabel);
+    }
+  }
+  
+  // Check medical clearance
+  if (!eval_.medical?.ok) {
+    if (!blockers.some(b => /médic|revisación|apto/i.test(b))) {
+      blockers.push(eval_.medical?.label || 'Sin revisación médica vigente');
+    }
+  }
+  
+  // Check season pass (must be actually paid, not just attendance)
+  // seasonPaid should only be true for actual payments, not $0 attendance
+  const hasSeasonRight = eval_.seasonPaid || eval_.paidToday || eval_.isExempt;
+  if (!hasSeasonRight) {
+    if (!blockers.some(b => /canon|temporada|pileta/i.test(b))) {
+      blockers.push('No abonó el canon de temporada de pileta.');
+    }
+  }
+  
+  // All requirements met
+  if (blockers.length === 0 && member.status === 'active' && eval_.medical?.ok && hasSeasonRight) {
     return {
       status: 'granted',
       title: 'PUEDE INGRESAR',
-      detail: eval_.seasonPaid
-        ? 'Temporada abonada · apto médico vigente'
-        : 'Canon pago · apto médico vigente',
+      detail: eval_.isExempt 
+        ? `${eval_.exemptReason || 'Exento'} · apto médico vigente`
+        : eval_.seasonPaid
+          ? 'Temporada abonada · apto médico vigente'
+          : 'Canon pago · apto médico vigente',
     };
   }
-  const blockers = eval_.blockers || [];
-  const first = blockers[0]
-    || (!(eval_.paidToday || eval_.seasonPaid) ? 'No abonó el canon de temporada de pileta.' : 'No puede ingresar.');
+  
+  const first = blockers[0] || 'No puede ingresar.';
   return {
     status: 'denied',
     title: 'NO INGRESA',

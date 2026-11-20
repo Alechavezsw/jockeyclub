@@ -187,24 +187,47 @@ export function quotePersonPoolSeason(member, opts = {}) {
   };
 }
 
+/**
+ * Check if member has a valid pool season pass.
+ * IMPORTANT: This explicitly excludes free attendance records ($0 payments).
+ * A season pass requires either:
+ * - payment.scope === 'season'
+ * - concept containing 'temporada' AND amount > 0
+ * - amount >= 95% of season fee
+ * 
+ * Free attendance (source: 'attendance', amount: 0) is NOT a season pass.
+ */
 export function memberHasPoolSeasonPass(accesses = [], memberId, today, settings = {}) {
   const id = String(memberId || '').replace(/\D/g, '') || String(memberId || '');
   if (!id) return false;
   const win = poolSeasonWindow(today);
   const fee = billingCfg(settings).memberSeasonFee;
+  
   return (accesses || []).some((row) => {
     if (row?.status === 'revoked') return false;
     if (row?.kind && row.kind !== 'member') return false;
+    
     const mid = String(row?.memberId || '').replace(/\D/g, '') || String(row?.memberId || '');
     if (mid !== id) return false;
+    
     const date = String(row?.date || '').slice(0, 10);
     if (!date || date < win.open || date > win.close) return false;
+    
+    // Exclude explicit attendance records (not payments)
+    if (row?.source === 'attendance') return false;
+    
     const pay = row?.payment || {};
-    if (pay.scope === 'season') return true;
-    if (/temporada/i.test(String(pay.concept || ''))) return true;
     const amount = Number(pay.amount) || 0;
-    // Cobro de temporada (no asistencia ni pases a $0).
-    if (fee > 0 && amount + 0.01 >= fee) return true;
+    
+    // Explicit season scope with actual payment
+    if (pay.scope === 'season' && amount > 0) return true;
+    
+    // Concept indicates season AND has actual payment
+    if (/temporada/i.test(String(pay.concept || '')) && amount > 0) return true;
+    
+    // Amount is at least 95% of season fee (actual payment, not $0)
+    if (fee > 0 && amount >= fee * 0.95) return true;
+    
     return false;
   });
 }

@@ -54,9 +54,10 @@ describe('poolAccess', () => {
     expect(() => attachPoolMedical(member, {})).toThrow(/talonario|archivo/i);
   });
 
-  it('habilita socio con médico, cobra temporada y registra invitado', () => {
+  it('habilita socio con médico, cobra temporada y registra invitado con tarifa aprobada', () => {
     const withMed = attachPoolMedical(member, { fileName: 'apto.pdf', uploadedAt: '2026-08-01T12:00:00.000Z' });
-    const eval_ = evaluatePoolAccess(withMed, { today: '2026-12-05', accesses: [] });
+    const settings = { guestEnabled: true, guestTariffApproved: true, guestDayFee: 5000 };
+    const eval_ = evaluatePoolAccess(withMed, { today: '2026-12-05', accesses: [], settings });
     expect(eval_.canEnable).toBe(true);
     expect(eval_.seasonAmountDue).toBe(90000);
 
@@ -65,13 +66,14 @@ describe('poolAccess', () => {
       accesses: [],
       method: 'efectivo',
       today: '2026-12-05',
+      settings,
     });
     expect(entry.kind).toBe('member');
     expect(entry.payment.method).toBe('efectivo');
     expect(entry.payment.amount).toBe(90000);
     expect(entry.payment.scope).toBe('season');
 
-    const again = evaluatePoolAccess(withMed, { today: '2026-12-20', accesses });
+    const again = evaluatePoolAccess(withMed, { today: '2026-12-20', accesses, settings });
     expect(again.seasonPaid).toBe(true);
     expect(again.seasonAmountDue).toBe(0);
 
@@ -81,9 +83,32 @@ describe('poolAccess', () => {
       accesses,
       method: 'mercadopago',
       today: '2026-12-05',
+      settings,
     });
     expect(guest.entry.kind).toBe('guest');
     expect(poolDayStats(guest.accesses, '2026-12-05').total).toBe(2);
+  });
+
+  it('bloquea invitados si la tarifa no está aprobada', () => {
+    const withMed = attachPoolMedical(member, { fileName: 'apto.pdf', uploadedAt: '2026-08-01T12:00:00.000Z' });
+    const settings = { guestEnabled: true, guestTariffApproved: false };
+    const { entry, accesses } = enableMemberPoolAccess({
+      member: withMed,
+      accesses: [],
+      method: 'efectivo',
+      today: '2026-12-05',
+      settings,
+    });
+    expect(entry.payment.scope).toBe('season');
+
+    expect(() => enableGuestPoolAccess({
+      host: withMed,
+      guestName: 'Juan',
+      accesses,
+      method: 'efectivo',
+      today: '2026-12-05',
+      settings,
+    })).toThrow(/tarifa.*pendiente|tariff|aprobad|deshabilitado/i);
   });
 
   it('da veredicto de entrada según canon y apto', () => {
@@ -141,21 +166,53 @@ describe('poolAccess', () => {
     expect(history.map((r) => r.id)).toEqual(['c', 'a']);
   });
 
-  it('anota asistencia sin apto y la suma a ingresos del día', () => {
+  it('anota asistencia sin validación si se pide skip', () => {
+    // With validateEntry=false, attendance is recorded without checking requirements
     const { entry, accesses } = recordPoolAttendance({
       member,
       accesses: [],
       today: '2026-09-12',
+      validateEntry: false, // Skip validation for admin override
     });
     expect(entry.source).toBe('attendance');
     expect(entry.payment.amount).toBe(0);
+    expect(entry.payment.scope).toBe('attendance');
     const snap = evaluatePoolAccess(member, { accesses, today: '2026-09-12' });
     expect(snap.alreadyIn).toBe(true);
+    // $0 attendance does NOT count as a paid pass
     expect(snap.paidToday).toBe(false);
+    expect(snap.seasonPaid).toBe(false);
     expect(poolDayStats(accesses, '2026-09-12').members).toBe(1);
     expect(poolDayStats(accesses, '2026-09-12').collected).toBe(0);
-    expect(() => recordPoolAttendance({ member, accesses, today: '2026-09-12' }))
+    expect(() => recordPoolAttendance({ member, accesses, today: '2026-09-12', validateEntry: false }))
       .toThrow(/ya está anotado/i);
+  });
+
+  it('con validateEntry=true, bloquea asistencia sin apto médico', () => {
+    // With full validation, member without medical clearance cannot enter
+    expect(() => recordPoolAttendance({
+      member,
+      accesses: [],
+      today: '2026-09-12',
+      validateEntry: true,
+    })).toThrow(/médic/i);
+  });
+
+  it('$0 attendance no cuenta como pago de temporada', () => {
+    // This is the critical test: free attendance does NOT grant season rights
+    const attendanceAccess = [{
+      id: 'att-1',
+      date: '2026-12-05',
+      kind: 'member',
+      memberId: member.memberId,
+      payment: { amount: 0, method: 'asistencia', scope: 'attendance' },
+      source: 'attendance',
+      status: 'active',
+    }];
+    const snap = evaluatePoolAccess(member, { accesses: attendanceAccess, today: '2026-12-05' });
+    expect(snap.alreadyIn).toBe(true);
+    expect(snap.paidToday).toBe(false);
+    expect(snap.seasonPaid).toBe(false);
   });
 
   it('después del 10, con mora, no cobra pileta hasta regularizar', () => {
@@ -191,13 +248,37 @@ describe('poolAccess', () => {
       .toThrow(/mora/i);
   });
 
-  it('bloquea invitado si el titular no está habilitado', () => {
+  it('bloquea invitado si el titular no está habilitado (con tarifa aprobada)', () => {
+    // Even with guest tariff approved, if host doesn't have a season pass, block guests
+    const settings = { guestEnabled: true, guestTariffApproved: true, guestDayFee: 5000 };
     expect(() => enableGuestPoolAccess({
-      host: member,
+      host: member, // No season pass paid
       guestName: 'X',
       accesses: [],
       today: '2026-08-30',
+      settings,
     })).toThrow(/titular/i);
+  });
+
+  it('bloquea invitado si la tarifa no fue aprobada', () => {
+    // Even with valid host, unapproved guest tariff blocks guests
+    const settings = { guestEnabled: true, guestTariffApproved: false };
+    const withMed = attachPoolMedical(member, { fileName: 'apto.pdf', uploadedAt: '2026-08-01T12:00:00.000Z' });
+    // Create a season pass
+    const { accesses } = enableMemberPoolAccess({
+      member: withMed,
+      accesses: [],
+      method: 'efectivo',
+      today: '2026-08-20',
+      settings,
+    });
+    expect(() => enableGuestPoolAccess({
+      host: withMed,
+      guestName: 'X',
+      accesses,
+      today: '2026-08-20',
+      settings,
+    })).toThrow(/deshabilitado|tarifa|pendiente/i);
   });
 
   it('junta el canon de pileta en un solo renglón por día', () => {

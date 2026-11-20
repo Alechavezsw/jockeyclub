@@ -123,4 +123,95 @@ describe('quoteHouseholdPoolSeason', () => {
     expect(person.amount).toBe(0);
     expect(person.alreadyPaid).toBe(true);
   });
+
+  it('no duplica miembros del hogar', () => {
+    // Even if member appears multiple times in the list, only count once
+    const quote = quoteHouseholdPoolSeason(titular, {
+      today: '2026-12-15',
+      settings,
+      members: [titular, adulto, titular, adulto, titular], // duplicates
+    });
+    const ids = quote.people.map(p => p.memberId);
+    // Should only have 2 unique members
+    expect(ids).toEqual(['100', '101']);
+    expect(quote.payingCount).toBe(2);
+    expect(quote.total).toBe(180000);
+  });
+
+  it('vitalicio paga canon de pileta (no exento)', () => {
+    const vitalicio = {
+      memberId: '200',
+      name: 'Vitalicio Test',
+      tier: 'socio_vitalicio',
+      birthDate: '1950-01-01',
+      status: 'active',
+    };
+    const quote = quoteHouseholdPoolSeason(vitalicio, {
+      today: '2026-12-15',
+      settings,
+      members: [vitalicio],
+    });
+    // Vitalicio still pays pool season fee
+    expect(quote.people[0].amount).toBe(90000);
+    expect(quote.people[0].pays).toBe(true);
+  });
+
+  it('fundador paga canon de pileta (no exento)', () => {
+    const fundador = {
+      memberId: '201',
+      name: 'Fundador Test',
+      tier: 'socio_fundador',
+      birthDate: '1945-01-01',
+      status: 'active',
+    };
+    const quote = quoteHouseholdPoolSeason(fundador, {
+      today: '2026-12-15',
+      settings,
+      members: [fundador],
+    });
+    // Fundador still pays pool season fee
+    expect(quote.people[0].amount).toBe(90000);
+    expect(quote.people[0].pays).toBe(true);
+  });
+
+  it('comisión paga canon de pileta (no exento)', () => {
+    const comision = {
+      memberId: '202',
+      name: 'Comisión Test',
+      tier: 'comision',
+      birthDate: '1960-01-01',
+      status: 'active',
+    };
+    const quote = quoteHouseholdPoolSeason(comision, {
+      today: '2026-12-15',
+      settings,
+      members: [comision],
+    });
+    // Comisión still pays pool season fee
+    expect(quote.people[0].amount).toBe(90000);
+    expect(quote.people[0].pays).toBe(true);
+  });
+
+  it('$0 attendance no cuenta como pago de temporada', () => {
+    const accesses = [{
+      kind: 'member',
+      memberId: '100',
+      date: '2026-12-02',
+      status: 'active',
+      source: 'attendance',
+      payment: { amount: 0, method: 'asistencia', scope: 'attendance', concept: 'Asistencia pileta' },
+    }];
+    // Attendance should NOT count as a season pass
+    expect(memberHasPoolSeasonPass(accesses, '100', '2026-12-15', settings)).toBe(false);
+    const person = quotePersonPoolSeason(titular, {
+      today: '2026-12-15',
+      settings,
+      members: [titular],
+      accesses,
+    });
+    // Should still owe the full amount
+    expect(person.amount).toBe(90000);
+    expect(person.alreadyPaid).toBe(false);
+    expect(person.pays).toBe(true);
+  });
 });
