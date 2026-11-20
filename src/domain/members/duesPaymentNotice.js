@@ -1,5 +1,4 @@
 import { MAILBOX, createMessage } from '../messaging/messages';
-import { MERCADO_PAGO } from './clubBanks';
 
 export function duesPaymentNotice({
   memberName,
@@ -25,7 +24,6 @@ export function duesPaymentNotice({
       `${who}${cred ? ` (${cred})` : ''} inició un pago de cuota por Mercado Pago desde la app.`,
       money,
       when,
-      `Alias: ${MERCADO_PAGO.alias}`,
       qrRef ? `Referencia: ${qrRef}` : '',
       'Mercado Pago acredita solo: no hace falta imputar a mano. La operación queda en Pagos entrantes.',
     ];
@@ -233,7 +231,6 @@ export function bookingPaymentNotice({
       `${head} inició un pago de reserva por Mercado Pago desde la app.`,
       place,
       money,
-      `Alias: ${MERCADO_PAGO.alias}`,
       qrRef ? `Referencia: ${qrRef}` : '',
       'Mercado Pago acredita solo: la operación queda en Pagos entrantes.',
     ];

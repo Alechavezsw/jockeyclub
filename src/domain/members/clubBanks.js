@@ -14,7 +14,7 @@ export const CLUB_BANK_ACCOUNTS = [
     name: 'Mercado Pago',
     accountName: 'Jockey Club San Juan',
     cbu: '',
-    alias: 'jockey.club.sj.mp',
+    alias: '',
     journalAccount: 'Mercado Pago',
   },
 ];
@@ -22,7 +22,7 @@ export const CLUB_BANK_ACCOUNTS = [
 export const MERCADO_PAGO = {
   id: 'mercadopago',
   name: 'Mercado Pago',
-  alias: 'jockey.club.sj.mp',
+  alias: '',
   cvu: '0000003100012345678901',
   journalAccount: 'Mercado Pago',
 };
@@ -44,7 +44,6 @@ export function buildMercadoPagoQrPayload({ amount, memberId, memberName, concep
   const label = concept || `Cuota social ${memberName || ''}`.trim();
   return [
     'mercadopago:',
-    `alias=${MERCADO_PAGO.alias}`,
     `amount=${Number(amount) || 0}`,
     `ref=${ref}`,
     `concept=${label}`,

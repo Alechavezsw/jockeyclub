@@ -38,7 +38,7 @@ describe('buildMercadoPagoQrPayload', () => {
       concept: 'Cuota social',
     });
     expect(payload).toMatch(/^mercadopago:/);
-    expect(payload).toContain(`alias=${MERCADO_PAGO.alias}`);
+    expect(payload).not.toMatch(/jockey\.club\.sj\.mp/);
     expect(payload).toContain('amount=40000');
     expect(payload).toContain('concept=Cuota social');
     expect(payload).toMatch(/ref=JCSJ-244346-/);

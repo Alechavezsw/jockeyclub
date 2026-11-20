@@ -37,6 +37,7 @@ import {
   duesAmetInterestAmount,
   duesDueDayForMember,
   duesOnJoin,
+  duesPeriodChargeLines,
   isMemberBillingActive,
   collectionPeriodChoices,
   memberDueFact,
@@ -690,6 +691,45 @@ describe('tarifa desde octubre 2026', () => {
     expect(duesAmountForMember(member, new Date('2026-09-29T12:00:00'))).toBe(40000);
     expect(duesAmountForMember(member, new Date('2026-11-10T12:00:00'))).toBe(40000);
     expect(duesAmountForMember(member, new Date('2026-06-10T12:00:00'))).toBe(40000);
+  });
+
+  it('el renglón del cobro separa cuota, recargo y abono de tenis', () => {
+    setRuntimeTierCatalog(null);
+    const familiar = {
+      tier: 'socio_familiar',
+      cuotaCategories: ['SOCIO FAMILIAR'],
+      adherents: [
+        { tier: 'abono_tenis', status: 'active', cuotaCategories: ['ABONO TENIS'] },
+      ],
+    };
+    const withTennis = duesPeriodChargeLines(familiar, {
+      dueOn: '2026-10-10',
+      capital: 82000,
+      surcharge: 7000,
+    });
+    expect(withTennis).toEqual([
+      { key: 'social', label: 'Cuota social', amount: 70000 },
+      { key: 'surcharge', label: 'Recargo', amount: 7000 },
+      { key: 'tennis', label: 'Abono tenis', amount: 12000 },
+    ]);
+    const individual = duesPeriodChargeLines(
+      { tier: 'socio_individual', cuotaCategories: ['SOCIO INDIVIDUAL'] },
+      { dueOn: '2026-11-10', capital: 40000, surcharge: 0 },
+    );
+    expect(individual).toEqual([
+      { key: 'social', label: 'Cuota social', amount: 40000 },
+    ]);
+    const debit = duesPeriodChargeLines(familiar, {
+      dueOn: '2026-10-10',
+      capital: 82000,
+      surcharge: 7000,
+    }, { skipSurcharge: true });
+    expect(debit.map((line) => line.key)).toEqual(['social', 'tennis']);
+    const alta = duesPeriodChargeLines(
+      { tier: 'socio_individual' },
+      { dueOn: '1899-12-10', capital: 40000, surcharge: 4000 },
+    );
+    expect(alta).toEqual([{ key: 'alta', label: 'Cuota de alta', amount: 40000 }]);
   });
 
   it('desde octubre la cuota en mora después del 10 lleva 10 %', () => {

@@ -2257,7 +2257,7 @@ function ClubPortal() {
   const isStandaloneOps = isAccessGate || isPoolGate || isPublicRegistro;
 
   return (
-    <div className={`app-container${isPublicRegistro ? ' is-public-join' : ''}`}>
+    <div className={`app-container${isPublicRegistro ? ' is-public-join' : ''}${userRole === 'member' && !isStandaloneOps ? ' is-member-shell' : ''}`}>
       {/* Luces de Fondo Decorativas Ambientales */}
       <div className="ambient-glow ambient-glow-1" />
       <div className="ambient-glow ambient-glow-2" />

@@ -416,22 +416,60 @@ export default function DashboardView({
           width: 100%;
         }
         @media (max-width: 720px) {
+          .db-hero {
+            margin-bottom: 1rem;
+          }
           .db-hero-content {
-            padding: 1.35rem 1.1rem 1.5rem;
+            padding: 1.15rem 0.95rem 1.1rem;
             flex-direction: column;
             align-items: stretch;
-            gap: 1.25rem;
-          }
-          .db-hero-name {
-            font-size: 1.85rem;
-          }
-          .db-hero-stats {
-            gap: 1.1rem;
-            flex-wrap: wrap;
+            gap: 0.9rem;
           }
           .db-hero-card-wrapper {
+            order: -1;
             max-width: 100%;
             flex-basis: 100%;
+          }
+          .db-hero-greeting {
+            letter-spacing: 0.08em;
+            font-size: 0.68rem;
+          }
+          .db-hero-name {
+            font-size: 1.55rem;
+          }
+          .db-hero-stats {
+            gap: 0.85rem 1.1rem;
+            flex-wrap: wrap;
+            margin-top: 0;
+          }
+          .db-hero-stat-val {
+            font-size: 1.25rem;
+          }
+          .db-quick-bar {
+            grid-template-columns: 1fr 1fr;
+            gap: 0.55rem;
+            margin-bottom: 1rem;
+          }
+          .db-quick-btn.is-reservas,
+          .db-quick-btn.is-news {
+            display: none;
+          }
+          .db-quick-btn {
+            min-height: 64px;
+            padding: 0.7rem 0.75rem;
+            gap: 0.6rem;
+          }
+          .db-quick-btn-sub,
+          .db-quick-btn-go {
+            display: none;
+          }
+          .db-quick-btn-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 11px;
+          }
+          .db-quick-btn-label {
+            font-size: 0.98rem;
           }
         }
 
@@ -545,9 +583,6 @@ export default function DashboardView({
           .db-grid { grid-template-columns: 1fr; }
           .db-quick-bar { grid-template-columns: repeat(2, 1fr); }
         }
-        @media (max-width: 420px) {
-          .db-quick-bar { grid-template-columns: 1fr; }
-        }
 
         /* Cards premium */
         .db-card {
@@ -592,7 +627,19 @@ export default function DashboardView({
           .db-stat-row { grid-template-columns: 1fr 1fr; }
         }
         @media (max-width: 520px) {
-          .db-stat-row { grid-template-columns: 1fr; }
+          .db-stat-row {
+            grid-template-columns: none;
+            grid-auto-flow: column;
+            grid-auto-columns: minmax(10.5rem, 78%);
+            overflow-x: auto;
+            scroll-snap-type: x mandatory;
+            margin-bottom: 1rem;
+            padding-bottom: 0.15rem;
+          }
+          .db-stat-card {
+            scroll-snap-align: start;
+            min-height: 0;
+          }
         }
         .db-stat-card {
           background: var(--surface-card);

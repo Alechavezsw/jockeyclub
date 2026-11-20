@@ -619,6 +619,191 @@ body.has-modal .app-footer {
   }
 }
 
+.nav-member-bell,
+.member-tabbar {
+  display: none;
+}
+
+.member-tabbar-row {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+}
+
+.member-tab {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  min-height: 52px;
+  padding: 0.28rem 0.1rem 0.4rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.12rem;
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.member-tab.is-active {
+  color: var(--primary-gold);
+}
+
+.member-tab:focus-visible {
+  outline: 2px solid var(--primary-gold);
+  outline-offset: -2px;
+}
+
+.member-tab-icon {
+  position: relative;
+  display: flex;
+}
+
+.member-tab-badge {
+  position: absolute;
+  top: -6px;
+  right: -11px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: var(--primary-gold);
+  color: #1a1408;
+  font-size: 0.62rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.member-tab-badge.is-late {
+  background: #CA390C;
+  color: #fff;
+}
+
+.member-tab-label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 1023px) {
+  .app-container.is-member-shell .nav-member-bell {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    border: 1px solid var(--border-glass);
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+
+  .app-container.is-member-shell .nav-member-bell-count {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 4px;
+    border-radius: 9px;
+    border: 2px solid var(--bg-secondary, #060e0a);
+    background: var(--primary-gold);
+    color: #1a1408;
+    font-size: 0.68rem;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .app-container.is-member-shell .nav-mobile-menu {
+    max-height: calc(100dvh - 7.5rem - env(safe-area-inset-bottom));
+    overflow-y: auto;
+    padding-bottom: calc(5.4rem + env(safe-area-inset-bottom)) !important;
+  }
+
+  .app-container.is-member-shell .member-tabbar {
+    display: block;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 140;
+    background: var(--bg-secondary);
+    border-top: 1px solid color-mix(in srgb, var(--primary-gold) 32%, var(--border-glass));
+    padding-bottom: env(safe-area-inset-bottom);
+    box-shadow: 0 -12px 28px rgba(0, 0, 0, 0.28);
+  }
+
+  .app-container.is-member-shell .app-footer {
+    display: none;
+  }
+
+  .app-container.is-member-shell .main-content {
+    padding: 0.85rem 0.8rem calc(5.1rem + env(safe-area-inset-bottom));
+  }
+
+  .app-container.is-member-shell .pay-hist-back,
+  .app-container.is-member-shell .db-quick-btn.is-reservas,
+  .app-container.is-member-shell .db-quick-btn.is-news {
+    display: none;
+  }
+
+  .app-container.is-member-shell .nav-actions {
+    display: block;
+    position: fixed;
+    top: calc(5.1rem + env(safe-area-inset-top));
+    right: 0.6rem;
+    width: min(22rem, calc(100vw - 1.2rem));
+    z-index: 220;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    pointer-events: none;
+  }
+
+  .app-container.is-member-shell .nav-actions > * {
+    display: none !important;
+  }
+
+  .app-container.is-member-shell .nav-actions > [data-notif-panel-root] {
+    display: block !important;
+    position: static;
+    width: 100%;
+    pointer-events: auto;
+  }
+
+  .app-container.is-member-shell .nav-actions > [data-notif-panel-root] > button {
+    display: none !important;
+  }
+
+  .app-container.is-member-shell .nav-notif-panel {
+    position: static !important;
+    width: 100% !important;
+    max-height: min(420px, 62vh);
+  }
+
+  .mfb-calendar {
+    position: static;
+    top: auto;
+  }
+
+  .mfb-title {
+    font-size: 1.25rem;
+  }
+}
+
 @media (min-width: 1024px) and (max-width: 1180px) {
   .nav-rail-label {
     display: none;
@@ -11131,6 +11316,16 @@ a.ops-outline-btn {
 @media (max-width: 720px) {
   .pay-hist-mp-grid {
     grid-template-columns: 1fr;
+  }
+
+  .pay-hist-paybox .btn,
+  .mp-box-go {
+    width: 100%;
+  }
+
+  .pay-hist-payrow .form-input {
+    max-width: none;
+    flex: 1 1 100%;
   }
 }
 

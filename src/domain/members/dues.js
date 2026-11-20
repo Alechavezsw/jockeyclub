@@ -950,6 +950,49 @@ function periodChoiceLabel(dueOn) {
   return duesMonthLabel(dueOn) || String(dueOn || '').slice(0, 10);
 }
 
+/**
+ * Renglones del mes para el mostrador: cuota social, recargo (solo si hay)
+ * y abono de tenis. El tenis no lleva 10 %. La cuota de alta no es un mes.
+ */
+export function duesPeriodChargeLines(member, row, { skipSurcharge = false, chargeScope = 'all' } = {}) {
+  const dueOn = String(row?.dueOn || '').slice(0, 10);
+  const capital = money(row?.capital);
+  const surcharge = skipSurcharge ? 0 : money(row?.surcharge);
+  if (!(capital > 0.009) && !(surcharge > 0.009)) return [];
+  if (isJoinFeeDueOn(dueOn)) {
+    return [{ key: 'alta', label: 'Cuota de alta', amount: capital }];
+  }
+  const scope = normalizeDuesChargeScope(row?.chargeScope || chargeScope);
+  if (scope === 'addon') {
+    return capital > 0.009 ? [{ key: 'tennis', label: 'Abono tenis', amount: capital }] : [];
+  }
+  const when = parseDate(dueOn) || new Date();
+  const slices = duesChargeSlicesForMember(member, when, { chargeScope: 'all' });
+  let tennis = 0;
+  let socialFromSlices = 0;
+  for (const slice of slices) {
+    const amount = Number(slice.amount) || 0;
+    if (isAddOnDuesTierId(slice.tierId)) tennis += amount;
+    else socialFromSlices += amount;
+  }
+  tennis = money(tennis);
+  socialFromSlices = money(socialFromSlices);
+  let social = capital;
+  let tennisLine = 0;
+  if (scope !== 'social' && tennis > 0.009 && socialFromSlices + tennis <= capital + 1) {
+    tennisLine = tennis;
+    social = money(Math.max(0, capital - tennis));
+  }
+  const lines = [];
+  if (social > 0.009) lines.push({ key: 'social', label: 'Cuota social', amount: social });
+  if (surcharge > 0.009) lines.push({ key: 'surcharge', label: 'Recargo', amount: surcharge });
+  if (tennisLine > 0.009) lines.push({ key: 'tennis', label: 'Abono tenis', amount: tennisLine });
+  if (!lines.length && capital > 0.009) {
+    lines.push({ key: 'social', label: 'Cuota social', amount: capital });
+  }
+  return lines;
+}
+
 function tennisSettledIndependently(member, dueOn) {
   const iso = String(dueOn || '').slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return false;

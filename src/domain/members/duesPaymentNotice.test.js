@@ -16,7 +16,7 @@ describe('duesPaymentNotice', () => {
     expect(msg.recipientId).toBe(MAILBOX.OPERATIONS);
     expect(msg.subject).toBe('Operación Mercado Pago · cuota');
     expect(msg.meta.paymentAuto).toBe(true);
-    expect(msg.content).toMatch(/jockey.club.sj.mp/);
+    expect(msg.content).not.toMatch(/jockey\.club\.sj\.mp/);
     expect(msg.content).toMatch(/JCSJ-111/);
   });
 

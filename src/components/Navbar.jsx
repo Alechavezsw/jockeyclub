@@ -9,7 +9,7 @@ import { canAccessQrGate, navItemsForRole, ROLE_LABELS, sessionGreetLabel } from
 import { formatLongDateAR, todayISODateAR } from '../lib/arDate';
 import { preventButtonScroll } from '../lib/scrollPage';
 import { APP_NAME } from '../domain/system/appBrand';
-import { JockeyWordmark } from './brand/JockeyBrand';
+import { JockeyWordmark, SilksBand } from './brand/JockeyBrand';
 
 const NAV_ICONS = {
   dashboard: Home,
@@ -43,7 +43,14 @@ export default function Navbar({
 
   const isOperative = Boolean(sessionCanAccessAdmin);
   const isTeacher = role === 'teacher' || (roles || []).some((r) => r.roleKey === 'teacher');
+  const memberShell = role === 'member';
   const visibleItems = navItemsForRole(role || 'member', { membersCanViewCurrentAccounts });
+  const memberTabs = memberShell
+    ? [
+      ...visibleItems,
+      { id: 'messages', label: 'Avisos', shortLabel: 'Avisos' },
+    ]
+    : [];
   const deskSwitch = isDualDesk && desk
     ? {
       label: desk === 'ops' ? 'Entrar como socio' : 'Entrar a administración',
@@ -135,7 +142,41 @@ export default function Navbar({
     closeNotifs();
   };
 
+  const memberTabBar = memberShell ? (
+    <div className="member-tabbar" role="navigation" aria-label="Secciones">
+      <SilksBand height={3} className="member-tabbar-silks" />
+      <div className="member-tabbar-row">
+        {memberTabs.map((item) => {
+          const Icon = item.id === 'messages' ? Mail : NAV_ICONS[item.id];
+          const active = currentView === item.id;
+          const alert = item.id === 'messages' && (unreadMessages > 0 || duesOverdue || duesDueSoon);
+          return (
+            <button
+              key={item.id}
+              type="button"
+              className={`member-tab${active ? ' is-active' : ''}`}
+              onMouseDown={preventButtonScroll}
+              onClick={() => handleNavClick(item.id)}
+              aria-current={active ? 'page' : undefined}
+            >
+              <span className="member-tab-icon">
+                {Icon ? <Icon size={20} strokeWidth={active ? 2.4 : 2} aria-hidden="true" /> : null}
+                {alert ? (
+                  <span className={`member-tab-badge${duesOverdue ? ' is-late' : ''}`}>
+                    {unreadMessages > 0 ? (unreadMessages > 9 ? '9+' : unreadMessages) : '!'}
+                  </span>
+                ) : null}
+              </span>
+              <span className="member-tab-label">{item.shortLabel || item.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  ) : null;
+
   return (
+    <>
     <nav className="glass-panel nav-bar-shell">
       <div className="nav-inner-bar">
         <div className="nav-brand-block">
@@ -313,11 +354,11 @@ export default function Navbar({
             </button>
 
             {showNotifs && (
-              <div className="glass-panel" style={{
+              <div className="glass-panel nav-notif-panel" data-notif-panel-root style={{
                 position: 'absolute',
                 top: 'calc(100% + 10px)',
                 right: 0,
-                width: '340px',
+                width: 'min(340px, calc(100vw - 1.5rem))',
                 maxHeight: '420px',
                 overflowY: 'auto',
                 borderRadius: '14px',
@@ -473,6 +514,26 @@ export default function Navbar({
           </button>
         </div>
 
+        {memberShell ? (
+          <button
+            type="button"
+            className="nav-member-bell"
+            onClick={() => {
+              setIsOpen(false);
+              toggleNotifs();
+            }}
+            title="Notificaciones"
+            aria-label={pendingCount > 0 ? `Notificaciones, ${pendingCount} pendientes` : 'Notificaciones'}
+            aria-expanded={showNotifs}
+            data-notif-panel-root
+          >
+            <Bell size={18} aria-hidden="true" />
+            {pendingCount > 0 ? (
+              <span className="nav-member-bell-count">{pendingCount > 9 ? '9+' : pendingCount}</span>
+            ) : null}
+          </button>
+        ) : null}
+
         <button
           type="button"
           onClick={() => setIsOpen(!isOpen)}
@@ -543,7 +604,7 @@ export default function Navbar({
             </button>
           ) : null}
 
-          {visibleItems.map((item) => {
+          {!memberShell && visibleItems.map((item) => {
             const Icon = NAV_ICONS[item.id];
             const active = currentView === item.id;
             return (
@@ -561,6 +622,7 @@ export default function Navbar({
             );
           })}
 
+          {!memberShell && (
           <button
             type="button"
             onClick={() => handleNavClick('messages')}
@@ -602,6 +664,7 @@ export default function Navbar({
               </span>
             )}
           </button>
+          )}
 
           <hr style={{ border: 'none', borderTop: '1px solid var(--border-glass)', margin: '0.5rem 0' }} />
 
@@ -672,6 +735,9 @@ export default function Navbar({
           </button>
         </div>
       )}
+
     </nav>
+    {memberTabBar}
+    </>
   );
 }

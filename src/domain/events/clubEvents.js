@@ -80,7 +80,6 @@ export function buildEventMpPayload({ amount, memberId, memberName, eventTitle }
   const ref = `EVT-${String(memberId || '').slice(0, 8)}-${Date.now().toString(36).toUpperCase()}`;
   return [
     'mercadopago:',
-    'alias=jockey.club.sj.mp',
     `amount=${Number(amount) || 0}`,
     `ref=${ref}`,
     `concept=Entrada ${eventTitle || 'evento'} ${memberName || ''}`.trim(),

@@ -324,7 +324,6 @@ export function buildPoolMpPayload({ amount, memberId, memberName, concept = 'Ca
   const ref = `POOL-${String(memberId || '').slice(0, 8)}-${Date.now().toString(36).toUpperCase()}`;
   return [
     'mercadopago:',
-    'alias=jockey.club.sj.mp',
     `amount=${Number(amount) || 0}`,
     `ref=${ref}`,
     `concept=${concept} ${memberName || ''}`.trim(),

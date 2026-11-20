@@ -10,6 +10,7 @@ import {
   collectionPeriodChoices,
   collectionTennisPreview,
   collectionTennisPeriodChoices,
+  duesPeriodChargeLines,
   formatShortDate,
   isDuesExemptMember,
   memberHasSeparableAddOn,
@@ -51,6 +52,19 @@ const MIX_METHOD_OPTIONS = MIXED_DUES_METHODS.map((id) => ({
   id,
   label: id === 'efectivo' ? 'Efectivo' : id === 'transferencia' ? 'Transferencia' : 'Pago POS',
 }));
+
+function periodChargePhrase(member, row, formatCurrency, { skipSurcharge = false, tennisOnly = false } = {}) {
+  const rowTennis = tennisOnly || row?.rowScope === 'tenis';
+  const lines = duesPeriodChargeLines(member, row, {
+    skipSurcharge: skipSurcharge || rowTennis,
+    chargeScope: rowTennis ? 'addon' : (row?.rowScope === 'social' ? 'social' : row?.chargeScope),
+  });
+  const phrase = lines.map((line) => `${line.label} ${formatCurrency(line.amount)}`).join(' · ');
+  if (!rowTennis && skipSurcharge && money(row?.surcharge) > 0.009) {
+    return phrase ? `${phrase} · sin recargo` : 'sin recargo';
+  }
+  return phrase;
+}
 
 function emptyMixLine(method = 'efectivo', amount = '') {
   return {
@@ -487,6 +501,24 @@ export default function CollectDuesModal({
     periodChoices,
     skipSurcharge,
   ]);
+  const conceptChips = useMemo(() => {
+    const totals = new Map();
+    for (const row of selectedRows) {
+      const rowTennis = tennisOnly || row.rowScope === 'tenis';
+      for (const line of duesPeriodChargeLines(account, row, {
+        skipSurcharge: skipSurcharge || rowTennis,
+        chargeScope: rowTennis ? 'addon' : (row.rowScope === 'social' ? 'social' : row.chargeScope),
+      })) {
+        const prev = totals.get(line.key);
+        totals.set(line.key, {
+          key: line.key,
+          label: line.label,
+          amount: money((prev?.amount || 0) + line.amount),
+        });
+      }
+    }
+    return [...totals.values()];
+  }, [selectedRows, account, skipSurcharge, tennisOnly]);
   const quotedAmount = (!tennisOnly && duesExempt) || hydrating ? 0 : split.cash;
   const onAccountAmount = money(onAccountInput === '' ? 0 : onAccountInput);
   const amount = isOnAccount ? onAccountAmount : quotedAmount;
@@ -1132,11 +1164,7 @@ export default function CollectDuesModal({
                           {row.displayLabel || row.label}
                         </strong>
                         <small style={{ color: 'var(--text-muted)' }}>
-                          {rowSkipSurcharge
-                            ? (row.rowScope === 'tenis' ? 'abono tenis · sin recargo' : 'débito · sin recargo')
-                            : (row.surcharge > 0
-                              ? `capital ${formatCurrency(row.capital)} · intereses ${formatCurrency(row.surcharge)}`
-                              : 'sin intereses')}
+                          {periodChargePhrase(account, row, formatCurrency, { skipSurcharge, tennisOnly })}
                         </small>
                       </span>
                       <b className="tabular-nums" style={{ color: 'var(--text-gold)' }}>
@@ -1169,7 +1197,12 @@ export default function CollectDuesModal({
                     fontSize: '0.86rem',
                   }}
                 >
-                  <span>{row.label}</span>
+                  <span>
+                    <strong style={{ display: 'block', fontWeight: 650 }}>{row.label}</strong>
+                    <small style={{ color: 'var(--text-muted)' }}>
+                      {periodChargePhrase(account, row, formatCurrency, { skipSurcharge, tennisOnly })}
+                    </small>
+                  </span>
                   <b className="tabular-nums" style={{ color: 'var(--text-gold)' }}>
                     {formatCurrency(row.payable)}
                   </b>
@@ -1182,22 +1215,16 @@ export default function CollectDuesModal({
         {!isClear && split.gross > 0 ? (
           <div style={{
             display: 'grid',
-            gridTemplateColumns: `repeat(${1 + (split.surcharge > 0 ? 1 : 0) + ((split.creditApplied > 0 || projectedCredit > 0) ? 1 : 0) + (split.surcharge > 0 || split.creditApplied > 0 || projectedCredit > 0 || canPickMonths ? 1 : 0)}, minmax(0, 1fr))`,
+            gridTemplateColumns: `repeat(${Math.max(1, conceptChips.length) + ((split.creditApplied > 0 || projectedCredit > 0) ? 1 : 0) + ((conceptChips.length > 1 || split.surcharge > 0 || split.creditApplied > 0 || projectedCredit > 0 || canPickMonths || discountValue > 0.009) ? 1 : 0)}, minmax(0, 1fr))`,
             gap: '0.45rem',
             marginBottom: '1rem',
           }}>
-            <div style={{ padding: '0.55rem 0.65rem', borderRadius: 8, border: '1px solid var(--border-glass)' }}>
-              <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>{quotaMonthLabel}</div>
-              <div className="tabular-nums" style={{ fontWeight: 700 }}>{formatCurrency(split.quota)}</div>
-            </div>
-            {split.surcharge > 0 ? (
-              <div style={{ padding: '0.55rem 0.65rem', borderRadius: 8, border: '1px solid var(--border-glass)' }}>
-                <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Recargo</div>
-                <div className="tabular-nums" style={{ fontWeight: 700 }}>
-                  {formatCurrency(split.surcharge)}
-                </div>
+            {(conceptChips.length ? conceptChips : [{ key: 'quota', label: quotaMonthLabel, amount: split.quota }]).map((chip) => (
+              <div key={chip.key} style={{ padding: '0.55rem 0.65rem', borderRadius: 8, border: '1px solid var(--border-glass)' }}>
+                <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>{chip.label}</div>
+                <div className="tabular-nums" style={{ fontWeight: 700 }}>{formatCurrency(chip.amount)}</div>
               </div>
-            ) : null}
+            ))}
             {split.creditApplied > 0.009 || projectedCredit > 0.009 ? (
               <div style={{ padding: '0.55rem 0.65rem', borderRadius: 8, border: '1px solid var(--border-glass)' }}>
                 <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Saldo a favor</div>
@@ -1359,7 +1386,7 @@ export default function CollectDuesModal({
                   onChange={(e) => setBankId(e.target.value)}
                 >
                   {CLUB_BANK_ACCOUNTS.map((b) => (
-                    <option key={b.id} value={b.id}>{b.alias}</option>
+                    <option key={b.id} value={b.id}>{b.alias || b.name}</option>
                   ))}
                 </select>
               </div>
@@ -1408,7 +1435,7 @@ export default function CollectDuesModal({
         {isMixed ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '1rem' }}>
             <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
-              Combiná medios. La suma debe ser {formatCurrency(cash)}. Alias Mercado Pago sí (transferencia).
+              Combiná medios. La suma debe ser {formatCurrency(cash)}.
               QR Mercado Pago one-shot no entra en el mixto. En Pago POS el cupón DATA puede ser mayor al imputado.
             </p>
             {mixLines.map((line, index) => {
@@ -1478,7 +1505,7 @@ export default function CollectDuesModal({
                         onChange={(e) => patchMixLine(line.key, { bankId: e.target.value })}
                       >
                         {CLUB_BANK_ACCOUNTS.map((b) => (
-                          <option key={b.id} value={b.id}>{b.alias}</option>
+                          <option key={b.id} value={b.id}>{b.alias || b.name}</option>
                         ))}
                       </select>
                     </label>
