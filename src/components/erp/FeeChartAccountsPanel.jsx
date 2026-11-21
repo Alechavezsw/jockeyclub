@@ -13,8 +13,30 @@ import {
   mergeFeeLedgerLines,
   withLiveFeeAccountBalances,
 } from '../../domain/accounting/feeChartAccounts';
+import { PERIOD_STATUS, periodStatusLabel } from '../../domain/accounting/feeLedgerIntegrity';
 import { listFeeLedgerLines } from '../../data/repos';
 import { isSupabaseConfigured } from '../../lib/supabase';
+
+function feeLedgerRowStatus(row) {
+  const source = String(row?.source || '');
+  if (/admin_reconciled/i.test(source)) return PERIOD_STATUS.CONCILIADO_ADMIN;
+  if (/^lila/i.test(source) && (Number(row?.pending) || 0) <= 0.009 && (Number(row?.collected) || 0) > 0.009) {
+    return PERIOD_STATUS.EVIDENCIA_PENDIENTE;
+  }
+  if (/sync_covered/i.test(source)) return PERIOD_STATUS.PAGADO;
+  if ((Number(row?.pending) || 0) > 0.009) return PERIOD_STATUS.PENDIENTE;
+  if ((Number(row?.collected) || 0) > 0.009) return PERIOD_STATUS.PAGADO;
+  return PERIOD_STATUS.PAGADO;
+}
+
+function feeLedgerCollectedHint(row) {
+  const source = String(row?.source || '');
+  if (/admin_reconciled/i.test(source)) return 'Conciliado admin (evidencia de comprobante pendiente)';
+  if (/^lila/i.test(source)) return 'Importación Lila · evidencia pendiente (no es deuda)';
+  if (/sync_covered/i.test(source)) return 'Cerrado por sync (período ya cubierto)';
+  if ((Number(row?.collected) || 0) > 0.009) return 'Cobrado con comprobante / liquidación';
+  return '';
+}
 
 const PAGE_SIZE = 20;
 
@@ -527,6 +549,7 @@ export default function FeeChartAccountsPanel({
                   <th>Fecha</th>
                   <th>Tipo</th>
                   <th>Descripción</th>
+                  <th>Estado</th>
                   <th className="fee-ledger-money">Importe</th>
                   <th className="fee-ledger-money">Cobrado</th>
                   <th className="fee-ledger-money">Pendiente</th>
@@ -535,31 +558,43 @@ export default function FeeChartAccountsPanel({
               <tbody>
                 {pageRows.length === 0 ? (
                   <tr>
-                    <td colSpan={9} style={{ color: 'var(--text-muted)' }}>
+                    <td colSpan={10} style={{ color: 'var(--text-muted)' }}>
                       Sin movimientos para esta cuenta / filtro.
                     </td>
                   </tr>
                 ) : (
-                  pageRows.map((row) => (
-                    <tr key={row.id}>
-                      <td>{row.accessinId}</td>
-                      <td>{row.memberNumber}</td>
-                      <td style={{ fontWeight: 600 }}>{row.memberName}</td>
-                      <td>{formatFeeLedgerDate(row)}</td>
-                      <td>{row.type}</td>
-                      <td>{row.description}</td>
-                      <td className="fee-ledger-money" style={{ color: 'var(--emerald-accent)' }}>{formatLilaMoney(row.amount)}</td>
-                      <td className="fee-ledger-money" style={{ color: row.collected > 0 ? 'var(--emerald-accent)' : undefined }}>
-                        {formatLilaMoney(row.collected)}
-                      </td>
-                      <td
-                        className="fee-ledger-money"
-                        style={{ color: row.pending > 0 ? 'var(--warning-accent)' : 'var(--emerald-accent)' }}
-                      >
-                        {formatLilaMoney(row.pending)}
-                      </td>
-                    </tr>
-                  ))
+                  pageRows.map((row) => {
+                    const status = feeLedgerRowStatus(row);
+                    const collectedHint = feeLedgerCollectedHint(row);
+                    return (
+                      <tr key={row.id}>
+                        <td>{row.accessinId}</td>
+                        <td>{row.memberNumber}</td>
+                        <td style={{ fontWeight: 600 }}>{row.memberName}</td>
+                        <td>{formatFeeLedgerDate(row)}</td>
+                        <td>{row.type}</td>
+                        <td>{row.description}</td>
+                        <td title={collectedHint || undefined}>
+                          {periodStatusLabel(status)}
+                          {status === PERIOD_STATUS.CONCILIADO_ADMIN ? (
+                            <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                              sin comprobante de caja
+                            </span>
+                          ) : null}
+                        </td>
+                        <td className="fee-ledger-money" style={{ color: 'var(--emerald-accent)' }}>{formatLilaMoney(row.amount)}</td>
+                        <td className="fee-ledger-money" style={{ color: row.collected > 0 ? 'var(--emerald-accent)' : undefined }}>
+                          {formatLilaMoney(row.collected)}
+                        </td>
+                        <td
+                          className="fee-ledger-money"
+                          style={{ color: row.pending > 0 ? 'var(--warning-accent)' : 'var(--emerald-accent)' }}
+                        >
+                          {formatLilaMoney(row.pending)}
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>

@@ -486,6 +486,9 @@ export function ledgerLinesFromCharges(accounts = [], members = [], charges = []
   const on = period.year && period.month
     ? new Date(Number(period.year), Number(period.month) - 1, 10, 12, 0, 0, 0)
     : date;
+  const periodYm = period.year && period.month
+    ? `${period.year}-${String(period.month).padStart(2, '0')}`
+    : String(date || '').slice(0, 7);
   const lines = [];
   const deltas = new Map();
 
@@ -504,6 +507,18 @@ export function ledgerLinesFromCharges(accounts = [], members = [], charges = []
       const account = matchFeeLedgerAccountForCategory(accounts, slice.name);
       if (!account) continue;
       const id = `fll-${account.id}-${period.id || date}-${charge.memberId}-${slice.slug}`;
+      // Cobertura estricta: duesCoveredThrough o pago que declara el período (no ficha/next_due).
+      const coveredThrough = String(member?.duesCoveredThrough || member?.meta?.duesCoveredThrough || '').slice(0, 7);
+      const alreadyCovered = Boolean(
+        (coveredThrough && periodYm && coveredThrough >= periodYm)
+        || (Array.isArray(member?.paymentHistory) && member.paymentHistory.some((p) => {
+          if (!p || p.voidedAt || p.status === 'void') return false;
+          const dues = Array.isArray(p.periodDueOns) ? p.periodDueOns : [];
+          if (dues.some((d) => String(d || '').slice(0, 7) === periodYm)) return true;
+          const label = String(p.period || p.periodLabel || p.meta?.period || '');
+          return label.includes(periodYm) || (periodYm.length === 7 && label.includes(`${periodYm.slice(5)}/${periodYm.slice(0, 4)}`));
+        })),
+      );
       lines.push({
         id,
         accountId: account.id,
@@ -515,9 +530,10 @@ export function ledgerLinesFromCharges(accounts = [], members = [], charges = []
         type: `Cuota (${slice.name})`,
         description,
         amount: slice.amount,
-        collected: 0,
-        pending: slice.amount,
-        source: 'liquidation',
+        collected: alreadyCovered ? slice.amount : 0,
+        pending: alreadyCovered ? 0 : slice.amount,
+        collectedAt: alreadyCovered ? date : null,
+        source: alreadyCovered ? 'liquidation_sync_covered' : 'liquidation',
       });
       deltas.set(account.id, (deltas.get(account.id) || 0) + slice.amount);
     }

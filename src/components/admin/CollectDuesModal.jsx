@@ -29,6 +29,7 @@ import {
   manualDuesReceiptLabel,
   MIXED_DUES_METHODS,
 } from '../../domain/members/memberPayments';
+import { periodStatusLabel } from '../../domain/accounting/feeLedgerIntegrity';
 import { todayISODateAR } from '../../lib/arDate';
 import { billingAccountMember, memberNumberOf } from '../../domain/members/households';
 import { activePaymentPlans } from '../../domain/system/paymentPlans';
@@ -317,7 +318,19 @@ export default function CollectDuesModal({
         if (!full && number && typeof repos.getMemberByNumber === 'function') {
           full = await repos.getMemberByNumber(number, { withPayments: true });
         }
-        if (!cancelled && full) setLiveMember(full);
+        let ledgerLines = [];
+        if (number && typeof repos.listFeeLedgerLinesByMemberNumber === 'function') {
+          try {
+            ledgerLines = await repos.listFeeLedgerLinesByMemberNumber(number);
+          } catch {
+            ledgerLines = [];
+          }
+        }
+        if (!cancelled && full) {
+          setLiveMember(ledgerLines.length ? { ...full, feeLedgerLines: ledgerLines } : full);
+        } else if (!cancelled && ledgerLines.length) {
+          setLiveMember((prev) => ({ ...(prev || member), feeLedgerLines: ledgerLines }));
+        }
       } catch {
         /* se mantiene el miembro del padrón */
       } finally {
@@ -1066,6 +1079,29 @@ export default function CollectDuesModal({
           <p style={{ margin: '0 0 1rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
             Leyendo saldo y vencimientos en vivo…
           </p>
+        ) : null}
+
+        {split?.ledgerDesync ? (
+          <div
+            role="status"
+            style={{
+              marginBottom: '1rem',
+              padding: '0.85rem 0.95rem',
+              borderRadius: 10,
+              border: '1px solid rgba(245, 158, 11, 0.45)',
+              background: 'rgba(245, 158, 11, 0.1)',
+            }}
+          >
+            <p style={{ margin: 0, fontWeight: 700, color: 'var(--warning-accent, #d97706)' }}>
+              {periodStatusLabel(split.ledgerDesync.reconciliationStatus) || 'En revisión'}
+            </p>
+            <p style={{ margin: '0.35rem 0 0', fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
+              La ficha y la cuenta contable no coinciden. No se cobra un pending solo de ledger ni se inventa crédito.
+              {split.ledgerDesync.blockLedgerOnlyCollection
+                ? ' Cobro bloqueado para montos que existen únicamente en el libro contable.'
+                : ''}
+            </p>
+          </div>
         ) : null}
 
         {isClear ? (

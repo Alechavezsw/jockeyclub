@@ -251,6 +251,29 @@ export async function listFeeLedgerLines(accountId) {
   return lines;
 }
 
+/** Líneas contables de un Nº de socio (para integridad ficha vs ledger). */
+export async function listFeeLedgerLinesByMemberNumber(memberNumber) {
+  const nro = String(memberNumber || '').trim();
+  if (!nro) return [];
+  const lines = [];
+  const pageSize = 500;
+  for (let from = 0; ; from += pageSize) {
+    const batch = await unwrap(
+      sb()
+        .from('fee_ledger_lines')
+        .select('id, account_id, member_number, member_name, dni, line_date, date_label, collected_at, collected_at_label, type_label, description, amount, collected, pending, source')
+        .eq('member_number', nro)
+        .order('line_date', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, from + pageSize - 1),
+      'No se pudo leer el ledger del socio',
+    );
+    lines.push(...(batch || []).map(feeLedgerLineFromRow).filter(Boolean));
+    if (!batch || batch.length < pageSize) break;
+  }
+  return lines;
+}
+
 function feeLedgerLineToRow(line) {
   return {
     id: line.id,
