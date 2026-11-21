@@ -763,11 +763,33 @@ export function paymentAmountTowardDueOn(payment, dueOn) {
   return 0;
 }
 
+/**
+ * Clave de evidencia de cobro: prioriza id / idempotency / transacción.
+ * No colapsa operaciones distintas que solo compartan número de comprobante.
+ */
 function paymentEvidenceKey(payment, index) {
   const id = String(payment?.id || '').trim();
   if (id) return `id:${id}`;
+  const idem = String(
+    payment?.idempotencyKey
+    || payment?.idempotency_key
+    || payment?.meta?.idempotencyKey
+    || '',
+  ).trim();
+  if (idem) return `idem:${idem}`;
+  const tx = String(
+    payment?.transactionId
+    || payment?.transaction_id
+    || payment?.mpPaymentId
+    || payment?.meta?.transactionId
+    || payment?.meta?.mpPaymentId
+    || '',
+  ).trim();
+  if (tx) return `tx:${tx}`;
   const receipt = String(payment?.receiptNumber || payment?.receipt_number || '').trim();
-  if (receipt) return `receipt:${receipt}`;
+  const amount = money(Number(payment?.amount) || 0);
+  const paidAt = String(payment?.paidAt || payment?.paid_at || payment?.date || '').slice(0, 19);
+  if (receipt) return `receipt:${receipt}|${amount}|${paidAt}|${index}`;
   return `idx:${index}`;
 }
 

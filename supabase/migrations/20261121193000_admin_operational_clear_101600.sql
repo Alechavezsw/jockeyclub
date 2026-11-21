@@ -1,10 +1,12 @@
 -- Excepción administrativa persistente: 101600 Ramírez Pericas.
 -- Remanente octubre 2026 ($ 6.363,64) autorizado en cero operativo, pendiente de conciliación.
 -- No inventa pagos, no cierra member_dues_periods ni asientos contables.
+-- Idempotente: no pisa una autorización existente.
 
 update public.members m
 set meta = coalesce(m.meta, '{}'::jsonb) || jsonb_build_object(
   'adminOperationalClear', jsonb_build_object(
+    'id', 'admin-clear-101600-2026-10-10',
     'memberNumber', '101600',
     'periodDueOns', jsonb_build_array('2026-10-10'),
     'dueOn', '2026-10-10',

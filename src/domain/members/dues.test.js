@@ -242,6 +242,33 @@ describe('dues classification', () => {
     expect(socialDuesStoredBalance(member)).toBe(70000);
   });
 
+  it('mismo número de comprobante con distintos ids no se colapsa', () => {
+    const member = {
+      paymentHistory: [
+        {
+          id: 'pay-a',
+          receiptNumber: 'RC-SHARED',
+          amount: 30000,
+          status: 'paid',
+          periodDueOns: ['2026-11-10'],
+          imputations: [{ dueOn: '2026-11-10', capital: 30000 }],
+        },
+        {
+          id: 'pay-b',
+          receiptNumber: 'RC-SHARED',
+          amount: 40000,
+          status: 'paid',
+          periodDueOns: ['2026-11-10'],
+          imputations: [{ dueOn: '2026-11-10', capital: 40000 }],
+        },
+      ],
+      outstandingBalance: 0,
+      duesOpenPeriods: [{ dueOn: '2026-11-10', capital: 70000 }],
+    };
+    expect(accumulatedPaymentCapitalTowardDueOn(member, '2026-11-10')).toBe(70000);
+    expect(socialDuesStoredBalance(member)).toBe(0);
+  });
+
   it('paymentAmountTowardDueOn usa imputación y no asume cobertura plena multi-período', () => {
     expect(paymentAmountTowardDueOn({
       amount: 30000,

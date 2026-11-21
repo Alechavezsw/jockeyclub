@@ -135,6 +135,7 @@ end;
 $function$;
 
 revoke all on function public.list_members_padron(text) from public;
+revoke all on function public.list_members_padron(text) from anon;
 grant execute on function public.list_members_padron(text) to authenticated, service_role;
 
 notify pgrst, 'reload schema';
