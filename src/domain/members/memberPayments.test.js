@@ -466,8 +466,17 @@ describe('payMemberDues', () => {
         method: 'tarjeta',
         amount: 600,
         receiptName: 'voucher.jpg',
+        paymentPlanId: 'visa-contado',
+        paymentPlan: {
+          id: 'visa-contado',
+          installments: 1,
+          financingMode: 'issuer_keeps',
+        },
       },
-    ], 1000, { treasuryMatch: true });
+    ], 1000, {
+      treasuryMatch: true,
+      plans: [{ id: 'visa-contado', installments: 1, financingMode: 'issuer_keeps' }],
+    });
     expect(treasury.total).toBe(1000);
   });
 
@@ -537,16 +546,24 @@ describe('payMemberDues', () => {
     })).toThrow(/suman/i);
   });
 
-  it('mixto MP + DATA guarda cupón mayor y asienta solo el imputado', () => {
+  it('mixto MP + DATA con financiación B coherente asienta solo el capital social', () => {
     const member = {
       memberId: '10508',
       name: 'Socio',
       outstandingBalance: 693000,
       paymentHistory: [],
     };
+    const finFixed = 39383.78;
     const result = recordDuesCollection(member, {
       method: 'mixto',
       amount: 693000,
+      paymentPlans: [{
+        id: 'data-3',
+        label: 'DATA 3 cuotas',
+        installments: 3,
+        financingMode: 'issuer_keeps',
+        allowOperatorOverride: true,
+      }],
       paymentSplits: [
         {
           method: 'transferencia',
@@ -567,6 +584,7 @@ describe('payMemberDues', () => {
           amount: 393000,
           paymentPlanId: 'data-3',
           paymentPlanLabel: 'DATA 3 cuotas',
+          financingFixed: finFixed,
           voucherAmount: 432383.78,
           receiptParse: {
             source: 'manual',
@@ -582,6 +600,7 @@ describe('payMemberDues', () => {
     const card = result.payment.paymentSplits.find((row) => row.method === 'tarjeta');
     expect(card.voucherAmount).toBe(432383.78);
     expect(card.amount).toBe(393000);
+    expect(card.cardFinancing.mode).toBe('issuer_keeps');
     expect(result.journalEntry.lines.filter((l) => l.type === 'debit')).toEqual([
       { account: 'Mercado Pago', type: 'debit', amount: 300000 },
       { account: 'Tarjetas a cobrar', type: 'debit', amount: 393000 },
@@ -1351,8 +1370,10 @@ describe('financiación POS núcleo', () => {
         installments: 3,
         financingMode: 'issuer_keeps',
         financingPercent: 10,
+        allowOperatorOverride: true,
       }],
       financingPercent: 10,
+      receiptParse: { amount: 77000, reference: 'B-OK' },
       today: new Date('2026-11-05T12:00:00'),
     });
     expect(result.payment.amount).toBe(70000);
@@ -1376,8 +1397,10 @@ describe('financiación POS núcleo', () => {
         installments: 3,
         financingMode: 'club_keeps',
         financingPercent: 10,
+        allowOperatorOverride: true,
       }],
       financingPercent: 10,
+      receiptParse: { amount: 77000, reference: 'A-OK' },
       today: new Date('2026-11-05T12:00:00'),
     });
     expect(result.payment.cardFinancing.mode).toBe('club_keeps');
@@ -1391,6 +1414,13 @@ describe('financiación POS núcleo', () => {
     const result = recordDuesCollection(member, {
       method: 'mixto',
       amount: 70000,
+      paymentPlans: [{
+        id: 'visa-3-a',
+        installments: 3,
+        financingMode: 'club_keeps',
+        financingPercent: 10,
+        allowOperatorOverride: true,
+      }],
       paymentSplits: [
         { method: 'efectivo', amount: 30000 },
         {
@@ -1399,13 +1429,8 @@ describe('financiación POS núcleo', () => {
           receiptAttachment: receipt,
           receiptName: 'voucher.jpg',
           paymentPlanId: 'visa-3-a',
-          paymentPlan: {
-            id: 'visa-3-a',
-            installments: 3,
-            financingMode: 'club_keeps',
-            financingPercent: 10,
-          },
           financingPercent: 10,
+          receiptParse: { amount: 44000, reference: 'MIX' },
         },
       ],
       today: new Date('2026-11-05T12:00:00'),
@@ -1433,8 +1458,10 @@ describe('financiación POS núcleo', () => {
         installments: 3,
         financingMode: 'club_keeps',
         financingPercent: 10,
+        allowOperatorOverride: true,
       }],
       financingPercent: 10,
+      receiptParse: { amount: 77000, reference: 'VOID' },
       today: new Date('2026-11-05T12:00:00'),
     });
     const voided = voidMemberDuesPayment(charged.member, charged.payment.id, {

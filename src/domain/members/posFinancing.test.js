@@ -73,7 +73,7 @@ describe('computePosFinancing', () => {
 describe('buildPosJournalLines', () => {
   it('modo A asienta financiación como ingreso', () => {
     const entry = buildPosJournalLines({
-      socialIncome: 70000,
+      posCashReceived: 70000,
       financingAmount: 7000,
       mode: FINANCING_MODE_CLUB,
     });
@@ -85,7 +85,7 @@ describe('buildPosJournalLines', () => {
 
   it('modo B no asienta financiación', () => {
     const entry = buildPosJournalLines({
-      socialIncome: 70000,
+      posCashReceived: 70000,
       financingAmount: 7000,
       mode: FINANCING_MODE_ISSUER,
     });

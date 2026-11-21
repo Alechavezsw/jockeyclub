@@ -34,14 +34,17 @@ import {
 } from './duesImputations';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import {
+  findDuesJournalBySourceId,
   patchMemberPaymentChargeScope,
   quitarRecargoCuota,
   registrarCobro,
   revertDuesPayment,
 } from '../../data/repos';
 import {
+  assertJournalLinesBalanced,
   assertPosFinancingOperationSupported,
-  buildCardFinancingMeta,
+  assertTennisPosFinancingAllowed,
+  authorizePosCardFinancing,
   buildPosJournalLines,
   computePosFinancing,
   POS_CARD_RECEIVABLE_ACCOUNT,
@@ -307,7 +310,10 @@ export function duesVoucherAmount(row, imputedAmount = null) {
   return null;
 }
 
-/** Arma meta de financiación para un tramo/cobro POS. */
+/**
+ * Arma meta de financiación POS con autoridad de servidor (plan del catálogo).
+ * No confía en cardFinancing del navegador.
+ */
 export function resolveCardFinancingForPos({
   socialAmount,
   plan = null,
@@ -317,31 +323,35 @@ export function resolveCardFinancingForPos({
   fixedAmount = null,
   voucherAmount = null,
   receiptParse = null,
+  cardFinancing = null,
   authReference = null,
   operatorUserId = null,
+  operatorRole = null,
+  dayISO = null,
 } = {}) {
-  const resolvedPlan = plan
-    || findPaymentPlan(plans, paymentPlanId)
-    || (paymentPlanId ? { id: paymentPlanId, installments: 1, financingMode: 'issuer_keeps' } : null);
-  const voucherHint = voucherAmount != null
-    ? voucherAmount
-    : (receiptParse?.amount != null ? Number(receiptParse.amount) : null);
-  const computed = computePosFinancing({
+  return authorizePosCardFinancing({
     socialAmount,
-    plan: resolvedPlan,
+    plans,
+    paymentPlanId,
+    plan,
     percent,
     fixedAmount,
-    voucherAmount: voucherHint,
-  });
-  return buildCardFinancingMeta(computed, {
-    authReference: authReference || receiptParse?.reference || null,
+    receiptVoucher: voucherAmount,
+    receiptParse,
+    clientCardFinancing: cardFinancing,
+    operatorRole,
+    dayISO,
+    authReference,
     operatorUserId,
-    paymentPlanSnapshot: paymentPlanSnapshot(resolvedPlan),
   });
 }
 
-/** Normaliza líneas de un pago mixto. */
-export function normalizePaymentSplits(raw = []) {
+/** Normaliza líneas de un pago mixto. Con `authorize: true` reconstruye financiación desde el plan. */
+export function normalizePaymentSplits(raw = [], {
+  authorize = false,
+  plans = [],
+  operatorRole = null,
+} = {}) {
   return (Array.isArray(raw) ? raw : [])
     .map((row, index) => {
       const rawMethod = String(row?.method || '').trim().toLowerCase();
@@ -367,20 +377,26 @@ export function normalizePaymentSplits(raw = []) {
       const paymentPlanId = isCardPosDuesMethod(method) ? (row.paymentPlanId || null) : null;
       const paymentPlanLabel = isCardPosDuesMethod(method) ? (String(row.paymentPlanLabel || '').trim() || null) : null;
       const journalAccount = row.journalAccount || journalAccountForPayment(method, bankId);
-      const cardFinancing = isCardPosDuesMethod(method)
-        ? (row.cardFinancing && typeof row.cardFinancing === 'object'
-          ? row.cardFinancing
-          : resolveCardFinancingForPos({
+      let cardFinancing = null;
+      if (isCardPosDuesMethod(method)) {
+        if (authorize) {
+          cardFinancing = resolveCardFinancingForPos({
             socialAmount: amount,
             paymentPlanId,
             plan: row.paymentPlan || null,
+            plans: row.paymentPlans || plans,
             percent: row.financingPercent,
             fixedAmount: row.financingFixed,
-            voucherAmount: row.voucherAmount,
+            voucherAmount: row.voucherAmount ?? row.receiptParse?.amount,
             receiptParse: row.receiptParse,
+            cardFinancing: row.cardFinancing,
             authReference: row.authReference,
-          }))
-        : null;
+            operatorRole: row.operatorRole || operatorRole,
+          });
+        } else if (row.cardFinancing && typeof row.cardFinancing === 'object') {
+          cardFinancing = row.cardFinancing;
+        }
+      }
       const voucherAmount = isCardPosDuesMethod(method)
         ? (duesVoucherAmount({ ...row, cardFinancing }, amount)
           || resolvePosVoucherAmount(amount, cardFinancing, row.voucherAmount))
@@ -413,8 +429,9 @@ export function normalizePaymentSplits(raw = []) {
 
 /**
  * Asiento de cobro de cuota con tramos POS (modalidad A/B).
- * `cashReceived` = dinero social cobrado (sin financiación).
+ * `cashReceived` = dinero social efectivamente cobrado (después de descuento; sin financiación).
  * `socialIncome` = cashReceived + descuento (crédito a Cuotas Sociales).
+ * Tarjetas a cobrar = cash POS (+ financiación A). Nunca incluye el descuento como cobrado en POS.
  */
 export function buildDuesCollectionJournalLines({
   cashReceived,
@@ -426,9 +443,10 @@ export function buildDuesCollectionJournalLines({
   isCardPos = false,
 } = {}) {
   const cash = money(cashReceived);
-  const income = money(socialIncome != null ? socialIncome : cash + discount);
-  const discountLine = discount > 0.009
-    ? [{ account: DUES_DISCOUNT_ACCOUNT, type: 'debit', amount: money(discount) }]
+  const disc = money(discount);
+  const income = money(socialIncome != null ? socialIncome : cash + disc);
+  const discountLine = disc > 0.009
+    ? [{ account: DUES_DISCOUNT_ACCOUNT, type: 'debit', amount: disc }]
     : [];
 
   if (Array.isArray(mixedSplits) && mixedSplits.length >= 2) {
@@ -453,7 +471,7 @@ export function buildDuesCollectionJournalLines({
         });
       }
     });
-    return [
+    const built = [
       ...lines,
       ...discountLine,
       { account: POS_DUES_INCOME_ACCOUNT, type: 'credit', amount: income },
@@ -461,35 +479,46 @@ export function buildDuesCollectionJournalLines({
         ? [{ account: POS_FINANCING_INCOME_ACCOUNT, type: 'credit', amount: financingCredit }]
         : []),
     ];
+    assertJournalLinesBalanced(built);
+    return built;
   }
 
   if (isCardPos) {
     const pos = buildPosJournalLines({
-      socialIncome: income,
+      posCashReceived: cash,
+      socialCredit: income,
+      discount: disc,
       financingAmount: cardFinancing?.financingAmount || 0,
       mode: cardFinancing?.mode,
       cardAccount: cashAccount || POS_CARD_RECEIVABLE_ACCOUNT,
+      discountAccount: DUES_DISCOUNT_ACCOUNT,
     });
-    return [
-      ...pos.lines.filter((line) => line.type === 'debit'),
-      ...discountLine,
-      ...pos.lines.filter((line) => line.type === 'credit'),
-    ];
+    return pos.lines;
   }
 
-  return [
+  const plain = [
     ...(cash > 0.009 ? [{ account: cashAccount, type: 'debit', amount: cash }] : []),
     ...discountLine,
     { account: POS_DUES_INCOME_ACCOUNT, type: 'credit', amount: income },
   ];
+  assertJournalLinesBalanced(plain);
+  return plain;
 }
 
 /**
  * Valida splits: ≥2 líneas, suma = total, comprobantes donde corresponde.
  * @returns {{ splits: object[], total: number }}
  */
-export function validatePaymentSplits(rawSplits, expectedAmount, { treasuryMatch = false } = {}) {
-  const splits = normalizePaymentSplits(rawSplits);
+export function validatePaymentSplits(rawSplits, expectedAmount, {
+  treasuryMatch = false,
+  plans = [],
+  operatorRole = null,
+} = {}) {
+  const splits = normalizePaymentSplits(rawSplits, {
+    authorize: true,
+    plans,
+    operatorRole,
+  });
   if (splits.length < 2) {
     throw new Error('El pago mixto necesita al menos dos medios con importe.');
   }
@@ -1305,6 +1334,7 @@ export function recordDuesCollection(member, {
   cardFinancing = null,
   financingPercent = null,
   financingFixed = null,
+  operatorRole = null,
   discount = 0,
   discountDetail = '',
   chargeScope = 'all',
@@ -1352,7 +1382,11 @@ export function recordDuesCollection(member, {
   let mixed = null;
   if (wantsMixed) {
     const previewCash = received != null ? received : concession.cash;
-    mixed = validatePaymentSplits(paymentSplits, previewCash > 0 ? previewCash : amount, { treasuryMatch });
+    mixed = validatePaymentSplits(paymentSplits, previewCash > 0 ? previewCash : amount, {
+      treasuryMatch,
+      plans: paymentPlans || [],
+      operatorRole,
+    });
   }
 
   const resolvedMethod = mixed
@@ -1456,17 +1490,17 @@ export function recordDuesCollection(member, {
   };
 
   if (!mixed && isCardPosDuesMethod(resolvedMethod)) {
-    const fin = cardFinancing && typeof cardFinancing === 'object'
-      ? cardFinancing
-      : resolveCardFinancingForPos({
-        socialAmount: payment.amount,
-        paymentPlanId,
-        plans: paymentPlans || [],
-        percent: financingPercent,
-        fixedAmount: financingFixed,
-        voucherAmount: duesVoucherAmount({ receiptParse }, payment.amount),
-        receiptParse,
-      });
+    const fin = resolveCardFinancingForPos({
+      socialAmount: payment.amount,
+      paymentPlanId,
+      plans: paymentPlans || [],
+      percent: financingPercent,
+      fixedAmount: financingFixed,
+      voucherAmount: receiptParse?.amount != null ? Number(receiptParse.amount) : null,
+      receiptParse,
+      cardFinancing,
+      operatorRole,
+    });
     payment.cardFinancing = fin;
     payment.paymentPlanSnapshot = fin?.paymentPlanSnapshot || null;
     payment.voucherAmount = resolvePosVoucherAmount(payment.amount, fin, receiptParse?.amount);
@@ -1636,6 +1670,9 @@ export function recordTennisAbonoCollection(member, {
   paymentPlanLabel = null,
   receiptParse = null,
   paymentSplits = null,
+  cardFinancing = null,
+  financingPercent = null,
+  financingFixed = null,
   discount = 0,
   discountDetail = '',
 } = {}) {
@@ -1647,6 +1684,26 @@ export function recordTennisAbonoCollection(member, {
     : duesTennisAbonoAmountForAccount(account, today);
   if (!(tennisMonthly > 0.01) && !(monthlyAmount > 0)) {
     throw new Error('Esta cuenta no tiene abono de tenis.');
+  }
+
+  // B6: financiación POS no soportada en abono tenis — bloquear antes de acreditar.
+  assertTennisPosFinancingAllowed({
+    method,
+    paymentPlanId,
+    cardFinancing: cardFinancing
+      || (financingPercent || financingFixed
+        ? { financingAmount: 1 }
+        : null),
+    paymentSplits,
+  });
+  if (
+    isCardPosDuesMethod(method)
+    && (Number(financingPercent) > 0 || Number(financingFixed) > 0)
+  ) {
+    assertTennisPosFinancingAllowed({
+      method,
+      cardFinancing: { financingAmount: 1 },
+    });
   }
 
   const wantsMixed = method === 'mixto'
@@ -2385,24 +2442,77 @@ export async function persistDuesCollection(result, {
     await updateMember?.(next.member);
   }
   if (next.ledgerEntry) onAccountEntry?.(next.ledgerEntry);
-  if (next.journalEntry && typeof addJournalEntry === 'function') {
-    try {
-      const saved = await addJournalEntry(next.journalEntry);
-      if (saved && typeof saved === 'object' && saved.id) {
-        return { ...next, journalEntry: saved };
-      }
-      throw new Error('El asiento no devolvió un id.');
-    } catch (err) {
-      const detail = err?.message ? ` ${err.message}` : '';
-      throw new Error(
-        `El cobro quedó en la ficha, pero no entró a caja ni al diario.${detail} Reintentá el asiento o avisá a sistemas.`,
-      );
-    }
-  }
-  if (isSupabaseConfigured && next.journalEntry && typeof addJournalEntry !== 'function') {
-    throw new Error(
-      'El cobro quedó en la ficha, pero no hay quién registre el asiento de caja. Recargá el panel e intentá de nuevo.',
-    );
+  if (next.journalEntry) {
+    const ensured = await ensureDuesCollectionJournal(next, { addJournalEntry });
+    return ensured;
   }
   return next;
+}
+
+/**
+ * Idempotencia / recuperación del asiento (B4):
+ * - Si ya existe asiento con sourceId = payment.id → no duplica.
+ * - Si el cobro quedó persistido y el asiento falló → reintento solo publica el asiento.
+ * - Doble clic / timeout: misma clave de cobro + mismo sourceId.
+ */
+export async function ensureDuesCollectionJournal(result, { addJournalEntry } = {}) {
+  if (!result?.journalEntry) return result;
+  const sourceId = result.journalEntry.sourceId || result.payment?.id || null;
+  const entry = {
+    ...result.journalEntry,
+    ...(sourceId ? { sourceId } : {}),
+  };
+
+  if (isSupabaseConfigured && sourceId && isPersistedPaymentId(sourceId)) {
+    const existing = await findDuesJournalBySourceId(sourceId);
+    if (existing?.id) {
+      return {
+        ...result,
+        journalEntry: { ...entry, id: existing.id, status: existing.status || 'posted' },
+        journalRecovered: true,
+      };
+    }
+  }
+
+  if (typeof addJournalEntry !== 'function') {
+    if (isSupabaseConfigured) {
+      const err = new Error(
+        'El cobro quedó en la ficha, pero no hay quién registre el asiento de caja. Recargá el panel e intentá de nuevo.',
+      );
+      err.code = 'JOURNAL_MISSING_HANDLER';
+      err.paymentId = sourceId;
+      err.recoverable = true;
+      throw err;
+    }
+    return result;
+  }
+
+  try {
+    const saved = await addJournalEntry(entry);
+    if (saved && typeof saved === 'object' && saved.id) {
+      return { ...result, journalEntry: saved, journalRecovered: false };
+    }
+    throw new Error('El asiento no devolvió un id.');
+  } catch (err) {
+    // Carrera: otro request pudo crear el asiento entre el check y el insert.
+    if (isSupabaseConfigured && sourceId && isPersistedPaymentId(sourceId)) {
+      const raced = await findDuesJournalBySourceId(sourceId);
+      if (raced?.id) {
+        return {
+          ...result,
+          journalEntry: { ...entry, id: raced.id, status: raced.status || 'posted' },
+          journalRecovered: true,
+        };
+      }
+    }
+    const detail = err?.message ? ` ${err.message}` : '';
+    const wrapped = new Error(
+      `El cobro quedó en la ficha, pero no entró a caja ni al diario.${detail} Reintentá el asiento (idempotente) o avisá a sistemas.`,
+    );
+    wrapped.code = 'JOURNAL_POST_FAILED';
+    wrapped.paymentId = sourceId;
+    wrapped.recoverable = true;
+    wrapped.cause = err;
+    throw wrapped;
+  }
 }
