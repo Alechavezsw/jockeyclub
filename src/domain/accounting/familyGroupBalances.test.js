@@ -56,12 +56,24 @@ describe('familyGroupBalances', () => {
   });
 
   it('el balance familiar es el saldo del titular', () => {
+    // El hogar vive en members.familyPrincipalNumber / familyGroupName (no en `adherents` locales).
     const titular = {
       memberId: '100',
       name: 'Titular Demo',
+      familyGroupName: 'GF - Demo 100',
+      familyPrincipalNumber: '100',
       outstandingBalance: 1000,
-      adherents: [{ memberId: '101', name: 'Hijo', outstandingBalance: 200, fromPadron: true }],
     };
-    expect(familyBalanceForMember(titular, [titular]).amount).toBe(1000);
+    const hijo = {
+      memberId: '101',
+      name: 'Hijo',
+      familyGroupName: 'GF - Demo 100',
+      familyPrincipalNumber: '100',
+      outstandingBalance: 200,
+    };
+    const fam = familyBalanceForMember(titular, [titular, hijo]);
+    expect(fam.isTitular).toBe(true);
+    expect(fam.amount).toBe(1000);
+    expect(familyBalanceForMember(hijo, [titular, hijo]).amount).toBeNull();
   });
 });

@@ -150,9 +150,13 @@ export function hasClock(value) {
 /** Etiqueta corta fecha+hora en es-AR. */
 export function formatDateTimeAR(isoDate, timeHHMM) {
   if (!isoDate) return '—';
-  const date = new Date(`${String(isoDate).slice(0, 10)}T${timeHHMM || '12:00'}:00`);
+  // Hora de pared del club (ya viene en Argentina): se arma y se formatea en UTC,
+  // sin convertir según la zona del navegador o del servidor.
+  const [year, month, day] = String(isoDate).slice(0, 10).split('-').map(Number);
+  const [hour, minute] = String(timeHHMM || '12:00').split(':').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day, hour || 0, minute || 0));
   if (Number.isNaN(date.getTime())) return isoDate;
-  return date.toLocaleString('es-AR', INSTANT_LABEL);
+  return date.toLocaleString('es-AR', { ...INSTANT_LABEL, timeZone: 'UTC' });
 }
 
 /** Fecha, y hora si el ISO la trae. No inventa 12:00. */
@@ -164,9 +168,9 @@ export function formatInstantAR(value, timeHHMM) {
   if (instant) return instant.toLocaleString('es-AR', INSTANT_LABEL);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return value ? String(value) : '—';
   const [year, month, date] = day.split('-').map(Number);
-  const noon = new Date(year, month - 1, date, 12, 0, 0);
+  const noon = new Date(Date.UTC(year, month - 1, date, 12, 0, 0));
   return noon.toLocaleDateString('es-AR', {
-    timeZone: AR_TZ,
+    timeZone: 'UTC',
     day: '2-digit',
     month: 'short',
     year: 'numeric',

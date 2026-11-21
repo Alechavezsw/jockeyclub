@@ -18,7 +18,7 @@ function familiar(extra = {}) {
     status: 'active',
     lastPaymentDate: '2026-09-13',
     nextDueDate: '2026-10-10',
-    outstandingBalance: 77000,
+    outstandingBalance: 70000,
     ...extra,
   };
 }
@@ -46,14 +46,14 @@ describe('cta cte viva', () => {
       familiar({
         lastPaymentDate: '2026-08-13',
         nextDueDate: '2026-09-10',
-        outstandingBalance: 500000,
+        outstandingBalance: 140000,
       }),
     ], { today: TODAY });
     const october = liveLiquidationCcBook(book, '2026-10');
     expect(october.items[0].liquidation).toBe(70000);
     expect(october.items[0].surcharge).toBe(7000);
-    expect(october.items[0].previousBalance).toBe(417000);
-    expect(october.items[0].interests).toBe(6000);
+    expect(october.items[0].previousBalance).toBe(70000);
+    expect(october.items[0].interests).toBe(7000);
     expect(filterLiquidationCc(october.items, { onlyLiquidation: true })).toHaveLength(1);
   });
 

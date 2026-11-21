@@ -90,7 +90,8 @@ describe('detalle de un movimiento de caja', () => {
       ...macro,
       id: 'acm-603166',
       accessinId: 603166,
-      amount: 66000,
+      // Septiembre familiar: $ 70.000 de capital + 10 % de mora.
+      amount: 77000,
       memberNumber: '10676',
       description: '10676',
     }, [], [{
@@ -105,19 +106,19 @@ describe('detalle de un movimiento de caja', () => {
         date: '2026-09-01',
         type: 'Cuota',
         description: 'Septiembre del 2026',
-        amount: 60000,
-        cancelled: 60000,
+        amount: 70000,
+        cancelled: 70000,
       },
       {
         id: 'recargo-2026-09',
         date: '2026-09-10',
         type: 'Recargo de Cuota (10.00 %)',
         description: 'Septiembre del 2026',
-        amount: 6000,
-        cancelled: 6000,
+        amount: 7000,
+        cancelled: 7000,
       },
     ]);
-    expect(detail.paymentTotal).toBe(66000);
+    expect(detail.paymentTotal).toBe(77000);
     expect(detail.surplus).toBe(0);
   });
 
@@ -228,7 +229,8 @@ describe('liquidado / recaudado de tesorería', () => {
       members,
       movements: [
         { accessinId: 1, date: '2026-10-15', amount: 77000, memberNumber: '10567', movementType: 'income' },
-        { accessinId: 2, date: '2026-10-01', amount: 66000, memberNumber: '10676', movementType: 'income' },
+        // Septiembre ($ 70.000) pagado el 1/10: cuota atrasada + 10 % de mora.
+        { accessinId: 2, date: '2026-10-01', amount: 77000, memberNumber: '10676', movementType: 'income' },
         { accessinId: 3, date: '2026-10-02', amount: 22000, typeLabel: 'RENDICION PORTERIA', movementType: 'income' },
         { accessinId: 4, date: '2026-10-03', amount: 150000, typeLabel: 'Reserva salón', movementType: 'income' },
         { accessinId: 5, date: '2026-10-04', amount: 8000, typeLabel: 'Estacionamiento', movementType: 'income' },
@@ -238,12 +240,12 @@ describe('liquidado / recaudado de tesorería', () => {
       ],
     })).toEqual({
       cuotaMes: 70000,
-      atrasadas: 60000,
+      atrasadas: 70000,
       posteriores: 70000,
-      recargos: 13000,
+      recargos: 14000,
       reservas: 150000,
       porteria: 30000,
-      recaudado: 363000,
+      recaudado: 374000,
     });
   });
 
@@ -269,7 +271,7 @@ describe('liquidado / recaudado de tesorería', () => {
     const movement = {
       accessinId: 9,
       date: '2026-03-02',
-      amount: 66000,
+      amount: 77000,
       memberNumber: '10567',
       movementType: 'income',
     };
@@ -281,7 +283,7 @@ describe('liquidado / recaudado de tesorería', () => {
       monthKey: '2026-03',
       members: [member],
       movements: [movement],
-    })).toMatchObject({ cuotaMes: 0, atrasadas: 60000, recargos: 6000 });
+    })).toMatchObject({ cuotaMes: 0, atrasadas: 70000, recargos: 7000 });
     expect(splitMonthDuesCollection({
       monthKey: '2026-02',
       members: [member],

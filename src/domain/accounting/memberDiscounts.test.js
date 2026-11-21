@@ -22,11 +22,11 @@ beforeAll(async () => {
 
 describe.skipIf(!hasLocalSnapshot('accessinMemberDiscounts'))('memberDiscounts', () => {
   it('carga el corte LILA de descuentos extras', () => {
-    expect(ACCESSIN_MEMBER_DISCOUNTS_AS_OF).toBe('2026-10-26');
-    expect(ACCESSIN_MEMBER_DISCOUNTS.length).toBe(18);
-    expect(ACCESSIN_MEMBER_DISCOUNTS_SNAPSHOT.activeCount).toBe(14);
+    expect(ACCESSIN_MEMBER_DISCOUNTS_AS_OF).toBe('2026-11-05');
+    expect(ACCESSIN_MEMBER_DISCOUNTS.length).toBe(19);
+    expect(ACCESSIN_MEMBER_DISCOUNTS_SNAPSHOT.activeCount).toBe(15);
     expect(ACCESSIN_MEMBER_DISCOUNTS_SNAPSHOT.expiredCount).toBe(4);
-    expect(ACCESSIN_MEMBER_DISCOUNTS_SNAPSHOT.asOfLabel).toMatch(/26 de Octubre del 2026/);
+    expect(ACCESSIN_MEMBER_DISCOUNTS_SNAPSHOT.asOfLabel).toMatch(/5 de Noviembre del 2026/);
   });
 
   it('filtra vigentes, vencidos y por socio', () => {

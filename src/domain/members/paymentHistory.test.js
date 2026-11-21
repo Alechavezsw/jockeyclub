@@ -3,7 +3,7 @@ import { formatPaymentWhen, getMemberPaymentHistory, summarizePaymentHistory } f
 import { setRuntimeTierCatalog } from './tiers';
 
 const testCatalog = [
-  { id: 'socio_individual', name: 'SOCIO INDIVIDUAL', monthlyDues: 32000, sortOrder: 1 },
+  { id: 'socio_individual', name: 'SOCIO INDIVIDUAL', monthlyDues: 40000, sortOrder: 1 },
 ];
 
 beforeEach(() => setRuntimeTierCatalog(testCatalog));
@@ -20,19 +20,28 @@ describe('summarizePaymentHistory', () => {
     {
       id: 'p1',
       date: '2026-08-13',
-      amount: 32000,
+      amount: 40000,
       method: 'caja',
       status: 'paid',
       concept: 'Cuota social · agosto 2026',
     },
   ];
 
-  it('último pago 13/08 con saldo 0 sigue 1 mes atrasado el 21/09', () => {
+  it('último pago 13/08, nextDue en 10/10 y saldo 0: al día el 21/09 (no se inventa septiembre)', () => {
+    // next_due_date es la fuente del primer vencimiento abierto: septiembre no se liquidó,
+    // nadie lo debe (regla cuota social #7).
     const summary = summarizePaymentHistory(history, member, { today });
-    expect(summary.monthsBehind).toBe(1);
-    expect(summary.outstanding).toBe(32000);
-    expect(summary.nextDue).toBe('2026-09-10');
+    expect(summary.monthsBehind).toBe(0);
+    expect(summary.outstanding).toBe(0);
+    expect(summary.nextDue).toBe('2026-10-10');
     expect(summary.lastPayment.date).toBe('2026-08-13');
+  });
+
+  it('último pago 13/08 con nextDue 10/09 y saldo 0 sigue 1 mes atrasado el 21/09', () => {
+    const summary = summarizePaymentHistory(history, { ...member, nextDueDate: '2026-09-10' }, { today });
+    expect(summary.monthsBehind).toBe(1);
+    expect(summary.outstanding).toBe(40000);
+    expect(summary.nextDue).toBe('2026-09-10');
   });
 
   it('si no hay catálogo ni pagos, igual calcula mora cobrable', () => {
@@ -42,16 +51,18 @@ describe('summarizePaymentHistory', () => {
       nextDueDate: '2026-08-10',
     }, { today });
     expect(summary.monthsBehind).toBe(2);
-    expect(summary.outstanding).toBe(64000);
+    // socio_familiar: $ 70.000 de capital por mes (no la tarifa vieja de $ 32.000).
+    expect(summary.outstanding).toBe(140000);
   });
 
   it('si la categoría no tiene monto, usa el último pago de cuota', () => {
     const summary = summarizePaymentHistory(history, {
       ...member,
-      tier: 'socio_familiar',
+      tier: 'socio_sin_monto_en_catalogo',
+      nextDueDate: '2026-09-10',
     }, { today });
     expect(summary.monthsBehind).toBe(1);
-    expect(summary.outstanding).toBe(32000);
+    expect(summary.outstanding).toBe(40000);
   });
 
   it('vitalicio no genera meses atrasados ni cuota de $ 32.000', () => {
@@ -105,9 +116,9 @@ describe('summarizePaymentHistory', () => {
     expect(summary.nextDue).toBe('2026-09-10');
     expect(summary.monthsBehind).toBe(2);
     expect(summary.outstanding).toBe(140000);
-    // sept $60.000 + oct $70.000 → 10 % de cada mes vencido
-    expect(summary.surcharge).toBe(13000);
-    expect(summary.nextAmount).toBe(143000);
+    // sept $70.000 + oct $70.000 (familiar: 70.000 de capital desde septiembre) → 10 % de cada mes vencido
+    expect(summary.surcharge).toBe(14000);
+    expect(summary.nextAmount).toBe(154000);
     expect(summary.dueDay).toBe(10);
   });
 
