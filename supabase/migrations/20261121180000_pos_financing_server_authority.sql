@@ -484,7 +484,63 @@ revoke all on function public.post_cuotas_journal_for_payment(uuid, jsonb) from 
 grant execute on function public.post_cuotas_journal_for_payment(uuid, jsonb) to service_role;
 
 -- ---------------------------------------------------------------------------
--- 5b) B17: comparar snapshot de reintento vs pago original (sin reescribir)
+-- 5b) B18: períodos canónicos (dueOns / periodDueOns / periods)
+--     El frontend (cobroPeriods) envía dueOns; registrar_cobro persiste periodDueOns.
+-- ---------------------------------------------------------------------------
+create or replace function public.pos_normalize_due_ons(p_src jsonb)
+returns jsonb
+language plpgsql
+immutable
+set search_path = public
+as $$
+declare
+  v_raw jsonb;
+  v_item jsonb;
+  v_due text;
+  v_list text[] := '{}';
+begin
+  if p_src is null then
+    return '[]'::jsonb;
+  end if;
+  if jsonb_typeof(p_src) = 'array' then
+    v_raw := p_src;
+  elsif jsonb_typeof(p_src) = 'object' then
+    v_raw := coalesce(
+      case when jsonb_typeof(p_src->'dueOns') = 'array' then p_src->'dueOns' end,
+      case when jsonb_typeof(p_src->'periodDueOns') = 'array' then p_src->'periodDueOns' end,
+      case when jsonb_typeof(p_src->'periods') = 'array' then p_src->'periods' end,
+      '[]'::jsonb
+    );
+  else
+    return '[]'::jsonb;
+  end if;
+
+  for v_item in select value from jsonb_array_elements(v_raw)
+  loop
+    if jsonb_typeof(v_item) = 'string' then
+      v_due := left(trim(both '"' from v_item::text), 10);
+    elsif jsonb_typeof(v_item) = 'object' then
+      v_due := left(coalesce(nullif(btrim(v_item->>'dueOn'), ''), nullif(btrim(v_item->>'date'), ''), ''), 10);
+    else
+      v_due := null;
+    end if;
+    if v_due ~ '^\d{4}-\d{2}-\d{2}$' and not (v_due = any (v_list)) then
+      v_list := array_append(v_list, v_due);
+    end if;
+  end loop;
+
+  return coalesce(
+    (select jsonb_agg(to_jsonb(d) order by d) from unnest(v_list) as d),
+    '[]'::jsonb
+  );
+end;
+$$;
+
+revoke all on function public.pos_normalize_due_ons(jsonb) from public, anon;
+grant execute on function public.pos_normalize_due_ons(jsonb) to authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- 5c) B17/B18: comparar snapshot de reintento vs pago original (sin reescribir)
 -- ---------------------------------------------------------------------------
 create or replace function public.assert_pos_idempotent_snapshot(
   p_payment jsonb,
@@ -538,15 +594,9 @@ begin
     raise exception 'Conflicto de idempotencia: el medio no coincide con el cobro original.';
   end if;
 
-  v_stored_periods := case
-    when jsonb_typeof(v_meta->'periodDueOns') = 'array' then v_meta->'periodDueOns'
-    when jsonb_typeof(v_meta->'periods') = 'array' then v_meta->'periods'
-    else '[]'::jsonb
-  end;
-  v_req_periods := case
-    when jsonb_typeof(v_req->'periodDueOns') = 'array' then v_req->'periodDueOns'
-    else '[]'::jsonb
-  end;
+  -- B18: dueOns (cobroPeriods) ≡ periodDueOns persistidos.
+  v_stored_periods := public.pos_normalize_due_ons(v_meta);
+  v_req_periods := public.pos_normalize_due_ons(v_req);
   if v_stored_periods is distinct from v_req_periods then
     raise exception 'Conflicto de idempotencia: los períodos no coinciden con el cobro original.';
   end if;
@@ -895,6 +945,12 @@ begin
       and e.source_id = v_payment_id
       and e.voided_at is null
     limit 1;
+
+    -- B18: reintento idempotente exige asiento original; sin él no hay éxito.
+    if v_journal is null or nullif(v_journal->'entry'->>'id', '') is null then
+      raise exception
+        'Integridad POS: el cobro idempotente no tiene asiento contable original.';
+    end if;
 
     return v_cobro || jsonb_build_object(
       'journal', v_journal,

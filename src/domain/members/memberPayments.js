@@ -2299,6 +2299,35 @@ function cobroSchedule(member, payment) {
   return openPeriodsFromChoices(choices, scheduleBalance);
 }
 
+/**
+ * B18: representación canónica de períodos (dueOns / periodDueOns / periods).
+ * Alineada con `pos_normalize_due_ons` en SQL.
+ */
+export function normalizeCobroDueOns(src) {
+  let raw = [];
+  if (Array.isArray(src)) {
+    raw = src;
+  } else if (src && typeof src === 'object') {
+    if (Array.isArray(src.dueOns)) raw = src.dueOns;
+    else if (Array.isArray(src.periodDueOns)) raw = src.periodDueOns;
+    else if (Array.isArray(src.periods)) raw = src.periods;
+  }
+  const out = [];
+  const seen = new Set();
+  for (const item of raw) {
+    let due = '';
+    if (typeof item === 'string' || typeof item === 'number') {
+      due = String(item).slice(0, 10);
+    } else if (item && typeof item === 'object') {
+      due = String(item.dueOn || item.date || '').slice(0, 10);
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(due) || seen.has(due)) continue;
+    seen.add(due);
+    out.push(due);
+  }
+  return out.sort();
+}
+
 export function cobroPeriods(member, payment) {
   const tennisOnly = paymentIsTennisAbonoOnly(payment);
   const skipSurcharge = tennisOnly || duesMethodSkipsSurcharge(payment?.method);
