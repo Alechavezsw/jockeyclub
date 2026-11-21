@@ -140,6 +140,7 @@ describe('dues classification', () => {
         tier: 'socio_familiar',
         outstandingBalance: 70000,
         unpaidCapital: 0,
+        duesOpenPeriods: [],
         lastPaymentDate: '2026-11-01',
         status: 'active',
       },
@@ -189,6 +190,18 @@ describe('dues classification', () => {
       unpaidCapital: 0,
       duesOpenPeriods: [{ dueOn: '2026-11-10', capital: 70000 }],
     })).toBe(55000);
+  });
+
+  it('unpaidCapital 0 sin duesOpenPeriods hidratados no silencia ficha positiva', () => {
+    expect(socialDuesStoredBalance({
+      outstandingBalance: 70000,
+      unpaidCapital: 0,
+    })).toBe(70000);
+    expect(socialDuesStoredBalance({
+      outstandingBalance: 70000,
+      unpaidCapital: 0,
+      duesOpenPeriods: [],
+    })).toBe(0);
   });
 
   it('un alquiler en la cuenta no es mora de cuota', () => {

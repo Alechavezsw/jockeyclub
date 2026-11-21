@@ -24,4 +24,20 @@ describe('metaFromListRow', () => {
     expect(meta.lastPaymentDate).toBe('2026-01-01');
     expect(meta.extra).toBe(true);
   });
+
+  it('hidrata unpaidCapital y duesOpenPeriods desde columnas del padrón', () => {
+    const meta = metaFromListRow({
+      unpaid_capital: 70000,
+      dues_open_periods: [{ dueOn: '2026-11-10', capital: 70000 }],
+    });
+    expect(meta.unpaidCapital).toBe(70000);
+    expect(meta.duesOpenPeriods).toEqual([{ dueOn: '2026-11-10', capital: 70000 }]);
+
+    const cleared = metaFromListRow({
+      unpaid_capital: 0,
+      dues_open_periods: [],
+    });
+    expect(cleared.unpaidCapital).toBe(0);
+    expect(cleared.duesOpenPeriods).toEqual([]);
+  });
 });

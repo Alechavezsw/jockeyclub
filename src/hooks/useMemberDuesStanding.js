@@ -40,6 +40,7 @@ function standingFromRpc(raw) {
  * Ficha en 0 sin obligaciones nuevas → no atrasado por monthsBehind / nextDue / historial.
  */
 export function useMemberDuesStanding(member) {
+  const memberKey = member?.id || member?.memberId || '';
   const [remoteHistory, setRemoteHistory] = useState(() => (
     Array.isArray(member?.paymentHistory) ? member.paymentHistory : []
   ));
@@ -47,25 +48,26 @@ export function useMemberDuesStanding(member) {
   const [persisted, setPersisted] = useState(null);
   const [loading, setLoading] = useState(false);
   const syncedFor = useRef('');
+  const seenMemberKey = useRef(memberKey);
   const seedLen = member?.paymentHistory?.length || 0;
   const seedId = member?.paymentHistory?.[0]?.id;
-  const memberKey = member?.id || member?.memberId || '';
 
-  // Cambio rápido de socio: limpiar señales del anterior para no mezclar mora/saldo.
-  useEffect(() => {
+  // Cambio rápido de socio: reset en render (no en effect) para no mezclar mora/saldo.
+  if (seenMemberKey.current !== memberKey) {
+    seenMemberKey.current = memberKey;
+    syncedFor.current = '';
     setRemoteHistory(Array.isArray(member?.paymentHistory) ? member.paymentHistory : []);
     setRemoteFicha(null);
     setPersisted(null);
-    syncedFor.current = '';
     setLoading(false);
-  }, [memberKey]);
+  }
 
   useEffect(() => {
     const seed = member?.paymentHistory;
     if (Array.isArray(seed) && seed.length) {
       setRemoteHistory((prev) => (prev.length ? prev : seed));
     }
-  }, [member?.id, seedLen, seedId]);
+  }, [member?.id, seedLen, seedId, member?.paymentHistory]);
 
   useEffect(() => {
     let alive = true;

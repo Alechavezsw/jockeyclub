@@ -670,11 +670,20 @@ export function lilaUnpaidCapital(member) {
 }
 
 /**
+ * Períodos abiertos hidratados desde meta / ficha. `null` = todavía no vinieron de Supabase.
+ */
+export function duesOpenPeriodsOf(member) {
+  if (Array.isArray(member?.duesOpenPeriods)) return member.duesOpenPeriods;
+  if (Array.isArray(member?.meta?.duesOpenPeriods)) return member.meta.duesOpenPeriods;
+  return null;
+}
+
+/**
  * Capital de obligaciones efectivamente abiertas (liquidación / períodos generados).
  * No usa fee_ledger ni unpaidCapital histórico.
  */
 export function openDuesObligationCapital(member) {
-  const rows = Array.isArray(member?.duesOpenPeriods) ? member.duesOpenPeriods : [];
+  const rows = duesOpenPeriodsOf(member) || [];
   return money(rows.reduce((sum, row) => {
     if (!row || row.voidedAt) return sum;
     const cap = Number(row.capitalOpen ?? row.capital_open ?? row.capital) || 0;
@@ -686,12 +695,14 @@ export function openDuesObligationCapital(member) {
  * Saldo de cuota para mora / “cuánto debe” / padrón / Consultar deuda / cobro.
  * Misma cifra en todos lados.
  * - outstanding ≤ 0: no reabrir con unpaidCapital LILA; sí respetar períodos abiertos.
- * - unpaidCapital = 0 histórico sin períodos abiertos: no usar ficha vieja (débito importado).
+ * - unpaidCapital = 0 con períodos hidratados vacíos: no usar ficha vieja (débito importado).
+ * - unpaidCapital = 0 SIN períodos hidratados: no ocultar deuda positiva de ficha.
  * - unpaidCapital = 0 CON períodos abiertos: no ocultar la deuda nueva legítima.
  * - Si ambos positivos y discrepan: manda la ficha; unpaid no infla.
  */
 export function socialDuesStoredBalance(member) {
   const outstanding = money(Number(member?.outstandingBalance) || 0);
+  const periodsHydrated = duesOpenPeriodsOf(member) != null;
   const openCap = openDuesObligationCapital(member);
   if (outstanding <= 0.01) {
     if (openCap <= 0.01) return 0;
@@ -700,9 +711,9 @@ export function socialDuesStoredBalance(member) {
   }
   const lila = lilaUnpaidCapital(member);
   if (lila != null && lila <= 0.01 && openCap <= 0.01) {
-    // Débito/cobro dejó unpaid en 0 y no hay períodos abiertos → no inventar mora
-    // con un outstanding desfasado.
-    return 0;
+    // Solo silenciar ficha desfasada si ya sabemos que no hay períodos abiertos.
+    if (periodsHydrated) return 0;
+    return outstanding;
   }
   return Math.max(outstanding, openCap);
 }

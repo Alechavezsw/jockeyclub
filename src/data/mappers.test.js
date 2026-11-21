@@ -48,6 +48,40 @@ describe('mappers', () => {
     expect(back.full_name).toBe('Alejandro Chávez');
   });
 
+  it('memberFromRow hidrata duesOpenPeriods y unpaidCapital desde meta', () => {
+    const ui = memberFromRow({
+      id: '33333333-3333-3333-3333-333333333333',
+      member_number: '10450',
+      full_name: 'Lucia Paola Ponce Pelaez',
+      tier: 'socio_familiar',
+      status: 'active',
+      outstanding_balance: 0,
+      joined_at: '2015-01-01',
+      meta: {
+        unpaidCapital: 0,
+        duesOpenPeriods: [],
+      },
+    }, []);
+    expect(ui.unpaidCapital).toBe(0);
+    expect(ui.duesOpenPeriods).toEqual([]);
+
+    const withOpen = memberFromRow({
+      id: '33333333-3333-3333-3333-333333333333',
+      member_number: '10450',
+      full_name: 'Lucia',
+      tier: 'socio_familiar',
+      status: 'active',
+      outstanding_balance: 0,
+      joined_at: '2015-01-01',
+      meta: {
+        unpaidCapital: 70000,
+        duesOpenPeriods: [{ dueOn: '2026-11-10', capital: 70000 }],
+      },
+    }, []);
+    expect(withOpen.duesOpenPeriods).toEqual([{ dueOn: '2026-11-10', capital: 70000 }]);
+    expect(withOpen.unpaidCapital).toBe(70000);
+  });
+
   it('memberFromRow no pisa recordedByName de pagos ya hidratados', () => {
     const mapped = paymentFromRow({
       id: '14cc7b34-d10c-4236-bbc8-ae572cc7b77f',
