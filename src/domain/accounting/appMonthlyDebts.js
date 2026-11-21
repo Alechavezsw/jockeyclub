@@ -13,10 +13,8 @@ import {
   duesDueDayForMember,
   duesPayableForMember,
   firstUnpaidDuesDate,
-  isMemberBillingActive,
   isDuesExemptMember,
   isMemberJoinFeeMonth,
-  lilaUnpaidCapital,
   joinFeeAmountForMember,
   memberJoinMonthKey,
   monthsBehindOnDues,
@@ -148,18 +146,6 @@ function standingLabel(member, { todayIso, monthsBehind }) {
   return 'Vencida';
 }
 
-function syntheticUnpaidAmount(member, firstUnpaid, monthsBehind, today) {
-  let dueOn = firstUnpaid;
-  let total = 0;
-  const n = Math.min(Math.max(monthsBehind, 0), MAX_MONTHS);
-  for (let i = 0; i < n; i += 1) {
-    // Solo capital: el 10 % se calcula aparte al armar el desglose / al cobrar.
-    total += duesAmountForMember(member, dueOn);
-    dueOn = nextDueAfter(dueOn, member);
-  }
-  return money(total);
-}
-
 /**
  * El saldo de ficha es capital. Cada mes del desglose es cuota entera;
  * el 10 % de mora va encima y no come meses del saldo.
@@ -274,10 +260,9 @@ export function appMonthlyDebtForMember(member, { today = new Date(), entries = 
   if (!memberNumber) return null;
 
   const todayIso = asIsoDate(today);
-  // Misma fuente que molinete / mora: unpaidCapital LILA si hay; si no, outstanding.
-  const lila = lilaUnpaidCapital(member);
+  // Ficha operativa manda. unpaidCapital LILA no reabre deuda si outstanding ≤ 0.
   const persisted = socialDuesStoredBalance(member);
-  const billingActive = isMemberBillingActive(member);
+  const outstanding = money(Number(member?.outstandingBalance) || 0);
   const exempt = isDuesExemptMember(member);
   if (exempt) return null;
   const monthsBehind = monthsBehindOnDues({
@@ -287,10 +272,10 @@ export function appMonthlyDebtForMember(member, { today = new Date(), entries = 
     member,
   });
 
-  if (persisted <= EPS) {
-    // Corte LILA en 0 = al día; no inventar meses por nextDue viejo.
-    if (lila != null) return null;
-    if (!billingActive || monthsBehind <= 0) return null;
+  // outstanding ≤ 0 → sin deuda exigible. No inventar meses por nextDue, unpaidCapital
+  // ausente ni fee_ledger.pending. Las diferencias históricas van a conciliación.
+  if (outstanding <= EPS || persisted <= EPS) {
+    return null;
   }
 
   const firstUnpaid = firstUnpaidDuesDate({
@@ -300,11 +285,8 @@ export function appMonthlyDebtForMember(member, { today = new Date(), entries = 
     member,
   });
 
-  let remaining = persisted;
-  if (remaining <= EPS) {
-    remaining = syntheticUnpaidAmount(member, firstUnpaid, monthsBehind, today);
-    if (remaining <= EPS) return null;
-  }
+  const remaining = persisted;
+  if (remaining <= EPS) return null;
 
   const joinFee = allocateJoinFee(member, remaining);
   const { months, unallocated } = joinFee || allocateMonths(member, {

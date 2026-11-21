@@ -386,7 +386,9 @@ export default function CollectDuesDeskFlow({
               const ledgerReview = Boolean(preview?.ledgerDesync);
               const hintFull = standing && !standing.clear
                 ? duesStandingDisplayHint(standing, formatCurrency)
-                : (ledgerReview ? 'Ficha y ledger en revisión' : '');
+                : (ledgerReview
+                  ? 'Al día · diferencias históricas pendientes de conciliación'
+                  : '');
               const hint = standing && !standing.clear
                 ? duesStandingDisplayHint(standing, formatCurrency, { compact: true })
                 : '';
@@ -405,15 +407,13 @@ export default function CollectDuesDeskFlow({
                         {doc ? ` · DNI ${doc}` : ''}
                         {category && category !== '—' ? ` · ${category}` : ''}
                         {inactive ? ' · Baja' : ''}
-                        {ledgerReview ? ' · En revisión' : ''}
+                        {ledgerReview && (!standing || standing.clear) ? ' · Conciliación histórica' : ''}
                       </span>
                     </span>
                     <span className="cdd-desk-hit-side">
                       <span className="cdd-desk-hit-figures">
                         {exempt ? (
                           <span className="cdd-desk-hit-exempt">Exento</span>
-                        ) : ledgerReview && (!standing || standing.clear || toCollect <= 0.01) ? (
-                          <span className="cdd-desk-hit-exempt">En revisión</span>
                         ) : !standing || standing.clear || toCollect <= 0.01 ? (
                           <span className="cdd-desk-hit-exempt">Al día</span>
                         ) : (
