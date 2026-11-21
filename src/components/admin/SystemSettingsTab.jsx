@@ -709,12 +709,12 @@ export default function SystemSettingsTab({
           {!canEditPlans ? (
             <p className="sys-set-hint">Solo lectura para tu perfil. Pedile el cambio a un superadministrador.</p>
           ) : null}
-          <div className="sys-set-rows" style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+          <div className="sys-set-rows" style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
             {(plansDraft || []).map((row, index) => (
               <div
                 key={row.id || `plan-${index}`}
                 className="sys-set-row"
-                style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.4fr) minmax(0,1fr) 88px 88px auto', gap: '0.45rem', alignItems: 'center' }}
+                style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '0.45rem', alignItems: 'center' }}
               >
                 <input
                   className="form-input"
@@ -736,6 +736,16 @@ export default function SystemSettingsTab({
                 />
                 <input
                   className="form-input"
+                  placeholder="Adquirente"
+                  title="Proveedor POS / adquirente"
+                  value={row.acquirer || ''}
+                  disabled={!canEditPlans}
+                  onChange={(e) => setPlansDraft((prev) => prev.map((item, i) => (
+                    i === index ? { ...item, acquirer: e.target.value } : item
+                  )))}
+                />
+                <input
+                  className="form-input"
                   type="number"
                   min={1}
                   title="Cuotas"
@@ -743,6 +753,76 @@ export default function SystemSettingsTab({
                   disabled={!canEditPlans}
                   onChange={(e) => setPlansDraft((prev) => prev.map((item, i) => (
                     i === index ? { ...item, installments: e.target.value } : item
+                  )))}
+                />
+                <select
+                  className="form-input"
+                  title="Modalidad de financiación (solo admin)"
+                  value={row.financingMode === 'club_keeps' ? 'club_keeps' : 'issuer_keeps'}
+                  disabled={!canEditPlans}
+                  onChange={(e) => setPlansDraft((prev) => prev.map((item, i) => (
+                    i === index ? { ...item, financingMode: e.target.value } : item
+                  )))}
+                >
+                  <option value="issuer_keeps">B — Emisor retiene</option>
+                  <option value="club_keeps">A — Club percibe</option>
+                </select>
+                <input
+                  className="form-input"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  placeholder="% financ."
+                  title="Porcentaje de financiación default"
+                  value={row.financingPercent ?? ''}
+                  disabled={!canEditPlans}
+                  onChange={(e) => setPlansDraft((prev) => prev.map((item, i) => (
+                    i === index ? { ...item, financingPercent: e.target.value } : item
+                  )))}
+                />
+                <input
+                  className="form-input"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  placeholder="$ fijo"
+                  title="Importe fijo de financiación (opcional)"
+                  value={row.financingFixed ?? ''}
+                  disabled={!canEditPlans}
+                  onChange={(e) => setPlansDraft((prev) => prev.map((item, i) => (
+                    i === index ? { ...item, financingFixed: e.target.value } : item
+                  )))}
+                />
+                <select
+                  className="form-input"
+                  title="¿El cajero puede cambiar %/importe? (no la modalidad)"
+                  value={row.allowOperatorOverride ? 'si' : 'no'}
+                  disabled={!canEditPlans}
+                  onChange={(e) => setPlansDraft((prev) => prev.map((item, i) => (
+                    i === index ? { ...item, allowOperatorOverride: e.target.value === 'si' } : item
+                  )))}
+                >
+                  <option value="no">Sin override</option>
+                  <option value="si">Override %/$</option>
+                </select>
+                <input
+                  className="form-input"
+                  type="date"
+                  title="Vigente desde"
+                  value={row.validFrom || ''}
+                  disabled={!canEditPlans}
+                  onChange={(e) => setPlansDraft((prev) => prev.map((item, i) => (
+                    i === index ? { ...item, validFrom: e.target.value || null } : item
+                  )))}
+                />
+                <input
+                  className="form-input"
+                  type="date"
+                  title="Vigente hasta"
+                  value={row.validTo || ''}
+                  disabled={!canEditPlans}
+                  onChange={(e) => setPlansDraft((prev) => prev.map((item, i) => (
+                    i === index ? { ...item, validTo: e.target.value || null } : item
                   )))}
                 />
                 <select
@@ -781,6 +861,13 @@ export default function SystemSettingsTab({
                     installments: 1,
                     active: true,
                     notes: '',
+                    acquirer: 'Visa',
+                    financingMode: 'issuer_keeps',
+                    financingPercent: null,
+                    financingFixed: null,
+                    allowOperatorOverride: false,
+                    validFrom: null,
+                    validTo: null,
                   },
                 ])}
               >

@@ -257,7 +257,11 @@ export default function CollectDuesDeskFlow({
       onClose?.();
       return;
     }
-    const result = recordDuesCollection(member, { ...payload, members });
+    const result = recordDuesCollection(member, {
+      ...payload,
+      members,
+      paymentPlans,
+    });
     const saved = await persistDuesCollection(result, {
       setMembers,
       addJournalEntry,

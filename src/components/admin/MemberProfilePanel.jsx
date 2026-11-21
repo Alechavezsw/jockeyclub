@@ -1049,7 +1049,7 @@ export default function MemberProfilePanel({
       window.setTimeout(() => setCollectFlash(''), 5000);
       return;
     }
-    const result = recordDuesCollection(member, { ...payload, members });
+    const result = recordDuesCollection(member, { ...payload, members, paymentPlans });
     const saved = await persistDuesCollection(result, {
       setMembers,
       updateMember,
@@ -1911,6 +1911,15 @@ export default function MemberProfilePanel({
                       ) : null}
                       {Number(p.creditLeftover) > 0.01 ? (
                         <div className="mp-list-sub">Saldo a favor {formatCurrency(p.creditLeftover)}</div>
+                      ) : null}
+                      {Number(p.cardFinancing?.financingAmount) > 0.01 ? (
+                        <div className="mp-list-sub">
+                          Contado {formatCurrency(p.cardFinancing.baseAmount ?? p.amount)}
+                          {' · '}cupón {formatCurrency(p.cardFinancing.voucherTotal)}
+                          {p.cardFinancing.installments > 1
+                            ? ` · ${p.cardFinancing.installments} cuotas tarjeta`
+                            : ''}
+                        </div>
                       ) : null}
                       {p.imputations?.length ? (
                         <div className="mp-list-sub">

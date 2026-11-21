@@ -277,11 +277,20 @@ export function receiptPaymentSplits(payment) {
       const voucherAmount = Number.isFinite(voucherRaw) && voucherRaw > amount + 0.01
         ? Math.round(voucherRaw * 100) / 100
         : 0;
+      const cardFinancing = row.cardFinancing && typeof row.cardFinancing === 'object'
+        ? row.cardFinancing
+        : null;
+      const resolvedVoucher = cardFinancing?.voucherTotal != null
+        ? Number(cardFinancing.voucherTotal)
+        : voucherAmount;
       return {
         method: String(row.method || '').trim().toLowerCase(),
         label: String(row.label || METHOD[String(row.method || '').trim().toLowerCase()] || row.method || 'Medio').trim(),
         amount,
-        voucherAmount,
+        voucherAmount: Number.isFinite(resolvedVoucher) && resolvedVoucher > amount + 0.01
+          ? Math.round(resolvedVoucher * 100) / 100
+          : 0,
+        cardFinancing,
         reference: receiptSplitReference(row),
         journalAccount: String(row.journalAccount || '').trim(),
       };
@@ -463,15 +472,18 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
         const detail = row.reference && !row.label.includes(row.reference)
           ? `${row.label} · ${row.reference}`
           : row.label;
-        // Cupón DATA/POS mayor al imputado: el socio financia; al club entra el monto del tramo.
+        const fin = row.cardFinancing;
         const voucherNote = row.voucherAmount > 0
           ? ` · cupón ${formatCurrency(row.voucherAmount)}`
+          : '';
+        const finNote = Number(fin?.financingAmount) > 0.01
+          ? ` · financ. ${formatCurrency(fin.financingAmount)}`
           : '';
         return [
           splits.length === 2
             ? (index === 0 ? 'MEDIO 1' : 'MEDIO 2')
             : (index === 0 ? 'MEDIOS' : ''),
-          `${detail}: ${amount}${voucherNote}`,
+          `${detail}: ${amount}${voucherNote}${finNote}`,
         ];
       })
       : []),
@@ -487,6 +499,25 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
       : []),
     ...(() => {
       if (splits.length >= 2) return [];
+      const fin = payment?.cardFinancing;
+      if (fin && Number(fin.financingAmount) > 0.01) {
+        const rows = [
+          ['CAPITAL POS', formatCurrency(fin.baseAmount != null ? fin.baseAmount : payment?.amount)],
+          ['FINANCIACIÓN TARJETA', formatCurrency(fin.financingAmount)],
+          ['TOTAL CUPÓN', formatCurrency(fin.voucherTotal != null ? fin.voucherTotal : (Number(fin.baseAmount) || 0) + Number(fin.financingAmount))],
+        ];
+        if (fin.installments > 1) {
+          rows.push(['CUOTAS TARJETA', String(fin.installments)]);
+        }
+        if (fin.authReference) {
+          rows.push(['REF. POS', String(fin.authReference)]);
+        }
+        rows.push([
+          'MODALIDAD',
+          fin.mode === 'club_keeps' ? 'A · club percibe financiación' : 'B · emisor retiene',
+        ]);
+        return rows;
+      }
       const voucher = Number(payment?.voucherAmount ?? payment?.receiptParse?.amount);
       const paid = Number(payment?.amount) || 0;
       if (!(voucher > paid + 0.01)) return [];

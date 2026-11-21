@@ -167,7 +167,7 @@ export default function AmetMembersPanel({
       window.setTimeout(() => setFlash(''), 5000);
       return;
     }
-    const result = recordDuesCollection(collectMember, { ...payload, members });
+    const result = recordDuesCollection(collectMember, { ...payload, members, paymentPlans });
     const saved = await persistDuesCollection(result, {
       setMembers,
       addJournalEntry,

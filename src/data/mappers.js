@@ -206,8 +206,12 @@ export function paymentFromRow(row) {
       : null,
     paymentPlanId: meta.paymentPlanId || null,
     paymentPlanLabel: meta.paymentPlanLabel || null,
+    paymentPlanSnapshot: meta.paymentPlanSnapshot && typeof meta.paymentPlanSnapshot === 'object'
+      ? meta.paymentPlanSnapshot
+      : null,
     receiptParse: meta.receiptParse && typeof meta.receiptParse === 'object' ? meta.receiptParse : null,
     voucherAmount: meta.voucherAmount != null ? Number(meta.voucherAmount) : null,
+    cardFinancing: meta.cardFinancing && typeof meta.cardFinancing === 'object' ? meta.cardFinancing : null,
     paymentSplits: Array.isArray(meta.paymentSplits) ? meta.paymentSplits : null,
     status: meta.status === 'void' || meta.voidedAt ? 'void' : 'paid',
     voidReason: meta.voidReason || null,
