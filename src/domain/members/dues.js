@@ -691,49 +691,188 @@ export function openDuesObligationCapital(member) {
   }, 0));
 }
 
-function isVerifiedDuesPaymentRow(row) {
-  if (!row || row.status === 'void' || row.voidedAt) return false;
+function asDueOnStamp(value) {
+  const raw = String(value || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+  return '';
+}
+
+/** Pago de cuota social acreditado (no anulado, no pendiente, no evento/reserva). */
+export function isVerifiedDuesPaymentRow(row) {
+  if (!row || row.voidedAt) return false;
+  const status = String(row.status || 'paid').toLowerCase();
+  if (status === 'void' || status === 'pending' || status === 'cancelled' || status === 'rejected') {
+    return false;
+  }
   const amount = Number(row.amount) || 0;
   if (amount <= 0.01) return false;
-  const concept = String(row.concept || row.periodLabel || '').toLowerCase();
+  const concept = String(row.concept || row.periodLabel || row.chargeScope || '').toLowerCase();
   if (/evento|reserva|inscrip/.test(concept)) return false;
+  if (/abono.?tenis|tenis/.test(concept) && !/cuota/.test(concept)) return false;
+  if (row.chargeScope && String(row.chargeScope).toLowerCase() === 'abono_tenis') return false;
   return true;
 }
 
-function isAdminDuesRegularizationEntry(entry) {
+/** DueOns que el pago declara cubrir (periodDueOns / imputaciones). Sin eso no cubre nada. */
+export function paymentCoveredDueOns(payment) {
+  if (!isVerifiedDuesPaymentRow(payment)) return [];
+  const out = [];
+  const push = (value) => {
+    const due = asDueOnStamp(value);
+    if (due && !out.includes(due)) out.push(due);
+  };
+  for (const due of payment?.periodDueOns || []) push(due);
+  for (const row of payment?.imputations || []) push(row?.dueOn || row?.due_on);
+  for (const row of payment?.meta?.imputations || []) push(row?.dueOn || row?.due_on);
+  return out;
+}
+
+function paymentCoversDueOn(payment, dueOn) {
+  const target = asDueOnStamp(dueOn);
+  if (!target) return false;
+  return paymentCoveredDueOns(payment).includes(target);
+}
+
+/**
+ * Regularización administrativa explícita (no un asiento negativo genérico).
+ * Requiere marca clara + alcance de períodos.
+ */
+export function isExplicitAdminRegularization(entry) {
   if (!entry || entry.voidedAt) return false;
-  const amount = Number(entry.amount ?? entry.value) || 0;
+  if (entry.adminRegularization === true || entry?.meta?.adminRegularization === true) return true;
   const kind = String(entry.kind || entry.type || '').toLowerCase();
   const source = String(entry.source || entry.description || '').toLowerCase();
-  if (amount < -0.01) return true;
-  if (/ajuste|regulariz|admin/.test(kind)) return true;
-  if (/regulariz|ajuste:|admin/.test(source)) return true;
-  if (entry?.meta?.adminRegularization === true) return true;
+  if (kind === 'regularizacion' || kind === 'regularización') return true;
+  if (/regularizacion-admin|admin.?regulariz|regulariz.*admin/.test(source)) return true;
+  return false;
+}
+
+function scopedDueOnsFromClear(scope) {
+  if (!scope || typeof scope !== 'object') return [];
+  const out = [];
+  const push = (value) => {
+    const due = asDueOnStamp(value);
+    if (due && !out.includes(due)) out.push(due);
+  };
+  for (const due of scope.periodDueOns || []) push(due);
+  for (const row of scope.imputations || []) push(row?.dueOn || row?.due_on);
+  const through = asDueOnStamp(scope.throughDueOn || scope.through);
+  return { listed: out, through };
+}
+
+function scopeCoversDueOn(scope, dueOn) {
+  const target = asDueOnStamp(dueOn);
+  if (!target || !scope) return false;
+  const { listed, through } = scopedDueOnsFromClear(scope);
+  if (listed.includes(target)) return true;
+  if (through && target <= through) return true;
   return false;
 }
 
 /**
- * Ficha en $0 / a favor respaldada: hay cobro de cuota verificable o regularización
- * administrativa. Un período auxiliar abierto no debe reabrir deuda operativa.
+ * Excepciones administrativas conocidas (alcance cerrado, no se extienden a cuotas futuras).
+ * 101600 Ramírez: remanente oct $6.363,64 autorizado a permanecer en cero operativo.
  */
-export function hasVerifiedOperationalClearEvidence(member, { entries = [] } = {}) {
-  const pays = Array.isArray(member?.paymentHistory) ? member.paymentHistory : [];
-  if (pays.some(isVerifiedDuesPaymentRow)) return true;
-  const duesEntries = [
+const KNOWN_ADMIN_OPERATIONAL_CLEARS = Object.freeze({
+  '101600': Object.freeze({
+    periodDueOns: Object.freeze(['2026-10-10']),
+    amount: 6363.64,
+    reason: 'Remanente octubre 2026 autorizado en cero operativo · pendiente de conciliación',
+    authorizedBy: 'admin',
+    authorizedAt: '2026-11-21',
+  }),
+});
+
+function memberDigitsForClear(member) {
+  const raw = member?.memberNumber ?? member?.memberId ?? member?.member_number ?? '';
+  return String(raw).replace(/\D/g, '') || '';
+}
+
+/** Excepción administrativa trazable: solo períodos/alcance declarados. */
+export function adminOperationalClearScope(member) {
+  const fromMeta = member?.adminOperationalClear || member?.meta?.adminOperationalClear;
+  if (fromMeta && typeof fromMeta === 'object') {
+    const { listed, through } = scopedDueOnsFromClear(fromMeta);
+    if (listed.length || through) return fromMeta;
+  }
+  const known = KNOWN_ADMIN_OPERATIONAL_CLEARS[memberDigitsForClear(member)];
+  if (!known) return null;
+  const { listed, through } = scopedDueOnsFromClear(known);
+  if (!listed.length && !through) return null;
+  return known;
+}
+
+function adminClearCoversDueOn(member, dueOn) {
+  return scopeCoversDueOn(adminOperationalClearScope(member), dueOn);
+}
+
+function regularizationCoversDueOn(entry, dueOn) {
+  if (!isExplicitAdminRegularization(entry)) return false;
+  const scope = {
+    periodDueOns: entry.periodDueOns || entry.meta?.periodDueOns,
+    throughDueOn: entry.throughDueOn || entry.meta?.throughDueOn,
+    imputations: entry.imputations || entry.meta?.imputations,
+  };
+  return scopeCoversDueOn(scope, dueOn);
+}
+
+function duesEvidenceEntries(member, entries = []) {
+  return [
     ...(Array.isArray(member?.duesEntries) ? member.duesEntries : []),
     ...(Array.isArray(entries) ? entries : []),
   ];
-  if (duesEntries.some(isAdminDuesRegularizationEntry)) return true;
-  if (member?.meta?.adminRegularization === true) return true;
-  if (member?.meta?.unpaidCapitalReconciledAt) return true;
-  return false;
+}
+
+/**
+ * Capital de períodos abiertos sin pago imputado, sin regularización con alcance
+ * ni excepción administrativa específica. Eso sí es deuda operativa nueva.
+ */
+export function uncoveredOpenObligationCapital(member, { entries = [] } = {}) {
+  const rows = duesOpenPeriodsOf(member) || [];
+  const pays = Array.isArray(member?.paymentHistory) ? member.paymentHistory : [];
+  const duesEntries = duesEvidenceEntries(member, entries);
+  let uncovered = 0;
+  for (const row of rows) {
+    if (!row || row.voidedAt) continue;
+    const cap = Number(row.capitalOpen ?? row.capital_open ?? row.capital) || 0;
+    if (cap <= 0.01) continue;
+    const dueOn = asDueOnStamp(row.dueOn || row.due_on);
+    if (!dueOn) {
+      uncovered += cap;
+      continue;
+    }
+    if (pays.some((pay) => paymentCoversDueOn(pay, dueOn))) continue;
+    if (adminClearCoversDueOn(member, dueOn)) continue;
+    if (duesEntries.some((entry) => regularizationCoversDueOn(entry, dueOn))) continue;
+    uncovered += cap;
+  }
+  return money(uncovered);
+}
+
+/**
+ * ¿Los períodos abiertos están cubiertos por pago imputado, regularización con
+ * alcance o excepción administrativa trazable? (No basta un cobro viejo cualquiera.)
+ */
+export function hasVerifiedOperationalClearEvidence(member, { entries = [] } = {}) {
+  const openCap = openDuesObligationCapital(member);
+  if (openCap <= 0.01) return true;
+  return uncoveredOpenObligationCapital(member, { entries }) <= 0.01;
+}
+
+/** Período abierto cubierto por pago/reg/excepción → discrepancia, no exigible. */
+export function openPeriodIsOperationallyCovered(member, dueOn, { entries = [] } = {}) {
+  const target = asDueOnStamp(dueOn);
+  if (!target) return false;
+  const pays = Array.isArray(member?.paymentHistory) ? member.paymentHistory : [];
+  if (pays.some((pay) => paymentCoversDueOn(pay, target))) return true;
+  if (adminClearCoversDueOn(member, target)) return true;
+  return duesEvidenceEntries(member, entries).some((entry) => regularizationCoversDueOn(entry, target));
 }
 
 /**
  * Saldo de cuota para mora / “cuánto debe” / padrón / Consultar deuda / cobro.
  * Misma cifra en todos lados.
- * - outstanding ≤ 0 con pago/regularización: no reabrir por períodos abiertos (conciliación).
- * - outstanding ≤ 0 sin respaldo y con openCap: obligación nueva legítima.
+ * - outstanding ≤ 0: solo reabre con períodos abiertos NO cubiertos por pago/reg/alcance.
  * - unpaidCapital = 0 con períodos hidratados vacíos: no usar ficha vieja (débito importado).
  * - unpaidCapital = 0 SIN períodos hidratados: no ocultar deuda positiva de ficha.
  * - Si ambos positivos y discrepan: manda la ficha; unpaid no infla.
@@ -742,12 +881,11 @@ export function socialDuesStoredBalance(member, { entries = [] } = {}) {
   const outstanding = money(Number(member?.outstandingBalance) || 0);
   const periodsHydrated = duesOpenPeriodsOf(member) != null;
   const openCap = openDuesObligationCapital(member);
+  const uncovered = uncoveredOpenObligationCapital(member, { entries });
   if (outstanding <= 0.01) {
-    if (openCap <= 0.01) return 0;
-    // Pagos o regularización autorizada: la ficha manda; remanentes van a conciliación.
-    if (hasVerifiedOperationalClearEvidence(member, { entries })) return 0;
-    // Obligación nueva sin respaldo de cobro: el crédito de ficha la reduce, no la oculta.
-    return money(Math.max(0, openCap + Math.min(0, outstanding)));
+    if (openCap <= 0.01 || uncovered <= 0.01) return 0;
+    // Solo el capital abierto sin respaldo de período concreto.
+    return money(Math.max(0, uncovered + Math.min(0, outstanding)));
   }
   const lila = lilaUnpaidCapital(member);
   if (lila != null && lila <= 0.01 && openCap <= 0.01) {

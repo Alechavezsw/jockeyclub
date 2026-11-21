@@ -620,8 +620,16 @@ describe('admin: ficha $0 respaldada no se reabre por períodos abiertos', () =>
       nextDueDate: '2026-12-10',
       lastPaymentDate: '2026-11-08',
       paymentHistory: payments,
-      // Remanente de octubre sin evidencia suficiente para darlo por pagado.
+      // Remanente oct: excepción admin con alcance (KNOWN / meta), no pago inventado.
       duesOpenPeriods: [{ dueOn: '2026-10-10', capital: 6363.64, capitalOpen: 6363.64 }],
+      meta: {
+        adminOperationalClear: {
+          periodDueOns: ['2026-10-10'],
+          amount: 6363.64,
+          reason: 'Remanente octubre 2026 autorizado · pendiente de conciliación',
+          authorizedAt: '2026-11-21',
+        },
+      },
     });
 
     expect(hasVerifiedOperationalClearEvidence(member)).toBe(true);
@@ -646,6 +654,182 @@ describe('admin: ficha $0 respaldada no se reabre por períodos abiertos', () =>
     expect(member.paymentHistory).toHaveLength(1);
     expect(member.paymentHistory[0].amount).toBe(70000);
     expect(member.duesOpenPeriods[0].capital).toBe(6363.64);
+    // La excepción no cubre una cuota futura.
+    const withDec = {
+      ...member,
+      duesOpenPeriods: [
+        ...member.duesOpenPeriods,
+        { dueOn: '2026-12-10', capital: 70000 },
+      ],
+    };
+    expect(socialDuesStoredBalance(withDec)).toBe(70000);
+    expect(hasVerifiedOperationalClearEvidence(withDec)).toBe(false);
+  });
+});
+
+describe('alcance de evidencia operativa (pago / reg / anulado)', () => {
+  it('agosto pagado y noviembre abierto sin pagar → deuda', () => {
+    const member = titular({
+      outstandingBalance: 0,
+      unpaidCapital: 0,
+      nextDueDate: '2026-11-10',
+      paymentHistory: [{
+        id: 'pay-aug',
+        amount: 70000,
+        status: 'paid',
+        concept: 'Cuota social · Agosto de 2026',
+        periodDueOns: ['2026-08-10'],
+        paidAt: '2026-08-08',
+      }],
+      duesOpenPeriods: [
+        { dueOn: '2026-08-10', capital: 0 },
+        { dueOn: '2026-11-10', capital: 70000 },
+      ],
+    });
+    expect(hasVerifiedOperationalClearEvidence(member)).toBe(false);
+    expect(socialDuesStoredBalance(member)).toBe(70000);
+    expect(appMonthlyDebtForMember(member, { today: TODAY })).not.toBeNull();
+    const standing = buildOperationalDuesStanding(member, { today: TODAY });
+    expect(standing.clear).toBe(false);
+    expect(standing.capitalExigible).toBe(70000);
+    // Misma resolución en acceso / caja / portal (owed), aunque el mes corriente no bloquee puerta.
+    expect(accessDuesDebt(member, [member], { today: TODAY }).owed).toBe(70000);
+    expect(memberDuesStandingSummary(member, { today: TODAY }).clear).toBe(false);
+  });
+
+  it('noviembre pagado y octubre con remanente sin respaldo no se considera automáticamente pagado', () => {
+    const member = titular({
+      outstandingBalance: 0,
+      unpaidCapital: 0,
+      paymentHistory: [{
+        id: 'pay-nov',
+        amount: 70000,
+        status: 'paid',
+        concept: 'Cuota noviembre',
+        periodDueOns: ['2026-11-10'],
+      }],
+      duesOpenPeriods: [
+        { dueOn: '2026-10-10', capital: 6363.64 },
+        { dueOn: '2026-11-10', capital: 70000 },
+      ],
+    });
+    // Nov queda cubierto por periodDueOns; oct remanente sin alcance → deuda.
+    expect(hasVerifiedOperationalClearEvidence(member)).toBe(false);
+    expect(socialDuesStoredBalance(member)).toBe(6363.64);
+    expect(buildOperationalDuesStanding(member, { today: TODAY }).clear).toBe(false);
+  });
+
+  it('regularización administrativa válida mantiene el saldo acordado solo en su alcance', () => {
+    const member = titular({
+      outstandingBalance: 0,
+      unpaidCapital: 0,
+      duesOpenPeriods: [
+        { dueOn: '2026-09-10', capital: 70000 },
+        { dueOn: '2026-10-10', capital: 70000 },
+      ],
+      duesEntries: [{
+        id: 'reg-1',
+        adminRegularization: true,
+        amount: -140000,
+        periodDueOns: ['2026-09-10', '2026-10-10'],
+        source: 'regularizacion-admin',
+      }],
+    });
+    expect(hasVerifiedOperationalClearEvidence(member)).toBe(true);
+    expect(socialDuesStoredBalance(member)).toBe(0);
+    expect(buildOperationalDuesStanding(member, { today: TODAY }).clear).toBe(true);
+  });
+
+  it('cuota nueva posterior a una regularización vuelve a ser exigible', () => {
+    const member = titular({
+      outstandingBalance: 0,
+      unpaidCapital: 0,
+      duesOpenPeriods: [
+        { dueOn: '2026-09-10', capital: 70000 },
+        { dueOn: '2026-11-10', capital: 70000 },
+      ],
+      duesEntries: [{
+        id: 'reg-sep',
+        adminRegularization: true,
+        periodDueOns: ['2026-09-10'],
+        source: 'regularizacion-admin',
+      }],
+    });
+    expect(socialDuesStoredBalance(member)).toBe(70000);
+    expect(hasVerifiedOperationalClearEvidence(member)).toBe(false);
+    const standing = buildOperationalDuesStanding(member, { today: TODAY });
+    expect(standing.clear).toBe(false);
+    expect(standing.capitalExigible).toBe(70000);
+  });
+
+  it('asiento negativo genérico no equivale a regularización administrativa', () => {
+    const member = titular({
+      outstandingBalance: 0,
+      unpaidCapital: 0,
+      duesOpenPeriods: [{ dueOn: '2026-11-10', capital: 70000 }],
+      duesEntries: [{
+        id: 'neg-1',
+        amount: -70000,
+        description: 'Ajuste de saldo',
+        kind: 'adjustment',
+      }],
+    });
+    expect(hasVerifiedOperationalClearEvidence(member)).toBe(false);
+    expect(socialDuesStoredBalance(member)).toBe(70000);
+  });
+
+  it('pago anulado, pendiente o ajeno a cuota social no sirve como evidencia', () => {
+    const base = {
+      outstandingBalance: 0,
+      unpaidCapital: 0,
+      duesOpenPeriods: [{ dueOn: '2026-11-10', capital: 70000 }],
+    };
+    const voided = titular({
+      ...base,
+      paymentHistory: [{
+        id: 'v',
+        amount: 70000,
+        status: 'paid',
+        voidedAt: '2026-11-12',
+        periodDueOns: ['2026-11-10'],
+        concept: 'Cuota noviembre',
+      }],
+    });
+    const pending = titular({
+      ...base,
+      paymentHistory: [{
+        id: 'p',
+        amount: 70000,
+        status: 'pending',
+        periodDueOns: ['2026-11-10'],
+        concept: 'Cuota noviembre',
+      }],
+    });
+    const eventPay = titular({
+      ...base,
+      paymentHistory: [{
+        id: 'e',
+        amount: 70000,
+        status: 'paid',
+        periodDueOns: ['2026-11-10'],
+        concept: 'Reserva salón Anhelo',
+      }],
+    });
+    const tennis = titular({
+      ...base,
+      paymentHistory: [{
+        id: 't',
+        amount: 12000,
+        status: 'paid',
+        chargeScope: 'abono_tenis',
+        concept: 'Abono tenis',
+        periodDueOns: ['2026-11-10'],
+      }],
+    });
+    for (const member of [voided, pending, eventPay, tennis]) {
+      expect(hasVerifiedOperationalClearEvidence(member)).toBe(false);
+      expect(socialDuesStoredBalance(member)).toBe(70000);
+    }
   });
 });
 

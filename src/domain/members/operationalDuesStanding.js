@@ -18,9 +18,9 @@ import {
 } from '../accounting/appMonthlyDebts.js';
 import {
   duesOpenPeriodsOf,
-  hasVerifiedOperationalClearEvidence,
   isDuesExemptMember,
   openDuesObligationCapital,
+  openPeriodIsOperationallyCovered,
   socialDuesStoredBalance,
 } from './dues.js';
 import { isFamilyDependent, memberNumberOf } from './households.js';
@@ -41,21 +41,23 @@ function ledgerLineMemberNumber(line) {
 }
 
 /**
- * Remanentes de member_dues_periods cuando la ficha operativa está en $0 / a favor.
+ * Remanentes abiertos ya cubiertos por pago imputado o excepción admin con alcance.
  * No son deuda exigible: discrepancia a validar (no se cierran como pagados).
  */
-function openPeriodReconciliationRows(member) {
+function openPeriodReconciliationRows(member, { entries = [] } = {}) {
   const ficha = money(Number(member?.outstandingBalance) || 0);
   if (ficha > EPS) return [];
-  if (!hasVerifiedOperationalClearEvidence(member)) return [];
   const rows = duesOpenPeriodsOf(member) || [];
   const out = [];
   for (const row of rows) {
     if (!row || row.voidedAt) continue;
     const pending = money(Number(row.capitalOpen ?? row.capital_open ?? row.capital) || 0);
     if (pending <= EPS) continue;
-    const periodYm = asYm(row.dueOn || row.due_on);
+    const dueOn = String(row.dueOn || row.due_on || '').slice(0, 10);
+    const periodYm = asYm(dueOn);
     if (!periodYm) continue;
+    // Solo discrepancia: el período tiene respaldo operativo pero sigue abierto.
+    if (!openPeriodIsOperationallyCovered(member, dueOn, { entries })) continue;
     out.push({
       periodYm,
       pending,
@@ -81,9 +83,13 @@ export function buildHistoricalReconciliation(member, {
   ledgerLines = [],
   payments = null,
   imputations = null,
+  entries = [],
 } = {}) {
   const ficha = money(Number(member?.outstandingBalance) || 0);
   const pays = Array.isArray(payments) ? payments : (member?.paymentHistory || []);
+  const memberWithPays = Array.isArray(payments)
+    ? { ...member, paymentHistory: payments }
+    : member;
   const imps = Array.isArray(imputations) ? imputations : (member?.duesImputations || []);
   const nro = memberNumberOf(member) || String(member?.memberNumber || '').replace(/\D/g, '');
   const rawLines = (ledgerLines || []).length
@@ -132,7 +138,7 @@ export function buildHistoricalReconciliation(member, {
     });
   }
 
-  for (const row of openPeriodReconciliationRows(member)) {
+  for (const row of openPeriodReconciliationRows(memberWithPays, { entries })) {
     if (seenYm.has(row.periodYm)) {
       // Ya hay línea de auxiliar: sumar remanente de período abierto si no estaba.
       const hit = periods.find((p) => p.periodYm === row.periodYm);
@@ -177,6 +183,7 @@ export function buildOperationalDuesStanding(member, {
     ledgerLines,
     payments,
     imputations,
+    entries,
   });
 
   if (!member) {

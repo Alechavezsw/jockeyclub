@@ -194,7 +194,7 @@ describe('dues classification', () => {
     })).toBe(55000);
   });
 
-  it('ficha $0 con pago verificable no se reabre por períodos auxiliares abiertos', () => {
+  it('ficha $0 con pagos imputados a esos períodos no se reabre por auxiliares abiertos', () => {
     const member = {
       outstandingBalance: 0,
       unpaidCapital: 0,
@@ -203,12 +203,37 @@ describe('dues classification', () => {
         { dueOn: '2026-11-10', capital: 70000 },
       ],
       paymentHistory: [
-        { id: 'p1', amount: 77000, status: 'paid', concept: 'Cuota octubre' },
-        { id: 'p2', amount: 70000, status: 'paid', concept: 'Cuota noviembre' },
+        {
+          id: 'p1',
+          amount: 77000,
+          status: 'paid',
+          concept: 'Cuota octubre',
+          periodDueOns: ['2026-10-10'],
+        },
+        {
+          id: 'p2',
+          amount: 70000,
+          status: 'paid',
+          concept: 'Cuota noviembre',
+          periodDueOns: ['2026-11-10'],
+        },
       ],
     };
     expect(hasVerifiedOperationalClearEvidence(member)).toBe(true);
     expect(socialDuesStoredBalance(member)).toBe(0);
+  });
+
+  it('pago antiguo sin periodDueOns no cancela una cuota nueva abierta', () => {
+    const member = {
+      outstandingBalance: 0,
+      unpaidCapital: 0,
+      duesOpenPeriods: [{ dueOn: '2026-11-10', capital: 70000 }],
+      paymentHistory: [
+        { id: 'old', amount: 70000, status: 'paid', concept: 'Cuota agosto', paidAt: '2026-08-05' },
+      ],
+    };
+    expect(hasVerifiedOperationalClearEvidence(member)).toBe(false);
+    expect(socialDuesStoredBalance(member)).toBe(70000);
   });
 
   it('unpaidCapital 0 sin duesOpenPeriods hidratados no silencia ficha positiva', () => {
