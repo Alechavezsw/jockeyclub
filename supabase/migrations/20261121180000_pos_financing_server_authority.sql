@@ -484,6 +484,267 @@ revoke all on function public.post_cuotas_journal_for_payment(uuid, jsonb) from 
 grant execute on function public.post_cuotas_journal_for_payment(uuid, jsonb) to service_role;
 
 -- ---------------------------------------------------------------------------
+-- 5b) B17: comparar snapshot de reintento vs pago original (sin reescribir)
+-- ---------------------------------------------------------------------------
+create or replace function public.assert_pos_idempotent_snapshot(
+  p_payment jsonb,
+  p_importe numeric,
+  p_member_id uuid,
+  p_periodos jsonb
+)
+returns void
+language plpgsql
+stable
+set search_path = public
+as $$
+declare
+  v_pay jsonb := coalesce(p_payment, '{}'::jsonb);
+  v_meta jsonb := case
+    when jsonb_typeof(v_pay->'meta') = 'object' then v_pay->'meta'
+    else '{}'::jsonb
+  end;
+  v_fin jsonb := case when jsonb_typeof(v_meta->'cardFinancing') = 'object'
+    then v_meta->'cardFinancing' else '{}'::jsonb end;
+  v_req jsonb := coalesce(p_periodos, '{}'::jsonb);
+  v_method text := lower(nullif(btrim(coalesce(v_req->>'method', v_pay->>'method', '')), ''));
+  v_stored_plan text;
+  v_req_plan text;
+  v_stored_pct numeric;
+  v_req_pct numeric;
+  v_stored_fin numeric;
+  v_req_fin numeric;
+  v_stored_mode text;
+  v_req_mode text;
+  v_stored_voucher numeric;
+  v_req_voucher numeric;
+  v_stored_ref text;
+  v_req_ref text;
+  v_stored_periods jsonb;
+  v_req_periods jsonb;
+  v_stored_splits jsonb;
+  v_req_splits jsonb;
+  v_s jsonb;
+  v_r jsonb;
+  v_i int;
+  v_n int;
+begin
+  if abs(round(coalesce(nullif(v_pay->>'amount', '')::numeric, 0), 2) - round(p_importe, 2)) > 0.01 then
+    raise exception 'Conflicto de idempotencia: el importe no coincide con el cobro original.';
+  end if;
+  if nullif(v_pay->>'member_id', '')::uuid is distinct from p_member_id then
+    raise exception 'Conflicto de idempotencia: el socio no coincide con el cobro original.';
+  end if;
+  if lower(coalesce(v_pay->>'method', '')) is distinct from v_method then
+    raise exception 'Conflicto de idempotencia: el medio no coincide con el cobro original.';
+  end if;
+
+  v_stored_periods := case
+    when jsonb_typeof(v_meta->'periodDueOns') = 'array' then v_meta->'periodDueOns'
+    when jsonb_typeof(v_meta->'periods') = 'array' then v_meta->'periods'
+    else '[]'::jsonb
+  end;
+  v_req_periods := case
+    when jsonb_typeof(v_req->'periodDueOns') = 'array' then v_req->'periodDueOns'
+    else '[]'::jsonb
+  end;
+  if v_stored_periods is distinct from v_req_periods then
+    raise exception 'Conflicto de idempotencia: los períodos no coinciden con el cobro original.';
+  end if;
+
+  if v_method in ('tarjeta', 'pos') then
+    v_stored_plan := lower(coalesce(
+      nullif(v_meta->>'paymentPlanId', ''),
+      nullif(v_fin->>'planId', ''),
+      nullif(v_meta->'paymentPlanSnapshot'->>'id', ''),
+      ''
+    ));
+    v_req_plan := lower(coalesce(nullif(v_req->>'paymentPlanId', ''), ''));
+    if v_req_plan is distinct from v_stored_plan then
+      raise exception 'Conflicto de idempotencia: el plan POS no coincide con el cobro original.';
+    end if;
+
+    v_stored_pct := coalesce(
+      nullif(v_fin->>'percent', '')::numeric,
+      nullif(v_fin->>'appliedPercent', '')::numeric,
+      nullif(v_meta->'paymentPlanSnapshot'->>'financingPercent', '')::numeric
+    );
+    v_req_pct := coalesce(
+      nullif(v_req->>'financingPercent', '')::numeric,
+      nullif(v_req->'cardFinancing'->>'percent', '')::numeric,
+      nullif(v_req->'cardFinancing'->>'appliedPercent', '')::numeric
+    );
+    -- Si el cliente omite el %, igual exige igualdad con lo persistido cuando hay tasa guardada:
+    -- un reintento que cambie el interés vía otro canal se detecta por plan/importe financiero.
+    if v_req_pct is not null and v_stored_pct is not null
+       and abs(v_req_pct - v_stored_pct) > 0.0001 then
+      raise exception 'Conflicto de idempotencia: el interés POS no coincide con el cobro original.';
+    end if;
+    if v_req_pct is null and v_stored_pct is not null
+       and nullif(v_req->>'paymentPlanId', '') is not null then
+      -- Reintento sin cardFinancing pero con financingPercent omitido: contrastar plan snapshot.
+      if abs(coalesce(nullif(v_req->>'financingPercent', '')::numeric, v_stored_pct) - v_stored_pct) > 0.0001 then
+        raise exception 'Conflicto de idempotencia: el interés POS no coincide con el cobro original.';
+      end if;
+    end if;
+
+    v_stored_fin := coalesce(nullif(v_fin->>'financingAmount', '')::numeric, -1);
+    v_req_fin := coalesce(
+      nullif(v_req->'cardFinancing'->>'financingAmount', '')::numeric,
+      nullif(v_req->>'financingFixed', '')::numeric
+    );
+    if v_req_fin is not null and v_stored_fin >= 0
+       and abs(v_req_fin - v_stored_fin) > 0.01 then
+      raise exception 'Conflicto de idempotencia: la financiación no coincide con el cobro original.';
+    end if;
+
+    v_stored_mode := coalesce(nullif(v_fin->>'mode', ''), nullif(v_meta->'paymentPlanSnapshot'->>'financingMode', ''), '');
+    v_req_mode := coalesce(
+      nullif(v_req->'cardFinancing'->>'mode', ''),
+      nullif(v_req->>'financingMode', ''),
+      v_stored_mode
+    );
+    if v_stored_mode <> '' and v_req_mode is distinct from v_stored_mode then
+      raise exception 'Conflicto de idempotencia: la modalidad POS no coincide con el cobro original.';
+    end if;
+
+    v_stored_voucher := coalesce(
+      nullif(v_meta->>'voucherAmount', '')::numeric,
+      nullif(v_fin->>'voucherTotal', '')::numeric,
+      nullif(v_fin->>'receiptVoucher', '')::numeric
+    );
+    v_req_voucher := coalesce(
+      nullif(v_req->>'voucherAmount', '')::numeric,
+      nullif(v_req->'receiptParse'->>'amount', '')::numeric,
+      nullif(v_req->'cardFinancing'->>'voucherTotal', '')::numeric
+    );
+    if v_req_voucher is not null and v_stored_voucher is not null
+       and abs(v_req_voucher - v_stored_voucher) > 0.01 then
+      raise exception 'Conflicto de idempotencia: el cupón no coincide con el cobro original.';
+    end if;
+
+    v_stored_ref := lower(coalesce(
+      nullif(btrim(coalesce(v_fin->>'authReference', '')), ''),
+      nullif(btrim(coalesce(v_meta->'receiptParse'->>'reference', '')), ''),
+      ''
+    ));
+    v_req_ref := lower(coalesce(
+      nullif(btrim(coalesce(v_req->'receiptParse'->>'reference', '')), ''),
+      nullif(btrim(coalesce(v_req->>'authReference', '')), ''),
+      ''
+    ));
+    if v_req_ref <> '' and v_stored_ref <> '' and v_req_ref is distinct from v_stored_ref then
+      raise exception 'Conflicto de idempotencia: la referencia del comprobante no coincide.';
+    end if;
+  end if;
+
+  if v_method = 'mixto' then
+    v_stored_splits := case
+      when jsonb_typeof(v_meta->'paymentSplits') = 'array' then v_meta->'paymentSplits'
+      else '[]'::jsonb
+    end;
+    v_req_splits := case
+      when jsonb_typeof(v_req->'paymentSplits') = 'array' then v_req->'paymentSplits'
+      else '[]'::jsonb
+    end;
+    if jsonb_array_length(v_stored_splits) is distinct from jsonb_array_length(v_req_splits) then
+      raise exception 'Conflicto de idempotencia: los tramos del mixto no coinciden.';
+    end if;
+    v_n := coalesce(jsonb_array_length(v_stored_splits), 0);
+    for v_i in 0 .. greatest(v_n - 1, 0) loop
+      exit when v_n = 0;
+      v_s := v_stored_splits->v_i;
+      v_r := v_req_splits->v_i;
+      if lower(coalesce(v_s->>'method', '')) is distinct from lower(coalesce(v_r->>'method', '')) then
+        raise exception 'Conflicto de idempotencia: el medio del tramo % no coincide.', v_i + 1;
+      end if;
+      if abs(coalesce(nullif(v_s->>'amount', '')::numeric, 0)
+            - coalesce(nullif(v_r->>'amount', '')::numeric, 0)) > 0.01 then
+        raise exception 'Conflicto de idempotencia: el importe del tramo % no coincide.', v_i + 1;
+      end if;
+      if coalesce(nullif(v_s->>'capitalAmount', '')::numeric, -1) >= 0
+         and coalesce(nullif(v_r->>'capitalAmount', '')::numeric, -1) >= 0
+         and abs((v_s->>'capitalAmount')::numeric - (v_r->>'capitalAmount')::numeric) > 0.01 then
+        raise exception 'Conflicto de idempotencia: la distribución capital/mora del tramo % no coincide.', v_i + 1;
+      end if;
+      if coalesce(nullif(v_s->>'surchargeAmount', '')::numeric, -1) >= 0
+         and coalesce(nullif(v_r->>'surchargeAmount', '')::numeric, -1) >= 0
+         and abs((v_s->>'surchargeAmount')::numeric - (v_r->>'surchargeAmount')::numeric) > 0.01 then
+        raise exception 'Conflicto de idempotencia: la distribución capital/mora del tramo % no coincide.', v_i + 1;
+      end if;
+      -- Si el original tiene capital/mora y el reintento los omite → conflicto.
+      if (nullif(v_s->>'capitalAmount', '') is not null or nullif(v_s->>'surchargeAmount', '') is not null)
+         and (nullif(v_r->>'capitalAmount', '') is null and nullif(v_r->>'surchargeAmount', '') is null) then
+        raise exception 'Conflicto de idempotencia: la distribución capital/mora del tramo % no coincide.', v_i + 1;
+      end if;
+      if lower(coalesce(v_s->>'method', '')) in ('tarjeta', 'pos') then
+        if lower(coalesce(nullif(v_s->>'paymentPlanId', ''), nullif(v_s->'cardFinancing'->>'planId', ''), ''))
+           is distinct from
+           lower(coalesce(nullif(v_r->>'paymentPlanId', ''), nullif(v_r->'cardFinancing'->>'planId', ''), ''))
+        then
+          raise exception 'Conflicto de idempotencia: el plan POS del tramo % no coincide.', v_i + 1;
+        end if;
+        if coalesce(nullif(v_s->'cardFinancing'->>'mode', ''), '') <> ''
+           and coalesce(nullif(v_r->'cardFinancing'->>'mode', ''), v_s->'cardFinancing'->>'mode')
+             is distinct from (v_s->'cardFinancing'->>'mode') then
+          raise exception 'Conflicto de idempotencia: la modalidad del tramo % no coincide.', v_i + 1;
+        end if;
+        v_stored_pct := coalesce(
+          nullif(v_s->'cardFinancing'->>'percent', '')::numeric,
+          nullif(v_s->'cardFinancing'->>'appliedPercent', '')::numeric
+        );
+        v_req_pct := coalesce(
+          nullif(v_r->>'financingPercent', '')::numeric,
+          nullif(v_r->'cardFinancing'->>'percent', '')::numeric,
+          nullif(v_r->'cardFinancing'->>'appliedPercent', '')::numeric
+        );
+        if v_req_pct is not null and v_stored_pct is not null
+           and abs(v_req_pct - v_stored_pct) > 0.0001 then
+          raise exception 'Conflicto de idempotencia: el interés del tramo % no coincide.', v_i + 1;
+        end if;
+        v_stored_fin := coalesce(nullif(v_s->'cardFinancing'->>'financingAmount', '')::numeric, -1);
+        v_req_fin := nullif(v_r->'cardFinancing'->>'financingAmount', '')::numeric;
+        if v_req_fin is not null and v_stored_fin >= 0
+           and abs(v_req_fin - v_stored_fin) > 0.01 then
+          raise exception 'Conflicto de idempotencia: la financiación del tramo % no coincide.', v_i + 1;
+        end if;
+        v_stored_voucher := coalesce(
+          nullif(v_s->>'voucherAmount', '')::numeric,
+          nullif(v_s->'cardFinancing'->>'voucherTotal', '')::numeric
+        );
+        v_req_voucher := coalesce(
+          nullif(v_r->>'voucherAmount', '')::numeric,
+          nullif(v_r->'receiptParse'->>'amount', '')::numeric,
+          nullif(v_r->'cardFinancing'->>'voucherTotal', '')::numeric
+        );
+        if v_req_voucher is not null and v_stored_voucher is not null
+           and abs(v_req_voucher - v_stored_voucher) > 0.01 then
+          raise exception 'Conflicto de idempotencia: el cupón del tramo % no coincide.', v_i + 1;
+        end if;
+        v_stored_ref := lower(coalesce(
+          nullif(btrim(coalesce(v_s->'receiptParse'->>'reference', '')), ''),
+          nullif(btrim(coalesce(v_s->'cardFinancing'->>'authReference', '')), ''),
+          ''
+        ));
+        v_req_ref := lower(coalesce(
+          nullif(btrim(coalesce(v_r->'receiptParse'->>'reference', '')), ''),
+          nullif(btrim(coalesce(v_r->'cardFinancing'->>'authReference', '')), ''),
+          ''
+        ));
+        if v_req_ref <> '' and v_stored_ref <> '' and v_req_ref is distinct from v_stored_ref then
+          raise exception 'Conflicto de idempotencia: la referencia del tramo % no coincide.', v_i + 1;
+        end if;
+      end if;
+    end loop;
+  end if;
+end;
+$$;
+
+revoke all on function public.assert_pos_idempotent_snapshot(jsonb, numeric, uuid, jsonb)
+  from public, anon;
+grant execute on function public.assert_pos_idempotent_snapshot(jsonb, numeric, uuid, jsonb)
+  to authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
 -- 6) Cobro POS atómico (B13–B17):
 --    cuentas servidor · mixto+mora con asignación · idempotencia inmutable
 -- ---------------------------------------------------------------------------
@@ -531,8 +792,6 @@ declare
   v_split_amt numeric;
   v_client_account text;
   v_existing_meta jsonb;
-  v_existing_plan text;
-  v_existing_fin numeric;
 begin
   if auth.uid() is null then
     raise exception 'Tenés que estar logueado.';
@@ -614,48 +873,13 @@ begin
 
   -- B17: idempotencia inmutable — no reescribir snapshot ni asiento.
   if coalesce((v_cobro->>'idempotent')::boolean, false) then
-    if abs(round(coalesce(v_payment.amount, 0), 2) - round(p_importe, 2)) > 0.01 then
-      raise exception 'Conflicto de idempotencia: el importe no coincide con el cobro original.';
-    end if;
-    if v_payment.member_id is distinct from p_member_id then
-      raise exception 'Conflicto de idempotencia: el socio no coincide con el cobro original.';
-    end if;
-    if lower(coalesce(v_payment.method, '')) is distinct from v_method then
-      raise exception 'Conflicto de idempotencia: el medio no coincide con el cobro original.';
-    end if;
-    -- Períodos: si el reintento declara otros dueOn, conflicto.
-    if jsonb_typeof(v_periodos->'periodDueOns') = 'array'
-       and jsonb_typeof(v_existing_meta->'periodDueOns') = 'array'
-       and v_existing_meta->'periodDueOns' is distinct from v_periodos->'periodDueOns' then
-      raise exception 'Conflicto de idempotencia: los períodos no coinciden con el cobro original.';
-    end if;
-    v_existing_plan := coalesce(
-      v_existing_meta->>'paymentPlanId',
-      v_existing_meta->'cardFinancing'->>'planId',
-      v_existing_meta->'paymentPlanSnapshot'->>'id',
-      ''
+    perform public.assert_pos_idempotent_snapshot(
+      to_jsonb(v_payment),
+      p_importe,
+      p_member_id,
+      (coalesce(p_periodos, '{}'::jsonb) || coalesce(v_periodos, '{}'::jsonb))
+        || jsonb_build_object('method', v_method)
     );
-    if v_method in ('tarjeta', 'pos')
-       and nullif(v_periodos->>'paymentPlanId', '') is not null
-       and v_existing_plan <> ''
-       and lower(v_existing_plan) is distinct from lower(v_periodos->>'paymentPlanId') then
-      raise exception 'Conflicto de idempotencia: el plan POS no coincide con el cobro original.';
-    end if;
-    v_existing_fin := coalesce((v_existing_meta->'cardFinancing'->>'financingAmount')::numeric, -1);
-    -- Interés / importe de financiación distinto → conflicto (no reescribir).
-    if nullif(p_periodos->'cardFinancing'->>'financingAmount', '') is not null
-       and v_existing_fin >= 0
-       and abs(v_existing_fin - (p_periodos->'cardFinancing'->>'financingAmount')::numeric) > 0.01 then
-      raise exception 'Conflicto de idempotencia: la financiación no coincide con el cobro original.';
-    end if;
-    if nullif(v_periodos->>'financingPercent', '') is not null
-       and nullif(v_existing_meta->'cardFinancing'->>'appliedPercent', '') is not null
-       and abs(
-         (v_periodos->>'financingPercent')::numeric
-         - (v_existing_meta->'cardFinancing'->>'appliedPercent')::numeric
-       ) > 0.0001 then
-      raise exception 'Conflicto de idempotencia: el interés POS no coincide con el cobro original.';
-    end if;
 
     select jsonb_build_object(
       'entry', to_jsonb(e),
@@ -784,13 +1008,16 @@ begin
       if lower(coalesce(v_split->>'method', '')) in ('tarjeta', 'pos') then
         if v_imp_surcharge > 0.009 then
           v_pos_capital := round((v_split->>'capitalAmount')::numeric, 2);
+          v_split_sur := round(coalesce(nullif(v_split->>'surchargeAmount', '')::numeric, 0), 2);
         else
           v_pos_capital := round(coalesce(nullif(v_split->>'amount', '')::numeric, 0), 2);
+          v_split_sur := 0;
         end if;
+        -- Interés solo sobre capital; mora del tramo entra al cupón sin financiarse.
         v_auth := public.authorize_pos_card_financing(jsonb_build_object(
           'paymentPlanId', v_split->>'paymentPlanId',
           'financingBase', v_pos_capital,
-          'surchargeAmount', 0,
+          'surchargeAmount', v_split_sur,
           'percent', v_split->>'financingPercent',
           'fixedAmount', v_split->>'financingFixed',
           'receiptVoucher', coalesce(v_split->>'voucherAmount', v_split->'receiptParse'->>'amount'),
@@ -804,7 +1031,7 @@ begin
           'journalAccount', v_resolved_account,
           'financingBase', v_pos_capital,
           'capitalAmount', coalesce(nullif(v_split->>'capitalAmount', '')::numeric, v_pos_capital),
-          'surchargeAmount', coalesce(nullif(v_split->>'surchargeAmount', '')::numeric, 0)
+          'surchargeAmount', v_split_sur
         );
         if coalesce((v_auth->>'mode'), '') = 'club_keeps' then
           v_financing := v_financing + coalesce((v_auth->>'financingAmount')::numeric, 0);

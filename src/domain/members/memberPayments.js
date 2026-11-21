@@ -403,12 +403,13 @@ export function normalizePaymentSplits(raw = [], {
       let cardFinancing = null;
       if (isCardPosDuesMethod(method)) {
         if (authorize) {
-          // Financiar solo capital del tramo; nunca mora.
+          // Interés solo sobre capital del tramo; la mora del tramo suma al cupón sin financiarse.
           const financingBase = capitalAmount != null ? capitalAmount : amount;
+          const surchargeOnCard = surchargeAmount != null ? surchargeAmount : 0;
           cardFinancing = resolveCardFinancingForPos({
             socialAmount: financingBase,
             financingBase,
-            surchargeAmount: 0,
+            surchargeAmount: surchargeOnCard,
             paymentPlanId,
             plan: row.paymentPlan || null,
             plans: row.paymentPlans || plans,
@@ -538,6 +539,54 @@ export function buildDuesCollectionJournalLines({
  * Valida splits: ≥2 líneas, suma = total, comprobantes donde corresponde.
  * @returns {{ splits: object[], total: number }}
  */
+/**
+ * Sugiere capital/mora por tramo (mora al POS primero; resto capital).
+ * Usado por la UI de cobro mixto cuando hay mora.
+ */
+export function suggestMixCapitalSurchargeAllocation(rawSplits = [], {
+  capital = 0,
+  surcharge = 0,
+} = {}) {
+  const list = (Array.isArray(rawSplits) ? rawSplits : [])
+    .map((row) => ({ ...row, amount: money(row?.amount) }))
+    .filter((row) => row.amount > 0);
+  const cap = money(capital);
+  const sur = money(surcharge);
+  if (!(sur > 0.009) || !list.length) {
+    return list.map((row) => ({
+      ...row,
+      capitalAmount: money(row.amount),
+      surchargeAmount: 0,
+    }));
+  }
+  let surLeft = sur;
+  let capLeft = cap;
+  const posFirst = [
+    ...list.filter((row) => isCardPosDuesMethod(row.method)),
+    ...list.filter((row) => !isCardPosDuesMethod(row.method)),
+  ];
+  const byKey = new Map();
+  for (const row of posFirst) {
+    const takeSur = money(Math.min(surLeft, row.amount));
+    const takeCap = money(Math.min(capLeft, money(row.amount - takeSur)));
+    const rem = money(row.amount - takeCap - takeSur);
+    // Si sobra importe sin capital/mora liquidables, lo trata como capital residual.
+    const capitalAmount = money(takeCap + rem);
+    const surchargeAmount = takeSur;
+    surLeft = money(surLeft - takeSur);
+    capLeft = money(capLeft - takeCap);
+    byKey.set(row.id || row.key || `${row.method}-${row.amount}`, {
+      capitalAmount,
+      surchargeAmount,
+    });
+  }
+  return list.map((row) => {
+    const key = row.id || row.key || `${row.method}-${row.amount}`;
+    const alloc = byKey.get(key) || { capitalAmount: money(row.amount), surchargeAmount: 0 };
+    return { ...row, ...alloc };
+  });
+}
+
 /**
  * B16: con mora + tramo POS, cada medio debe declarar capitalAmount y surchargeAmount
  * que sumen el importe del tramo y cierren con la liquidación.

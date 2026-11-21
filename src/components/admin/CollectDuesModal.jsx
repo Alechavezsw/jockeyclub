@@ -17,6 +17,7 @@ import {
 } from '../../domain/members/dues';
 import { duesMonthsPhrase } from '../../domain/members/duesImputations';
 import {
+  assertMixedPosMoraAllocation,
   collectionDiscount,
   collectionPreview,
   duesMethodNeedsReceipt,
@@ -28,12 +29,13 @@ import {
   isOnAccountDuesMethod,
   manualDuesReceiptLabel,
   MIXED_DUES_METHODS,
+  resolveCardFinancingForPos,
+  suggestMixCapitalSurchargeAllocation,
 } from '../../domain/members/memberPayments';
 import { periodStatusLabel } from '../../domain/accounting/feeLedgerIntegrity';
 import { todayISODateAR } from '../../lib/arDate';
 import { billingAccountMember, memberNumberOf } from '../../domain/members/households';
 import { activePaymentPlans } from '../../domain/system/paymentPlans';
-import { resolveCardFinancingForPos } from '../../domain/members/memberPayments';
 import { computePosFinancing } from '../../domain/members/posFinancing';
 import { signedDuesReceiptUrl, uploadDuesReceipt } from '../../data/storage';
 import { parseDuesReceipt } from '../../data/parseDuesReceipt';
@@ -74,6 +76,8 @@ function emptyMixLine(method = 'efectivo', amount = '') {
     key: `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
     method,
     amount,
+    capitalAmount: '',
+    surchargeAmount: '',
     bankId: CLUB_BANK_ACCOUNTS[0]?.id || '',
     planId: '',
     financingPercent: '',
@@ -85,6 +89,16 @@ function emptyMixLine(method = 'efectivo', amount = '') {
     receiptParse: null,
     reading: false,
   };
+}
+
+function mixLineCapital(row) {
+  if (row?.capitalAmount !== '' && row?.capitalAmount != null) return money(row.capitalAmount);
+  return null;
+}
+
+function mixLineSurcharge(row) {
+  if (row?.surchargeAmount !== '' && row?.surchargeAmount != null) return money(row.surchargeAmount);
+  return null;
 }
 
 function blankManualReceipt({ amount, bankOrCard, payerName, method }) {
@@ -695,6 +709,41 @@ export default function CollectDuesModal({
     });
   }, [isMixed, cash]);
 
+  const mixAllocKey = useMemo(
+    () => mixLines.map((row) => `${row.key}:${row.method}:${row.amount}`).join('|'),
+    [mixLines],
+  );
+
+  useEffect(() => {
+    if (!isMixed || !(money(split.surcharge || 0) > 0.009)) return;
+    setMixLines((prev) => {
+      const filled = prev.filter((row) => Number(row.amount) > 0);
+      if (filled.length < 2) return prev;
+      if (!filled.some((row) => isCardPosDuesMethod(row.method))) return prev;
+      const needsFill = filled.some((row) => {
+        const cap = mixLineCapital(row);
+        const sur = mixLineSurcharge(row);
+        if (cap == null || sur == null) return true;
+        return Math.abs(money(cap + sur) - money(row.amount)) > 0.009;
+      });
+      if (!needsFill) return prev;
+      const suggested = suggestMixCapitalSurchargeAllocation(filled, {
+        capital: money(split.quota || 0),
+        surcharge: money(split.surcharge || 0),
+      });
+      const byKey = new Map(suggested.map((row) => [row.key, row]));
+      return prev.map((row) => {
+        const hit = byKey.get(row.key);
+        if (!hit) return row;
+        return {
+          ...row,
+          capitalAmount: String(hit.capitalAmount),
+          surchargeAmount: String(hit.surchargeAmount),
+        };
+      });
+    });
+  }, [isMixed, mixAllocKey, split.quota, split.surcharge]);
+
   const clearReceipt = () => {
     setReceiptMode('file');
     setReceiptFile(null);
@@ -922,10 +971,14 @@ export default function CollectDuesModal({
         }
         if (isCardPosDuesMethod(row.method)) {
           const plan = plans.find((p) => p.id === row.planId) || null;
+          const lineCap = mixLineCapital(row);
+          const lineSur = mixLineSurcharge(row);
+          const financingBase = lineCap != null ? lineCap : (Number(row.amount) || 0);
+          const surchargeOnCard = lineSur != null ? lineSur : 0;
           const fin = resolveCardFinancingForPos({
-            socialAmount: Number(row.amount) || 0,
-            financingBase: Number(row.amount) || 0,
-            surchargeAmount: 0,
+            socialAmount: financingBase,
+            financingBase,
+            surchargeAmount: surchargeOnCard,
             plan,
             plans,
             paymentPlanId: row.planId,
@@ -938,6 +991,22 @@ export default function CollectDuesModal({
             setError('Confirmá el total del cupón POS (incluye financiación) antes de registrar.');
             return;
           }
+        }
+      }
+      if (money(split.surcharge || 0) > 0.009 && filled.some((row) => isCardPosDuesMethod(row.method))) {
+        try {
+          assertMixedPosMoraAllocation(
+            filled.map((row) => ({
+              method: row.method,
+              amount: Number(row.amount) || 0,
+              capitalAmount: mixLineCapital(row),
+              surchargeAmount: mixLineSurcharge(row),
+            })),
+            { capital: money(split.quota || 0), surcharge: money(split.surcharge || 0) },
+          );
+        } catch (allocErr) {
+          setError(allocErr?.message || 'Completá capital y mora de cada tramo del mixto.');
+          return;
         }
       }
     } else if (settling) {
@@ -977,11 +1046,15 @@ export default function CollectDuesModal({
           }
           const bank = CLUB_BANK_ACCOUNTS.find((b) => b.id === row.bankId) || CLUB_BANK_ACCOUNTS[0];
           const plan = plans.find((p) => p.id === row.planId) || null;
+          const lineCap = mixLineCapital(row);
+          const lineSur = mixLineSurcharge(row);
+          const financingBase = lineCap != null ? lineCap : lineAmount;
+          const surchargeOnCard = lineSur != null ? lineSur : 0;
           const cardFinancing = isCardPosDuesMethod(row.method)
             ? resolveCardFinancingForPos({
-              socialAmount: lineAmount,
-              financingBase: lineAmount,
-              surchargeAmount: 0,
+              socialAmount: financingBase,
+              financingBase,
+              surchargeAmount: surchargeOnCard,
               plan,
               plans,
               paymentPlanId: plan?.id,
@@ -994,6 +1067,8 @@ export default function CollectDuesModal({
           paymentSplits.push({
             method: row.method,
             amount: lineAmount,
+            capitalAmount: lineCap != null ? lineCap : (money(split.surcharge || 0) > 0.009 ? lineAmount : null),
+            surchargeAmount: lineSur != null ? lineSur : (money(split.surcharge || 0) > 0.009 ? 0 : null),
             bankId: duesMethodUsesBank(row.method) ? row.bankId : null,
             bankName: duesMethodUsesBank(row.method) ? bank?.name : null,
             journalAccount: journalAccountForPayment(row.method, row.bankId),
@@ -1722,10 +1797,40 @@ export default function CollectDuesModal({
                         min="0"
                         step="0.01"
                         value={line.amount}
-                        onChange={(e) => patchMixLine(line.key, { amount: e.target.value })}
+                        onChange={(e) => patchMixLine(line.key, {
+                          amount: e.target.value,
+                          capitalAmount: '',
+                          surchargeAmount: '',
+                        })}
                       />
                     </label>
                   </div>
+                  {money(split.surcharge || 0) > 0.009 ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                      <label className="form-group" style={{ margin: 0 }}>
+                        <span className="form-label">Capital del tramo</span>
+                        <input
+                          className="form-input"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={line.capitalAmount}
+                          onChange={(e) => patchMixLine(line.key, { capitalAmount: e.target.value })}
+                        />
+                      </label>
+                      <label className="form-group" style={{ margin: 0 }}>
+                        <span className="form-label">Mora del tramo</span>
+                        <input
+                          className="form-input"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={line.surchargeAmount}
+                          onChange={(e) => patchMixLine(line.key, { surchargeAmount: e.target.value })}
+                        />
+                      </label>
+                    </div>
+                  ) : null}
                   {duesMethodUsesBank(line.method) ? (
                     <label className="form-group" style={{ margin: 0 }}>
                       <span className="form-label">Alias</span>
@@ -1760,9 +1865,15 @@ export default function CollectDuesModal({
                       </label>
                       {(() => {
                         const mixPlan = plans.find((p) => p.id === (line.planId || plans[0]?.id)) || null;
+                        const lineCap = mixLineCapital(line);
+                        const lineSur = mixLineSurcharge(line);
+                        const financingBase = lineCap != null ? lineCap : (Number(line.amount) || 0);
+                        const surchargeOnCard = lineSur != null ? lineSur : 0;
                         const mixFin = mixPlan
                           ? computePosFinancing({
-                            socialAmount: Number(line.amount) || 0,
+                            socialAmount: financingBase,
+                            financingBase,
+                            surchargeAmount: surchargeOnCard,
                             plan: mixPlan,
                             percent: line.financingPercent === '' ? null : line.financingPercent,
                             fixedAmount: line.financingFixed === '' ? null : line.financingFixed,
@@ -1806,6 +1917,9 @@ export default function CollectDuesModal({
                             {mixFin ? (
                               <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
                                 Cupón {formatCurrency(mixFin.voucherTotal)}
+                                {surchargeOnCard > 0.009
+                                  ? ` · capital ${formatCurrency(financingBase)} + mora ${formatCurrency(surchargeOnCard)}`
+                                  : ` · capital ${formatCurrency(financingBase)}`}
                                 {mixFin.financingAmount > 0.009
                                   ? ` · financ. ${formatCurrency(mixFin.financingAmount)}`
                                   : ''}

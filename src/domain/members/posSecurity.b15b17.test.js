@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   assertMixedPosMoraAllocation,
   normalizePaymentSplits,
+  suggestMixCapitalSurchargeAllocation,
   validatePaymentSplits,
 } from './memberPayments';
 import { journalAccountForPayment } from './clubBanks';
-import { authorizePosCardFinancing, POS_CARD_RECEIVABLE_ACCOUNT } from './posFinancing';
+import { authorizePosCardFinancing, computePosFinancing, POS_CARD_RECEIVABLE_ACCOUNT } from './posFinancing';
 
 const plan10 = {
   id: 'visa-10',
@@ -90,8 +91,17 @@ describe('B16 financiación en mixtos con mora', () => {
     ], { capital: 70000, surcharge: 7000 })).toThrow(/igualar el importe/i);
   });
 
-  it('financia solo el capital del tramo POS (no los 57000 con mora)', () => {
+  it('cupón POS = capital 50k + mora 7k + interés 5k = 62k (no financia mora)', () => {
     // Capital 70k + mora 7k. Efectivo 20k capital. POS 57k = 50k capital + 7k mora.
+    const computed = computePosFinancing({
+      financingBase: 50000,
+      surchargeAmount: 7000,
+      plan: plan10,
+    });
+    expect(computed.financingAmount).toBe(5000);
+    expect(computed.voucherTotal).toBe(62000);
+    expect(computed.financingAmount).not.toBe(5700);
+
     const { splits } = validatePaymentSplits([
       {
         method: 'efectivo',
@@ -105,9 +115,8 @@ describe('B16 financiación en mixtos con mora', () => {
         capitalAmount: 50000,
         surchargeAmount: 7000,
         paymentPlanId: 'visa-10',
-        // 10% sobre 50.000 capital = 5.000 → cupón 55.000
-        voucherAmount: 55000,
-        receiptParse: { amount: 55000, reference: 'MIX-MORA' },
+        voucherAmount: 62000,
+        receiptParse: { amount: 62000, reference: 'MIX-MORA' },
         receiptName: 'POS-mora',
         receiptPath: 'dues/mora.pdf',
       },
@@ -117,18 +126,34 @@ describe('B16 financiación en mixtos con mora', () => {
     expect(pos.capitalAmount).toBe(50000);
     expect(pos.surchargeAmount).toBe(7000);
     expect(pos.cardFinancing.financingAmount).toBe(5000);
-    expect(pos.cardFinancing.financingAmount).not.toBe(5700); // no 10% sobre 57k
-    expect(pos.voucherAmount).toBe(55000);
+    expect(pos.cardFinancing.surchargeAmount).toBe(7000);
+    expect(pos.cardFinancing.voucherTotal).toBe(62000);
+    expect(pos.voucherAmount).toBe(62000);
   });
 
-  it('si se financiara mal sobre 57k el cupón no cerraría con 10%', () => {
+  it('suggestMixCapitalSurchargeAllocation pone mora en el tramo POS', () => {
+    const rows = suggestMixCapitalSurchargeAllocation([
+      { key: 'a', method: 'efectivo', amount: 20000 },
+      { key: 'b', method: 'tarjeta', amount: 57000 },
+    ], { capital: 70000, surcharge: 7000 });
+    expect(rows.find((r) => r.method === 'efectivo')).toMatchObject({
+      capitalAmount: 20000,
+      surchargeAmount: 0,
+    });
+    expect(rows.find((r) => r.method === 'tarjeta')).toMatchObject({
+      capitalAmount: 50000,
+      surchargeAmount: 7000,
+    });
+  });
+
+  it('si se financiara mal sobre 57k el cupón no cerraría con 10% hacia 62k', () => {
     expect(() => authorizePosCardFinancing({
       financingBase: 57000,
       surchargeAmount: 0,
       plans: [plan10],
       paymentPlanId: 'visa-10',
-      receiptVoucher: 55000,
-      receiptParse: { amount: 55000, reference: 'BAD' },
+      receiptVoucher: 62000,
+      receiptParse: { amount: 62000, reference: 'BAD' },
     })).toThrow(/cupón|comprobante|calculado/i);
   });
 });
@@ -140,7 +165,7 @@ describe('B17 snapshot inmutable (dominio)', () => {
       financingAmount: 7000,
       mode: 'club_keeps',
       voucherTotal: 77000,
-      appliedPercent: 10,
+      percent: 10,
     };
     const [row] = normalizePaymentSplits([{
       method: 'tarjeta',
@@ -150,5 +175,19 @@ describe('B17 snapshot inmutable (dominio)', () => {
       financingPercent: 99,
     }], { authorize: false });
     expect(row.cardFinancing).toEqual(locked);
+  });
+
+  it('meta persistida usa percent (no appliedPercent) para el interés', () => {
+    const meta = authorizePosCardFinancing({
+      financingBase: 70000,
+      surchargeAmount: 0,
+      plans: [plan10],
+      paymentPlanId: 'visa-10',
+      receiptVoucher: 77000,
+      receiptParse: { amount: 77000, reference: 'OK' },
+    });
+    expect(meta.percent).toBe(10);
+    expect(meta.appliedPercent).toBeUndefined();
+    expect(meta.financingAmount).toBe(7000);
   });
 });
