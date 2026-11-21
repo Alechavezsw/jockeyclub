@@ -1027,7 +1027,7 @@ export default function MembersTab({
       return;
     }
     try {
-      const result = await persistDuesCollection(recordDuesCollection(member, { ...payload, members }), {
+      const result = await persistDuesCollection(recordDuesCollection(member, { ...payload, members, paymentPlans }), {
         setMembers,
         updateMember,
         addJournalEntry,

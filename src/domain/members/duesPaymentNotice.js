@@ -121,6 +121,19 @@ export function duesReceiptMessage({ member, payment, attachment }) {
     Number(payment?.discount) > 0.009
       ? `${moneyLine('Descuento', payment.discount)}${payment.discountDetail ? ` · ${String(payment.discountDetail).trim()}` : ''}`
       : '',
+    ...(() => {
+      const fin = payment?.cardFinancing;
+      if (!fin || !(Number(fin.financingAmount) > 0.009)) return [];
+      const modeLabel = fin.mode === 'club_keeps' ? 'club' : 'emisor';
+      return [
+        moneyLine('Capital POS', fin.baseAmount != null ? fin.baseAmount : total),
+        moneyLine('Financiación tarjeta', fin.financingAmount),
+        moneyLine('Total cupón', fin.voucherTotal != null ? fin.voucherTotal : null),
+        fin.installments > 1 ? `Cuotas tarjeta: ${fin.installments}` : '',
+        fin.authReference ? `Ref. POS: ${fin.authReference}` : '',
+        `Modalidad financiación: ${modeLabel}`,
+      ];
+    })(),
     total != null ? moneyLine(onAccount ? 'Entregado' : (isBooking ? 'Abonado' : 'Total'), total) : '',
     isBooking && Number.isFinite(Number(payment?.totalPrice))
       ? moneyLine('Precio total alquiler', payment.totalPrice)

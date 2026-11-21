@@ -99,6 +99,7 @@ export async function insertJournalEntry(entry, { createdBy } = {}) {
       reference: entry.reference || null,
       status: entry.status == null ? 'posted' : entry.status,
       sourceModule: entry.sourceModule || 'manual',
+      sourceId: entry.sourceId || null,
       createdBy: created,
       lines: (entry.lines || []).map((line, index) => ({
         accountId: line.accountId,
@@ -123,6 +124,7 @@ export async function insertJournalEntry(entry, { createdBy } = {}) {
     reference: entry.reference || null,
     status: 'draft',
     source_module: entry.sourceModule || 'manual',
+    source_id: entry.sourceId || null,
     created_by: createdBy || null,
   };
   const saved = await unwrap(
@@ -202,7 +204,30 @@ export async function listCashMovements() {
  * Alinea asiento + movimientos de caja al nuevo medio de un cobro de cuota.
  * Cambia la cuenta de tesorería del debe y el texto del concepto.
  */
+/** Busca asiento de cuota por source_id (idempotencia / recuperación). */
+export async function findDuesJournalBySourceId(sourceId) {
+  if (!isUuid(sourceId)) return null;
+  try {
+    const bySource = await unwrap(
+      sb()
+        .from('journal_entries')
+        .select('id, concept, entry_date, source_id, source_module, status')
+        .eq('source_module', 'cuotas')
+        .eq('source_id', sourceId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      'No se pudo buscar el asiento',
+    );
+    return bySource?.id ? bySource : null;
+  } catch {
+    return null;
+  }
+}
+
 async function findDuesJournalEntryIdForPayment(payId) {
+  const existing = await findDuesJournalBySourceId(payId);
+  if (existing?.id) return existing.id;
   if (!isUuid(payId)) return null;
   try {
     const bySource = await unwrap(

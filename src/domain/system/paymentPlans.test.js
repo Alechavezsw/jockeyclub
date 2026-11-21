@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_PAYMENT_PLANS,
+  FINANCING_MODE_ISSUER,
   activePaymentPlans,
+  canEditPaymentPlanFinancing,
   ensureOfficialPaymentPlans,
   findPaymentPlan,
   mergePaymentPlans,
+  normalizePaymentPlan,
+  paymentPlanSnapshot,
 } from './paymentPlans';
 
 describe('paymentPlans', () => {
@@ -41,5 +45,26 @@ describe('paymentPlans', () => {
     expect(findPaymentPlan(plans, 'visa-3')?.installments).toBe(3);
     expect(findPaymentPlan(plans, 'no-existe')).toBeNull();
     expect(activePaymentPlans(plans).every((row) => row.active)).toBe(true);
+  });
+
+  it('defaults oficiales quedan en modalidad B provisional', () => {
+    const plans = mergePaymentPlans(null);
+    expect(plans.every((row) => row.financingMode === FINANCING_MODE_ISSUER)).toBe(true);
+  });
+
+  it('snapshot inmutable del plan y permiso de edición de tasas', () => {
+    const plan = normalizePaymentPlan({
+      id: 'x',
+      label: 'X',
+      installments: 3,
+      financingMode: 'club_keeps',
+      financingPercent: 12,
+    });
+    const snap = paymentPlanSnapshot(plan);
+    expect(snap.financingMode).toBe('club_keeps');
+    expect(snap.financingPercent).toBe(12);
+    expect(canEditPaymentPlanFinancing('admin')).toBe(true);
+    expect(canEditPaymentPlanFinancing('cajero')).toBe(false);
+    expect(canEditPaymentPlanFinancing('operador')).toBe(false);
   });
 });

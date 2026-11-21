@@ -17,6 +17,7 @@ import {
 } from '../../domain/members/dues';
 import { duesMonthsPhrase } from '../../domain/members/duesImputations';
 import {
+  assertMixedPosMoraAllocation,
   collectionDiscount,
   collectionPreview,
   duesMethodNeedsReceipt,
@@ -28,11 +29,14 @@ import {
   isOnAccountDuesMethod,
   manualDuesReceiptLabel,
   MIXED_DUES_METHODS,
+  resolveCardFinancingForPos,
+  suggestMixCapitalSurchargeAllocation,
 } from '../../domain/members/memberPayments';
 import { periodStatusLabel } from '../../domain/accounting/feeLedgerIntegrity';
 import { todayISODateAR } from '../../lib/arDate';
 import { billingAccountMember, memberNumberOf } from '../../domain/members/households';
 import { activePaymentPlans } from '../../domain/system/paymentPlans';
+import { computePosFinancing } from '../../domain/members/posFinancing';
 import { signedDuesReceiptUrl, uploadDuesReceipt } from '../../data/storage';
 import { parseDuesReceipt } from '../../data/parseDuesReceipt';
 import { money } from '../../domain/money';
@@ -72,8 +76,12 @@ function emptyMixLine(method = 'efectivo', amount = '') {
     key: `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
     method,
     amount,
+    capitalAmount: '',
+    surchargeAmount: '',
     bankId: CLUB_BANK_ACCOUNTS[0]?.id || '',
     planId: '',
+    financingPercent: '',
+    financingFixed: '',
     receiptMode: 'file',
     receiptFile: null,
     receiptName: '',
@@ -81,6 +89,16 @@ function emptyMixLine(method = 'efectivo', amount = '') {
     receiptParse: null,
     reading: false,
   };
+}
+
+function mixLineCapital(row) {
+  if (row?.capitalAmount !== '' && row?.capitalAmount != null) return money(row.capitalAmount);
+  return null;
+}
+
+function mixLineSurcharge(row) {
+  if (row?.surchargeAmount !== '' && row?.surchargeAmount != null) return money(row.surchargeAmount);
+  return null;
 }
 
 function blankManualReceipt({ amount, bankOrCard, payerName, method }) {
@@ -559,6 +577,9 @@ export default function CollectDuesModal({
     return CLUB_BANK_ACCOUNTS[0]?.id || '';
   });
   const [planId, setPlanId] = useState('');
+  const [financingPercent, setFinancingPercent] = useState('');
+  const [financingFixed, setFinancingFixed] = useState('');
+  const [confirmPosTotal, setConfirmPosTotal] = useState(false);
   const [receiptMode, setReceiptMode] = useState('file');
   const [receiptFile, setReceiptFile] = useState(null);
   const [receiptName, setReceiptName] = useState(() => seedReceipt?.name || '');
@@ -630,6 +651,32 @@ export default function CollectDuesModal({
 
   const selectedBank = CLUB_BANK_ACCOUNTS.find((b) => b.id === bankId) || CLUB_BANK_ACCOUNTS[0];
   const selectedPlan = plans.find((row) => row.id === planId) || null;
+  const posFinancingPreview = useMemo(() => {
+    if (!isCardPosDuesMethod(method) || !selectedPlan) return null;
+    // B10: tasa solo sobre capital social; mora viaja aparte en el cupón.
+    const capitalBase = money(split.quota || 0);
+    const surchargePart = money(split.surcharge || 0);
+    return computePosFinancing({
+      socialAmount: capitalBase,
+      financingBase: capitalBase,
+      surchargeAmount: surchargePart,
+      plan: selectedPlan,
+      percent: financingPercent === '' ? null : financingPercent,
+      fixedAmount: financingFixed === '' ? null : financingFixed,
+      voucherAmount: receiptParse?.amount,
+    });
+  }, [method, selectedPlan, split.quota, split.surcharge, financingPercent, financingFixed, receiptParse?.amount]);
+
+  useEffect(() => {
+    if (!plans.length) return;
+    if (!planId || !plans.some((row) => row.id === planId)) {
+      setPlanId(plans[0].id);
+    }
+  }, [plans, planId]);
+
+  useEffect(() => {
+    setConfirmPosTotal(false);
+  }, [planId, financingPercent, financingFixed, cash, method]);
   const mixTotal = useMemo(
     () => mixLines.reduce((sum, row) => sum + (Number(row.amount) || 0), 0),
     [mixLines],
@@ -661,6 +708,41 @@ export default function CollectDuesModal({
       });
     });
   }, [isMixed, cash]);
+
+  const mixAllocKey = useMemo(
+    () => mixLines.map((row) => `${row.key}:${row.method}:${row.amount}`).join('|'),
+    [mixLines],
+  );
+
+  useEffect(() => {
+    if (!isMixed || !(money(split.surcharge || 0) > 0.009)) return;
+    setMixLines((prev) => {
+      const filled = prev.filter((row) => Number(row.amount) > 0);
+      if (filled.length < 2) return prev;
+      if (!filled.some((row) => isCardPosDuesMethod(row.method))) return prev;
+      const needsFill = filled.some((row) => {
+        const cap = mixLineCapital(row);
+        const sur = mixLineSurcharge(row);
+        if (cap == null || sur == null) return true;
+        return Math.abs(money(cap + sur) - money(row.amount)) > 0.009;
+      });
+      if (!needsFill) return prev;
+      const suggested = suggestMixCapitalSurchargeAllocation(filled, {
+        capital: money(split.quota || 0),
+        surcharge: money(split.surcharge || 0),
+      });
+      const byKey = new Map(suggested.map((row) => [row.key, row]));
+      return prev.map((row) => {
+        const hit = byKey.get(row.key);
+        if (!hit) return row;
+        return {
+          ...row,
+          capitalAmount: String(hit.capitalAmount),
+          surchargeAmount: String(hit.surchargeAmount),
+        };
+      });
+    });
+  }, [isMixed, mixAllocKey, split.quota, split.surcharge]);
 
   const clearReceipt = () => {
     setReceiptMode('file');
@@ -887,6 +969,45 @@ export default function CollectDuesModal({
           setError('Elegí el plan de Pago POS en la línea correspondiente.');
           return;
         }
+        if (isCardPosDuesMethod(row.method)) {
+          const plan = plans.find((p) => p.id === row.planId) || null;
+          const lineCap = mixLineCapital(row);
+          const lineSur = mixLineSurcharge(row);
+          const financingBase = lineCap != null ? lineCap : (Number(row.amount) || 0);
+          const surchargeOnCard = lineSur != null ? lineSur : 0;
+          const fin = resolveCardFinancingForPos({
+            socialAmount: financingBase,
+            financingBase,
+            surchargeAmount: surchargeOnCard,
+            plan,
+            plans,
+            paymentPlanId: row.planId,
+            percent: row.financingPercent === '' ? null : row.financingPercent,
+            fixedAmount: row.financingFixed === '' ? null : row.financingFixed,
+            voucherAmount: row.receiptParse?.amount,
+            receiptParse: row.receiptParse,
+          });
+          if (fin?.financingAmount > 0.009 && !confirmPosTotal) {
+            setError('Confirmá el total del cupón POS (incluye financiación) antes de registrar.');
+            return;
+          }
+        }
+      }
+      if (money(split.surcharge || 0) > 0.009 && filled.some((row) => isCardPosDuesMethod(row.method))) {
+        try {
+          assertMixedPosMoraAllocation(
+            filled.map((row) => ({
+              method: row.method,
+              amount: Number(row.amount) || 0,
+              capitalAmount: mixLineCapital(row),
+              surchargeAmount: mixLineSurcharge(row),
+            })),
+            { capital: money(split.quota || 0), surcharge: money(split.surcharge || 0) },
+          );
+        } catch (allocErr) {
+          setError(allocErr?.message || 'Completá capital y mora de cada tramo del mixto.');
+          return;
+        }
       }
     } else if (settling) {
       const manual = receiptMode === 'manual';
@@ -900,6 +1021,10 @@ export default function CollectDuesModal({
       }
       if (isCardPosDuesMethod(method) && plans.length && !selectedPlan) {
         setError('Elegí el plan de Pago POS.');
+        return;
+      }
+      if (isCardPosDuesMethod(method) && posFinancingPreview?.financingAmount > 0.009 && !confirmPosTotal) {
+        setError('Confirmá el total del cupón POS (incluye financiación) antes de registrar.');
         return;
       }
     }
@@ -921,17 +1046,44 @@ export default function CollectDuesModal({
           }
           const bank = CLUB_BANK_ACCOUNTS.find((b) => b.id === row.bankId) || CLUB_BANK_ACCOUNTS[0];
           const plan = plans.find((p) => p.id === row.planId) || null;
+          const lineCap = mixLineCapital(row);
+          const lineSur = mixLineSurcharge(row);
+          const financingBase = lineCap != null ? lineCap : lineAmount;
+          const surchargeOnCard = lineSur != null ? lineSur : 0;
+          const cardFinancing = isCardPosDuesMethod(row.method)
+            ? resolveCardFinancingForPos({
+              socialAmount: financingBase,
+              financingBase,
+              surchargeAmount: surchargeOnCard,
+              plan,
+              plans,
+              paymentPlanId: plan?.id,
+              percent: row.financingPercent === '' ? null : row.financingPercent,
+              fixedAmount: row.financingFixed === '' ? null : row.financingFixed,
+              voucherAmount: row.receiptParse?.amount,
+              receiptParse: row.receiptParse,
+            })
+            : null;
           paymentSplits.push({
             method: row.method,
             amount: lineAmount,
+            capitalAmount: lineCap != null ? lineCap : (money(split.surcharge || 0) > 0.009 ? lineAmount : null),
+            surchargeAmount: lineSur != null ? lineSur : (money(split.surcharge || 0) > 0.009 ? 0 : null),
             bankId: duesMethodUsesBank(row.method) ? row.bankId : null,
             bankName: duesMethodUsesBank(row.method) ? bank?.name : null,
             journalAccount: journalAccountForPayment(row.method, row.bankId),
             paymentPlanId: isCardPosDuesMethod(row.method) ? (plan?.id || null) : null,
             paymentPlanLabel: isCardPosDuesMethod(row.method) ? (plan?.label || null) : null,
-            // Cupón DATA/POS (puede ser > imputado); el asiento usa `amount`.
+            paymentPlanSnapshot: cardFinancing?.paymentPlanSnapshot || null,
             voucherAmount: isCardPosDuesMethod(row.method)
-              ? (Number(row.receiptParse?.amount) || null)
+              ? (cardFinancing?.voucherTotal || Number(row.receiptParse?.amount) || null)
+              : null,
+            cardFinancing,
+            financingPercent: isCardPosDuesMethod(row.method)
+              ? (row.financingPercent === '' ? null : row.financingPercent)
+              : null,
+            financingFixed: isCardPosDuesMethod(row.method)
+              ? (row.financingFixed === '' ? null : row.financingFixed)
               : null,
             receiptName: receiptAttachment?.name
               || (lineManual ? manualDuesReceiptLabel(row.receiptParse) : null)
@@ -983,6 +1135,22 @@ export default function CollectDuesModal({
         const dueOnsPayload = (tennisOnly || (tennisDueOns.length && !socialDueOns.length))
           ? tennisDueOns
           : socialDueOns;
+        const capitalBase = money(split.quota || 0);
+        const surchargePart = money(split.surcharge || 0);
+        const cardFinancing = isCardPosDuesMethod(recordMethod)
+          ? resolveCardFinancingForPos({
+            socialAmount: capitalBase,
+            financingBase: capitalBase,
+            surchargeAmount: surchargePart,
+            plan: selectedPlan,
+            paymentPlanId: selectedPlan?.id,
+            plans,
+            percent: financingPercent === '' ? null : financingPercent,
+            fixedAmount: financingFixed === '' ? null : financingFixed,
+            voucherAmount: receiptParse?.amount,
+            receiptParse,
+          })
+          : null;
         await onConfirm({
           method: recordMethod,
           bankId: duesMethodUsesBank(recordMethod) ? bankId : null,
@@ -999,6 +1167,17 @@ export default function CollectDuesModal({
           periodDueOns: dueOnsPayload.length ? dueOnsPayload : chargeDueOns,
           paymentPlanId: isCardPosDuesMethod(recordMethod) ? (selectedPlan?.id || null) : null,
           paymentPlanLabel: isCardPosDuesMethod(recordMethod) ? (selectedPlan?.label || null) : null,
+          paymentPlanSnapshot: cardFinancing?.paymentPlanSnapshot || null,
+          voucherAmount: isCardPosDuesMethod(recordMethod)
+            ? (cardFinancing?.voucherTotal || Number(receiptParse?.amount) || null)
+            : null,
+          cardFinancing,
+          financingPercent: isCardPosDuesMethod(recordMethod)
+            ? (financingPercent === '' ? null : financingPercent)
+            : null,
+          financingFixed: isCardPosDuesMethod(recordMethod)
+            ? (financingFixed === '' ? null : financingFixed)
+            : null,
           receiptParse: needsReceipt ? receiptParse : null,
           treasuryMatch: Boolean(needsReceipt && !manual && !receiptFile && seededAttachment?.path),
           ...scopePayload,
@@ -1442,29 +1621,119 @@ export default function CollectDuesModal({
         {isCardPosDuesMethod(method) && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '1rem' }}>
             <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
-              Se registra en <strong style={{ color: 'var(--text-gold)' }}>Tarjetas a cobrar</strong>. El plan es el acuerdo del POS; no financia la deuda del club.
+              Se registra en <strong style={{ color: 'var(--text-gold)' }}>Tarjetas a cobrar</strong>.
+              La financiación es del cupón POS y no se mezcla con la mora del 10&nbsp;%.
             </p>
-            {plans.length ? (
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Plan POS *</label>
-                <select
-                  className="form-input"
-                  value={planId}
-                  onChange={(e) => setPlanId(e.target.value)}
-                >
-                  {plans.map((plan) => (
-                    <option key={plan.id} value={plan.id}>
-                      {plan.label}
-                      {plan.installments > 1 ? ` · ${plan.installments} cuotas` : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ) : (
-              <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                No hay planes activos. El superadmin los carga en Configuración.
-              </p>
-            )}
+            <div
+              style={{
+                padding: '0.85rem',
+                borderRadius: 10,
+                border: '1px solid var(--border-glass)',
+                background: 'rgba(255,255,255,0.02)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.65rem',
+              }}
+            >
+              <strong style={{ color: 'var(--text-gold)', fontSize: '0.85rem' }}>Financiación con tarjeta</strong>
+              {plans.length ? (
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Plan POS *</label>
+                  <select
+                    className="form-input"
+                    value={planId}
+                    onChange={(e) => {
+                      setPlanId(e.target.value);
+                      setFinancingPercent('');
+                      setFinancingFixed('');
+                    }}
+                  >
+                    {plans.map((plan) => (
+                      <option key={plan.id} value={plan.id}>
+                        {plan.label}
+                        {plan.installments > 1 ? ` · ${plan.installments} cuotas` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  No hay planes activos. El superadmin los carga en Configuración.
+                </p>
+              )}
+              {selectedPlan ? (
+                <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                  Modalidad del plan:{' '}
+                  <strong style={{ color: 'var(--text-primary)' }}>
+                    {selectedPlan.financingMode === 'club_keeps' ? 'A · club percibe financiación' : 'B · emisor retiene'}
+                  </strong>
+                  {' '}(no la cambia el operador de caja).
+                </p>
+              ) : null}
+              {selectedPlan?.allowOperatorOverride && (selectedPlan.installments || 1) > 1 ? (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.5rem' }}>
+                  <label className="form-group" style={{ margin: 0 }}>
+                    <span className="form-label">% financiación</span>
+                    <input
+                      className="form-input"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={financingPercent}
+                      placeholder={selectedPlan.financingPercent != null ? String(selectedPlan.financingPercent) : '0'}
+                      onChange={(e) => {
+                        setFinancingPercent(e.target.value);
+                        if (e.target.value !== '') setFinancingFixed('');
+                      }}
+                    />
+                  </label>
+                  <label className="form-group" style={{ margin: 0 }}>
+                    <span className="form-label">Importe fijo</span>
+                    <input
+                      className="form-input"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={financingFixed}
+                      placeholder={selectedPlan.financingFixed != null ? String(selectedPlan.financingFixed) : '0'}
+                      onChange={(e) => {
+                        setFinancingFixed(e.target.value);
+                        if (e.target.value !== '') setFinancingPercent('');
+                      }}
+                    />
+                  </label>
+                </div>
+              ) : null}
+              {posFinancingPreview ? (
+                <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'grid', gap: 4 }}>
+                  <div>Capital imputado a cuota: <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(posFinancingPreview.base)}</strong></div>
+                  <div>Financiación tarjeta: <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(posFinancingPreview.financingAmount)}</strong></div>
+                  <div>Total cupón: <strong style={{ color: 'var(--emerald-accent)' }}>{formatCurrency(posFinancingPreview.voucherTotal)}</strong></div>
+                  {posFinancingPreview.installments > 1 ? (
+                    <div>
+                      Cuota tarjeta est. ({posFinancingPreview.installments}):{' '}
+                      <strong style={{ color: 'var(--text-primary)' }}>
+                        {formatCurrency(posFinancingPreview.installmentAmount)}
+                      </strong>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+              {posFinancingPreview?.financingAmount > 0.009 ? (
+                <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: '0.82rem', color: 'var(--text-primary)' }}>
+                  <input
+                    type="checkbox"
+                    checked={confirmPosTotal}
+                    onChange={(e) => setConfirmPosTotal(e.target.checked)}
+                    style={{ marginTop: 2 }}
+                  />
+                  <span>
+                    Confirmo el total del cupón {formatCurrency(posFinancingPreview.voucherTotal)}
+                    {' '}(capital + financiación de tarjeta).
+                  </span>
+                </label>
+              ) : null}
+            </div>
           </div>
         )}
 
@@ -1528,10 +1797,40 @@ export default function CollectDuesModal({
                         min="0"
                         step="0.01"
                         value={line.amount}
-                        onChange={(e) => patchMixLine(line.key, { amount: e.target.value })}
+                        onChange={(e) => patchMixLine(line.key, {
+                          amount: e.target.value,
+                          capitalAmount: '',
+                          surchargeAmount: '',
+                        })}
                       />
                     </label>
                   </div>
+                  {money(split.surcharge || 0) > 0.009 ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                      <label className="form-group" style={{ margin: 0 }}>
+                        <span className="form-label">Capital del tramo</span>
+                        <input
+                          className="form-input"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={line.capitalAmount}
+                          onChange={(e) => patchMixLine(line.key, { capitalAmount: e.target.value })}
+                        />
+                      </label>
+                      <label className="form-group" style={{ margin: 0 }}>
+                        <span className="form-label">Mora del tramo</span>
+                        <input
+                          className="form-input"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={line.surchargeAmount}
+                          onChange={(e) => patchMixLine(line.key, { surchargeAmount: e.target.value })}
+                        />
+                      </label>
+                    </div>
+                  ) : null}
                   {duesMethodUsesBank(line.method) ? (
                     <label className="form-group" style={{ margin: 0 }}>
                       <span className="form-label">Alias</span>
@@ -1547,18 +1846,103 @@ export default function CollectDuesModal({
                     </label>
                   ) : null}
                   {isCardPosDuesMethod(line.method) && plans.length ? (
-                    <label className="form-group" style={{ margin: 0 }}>
-                      <span className="form-label">Plan</span>
-                      <select
-                        className="form-input"
-                        value={line.planId || plans[0]?.id || ''}
-                        onChange={(e) => patchMixLine(line.key, { planId: e.target.value })}
-                      >
-                        {plans.map((plan) => (
-                          <option key={plan.id} value={plan.id}>{plan.label}</option>
-                        ))}
-                      </select>
-                    </label>
+                    <>
+                      <label className="form-group" style={{ margin: 0 }}>
+                        <span className="form-label">Plan POS</span>
+                        <select
+                          className="form-input"
+                          value={line.planId || plans[0]?.id || ''}
+                          onChange={(e) => patchMixLine(line.key, {
+                            planId: e.target.value,
+                            financingPercent: '',
+                            financingFixed: '',
+                          })}
+                        >
+                          {plans.map((plan) => (
+                            <option key={plan.id} value={plan.id}>{plan.label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      {(() => {
+                        const mixPlan = plans.find((p) => p.id === (line.planId || plans[0]?.id)) || null;
+                        const lineCap = mixLineCapital(line);
+                        const lineSur = mixLineSurcharge(line);
+                        const financingBase = lineCap != null ? lineCap : (Number(line.amount) || 0);
+                        const surchargeOnCard = lineSur != null ? lineSur : 0;
+                        const mixFin = mixPlan
+                          ? computePosFinancing({
+                            socialAmount: financingBase,
+                            financingBase,
+                            surchargeAmount: surchargeOnCard,
+                            plan: mixPlan,
+                            percent: line.financingPercent === '' ? null : line.financingPercent,
+                            fixedAmount: line.financingFixed === '' ? null : line.financingFixed,
+                            voucherAmount: line.receiptParse?.amount,
+                          })
+                          : null;
+                        return (
+                          <>
+                            {mixPlan?.allowOperatorOverride && (mixPlan.installments || 1) > 1 ? (
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                                <label className="form-group" style={{ margin: 0 }}>
+                                  <span className="form-label">% financ.</span>
+                                  <input
+                                    className="form-input"
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value={line.financingPercent || ''}
+                                    onChange={(e) => patchMixLine(line.key, {
+                                      financingPercent: e.target.value,
+                                      financingFixed: e.target.value !== '' ? '' : line.financingFixed,
+                                    })}
+                                  />
+                                </label>
+                                <label className="form-group" style={{ margin: 0 }}>
+                                  <span className="form-label">Fijo</span>
+                                  <input
+                                    className="form-input"
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value={line.financingFixed || ''}
+                                    onChange={(e) => patchMixLine(line.key, {
+                                      financingFixed: e.target.value,
+                                      financingPercent: e.target.value !== '' ? '' : line.financingPercent,
+                                    })}
+                                  />
+                                </label>
+                              </div>
+                            ) : null}
+                            {mixFin ? (
+                              <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                                Cupón {formatCurrency(mixFin.voucherTotal)}
+                                {surchargeOnCard > 0.009
+                                  ? ` · capital ${formatCurrency(financingBase)} + mora ${formatCurrency(surchargeOnCard)}`
+                                  : ` · capital ${formatCurrency(financingBase)}`}
+                                {mixFin.financingAmount > 0.009
+                                  ? ` · financ. ${formatCurrency(mixFin.financingAmount)}`
+                                  : ''}
+                                {mixFin.installments > 1
+                                  ? ` · ${mixFin.installments}× ~${formatCurrency(mixFin.installmentAmount)}`
+                                  : ''}
+                              </p>
+                            ) : null}
+                            {mixFin?.financingAmount > 0.009 ? (
+                              <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: '0.78rem' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={confirmPosTotal}
+                                  onChange={(e) => setConfirmPosTotal(e.target.checked)}
+                                  style={{ marginTop: 2 }}
+                                />
+                                <span>Confirmo total cupón POS del tramo</span>
+                              </label>
+                            ) : null}
+                          </>
+                        );
+                      })()}
+                    </>
                   ) : null}
                   {lineNeedsReceipt ? (
                     <div>
@@ -1779,6 +2163,7 @@ export default function CollectDuesModal({
                 || (!periodChoices.length)
                 || (isOnAccount ? !(onAccountAmount > 0.009) : (!selectedDueOns.length && !periodChoices.length))
                 || (isOnAccount && discountOver)
+                || (isCardPosDuesMethod(method) && posFinancingPreview?.financingAmount > 0.009 && !confirmPosTotal)
               }
               style={{ minWidth: 160 }}
             >
