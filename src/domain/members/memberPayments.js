@@ -39,6 +39,17 @@ import {
   registrarCobro,
   revertDuesPayment,
 } from '../../data/repos';
+import {
+  assertPosFinancingOperationSupported,
+  buildCardFinancingMeta,
+  buildPosJournalLines,
+  computePosFinancing,
+  POS_CARD_RECEIVABLE_ACCOUNT,
+  POS_DUES_INCOME_ACCOUNT,
+  POS_FINANCING_INCOME_ACCOUNT,
+  resolvePosVoucherAmount,
+} from './posFinancing';
+import { findPaymentPlan, paymentPlanSnapshot } from '../system/paymentPlans';
 
 function attachLedgerDesync(preview, member, {
   ledgerLines = null,
@@ -280,17 +291,53 @@ export {
 } from './duesPaymentMethodChange';
 
 /**
- * Cupón POS/DATA mayor al imputado: lo que figura en el voucher (financia el socio).
- * El club solo asienta el `amount` del tramo / cobro.
+ * Cupón POS: total del voucher (puede incluir financiación).
+ * La imputación social sigue siendo `amount`; la financiación va en `cardFinancing`.
  */
 export function duesVoucherAmount(row, imputedAmount = null) {
   const imputed = money(imputedAmount != null ? imputedAmount : row?.amount);
+  if (row?.cardFinancing?.voucherTotal != null) {
+    return resolvePosVoucherAmount(imputed, row.cardFinancing);
+  }
   const raw = Number(row?.voucherAmount ?? row?.receiptParse?.amount);
   if (!Number.isFinite(raw) || !(raw > 0)) return null;
   const voucher = money(raw);
   if (imputed > 0 && voucher > imputed + 0.01) return voucher;
   if (!(imputed > 0) && voucher > 0.01) return voucher;
   return null;
+}
+
+/** Arma meta de financiación para un tramo/cobro POS. */
+export function resolveCardFinancingForPos({
+  socialAmount,
+  plan = null,
+  plans = [],
+  paymentPlanId = null,
+  percent = null,
+  fixedAmount = null,
+  voucherAmount = null,
+  receiptParse = null,
+  authReference = null,
+  operatorUserId = null,
+} = {}) {
+  const resolvedPlan = plan
+    || findPaymentPlan(plans, paymentPlanId)
+    || (paymentPlanId ? { id: paymentPlanId, installments: 1, financingMode: 'issuer_keeps' } : null);
+  const voucherHint = voucherAmount != null
+    ? voucherAmount
+    : (receiptParse?.amount != null ? Number(receiptParse.amount) : null);
+  const computed = computePosFinancing({
+    socialAmount,
+    plan: resolvedPlan,
+    percent,
+    fixedAmount,
+    voucherAmount: voucherHint,
+  });
+  return buildCardFinancingMeta(computed, {
+    authReference: authReference || receiptParse?.reference || null,
+    operatorUserId,
+    paymentPlanSnapshot: paymentPlanSnapshot(resolvedPlan),
+  });
 }
 
 /** Normaliza líneas de un pago mixto. */
@@ -320,7 +367,24 @@ export function normalizePaymentSplits(raw = []) {
       const paymentPlanId = isCardPosDuesMethod(method) ? (row.paymentPlanId || null) : null;
       const paymentPlanLabel = isCardPosDuesMethod(method) ? (String(row.paymentPlanLabel || '').trim() || null) : null;
       const journalAccount = row.journalAccount || journalAccountForPayment(method, bankId);
-      const voucherAmount = isCardPosDuesMethod(method) ? duesVoucherAmount(row, amount) : null;
+      const cardFinancing = isCardPosDuesMethod(method)
+        ? (row.cardFinancing && typeof row.cardFinancing === 'object'
+          ? row.cardFinancing
+          : resolveCardFinancingForPos({
+            socialAmount: amount,
+            paymentPlanId,
+            plan: row.paymentPlan || null,
+            percent: row.financingPercent,
+            fixedAmount: row.financingFixed,
+            voucherAmount: row.voucherAmount,
+            receiptParse: row.receiptParse,
+            authReference: row.authReference,
+          }))
+        : null;
+      const voucherAmount = isCardPosDuesMethod(method)
+        ? (duesVoucherAmount({ ...row, cardFinancing }, amount)
+          || resolvePosVoucherAmount(amount, cardFinancing, row.voucherAmount))
+        : null;
       return {
         id: row.id || `split-${index + 1}`,
         method,
@@ -330,7 +394,9 @@ export function normalizePaymentSplits(raw = []) {
         journalAccount,
         paymentPlanId,
         paymentPlanLabel,
+        paymentPlanSnapshot: cardFinancing?.paymentPlanSnapshot || row.paymentPlanSnapshot || null,
         voucherAmount,
+        cardFinancing,
         receiptName,
         receiptPath: attachment?.path || row.receiptPath || null,
         receiptBucket: attachment?.bucket || row.receiptBucket || null,
@@ -343,6 +409,79 @@ export function normalizePaymentSplits(raw = []) {
       };
     })
     .filter(Boolean);
+}
+
+/**
+ * Asiento de cobro de cuota con tramos POS (modalidad A/B).
+ * `cashReceived` = dinero social cobrado (sin financiación).
+ * `socialIncome` = cashReceived + descuento (crédito a Cuotas Sociales).
+ */
+export function buildDuesCollectionJournalLines({
+  cashReceived,
+  socialIncome,
+  discount = 0,
+  cashAccount = 'Caja General',
+  mixedSplits = null,
+  cardFinancing = null,
+  isCardPos = false,
+} = {}) {
+  const cash = money(cashReceived);
+  const income = money(socialIncome != null ? socialIncome : cash + discount);
+  const discountLine = discount > 0.009
+    ? [{ account: DUES_DISCOUNT_ACCOUNT, type: 'debit', amount: money(discount) }]
+    : [];
+
+  if (Array.isArray(mixedSplits) && mixedSplits.length >= 2) {
+    const lines = [];
+    let financingCredit = 0;
+    mixedSplits.forEach((row) => {
+      const isPos = isCardPosDuesMethod(row.method);
+      const fin = isPos ? (row.cardFinancing || null) : null;
+      const finAmount = money(fin?.financingAmount);
+      if (isPos && fin?.mode === 'club_keeps' && finAmount > 0.009) {
+        lines.push({
+          account: row.journalAccount || POS_CARD_RECEIVABLE_ACCOUNT,
+          type: 'debit',
+          amount: money(row.amount + finAmount),
+        });
+        financingCredit = money(financingCredit + finAmount);
+      } else {
+        lines.push({
+          account: row.journalAccount || journalAccountForPayment(row.method, row.bankId) || 'Caja General',
+          type: 'debit',
+          amount: money(row.amount),
+        });
+      }
+    });
+    return [
+      ...lines,
+      ...discountLine,
+      { account: POS_DUES_INCOME_ACCOUNT, type: 'credit', amount: income },
+      ...(financingCredit > 0.009
+        ? [{ account: POS_FINANCING_INCOME_ACCOUNT, type: 'credit', amount: financingCredit }]
+        : []),
+    ];
+  }
+
+  if (isCardPos) {
+    const pos = buildPosJournalLines({
+      socialIncome: income,
+      financingAmount: cardFinancing?.financingAmount || 0,
+      mode: cardFinancing?.mode,
+      cardAccount: cashAccount || POS_CARD_RECEIVABLE_ACCOUNT,
+    });
+    return [
+      ...pos.lines.filter((line) => line.type === 'debit'),
+      ...discountLine,
+      ...pos.lines.filter((line) => line.type === 'credit'),
+    ];
+  }
+
+  return [
+    ...(cash > 0.009 ? [{ account: cashAccount, type: 'debit', amount: cash }] : []),
+    ...discountLine,
+    { account: POS_DUES_INCOME_ACCOUNT, type: 'credit', amount: income },
+  ];
 }
 
 /**
@@ -1160,8 +1299,12 @@ export function recordDuesCollection(member, {
   treasuryMatch = false,
   paymentPlanId = null,
   paymentPlanLabel = null,
+  paymentPlans = null,
   receiptParse = null,
   paymentSplits = null,
+  cardFinancing = null,
+  financingPercent = null,
+  financingFixed = null,
   discount = 0,
   discountDetail = '',
   chargeScope = 'all',
@@ -1302,16 +1445,32 @@ export function recordDuesCollection(member, {
     voucherAmount: mixed
       ? null
       : (isCardPosDuesMethod(resolvedMethod)
-        ? duesVoucherAmount(
-          { receiptParse },
-          concession.discount > 0 ? concession.cash : paid.payment.amount,
-        )
+        ? null // se completa abajo con cardFinancing
         : null),
+    cardFinancing: null,
+    paymentPlanSnapshot: null,
     paymentSplits: mixed ? mixed.splits : null,
     amount: concession.discount > 0 ? concession.cash : paid.payment.amount,
     discount: concession.discount,
     discountDetail: concession.detail || null,
   };
+
+  if (!mixed && isCardPosDuesMethod(resolvedMethod)) {
+    const fin = cardFinancing && typeof cardFinancing === 'object'
+      ? cardFinancing
+      : resolveCardFinancingForPos({
+        socialAmount: payment.amount,
+        paymentPlanId,
+        plans: paymentPlans || [],
+        percent: financingPercent,
+        fixedAmount: financingFixed,
+        voucherAmount: duesVoucherAmount({ receiptParse }, payment.amount),
+        receiptParse,
+      });
+    payment.cardFinancing = fin;
+    payment.paymentPlanSnapshot = fin?.paymentPlanSnapshot || null;
+    payment.voucherAmount = resolvePosVoucherAmount(payment.amount, fin, receiptParse?.amount);
+  }
 
   const memberNext = {
     ...paid.member,
@@ -1340,50 +1499,28 @@ export function recordDuesCollection(member, {
 
   const discountNote = concession.discount > 0 ? ` · Descuento ${concession.detail}` : '';
   const cobroLabel = resolvedMethod === 'a_cuenta' ? 'Cobro a cuenta' : 'Cobro cuota social';
+  const financingNote = paymentWithBalance.cardFinancing?.financingAmount > 0.009
+    ? ` · Financ. ${money(paymentWithBalance.cardFinancing.financingAmount)}`
+    : '';
   let journalEntry = null;
   if (paymentWithBalance.amount > 0 || concession.discount > 0) {
     const income = money(paymentWithBalance.amount + concession.discount);
-    const discountLine = concession.discount > 0
-      ? [{ account: DUES_DISCOUNT_ACCOUNT, type: 'debit', amount: concession.discount }]
-      : [];
-    if (mixed) {
-      const byAccount = new Map();
-      mixed.splits.forEach((row) => {
-        const key = row.journalAccount || 'Caja General';
-        byAccount.set(key, money((byAccount.get(key) || 0) + row.amount));
-      });
-      journalEntry = {
-        date: paymentWithBalance.date,
-        description: `${cobroLabel} (${label}) - Socio: ${account.name} (Cred. ${account.memberId})${discountNote}`,
-        lines: [
-          ...[...byAccount.entries()].map(([accountName, value]) => ({
-            account: accountName,
-            type: 'debit',
-            amount: value,
-          })),
-          ...discountLine,
-          { account: 'Cuotas Sociales', type: 'credit', amount: income },
-        ],
-        sourceModule: 'cuotas',
-        sourceId: paymentWithBalance.id,
-        memberId: account.memberId,
-      };
-    } else {
-      journalEntry = {
-        date: paymentWithBalance.date,
-        description: `${cobroLabel} (${label}) - Socio: ${account.name} (Cred. ${account.memberId})${receiptNote}${planNote}${discountNote}`,
-        lines: [
-          ...(paymentWithBalance.amount > 0
-            ? [{ account: cashAccount, type: 'debit', amount: paymentWithBalance.amount }]
-            : []),
-          ...discountLine,
-          { account: 'Cuotas Sociales', type: 'credit', amount: income },
-        ],
-        sourceModule: 'cuotas',
-        sourceId: paymentWithBalance.id,
-        memberId: account.memberId,
-      };
-    }
+    journalEntry = {
+      date: paymentWithBalance.date,
+      description: `${cobroLabel} (${label}) - Socio: ${account.name} (Cred. ${account.memberId})${receiptNote}${planNote}${discountNote}${financingNote}`,
+      lines: buildDuesCollectionJournalLines({
+        cashReceived: paymentWithBalance.amount,
+        socialIncome: income,
+        discount: concession.discount,
+        cashAccount,
+        mixedSplits: mixed ? mixed.splits : null,
+        cardFinancing: paymentWithBalance.cardFinancing,
+        isCardPos: !mixed && isCardPosDuesMethod(resolvedMethod),
+      }),
+      sourceModule: 'cuotas',
+      sourceId: paymentWithBalance.id,
+      memberId: account.memberId,
+    };
   }
 
   return {
@@ -1745,6 +1882,12 @@ export function voidMemberDuesPayment(member, paymentId, {
   if (payment.status === 'void' || payment.status === 'cancelled' || payment.voidedAt) {
     throw new Error('Ese cobro ya está anulado.');
   }
+  if (payment.posChargebackPending || payment.meta?.posChargebackPending) {
+    assertPosFinancingOperationSupported('chargeback');
+  }
+  if (payment.posSettlementPending || payment.meta?.posSettlementPending) {
+    assertPosFinancingOperationSupported('settlement');
+  }
 
   const why = String(reason || '').trim();
   if (why.length < 8) {
@@ -1754,6 +1897,12 @@ export function voidMemberDuesPayment(member, paymentId, {
   const amount = money(payment.amount);
   const discount = money(payment.discount);
   const gross = money(amount + discount);
+  const voidSplitsEarly = normalizePaymentSplits(payment.paymentSplits);
+  const financingAmount = voidSplitsEarly.length >= 2
+    ? money(voidSplitsEarly
+      .filter((row) => row.cardFinancing?.mode === 'club_keeps')
+      .reduce((sum, row) => sum + (Number(row.cardFinancing?.financingAmount) || 0), 0))
+    : money(payment.cardFinancing?.mode === 'club_keeps' ? payment.cardFinancing?.financingAmount : 0);
   const voidedAt = today instanceof Date ? today.toISOString() : String(today);
   const nextPayment = {
     ...payment,
@@ -1783,10 +1932,13 @@ export function voidMemberDuesPayment(member, paymentId, {
   if (splits.length >= 2) {
     const byAccount = new Map();
     splits.forEach((row) => {
+      const fin = row.cardFinancing?.mode === 'club_keeps'
+        ? money(row.cardFinancing?.financingAmount)
+        : 0;
       const key = row.journalAccount
         || journalAccountForPayment(row.method, row.bankId)
         || 'Caja General';
-      byAccount.set(key, money((byAccount.get(key) || 0) + row.amount));
+      byAccount.set(key, money((byAccount.get(key) || 0) + row.amount + fin));
     });
     creditLines = [...byAccount.entries()].map(([accountName, value]) => ({
       account: accountName,
@@ -1794,18 +1946,24 @@ export function voidMemberDuesPayment(member, paymentId, {
       amount: value,
     }));
   } else {
-    creditLines = amount > 0.009
+    const cardFin = payment.cardFinancing?.mode === 'club_keeps'
+      ? money(payment.cardFinancing?.financingAmount)
+      : 0;
+    creditLines = amount > 0.009 || cardFin > 0.009
       ? [{
         account: payment.journalAccount
           || journalAccountForPayment(payment.method, payment.bankId)
           || 'Caja General',
         type: 'credit',
-        amount,
+        amount: money(amount + cardFin),
       }]
       : [];
   }
   const discountCredit = discount > 0.009
     ? [{ account: DUES_DISCOUNT_ACCOUNT, type: 'credit', amount: discount }]
+    : [];
+  const financingDebit = financingAmount > 0.009
+    ? [{ account: POS_FINANCING_INCOME_ACCOUNT, type: 'debit', amount: financingAmount }]
     : [];
 
   const receiptRef = nextPayment.receiptNumber || nextPayment.receipt || paymentId;
@@ -1825,12 +1983,13 @@ export function voidMemberDuesPayment(member, paymentId, {
     member: next,
     payment: nextPayment,
     ledgerEntry,
-    journalEntry: gross > 0.009 || creditLines.length
+    journalEntry: gross > 0.009 || creditLines.length || financingDebit.length
       ? {
         date: todayISODateAR(today),
         description: `Anulación cobro cuota social (${who}) - Socio: ${member.name} (Cred. ${member.memberId}) · ${receiptRef} · ${why}`,
         lines: [
-          { account: 'Cuotas Sociales', type: 'debit', amount: gross > 0.009 ? gross : amount },
+          { account: POS_DUES_INCOME_ACCOUNT, type: 'debit', amount: gross > 0.009 ? gross : amount },
+          ...financingDebit,
           ...creditLines,
           ...discountCredit,
         ],
@@ -1973,6 +2132,11 @@ export function cobroPeriods(member, payment) {
     receiptSize: payment.receiptSize ?? null,
     paymentPlanId: payment.paymentPlanId || null,
     paymentPlanLabel: payment.paymentPlanLabel || null,
+    paymentPlanSnapshot: payment.paymentPlanSnapshot || payment.cardFinancing?.paymentPlanSnapshot || null,
+    voucherAmount: payment.voucherAmount != null ? Number(payment.voucherAmount) : null,
+    cardFinancing: payment.cardFinancing || null,
+    receiptParse: payment.receiptParse || null,
+    journalAccount: payment.journalAccount || null,
     paymentSplits: payment.paymentSplits || null,
     waiveSurcharge: Number(payment.waivedSurcharge) > 0,
     waivedSurcharge: Number(payment.waivedSurcharge) || 0,
@@ -2177,13 +2341,23 @@ export async function persistDuesCollection(result, {
     const committed = await commitDuesCollection(result.member, payment);
     // El PDF / MD del a cuenta necesitan entregado + deuda restante aunque la fila
     // venga de la base sin esos campos todavía.
+    const committedPay = committed.payment || {};
+    // No dejar que nulls del RPC pisen meta local (voucher / financiación / parse).
     const mergedPayment = {
       ...payment,
-      ...committed.payment,
-      balanceRemaining: committed.payment?.balanceRemaining ?? payment.balanceRemaining ?? null,
-      creditLeftover: committed.payment?.creditLeftover ?? payment.creditLeftover ?? null,
-      methodLabel: committed.payment?.methodLabel || payment.methodLabel || null,
-      imputations: committed.payment?.imputations || payment.imputations || [],
+      ...committedPay,
+      balanceRemaining: committedPay.balanceRemaining ?? payment.balanceRemaining ?? null,
+      creditLeftover: committedPay.creditLeftover ?? payment.creditLeftover ?? null,
+      methodLabel: committedPay.methodLabel || payment.methodLabel || null,
+      imputations: committedPay.imputations || payment.imputations || [],
+      voucherAmount: committedPay.voucherAmount ?? payment.voucherAmount ?? null,
+      cardFinancing: committedPay.cardFinancing || payment.cardFinancing || null,
+      receiptParse: committedPay.receiptParse || payment.receiptParse || null,
+      journalAccount: committedPay.journalAccount || payment.journalAccount || null,
+      paymentPlanId: committedPay.paymentPlanId || payment.paymentPlanId || null,
+      paymentPlanLabel: committedPay.paymentPlanLabel || payment.paymentPlanLabel || null,
+      paymentPlanSnapshot: committedPay.paymentPlanSnapshot || payment.paymentPlanSnapshot || null,
+      paymentSplits: committedPay.paymentSplits || payment.paymentSplits || null,
     };
     next = {
       ...result,

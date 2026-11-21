@@ -99,6 +99,7 @@ export async function insertJournalEntry(entry, { createdBy } = {}) {
       reference: entry.reference || null,
       status: entry.status == null ? 'posted' : entry.status,
       sourceModule: entry.sourceModule || 'manual',
+      sourceId: entry.sourceId || null,
       createdBy: created,
       lines: (entry.lines || []).map((line, index) => ({
         accountId: line.accountId,
@@ -123,6 +124,7 @@ export async function insertJournalEntry(entry, { createdBy } = {}) {
     reference: entry.reference || null,
     status: 'draft',
     source_module: entry.sourceModule || 'manual',
+    source_id: entry.sourceId || null,
     created_by: createdBy || null,
   };
   const saved = await unwrap(

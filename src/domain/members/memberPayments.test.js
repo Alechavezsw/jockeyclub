@@ -1326,3 +1326,159 @@ describe('applyImportedMemberPayment', () => {
     expect(next.paymentHistory[0].id).toBe('mcp-1');
   });
 });
+
+describe('financiación POS núcleo', () => {
+  const receipt = {
+    path: 'x/voucher.jpg',
+    bucket: 'dues-receipts',
+    name: 'voucher.jpg',
+    mimeType: 'image/jpeg',
+    size: 100,
+  };
+
+  it('modo B: cupón mayor, asiento solo por capital social', () => {
+    const member = { memberId: 'pos-b', name: 'POS B', outstandingBalance: 70000, paymentHistory: [] };
+    const result = recordDuesCollection(member, {
+      method: 'tarjeta',
+      amount: 70000,
+      receiptAttachment: receipt,
+      receiptName: 'voucher.jpg',
+      paymentPlanId: 'visa-3',
+      paymentPlanLabel: 'Visa 3 cuotas',
+      paymentPlans: [{
+        id: 'visa-3',
+        label: 'Visa 3 cuotas',
+        installments: 3,
+        financingMode: 'issuer_keeps',
+        financingPercent: 10,
+      }],
+      financingPercent: 10,
+      today: new Date('2026-11-05T12:00:00'),
+    });
+    expect(result.payment.amount).toBe(70000);
+    expect(result.payment.cardFinancing.voucherTotal).toBe(77000);
+    expect(result.payment.cardFinancing.mode).toBe('issuer_keeps');
+    expect(result.journalEntry.lines.find((l) => l.type === 'debit')?.amount).toBe(70000);
+    expect(result.journalEntry.lines.every((l) => l.account !== 'Ingresos por financiación tarjetas')).toBe(true);
+  });
+
+  it('modo A: asienta ingreso por financiación', () => {
+    const member = { memberId: 'pos-a', name: 'POS A', outstandingBalance: 70000, paymentHistory: [] };
+    const result = recordDuesCollection(member, {
+      method: 'tarjeta',
+      amount: 70000,
+      receiptAttachment: receipt,
+      receiptName: 'voucher.jpg',
+      paymentPlanId: 'visa-3-a',
+      paymentPlans: [{
+        id: 'visa-3-a',
+        label: 'Visa 3 A',
+        installments: 3,
+        financingMode: 'club_keeps',
+        financingPercent: 10,
+      }],
+      financingPercent: 10,
+      today: new Date('2026-11-05T12:00:00'),
+    });
+    expect(result.payment.cardFinancing.mode).toBe('club_keeps');
+    expect(result.journalEntry.lines.find((l) => l.type === 'debit')?.amount).toBe(77000);
+    expect(result.journalEntry.lines.find((l) => l.account === 'Ingresos por financiación tarjetas')?.amount).toBe(7000);
+    expect(result.member.outstandingBalance).toBe(0);
+  });
+
+  it('mixto efectivo + POS con financiación solo en tramo tarjeta', () => {
+    const member = { memberId: 'pos-mix', name: 'Mix', outstandingBalance: 70000, paymentHistory: [] };
+    const result = recordDuesCollection(member, {
+      method: 'mixto',
+      amount: 70000,
+      paymentSplits: [
+        { method: 'efectivo', amount: 30000 },
+        {
+          method: 'tarjeta',
+          amount: 40000,
+          receiptAttachment: receipt,
+          receiptName: 'voucher.jpg',
+          paymentPlanId: 'visa-3-a',
+          paymentPlan: {
+            id: 'visa-3-a',
+            installments: 3,
+            financingMode: 'club_keeps',
+            financingPercent: 10,
+          },
+          financingPercent: 10,
+        },
+      ],
+      today: new Date('2026-11-05T12:00:00'),
+    });
+    const card = result.payment.paymentSplits.find((r) => r.method === 'tarjeta');
+    expect(card.cardFinancing.financingAmount).toBe(4000);
+    expect(card.cardFinancing.voucherTotal).toBe(44000);
+    expect(result.payment.paymentSplits.find((r) => r.method === 'efectivo').cardFinancing).toBeNull();
+    const debitCard = result.journalEntry.lines.find((l) => l.account === 'Tarjetas a cobrar');
+    expect(debitCard.amount).toBe(44000);
+    expect(result.journalEntry.lines.find((l) => l.account === 'Ingresos por financiación tarjetas')?.amount).toBe(4000);
+  });
+
+  it('void modo A revierte también el haber de financiación', () => {
+    const member = { memberId: 'pos-void', name: 'Void', outstandingBalance: 70000, paymentHistory: [] };
+    const charged = recordDuesCollection(member, {
+      method: 'tarjeta',
+      amount: 70000,
+      receiptAttachment: receipt,
+      receiptName: 'voucher.jpg',
+      paymentPlanId: 'visa-3-a',
+      paymentPlans: [{
+        id: 'visa-3-a',
+        label: 'Visa 3 A',
+        installments: 3,
+        financingMode: 'club_keeps',
+        financingPercent: 10,
+      }],
+      financingPercent: 10,
+      today: new Date('2026-11-05T12:00:00'),
+    });
+    const voided = voidMemberDuesPayment(charged.member, charged.payment.id, {
+      reason: 'Duplicado de cobro POS',
+      today: new Date('2026-11-06T12:00:00'),
+    });
+    expect(voided.member.outstandingBalance).toBe(70000);
+    expect(voided.journalEntry.lines.find((l) => l.account === 'Ingresos por financiación tarjetas' && l.type === 'debit')?.amount)
+      .toBe(7000);
+  });
+
+  it('chargeback pendiente bloquea anulación a medias', () => {
+    const member = {
+      memberId: 'pos-cb',
+      name: 'CB',
+      outstandingBalance: 0,
+      paymentHistory: [{
+        id: 'pay-1',
+        amount: 70000,
+        method: 'tarjeta',
+        status: 'paid',
+        posChargebackPending: true,
+        cardFinancing: { mode: 'club_keeps', financingAmount: 7000 },
+      }],
+    };
+    expect(() => voidMemberDuesPayment(member, 'pay-1', {
+      reason: 'Chargeback del adquirente',
+    })).toThrow(/no soportada/i);
+  });
+
+  it('cobroPeriods incluye cardFinancing y voucherAmount', () => {
+    const periods = cobroPeriods(
+      { memberId: '1', name: 'X' },
+      {
+        amount: 70000,
+        method: 'tarjeta',
+        periodDueOns: ['2026-11-10'],
+        voucherAmount: 77000,
+        cardFinancing: { mode: 'issuer_keeps', financingAmount: 7000, voucherTotal: 77000 },
+        paymentPlanSnapshot: { id: 'visa-3', financingMode: 'issuer_keeps' },
+      },
+    );
+    expect(periods.voucherAmount).toBe(77000);
+    expect(periods.cardFinancing.financingAmount).toBe(7000);
+    expect(periods.paymentPlanSnapshot.id).toBe('visa-3');
+  });
+});

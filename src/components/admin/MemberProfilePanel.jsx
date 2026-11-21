@@ -1912,6 +1912,15 @@ export default function MemberProfilePanel({
                       {Number(p.creditLeftover) > 0.01 ? (
                         <div className="mp-list-sub">Saldo a favor {formatCurrency(p.creditLeftover)}</div>
                       ) : null}
+                      {Number(p.cardFinancing?.financingAmount) > 0.01 ? (
+                        <div className="mp-list-sub">
+                          Contado {formatCurrency(p.cardFinancing.baseAmount ?? p.amount)}
+                          {' · '}cupón {formatCurrency(p.cardFinancing.voucherTotal)}
+                          {p.cardFinancing.installments > 1
+                            ? ` · ${p.cardFinancing.installments} cuotas tarjeta`
+                            : ''}
+                        </div>
+                      ) : null}
                       {p.imputations?.length ? (
                         <div className="mp-list-sub">
                           {p.imputations.map((row) => (
