@@ -46,10 +46,13 @@ import {
   paymentAmountTowardDueOn,
   accumulatedPaymentCapitalTowardDueOn,
   listAdminOperationalClears,
+  isValidAdminOperationalClear,
+  openPeriodUncoveredCapital,
 } from './dues';
 import { accountPaymentPlan, collectionPreview, payMemberDues } from './memberPayments';
 import { setRuntimeTierCatalog } from './tiers';
 import { setRuntimeDiscountRules } from '../accounting/discountApplication';
+import { memberFromRow } from '../../data/mappers.js';
 
 const testCatalog = [
   { id: 'socio_individual', name: 'SOCIO INDIVIDUAL', monthlyDues: 32000, sortOrder: 1 },
@@ -289,6 +292,98 @@ describe('dues classification', () => {
     expect(clears).toHaveLength(1);
     expect(clears[0].amount).toBe(6363.64);
     expect(listAdminOperationalClears({ memberNumber: '101600' })).toEqual([]);
+  });
+
+  it('memberFromRow no duplica adminOperationalClear al expandir meta', () => {
+    const clear = {
+      memberNumber: '101600',
+      dueOn: '2026-10-10',
+      periodDueOns: ['2026-10-10'],
+      amount: 6363.64,
+      reason: 'Remanente octubre 2026 autorizado en cero operativo · pendiente de conciliación',
+      authorizedBy: 'Administración · Tesorería',
+      authorizedAt: '2026-11-21',
+    };
+    const member = memberFromRow({
+      id: 'db-101600',
+      member_number: '101600',
+      full_name: 'María Florencia Ramírez Pericas',
+      tier: 'socio_familiar',
+      status: 'active',
+      outstanding_balance: 0,
+      next_due_date: '2026-12-10',
+      meta: {
+        unpaidCapital: 0,
+        lastPaymentDate: '2026-11-08',
+        duesOpenPeriods: [{ dueOn: '2026-10-10', capital: 10000, capitalOpen: 10000 }],
+        adminOperationalClear: clear,
+      },
+    }, [{
+      id: 'pay-ramirez-nov',
+      amount: 70000,
+      status: 'paid',
+      concept: 'Cuota social · Noviembre de 2026',
+      periodDueOns: ['2026-11-10'],
+      paid_at: '2026-11-08',
+    }]);
+
+    // memberFromRow deja la misma autorización en top-level y en meta.
+    expect(member.adminOperationalClear).toEqual(clear);
+    expect(member.meta.adminOperationalClear).toEqual(clear);
+    expect(listAdminOperationalClears(member)).toHaveLength(1);
+    expect(socialDuesStoredBalance(member)).toBe(3636.36);
+    expect(openPeriodUncoveredCapital(member, '2026-10-10', 10000)).toBe(3636.36);
+    expect(hasVerifiedOperationalClearEvidence(member)).toBe(false);
+  });
+
+  it('rechaza excepciones administrativas sin importe máximo válido', () => {
+    expect(isValidAdminOperationalClear({
+      dueOn: '2026-10-10',
+      reason: 'sin monto',
+      authorizedBy: 'Tesorería',
+    })).toBe(false);
+    expect(listAdminOperationalClears({
+      meta: {
+        adminOperationalClear: {
+          periodDueOns: ['2026-10-10'],
+          authorizedBy: 'Tesorería',
+          authorizedAt: '2026-11-21',
+        },
+      },
+      duesOpenPeriods: [{ dueOn: '2026-10-10', capital: 6363.64 }],
+    })).toEqual([]);
+    expect(socialDuesStoredBalance({
+      outstandingBalance: 0,
+      duesOpenPeriods: [{ dueOn: '2026-10-10', capital: 6363.64 }],
+      meta: {
+        adminOperationalClear: {
+          periodDueOns: ['2026-10-10'],
+          authorizedBy: 'Tesorería',
+        },
+      },
+    })).toBe(6363.64);
+  });
+
+  it('capital_open ya neteado no vuelve a descontar el pago imputado', () => {
+    const member = {
+      outstandingBalance: 0,
+      unpaidCapital: 0,
+      paymentHistory: [{
+        id: 'pay-partial',
+        amount: 30000,
+        status: 'paid',
+        concept: 'Cuota noviembre',
+        periodDueOns: ['2026-11-10'],
+        imputations: [{ dueOn: '2026-11-10', capital: 30000, capitalOpen: 40000 }],
+      }],
+      // capital = original; capitalOpen = remanente post-imputación.
+      duesOpenPeriods: [{ dueOn: '2026-11-10', capital: 70000, capitalOpen: 40000 }],
+    };
+    expect(socialDuesStoredBalance(member)).toBe(40000);
+    expect(openPeriodUncoveredCapital(member, '2026-11-10', 40000, {
+      periodRow: member.duesOpenPeriods[0],
+    })).toBe(40000);
+    expect(hasVerifiedOperationalClearEvidence(member)).toBe(false);
   });
 
   it('unpaidCapital 0 sin duesOpenPeriods hidratados no silencia ficha positiva', () => {

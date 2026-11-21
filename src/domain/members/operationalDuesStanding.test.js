@@ -690,11 +690,31 @@ describe('cobertura por montos (parcial / múltiples / tope admin)', () => {
         periodDueOns: ['2026-11-10'],
         imputations: [{ dueOn: '2026-11-10', capital: 30000 }],
       }],
+      // Snapshot desactualizado (solo capital): hay que restar el pago.
       duesOpenPeriods: [{ dueOn: '2026-11-10', capital: 70000 }],
     });
     expect(socialDuesStoredBalance(member)).toBe(40000);
     expect(hasVerifiedOperationalClearEvidence(member)).toBe(false);
     expect(buildOperationalDuesStanding(member, { today: TODAY }).clear).toBe(false);
+  });
+
+  it('capital_open actualizado no descuenta otra vez el pago ya imputado', () => {
+    const member = titular({
+      outstandingBalance: 0,
+      unpaidCapital: 0,
+      paymentHistory: [{
+        id: 'pay-30k',
+        amount: 30000,
+        status: 'paid',
+        concept: 'Cuota noviembre',
+        periodDueOns: ['2026-11-10'],
+        imputations: [{ dueOn: '2026-11-10', capital: 30000, capitalOpen: 40000 }],
+      }],
+      duesOpenPeriods: [{ dueOn: '2026-11-10', capital: 70000, capitalOpen: 40000 }],
+    });
+    // Exigible = remanente 40.000, no 10.000 por doble descuento.
+    expect(socialDuesStoredBalance(member)).toBe(40000);
+    expect(buildOperationalDuesStanding(member, { today: TODAY }).capitalExigible).toBe(40000);
   });
 
   it('varios pagos válidos se acumulan sin duplicar el mismo recibo', () => {
