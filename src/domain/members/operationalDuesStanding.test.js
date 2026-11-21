@@ -620,13 +620,16 @@ describe('admin: ficha $0 respaldada no se reabre por períodos abiertos', () =>
       nextDueDate: '2026-12-10',
       lastPaymentDate: '2026-11-08',
       paymentHistory: payments,
-      // Remanente oct: excepción admin con alcance (KNOWN / meta), no pago inventado.
+      // Remanente oct: registro admin persistente (meta), no hardcode ni pago inventado.
       duesOpenPeriods: [{ dueOn: '2026-10-10', capital: 6363.64, capitalOpen: 6363.64 }],
       meta: {
         adminOperationalClear: {
+          memberNumber: '101600',
           periodDueOns: ['2026-10-10'],
+          dueOn: '2026-10-10',
           amount: 6363.64,
-          reason: 'Remanente octubre 2026 autorizado · pendiente de conciliación',
+          reason: 'Remanente octubre 2026 autorizado en cero operativo · pendiente de conciliación',
+          authorizedBy: 'Administración · Tesorería',
           authorizedAt: '2026-11-21',
         },
       },
@@ -664,6 +667,113 @@ describe('admin: ficha $0 respaldada no se reabre por períodos abiertos', () =>
     };
     expect(socialDuesStoredBalance(withDec)).toBe(70000);
     expect(hasVerifiedOperationalClearEvidence(withDec)).toBe(false);
+    // Importe por encima del autorizado vuelve a ser exigible.
+    const overClear = {
+      ...member,
+      duesOpenPeriods: [{ dueOn: '2026-10-10', capital: 10000, capitalOpen: 10000 }],
+    };
+    expect(socialDuesStoredBalance(overClear)).toBe(3636.36);
+    expect(hasVerifiedOperationalClearEvidence(overClear)).toBe(false);
+  });
+});
+
+describe('cobertura por montos (parcial / múltiples / tope admin)', () => {
+  it('pago parcial no cubre el capital completo del período', () => {
+    const member = titular({
+      outstandingBalance: 0,
+      unpaidCapital: 0,
+      paymentHistory: [{
+        id: 'partial-1',
+        amount: 30000,
+        status: 'paid',
+        concept: 'Cuota noviembre parcial',
+        periodDueOns: ['2026-11-10'],
+        imputations: [{ dueOn: '2026-11-10', capital: 30000 }],
+      }],
+      duesOpenPeriods: [{ dueOn: '2026-11-10', capital: 70000 }],
+    });
+    expect(socialDuesStoredBalance(member)).toBe(40000);
+    expect(hasVerifiedOperationalClearEvidence(member)).toBe(false);
+    expect(buildOperationalDuesStanding(member, { today: TODAY }).clear).toBe(false);
+  });
+
+  it('varios pagos válidos se acumulan sin duplicar el mismo recibo', () => {
+    const payments = [
+      {
+        id: 'p-a',
+        receiptNumber: 'R-MULTI-1',
+        amount: 30000,
+        status: 'paid',
+        concept: 'Cuota noviembre',
+        periodDueOns: ['2026-11-10'],
+        imputations: [{ dueOn: '2026-11-10', capital: 30000 }],
+      },
+      {
+        id: 'p-b',
+        receiptNumber: 'R-MULTI-2',
+        amount: 40000,
+        status: 'paid',
+        concept: 'Cuota noviembre',
+        periodDueOns: ['2026-11-10'],
+        imputations: [{ dueOn: '2026-11-10', capital: 40000 }],
+      },
+      // Duplicado del primero (mismo id): no suma dos veces.
+      {
+        id: 'p-a',
+        receiptNumber: 'R-MULTI-1',
+        amount: 30000,
+        status: 'paid',
+        concept: 'Cuota noviembre',
+        periodDueOns: ['2026-11-10'],
+        imputations: [{ dueOn: '2026-11-10', capital: 30000 }],
+      },
+    ];
+    const member = titular({
+      outstandingBalance: 0,
+      unpaidCapital: 0,
+      paymentHistory: payments,
+      duesOpenPeriods: [{ dueOn: '2026-11-10', capital: 70000 }],
+    });
+    expect(socialDuesStoredBalance(member)).toBe(0);
+    expect(hasVerifiedOperationalClearEvidence(member)).toBe(true);
+  });
+
+  it('excepción administrativa limitada no cubre un excedente del período', () => {
+    const member = titular({
+      outstandingBalance: 0,
+      unpaidCapital: 0,
+      duesOpenPeriods: [{ dueOn: '2026-10-10', capital: 20000 }],
+      meta: {
+        adminOperationalClear: {
+          memberNumber: '99999',
+          dueOn: '2026-10-10',
+          periodDueOns: ['2026-10-10'],
+          amount: 6363.64,
+          reason: 'Tope de prueba',
+          authorizedBy: 'Tesorería',
+          authorizedAt: '2026-11-21',
+        },
+      },
+    });
+    expect(socialDuesStoredBalance(member)).toBe(13636.36);
+    expect(hasVerifiedOperationalClearEvidence(member)).toBe(false);
+  });
+
+  it('regularización con importe limitado deja remanente exigible', () => {
+    const member = titular({
+      outstandingBalance: 0,
+      unpaidCapital: 0,
+      duesOpenPeriods: [{ dueOn: '2026-09-10', capital: 70000 }],
+      duesEntries: [{
+        id: 'reg-cap',
+        adminRegularization: true,
+        amount: -50000,
+        periodDueOns: ['2026-09-10'],
+        source: 'regularizacion-admin',
+      }],
+    });
+    expect(socialDuesStoredBalance(member)).toBe(20000);
+    expect(hasVerifiedOperationalClearEvidence(member)).toBe(false);
   });
 });
 

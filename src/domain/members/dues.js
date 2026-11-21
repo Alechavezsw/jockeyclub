@@ -727,10 +727,64 @@ export function paymentCoveredDueOns(payment) {
   return out;
 }
 
-function paymentCoversDueOn(payment, dueOn) {
+function paymentImputationRows(payment) {
+  return [
+    ...(Array.isArray(payment?.imputations) ? payment.imputations : []),
+    ...(Array.isArray(payment?.meta?.imputations) ? payment.meta.imputations : []),
+  ];
+}
+
+/**
+ * Capital que un pago acredita hacia un dueOn concreto.
+ * Usa imputaciones / amountsByDueOn; con un solo periodDueOn, el monto del pago.
+ * Con varios periodDueOns sin montos por período no asume cobertura plena.
+ */
+export function paymentAmountTowardDueOn(payment, dueOn) {
+  if (!isVerifiedDuesPaymentRow(payment)) return 0;
   const target = asDueOnStamp(dueOn);
-  if (!target) return false;
-  return paymentCoveredDueOns(payment).includes(target);
+  if (!target) return 0;
+
+  let imputed = 0;
+  let hasImputation = false;
+  for (const row of paymentImputationRows(payment)) {
+    if (asDueOnStamp(row?.dueOn || row?.due_on) !== target) continue;
+    hasImputation = true;
+    imputed = money(imputed + (Number(row.capital ?? row.amount ?? row.capitalApplied) || 0));
+  }
+  if (hasImputation) return Math.max(0, imputed);
+
+  const byDue = payment?.amountsByDueOn || payment?.meta?.amountsByDueOn || {};
+  if (byDue[target] != null) return Math.max(0, money(Number(byDue[target]) || 0));
+
+  const dueOns = paymentCoveredDueOns(payment);
+  if (!dueOns.includes(target)) return 0;
+  if (dueOns.length === 1) return Math.max(0, money(Number(payment.amount) || 0));
+  // Varios períodos sin desglose: no inventar cobertura plena por cada uno.
+  return 0;
+}
+
+function paymentEvidenceKey(payment, index) {
+  const id = String(payment?.id || '').trim();
+  if (id) return `id:${id}`;
+  const receipt = String(payment?.receiptNumber || payment?.receipt_number || '').trim();
+  if (receipt) return `receipt:${receipt}`;
+  return `idx:${index}`;
+}
+
+/** Suma de capital acreditado a un dueOn, sin duplicar el mismo pago/recibo. */
+export function accumulatedPaymentCapitalTowardDueOn(member, dueOn) {
+  const pays = Array.isArray(member?.paymentHistory) ? member.paymentHistory : [];
+  const seen = new Set();
+  let total = 0;
+  pays.forEach((pay, index) => {
+    const key = paymentEvidenceKey(pay, index);
+    if (seen.has(key)) return;
+    const toward = paymentAmountTowardDueOn(pay, dueOn);
+    if (toward <= 0.01) return;
+    seen.add(key);
+    total = money(total + toward);
+  });
+  return total;
 }
 
 /**
@@ -748,12 +802,14 @@ export function isExplicitAdminRegularization(entry) {
 }
 
 function scopedDueOnsFromClear(scope) {
-  if (!scope || typeof scope !== 'object') return [];
+  if (!scope || typeof scope !== 'object') return { listed: [], through: '' };
   const out = [];
   const push = (value) => {
     const due = asDueOnStamp(value);
     if (due && !out.includes(due)) out.push(due);
   };
+  const dueOn = asDueOnStamp(scope.dueOn || scope.due_on);
+  if (dueOn) push(dueOn);
   for (const due of scope.periodDueOns || []) push(due);
   for (const row of scope.imputations || []) push(row?.dueOn || row?.due_on);
   const through = asDueOnStamp(scope.throughDueOn || scope.through);
@@ -770,50 +826,54 @@ function scopeCoversDueOn(scope, dueOn) {
 }
 
 /**
- * Excepciones administrativas conocidas (alcance cerrado, no se extienden a cuotas futuras).
- * 101600 Ramírez: remanente oct $6.363,64 autorizado a permanecer en cero operativo.
+ * Cuánto puede aplicar un alcance admin/reg a un dueOn.
+ * - amountsByDueOn: tope por período
+ * - amount total: presupuesto compartido (caller lleva el Map)
+ * - sin importe: período autorizado sin tope
  */
-const KNOWN_ADMIN_OPERATIONAL_CLEARS = Object.freeze({
-  '101600': Object.freeze({
-    periodDueOns: Object.freeze(['2026-10-10']),
-    amount: 6363.64,
-    reason: 'Remanente octubre 2026 autorizado en cero operativo · pendiente de conciliación',
-    authorizedBy: 'admin',
-    authorizedAt: '2026-11-21',
-  }),
-});
-
-function memberDigitsForClear(member) {
-  const raw = member?.memberNumber ?? member?.memberId ?? member?.member_number ?? '';
-  return String(raw).replace(/\D/g, '') || '';
-}
-
-/** Excepción administrativa trazable: solo períodos/alcance declarados. */
-export function adminOperationalClearScope(member) {
-  const fromMeta = member?.adminOperationalClear || member?.meta?.adminOperationalClear;
-  if (fromMeta && typeof fromMeta === 'object') {
-    const { listed, through } = scopedDueOnsFromClear(fromMeta);
-    if (listed.length || through) return fromMeta;
+function takeAuthorizedTowardDueOn(scope, dueOn, rem, budgetMap, budgetKey) {
+  if (!(rem > 0.01) || !scopeCoversDueOn(scope, dueOn)) return 0;
+  const target = asDueOnStamp(dueOn);
+  const byDue = scope.amountsByDueOn || scope.amounts || {};
+  if (byDue[target] != null) {
+    return money(Math.min(rem, Math.max(0, Number(byDue[target]) || 0)));
   }
-  const known = KNOWN_ADMIN_OPERATIONAL_CLEARS[memberDigitsForClear(member)];
-  if (!known) return null;
-  const { listed, through } = scopedDueOnsFromClear(known);
-  if (!listed.length && !through) return null;
-  return known;
+  const raw = scope.amount ?? scope.maxAmount ?? scope.authorizedAmount;
+  if (raw == null || raw === '') {
+    return money(rem);
+  }
+  const total = Math.max(0, money(Math.abs(Number(raw) || 0)));
+  if (!budgetMap.has(budgetKey)) budgetMap.set(budgetKey, total);
+  const left = budgetMap.get(budgetKey);
+  const take = money(Math.min(rem, left));
+  budgetMap.set(budgetKey, money(left - take));
+  return take;
 }
 
-function adminClearCoversDueOn(member, dueOn) {
-  return scopeCoversDueOn(adminOperationalClearScope(member), dueOn);
+/**
+ * Registros administrativos persistentes (meta), con período + importe.
+ * Forma singular o lista; sin hardcodes por socio en el código.
+ */
+export function listAdminOperationalClears(member) {
+  const raw = [
+    member?.adminOperationalClear,
+    member?.meta?.adminOperationalClear,
+    ...(Array.isArray(member?.adminOperationalClears) ? member.adminOperationalClears : []),
+    ...(Array.isArray(member?.meta?.adminOperationalClears) ? member.meta.adminOperationalClears : []),
+  ];
+  const out = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const { listed, through } = scopedDueOnsFromClear(item);
+    if (!listed.length && !through) continue;
+    out.push(item);
+  }
+  return out;
 }
 
-function regularizationCoversDueOn(entry, dueOn) {
-  if (!isExplicitAdminRegularization(entry)) return false;
-  const scope = {
-    periodDueOns: entry.periodDueOns || entry.meta?.periodDueOns,
-    throughDueOn: entry.throughDueOn || entry.meta?.throughDueOn,
-    imputations: entry.imputations || entry.meta?.imputations,
-  };
-  return scopeCoversDueOn(scope, dueOn);
+/** Excepción administrativa trazable (primer registro válido). Preferir listAdminOperationalClears. */
+export function adminOperationalClearScope(member) {
+  return listAdminOperationalClears(member)[0] || null;
 }
 
 function duesEvidenceEntries(member, entries = []) {
@@ -823,28 +883,81 @@ function duesEvidenceEntries(member, entries = []) {
   ];
 }
 
+function regularizationScope(entry) {
+  return {
+    periodDueOns: entry.periodDueOns || entry.meta?.periodDueOns,
+    dueOn: entry.dueOn || entry.meta?.dueOn,
+    throughDueOn: entry.throughDueOn || entry.meta?.throughDueOn,
+    imputations: entry.imputations || entry.meta?.imputations,
+    amount: entry.amount ?? entry.meta?.amount,
+    maxAmount: entry.maxAmount ?? entry.meta?.maxAmount,
+    authorizedAmount: entry.authorizedAmount ?? entry.meta?.authorizedAmount,
+    amountsByDueOn: entry.amountsByDueOn || entry.meta?.amountsByDueOn,
+  };
+}
+
 /**
- * Capital de períodos abiertos sin pago imputado, sin regularización con alcance
- * ni excepción administrativa específica. Eso sí es deuda operativa nueva.
+ * Remanente de un período abierto tras pagos imputados + clear/reg con tope de importe.
+ */
+export function openPeriodUncoveredCapital(member, dueOn, openCapital, { entries = [], adminBudgets, regBudgets } = {}) {
+  const target = asDueOnStamp(dueOn);
+  const cap = money(Math.max(0, Number(openCapital) || 0));
+  if (!target || cap <= 0.01) return 0;
+
+  const paid = accumulatedPaymentCapitalTowardDueOn(member, target);
+  let rem = money(Math.max(0, cap - paid));
+  if (rem <= 0.01) return 0;
+
+  const clears = listAdminOperationalClears(member);
+  const clearBudget = adminBudgets || new Map();
+  for (let i = 0; i < clears.length; i += 1) {
+    if (rem <= 0.01) break;
+    const take = takeAuthorizedTowardDueOn(clears[i], target, rem, clearBudget, `clear:${i}`);
+    rem = money(rem - take);
+  }
+
+  const duesEntries = duesEvidenceEntries(member, entries);
+  const regBudget = regBudgets || new Map();
+  duesEntries.forEach((entry, index) => {
+    if (rem <= 0.01) return;
+    if (!isExplicitAdminRegularization(entry)) return;
+    const take = takeAuthorizedTowardDueOn(
+      regularizationScope(entry),
+      target,
+      rem,
+      regBudget,
+      `reg:${entry.id || index}`,
+    );
+    rem = money(rem - take);
+  });
+
+  return rem;
+}
+
+/**
+ * Capital de períodos abiertos sin respaldo suficiente de pago/reg/excepción.
+ * Pagos parciales solo descuentan el monto imputado; el remanente sigue exigible.
  */
 export function uncoveredOpenObligationCapital(member, { entries = [] } = {}) {
-  const rows = duesOpenPeriodsOf(member) || [];
-  const pays = Array.isArray(member?.paymentHistory) ? member.paymentHistory : [];
-  const duesEntries = duesEvidenceEntries(member, entries);
+  const rows = [...(duesOpenPeriodsOf(member) || [])]
+    .filter((row) => row && !row.voidedAt)
+    .toSorted((a, b) => String(a.dueOn || a.due_on || '').localeCompare(String(b.dueOn || b.due_on || '')));
+  const adminBudgets = new Map();
+  const regBudgets = new Map();
   let uncovered = 0;
   for (const row of rows) {
-    if (!row || row.voidedAt) continue;
     const cap = Number(row.capitalOpen ?? row.capital_open ?? row.capital) || 0;
     if (cap <= 0.01) continue;
     const dueOn = asDueOnStamp(row.dueOn || row.due_on);
     if (!dueOn) {
-      uncovered += cap;
+      uncovered = money(uncovered + cap);
       continue;
     }
-    if (pays.some((pay) => paymentCoversDueOn(pay, dueOn))) continue;
-    if (adminClearCoversDueOn(member, dueOn)) continue;
-    if (duesEntries.some((entry) => regularizationCoversDueOn(entry, dueOn))) continue;
-    uncovered += cap;
+    uncovered = money(uncovered + openPeriodUncoveredCapital(member, dueOn, cap, {
+      entries,
+      adminBudgets,
+      regBudgets,
+    }));
   }
   return money(uncovered);
 }
@@ -859,14 +972,19 @@ export function hasVerifiedOperationalClearEvidence(member, { entries = [] } = {
   return uncoveredOpenObligationCapital(member, { entries }) <= 0.01;
 }
 
-/** Período abierto cubierto por pago/reg/excepción → discrepancia, no exigible. */
-export function openPeriodIsOperationallyCovered(member, dueOn, { entries = [] } = {}) {
+/** Período abierto sin remanente operativo → discrepancia, no exigible. */
+export function openPeriodIsOperationallyCovered(member, dueOn, { entries = [], openCapital = null } = {}) {
   const target = asDueOnStamp(dueOn);
   if (!target) return false;
-  const pays = Array.isArray(member?.paymentHistory) ? member.paymentHistory : [];
-  if (pays.some((pay) => paymentCoversDueOn(pay, target))) return true;
-  if (adminClearCoversDueOn(member, target)) return true;
-  return duesEvidenceEntries(member, entries).some((entry) => regularizationCoversDueOn(entry, target));
+  let cap = openCapital;
+  if (cap == null) {
+    const row = (duesOpenPeriodsOf(member) || []).find(
+      (item) => asDueOnStamp(item?.dueOn || item?.due_on) === target && !item?.voidedAt,
+    );
+    cap = Number(row?.capitalOpen ?? row?.capital_open ?? row?.capital) || 0;
+  }
+  if (cap <= 0.01) return true;
+  return openPeriodUncoveredCapital(member, target, cap, { entries }) <= 0.01;
 }
 
 /**

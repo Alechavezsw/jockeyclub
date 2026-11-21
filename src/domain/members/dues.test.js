@@ -43,6 +43,9 @@ import {
   memberDueFact,
   socialDuesStoredBalance,
   hasVerifiedOperationalClearEvidence,
+  paymentAmountTowardDueOn,
+  accumulatedPaymentCapitalTowardDueOn,
+  listAdminOperationalClears,
 } from './dues';
 import { accountPaymentPlan, collectionPreview, payMemberDues } from './memberPayments';
 import { setRuntimeTierCatalog } from './tiers';
@@ -234,6 +237,58 @@ describe('dues classification', () => {
     };
     expect(hasVerifiedOperationalClearEvidence(member)).toBe(false);
     expect(socialDuesStoredBalance(member)).toBe(70000);
+  });
+
+  it('paymentAmountTowardDueOn usa imputación y no asume cobertura plena multi-período', () => {
+    expect(paymentAmountTowardDueOn({
+      amount: 30000,
+      status: 'paid',
+      periodDueOns: ['2026-11-10'],
+      imputations: [{ dueOn: '2026-11-10', capital: 30000 }],
+    }, '2026-11-10')).toBe(30000);
+    expect(paymentAmountTowardDueOn({
+      amount: 70000,
+      status: 'paid',
+      periodDueOns: ['2026-10-10', '2026-11-10'],
+    }, '2026-11-10')).toBe(0);
+    const member = {
+      paymentHistory: [
+        {
+          id: 'p1',
+          amount: 30000,
+          status: 'paid',
+          periodDueOns: ['2026-11-10'],
+          imputations: [{ dueOn: '2026-11-10', capital: 30000 }],
+        },
+        {
+          id: 'p1',
+          amount: 30000,
+          status: 'paid',
+          periodDueOns: ['2026-11-10'],
+          imputations: [{ dueOn: '2026-11-10', capital: 30000 }],
+        },
+      ],
+    };
+    expect(accumulatedPaymentCapitalTowardDueOn(member, '2026-11-10')).toBe(30000);
+  });
+
+  it('listAdminOperationalClears lee el registro persistente de meta sin hardcode', () => {
+    const clears = listAdminOperationalClears({
+      memberNumber: '101600',
+      meta: {
+        adminOperationalClear: {
+          memberNumber: '101600',
+          dueOn: '2026-10-10',
+          amount: 6363.64,
+          authorizedBy: 'Administración · Tesorería',
+          authorizedAt: '2026-11-21',
+          reason: 'Remanente octubre',
+        },
+      },
+    });
+    expect(clears).toHaveLength(1);
+    expect(clears[0].amount).toBe(6363.64);
+    expect(listAdminOperationalClears({ memberNumber: '101600' })).toEqual([]);
   });
 
   it('unpaidCapital 0 sin duesOpenPeriods hidratados no silencia ficha positiva', () => {
