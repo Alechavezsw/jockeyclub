@@ -383,12 +383,32 @@ export function normalizePaymentSplits(raw = [], {
       const bankName = duesMethodUsesBank(method) ? (row.bankName || null) : null;
       const paymentPlanId = isCardPosDuesMethod(method) ? (row.paymentPlanId || null) : null;
       const paymentPlanLabel = isCardPosDuesMethod(method) ? (String(row.paymentPlanLabel || '').trim() || null) : null;
-      const journalAccount = row.journalAccount || journalAccountForPayment(method, bankId);
+      // B15: cuenta siempre del catálogo servidor (método + banco), no del cliente.
+      const journalAccount = journalAccountForPayment(method, bankId);
+      const clientAccount = String(row.journalAccount || '').trim();
+      if (clientAccount && clientAccount.toLowerCase() !== String(journalAccount).toLowerCase()) {
+        const err = new Error(
+          `La cuenta «${clientAccount}» no está autorizada para ${method}. Debe ser «${journalAccount}».`,
+        );
+        err.code = 'POS_JOURNAL_ACCOUNT_TAMPER';
+        throw err;
+      }
+      // B16: capital/mora explícitos por tramo (obligatorios si hay mora en el cobro).
+      const capitalAmount = row.capitalAmount != null && row.capitalAmount !== ''
+        ? money(row.capitalAmount)
+        : null;
+      const surchargeAmount = row.surchargeAmount != null && row.surchargeAmount !== ''
+        ? money(row.surchargeAmount)
+        : null;
       let cardFinancing = null;
       if (isCardPosDuesMethod(method)) {
         if (authorize) {
+          // Financiar solo capital del tramo; nunca mora.
+          const financingBase = capitalAmount != null ? capitalAmount : amount;
           cardFinancing = resolveCardFinancingForPos({
-            socialAmount: amount,
+            socialAmount: financingBase,
+            financingBase,
+            surchargeAmount: 0,
             paymentPlanId,
             plan: row.paymentPlan || null,
             plans: row.paymentPlans || plans,
@@ -412,6 +432,8 @@ export function normalizePaymentSplits(raw = [], {
         id: row.id || `split-${index + 1}`,
         method,
         amount,
+        capitalAmount,
+        surchargeAmount,
         bankId,
         bankName,
         journalAccount,
@@ -516,10 +538,58 @@ export function buildDuesCollectionJournalLines({
  * Valida splits: ≥2 líneas, suma = total, comprobantes donde corresponde.
  * @returns {{ splits: object[], total: number }}
  */
+/**
+ * B16: con mora + tramo POS, cada medio debe declarar capitalAmount y surchargeAmount
+ * que sumen el importe del tramo y cierren con la liquidación.
+ */
+export function assertMixedPosMoraAllocation(splits = [], {
+  capital = 0,
+  surcharge = 0,
+} = {}) {
+  const sur = money(surcharge);
+  const cap = money(capital);
+  const list = Array.isArray(splits) ? splits : [];
+  const hasPos = list.some((row) => isCardPosDuesMethod(row?.method));
+  if (!(sur > 0.009) || !hasPos) return list;
+
+  let capSum = 0;
+  let surSum = 0;
+  for (const row of list) {
+    if (row.capitalAmount == null || row.surchargeAmount == null) {
+      const err = new Error(
+        'Pago mixto con mora y POS: cada tramo debe declarar capitalAmount y surchargeAmount. No se financia mora por defecto.',
+      );
+      err.code = 'POS_MIXED_MORA_ALLOCATION_REQUIRED';
+      throw err;
+    }
+    const rowCap = money(row.capitalAmount);
+    const rowSur = money(row.surchargeAmount);
+    if (Math.abs(rowCap + rowSur - money(row.amount)) > 0.009) {
+      const err = new Error(
+        `En el tramo ${row.method}, capital (${rowCap}) + mora (${rowSur}) debe igualar el importe (${money(row.amount)}).`,
+      );
+      err.code = 'POS_MIXED_MORA_ALLOCATION_MISMATCH';
+      throw err;
+    }
+    capSum = money(capSum + rowCap);
+    surSum = money(surSum + rowSur);
+  }
+  if (Math.abs(capSum - cap) > 0.009 || Math.abs(surSum - sur) > 0.009) {
+    const err = new Error(
+      `La asignación capital/mora de los tramos no cierra con la liquidación (capital ${capSum}/${cap}, mora ${surSum}/${sur}).`,
+    );
+    err.code = 'POS_MIXED_MORA_ALLOCATION_TOTAL';
+    throw err;
+  }
+  return list;
+}
+
 export function validatePaymentSplits(rawSplits, expectedAmount, {
   treasuryMatch = false,
   plans = [],
   operatorRole = null,
+  capital = null,
+  surcharge = null,
 } = {}) {
   const splits = normalizePaymentSplits(rawSplits, {
     authorize: true,
@@ -533,6 +603,21 @@ export function validatePaymentSplits(rawSplits, expectedAmount, {
   const expected = money(expectedAmount);
   if (expected > 0 && Math.abs(total - expected) > 0.009) {
     throw new Error(`Los medios suman ${total} y el cobro es ${expected}.`);
+  }
+  if (capital != null || surcharge != null) {
+    assertMixedPosMoraAllocation(splits, { capital, surcharge });
+  } else if (
+    splits.some((row) => isCardPosDuesMethod(row.method))
+    && splits.some((row) => row.surchargeAmount == null && row.capitalAmount == null)
+  ) {
+    // Sin totales aún: si hay POS y algún tramo no tipó capital/mora, exigir si alguno tipó surcharge>0
+    const hintedSur = money(splits.reduce((s, r) => s + (Number(r.surchargeAmount) || 0), 0));
+    if (hintedSur > 0.009) {
+      assertMixedPosMoraAllocation(splits, {
+        capital: money(splits.reduce((s, r) => s + (Number(r.capitalAmount) || 0), 0)),
+        surcharge: hintedSur,
+      });
+    }
   }
   splits.forEach((row) => {
     if (!duesMethodNeedsReceipt(row.method)) return;
@@ -1393,10 +1478,17 @@ export function recordDuesCollection(member, {
   let mixed = null;
   if (wantsMixed) {
     const previewCash = received != null ? received : concession.cash;
+    const mixedPreview = collectionPreview(account, today, {
+      periodDueOns,
+      skipSurcharge: false,
+      chargeScope,
+    });
     mixed = validatePaymentSplits(paymentSplits, previewCash > 0 ? previewCash : amount, {
       treasuryMatch,
       plans: paymentPlans || [],
       operatorRole,
+      capital: mixedPreview.quota,
+      surcharge: mixedPreview.surcharge,
     });
   }
 

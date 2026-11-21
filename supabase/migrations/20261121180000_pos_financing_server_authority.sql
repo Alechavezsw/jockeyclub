@@ -281,6 +281,48 @@ as $$
   limit 1;
 $$;
 
+-- B15: cuenta del debe según medio autorizado (nunca del navegador).
+create or replace function public.pos_resolve_journal_account(
+  p_method text,
+  p_bank_id text default null
+)
+returns text
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_method text := lower(nullif(btrim(coalesce(p_method, '')), ''));
+  v_bank text := lower(nullif(btrim(coalesce(p_bank_id, '')), ''));
+  v_name text;
+begin
+  if v_method in ('tarjeta', 'pos', 'pago pos', 'card') then
+    v_name := 'Tarjetas a cobrar';
+  elsif v_method in ('efectivo', 'a_cuenta', 'caja') then
+    v_name := 'Caja General';
+  elsif v_method = 'mercadopago' then
+    v_name := 'Mercado Pago';
+  elsif v_method in ('transferencia', 'debito') then
+    if v_bank in ('mercadopago', 'mp') then
+      v_name := 'Mercado Pago';
+    else
+      v_name := 'Banco Macro';
+    end if;
+  else
+    raise exception 'Medio de cobro no autorizado para asiento POS: %', coalesce(p_method, '?');
+  end if;
+
+  if public.coa_id_by_name(v_name) is null then
+    raise exception 'Cuenta contable autorizada inexistente en el plan: %', v_name;
+  end if;
+  return v_name;
+end;
+$$;
+
+revoke all on function public.pos_resolve_journal_account(text, text) from public, anon;
+grant execute on function public.pos_resolve_journal_account(text, text) to authenticated, service_role;
+
 -- ---------------------------------------------------------------------------
 -- 5) Publicar asiento de cuota — SOLO uso interno (B12)
 -- Requiere set_config('jockey.internal_cuotas_journal','1',true) en la misma txn.
@@ -403,13 +445,22 @@ begin
   from public.journal_lines l
   where l.journal_entry_id = v_id;
 
-  begin
-    insert into public.audit_logs (actor_id, action, entity_type, entity_id, payload)
-    values (coalesce(auth.uid(), v_payment.recorded_by), 'create', 'journal_entries', v_id,
-      jsonb_build_object('source', 'cuotas', 'paymentId', p_payment_id, 'internal', true));
-  exception when others then
-    null;
-  end;
+  -- Auditoría obligatoria: si falla, no se confirma el asiento.
+  insert into public.audit_logs (actor_id, action, entity_type, entity_id, payload)
+  values (
+    coalesce(auth.uid(), v_payment.recorded_by),
+    'create',
+    'journal_entries',
+    v_id,
+    jsonb_build_object(
+      'source', 'cuotas',
+      'paymentId', p_payment_id,
+      'memberId', v_payment.member_id,
+      'amount', v_payment.amount,
+      'internal', true,
+      'postedAt', now()
+    )
+  );
 
   return jsonb_build_object('entry', to_jsonb(v_entry), 'lines', v_lines, 'idempotent', false);
 exception
@@ -433,8 +484,8 @@ revoke all on function public.post_cuotas_journal_for_payment(uuid, jsonb) from 
 grant execute on function public.post_cuotas_journal_for_payment(uuid, jsonb) to service_role;
 
 -- ---------------------------------------------------------------------------
--- 6) Cobro POS atómico (B13/B14):
---    registrar_cobro → bases desde imputaciones → authorize → asiento servidor
+-- 6) Cobro POS atómico (B13–B17):
+--    cuentas servidor · mixto+mora con asignación · idempotencia inmutable
 -- ---------------------------------------------------------------------------
 create or replace function public.registrar_cobro_pos(
   p_member_id uuid,
@@ -454,6 +505,7 @@ declare
   v_auth jsonb;
   v_cobro jsonb;
   v_payment_id uuid;
+  v_payment public.member_payments%rowtype;
   v_journal jsonb;
   v_lines jsonb := '[]'::jsonb;
   v_cash numeric;
@@ -461,6 +513,7 @@ declare
   v_financing numeric := 0;
   v_mode text := 'issuer_keeps';
   v_card_account text;
+  v_resolved_account text;
   v_is_pos boolean := false;
   v_split jsonb;
   v_splits jsonb;
@@ -470,7 +523,16 @@ declare
   v_claimed_base numeric;
   v_claimed_surcharge numeric;
   v_split_sum numeric := 0;
-  v_pos_cash numeric := 0;
+  v_pos_capital numeric := 0;
+  v_split_cap_sum numeric := 0;
+  v_split_sur_sum numeric := 0;
+  v_split_cap numeric;
+  v_split_sur numeric;
+  v_split_amt numeric;
+  v_client_account text;
+  v_existing_meta jsonb;
+  v_existing_plan text;
+  v_existing_fin numeric;
 begin
   if auth.uid() is null then
     raise exception 'Tenés que estar logueado.';
@@ -494,14 +556,25 @@ begin
     raise exception 'registrar_cobro_pos solo admite cobros POS / mixtos con POS.';
   end if;
 
-  -- B13: rechazar líneas contables del navegador (aunque vengan balanceadas).
   if jsonb_typeof(p_journal->'lines') = 'array'
      and jsonb_array_length(p_journal->'lines') > 0 then
     raise exception 'Las líneas del asiento no se aceptan desde el cliente.';
   end if;
 
-  -- Strip client financing meta before cobro; se reescribe tras imputar.
   v_periodos := v_periodos - 'cardFinancing' - 'paymentPlanSnapshot';
+
+  -- B15: resolver cuenta POS simple y rechazar journalAccount arbitrario.
+  if v_method in ('tarjeta', 'pos') then
+    v_card_account := public.pos_resolve_journal_account(v_method, v_periodos->>'bankId');
+    v_client_account := nullif(btrim(coalesce(v_periodos->>'journalAccount', '')), '');
+    if v_client_account is not null
+       and lower(v_client_account) is distinct from lower(v_card_account) then
+      raise exception
+        'La cuenta contable «%» no está autorizada para POS. Debe ser «%».',
+        v_client_account, v_card_account;
+    end if;
+  end if;
+
   if v_method = 'mixto' then
     v_splits := coalesce(v_periodos->'paymentSplits', '[]'::jsonb);
     select coalesce(sum((s->>'amount')::numeric), 0)
@@ -512,28 +585,112 @@ begin
         to_char(v_split_sum, 'FM999999990.00'),
         to_char(p_importe, 'FM999999990.00');
     end if;
+    -- B15: validar cuentas por tramo antes de acreditar.
+    for v_split in select value from jsonb_array_elements(v_splits)
+    loop
+      v_resolved_account := public.pos_resolve_journal_account(
+        v_split->>'method',
+        v_split->>'bankId'
+      );
+      v_client_account := nullif(btrim(coalesce(v_split->>'journalAccount', '')), '');
+      if v_client_account is not null
+         and lower(v_client_account) is distinct from lower(v_resolved_account) then
+        raise exception
+          'La cuenta «%» no está autorizada para el medio %. Debe ser «%».',
+          v_client_account, v_split->>'method', v_resolved_account;
+      end if;
+    end loop;
   end if;
 
-  -- 1) Cobro + imputaciones + saldo (misma txn; si falla el asiento, rollback).
+  -- 1) Cobro + imputaciones.
   v_cobro := public.registrar_cobro(p_member_id, p_importe, v_periodos, p_idempotency_key);
   v_payment_id := (v_cobro->'payment'->>'id')::uuid;
   if v_payment_id is null then
     raise exception 'El cobro POS no devolvió id de pago.';
   end if;
 
-  -- 2) B14: bases desde imputaciones efectivas (no del navegador).
+  select * into v_payment from public.member_payments where id = v_payment_id;
+  v_existing_meta := coalesce(v_payment.meta, '{}'::jsonb);
+
+  -- B17: idempotencia inmutable — no reescribir snapshot ni asiento.
+  if coalesce((v_cobro->>'idempotent')::boolean, false) then
+    if abs(round(coalesce(v_payment.amount, 0), 2) - round(p_importe, 2)) > 0.01 then
+      raise exception 'Conflicto de idempotencia: el importe no coincide con el cobro original.';
+    end if;
+    if v_payment.member_id is distinct from p_member_id then
+      raise exception 'Conflicto de idempotencia: el socio no coincide con el cobro original.';
+    end if;
+    if lower(coalesce(v_payment.method, '')) is distinct from v_method then
+      raise exception 'Conflicto de idempotencia: el medio no coincide con el cobro original.';
+    end if;
+    -- Períodos: si el reintento declara otros dueOn, conflicto.
+    if jsonb_typeof(v_periodos->'periodDueOns') = 'array'
+       and jsonb_typeof(v_existing_meta->'periodDueOns') = 'array'
+       and v_existing_meta->'periodDueOns' is distinct from v_periodos->'periodDueOns' then
+      raise exception 'Conflicto de idempotencia: los períodos no coinciden con el cobro original.';
+    end if;
+    v_existing_plan := coalesce(
+      v_existing_meta->>'paymentPlanId',
+      v_existing_meta->'cardFinancing'->>'planId',
+      v_existing_meta->'paymentPlanSnapshot'->>'id',
+      ''
+    );
+    if v_method in ('tarjeta', 'pos')
+       and nullif(v_periodos->>'paymentPlanId', '') is not null
+       and v_existing_plan <> ''
+       and lower(v_existing_plan) is distinct from lower(v_periodos->>'paymentPlanId') then
+      raise exception 'Conflicto de idempotencia: el plan POS no coincide con el cobro original.';
+    end if;
+    v_existing_fin := coalesce((v_existing_meta->'cardFinancing'->>'financingAmount')::numeric, -1);
+    -- Interés / importe de financiación distinto → conflicto (no reescribir).
+    if nullif(p_periodos->'cardFinancing'->>'financingAmount', '') is not null
+       and v_existing_fin >= 0
+       and abs(v_existing_fin - (p_periodos->'cardFinancing'->>'financingAmount')::numeric) > 0.01 then
+      raise exception 'Conflicto de idempotencia: la financiación no coincide con el cobro original.';
+    end if;
+    if nullif(v_periodos->>'financingPercent', '') is not null
+       and nullif(v_existing_meta->'cardFinancing'->>'appliedPercent', '') is not null
+       and abs(
+         (v_periodos->>'financingPercent')::numeric
+         - (v_existing_meta->'cardFinancing'->>'appliedPercent')::numeric
+       ) > 0.0001 then
+      raise exception 'Conflicto de idempotencia: el interés POS no coincide con el cobro original.';
+    end if;
+
+    select jsonb_build_object(
+      'entry', to_jsonb(e),
+      'lines', coalesce((
+        select jsonb_agg(to_jsonb(l) order by l.line_order)
+        from public.journal_lines l where l.journal_entry_id = e.id
+      ), '[]'::jsonb),
+      'idempotent', true
+    )
+      into v_journal
+    from public.journal_entries e
+    where e.source_module = 'cuotas'
+      and e.source_id = v_payment_id
+      and e.voided_at is null
+    limit 1;
+
+    return v_cobro || jsonb_build_object(
+      'journal', v_journal,
+      'cardFinancing', v_existing_meta->'cardFinancing',
+      'authorized', true,
+      'idempotent', true
+    );
+  end if;
+
+  -- 2) Bases desde imputaciones.
   select coalesce(sum(capital), 0), coalesce(sum(surcharge), 0)
     into v_imp_capital, v_imp_surcharge
   from public.dues_imputations
   where payment_id = v_payment_id;
 
   if v_imp_capital <= 0 and v_imp_surcharge <= 0 then
-    -- Fallback: meta del cobro ya persistido (quota/surcharge del schedule servidor).
     v_imp_capital := round(coalesce(nullif(v_cobro->'payment'->'meta'->>'quota', '')::numeric, p_importe), 2);
     v_imp_surcharge := round(coalesce(nullif(v_cobro->'payment'->'meta'->>'surcharge', '')::numeric, 0), 2);
   end if;
 
-  -- Solo confronta campos que el cliente envió explícitamente (manipulación).
   if nullif(p_periodos->>'financingBase', '') is not null
      or nullif(p_periodos->>'quota', '') is not null then
     v_claimed_base := round(coalesce(
@@ -562,7 +719,7 @@ begin
     end if;
   end if;
 
-  -- 3) Autorizar plan(es) con bases del servidor.
+  -- 3) Autorizar plan(es).
   if v_method in ('tarjeta', 'pos') then
     v_auth := public.authorize_pos_card_financing(jsonb_build_object(
       'paymentPlanId', v_periodos->>'paymentPlanId',
@@ -581,18 +738,58 @@ begin
       'cardFinancing', v_auth,
       'voucherAmount', v_auth->>'voucherTotal',
       'paymentPlanSnapshot', v_auth->'paymentPlanSnapshot',
-      'paymentPlanLabel', coalesce(v_periodos->>'paymentPlanLabel', v_auth->>'planLabel')
+      'paymentPlanLabel', coalesce(v_periodos->>'paymentPlanLabel', v_auth->>'planLabel'),
+      'journalAccount', v_card_account
     );
   else
+    -- B16: mixto + mora exige asignación explícita capital/mora por tramo.
     v_splits := coalesce(v_periodos->'paymentSplits', '[]'::jsonb);
+    if v_imp_surcharge > 0.009 then
+      for v_split in select value from jsonb_array_elements(v_splits)
+      loop
+        if nullif(v_split->>'capitalAmount', '') is null
+           or nullif(v_split->>'surchargeAmount', '') is null then
+          raise exception
+            'Pago mixto con mora y POS: cada tramo debe declarar capitalAmount y surchargeAmount. No se financia mora por defecto.';
+        end if;
+        v_split_cap := round((v_split->>'capitalAmount')::numeric, 2);
+        v_split_sur := round((v_split->>'surchargeAmount')::numeric, 2);
+        v_split_amt := round(coalesce(nullif(v_split->>'amount', '')::numeric, 0), 2);
+        if abs(v_split_cap + v_split_sur - v_split_amt) > 0.01 then
+          raise exception
+            'En el tramo %, capital (%) + mora (%) debe igualar el importe (%).',
+            coalesce(v_split->>'method', '?'),
+            to_char(v_split_cap, 'FM999999990.00'),
+            to_char(v_split_sur, 'FM999999990.00'),
+            to_char(v_split_amt, 'FM999999990.00');
+        end if;
+        v_split_cap_sum := v_split_cap_sum + v_split_cap;
+        v_split_sur_sum := v_split_sur_sum + v_split_sur;
+      end loop;
+      if abs(v_split_cap_sum - v_imp_capital) > 0.01
+         or abs(v_split_sur_sum - v_imp_surcharge) > 0.01 then
+        raise exception
+          'La asignación capital/mora de los tramos no cierra con la liquidación (capital %/%, mora %/%).',
+          to_char(v_split_cap_sum, 'FM999999990.00'), to_char(v_imp_capital, 'FM999999990.00'),
+          to_char(v_split_sur_sum, 'FM999999990.00'), to_char(v_imp_surcharge, 'FM999999990.00');
+      end if;
+    end if;
+
     for v_split in select value from jsonb_array_elements(v_splits)
     loop
+      v_resolved_account := public.pos_resolve_journal_account(
+        v_split->>'method',
+        v_split->>'bankId'
+      );
       if lower(coalesce(v_split->>'method', '')) in ('tarjeta', 'pos') then
-        v_pos_cash := round(coalesce(nullif(v_split->>'amount', '')::numeric, 0), 2);
-        -- Tramo POS: financiar el efectivo del tramo; mora social ya está en imputaciones globales.
+        if v_imp_surcharge > 0.009 then
+          v_pos_capital := round((v_split->>'capitalAmount')::numeric, 2);
+        else
+          v_pos_capital := round(coalesce(nullif(v_split->>'amount', '')::numeric, 0), 2);
+        end if;
         v_auth := public.authorize_pos_card_financing(jsonb_build_object(
           'paymentPlanId', v_split->>'paymentPlanId',
-          'financingBase', v_pos_cash,
+          'financingBase', v_pos_capital,
           'surchargeAmount', 0,
           'percent', v_split->>'financingPercent',
           'fixedAmount', v_split->>'financingFixed',
@@ -603,48 +800,53 @@ begin
         v_split := v_split || jsonb_build_object(
           'cardFinancing', v_auth,
           'voucherAmount', v_auth->>'voucherTotal',
-          'paymentPlanSnapshot', v_auth->'paymentPlanSnapshot'
+          'paymentPlanSnapshot', v_auth->'paymentPlanSnapshot',
+          'journalAccount', v_resolved_account,
+          'financingBase', v_pos_capital,
+          'capitalAmount', coalesce(nullif(v_split->>'capitalAmount', '')::numeric, v_pos_capital),
+          'surchargeAmount', coalesce(nullif(v_split->>'surchargeAmount', '')::numeric, 0)
         );
         if coalesce((v_auth->>'mode'), '') = 'club_keeps' then
           v_financing := v_financing + coalesce((v_auth->>'financingAmount')::numeric, 0);
           v_mode := 'club_keeps';
         end if;
+      else
+        v_split := v_split || jsonb_build_object('journalAccount', v_resolved_account);
       end if;
       v_auth_splits := v_auth_splits || jsonb_build_array(v_split);
     end loop;
     v_periodos := v_periodos || jsonb_build_object('paymentSplits', v_auth_splits);
-    v_auth := coalesce(v_periodos->'cardFinancing', v_auth);
   end if;
 
-  -- Persistir snapshot autorizado en el cobro.
   update public.member_payments
   set meta = coalesce(meta, '{}'::jsonb) || jsonb_strip_nulls(jsonb_build_object(
     'cardFinancing', v_periodos->'cardFinancing',
     'voucherAmount', nullif(v_periodos->>'voucherAmount', '')::numeric,
     'paymentPlanSnapshot', v_periodos->'paymentPlanSnapshot',
+    'paymentPlanId', v_periodos->>'paymentPlanId',
     'paymentSplits', v_periodos->'paymentSplits',
+    'journalAccount', coalesce(v_periodos->>'journalAccount', v_card_account),
     'authorizedByServer', true
   ))
   where id = v_payment_id;
 
-  -- 4) B13: asiento reconstruido en servidor a partir del cobro real.
+  -- 4) Asiento con cuentas resueltas en servidor (B15).
   v_cash := round(p_importe, 2);
   v_discount := round(coalesce(nullif(v_periodos->>'discount', '')::numeric, 0), 2);
-  v_card_account := coalesce(nullif(v_periodos->>'journalAccount', ''), 'Tarjetas a cobrar');
+  if v_card_account is null then
+    v_card_account := public.pos_resolve_journal_account('tarjeta', null);
+  end if;
 
   if v_method = 'mixto' then
-    -- Débitos por tramo + crédito social + financiación A si aplica.
     v_lines := '[]'::jsonb;
     for v_split in select value from jsonb_array_elements(coalesce(v_periodos->'paymentSplits', '[]'::jsonb))
     loop
+      v_resolved_account := coalesce(
+        nullif(v_split->>'journalAccount', ''),
+        public.pos_resolve_journal_account(v_split->>'method', v_split->>'bankId')
+      );
       v_lines := v_lines || jsonb_build_array(jsonb_build_object(
-        'account', coalesce(nullif(v_split->>'journalAccount', ''),
-          case when lower(coalesce(v_split->>'method', '')) in ('tarjeta', 'pos')
-            then 'Tarjetas a cobrar'
-            when lower(coalesce(v_split->>'method', '')) = 'transferencia'
-            then coalesce(nullif(v_split->>'bankName', ''), 'Banco')
-            else 'Caja General'
-          end),
+        'account', v_resolved_account,
         'type', 'debit',
         'amount', round(coalesce(nullif(v_split->>'amount', '')::numeric, 0)
           + case
@@ -695,7 +897,6 @@ begin
     ));
   end if;
 
-  -- Habilitar publicación interna del asiento (B12).
   perform set_config('jockey.internal_cuotas_journal', '1', true);
 
   v_journal := public.post_cuotas_journal_for_payment(
@@ -711,7 +912,6 @@ begin
     ))
   );
 
-  -- Refrescar payment en respuesta con meta autorizada.
   v_cobro := v_cobro || jsonb_build_object(
     'payment', to_jsonb((select p from public.member_payments p where p.id = v_payment_id))
   );
@@ -719,7 +919,8 @@ begin
   return v_cobro || jsonb_build_object(
     'journal', v_journal,
     'cardFinancing', v_periodos->'cardFinancing',
-    'authorized', true
+    'authorized', true,
+    'idempotent', false
   );
 end;
 $$;
@@ -728,4 +929,4 @@ revoke all on function public.registrar_cobro_pos(uuid, numeric, jsonb, text, js
 grant execute on function public.registrar_cobro_pos(uuid, numeric, jsonb, text, jsonb) to authenticated, service_role;
 
 comment on function public.registrar_cobro_pos(uuid, numeric, jsonb, text, jsonb) is
-  'Cobro POS atómico B11–B14: imputaciones → authorize servidor → asiento interno; sin lines del cliente ni fallback.';
+  'Cobro POS atómico B11–B17: cuentas servidor, mixto+mora con asignación, idempotencia inmutable, asiento interno.';
