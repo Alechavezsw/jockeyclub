@@ -48,6 +48,9 @@ export default defineConfig({
     environment: 'node',
     include: ['src/**/*.test.{js,jsx}'],
     setupFiles: ['src/test/setup.js'],
+    // Los suites de saldos/cuentas cargan seeds de varios MB en beforeAll: con 10 s (default)
+    // se caen por timeout cuando el runner está cargado (CI / suite completa en paralelo).
+    hookTimeout: 60000,
     // Sin Supabase en los tests: si falta un seed local, el snapshot falla en vez de
     // pedirlo al bucket real.
     env: {

@@ -42,8 +42,10 @@ describe('SnapshotGate', () => {
         <p>Panel con datos de la base</p>
       </SnapshotGate>
     );
-    expect(await screen.findByText('Panel con datos de la base')).toBeTruthy();
-    const alert = await screen.findByRole('alert');
+    // El camino de error pasa por un import dinámico de supabase: con la suite en paralelo
+    // puede pasar el 1 s por defecto de findBy*.
+    expect(await screen.findByText('Panel con datos de la base', {}, { timeout: 10000 })).toBeTruthy();
+    const alert = await screen.findByRole('alert', {}, { timeout: 10000 });
     expect(alert.textContent).toMatch(/datos de prueba/);
     expect(screen.getByRole('button', { name: 'Reintentar' })).toBeTruthy();
   });
@@ -53,6 +55,6 @@ describe('useSnapshotSeed', () => {
   it('arranca con el valor vacío y re-renderiza cuando el snapshot carga', async () => {
     render(<ChequesAsOf />);
     expect(screen.getByText('Cartera al (sin cargar)')).toBeTruthy();
-    expect(await screen.findByText(/^Cartera al \d{4}-\d{2}-\d{2}$/)).toBeTruthy();
+    expect(await screen.findByText(/^Cartera al \d{4}-\d{2}-\d{2}$/, {}, { timeout: 10000 })).toBeTruthy();
   });
 });

@@ -30,7 +30,7 @@ describe('feePackLinesFromMembers', () => {
     const lines = feePackLinesFromMembers([
       { memberId: '1', status: 'active', cuotaCategories: ['ABONO TENIS'] },
       { memberId: '2', status: 'active', cuotaCategories: ['ABONO TENIS'] },
-    ], new Date('2026-10-10T12:00:00'));
+    ], new Date('2026-10-10T12:00:00-03:00'));
     expect(lines.find((row) => row.label === 'ABONO TENIS')).toMatchObject({
       id: '2272',
       tierId: 'abono_tenis',
@@ -45,7 +45,7 @@ describe('feePackLinesFromMembers', () => {
       { memberId: '1', status: 'active', cuotaCategories: ['COLONIA (No socio)'] },
       { memberId: '2', status: 'active', cuotaCategories: ['LIGA (No socio)', 'SOCIO FAMILIAR'] },
       { memberId: '3', status: 'active', cuotaCategories: ['KARATE (No socio)'] },
-    ], new Date('2026-11-10T12:00:00'));
+    ], new Date('2026-11-10T12:00:00-03:00'));
     expect(lines.map((row) => row.tierId)).toEqual(['socio_familiar']);
     expect(lines.some((row) => /colonia|liga|karate/i.test(row.tierId))).toBe(false);
   });
@@ -55,7 +55,7 @@ describe('feePackLinesFromMembers', () => {
       { memberId: '1', status: 'active', tier: 'socio_individual', cuotaCategories: [] },
       { memberId: '2', status: 'active', tier: 'socio_individual', cuotaCategories: ['–'] },
       { memberId: '3', status: 'active', tier: 'socio_familiar', cuotaCategories: ['SOCIO FAMILIAR'] },
-    ], new Date('2026-11-10T12:00:00'));
+    ], new Date('2026-11-10T12:00:00-03:00'));
     expect(lines.map((row) => row.tierId)).toEqual(['socio_familiar']);
     expect(lines.find((row) => row.tierId === 'socio_individual')).toBeUndefined();
   });
@@ -98,7 +98,7 @@ describe('liquidateFeePeriod', () => {
       ACCESSIN_FEE_PERIODS,
       'fp-2026-11',
       members,
-      new Date('2026-11-15T12:00:00'),
+      new Date('2026-11-15T12:00:00-03:00'),
     );
 
     expect(result.period.status).toBe('pending');
@@ -123,15 +123,15 @@ describe('liquidateFeePeriod', () => {
       ACCESSIN_FEE_PERIODS,
       'fp-2026-11',
       members,
-      new Date('2026-11-01T18:00:00'),
+      new Date('2026-11-01T18:00:00-03:00'),
     );
     expect(generated.period.status).toBe('pending');
     expect(generated.period.availableAt).toBe('2026-11-02');
 
-    const sameDay = promotePendingFeePeriods(generated.periods, new Date('2026-11-01T23:30:00'));
+    const sameDay = promotePendingFeePeriods(generated.periods, new Date('2026-11-01T23:30:00-03:00'));
     expect(sameDay.promoted).toHaveLength(0);
 
-    const nextDay = promotePendingFeePeriods(generated.periods, new Date('2026-11-02T00:05:00'));
+    const nextDay = promotePendingFeePeriods(generated.periods, new Date('2026-11-02T00:05:00-03:00'));
     expect(nextDay.promoted).toHaveLength(1);
     expect(nextDay.promoted[0].status).toBe('processed');
     expect(nextDay.memberUpdates).toEqual([
@@ -164,7 +164,7 @@ describe('liquidateFeePeriod', () => {
     const charges = buildFeePeriodCharges(
       members,
       { year: 2026, month: 11 },
-      new Date('2026-11-15T12:00:00'),
+      new Date('2026-11-15T12:00:00-03:00'),
     );
     expect(charges).toEqual([
       {
@@ -249,18 +249,18 @@ describe('liquidateFeePeriod', () => {
     expect(november.status).toBe('draft');
     expect(appOwnsFeePeriod(november)).toBe(true);
     expect(appOwnsFeePeriod(october)).toBe(false);
-    expect(feePeriodLiquidateBlock(november, new Date('2026-10-14T15:00:00'))).toBe('');
-    expect(feePeriodLiquidateBlock(november, new Date('2026-11-02T15:00:00'))).toBe('');
-    expect(feePeriodLiquidateBlock(november, new Date('2026-09-14T15:00:00'))).toMatch(/mes en curso|mes siguiente/);
+    expect(feePeriodLiquidateBlock(november, new Date('2026-10-14T15:00:00-03:00'))).toBe('');
+    expect(feePeriodLiquidateBlock(november, new Date('2026-11-02T15:00:00-03:00'))).toBe('');
+    expect(feePeriodLiquidateBlock(november, new Date('2026-09-14T15:00:00-03:00'))).toMatch(/mes en curso|mes siguiente/);
     const opened = ACCESSIN_FEE_PERIODS.map((period) => (
       period.month === 9 ? { ...period, status: 'draft' } : period
     ));
-    expect(() => liquidateFeePeriod(opened, 'fp-1311', [], new Date('2026-09-01T15:00:00')))
+    expect(() => liquidateFeePeriod(opened, 'fp-1311', [], new Date('2026-09-01T15:00:00-03:00')))
       .toThrow(/LILA/);
   });
 
   it('en octubre se puede cargar y liquidar el borrador de noviembre', () => {
-    const inOctober = new Date('2026-10-31T15:00:00');
+    const inOctober = new Date('2026-10-31T15:00:00-03:00');
     expect(feePeriodPrepareBlock(
       ACCESSIN_FEE_PERIODS.find((p) => p.month === 11),
       inOctober,
@@ -289,7 +289,7 @@ describe('liquidateFeePeriod', () => {
     expect(closed.period.availableAt).toBeTruthy();
     const afterMidnight = promotePendingFeePeriods(
       closed.periods,
-      new Date(`${closed.period.availableAt}T00:05:00`),
+      new Date(`${closed.period.availableAt}T00:05:00-03:00`),
     );
     expect(afterMidnight.promoted[0].status).toBe('processed');
   });
@@ -299,7 +299,7 @@ describe('liquidateFeePeriod', () => {
       ACCESSIN_FEE_PERIODS,
       'fp-2026-11',
       [{ memberId: '10', status: 'active', tier: 'socio_familiar', cuotaCategories: ['SOCIO FAMILIAR', 'ABONO TENIS'] }],
-      new Date('2026-11-15T12:00:00'),
+      new Date('2026-11-15T12:00:00-03:00'),
     );
     expect(closed.period.pack.charges).toEqual(closed.pendingCharges);
     expect(closed.pendingCharges.map((row) => row.tierId)).toEqual(['abono_tenis', 'socio_familiar']);
@@ -310,7 +310,7 @@ describe('liquidateFeePeriod', () => {
 
     const processed = promotePendingFeePeriods(
       closed.periods,
-      new Date(`${closed.period.availableAt}T00:05:00`),
+      new Date(`${closed.period.availableAt}T00:05:00-03:00`),
     ).promoted[0];
     const reopened = reopenFeePeriod(processed, 'Se liquidó con la tarifa vieja');
     expect(reopened.period.status).toBe('draft');
@@ -498,7 +498,7 @@ describe('liquidateFeePeriod', () => {
       ACCESSIN_FEE_PERIODS,
       'fp-2026-11',
       members,
-      new Date('2026-11-02T12:00:00'),
+      new Date('2026-11-02T12:00:00-03:00'),
       { discountRules },
     );
     expect(result.pendingCharges).toEqual([
@@ -553,7 +553,7 @@ describe('liquidateFeePeriod', () => {
       gross,
       members,
       { discountRules, by: 'test' },
-      new Date('2026-11-02T12:00:00'),
+      new Date('2026-11-02T12:00:00-03:00'),
     );
     expect(refreshed.changed).toBe(true);
     expect(refreshed.period.amount).toBe(40000);
@@ -567,7 +567,7 @@ describe('liquidateFeePeriod', () => {
       processed,
       members,
       { discountRules },
-      new Date('2026-11-02T12:00:00'),
+      new Date('2026-11-02T12:00:00-03:00'),
     );
     expect(adjusted.changed).toBe(false);
     expect(adjusted.reason).toBe('processed_locked');
@@ -591,13 +591,13 @@ describe('liquidateFeePeriod', () => {
     const december = buildFeePeriodCharges(
       [alameda, otro],
       { year: 2026, month: 12 },
-      new Date('2026-12-01T12:00:00'),
+      new Date('2026-12-01T12:00:00-03:00'),
     );
     expect(december.map((row) => row.memberId)).toEqual(['1']);
     const january = buildFeePeriodCharges(
       [alameda],
       { year: 2027, month: 1 },
-      new Date('2027-01-01T12:00:00'),
+      new Date('2027-01-01T12:00:00-03:00'),
     );
     expect(january).toEqual([
       expect.objectContaining({ memberId: '9624', addAmount: 70000, dueOn: '2027-01-10' }),
