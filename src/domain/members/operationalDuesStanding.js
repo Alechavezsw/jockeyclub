@@ -1,9 +1,10 @@
 /**
- * Estado financiero operativo vs conciliación histórica (fee_ledger).
+ * Estado financiero operativo vs conciliación histórica (fee_ledger / períodos abiertos).
  *
- * Fuente de verdad operativa: members.outstanding_balance (+ obligaciones abiertas
- * en member_dues_periods / duesOpenPeriods). El auxiliar fee_ledger_lines NUNCA
- * crea deuda exigible por sí solo cuando la ficha está en 0 o a favor.
+ * Fuente de verdad operativa: members.outstanding_balance.
+ * Un período auxiliar abierto no reabre deuda si hay pago verificable o regularización
+ * administrativa; esos remanentes van a conciliación. Sí se exige una obligación nueva
+ * legítima cuando la ficha no está respaldada en $0.
  */
 import { money } from '../money.js';
 import {
@@ -16,6 +17,8 @@ import {
   memberDuesStandingSummary,
 } from '../accounting/appMonthlyDebts.js';
 import {
+  duesOpenPeriodsOf,
+  hasVerifiedOperationalClearEvidence,
   isDuesExemptMember,
   openDuesObligationCapital,
   socialDuesStoredBalance,
@@ -38,7 +41,39 @@ function ledgerLineMemberNumber(line) {
 }
 
 /**
- * Períodos del auxiliar con pendiente cuando la ficha no exige cobro.
+ * Remanentes de member_dues_periods cuando la ficha operativa está en $0 / a favor.
+ * No son deuda exigible: discrepancia a validar (no se cierran como pagados).
+ */
+function openPeriodReconciliationRows(member) {
+  const ficha = money(Number(member?.outstandingBalance) || 0);
+  if (ficha > EPS) return [];
+  if (!hasVerifiedOperationalClearEvidence(member)) return [];
+  const rows = duesOpenPeriodsOf(member) || [];
+  const out = [];
+  for (const row of rows) {
+    if (!row || row.voidedAt) continue;
+    const pending = money(Number(row.capitalOpen ?? row.capital_open ?? row.capital) || 0);
+    if (pending <= EPS) continue;
+    const periodYm = asYm(row.dueOn || row.due_on);
+    if (!periodYm) continue;
+    out.push({
+      periodYm,
+      pending,
+      collected: 0,
+      amount: pending,
+      source: 'member_dues_periods',
+      status: PERIOD_STATUS.EVIDENCIA_PENDIENTE,
+      statusLabel: periodStatusLabel(PERIOD_STATUS.EVIDENCIA_PENDIENTE),
+      lineId: row.id || null,
+      isExigible: false,
+      label: 'Remanente de período abierto · pendiente de validación',
+    });
+  }
+  return out;
+}
+
+/**
+ * Períodos del auxiliar / abiertos cuando la ficha no exige cobro.
  * No son deuda confirmada: requieren revisión de Tesorería.
  * Filtra estrictamente por número de socio.
  */
@@ -63,6 +98,8 @@ export function buildHistoricalReconciliation(member, {
 
   const periods = [];
   let pendingTotal = 0;
+  const seenYm = new Set();
+
   for (const line of lines) {
     const pending = money(Number(line?.pending) || 0);
     if (pending <= EPS) continue;
@@ -80,6 +117,7 @@ export function buildHistoricalReconciliation(member, {
       continue;
     }
     pendingTotal = money(pendingTotal + pending);
+    seenYm.add(periodYm);
     periods.push({
       periodYm,
       pending,
@@ -94,6 +132,23 @@ export function buildHistoricalReconciliation(member, {
     });
   }
 
+  for (const row of openPeriodReconciliationRows(member)) {
+    if (seenYm.has(row.periodYm)) {
+      // Ya hay línea de auxiliar: sumar remanente de período abierto si no estaba.
+      const hit = periods.find((p) => p.periodYm === row.periodYm);
+      if (hit && money(Number(hit.pending) || 0) + EPS < row.pending) {
+        const extra = money(row.pending - Number(hit.pending));
+        hit.pending = money(Number(hit.pending) + extra);
+        pendingTotal = money(pendingTotal + extra);
+        hit.label = 'Discrepancia de imputación · pendiente de validación';
+      }
+      continue;
+    }
+    pendingTotal = money(pendingTotal + row.pending);
+    seenYm.add(row.periodYm);
+    periods.push(row);
+  }
+
   periods.sort((a, b) => String(a.periodYm).localeCompare(String(b.periodYm)));
 
   return {
@@ -102,7 +157,7 @@ export function buildHistoricalReconciliation(member, {
     periods,
     title: 'Conciliación histórica',
     note: periods.length
-      ? 'Diferencias del auxiliar (Lila / Macro Click / débitos). No son deuda exigible confirmada.'
+      ? 'Diferencias del auxiliar o remanentes abiertos. No son deuda exigible confirmada.'
       : null,
   };
 }
@@ -151,12 +206,15 @@ export function buildOperationalDuesStanding(member, {
   }
 
   const outstanding = money(Number(member.outstandingBalance) || 0);
-  const stored = socialDuesStoredBalance(member);
+  const memberForBalance = Array.isArray(payments)
+    ? { ...member, paymentHistory: payments }
+    : member;
+  const stored = socialDuesStoredBalance(memberForBalance, { entries });
   const openCap = openDuesObligationCapital(member);
   // Crédito visible solo si no hay obligación neta (stored ya netea openCap).
   const creditBalance = stored <= EPS && outstanding < -EPS ? money(-outstanding) : 0;
 
-  // Sin deuda neta (ficha ≤ 0 y openCap cubierto o ausente) → no exigible, aunque el ledger diga otra cosa.
+  // Sin deuda neta operativa → no exigible, aunque el auxiliar o períodos digan otra cosa.
   if (stored <= EPS) {
     const kind = creditBalance > EPS ? 'credit' : 'clear';
     return {
@@ -190,7 +248,7 @@ export function buildOperationalDuesStanding(member, {
     };
   }
 
-  // Obligación abierta o saldo positivo: deuda operativa (aunque outstanding haya quedado en 0).
+  // Obligación abierta sin respaldo de cobro, o saldo positivo de ficha.
   const debt = summary.debt || appMonthlyDebtForMember(member, { today, entries });
   const debtCapital = money((Number(debt?.capital) || 0) + (Number(debt?.unallocated) || 0));
   const capitalExigible = money(

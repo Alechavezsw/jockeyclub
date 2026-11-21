@@ -42,6 +42,7 @@ import {
   collectionPeriodChoices,
   memberDueFact,
   socialDuesStoredBalance,
+  hasVerifiedOperationalClearEvidence,
 } from './dues';
 import { accountPaymentPlan, collectionPreview, payMemberDues } from './memberPayments';
 import { setRuntimeTierCatalog } from './tiers';
@@ -175,6 +176,7 @@ describe('dues classification', () => {
   });
 
   it('período abierto con ficha 0 no queda oculto; unpaidCapital 0 no tapa deuda nueva', () => {
+    // Sin pago de respaldo → obligación nueva legítima.
     expect(socialDuesStoredBalance({
       outstandingBalance: 0,
       unpaidCapital: 0,
@@ -190,6 +192,23 @@ describe('dues classification', () => {
       unpaidCapital: 0,
       duesOpenPeriods: [{ dueOn: '2026-11-10', capital: 70000 }],
     })).toBe(55000);
+  });
+
+  it('ficha $0 con pago verificable no se reabre por períodos auxiliares abiertos', () => {
+    const member = {
+      outstandingBalance: 0,
+      unpaidCapital: 0,
+      duesOpenPeriods: [
+        { dueOn: '2026-10-10', capital: 70000 },
+        { dueOn: '2026-11-10', capital: 70000 },
+      ],
+      paymentHistory: [
+        { id: 'p1', amount: 77000, status: 'paid', concept: 'Cuota octubre' },
+        { id: 'p2', amount: 70000, status: 'paid', concept: 'Cuota noviembre' },
+      ],
+    };
+    expect(hasVerifiedOperationalClearEvidence(member)).toBe(true);
+    expect(socialDuesStoredBalance(member)).toBe(0);
   });
 
   it('unpaidCapital 0 sin duesOpenPeriods hidratados no silencia ficha positiva', () => {

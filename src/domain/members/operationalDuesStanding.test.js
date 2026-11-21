@@ -4,6 +4,7 @@ import { duesStatus } from '../sports/attendance.js';
 import { accessDuesDebt } from '../pool/seasonDuesGate.js';
 import {
   getOverdueMembers,
+  hasVerifiedOperationalClearEvidence,
   openDuesObligationCapital,
   socialDuesStoredBalance,
 } from './dues.js';
@@ -341,14 +342,17 @@ describe('operationalDuesStanding — saneamiento 645', () => {
 });
 
 describe('regresión PR #12 — cuatro bloqueos de revisión', () => {
-  it('A) duesOpenPeriods positivos con outstanding 0 → deuda (no clear / totalExigible 0)', () => {
+  it('A) open periods con ficha 0 sin pago de respaldo → deuda nueva legítima', () => {
+    // Sin paymentHistory: no hay evidencia de cobro → sí exigible.
     const member = titular({
       outstandingBalance: 0,
       unpaidCapital: 0,
       nextDueDate: '2026-11-10',
       lastPaymentDate: '2026-10-05',
+      paymentHistory: [],
       duesOpenPeriods: [{ dueOn: '2026-11-10', capital: 70000 }],
     });
+    expect(hasVerifiedOperationalClearEvidence(member)).toBe(false);
     expect(openDuesObligationCapital(member)).toBe(70000);
     expect(socialDuesStoredBalance(member)).toBe(70000);
     const debt = appMonthlyDebtForMember(member, { today: TODAY });
@@ -523,6 +527,125 @@ describe('regresión PR #12 — cuatro bloqueos de revisión', () => {
       ],
     });
     expect(mixed.pendingTotal).toBe(70000);
+  });
+});
+
+describe('admin: ficha $0 respaldada no se reabre por períodos abiertos', () => {
+  it('100745 Martín Soria: pagos $77.000 + $70.000 → operativo $0; imputación a conciliación', () => {
+    const payments = [
+      {
+        id: 'pay-soria-77k',
+        paidAt: '2026-10-15',
+        date: '2026-10-15',
+        amount: 77000,
+        status: 'paid',
+        concept: 'Cuota social · Octubre de 2026',
+        periodDueOns: ['2026-10-10'],
+        periodLabel: 'Octubre de 2026',
+        receiptNumber: 'R-100745-77',
+      },
+      {
+        id: 'pay-soria-70k',
+        paidAt: '2026-11-10',
+        date: '2026-11-10',
+        amount: 70000,
+        status: 'paid',
+        concept: 'Cuota social · Noviembre de 2026',
+        periodDueOns: ['2026-11-10'],
+        periodLabel: 'Noviembre de 2026',
+        receiptNumber: 'R-100745-70',
+      },
+    ];
+    // Períodos auxiliares siguen abiertos por inconsistencia de imputación (no se inventan cobros).
+    const member = titular({
+      id: 'db-100745',
+      memberId: '100745',
+      memberNumber: '100745',
+      name: 'Martín Soria',
+      outstandingBalance: 0,
+      unpaidCapital: 0,
+      nextDueDate: '2026-12-10',
+      lastPaymentDate: '2026-11-10',
+      paymentHistory: payments,
+      duesOpenPeriods: [
+        { dueOn: '2026-10-10', capital: 70000 },
+        { dueOn: '2026-11-10', capital: 70000 },
+      ],
+    });
+
+    expect(hasVerifiedOperationalClearEvidence(member)).toBe(true);
+    expect(socialDuesStoredBalance(member)).toBe(0);
+    expect(appMonthlyDebtForMember(member, { today: TODAY })).toBeNull();
+
+    const standing = buildOperationalDuesStanding(member, {
+      today: TODAY,
+      payments,
+      ledgerLines: [
+        ledgerPending('2026-10', 70000, 'lila_import', '100745'),
+        ledgerPending('2026-11', 70000, 'lila_import', '100745'),
+      ],
+    });
+    expect(standing.clear).toBe(true);
+    expect(standing.seal).toBe('Al día');
+    expect(standing.totalExigible).toBe(0);
+    expect(standing.historical.hasDifferences).toBe(true);
+    expect(standing.historical.periods.every((p) => p.isExigible === false)).toBe(true);
+    // Comprobantes originales intactos.
+    expect(member.paymentHistory.map((p) => p.amount)).toEqual([77000, 70000]);
+    expect(member.paymentHistory.map((p) => p.receiptNumber)).toEqual([
+      'R-100745-77',
+      'R-100745-70',
+    ]);
+  });
+
+  it('101600 Ramírez: nov $70.000 pago; remanente oct $6.363,64 a validar; operativo $0', () => {
+    const payments = [{
+      id: 'pay-ramirez-nov',
+      paidAt: '2026-11-08',
+      date: '2026-11-08',
+      amount: 70000,
+      status: 'paid',
+      concept: 'Cuota social · Noviembre de 2026',
+      periodDueOns: ['2026-11-10'],
+      periodLabel: 'Noviembre de 2026',
+      receiptNumber: 'R-101600-nov',
+    }];
+    const member = titular({
+      id: 'db-101600',
+      memberId: '101600',
+      memberNumber: '101600',
+      name: 'María Florencia Ramírez Pericas',
+      outstandingBalance: 0,
+      unpaidCapital: 0,
+      nextDueDate: '2026-12-10',
+      lastPaymentDate: '2026-11-08',
+      paymentHistory: payments,
+      // Remanente de octubre sin evidencia suficiente para darlo por pagado.
+      duesOpenPeriods: [{ dueOn: '2026-10-10', capital: 6363.64, capitalOpen: 6363.64 }],
+    });
+
+    expect(hasVerifiedOperationalClearEvidence(member)).toBe(true);
+    expect(socialDuesStoredBalance(member)).toBe(0);
+    expect(appMonthlyDebtForMember(member, { today: TODAY })).toBeNull();
+
+    const standing = buildOperationalDuesStanding(member, {
+      today: TODAY,
+      payments,
+    });
+    expect(standing.clear).toBe(true);
+    expect(standing.seal).toBe('Al día');
+    expect(standing.totalExigible).toBe(0);
+    expect(standing.historical.hasDifferences).toBe(true);
+    expect(standing.historical.pendingTotal).toBe(6363.64);
+    const oct = standing.historical.periods.find((p) => p.periodYm === '2026-10');
+    expect(oct).toBeTruthy();
+    expect(oct.pending).toBe(6363.64);
+    expect(oct.isExigible).toBe(false);
+    expect(oct.label).toMatch(/pendiente de validación/i);
+    // No se inventa un pago que cierre el remanente.
+    expect(member.paymentHistory).toHaveLength(1);
+    expect(member.paymentHistory[0].amount).toBe(70000);
+    expect(member.duesOpenPeriods[0].capital).toBe(6363.64);
   });
 });
 

@@ -691,22 +691,62 @@ export function openDuesObligationCapital(member) {
   }, 0));
 }
 
+function isVerifiedDuesPaymentRow(row) {
+  if (!row || row.status === 'void' || row.voidedAt) return false;
+  const amount = Number(row.amount) || 0;
+  if (amount <= 0.01) return false;
+  const concept = String(row.concept || row.periodLabel || '').toLowerCase();
+  if (/evento|reserva|inscrip/.test(concept)) return false;
+  return true;
+}
+
+function isAdminDuesRegularizationEntry(entry) {
+  if (!entry || entry.voidedAt) return false;
+  const amount = Number(entry.amount ?? entry.value) || 0;
+  const kind = String(entry.kind || entry.type || '').toLowerCase();
+  const source = String(entry.source || entry.description || '').toLowerCase();
+  if (amount < -0.01) return true;
+  if (/ajuste|regulariz|admin/.test(kind)) return true;
+  if (/regulariz|ajuste:|admin/.test(source)) return true;
+  if (entry?.meta?.adminRegularization === true) return true;
+  return false;
+}
+
+/**
+ * Ficha en $0 / a favor respaldada: hay cobro de cuota verificable o regularización
+ * administrativa. Un período auxiliar abierto no debe reabrir deuda operativa.
+ */
+export function hasVerifiedOperationalClearEvidence(member, { entries = [] } = {}) {
+  const pays = Array.isArray(member?.paymentHistory) ? member.paymentHistory : [];
+  if (pays.some(isVerifiedDuesPaymentRow)) return true;
+  const duesEntries = [
+    ...(Array.isArray(member?.duesEntries) ? member.duesEntries : []),
+    ...(Array.isArray(entries) ? entries : []),
+  ];
+  if (duesEntries.some(isAdminDuesRegularizationEntry)) return true;
+  if (member?.meta?.adminRegularization === true) return true;
+  if (member?.meta?.unpaidCapitalReconciledAt) return true;
+  return false;
+}
+
 /**
  * Saldo de cuota para mora / “cuánto debe” / padrón / Consultar deuda / cobro.
  * Misma cifra en todos lados.
- * - outstanding ≤ 0: no reabrir con unpaidCapital LILA; sí respetar períodos abiertos.
+ * - outstanding ≤ 0 con pago/regularización: no reabrir por períodos abiertos (conciliación).
+ * - outstanding ≤ 0 sin respaldo y con openCap: obligación nueva legítima.
  * - unpaidCapital = 0 con períodos hidratados vacíos: no usar ficha vieja (débito importado).
  * - unpaidCapital = 0 SIN períodos hidratados: no ocultar deuda positiva de ficha.
- * - unpaidCapital = 0 CON períodos abiertos: no ocultar la deuda nueva legítima.
  * - Si ambos positivos y discrepan: manda la ficha; unpaid no infla.
  */
-export function socialDuesStoredBalance(member) {
+export function socialDuesStoredBalance(member, { entries = [] } = {}) {
   const outstanding = money(Number(member?.outstandingBalance) || 0);
   const periodsHydrated = duesOpenPeriodsOf(member) != null;
   const openCap = openDuesObligationCapital(member);
   if (outstanding <= 0.01) {
     if (openCap <= 0.01) return 0;
-    // Obligación abierta legítima: el crédito de ficha la reduce, no la oculta.
+    // Pagos o regularización autorizada: la ficha manda; remanentes van a conciliación.
+    if (hasVerifiedOperationalClearEvidence(member, { entries })) return 0;
+    // Obligación nueva sin respaldo de cobro: el crédito de ficha la reduce, no la oculta.
     return money(Math.max(0, openCap + Math.min(0, outstanding)));
   }
   const lila = lilaUnpaidCapital(member);
