@@ -18,16 +18,16 @@ beforeAll(async () => {
 });
 
 describe.skipIf(!hasLocalSnapshot('accessinMonthlyBalanceSummary'))('balance mensual resumido LILA', () => {
-  it('arma las cards del corte de octubre 2026', () => {
+  it('arma las cards del corte de noviembre 2026', () => {
     const cards = monthlyBalanceSummaryCards();
-    expect(ACCESSIN_MONTHLY_BALANCE_SUMMARY_AS_OF).toBe('2026-10-31');
-    expect(cards.periodFrom).toBe('2026-10-01');
-    expect(cards.periodTo).toBe('2026-10-31');
-    expect(cards.totalIncome).toBeCloseTo(63925674.34, 2);
-    expect(cards.totalIncomeCash).toBeCloseTo(68218674.34, 2);
+    expect(ACCESSIN_MONTHLY_BALANCE_SUMMARY_AS_OF).toBe('2026-11-30');
+    expect(cards.periodFrom).toBe('2026-11-01');
+    expect(cards.periodTo).toBe('2026-11-30');
+    expect(cards.totalIncome).toBeCloseTo(42332733, 2);
+    expect(cards.totalIncomeCash).toBeCloseTo(42839733, 2);
     expect(cards.totalExpenses).toBe(0);
-    expect(cards.cashOnHand).toBeCloseTo(820341100.27, 2);
-    expect(cards.closingCash).toBeCloseTo(888559774.61, 2);
+    expect(cards.cashOnHand).toBeCloseTo(890870774.61, 2);
+    expect(cards.closingCash).toBeCloseTo(933710507.61, 2);
     expect(cards.summarized).toBe(true);
     expect(cards.sourceFolder).toMatch(/resumido/i);
   });

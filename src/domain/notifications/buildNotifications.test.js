@@ -282,13 +282,18 @@ describe('buildNotifications', () => {
     expect(notice?.detail).toMatch(/2026-10-20/);
   });
 
-  it('admin de operación no ve Sin identificar en la campanita', () => {
-    const list = buildNotifications({
-      role: 'admin',
-      unidentifiedCollections: [
-        { id: 'u1', status: 'pending', date: '2026-10-20', note: 'suelta' },
-      ],
-    });
-    expect(list.some((n) => n.kind === 'unidentified')).toBe(false);
+  it('Administración (con acceso a contabilidad) ve Sin identificar; caja y portería no', () => {
+    const unidentifiedCollections = [
+      { id: 'u1', status: 'pending', date: '2026-10-20', note: 'suelta' },
+    ];
+    expect(
+      buildNotifications({ role: 'admin', unidentifiedCollections })
+        .some((n) => n.kind === 'unidentified'),
+    ).toBe(true);
+    for (const role of ['cashier', 'gate_operator', 'admin_employee']) {
+      expect(
+        buildNotifications({ role, unidentifiedCollections }).some((n) => n.kind === 'unidentified'),
+      ).toBe(false);
+    }
   });
 });

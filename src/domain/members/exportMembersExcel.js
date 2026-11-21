@@ -29,6 +29,13 @@ function saldoValue(member) {
   return standing.clear ? 0 : (Number(standing.totalDebt) || 0);
 }
 
+/** Una baja sin deuda no está «Al día»: no abona cuota. */
+function cuotaLabel(member, standing, saldo) {
+  if (saldo > 0) return standing.standing || 'Con deuda';
+  if (member?.status === 'inactive' && standing.kind === 'clear') return 'Sin cuota';
+  return standing.title || 'Al día';
+}
+
 export const PADRON_EXCEL_HEADERS = [
   '#',
   'Socio',
@@ -67,7 +74,7 @@ export function buildPadronExcelAoA(members = [], { tierCatalog } = {}) {
       m.phone || '',
       m.email || '',
       statusLabel(m.status),
-      saldo > 0 ? (standing.standing || 'Con deuda') : (standing.title || 'Al día'),
+      cuotaLabel(m, standing, saldo),
       saldo,
       m.joinDate || '',
       m.address || '',

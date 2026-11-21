@@ -25,6 +25,8 @@ describe('duesStatus', () => {
       memberId: '1001',
       tier: 'socio_familiar',
       outstandingBalance: 70000,
+      // Sin vencimiento viejo, un saldo de una cuota es solo el mes corriente y la puerta deja pasar.
+      nextDueDate: '2026-09-10',
       status: 'active',
     };
     const adherente = {

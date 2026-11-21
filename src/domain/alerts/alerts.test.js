@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { beforeEach, describe, it, expect } from 'vitest';
 import {
   acknowledgeAlert,
   createAlert,
@@ -9,12 +9,17 @@ import {
 } from './alerts';
 
 describe('filterAlertsForRole', () => {
-  const alerts = [
-    createAlert({ title: 'Global', body: 'x', audience: 'all' }),
-    createAlert({ title: 'Solo socios', body: 'x', audience: 'members' }),
-    createAlert({ title: 'Solo staff', body: 'x', audience: 'staff' }),
-    createAlert({ title: 'Solo admin', body: 'x', audience: 'admin' }),
-  ];
+  // Se crean en beforeEach: el setup congela Date en 2026-11-03 y `createAlert` usa `new Date()`
+  // como startsAt; si se crearan al cargar el módulo (reloj real) quedarían "en el futuro".
+  let alerts;
+  beforeEach(() => {
+    alerts = [
+      createAlert({ title: 'Global', body: 'x', audience: 'all' }),
+      createAlert({ title: 'Solo socios', body: 'x', audience: 'members' }),
+      createAlert({ title: 'Solo staff', body: 'x', audience: 'staff' }),
+      createAlert({ title: 'Solo admin', body: 'x', audience: 'admin' }),
+    ];
+  });
 
   it('el socio ve globales y de socios', () => {
     const titles = filterAlertsForRole(alerts, 'member').map((a) => a.title);

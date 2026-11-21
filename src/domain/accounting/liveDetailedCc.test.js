@@ -10,7 +10,7 @@ describe('buildLiveDetailedCc', () => {
       status: 'active',
       lastPaymentDate: '2026-09-13',
       nextDueDate: '2026-10-10',
-      outstandingBalance: 77000,
+      outstandingBalance: 70000,
     }, { today: '2026-10-19' });
     expect(detail.totalOwed).toBe(77000);
     expect(detail.lines[0].periodKey).toBe('2026-10');
