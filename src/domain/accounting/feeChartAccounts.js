@@ -507,18 +507,16 @@ export function ledgerLinesFromCharges(accounts = [], members = [], charges = []
       const account = matchFeeLedgerAccountForCategory(accounts, slice.name);
       if (!account) continue;
       const id = `fll-${account.id}-${period.id || date}-${charge.memberId}-${slice.slug}`;
-      // No reabrir un período ya cubierto en ficha / imputaciones / pagos.
+      // Cobertura estricta: duesCoveredThrough o pago que declara el período (no ficha/next_due).
       const coveredThrough = String(member?.duesCoveredThrough || member?.meta?.duesCoveredThrough || '').slice(0, 7);
-      const nextYm = String(member?.nextDueDate || '').slice(0, 7);
-      const ficha = Number(member?.outstandingBalance) || 0;
       const alreadyCovered = Boolean(
         (coveredThrough && periodYm && coveredThrough >= periodYm)
-        || (ficha <= 0.009 && nextYm && periodYm && nextYm > periodYm)
         || (Array.isArray(member?.paymentHistory) && member.paymentHistory.some((p) => {
           if (!p || p.voidedAt || p.status === 'void') return false;
           const dues = Array.isArray(p.periodDueOns) ? p.periodDueOns : [];
-          return dues.some((d) => String(d || '').slice(0, 7) === periodYm)
-            || String(p.period || p.periodLabel || '').includes(periodYm);
+          if (dues.some((d) => String(d || '').slice(0, 7) === periodYm)) return true;
+          const label = String(p.period || p.periodLabel || p.meta?.period || '');
+          return label.includes(periodYm) || (periodYm.length === 7 && label.includes(`${periodYm.slice(5)}/${periodYm.slice(0, 4)}`));
         })),
       );
       lines.push({

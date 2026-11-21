@@ -143,7 +143,9 @@ end;
 $$;
 
 revoke all on function public.apply_fee_ledger_collection_for_months(text, text[], date, numeric) from public;
-grant execute on function public.apply_fee_ledger_collection_for_months(text, text[], date, numeric) to authenticated;
+revoke all on function public.apply_fee_ledger_collection_for_months(text, text[], date, numeric) from anon;
+revoke all on function public.apply_fee_ledger_collection_for_months(text, text[], date, numeric) from authenticated;
+-- Solo owner / funciones security definer (p. ej. registrar_cobro).
 
 -- 3) post_fee_ledger_lines: no reabre períodos ya cubiertos en ficha.
 create or replace function public.post_fee_ledger_lines(p_lines jsonb)
@@ -523,61 +525,5 @@ $$;
 revoke all on function public.member_financial_integrity_v1(text) from public;
 grant execute on function public.member_financial_integrity_v1(text) to authenticated;
 
--- 6) Al imputar un cobro, cerrar pending del mismo mes en fee_ledger (atómico con la imputación).
-create or replace function public.sync_fee_ledger_on_dues_imputation()
-returns trigger
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_number text;
-  v_ym text;
-  v_cover numeric;
-  v_paid date;
-begin
-  if tg_op <> 'INSERT' then
-    return new;
-  end if;
-  if new.voided_at is not null then
-    return new;
-  end if;
-  if coalesce(new.kind, 'cobro') = 'adelanto' then
-    return new;
-  end if;
-  if new.due_on is null or new.due_on <= date '1900-01-10' then
-    return new;
-  end if;
-
-  select member_number::text into v_number
-  from public.members
-  where id = new.member_id;
-  if v_number is null then
-    return new;
-  end if;
-
-  v_ym := to_char(new.due_on, 'YYYY-MM');
-  v_cover := round(coalesce(new.capital, 0) + coalesce(new.surcharge, 0), 2);
-  if v_cover <= 0.009 then
-    return new;
-  end if;
-
-  select paid_at into v_paid
-  from public.member_payments
-  where id = new.payment_id;
-
-  perform public.apply_fee_ledger_collection_for_months(
-    v_number,
-    array[v_ym],
-    coalesce(v_paid, current_date),
-    v_cover
-  );
-  return new;
-end;
-$$;
-
-drop trigger if exists dues_imputations_sync_fee_ledger on public.dues_imputations;
-create trigger dues_imputations_sync_fee_ledger
-  after insert on public.dues_imputations
-  for each row
-  execute function public.sync_fee_ledger_on_dues_imputation();
+-- 6) Cierre contable: un solo mecanismo = registrar_cobro → apply_fee_ledger_collection_for_months.
+-- NO crear trigger en dues_imputations: duplicaba cobros parciales (ver migración 20261121153000).

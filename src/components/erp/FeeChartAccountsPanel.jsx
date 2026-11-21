@@ -20,6 +20,9 @@ import { isSupabaseConfigured } from '../../lib/supabase';
 function feeLedgerRowStatus(row) {
   const source = String(row?.source || '');
   if (/admin_reconciled/i.test(source)) return PERIOD_STATUS.CONCILIADO_ADMIN;
+  if (/^lila/i.test(source) && (Number(row?.pending) || 0) <= 0.009 && (Number(row?.collected) || 0) > 0.009) {
+    return PERIOD_STATUS.EVIDENCIA_PENDIENTE;
+  }
   if (/sync_covered/i.test(source)) return PERIOD_STATUS.PAGADO;
   if ((Number(row?.pending) || 0) > 0.009) return PERIOD_STATUS.PENDIENTE;
   if ((Number(row?.collected) || 0) > 0.009) return PERIOD_STATUS.PAGADO;
@@ -28,7 +31,8 @@ function feeLedgerRowStatus(row) {
 
 function feeLedgerCollectedHint(row) {
   const source = String(row?.source || '');
-  if (/admin_reconciled/i.test(source)) return 'Conciliado admin (sin comprobante de caja)';
+  if (/admin_reconciled/i.test(source)) return 'Conciliado admin (evidencia de comprobante pendiente)';
+  if (/^lila/i.test(source)) return 'Importación Lila · evidencia pendiente (no es deuda)';
   if (/sync_covered/i.test(source)) return 'Cerrado por sync (período ya cubierto)';
   if ((Number(row?.collected) || 0) > 0.009) return 'Cobrado con comprobante / liquidación';
   return '';

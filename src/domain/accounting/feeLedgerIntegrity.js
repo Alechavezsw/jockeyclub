@@ -9,6 +9,7 @@ export const PERIOD_STATUS = {
   PENDIENTE: 'pendiente',
   CONCILIADO_ADMIN: 'conciliado_administrativamente',
   EN_REVISION: 'en_revision',
+  EVIDENCIA_PENDIENTE: 'evidencia_pendiente',
 };
 
 const EPS = 0.009;
@@ -29,7 +30,7 @@ function coveredThroughYm(member) {
   return asYm(raw);
 }
 
-function adminReconcileNote(member, periodYm) {
+export function adminReconcileNote(member, periodYm) {
   const meta = member?.meta && typeof member.meta === 'object' ? member.meta : {};
   const key = Object.keys(meta).find((k) => {
     if (!/LedgerStatus$/i.test(k)) return false;
@@ -51,43 +52,78 @@ function adminReconcileNote(member, periodYm) {
   return hit ? String(hit.reason || 'conciliado administrativamente') : '';
 }
 
-function paymentCoversPeriod(payments = [], periodYm) {
+/**
+ * Pago verificable del período: solo periodDueOns / meta.period / etiqueta explícita.
+ * NO usa paid_at del mismo mes calendario.
+ */
+export function paymentCoversPeriod(payments = [], periodYm) {
   return (payments || []).some((payment) => {
     if (!payment || payment.voidedAt || payment.status === 'void' || payment.status === 'anulled') {
       return false;
     }
-    if (asYm(payment.paidAt || payment.date) === periodYm) return true;
-    const dueOns = Array.isArray(payment.periodDueOns) ? payment.periodDueOns : [];
+    const dueOns = Array.isArray(payment.periodDueOns)
+      ? payment.periodDueOns
+      : (Array.isArray(payment.meta?.periodDueOns) ? payment.meta.periodDueOns : []);
     if (dueOns.some((d) => asYm(d) === periodYm)) return true;
-    const label = String(payment.period || payment.periodLabel || payment.concept || '');
-    if (label.includes(periodYm)) return true;
-    // MM/YYYY
+    const metaPeriod = String(payment.meta?.period || payment.period || '');
+    if (metaPeriod.includes(periodYm)) return true;
+    const label = String(payment.periodLabel || payment.period || payment.concept || '');
     const [y, m] = periodYm.split('-');
-    if (y && m && label.includes(`${m}/${y}`)) return true;
+    if (y && m && (label.includes(periodYm) || label.includes(`${m}/${y}`))) return true;
     return false;
   });
 }
 
-function imputationCoversPeriod(imputations = [], periodYm) {
-  return (imputations || []).some((row) => (
+/**
+ * Imputación plena del período (no parcial suelta).
+ */
+export function imputationFullyCoversPeriod(imputations = [], periodYm, expectedCapital = null) {
+  const rows = (imputations || []).filter((row) => (
     row
     && !row.voidedAt
+    && String(row.kind || 'cobro') !== 'adelanto'
     && asYm(row.dueOn) === periodYm
-    && (Number(row.capital) || 0) + (Number(row.surcharge) || 0) > EPS
   ));
+  if (!rows.length) return false;
+  if (rows.some((row) => (
+    (Number(row.capital) || 0) > EPS
+    && (Number(row.capitalOpen ?? row.capital_open) || 0) <= EPS
+  ))) {
+    return true;
+  }
+  const imputed = money(rows.reduce(
+    (sum, row) => sum + (Number(row.capital) || 0) + (Number(row.surcharge) || 0),
+    0,
+  ));
+  if (expectedCapital != null && Number(expectedCapital) > EPS) {
+    return imputed + EPS >= Number(expectedCapital);
+  }
+  return false;
 }
 
-function periodIsCoveredOperationally(member, periodYm, { payments = [], imputations = [] } = {}) {
+/**
+ * Cobertura operativa estricta: admin trazable, duesCoveredThrough, imputación plena,
+ * o pago que declara el período. No ficha=0+next_due ni paid_at del mes.
+ */
+export function periodIsCoveredOperationally(member, periodYm, {
+  payments = [],
+  imputations = [],
+  expectedCapital = null,
+} = {}) {
   if (!periodYm) return false;
   if (adminReconcileNote(member, periodYm)) return true;
   const covered = coveredThroughYm(member);
   if (covered && covered >= periodYm) return true;
   if (paymentCoversPeriod(payments, periodYm)) return true;
-  if (imputationCoversPeriod(imputations, periodYm)) return true;
-  const ficha = Number(member?.outstandingBalance) || 0;
-  const nextYm = asYm(member?.nextDueDate);
-  if (ficha <= EPS && nextYm && nextYm > periodYm) return true;
+  if (imputationFullyCoversPeriod(imputations, periodYm, expectedCapital)) return true;
+  const openPeriods = Array.isArray(member?.duesOpenPeriods) ? member.duesOpenPeriods : [];
+  const periodRow = openPeriods.find((row) => asYm(row?.dueOn) === periodYm);
+  if (periodRow && (Number(periodRow.capital) || 0) <= EPS) return true;
   return false;
+}
+
+function isLilaSource(source) {
+  return /^lila/i.test(String(source || ''));
 }
 
 /**
@@ -104,6 +140,10 @@ export function periodLedgerStatus(member, line, {
   const adminNote = adminReconcileNote(member, periodYm);
   if (adminNote || /admin_reconciled/i.test(source)) {
     return PERIOD_STATUS.CONCILIADO_ADMIN;
+  }
+  if (isLilaSource(source) && pending <= EPS && collected > EPS) {
+    const hasPay = paymentCoversPeriod(payments, periodYm);
+    if (!hasPay) return PERIOD_STATUS.EVIDENCIA_PENDIENTE;
   }
   const covered = periodIsCoveredOperationally(member, periodYm, { payments, imputations });
   if (pending <= EPS && (collected > EPS || covered)) {
@@ -127,6 +167,8 @@ export function periodStatusLabel(status) {
       return 'Conciliado administrativamente';
     case PERIOD_STATUS.EN_REVISION:
       return 'En revisión';
+    case PERIOD_STATUS.EVIDENCIA_PENDIENTE:
+      return 'Evidencia pendiente';
     default:
       return '—';
   }
@@ -160,8 +202,11 @@ export function detectFeeLedgerFichaAnomalies({
     const status = periodLedgerStatus(member, line, { payments, imputations });
     const covered = periodIsCoveredOperationally(member, periodYm, { payments, imputations });
     const hasPay = paymentCoversPeriod(payments, periodYm);
-    const hasImp = imputationCoversPeriod(imputations, periodYm);
+    const hasFullImp = imputationFullyCoversPeriod(imputations, periodYm, amount);
     const source = String(line.source || '');
+    const adminNote = adminReconcileNote(member, periodYm);
+    const isAdmin = Boolean(adminNote || /admin_reconciled/i.test(source));
+    const isLila = isLilaSource(source);
 
     const base = {
       memberId: member.memberId || member.id,
@@ -180,7 +225,9 @@ export function detectFeeLedgerFichaAnomalies({
         coveredThroughYm(member) ? `coveredThrough=${coveredThroughYm(member)}` : null,
         member.nextDueDate ? `nextDue=${String(member.nextDueDate).slice(0, 10)}` : null,
         hasPay ? 'pago_periodo=si' : 'pago_periodo=no',
-        hasImp ? 'imputacion=si' : 'imputacion=no',
+        hasFullImp ? 'imputacion_plena=si' : 'imputacion_plena=no',
+        isAdmin ? 'admin=si' : null,
+        isLila ? 'import_lila=si' : null,
       ].filter(Boolean).join(' · '),
     };
 
@@ -195,7 +242,7 @@ export function detectFeeLedgerFichaAnomalies({
           : 'ficha_cero_con_ledger_pendiente',
       });
     }
-    if (hasImp && pending > EPS) {
+    if (hasFullImp && pending > EPS) {
       findings.push({
         ...base,
         code: 'paid_period_ledger_open',
@@ -204,10 +251,29 @@ export function detectFeeLedgerFichaAnomalies({
         probableCause: 'pago_imputado_ledger_abierto',
       });
     }
-    if (
+    if (isAdmin && pending <= EPS && !hasPay) {
+      findings.push({
+        ...base,
+        code: 'admin_reconciled_evidence_pending',
+        severity: 'low',
+        message: 'Conciliado administrativamente · evidencia de comprobante pendiente',
+        probableCause: 'conciliado_admin_evidencia_pendiente',
+        isDebt: false,
+      });
+    } else if (isLila && pending <= EPS && collected > EPS && !hasPay) {
+      findings.push({
+        ...base,
+        code: 'imported_lila_evidence_pending',
+        severity: 'low',
+        message: 'Importación Lila sin pago local verificable (no es deuda)',
+        probableCause: 'import_lila_sin_pago_local',
+        isDebt: false,
+      });
+    } else if (
       collected > EPS
       && !hasPay
-      && !/admin_reconciled/i.test(source)
+      && !isAdmin
+      && !isLila
       && !/sync_covered/i.test(source)
       && status !== PERIOD_STATUS.CONCILIADO_ADMIN
     ) {
@@ -226,16 +292,6 @@ export function detectFeeLedgerFichaAnomalies({
         severity: 'medium',
         message: 'Importe de línea distinto de cobrado + pendiente',
         probableCause: 'descuadre_importe_linea',
-      });
-    }
-    const nextYm = asYm(member.nextDueDate);
-    if (ficha <= EPS && pending > EPS && nextYm && nextYm <= periodYm) {
-      findings.push({
-        ...base,
-        code: 'next_due_incoherent',
-        severity: 'medium',
-        message: 'Próximo vencimiento incoherente con pending de ledger',
-        probableCause: 'next_due_incoherente_con_pending',
       });
     }
   }
@@ -269,6 +325,7 @@ export function shouldBlockLedgerOnlyCollection(member, {
 
 /**
  * Simula conciliación administrativa en memoria (tests / preview). No persiste.
+ * No inventa fecha de cobro.
  */
 export function applyAdminLedgerReconciliation(lines = [], periodYm, { reason = '' } = {}) {
   const ym = asYm(periodYm);
@@ -285,7 +342,10 @@ export function applyAdminLedgerReconciliation(lines = [], periodYm, { reason = 
       ...line,
       collected: money((Number(line.collected) || 0) + pending),
       pending: 0,
-      source: `${String(line.source || 'liquidation')}_admin_reconciled`,
+      collectedAtLabel: line.collectedAtLabel || 'conciliación administrativa',
+      source: /admin_reconciled/i.test(String(line.source || ''))
+        ? line.source
+        : `${String(line.source || 'liquidation')}_admin_reconciled`,
       adminReconcileReason: reason || 'conciliado administrativamente',
     };
   });
@@ -326,8 +386,31 @@ export function summarizeFeeLedgerIntegrity(findings = []) {
   }
   return {
     anomalyCount: findings.length,
+    debtAnomalyCount: findings.filter((row) => row.isDebt !== false && row.severity !== 'low').length,
     byCode,
     byStatus,
     memberNumbers: [...new Set(findings.map((row) => row.memberNumber).filter(Boolean))],
   };
+}
+
+/** Simula cierre contable único por cover (parciales / completos). */
+export function applyFeeLedgerCollectionForMonths(lines = [], months = [], cover = null) {
+  const ymSet = new Set((months || []).map(asYm).filter(Boolean));
+  let remaining = cover == null ? Number.POSITIVE_INFINITY : money(cover);
+  let applied = 0;
+  const next = (lines || []).map((line) => {
+    const ym = asYm(line.date || line.lineDate || line.periodYm);
+    if (!ymSet.has(ym) || remaining <= EPS) return line;
+    const pending = money(Number(line.pending) || 0);
+    if (pending <= EPS) return line;
+    const take = money(Math.min(pending, remaining));
+    remaining = money(remaining - take);
+    applied = money(applied + take);
+    return {
+      ...line,
+      collected: money((Number(line.collected) || 0) + take),
+      pending: money(pending - take),
+    };
+  });
+  return { lines: next, applied, remainingCover: Number.isFinite(remaining) ? remaining : null };
 }

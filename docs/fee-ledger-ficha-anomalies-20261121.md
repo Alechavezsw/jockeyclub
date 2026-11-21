@@ -29,12 +29,13 @@ Corte vía `member_financial_integrity_v1` (`ficha_zero_ledger_pending`):
 2. **Cobro sin meses en payload** — `registrar_cobro` bajaba ficha pero no siempre alimentaba el loop de cierre de `fee_ledger_lines`.
 3. **Import / sync de ficha a $0** — deja el libro contable abierto sin obligación operativa.
 
-Tras la migración `20261121120000_fee_ledger_ficha_integrity`:
+Tras la migración `20261121120000_fee_ledger_ficha_integrity` + correctivo `20261121153000_fee_ledger_ficha_integrity_fixes`:
 
-- Detector: `member_financial_integrity_v1`
-- Conciliación admin (sin inventar pago): `admin_reconcile_fee_ledger_period`
+- Detector: `member_financial_integrity_v1` (distingue admin / Lila evidencia pendiente vs deuda)
+- Conciliación admin (sin inventar pago ni fecha de cobro): `admin_reconcile_fee_ledger_period`
 - Liquidación ya no reabre períodos cubiertos
-- Trigger en `dues_imputations` cierra pending del mes imputado
+- Cierre contable único: loop de `registrar_cobro` (sin trigger duplicado en imputaciones)
+- `apply_fee_ledger_collection_for_months` sin EXECUTE para `authenticated`
 
 ## Comprobante verificable
 

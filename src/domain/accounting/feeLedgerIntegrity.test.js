@@ -2,8 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   PERIOD_STATUS,
   applyAdminLedgerReconciliation,
+  applyFeeLedgerCollectionForMonths,
   detectFeeLedgerFichaAnomalies,
+  imputationFullyCoversPeriod,
   normalizeLedgerLineForCoveredPeriod,
+  paymentCoversPeriod,
+  periodIsCoveredOperationally,
   periodLedgerStatus,
   shouldBlockLedgerOnlyCollection,
   summarizeFeeLedgerIntegrity,
@@ -240,5 +244,87 @@ describe('feeLedgerIntegrity — Natalia 100827', () => {
     expect(preview.ledgerDesync.blockLedgerOnlyCollection).toBe(true);
     expect(preview.creditApplied || 0).toBe(0);
     expect(preview.clear || preview.cash === 0).toBe(true);
+  });
+
+  it('pago parcial $35k deja pending $35k; doble apply no duplica', () => {
+    const first = applyFeeLedgerCollectionForMonths([octOpenLine], ['2026-10'], 35000);
+    expect(first.applied).toBe(35000);
+    expect(first.lines[0].collected).toBe(35000);
+    expect(first.lines[0].pending).toBe(35000);
+    const second = applyFeeLedgerCollectionForMonths(first.lines, ['2026-10'], 35000);
+    expect(second.applied).toBe(35000);
+    expect(second.lines[0].collected).toBe(70000);
+    expect(second.lines[0].pending).toBe(0);
+    const retry = applyFeeLedgerCollectionForMonths(second.lines, ['2026-10'], 35000);
+    expect(retry.applied).toBe(0);
+    expect(retry.lines[0].collected).toBe(70000);
+  });
+
+  it('pago completo en un apply cierra la línea', () => {
+    const full = applyFeeLedgerCollectionForMonths([octOpenLine], ['2026-10'], 70000);
+    expect(full.lines[0].collected).toBe(70000);
+    expect(full.lines[0].pending).toBe(0);
+  });
+
+  it('cobertura no usa paid_at del mes ni ficha=0+next_due ni imputación parcial', () => {
+    const member = {
+      memberId: '9',
+      memberNumber: '9',
+      outstandingBalance: 0,
+      nextDueDate: '2026-12-10',
+    };
+    expect(periodIsCoveredOperationally(member, '2026-10', {
+      payments: [{ paidAt: '2026-10-15', amount: 70000, periodDueOns: [] }],
+    })).toBe(false);
+    expect(paymentCoversPeriod([{ paidAt: '2026-10-15', periodDueOns: [] }], '2026-10')).toBe(false);
+    expect(paymentCoversPeriod([{ paidAt: '2026-11-20', periodDueOns: ['2026-10-10'] }], '2026-10')).toBe(true);
+    expect(imputationFullyCoversPeriod([
+      { dueOn: '2026-10-10', capital: 35000, capitalOpen: 35000 },
+    ], '2026-10', 70000)).toBe(false);
+    expect(imputationFullyCoversPeriod([
+      { dueOn: '2026-10-10', capital: 70000, capitalOpen: 0 },
+    ], '2026-10', 70000)).toBe(true);
+  });
+
+  it('Natalia post-conciliación: Oct admin no es ledger_collected_without_payment; Lila es evidencia pendiente', () => {
+    const member = {
+      ...nataliaBefore,
+      meta: {
+        october2026LedgerStatus: 'conciliado administrativamente; verificar comprobante de pago',
+      },
+    };
+    const lines = [
+      {
+        id: 'lila-jul',
+        memberNumber: '100827',
+        date: '2026-07-01',
+        amount: 60000,
+        collected: 60000,
+        pending: 0,
+        source: 'lila',
+      },
+      {
+        id: 'fll-oct',
+        memberNumber: '100827',
+        date: '2026-10-01',
+        amount: 70000,
+        collected: 70000,
+        pending: 0,
+        source: 'liquidation',
+      },
+      novPaidLine,
+    ];
+    const findings = detectFeeLedgerFichaAnomalies({
+      member,
+      ledgerLines: lines,
+      payments: member.paymentHistory,
+    });
+    expect(findings.some((row) => row.code === 'ledger_collected_without_payment')).toBe(false);
+    expect(findings.some((row) => row.period === '2026-10' && row.code === 'admin_reconciled_evidence_pending')).toBe(true);
+    expect(findings.some((row) => row.period === '2026-07' && row.code === 'imported_lila_evidence_pending')).toBe(true);
+    expect(periodLedgerStatus(member, lines[1], { payments: member.paymentHistory }))
+      .toBe(PERIOD_STATUS.CONCILIADO_ADMIN);
+    expect(periodLedgerStatus(member, lines[0], { payments: member.paymentHistory }))
+      .toBe(PERIOD_STATUS.EVIDENCIA_PENDIENTE);
   });
 });
