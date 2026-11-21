@@ -37,17 +37,19 @@ describe('summarizePaymentHistory', () => {
     expect(summary.lastPayment.date).toBe('2026-08-13');
   });
 
-  it('último pago 13/08 con nextDue 10/09 y saldo 0 sigue 1 mes atrasado el 21/09', () => {
+  it('último pago 13/08 con nextDue 10/09 y saldo 0 no inventa mora (ficha manda)', () => {
+    // nextDue pasado sin saldo ni períodos abiertos → Al día operativo.
     const summary = summarizePaymentHistory(history, { ...member, nextDueDate: '2026-09-10' }, { today });
-    expect(summary.monthsBehind).toBe(1);
-    expect(summary.outstanding).toBe(40000);
+    expect(summary.monthsBehind).toBe(0);
+    expect(summary.outstanding).toBe(0);
     expect(summary.nextDue).toBe('2026-09-10');
   });
 
-  it('si no hay catálogo ni pagos, igual calcula mora cobrable', () => {
+  it('con saldo de ficha sí calcula mora cobrable aunque no haya pagos', () => {
     const summary = summarizePaymentHistory([], {
       tier: 'socio_familiar',
-      outstandingBalance: 0,
+      outstandingBalance: 140000,
+      unpaidCapital: 140000,
       nextDueDate: '2026-08-10',
     }, { today });
     expect(summary.monthsBehind).toBe(2);
@@ -55,11 +57,14 @@ describe('summarizePaymentHistory', () => {
     expect(summary.outstanding).toBe(140000);
   });
 
-  it('si la categoría no tiene monto, usa el último pago de cuota', () => {
+  it('período abierto con ficha 0 sí exige la cuota del mes', () => {
     const summary = summarizePaymentHistory(history, {
       ...member,
       tier: 'socio_sin_monto_en_catalogo',
+      outstandingBalance: 0,
+      unpaidCapital: 0,
       nextDueDate: '2026-09-10',
+      duesOpenPeriods: [{ dueOn: '2026-09-10', capital: 40000 }],
     }, { today });
     expect(summary.monthsBehind).toBe(1);
     expect(summary.outstanding).toBe(40000);

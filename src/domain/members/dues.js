@@ -670,20 +670,41 @@ export function lilaUnpaidCapital(member) {
 }
 
 /**
+ * Capital de obligaciones efectivamente abiertas (liquidación / períodos generados).
+ * No usa fee_ledger ni unpaidCapital histórico.
+ */
+export function openDuesObligationCapital(member) {
+  const rows = Array.isArray(member?.duesOpenPeriods) ? member.duesOpenPeriods : [];
+  return money(rows.reduce((sum, row) => {
+    if (!row || row.voidedAt) return sum;
+    const cap = Number(row.capitalOpen ?? row.capital_open ?? row.capital) || 0;
+    return sum + Math.max(0, cap);
+  }, 0));
+}
+
+/**
  * Saldo de cuota para mora / “cuánto debe” / padrón / Consultar deuda / cobro.
  * Misma cifra en todos lados.
- * - outstanding_balance ≤ 0 (al día o a favor): manda la ficha. No reabrir deuda
- *   con un unpaidCapital LILA viejo después de un cobro.
- * - unpaidCapital = 0 tras un cobro: no reabrir con ficha vieja.
- * - Si ambos son positivos y discrepan: manda la ficha (entries → outstanding).
- *   unpaidCapital no puede inflar la deuda ni inventar crédito.
+ * - outstanding ≤ 0: no reabrir con unpaidCapital LILA; sí respetar períodos abiertos.
+ * - unpaidCapital = 0 histórico sin períodos abiertos: no usar ficha vieja (débito importado).
+ * - unpaidCapital = 0 CON períodos abiertos: no ocultar la deuda nueva legítima.
+ * - Si ambos positivos y discrepan: manda la ficha; unpaid no infla.
  */
 export function socialDuesStoredBalance(member) {
   const outstanding = money(Number(member?.outstandingBalance) || 0);
-  if (outstanding <= 0.01) return 0;
+  const openCap = openDuesObligationCapital(member);
+  if (outstanding <= 0.01) {
+    if (openCap <= 0.01) return 0;
+    // Obligación abierta legítima: el crédito de ficha la reduce, no la oculta.
+    return money(Math.max(0, openCap + Math.min(0, outstanding)));
+  }
   const lila = lilaUnpaidCapital(member);
-  if (lila != null && lila <= 0.01) return 0;
-  return Math.max(0, outstanding);
+  if (lila != null && lila <= 0.01 && openCap <= 0.01) {
+    // Débito/cobro dejó unpaid en 0 y no hay períodos abiertos → no inventar mora
+    // con un outstanding desfasado.
+    return 0;
+  }
+  return Math.max(outstanding, openCap);
 }
 
 function socialDuesAmountDue(member, todayStart) {
@@ -698,6 +719,9 @@ function isSocialDuesMora(member, todayStart) {
   if (!isMemberBillingActive(member) || isDuesExemptMember(member) || isFamilyDependent(member)) return false;
   // AMET: sin mora ni recargo del 10 %. Puede deber saldo, pero no entra al listado de mora.
   if (isAmetDuesMember(member)) return false;
+  // Ficha en 0 / a favor sin períodos abiertos: no hay mora por nextDue ni historial.
+  const stored = socialDuesStoredBalance(member);
+  if (stored <= 0.01) return false;
   const due = parseDueDate(member?.nextDueDate, member);
   if (due && due < todayStart) return true;
   if (monthsBehindOnDues({
@@ -706,8 +730,6 @@ function isSocialDuesMora(member, todayStart) {
     today: todayStart,
     member,
   }) > 0) return true;
-  const stored = socialDuesStoredBalance(member);
-  if (stored <= 0) return false;
   // Padrón LILA: hay saldo de cuota y no está cargado el vencimiento.
   if (!due) return true;
   const paid = parseDate(member?.lastPaymentDate);
@@ -721,6 +743,7 @@ function isSocialDuesMora(member, todayStart) {
 
 function isSocialDuesDueToday(member, todayStart) {
   if (!isMemberBillingActive(member) || isDuesExemptMember(member) || isFamilyDependent(member)) return false;
+  if (socialDuesStoredBalance(member) <= 0.01) return false;
   if (isSocialDuesMora(member, todayStart)) return false;
   const due = parseDueDate(member?.nextDueDate, member);
   return Boolean(due && toISODate(due) === toISODate(todayStart));

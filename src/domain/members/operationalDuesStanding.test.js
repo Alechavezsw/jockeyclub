@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { appMonthlyDebtForMember, memberDuesStandingSummary } from '../accounting/appMonthlyDebts.js';
 import { duesStatus } from '../sports/attendance.js';
+import { accessDuesDebt } from '../pool/seasonDuesGate.js';
+import {
+  getOverdueMembers,
+  openDuesObligationCapital,
+  socialDuesStoredBalance,
+} from './dues.js';
+import { summarizePaymentHistory } from './paymentHistory.js';
 import { collectionPreview } from './memberPayments.js';
 import {
   buildHistoricalReconciliation,
@@ -27,9 +34,9 @@ function titular(overrides = {}) {
   };
 }
 
-const ledgerPending = (periodYm, pending, source = 'lila_import') => ({
-  id: `fll-${periodYm}`,
-  memberNumber: '10450',
+const ledgerPending = (periodYm, pending, source = 'lila_import', memberNumber = '10450') => ({
+  id: `fll-${memberNumber}-${periodYm}`,
+  memberNumber,
   date: `${periodYm}-01`,
   amount: pending,
   collected: 0,
@@ -125,7 +132,7 @@ describe('operationalDuesStanding — saneamiento 645', () => {
       }],
     });
     const lines = [
-      { ...ledgerPending('2026-10', 70000, 'liquidation'), memberNumber: '100827' },
+      { ...ledgerPending('2026-10', 70000, 'liquidation', '100827') },
       {
         id: 'fll-nov',
         memberNumber: '100827',
@@ -146,7 +153,19 @@ describe('operationalDuesStanding — saneamiento 645', () => {
     expect(standing.historical.periods.some((p) => p.periodYm === '2026-10')).toBe(true);
   });
 
-  it('6) regularización administrativa válida (Ponce 10450) permanece Al día', () => {
+  it('6) regularización administrativa 10450 vía member_dues_entries (no member_payments)', () => {
+    // $145.000 de regularización administrativa: asiento en member_dues_entries,
+    // no un cobro en member_payments.
+    const duesEntries = [{
+      id: 'mde-10450-reg',
+      memberId: '10450',
+      memberNumber: '10450',
+      amount: -145000,
+      kind: 'ajuste',
+      source: 'ajuste:10450:regularizacion-admin-145000',
+      createdAt: '2026-11-15T12:00:00-03:00',
+      description: 'Regularización administrativa $145.000',
+    }];
     const member = titular({
       memberId: '10450',
       memberNumber: '10450',
@@ -154,22 +173,20 @@ describe('operationalDuesStanding — saneamiento 645', () => {
       outstandingBalance: 0,
       unpaidCapital: 0,
       nextDueDate: '2027-01-10',
-      paymentHistory: [{
-        id: 'reg-145k',
-        paidAt: '2026-11-15',
-        amount: 145000,
-        concept: 'Regularización administrativa',
-        periodLabel: 'Regularización',
-        meta: { adminRegularization: true },
-      }],
+      paymentHistory: [],
+      duesEntries,
     });
     const standing = buildOperationalDuesStanding(member, {
       today: TODAY,
+      entries: duesEntries,
       ledgerLines: [ledgerPending('2026-08', 70000), ledgerPending('2026-09', 70000)],
     });
     expect(standing.seal).toBe('Al día');
     expect(standing.totalExigible).toBe(0);
-    expect(member.paymentHistory[0].amount).toBe(145000);
+    expect(member.paymentHistory).toEqual([]);
+    expect(duesEntries[0].amount).toBe(-145000);
+    expect(duesEntries[0].kind).toBe('ajuste');
+    expect(duesEntries[0].source).toMatch(/regularizacion-admin/);
   });
 
   it('7) débito histórico sin comprobante importado no crea deuda exigible', () => {
@@ -188,8 +205,8 @@ describe('operationalDuesStanding — saneamiento 645', () => {
     const standing = buildOperationalDuesStanding(member, {
       today: TODAY,
       ledgerLines: [
-        { ...ledgerPending('2026-10', 70000, 'macro_click'), memberNumber: '10496' },
-        { ...ledgerPending('2026-11', 70000, 'macro_click'), memberNumber: '10496' },
+        ledgerPending('2026-10', 70000, 'macro_click', '10496'),
+        ledgerPending('2026-11', 70000, 'macro_click', '10496'),
       ],
     });
     expect(standing.clear).toBe(true);
@@ -215,7 +232,7 @@ describe('operationalDuesStanding — saneamiento 645', () => {
     expect(member.status).toBe('active');
     const standing = buildOperationalDuesStanding(member, {
       today: TODAY,
-      ledgerLines: [{ ...ledgerPending('2026-05', 140000, 'lila'), memberNumber: '11638' }],
+      ledgerLines: [ledgerPending('2026-05', 140000, 'lila', '11638')],
     });
     expect(standing.seal).toBe('Al día');
     expect(duesStatus(member).ok).toBe(true);
@@ -273,7 +290,7 @@ describe('operationalDuesStanding — saneamiento 645', () => {
     const social = buildOperationalDuesStanding(member, {
       today: TODAY,
       ledgerLines: [
-        { ...ledgerPending('2026-10', 70000), memberNumber: '12673' },
+        ledgerPending('2026-10', 70000, 'lila_import', '12673'),
         {
           id: 'tenis-oct',
           memberNumber: '12673',
@@ -287,7 +304,6 @@ describe('operationalDuesStanding — saneamiento 645', () => {
     });
     expect(social.seal).toBe('Al día');
     expect(social.totalExigible).toBe(0);
-    // El auxiliar conserva el pending de tenis para Tesorería; no se cobra como cuota social.
     expect(social.historical.pendingTotal).toBeGreaterThan(0);
   });
 
@@ -321,6 +337,192 @@ describe('operationalDuesStanding — saneamiento 645', () => {
     });
     expect(operationalStandingIsClear(standing)).toBe(true);
     expect(memberDuesStandingSummary(member, { today: TODAY }).clear).toBe(true);
+  });
+});
+
+describe('regresión PR #12 — cuatro bloqueos de revisión', () => {
+  it('A) duesOpenPeriods positivos con outstanding 0 → deuda (no clear / totalExigible 0)', () => {
+    const member = titular({
+      outstandingBalance: 0,
+      unpaidCapital: 0,
+      nextDueDate: '2026-11-10',
+      lastPaymentDate: '2026-10-05',
+      duesOpenPeriods: [{ dueOn: '2026-11-10', capital: 70000 }],
+    });
+    expect(openDuesObligationCapital(member)).toBe(70000);
+    expect(socialDuesStoredBalance(member)).toBe(70000);
+    const debt = appMonthlyDebtForMember(member, { today: TODAY });
+    expect(debt).not.toBeNull();
+    expect(debt.capital).toBe(70000);
+    const standing = buildOperationalDuesStanding(member, { today: TODAY });
+    expect(standing.clear).toBe(false);
+    expect(standing.totalExigible).toBeGreaterThan(0);
+    expect(standing.capitalExigible).toBe(70000);
+    expect(standing.seal).not.toBe('Al día');
+  });
+
+  it('B) unpaidCapital histórico 0 no oculta deuda nueva con períodos abiertos', () => {
+    const member = titular({
+      outstandingBalance: 70000,
+      unpaidCapital: 0,
+      nextDueDate: '2026-11-10',
+      lastPaymentDate: '2026-10-08',
+      duesOpenPeriods: [{ dueOn: '2026-11-10', capital: 70000 }],
+    });
+    expect(socialDuesStoredBalance(member)).toBe(70000);
+    expect(appMonthlyDebtForMember(member, { today: TODAY })).not.toBeNull();
+    const standing = buildOperationalDuesStanding(member, { today: TODAY });
+    expect(standing.clear).toBe(false);
+    expect(standing.capitalExigible).toBe(70000);
+  });
+
+  it('C) unpaidCapital 0 sin períodos abiertos sigue ocultando ficha desfasada (Onsalo)', () => {
+    const member = titular({
+      memberId: '11147',
+      memberNumber: '11147',
+      outstandingBalance: 70000,
+      unpaidCapital: 0,
+      nextDueDate: '2026-10-10',
+      lastPaymentDate: '2026-11-01',
+      duesOpenPeriods: [],
+    });
+    expect(socialDuesStoredBalance(member)).toBe(0);
+    expect(appMonthlyDebtForMember(member, { today: TODAY })).toBeNull();
+    expect(buildOperationalDuesStanding(member, { today: TODAY }).clear).toBe(true);
+  });
+
+  it('D) crédito + nueva obligación abierta → deuda neta / no se pierde la obligación', () => {
+    const member = titular({
+      outstandingBalance: -20000,
+      unpaidCapital: 0,
+      nextDueDate: '2026-11-10',
+      duesOpenPeriods: [{ dueOn: '2026-11-10', capital: 70000 }],
+    });
+    // Crédito $20.000 reduce la obligación $70.000 → $50.000 exigibles.
+    expect(socialDuesStoredBalance(member)).toBe(50000);
+    const standing = buildOperationalDuesStanding(member, { today: TODAY });
+    expect(standing.clear).toBe(false);
+    expect(standing.totalExigible).toBeGreaterThan(0);
+    expect(standing.capitalExigible).toBeGreaterThanOrEqual(50000);
+  });
+
+  it('E) vencimiento histórico con saldo 0 → no atrasado en portal / acceso / mora', () => {
+    const member = titular({
+      outstandingBalance: 0,
+      unpaidCapital: 0,
+      nextDueDate: '2026-06-10',
+      lastPaymentDate: '2026-05-01',
+      overdueSince: '2026-06-11',
+      duesOpenPeriods: [],
+      paymentHistory: [{
+        id: 'old',
+        date: '2026-05-01',
+        amount: 70000,
+        status: 'paid',
+      }],
+    });
+    const standing = buildOperationalDuesStanding(member, { today: TODAY });
+    expect(standing.clear).toBe(true);
+    expect(standing.monthsBehind).toBe(0);
+    expect(standing.totalExigible).toBe(0);
+
+    const hist = summarizePaymentHistory(member.paymentHistory, member, { today: TODAY });
+    expect(hist.outstanding).toBe(0);
+    expect(hist.monthsBehind).toBe(0);
+
+    expect(getOverdueMembers([member], TODAY)).toHaveLength(0);
+    expect(accessDuesDebt(member, [member], { today: TODAY }).hasDebt).toBe(false);
+    expect(duesStatus(member).ok).toBe(true);
+  });
+
+  it('F) buildHistoricalReconciliation filtra por número y no mezcla socios', () => {
+    const memberA = titular({
+      memberId: '10450',
+      memberNumber: '10450',
+      outstandingBalance: 0,
+    });
+    const mixedLines = [
+      ledgerPending('2026-10', 70000, 'lila_import', '10450'),
+      ledgerPending('2026-10', 40000, 'lila_import', '99999'),
+      ledgerPending('2026-11', 70000, 'macro_click', '10450'),
+      {
+        id: 'fll-other',
+        member_number: '88888',
+        date: '2026-09-01',
+        amount: 99999,
+        collected: 0,
+        pending: 99999,
+        source: 'lila_import',
+      },
+    ];
+    const hist = buildHistoricalReconciliation(memberA, { ledgerLines: mixedLines });
+    expect(hist.periods).toHaveLength(2);
+    expect(hist.pendingTotal).toBe(140000);
+    expect(hist.periods.every((p) => ['2026-10', '2026-11'].includes(p.periodYm))).toBe(true);
+    expect(hist.periods.some((p) => p.pending === 99999)).toBe(false);
+    expect(hist.periods.some((p) => p.pending === 40000)).toBe(false);
+
+    const memberB = titular({
+      memberId: '99999',
+      memberNumber: '99999',
+      outstandingBalance: 0,
+    });
+    const histB = buildHistoricalReconciliation(memberB, { ledgerLines: mixedLines });
+    expect(histB.periods).toHaveLength(1);
+    expect(histB.pendingTotal).toBe(40000);
+  });
+
+  it('G) cambio rápido entre socios: standing de A no contamina a B en cero', () => {
+    const a = titular({
+      id: 'db-a',
+      memberId: '11111',
+      memberNumber: '11111',
+      outstandingBalance: 140000,
+      unpaidCapital: 140000,
+      nextDueDate: '2026-09-10',
+      lastPaymentDate: '2026-08-01',
+      duesOpenPeriods: [
+        { dueOn: '2026-09-10', capital: 70000 },
+        { dueOn: '2026-10-10', capital: 70000 },
+      ],
+    });
+    const b = titular({
+      id: 'db-b',
+      memberId: '22222',
+      memberNumber: '22222',
+      outstandingBalance: 0,
+      unpaidCapital: 0,
+      nextDueDate: '2026-06-10',
+      lastPaymentDate: '2026-05-01',
+      duesOpenPeriods: [],
+      feeLedgerLines: [ledgerPending('2026-10', 70000, 'lila_import', '22222')],
+    });
+    const standA = buildOperationalDuesStanding(a, { today: TODAY });
+    const standB = buildOperationalDuesStanding(b, {
+      today: TODAY,
+      ledgerLines: b.feeLedgerLines,
+    });
+    expect(standA.clear).toBe(false);
+    expect(standA.totalExigible).toBeGreaterThan(0);
+    expect(standB.clear).toBe(true);
+    expect(standB.totalExigible).toBe(0);
+    expect(standB.monthsBehind).toBe(0);
+    expect(standB.historical.pendingTotal).toBe(70000);
+    // Confirmar que las líneas de A no entran en B aunque se pasen mezcladas.
+    const mixed = buildHistoricalReconciliation(b, {
+      ledgerLines: [
+        ...a.duesOpenPeriods.map((row) => ({
+          memberNumber: '11111',
+          date: row.dueOn,
+          amount: row.capital,
+          collected: 0,
+          pending: row.capital,
+          source: 'liquidation',
+        })),
+        ...b.feeLedgerLines,
+      ],
+    });
+    expect(mixed.pendingTotal).toBe(70000);
   });
 });
 

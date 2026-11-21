@@ -71,24 +71,57 @@ describe('dues classification', () => {
 
   it('detecta cuotas vencidas por saldo', () => {
     const overdue = getOverdueMembers(members, today);
+    // Solo #1 tiene saldo; #4 tiene nextDue pasado pero ficha 0 → no mora inventada.
     expect(overdue.map((m) => m.memberId)).toContain('1');
-    expect(overdue.map((m) => m.memberId)).toContain('4');
+    expect(overdue.map((m) => m.memberId)).not.toContain('4');
+    expect(overdue.map((m) => m.memberId)).not.toContain('2');
   });
 
   it('después del 10 la cuota impaga está en mora', () => {
     const overdue = getOverdueMembers([
-      { memberId: 'm', name: 'M', tier: 'socio_individual', outstandingBalance: 0, status: 'active', nextDueDate: '2026-10-10' },
+      {
+        memberId: 'm',
+        name: 'M',
+        tier: 'socio_individual',
+        outstandingBalance: 40000,
+        unpaidCapital: 40000,
+        status: 'active',
+        nextDueDate: '2026-10-10',
+      },
     ], new Date('2026-10-11T12:00:00'));
     expect(overdue).toHaveLength(1);
     expect(overdue[0].duesStatus).toBe('mora');
   });
 
   it('el día 10 todavía vence, no entra en mora', () => {
-    const member = { memberId: 'm', name: 'M', tier: 'socio_individual', outstandingBalance: 0, status: 'active', nextDueDate: '2026-10-10' };
+    const member = {
+      memberId: 'm',
+      name: 'M',
+      tier: 'socio_individual',
+      outstandingBalance: 40000,
+      unpaidCapital: 40000,
+      status: 'active',
+      nextDueDate: '2026-10-10',
+    };
     const today = new Date('2026-10-10T12:00:00');
     expect(getOverdueMembers([member], today)).toHaveLength(0);
     expect(getDueTodayMembers([member], today)[0]?.duesStatus).toBe('due');
     expect(getUpcomingDuesMembers([member], { today })).toHaveLength(0);
+  });
+
+  it('ficha en 0 con nextDue pasado no figura en mora ni vencido hoy', () => {
+    const member = {
+      memberId: 'z',
+      name: 'Z',
+      tier: 'socio_individual',
+      outstandingBalance: 0,
+      unpaidCapital: 0,
+      status: 'active',
+      nextDueDate: '2026-06-10',
+    };
+    const today = new Date('2026-10-11T12:00:00');
+    expect(getOverdueMembers([member], today)).toHaveLength(0);
+    expect(getDueTodayMembers([member], today)).toHaveLength(0);
   });
 
   it('el saldo de cuota del padrón cuenta como mora aunque no tenga vencimiento cargado', () => {
@@ -138,6 +171,24 @@ describe('dues classification', () => {
       outstandingBalance: 70000,
       unpaidCapital: 98000,
     })).toBe(70000);
+  });
+
+  it('período abierto con ficha 0 no queda oculto; unpaidCapital 0 no tapa deuda nueva', () => {
+    expect(socialDuesStoredBalance({
+      outstandingBalance: 0,
+      unpaidCapital: 0,
+      duesOpenPeriods: [{ dueOn: '2026-11-10', capital: 70000 }],
+    })).toBe(70000);
+    expect(socialDuesStoredBalance({
+      outstandingBalance: 70000,
+      unpaidCapital: 0,
+      duesOpenPeriods: [{ dueOn: '2026-11-10', capital: 70000 }],
+    })).toBe(70000);
+    expect(socialDuesStoredBalance({
+      outstandingBalance: -15000,
+      unpaidCapital: 0,
+      duesOpenPeriods: [{ dueOn: '2026-11-10', capital: 70000 }],
+    })).toBe(55000);
   });
 
   it('un alquiler en la cuenta no es mora de cuota', () => {
@@ -265,7 +316,13 @@ describe('dues classification', () => {
       outstandingBalance: 68250,
       nextDueDate: '2026-10-18',
     }], new Date('2026-10-25T12:00:00'))).toHaveLength(0);
-    expect(getDueTodayMembers([{ ...amet, nextDueDate: '2026-10-18' }], new Date('2026-10-18T12:00:00'))).toHaveLength(1);
+    // AMET no entra en mora; con saldo sí puede figurar como vencido el día 18.
+    expect(getDueTodayMembers([{
+      ...amet,
+      outstandingBalance: 68250,
+      unpaidCapital: 68250,
+      nextDueDate: '2026-10-18',
+    }], new Date('2026-10-18T12:00:00'))).toHaveLength(1);
     const charged = applyAutomaticDues([{ ...amet, nextDueDate: '2026-10-18' }], new Date('2026-10-19T12:00:00'))[0];
     expect(charged.outstandingBalance).toBe(68250);
     expect(afterCollectDues(charged, new Date('2026-10-19T12:00:00')).nextDueDate).toBe('2026-11-18');

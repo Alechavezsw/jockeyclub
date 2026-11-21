@@ -136,7 +136,8 @@ function memberDisplayName(member) {
 }
 
 function standingLabel(member, { todayIso, monthsBehind }) {
-  const balance = Number(member?.outstandingBalance) || 0;
+  // Misma cifra que mora / Consultar deuda (ficha + períodos abiertos).
+  const balance = socialDuesStoredBalance(member);
   if (monthsBehind <= 0 && balance <= 0) return 'Al día';
   if (monthsBehind >= 2) return 'En mora';
   const stages = duesNoticeStagesForDay(todayIso, duesDueDayForMember(member));
@@ -260,9 +261,9 @@ export function appMonthlyDebtForMember(member, { today = new Date(), entries = 
   if (!memberNumber) return null;
 
   const todayIso = asIsoDate(today);
-  // Ficha operativa manda. unpaidCapital LILA no reabre deuda si outstanding ≤ 0.
+  // Ficha + períodos abiertos. unpaidCapital=0 no oculta deuda nueva con open periods.
+  // outstanding ≤ 0 sin open periods → null (no deuda sintética por nextDue).
   const persisted = socialDuesStoredBalance(member);
-  const outstanding = money(Number(member?.outstandingBalance) || 0);
   const exempt = isDuesExemptMember(member);
   if (exempt) return null;
   const monthsBehind = monthsBehindOnDues({
@@ -272,13 +273,17 @@ export function appMonthlyDebtForMember(member, { today = new Date(), entries = 
     member,
   });
 
-  // outstanding ≤ 0 → sin deuda exigible. No inventar meses por nextDue, unpaidCapital
-  // ausente ni fee_ledger.pending. Las diferencias históricas van a conciliación.
-  if (outstanding <= EPS || persisted <= EPS) {
+  if (persisted <= EPS) {
     return null;
   }
 
-  const firstUnpaid = firstUnpaidDuesDate({
+  const openRows = Array.isArray(member?.duesOpenPeriods) ? member.duesOpenPeriods : [];
+  const firstOpenDue = openRows
+    .map((row) => String(row?.dueOn || '').slice(0, 10))
+    .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+    .sort()[0] || null;
+
+  const firstUnpaid = firstOpenDue || firstUnpaidDuesDate({
     lastPaymentDate: member.lastPaymentDate,
     nextDueDate: member.nextDueDate,
     today,

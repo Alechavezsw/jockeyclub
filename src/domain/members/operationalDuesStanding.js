@@ -15,8 +15,12 @@ import {
   appMonthlyDebtForMember,
   memberDuesStandingSummary,
 } from '../accounting/appMonthlyDebts.js';
-import { isDuesExemptMember, socialDuesStoredBalance } from './dues.js';
-import { isFamilyDependent } from './households.js';
+import {
+  isDuesExemptMember,
+  openDuesObligationCapital,
+  socialDuesStoredBalance,
+} from './dues.js';
+import { isFamilyDependent, memberNumberOf } from './households.js';
 
 const EPS = 0.009;
 
@@ -27,14 +31,16 @@ function asYm(value) {
   return '';
 }
 
-function openObligationCapital(member) {
-  const rows = Array.isArray(member?.duesOpenPeriods) ? member.duesOpenPeriods : [];
-  return money(rows.reduce((sum, row) => sum + (Number(row?.capital) || 0), 0));
+function ledgerLineMemberNumber(line) {
+  const raw = line?.memberNumber ?? line?.member_number ?? line?.memberId ?? line?.member_id;
+  if (raw == null || raw === '') return '';
+  return String(raw).replace(/\D/g, '') || String(raw).trim();
 }
 
 /**
  * Períodos del auxiliar con pendiente cuando la ficha no exige cobro.
  * No son deuda confirmada: requieren revisión de Tesorería.
+ * Filtra estrictamente por número de socio.
  */
 export function buildHistoricalReconciliation(member, {
   ledgerLines = [],
@@ -44,9 +50,16 @@ export function buildHistoricalReconciliation(member, {
   const ficha = money(Number(member?.outstandingBalance) || 0);
   const pays = Array.isArray(payments) ? payments : (member?.paymentHistory || []);
   const imps = Array.isArray(imputations) ? imputations : (member?.duesImputations || []);
-  const lines = (ledgerLines || []).length
+  const nro = memberNumberOf(member) || String(member?.memberNumber || '').replace(/\D/g, '');
+  const rawLines = (ledgerLines || []).length
     ? ledgerLines
     : (Array.isArray(member?.feeLedgerLines) ? member.feeLedgerLines : []);
+  const lines = (rawLines || []).filter((line) => {
+    const lineNro = ledgerLineMemberNumber(line);
+    if (!nro) return false;
+    if (!lineNro) return false;
+    return lineNro === nro;
+  });
 
   const periods = [];
   let pendingTotal = 0;
@@ -139,11 +152,12 @@ export function buildOperationalDuesStanding(member, {
 
   const outstanding = money(Number(member.outstandingBalance) || 0);
   const stored = socialDuesStoredBalance(member);
-  const openCap = openObligationCapital(member);
-  const creditBalance = outstanding < -EPS ? money(-outstanding) : 0;
+  const openCap = openDuesObligationCapital(member);
+  // Crédito visible solo si no hay obligación neta (stored ya netea openCap).
+  const creditBalance = stored <= EPS && outstanding < -EPS ? money(-outstanding) : 0;
 
-  // Ficha ≤ 0 y sin obligación abierta → no hay deuda exigible, aunque el ledger diga otra cosa.
-  if (stored <= EPS && openCap <= EPS) {
+  // Sin deuda neta (ficha ≤ 0 y openCap cubierto o ausente) → no exigible, aunque el ledger diga otra cosa.
+  if (stored <= EPS) {
     const kind = creditBalance > EPS ? 'credit' : 'clear';
     return {
       ...summary,
@@ -176,17 +190,47 @@ export function buildOperationalDuesStanding(member, {
     };
   }
 
+  // Obligación abierta o saldo positivo: deuda operativa (aunque outstanding haya quedado en 0).
   const debt = summary.debt || appMonthlyDebtForMember(member, { today, entries });
+  const debtCapital = money((Number(debt?.capital) || 0) + (Number(debt?.unallocated) || 0));
+  const capitalExigible = money(
+    debtCapital > EPS
+      ? debtCapital
+      : (Number(summary.capital) || stored || openCap || 0),
+  );
+  const interestExigible = money(Number(debt?.interest) || Number(summary.interest) || 0);
+  const totalExigible = money(
+    Number(debt?.totalDebt) > EPS
+      ? Number(debt.totalDebt)
+      : (Number(summary.totalDebt) > EPS
+        ? Number(summary.totalDebt)
+        : (capitalExigible + interestExigible)),
+  );
+
   return {
     ...summary,
-    operationalStatus: summary.standing || summary.title,
-    capitalExigible: money(Number(summary.capital) || 0),
-    interestExigible: money(Number(summary.interest) || 0),
-    totalExigible: money(Number(summary.totalDebt) || 0),
+    clear: false,
+    kind: 'debt',
+    standing: debt?.standing || summary.standing || 'Con deuda',
+    title: debt?.standing || summary.title || 'Con deuda',
+    hint: summary.hint || null,
+    totalDebt: totalExigible,
+    capital: capitalExigible,
+    interest: interestExigible,
+    unallocated: money(Number(debt?.unallocated) || Number(summary.unallocated) || 0),
+    credit: 0,
+    monthsBehind: Number(debt?.monthsBehind) || Number(summary.monthsBehind) || 0,
+    months: debt?.months || summary.months || [],
+    monthsPhrase: summary.monthsPhrase || '',
+    billing: true,
+    debt,
+    operationalStatus: debt?.standing || summary.standing || 'Con deuda',
+    capitalExigible,
+    interestExigible,
+    totalExigible,
     creditBalance: 0,
     historical,
-    seal: summary.standing || summary.title || 'Con deuda',
-    debt,
+    seal: debt?.standing || summary.standing || 'Con deuda',
   };
 }
 
