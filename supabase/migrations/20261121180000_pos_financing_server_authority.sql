@@ -98,6 +98,8 @@ declare
   v_active boolean;
   v_applied_percent numeric := null;
   v_applied_fixed numeric := null;
+  v_declared numeric;
+  v_parsed numeric;
 begin
   if auth.uid() is null then
     raise exception 'Tenés que estar logueado.';
@@ -189,16 +191,33 @@ begin
   -- Cupón = capital + financiación + mora (mora no genera tasa).
   v_voucher := round(v_base + v_financing + v_surcharge, 2);
 
-  v_receipt := nullif(p_payload->>'receiptVoucher', '')::numeric;
-  if v_receipt is null and nullif(p_payload->'receiptParse'->>'amount', '') is not null then
-    v_receipt := round((p_payload->'receiptParse'->>'amount')::numeric, 2);
+  -- B14: cupón declarado, monto del comprobante y total calculado — por separado.
+  v_declared := nullif(p_payload->>'receiptVoucher', '')::numeric;
+  if v_declared is null then
+    v_declared := nullif(p_payload->>'voucherAmount', '')::numeric;
   end if;
-  if v_receipt is not null and abs(v_receipt - v_voucher) > 0.01 then
+  v_parsed := nullif(p_payload->'receiptParse'->>'amount', '')::numeric;
+
+  if v_declared is not null and v_parsed is not null
+     and abs(v_declared - v_parsed) > 0.01 then
     raise exception
-      'El cupón del comprobante (%) no coincide con el total calculado del plan (%). Resolvé la diferencia antes de acreditar.',
-      to_char(v_receipt, 'FM999999990.00'),
+      'El cupón declarado (%) no coincide con el monto del comprobante (%).',
+      to_char(v_declared, 'FM999999990.00'),
+      to_char(v_parsed, 'FM999999990.00');
+  end if;
+  if v_declared is not null and abs(v_declared - v_voucher) > 0.01 then
+    raise exception
+      'El cupón declarado (%) no coincide con el total calculado del plan (%). Resolvé la diferencia antes de acreditar.',
+      to_char(v_declared, 'FM999999990.00'),
       to_char(v_voucher, 'FM999999990.00');
   end if;
+  if v_parsed is not null and abs(v_parsed - v_voucher) > 0.01 then
+    raise exception
+      'El cupón del comprobante (%) no coincide con el total calculado del plan (%). Resolvé la diferencia antes de acreditar.',
+      to_char(v_parsed, 'FM999999990.00'),
+      to_char(v_voucher, 'FM999999990.00');
+  end if;
+  v_receipt := coalesce(v_declared, v_parsed);
 
   if v_client is not null then
     if abs(coalesce(nullif(v_client->>'financingAmount', '')::numeric, -1) - v_financing) > 0.01
@@ -263,7 +282,9 @@ as $$
 $$;
 
 -- ---------------------------------------------------------------------------
--- 5) Publicar asiento de cuota idempotente por source_id
+-- 5) Publicar asiento de cuota — SOLO uso interno (B12)
+-- Requiere set_config('jockey.internal_cuotas_journal','1',true) en la misma txn.
+-- No ejecutable por authenticated/anon.
 -- ---------------------------------------------------------------------------
 create or replace function public.post_cuotas_journal_for_payment(
   p_payment_id uuid,
@@ -278,6 +299,7 @@ declare
   v_existing uuid;
   v_id uuid;
   v_entry public.journal_entries%rowtype;
+  v_payment public.member_payments%rowtype;
   v_lines jsonb;
   v_line jsonb;
   v_order int := 0;
@@ -286,11 +308,25 @@ declare
   v_account uuid;
   v_amt numeric;
 begin
-  if auth.uid() is null then
-    raise exception 'Tenés que estar logueado.';
+  -- B12: barrera interna — no basta con estar autenticado.
+  if coalesce(current_setting('jockey.internal_cuotas_journal', true), '') is distinct from '1' then
+    raise exception 'Operación contable reservada al cobro POS atómico.';
   end if;
   if p_payment_id is null then
     raise exception 'Falta el id del cobro para el asiento.';
+  end if;
+
+  -- B12: el asiento solo se vincula a un cobro real existente y no anulado.
+  select * into v_payment
+  from public.member_payments
+  where id = p_payment_id
+  for share;
+  if not found then
+    raise exception 'El cobro % no existe; no se publica asiento.', p_payment_id;
+  end if;
+  if coalesce(v_payment.meta->>'status', '') in ('void', 'voided')
+     or nullif(v_payment.meta->>'voidedAt', '') is not null then
+    raise exception 'El cobro % está anulado; no se publica asiento.', p_payment_id;
   end if;
 
   select id into v_existing
@@ -320,7 +356,7 @@ begin
     'draft',
     'cuotas',
     p_payment_id,
-    auth.uid()
+    coalesce(auth.uid(), v_payment.recorded_by)
   )
   returning id into v_id;
 
@@ -348,12 +384,17 @@ begin
     end if;
   end loop;
 
+  if v_order = 0 then
+    raise exception 'Asiento sin líneas; no se publica.';
+  end if;
   if abs(v_debit - v_credit) > 0.009 then
     raise exception 'Asiento desbalanceado: debe % ≠ haber %', v_debit, v_credit;
   end if;
 
   update public.journal_entries
-  set status = 'posted', posted_at = now(), posted_by = auth.uid()
+  set status = 'posted',
+      posted_at = now(),
+      posted_by = coalesce(auth.uid(), v_payment.recorded_by)
   where id = v_id;
 
   select * into v_entry from public.journal_entries where id = v_id;
@@ -364,8 +405,8 @@ begin
 
   begin
     insert into public.audit_logs (actor_id, action, entity_type, entity_id, payload)
-    values (auth.uid(), 'create', 'journal_entries', v_id,
-      jsonb_build_object('source', 'cuotas', 'paymentId', p_payment_id));
+    values (coalesce(auth.uid(), v_payment.recorded_by), 'create', 'journal_entries', v_id,
+      jsonb_build_object('source', 'cuotas', 'paymentId', p_payment_id, 'internal', true));
   exception when others then
     null;
   end;
@@ -387,11 +428,13 @@ exception
 end;
 $$;
 
-revoke all on function public.post_cuotas_journal_for_payment(uuid, jsonb) from public, anon;
-grant execute on function public.post_cuotas_journal_for_payment(uuid, jsonb) to authenticated, service_role;
+revoke all on function public.post_cuotas_journal_for_payment(uuid, jsonb) from public, anon, authenticated;
+-- Solo el dueño SECURITY DEFINER (y service_role operativo) pueden invocarla.
+grant execute on function public.post_cuotas_journal_for_payment(uuid, jsonb) to service_role;
 
 -- ---------------------------------------------------------------------------
--- 6) Cobro POS atómico: autorizar → registrar_cobro → asiento (misma txn)
+-- 6) Cobro POS atómico (B13/B14):
+--    registrar_cobro → bases desde imputaciones → authorize → asiento servidor
 -- ---------------------------------------------------------------------------
 create or replace function public.registrar_cobro_pos(
   p_member_id uuid,
@@ -422,10 +465,18 @@ declare
   v_split jsonb;
   v_splits jsonb;
   v_auth_splits jsonb := '[]'::jsonb;
-  v_i int := 0;
+  v_imp_capital numeric := 0;
+  v_imp_surcharge numeric := 0;
+  v_claimed_base numeric;
+  v_claimed_surcharge numeric;
+  v_split_sum numeric := 0;
+  v_pos_cash numeric := 0;
 begin
   if auth.uid() is null then
     raise exception 'Tenés que estar logueado.';
+  end if;
+  if not (public.has_capability('payments.collect') or public.has_capability('members.write')) then
+    raise exception 'Sin permiso para cobrar POS.';
   end if;
 
   v_method := lower(nullif(btrim(coalesce(v_periodos->>'method', '')), ''));
@@ -443,38 +494,106 @@ begin
     raise exception 'registrar_cobro_pos solo admite cobros POS / mixtos con POS.';
   end if;
 
-  -- Autorizar plan(es) desde catálogo; reescribir meta (no confiar en el cliente).
+  -- B13: rechazar líneas contables del navegador (aunque vengan balanceadas).
+  if jsonb_typeof(p_journal->'lines') = 'array'
+     and jsonb_array_length(p_journal->'lines') > 0 then
+    raise exception 'Las líneas del asiento no se aceptan desde el cliente.';
+  end if;
+
+  -- Strip client financing meta before cobro; se reescribe tras imputar.
+  v_periodos := v_periodos - 'cardFinancing' - 'paymentPlanSnapshot';
+  if v_method = 'mixto' then
+    v_splits := coalesce(v_periodos->'paymentSplits', '[]'::jsonb);
+    select coalesce(sum((s->>'amount')::numeric), 0)
+      into v_split_sum
+    from jsonb_array_elements(v_splits) s;
+    if abs(round(v_split_sum, 2) - round(p_importe, 2)) > 0.01 then
+      raise exception 'Los tramos del pago mixto (%) no coinciden con el cobro (%).',
+        to_char(v_split_sum, 'FM999999990.00'),
+        to_char(p_importe, 'FM999999990.00');
+    end if;
+  end if;
+
+  -- 1) Cobro + imputaciones + saldo (misma txn; si falla el asiento, rollback).
+  v_cobro := public.registrar_cobro(p_member_id, p_importe, v_periodos, p_idempotency_key);
+  v_payment_id := (v_cobro->'payment'->>'id')::uuid;
+  if v_payment_id is null then
+    raise exception 'El cobro POS no devolvió id de pago.';
+  end if;
+
+  -- 2) B14: bases desde imputaciones efectivas (no del navegador).
+  select coalesce(sum(capital), 0), coalesce(sum(surcharge), 0)
+    into v_imp_capital, v_imp_surcharge
+  from public.dues_imputations
+  where payment_id = v_payment_id;
+
+  if v_imp_capital <= 0 and v_imp_surcharge <= 0 then
+    -- Fallback: meta del cobro ya persistido (quota/surcharge del schedule servidor).
+    v_imp_capital := round(coalesce(nullif(v_cobro->'payment'->'meta'->>'quota', '')::numeric, p_importe), 2);
+    v_imp_surcharge := round(coalesce(nullif(v_cobro->'payment'->'meta'->>'surcharge', '')::numeric, 0), 2);
+  end if;
+
+  -- Solo confronta campos que el cliente envió explícitamente (manipulación).
+  if nullif(p_periodos->>'financingBase', '') is not null
+     or nullif(p_periodos->>'quota', '') is not null then
+    v_claimed_base := round(coalesce(
+      nullif(p_periodos->>'financingBase', '')::numeric,
+      nullif(p_periodos->>'quota', '')::numeric
+    ), 2);
+    if abs(v_claimed_base - v_imp_capital) > 0.01 then
+      raise exception
+        'La base financiable enviada (%) no coincide con el capital imputado (%).',
+        to_char(v_claimed_base, 'FM999999990.00'),
+        to_char(v_imp_capital, 'FM999999990.00');
+    end if;
+  end if;
+  if nullif(p_periodos->>'surchargeAmount', '') is not null
+     or nullif(p_periodos->>'surcharge', '') is not null then
+    v_claimed_surcharge := round(coalesce(
+      nullif(p_periodos->>'surchargeAmount', '')::numeric,
+      nullif(p_periodos->>'surcharge', '')::numeric,
+      0
+    ), 2);
+    if abs(v_claimed_surcharge - v_imp_surcharge) > 0.01 then
+      raise exception
+        'La mora enviada (%) no coincide con la mora imputada (%).',
+        to_char(v_claimed_surcharge, 'FM999999990.00'),
+        to_char(v_imp_surcharge, 'FM999999990.00');
+    end if;
+  end if;
+
+  -- 3) Autorizar plan(es) con bases del servidor.
   if v_method in ('tarjeta', 'pos') then
     v_auth := public.authorize_pos_card_financing(jsonb_build_object(
       'paymentPlanId', v_periodos->>'paymentPlanId',
-      'financingBase', coalesce(v_periodos->>'financingBase', v_periodos->>'quota', p_importe::text),
-      'surchargeAmount', coalesce(v_periodos->>'surchargeAmount', v_periodos->>'surcharge', '0'),
+      'financingBase', v_imp_capital,
+      'surchargeAmount', v_imp_surcharge,
       'percent', v_periodos->>'financingPercent',
       'fixedAmount', v_periodos->>'financingFixed',
       'receiptVoucher', v_periodos->>'voucherAmount',
       'receiptParse', v_periodos->'receiptParse',
-      'clientCardFinancing', v_periodos->'cardFinancing',
+      'clientCardFinancing', p_periodos->'cardFinancing',
       'authReference', v_periodos->'receiptParse'->>'reference'
     ));
-    v_periodos := v_periodos
-      || jsonb_build_object(
-        'cardFinancing', v_auth,
-        'voucherAmount', v_auth->>'voucherTotal',
-        'paymentPlanSnapshot', v_auth->'paymentPlanSnapshot',
-        'paymentPlanLabel', coalesce(v_periodos->>'paymentPlanLabel', v_auth->>'planLabel')
-      );
     v_financing := coalesce((v_auth->>'financingAmount')::numeric, 0);
     v_mode := coalesce(v_auth->>'mode', 'issuer_keeps');
+    v_periodos := v_periodos || jsonb_build_object(
+      'cardFinancing', v_auth,
+      'voucherAmount', v_auth->>'voucherTotal',
+      'paymentPlanSnapshot', v_auth->'paymentPlanSnapshot',
+      'paymentPlanLabel', coalesce(v_periodos->>'paymentPlanLabel', v_auth->>'planLabel')
+    );
   else
     v_splits := coalesce(v_periodos->'paymentSplits', '[]'::jsonb);
     for v_split in select value from jsonb_array_elements(v_splits)
     loop
-      v_i := v_i + 1;
       if lower(coalesce(v_split->>'method', '')) in ('tarjeta', 'pos') then
+        v_pos_cash := round(coalesce(nullif(v_split->>'amount', '')::numeric, 0), 2);
+        -- Tramo POS: financiar el efectivo del tramo; mora social ya está en imputaciones globales.
         v_auth := public.authorize_pos_card_financing(jsonb_build_object(
           'paymentPlanId', v_split->>'paymentPlanId',
-          'financingBase', coalesce(v_split->>'financingBase', v_split->>'amount'),
-          'surchargeAmount', coalesce(v_split->>'surchargeAmount', '0'),
+          'financingBase', v_pos_cash,
+          'surchargeAmount', 0,
           'percent', v_split->>'financingPercent',
           'fixedAmount', v_split->>'financingFixed',
           'receiptVoucher', coalesce(v_split->>'voucherAmount', v_split->'receiptParse'->>'amount'),
@@ -494,58 +613,107 @@ begin
       v_auth_splits := v_auth_splits || jsonb_build_array(v_split);
     end loop;
     v_periodos := v_periodos || jsonb_build_object('paymentSplits', v_auth_splits);
+    v_auth := coalesce(v_periodos->'cardFinancing', v_auth);
   end if;
 
-  -- Cobro + imputaciones + saldo (misma transacción).
-  v_cobro := public.registrar_cobro(p_member_id, p_importe, v_periodos, p_idempotency_key);
-  v_payment_id := (v_cobro->'payment'->>'id')::uuid;
-  if v_payment_id is null then
-    raise exception 'El cobro POS no devolvió id de pago.';
-  end if;
+  -- Persistir snapshot autorizado en el cobro.
+  update public.member_payments
+  set meta = coalesce(meta, '{}'::jsonb) || jsonb_strip_nulls(jsonb_build_object(
+    'cardFinancing', v_periodos->'cardFinancing',
+    'voucherAmount', nullif(v_periodos->>'voucherAmount', '')::numeric,
+    'paymentPlanSnapshot', v_periodos->'paymentPlanSnapshot',
+    'paymentSplits', v_periodos->'paymentSplits',
+    'authorizedByServer', true
+  ))
+  where id = v_payment_id;
 
-  -- Asiento: montos desde valores autorizados (no desde el navegador).
+  -- 4) B13: asiento reconstruido en servidor a partir del cobro real.
   v_cash := round(p_importe, 2);
   v_discount := round(coalesce(nullif(v_periodos->>'discount', '')::numeric, 0), 2);
   v_card_account := coalesce(nullif(v_periodos->>'journalAccount', ''), 'Tarjetas a cobrar');
 
-  if jsonb_typeof(p_journal->'lines') = 'array' and jsonb_array_length(p_journal->'lines') > 0 then
-    -- Usa líneas del cliente solo como plantilla de cuentas; remonta importes si vienen type/amount.
-    v_lines := p_journal->'lines';
-  else
-    if v_mode = 'club_keeps' and v_financing > 0.009 then
-      v_lines := jsonb_build_array(
-        jsonb_build_object('account', v_card_account, 'type', 'debit', 'amount', round(v_cash + v_financing, 2)),
-        case when v_discount > 0.009 then
-          jsonb_build_object('account', 'Descuentos sobre cuotas', 'type', 'debit', 'amount', v_discount)
-        else null end,
-        jsonb_build_object('account', 'Cuotas Sociales', 'type', 'credit', 'amount', round(v_cash + v_discount, 2)),
-        jsonb_build_object('account', 'Ingresos por financiación tarjetas', 'type', 'credit', 'amount', v_financing)
-      );
-    else
-      v_lines := jsonb_build_array(
-        jsonb_build_object('account', v_card_account, 'type', 'debit', 'amount', v_cash),
-        case when v_discount > 0.009 then
-          jsonb_build_object('account', 'Descuentos sobre cuotas', 'type', 'debit', 'amount', v_discount)
-        else null end,
-        jsonb_build_object('account', 'Cuotas Sociales', 'type', 'credit', 'amount', round(v_cash + v_discount, 2))
-      );
+  if v_method = 'mixto' then
+    -- Débitos por tramo + crédito social + financiación A si aplica.
+    v_lines := '[]'::jsonb;
+    for v_split in select value from jsonb_array_elements(coalesce(v_periodos->'paymentSplits', '[]'::jsonb))
+    loop
+      v_lines := v_lines || jsonb_build_array(jsonb_build_object(
+        'account', coalesce(nullif(v_split->>'journalAccount', ''),
+          case when lower(coalesce(v_split->>'method', '')) in ('tarjeta', 'pos')
+            then 'Tarjetas a cobrar'
+            when lower(coalesce(v_split->>'method', '')) = 'transferencia'
+            then coalesce(nullif(v_split->>'bankName', ''), 'Banco')
+            else 'Caja General'
+          end),
+        'type', 'debit',
+        'amount', round(coalesce(nullif(v_split->>'amount', '')::numeric, 0)
+          + case
+              when lower(coalesce(v_split->>'method', '')) in ('tarjeta', 'pos')
+                   and coalesce(v_split->'cardFinancing'->>'mode', '') = 'club_keeps'
+              then coalesce((v_split->'cardFinancing'->>'financingAmount')::numeric, 0)
+              else 0
+            end, 2)
+      ));
+    end loop;
+    if v_discount > 0.009 then
+      v_lines := v_lines || jsonb_build_array(jsonb_build_object(
+        'account', 'Descuentos sobre cuotas', 'type', 'debit', 'amount', v_discount
+      ));
     end if;
-    -- Quitar nulls del array
-    select coalesce(jsonb_agg(value), '[]'::jsonb)
-      into v_lines
-    from jsonb_array_elements(v_lines) as t(value)
-    where value is not null and value <> 'null'::jsonb;
+    v_lines := v_lines || jsonb_build_array(jsonb_build_object(
+      'account', 'Cuotas Sociales', 'type', 'credit', 'amount', round(v_cash + v_discount, 2)
+    ));
+    if v_mode = 'club_keeps' and v_financing > 0.009 then
+      v_lines := v_lines || jsonb_build_array(jsonb_build_object(
+        'account', 'Ingresos por financiación tarjetas', 'type', 'credit', 'amount', v_financing
+      ));
+    end if;
+  elsif v_mode = 'club_keeps' and v_financing > 0.009 then
+    v_lines := jsonb_build_array(
+      jsonb_build_object('account', v_card_account, 'type', 'debit', 'amount', round(v_cash + v_financing, 2))
+    );
+    if v_discount > 0.009 then
+      v_lines := v_lines || jsonb_build_array(jsonb_build_object(
+        'account', 'Descuentos sobre cuotas', 'type', 'debit', 'amount', v_discount
+      ));
+    end if;
+    v_lines := v_lines || jsonb_build_array(
+      jsonb_build_object('account', 'Cuotas Sociales', 'type', 'credit', 'amount', round(v_cash + v_discount, 2)),
+      jsonb_build_object('account', 'Ingresos por financiación tarjetas', 'type', 'credit', 'amount', v_financing)
+    );
+  else
+    v_lines := jsonb_build_array(
+      jsonb_build_object('account', v_card_account, 'type', 'debit', 'amount', v_cash)
+    );
+    if v_discount > 0.009 then
+      v_lines := v_lines || jsonb_build_array(jsonb_build_object(
+        'account', 'Descuentos sobre cuotas', 'type', 'debit', 'amount', v_discount
+      ));
+    end if;
+    v_lines := v_lines || jsonb_build_array(jsonb_build_object(
+      'account', 'Cuotas Sociales', 'type', 'credit', 'amount', round(v_cash + v_discount, 2)
+    ));
   end if;
+
+  -- Habilitar publicación interna del asiento (B12).
+  perform set_config('jockey.internal_cuotas_journal', '1', true);
 
   v_journal := public.post_cuotas_journal_for_payment(
     v_payment_id,
-    coalesce(p_journal, '{}'::jsonb) || jsonb_build_object(
+    jsonb_strip_nulls(jsonb_build_object(
       'lines', v_lines,
       'concept', coalesce(p_journal->>'concept', p_journal->>'description', v_periodos->>'concept', 'Cobro cuota social'),
       'date', coalesce(p_journal->>'date', left(coalesce(v_periodos->>'paidAt', ''), 10)),
+      'fiscalPeriodId', p_journal->>'fiscalPeriodId',
+      'reference', p_journal->>'reference',
       'sourceModule', 'cuotas',
       'sourceId', v_payment_id
-    )
+    ))
+  );
+
+  -- Refrescar payment en respuesta con meta autorizada.
+  v_cobro := v_cobro || jsonb_build_object(
+    'payment', to_jsonb((select p from public.member_payments p where p.id = v_payment_id))
   );
 
   return v_cobro || jsonb_build_object(
@@ -560,4 +728,4 @@ revoke all on function public.registrar_cobro_pos(uuid, numeric, jsonb, text, js
 grant execute on function public.registrar_cobro_pos(uuid, numeric, jsonb, text, jsonb) to authenticated, service_role;
 
 comment on function public.registrar_cobro_pos(uuid, numeric, jsonb, text, jsonb) is
-  'Cobro POS atómico: autoriza plan/tasa en servidor, registra cobro e imputaciones y publica el asiento con source_id único.';
+  'Cobro POS atómico B11–B14: imputaciones → authorize servidor → asiento interno; sin lines del cliente ni fallback.';

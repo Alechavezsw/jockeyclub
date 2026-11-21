@@ -54,7 +54,7 @@ as $$
 $$;
 
 comment on function public.cobro_periodos_pos_meta(jsonb) is
-  'Meta POS (voucher/cardFinancing/snapshot) para merge en registrar_cobro. Idempotente y sin side-effects.';
+  'Meta POS para merge en registrar_cobro. La autoridad de plan/tasa/asiento vive en registrar_cobro_pos (20261121180000); este helper solo transporta meta ya autorizada.';
 
 revoke all on function public.cobro_periodos_pos_meta(jsonb) from public;
 grant execute on function public.cobro_periodos_pos_meta(jsonb) to authenticated, service_role;

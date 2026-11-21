@@ -2262,54 +2262,60 @@ export async function commitDuesCollection(member, payment, { journalEntry = nul
   const usePosAtomic = duesCollectionNeedsPosAtomicCommit(payment);
   let saved;
   let atomicJournal = null;
+  const posUnavailableError = (cause) => {
+    const err = new Error(
+      'El cobro POS financiado no está disponible. Contactá al administrador',
+    );
+    err.code = 'POS_RPC_MISSING';
+    err.cause = cause;
+    return err;
+  };
   const runClassic = async (periodsPayload) => registrarCobro({
     memberId: memberDbId,
     amount,
     periods: periodsPayload,
     idempotencyKey: key,
   });
-  const runPos = async (periodsPayload) => registrarCobroPos({
-    memberId: memberDbId,
-    amount,
-    periods: periodsPayload,
-    idempotencyKey: key,
-    journal: journalEntry
-      ? {
-        concept: journalEntry.concept || journalEntry.description || null,
-        date: journalEntry.date || null,
-        fiscalPeriodId: journalEntry.fiscalPeriodId || null,
-        lines: journalEntry.lines || null,
-        reference: journalEntry.reference || null,
-      }
-      : null,
-  });
+  // B11/B13: POS solo vía RPC atómica. Sin degradación a registrar_cobro.
+  // El servidor reconstruye el asiento; no se envían líneas contables del navegador.
+  const runPos = async (periodsPayload) => {
+    try {
+      return await registrarCobroPos({
+        memberId: memberDbId,
+        amount,
+        periods: periodsPayload,
+        idempotencyKey: key,
+        journal: journalEntry
+          ? {
+            concept: journalEntry.concept || journalEntry.description || null,
+            date: journalEntry.date || null,
+            fiscalPeriodId: journalEntry.fiscalPeriodId || null,
+            reference: journalEntry.reference || null,
+          }
+          : null,
+      });
+    } catch (posErr) {
+      if (posErr?.code === 'POS_RPC_MISSING') throw posUnavailableError(posErr);
+      throw posErr;
+    }
+  };
   try {
     if (usePosAtomic) {
-      try {
-        saved = await runPos(periods);
-        atomicJournal = saved.journal || null;
-      } catch (posErr) {
-        // Bases sin migración B8/B9: degradar al flujo clásico (no atómico).
-        if (posErr?.code !== 'POS_RPC_MISSING') throw posErr;
-        saved = await runClassic(periods);
-      }
+      saved = await runPos(periods);
+      atomicJournal = saved.journal || null;
     } else {
       saved = await runClassic(periods);
     }
   } catch (err) {
+    if (err?.code === 'POS_RPC_MISSING') throw err;
     // Bases viejas todavía pedían marcar adelanto a mano; reintentamos en silencio.
     // Misma clave: si el primer intento no insertó, no se duplica el cobro.
     const msg = String(err?.message || err || '');
     if (!/supera la deuda|marcarlo como adelanto/i.test(msg) || periods.adelanto) throw err;
     const retryPeriods = { ...periods, adelanto: true };
     if (usePosAtomic) {
-      try {
-        saved = await runPos(retryPeriods);
-        atomicJournal = saved.journal || null;
-      } catch (posErr) {
-        if (posErr?.code !== 'POS_RPC_MISSING') throw posErr;
-        saved = await runClassic(retryPeriods);
-      }
+      saved = await runPos(retryPeriods);
+      atomicJournal = saved.journal || null;
     } else {
       saved = await runClassic(retryPeriods);
     }

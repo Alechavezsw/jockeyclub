@@ -344,13 +344,37 @@ export function authorizePosCardFinancing({
     fixedAmount: useFixed,
   });
 
-  const voucherFromReceipt = receiptVoucher != null
-    ? receiptVoucher
-    : (receiptParse?.amount != null ? Number(receiptParse.amount) : null);
-  assertPosVoucherMatchesComputed({
-    receiptVoucher: voucherFromReceipt,
-    computedVoucher: computed.voucherTotal,
-  });
+  // B14: cupón declarado, monto parseado del comprobante y total calculado — por separado.
+  const declared = receiptVoucher != null && receiptVoucher !== ''
+    ? money(receiptVoucher)
+    : null;
+  const parsed = receiptParse?.amount != null && receiptParse.amount !== ''
+    ? money(receiptParse.amount)
+    : null;
+  if (
+    declared != null
+    && parsed != null
+    && Math.abs(declared - parsed) > POS_VOUCHER_TOLERANCE
+  ) {
+    const err = new Error(
+      `El cupón declarado (${declared.toLocaleString('es-AR')}) no coincide con el monto del comprobante (${parsed.toLocaleString('es-AR')}).`,
+    );
+    err.code = 'POS_VOUCHER_MISMATCH';
+    throw err;
+  }
+  if (declared != null) {
+    assertPosVoucherMatchesComputed({
+      receiptVoucher: declared,
+      computedVoucher: computed.voucherTotal,
+    });
+  }
+  if (parsed != null) {
+    assertPosVoucherMatchesComputed({
+      receiptVoucher: parsed,
+      computedVoucher: computed.voucherTotal,
+    });
+  }
+  const voucherFromReceipt = declared != null ? declared : parsed;
 
   const meta = buildCardFinancingMeta(computed, {
     authReference: authReference || receiptParse?.reference || null,
