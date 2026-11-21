@@ -1631,3 +1631,72 @@ export async function registrarCobro({ memberId, amount, periods, idempotencyKey
     imputations,
   };
 }
+
+/**
+ * Cobro POS atómico en servidor: autoriza plan/tasa, registra cobro y publica asiento.
+ * Si la RPC aún no existe en la base, el caller debe degradar al flujo clásico.
+ */
+export async function registrarCobroPos({
+  memberId,
+  amount,
+  periods,
+  idempotencyKey,
+  journal = null,
+}) {
+  const { data, error } = await sb().rpc('registrar_cobro_pos', {
+    p_member_id: memberId,
+    p_importe: Number(amount) || 0,
+    p_periodos: periods && typeof periods === 'object' ? periods : {},
+    p_idempotency_key: String(idempotencyKey || ''),
+    p_journal: journal && typeof journal === 'object' ? journal : null,
+  });
+  if (error) {
+    const code = String(error.code || '');
+    const msg = String(error.message || '');
+    if (code === 'PGRST202' || code === '42883' || /registrar_cobro_pos/i.test(msg)) {
+      const err = new Error(msg || 'RPC registrar_cobro_pos no disponible');
+      err.code = 'POS_RPC_MISSING';
+      throw err;
+    }
+    throw new Error(msg || 'No se pudo registrar el cobro POS');
+  }
+  const paymentRow = data?.payment;
+  if (!paymentRow?.id) {
+    throw new Error('No se pudo registrar el cobro POS');
+  }
+  const balance = Number(data.outstandingBalance);
+  if (!Number.isFinite(balance)) {
+    throw new Error('El cobro POS no devolvió el saldo.');
+  }
+  const imputations = Array.isArray(data.imputations) ? data.imputations : [];
+  return {
+    payment: {
+      ...M.paymentFromRow(paymentRow),
+      imputations,
+      cardFinancing: data.cardFinancing || M.paymentFromRow(paymentRow).cardFinancing || null,
+    },
+    outstandingBalance: balance,
+    nextDueDate: data.nextDueDate ? String(data.nextDueDate).slice(0, 10) : null,
+    idempotent: Boolean(data.idempotent),
+    imputations,
+    journal: data.journal || null,
+    authorized: data.authorized === true,
+  };
+}
+
+/** Autorización de financiación POS en servidor (catálogo app_settings). */
+export async function authorizePosCardFinancingServer(payload = {}) {
+  const { data, error } = await sb().rpc('authorize_pos_card_financing', {
+    p_payload: payload && typeof payload === 'object' ? payload : {},
+  });
+  if (error) {
+    const code = String(error.code || '');
+    if (code === 'PGRST202' || code === '42883') {
+      const err = new Error(error.message || 'RPC authorize_pos_card_financing no disponible');
+      err.code = 'POS_AUTH_RPC_MISSING';
+      throw err;
+    }
+    throw new Error(error.message || 'No se pudo autorizar la financiación POS');
+  }
+  return data;
+}

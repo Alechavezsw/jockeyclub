@@ -93,19 +93,32 @@ export function posFinancingPortalSummary(payment) {
 }
 
 /**
- * Calcula financiación sobre el capital social cobrado por POS (sin mora).
+ * Calcula financiación sobre la base de capital (sin mora, sin descuento).
  * 1 cuota → financiación 0.
  * NO interpreta automáticamente la diferencia del comprobante como interés (B2).
+ * B10: la tasa nunca se aplica sobre mora u otros cargos.
+ *
+ * @param {number} [financingBase] capital financiable (preferido)
+ * @param {number} [socialAmount] alias legacy de financingBase
+ * @param {number} [surchargeAmount] mora social (suma al cupón, no se financia)
  */
 export function computePosFinancing({
   socialAmount,
+  financingBase = null,
+  surchargeAmount = 0,
   plan,
   percent = null,
   fixedAmount = null,
 } = {}) {
-  const base = money(socialAmount);
+  const base = money(financingBase != null ? financingBase : socialAmount);
+  const surcharge = money(surchargeAmount);
   if (!(base >= 0) || !Number.isFinite(base)) {
     const err = new Error('Importe social POS inválido.');
+    err.code = 'POS_FINANCING_INVALID';
+    throw err;
+  }
+  if (surcharge < 0 || !Number.isFinite(surcharge)) {
+    const err = new Error('Mora social inválida para el cupón POS.');
     err.code = 'POS_FINANCING_INVALID';
     throw err;
   }
@@ -154,7 +167,8 @@ export function computePosFinancing({
     financingAmount = money(base * (appliedPercent / 100));
   }
 
-  const voucherTotal = money(base + financingAmount);
+  // Cupón = capital financiable + financiación + mora (la mora no genera interés POS).
+  const voucherTotal = money(base + financingAmount + surcharge);
   const installmentAmount = installments > 0 ? money(voucherTotal / installments) : voucherTotal;
   const installmentAmounts = [];
   let allocated = 0;
@@ -169,6 +183,8 @@ export function computePosFinancing({
 
   return {
     base,
+    financingBase: base,
+    surchargeAmount: surcharge,
     financingAmount,
     voucherTotal,
     installmentAmount,
@@ -216,6 +232,8 @@ export function buildCardFinancingMeta(computed, extras = {}) {
     percent: computed.percent,
     fixedAmount: computed.fixedAmount,
     baseAmount: computed.base,
+    financingBase: computed.financingBase ?? computed.base,
+    surchargeAmount: computed.surchargeAmount || 0,
     financingAmount: computed.financingAmount,
     voucherTotal: computed.voucherTotal,
     installments: computed.installments,
@@ -227,6 +245,8 @@ export function buildCardFinancingMeta(computed, extras = {}) {
     authReference: extras.authReference || null,
     operatorUserId: extras.operatorUserId || null,
     receiptVoucher: extras.receiptVoucher != null ? money(extras.receiptVoucher) : null,
+    authorizedAt: extras.authorizedAt || new Date().toISOString(),
+    authorizedByServer: extras.authorizedByServer === true,
     paymentPlanSnapshot: extras.paymentPlanSnapshot || (computed.planId
       ? paymentPlanSnapshot({
         id: computed.planId,
@@ -248,6 +268,8 @@ export function buildCardFinancingMeta(computed, extras = {}) {
  */
 export function authorizePosCardFinancing({
   socialAmount,
+  financingBase = null,
+  surchargeAmount = 0,
   plans = [],
   paymentPlanId = null,
   plan = null,
@@ -261,6 +283,7 @@ export function authorizePosCardFinancing({
   dayISO = null,
   authReference = null,
   operatorUserId = null,
+  authorizedByServer = false,
 } = {}) {
   const planId = paymentPlanId || plan?.id || clientCardFinancing?.planId || null;
   const catalogPlan = plan
@@ -314,6 +337,8 @@ export function authorizePosCardFinancing({
 
   const computed = computePosFinancing({
     socialAmount,
+    financingBase: financingBase != null ? financingBase : socialAmount,
+    surchargeAmount,
     plan: normalized,
     percent: usePercent,
     fixedAmount: useFixed,
@@ -332,6 +357,7 @@ export function authorizePosCardFinancing({
     operatorUserId,
     receiptVoucher: voucherFromReceipt,
     paymentPlanSnapshot: paymentPlanSnapshot(normalized),
+    authorizedByServer: Boolean(authorizedByServer),
   });
 
   // Si el cliente mandó un cardFinancing, debe coincidir con lo reconstruido.
@@ -445,10 +471,27 @@ export function resolvePosVoucherAmount(socialAmount, cardFinancing, fallbackVou
   return social > 0.009 ? social : null;
 }
 
+/** True si el plan trae financiación predeterminada (aunque el cliente no mande %). */
+export function planHasDefaultPosFinancing(plan) {
+  if (!plan) return false;
+  const normalized = normalizePaymentPlan(plan);
+  if ((normalized.installments || 1) <= 1) return false;
+  if (normalized.financingPercent != null && Number(normalized.financingPercent) > 0) return true;
+  if (normalized.financingFixed != null && Number(normalized.financingFixed) > 0) return true;
+  try {
+    const probe = computePosFinancing({ financingBase: 1000, plan: normalized });
+    return probe.financingAmount > 0.009;
+  } catch {
+    return false;
+  }
+}
+
 /** Abono tenis no soporta financiación POS en este núcleo. */
 export function assertTennisPosFinancingAllowed({
   method,
   paymentPlanId = null,
+  plans = [],
+  plan = null,
   cardFinancing = null,
   paymentSplits = null,
 } = {}) {
@@ -458,28 +501,39 @@ export function assertTennisPosFinancingAllowed({
     if (Number(row?.cardFinancing?.financingAmount) > 0.009) return true;
     return false;
   };
+  const reject = (msg) => {
+    const err = new Error(msg);
+    err.code = 'TENNIS_POS_FINANCING_UNSUPPORTED';
+    err.unsupported = true;
+    throw err;
+  };
   const isPos = String(method || '').toLowerCase() === 'tarjeta'
     || String(method || '').toLowerCase() === 'pos'
     || String(method || '').toLowerCase() === 'mixto';
   if (!isPos && !Array.isArray(paymentSplits)) return;
-  if (hasFin(cardFinancing) || (paymentPlanId && hasFin(cardFinancing))) {
-    const err = new Error(
+
+  const resolvedPlan = plan
+    || findPaymentPlan(plans, paymentPlanId)
+    || null;
+  if (planHasDefaultPosFinancing(resolvedPlan)) {
+    reject(
+      'El abono tenis no admite planes POS con financiación predeterminada. Usá un plan al contado (1 cuota).',
+    );
+  }
+  if (hasFin(cardFinancing)) {
+    reject(
       'El abono tenis no admite financiación POS. Registrá el POS de tenis al contado (sin interés) o cobrá la cuota social por separado.',
     );
-    err.code = 'TENNIS_POS_FINANCING_UNSUPPORTED';
-    err.unsupported = true;
-    throw err;
   }
   if (Array.isArray(paymentSplits)) {
     for (const row of paymentSplits) {
       const m = String(row?.method || '').toLowerCase();
-      if ((m === 'tarjeta' || m === 'pos') && hasFin(row.cardFinancing || row)) {
-        const err = new Error(
-          'El abono tenis no admite financiación POS en el tramo de tarjeta.',
-        );
-        err.code = 'TENNIS_POS_FINANCING_UNSUPPORTED';
-        err.unsupported = true;
-        throw err;
+      if (m !== 'tarjeta' && m !== 'pos') continue;
+      const splitPlan = row.paymentPlan
+        || findPaymentPlan(plans, row.paymentPlanId)
+        || null;
+      if (planHasDefaultPosFinancing(splitPlan) || hasFin(row.cardFinancing || row)) {
+        reject('El abono tenis no admite financiación POS en el tramo de tarjeta.');
       }
     }
   }

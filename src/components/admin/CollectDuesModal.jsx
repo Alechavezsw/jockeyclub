@@ -639,14 +639,19 @@ export default function CollectDuesModal({
   const selectedPlan = plans.find((row) => row.id === planId) || null;
   const posFinancingPreview = useMemo(() => {
     if (!isCardPosDuesMethod(method) || !selectedPlan) return null;
+    // B10: tasa solo sobre capital social; mora viaja aparte en el cupón.
+    const capitalBase = money(split.quota || 0);
+    const surchargePart = money(split.surcharge || 0);
     return computePosFinancing({
-      socialAmount: cash,
+      socialAmount: capitalBase,
+      financingBase: capitalBase,
+      surchargeAmount: surchargePart,
       plan: selectedPlan,
       percent: financingPercent === '' ? null : financingPercent,
       fixedAmount: financingFixed === '' ? null : financingFixed,
       voucherAmount: receiptParse?.amount,
     });
-  }, [method, selectedPlan, cash, financingPercent, financingFixed, receiptParse?.amount]);
+  }, [method, selectedPlan, split.quota, split.surcharge, financingPercent, financingFixed, receiptParse?.amount]);
 
   useEffect(() => {
     if (!plans.length) return;
@@ -919,7 +924,10 @@ export default function CollectDuesModal({
           const plan = plans.find((p) => p.id === row.planId) || null;
           const fin = resolveCardFinancingForPos({
             socialAmount: Number(row.amount) || 0,
+            financingBase: Number(row.amount) || 0,
+            surchargeAmount: 0,
             plan,
+            plans,
             paymentPlanId: row.planId,
             percent: row.financingPercent === '' ? null : row.financingPercent,
             fixedAmount: row.financingFixed === '' ? null : row.financingFixed,
@@ -972,7 +980,10 @@ export default function CollectDuesModal({
           const cardFinancing = isCardPosDuesMethod(row.method)
             ? resolveCardFinancingForPos({
               socialAmount: lineAmount,
+              financingBase: lineAmount,
+              surchargeAmount: 0,
               plan,
+              plans,
               paymentPlanId: plan?.id,
               percent: row.financingPercent === '' ? null : row.financingPercent,
               fixedAmount: row.financingFixed === '' ? null : row.financingFixed,
@@ -1049,11 +1060,16 @@ export default function CollectDuesModal({
         const dueOnsPayload = (tennisOnly || (tennisDueOns.length && !socialDueOns.length))
           ? tennisDueOns
           : socialDueOns;
+        const capitalBase = money(split.quota || 0);
+        const surchargePart = money(split.surcharge || 0);
         const cardFinancing = isCardPosDuesMethod(recordMethod)
           ? resolveCardFinancingForPos({
-            socialAmount: concession.cash,
+            socialAmount: capitalBase,
+            financingBase: capitalBase,
+            surchargeAmount: surchargePart,
             plan: selectedPlan,
             paymentPlanId: selectedPlan?.id,
+            plans,
             percent: financingPercent === '' ? null : financingPercent,
             fixedAmount: financingFixed === '' ? null : financingFixed,
             voucherAmount: receiptParse?.amount,

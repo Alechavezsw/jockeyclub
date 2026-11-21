@@ -1049,7 +1049,7 @@ export default function MemberProfilePanel({
       window.setTimeout(() => setCollectFlash(''), 5000);
       return;
     }
-    const result = recordDuesCollection(member, { ...payload, members });
+    const result = recordDuesCollection(member, { ...payload, members, paymentPlans });
     const saved = await persistDuesCollection(result, {
       setMembers,
       updateMember,

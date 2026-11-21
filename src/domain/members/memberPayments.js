@@ -38,6 +38,7 @@ import {
   patchMemberPaymentChargeScope,
   quitarRecargoCuota,
   registrarCobro,
+  registrarCobroPos,
   revertDuesPayment,
 } from '../../data/repos';
 import {
@@ -316,6 +317,8 @@ export function duesVoucherAmount(row, imputedAmount = null) {
  */
 export function resolveCardFinancingForPos({
   socialAmount,
+  financingBase = null,
+  surchargeAmount = 0,
   plan = null,
   plans = [],
   paymentPlanId = null,
@@ -328,9 +331,12 @@ export function resolveCardFinancingForPos({
   operatorUserId = null,
   operatorRole = null,
   dayISO = null,
+  authorizedByServer = false,
 } = {}) {
   return authorizePosCardFinancing({
     socialAmount,
+    financingBase: financingBase != null ? financingBase : socialAmount,
+    surchargeAmount,
     plans,
     paymentPlanId,
     plan,
@@ -343,6 +349,7 @@ export function resolveCardFinancingForPos({
     dayISO,
     authReference,
     operatorUserId,
+    authorizedByServer,
   });
 }
 
@@ -1360,8 +1367,12 @@ export function recordDuesCollection(member, {
       treasuryMatch,
       paymentPlanId,
       paymentPlanLabel,
+      paymentPlans,
       receiptParse,
       paymentSplits,
+      cardFinancing,
+      financingPercent,
+      financingFixed,
       discount,
       discountDetail,
     });
@@ -1490,8 +1501,13 @@ export function recordDuesCollection(member, {
   };
 
   if (!mixed && isCardPosDuesMethod(resolvedMethod)) {
+    // B10: financiar solo capital (quota); la mora no entra en la tasa.
+    const capitalBase = money(payment.quota != null ? payment.quota : payment.amount);
+    const surchargePart = money(payment.surcharge || 0);
     const fin = resolveCardFinancingForPos({
-      socialAmount: payment.amount,
+      socialAmount: capitalBase,
+      financingBase: capitalBase,
+      surchargeAmount: surchargePart,
       paymentPlanId,
       plans: paymentPlans || [],
       percent: financingPercent,
@@ -1670,6 +1686,7 @@ export function recordTennisAbonoCollection(member, {
   paymentPlanLabel = null,
   receiptParse = null,
   paymentSplits = null,
+  paymentPlans = null,
   cardFinancing = null,
   financingPercent = null,
   financingFixed = null,
@@ -1686,25 +1703,18 @@ export function recordTennisAbonoCollection(member, {
     throw new Error('Esta cuenta no tiene abono de tenis.');
   }
 
-  // B6: financiación POS no soportada en abono tenis — bloquear antes de acreditar.
+  // B6/B10: tenis no admite financiación POS ni planes con tasa predeterminada.
   assertTennisPosFinancingAllowed({
     method,
     paymentPlanId,
+    plans: paymentPlans || [],
     cardFinancing: cardFinancing
-      || (financingPercent || financingFixed
+      || (Number(financingPercent) > 0 || Number(financingFixed) > 0
         ? { financingAmount: 1 }
         : null),
     paymentSplits,
   });
-  if (
-    isCardPosDuesMethod(method)
-    && (Number(financingPercent) > 0 || Number(financingFixed) > 0)
-  ) {
-    assertTennisPosFinancingAllowed({
-      method,
-      cardFinancing: { financingAmount: 1 },
-    });
-  }
+
 
   const wantsMixed = method === 'mixto'
     || (Array.isArray(paymentSplits) && paymentSplits.filter((row) => Number(row?.amount) > 0).length >= 2);
@@ -2195,6 +2205,16 @@ export function cobroPeriods(member, payment) {
     receiptParse: payment.receiptParse || null,
     journalAccount: payment.journalAccount || null,
     paymentSplits: payment.paymentSplits || null,
+    // B10: base POS = capital; mora aparte (el servidor no financia surcharge).
+    financingBase: payment.cardFinancing?.financingBase
+      ?? payment.cardFinancing?.baseAmount
+      ?? payment.quota
+      ?? null,
+    surchargeAmount: payment.cardFinancing?.surchargeAmount
+      ?? payment.surcharge
+      ?? 0,
+    financingPercent: payment.cardFinancing?.percent ?? null,
+    financingFixed: payment.cardFinancing?.fixedAmount ?? null,
     waiveSurcharge: Number(payment.waivedSurcharge) > 0,
     waivedSurcharge: Number(payment.waivedSurcharge) || 0,
     discount: Number(payment.discount) || 0,
@@ -2205,11 +2225,22 @@ export function cobroPeriods(member, payment) {
   };
 }
 
+/** Cobro con tramo POS (simple o mixto) → RPC atómica en servidor. */
+export function duesCollectionNeedsPosAtomicCommit(payment) {
+  if (!payment) return false;
+  if (isCardPosDuesMethod(payment.method)) return true;
+  if (payment.method === 'mixto' && Array.isArray(payment.paymentSplits)) {
+    return payment.paymentSplits.some((row) => isCardPosDuesMethod(row?.method));
+  }
+  return false;
+}
+
 /**
  * Recibo, períodos y saldo en una sola transacción.
+ * POS: `registrar_cobro_pos` autoriza plan/tasa, acredita e inserta asiento atómico.
  * Si falla, no hay que pintar el saldo nuevo.
  */
-export async function commitDuesCollection(member, payment) {
+export async function commitDuesCollection(member, payment, { journalEntry = null } = {}) {
   const memberDbId = member?.id;
   if (!memberDbId) {
     throw new Error('No se pudo registrar el cobro: el socio no está cargado en la base.');
@@ -2228,25 +2259,60 @@ export async function commitDuesCollection(member, payment) {
   const periods = cobroPeriods(member, payment);
   const amount = Number(payment.amount) || 0;
   const key = `cobro:${member.memberId}:${payment.id}`;
+  const usePosAtomic = duesCollectionNeedsPosAtomicCommit(payment);
   let saved;
+  let atomicJournal = null;
+  const runClassic = async (periodsPayload) => registrarCobro({
+    memberId: memberDbId,
+    amount,
+    periods: periodsPayload,
+    idempotencyKey: key,
+  });
+  const runPos = async (periodsPayload) => registrarCobroPos({
+    memberId: memberDbId,
+    amount,
+    periods: periodsPayload,
+    idempotencyKey: key,
+    journal: journalEntry
+      ? {
+        concept: journalEntry.concept || journalEntry.description || null,
+        date: journalEntry.date || null,
+        fiscalPeriodId: journalEntry.fiscalPeriodId || null,
+        lines: journalEntry.lines || null,
+        reference: journalEntry.reference || null,
+      }
+      : null,
+  });
   try {
-    saved = await registrarCobro({
-      memberId: memberDbId,
-      amount,
-      periods,
-      idempotencyKey: key,
-    });
+    if (usePosAtomic) {
+      try {
+        saved = await runPos(periods);
+        atomicJournal = saved.journal || null;
+      } catch (posErr) {
+        // Bases sin migración B8/B9: degradar al flujo clásico (no atómico).
+        if (posErr?.code !== 'POS_RPC_MISSING') throw posErr;
+        saved = await runClassic(periods);
+      }
+    } else {
+      saved = await runClassic(periods);
+    }
   } catch (err) {
     // Bases viejas todavía pedían marcar adelanto a mano; reintentamos en silencio.
     // Misma clave: si el primer intento no insertó, no se duplica el cobro.
     const msg = String(err?.message || err || '');
     if (!/supera la deuda|marcarlo como adelanto/i.test(msg) || periods.adelanto) throw err;
-    saved = await registrarCobro({
-      memberId: memberDbId,
-      amount,
-      periods: { ...periods, adelanto: true },
-      idempotencyKey: key,
-    });
+    const retryPeriods = { ...periods, adelanto: true };
+    if (usePosAtomic) {
+      try {
+        saved = await runPos(retryPeriods);
+        atomicJournal = saved.journal || null;
+      } catch (posErr) {
+        if (posErr?.code !== 'POS_RPC_MISSING') throw posErr;
+        saved = await runClassic(retryPeriods);
+      }
+    } else {
+      saved = await runClassic(retryPeriods);
+    }
   }
   const history = (member.paymentHistory || []).filter((row) => row && row.id !== payment.id);
   const tennisOnly = paymentIsTennisAbonoOnly(payment);
@@ -2258,6 +2324,10 @@ export async function commitDuesCollection(member, payment) {
     ...saved.payment,
     ...(tennisOnly ? { chargeScope: 'abono_tenis' } : {}),
     ...(payment.chargeScope ? { chargeScope: payment.chargeScope } : {}),
+    cardFinancing: saved.payment?.cardFinancing || payment.cardFinancing || null,
+    paymentPlanSnapshot: saved.payment?.paymentPlanSnapshot
+      || payment.paymentPlanSnapshot
+      || null,
   };
   if (tennisOnly && mergedPayment.id) {
     try {
@@ -2277,7 +2347,13 @@ export async function commitDuesCollection(member, payment) {
     lastPaymentDate: saved.payment?.date || member.lastPaymentDate,
     paymentHistory: [mergedPayment, ...history],
   };
-  return { member: nextMember, payment: mergedPayment, idempotent: saved.idempotent };
+  return {
+    member: nextMember,
+    payment: mergedPayment,
+    idempotent: saved.idempotent,
+    journal: atomicJournal,
+    authorized: saved.authorized === true,
+  };
 }
 
 /**
@@ -2395,7 +2471,9 @@ export async function persistDuesCollection(result, {
     }
   }
   if (isSupabaseConfigured && payment && !isPersistedPaymentId(payment.id)) {
-    const committed = await commitDuesCollection(result.member, payment);
+    const committed = await commitDuesCollection(result.member, payment, {
+      journalEntry: result.journalEntry || null,
+    });
     // El PDF / MD del a cuenta necesitan entregado + deuda restante aunque la fila
     // venga de la base sin esos campos todavía.
     const committedPay = committed.payment || {};
@@ -2416,6 +2494,8 @@ export async function persistDuesCollection(result, {
       paymentPlanSnapshot: committedPay.paymentPlanSnapshot || payment.paymentPlanSnapshot || null,
       paymentSplits: committedPay.paymentSplits || payment.paymentSplits || null,
     };
+    const atomicEntry = committed.journal?.entry || null;
+    const journalAlreadyPosted = Boolean(atomicEntry?.id);
     next = {
       ...result,
       member: {
@@ -2426,9 +2506,18 @@ export async function persistDuesCollection(result, {
         ],
       },
       payment: mergedPayment,
-      journalEntry: result.journalEntry
-        ? { ...result.journalEntry, sourceId: mergedPayment.id }
-        : result.journalEntry,
+      journalEntry: journalAlreadyPosted
+        ? {
+          ...(result.journalEntry || {}),
+          id: atomicEntry.id,
+          sourceId: mergedPayment.id,
+          status: atomicEntry.status || 'posted',
+        }
+        : (result.journalEntry
+          ? { ...result.journalEntry, sourceId: mergedPayment.id }
+          : result.journalEntry),
+      journalAtomic: journalAlreadyPosted,
+      authorized: committed.authorized === true,
     };
   }
   if (typeof setMembers === 'function') {
@@ -2442,7 +2531,8 @@ export async function persistDuesCollection(result, {
     await updateMember?.(next.member);
   }
   if (next.ledgerEntry) onAccountEntry?.(next.ledgerEntry);
-  if (next.journalEntry) {
+  // B9: si el RPC POS ya publicó el asiento en la misma txn, no re-publicar.
+  if (next.journalEntry && !next.journalAtomic) {
     const ensured = await ensureDuesCollectionJournal(next, { addJournalEntry });
     return ensured;
   }

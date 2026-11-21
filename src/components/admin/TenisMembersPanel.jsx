@@ -256,6 +256,7 @@ export default function TenisMembersPanel({
     const result = recordTennisAbonoCollection(account, {
       ...payload,
       members,
+      paymentPlans,
       monthlyAmount: collectTarget.tennisAmount,
     });
     const saved = await persistDuesCollection(result, {
