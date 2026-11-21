@@ -1190,6 +1190,25 @@ export default function MemberProfilePanel({
                         ? `Vence hoy · ${dueFact.value}`
                         : `Próximo vencimiento ${dueFact.value}`))))}
           </div>
+          {(() => {
+            const meta = member?.meta && typeof member.meta === 'object' ? member.meta : {};
+            const adminNotes = Object.entries(meta)
+              .filter(([k, v]) => /LedgerStatus$/i.test(k) && /conciliado administrativamente/i.test(String(v || '')))
+              .map(([, v]) => String(v));
+            const rows = Array.isArray(meta.feeLedgerAdminReconcile) ? meta.feeLedgerAdminReconcile : [];
+            if (!adminNotes.length && !rows.length) return null;
+            return (
+              <p className="mp-balance-pool" style={{ marginTop: '0.45rem' }}>
+                Conciliado admin
+                <span>
+                  {[...adminNotes, ...rows.map((r) => `${r.period || ''}: ${r.reason || 'conciliado'}`)]
+                    .filter(Boolean)
+                    .slice(0, 2)
+                    .join(' · ')}
+                </span>
+              </p>
+            );
+          })()}
           <p className={`mp-balance-pool ${poolPay.canPay ? 'is-ok' : 'is-no'}`}>
             {poolPay.label}
             <span>{poolPay.detail}</span>

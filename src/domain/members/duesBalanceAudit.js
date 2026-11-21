@@ -2,6 +2,7 @@
  * Auditoría de saldos de cuota: detecta anomalías, no inventa dinero.
  */
 import { money } from '../money.js';
+import { detectFeeLedgerFichaAnomalies } from '../accounting/feeLedgerIntegrity.js';
 import { duesBalanceDesync, memberCreditBalance, collectionPreview } from './memberPayments.js';
 import { lilaUnpaidCapital, socialDuesStoredBalance } from './dues.js';
 
@@ -15,10 +16,15 @@ function paymentKey(payment) {
 
 /**
  * @param {object} member
- * @param {{ today?: Date }} [opts]
+ * @param {{ today?: Date, ledgerLines?: object[], payments?: object[], imputations?: object[] }} [opts]
  * @returns {Array<{ code: string, severity: string, message: string, [k: string]: unknown }>}
  */
-export function detectMemberDuesAnomalies(member, { today = new Date() } = {}) {
+export function detectMemberDuesAnomalies(member, {
+  today = new Date(),
+  ledgerLines = null,
+  payments = null,
+  imputations = null,
+} = {}) {
   if (!member) return [];
   const findings = [];
   const desync = duesBalanceDesync(member);
@@ -86,17 +92,35 @@ export function detectMemberDuesAnomalies(member, { today = new Date() } = {}) {
     });
   }
 
+  const ledger = Array.isArray(ledgerLines)
+    ? ledgerLines
+    : (Array.isArray(member.feeLedgerLines) ? member.feeLedgerLines : []);
+  if (ledger.length) {
+    const ledgerFindings = detectFeeLedgerFichaAnomalies({
+      member,
+      ledgerLines: ledger,
+      payments: Array.isArray(payments) ? payments : (member.paymentHistory || []),
+      imputations: Array.isArray(imputations) ? imputations : (member.duesImputations || []),
+    });
+    for (const row of ledgerFindings) findings.push(row);
+  }
+
   return findings;
 }
 
 /**
  * @param {object[]} members
- * @param {{ today?: Date }} [opts]
+ * @param {{ today?: Date, ledgerLinesByMember?: Map|Record<string, object[]> }} [opts]
  */
 export function auditMembersDuesBalances(members = [], opts = {}) {
   const rows = [];
+  const byMember = opts.ledgerLinesByMember;
   for (const member of members) {
-    const findings = detectMemberDuesAnomalies(member, opts);
+    const nro = String(member?.memberNumber || member?.memberId || '').trim();
+    let ledgerLines = opts.ledgerLines || null;
+    if (byMember instanceof Map) ledgerLines = byMember.get(nro) || [];
+    else if (byMember && typeof byMember === 'object') ledgerLines = byMember[nro] || [];
+    const findings = detectMemberDuesAnomalies(member, { ...opts, ledgerLines });
     for (const finding of findings) rows.push(finding);
   }
   const bySeverity = { high: 0, medium: 0, low: 0 };

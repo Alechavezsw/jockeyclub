@@ -19,6 +19,10 @@ import { journalAccountForPayment } from './clubBanks';
 import { nowTimeAR, todayISODateAR } from '../../lib/arDate';
 import { money } from '../money';
 import {
+  detectFeeLedgerFichaAnomalies,
+  shouldBlockLedgerOnlyCollection,
+} from '../accounting/feeLedgerIntegrity';
+import {
   duesChargeConcept,
   duesMonthsPhrase,
   imputationSummary,
@@ -35,6 +39,39 @@ import {
   registrarCobro,
   revertDuesPayment,
 } from '../../data/repos';
+
+function attachLedgerDesync(preview, member, {
+  ledgerLines = null,
+  payments = null,
+  imputations = null,
+} = {}) {
+  const lines = Array.isArray(ledgerLines)
+    ? ledgerLines
+    : (Array.isArray(member?.feeLedgerLines) ? member.feeLedgerLines : []);
+  if (!lines.length) return preview;
+  const pays = Array.isArray(payments) ? payments : (member?.paymentHistory || []);
+  const imps = Array.isArray(imputations) ? imputations : (member?.duesImputations || []);
+  const findings = detectFeeLedgerFichaAnomalies({
+    member,
+    ledgerLines: lines,
+    payments: pays,
+    imputations: imps,
+  });
+  if (!findings.length) return preview;
+  const blockLedgerOnly = shouldBlockLedgerOnlyCollection(member, {
+    ledgerLines: lines,
+    payments: pays,
+    imputations: imps,
+  });
+  return {
+    ...preview,
+    ledgerDesync: {
+      findings,
+      reconciliationStatus: findings[0]?.reconciliationStatus || 'en_revision',
+      blockLedgerOnlyCollection: blockLedgerOnly,
+    },
+  };
+}
 
 /** Resta capital (y recargos de stock LILA) del desglose vivo tras un cobro. */
 function withPaidParts(member, capitalPaid = 0, surchargePaid = 0) {
@@ -954,6 +991,9 @@ export function collectionPreview(member, today = new Date(), {
   periodDueOns = null,
   skipSurcharge = false,
   chargeScope = 'all',
+  ledgerLines = null,
+  payments = null,
+  imputations = null,
 } = {}) {
   const choices = collectionPeriodChoices(member, today, { chargeScope });
   const selected = Array.isArray(periodDueOns) && periodDueOns.length
@@ -963,6 +1003,7 @@ export function collectionPreview(member, today = new Date(), {
   const stored = Number(member?.outstandingBalance) || 0;
   const explicitCredit = memberCreditBalance(member);
   const desync = duesBalanceDesync(member);
+  const ledgerOpts = { ledgerLines, payments, imputations };
 
   if (selectedChoices.some((row) => row.kind === 'overdue') || stored > 0.01) {
     const quota = money(selectedChoices.reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
@@ -976,7 +1017,7 @@ export function collectionPreview(member, today = new Date(), {
     }
     const credit = explicitCredit;
     const creditApplied = money(Math.min(credit, gross));
-    return {
+    return attachLedgerDesync({
       quota,
       surcharge,
       gross,
@@ -989,13 +1030,13 @@ export function collectionPreview(member, today = new Date(), {
       skipSurcharge: Boolean(skipSurcharge),
       ...(desync ? { balanceDesync: desync } : {}),
       ...(!(quota > 0.01) && stored > 0.01 ? { residualBalance: true } : {}),
-    };
+    }, member, ledgerOpts);
   }
 
   // Al día (saldo 0) y sin mes abierto: no inventar adelanto (ej. diciembre en noviembre).
   // Con saldo a favor sí se permite imputar al próximo período.
   if (!selectedChoices.length && stored >= -0.01) {
-    return {
+    return attachLedgerDesync({
       quota: 0,
       surcharge: 0,
       gross: 0,
@@ -1006,7 +1047,7 @@ export function collectionPreview(member, today = new Date(), {
       choices,
       clear: true,
       skipSurcharge: Boolean(skipSurcharge),
-    };
+    }, member, ledgerOpts);
   }
 
   const dueOn = selectedChoices[0]?.dueOn || member?.nextDueDate || nextDuesDueDate(today, member);
@@ -1027,7 +1068,7 @@ export function collectionPreview(member, today = new Date(), {
   const creditApplied = money(Math.min(credit, gross));
   const surcharge = skipSurcharge ? 0 : split.surcharge;
   const quota = skipSurcharge ? gross : split.quota;
-  return {
+  return attachLedgerDesync({
     quota,
     surcharge,
     gross,
@@ -1038,7 +1079,7 @@ export function collectionPreview(member, today = new Date(), {
     choices,
     clear: false,
     skipSurcharge: Boolean(skipSurcharge),
-  };
+  }, member, ledgerOpts);
 }
 
 /** Anticipo de cuota cuando está al día (paga el próximo período). */

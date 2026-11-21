@@ -7,6 +7,11 @@ import {
 } from '../../domain/accounting/appMonthlyDebts';
 import { downloadDuesDebtPdf } from '../../domain/accounting/exportDuesDebtPdf';
 import {
+  periodLedgerStatus,
+  periodStatusLabel,
+  PERIOD_STATUS,
+} from '../../domain/accounting/feeLedgerIntegrity';
+import {
   memberMatchesDirectoryQuery,
   memberNumberOf,
   rankMemberSearchHit,
@@ -42,12 +47,30 @@ export default function ConsultDuesDebtPanel({
   const [remoteBusy, setRemoteBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [ledgerLines, setLedgerLines] = useState([]);
 
   useEffect(() => {
     if (typeof repos.invalidateMemberSearchCache === 'function') {
       repos.invalidateMemberSearchCache();
     }
   }, []);
+
+  useEffect(() => {
+    if (!selected || !isSupabaseConfigured || typeof repos.listFeeLedgerLinesByMemberNumber !== 'function') {
+      setLedgerLines([]);
+      return undefined;
+    }
+    let cancelled = false;
+    const nro = memberNumberOf(selected) || selected.memberId;
+    repos.listFeeLedgerLinesByMemberNumber(nro)
+      .then((rows) => {
+        if (!cancelled) setLedgerLines(rows || []);
+      })
+      .catch(() => {
+        if (!cancelled) setLedgerLines([]);
+      });
+    return () => { cancelled = true; };
+  }, [selected?.memberId, selected?.id]);
 
   useEffect(() => {
     if (selected) {
@@ -170,9 +193,38 @@ export default function ConsultDuesDebtPanel({
   // Solo después de elegir socio. Sin selección no se inventa «Al día».
   const hasDebt = Boolean(selected) && !exempt && (debtTotal > 0.009 || balance > 0.009);
   const clear = Boolean(selected) && !exempt && !hasDebt;
+  const ledgerByYm = useMemo(() => {
+    const map = new Map();
+    for (const line of ledgerLines || []) {
+      const ym = String(line.date || line.lineDate || '').slice(0, 7);
+      if (!ym) continue;
+      const prev = map.get(ym);
+      if (!prev || (Number(line.pending) || 0) > (Number(prev.pending) || 0)) map.set(ym, line);
+    }
+    return map;
+  }, [ledgerLines]);
+  const reviewMonths = useMemo(() => {
+    if (!selected || exempt || !clear) return [];
+    return [...ledgerByYm.entries()]
+      .map(([ym, line]) => ({
+        ym,
+        line,
+        status: periodLedgerStatus(selected, line, {
+          payments: selected.paymentHistory || [],
+        }),
+      }))
+      .filter((row) => (
+        row.status === PERIOD_STATUS.EN_REVISION
+        || row.status === PERIOD_STATUS.CONCILIADO_ADMIN
+      ));
+  }, [selected, exempt, clear, ledgerByYm]);
   const sealLabel = !selected
     ? null
-    : (exempt ? 'Exento' : (hasDebt ? 'Con deuda' : 'Al día'));
+    : (exempt
+      ? 'Exento'
+      : (hasDebt
+        ? 'Con deuda'
+        : (reviewMonths.some((r) => r.status === PERIOD_STATUS.EN_REVISION) ? 'En revisión' : 'Al día')));
   const displayCapital = debt ? Number(debt.capital) || 0 : balance;
   const displayInterest = debt ? Number(debt.interest) || 0 : 0;
   const displayTotal = debtTotal > 0.009 ? debtTotal : balance;
@@ -281,7 +333,35 @@ export default function ConsultDuesDebtPanel({
               Vitalicio, fundador o comisión: no genera deuda de cuota social.
             </p>
           ) : clear ? (
-            <p className="consult-debt-empty">Sin deuda de cuota social al día de hoy.</p>
+            <>
+              <p className="consult-debt-empty">Sin deuda de cuota social al día de hoy.</p>
+              {reviewMonths.length ? (
+                <div className="table-responsive" style={{ marginTop: '0.85rem' }}>
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Período (ledger)</th>
+                        <th>Pendiente contable</th>
+                        <th>Estado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {reviewMonths.map((row) => (
+                        <tr key={row.ym}>
+                          <td>{row.ym}</td>
+                          <td className="tabular-nums">{formatCurrency(row.line.pending)}</td>
+                          <td>{periodStatusLabel(row.status)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <p className="consult-debt-note">
+                    <AlertTriangle size={14} aria-hidden />
+                    La ficha manda: no se inventa mora desde el ledger. Los meses «En revisión» requieren conciliación administrativa.
+                  </p>
+                </div>
+              ) : null}
+            </>
           ) : (
             <>
               <div className="consult-debt-kpis">
@@ -313,12 +393,13 @@ export default function ConsultDuesDebtPanel({
                       <th>Capital</th>
                       <th>Intereses</th>
                       <th>Subtotal</th>
+                      <th>Estado</th>
                     </tr>
                   </thead>
                   <tbody>
                     {months.length === 0 ? (
                       <tr>
-                        <td colSpan={4} style={{ color: 'var(--text-muted)' }}>
+                        <td colSpan={5} style={{ color: 'var(--text-muted)' }}>
                           {balance > 0.009
                             ? `Saldo de ficha ${formatCurrency(balance)} sin desglose mes a mes.`
                             : 'Sin desglose mes a mes: el saldo queda sin imputar.'}
@@ -326,12 +407,20 @@ export default function ConsultDuesDebtPanel({
                       </tr>
                     ) : months.map((row) => {
                       const sub = (Number(row.capital) || 0) + (Number(row.interest) || 0);
+                      const ym = String(row.periodKey || row.dueOn || '').slice(0, 7)
+                        || String(row.periodLabel || '').match(/(\d{4})-(\d{2})/)?.[0]
+                        || '';
+                      const line = ym ? ledgerByYm.get(ym) : null;
+                      const status = line
+                        ? periodLedgerStatus(selected, line, { payments: selected.paymentHistory || [] })
+                        : PERIOD_STATUS.PENDIENTE;
                       return (
                         <tr key={row.periodKey || row.periodLabel}>
                           <td>{row.periodLabel}</td>
                           <td className="tabular-nums">{formatCurrency(row.capital)}</td>
                           <td className="tabular-nums">{formatCurrency(row.interest)}</td>
                           <td className="tabular-nums" style={{ fontWeight: 700 }}>{formatCurrency(sub)}</td>
+                          <td>{periodStatusLabel(status)}</td>
                         </tr>
                       );
                     })}
