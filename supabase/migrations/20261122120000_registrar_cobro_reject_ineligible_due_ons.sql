@@ -90,8 +90,9 @@ as $$
     and (due_on is not null or through_due is not null or cardinality(period_due_ons) > 0);
 $$;
 
-revoke all on function public.cobro_admin_clear_rows(jsonb) from public, anon;
-grant execute on function public.cobro_admin_clear_rows(jsonb) to authenticated, service_role;
+-- Solo uso interno vía registrar_cobro (owner) / service_role. No authenticated.
+revoke all on function public.cobro_admin_clear_rows(jsonb) from public, anon, authenticated;
+grant execute on function public.cobro_admin_clear_rows(jsonb) to service_role;
 
 create or replace function public.cobro_clear_covers_due(
   p_due date,
@@ -113,8 +114,8 @@ as $$
     );
 $$;
 
-revoke all on function public.cobro_clear_covers_due(date, date, date, text[]) from public, anon;
-grant execute on function public.cobro_clear_covers_due(date, date, date, text[]) to authenticated, service_role;
+revoke all on function public.cobro_clear_covers_due(date, date, date, text[]) from public, anon, authenticated;
+grant execute on function public.cobro_clear_covers_due(date, date, date, text[]) to service_role;
 
 -- Capital abierto menos clears admin (presupuesto por clear_key).
 -- Retorna { uncovered numeric, budget jsonb }.
@@ -193,10 +194,12 @@ begin
 end;
 $$;
 
-revoke all on function public.cobro_due_uncovered_capital(uuid, date, jsonb) from public, anon;
-grant execute on function public.cobro_due_uncovered_capital(uuid, date, jsonb) to authenticated, service_role;
+revoke all on function public.cobro_due_uncovered_capital(uuid, date, jsonb) from public, anon, authenticated;
+grant execute on function public.cobro_due_uncovered_capital(uuid, date, jsonb) to service_role;
 
-create or replace function public.cobro_due_already_paid(p_member_id uuid, p_due date)
+-- Evidencia de cobro (imputación o periodDueOns). No implica “saldo cerrado”:
+-- si capital_open > 0 el remanente sigue cobrable.
+create or replace function public.cobro_due_has_payment_evidence(p_member_id uuid, p_due date)
 returns boolean
 language sql
 stable
@@ -230,11 +233,33 @@ as $$
   );
 $$;
 
-revoke all on function public.cobro_due_already_paid(uuid, date) from public, anon;
-grant execute on function public.cobro_due_already_paid(uuid, date) to authenticated, service_role;
+revoke all on function public.cobro_due_has_payment_evidence(uuid, date) from public, anon, authenticated;
+grant execute on function public.cobro_due_has_payment_evidence(uuid, date) to service_role;
+
+-- Alias de compatibilidad: “totalmente saldado” = sin capital_open y con evidencia de pago.
+create or replace function public.cobro_due_already_paid(p_member_id uuid, p_due date)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select
+    public.cobro_due_has_payment_evidence(p_member_id, p_due)
+    and not exists (
+      select 1
+      from public.member_dues_periods dp
+      where dp.member_id = p_member_id
+        and dp.due_on = p_due
+        and coalesce(dp.capital_open, 0) > 0.01
+    );
+$$;
+
+revoke all on function public.cobro_due_already_paid(uuid, date) from public, anon, authenticated;
+grant execute on function public.cobro_due_already_paid(uuid, date) to service_role;
 
 -- ---------------------------------------------------------------------------
--- 2) Assert principal: sin bypass por adelanto
+-- 2) Assert principal: sin bypass por adelanto ni dueOns vacíos
 -- ---------------------------------------------------------------------------
 drop function if exists public.cobro_assert_due_ons_collectable(uuid, jsonb, boolean);
 
@@ -265,14 +290,45 @@ declare
   v_sum_sched numeric := 0;
   v_adelanto boolean := false;
   v_clear_covers boolean;
+  v_effective jsonb := '[]'::jsonb;
+  v_seen text[] := '{}';
+  v_imputed numeric;
+  v_concept text;
 begin
   if p_member_id is null then
     return;
   end if;
-  if jsonb_typeof(p_due_ons) is distinct from 'array' then
+
+  -- Conceptos no-cuota (portería, eventos, etc.): no validar períodos de cuota.
+  v_concept := lower(trim(coalesce(
+    p_periodos->>'concepto',
+    p_periodos->>'concept',
+    p_periodos->>'chargeScope',
+    ''
+  )));
+  if v_concept <> ''
+     and v_concept not in (
+       'cuota', 'cuotas', 'dues', 'cuota_social', 'social',
+       'abono_tenis', 'abono tenis', 'tenis'
+     )
+     and coalesce(jsonb_typeof(p_due_ons), 'null') is distinct from 'array'
+  then
     return;
   end if;
-  if jsonb_array_length(p_due_ons) = 0 then
+  if v_concept <> ''
+     and v_concept not in (
+       'cuota', 'cuotas', 'dues', 'cuota_social', 'social',
+       'abono_tenis', 'abono tenis', 'tenis'
+     )
+     and (
+       jsonb_typeof(p_due_ons) is distinct from 'array'
+       or jsonb_array_length(p_due_ons) = 0
+     )
+     and (
+       jsonb_typeof(coalesce(p_periodos->'schedule', 'null'::jsonb)) is distinct from 'array'
+       or jsonb_array_length(coalesce(p_periodos->'schedule', '[]'::jsonb)) = 0
+     )
+  then
     return;
   end if;
 
@@ -282,7 +338,38 @@ begin
   from public.members
   where id = p_member_id;
 
-  for v_item in select value from jsonb_array_elements(p_due_ons)
+  -- Períodos efectivos: dueOns → schedule → filas abiertas con capital_open > 0.
+  if jsonb_typeof(p_due_ons) = 'array' and jsonb_array_length(p_due_ons) > 0 then
+    v_effective := p_due_ons;
+  elsif jsonb_typeof(coalesce(p_periodos->'schedule', 'null'::jsonb)) = 'array'
+        and jsonb_array_length(p_periodos->'schedule') > 0 then
+    select coalesce(jsonb_agg(to_jsonb(left(coalesce(s.value->>'dueOn', ''), 10))), '[]'::jsonb)
+      into v_effective
+    from jsonb_array_elements(p_periodos->'schedule') s
+    where length(left(coalesce(s.value->>'dueOn', ''), 10)) = 10;
+  else
+    select coalesce(
+      jsonb_agg(to_jsonb(to_char(dp.due_on, 'YYYY-MM-DD')) order by dp.due_on),
+      '[]'::jsonb
+    )
+      into v_effective
+    from public.member_dues_periods dp
+    where dp.member_id = p_member_id
+      and coalesce(dp.capital_open, 0) > 0.01
+      and dp.due_on > date '1900-01-10';
+  end if;
+
+  if jsonb_typeof(v_effective) is distinct from 'array'
+     or jsonb_array_length(v_effective) = 0 then
+    if v_adelanto then
+      raise exception
+        'Anticipo ambiguo: indique dueOns o schedule del período a adelantar.';
+    end if;
+    -- Sin períodos efectivos y sin adelanto: nada que imputar a cuota → ok (pago libre / saldo 0).
+    return;
+  end if;
+
+  for v_item in select value from jsonb_array_elements(v_effective)
   loop
     begin
       v_due_text := left(coalesce(
@@ -298,12 +385,10 @@ begin
     if v_due <= date '1900-01-10' then
       continue;
     end if;
-
-    -- Ya pago (imputación / periodDueOns persistidos): siempre rechazar, incluso con adelanto.
-    if public.cobro_due_already_paid(p_member_id, v_due) then
-      raise exception
-        'Ese período ya está pago y no se puede volver a cobrar.';
+    if v_due_text = any (v_seen) then
+      continue;
     end if;
+    v_seen := array_append(v_seen, v_due_text);
 
     select coalesce(capital_open, 0)
       into v_open
@@ -312,6 +397,12 @@ begin
       and due_on = v_due;
     v_has_open_row := found;
     v_open := round(coalesce(v_open, 0), 2);
+
+    -- Totalmente saldado (evidencia + sin remanente): rechazar.
+    if public.cobro_due_already_paid(p_member_id, v_due) then
+      raise exception
+        'Ese período ya está pago y no se puede volver a cobrar.';
+    end if;
 
     -- Clear admin que cubre el due aunque no haya fila abierta.
     select exists (
@@ -334,6 +425,16 @@ begin
           'Ese período está autorizado en cero operativo y no se puede cobrar.';
       end if;
 
+      -- Capital ya imputado: el schedule no puede pedir más que remanente (ni la cuota entera).
+      select round(coalesce(sum(coalesce(i.capital, 0)), 0), 2)
+        into v_imputed
+      from public.dues_imputations i
+      join public.member_payments p on p.id = i.payment_id
+      where i.member_id = p_member_id
+        and i.due_on = v_due
+        and i.voided_at is null
+        and coalesce(p.meta->>'status', 'paid') not in ('void', 'cancelled');
+
       v_sched_cap := round(coalesce((
         select sum(round(coalesce(nullif(s.value->>'capital', '')::numeric, 0), 2))
         from jsonb_array_elements(coalesce(p_periodos->'schedule', '[]'::jsonb)) s
@@ -344,6 +445,14 @@ begin
         raise exception
           'El capital pedido (%) supera el exigible (%) del período.',
           v_sched_cap, v_uncovered;
+      end if;
+      -- Defensa extra: si piden capital >= (open + ya imputado) = cuota completa tras parcial → no.
+      if v_imputed > 0.01
+         and v_sched_cap > 0.01
+         and v_sched_cap > v_open + 0.01 then
+        raise exception
+          'El capital pedido (%) supera el remanente abierto (%) del período.',
+          v_sched_cap, v_open;
       end if;
 
       v_sum_uncovered := round(v_sum_uncovered + v_uncovered, 2);
@@ -358,6 +467,10 @@ begin
         raise exception
           'Ese período está autorizado en cero operativo y no se puede cobrar.';
       end if;
+      if public.cobro_due_has_payment_evidence(p_member_id, v_due) then
+        raise exception
+          'Ese período ya está pago y no se puede volver a cobrar.';
+      end if;
 
       select count(*)::int
         into v_other_open
@@ -371,7 +484,6 @@ begin
             ->>'uncovered'
         )::numeric, 0) > 0.01;
 
-      -- Si hay otra deuda exigible abierta y piden un mes sin fila, no sustituir.
       if coalesce(v_other_open, 0) > 0 and not v_adelanto then
         raise exception
           'Ese período no es cobrable en este momento. No se sustituye por otro mes.';
@@ -401,13 +513,16 @@ begin
 end;
 $$;
 
+-- Ejecutable solo por el owner (SECURITY DEFINER callers) y service_role.
+-- authenticated no puede sondear capital_open ajeno vía helpers.
+-- registrar_cobro (SECURITY DEFINER, mismo owner) sigue pudiendo llamarlas.
 revoke all on function public.cobro_assert_due_ons_collectable(uuid, jsonb, jsonb, numeric)
-  from public, anon;
+  from public, anon, authenticated;
 grant execute on function public.cobro_assert_due_ons_collectable(uuid, jsonb, jsonb, numeric)
-  to authenticated, service_role;
+  to service_role;
 
 comment on function public.cobro_assert_due_ons_collectable(uuid, jsonb, jsonb, numeric) is
-  'Rechaza dueOns pagos, cerrados o cubiertos por adminOperationalClear; respeta remanente parcial; adelanto no saltea.';
+  'Rechaza dueOns pagos/cerrados/clear; permite remanente parcial; deriva períodos si dueOns vacío; adelanto no saltea.';
 
 -- ---------------------------------------------------------------------------
 -- 3) Rollback ejecutable
@@ -437,6 +552,7 @@ begin
   drop function if exists public.cobro_assert_due_ons_collectable(uuid, jsonb, boolean);
   drop function if exists public.cobro_due_uncovered_capital(uuid, date, jsonb);
   drop function if exists public.cobro_due_already_paid(uuid, date);
+  drop function if exists public.cobro_due_has_payment_evidence(uuid, date);
   drop function if exists public.cobro_admin_clear_rows(jsonb);
   drop function if exists public.cobro_clear_covers_due(date, date, date, text[]);
 
