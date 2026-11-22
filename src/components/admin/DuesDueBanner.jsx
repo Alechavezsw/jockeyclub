@@ -355,6 +355,16 @@ export default function DuesDueBanner({
   const rate = Number.isFinite(board?.rate)
     ? board.rate
     : (liquidated > 0 ? Math.round((collected / liquidated) * 100) : 0);
+  const collectedTotal = moneyReady
+    ? (
+      (Number(board?.cuotaMes) || 0)
+      + (Number(board?.atrasadas) || 0)
+      + (Number(board?.posteriores) || 0)
+      + (Number(board?.recargos) || 0)
+      + (Number(board?.reservas) || 0)
+      + (Number(board?.porteria) || 0)
+    )
+    : 0;
   const monthName = moment.monthName.charAt(0).toUpperCase() + moment.monthName.slice(1);
   const monthLabel = `${monthName} de ${moment.year}`;
 
@@ -378,6 +388,11 @@ export default function DuesDueBanner({
           <p className="due-collect-kicker">{titleLead}</p>
           <h2 className="due-collect-amount">{titleWhen}</h2>
           <p className="due-collect-rest">{detail}</p>
+          {moneyReady ? (
+            <p className="due-collect-total tabular-nums">
+              Recaudado total · {formatCurrency(collectedTotal)}
+            </p>
+          ) : null}
         </div>
         <div className="due-collect-money">
           <p className="due-collect-kicker">Cuota recaudada · {monthLabel}</p>
