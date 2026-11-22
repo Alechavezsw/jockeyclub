@@ -1113,6 +1113,28 @@ export function openPeriodIsOperationallyCovered(member, dueOn, { entries = [], 
 }
 
 /**
+ * ¿Se debe bloquear el cobro de este dueOn?
+ * - Remanente abierto ya cubierto por pago/reg/clear (uncovered ≈ 0).
+ * - Sin fila abierta: clear admin con alcance a ese período.
+ * Sin fila y sin clear: no bloquea (el dueOn puede venir solo del schedule).
+ */
+export function shouldBlockCollectingDueOn(member, dueOn, { entries = [] } = {}) {
+  const target = asDueOnStamp(dueOn);
+  if (!target) return false;
+  const row = (duesOpenPeriodsOf(member) || []).find(
+    (item) => asDueOnStamp(item?.dueOn || item?.due_on) === target && !item?.voidedAt,
+  );
+  const cap = Number(row?.capitalOpen ?? row?.capital_open ?? row?.capital) || 0;
+  if (row && cap > 0.01) {
+    return openPeriodUncoveredCapital(member, target, cap, { entries, periodRow: row }) <= 0.01;
+  }
+  for (const clear of listAdminOperationalClears(member)) {
+    if (scopeCoversDueOn(clear, target) && scopeMaxAmountValue(clear) != null) return true;
+  }
+  return false;
+}
+
+/**
  * Saldo de cuota para mora / “cuánto debe” / padrón / Consultar deuda / cobro.
  * Misma cifra en todos lados.
  * - outstanding ≤ 0: solo reabre con períodos abiertos NO cubiertos por pago/reg/alcance.
@@ -1921,36 +1943,41 @@ function choicesFromStoredOpenPeriods(member, paidOn, paidSet, scopeOpts = {}) {
   const raw = member?.duesOpenPeriods;
   if (!Array.isArray(raw) || !raw.length) return null;
   const scope = normalizeDuesChargeScope(scopeOpts.chargeScope);
-  // Cuota o tenis por separado: no reusar el capital mezclado del corte (ej. 82.000).
-  if (scope !== 'all') {
-    const rebuilt = [];
-    for (const row of raw) {
-      const dueOn = String(row?.dueOn || row?.due_on || '').slice(0, 10);
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(dueOn)) continue;
-      if (dueOn <= '1900-01-10' && !isJoinFeeDueOn(dueOn)) continue;
-      if (dueOnAlreadyCovered(dueOn, paidSet)) continue;
-      const due = parseDate(dueOn);
-      const kind = due && due < paidOn ? 'overdue' : 'upcoming';
-      const full = periodChoiceFromDue(member, dueOn, paidOn, kind, scopeOpts);
-      if (full && full.capital > 0.01) rebuilt.push(full);
-    }
-    return rebuilt.length ? rebuilt : null;
-  }
   const balance = money(Math.max(0, Number(member?.outstandingBalance) || 0));
-  const owed = capitalOwedForChoices(member, scope);
+  const operationalOwed = socialDuesStoredBalance(member);
+  const owed = money(Math.max(operationalOwed, capitalOwedForChoices(member, scope)));
   const stored = [];
   for (const row of raw) {
     const dueOn = String(row?.dueOn || row?.due_on || '').slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dueOn)) continue;
     if (dueOn <= '1900-01-10' && !isJoinFeeDueOn(dueOn)) continue;
     if (dueOnAlreadyCovered(dueOn, paidSet)) continue;
-    const capital = money(row.capital ?? row.capitalOpen ?? row.capital_open);
-    if (!(capital > 0)) continue;
-    const alta = isJoinFeeDueOn(dueOn);
-    const lateBase = alta ? 0 : money(row.lateBase ?? row.late_base ?? 0);
+    // Remanente real del período (capital_open), no la tarifa llena.
+    const residual = money(row.capitalOpen ?? row.capital_open ?? row.capital);
+    if (!(residual > 0.01)) continue;
+    // Pago imputado / regularización / excepción admin: no es exigible.
+    if (openPeriodIsOperationallyCovered(member, dueOn, { openCapital: residual })) continue;
+
     const due = parseDate(dueOn);
+    const alta = isJoinFeeDueOn(dueOn);
     const overdue = Boolean(!alta && due && due < paidOn);
-    const surcharge = overdue ? money(lateBase * 0.1) : 0;
+    const kind = overdue ? 'overdue' : 'upcoming';
+    let capital = residual;
+    let lateBase = alta ? 0 : money(row.lateBase ?? row.late_base ?? residual);
+    let surcharge = overdue && !alta ? money(lateBase * 0.1) : 0;
+
+    // Cuota o tenis por separado: tope a la tarifa del alcance, sin inflar el remanente.
+    if (scope !== 'all') {
+      const full = periodChoiceFromDue(member, dueOn, paidOn, kind, scopeOpts);
+      if (!full || !(full.capital > 0.01)) continue;
+      capital = money(Math.min(residual, full.capital));
+      lateBase = alta ? 0 : money(Math.min(lateBase || capital, full.lateBase || capital));
+      surcharge = overdue && !alta
+        ? money(Math.min(full.surcharge || 0, lateBase * 0.1))
+        : 0;
+      if (!(capital > 0.01)) continue;
+    }
+
     stored.push({
       id: dueOn,
       dueOn,
@@ -1960,14 +1987,17 @@ function choicesFromStoredOpenPeriods(member, paidOn, paidSet, scopeOpts = {}) {
       lateBase,
       surcharge,
       payable: money(capital + surcharge),
-      kind: overdue ? 'overdue' : 'upcoming',
+      kind,
       chargeScope: scope,
     });
   }
-  if (!stored.length) return null;
+  // Había períodos abiertos pero todos cubiertos: [] definitivo (no caer a nextDue viejo).
+  if (!stored.length) return [];
   stored.sort((a, b) => a.dueOn.localeCompare(b.dueOn));
   let rows = stored;
   let covered = money(rows.reduce((sum, row) => sum + row.capital, 0));
+  // Sin deuda operativa ni de ficha, no completar meses inventados alrededor del remanente.
+  if (operationalOwed <= 0.01 && balance <= 0.01) return rows;
   if (balance + 0.01 < covered && owed + 0.01 < covered) return null;
   const target = money(Math.max(owed, balance));
   if (covered + 0.01 < target) {
@@ -2089,8 +2119,32 @@ export function collectionPeriodChoices(member, today = new Date(), { chargeScop
   const paidOn = startOfDay(today);
   const scopeOpts = { chargeScope };
   const paidSet = memberCoveredDueOns(member, scopeOpts);
+  const operationalOwed = socialDuesStoredBalance(member);
   const storedChoices = choicesFromStoredOpenPeriods(member, paidOn, paidSet, scopeOpts);
+  // [] = períodos hidratados y nada exigible (p. ej. remanente con clear admin).
+  // null = sin snapshot → se puede reconstruir desde saldo/nextDue.
   if (storedChoices) return rewriteJoinFeeRows(member, storedChoices);
+
+  // Deuda operativa $0: no inventar cuotas históricas desde un nextDueDate desactualizado.
+  // Tampoco ofrecer un vencimiento pasado como «upcoming» a tarifa llena.
+  if (operationalOwed <= 0.01) {
+    const day = duesDueDayForMember(member);
+    const currentDue = toISODate(duesDateOnDueDay(paidOn.getFullYear(), paidOn.getMonth(), day));
+    const pinned = pinDuesDueDate(member?.nextDueDate, member);
+    // Solo el mes en curso si el vencimiento de ficha apunta exactamente a ese mes
+    // (liquidación vigente aún no cobrada). Meses futuros = anticipo voluntario aparte.
+    if (
+      pinned
+      && pinned === currentDue
+      && duesPeriodMonthStarted(currentDue, paidOn)
+      && !dueOnAlreadyCovered(currentDue, paidSet)
+    ) {
+      const upcoming = periodChoiceFromDue(member, currentDue, paidOn, 'upcoming', scopeOpts);
+      return rewriteJoinFeeRows(member, upcoming ? [upcoming] : []);
+    }
+    return [];
+  }
+
   // Sin vencimiento, el saldo son N cuotas vigentes. No se abre agosto con el recargo.
   if (!pinDuesDueDate(member?.nextDueDate, member)) {
     const lump = lumpMonthsAtCurrentCuota(member, paidOn, paidSet, scopeOpts);
@@ -2117,7 +2171,11 @@ export function collectionPeriodChoices(member, today = new Date(), { chargeScop
     );
   }
 
-  const owed = money(Math.max(0, Number(member?.outstandingBalance) || 0));
+  const owed = money(Math.max(
+    0,
+    Number(member?.outstandingBalance) || 0,
+    operationalOwed,
+  ));
   if (owed > 0.01) {
     const day = duesDueDayForMember(member);
     const currentDue = toISODate(duesDateOnDueDay(paidOn.getFullYear(), paidOn.getMonth(), day));
