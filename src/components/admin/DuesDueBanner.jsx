@@ -380,7 +380,7 @@ export default function DuesDueBanner({
           <p className="due-collect-rest">{detail}</p>
         </div>
         <div className="due-collect-money">
-          <p className="due-collect-kicker">Recaudado del mes · {monthLabel}</p>
+          <p className="due-collect-kicker">Cuota recaudada · {monthLabel}</p>
           <p className="due-collect-amount tabular-nums">
             {moneyReady ? formatCurrency(collected) : '\u00a0'}
           </p>
