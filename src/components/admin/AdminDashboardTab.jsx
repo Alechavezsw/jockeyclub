@@ -579,18 +579,6 @@ export default function AdminDashboardTab({
 
   const quickActions = [
     {
-      tab: 'dues',
-      tone: overdueMembersCount > 0 ? 'danger' : 'gold',
-      icon: ShieldAlert,
-      title: 'Cobranza',
-      hint: overdueMembersCount > 0
-        ? `${overdueMembersCount} en mora · ${formatCurrency(totalOutstanding)}`
-        : upcomingDuesCount > 0
-          ? `${upcomingDuesCount} a vencer en 15 días`
-          : 'Padrón al día',
-      badge: overdueMembersCount > 0 ? String(overdueMembersCount) : null,
-    },
-    {
       tab: 'messaging',
       tone: msgStats.unanswered > 0 || msgStats.unread > 0 ? 'warn' : 'gold',
       icon: MessageSquare,
