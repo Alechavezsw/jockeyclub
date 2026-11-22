@@ -1,11 +1,248 @@
--- Hotfix PR #13: rechazar dueOns no cobrables en registrar_cobro.
--- No sustituye un mes pedido por otro abierto.
+-- Hotfix PR #13 (seguridad contable): validar dueOns en registrar_cobro.
+-- - Respeta meta.adminOperationalClear / adminOperationalClears (exigible ≠ capital_open).
+-- - adelanto=true NO saltea la protección (no reabre pagos/clear/reg).
+-- - Backup + rollback ejecutable; inyección idempotente sobre ancla productiva.
 -- NO aplicar en producción sin autorización explícita.
+
+begin;
+
+-- ---------------------------------------------------------------------------
+-- 0) Respaldo de registrar_cobro (para rollback)
+-- ---------------------------------------------------------------------------
+create table if not exists public.schema_object_backups (
+  id bigserial primary key,
+  migration_id text not null,
+  object_identity text not null,
+  definition text not null,
+  created_at timestamptz not null default now()
+);
+
+comment on table public.schema_object_backups is
+  'Definiciones SQL respaldadas antes de parches por pg_get_functiondef.';
+
+revoke all on table public.schema_object_backups from public, anon, authenticated;
+grant select, insert on table public.schema_object_backups to service_role;
+grant usage, select on sequence public.schema_object_backups_id_seq to service_role;
+
+insert into public.schema_object_backups (migration_id, object_identity, definition)
+select
+  '20261122120000_registrar_cobro_reject_ineligible_due_ons',
+  'public.registrar_cobro(uuid, numeric, jsonb, text)',
+  pg_get_functiondef('public.registrar_cobro(uuid, numeric, jsonb, text)'::regprocedure)
+where not exists (
+  select 1
+  from public.schema_object_backups b
+  where b.migration_id = '20261122120000_registrar_cobro_reject_ineligible_due_ons'
+    and b.object_identity = 'public.registrar_cobro(uuid, numeric, jsonb, text)'
+);
+
+-- ---------------------------------------------------------------------------
+-- 1) Helpers: clears admin desde meta persistido (no confiar en el cliente)
+-- ---------------------------------------------------------------------------
+create or replace function public.cobro_admin_clear_rows(p_meta jsonb)
+returns table (
+  clear_key text,
+  amount numeric,
+  due_on date,
+  through_due date,
+  period_due_ons text[]
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with raw as (
+    select m.meta->'adminOperationalClear' as item
+    from (select p_meta as meta) m
+    where m.meta ? 'adminOperationalClear'
+      and jsonb_typeof(m.meta->'adminOperationalClear') = 'object'
+    union all
+    select value
+    from jsonb_array_elements(coalesce(p_meta->'adminOperationalClears', '[]'::jsonb)) value
+    where jsonb_typeof(value) = 'object'
+  ),
+  parsed as (
+    select
+      coalesce(
+        nullif(btrim(item->>'id'), ''),
+        nullif(btrim(item->>'clearId'), ''),
+        md5(item::text)
+      ) as clear_key,
+      round(coalesce(nullif(item->>'amount', '')::numeric, nullif(item->>'maxAmount', '')::numeric, 0), 2) as amount,
+      nullif(left(coalesce(item->>'dueOn', item->>'due_on', ''), 10), '')::date as due_on,
+      nullif(left(coalesce(item->>'throughDueOn', item->>'through', ''), 10), '')::date as through_due,
+      coalesce(
+        (
+          select array_agg(distinct left(x, 10))
+          from (
+            select jsonb_array_elements_text(coalesce(item->'periodDueOns', '[]'::jsonb)) as x
+          ) s
+          where left(x, 10) ~ '^\d{4}-\d{2}-\d{2}$'
+        ),
+        '{}'::text[]
+      ) as period_due_ons
+    from raw
+  )
+  select clear_key, amount, due_on, through_due, period_due_ons
+  from parsed
+  where amount > 0.01
+    and (due_on is not null or through_due is not null or cardinality(period_due_ons) > 0);
+$$;
+
+revoke all on function public.cobro_admin_clear_rows(jsonb) from public, anon;
+grant execute on function public.cobro_admin_clear_rows(jsonb) to authenticated, service_role;
+
+create or replace function public.cobro_clear_covers_due(
+  p_due date,
+  p_clear_due date,
+  p_through date,
+  p_period_due_ons text[]
+)
+returns boolean
+language sql
+immutable
+as $$
+  select
+    p_due is not null
+    and p_due > date '1900-01-10'
+    and (
+      (p_clear_due is not null and p_clear_due = p_due)
+      or (p_through is not null and p_due <= p_through)
+      or (p_period_due_ons is not null and to_char(p_due, 'YYYY-MM-DD') = any (p_period_due_ons))
+    );
+$$;
+
+revoke all on function public.cobro_clear_covers_due(date, date, date, text[]) from public, anon;
+grant execute on function public.cobro_clear_covers_due(date, date, date, text[]) to authenticated, service_role;
+
+-- Capital abierto menos clears admin (presupuesto por clear_key).
+-- Retorna { uncovered numeric, budget jsonb }.
+create or replace function public.cobro_due_uncovered_capital(
+  p_member_id uuid,
+  p_due date,
+  p_clear_budget jsonb default '{}'::jsonb
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_open numeric := 0;
+  v_meta jsonb;
+  v_row record;
+  v_left numeric;
+  v_take numeric;
+  v_rem numeric;
+  v_budget jsonb := coalesce(p_clear_budget, '{}'::jsonb);
+  v_found boolean := false;
+begin
+  if p_member_id is null or p_due is null or p_due <= date '1900-01-10' then
+    return jsonb_build_object('uncovered', 0, 'budget', v_budget);
+  end if;
+
+  select coalesce(capital_open, 0)
+    into v_open
+  from public.member_dues_periods
+  where member_id = p_member_id
+    and due_on = p_due;
+  v_found := found;
+
+  if not v_found then
+    return jsonb_build_object('uncovered', 0, 'budget', v_budget);
+  end if;
+  v_open := round(greatest(v_open, 0), 2);
+  if v_open <= 0.01 then
+    return jsonb_build_object('uncovered', 0, 'budget', v_budget);
+  end if;
+
+  select coalesce(meta, '{}'::jsonb) into v_meta
+  from public.members
+  where id = p_member_id;
+
+  v_rem := v_open;
+  for v_row in
+    select *
+    from public.cobro_admin_clear_rows(v_meta)
+    order by clear_key
+  loop
+    exit when v_rem <= 0.01;
+    if not public.cobro_clear_covers_due(p_due, v_row.due_on, v_row.through_due, v_row.period_due_ons) then
+      continue;
+    end if;
+    v_left := round(coalesce(nullif(v_budget->>v_row.clear_key, '')::numeric, v_row.amount), 2);
+    if v_left <= 0.01 then
+      continue;
+    end if;
+    v_take := least(v_rem, v_left);
+    v_rem := round(v_rem - v_take, 2);
+    v_budget := jsonb_set(
+      v_budget,
+      array[v_row.clear_key],
+      to_jsonb(round(v_left - v_take, 2)),
+      true
+    );
+  end loop;
+
+  return jsonb_build_object(
+    'uncovered', round(greatest(v_rem, 0), 2),
+    'budget', v_budget
+  );
+end;
+$$;
+
+revoke all on function public.cobro_due_uncovered_capital(uuid, date, jsonb) from public, anon;
+grant execute on function public.cobro_due_uncovered_capital(uuid, date, jsonb) to authenticated, service_role;
+
+create or replace function public.cobro_due_already_paid(p_member_id uuid, p_due date)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.dues_imputations i
+    join public.member_payments p on p.id = i.payment_id
+    where i.member_id = p_member_id
+      and i.due_on = p_due
+      and i.voided_at is null
+      and coalesce(i.capital, 0) > 0.01
+      and coalesce(p.meta->>'status', 'paid') not in ('void', 'cancelled')
+  )
+  or exists (
+    select 1
+    from public.member_payments p
+    where p.member_id = p_member_id
+      and coalesce(p.meta->>'status', 'paid') not in ('void', 'cancelled')
+      and (
+        p.meta->'periodDueOns' @> to_jsonb(array[to_char(p_due, 'YYYY-MM-DD')])
+        or exists (
+          select 1
+          from jsonb_array_elements(coalesce(p.meta->'periodDueOns', '[]'::jsonb)) e
+          where left(coalesce(e->>'dueOn', e->>'date', trim(both '"' from e::text)), 10)
+            = to_char(p_due, 'YYYY-MM-DD')
+        )
+      )
+  );
+$$;
+
+revoke all on function public.cobro_due_already_paid(uuid, date) from public, anon;
+grant execute on function public.cobro_due_already_paid(uuid, date) to authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- 2) Assert principal: sin bypass por adelanto
+-- ---------------------------------------------------------------------------
+drop function if exists public.cobro_assert_due_ons_collectable(uuid, jsonb, boolean);
 
 create or replace function public.cobro_assert_due_ons_collectable(
   p_member_id uuid,
   p_due_ons jsonb,
-  p_adelanto boolean default false
+  p_periodos jsonb default '{}'::jsonb,
+  p_importe numeric default null
 )
 returns void
 language plpgsql
@@ -15,12 +252,20 @@ as $$
 declare
   v_item jsonb;
   v_due date;
+  v_due_text text;
   v_open numeric;
+  v_uncovered numeric;
+  v_sched_cap numeric;
+  v_clear_budget jsonb := '{}'::jsonb;
+  v_unc jsonb;
+  v_meta jsonb;
+  v_has_open_row boolean;
   v_other_open int;
+  v_sum_uncovered numeric := 0;
+  v_sum_sched numeric := 0;
+  v_adelanto boolean := false;
+  v_clear_covers boolean;
 begin
-  if p_adelanto then
-    return;
-  end if;
   if p_member_id is null then
     return;
   end if;
@@ -31,14 +276,21 @@ begin
     return;
   end if;
 
+  v_adelanto := lower(coalesce(p_periodos->>'adelanto', '')) in ('true', 't', '1');
+
+  select coalesce(meta, '{}'::jsonb) into v_meta
+  from public.members
+  where id = p_member_id;
+
   for v_item in select value from jsonb_array_elements(p_due_ons)
   loop
     begin
-      v_due := left(coalesce(
+      v_due_text := left(coalesce(
         v_item->>'dueOn',
         v_item->>'date',
         trim(both '"' from v_item::text)
-      ), 10)::date;
+      ), 10);
+      v_due := v_due_text::date;
     exception when others then
       raise exception 'Período de cobro inválido.';
     end;
@@ -47,66 +299,203 @@ begin
       continue;
     end if;
 
+    -- Ya pago (imputación / periodDueOns persistidos): siempre rechazar, incluso con adelanto.
+    if public.cobro_due_already_paid(p_member_id, v_due) then
+      raise exception
+        'Ese período ya está pago y no se puede volver a cobrar.';
+    end if;
+
     select coalesce(capital_open, 0)
       into v_open
     from public.member_dues_periods
     where member_id = p_member_id
       and due_on = v_due;
+    v_has_open_row := found;
+    v_open := round(coalesce(v_open, 0), 2);
 
-    if found and v_open <= 0.01 then
-      raise exception
-        'Ese período ya está pago o cerrado y no se puede volver a cobrar.';
-    end if;
+    -- Clear admin que cubre el due aunque no haya fila abierta.
+    select exists (
+      select 1
+      from public.cobro_admin_clear_rows(v_meta) c
+      where public.cobro_clear_covers_due(v_due, c.due_on, c.through_due, c.period_due_ons)
+    ) into v_clear_covers;
 
-    if not found or v_open <= 0.01 then
+    if v_has_open_row then
+      if v_open <= 0.01 then
+        raise exception
+          'Ese período ya está pago o cerrado y no se puede volver a cobrar.';
+      end if;
+
+      v_unc := public.cobro_due_uncovered_capital(p_member_id, v_due, v_clear_budget);
+      v_uncovered := round(coalesce((v_unc->>'uncovered')::numeric, 0), 2);
+      v_clear_budget := coalesce(v_unc->'budget', v_clear_budget);
+      if v_uncovered <= 0.01 then
+        raise exception
+          'Ese período está autorizado en cero operativo y no se puede cobrar.';
+      end if;
+
+      v_sched_cap := round(coalesce((
+        select sum(round(coalesce(nullif(s.value->>'capital', '')::numeric, 0), 2))
+        from jsonb_array_elements(coalesce(p_periodos->'schedule', '[]'::jsonb)) s
+        where left(coalesce(s.value->>'dueOn', ''), 10) = v_due_text
+      ), 0), 2);
+
+      if v_sched_cap > v_uncovered + 0.01 then
+        raise exception
+          'El capital pedido (%) supera el exigible (%) del período.',
+          v_sched_cap, v_uncovered;
+      end if;
+
+      v_sum_uncovered := round(v_sum_uncovered + v_uncovered, 2);
+      if v_sched_cap > 0.01 then
+        v_sum_sched := round(v_sum_sched + v_sched_cap, 2);
+      else
+        v_sum_sched := round(v_sum_sched + v_uncovered, 2);
+      end if;
+    else
+      -- Sin fila abierta: solo adelanto de mes nuevo (no clear, no pago, no sustituir).
+      if v_clear_covers then
+        raise exception
+          'Ese período está autorizado en cero operativo y no se puede cobrar.';
+      end if;
+
       select count(*)::int
         into v_other_open
-      from public.member_dues_periods
-      where member_id = p_member_id
-        and capital_open > 0.01
-        and due_on > date '1900-01-10'
-        and due_on is distinct from v_due;
+      from public.member_dues_periods dp
+      where dp.member_id = p_member_id
+        and dp.capital_open > 0.01
+        and dp.due_on > date '1900-01-10'
+        and dp.due_on is distinct from v_due
+        and coalesce((
+          public.cobro_due_uncovered_capital(p_member_id, dp.due_on, '{}'::jsonb)
+            ->>'uncovered'
+        )::numeric, 0) > 0.01;
 
-      if coalesce(v_other_open, 0) > 0 then
+      -- Si hay otra deuda exigible abierta y piden un mes sin fila, no sustituir.
+      if coalesce(v_other_open, 0) > 0 and not v_adelanto then
         raise exception
           'Ese período no es cobrable en este momento. No se sustituye por otro mes.';
       end if;
+      if coalesce(v_other_open, 0) > 0 and v_adelanto then
+        raise exception
+          'Hay deuda exigible abierta; no se registra adelanto de otro período.';
+      end if;
     end if;
   end loop;
+
+  -- Tope de importe: no cobrar más que el capital exigible (+10 % mora máx.).
+  if v_sum_uncovered > 0.01 and p_importe is not null then
+    declare
+      v_allowed numeric;
+    begin
+      v_allowed := case
+        when v_sum_sched > 0.01 then least(v_sum_sched, v_sum_uncovered)
+        else v_sum_uncovered
+      end;
+      if round(p_importe, 2) > round(v_allowed * 1.10, 2) + 0.01 then
+        raise exception
+          'El importe supera el capital exigible de los períodos solicitados.';
+      end if;
+    end;
+  end if;
 end;
 $$;
 
-revoke all on function public.cobro_assert_due_ons_collectable(uuid, jsonb, boolean)
+revoke all on function public.cobro_assert_due_ons_collectable(uuid, jsonb, jsonb, numeric)
   from public, anon;
-grant execute on function public.cobro_assert_due_ons_collectable(uuid, jsonb, boolean)
+grant execute on function public.cobro_assert_due_ons_collectable(uuid, jsonb, jsonb, numeric)
   to authenticated, service_role;
 
-comment on function public.cobro_assert_due_ons_collectable(uuid, jsonb, boolean) is
-  'Rechaza dueOns ya cerrados o no abiertos cuando hay otra deuda abierta; sin sustitución de mes.';
+comment on function public.cobro_assert_due_ons_collectable(uuid, jsonb, jsonb, numeric) is
+  'Rechaza dueOns pagos, cerrados o cubiertos por adminOperationalClear; respeta remanente parcial; adelanto no saltea.';
 
-do $$
+-- ---------------------------------------------------------------------------
+-- 3) Rollback ejecutable
+-- ---------------------------------------------------------------------------
+create or replace function public.rollback_20261122120000_registrar_cobro_due_ons()
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_def text;
+begin
+  select definition into v_def
+  from public.schema_object_backups
+  where migration_id = '20261122120000_registrar_cobro_reject_ineligible_due_ons'
+    and object_identity = 'public.registrar_cobro(uuid, numeric, jsonb, text)'
+  order by id desc
+  limit 1;
+
+  if v_def is null or length(v_def) < 100 then
+    raise exception 'No hay backup de registrar_cobro para rollback.';
+  end if;
+
+  execute v_def;
+  drop function if exists public.cobro_assert_due_ons_collectable(uuid, jsonb, jsonb, numeric);
+  drop function if exists public.cobro_assert_due_ons_collectable(uuid, jsonb, boolean);
+  drop function if exists public.cobro_due_uncovered_capital(uuid, date, jsonb);
+  drop function if exists public.cobro_due_already_paid(uuid, date);
+  drop function if exists public.cobro_admin_clear_rows(jsonb);
+  drop function if exists public.cobro_clear_covers_due(date, date, date, text[]);
+
+  return 'rollback_20261122120000_ok';
+end;
+$$;
+
+revoke all on function public.rollback_20261122120000_registrar_cobro_due_ons()
+  from public, anon, authenticated;
+grant execute on function public.rollback_20261122120000_registrar_cobro_due_ons()
+  to service_role;
+
+-- ---------------------------------------------------------------------------
+-- 4) Inyección idempotente en registrar_cobro (ancla productiva verificada)
+-- ---------------------------------------------------------------------------
+do $inject$
 declare
   v_fn text := 'public.registrar_cobro(uuid, numeric, jsonb, text)';
   v_sql text;
-  v_anchor text := 'v_adelanto := lower(coalesce(p_periodos->>''adelanto'', '''')) in (''true'', ''t'', ''1'');';
-  v_inject text := $i$v_adelanto := lower(coalesce(p_periodos->>'adelanto', '')) in ('true', 't', '1');
-  perform public.cobro_assert_due_ons_collectable(p_member_id, v_due_ons, v_adelanto);$i$;
+  v_anchor text := $a$v_adelanto := lower(coalesce(p_periodos->>'adelanto', '')) in ('true', 't', '1');$a$;
+  v_call text := $c$perform public.cobro_assert_due_ons_collectable(p_member_id, v_due_ons, p_periodos, p_importe);$c$;
+  v_inject text;
 begin
   select pg_get_functiondef(v_fn::regprocedure) into v_sql;
   if v_sql is null then
     raise exception 'No se encontró %', v_fn;
   end if;
-  if position('cobro_assert_due_ons_collectable' in v_sql) > 0 then
-    raise notice 'registrar_cobro ya valida dueOns cobrables';
+
+  -- Compatibilidad: la ancla debe existir exactamente una vez en prod.
+  if position(v_anchor in v_sql) = 0 then
+    raise exception
+      'Ancla v_adelanto no encontrada en registrar_cobro productivo; abortando (sin cambios).';
+  end if;
+  if (length(v_sql) - length(replace(v_sql, v_anchor, ''))) / nullif(length(v_anchor), 0) <> 1 then
+    raise exception
+      'Ancla v_adelanto no es única en registrar_cobro; abortando.';
+  end if;
+
+  if position('cobro_assert_due_ons_collectable(p_member_id, v_due_ons, p_periodos, p_importe)' in v_sql) > 0 then
+    raise notice 'registrar_cobro ya valida dueOns con importe/schedule';
     return;
   end if;
-  if position(v_anchor in v_sql) = 0 then
-    raise exception 'Ancla v_adelanto no encontrada en registrar_cobro; abortando.';
-  end if;
+
+  -- Quitar inyección vieja (firma boolean) si existiera en algún entorno de prueba.
+  v_sql := replace(
+    v_sql,
+    'perform public.cobro_assert_due_ons_collectable(p_member_id, v_due_ons, v_adelanto);',
+    ''
+  );
+
+  v_inject := v_anchor || E'\n  ' || v_call;
   v_sql := replace(v_sql, v_anchor, v_inject);
-  if position('cobro_assert_due_ons_collectable' in v_sql) = 0 then
+
+  if position(v_call in v_sql) = 0 then
     raise exception 'No se inyectó cobro_assert_due_ons_collectable en registrar_cobro.';
   end if;
+
   execute v_sql;
 end;
-$$;
+$inject$;
+
+commit;
