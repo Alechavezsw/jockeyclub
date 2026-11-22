@@ -1135,6 +1135,39 @@ export function shouldBlockCollectingDueOn(member, dueOn, { entries = [] } = {})
 }
 
 /**
+ * Valida periodDueOns explícitos contra choices cobrables.
+ * Rechaza pago/regularizado/no elegible; NUNCA sustituye por otro mes.
+ * @returns {string[]} dueOns normalizados
+ */
+export function assertRequestedDuesPeriodsCollectable(member, periodDueOns, choices, {
+  chargeScope = 'all',
+} = {}) {
+  const selected = (Array.isArray(periodDueOns) ? periodDueOns : [])
+    .map((value) => String(value || '').slice(0, 10))
+    .filter((due) => /^\d{4}-\d{2}-\d{2}$/.test(due));
+  if (!selected.length) return selected;
+  // Saldo de apertura / alta: no se validan como “mes del recibo” sustituible.
+  const monthly = selected.filter((due) => due > '1900-01-10' && !isJoinFeeDueOn(due));
+  if (!monthly.length) return selected;
+  const choiceSet = new Set(
+    (choices || []).map((row) => String(row?.dueOn || '').slice(0, 10)).filter(Boolean),
+  );
+  const paidSet = memberCoveredDueOns(member, { chargeScope });
+  for (const dueOn of monthly) {
+    if (shouldBlockCollectingDueOn(member, dueOn)) {
+      throw new Error('Ese período ya está regularizado o autorizado en cero operativo.');
+    }
+    if (paidSet.has(dueOn)) {
+      throw new Error('Ese período ya está pago y no se puede volver a cobrar.');
+    }
+    if (!choiceSet.has(dueOn)) {
+      throw new Error('Ese período no es cobrable en este momento. No se sustituye por otro mes.');
+    }
+  }
+  return selected;
+}
+
+/**
  * Saldo de cuota para mora / “cuánto debe” / padrón / Consultar deuda / cobro.
  * Misma cifra en todos lados.
  * - outstanding ≤ 0: solo reabre con períodos abiertos NO cubiertos por pago/reg/alcance.
@@ -1158,6 +1191,9 @@ export function socialDuesStoredBalance(member, { entries = [] } = {}) {
     if (periodsHydrated) return 0;
     return outstanding;
   }
+  // Con períodos hidratados manda el capital exigible (pago/reg/clear parcial),
+  // no el capital_open crudo. Sin períodos, la ficha.
+  if (periodsHydrated) return money(Math.max(outstanding, uncovered));
   return Math.max(outstanding, openCap);
 }
 
@@ -1946,31 +1982,41 @@ function choicesFromStoredOpenPeriods(member, paidOn, paidSet, scopeOpts = {}) {
   const balance = money(Math.max(0, Number(member?.outstandingBalance) || 0));
   const operationalOwed = socialDuesStoredBalance(member);
   const owed = money(Math.max(operationalOwed, capitalOwedForChoices(member, scope)));
+  const adminBudgets = new Map();
+  const regBudgets = new Map();
   const stored = [];
   for (const row of raw) {
     const dueOn = String(row?.dueOn || row?.due_on || '').slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dueOn)) continue;
     if (dueOn <= '1900-01-10' && !isJoinFeeDueOn(dueOn)) continue;
     if (dueOnAlreadyCovered(dueOn, paidSet)) continue;
-    // Remanente real del período (capital_open), no la tarifa llena.
+    // Snapshot abierto (capital_open); el exigible resta pago/reg/clear parcial.
     const residual = money(row.capitalOpen ?? row.capital_open ?? row.capital);
     if (!(residual > 0.01)) continue;
-    // Pago imputado / regularización / excepción admin: no es exigible.
-    if (openPeriodIsOperationallyCovered(member, dueOn, { openCapital: residual })) continue;
+    const uncovered = openPeriodUncoveredCapital(member, dueOn, residual, {
+      periodRow: row,
+      adminBudgets,
+      regBudgets,
+    });
+    if (!(uncovered > 0.01)) continue;
 
     const due = parseDate(dueOn);
     const alta = isJoinFeeDueOn(dueOn);
     const overdue = Boolean(!alta && due && due < paidOn);
     const kind = overdue ? 'overdue' : 'upcoming';
-    let capital = residual;
-    let lateBase = alta ? 0 : money(row.lateBase ?? row.late_base ?? residual);
+    let capital = uncovered;
+    const rawLate = alta ? 0 : money(row.lateBase ?? row.late_base ?? residual);
+    // Proporción del remanente todavía exigible (clear/pago parcial).
+    let lateBase = alta || !(residual > 0.01)
+      ? 0
+      : money(rawLate * (uncovered / residual));
     let surcharge = overdue && !alta ? money(lateBase * 0.1) : 0;
 
     // Cuota o tenis por separado: tope a la tarifa del alcance, sin inflar el remanente.
     if (scope !== 'all') {
       const full = periodChoiceFromDue(member, dueOn, paidOn, kind, scopeOpts);
       if (!full || !(full.capital > 0.01)) continue;
-      capital = money(Math.min(residual, full.capital));
+      capital = money(Math.min(uncovered, full.capital));
       lateBase = alta ? 0 : money(Math.min(lateBase || capital, full.lateBase || capital));
       surcharge = overdue && !alta
         ? money(Math.min(full.surcharge || 0, lateBase * 0.1))

@@ -177,4 +177,80 @@ describe('hotfix cobro $0 con nextDueDate desfasado (caso 101600 anonimizado)', 
     expect(preview.periods.some((row) => row.kind === 'alta')).toBe(false);
     expect(preview.periods.some((row) => row.capital === 70000)).toBe(false);
   });
+
+  it('cobertura parcial: open $10.000 − clear $6.363,64 → ofrece $3.636,36 (no $70.000)', () => {
+    const member = familiarTitular({
+      outstandingBalance: 3636.36,
+      unpaidCapital: 3636.36,
+      nextDueDate: '2026-10-10',
+      duesOpenPeriods: [{ dueOn: '2026-10-10', capital: 10000, capitalOpen: 10000 }],
+      meta: {
+        unpaidCapital: 3636.36,
+        duesOpenPeriods: [{ dueOn: '2026-10-10', capital: 10000, capitalOpen: 10000 }],
+        adminOperationalClear: {
+          id: 'admin-clear-partial-oct',
+          memberNumber: 'anon-101600',
+          periodDueOns: ['2026-10-10'],
+          dueOn: '2026-10-10',
+          amount: 6363.64,
+          reason: 'Clear parcial octubre',
+          authorizedBy: 'Administración · Tesorería',
+          authorizedAt: '2026-11-21',
+        },
+      },
+    });
+    expect(socialDuesStoredBalance(member)).toBe(3636.36);
+    for (const scope of ['all', 'social']) {
+      const choices = collectionPeriodChoices(member, TODAY, { chargeScope: scope });
+      expect(choices).toHaveLength(1);
+      expect(choices[0].dueOn).toBe('2026-10-10');
+      expect(choices[0].capital).toBe(3636.36);
+      expect(choices.some((row) => row.capital === 70000)).toBe(false);
+      expect(choices.some((row) => row.capital === 10000)).toBe(false);
+    }
+    const preview = collectionPreview(member, TODAY, { chargeScope: 'social' });
+    expect(preview.quota).toBe(3636.36);
+    expect(preview.clear).toBe(false);
+  });
+
+  it('nov pago + dic deuda: cobrar nov explícito se rechaza sin imputar diciembre', () => {
+    const todayDec = new Date('2026-12-05T12:00:00-03:00');
+    const member = familiarTitular({
+      outstandingBalance: 70000,
+      unpaidCapital: 70000,
+      nextDueDate: '2026-12-10',
+      overdueSince: null,
+      duesOpenPeriods: [{ dueOn: '2026-12-10', capital: 70000, capitalOpen: 70000 }],
+      meta: {
+        unpaidCapital: 70000,
+        duesOpenPeriods: [{ dueOn: '2026-12-10', capital: 70000, capitalOpen: 70000 }],
+        adminOperationalClear: familiarTitular().meta.adminOperationalClear,
+      },
+    });
+    const choices = collectionPeriodChoices(member, todayDec, { chargeScope: 'social' });
+    expect(choices.map((row) => row.dueOn)).toEqual(['2026-12-10']);
+
+    const beforeHistory = member.paymentHistory.map((p) => ({ ...p }));
+    expect(() => payMemberDues(member, {
+      method: 'efectivo',
+      today: todayDec,
+      periodDueOns: ['2026-11-10'],
+      chargeScope: 'social',
+    })).toThrow(/ya está pago|no es cobrable|no se sustituye/i);
+
+    expect(() => recordDuesCollection(member, {
+      method: 'efectivo',
+      today: todayDec,
+      periodDueOns: ['2026-11-10'],
+      amount: 70000,
+      chargeScope: 'social',
+    })).toThrow(/ya está pago|no es cobrable|no se sustituye/i);
+
+    // Sin pago ni imputación a diciembre: ficha intacta.
+    expect(member.paymentHistory).toEqual(beforeHistory);
+    expect(member.outstandingBalance).toBe(70000);
+    expect(member.duesOpenPeriods).toEqual([
+      { dueOn: '2026-12-10', capital: 70000, capitalOpen: 70000 },
+    ]);
+  });
 });
