@@ -815,11 +815,19 @@ export default function AdminView({
           overdueSince: full.overdueSince ?? null,
           lastPaymentDate: full.lastPaymentDate ?? list[idx]?.lastPaymentDate,
           unpaidCapital: full.unpaidCapital ?? full.meta?.unpaidCapital,
+          duesOpenPeriods: Array.isArray(full.duesOpenPeriods)
+            ? full.duesOpenPeriods
+            : (Array.isArray(full.meta?.duesOpenPeriods) ? full.meta.duesOpenPeriods : (list[idx]?.duesOpenPeriods || [])),
           meta: {
             ...(list[idx]?.meta || {}),
             ...(full.meta || {}),
             unpaidCapital: full.unpaidCapital ?? full.meta?.unpaidCapital
               ?? list[idx]?.meta?.unpaidCapital,
+            duesOpenPeriods: Array.isArray(full.duesOpenPeriods)
+              ? full.duesOpenPeriods
+              : (Array.isArray(full.meta?.duesOpenPeriods)
+                ? full.meta.duesOpenPeriods
+                : (list[idx]?.meta?.duesOpenPeriods || list[idx]?.duesOpenPeriods || [])),
           },
           recordScope: 'full',
         };

@@ -41,6 +41,7 @@ export function gateMemberReady(member) {
   if (!member.status) return false;
   return (
     member.unpaidCapital != null
+    || Array.isArray(member.duesOpenPeriods)
     || member.outstandingBalance != null
     || member.balance != null
     || member.nextDueDate != null

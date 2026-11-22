@@ -50,6 +50,7 @@ const MEMBERS_LIST_SELECT = [
   'cuota_categories:meta->cuotaCategories',
   'current_account_as_of:meta->>currentAccountAsOf',
   'unpaid_capital:meta->unpaidCapital',
+  'dues_open_periods:meta->duesOpenPeriods',
   'fecha_alta_raw:meta->>fechaAltaRaw',
   'dues_free_through:meta->>duesFreeThrough',
   'birth_date',
@@ -76,6 +77,7 @@ export function metaFromListRow(row = {}) {
   const societasApp = row.has_societas_app ?? row.hasSocietasApp ?? row.meta?.hasSocietasApp;
   const accountCut = row.current_account_as_of ?? row.currentAccountAsOf ?? row.meta?.currentAccountAsOf;
   const unpaidCapital = row.unpaid_capital ?? row.unpaidCapital ?? row.meta?.unpaidCapital;
+  const duesOpenPeriods = row.dues_open_periods ?? row.duesOpenPeriods ?? row.meta?.duesOpenPeriods;
   const bajaMotivo = row.baja_motivo ?? row.bajaMotivo ?? row.meta?.bajaMotivo;
   const bajaActorName = row.baja_actor ?? row.bajaActorName ?? row.meta?.bajaActorName;
   const bajaRegistradaAt = row.baja_registrada ?? row.bajaRegistradaAt ?? row.meta?.bajaRegistradaAt;
@@ -92,6 +94,9 @@ export function metaFromListRow(row = {}) {
   if (societasApp === true || societasApp === 'true') meta.hasSocietasApp = true;
   if (accountCut) meta.currentAccountAsOf = String(accountCut).slice(0, 10);
   if (unpaidCapital != null && unpaidCapital !== '') meta.unpaidCapital = Number(unpaidCapital) || 0;
+  if (duesOpenPeriods !== undefined && duesOpenPeriods !== null) {
+    meta.duesOpenPeriods = Array.isArray(duesOpenPeriods) ? duesOpenPeriods : [];
+  }
   if (bajaMotivo) meta.bajaMotivo = bajaMotivo;
   if (bajaActorName) meta.bajaActorName = bajaActorName;
   if (bajaRegistradaAt) meta.bajaRegistradaAt = bajaRegistradaAt;
@@ -145,6 +150,13 @@ function listRowToMember(row) {
     member.unpaidCapital = Number(row.unpaid_capital) || 0;
   } else if (row.unpaidCapital != null && row.unpaidCapital !== '') {
     member.unpaidCapital = Number(row.unpaidCapital) || 0;
+  }
+  {
+    const openRaw = row.dues_open_periods ?? row.duesOpenPeriods ?? row.meta?.duesOpenPeriods;
+    // Solo marcar hidratado cuando la columna/meta vino en la fila (null → []).
+    if (openRaw !== undefined) {
+      member.duesOpenPeriods = Array.isArray(openRaw) ? openRaw : [];
+    }
   }
   {
     const freeThrough = String(row.dues_free_through || row.duesFreeThrough || '').slice(0, 7);
@@ -395,6 +407,7 @@ async function downloadMembersListPaged({ onBatch, scope = 'active' } = {}) {
           .replace(', cuota_categories:meta->cuotaCategories', '')
           .replace(', current_account_as_of:meta->>currentAccountAsOf', '')
           .replace(', unpaid_capital:meta->unpaidCapital', '')
+          .replace(', dues_open_periods:meta->duesOpenPeriods', '')
           .replace(', dues_free_through:meta->>duesFreeThrough', '')
           .replace(', years_active', '')
           .replace(', verified_tenure_years:meta->>verifiedTenureYears', '')

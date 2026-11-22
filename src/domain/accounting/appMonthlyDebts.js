@@ -13,10 +13,8 @@ import {
   duesDueDayForMember,
   duesPayableForMember,
   firstUnpaidDuesDate,
-  isMemberBillingActive,
   isDuesExemptMember,
   isMemberJoinFeeMonth,
-  lilaUnpaidCapital,
   joinFeeAmountForMember,
   memberJoinMonthKey,
   monthsBehindOnDues,
@@ -138,7 +136,8 @@ function memberDisplayName(member) {
 }
 
 function standingLabel(member, { todayIso, monthsBehind }) {
-  const balance = Number(member?.outstandingBalance) || 0;
+  // Misma cifra que mora / Consultar deuda (ficha + períodos abiertos).
+  const balance = socialDuesStoredBalance(member);
   if (monthsBehind <= 0 && balance <= 0) return 'Al día';
   if (monthsBehind >= 2) return 'En mora';
   const stages = duesNoticeStagesForDay(todayIso, duesDueDayForMember(member));
@@ -146,18 +145,6 @@ function standingLabel(member, { todayIso, monthsBehind }) {
   if (monthsBehind === 1 && stages.includes('due')) return 'Vencida';
   if (balance > 0) return 'Con saldo';
   return 'Vencida';
-}
-
-function syntheticUnpaidAmount(member, firstUnpaid, monthsBehind, today) {
-  let dueOn = firstUnpaid;
-  let total = 0;
-  const n = Math.min(Math.max(monthsBehind, 0), MAX_MONTHS);
-  for (let i = 0; i < n; i += 1) {
-    // Solo capital: el 10 % se calcula aparte al armar el desglose / al cobrar.
-    total += duesAmountForMember(member, dueOn);
-    dueOn = nextDueAfter(dueOn, member);
-  }
-  return money(total);
 }
 
 /**
@@ -274,10 +261,9 @@ export function appMonthlyDebtForMember(member, { today = new Date(), entries = 
   if (!memberNumber) return null;
 
   const todayIso = asIsoDate(today);
-  // Misma fuente que molinete / mora: unpaidCapital LILA si hay; si no, outstanding.
-  const lila = lilaUnpaidCapital(member);
+  // Ficha + períodos abiertos. unpaidCapital=0 no oculta deuda nueva con open periods.
+  // outstanding ≤ 0 sin open periods → null (no deuda sintética por nextDue).
   const persisted = socialDuesStoredBalance(member);
-  const billingActive = isMemberBillingActive(member);
   const exempt = isDuesExemptMember(member);
   if (exempt) return null;
   const monthsBehind = monthsBehindOnDues({
@@ -288,23 +274,24 @@ export function appMonthlyDebtForMember(member, { today = new Date(), entries = 
   });
 
   if (persisted <= EPS) {
-    // Corte LILA en 0 = al día; no inventar meses por nextDue viejo.
-    if (lila != null) return null;
-    if (!billingActive || monthsBehind <= 0) return null;
+    return null;
   }
 
-  const firstUnpaid = firstUnpaidDuesDate({
+  const openRows = Array.isArray(member?.duesOpenPeriods) ? member.duesOpenPeriods : [];
+  const firstOpenDue = openRows
+    .map((row) => String(row?.dueOn || '').slice(0, 10))
+    .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+    .sort()[0] || null;
+
+  const firstUnpaid = firstOpenDue || firstUnpaidDuesDate({
     lastPaymentDate: member.lastPaymentDate,
     nextDueDate: member.nextDueDate,
     today,
     member,
   });
 
-  let remaining = persisted;
-  if (remaining <= EPS) {
-    remaining = syntheticUnpaidAmount(member, firstUnpaid, monthsBehind, today);
-    if (remaining <= EPS) return null;
-  }
+  const remaining = persisted;
+  if (remaining <= EPS) return null;
 
   const joinFee = allocateJoinFee(member, remaining);
   const { months, unallocated } = joinFee || allocateMonths(member, {

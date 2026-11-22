@@ -7,6 +7,7 @@ describe('gateMemberReady', () => {
     expect(gateMemberReady({ memberId: '1' })).toBe(false);
     expect(gateMemberReady({ memberId: '1', status: 'active' })).toBe(false);
     expect(gateMemberReady({ memberId: '1', status: 'active', unpaidCapital: 0 })).toBe(true);
+    expect(gateMemberReady({ memberId: '1', status: 'active', duesOpenPeriods: [] })).toBe(true);
     expect(gateMemberReady({ memberId: '1', status: 'active', outstandingBalance: 70000 })).toBe(true);
     expect(gateMemberReady({ memberId: '1', status: 'active', nextDueDate: '2026-12-10' })).toBe(true);
   });

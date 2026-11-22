@@ -42,10 +42,17 @@ import {
   collectionPeriodChoices,
   memberDueFact,
   socialDuesStoredBalance,
+  hasVerifiedOperationalClearEvidence,
+  paymentAmountTowardDueOn,
+  accumulatedPaymentCapitalTowardDueOn,
+  listAdminOperationalClears,
+  isValidAdminOperationalClear,
+  openPeriodUncoveredCapital,
 } from './dues';
 import { accountPaymentPlan, collectionPreview, payMemberDues } from './memberPayments';
 import { setRuntimeTierCatalog } from './tiers';
 import { setRuntimeDiscountRules } from '../accounting/discountApplication';
+import { memberFromRow } from '../../data/mappers.js';
 
 const testCatalog = [
   { id: 'socio_individual', name: 'SOCIO INDIVIDUAL', monthlyDues: 32000, sortOrder: 1 },
@@ -71,24 +78,57 @@ describe('dues classification', () => {
 
   it('detecta cuotas vencidas por saldo', () => {
     const overdue = getOverdueMembers(members, today);
+    // Solo #1 tiene saldo; #4 tiene nextDue pasado pero ficha 0 → no mora inventada.
     expect(overdue.map((m) => m.memberId)).toContain('1');
-    expect(overdue.map((m) => m.memberId)).toContain('4');
+    expect(overdue.map((m) => m.memberId)).not.toContain('4');
+    expect(overdue.map((m) => m.memberId)).not.toContain('2');
   });
 
   it('después del 10 la cuota impaga está en mora', () => {
     const overdue = getOverdueMembers([
-      { memberId: 'm', name: 'M', tier: 'socio_individual', outstandingBalance: 0, status: 'active', nextDueDate: '2026-10-10' },
+      {
+        memberId: 'm',
+        name: 'M',
+        tier: 'socio_individual',
+        outstandingBalance: 40000,
+        unpaidCapital: 40000,
+        status: 'active',
+        nextDueDate: '2026-10-10',
+      },
     ], new Date('2026-10-11T12:00:00'));
     expect(overdue).toHaveLength(1);
     expect(overdue[0].duesStatus).toBe('mora');
   });
 
   it('el día 10 todavía vence, no entra en mora', () => {
-    const member = { memberId: 'm', name: 'M', tier: 'socio_individual', outstandingBalance: 0, status: 'active', nextDueDate: '2026-10-10' };
+    const member = {
+      memberId: 'm',
+      name: 'M',
+      tier: 'socio_individual',
+      outstandingBalance: 40000,
+      unpaidCapital: 40000,
+      status: 'active',
+      nextDueDate: '2026-10-10',
+    };
     const today = new Date('2026-10-10T12:00:00');
     expect(getOverdueMembers([member], today)).toHaveLength(0);
     expect(getDueTodayMembers([member], today)[0]?.duesStatus).toBe('due');
     expect(getUpcomingDuesMembers([member], { today })).toHaveLength(0);
+  });
+
+  it('ficha en 0 con nextDue pasado no figura en mora ni vencido hoy', () => {
+    const member = {
+      memberId: 'z',
+      name: 'Z',
+      tier: 'socio_individual',
+      outstandingBalance: 0,
+      unpaidCapital: 0,
+      status: 'active',
+      nextDueDate: '2026-06-10',
+    };
+    const today = new Date('2026-10-11T12:00:00');
+    expect(getOverdueMembers([member], today)).toHaveLength(0);
+    expect(getDueTodayMembers([member], today)).toHaveLength(0);
   });
 
   it('el saldo de cuota del padrón cuenta como mora aunque no tenga vencimiento cargado', () => {
@@ -107,6 +147,7 @@ describe('dues classification', () => {
         tier: 'socio_familiar',
         outstandingBalance: 70000,
         unpaidCapital: 0,
+        duesOpenPeriods: [],
         lastPaymentDate: '2026-11-01',
         status: 'active',
       },
@@ -138,6 +179,250 @@ describe('dues classification', () => {
       outstandingBalance: 70000,
       unpaidCapital: 98000,
     })).toBe(70000);
+  });
+
+  it('período abierto con ficha 0 no queda oculto; unpaidCapital 0 no tapa deuda nueva', () => {
+    // Sin pago de respaldo → obligación nueva legítima.
+    expect(socialDuesStoredBalance({
+      outstandingBalance: 0,
+      unpaidCapital: 0,
+      duesOpenPeriods: [{ dueOn: '2026-11-10', capital: 70000 }],
+    })).toBe(70000);
+    expect(socialDuesStoredBalance({
+      outstandingBalance: 70000,
+      unpaidCapital: 0,
+      duesOpenPeriods: [{ dueOn: '2026-11-10', capital: 70000 }],
+    })).toBe(70000);
+    expect(socialDuesStoredBalance({
+      outstandingBalance: -15000,
+      unpaidCapital: 0,
+      duesOpenPeriods: [{ dueOn: '2026-11-10', capital: 70000 }],
+    })).toBe(55000);
+  });
+
+  it('ficha $0 con pagos imputados a esos períodos no se reabre por auxiliares abiertos', () => {
+    const member = {
+      outstandingBalance: 0,
+      unpaidCapital: 0,
+      duesOpenPeriods: [
+        { dueOn: '2026-10-10', capital: 70000 },
+        { dueOn: '2026-11-10', capital: 70000 },
+      ],
+      paymentHistory: [
+        {
+          id: 'p1',
+          amount: 77000,
+          status: 'paid',
+          concept: 'Cuota octubre',
+          periodDueOns: ['2026-10-10'],
+        },
+        {
+          id: 'p2',
+          amount: 70000,
+          status: 'paid',
+          concept: 'Cuota noviembre',
+          periodDueOns: ['2026-11-10'],
+        },
+      ],
+    };
+    expect(hasVerifiedOperationalClearEvidence(member)).toBe(true);
+    expect(socialDuesStoredBalance(member)).toBe(0);
+  });
+
+  it('pago antiguo sin periodDueOns no cancela una cuota nueva abierta', () => {
+    const member = {
+      outstandingBalance: 0,
+      unpaidCapital: 0,
+      duesOpenPeriods: [{ dueOn: '2026-11-10', capital: 70000 }],
+      paymentHistory: [
+        { id: 'old', amount: 70000, status: 'paid', concept: 'Cuota agosto', paidAt: '2026-08-05' },
+      ],
+    };
+    expect(hasVerifiedOperationalClearEvidence(member)).toBe(false);
+    expect(socialDuesStoredBalance(member)).toBe(70000);
+  });
+
+  it('mismo número de comprobante con distintos ids no se colapsa', () => {
+    const member = {
+      paymentHistory: [
+        {
+          id: 'pay-a',
+          receiptNumber: 'RC-SHARED',
+          amount: 30000,
+          status: 'paid',
+          periodDueOns: ['2026-11-10'],
+          imputations: [{ dueOn: '2026-11-10', capital: 30000 }],
+        },
+        {
+          id: 'pay-b',
+          receiptNumber: 'RC-SHARED',
+          amount: 40000,
+          status: 'paid',
+          periodDueOns: ['2026-11-10'],
+          imputations: [{ dueOn: '2026-11-10', capital: 40000 }],
+        },
+      ],
+      outstandingBalance: 0,
+      duesOpenPeriods: [{ dueOn: '2026-11-10', capital: 70000 }],
+    };
+    expect(accumulatedPaymentCapitalTowardDueOn(member, '2026-11-10')).toBe(70000);
+    expect(socialDuesStoredBalance(member)).toBe(0);
+  });
+
+  it('paymentAmountTowardDueOn usa imputación y no asume cobertura plena multi-período', () => {
+    expect(paymentAmountTowardDueOn({
+      amount: 30000,
+      status: 'paid',
+      periodDueOns: ['2026-11-10'],
+      imputations: [{ dueOn: '2026-11-10', capital: 30000 }],
+    }, '2026-11-10')).toBe(30000);
+    expect(paymentAmountTowardDueOn({
+      amount: 70000,
+      status: 'paid',
+      periodDueOns: ['2026-10-10', '2026-11-10'],
+    }, '2026-11-10')).toBe(0);
+    const member = {
+      paymentHistory: [
+        {
+          id: 'p1',
+          amount: 30000,
+          status: 'paid',
+          periodDueOns: ['2026-11-10'],
+          imputations: [{ dueOn: '2026-11-10', capital: 30000 }],
+        },
+        {
+          id: 'p1',
+          amount: 30000,
+          status: 'paid',
+          periodDueOns: ['2026-11-10'],
+          imputations: [{ dueOn: '2026-11-10', capital: 30000 }],
+        },
+      ],
+    };
+    expect(accumulatedPaymentCapitalTowardDueOn(member, '2026-11-10')).toBe(30000);
+  });
+
+  it('listAdminOperationalClears lee el registro persistente de meta sin hardcode', () => {
+    const clears = listAdminOperationalClears({
+      memberNumber: '101600',
+      meta: {
+        adminOperationalClear: {
+          memberNumber: '101600',
+          dueOn: '2026-10-10',
+          amount: 6363.64,
+          authorizedBy: 'Administración · Tesorería',
+          authorizedAt: '2026-11-21',
+          reason: 'Remanente octubre',
+        },
+      },
+    });
+    expect(clears).toHaveLength(1);
+    expect(clears[0].amount).toBe(6363.64);
+    expect(listAdminOperationalClears({ memberNumber: '101600' })).toEqual([]);
+  });
+
+  it('memberFromRow no duplica adminOperationalClear al expandir meta', () => {
+    const clear = {
+      memberNumber: '101600',
+      dueOn: '2026-10-10',
+      periodDueOns: ['2026-10-10'],
+      amount: 6363.64,
+      reason: 'Remanente octubre 2026 autorizado en cero operativo · pendiente de conciliación',
+      authorizedBy: 'Administración · Tesorería',
+      authorizedAt: '2026-11-21',
+    };
+    const member = memberFromRow({
+      id: 'db-101600',
+      member_number: '101600',
+      full_name: 'María Florencia Ramírez Pericas',
+      tier: 'socio_familiar',
+      status: 'active',
+      outstanding_balance: 0,
+      next_due_date: '2026-12-10',
+      meta: {
+        unpaidCapital: 0,
+        lastPaymentDate: '2026-11-08',
+        duesOpenPeriods: [{ dueOn: '2026-10-10', capital: 10000, capitalOpen: 10000 }],
+        adminOperationalClear: clear,
+      },
+    }, [{
+      id: 'pay-ramirez-nov',
+      amount: 70000,
+      status: 'paid',
+      concept: 'Cuota social · Noviembre de 2026',
+      periodDueOns: ['2026-11-10'],
+      paid_at: '2026-11-08',
+    }]);
+
+    // memberFromRow deja la misma autorización en top-level y en meta.
+    expect(member.adminOperationalClear).toEqual(clear);
+    expect(member.meta.adminOperationalClear).toEqual(clear);
+    expect(listAdminOperationalClears(member)).toHaveLength(1);
+    expect(socialDuesStoredBalance(member)).toBe(3636.36);
+    expect(openPeriodUncoveredCapital(member, '2026-10-10', 10000)).toBe(3636.36);
+    expect(hasVerifiedOperationalClearEvidence(member)).toBe(false);
+  });
+
+  it('rechaza excepciones administrativas sin importe máximo válido', () => {
+    expect(isValidAdminOperationalClear({
+      dueOn: '2026-10-10',
+      reason: 'sin monto',
+      authorizedBy: 'Tesorería',
+    })).toBe(false);
+    expect(listAdminOperationalClears({
+      meta: {
+        adminOperationalClear: {
+          periodDueOns: ['2026-10-10'],
+          authorizedBy: 'Tesorería',
+          authorizedAt: '2026-11-21',
+        },
+      },
+      duesOpenPeriods: [{ dueOn: '2026-10-10', capital: 6363.64 }],
+    })).toEqual([]);
+    expect(socialDuesStoredBalance({
+      outstandingBalance: 0,
+      duesOpenPeriods: [{ dueOn: '2026-10-10', capital: 6363.64 }],
+      meta: {
+        adminOperationalClear: {
+          periodDueOns: ['2026-10-10'],
+          authorizedBy: 'Tesorería',
+        },
+      },
+    })).toBe(6363.64);
+  });
+
+  it('capital_open ya neteado no vuelve a descontar el pago imputado', () => {
+    const member = {
+      outstandingBalance: 0,
+      unpaidCapital: 0,
+      paymentHistory: [{
+        id: 'pay-partial',
+        amount: 30000,
+        status: 'paid',
+        concept: 'Cuota noviembre',
+        periodDueOns: ['2026-11-10'],
+        imputations: [{ dueOn: '2026-11-10', capital: 30000, capitalOpen: 40000 }],
+      }],
+      // capital = original; capitalOpen = remanente post-imputación.
+      duesOpenPeriods: [{ dueOn: '2026-11-10', capital: 70000, capitalOpen: 40000 }],
+    };
+    expect(socialDuesStoredBalance(member)).toBe(40000);
+    expect(openPeriodUncoveredCapital(member, '2026-11-10', 40000, {
+      periodRow: member.duesOpenPeriods[0],
+    })).toBe(40000);
+    expect(hasVerifiedOperationalClearEvidence(member)).toBe(false);
+  });
+
+  it('unpaidCapital 0 sin duesOpenPeriods hidratados no silencia ficha positiva', () => {
+    expect(socialDuesStoredBalance({
+      outstandingBalance: 70000,
+      unpaidCapital: 0,
+    })).toBe(70000);
+    expect(socialDuesStoredBalance({
+      outstandingBalance: 70000,
+      unpaidCapital: 0,
+      duesOpenPeriods: [],
+    })).toBe(0);
   });
 
   it('un alquiler en la cuenta no es mora de cuota', () => {
@@ -265,7 +550,13 @@ describe('dues classification', () => {
       outstandingBalance: 68250,
       nextDueDate: '2026-10-18',
     }], new Date('2026-10-25T12:00:00'))).toHaveLength(0);
-    expect(getDueTodayMembers([{ ...amet, nextDueDate: '2026-10-18' }], new Date('2026-10-18T12:00:00'))).toHaveLength(1);
+    // AMET no entra en mora; con saldo sí puede figurar como vencido el día 18.
+    expect(getDueTodayMembers([{
+      ...amet,
+      outstandingBalance: 68250,
+      unpaidCapital: 68250,
+      nextDueDate: '2026-10-18',
+    }], new Date('2026-10-18T12:00:00'))).toHaveLength(1);
     const charged = applyAutomaticDues([{ ...amet, nextDueDate: '2026-10-18' }], new Date('2026-10-19T12:00:00'))[0];
     expect(charged.outstandingBalance).toBe(68250);
     expect(afterCollectDues(charged, new Date('2026-10-19T12:00:00')).nextDueDate).toBe('2026-11-18');

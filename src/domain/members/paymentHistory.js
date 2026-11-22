@@ -9,6 +9,7 @@ import {
   monthsBehindOnDues,
   overdueSocialMonths,
   pinDuesDueDate,
+  socialDuesStoredBalance,
 } from './dues';
 
 function isDuesPayment(row) {
@@ -194,36 +195,42 @@ export function summarizePaymentHistory(history = [], member, { today = new Date
     };
   }
   const monthly = referenceMonthlyDues(member, paid, today);
-  const stored = Number(member?.outstandingBalance) || 0;
+  // Ficha + períodos abiertos. No inventar deuda por monthsBehind / nextDue históricos.
+  const stored = socialDuesStoredBalance(member);
   const fromHistory = lastDuesDate
     ? firstUnpaidDuesDate({ lastPaymentDate: lastDuesDate, today, member })
     : null;
   const fromFicha = pinDuesDueDate(member?.nextDueDate, member);
   // Con saldo, la cuota más vieja impaga gana (ficha/RPC vs último cobro).
   let nextDue;
-  if (stored > 0 && fromHistory && fromFicha) {
+  if (stored > 0.01 && fromHistory && fromFicha) {
     nextDue = fromHistory <= fromFicha ? fromHistory : fromFicha;
-  } else {
+  } else if (stored > 0.01) {
     nextDue = firstUnpaidDuesDate({
       lastPaymentDate: lastDuesDate,
       nextDueDate: member?.nextDueDate,
       today,
       member,
     });
+  } else {
+    nextDue = fromFicha || member?.nextDueDate || null;
   }
   const standingMember = {
     ...member,
     lastPaymentDate: lastDuesDate || member?.lastPaymentDate || null,
     nextDueDate: nextDue,
   };
-  const monthsBehind = monthsBehindOnDues({
-    lastPaymentDate: lastDuesDate,
-    nextDueDate: nextDue,
-    today,
-    member,
-  });
-  const overdue = overdueSocialMonths(standingMember, today);
-  const outstanding = Math.max(stored, monthsBehind > 0 ? monthsBehind * monthly : 0);
+  const monthsBehind = stored > 0.01
+    ? monthsBehindOnDues({
+      lastPaymentDate: lastDuesDate,
+      nextDueDate: nextDue,
+      today,
+      member,
+    })
+    : 0;
+  const overdue = stored > 0.01 ? overdueSocialMonths(standingMember, today) : [];
+  // Nunca fabricar outstanding desde monthsBehind cuando la ficha/open Cap es 0.
+  const outstanding = stored;
   const split = duesChargeBreakdown(
     { ...standingMember, outstandingBalance: outstanding },
     { paidOn: today },
@@ -237,13 +244,13 @@ export function summarizePaymentHistory(history = [], member, { today = new Date
     paymentsCount: paid.length,
     lastPayment: last,
     lastDuesDate,
-    monthsBehind: Math.max(monthsBehind, overdue.length),
+    monthsBehind: stored > 0.01 ? Math.max(monthsBehind, overdue.length) : 0,
     outstanding,
     nextDue: overdue[0]?.dueOn || nextDue,
     nextAmount,
-    surcharge: outstanding > 0 ? (split.surcharge || 0) : 0,
+    surcharge: outstanding > 0.01 ? (split.surcharge || 0) : 0,
     dueDay: duesDueDayForMember(member),
-    monthlyReference: duesAmountForTier(member?.tier, undefined, today),
+    monthlyReference: duesAmountForTier(member?.tier, undefined, today) || monthly,
   };
 }
 

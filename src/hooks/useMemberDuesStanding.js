@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { appMonthlyDebtForMember } from '../domain/accounting/appMonthlyDebts';
-import { formatMonthsBehind, isDuesExemptMember } from '../domain/members/dues';
+import {
+  formatMonthsBehind,
+  isDuesExemptMember,
+  socialDuesStoredBalance,
+} from '../domain/members/dues';
 import { collectionPreview } from '../domain/members/memberPayments';
 import {
   getMemberPaymentHistory,
@@ -33,8 +37,10 @@ function standingFromRpc(raw) {
 
 /**
  * Estado de cuota del socio logueado: pagos reales de la nube + persistencia en ficha.
+ * Ficha en 0 sin obligaciones nuevas → no atrasado por monthsBehind / nextDue / historial.
  */
 export function useMemberDuesStanding(member) {
+  const memberKey = member?.id || member?.memberId || '';
   const [remoteHistory, setRemoteHistory] = useState(() => (
     Array.isArray(member?.paymentHistory) ? member.paymentHistory : []
   ));
@@ -42,15 +48,26 @@ export function useMemberDuesStanding(member) {
   const [persisted, setPersisted] = useState(null);
   const [loading, setLoading] = useState(false);
   const syncedFor = useRef('');
+  const seenMemberKey = useRef(memberKey);
   const seedLen = member?.paymentHistory?.length || 0;
   const seedId = member?.paymentHistory?.[0]?.id;
+
+  // Cambio rápido de socio: reset en render (no en effect) para no mezclar mora/saldo.
+  if (seenMemberKey.current !== memberKey) {
+    seenMemberKey.current = memberKey;
+    syncedFor.current = '';
+    setRemoteHistory(Array.isArray(member?.paymentHistory) ? member.paymentHistory : []);
+    setRemoteFicha(null);
+    setPersisted(null);
+    setLoading(false);
+  }
 
   useEffect(() => {
     const seed = member?.paymentHistory;
     if (Array.isArray(seed) && seed.length) {
       setRemoteHistory((prev) => (prev.length ? prev : seed));
     }
-  }, [member?.id, seedLen, seedId]);
+  }, [member?.id, seedLen, seedId, member?.paymentHistory]);
 
   useEffect(() => {
     let alive = true;
@@ -111,17 +128,20 @@ export function useMemberDuesStanding(member) {
         ...base,
         paymentHistory: remoteHistory.length ? remoteHistory : (base.paymentHistory || []),
         outstandingBalance: 0,
+        duesOpenPeriods: [],
       };
     }
     if (isSupabaseConfigured) {
+      const rpcOutstanding = persisted?.outstanding != null
+        ? Number(persisted.outstanding)
+        : null;
       return {
         ...base,
         paymentHistory: remoteHistory.length ? remoteHistory : (base.paymentHistory || []),
         lastPaymentDate: persisted?.lastPaymentDate || base.lastPaymentDate,
         nextDueDate: persisted?.nextDue || base.nextDueDate,
-        outstandingBalance: persisted?.outstanding != null
-          ? Number(persisted.outstanding)
-          : base.outstandingBalance,
+        // RPC solo pisa si viene; no perder duesOpenPeriods de la ficha remota.
+        outstandingBalance: rpcOutstanding != null ? rpcOutstanding : base.outstandingBalance,
       };
     }
     return base;
@@ -137,26 +157,31 @@ export function useMemberDuesStanding(member) {
   const summary = useMemo(() => {
     const fromHistory = summarizePaymentHistory(history, memberForHistory, { today });
     if (isDuesExemptMember(memberForHistory)) return fromHistory;
-    const outstanding = persisted?.outstanding != null
-      ? Number(persisted.outstanding)
-      : fromHistory.outstanding;
-    const rpcNext = persisted?.nextDue || null;
-    const histNext = fromHistory.nextDue || null;
-    const nextDue = [rpcNext, histNext].filter(Boolean).sort()[0] || histNext;
+
     const memberForDebt = {
       ...memberForHistory,
-      outstandingBalance: outstanding,
-      nextDueDate: nextDue || memberForHistory?.nextDueDate,
       lastPaymentDate: persisted?.lastPaymentDate || fromHistory.lastDuesDate || memberForHistory?.lastPaymentDate,
+      nextDueDate: persisted?.nextDue || fromHistory.nextDue || memberForHistory?.nextDueDate,
     };
-    // Misma deuda que Consultar deuda / PDF: capital + 10 % + sin imputar.
-    const debt = appMonthlyDebtForMember(memberForDebt, { today });
-    const preview = collectionPreview(memberForDebt, today);
-    const monthsBehind = Math.max(
-      Number(debt?.monthsBehind) || 0,
-      Number(persisted?.monthsBehind) || 0,
-      fromHistory.monthsBehind || 0,
+    // Misma cifra que Consultar deuda / acceso: ficha + períodos abiertos.
+    const stored = socialDuesStoredBalance(memberForDebt);
+    const debt = stored > 0.01
+      ? appMonthlyDebtForMember({ ...memberForDebt, outstandingBalance: stored }, { today })
+      : null;
+    const preview = collectionPreview(
+      stored > 0.01 ? { ...memberForDebt, outstandingBalance: stored } : memberForDebt,
+      today,
     );
+
+    // Ficha en 0 sin obligaciones: no arrastrar monthsBehind del RPC ni del historial.
+    const monthsBehind = stored > 0.01
+      ? Math.max(
+        Number(debt?.monthsBehind) || 0,
+        Number(persisted?.monthsBehind) || 0,
+        fromHistory.monthsBehind || 0,
+      )
+      : 0;
+    const outstanding = stored;
     const owes = Boolean(debt) || outstanding > 0.01;
     const surcharge = debt
       ? (Number(debt.interest) || 0)
@@ -164,12 +189,14 @@ export function useMemberDuesStanding(member) {
     const quota = debt
       ? ((Number(debt.capital) || 0) + (Number(debt.unallocated) || 0))
       : (owes ? (Number(preview.quota) || outstanding) : 0);
-    // Al día: solo meses ya abiertos. No ofrecer adelanto de un mes no liquidado.
     const nextAmount = debt
       ? (Number(debt.totalDebt) || 0)
       : (owes
         ? (Number(preview.cash) > 0.01 ? Number(preview.cash) : outstanding)
         : (Number(preview.cash) > 0.01 ? Number(preview.cash) : 0));
+    const nextDue = owes
+      ? ([persisted?.nextDue, fromHistory.nextDue].filter(Boolean).sort()[0] || fromHistory.nextDue)
+      : (persisted?.nextDue || memberForHistory?.nextDueDate || fromHistory.nextDue || null);
     const chargeDue = owes
       ? (debt?.months?.[debt.months.length - 1]?.dueOn || preview.periods?.[0]?.dueOn || nextDue)
       : nextDue;
@@ -194,7 +221,7 @@ export function useMemberDuesStanding(member) {
     history.length
     || persisted
     || memberForHistory?.lastPaymentDate
-    || (Number(memberForHistory?.outstandingBalance) || 0) > 0
+    || socialDuesStoredBalance(memberForHistory || {}) > 0.01
     || memberForHistory?.nextDueDate
   );
   const pending = Boolean(isSupabaseConfigured && loading && !hasLocalSignal);
@@ -208,6 +235,6 @@ export function useMemberDuesStanding(member) {
     lateLabel: formatMonthsBehind(summary.monthsBehind),
     behind: !pending
       && !isDuesExemptMember(memberForHistory)
-      && ((summary.monthsBehind || 0) > 0 || (summary.outstanding || 0) > 0),
+      && ((summary.monthsBehind || 0) > 0 || (summary.outstanding || 0) > 0.01),
   };
 }

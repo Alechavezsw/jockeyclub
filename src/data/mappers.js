@@ -88,6 +88,13 @@ export function memberFromRow(row, payments = []) {
     }),
     lastPaymentDate: meta.lastPaymentDate || null,
     credentialToken: row.credential_token || null,
+    // Snapshot de períodos abiertos (trigger sync_dues_open_snapshot → meta).
+    ...(Array.isArray(meta.duesOpenPeriods) || meta.duesOpenPeriods === null
+      ? { duesOpenPeriods: Array.isArray(meta.duesOpenPeriods) ? meta.duesOpenPeriods : [] }
+      : {}),
+    ...(meta.unpaidCapital != null && meta.unpaidCapital !== ''
+      ? { unpaidCapital: Number(meta.unpaidCapital) || 0 }
+      : {}),
     // La grilla trae birth_date y no address. Si address no vino en el SELECT, es padrón corto.
     recordScope: Object.prototype.hasOwnProperty.call(row, 'address') ? 'full' : 'list',
   };
@@ -142,6 +149,7 @@ export function memberToRow(member) {
       ...(member.mpAdhesion ? { mpAdhesion: member.mpAdhesion } : {}),
       ...(Array.isArray(member.debitMoves) ? { debitMoves: member.debitMoves } : {}),
       ...(member.unpaidCapital != null ? { unpaidCapital: member.unpaidCapital } : {}),
+      ...(Array.isArray(member.duesOpenPeriods) ? { duesOpenPeriods: member.duesOpenPeriods } : {}),
       ...(member.unpaidSurcharges != null ? { unpaidSurcharges: member.unpaidSurcharges } : {}),
       ...(member.unpaidInterest != null ? { unpaidInterest: member.unpaidInterest } : {}),
     },

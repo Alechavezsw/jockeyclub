@@ -243,15 +243,48 @@ describe('appMonthlyDebts', () => {
     expect(row.standing).toBe('Con saldo');
   });
 
-  it('estima la cuota impaga si el vencimiento pasó y el saldo aún no está persistido', () => {
+  it('ficha en $0 no inventa deuda aunque el vencimiento haya pasado', () => {
+    // Antes se sintetizaba una cuota por nextDue/meses. Eso reabría deudas Lila
+    // ficticias. Sin períodos abiertos, outstanding = 0 → null.
+    expect(appMonthlyDebtForMember(
+      familiar({ outstandingBalance: 0, unpaidCapital: null }),
+      { today: TODAY },
+    )).toBeNull();
+    expect(appMonthlyDebtForMember(
+      familiar({ outstandingBalance: 0, unpaidCapital: 0 }),
+      { today: TODAY },
+    )).toBeNull();
+  });
+
+  it('ficha en $0 con duesOpenPeriods positivos sí genera deuda (no clear falso)', () => {
     const row = appMonthlyDebtForMember(
-      familiar({ outstandingBalance: 0 }),
+      familiar({
+        outstandingBalance: 0,
+        unpaidCapital: 0,
+        nextDueDate: '2026-11-10',
+        lastPaymentDate: '2026-10-05',
+        duesOpenPeriods: [{ dueOn: '2026-11-10', capital: 70000 }],
+      }),
       { today: TODAY },
     );
-    expect(row.months[0].periodKey).toBe('2026-10');
-    expect(row.months[0].capital).toBe(70000);
-    expect(row.months[0].interest).toBe(7000);
-    expect(row.totalDebt).toBe(77000);
+    expect(row).not.toBeNull();
+    expect(row.capital).toBe(70000);
+    expect(row.totalDebt).toBeGreaterThan(0);
+  });
+
+  it('unpaidCapital 0 no oculta deuda nueva con períodos abiertos', () => {
+    const row = appMonthlyDebtForMember(
+      familiar({
+        outstandingBalance: 70000,
+        unpaidCapital: 0,
+        nextDueDate: '2026-11-10',
+        lastPaymentDate: '2026-10-08',
+        duesOpenPeriods: [{ dueOn: '2026-11-10', capital: 70000 }],
+      }),
+      { today: TODAY },
+    );
+    expect(row).not.toBeNull();
+    expect(row.capital).toBe(70000);
   });
 
   it('omite comisión aunque tenga saldo de padrón', () => {

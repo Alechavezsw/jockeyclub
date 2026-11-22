@@ -1,22 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Download, Search, AlertTriangle, Loader2 } from 'lucide-react';
 import {
-  appMonthlyDebtForMember,
   duesStandingDisplayAmount,
-  memberDuesStandingSummary,
 } from '../../domain/accounting/appMonthlyDebts';
 import { downloadDuesDebtPdf } from '../../domain/accounting/exportDuesDebtPdf';
-import {
-  periodLedgerStatus,
-  periodStatusLabel,
-  PERIOD_STATUS,
-} from '../../domain/accounting/feeLedgerIntegrity';
 import {
   memberMatchesDirectoryQuery,
   memberNumberOf,
   rankMemberSearchHit,
 } from '../../domain/members/households';
 import { isDuesExemptMember } from '../../domain/members/dues';
+import {
+  buildOperationalDuesStanding,
+} from '../../domain/members/operationalDuesStanding';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import * as repos from '../../data/repos';
 
@@ -126,15 +122,21 @@ export default function ConsultDuesDebtPanel({
       .slice(0, 14);
   }, [members, query, remoteHits, selected]);
 
-  const debt = useMemo(() => {
-    if (!selected || isDuesExemptMember(selected)) return null;
+  const standing = useMemo(() => {
+    if (!selected) return null;
     const nro = memberNumberOf(selected);
     const entries = (accountEntries || []).filter((row) => {
       const id = String(row?.memberNumber || row?.memberId || '');
       return id && (id === String(nro) || id === String(selected.memberId));
     });
-    return appMonthlyDebtForMember(selected, { today: new Date(), entries });
-  }, [selected, accountEntries]);
+    return buildOperationalDuesStanding(selected, {
+      today: new Date(),
+      entries,
+      ledgerLines,
+      payments: selected.paymentHistory || [],
+    });
+  }, [selected, accountEntries, ledgerLines]);
+  const debt = standing?.debt || null;
 
   const pick = (row) => {
     const fromPadron = (members || []).find((m) => String(m.memberId) === String(row.memberId));
@@ -164,20 +166,21 @@ export default function ConsultDuesDebtPanel({
     setError('');
     try {
       const bal = Number(selected.outstandingBalance) || 0;
-      const pdfDebt = debt || (bal > 0.009 && !isDuesExemptMember(selected)
-        ? {
-          memberNumber: memberNumberOf(selected),
-          memberName: selected.name,
-          dni: selected.documentNumber || selected.dni || '',
-          socialFee: selected.tier || '',
-          standing: 'Con saldo',
-          capital: bal,
-          interest: 0,
-          unallocated: bal,
-          totalDebt: bal,
-          months: [],
-        }
-        : null);
+      const pdfDebt = (standing && !standing.clear && standing.debt)
+        || (bal > 0.009 && !isDuesExemptMember(selected)
+          ? {
+            memberNumber: memberNumberOf(selected),
+            memberName: selected.name,
+            dni: selected.documentNumber || selected.dni || '',
+            socialFee: selected.tier || '',
+            standing: 'Con saldo',
+            capital: bal,
+            interest: 0,
+            unallocated: bal,
+            totalDebt: bal,
+            months: [],
+          }
+          : null);
       await downloadDuesDebtPdf({ member: selected, debt: pdfDebt, asOf: new Date() });
     } catch (err) {
       setError(err?.message || 'No se pudo generar el PDF.');
@@ -187,47 +190,22 @@ export default function ConsultDuesDebtPanel({
   };
 
   const months = debt?.months || [];
-  const debtTotal = Number(debt?.totalDebt) || 0;
+  const debtTotal = Number(standing?.totalExigible) || 0;
   const balance = Number(selected?.outstandingBalance) || 0;
   const exempt = selected ? isDuesExemptMember(selected) : false;
   // Solo después de elegir socio. Sin selección no se inventa «Al día».
-  const hasDebt = Boolean(selected) && !exempt && (debtTotal > 0.009 || balance > 0.009);
-  const clear = Boolean(selected) && !exempt && !hasDebt;
-  const ledgerByYm = useMemo(() => {
-    const map = new Map();
-    for (const line of ledgerLines || []) {
-      const ym = String(line.date || line.lineDate || '').slice(0, 7);
-      if (!ym) continue;
-      const prev = map.get(ym);
-      if (!prev || (Number(line.pending) || 0) > (Number(prev.pending) || 0)) map.set(ym, line);
-    }
-    return map;
-  }, [ledgerLines]);
-  const reviewMonths = useMemo(() => {
-    if (!selected || exempt || !clear) return [];
-    return [...ledgerByYm.entries()]
-      .map(([ym, line]) => ({
-        ym,
-        line,
-        status: periodLedgerStatus(selected, line, {
-          payments: selected.paymentHistory || [],
-        }),
-      }))
-      .filter((row) => (
-        row.status === PERIOD_STATUS.EN_REVISION
-        || row.status === PERIOD_STATUS.CONCILIADO_ADMIN
-      ));
-  }, [selected, exempt, clear, ledgerByYm]);
+  const hasDebt = Boolean(selected) && !exempt && debtTotal > 0.009;
+  const clear = Boolean(selected) && !exempt && !hasDebt && Boolean(standing?.clear);
+  const historical = standing?.historical || null;
+  const reviewMonths = historical?.periods || [];
   const sealLabel = !selected
     ? null
     : (exempt
       ? 'Exento'
-      : (hasDebt
-        ? 'Con deuda'
-        : (reviewMonths.some((r) => r.status === PERIOD_STATUS.EN_REVISION) ? 'En revisión' : 'Al día')));
-  const displayCapital = debt ? Number(debt.capital) || 0 : balance;
-  const displayInterest = debt ? Number(debt.interest) || 0 : 0;
-  const displayTotal = debtTotal > 0.009 ? debtTotal : balance;
+      : (standing?.seal || (hasDebt ? 'Con deuda' : 'Al día')));
+  const displayCapital = clear ? 0 : (Number(standing?.capitalExigible) || (debt ? Number(debt.capital) || 0 : balance));
+  const displayInterest = clear ? 0 : (Number(standing?.interestExigible) || (debt ? Number(debt.interest) || 0 : 0));
+  const displayTotal = clear ? 0 : (debtTotal > 0.009 ? debtTotal : Math.max(0, balance));
 
   return (
     <div className="fade-in cuotas-panel consult-dues-debt-panel">
@@ -279,13 +257,13 @@ export default function ConsultDuesDebtPanel({
           <ul className="consult-debt-suggest">
             {suggestions.map((row) => {
               const nro = padNro(memberNumberOf(row) || row.memberId);
-              const standing = memberDuesStandingSummary(row);
+              const hitStanding = buildOperationalDuesStanding(row);
               return (
                 <li key={row.memberId || nro}>
                   <button type="button" onClick={() => pick(row)}>
                     <strong>{nro}</strong>
                     <span>{row.name}</span>
-                    <em>{duesStandingDisplayAmount(standing, formatCurrency)}</em>
+                    <em>{duesStandingDisplayAmount(hitStanding, formatCurrency)}</em>
                   </button>
                 </li>
               );
@@ -334,30 +312,52 @@ export default function ConsultDuesDebtPanel({
             </p>
           ) : clear ? (
             <>
-              <p className="consult-debt-empty">Sin deuda de cuota social al día de hoy.</p>
+              <div className="consult-debt-kpis">
+                <div>
+                  <span>Capital exigible</span>
+                  <strong className="tabular-nums">{formatCurrency(0)}</strong>
+                </div>
+                <div>
+                  <span>Intereses exigibles</span>
+                  <strong className="tabular-nums">{formatCurrency(0)}</strong>
+                </div>
+                <div>
+                  <span>Total exigible</span>
+                  <strong className="tabular-nums">{formatCurrency(0)}</strong>
+                </div>
+              </div>
+              <p className="consult-debt-empty">
+                {standing?.kind === 'credit'
+                  ? `Saldo a favor: ${formatCurrency(standing.creditBalance || standing.credit || 0)}.`
+                  : 'Estado operativo: Al día. Sin deuda de cuota social exigible.'}
+              </p>
               {reviewMonths.length ? (
                 <div className="table-responsive" style={{ marginTop: '0.85rem' }}>
+                  <h4 className="consult-debt-title" style={{ fontSize: '1rem', marginBottom: '0.5rem' }}>
+                    Conciliación histórica
+                  </h4>
                   <table className="admin-table">
                     <thead>
                       <tr>
-                        <th>Período (ledger)</th>
-                        <th>Pendiente contable</th>
+                        <th>Período</th>
+                        <th>Pendiente auxiliar</th>
                         <th>Estado</th>
                       </tr>
                     </thead>
                     <tbody>
                       {reviewMonths.map((row) => (
-                        <tr key={row.ym}>
-                          <td>{row.ym}</td>
-                          <td className="tabular-nums">{formatCurrency(row.line.pending)}</td>
-                          <td>{periodStatusLabel(row.status)}</td>
+                        <tr key={row.periodYm || row.lineId}>
+                          <td>{row.periodYm}</td>
+                          <td className="tabular-nums">{formatCurrency(row.pending)}</td>
+                          <td>{row.statusLabel || row.label}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                   <p className="consult-debt-note">
                     <AlertTriangle size={14} aria-hidden />
-                    La ficha manda: no se inventa mora desde el ledger. Los meses «En revisión» requieren conciliación administrativa.
+                    {historical?.note
+                      || 'Pendiente de conciliación histórica. No es deuda exigible confirmada. Tesorería revisa el origen (Lila / Macro Click / débitos).'}
                   </p>
                 </div>
               ) : null}

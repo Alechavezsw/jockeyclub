@@ -167,8 +167,14 @@ describe('memberInsight', () => {
   });
 
   it('etiqueta error si figura a favor y sigue en mora', () => {
+    // Crédito en ficha + obligación abierta real → inconsistencia (no mora inventada por nextDue).
     const insight = memberInsight(memberFacts(
-      { ...titular, outstandingBalance: -7000 },
+      {
+        ...titular,
+        outstandingBalance: -7000,
+        unpaidCapital: 70000,
+        duesOpenPeriods: [{ dueOn: '2026-10-10', capital: 70000 }],
+      },
       { today: '2026-10-20', members: all },
     ));
     const tag = insight.figures.find((row) => row.label === 'Error');
