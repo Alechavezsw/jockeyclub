@@ -4,7 +4,7 @@ import {
   Users, Calendar, DollarSign, Activity, ShieldAlert,
   BookOpen, Book, ClipboardList, MessageSquare, Phone, Wallet, PieChart,
   FileSpreadsheet, Radio, Database, BellRing, PartyPopper, Trophy, Store, DoorOpen, QrCode, Newspaper, CreditCard,
-  LayoutDashboard, ChevronRight, Briefcase, Headset, Settings, SlidersHorizontal, Building2, Waves, GraduationCap, Sparkles, TicketCheck, Banknote, Smartphone, BadgePercent, BarChart3, CircleDot, NotebookTabs,
+  LayoutDashboard, ChevronRight, Briefcase, Headset, Settings, SlidersHorizontal, Building2, Waves, GraduationCap, Sparkles, TicketCheck, Banknote, Smartphone, BadgePercent, BarChart3, CircleDot, NotebookTabs, Menu, X,
 } from 'lucide-react';
 import { DEFAULT_POOL_SETTINGS } from '../domain/pool/poolAccess';
 import { DEFAULT_CHART_OF_ACCOUNTS, resolveAccountId } from '../domain/accounting/chartOfAccounts';
@@ -451,6 +451,7 @@ export default function AdminView({
   ]);
   const panelMeta = ROLE_PANEL_META[userRole] || ROLE_PANEL_META.admin;
   const [openGroups, setOpenGroups] = useState(() => new Set());
+  const [railMenuOpen, setRailMenuOpen] = useState(false);
 
   useEffect(() => {
     if (routeTab) return;
@@ -611,7 +612,10 @@ export default function AdminView({
     }
     navigate(`/panel/${tabKey}`);
   };
-  const setActiveTab = (tabKey) => goToTab(tabKey);
+  const setActiveTab = (tabKey) => {
+    setRailMenuOpen(false);
+    goToTab(tabKey);
+  };
 
   useLayoutEffect(() => {
     keepPageAtTop();
@@ -1093,12 +1097,25 @@ export default function AdminView({
         }
       `}</style>
 
-      <aside className="admin-rail" aria-label="Secciones del panel">
-        <div className="admin-rail-brand" aria-hidden="true">
-          <span className="admin-rail-brand-mark" />
+      <aside
+        className={`admin-rail${railMenuOpen ? ' is-menu-open' : ''}`}
+        aria-label="Secciones del panel"
+      >
+        <div className="admin-rail-brand">
+          <span className="admin-rail-brand-mark" aria-hidden="true" />
           <span className="admin-rail-brand-text">Panel</span>
+          <button
+            type="button"
+            className="admin-rail-menu-toggle"
+            onClick={() => setRailMenuOpen((open) => !open)}
+            aria-expanded={railMenuOpen}
+            aria-controls="admin-rail-nav"
+          >
+            {railMenuOpen ? <X size={18} strokeWidth={2.2} /> : <Menu size={18} strokeWidth={2.2} />}
+            <span>{railMenuOpen ? 'Cerrar' : 'Menú'}</span>
+          </button>
         </div>
-        <nav className="admin-rail-nav">
+        <nav id="admin-rail-nav" className="admin-rail-nav">
           <div className="admin-rail-pin">
             {permittedTabs.includes('dashboard') && (
               <button

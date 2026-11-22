@@ -13418,11 +13418,33 @@ a.ops-outline-btn {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: var(--rail-icon) minmax(0, 1fr);
+  grid-template-columns: var(--rail-icon) minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.55rem;
   padding: 0.85rem var(--rail-gutter) 0.35rem;
   padding-left: calc(var(--rail-gutter) + var(--rail-item-pad));
+}
+
+.admin-rail-menu-toggle {
+  display: none;
+  align-items: center;
+  gap: 0.4rem;
+  margin-right: 0.15rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--primary-gold) 35%, var(--border-glass));
+  background: color-mix(in srgb, var(--bg-primary) 55%, transparent);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.admin-rail-menu-toggle:focus-visible {
+  outline: 2px solid var(--primary-gold);
+  outline-offset: 2px;
 }
 
 .admin-rail-brand-mark {
@@ -13754,26 +13776,44 @@ a.ops-outline-btn {
     overflow: visible;
   }
 
+  .admin-rail-brand {
+    padding: 0.7rem 0.75rem;
+    padding-left: 0.75rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--border-glass) 80%, transparent);
+  }
+
+  .admin-rail-menu-toggle {
+    display: inline-flex;
+  }
+
   .admin-rail-nav {
-    flex-direction: row;
-    flex-wrap: wrap;
-    gap: 0.35rem;
-    padding: 0.55rem;
+    display: none;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 0.18rem;
+    padding: 0.55rem 0.45rem 0.75rem;
+    border-top: 0;
+  }
+
+  .admin-rail.is-menu-open .admin-rail-nav {
+    display: flex;
   }
 
   .admin-rail-pin {
-    flex: 1 1 100%;
-    flex-direction: row;
-    flex-wrap: wrap;
-    gap: 0.35rem;
+    flex: 0 0 auto;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 0.18rem;
   }
 
   .admin-rail-pin .admin-rail-item {
-    flex: 1 1 calc(50% - 0.35rem);
+    flex: 0 0 auto;
+    width: 100%;
   }
 
   .admin-rail-group {
-    flex: 1 1 100%;
+    flex: 0 0 auto;
+    width: 100%;
   }
 
   .admin-rail-submenu {
