@@ -9,7 +9,9 @@ import {
   duesTennisAbonoAmountForAccount,
   isDuesExemptMember,
   nextDuesDueDate,
+  assertRequestedDuesPeriodsCollectable,
   paymentIsTennisAbonoOnly,
+  socialDuesStoredBalance,
 } from './dues';
 import { billingAccountMember, isFamilyDependent } from './households';
 import { referenceMonthlyDues } from './paymentHistory';
@@ -1021,17 +1023,20 @@ export function payMemberDues(member, {
   const skipInterest = skipSurcharge || duesMethodSkipsSurcharge(method);
   const requested = amount != null ? Number(amount) : 0;
   const stored = Number(member.outstandingBalance) || 0;
-  let selected = Array.isArray(periodDueOns) && periodDueOns.length
-    ? periodDueOns.map((value) => String(value || '').slice(0, 10)).filter(Boolean)
-    : null;
+  const operationalOwed = socialDuesStoredBalance(member);
   const choices = collectionPeriodChoices(member, today, { chargeScope });
-  let selectedChoices = selected
+  let selected = null;
+  if (Array.isArray(periodDueOns) && periodDueOns.length) {
+    // Período pedido inválido → rechazo explícito. Nunca sustituir por otro mes.
+    selected = assertRequestedDuesPeriodsCollectable(member, periodDueOns, choices, { chargeScope });
+  }
+  const selectedChoices = selected
     ? choices.filter((row) => selected.includes(String(row.dueOn).slice(0, 10)))
     : choices;
-  // El total del modal ya muestra esos meses. No frenar el cobro pidiendo marcarlos.
-  if (selected && !selectedChoices.length) {
-    selected = null;
-    selectedChoices = choices;
+  // Importe explícito (anticipo) solo si no hay deuda inventada; con deuda operativa vacía
+  // y sin choices, el caller de caja ya bloquea en recordDuesCollection.
+  if (!(operationalOwed > 0.01 || stored > 0.01 || selectedChoices.length || requested > 0.01)) {
+    throw new Error('No hay saldo pendiente para abonar.');
   }
   const preview = collectionPreview(member, today, {
     periodDueOns: selected,
@@ -1041,7 +1046,7 @@ export function payMemberDues(member, {
   const split = duesChargeBreakdown(member, {
     paidOn: today,
     periodDueOns: selected,
-    ...(stored > 0 || !(requested > 0) ? {} : { amount: requested }),
+    ...(stored > 0 || operationalOwed > 0 || !(requested > 0) ? {} : { amount: requested }),
   });
   const creditApplied = money(preview.creditApplied || 0);
   let classicDue = selected
@@ -1050,7 +1055,7 @@ export function payMemberDues(member, {
       0,
     )
     : (skipInterest ? money(split.quota) : split.total);
-  if (!(stored > 0) && requested > 0 && !selected) classicDue = requested;
+  if (!(stored > 0) && !(operationalOwed > 0) && requested > 0 && !selected) classicDue = requested;
   // Con saldo a favor usamos el preview (efectivo = bruto − crédito).
   // Sin crédito, el desglose clásico respeta el saldo de ficha.
   const grossDue = creditApplied > 0.01 && preview.gross > 0.01
@@ -1310,11 +1315,38 @@ export function collectionPreview(member, today = new Date(), {
     : choices.map((row) => row.dueOn);
   const selectedChoices = choices.filter((row) => selected.includes(String(row.dueOn).slice(0, 10)));
   const stored = Number(member?.outstandingBalance) || 0;
+  const operationalOwed = socialDuesStoredBalance(member);
   const explicitCredit = memberCreditBalance(member);
   const desync = duesBalanceDesync(member);
   const ledgerOpts = { ledgerLines, payments, imputations };
 
-  if (selectedChoices.some((row) => row.kind === 'overdue') || stored > 0.01) {
+  // Al día operativo y sin meses elegibles: no inventar deuda ni adelanto.
+  // (Saldo a favor fuerte / ficha positiva sin choices siguen más abajo.)
+  if (
+    !selectedChoices.length
+    && operationalOwed <= 0.01
+    && stored >= -0.01
+    && stored <= 0.01
+  ) {
+    return attachLedgerDesync({
+      quota: 0,
+      surcharge: 0,
+      gross: 0,
+      creditApplied: 0,
+      cash: 0,
+      leftover: 0,
+      periods: [],
+      choices,
+      clear: true,
+      skipSurcharge: Boolean(skipSurcharge),
+    }, member, ledgerOpts);
+  }
+
+  if (
+    selectedChoices.some((row) => row.kind === 'overdue')
+    || stored > 0.01
+    || (operationalOwed > 0.01 && selectedChoices.length)
+  ) {
     const quota = money(selectedChoices.reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
     const surcharge = skipSurcharge
       ? 0
@@ -1397,10 +1429,13 @@ export function payUpcomingDues(member, { method = 'transferencia', today = new 
   if (isFamilyDependent(member)) throw new Error('El cobro va a la cuenta del titular.');
   if (isDuesExemptMember(member)) throw new Error('Esta categoría no abona cuota social.');
   const skipSurcharge = duesMethodSkipsSurcharge(method);
-  if ((Number(member.outstandingBalance) || 0) > 0) {
+  if (socialDuesStoredBalance(member) > 0.01 || (Number(member.outstandingBalance) || 0) > 0) {
     return payMemberDues(member, { method, today, skipSurcharge });
   }
   const preview = collectionPreview(member, today, { skipSurcharge });
+  if (!(preview.cash > 0.01) && !(preview.creditApplied > 0.01) && !(preview.gross > 0.01)) {
+    throw new Error('No hay cuota pendiente ni adelanto disponible para cobrar.');
+  }
   const date = todayISODateAR(today);
   const time = nowTimeAR(today);
   const paidAt = today.toISOString();
@@ -1566,13 +1601,28 @@ export function recordDuesCollection(member, {
   const choices = collectionPeriodChoices(account, today, { chargeScope });
   const hasOverdue = choices.some((row) => row.kind === 'overdue');
   const due = Number(account.outstandingBalance) || 0;
-  if (concession.discount > 0 && !(due > 0 || hasOverdue)) {
+  const operationalDue = socialDuesStoredBalance(account);
+  // periodDueOns explícitos: validar acá (y otra vez en payMemberDues). Sin sustitución.
+  if (Array.isArray(periodDueOns) && periodDueOns.length) {
+    assertRequestedDuesPeriodsCollectable(account, periodDueOns, choices, { chargeScope });
+  }
+  const creditBalance = memberCreditBalance(account);
+  if (!(
+    operationalDue > 0.01
+    || due > 0.01
+    || hasOverdue
+    || choices.length
+    || creditBalance > 0.01
+  )) {
+    throw new Error('No hay cuota pendiente para cobrar.');
+  }
+  if (concession.discount > 0 && !(operationalDue > 0 || due > 0 || hasOverdue)) {
     throw new Error('El descuento es sobre la cuota adeudada.');
   }
   const collectAmount = concession.discount > 0
     ? concession.gross
     : (mixed ? mixed.total : amount);
-  const paid = (due > 0 || hasOverdue)
+  const paid = (operationalDue > 0.01 || due > 0 || hasOverdue)
     ? payMemberDues(account, {
       method: resolvedMethod,
       amount: collectAmount,
@@ -2427,6 +2477,33 @@ export async function commitDuesCollection(member, payment, { journalEntry = nul
     }
   }
   const periods = cobroPeriods(member, payment);
+  // Defensa en persistencia: periodDueOns del pago deben ser cobrables en el estado previo.
+  // No confiar solo en la UI; el RPC también valida (migración en este PR, sin aplicar aún).
+  {
+    const requestedDueOns = normalizeCobroDueOns(payment);
+    if (requestedDueOns.length) {
+      const history = (member?.paymentHistory || []).filter((row) => row && row.id !== payment?.id);
+      const before = {
+        ...member,
+        paymentHistory: history,
+        outstandingBalance: payment.balanceBefore ?? member.outstandingBalance,
+        nextDueDate: payment && 'nextDueBefore' in payment ? payment.nextDueBefore : member.nextDueDate,
+        lastPaymentDate: payment && 'lastPaymentBefore' in payment
+          ? payment.lastPaymentBefore
+          : member.lastPaymentDate,
+        duesOpenPeriods: payment && 'duesOpenPeriodsBefore' in payment
+          ? payment.duesOpenPeriodsBefore
+          : member.duesOpenPeriods,
+        unpaidCapital: payment && 'unpaidCapitalBefore' in payment
+          ? payment.unpaidCapitalBefore
+          : member.unpaidCapital,
+      };
+      const paidOn = payment.paidAt || payment.date || new Date();
+      const chargeScope = payment.chargeScope || payment.meta?.chargeScope || 'all';
+      const choices = collectionPeriodChoices(before, paidOn, { chargeScope });
+      assertRequestedDuesPeriodsCollectable(before, requestedDueOns, choices, { chargeScope });
+    }
+  }
   const amount = Number(payment.amount) || 0;
   const key = `cobro:${member.memberId}:${payment.id}`;
   const usePosAtomic = duesCollectionNeedsPosAtomicCommit(payment);
