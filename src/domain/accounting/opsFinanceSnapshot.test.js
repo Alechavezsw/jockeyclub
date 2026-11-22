@@ -7,6 +7,8 @@ import {
   duesStandingRate,
   collectDeltaAfterCut,
   dueCollectBoard,
+  duesCollectedAgainstLiquidation,
+  duesCollectedForRate,
   lilaBookCutDate,
   liquidatedDeltaAfterCut,
   duesCollectionFromMonthlySummary,
@@ -196,6 +198,41 @@ describe('financeFromMonthlySummary', () => {
     expect(duesCollectionFromMonthlySummary({ ...september, monthKey: '2026-10' })).toBeNull();
   });
 
+  it('el % de cuota no suma salón ni portería', () => {
+    expect(duesCollectedForRate({
+      cuotaMes: 50_000_000,
+      atrasadas: 2_000_000,
+      posteriores: 0,
+      recargos: 100_000,
+    })).toBe(52_100_000);
+    expect(duesCollectedAgainstLiquidation({
+      collected: 53_670_000,
+      cuotaMes: 50_000_000,
+      atrasadas: 2_000_000,
+      recargos: 100_000,
+      reservas: 1_063_000,
+      porteria: 507_000,
+    })).toBe(52_100_000);
+    const board = dueCollectBoard({
+      lilaMonth: {
+        collected: 53_670_000,
+        liquidated: 63_763_000,
+        cuotaMes: 50_000_000,
+        atrasadas: 2_000_000,
+        posteriores: 0,
+        recargos: 100_000,
+        reservas: 1_063_000,
+        porteria: 507_000,
+      },
+      summarySettled: true,
+      delta: null,
+    });
+    expect(board.collected).toBe(52_100_000);
+    expect(board.reservas).toBe(1_063_000);
+    expect(board.porteria).toBe(507_000);
+    expect(board.rate).toBe(Math.round((52_100_000 / 63_763_000) * 100));
+  });
+
   it('no publica un recuento parcial que después baja al llegar el balance', () => {
     const lilaMonth = { collected: 42686233.03, liquidated: 63763000 };
     const live = { collected: 51000000, liquidated: 63763000 };
@@ -205,7 +242,7 @@ describe('financeFromMonthlySummary', () => {
       membersLoading: true,
       rosterReady: true,
       live,
-    })).toBe(lilaMonth);
+    })).toMatchObject({ collected: 42686233.03, liquidated: 63763000 });
     expect(dueCollectBoard({
       lilaMonth: null,
       summarySettled: false,

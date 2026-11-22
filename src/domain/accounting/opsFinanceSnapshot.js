@@ -298,8 +298,8 @@ function sumLabels(lines, test) {
 }
 
 /**
- * Recaudado y liquidado del mes, tomados del balance resumido de Lila.
- * Misma regla que la caja: portería se muestra aparte y no entra al recaudado.
+ * Recaudado de cuota (contra lo liquidado) vs otros ingresos del mes.
+ * Salón y portería se muestran aparte: no entran al % ni al “falta”.
  */
 const EMPTY_COLLECT_DELTA = Object.freeze({
   cuotaMes: 0,
@@ -311,6 +311,41 @@ const EMPTY_COLLECT_DELTA = Object.freeze({
   recaudado: 0,
   liquidated: 0,
 });
+
+/** Solo cuota social (+ atrasadas / adelantos / recargos). Sin salón ni portería. */
+export function duesCollectedForRate({
+  cuotaMes = 0,
+  atrasadas = 0,
+  posteriores = 0,
+  recargos = 0,
+} = {}) {
+  return money(
+    (Number(cuotaMes) || 0)
+    + (Number(atrasadas) || 0)
+    + (Number(posteriores) || 0)
+    + (Number(recargos) || 0),
+  );
+}
+
+/**
+ * Monto de cuota contra liquidación.
+ * Preferimos el desglose; si el total trae salón/portería, los restamos.
+ * Si el desglose viene incompleto, no tiramos el collected canónico.
+ */
+export function duesCollectedAgainstLiquidation(row = {}) {
+  const parts = duesCollectedForRate(row);
+  const collected = money(Number(row.collected ?? row.recaudado) || 0);
+  const other = money((Number(row.reservas) || 0) + (Number(row.porteria) || 0));
+  if (parts > 0.009) {
+    if (collected > 0.009) {
+      const withoutOther = money(Math.max(0, collected - other));
+      if (withoutOther - parts > 1) return withoutOther;
+    }
+    return parts;
+  }
+  if (collected > 0.009 && other > 0.009) return money(Math.max(0, collected - other));
+  return collected;
+}
 
 /**
  * Día del export de Lila. El asOf del balance mensual es el fin de mes (30):
@@ -503,6 +538,12 @@ export function collectDeltaAfterCut({
   const recargosR = money(cashSplit.recargos + recargos);
   const reservasR = money(cashSplit.reservas + reservas);
   const porteriaR = money(cashSplit.porteria);
+  const recaudado = duesCollectedForRate({
+    cuotaMes: cuotaMesR,
+    atrasadas: atrasadasR,
+    posteriores: posterioresR,
+    recargos: recargosR,
+  });
   return {
     cuotaMes: cuotaMesR,
     atrasadas: atrasadasR,
@@ -510,7 +551,7 @@ export function collectDeltaAfterCut({
     recargos: recargosR,
     reservas: reservasR,
     porteria: porteriaR,
-    recaudado: money(cuotaMesR + atrasadasR + posterioresR + recargosR + reservasR),
+    recaudado,
     liquidated: liquidatedDeltaAfterCut({
       feePeriods,
       monthKey,
@@ -556,7 +597,7 @@ export function freshMonthCollectBoard({
     baseLiquidated: 0,
   });
   const liquidatedAmount = fromPeriod > 0 ? money(fromPeriod) : money(delta.liquidated);
-  const collected = money(delta.recaudado);
+  const collected = duesCollectedForRate(delta);
   if (!(liquidatedAmount > 0) && !(collected > 0)) return null;
   return {
     source: 'app-month',
@@ -573,24 +614,32 @@ export function freshMonthCollectBoard({
   };
 }
 
-function stackOnLilaMonth(base, delta) {
-  if (!delta) return base;
-  const add = (key) => money((Number(base[key]) || 0) + (Number(delta[key]) || 0));
-  const collected = money((Number(base.collected ?? base.recaudado) || 0) + (Number(delta.recaudado) || 0));
-  const liquidated = money((Number(base.liquidated) || 0) + (Number(delta.liquidated) || 0));
-  return {
-    ...base,
-    source: delta.recaudado || delta.liquidated ? 'lila+app' : base.source,
-    collected,
-    recaudado: collected,
-    liquidated,
-    rate: liquidated > 0 ? Math.round((collected / liquidated) * 100) : 0,
+function stackOnLilaMonth(base, delta = null) {
+  const add = (key) => money((Number(base?.[key]) || 0) + (Number(delta?.[key]) || 0));
+  const stacked = {
     cuotaMes: add('cuotaMes'),
     atrasadas: add('atrasadas'),
     posteriores: add('posteriores'),
     recargos: add('recargos'),
     reservas: add('reservas'),
     porteria: add('porteria'),
+  };
+  const collected = duesCollectedAgainstLiquidation({
+    ...stacked,
+    collected: money(
+      (Number(base?.collected ?? base?.recaudado) || 0)
+      + (Number(delta?.recaudado) || 0),
+    ),
+  });
+  const liquidated = money((Number(base?.liquidated) || 0) + (Number(delta?.liquidated) || 0));
+  return {
+    ...base,
+    ...stacked,
+    source: delta && (delta.recaudado || delta.liquidated) ? 'lila+app' : base?.source,
+    collected,
+    recaudado: collected,
+    liquidated,
+    rate: liquidated > 0 ? Math.round((collected / liquidated) * 100) : 0,
   };
 }
 
@@ -633,13 +682,14 @@ export function duesCollectionFromMonthlySummary({
   const recargos = sumLabels(lines, (label) => /^ingresos de recargos de (cuotas|expensas)/i.test(label));
   const reservas = sumLabels(lines, (label) => /^ingresos de reservas$/i.test(label));
   const porteria = sumLabels(lines, (label) => /porter[ií]a/i.test(label));
-  const recaudado = money(cuotaMes + atrasadas + posteriores + recargos + reservas);
+  const recaudado = duesCollectedForRate({ cuotaMes, atrasadas, posteriores, recargos });
   return {
     source: 'lila-month',
     periodKey,
     recaudado,
     collected: recaudado,
     liquidated,
+    rate: liquidated > 0 ? Math.round((recaudado / liquidated) * 100) : 0,
     cuotaMes,
     atrasadas,
     posteriores,

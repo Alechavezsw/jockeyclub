@@ -447,7 +447,7 @@ export default function AdminDashboardTab({
   }, [membersLoading, feePeriods, monthKey, deferredMembers, tierCatalog, cashMoves, todayKey, journalEntries, chartOfAccounts]);
   const liveCollectionRate = duesBoard?.rate ?? 0;
   const standingCaption = duesBoard
-    ? `${formatCurrency(duesBoard.recaudado)} de ${formatCurrency(duesBoard.liquidated)} liquidado`
+    ? `${formatCurrency(duesBoard.recaudado)} de ${formatCurrency(duesBoard.liquidated)} liquidado (cuota)`
     : '\u00a0';
   const collectionTone = liveCollectionRate >= 80 ? 'ok' : liveCollectionRate >= 50 ? 'mid' : 'low';
   const debtTotal = finance.debtTotal || totalOutstanding || 0;
