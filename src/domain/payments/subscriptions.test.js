@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildSubscriptionRows,
   findBlockingSubscription,
+  memberOwesDuesBeforeSubscription,
   subscriptionBlocksNewAdhesion,
   subscriptionStatusLabel,
   summarizeSubscriptionRows,
@@ -114,6 +115,13 @@ describe('suscripciones de cuota', () => {
     );
     expect(all).toHaveLength(2);
     expect(all.filter((row) => row.duplicateOf)).toHaveLength(1);
+  });
+
+  it('no deja adherirse si hay deuda de cuota', () => {
+    expect(memberOwesDuesBeforeSubscription({ outstanding: 0 })).toBe(false);
+    expect(memberOwesDuesBeforeSubscription({ outstanding: 70000 })).toBe(true);
+    expect(memberOwesDuesBeforeSubscription({ monthsBehind: 1 })).toBe(true);
+    expect(memberOwesDuesBeforeSubscription({ payable: 40000 })).toBe(true);
   });
 
   it('bloquea una segunda adhesión si ya hay una abierta', () => {

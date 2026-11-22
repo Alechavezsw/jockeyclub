@@ -19,6 +19,17 @@ export function subscriptionBlocksNewAdhesion(status) {
   return OPEN.has(String(status || '').toLowerCase());
 }
 
+/** Con deuda de cuota (saldo o meses) no se puede adherir al débito. */
+export function memberOwesDuesBeforeSubscription({
+  outstanding = 0,
+  monthsBehind = 0,
+  payable = 0,
+} = {}) {
+  return Number(outstanding) > 0.01
+    || Number(monthsBehind) > 0
+    || Number(payable) > 0.01;
+}
+
 /**
  * Entre intents de kind=subscription, el que bloquea una nueva adhesión
  * (prioriza autorizada; si no, la pendiente más reciente).

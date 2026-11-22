@@ -338,8 +338,15 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Una sola adhesión abierta por socio (activa o pendiente en MP).
+    // Adhesión al débito: sin deuda de cuota y una sola abierta por socio.
     if (channel === "subscription" || kind === "subscription") {
+      const outstanding = Number(member.outstanding_balance) || 0;
+      if (outstanding > 0.01) {
+        return json(400, {
+          error: "Para adherirte al débito tenés que estar al día. Primero regularizá la deuda.",
+          outstanding,
+        });
+      }
       const { data: openSubs, error: openErr } = await admin
         .from("mp_intents")
         .select("id, status, amount, init_point, sandbox_init_point, preapproval_id, created_at")

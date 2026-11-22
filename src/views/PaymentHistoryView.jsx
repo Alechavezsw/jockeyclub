@@ -25,6 +25,7 @@ import MercadoPagoCheckout from '../components/MercadoPagoCheckout';
 import { formatPaymentWhen } from '../domain/members/paymentHistory';
 import { isMpAdhered, isMpPaidStatus, mpPayNowAmount, mpSubscribeAmount } from '../domain/payments/mercadoPago';
 import {
+  memberOwesDuesBeforeSubscription,
   subscriptionBlocksNewAdhesion,
   subscriptionIsActive,
   subscriptionStatusLabel,
@@ -233,7 +234,12 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
   const subscriptionInitPoint = String(
     openSubscription?.init_point || openSubscription?.sandbox_init_point || '',
   );
-  const canStartSubscription = !subscribed && !subscriptionPending;
+  const owesBeforeSubscribe = !duesExempt && memberOwesDuesBeforeSubscription({
+    outstanding: summary.outstanding != null ? summary.outstanding : profile?.outstandingBalance,
+    monthsBehind: monthsLate,
+    payable,
+  });
+  const canStartSubscription = !subscribed && !subscriptionPending && !owesBeforeSubscribe;
 
   if (!membersCanViewCurrentAccounts) {
     return (
@@ -404,12 +410,16 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
             <p>
               {subscribed
                 ? `Ya estás adherido. Mercado Pago cobra la cuota el día ${dueDay}.`
-                : subscriptionPending
-                  ? `Adhesión en curso (${subscriptionStatusLabel(openSubscription?.status)}). Solo se puede adherir una vez.`
-                  : `${formatCurrency(subscribeAmount)} el día ${dueDay}. La deuda anterior se paga aparte. Solo una adhesión por socio.`}
+                : owesBeforeSubscribe
+                  ? `Para adherirte al débito tenés que estar al día. Primero regularizá la deuda${debtAmount > 0 ? ` (${formatCurrency(debtAmount)})` : ''}.`
+                  : subscriptionPending
+                    ? `Adhesión en curso (${subscriptionStatusLabel(openSubscription?.status)}). Solo se puede adherir una vez.`
+                    : `${formatCurrency(subscribeAmount)} el día ${dueDay}. Solo si estás al día. Una adhesión por socio.`}
             </p>
             {subscribed ? (
               <p className="pay-hist-note">Adhesión activa. No hace falta volver a suscribirte.</p>
+            ) : owesBeforeSubscribe ? (
+              <p className="pay-hist-note">Pagá la deuda arriba (Mercado Pago o transferencia) y después podés adherirte.</p>
             ) : subscriptionPending ? (
               <div className="pay-hist-note" style={{ display: 'grid', gap: '0.55rem' }}>
                 <span>Ya hay una adhesión abierta. Completala en Mercado Pago o esperá la confirmación.</span>
