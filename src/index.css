@@ -28463,6 +28463,7 @@ ul.sys-set-hint {
 .due-collect-copy > .due-collect-kicker { grid-column: 1; grid-row: 1; }
 .due-collect-copy > .due-collect-amount { grid-column: 1; grid-row: 2; }
 .due-collect-copy > .due-collect-rest { grid-column: 1; grid-row: 3; }
+.due-collect-copy > .due-collect-total { grid-column: 1; grid-row: 4; }
 .due-collect-money > .due-collect-kicker { grid-column: 2; grid-row: 1; }
 .due-collect-money > .due-collect-amount { grid-column: 2; grid-row: 2; }
 .due-collect-money > .due-collect-rest { grid-column: 2; grid-row: 3; }
@@ -28498,6 +28499,20 @@ ul.sys-set-hint {
   font-size: clamp(0.8rem, 0.72rem + 0.25vw, 0.92rem);
   line-height: 1.4;
   text-wrap: balance;
+}
+.due-collect-total {
+  margin: 0.55rem 0 0;
+  justify-self: stretch;
+  text-align: center;
+  max-width: 100%;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: clamp(0.72rem, 0.66rem + 0.2vw, 0.82rem);
+  font-weight: 500;
+  line-height: 1.35;
+  letter-spacing: 0.01em;
+  text-wrap: balance;
+  opacity: 0.92;
 }
 .due-collect-amount {
   display: block;
@@ -28998,6 +29013,7 @@ details[open] > summary .due-fold-arrow {
   .due-collect-copy > .due-collect-kicker,
   .due-collect-copy > .due-collect-amount,
   .due-collect-copy > .due-collect-rest,
+  .due-collect-copy > .due-collect-total,
   .due-collect-money > .due-collect-kicker,
   .due-collect-money > .due-collect-amount,
   .due-collect-money > .due-collect-rest,
