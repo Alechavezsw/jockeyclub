@@ -8223,8 +8223,9 @@ button.membership-moves-name {
 
 .ops-dash-actions {
   display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(0, 1.05fr) minmax(0, 0.95fr) minmax(0, 0.85fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.7rem;
+  align-items: stretch;
 }
 
 .ops-dash-action {
@@ -8234,21 +8235,19 @@ button.membership-moves-name {
   grid-template-columns: auto 1fr;
   align-items: center;
   gap: 0.75rem;
+  width: 100%;
   min-height: 88px;
+  height: 100%;
+  box-sizing: border-box;
   padding: 0.85rem 0.95rem;
   text-align: left;
   background: var(--bg-secondary);
   border: 1px solid var(--border-glass);
-  border-radius: var(--pane-radius);
+  border-radius: 14px;
   color: var(--text-primary);
   cursor: pointer;
   transition: border-color 0.2s ease, transform 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
 }
-
-.ops-dash-action:nth-child(1) { border-radius: 18px 8px 14px 10px; }
-.ops-dash-action:nth-child(2) { border-radius: 8px 18px 10px 12px; }
-.ops-dash-action:nth-child(3) { border-radius: 14px 8px 16px 8px; }
-.ops-dash-action:nth-child(4) { border-radius: 8px 16px 12px 14px; }
 
 .ops-dash-action.tone-gold {
   --action-accent: var(--primary-gold);
