@@ -338,6 +338,61 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Adhesión al débito: sin deuda de cuota y una sola abierta por socio.
+    if (channel === "subscription" || kind === "subscription") {
+      const outstanding = Number(member.outstanding_balance) || 0;
+      if (outstanding > 0.01) {
+        return json(400, {
+          error: "Para adherirte al débito tenés que estar al día. Primero regularizá la deuda.",
+          outstanding,
+        });
+      }
+      const { data: openSubs, error: openErr } = await admin
+        .from("mp_intents")
+        .select("id, status, amount, init_point, sandbox_init_point, preapproval_id, created_at")
+        .eq("kind", "subscription")
+        .eq("member_id", member.id)
+        .in("status", ["pending", "in_process", "authorized", "approved"])
+        .order("created_at", { ascending: false })
+        .limit(10);
+      if (openErr) return json(500, { error: openErr.message || "No se pudo revisar la adhesión." });
+      const active = (openSubs || []).find((row) => {
+        const st = String(row.status || "").toLowerCase();
+        return st === "authorized" || st === "approved";
+      });
+      if (active) {
+        return json(409, {
+          error: "Ya tenés el débito automático activo. Solo se puede adherir una vez.",
+          id: active.id,
+          status: active.status,
+          already: true,
+        });
+      }
+      const pending = (openSubs || [])[0] || null;
+      if (pending) {
+        const initPoint = String(pending.init_point || pending.sandbox_init_point || "");
+        if (initPoint) {
+          return json(200, {
+            id: pending.id,
+            kind: "subscription",
+            channel: "subscription",
+            status: pending.status,
+            initPoint,
+            qrData: null,
+            amount: money(pending.amount) || amount,
+            already: true,
+            reused: true,
+          });
+        }
+        return json(409, {
+          error: "Ya hay una adhesión en curso. Esperá la confirmación de Mercado Pago o terminá esa adhesión.",
+          id: pending.id,
+          status: pending.status,
+          already: true,
+        });
+      }
+    }
+
     const origin = kind === "pool" ? originOf(body?.origin, site) : accountOrigin(originOf(body?.origin, site));
     const backPath = kind === "pool"
       ? "/entrada-pileta"

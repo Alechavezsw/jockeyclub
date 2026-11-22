@@ -478,6 +478,30 @@ export async function createMercadoPagoCheckout({
   }, 'No se pudo abrir Mercado Pago');
 }
 
+/** Adhesión abierta (activa o pendiente) del socio — una sola por ficha. */
+export async function getOpenDuesSubscription(memberId, memberNumber = '') {
+  const mid = String(memberId || '').trim();
+  const nro = String(memberNumber || '').replace(/\D/g, '');
+  if (!mid && !nro) return null;
+  let query = sb()
+    .from('mp_intents')
+    .select('id, status, amount, concept, payer_email, preapproval_id, init_point, sandbox_init_point, applied_at, created_at')
+    .eq('kind', 'subscription')
+    .in('status', ['pending', 'in_process', 'authorized', 'approved'])
+    .order('created_at', { ascending: false })
+    .limit(10);
+  if (mid && isUuid(mid)) query = query.eq('member_id', mid);
+  else if (nro) query = query.eq('member_number', nro);
+  else return null;
+  const rows = await unwrap(query, 'No se pudo leer la adhesión al débito');
+  if (!rows?.length) return null;
+  const active = rows.find((row) => {
+    const st = String(row.status || '').toLowerCase();
+    return st === 'authorized' || st === 'approved';
+  });
+  return active || rows[0] || null;
+}
+
 /** Adhesiones al débito y los cobros que ya generaron. */
 export async function listDuesSubscriptions() {
   const adhesions = await unwrap(
@@ -500,7 +524,10 @@ export async function listDuesSubscriptions() {
   const ids = [...new Set((adhesions || []).map((row) => row.member_id).filter(Boolean))];
   const members = ids.length
     ? await unwrap(
-      sb().from('members').select('id, full_name, member_number').in('id', ids),
+      sb()
+        .from('members')
+        .select('id, full_name, member_number, phone, tier, status, outstanding_balance, email')
+        .in('id', ids),
       'No se pudieron cargar los socios suscriptos',
     )
     : [];

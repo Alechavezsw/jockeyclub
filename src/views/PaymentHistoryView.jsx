@@ -23,7 +23,15 @@ import { duesPaymentNotice } from '../domain/members/duesPaymentNotice';
 import { uploadDuesReceipt } from '../data/storage';
 import MercadoPagoCheckout from '../components/MercadoPagoCheckout';
 import { formatPaymentWhen } from '../domain/members/paymentHistory';
-import { isMpAdhered, mpPayNowAmount, mpSubscribeAmount } from '../domain/payments/mercadoPago';
+import { isMpAdhered, isMpPaidStatus, mpPayNowAmount, mpSubscribeAmount } from '../domain/payments/mercadoPago';
+import {
+  memberOwesDuesBeforeSubscription,
+  subscriptionBlocksNewAdhesion,
+  subscriptionIsActive,
+  subscriptionStatusLabel,
+} from '../domain/payments/subscriptions';
+import { getOpenDuesSubscription } from '../data/repos';
+import { isSupabaseConfigured } from '../lib/supabase';
 
 function formatCurrency(amount) {
   return new Intl.NumberFormat('es-AR', {
@@ -50,6 +58,7 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
   const [receiptFile, setReceiptFile] = useState(null);
   const [receiptPreview, setReceiptPreview] = useState('');
   const [notifiedKey, setNotifiedKey] = useState('');
+  const [openSubscription, setOpenSubscription] = useState(null);
   const bank = CLUB_BANK_ACCOUNTS[0];
   const {
     summary,
@@ -132,6 +141,28 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
     }
   }, []);
 
+  useEffect(() => {
+    if (!isSupabaseConfigured || duesExempt) {
+      setOpenSubscription(null);
+      return undefined;
+    }
+    const mid = profile?.id || '';
+    const nro = profile?.memberId || '';
+    if (!mid && !nro) {
+      setOpenSubscription(null);
+      return undefined;
+    }
+    let cancelled = false;
+    void getOpenDuesSubscription(mid, nro)
+      .then((row) => {
+        if (!cancelled) setOpenSubscription(row || null);
+      })
+      .catch(() => {
+        if (!cancelled) setOpenSubscription(null);
+      });
+    return () => { cancelled = true; };
+  }, [profile?.id, profile?.memberId, duesExempt]);
+
   const handleReceipt = (event) => {
     const file = event.target.files?.[0];
     setReceiptFile(file || null);
@@ -195,7 +226,20 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
   };
 
   const actionLabel = method === 'transferencia' ? 'Enviar comprobante' : 'Avisar a administración';
-  const subscribed = isMpAdhered(profile);
+  const subscribed = isMpAdhered(profile)
+    || subscriptionIsActive(openSubscription?.status)
+    || isMpPaidStatus(openSubscription?.status);
+  const subscriptionPending = !subscribed
+    && subscriptionBlocksNewAdhesion(openSubscription?.status);
+  const subscriptionInitPoint = String(
+    openSubscription?.init_point || openSubscription?.sandbox_init_point || '',
+  );
+  const owesBeforeSubscribe = !duesExempt && memberOwesDuesBeforeSubscription({
+    outstanding: summary.outstanding != null ? summary.outstanding : profile?.outstandingBalance,
+    monthsBehind: monthsLate,
+    payable,
+  });
+  const canStartSubscription = !subscribed && !subscriptionPending && !owesBeforeSubscribe;
 
   if (!membersCanViewCurrentAccounts) {
     return (
@@ -366,10 +410,25 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
             <p>
               {subscribed
                 ? `Ya estás adherido. Mercado Pago cobra la cuota el día ${dueDay}.`
-                : `${formatCurrency(subscribeAmount)} el día ${dueDay}. La deuda anterior se paga aparte.`}
+                : owesBeforeSubscribe
+                  ? `Para adherirte al débito tenés que estar al día. Primero regularizá la deuda${debtAmount > 0 ? ` (${formatCurrency(debtAmount)})` : ''}.`
+                  : subscriptionPending
+                    ? `Adhesión en curso (${subscriptionStatusLabel(openSubscription?.status)}). Solo se puede adherir una vez.`
+                    : `${formatCurrency(subscribeAmount)} el día ${dueDay}. Solo si estás al día. Una adhesión por socio.`}
             </p>
             {subscribed ? (
-              <p className="pay-hist-note">Adhesión activa.</p>
+              <p className="pay-hist-note">Adhesión activa. No hace falta volver a suscribirte.</p>
+            ) : owesBeforeSubscribe ? (
+              <p className="pay-hist-note">Pagá la deuda arriba (Mercado Pago o transferencia) y después podés adherirte.</p>
+            ) : subscriptionPending ? (
+              <div className="pay-hist-note" style={{ display: 'grid', gap: '0.55rem' }}>
+                <span>Ya hay una adhesión abierta. Completala en Mercado Pago o esperá la confirmación.</span>
+                {subscriptionInitPoint ? (
+                  <a className="btn btn-secondary btn-sm" href={subscriptionInitPoint} target="_blank" rel="noreferrer">
+                    Continuar adhesión
+                  </a>
+                ) : null}
+              </div>
             ) : (
               <MercadoPagoCheckout
                 kind="subscription"
@@ -377,7 +436,7 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
                 amount={subscribeAmount}
                 memberNumber={profile?.memberId}
                 concept={`Suscripción cuota social · ${profile?.name || 'socio'}`}
-                disabled={standingPending || subscribeAmount <= 0}
+                disabled={standingPending || subscribeAmount <= 0 || !canStartSubscription}
                 onApproved={() => setMessage(`Adhesión lista. Mercado Pago debitará la cuota cada mes, el día ${dueDay}.`)}
               />
             )}
