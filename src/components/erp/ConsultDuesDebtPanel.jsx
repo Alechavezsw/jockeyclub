@@ -13,6 +13,11 @@ import { isDuesExemptMember } from '../../domain/members/dues';
 import {
   buildOperationalDuesStanding,
 } from '../../domain/members/operationalDuesStanding';
+import {
+  PERIOD_STATUS,
+  periodLedgerStatus,
+  periodStatusLabel,
+} from '../../domain/accounting/feeLedgerIntegrity';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import * as repos from '../../data/repos';
 
@@ -137,6 +142,18 @@ export default function ConsultDuesDebtPanel({
     });
   }, [selected, accountEntries, ledgerLines]);
   const debt = standing?.debt || null;
+
+  const ledgerByYm = useMemo(() => {
+    const map = new Map();
+    for (const line of ledgerLines || []) {
+      const raw = String(line?.date || line?.lineDate || line?.periodYm || '').trim();
+      const ym = /^\d{4}-\d{2}$/.test(raw)
+        ? raw
+        : (/^\d{4}-\d{2}-\d{2}/.test(raw) ? raw.slice(0, 7) : '');
+      if (ym && !map.has(ym)) map.set(ym, line);
+    }
+    return map;
+  }, [ledgerLines]);
 
   const pick = (row) => {
     const fromPadron = (members || []).find((m) => String(m.memberId) === String(row.memberId));
