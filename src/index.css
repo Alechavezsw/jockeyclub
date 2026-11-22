@@ -28463,7 +28463,6 @@ ul.sys-set-hint {
 .due-collect-copy > .due-collect-kicker { grid-column: 1; grid-row: 1; }
 .due-collect-copy > .due-collect-amount { grid-column: 1; grid-row: 2; }
 .due-collect-copy > .due-collect-rest { grid-column: 1; grid-row: 3; }
-.due-collect-copy > .due-collect-total { grid-column: 1; grid-row: 4; }
 .due-collect-money > .due-collect-kicker { grid-column: 2; grid-row: 1; }
 .due-collect-money > .due-collect-amount { grid-column: 2; grid-row: 2; }
 .due-collect-money > .due-collect-rest { grid-column: 2; grid-row: 3; }
@@ -28500,18 +28499,8 @@ ul.sys-set-hint {
   line-height: 1.4;
   text-wrap: balance;
 }
-.due-collect-total {
-  margin: 0.55rem 0 0;
-  justify-self: stretch;
-  text-align: center;
-  max-width: 100%;
-  min-width: 0;
-  color: var(--text-secondary);
+.due-collect-due-note {
   font-size: clamp(0.72rem, 0.66rem + 0.2vw, 0.82rem);
-  font-weight: 500;
-  line-height: 1.35;
-  letter-spacing: 0.01em;
-  text-wrap: balance;
   opacity: 0.92;
 }
 .due-collect-amount {
@@ -28531,22 +28520,19 @@ ul.sys-set-hint {
   overflow-anchor: none;
   color: var(--text-strong);
 }
-.due-collect-copy > .due-collect-amount {
-  font-family: Outfit, system-ui, sans-serif;
-  font-size: clamp(2.1rem, 1.2rem + 2.4vw, 3.2rem);
-  font-weight: 650;
-  letter-spacing: -0.02em;
-  overflow: visible;
-}
+.due-collect-copy > .due-collect-amount,
 .due-collect-money > .due-collect-amount {
   /* Escala al ancho de la tarjeta: montos tipo $ 42.686.233,03 caben en la columna */
   font-size: clamp(1.2rem, 3.05cqi, 2.55rem);
 }
 @container due-collect (max-width: 720px) {
+  .due-collect-copy > .due-collect-amount,
   .due-collect-money > .due-collect-amount {
     font-size: clamp(1.4rem, 6.2cqi, 2.2rem);
   }
 }
+.due-collect.phase-today .due-collect-copy .due-collect-amount,
+.due-collect.phase-after .due-collect-copy .due-collect-amount,
 .due-collect.phase-today .due-collect-money .due-collect-amount,
 .due-collect.phase-after .due-collect-money .due-collect-amount {
   color: var(--emerald-accent);
@@ -29013,7 +28999,6 @@ details[open] > summary .due-fold-arrow {
   .due-collect-copy > .due-collect-kicker,
   .due-collect-copy > .due-collect-amount,
   .due-collect-copy > .due-collect-rest,
-  .due-collect-copy > .due-collect-total,
   .due-collect-money > .due-collect-kicker,
   .due-collect-money > .due-collect-amount,
   .due-collect-money > .due-collect-rest,
@@ -29033,12 +29018,10 @@ details[open] > summary .due-fold-arrow {
     border-left: none;
     border-top: none;
   }
+  .due-collect-copy > .due-collect-amount,
   .due-collect-money > .due-collect-amount {
     font-size: clamp(1.45rem, 4.8vw + 0.4rem, 2.2rem);
     letter-spacing: -0.04em;
-  }
-  .due-collect-copy > .due-collect-amount {
-    font-size: clamp(2rem, 7vw, 2.75rem);
   }
   .ops-dues-lines {
     margin-left: 0;

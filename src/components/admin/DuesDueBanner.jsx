@@ -368,31 +368,29 @@ export default function DuesDueBanner({
   const monthName = moment.monthName.charAt(0).toUpperCase() + moment.monthName.slice(1);
   const monthLabel = `${monthName} de ${moment.year}`;
 
-  let titleLead = 'Faltan';
-  let titleWhen = moment.daysUntil === 1 ? '1 día' : `${moment.daysUntil} días`;
-  let detail = `Vence el ${moment.dueDay}. Recargo desde el 11.`;
+  let dueLead = 'Faltan';
+  let dueWhen = moment.daysUntil === 1 ? '1 día' : `${moment.daysUntil} días`;
+  let dueDetail = `Vence el ${moment.dueDay}. Recargo desde el 11.`;
   if (moment.phase === 'today') {
-    titleLead = 'Hoy';
-    titleWhen = 'vence';
-    detail = 'Recargo 10% desde mañana.';
+    dueLead = 'Hoy';
+    dueWhen = 'vence';
+    dueDetail = 'Recargo 10% desde mañana.';
   } else if (moment.phase === 'after') {
-    titleLead = 'En mora';
-    titleWhen = moment.daysSince === 1 ? '1 día' : `${moment.daysSince} días`;
-    detail = `Venció el ${moment.dueDay}. Recargo 10%.`;
+    dueLead = 'En mora';
+    dueWhen = moment.daysSince === 1 ? '1 día' : `${moment.daysSince} días`;
+    dueDetail = `Venció el ${moment.dueDay}. Recargo 10%.`;
   }
+  const dueLine = `${dueLead} · ${dueWhen} · ${dueDetail}`;
 
   return (
     <div className="due-collect-stack">
       <section className={`due-collect phase-${moment.phase}`} aria-label="Vencimiento y recaudación">
         <div className="due-collect-copy">
-          <p className="due-collect-kicker">{titleLead}</p>
-          <h2 className="due-collect-amount">{titleWhen}</h2>
-          <p className="due-collect-rest">{detail}</p>
-          {moneyReady ? (
-            <p className="due-collect-total tabular-nums">
-              Recaudado total · {formatCurrency(collectedTotal)}
-            </p>
-          ) : null}
+          <p className="due-collect-kicker">Recaudado total · {monthLabel}</p>
+          <p className="due-collect-amount tabular-nums">
+            {moneyReady ? formatCurrency(collectedTotal) : '\u00a0'}
+          </p>
+          <p className="due-collect-rest due-collect-due-note">{dueLine}</p>
         </div>
         <div className="due-collect-money">
           <p className="due-collect-kicker">Cuota recaudada · {monthLabel}</p>
