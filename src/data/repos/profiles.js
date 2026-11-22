@@ -898,6 +898,185 @@ export async function replaceProfileRoles(profileId, roles = []) {
   return M.profileFromRow(withRoles);
 }
 
+/**
+ * Todo lo que este usuario hizo (actor), no los cambios sobre su ficha.
+ * Une audit_logs + cobros + asientos + caja + débitos.
+ */
+export async function listProfileActorActivity(profileId, { limit = 500, days = 120 } = {}) {
+  if (!isUuid(profileId)) throw new Error('Perfil inválido');
+  const since = new Date();
+  since.setDate(since.getDate() - Math.max(7, Number(days) || 120));
+  const sinceIso = since.toISOString();
+  const cap = Math.min(Math.max(Number(limit) || 500, 50), 1200);
+
+  const safe = async (promise) => {
+    try {
+      return await promise;
+    } catch {
+      return [];
+    }
+  };
+
+  const [auditRows, payments, journals, sessions, debitMoves] = await Promise.all([
+    safe(unwrap(
+      sb()
+        .from('audit_logs')
+        .select('id, actor_id, action, entity_type, entity_id, payload, created_at')
+        .eq('actor_id', profileId)
+        .gte('created_at', sinceIso)
+        .order('created_at', { ascending: false })
+        .limit(cap),
+      'No se pudo cargar la actividad del usuario',
+    )),
+    safe(unwrap(
+      sb()
+        .from('member_payments')
+        .select('id, amount, concept, paid_at, created_at, member_id, meta, members(member_number, full_name)')
+        .eq('recorded_by', profileId)
+        .gte('created_at', sinceIso)
+        .order('created_at', { ascending: false })
+        .limit(cap),
+      'No se pudieron cargar los cobros del usuario',
+    )),
+    safe(unwrap(
+      sb()
+        .from('journal_entries')
+        .select('id, concept, entry_date, created_at, status, source_module, created_by, posted_by, voided_by')
+        .or(`created_by.eq.${profileId},posted_by.eq.${profileId},voided_by.eq.${profileId}`)
+        .gte('created_at', sinceIso)
+        .order('created_at', { ascending: false })
+        .limit(cap),
+      'No se pudieron cargar los asientos del usuario',
+    )),
+    safe(unwrap(
+      sb()
+        .from('cash_sessions')
+        .select('id, opened_at, closed_at, opened_by, closed_by, status, cash_register_id, opening_balance, counted_balance')
+        .or(`opened_by.eq.${profileId},closed_by.eq.${profileId}`)
+        .gte('opened_at', sinceIso)
+        .order('opened_at', { ascending: false })
+        .limit(200),
+      'No se pudieron cargar las cajas del usuario',
+    )),
+    safe(unwrap(
+      sb()
+        .from('debit_move_events')
+        .select('id, created_at, actor_id, move_type, member_id, holder_name, total_amount, note, payload')
+        .eq('actor_id', profileId)
+        .gte('created_at', sinceIso)
+        .order('created_at', { ascending: false })
+        .limit(200),
+      'No se pudieron cargar los débitos del usuario',
+    )),
+  ]);
+
+  const events = [];
+
+  for (const row of auditRows || []) {
+    events.push({
+      id: `audit:${row.id}`,
+      action: row.action,
+      entityType: row.entity_type,
+      entityId: row.entity_id,
+      payload: row.payload || {},
+      createdAt: row.created_at,
+      source: 'audit',
+    });
+  }
+
+  for (const row of payments || []) {
+    const member = row.members || {};
+    events.push({
+      id: `pay:${row.id}`,
+      action: 'cobro',
+      entityType: 'member_payments',
+      entityId: row.id,
+      createdAt: row.created_at || row.paid_at,
+      source: 'payment',
+      payload: {
+        amount: row.amount,
+        concept: row.concept,
+        memberNumber: member.member_number,
+        memberName: member.full_name,
+        paidAt: row.paid_at,
+      },
+    });
+  }
+
+  for (const row of journals || []) {
+    let action = 'journal';
+    if (row.voided_by === profileId) action = 'void';
+    else if (row.posted_by === profileId && row.created_by !== profileId) action = 'update';
+    events.push({
+      id: `je:${row.id}:${action}`,
+      action,
+      entityType: 'journal_entries',
+      entityId: row.id,
+      createdAt: row.created_at || row.entry_date,
+      source: 'journal',
+      payload: {
+        concept: row.concept,
+        status: row.status,
+        sourceModule: row.source_module,
+      },
+    });
+  }
+
+  for (const row of sessions || []) {
+    if (row.opened_by === profileId && row.opened_at) {
+      events.push({
+        id: `cash-open:${row.id}`,
+        action: 'cash_open',
+        entityType: 'cash_sessions',
+        entityId: row.id,
+        createdAt: row.opened_at,
+        source: 'cash',
+        payload: {
+          amount: row.opening_balance,
+          concept: 'Apertura de caja',
+          status: row.status,
+        },
+      });
+    }
+    if (row.closed_by === profileId && row.closed_at) {
+      events.push({
+        id: `cash-close:${row.id}`,
+        action: 'cash_close',
+        entityType: 'cash_sessions',
+        entityId: row.id,
+        createdAt: row.closed_at,
+        source: 'cash',
+        payload: {
+          amount: row.counted_balance,
+          concept: 'Cierre / rendición de caja',
+          status: row.status,
+        },
+      });
+    }
+  }
+
+  for (const row of debitMoves || []) {
+    events.push({
+      id: `debit:${row.id}`,
+      action: 'debit_move',
+      entityType: 'debit_move_events',
+      entityId: row.id,
+      createdAt: row.created_at,
+      source: 'debit',
+      payload: {
+        ...(row.payload && typeof row.payload === 'object' ? row.payload : {}),
+        kind: row.move_type,
+        memberNumber: row.member_id,
+        memberName: row.holder_name,
+        amount: row.total_amount,
+        concept: row.note || row.move_type,
+      },
+    });
+  }
+
+  return events.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+}
+
 export async function listProfileAudit(profileId, { limit = 80 } = {}) {
   if (!isUuid(profileId)) throw new Error('Perfil inválido');
   const rows = await unwrap(
