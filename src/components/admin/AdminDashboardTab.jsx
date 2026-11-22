@@ -1149,16 +1149,6 @@ export default function AdminDashboardTab({
                       </strong>
                     </div>
                   </div>
-                  {duesBoard ? (
-                    <ul className="ops-dues-lines" aria-label="Desglose del mes">
-                      <li><span>Cuota del mes</span><b className="tabular-nums">{formatCurrency(duesBoard.cuotaMes)}</b></li>
-                      <li><span>Atrasadas</span><b className="tabular-nums">{formatCurrency(duesBoard.atrasadas)}</b></li>
-                      <li><span>Adelantos</span><b className="tabular-nums">{formatCurrency(duesBoard.posteriores)}</b></li>
-                      <li><span>Recargos</span><b className="tabular-nums">{formatCurrency(duesBoard.recargos)}</b></li>
-                      <li><span>Salón</span><b className="tabular-nums">{formatCurrency(duesBoard.reservas)}</b></li>
-                      <li><span>Portería</span><b className="tabular-nums">{formatCurrency(duesBoard.porteria)}</b></li>
-                    </ul>
-                  ) : null}
                 </div>
 
                 {todayIncomeRows.length > 0 ? (
