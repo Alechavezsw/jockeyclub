@@ -26,13 +26,13 @@ grant usage, select on sequence public.schema_object_backups_id_seq to service_r
 
 insert into public.schema_object_backups (migration_id, object_identity, definition)
 select
-  '20261122120000_registrar_cobro_reject_ineligible_due_ons',
+  '20261122153000_registrar_cobro_reject_ineligible_due_ons',
   'public.registrar_cobro(uuid, numeric, jsonb, text)',
   pg_get_functiondef('public.registrar_cobro(uuid, numeric, jsonb, text)'::regprocedure)
 where not exists (
   select 1
   from public.schema_object_backups b
-  where b.migration_id = '20261122120000_registrar_cobro_reject_ineligible_due_ons'
+  where b.migration_id = '20261122153000_registrar_cobro_reject_ineligible_due_ons'
     and b.object_identity = 'public.registrar_cobro(uuid, numeric, jsonb, text)'
 );
 
@@ -527,7 +527,7 @@ comment on function public.cobro_assert_due_ons_collectable(uuid, jsonb, jsonb, 
 -- ---------------------------------------------------------------------------
 -- 3) Rollback ejecutable
 -- ---------------------------------------------------------------------------
-create or replace function public.rollback_20261122120000_registrar_cobro_due_ons()
+create or replace function public.rollback_20261122153000_registrar_cobro_due_ons()
 returns text
 language plpgsql
 security definer
@@ -538,7 +538,7 @@ declare
 begin
   select definition into v_def
   from public.schema_object_backups
-  where migration_id = '20261122120000_registrar_cobro_reject_ineligible_due_ons'
+  where migration_id = '20261122153000_registrar_cobro_reject_ineligible_due_ons'
     and object_identity = 'public.registrar_cobro(uuid, numeric, jsonb, text)'
   order by id desc
   limit 1;
@@ -556,13 +556,13 @@ begin
   drop function if exists public.cobro_admin_clear_rows(jsonb);
   drop function if exists public.cobro_clear_covers_due(date, date, date, text[]);
 
-  return 'rollback_20261122120000_ok';
+  return 'rollback_20261122153000_ok';
 end;
 $$;
 
-revoke all on function public.rollback_20261122120000_registrar_cobro_due_ons()
+revoke all on function public.rollback_20261122153000_registrar_cobro_due_ons()
   from public, anon, authenticated;
-grant execute on function public.rollback_20261122120000_registrar_cobro_due_ons()
+grant execute on function public.rollback_20261122153000_registrar_cobro_due_ons()
   to service_role;
 
 -- ---------------------------------------------------------------------------

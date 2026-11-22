@@ -49,9 +49,25 @@ Para ocultarlos del todo: `VITE_SHOW_DEMO_LOGINS=false` en `.env`.
 
 1. Crear un proyecto Supabase **dedicado** al club.
 2. Copiar `.env.example` → `.env` y completar URL + anon key.
-3. Aplicar migraciones: `npx supabase db push`
-4. Crear usuarios reales en Auth y perfiles con rol (`member`, `cashier`, `accountant`, `staff`, `admin`).
-5. Subir los datos exportados de LILA: `npm run upload:snapshots` (ver abajo).
+3. Aplicar migraciones: `npx supabase db push` (tras `npx supabase migration list --remote` y `npx supabase db push --dry-run`).
+4. Los scripts `*.rollback.sql` viven en `supabase/rollbacks/` (no en `migrations/`).
+5. Crear usuarios reales en Auth y perfiles con rol (`member`, `cashier`, `accountant`, `staff`, `admin`).
+6. Subir los datos exportados de LILA: `npm run upload:snapshots` (ver abajo).
+
+### Despliegue PR #13 (`20261122153000_registrar_cobro_reject_ineligible_due_ons`)
+
+Última migración remota conocida al preparar el PR: `20261122142906`. La forward es `20261122153000_…` (posterior). El rollback está en `supabase/rollbacks/` (no en `migrations/`).
+
+1. **Backup** del proyecto (Dashboard → Database → Backups / snapshot) y confirmar que la forward insertará en `schema_object_backups` con `migration_id = '20261122153000_registrar_cobro_reject_ineligible_due_ons'`.
+2. **Preflight CLI** (con `SUPABASE_ACCESS_TOKEN`):
+   - `npx supabase migration list --remote=papdsxgcvyncdxdvbdaa`
+   - `npx supabase db push --dry-run --remote=papdsxgcvyncdxdvbdaa`
+   - Abortar si el dry-run propone algo distinto de `20261122153000_registrar_cobro_reject_ineligible_due_ons`. Si hay drift de timestamps locales vs remotos, **no** hacer `db push` completo: aplicar solo este SQL (`apply_migration` / SQL Editor).
+3. **Migración SQL** (autorizada): aplicar únicamente `supabase/migrations/20261122153000_registrar_cobro_reject_ineligible_due_ons.sql`.
+4. **Verificaciones post-migración:** `cobro_assert_due_ons_collectable` inyectado en `registrar_cobro`; helpers sin `EXECUTE` para `authenticated`; sin filas basura del dry-run.
+5. **Merge** PR #13 (CI verde) **después** de la migración autorizada (o según el orden operativo acordado del club).
+6. **Smoke test:** ficha 101600 / Cobrar cuota; rechazo de concept bypass; parcial/adelanto/a_cuenta.
+7. **Rollback** solo si corresponde: `supabase/rollbacks/20261122153000_registrar_cobro_reject_ineligible_due_ons.rollback.sql` → `select public.rollback_20261122153000_registrar_cobro_due_ons();`
 
 ## Datos exportados de LILA / Societas
 
