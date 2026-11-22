@@ -14308,6 +14308,87 @@ a.ops-outline-btn {
   color: var(--text-secondary);
 }
 
+.pup-activity {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.pup-activity-lead {
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.pup-activity-days {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.pup-activity-day {
+  border: 1px solid var(--border-glass);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-primary) 40%, transparent);
+  overflow: hidden;
+}
+
+.pup-activity-day-head {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.65rem 1rem;
+  padding: 0.85rem 1rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.pup-activity-day-head strong {
+  display: block;
+  text-transform: capitalize;
+  color: var(--text-gold);
+  font-size: 0.95rem;
+}
+
+.pup-activity-day-head span {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.pup-activity-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  justify-content: flex-end;
+}
+
+.pup-activity-chips em {
+  font-style: normal;
+  font-size: 0.7rem;
+  font-weight: 650;
+  padding: 0.2rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, #096755 35%, var(--border-glass));
+  background: rgba(9, 103, 85, 0.16);
+  color: var(--text-secondary);
+}
+
+.pup-activity-day.is-open .pup-activity-day-head {
+  border-bottom: 1px solid var(--border-glass);
+  background: color-mix(in srgb, rgba(9, 103, 85, 0.12) 70%, transparent);
+}
+
+.pup-activity-list {
+  padding: 0.85rem 1rem 1rem;
+}
+
 @media (max-width: 720px) {
   .pup-profile {
     padding: 1rem;

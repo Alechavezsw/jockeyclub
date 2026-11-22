@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ArrowLeft, User, Shield, IdCard, Phone, Mail, MapPin, Heart,
-  KeyRound, BadgeCheck, History, Loader2, Camera,
+  ArrowLeft, User, IdCard, Phone, Heart,
+  KeyRound, BadgeCheck, History, Loader2, Camera, ClipboardList,
 } from 'lucide-react';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { repos } from '../../data/bootstrap';
 import { ROLE_LABELS } from '../../domain/auth/roles';
-import { LOGIN_DOMAIN, usernameFromEmail } from '../../domain/auth/credentials';
+import { usernameFromEmail } from '../../domain/auth/credentials';
+import { buildStaffActivityDays } from '../../domain/auth/staffActivity';
 
 const SECTIONS = [
   { id: 'ficha', label: 'Ficha', icon: User },
@@ -15,7 +16,8 @@ const SECTIONS = [
   { id: 'acceso', label: 'Acceso', icon: KeyRound },
   { id: 'autorizaciones', label: 'Autorizaciones', icon: BadgeCheck },
   { id: 'ids', label: 'Identificadores', icon: IdCard },
-  { id: 'historial', label: 'Historial', icon: History },
+  { id: 'trazabilidad', label: 'Trazabilidad', icon: ClipboardList },
+  { id: 'historial', label: 'Historial ficha', icon: History },
 ];
 
 function displayName(profile) {
@@ -62,6 +64,10 @@ export default function PortalUserProfilePanel({ profileId, onBack, onEdit }) {
   const [error, setError] = useState('');
   const [historyRows, setHistoryRows] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [activityDays, setActivityDays] = useState([]);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [activityError, setActivityError] = useState('');
+  const [openDayKey, setOpenDayKey] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -99,6 +105,30 @@ export default function PortalUserProfilePanel({ profileId, onBack, onEdit }) {
         if (!cancelled) setHistoryRows([]);
       } finally {
         if (!cancelled) setHistoryLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [section, profileId]);
+
+  useEffect(() => {
+    if (section !== 'trazabilidad' || !profileId || !isSupabaseConfigured) return undefined;
+    let cancelled = false;
+    (async () => {
+      setActivityLoading(true);
+      setActivityError('');
+      try {
+        const rows = await repos.listProfileActorActivity(profileId, { limit: 800, days: 180 });
+        if (cancelled) return;
+        const days = buildStaffActivityDays(rows);
+        setActivityDays(days);
+        setOpenDayKey(days[0]?.dayKey || '');
+      } catch (err) {
+        if (!cancelled) {
+          setActivityDays([]);
+          setActivityError(err.message || 'No se pudo cargar la trazabilidad.');
+        }
+      } finally {
+        if (!cancelled) setActivityLoading(false);
       }
     })();
     return () => { cancelled = true; };
@@ -293,11 +323,91 @@ export default function PortalUserProfilePanel({ profileId, onBack, onEdit }) {
           )
         )}
 
+        {section === 'trazabilidad' && (
+          activityLoading ? (
+            <p className="ops-muted">Cargando actividad operativa…</p>
+          ) : activityError ? (
+            <Empty text={activityError} />
+          ) : activityDays.length === 0 ? (
+            <Empty text="Todavía no hay movimientos registrados de este usuario (cobros, altas, caja, ediciones)." />
+          ) : (
+            <div className="pup-activity">
+              <p className="pup-activity-lead">
+                Movimientos hechos por esta persona, agrupados por día. Incluye cobros, altas/ediciones,
+                caja, asientos y auditoría del sistema (últimos 180 días).
+              </p>
+              <div className="pup-activity-days">
+                {activityDays.map((day) => {
+                  const open = openDayKey === day.dayKey;
+                  return (
+                    <section key={day.dayKey} className={`pup-activity-day${open ? ' is-open' : ''}`}>
+                      <button
+                        type="button"
+                        className="pup-activity-day-head"
+                        onClick={() => setOpenDayKey(open ? '' : day.dayKey)}
+                        aria-expanded={open}
+                      >
+                        <div>
+                          <strong>{day.dayLabel}</strong>
+                          <span>{day.counts.total} movimiento{day.counts.total === 1 ? '' : 's'}</span>
+                        </div>
+                        <div className="pup-activity-chips" aria-hidden="true">
+                          {day.counts.cobros ? <em>Cobros {day.counts.cobros}</em> : null}
+                          {day.counts.altas ? <em>Altas {day.counts.altas}</em> : null}
+                          {day.counts.ediciones ? <em>Ediciones {day.counts.ediciones}</em> : null}
+                          {day.counts.caja ? <em>Caja {day.counts.caja}</em> : null}
+                          {day.counts.contabilidad ? <em>Contab. {day.counts.contabilidad}</em> : null}
+                          {day.counts.otros ? <em>Otros {day.counts.otros}</em> : null}
+                        </div>
+                      </button>
+                      {open ? (
+                        <ol className="sys-trace-timeline pup-activity-list">
+                          {day.events.map((row) => (
+                            <li key={row.id}>
+                              <div className="sys-trace-dot" aria-hidden="true" />
+                              <div className="sys-trace-card">
+                                <header>
+                                  <strong>{row.label}</strong>
+                                  <time dateTime={row.createdAt || undefined}>
+                                    {row.createdAt
+                                      ? new Date(row.createdAt).toLocaleTimeString('es-AR', {
+                                        hour: '2-digit',
+                                        minute: '2-digit',
+                                      })
+                                      : '—'}
+                                  </time>
+                                </header>
+                                {row.summary ? (
+                                  <p className="sys-trace-summary">{row.summary}</p>
+                                ) : null}
+                                <p className="sys-trace-actor">
+                                  {row.entityType ? <span>{row.entityType}</span> : null}
+                                  {row.source ? <> · <span>{row.source}</span></> : null}
+                                </p>
+                                {row.payload && Object.keys(row.payload).length ? (
+                                  <details className="sys-trace-raw">
+                                    <summary>Detalle</summary>
+                                    <pre>{JSON.stringify(row.payload, null, 2)}</pre>
+                                  </details>
+                                ) : null}
+                              </div>
+                            </li>
+                          ))}
+                        </ol>
+                      ) : null}
+                    </section>
+                  );
+                })}
+              </div>
+            </div>
+          )
+        )}
+
         {section === 'historial' && (
           historyLoading ? (
-            <p className="ops-muted">Cargando trazas…</p>
+            <p className="ops-muted">Cargando cambios sobre esta ficha…</p>
           ) : historyRows.length === 0 ? (
-            <Empty text="Sin cambios registrados todavía." />
+            <Empty text="Sin cambios registrados sobre esta ficha." />
           ) : (
             <ol className="sys-trace-timeline">
               {historyRows.map((row) => (
