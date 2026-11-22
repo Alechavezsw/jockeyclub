@@ -168,7 +168,7 @@ export function periodStatusLabel(status) {
     case PERIOD_STATUS.EN_REVISION:
       return 'En revisión';
     case PERIOD_STATUS.EVIDENCIA_PENDIENTE:
-      return 'Evidencia pendiente';
+      return 'Pendiente de conciliación';
     default:
       return '—';
   }
