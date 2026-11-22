@@ -293,46 +293,25 @@ declare
   v_effective jsonb := '[]'::jsonb;
   v_seen text[] := '{}';
   v_imputed numeric;
-  v_concept text;
+  v_allow_unallocated boolean := false;
+  v_uncovered_open int := 0;
 begin
   if p_member_id is null then
     return;
   end if;
 
-  -- Conceptos no-cuota (portería, eventos, etc.): no validar períodos de cuota.
-  v_concept := lower(trim(coalesce(
-    p_periodos->>'concepto',
-    p_periodos->>'concept',
-    p_periodos->>'chargeScope',
-    ''
-  )));
-  if v_concept <> ''
-     and v_concept not in (
-       'cuota', 'cuotas', 'dues', 'cuota_social', 'social',
-       'abono_tenis', 'abono tenis', 'tenis'
-     )
-     and coalesce(jsonb_typeof(p_due_ons), 'null') is distinct from 'array'
-  then
-    return;
-  end if;
-  if v_concept <> ''
-     and v_concept not in (
-       'cuota', 'cuotas', 'dues', 'cuota_social', 'social',
-       'abono_tenis', 'abono tenis', 'tenis'
-     )
-     and (
-       jsonb_typeof(p_due_ons) is distinct from 'array'
-       or jsonb_array_length(p_due_ons) = 0
-     )
-     and (
-       jsonb_typeof(coalesce(p_periodos->'schedule', 'null'::jsonb)) is distinct from 'array'
-       or jsonb_array_length(coalesce(p_periodos->'schedule', '[]'::jsonb)) = 0
-     )
-  then
-    return;
-  end if;
-
+  -- Nunca confiar en concept/concepto/chargeScope del cliente para saltear controles.
+  -- Solo modos explícitos de servidor (método / paymentMode / kind) habilitan cobro
+  -- sin períodos cuando no hay deuda exigible abierta.
   v_adelanto := lower(coalesce(p_periodos->>'adelanto', '')) in ('true', 't', '1');
+  v_allow_unallocated :=
+    lower(coalesce(p_periodos->>'method', p_periodos->>'medio', '')) in ('a_cuenta', 'on_account')
+    or lower(coalesce(p_periodos->>'paymentMode', '')) in (
+      'a_cuenta', 'on_account', 'unallocated', 'unallocated_credit'
+    )
+    or lower(coalesce(p_periodos->>'kind', '')) in (
+      'pago_a_cuenta', 'a_cuenta', 'on_account'
+    );
 
   select coalesce(meta, '{}'::jsonb) into v_meta
   from public.members
@@ -365,7 +344,28 @@ begin
       raise exception
         'Anticipo ambiguo: indique dueOns o schedule del período a adelantar.';
     end if;
-    -- Sin períodos efectivos y sin adelanto: nada que imputar a cuota → ok (pago libre / saldo 0).
+
+    if round(coalesce(p_importe, 0), 2) > 0.01 then
+      if not v_allow_unallocated then
+        raise exception
+          'Cobro ambiguo: indique dueOns o schedule. El concepto no autoriza omitir períodos.';
+      end if;
+      -- Pago a cuenta sin períodos: solo si no hay capital exigible abierto.
+      select count(*)::int
+        into v_uncovered_open
+      from public.member_dues_periods dp
+      where dp.member_id = p_member_id
+        and coalesce(dp.capital_open, 0) > 0.01
+        and dp.due_on > date '1900-01-10'
+        and coalesce((
+          public.cobro_due_uncovered_capital(p_member_id, dp.due_on, '{}'::jsonb)
+            ->>'uncovered'
+        )::numeric, 0) > 0.01;
+      if coalesce(v_uncovered_open, 0) > 0 then
+        raise exception
+          'Hay deuda exigible abierta; indique dueOns o schedule para imputar el cobro.';
+      end if;
+    end if;
     return;
   end if;
 
@@ -522,7 +522,7 @@ grant execute on function public.cobro_assert_due_ons_collectable(uuid, jsonb, j
   to service_role;
 
 comment on function public.cobro_assert_due_ons_collectable(uuid, jsonb, jsonb, numeric) is
-  'Rechaza dueOns pagos/cerrados/clear; permite remanente parcial; deriva períodos si dueOns vacío; adelanto no saltea.';
+  'Rechaza dueOns pagos/cerrados/clear; remanente parcial OK; dueOns vacío deriva schedule/abiertos; no confía en concept del cliente; adelanto no saltea.';
 
 -- ---------------------------------------------------------------------------
 -- 3) Rollback ejecutable

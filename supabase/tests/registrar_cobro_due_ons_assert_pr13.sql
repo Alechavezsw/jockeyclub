@@ -229,7 +229,7 @@ begin
     raise exception 'FAIL: debió rechazar cobrar 70000 tras parcial 30000';
   exception
     when others then
-      if SQLERRM ~* 'supera|remanente|exigible|importe' then
+      if SQLERRM ~* 'supera|remanente|exigible|importe|capital pedido' then
         raise notice 'OK rechazo cuota entera tras parcial: %', SQLERRM;
       else
         raise;
@@ -301,6 +301,78 @@ begin
         raise;
       end if;
   end;
+end $$;
+
+-- 8b) dueOns=[] + schedule=[] + concepto descriptivo de cuota + $70k → rechazo
+do $$
+declare
+  v_id uuid := 'a1111111-b222-c333-d444-e55555555555';
+begin
+  -- con octubre clear abierto: no puede saltear vía concept
+  delete from public.member_dues_periods where member_id = v_id;
+  insert into public.member_dues_periods (member_id, due_on, capital, capital_open, late_base)
+  values (v_id, '2026-10-10', 70000, 6363.64, 6363.64);
+
+  begin
+    perform public.cobro_assert_due_ons_collectable(
+      v_id,
+      '[]'::jsonb,
+      jsonb_build_object(
+        'concept', 'Cuota social · Noviembre de 2026',
+        'concepto', 'Cuota social · Noviembre de 2026'
+      ),
+      70000
+    );
+    raise exception 'FAIL: concept cuota descriptivo no debió saltear';
+  exception
+    when others then
+      if SQLERRM ~* 'cero operativo|autorizado|no se puede cobrar|ambiguo|dueOns|schedule|exigible' then
+        raise notice 'OK concept cuota no bypass: %', SQLERRM;
+      else
+        raise;
+      end if;
+  end;
+end $$;
+
+-- 8c) concepto falso de evento para eludir → rechazo
+do $$
+declare
+  v_id uuid := 'a1111111-b222-c333-d444-e55555555555';
+begin
+  begin
+    perform public.cobro_assert_due_ons_collectable(
+      v_id,
+      '[]'::jsonb,
+      jsonb_build_object(
+        'concept', 'Evento salón Anhelo',
+        'chargeScope', 'evento'
+      ),
+      70000
+    );
+    raise exception 'FAIL: concept evento no debió saltear';
+  exception
+    when others then
+      if SQLERRM ~* 'cero operativo|autorizado|no se puede cobrar|ambiguo|dueOns|schedule|exigible' then
+        raise notice 'OK concept evento no bypass: %', SQLERRM;
+      else
+        raise;
+      end if;
+  end;
+end $$;
+
+-- 8d) pago a cuenta explícito sin deuda exigible → permitido
+do $$
+declare
+  v_id uuid := 'a1111111-b222-c333-d444-e55555555555';
+begin
+  delete from public.member_dues_periods where member_id = v_id;
+  perform public.cobro_assert_due_ons_collectable(
+    v_id,
+    '[]'::jsonb,
+    jsonb_build_object('method', 'a_cuenta', 'kind', 'pago_a_cuenta'),
+    10000
+  );
+  raise notice 'OK pago a cuenta sin deuda abierta';
 end $$;
 
 -- 9) Permisos: authenticated no ejecuta helpers (sondeo capital ajeno)
@@ -475,7 +547,7 @@ begin
     raise exception 'FAIL: registrar_cobro no debió aceptar 70000 sobre remanente 40000';
   exception
     when others then
-      if SQLERRM ~* 'supera|remanente|exigible|importe' then
+      if SQLERRM ~* 'supera|remanente|exigible|importe|capital pedido' then
         raise notice 'OK RPC rechazo 70000 sobre parcial: %', SQLERRM;
       else
         raise;
@@ -506,6 +578,114 @@ begin
     raise exception 'FAIL: registrar_cobro remanente sin resultado';
   end if;
   raise notice 'OK RPC remanente 40000 aplicado';
+end $$;
+
+-- 12) RPC: dueOns=[] schedule=[] + concept cuota/$70k → rechazo sin escrituras
+do $$
+declare
+  v_id uuid := 'a1111111-b222-c333-d444-e55555555555';
+  v_pay_before int;
+  v_imp_before int;
+  v_bal_before numeric;
+  v_pay_after int;
+  v_imp_after int;
+  v_bal_after numeric;
+begin
+  update public.members
+  set meta = jsonb_build_object(
+        'adminOperationalClear', jsonb_build_object(
+          'id', 'admin-clear-test-2026-10-10',
+          'memberNumber', '9901600',
+          'periodDueOns', jsonb_build_array('2026-10-10'),
+          'dueOn', '2026-10-10',
+          'amount', 6363.64,
+          'reason', 'test clear',
+          'authorizedBy', 'test',
+          'authorizedAt', '2026-11-21'
+        )
+      ),
+      outstanding_balance = 0
+  where id = v_id;
+
+  delete from public.member_dues_periods where member_id = v_id;
+  insert into public.member_dues_periods (member_id, due_on, capital, capital_open, late_base)
+  values (v_id, '2026-10-10', 70000, 6363.64, 6363.64);
+
+  select count(*) into v_pay_before from public.member_payments where member_id = v_id;
+  select count(*) into v_imp_before from public.dues_imputations where member_id = v_id;
+  select outstanding_balance into v_bal_before from public.members where id = v_id;
+
+  begin
+    perform public.registrar_cobro(
+      v_id,
+      70000,
+      jsonb_build_object(
+        'dueOns', '[]'::jsonb,
+        'schedule', '[]'::jsonb,
+        'concept', 'Cuota social · Noviembre de 2026'
+      ),
+      'pr13-rpc-concept-bypass-' || gen_random_uuid()::text
+    );
+    raise exception 'FAIL: RPC no debió aceptar concept bypass $70k';
+  exception
+    when others then
+      if SQLERRM ~* 'cero operativo|autorizado|no se puede cobrar|ambiguo|dueOns|schedule|exigible|ya está pago' then
+        raise notice 'OK RPC concept bypass rechazo: %', SQLERRM;
+      else
+        raise;
+      end if;
+  end;
+
+  begin
+    perform public.registrar_cobro(
+      v_id,
+      70000,
+      jsonb_build_object(
+        'dueOns', '[]'::jsonb,
+        'schedule', '[]'::jsonb,
+        'concept', 'Evento salón Anhelo',
+        'chargeScope', 'evento'
+      ),
+      'pr13-rpc-event-bypass-' || gen_random_uuid()::text
+    );
+    raise exception 'FAIL: RPC no debió aceptar concept evento';
+  exception
+    when others then
+      if SQLERRM ~* 'cero operativo|autorizado|no se puede cobrar|ambiguo|dueOns|schedule|exigible|ya está pago' then
+        raise notice 'OK RPC event bypass rechazo: %', SQLERRM;
+      else
+        raise;
+      end if;
+  end;
+
+  select count(*) into v_pay_after from public.member_payments where member_id = v_id;
+  select count(*) into v_imp_after from public.dues_imputations where member_id = v_id;
+  select outstanding_balance into v_bal_after from public.members where id = v_id;
+  if v_pay_after <> v_pay_before
+     or v_imp_after <> v_imp_before
+     or round(coalesce(v_bal_after, 0), 2) <> round(coalesce(v_bal_before, 0), 2) then
+    raise exception 'FAIL: concept bypass escribió filas';
+  end if;
+  raise notice 'OK RPC concept bypass sin escrituras';
+end $$;
+
+-- 13) RPC: adelanto legítimo con dueOn explícito → permitido (si no hay otra deuda)
+do $$
+declare
+  v_id uuid := 'a1111111-b222-c333-d444-e55555555555';
+begin
+  update public.members
+  set meta = '{}'::jsonb, outstanding_balance = 0
+  where id = v_id;
+  delete from public.member_dues_periods where member_id = v_id;
+
+  perform public.cobro_assert_due_ons_collectable(
+    v_id,
+    jsonb_build_array(jsonb_build_object('dueOn', '2026-12-10')),
+    jsonb_build_object('adelanto', true),
+    70000
+  );
+  raise notice 'OK adelanto legítimo identificado';
 end $$;
 
 -- Limpieza + rollback (sin persistir nada)
