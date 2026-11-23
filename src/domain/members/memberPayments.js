@@ -34,6 +34,7 @@ import {
   openPeriodsAfterPayment,
   openPeriodsFromChoices,
 } from './duesImputations';
+import { freeCreditFromStanding } from './advanceCreditAccounting';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import {
   findDuesJournalBySourceId,
@@ -144,14 +145,26 @@ export function isOnAccountDuesMethod(method) {
  * Solo cuenta outstanding negativo o `creditBalance` explícito (p. ej. acarreo
  * tras liquidar). Nunca una diferencia entre unpaidCapital y outstanding.
  */
-export function memberCreditBalance(member) {
+export function memberCreditBalance(member, { imputations = null, today = null } = {}) {
   const stored = Number(member?.outstandingBalance) || 0;
   const fromNegative = stored < -0.01 ? money(-stored) : 0;
   const explicitRaw = member?.creditBalance ?? member?.meta?.creditBalance;
   const explicit = explicitRaw != null && explicitRaw !== ''
     ? money(Math.max(0, Number(explicitRaw) || 0))
     : 0;
-  return money(fromNegative + explicit);
+  const gross = money(fromNegative + explicit);
+  const rows = imputations
+    ?? member?.duesImputations
+    ?? member?.meta?.duesImputations
+    ?? null;
+  if (!(gross > 0.01) || !Array.isArray(rows) || !rows.length) return gross;
+  // Evita mostrar como libre un anticipo ya imputado a un mes futuro.
+  return freeCreditFromStanding({
+    outstandingBalance: stored,
+    explicitCredit: explicit,
+    imputations: rows,
+    today,
+  });
 }
 
 /** Consume crédito explícito al imputar; el resto a favor vive en outstanding negativo. */
