@@ -27,6 +27,7 @@ import {
   recordDuesCollection,
 } from '../../domain/members/memberPayments';
 import { deliverPaymentReceipt } from '../../domain/payments/deliverPaymentReceipt';
+import MpReceiptJobsPanel from './MpReceiptJobsPanel';
 import {
   collectMemberMeta,
   memberAppAccess,
@@ -1032,6 +1033,8 @@ export default function MembersWithAppPanel({
       ) : null}
 
       {listFilter === 'incoming' ? (
+        <>
+        <MpReceiptJobsPanel />
         <div className="members-app-desk__incoming" aria-label="Pagos entrantes desde la app">
           <div className="members-app-desk__incoming-head">
             <Inbox size={16} aria-hidden="true" />
@@ -1159,6 +1162,7 @@ export default function MembersWithAppPanel({
             </>
           )}
         </div>
+        </>
       ) : null}
 
       <div className="members-app-desk__search-wrap">
