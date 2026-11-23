@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { settleMpReceipt } from "../_shared/mpReceiptJob.js";
+import { receiptAttemptSucceeded, settleMpReceipt } from "../_shared/mpReceiptJob.js";
 import { deliverMpReceipt } from "../_shared/mpReceiptDelivery.ts";
 
 const corsHeaders = {
@@ -52,7 +52,7 @@ Deno.serve(async (req) => {
       force: true,
       deliver: (prior) => deliverMpReceipt(admin, intentId, prior),
     });
-    return json(200, { ok: true, receipt });
+    return json(200, { ok: receiptAttemptSucceeded(receipt), receipt });
   } catch (err) {
     const message = err instanceof Error ? err.message : "No se pudo reintentar el comprobante.";
     return json(500, { error: message });

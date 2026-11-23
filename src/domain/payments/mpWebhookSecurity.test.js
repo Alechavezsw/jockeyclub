@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { currencyIsArs, isApprovedCreditStatus, moneyCentsEqual } from '../../../supabase/functions/_shared/mpSettlement.js';
 
@@ -338,5 +339,19 @@ describe('Mercado Pago Webhook Security', () => {
       expect(validateMemberAssociation({ member_id: null }, 'dues').valid).toBe(false);
       expect(validateMemberAssociation({ member_id: null }, 'booking').valid).toBe(true);
     });
+  });
+});
+
+describe('webhook de la rama', () => {
+  const source = readFileSync(new URL('../../../supabase/functions/mp-webhook/index.ts', import.meta.url), 'utf8');
+
+  it('firma, centavos y cola de comprobantes están en el mismo archivo', () => {
+    expect(source).toContain('function todayAR');
+    expect(source).toContain('Idempotency-Key": `mp-debit-failed/${memberId || memberNumber}/${todayAR()}`');
+    expect(source).toContain('settleMpReceipt');
+    expect(source).toContain('moneyCentsEqual');
+    expect(source).toContain('currencyIsArs');
+    expect(source).toContain('mpSignatureOk');
+    expect(source).toContain('SIGNATURE_TIMESTAMP_TOLERANCE_SECONDS = 300');
   });
 });

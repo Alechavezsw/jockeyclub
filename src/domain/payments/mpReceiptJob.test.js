@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { nextReceiptStatus, settleMpReceipt, storedReceiptEmail } from '../../../supabase/functions/_shared/mpReceiptJob.js';
+import {
+  nextReceiptStatus,
+  receiptAttemptSucceeded,
+  settleMpReceipt,
+  storedReceiptEmail,
+} from '../../../supabase/functions/_shared/mpReceiptJob.js';
 
 function queueAdmin() {
   const jobs = new Map();
@@ -238,5 +243,33 @@ describe('settleMpReceipt', () => {
     const second = await settleMpReceipt({ admin, intentId: 'intent-exempt', deliver });
     expect(second.skip).toBe('already');
     expect(calls).toBe(1);
+  });
+
+  it('si no puede tomar la cola, no emite el comprobante', async () => {
+    const admin = {
+      rpc: async () => ({ data: null, error: { message: 'claim down' } }),
+    };
+    let calls = 0;
+    const result = await settleMpReceipt({
+      admin,
+      intentId: 'intent-claim',
+      deliver: async () => {
+        calls += 1;
+        return { messageId: 'msg-1', emailId: 'mail-1', opsNoticeId: 'ops-1' };
+      },
+    });
+    expect(calls).toBe(0);
+    expect(result.claimed).toBe(false);
+    expect(result.status).toBe('locked');
+    expect(receiptAttemptSucceeded(result)).toBe(false);
+  });
+
+  it('un envío incompleto no cuenta como exitoso', () => {
+    expect(receiptAttemptSucceeded({ status: 'sent' })).toBe(true);
+    expect(receiptAttemptSucceeded({ skip: 'already', status: 'sent' })).toBe(true);
+    expect(receiptAttemptSucceeded({ status: 'retry', emailError: 'Resend 502' })).toBe(false);
+    expect(receiptAttemptSucceeded({ status: 'attention' })).toBe(false);
+    expect(receiptAttemptSucceeded({ status: 'pending' })).toBe(false);
+    expect(receiptAttemptSucceeded({ error: 'cae después de que Resend aceptó' })).toBe(false);
   });
 });

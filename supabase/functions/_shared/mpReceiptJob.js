@@ -19,6 +19,11 @@ export function storedReceiptEmail(emailId) {
  * esas 24 horas no manda otro mail. Pasado ese plazo, Resend ya no garantiza
  * la misma respuesta y un reintento puede enviar un segundo correo.
  */
+/** El reintento solo es exitoso cuando el comprobante quedó cerrado. */
+export function receiptAttemptSucceeded(receipt) {
+  return receipt?.status === 'sent' || receipt?.skip === 'already';
+}
+
 export function nextReceiptStatus({
   messageId,
   emailId,
@@ -44,7 +49,13 @@ export async function settleMpReceipt({ admin, intentId, deliver, force = false 
     p_intent_id: intentId,
     p_force: Boolean(force),
   });
-  if (claim?.error) return deliver({});
+  if (claim?.error) {
+    return {
+      error: claim.error.message || 'No se pudo tomar el comprobante.',
+      status: 'locked',
+      claimed: false,
+    };
+  }
 
   const row = claim?.data || {};
   if (!row.claimed) {
