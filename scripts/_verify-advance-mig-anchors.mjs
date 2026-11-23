@@ -2,9 +2,6 @@
  * Verificación aislada (solo lectura) de anclas de
  * 20261123013000_fix_advance_credit_no_double_count.sql vs prod.
  * No aplica migraciones ni muta saldos.
- *
- * Uso: node scripts/_verify-advance-mig-anchors.mjs
- * (o pegar el SQL de comparación vía MCP execute_sql)
  */
 
 import { readFileSync } from 'node:fs';
@@ -32,6 +29,19 @@ const checks = [
     ok: sql.includes('create or replace function public.cobro_social_advance_tariff'),
   },
   {
+    name: 'catalog tariff separado (sin último período)',
+    ok: sql.includes('cobro_social_catalog_tariff')
+      && !/from public\.member_dues_periods p[\s\S]{0,200}order by p\.due_on desc/.test(sql),
+  },
+  {
+    name: 'peel tennis +12000 del schedule',
+    ok: sql.includes('v_catalog + 12000'),
+  },
+  {
+    name: 'advisory lock por socio',
+    ok: sql.includes('pg_advisory_xact_lock(87001126'),
+  },
+  {
     name: 'salta períodos ya cubiertos',
     ok: sql.includes('if v_advance_take + 0.01 >= v_tariff then'),
   },
@@ -53,6 +63,10 @@ const checks = [
     name: 'adelanto sin surcharge',
     ok: /v_advance_take, 0, 0, 0, 0, 'adelanto'/.test(sql),
   },
+  {
+    name: 'meta numérica segura',
+    ok: sql.includes('cobro_social_meta_numeric'),
+  },
 ];
 
 let failed = 0;
@@ -68,5 +82,6 @@ console.log('  - 20261123002137 aplicada (histórico reconciliado)');
 console.log('  - 20261123013000 NO aplicada');
 console.log('  - registrar_cobro aún sin allocate_advance_cash_chunks_v2');
 console.log('  - bloque adelanto prod = ancla v_old de esta migración');
+console.log('  - 21 socios con capital de último período ≠ tarifario (motivo del fix)');
 console.log('');
 process.exit(failed ? 1 : 0);

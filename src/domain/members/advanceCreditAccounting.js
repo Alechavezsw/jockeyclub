@@ -5,36 +5,63 @@
  * 1. Un adelanto imputado a un período futuro NO genera crédito libre por ese monto.
  * 2. Solo el excedente real (menor a una cuota entera) queda como saldo a favor.
  * 3. Un descuento administrativo no es dinero ingresado: no puede crear crédito.
- * 4. El abono tenis no entra en la base de anticipo de cuota social.
+ * 4. El abono tenis ($12.000) no entra en la base de anticipo ni en el 10 % social.
  * 5. El anticipo de un mes futuro es capital de cuota (sin 10 % de mora).
+ * 6. La tarifa futura es el tarifario efectivo (categoría / convenio / AMET),
+ *    nunca el capital histórico del último período.
  */
 
 import {
   duesAmountForMember,
   duesDueDayForMember,
   isDuesExemptMember,
+  lateBaseForMember,
 } from './dues.js';
 import { isFamilyDependent } from './households.js';
 
 export const ADVANCE_LOOP_LIMIT = 24;
+export const TENNIS_ABONO_AMOUNT = 12000;
 
 export function money(value) {
   return Math.round((Number(value) || 0) * 100) / 100;
 }
 
+function metaNumeric(meta, key) {
+  if (!meta || typeof meta !== 'object') return null;
+  const raw = meta[key];
+  if (raw == null || raw === '') return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0.01) return null;
+  return money(n);
+}
+
 /**
  * Tarifa social efectiva del socio (convenios / AMET / exentos).
- * `chargeScope: 'social'` excluye tenis.
+ * Nunca mezcla abono tenis. Nunca usa capital histórico de períodos.
  */
 export function effectiveSocialAdvanceTariff(member, on = new Date()) {
   if (!member || isDuesExemptMember(member) || isFamilyDependent(member)) return 0;
   const meta = member.meta && typeof member.meta === 'object' ? member.meta : {};
   for (const key of ['duesAmount', 'monthlyDues', 'socialQuota']) {
-    const raw = member[key] ?? meta[key];
-    const n = Number(raw);
-    if (Number.isFinite(n) && n > 0.01) return money(n);
+    const fromMember = metaNumeric(member, key);
+    if (fromMember != null) return fromMember;
+    const fromMeta = metaNumeric(meta, key);
+    if (fromMeta != null) return fromMeta;
   }
   return money(duesAmountForMember(member, on, { chargeScope: 'social' }));
+}
+
+/** El 10 % social no incluye tenis. */
+export function socialLateBaseExcludesTennis(member, on = new Date()) {
+  const late = money(lateBaseForMember(member, on, { chargeScope: 'social' }));
+  const tennis = money(duesAmountForMember(member, on, { chargeScope: 'addon' }));
+  return {
+    lateBase: late,
+    tennisAbono: tennis,
+    includesTennis: late + 0.01 >= TENNIS_ABONO_AMOUNT && tennis > 0.01
+      ? Math.abs(late - (effectiveSocialAdvanceTariff(member, on) + tennis)) <= 0.02
+      : false,
+  };
 }
 
 /** @deprecated Preferí effectiveSocialAdvanceTariff(member). */
@@ -122,7 +149,6 @@ export function allocateAdvanceCash({
       continue;
     }
 
-    // Solo cuota entera: no imputar parcial (el resto queda crédito libre).
     const need = money(rate - already);
     if (left + 0.01 < need) break;
 
@@ -145,22 +171,36 @@ export function allocateAdvanceCash({
 }
 
 /**
- * Crédito libre = una sola fuente contable verificable.
- * - Ficha negativa → ese monto (canónico).
- * - Si además hay creditBalance explícito igual al negativo, no se suma otra vez.
- * - Si la ficha no es negativa → solo el creditBalance explícito (acarreo).
- * No resta adelantos por heurística.
+ * Crédito libre canónico y conciliable.
+ *
+ * Fuente de verdad:
+ * 1) `outstanding_balance` negativo (ficha / libro).
+ * 2) `creditBalance` vivo en el objeto socio (acarreo post-liquidación).
+ *
+ * `meta.creditBalance` solo se usa si no hay campo vivo y no está marcado
+ * como consumido. Nunca reutiliza un crédito ya aplicado.
  */
 export function freeCreditFromStanding({
   outstandingBalance = 0,
   explicitCredit = null,
+  metaCredit = null,
+  creditConsumed = false,
+  hasLiveCreditField = false,
 } = {}) {
   const stored = money(Number(outstandingBalance) || 0);
-  const explicit = explicitCredit != null && explicitCredit !== ''
-    ? money(Math.max(0, Number(explicitCredit) || 0))
-    : 0;
   if (stored < -0.01) return money(-stored);
-  return explicit;
+  if (creditConsumed) return 0;
+
+  if (hasLiveCreditField) {
+    return money(Math.max(0, Number(explicitCredit) || 0));
+  }
+  if (explicitCredit != null && explicitCredit !== '') {
+    return money(Math.max(0, Number(explicitCredit) || 0));
+  }
+  if (metaCredit != null && metaCredit !== '') {
+    return money(Math.max(0, Number(metaCredit) || 0));
+  }
+  return 0;
 }
 
 /** Invariantes de un socio reconciliado (fixtures de regresión). */
@@ -185,6 +225,12 @@ export function assertAdvanceCreditInvariants(snapshot = {}) {
   for (const imp of adelantoImps) {
     if (money(Number(imp.surcharge) || 0) > 0.01) {
       errors.push(`adelanto ${imp.dueOn || imp.due_on} no debe llevar recargo`);
+    }
+    const cap = money(Number(imp.capital) || 0);
+    if (tariff > 0.01 && Math.abs(cap - tariff) > 0.02 && cap + 0.01 >= TENNIS_ABONO_AMOUNT) {
+      if (Math.abs(cap - (tariff + TENNIS_ABONO_AMOUNT)) <= 0.02) {
+        errors.push(`adelanto ${imp.dueOn || imp.due_on} mezcla tenis con capital social`);
+      }
     }
   }
 

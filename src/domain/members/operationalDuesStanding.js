@@ -219,11 +219,19 @@ export function buildOperationalDuesStanding(member, {
     : member;
   const stored = socialDuesStoredBalance(memberForBalance, { entries });
   const openCap = openDuesObligationCapital(member);
-  // Crédito libre = una sola fuente verificable (sin restaurar rawCredit).
+  // Crédito libre canónico (ficha / creditBalance vivo; sin meta stale).
+  const hasLive = Object.prototype.hasOwnProperty.call(member || {}, 'creditBalance');
   const creditBalance = stored <= EPS
     ? freeCreditFromStanding({
       outstandingBalance: outstanding,
-      explicitCredit: member?.creditBalance ?? member?.meta?.creditBalance,
+      explicitCredit: hasLive ? member.creditBalance : null,
+      metaCredit: hasLive ? null : (member?.meta?.creditBalance ?? null),
+      hasLiveCreditField: hasLive,
+      creditConsumed: Boolean(
+        member?.creditBalanceConsumed
+        || member?.meta?.creditConsumedAt
+        || member?.meta?.creditBalanceConsumed,
+      ),
     })
     : 0;
 

@@ -11,9 +11,90 @@
 -- 2) Residual (< 1 tarifa efectiva) → solo crédito libre.
 -- 3) Descuento administrativo no infla el sobrante.
 -- 4) WHILE acotado (máx. 24), fechas válidas, períodos ya cubiertos se saltan.
--- 5) Tarifa = cobro_social_advance_tariff (exentos / AMET / schedule / período).
+-- 5) Tarifa = cobro_social_advance_tariff (tarifario efectivo por fecha /
+--    categoría / convenio / AMET). NUNCA el capital del último período
+--    (parciales, históricos o social+tenis).
+-- 6) Abono tenis ($12.000) queda fuera del capital social y del 10 %.
+-- 7) pg_advisory_xact_lock por socio en el bloque de adelanto.
 --
 -- Idempotente. Revisar antes de apply en producción.
+
+create or replace function public.cobro_social_meta_numeric(p_meta jsonb, p_key text)
+returns numeric
+language plpgsql
+stable
+set search_path = public
+as $fn$
+declare
+  v_raw text := nullif(trim(coalesce(p_meta ->> p_key, '')), '');
+  v_num numeric;
+begin
+  if v_raw is null then
+    return null;
+  end if;
+  if v_raw !~ '^[0-9]+([.][0-9]+)?$' then
+    return null;
+  end if;
+  begin
+    v_num := v_raw::numeric;
+  exception when others then
+    return null;
+  end;
+  if v_num is null or v_num <= 0.01 then
+    return null;
+  end if;
+  return round(v_num, 2);
+end;
+$fn$;
+
+revoke all on function public.cobro_social_meta_numeric(jsonb, text) from public;
+grant execute on function public.cobro_social_meta_numeric(jsonb, text)
+  to authenticated, service_role;
+
+create or replace function public.cobro_social_catalog_tariff(p_member public.members)
+returns numeric
+language plpgsql
+stable
+set search_path = public
+as $fn$
+declare
+  v_tier text := lower(coalesce(p_member.tier::text, ''));
+  v_meta numeric;
+begin
+  if public.member_is_dues_exempt(p_member) then
+    return 0;
+  end if;
+
+  -- Convenio / override de ficha (nunca tenis).
+  v_meta := public.cobro_social_meta_numeric(p_member.meta, 'duesAmount');
+  if v_meta is not null then return v_meta; end if;
+  v_meta := public.cobro_social_meta_numeric(p_member.meta, 'monthlyDues');
+  if v_meta is not null then return v_meta; end if;
+  v_meta := public.cobro_social_meta_numeric(p_member.meta, 'socialQuota');
+  if v_meta is not null then return v_meta; end if;
+
+  -- AMET: tarifa neta (base − 2,5 %). Sin mora ni tenis.
+  if public.member_is_amet_dues(p_member) then
+    if v_tier like '%individual%' then
+      return 39000;
+    end if;
+    return 68250;
+  end if;
+
+  if v_tier like '%individual%' then
+    return 40000;
+  end if;
+  if v_tier ~ '(familiar|grupo)' then
+    return 70000;
+  end if;
+
+  return 70000;
+end;
+$fn$;
+
+revoke all on function public.cobro_social_catalog_tariff(public.members) from public;
+grant execute on function public.cobro_social_catalog_tariff(public.members)
+  to authenticated, service_role;
 
 create or replace function public.cobro_social_advance_tariff(
   p_member public.members,
@@ -27,15 +108,14 @@ set search_path = public
 as $fn$
 declare
   v_due date := coalesce(p_due, public.cobro_current_month_due(coalesce(public.club_today(), current_date)));
+  v_catalog numeric := public.cobro_social_catalog_tariff(p_member);
   v_from_sched numeric := 0;
-  v_from_period numeric := 0;
-  v_tier text := lower(coalesce(p_member.tier::text, ''));
 begin
-  if public.member_is_dues_exempt(p_member) then
+  if coalesce(v_catalog, 0) <= 0.01 then
     return 0;
   end if;
 
-  -- Capital del schedule para ese dueOn, sin tenis.
+  -- Schedule del dueOn pedido, solo líneas sociales (sin tenis/addon).
   select round(coalesce(sum((value->>'capital')::numeric), 0), 2)
     into v_from_sched
   from jsonb_array_elements(
@@ -49,50 +129,20 @@ begin
     and coalesce(value->>'tierId', value->>'tier', value->>'chargeScope', '')
       !~* 'abono_tenis|tenis|addon';
 
+  -- Solo aceptar schedule si coincide con el tarifario vigente, o si es
+  -- social+tenis mal combinado (restamos $12.000). Nunca parciales históricos.
   if coalesce(v_from_sched, 0) > 0.01 then
-    return v_from_sched;
-  end if;
-
-  select round(p.capital, 2)
-    into v_from_period
-  from public.member_dues_periods p
-  where p.member_id = p_member.id
-    and p.due_on > date '1900-01-10'
-  order by p.due_on desc
-  limit 1;
-
-  if coalesce(v_from_period, 0) > 0.01 then
-    return v_from_period;
-  end if;
-
-  -- Meta de ficha: cuota social efectiva (convenio / override), nunca tenis.
-  if coalesce((p_member.meta->>'duesAmount')::numeric, 0) > 0.01 then
-    return round((p_member.meta->>'duesAmount')::numeric, 2);
-  end if;
-  if coalesce((p_member.meta->>'monthlyDues')::numeric, 0) > 0.01 then
-    return round((p_member.meta->>'monthlyDues')::numeric, 2);
-  end if;
-  if coalesce((p_member.meta->>'socialQuota')::numeric, 0) > 0.01 then
-    return round((p_member.meta->>'socialQuota')::numeric, 2);
-  end if;
-
-  -- AMET: tarifa neta (base − 2,5 %). Sin mora.
-  if public.member_is_amet_dues(p_member) then
-    if v_tier like '%individual%' then
-      return 39000;
+    if abs(v_from_sched - v_catalog) <= 0.02 then
+      return v_catalog;
     end if;
-    return 68250;
+    if abs(v_from_sched - (v_catalog + 12000)) <= 0.02 then
+      return v_catalog;
+    end if;
   end if;
 
-  -- Fallback de categoría social (sin tenis). Exentos ya salieron arriba.
-  if v_tier like '%individual%' then
-    return 40000;
-  end if;
-  if v_tier ~ '(familiar|grupo)' then
-    return 70000;
-  end if;
-
-  return 70000;
+  -- Tarifario efectivo por categoría / convenio / AMET.
+  -- No usar member_dues_periods.capital (21 socios con capital ≠ tarifa).
+  return v_catalog;
 end;
 $fn$;
 
@@ -199,6 +249,8 @@ $old$;
   -- allocate_advance_cash_chunks_v2: cuotas enteras → imputación (sin 10%); residual → crédito libre.
   if round(v_cash, 2) > 0.01 then
     v_adelanto := true;
+    -- Bloqueo por socio: dos cobros concurrentes no imputan el mismo período.
+    perform pg_advisory_xact_lock(87001126, hashtext(p_member_id::text));
     v_due_day := case when public.member_is_amet_dues(v_member) then 18 else 10 end;
     select max(due_on) into v_last_due
     from public.member_dues_periods
@@ -236,6 +288,7 @@ $old$;
           exit;
         end if;
 
+        -- Releer cobertura bajo el lock (idempotencia / concurrencia).
         select coalesce(sum(i.capital), 0)
           into v_advance_take
         from public.dues_imputations i

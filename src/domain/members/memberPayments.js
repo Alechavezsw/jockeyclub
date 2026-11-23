@@ -141,26 +141,57 @@ export function isOnAccountDuesMethod(method) {
 }
 
 /**
- * Saldo a favor con respaldo en ficha.
- * Solo cuenta outstanding negativo o `creditBalance` explícito (p. ej. acarreo
- * tras liquidar). Nunca una diferencia entre unpaidCapital y outstanding.
+ * Saldo a favor canónico.
+ * 1) outstanding negativo (ficha / libro).
+ * 2) creditBalance vivo (acarreo). Si el campo existe en 0 tras consumo, no
+ *    se reutiliza meta.creditBalance stale.
  */
 export function memberCreditBalance(member) {
+  const consumed = Boolean(
+    member?.creditBalanceConsumed
+    || member?.meta?.creditConsumedAt
+    || member?.meta?.creditBalanceConsumed,
+  );
+  const hasLive = member != null
+    && Object.prototype.hasOwnProperty.call(member, 'creditBalance');
   return freeCreditFromStanding({
     outstandingBalance: member?.outstandingBalance,
-    explicitCredit: member?.creditBalance ?? member?.meta?.creditBalance,
+    explicitCredit: hasLive ? member.creditBalance : null,
+    metaCredit: hasLive ? null : (member?.meta?.creditBalance ?? null),
+    hasLiveCreditField: hasLive,
+    creditConsumed: consumed,
   });
 }
 
 /** Consume crédito explícito al imputar; el resto a favor vive en outstanding negativo. */
 export function withCreditBalanceAfterApply(member, { creditApplied = 0, creditLeftover = 0 } = {}) {
-  if (creditLeftover > 0.01) {
-    return { ...member, creditBalance: 0 };
+  const prevExplicit = memberCreditBalance(member);
+  const applied = money(Math.max(0, Number(creditApplied) || 0));
+  const leftover = money(Math.max(0, Number(creditLeftover) || 0));
+  if (!(prevExplicit > 0.01) && !(applied > 0.01) && !(leftover > 0.01)) return member;
+
+  // Si el sobrante quedó en ficha negativa, el crédito explícito ya no aplica.
+  const nextExplicit = leftover > 0.01
+    ? 0
+    : money(Math.max(0, prevExplicit - applied));
+  const consumed = nextExplicit <= 0.01;
+  const nextMeta = {
+    ...(member?.meta && typeof member.meta === 'object' ? member.meta : {}),
+    creditBalance: consumed ? 0 : nextExplicit,
+  };
+  if (consumed) {
+    nextMeta.creditConsumedAt = new Date().toISOString();
+    nextMeta.creditBalanceConsumed = true;
+  } else {
+    delete nextMeta.creditConsumedAt;
+    delete nextMeta.creditBalanceConsumed;
   }
-  const prevExplicit = money(Math.max(0, Number(member?.creditBalance ?? member?.meta?.creditBalance) || 0));
-  if (!(prevExplicit > 0.01) && !(creditApplied > 0.01)) return member;
-  const nextExplicit = money(Math.max(0, prevExplicit - money(creditApplied)));
-  return { ...member, creditBalance: nextExplicit > 0.01 ? nextExplicit : 0 };
+  return {
+    ...member,
+    creditBalance: consumed ? 0 : nextExplicit,
+    creditBalanceConsumed: consumed,
+    meta: nextMeta,
+  };
 }
 
 /** Desync unpaidCapital vs outstanding: alerta, no dinero. */

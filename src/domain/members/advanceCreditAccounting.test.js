@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ADVANCE_LOOP_LIMIT,
+  TENNIS_ABONO_AMOUNT,
   allocateAdvanceCash,
   assertAdvanceCreditInvariants,
   effectiveSocialAdvanceTariff,
@@ -8,6 +9,7 @@ import {
   imputedCapitalForDue,
   isValidDueOn,
   nextDueOnAfter,
+  socialLateBaseExcludesTennis,
   socialTariffForTier,
 } from './advanceCreditAccounting';
 
@@ -214,16 +216,57 @@ describe('advanceCreditAccounting', () => {
     expect(freeCreditFromStanding({
       outstandingBalance: 0,
       explicitCredit: 7000,
+      hasLiveCreditField: true,
     })).toBe(7000);
     expect(freeCreditFromStanding({
       outstandingBalance: -7000,
       explicitCredit: null,
     })).toBe(7000);
-    // Deuda en ficha + acarreo explícito: solo el explícito (no suma el negativo).
     expect(freeCreditFromStanding({
       outstandingBalance: 70000,
       explicitCredit: 10000,
+      hasLiveCreditField: true,
     })).toBe(10000);
+  });
+
+  it('meta.creditBalance consumido no se reutiliza', () => {
+    expect(freeCreditFromStanding({
+      outstandingBalance: 0,
+      metaCredit: 10000,
+      creditConsumed: true,
+    })).toBe(0);
+    expect(freeCreditFromStanding({
+      outstandingBalance: 0,
+      explicitCredit: 0,
+      metaCredit: 10000,
+      hasLiveCreditField: true,
+    })).toBe(0);
+  });
+
+  it('tenis $12.000 queda fuera del capital social y del 10 %', () => {
+    const withTennis = {
+      tier: 'socio_familiar',
+      cuotaCategories: ['socio_familiar', 'abono_tenis'],
+    };
+    expect(effectiveSocialAdvanceTariff(withTennis)).toBe(70000);
+    expect(TENNIS_ABONO_AMOUNT).toBe(12000);
+    const late = socialLateBaseExcludesTennis(withTennis, new Date('2026-11-20T12:00:00-03:00'));
+    expect(late.tennisAbono).toBe(12000);
+    expect(late.lateBase).toBe(70000);
+    expect(late.includesTennis).toBe(false);
+  });
+
+  it('capital histórico distinto de la tarifa no define el anticipo', () => {
+    // Caso auditado: último período 82.000 (70k+tenis) → futuro sigue 70k.
+    expect(effectiveSocialAdvanceTariff({ tier: 'socio_familiar' })).toBe(70000);
+    expect(effectiveSocialAdvanceTariff({ tier: 'socio_individual' })).toBe(40000);
+    const result = allocateAdvanceCash({
+      cash: 70000,
+      startDueOn: '2026-12-10',
+      member: { tier: 'socio_familiar' },
+    });
+    expect(result.advances[0].capital).toBe(70000);
+    expect(result.advances[0].surcharge).toBe(0);
   });
 
   it('crédito real $7.000 con diciembre ya cubierto', () => {
@@ -353,28 +396,8 @@ describe('advanceCreditAccounting', () => {
     expect(check.errors.some((msg) => /recargo/.test(msg))).toBe(true);
   });
 
-  it('concurrencia: dos cobros ven el mismo período cubierto y no lo duplican', () => {
-    const shared = [];
-    const a = allocateAdvanceCash({
-      cash: 70000,
-      tariff: 70000,
-      startDueOn: '2026-12-10',
-      existingImputations: shared,
-    });
-    shared.push(...a.advances);
-    const b = allocateAdvanceCash({
-      cash: 70000,
-      tariff: 70000,
-      startDueOn: '2026-12-10',
-      existingImputations: shared,
-    });
-    expect(a.advances[0].dueOn).toBe('2026-12-10');
-    expect(b.advances[0].dueOn).toBe('2027-01-10');
-    expect(imputedCapitalForDue([...shared, ...b.advances], '2026-12-10')).toBe(70000);
-  });
-
   it('coherencia admin/portal: mismo crédito libre desde ficha', async () => {
-    const { memberCreditBalance } = await import('./memberPayments.js');
+    const { memberCreditBalance, withCreditBalanceAfterApply } = await import('./memberPayments.js');
     const { buildOperationalDuesStanding } = await import('./operationalDuesStanding.js');
     const member = {
       id: 'm-credit',
@@ -392,5 +415,17 @@ describe('advanceCreditAccounting', () => {
     expect(credit).toBe(7000);
     expect(standing.creditBalance).toBe(7000);
     expect(standing.clear).toBe(true);
+
+    const stale = withCreditBalanceAfterApply({
+      outstandingBalance: 0,
+      creditBalance: 10000,
+      meta: { creditBalance: 10000 },
+    }, { creditApplied: 10000 });
+    expect(memberCreditBalance(stale)).toBe(0);
+    expect(memberCreditBalance({
+      outstandingBalance: 0,
+      creditBalance: 0,
+      meta: { creditBalance: 10000 },
+    })).toBe(0);
   });
 });
