@@ -3,7 +3,6 @@ import {
   CreditCard,
   RefreshCw,
   Search,
-  AlertTriangle,
   CheckCircle2,
   Clock3,
   Wallet,
@@ -56,7 +55,6 @@ export default function SubscriptionsPanel() {
   const [pack, setPack] = useState({ adhesions: [], charges: [], members: [] });
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
-  const [hideDuplicates, setHideDuplicates] = useState(true);
 
   const load = async () => {
     if (!isSupabaseConfigured) {
@@ -80,8 +78,8 @@ export default function SubscriptionsPanel() {
   }, []);
 
   const rows = useMemo(
-    () => buildSubscriptionRows(pack.adhesions, pack.charges, pack.members, { hideDuplicates }),
-    [pack, hideDuplicates],
+    () => buildSubscriptionRows(pack.adhesions, pack.charges, pack.members),
+    [pack],
   );
 
   const filtered = useMemo(() => {
@@ -105,12 +103,6 @@ export default function SubscriptionsPanel() {
   }, [rows, query, filter]);
 
   const summary = useMemo(() => summarizeSubscriptionRows(rows), [rows]);
-  const rawDupes = useMemo(() => {
-    const all = buildSubscriptionRows(pack.adhesions, pack.charges, pack.members, {
-      hideDuplicates: false,
-    });
-    return all.filter((row) => row.duplicateOf).length;
-  }, [pack]);
 
   return (
     <div className="fade-in subs-desk">
@@ -187,26 +179,9 @@ export default function SubscriptionsPanel() {
             </button>
           ))}
         </div>
-        <label className="subs-desk-toggle">
-          <input
-            type="checkbox"
-            checked={hideDuplicates}
-            onChange={(e) => setHideDuplicates(e.target.checked)}
-          />
-          Ocultar repeticiones
-          {rawDupes > 0 ? <em>{rawDupes} extra</em> : null}
-        </label>
       </div>
 
       {error ? <p className="mp-box-err" role="alert">{error}</p> : null}
-
-      {rawDupes > 0 && hideDuplicates ? (
-        <p className="subs-desk-note" role="status">
-          <AlertTriangle size={14} aria-hidden />
-          Hay {rawDupes} adhesión{rawDupes === 1 ? '' : 'es'} repetida{rawDupes === 1 ? '' : 's'} del mismo socio.
-          Se muestra solo la más reciente; desmarcá «Ocultar repeticiones» para verlas todas.
-        </p>
-      ) : null}
 
       {loading ? (
         <p className="ops-muted">Cargando suscripciones…</p>
@@ -239,14 +214,6 @@ export default function SubscriptionsPanel() {
                       <strong>{row.name || 'Socio'}</strong>
                       <span className="subs-desk-nro">Nº {padNro(row.memberNumber)}</span>
                       {row.tier ? <span className="subs-desk-chip">{row.tier}</span> : null}
-                      {row.hasDuplicates ? (
-                        <span className="subs-desk-chip is-warn">
-                          {row.duplicateTotal} adhesiones
-                        </span>
-                      ) : null}
-                      {row.duplicateOf ? (
-                        <span className="subs-desk-chip is-warn">Repetida</span>
-                      ) : null}
                     </div>
                     <div className="subs-desk-contacts">
                       {row.email || null}

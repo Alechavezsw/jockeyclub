@@ -31801,38 +31801,6 @@ button.debit-moves-row:disabled {
   background: #009ee3;
   border-color: #009ee3;
 }
-.subs-desk-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  cursor: pointer;
-  user-select: none;
-}
-.subs-desk-toggle em {
-  font-style: normal;
-  padding: 0.1rem 0.4rem;
-  border-radius: 999px;
-  background: color-mix(in srgb, #b45309 16%, transparent);
-  color: #b45309;
-  font-size: 0.72rem;
-  font-weight: 700;
-}
-.subs-desk-note {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.45rem;
-  margin: 0;
-  padding: 0.7rem 0.85rem;
-  border-radius: 10px;
-  border: 1px solid color-mix(in srgb, #b45309 30%, var(--border-glass));
-  background: color-mix(in srgb, #b45309 8%, transparent);
-  color: color-mix(in srgb, #b45309 70%, var(--text-primary));
-  font-size: 0.84rem;
-  line-height: 1.4;
-}
 .subs-desk-empty {
   padding: 1.25rem;
 }
