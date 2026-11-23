@@ -3,11 +3,12 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import {
   currencyIsArs,
   isApprovedCreditStatus,
+  isSubscriptionAdhesionIntent,
   isTennisCharge,
   moneyCentsEqual,
   paymentStatus,
-  subscriptionDebitCredits,
 } from "../_shared/mpSettlement.js";
+import { settleSubscriptionCharge } from "../_shared/mpSubscriptionCharge.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -15,38 +16,6 @@ const corsHeaders = {
 };
 
 const AR_TZ = "America/Argentina/Buenos_Aires";
-const MONTHS_ES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
-
-/** Mes de la cuota en el recibo: «Noviembre de 2026». */
-function cuotaMonthParts(now = new Date()) {
-  const iso = new Intl.DateTimeFormat("en-CA", {
-    timeZone: AR_TZ,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(now);
-  const match = iso.match(/^(\d{4})-(\d{2})-/);
-  if (!match) return null;
-  return { year: match[1], month: match[2] };
-}
-
-function cuotaMonthPhrase(now = new Date()) {
-  const parts = cuotaMonthParts(now);
-  const name = parts ? MONTHS_ES[Number(parts.month) - 1] : "";
-  return name && parts ? `${name} de ${parts.year}` : "";
-}
-
-function cuotaDueOn(now = new Date()) {
-  const parts = cuotaMonthParts(now);
-  return parts ? `${parts.year}-${parts.month}-10` : null;
-}
-
-function debitInstant(value: string) {
-  const raw = String(value || "").trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return new Date(`${raw}T12:00:00-03:00`);
-  const parsed = new Date(raw);
-  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
-}
 const PORTAL_ACCOUNT = "https://www.jockeyclubsj.com.ar/cuenta";
 const DEFAULT_FROM = "Jockey Club San Juan <socios@jockeyclubsj.com.ar>";
 
@@ -986,6 +955,14 @@ Deno.serve(async (req) => {
       const intentId = String(pre.external_reference || "");
       const preStatus = mpApiStatus(pre.status);
       if (!intentId || !preStatus) return json(200, { ok: true, ignored: true });
+      const { data: adhesion } = await admin
+        .from("mp_intents")
+        .select("id, kind, member_id")
+        .eq("id", intentId)
+        .maybeSingle();
+      if (!isSubscriptionAdhesionIntent(adhesion)) {
+        return json(200, { ok: true, ignored: true, reason: "not-subscription" });
+      }
       const { error } = await admin.rpc("apply_mp_subscription", {
         p_intent_id: intentId,
         p_preapproval_id: String(pre.id || remoteId),
@@ -997,105 +974,16 @@ Deno.serve(async (req) => {
 
     if (topic.includes("authorized_payment") || topic.includes("subscription_authorized")) {
       const pay = await mpGet(`/authorized_payments/${remoteId}`, token);
-      const preapprovalId = String(pay.preapproval_id || "");
-      const payment = pay.payment as {
-        status?: string;
-        id?: string;
-        transaction_amount?: number;
-        currency_id?: string;
-        date_approved?: string;
-      } | undefined;
-      const paymentStatusValue = paymentStatus(payment?.status);
-      const amount = Number(payment?.transaction_amount ?? pay.transaction_amount ?? 0);
-      const currency = String(payment?.currency_id || pay.currency_id || "");
-      if (!preapprovalId) return json(200, { ok: true, ignored: true });
-
-      const { data: already } = await admin
-        .from("mp_intents")
-        .select("id, applied_at")
-        .contains("meta", { authorized_payment_id: remoteId })
-        .maybeSingle();
-      if (already?.applied_at) return json(200, { ok: true, kind: "subscription_charge", already: true, applied: false });
-
-      const { data: sub } = await admin
-        .from("mp_intents")
-        .select("*")
-        .eq("preapproval_id", preapprovalId)
-        .eq("kind", "subscription")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (!sub) return json(200, { ok: true, ignored: true });
-      if (sub.member_id) {
-        const { data: exempt } = await admin.rpc("member_id_is_dues_exempt", { mid: sub.member_id });
-        if (exempt === true) return json(200, { ok: true, ignored: true, reason: "exempt" });
-      }
-
-      const debitWhen = String(payment?.date_approved || pay.debit_date || pay.date_created || "");
-      const periodDate = debitInstant(debitWhen);
-
-      const { data: charge, error: chargeErr } = already?.id
-        ? { data: { id: already.id }, error: null }
-        : await admin
-          .from("mp_intents")
-          .insert({
-            kind: "dues",
-            status: "pending",
-            member_id: sub.member_id,
-            member_number: sub.member_number,
-            amount: amount > 0 ? amount : sub.amount,
-            concept: `Cuota social · ${cuotaMonthPhrase(periodDate)}`,
-            payer_email: sub.payer_email,
-            external_reference: crypto.randomUUID(),
-            preapproval_id: preapprovalId,
-            meta: {
-              from_subscription: sub.id,
-              authorized_payment_id: remoteId,
-              channel: "subscription",
-              periodDueOn: cuotaDueOn(periodDate),
-              chargeScope: "cuota_social",
-            },
-          })
-          .select("id")
-          .single();
-      if (chargeErr || !charge) return json(500, { error: chargeErr?.message || "No se pudo anotar el débito." });
-
-      if (!subscriptionDebitCredits(paymentStatusValue)) {
-        const { error } = await admin.rpc("apply_mp_approved_payment", {
-          p_intent_id: charge.id,
-          p_provider_payment_id: String(payment?.id || remoteId),
-          p_status: paymentStatusValue || "pending",
-          p_paid_amount: amount,
-        });
-        if (error) return json(500, { error: error.message });
-        if (paymentStatusValue === "rejected" || paymentStatusValue === "cancelled") {
-          const notice = await notifyDebitFailed(admin, sub, {
-            status: paymentStatusValue,
-            amount: amount || Number(sub.amount) || 0,
-          });
-          return json(200, { ok: true, kind: "subscription_charge_failed", status: paymentStatusValue, applied: false, notice });
-        }
-        return json(200, {
-          ok: true,
-          kind: "subscription_charge_open",
-          status: paymentStatusValue || "pending",
-          applied: false,
-        });
-      }
-
-      const applied = await applyCheckoutPayment(
+      const settled = await settleSubscriptionCharge({
         admin,
-        String(charge.id),
-        String(payment?.id || remoteId),
-        "approved",
-        amount,
-        currency,
-      );
-      if (applied.error) {
-        return json(applied.permanent ? 200 : 500, { error: applied.error, ...applied });
-      }
-      return json(200, { ok: true, kind: "subscription_charge", ...applied });
+        remoteId,
+        pay,
+        applyCheckoutPayment: (intentId, providerId, status, paidAmount, currency) => (
+          applyCheckoutPayment(admin, intentId, providerId, status, paidAmount, currency)
+        ),
+        notifyDebitFailed: (subscription, info) => notifyDebitFailed(admin, subscription, info),
+      });
+      return json(settled.http, settled.body);
     }
 
     const result = await applyPaymentId(admin, token, remoteId);

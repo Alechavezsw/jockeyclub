@@ -20,6 +20,7 @@ import {
   listOpenAppPaymentRequests,
   parseAppPaymentAmountLabel,
   withAppPaymentHandled,
+  withAppPaymentRead,
 } from './appPaymentRequests';
 
 describe('appPaymentRequests', () => {
@@ -50,6 +51,14 @@ describe('appPaymentRequests', () => {
     expect(isAppPaymentRequest(mp)).toBe(true);
     expect(isAppPaymentAuto(mp)).toBe(true);
     expect(isAppPaymentAuto(transfer)).toBe(false);
+  });
+
+  it('leer el comprobante de transferencia no cierra ni imputa', () => {
+    const read = withAppPaymentRead(transfer);
+    expect(read.isRead).toBe(true);
+    expect(read.meta.paymentHandled).toBeUndefined();
+    expect(isOpenAppPaymentRequest(read)).toBe(true);
+    expect(isOpenAppPaymentRequest(withAppPaymentHandled(read))).toBe(false);
   });
 
   it('quedan abiertas hasta paymentHandled, aunque estén leídas en MD', () => {

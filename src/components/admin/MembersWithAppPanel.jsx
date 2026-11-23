@@ -70,6 +70,7 @@ import {
   isOpenAppPaymentRequest,
   listOpenAppPaymentRequests,
   withAppPaymentHandled,
+  withAppPaymentRead,
 } from '../../domain/members/appPaymentRequests';
 import VirtualCard from '../VirtualCard';
 import CollectDuesModal from './CollectDuesModal';
@@ -538,7 +539,7 @@ export default function MembersWithAppPanel({
     if (!messageId) return;
     const patchLocal = (prev) => (prev || []).map((row) => (
       String(row.id) === String(messageId)
-        ? { ...row, isRead: true }
+        ? withAppPaymentRead(row)
         : row
     ));
     if (typeof setMessages === 'function') {
@@ -1037,8 +1038,8 @@ export default function MembersWithAppPanel({
             <div>
               <strong>Pagos entrantes</strong>
               <p>
-                Cuota social y reservas van aparte. Quedan acá hasta imputar, Ver (Mercado Pago)
-                o marcar leída — no se cierran solo por abrir el MD.
+                Cuota social y reservas van aparte. Leer el comprobante no imputa.
+                La transferencia queda abierta hasta que Administración elige Imputar.
               </p>
             </div>
           </div>

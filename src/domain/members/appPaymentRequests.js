@@ -33,6 +33,12 @@ export function isOpenAppPaymentRequest(message) {
   return true;
 }
 
+/** Leer el mensaje no cierra la solicitud ni imputa el pago. */
+export function withAppPaymentRead(message) {
+  if (!message) return message;
+  return { ...message, isRead: true };
+}
+
 /** Cierra la operación en Pagos entrantes (tras cobro, Ver en MP o dismiss). */
 export function withAppPaymentHandled(message, at = new Date().toISOString()) {
   if (!message) return message;
