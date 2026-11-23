@@ -3,9 +3,12 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { memberMayOperate } from "../_shared/operationalMember.ts";
 import { isTennisCharge } from "../_shared/mpSettlement.js";
 import {
+  confirmedPreapprovalAmount,
   preapprovalAmountUpdate,
+  preapprovalOwnedByIntent,
   subscriptionAmountDrift,
   subscriptionBillingDay,
+  subscriptionTariffMayUpdate,
 } from "../_shared/mpSubscriptionRules.js";
 
 const corsHeaders = {
@@ -386,13 +389,63 @@ Deno.serve(async (req) => {
             });
           }
           if (drift) {
-            await mpJson(`/preapproval/${pending.preapproval_id}`, token, {
-              method: "PUT",
-              body: preapprovalAmountUpdate(amount),
+            if (!subscriptionTariffMayUpdate(pending.status)) {
+              return json(409, {
+                error: "La adhesión ya autorizada no cambia de tarifa sola.",
+                id: pending.id,
+                status: pending.status,
+                already: true,
+                amountDrift: drift,
+              });
+            }
+            const billingDay = subscriptionBillingDay(member);
+            let remote;
+            try {
+              remote = await mpJson(`/preapproval/${pending.preapproval_id}`, token);
+            } catch {
+              return json(409, {
+                error: "Mercado Pago no confirmó de quién es esta adhesión.",
+                id: pending.id,
+                amountDrift: drift,
+              });
+            }
+            if (!preapprovalOwnedByIntent(remote, { preapprovalId: pending.preapproval_id, intentId: pending.id })) {
+              return json(409, {
+                error: "La preaprobación no pertenece a esta adhesión.",
+                id: pending.id,
+                amountDrift: drift,
+              });
+            }
+            let updated;
+            try {
+              updated = await mpJson(`/preapproval/${pending.preapproval_id}`, token, {
+                method: "PUT",
+                body: preapprovalAmountUpdate(amount, billingDay),
+              });
+            } catch {
+              return json(409, {
+                error: "Mercado Pago rechazó el cambio de tarifa.",
+                id: pending.id,
+                amountDrift: drift,
+              });
+            }
+            const confirmed = confirmedPreapprovalAmount(updated, {
+              preapprovalId: pending.preapproval_id,
+              intentId: pending.id,
+              amount,
+              billingDay,
             });
+            if (!confirmed.ok) {
+              return json(409, {
+                error: "Mercado Pago no confirmó el capital nuevo. La adhesión queda con la tarifa anterior.",
+                id: pending.id,
+                reason: confirmed.reason,
+                amountDrift: drift,
+              });
+            }
             const { error: amountErr } = await admin
               .from("mp_intents")
-              .update({ amount, updated_at: new Date().toISOString() })
+              .update({ amount: confirmed.amount, updated_at: new Date().toISOString() })
               .eq("id", pending.id);
             if (amountErr) return json(500, { error: amountErr.message || "No se pudo guardar la tarifa nueva." });
           }

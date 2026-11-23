@@ -1,6 +1,7 @@
 -- Adhesión pendiente no queda como rechazo.
--- El débito de la suscripción imputa capital de cuota social, sin el 10 %.
--- No reescribe saldos, cobros ni adhesiones ya guardadas: solo reemplaza funciones.
+-- El débito de una suscripción verificada imputa capital de cuota social, sin el 10 %.
+-- Galicia conserva su regla: el medio debito no apaga el recargo dentro de esta función.
+-- No reescribe saldos, cobros ni adhesiones ya guardadas.
 -- No está aplicada en producción.
 
 create or replace function public.apply_mp_subscription(
@@ -21,15 +22,34 @@ declare
   v_meta jsonb;
   v_method text;
   v_owns boolean;
+  v_preapproval text;
+  v_current text;
+  v_latest uuid;
+  v_touch boolean;
 begin
   v_status := lower(coalesce(nullif(btrim(p_status), ''), 'pending'));
   select * into v_intent from public.mp_intents where id = p_intent_id for update;
   if v_intent.id is null then raise exception 'No está la suscripción de Mercado Pago.'; end if;
+  if lower(coalesce(v_intent.kind, '')) <> 'subscription' then
+    return jsonb_build_object('ok', true, 'ignored', true, 'reason', 'not_subscription', 'intent_id', v_intent.id);
+  end if;
   v_adhesion := case
     when v_status in ('authorized', 'approved') then 'authorized'
     when v_status in ('cancelled', 'paused') then 'cancelled'
     when v_status in ('pending', 'in_process') then 'pending'
     else 'rejected' end;
+  v_preapproval := coalesce(nullif(btrim(p_preapproval_id), ''), nullif(btrim(v_intent.preapproval_id), ''));
+  if nullif(btrim(p_preapproval_id), '') is not null
+     and nullif(btrim(v_intent.preapproval_id), '') is not null
+     and nullif(btrim(p_preapproval_id), '') is distinct from nullif(btrim(v_intent.preapproval_id), '') then
+    return jsonb_build_object('ok', true, 'ignored', true, 'reason', 'preapproval_mismatch', 'intent_id', v_intent.id);
+  end if;
+  if lower(coalesce(v_intent.status, '')) in ('authorized', 'approved') and v_adhesion = 'pending' then
+    return jsonb_build_object('ok', true, 'ignored', true, 'reason', 'stale_pending', 'intent_id', v_intent.id);
+  end if;
+  if lower(coalesce(v_intent.status, '')) in ('cancelled', 'rejected') and v_adhesion in ('authorized', 'pending') then
+    return jsonb_build_object('ok', true, 'ignored', true, 'reason', 'stale_after_close', 'intent_id', v_intent.id);
+  end if;
   update public.mp_intents set
     status = case when v_adhesion = 'authorized' then 'authorized' else v_status end,
     preapproval_id = coalesce(nullif(p_preapproval_id, ''), preapproval_id),
@@ -39,26 +59,50 @@ begin
     select * into v_member from public.members where id = v_intent.member_id for update;
     if v_member.id is not null then
       v_meta := coalesce(v_member.meta, '{}'::jsonb);
-      v_method := v_member.payment_method;
-      v_owns := v_meta->>'mpDebitMethod' = 'mercadopago';
-      if v_adhesion = 'authorized' and coalesce(v_method, '') is distinct from 'debito' then
-        v_method := 'debito';
-        v_meta := v_meta || jsonb_build_object('mpDebitMethod', 'mercadopago');
-      elsif v_adhesion in ('cancelled', 'rejected') and v_owns then
-        v_method := null;
-        v_meta := v_meta - 'mpDebitMethod';
+      v_current := nullif(btrim(v_meta->>'mpPreapprovalId'), '');
+      v_touch := true;
+      if v_current is not null and v_preapproval is distinct from v_current then
+        v_touch := false;
+      elsif v_adhesion = 'pending' and coalesce(v_meta->>'mpAdhesion', '') = 'authorized' then
+        v_touch := false;
+      elsif v_adhesion in ('cancelled', 'rejected') and v_current is null then
+        select i.id into v_latest
+        from public.mp_intents i
+        where i.member_id = v_intent.member_id
+          and i.kind = 'subscription'
+        order by i.created_at desc nulls last, i.id desc
+        limit 1;
+        if v_latest is distinct from v_intent.id then
+          v_touch := false;
+        end if;
       end if;
-      v_meta := v_meta || jsonb_build_object(
-        'mpAdhesion', v_adhesion,
-        'mpPreapprovalId', coalesce(nullif(p_preapproval_id, ''), v_meta->>'mpPreapprovalId')
-      );
-      update public.members set
-        payment_method = v_method,
-        meta = v_meta
-      where id = v_member.id;
+      if v_touch then
+        v_method := v_member.payment_method;
+        v_owns := v_meta->>'mpDebitMethod' = 'mercadopago';
+        if v_adhesion = 'authorized' and coalesce(v_method, '') is distinct from 'debito' then
+          v_method := 'debito';
+          v_meta := v_meta || jsonb_build_object('mpDebitMethod', 'mercadopago');
+        elsif v_adhesion in ('cancelled', 'rejected') and v_owns then
+          v_method := null;
+          v_meta := v_meta - 'mpDebitMethod';
+        end if;
+        v_meta := v_meta || jsonb_build_object(
+          'mpAdhesion', v_adhesion,
+          'mpPreapprovalId', coalesce(v_preapproval, v_meta->>'mpPreapprovalId')
+        );
+        update public.members set
+          payment_method = v_method,
+          meta = v_meta
+        where id = v_member.id;
+      end if;
     end if;
   end if;
-  return jsonb_build_object('ok', true, 'adhesion', v_adhesion, 'intent_id', v_intent.id);
+  return jsonb_build_object(
+    'ok', true,
+    'adhesion', v_adhesion,
+    'intent_id', v_intent.id,
+    'member_updated', coalesce(v_touch, false)
+  );
 end;
 $function$;
 
@@ -67,7 +111,8 @@ create or replace function public.impute_dues_account_payment(
   p_payment_id uuid,
   p_cash numeric,
   p_schedule jsonb,
-  p_paid date
+  p_paid date,
+  p_skip_surcharge boolean default false
 )
 returns numeric
 language plpgsql
@@ -94,7 +139,7 @@ declare
   v_next_capital numeric;
   v_next_late numeric;
   v_applied numeric := 0;
-  v_skip_surcharge boolean := current_setting('jockey.mp_debit_capital_only', true) = '1';
+  v_skip_surcharge boolean := coalesce(p_skip_surcharge, false);
   v_schedule jsonb := case
     when jsonb_typeof(p_schedule) = 'array' then p_schedule
     else '[]'::jsonb
@@ -103,12 +148,6 @@ begin
   if p_member_id is null or p_payment_id is null or v_cash <= 0 then
     return null;
   end if;
-  if exists (
-    select 1 from public.dues_imputations
-    where payment_id = p_payment_id and voided_at is null
-  ) then
-    return 0;
-  end if;
 
   select outstanding_balance into v_old
   from public.members
@@ -116,6 +155,12 @@ begin
   for update;
   if not found then
     return null;
+  end if;
+  if exists (
+    select 1 from public.dues_imputations
+    where payment_id = p_payment_id and voided_at is null
+  ) then
+    return 0;
   end if;
   v_old := round(coalesce(v_old, 0), 2);
 
@@ -249,7 +294,7 @@ declare
   v_paid date;
   v_scope text;
   v_social numeric;
-  v_debit_capital boolean := false;
+  v_skip_surcharge boolean := false;
   v_intent_id text;
 begin
   if coalesce(new.amount, 0) <= 0 then
@@ -275,20 +320,24 @@ begin
   end;
   v_paid := coalesce(new.paid_at, current_date);
   v_scope := lower(btrim(coalesce(new.meta->>'chargeScope', '')));
-  v_debit_capital := lower(coalesce(new.method, '')) in ('debito', 'debito_automatico')
-    or coalesce(new.meta->>'channel', '') = 'subscription'
-    or nullif(btrim(coalesce(new.meta->>'from_subscription', '')), '') is not null;
   v_intent_id := nullif(btrim(coalesce(new.meta->>'mp_intent_id', '')), '');
-  if not v_debit_capital
-     and v_intent_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
-    select (
-      coalesce(i.meta->>'channel', '') = 'subscription'
-      or nullif(btrim(coalesce(i.meta->>'from_subscription', '')), '') is not null
-    ) into v_debit_capital
-    from public.mp_intents i
-    where i.id = v_intent_id::uuid;
+  if v_intent_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
+    select exists (
+      select 1
+      from public.mp_intents charge
+      join public.mp_intents adhesion
+        on lower(adhesion.id::text) = lower(charge.meta->>'from_subscription')
+      where charge.id = v_intent_id::uuid
+        and charge.member_id = new.member_id
+        and charge.kind = 'dues'
+        and coalesce(charge.meta->>'channel', '') = 'subscription'
+        and coalesce(charge.meta->>'chargeScope', '') = 'cuota_social'
+        and adhesion.kind = 'subscription'
+        and adhesion.member_id = new.member_id
+        and adhesion.status in ('authorized', 'approved')
+        and round(coalesce(charge.amount, 0), 2) = round(coalesce(new.amount, 0), 2)
+    ) into v_skip_surcharge;
   end if;
-  perform set_config('jockey.mp_debit_capital_only', case when v_debit_capital then '1' else '' end, true);
   if v_scope = 'cuota_social' and coalesce(v_old, 0) > 0 then
     select round(coalesce(sum(amount), 0), 2) into v_social
     from public.member_dues_entries
@@ -302,7 +351,8 @@ begin
       new.id,
       case when v_scope = 'cuota_social' then least(new.amount, greatest(v_old, 0)) else new.amount end,
       v_schedule,
-      v_paid
+      v_paid,
+      v_skip_surcharge
     );
   end if;
 
@@ -342,3 +392,16 @@ drop trigger if exists trg_member_payment_posts_dues on public.member_payments;
 create trigger trg_member_payment_posts_dues
   after insert on public.member_payments
   for each row execute function public.member_payment_posts_dues();
+
+drop function if exists public.impute_dues_account_payment(uuid, uuid, numeric, jsonb, date);
+
+do $grant$
+begin
+  if exists (select 1 from pg_roles where rolname = 'service_role') then
+    revoke all on function public.impute_dues_account_payment(uuid, uuid, numeric, jsonb, date, boolean) from public;
+    revoke all on function public.impute_dues_account_payment(uuid, uuid, numeric, jsonb, date, boolean) from anon;
+    revoke all on function public.impute_dues_account_payment(uuid, uuid, numeric, jsonb, date, boolean) from authenticated;
+    grant execute on function public.impute_dues_account_payment(uuid, uuid, numeric, jsonb, date, boolean) to service_role;
+  end if;
+end
+$grant$;

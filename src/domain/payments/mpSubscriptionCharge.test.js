@@ -206,6 +206,21 @@ describe('débito recurrente de Mercado Pago', () => {
     expect(admin.intents.filter((row) => row.kind === 'dues')).toHaveLength(1);
   });
 
+  it('un importe distinto del capital de la adhesión no acredita', async () => {
+    const admin = memoryAdmin([subscription]);
+    const wrong = await settle(admin, debit('approved', { transaction_amount: 77000 }));
+    expect(wrong.body.applied).toBe(false);
+    expect(wrong.body.permanent).toBe(true);
+    expect(wrong.body.error).toMatch(/capital de la adhesión/);
+    expect(admin.intents.filter((row) => row.kind === 'dues')).toHaveLength(0);
+    expect(admin.receipts).toEqual([]);
+
+    const foreign = memoryAdmin([subscription]);
+    const dollars = await settle(foreign, debit('approved', { currency_id: 'USD' }));
+    expect(dollars.body.applied).toBe(false);
+    expect(foreign.receipts).toEqual([]);
+  });
+
   it('no imputa el débito al socio de otra suscripción', async () => {
     const admin = memoryAdmin([
       subscription,

@@ -77,6 +77,7 @@ describe('auditoría de suscripciones sobre la migración nueva', () => {
         amount numeric(14,2),
         preapproval_id text,
         meta jsonb not null default '{}'::jsonb,
+        created_at timestamptz not null default now(),
         updated_at timestamptz not null default now()
       );
       create table public.member_dues_periods (
@@ -183,9 +184,11 @@ describe('auditoría de suscripciones sobre la migración nueva', () => {
       [DEBIT],
     );
     await query(
-      `insert into public.mp_intents (id, member_id, kind, status, meta)
-       values ('dddddddd-dddd-4ddd-8ddd-dddddddddddd', $1, 'dues', 'approved',
-               '{"channel":"subscription","from_subscription":"pre-debit","chargeScope":"cuota_social"}'::jsonb)`,
+      `insert into public.mp_intents (id, member_id, kind, status, amount, preapproval_id, meta)
+       values
+       ('d0d0d0d0-d0d0-4d0d-8d0d-d0d0d0d0d0d0', $1, 'subscription', 'authorized', 80000, 'pre-debit', '{}'::jsonb),
+       ('dddddddd-dddd-4ddd-8ddd-dddddddddddd', $1, 'dues', 'approved', 80000, 'pre-debit',
+        '{"channel":"subscription","from_subscription":"d0d0d0d0-d0d0-4d0d-8d0d-d0d0d0d0d0d0","chargeScope":"cuota_social"}'::jsonb)`,
       [DEBIT],
     );
     await query(
@@ -246,14 +249,16 @@ describe('auditoría de suscripciones sobre la migración nueva', () => {
       [TENNIS],
     );
     await query(
-      `insert into public.mp_intents (id, member_id, kind, status, meta)
-       values ('abababab-abab-4aba-8aba-abababababab', $1, 'dues', 'approved',
-               '{"channel":"subscription","chargeScope":"cuota_social"}'::jsonb)`,
+      `insert into public.mp_intents (id, member_id, kind, status, amount, preapproval_id, meta)
+       values
+       ('a0a0a0a0-a0a0-4a0a-8a0a-a0a0a0a0a0a0', $1, 'subscription', 'authorized', 40000, 'pre-tennis', '{}'::jsonb),
+       ('abababab-abab-4aba-8aba-abababababab', $1, 'dues', 'approved', 40000, 'pre-tennis',
+        '{"channel":"subscription","from_subscription":"a0a0a0a0-a0a0-4a0a-8a0a-a0a0a0a0a0a0","chargeScope":"cuota_social"}'::jsonb)`,
       [TENNIS],
     );
     await query(
       `insert into public.member_payments (id, member_id, amount, method, paid_at, meta)
-       values ('cdcdcdcd-cdcd-4cdc-8cdc-cdcdcdcdcdcd', $1, 52000, 'mercadopago', '2026-11-20',
+       values ('cdcdcdcd-cdcd-4cdc-8cdc-cdcdcdcdcdcd', $1, 40000, 'mercadopago', '2026-11-20',
                '{"chargeScope":"cuota_social","mp_intent_id":"abababab-abab-4aba-8aba-abababababab"}'::jsonb)`,
       [TENNIS],
     );
@@ -270,5 +275,196 @@ describe('auditoría de suscripciones sobre la migración nueva', () => {
       [TENNIS],
     );
     expect(surcharge.rows[0].surcharge).toBe(0);
+  });
+
+  it('un débito Galicia sigue con la mora del imputador', async () => {
+    const galiciaPay = '16161616-1616-4161-8161-161616161616';
+    await member(galiciaPay, { balance: 80000, method: 'debito' });
+    await query(
+      `insert into public.member_dues_entries (member_id, amount, kind, source, charge_scope)
+       values ($1, 80000, 'opening', 'social-galicia', 'cuota_social')`,
+      [galiciaPay],
+    );
+    await query(
+      `insert into public.member_dues_periods (member_id, due_on, capital, capital_open, late_base)
+       values ($1, '2026-10-10', 40000, 40000, 40000), ($1, '2026-11-10', 40000, 40000, 40000)`,
+      [galiciaPay],
+    );
+    await query(
+      `insert into public.member_payments (id, member_id, amount, method, paid_at, meta)
+       values ('17171717-1717-4171-8171-171717171717', $1, 80000, 'debito', '2026-11-20',
+               '{"chargeScope":"cuota_social","channel":"subscription"}'::jsonb)`,
+      [galiciaPay],
+    );
+    const rows = await query(
+      `select due_on::text, capital::float, surcharge::float
+       from public.dues_imputations where member_id = $1 order by due_on`,
+      [galiciaPay],
+    );
+    expect(rows.rows[0]).toMatchObject({ due_on: '2026-10-10', capital: 40000, surcharge: 4000 });
+    const method = await query(`select payment_method from public.members where id = $1`, [galiciaPay]);
+    expect(method.rows[0].payment_method).toBe('debito');
+  });
+
+  it('en la misma transacción la suscripción no apaga la mora del pago siguiente', async () => {
+    const subMember = '18181818-1818-4181-8181-181818181818';
+    const cashMember = '19191919-1919-4191-8191-191919191919';
+    await member(subMember, { balance: 80000 });
+    await member(cashMember, { balance: 80000 });
+    for (const id of [subMember, cashMember]) {
+      await query(
+        `insert into public.member_dues_entries (member_id, amount, kind, source, charge_scope)
+         values ($1, 80000, 'opening', $2, 'cuota_social')`,
+        [id, `social-${id}`],
+      );
+      await query(
+        `insert into public.member_dues_periods (member_id, due_on, capital, capital_open, late_base)
+         values ($1, '2026-10-10', 40000, 40000, 40000), ($1, '2026-11-10', 40000, 40000, 40000)`,
+        [id],
+      );
+    }
+    await query(
+      `insert into public.mp_intents (id, member_id, kind, status, amount, meta) values
+       ('20202020-2020-4202-8202-202020202020', $1, 'subscription', 'authorized', 80000, '{}'::jsonb),
+       ('21212121-2121-4121-8121-212121212121', $1, 'dues', 'approved', 80000,
+        '{"channel":"subscription","from_subscription":"20202020-2020-4202-8202-202020202020","chargeScope":"cuota_social"}'::jsonb)`,
+      [subMember],
+    );
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      await client.query(
+        `insert into public.member_payments (id, member_id, amount, method, paid_at, meta)
+         values ('22222222-2222-4222-8222-222222222222', $1, 80000, 'mercadopago', '2026-11-20',
+                 '{"chargeScope":"cuota_social","mp_intent_id":"21212121-2121-4121-8121-212121212121"}'::jsonb)`,
+        [subMember],
+      );
+      await client.query(
+        `insert into public.member_payments (id, member_id, amount, method, paid_at, meta)
+         values ('23232323-2323-4232-8232-232323232323', $1, 80000, 'efectivo', '2026-11-20',
+                 '{"chargeScope":"cuota_social"}'::jsonb)`,
+        [cashMember],
+      );
+      await client.query('commit');
+    } finally {
+      client.release();
+    }
+    const sub = await query(
+      `select coalesce(sum(surcharge), 0)::float as surcharge from public.dues_imputations where member_id = $1`,
+      [subMember],
+    );
+    const cash = await query(
+      `select due_on::text, surcharge::float from public.dues_imputations where member_id = $1 order by due_on`,
+      [cashMember],
+    );
+    expect(sub.rows[0].surcharge).toBe(0);
+    expect(cash.rows[0]).toMatchObject({ due_on: '2026-10-10', surcharge: 4000 });
+  });
+
+  it('un webhook viejo no cancela la adhesión nueva ni apaga Galicia', async () => {
+    const person = '24242424-2424-4242-8242-242424242424';
+    await member(person, { method: 'debito' });
+    await query(
+      `insert into public.mp_intents (id, member_id, kind, status, preapproval_id, created_at)
+       values
+       ('25252525-2525-4252-8252-252525252525', $1, 'subscription', 'cancelled', 'pre-vieja', '2026-11-01'),
+       ('26262626-2626-4262-8262-262626262626', $1, 'subscription', 'authorized', 'pre-nueva', '2026-11-20')`,
+      [person],
+    );
+    await query(`select public.apply_mp_subscription('26262626-2626-4262-8262-262626262626', 'pre-nueva', 'authorized')`);
+    await query(
+      `insert into public.dues_imputations (payment_id, member_id, due_on, capital, surcharge, kind)
+       values ('27272727-2727-4272-8272-272727272727', $1, '2026-10-10', 40000, 0, 'payment')`,
+      [person],
+    );
+    const stale = await query(
+      `select public.apply_mp_subscription('25252525-2525-4252-8252-252525252525', 'pre-vieja', 'cancelled') as result`,
+    );
+    expect(stale.rows[0].result.member_updated).toBe(false);
+    const row = await query(
+      `select payment_method, meta->>'mpAdhesion' as adhesion, meta->>'mpPreapprovalId' as preapproval
+       from public.members where id = $1`,
+      [person],
+    );
+    expect(row.rows[0]).toMatchObject({
+      payment_method: 'debito',
+      adhesion: 'authorized',
+      preapproval: 'pre-nueva',
+    });
+    const credit = await query(
+      `select capital::float from public.dues_imputations where member_id = $1`,
+      [person],
+    );
+    expect(credit.rows[0].capital).toBe(40000);
+
+    const late = await query(
+      `select public.apply_mp_subscription('26262626-2626-4262-8262-262626262626', 'pre-nueva', 'pending') as result`,
+    );
+    expect(late.rows[0].result.reason).toBe('stale_pending');
+    const mismatch = await query(
+      `select public.apply_mp_subscription('26262626-2626-4262-8262-262626262626', 'pre-ajena', 'cancelled') as result`,
+    );
+    expect(mismatch.rows[0].result.reason).toBe('preapproval_mismatch');
+  });
+
+  it('una autorización tardía no reabre una adhesión cancelada', async () => {
+    const person = '28282828-2828-4282-8282-282828282828';
+    await member(person);
+    await subscription('29292929-2929-4292-8292-292929292929', person);
+    await query(`update public.mp_intents set preapproval_id = 'pre-cerrada' where id = '29292929-2929-4292-8292-292929292929'`);
+    await query(`select public.apply_mp_subscription('29292929-2929-4292-8292-292929292929', 'pre-cerrada', 'cancelled')`);
+    const late = await query(
+      `select public.apply_mp_subscription('29292929-2929-4292-8292-292929292929', 'pre-cerrada', 'authorized') as result`,
+    );
+    expect(late.rows[0].result.reason).toBe('stale_after_close');
+    const row = await query(`select meta->>'mpAdhesion' as adhesion, payment_method from public.members where id = $1`, [person]);
+    expect(row.rows[0]).toMatchObject({ adhesion: 'cancelled', payment_method: null });
+  });
+
+  it('el mismo cobro no se imputa dos veces, ni en paralelo', async () => {
+    const person = '30303030-3030-4303-8303-303030303030';
+    const payment = '31313131-3131-4131-8131-313131313131';
+    await member(person, { balance: 40000 });
+    await query(
+      `insert into public.member_dues_periods (member_id, due_on, capital, capital_open, late_base)
+       values ($1, '2026-11-10', 40000, 40000, 40000)`,
+      [person],
+    );
+    const once = await query(
+      `select public.impute_dues_account_payment($1, $2, 40000, '[]'::jsonb, '2026-11-10', false) as applied`,
+      [person, payment],
+    );
+    const twice = await query(
+      `select public.impute_dues_account_payment($1, $2, 40000, '[]'::jsonb, '2026-11-20', false) as applied`,
+      [person, payment],
+    );
+    expect(Number(once.rows[0].applied)).toBe(40000);
+    expect(Number(twice.rows[0].applied)).toBe(0);
+    const rows = await query(`select count(*)::int as n, coalesce(sum(surcharge), 0)::float as surcharge from public.dues_imputations where payment_id = $1`, [payment]);
+    expect(rows.rows[0]).toMatchObject({ n: 1, surcharge: 0 });
+
+    const raced = '32323232-3232-4323-8323-323232323232';
+    const racedPay = '34343434-3434-4343-8343-343434343434';
+    await member(raced, { balance: 40000 });
+    await query(
+      `insert into public.member_dues_periods (member_id, due_on, capital, capital_open, late_base)
+       values ($1, '2026-11-10', 40000, 40000, 40000)`,
+      [raced],
+    );
+    const left = await pool.connect();
+    const right = await pool.connect();
+    try {
+      const [first, second] = await Promise.all([
+        left.query(`select public.impute_dues_account_payment($1, $2, 40000, '[]'::jsonb, '2026-11-10', false) as applied`, [raced, racedPay]),
+        right.query(`select public.impute_dues_account_payment($1, $2, 40000, '[]'::jsonb, '2026-11-10', true) as applied`, [raced, racedPay]),
+      ]);
+      const applied = [Number(first.rows[0].applied), Number(second.rows[0].applied)].sort((a, b) => a - b);
+      expect(applied).toEqual([0, 40000]);
+    } finally {
+      left.release();
+      right.release();
+    }
+    const raceRows = await query(`select count(*)::int as n from public.dues_imputations where payment_id = $1`, [racedPay]);
+    expect(raceRows.rows[0].n).toBe(1);
   });
 });
