@@ -479,10 +479,16 @@ export function MemberReactivateModal({
       repos.searchMembersForReactivate(raw, { limit: 8 })
         .then((rows) => {
           const remote = (rows || []).filter((member) => canReactivateMember(member));
-          if (!cancelled) setHits(mergeBajaHits(localHits, remote));
+          if (!cancelled) {
+            setError('');
+            setHits(mergeBajaHits(localHits, remote));
+          }
         })
-        .catch(() => {
-          if (!cancelled) setHits(mergeBajaHits(localHits, []));
+        .catch((error) => {
+          if (!cancelled) {
+            setHits(mergeBajaHits(localHits, []));
+            setError(error?.message || 'No se pudo buscar socios inactivos.');
+          }
         })
         .finally(() => {
           if (!cancelled) setSearching(false);

@@ -25,13 +25,39 @@ export const VISIBILITY_SCOPES = Object.freeze({
   historical: 'historical',
 });
 
-function bajaDate(member) {
-  const fecha = String(member?.bajaFecha || member?.meta?.bajaFecha || member?.baja_fecha || '').slice(0, 10);
-  return /^\d{4}-\d{2}-\d{2}$/.test(fecha) ? fecha : '';
+/**
+ * Fecha de calendario real, no solo AAAA-MM-DD.
+ * El mismo patrón lo usa el filtro PostgREST. PostgreSQL valida con la misma
+ * regla de mes, día y bisiesto, sin castear un texto inválido a date.
+ */
+export const CALENDAR_DATE_PATTERN = '^([0-9]{4}-((01|03|05|07|08|10|12)-(0[1-9]|[12][0-9]|3[01])|(04|06|09|11)-(0[1-9]|[12][0-9]|30)|02-(0[1-9]|1[0-9]|2[0-8]))|((([0-9]{2})(0[48]|[2468][048]|[13579][26])|0000|(0[48]|[2468][048]|[13579][26])00)-02-29))$';
+
+export function isCalendarDate(value) {
+  const fecha = String(value || '').trim().slice(0, 10);
+  const match = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/.exec(fecha);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return day <= days[month - 1];
 }
 
-/** Fecha ISO. En POSIX hace falta [0-9]: \d no es dígito. */
-const VALID_BAJA_DATE = '^[0-9]{4}-[0-9]{2}-[0-9]{2}$';
+export function rawBajaFecha(member) {
+  return String(member?.bajaFecha || member?.meta?.bajaFecha || member?.baja_fecha || '').trim().slice(0, 10);
+}
+
+function bajaDate(member) {
+  const fecha = rawBajaFecha(member);
+  return isCalendarDate(fecha) ? fecha : '';
+}
+
+/** Hay un texto de baja que no es una fecha real. No bloquea a un socio activo. */
+export function bajaFechaNeedsReview(member) {
+  const raw = rawBajaFecha(member);
+  return Boolean(raw) && !isCalendarDate(raw);
+}
 
 /**
  * Filtros PostgREST con la misma regla que isOperationalMember / member_is_operational.
@@ -42,8 +68,8 @@ const VALID_BAJA_DATE = '^[0-9]{4}-[0-9]{2}-[0-9]{2}$';
 export function operationalListFilter(today = new Date()) {
   const iso = todayAR(today);
   return [
-    `and(status.eq.inactive,meta->>bajaFecha.gt.${iso},meta->>bajaFecha.match.${VALID_BAJA_DATE})`,
-    `and(status.eq.active,or(meta->>bajaFecha.is.null,meta->>bajaFecha.not.match.${VALID_BAJA_DATE},meta->>bajaFecha.gt.${iso}))`,
+    `and(status.eq.inactive,meta->>bajaFecha.gt.${iso},meta->>bajaFecha.match.${CALENDAR_DATE_PATTERN})`,
+    `and(status.eq.active,or(meta->>bajaFecha.is.null,meta->>bajaFecha.not.match.${CALENDAR_DATE_PATTERN},meta->>bajaFecha.gt.${iso}))`,
   ].join(',');
 }
 
@@ -51,10 +77,10 @@ export function operationalListFilter(today = new Date()) {
 export function inactiveListFilter(today = new Date()) {
   const iso = todayAR(today);
   return [
-    `and(status.eq.inactive,or(meta->>bajaFecha.is.null,meta->>bajaFecha.not.match.${VALID_BAJA_DATE},meta->>bajaFecha.lte.${iso}))`,
+    `and(status.eq.inactive,or(meta->>bajaFecha.is.null,meta->>bajaFecha.not.match.${CALENDAR_DATE_PATTERN},meta->>bajaFecha.lte.${iso}))`,
     'status.eq.suspended',
     'status.eq.pending',
-    `and(status.eq.active,meta->>bajaFecha.match.${VALID_BAJA_DATE},meta->>bajaFecha.lte.${iso})`,
+    `and(status.eq.active,meta->>bajaFecha.match.${CALENDAR_DATE_PATTERN},meta->>bajaFecha.lte.${iso})`,
   ].join(',');
 }
 
@@ -62,9 +88,9 @@ export function inactiveListFilter(today = new Date()) {
 export function reactivateListFilter(today = new Date()) {
   const iso = todayAR(today);
   return [
-    `and(status.eq.inactive,or(meta->>bajaFecha.is.null,meta->>bajaFecha.not.match.${VALID_BAJA_DATE},meta->>bajaFecha.lte.${iso}))`,
+    `and(status.eq.inactive,or(meta->>bajaFecha.is.null,meta->>bajaFecha.not.match.${CALENDAR_DATE_PATTERN},meta->>bajaFecha.lte.${iso}))`,
     'status.eq.suspended',
-    `and(status.eq.active,meta->>bajaFecha.match.${VALID_BAJA_DATE},meta->>bajaFecha.lte.${iso})`,
+    `and(status.eq.active,meta->>bajaFecha.match.${CALENDAR_DATE_PATTERN},meta->>bajaFecha.lte.${iso})`,
   ].join(',');
 }
 
@@ -112,6 +138,43 @@ export function memberCircuitAccess(member, today = new Date()) {
     circuits,
     reactivate: isReactivateCandidate(member, today),
     historicalAccounting: true,
+    bajaFechaReview: bajaFechaNeedsReview(member),
+  };
+}
+
+export const REACTIVATE_SEARCH_UNAVAILABLE = 'No se pudo buscar socios inactivos. Reactivar no está disponible.';
+export const HISTORICAL_SEARCH_UNAVAILABLE = 'No se pudo consultar el historial de socios. La consulta histórica no está disponible.';
+
+/** La RPC falta de verdad. Un permiso denegado no cuenta, aunque el mensaje nombre la función. */
+export function isMissingMemberSearchRpc(error) {
+  const code = String(error?.code || '');
+  return code === 'PGRST202' || code === '42883';
+}
+
+/**
+ * operational puede caer a la tabla, siempre con el filtro de visibles.
+ * reactivate e historical nunca consultan members desde el cliente.
+ */
+export function memberSearchPlan(scope, error) {
+  if (!error) return { action: 'ok' };
+  const code = String(error.code || '');
+  const message = String(error.message || '');
+  const denied = code === '42501' || /sin permiso|permission denied/i.test(message);
+  if (scope === VISIBILITY_SCOPES.reactivate || scope === VISIBILITY_SCOPES.historical) {
+    const fallback = scope === VISIBILITY_SCOPES.reactivate
+      ? REACTIVATE_SEARCH_UNAVAILABLE
+      : HISTORICAL_SEARCH_UNAVAILABLE;
+    return {
+      action: 'throw',
+      message: denied && message ? message : fallback,
+      code: code || 'RPC_UNAVAILABLE',
+    };
+  }
+  if (isMissingMemberSearchRpc(error)) return { action: 'operational-fallback' };
+  return {
+    action: 'throw',
+    message: message || 'No se pudo buscar socios',
+    code,
   };
 }
 

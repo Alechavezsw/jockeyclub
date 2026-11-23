@@ -10,6 +10,58 @@ drop function if exists public.search_members_historical(text, integer);
 drop function if exists public.search_members_scoped(text, integer, text);
 drop function if exists public.list_members_padron(text);
 
+-- Fecha real. Un texto imposible devuelve null y no aborta el padrón.
+create or replace function public.member_calendar_date(p_raw text)
+returns date
+language plpgsql
+immutable
+as $fn$
+declare
+  v text := left(btrim(coalesce(p_raw, '')), 10);
+  y int;
+  m int;
+  d int;
+  leap boolean;
+begin
+  if v !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then
+    return null;
+  end if;
+  y := substr(v, 1, 4)::int;
+  m := substr(v, 6, 2)::int;
+  d := substr(v, 9, 2)::int;
+  if m < 1 or m > 12 or d < 1 then
+    return null;
+  end if;
+  if m in (1, 3, 5, 7, 8, 10, 12) then
+    if d > 31 then
+      return null;
+    end if;
+  elsif m in (4, 6, 9, 11) then
+    if d > 30 then
+      return null;
+    end if;
+  else
+    leap := (y % 4 = 0 and y % 100 <> 0) or (y % 400 = 0);
+    if d > 29 or (d = 29 and not leap) then
+      return null;
+    end if;
+  end if;
+  return make_date(y, m, d);
+exception
+  when others then
+    return null;
+end;
+$fn$;
+
+create or replace function public.member_baja_fecha_needs_review(p_member public.members)
+returns boolean
+language sql
+stable
+as $fn$
+  select nullif(left(btrim(coalesce(p_member.meta->>'bajaFecha', '')), 10), '') is not null
+    and public.member_calendar_date(p_member.meta->>'bajaFecha') is null;
+$fn$;
+
 create or replace function public.member_is_operational(
   p_member public.members,
   p_today date default null
@@ -24,8 +76,7 @@ declare
     (now() at time zone 'America/Argentina/Buenos_Aires')::date
   );
   v_status text := lower(coalesce(p_member.status::text, ''));
-  v_baja text := left(coalesce(p_member.meta->>'bajaFecha', ''), 10);
-  v_valid boolean := v_baja ~ '^\d{4}-\d{2}-\d{2}$';
+  v_baja date := public.member_calendar_date(p_member.meta->>'bajaFecha');
 begin
   if p_member.id is null then
     return false;
@@ -34,13 +85,10 @@ begin
     return false;
   end if;
   if v_status = 'inactive' then
-    return v_valid and v_baja::date > v_today;
+    return v_baja is not null and v_baja > v_today;
   end if;
   if v_status = 'active' then
-    if not v_valid then
-      return true;
-    end if;
-    return v_baja::date > v_today;
+    return v_baja is null or v_baja > v_today;
   end if;
   return false;
 end;
@@ -60,7 +108,7 @@ declare
     (now() at time zone 'America/Argentina/Buenos_Aires')::date
   );
   v_status text := lower(coalesce(p_member.status::text, ''));
-  v_baja text := left(coalesce(p_member.meta->>'bajaFecha', ''), 10);
+  v_baja date := public.member_calendar_date(p_member.meta->>'bajaFecha');
 begin
   if p_member.id is null or public.member_is_operational(p_member, v_today) then
     return false;
@@ -69,15 +117,19 @@ begin
     return true;
   end if;
   return v_status = 'active'
-    and v_baja ~ '^\d{4}-\d{2}-\d{2}$'
-    and v_baja::date <= v_today;
+    and v_baja is not null
+    and v_baja <= v_today;
 end;
 $fn$;
 
+revoke all on function public.member_calendar_date(text) from public;
+revoke all on function public.member_baja_fecha_needs_review(public.members) from public;
 revoke all on function public.member_is_operational(public.members, date) from public;
 revoke all on function public.member_is_reactivatable(public.members, date) from public;
-grant execute on function public.member_is_operational(public.members, date) to authenticated, service_role;
-grant execute on function public.member_is_reactivatable(public.members, date) to authenticated, service_role;
+grant execute on function public.member_calendar_date(text) to anon, authenticated, service_role;
+grant execute on function public.member_baja_fecha_needs_review(public.members) to anon, authenticated, service_role;
+grant execute on function public.member_is_operational(public.members, date) to anon, authenticated, service_role;
+grant execute on function public.member_is_reactivatable(public.members, date) to anon, authenticated, service_role;
 
 -- Búsqueda única. El alcance lo elige el wrapper.
 create or replace function public.search_members_scoped(
@@ -481,9 +533,8 @@ begin
     ),
     case
       when m.joined_at is not null and m.joined_at > date '1900-01-01' then m.joined_at
-      when coalesce(m.meta->>'fechaAltaRaw', '') ~ '^\d{4}-\d{2}-\d{2}'
-        and (left(m.meta->>'fechaAltaRaw', 10))::date > date '1900-01-01'
-        then (left(m.meta->>'fechaAltaRaw', 10))::date
+      when public.member_calendar_date(m.meta->>'fechaAltaRaw') > date '1900-01-01'
+        then public.member_calendar_date(m.meta->>'fechaAltaRaw')
       else m.joined_at
     end,
     nullif(left(coalesce(m.meta->>'duesFreeThrough', ''), 7), ''),
@@ -736,5 +787,20 @@ drop trigger if exists trg_reject_inactive_automatic_message on public.messages;
 create trigger trg_reject_inactive_automatic_message
   before insert on public.messages
   for each row execute function public.reject_automatic_notice_to_inactive();
+
+-- Un socio común o anónimo no lee fichas inactivas por la tabla.
+-- El personal sigue viendo el padrón; Reactivar e histórico pasan por su RPC.
+drop policy if exists members_select on public.members;
+create policy members_select on public.members
+for select
+to public
+using (
+  profile_id = (select auth.uid())
+  or (select public.has_staff_access())
+  or (
+    public.member_in_viewer_household(member_number, meta)
+    and public.member_is_operational(members)
+  )
+);
 
 notify pgrst, 'reload schema';

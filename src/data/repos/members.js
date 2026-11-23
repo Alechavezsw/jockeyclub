@@ -9,8 +9,8 @@ import {
   inactiveListFilter,
   isOperationalMember,
   isReactivateCandidate,
+  memberSearchPlan,
   operationalListFilter,
-  reactivateListFilter,
 } from '../../domain/members/operationalVisibility';
 import { resolveStoredMemberTier } from '../../domain/members/tiers';
 import { todayAR } from '../../lib/arDate';
@@ -651,6 +651,15 @@ export function invalidateMemberSearchCache() {
   MEMBER_SEARCH_CACHE.clear();
 }
 
+export class MemberSearchError extends Error {
+  constructor(message, { code = '', scope = '' } = {}) {
+    super(message);
+    this.name = 'MemberSearchError';
+    this.code = code;
+    this.scope = scope;
+  }
+}
+
 export function isMissingRpc(error) {
   const code = String(error?.code || '');
   const msg = String(error?.message || '');
@@ -703,10 +712,18 @@ export async function searchMembersDirectory(query, {
       return mapped;
     }
     if (signal?.aborted || error?.name === 'AbortError') return [];
-    if (visibility === VISIBILITY_SCOPES.operational && isMissingRpc(error)) memberLookupRpcOk = false;
-    else if (visibility !== VISIBILITY_SCOPES.operational && isMissingRpc(error)) {
-      /* La RPC nueva todavía no está en este entorno: sigue el filtro en la tabla. */
-    } else throwOnError(error, 'No se pudo buscar socios');
+    const plan = memberSearchPlan(visibility, error);
+    if (plan.action === 'throw') {
+      throw new MemberSearchError(plan.message, { code: plan.code, scope: visibility });
+    }
+    memberLookupRpcOk = false;
+  }
+
+  if (visibility !== VISIBILITY_SCOPES.operational) {
+    throw new MemberSearchError(
+      memberSearchPlan(visibility, { code: 'RPC_UNAVAILABLE', message: '' }).message,
+      { code: 'RPC_UNAVAILABLE', scope: visibility },
+    );
   }
 
   const q = escapeIlike(raw);
@@ -719,8 +736,7 @@ export async function searchMembersDirectory(query, {
     digits,
     nameLike,
   );
-  if (visibility === VISIBILITY_SCOPES.operational) req = req.or(operationalListFilter());
-  if (visibility === VISIBILITY_SCOPES.reactivate) req = req.or(reactivateListFilter());
+  req = req.or(operationalListFilter());
   const rows = await unwrap(req.limit(cap), 'No se pudo buscar socios');
   const mapped = (rows || [])
     .map(listRowToMember)

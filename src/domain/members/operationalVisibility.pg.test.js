@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto';
 import EmbeddedPostgres from 'embedded-postgres';
 import pg from 'pg';
 import {
+  bajaFechaNeedsReview,
   isOperationalMember,
   operationalListFilter,
   reactivateListFilter,
@@ -193,6 +194,11 @@ as $$
     null::boolean, null::date, null::text, null::date
   where false
 $$;
+
+create or replace function public.member_in_viewer_household(p_member_number text, p_meta jsonb)
+returns boolean language sql stable as $$ select false $$;
+
+alter table public.members enable row level security;
 `;
 
 async function query(text, params) {
@@ -269,6 +275,8 @@ describe('migración de socios inactivos', () => {
     });
     await query(schemaSql);
     await query(migrationSql);
+    await query('grant usage on schema public to anon, authenticated');
+    await query('grant select on table public.members to anon, authenticated');
   }, 120_000);
 
   afterAll(async () => {
@@ -369,6 +377,55 @@ describe('migración de socios inactivos', () => {
       balance: 70000,
       meta: { familyPrincipalNumber: '10807' },
     });
+    const invalidInactive = await seed('inactive', 'Fecha Rota', {
+      number: '10901',
+      document: '50111001',
+      balance: 70000,
+      meta: { bajaFecha: '2026-02-30', familyPrincipalNumber: '10901' },
+    });
+    const invalidActive = await seed('active', 'Activo Roto', {
+      number: '10902',
+      document: '50111002',
+      balance: 40000,
+      meta: { bajaFecha: '2026-13-40', familyPrincipalNumber: '10902' },
+    });
+    const leapPast = await seed('inactive', 'Bisiesto Viejo', {
+      number: '10903',
+      document: '50111003',
+      balance: 70000,
+      meta: { bajaFecha: '2024-02-29', familyPrincipalNumber: '10903' },
+    });
+    const leapFuture = await seed('inactive', 'Bisiesto Futuro', {
+      number: '10904',
+      document: '50111004',
+      balance: 70000,
+      meta: { bajaFecha: '2028-02-29', familyPrincipalNumber: '10904' },
+    });
+    const commonId = randomUUID();
+    await query(
+      `insert into public.members (id, profile_id, member_number, full_name, document_number, email, status, outstanding_balance, meta)
+       values ($1, '11111111-1111-1111-1111-111111111111', '12001', 'Socio Comun', '27111000', 'comun@example.com', 'active', 0, '{}'::jsonb)`,
+      [commonId],
+    );
+
+    const calendar = await query(`
+      select public.member_calendar_date('2026-02-30')::text as bad,
+             public.member_calendar_date('2026-13-40')::text as month,
+             public.member_calendar_date('2026-00-10')::text as zero,
+             public.member_calendar_date('2026-11-31')::text as day,
+             public.member_calendar_date('2026-02-29')::text as noleap,
+             public.member_calendar_date('2024-02-29')::text as leap,
+             public.member_calendar_date('2000-02-29')::text as century,
+             public.member_calendar_date('1900-02-29')::text as notcentury
+    `);
+    expect(calendar.rows[0].bad).toBeNull();
+    expect(calendar.rows[0].month).toBeNull();
+    expect(calendar.rows[0].zero).toBeNull();
+    expect(calendar.rows[0].day).toBeNull();
+    expect(calendar.rows[0].noleap).toBeNull();
+    expect(String(calendar.rows[0].leap)).toBe('2024-02-29');
+    expect(String(calendar.rows[0].century)).toBe('2000-02-29');
+    expect(calendar.rows[0].notcentury).toBeNull();
 
     const flags = await query(
       `select id::text, public.member_is_operational(m) as operational,
@@ -396,11 +453,19 @@ describe('migración de socios inactivos', () => {
     expect(byId[activeNull].reactivate).toBe(true);
     expect(byId[suspended].operational).toBe(false);
     expect(byId[suspended].reactivate).toBe(true);
+    expect(byId[invalidInactive].operational).toBe(false);
+    expect(byId[invalidInactive].reactivate).toBe(true);
+    expect(byId[invalidActive].operational).toBe(true);
+    expect(byId[invalidActive].reactivate).toBe(false);
+    expect(byId[leapPast].operational).toBe(false);
+    expect(byId[leapFuture].operational).toBe(true);
+    expect(byId[commonId].operational).toBe(true);
 
     const compared = await query(
       `select id::text, status::text, meta,
               public.member_is_operational(m) as operational,
-              public.member_is_reactivatable(m) as reactivate
+              public.member_is_reactivatable(m) as reactivate,
+              public.member_baja_fecha_needs_review(m) as review
        from public.members m`,
     );
     for (const row of compared.rows) {
@@ -411,6 +476,7 @@ describe('migración de socios inactivos', () => {
         pendingBaja: row.meta?.pendingBaja,
       };
       expect(isOperationalMember(member, today)).toBe(row.operational);
+      expect(bajaFechaNeedsReview(member)).toBe(row.review);
     }
     const operationalSql = postgrestOrToSql(operationalListFilter(today));
     const reactivateSql = postgrestOrToSql(reactivateListFilter(today));
@@ -429,6 +495,47 @@ describe('migración de socios inactivos', () => {
     await expect(query(
       `select * from public.search_members_reactivate('Daniela', 8)`,
     )).rejects.toThrow(/permiso/i);
+
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('set local role anon');
+      await client.query('savepoint anon_check');
+      await expect(client.query(`select full_name from public.search_members_reactivate('Daniela', 5)`)).rejects.toThrow(/permission denied|permiso/i);
+      await client.query('rollback to savepoint anon_check');
+      await expect(client.query(`select full_name from public.search_members_historical('Daniela', 5)`)).rejects.toThrow(/permission denied|permiso/i);
+      await client.query('rollback to savepoint anon_check');
+      const anonLookup = await client.query(`select full_name from public.search_members_lookup('Daniela', 5)`);
+      expect(anonLookup.rows).toHaveLength(0);
+      const anonDoc = await client.query(`select full_name from public.search_members_lookup('29507901', 5)`);
+      expect(anonDoc.rows).toHaveLength(0);
+      const anonNumber = await client.query(`select full_name from public.search_members_lookup('3368', 5)`);
+      expect(anonNumber.rows).toHaveLength(0);
+      const anonTable = await client.query(`select full_name from public.members`);
+      expect(anonTable.rows).toHaveLength(0);
+      await client.query('rollback');
+    } finally {
+      client.release();
+    }
+
+    await query(`create or replace function auth.uid() returns uuid language sql stable as $$ select '11111111-1111-1111-1111-111111111111'::uuid $$`);
+    const memberClient = await pool.connect();
+    try {
+      await memberClient.query('begin');
+      await memberClient.query('set local role authenticated');
+      await memberClient.query('savepoint member_check');
+      await expect(memberClient.query(`select full_name from public.search_members_reactivate('Daniela', 5)`)).rejects.toThrow(/permiso/i);
+      await memberClient.query('rollback to savepoint member_check');
+      await expect(memberClient.query(`select full_name from public.search_members_historical('Rojas', 5)`)).rejects.toThrow(/permiso/i);
+      await memberClient.query('rollback to savepoint member_check');
+      const hidden = await memberClient.query(`select full_name from public.search_members_lookup('Daniela', 5)`);
+      expect(hidden.rows).toHaveLength(0);
+      const own = await memberClient.query(`select full_name from public.members order by full_name`);
+      expect(own.rows.map((row) => row.full_name)).toEqual(['Socio Comun']);
+      await memberClient.query('rollback');
+    } finally {
+      memberClient.release();
+    }
 
     await query(`create or replace function auth.uid() returns uuid language sql stable as $$ select '00000000-0000-0000-0000-000000000001'::uuid $$`);
     await query(`create or replace function public.has_staff_access() returns boolean language sql stable as $$ select true $$`);
@@ -525,5 +632,5 @@ describe('migración de socios inactivos', () => {
     );
     expect(lookupCols.rows[0].result).toMatch(/baja_fecha/);
     expect(lookupCols.rows[0].result).toMatch(/pending_baja/);
-  }, 20_000);
+  }, 60_000);
 });

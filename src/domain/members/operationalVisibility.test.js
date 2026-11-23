@@ -3,16 +3,21 @@ import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDebitRoster, classifyDebitMember } from '../accounting/debitMoves.js';
+import { memberMayOperate, bajaFechaNeedsReview as edgeBajaReview } from '../../../supabase/functions/_shared/operationalMember.ts';
 import {
   OPERATIONAL_CIRCUITS,
+  bajaFechaNeedsReview,
+  CALENDAR_DATE_PATTERN,
   canReceiveAutomaticNotice,
   canStartOperationalWrite,
   filterOperationalMembers,
   filterReactivateMembers,
   inactiveListFilter,
+  isCalendarDate,
   isOperationalMember,
   isReactivateCandidate,
   memberCircuitAccess,
+  memberSearchPlan,
   operationalListFilter,
   reactivateListFilter,
   reactivateMemberRecord,
@@ -165,7 +170,9 @@ describe('visibilidad operativa de socios', () => {
       'utf8',
     );
     const audience = edge.slice(edge.indexOf('export function operationalAudienceFilter'));
-    const clauses = [...audience.matchAll(/`([^`]+)`/g)].map((match) => match[1].replaceAll('${today}', TODAY));
+    const clauses = [...audience.matchAll(/`([^`]+)`/g)].map((match) => match[1]
+      .replaceAll('${today}', TODAY)
+      .replaceAll('${CALENDAR_DATE_PATTERN}', CALENDAR_DATE_PATTERN));
     expect(clauses.join(',')).toBe(operational);
     expect(edge).toContain('return !baja || baja > today');
   });
@@ -204,5 +211,73 @@ describe('visibilidad operativa de socios', () => {
     expect(debits.rows.map((row) => row.memberId)).toEqual(['2', '6', '1']);
     expect(filterOperationalMembers(roster, TODAY).map((member) => member.memberId)).toEqual(operationalIds);
     expect(filterReactivateMembers(roster, TODAY).map((member) => member.memberId)).toEqual(['3', '4', '5', '7', '8']);
+  });
+
+  it('una fecha imposible no opera si el socio está inactivo y no frena a uno activo', () => {
+    const cases = [
+      ['2026-13-40', false],
+      ['2026-02-30', false],
+      ['2026-00-10', false],
+      ['2026-11-31', false],
+      ['2026-02-29', false],
+      ['2024-02-29', true],
+      ['2000-02-29', true],
+      ['1900-02-29', false],
+      ['2026-11-30', true],
+      ['', false],
+    ];
+    for (const [fecha, valid] of cases) {
+      expect(isCalendarDate(fecha)).toBe(valid);
+      expect(new RegExp(readFileSync(
+        join(dirname(fileURLToPath(import.meta.url)), './operationalVisibility.js'),
+        'utf8',
+      ).match(/CALENDAR_DATE_PATTERN = '([^']+)'/)[1]).test(fecha)).toBe(valid);
+    }
+
+    const yesterday = { status: 'inactive', bajaFecha: '2026-11-22' };
+    const today = { status: 'inactive', bajaFecha: TODAY };
+    const tomorrow = { status: 'inactive', bajaFecha: '2026-11-24' };
+    const missing = { status: 'inactive', bajaFecha: '' };
+    const invalid = { status: 'inactive', bajaFecha: '2026-02-30' };
+    expect(isOperationalMember(yesterday, TODAY)).toBe(false);
+    expect(isOperationalMember(today, TODAY)).toBe(false);
+    expect(isOperationalMember(tomorrow, TODAY)).toBe(true);
+    expect(isOperationalMember(missing, TODAY)).toBe(false);
+    expect(isOperationalMember(invalid, TODAY)).toBe(false);
+    expect(isReactivateCandidate(invalid, TODAY)).toBe(true);
+    expect(memberCircuitAccess(invalid, TODAY).bajaFechaReview).toBe(true);
+
+    const activePast = { status: 'active', pendingBaja: false, bajaFecha: '2026-10-01' };
+    const activeNullFlag = { status: 'active', pendingBaja: null, bajaFecha: '2026-10-02' };
+    const activeInvalid = { status: 'active', bajaFecha: '2026-11-31' };
+    const activeFuture = { status: 'inactive', bajaFecha: '2026-12-01' };
+    expect(isOperationalMember(activePast, TODAY)).toBe(false);
+    expect(isOperationalMember(activeNullFlag, TODAY)).toBe(false);
+    expect(isOperationalMember(activeInvalid, TODAY)).toBe(true);
+    expect(bajaFechaNeedsReview(activeInvalid)).toBe(true);
+    expect(memberCircuitAccess(activeInvalid, TODAY).operational).toBe(true);
+    expect(isOperationalMember(activeFuture, TODAY)).toBe(true);
+    expect(isReactivateCandidate(activeFuture, TODAY)).toBe(false);
+
+    for (const member of [yesterday, today, tomorrow, missing, invalid, activePast, activeNullFlag, activeInvalid, activeFuture]) {
+      expect(memberMayOperate(member, TODAY)).toBe(isOperationalMember(member, TODAY));
+      expect(edgeBajaReview(member)).toBe(bajaFechaNeedsReview(member));
+    }
+  });
+
+  it('reactivar e histórico no caen a la tabla si la RPC falta o niega el permiso', () => {
+    const missing = { code: 'PGRST202', message: 'Could not find the function public.search_members_reactivate' };
+    const denied = { code: '42501', message: 'permission denied for function search_members_reactivate' };
+    const historicalDenied = { code: '42501', message: 'Sin permiso para la consulta histórica de socios.' };
+    for (const scope of ['reactivate', 'historical']) {
+      expect(memberSearchPlan(scope, missing).action).toBe('throw');
+      expect(memberSearchPlan(scope, denied).action).toBe('throw');
+      expect(memberSearchPlan(scope, { code: '42883', message: '' }).action).toBe('throw');
+    }
+    expect(memberSearchPlan('reactivate', missing).message).toMatch(/Reactivar no está disponible/);
+    expect(memberSearchPlan('historical', historicalDenied).message).toMatch(/Sin permiso/);
+    expect(memberSearchPlan('operational', missing).action).toBe('operational-fallback');
+    expect(memberSearchPlan('operational', denied).action).toBe('throw');
+    expect(memberSearchPlan('operational', null).action).toBe('ok');
   });
 });

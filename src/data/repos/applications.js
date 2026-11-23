@@ -146,7 +146,7 @@ function foldMemberName(value) {
 async function searchMembersForIdentity(query, limit = 20) {
   const [live, archived] = await Promise.all([
     searchMembersDirectory(query, { limit }),
-    searchMembersForReactivate(query, { limit }).catch(() => []),
+    searchMembersForReactivate(query, { limit }),
   ]);
   const byId = new Map();
   for (const row of [...(live || []), ...(archived || [])]) {

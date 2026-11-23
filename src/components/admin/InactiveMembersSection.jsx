@@ -29,6 +29,7 @@ export default function InactiveMembersSection({
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
   const [remoteHits, setRemoteHits] = useState([]);
+  const [searchError, setSearchError] = useState('');
 
   useEffect(() => {
     const raw = query.trim();
@@ -36,6 +37,7 @@ export default function InactiveMembersSection({
     const enough = raw.length >= 2 || digits.length >= 3;
     if (!enough || !isSupabaseConfigured) {
       setRemoteHits([]);
+      setSearchError('');
       return undefined;
     }
     let cancelled = false;
@@ -43,10 +45,13 @@ export default function InactiveMembersSection({
       repos.searchMembersForReactivate(raw, { limit: 40 })
         .then((rows) => {
           if (cancelled) return;
+          setSearchError('');
           setRemoteHits(rows || []);
         })
-        .catch(() => {
-          if (!cancelled) setRemoteHits([]);
+        .catch((error) => {
+          if (cancelled) return;
+          setRemoteHits([]);
+          setSearchError(error?.message || 'No se pudo buscar socios inactivos.');
         });
     }, 280);
     return () => {
@@ -108,7 +113,9 @@ export default function InactiveMembersSection({
         </p>
       </div>
 
-      {slice.length === 0 ? (
+      {searchError ? (
+        <p className="inactive-members-empty" role="alert">{searchError}</p>
+      ) : slice.length === 0 ? (
         <p className="inactive-members-empty">No hay fichas inactivas con ese criterio.</p>
       ) : (
         <ul className="membership-moves-list">
