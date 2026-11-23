@@ -39,6 +39,7 @@ describe('mercadoPago', () => {
     expect(mpBackPath('subscription')).toBe('/cuenta');
     expect(mpMoney('1500.456')).toBe(1500.46);
     expect(isMpPaidStatus('approved')).toBe(true);
+    expect(isMpPaidStatus('authorized')).toBe(false);
     expect(isMpPaidStatus('pending')).toBe(false);
     expect(mpChannelFor({ mode: 'qr' })).toBe('onsite');
     expect(mpChannelFor({ kind: 'subscription' })).toBe('subscription');

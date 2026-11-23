@@ -534,6 +534,27 @@ export default function MembersWithAppPanel({
     }
   };
 
+  const markRequestRead = async (messageId) => {
+    if (!messageId) return;
+    const patchLocal = (prev) => (prev || []).map((row) => (
+      String(row.id) === String(messageId)
+        ? { ...row, isRead: true }
+        : row
+    ));
+    if (typeof setMessages === 'function') {
+      setMessages(patchLocal);
+    }
+    setOpsInbox((prev) => (prev == null ? prev : patchLocal(prev)));
+    setLiveMessages(patchLocal);
+    if (isSupabaseConfigured) {
+      try {
+        await repos.updateMessage(messageId, { isRead: true });
+      } catch {
+        /* best-effort */
+      }
+    }
+  };
+
   // Mismo cobro (MP auto + transferencia con el PDF): un solo card y cierra el sobrante.
   useEffect(() => {
     const open = (inboxMessages || []).filter(isOpenAppPaymentRequest);
@@ -551,10 +572,14 @@ export default function MembersWithAppPanel({
     return () => { cancelled = true; };
   }, [inboxMessages]);
 
-  // Si el aviso ya tiene cobro en ficha (p. ej. transferencia del mismo MP), ciérralo.
+  // Mercado Pago ya acreditado: se cierra solo. La transferencia queda hasta Imputar.
   useEffect(() => {
     const pending = Object.entries(incomingCollectedById)
-      .filter(([, payment]) => payment)
+      .filter(([id, payment]) => {
+        if (!payment) return false;
+        const msg = (inboxMessages || []).find((row) => String(row.id) === String(id));
+        return Boolean(msg && isAppPaymentAuto(msg));
+      })
       .map(([id]) => id)
       .filter((id) => !incomingCollectedHandledRef.current.has(String(id)));
     if (!pending.length) return undefined;
@@ -567,7 +592,7 @@ export default function MembersWithAppPanel({
       }
     })();
     return () => { cancelled = true; };
-  }, [incomingCollectedById]);
+  }, [incomingCollectedById, inboxMessages]);
 
   const payments = useMemo(() => {
     const rows = [...(selected?.paymentHistory || [])];
@@ -1116,7 +1141,7 @@ export default function MembersWithAppPanel({
                                   <button
                                     type="button"
                                     className="members-app-desk__action-btn"
-                                    onClick={() => void markRequestHandled(msg.id)}
+                                    onClick={() => void markRequestRead(msg.id)}
                                   >
                                     Marcar leída
                                   </button>

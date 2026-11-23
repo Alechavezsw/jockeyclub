@@ -413,9 +413,9 @@ export function buildClubReview({
     samples: [asSample('Abrir el resumen de cuenta', '/panel/dues?vista=saldos')],
   });
 
-  const mpNotices = (messages || []).filter((message) => (
+    const mpNotices = (messages || []).filter((message) => (
     message.recipientId === MAILBOX.OPERATIONS
-    && !message.isRead
+    && message?.meta?.paymentHandled !== true
     && isMpPaymentNotice(message)
   ));
   row(items, {

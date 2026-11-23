@@ -40,8 +40,7 @@ export function isMpKind(value) {
 }
 
 export function isMpPaidStatus(status) {
-  const next = String(status || '').toLowerCase();
-  return next === 'approved' || next === 'authorized';
+  return String(status || '').toLowerCase() === 'approved';
 }
 
 /** Adhesión de débito confirmada por Mercado Pago. No alcanza con “débito” en la ficha. */
