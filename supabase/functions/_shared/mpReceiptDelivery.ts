@@ -304,6 +304,7 @@ export async function deliverMpReceipt(
   let messageId = String(meta.receipt_message_id || prior.messageId || "");
   let emailId = String(meta.receipt_email_id || prior.emailId || "");
   let emailError = String(meta.receipt_email_error || "");
+  let emailPermanent = false;
   let attachment: { name: string; path: string } | undefined;
   const filename = `recibo-${receiptNumber}.pdf`;
 
@@ -367,6 +368,7 @@ export async function deliverMpReceipt(
         emailError = "Sin mail real";
       } else if (!apiKey) {
         emailError = "Falta RESEND_API_KEY";
+        emailPermanent = true;
       } else {
         const from = Deno.env.get("RESEND_FROM") || DEFAULT_FROM;
         const res = await fetch("https://api.resend.com/emails", {
@@ -374,7 +376,8 @@ export async function deliverMpReceipt(
           headers: {
             Authorization: `Bearer ${apiKey}`,
             "Content-Type": "application/json",
-            "Idempotency-Key": `mp-receipt/${intent.id}`,
+            // Resend recuerda esta clave 24 horas. Después no evita un segundo envío.
+            "Idempotency-Key": `mp-receipt/${intent.id}`.slice(0, 256),
           },
           body: JSON.stringify({
             from,
@@ -391,6 +394,7 @@ export async function deliverMpReceipt(
           emailError = "";
         } else {
           emailError = String(payload.message || `Resend ${res.status}`);
+          emailPermanent = res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429;
         }
       }
     }
@@ -453,8 +457,10 @@ export async function deliverMpReceipt(
     receiptNumber,
     messageId: messageId || null,
     opsNoticeId: opsNoticeId || null,
-    emailed: Boolean(emailId && emailId !== "no-email"),
+    emailId: emailId || null,
+    emailed: Boolean(emailId && emailId !== "no-email" && emailId !== "skipped:no-email"),
     emailError: emailError || null,
+    permanent: emailPermanent,
   };
 }
 

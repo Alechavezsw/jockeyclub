@@ -2,6 +2,14 @@ import { useCallback, useEffect, useState } from 'react';
 import { Loader2, Mail, RefreshCw } from 'lucide-react';
 import { isSupabaseConfigured, supabase } from '../../lib/supabase';
 
+const OPEN_RECEIPT_STATUSES = ['pending', 'retry', 'attention'];
+
+function statusLabel(status) {
+  if (status === 'attention') return 'Requiere intervención';
+  if (status === 'retry') return 'Reintento';
+  return 'Pendiente';
+}
+
 function rowLabel(row) {
   const intent = row.mp_intents || {};
   const number = intent.member_number ? `Nº ${intent.member_number}` : 'Socio';
@@ -19,7 +27,7 @@ export default function MpReceiptJobsPanel() {
     const { data, error } = await supabase
       .from('mp_receipt_jobs')
       .select('intent_id, status, attempts, email_error, last_error, receipt_number, next_attempt_at, mp_intents(member_number, concept, amount)')
-      .in('status', ['pending', 'retry'])
+      .in('status', OPEN_RECEIPT_STATUSES)
       .order('updated_at', { ascending: true })
       .limit(40);
     if (error) {
@@ -37,7 +45,7 @@ export default function MpReceiptJobsPanel() {
     supabase
       .from('mp_receipt_jobs')
       .select('intent_id, status, attempts, email_error, last_error, receipt_number, next_attempt_at, mp_intents(member_number, concept, amount)')
-      .in('status', ['pending', 'retry'])
+      .in('status', OPEN_RECEIPT_STATUSES)
       .order('updated_at', { ascending: true })
       .limit(40)
       .then(({ data, error }) => {
@@ -67,6 +75,8 @@ export default function MpReceiptJobsPanel() {
       setNotice(data?.error || 'No se pudo reintentar el comprobante.');
     } else if (data?.receipt?.status === 'sent' || data?.receipt?.skip === 'already') {
       setNotice('Comprobante entregado.');
+    } else if (data?.receipt?.status === 'attention' || data?.receipt?.skip === 'attention') {
+      setNotice('Quedó para intervención. El pago no se duplicó.');
     } else {
       setNotice(data?.receipt?.emailError || 'Quedó para un nuevo intento. El pago no se duplicó.');
     }
@@ -81,7 +91,7 @@ export default function MpReceiptJobsPanel() {
         <Mail size={16} aria-hidden="true" />
         <div>
           <strong>Comprobantes pendientes</strong>
-          <p>Un reintento vuelve a enviar el mail o el mensaje. No vuelve a acreditar el pago.</p>
+          <p>Un reintento envía lo que faltó. No vuelve a acreditar el pago. «Requiere intervención» no se reintenta solo.</p>
         </div>
       </div>
       {notice ? <p className="members-app-desk__incoming-empty">{notice}</p> : null}
@@ -92,6 +102,8 @@ export default function MpReceiptJobsPanel() {
               <div className="members-app-desk__incoming-main">
                 <strong>{rowLabel(row)}</strong>
                 <p>
+                  {statusLabel(row.status)}
+                  {' · '}
                   {row.receipt_number || 'Sin número'}
                   {' · '}
                   {row.attempts} intento{row.attempts === 1 ? '' : 's'}

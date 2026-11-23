@@ -49,6 +49,7 @@ Deno.serve(async (req) => {
     const receipt = await settleMpReceipt({
       admin,
       intentId,
+      force: true,
       deliver: (prior) => deliverMpReceipt(admin, intentId, prior),
     });
     return json(200, { ok: true, receipt });
