@@ -274,7 +274,8 @@ describe('advance credit PostgreSQL integration', () => {
     expect(migrationSql).toContain('cobro_social_catalog_tariff');
     expect(migrationSql).toContain('allocate_advance_cash_chunks_v2');
     expect(migrationSql).toContain('pg_advisory_xact_lock');
-    expect(migrationSql).not.toMatch(/from public\.member_dues_periods p[\s\S]*order by p\.due_on desc/);
+    expect(migrationSql).not.toMatch(/return 70000;\s*end;\s*\$fn\$/);
+    expect(migrationSql).toContain('Sin tarifa social oficial');
 
     // Aplicar helpers del harness ya equivale a la lógica nueva.
     // Segundo “apply” del harness debe ser idempotente (create or replace).
@@ -294,6 +295,51 @@ describe('advance credit PostgreSQL integration', () => {
       `select pg_get_functiondef('advance_test.registrar_cobro_stub(uuid, numeric, jsonb, text)'::regprocedure) as def`,
     );
     expect(stub.rows[0].def).toContain('Si se imputó el anticipo a un período');
+  });
+
+  it('sin_categoria y liga no generan anticipo social', async () => {
+    const sin = await seedMember({ tier: 'sin_categoria' });
+    const liga = await seedMember({ tier: 'liga_no_socio' });
+    const turf = await seedMember({ tier: 'turf' });
+    for (const id of [sin, liga, turf]) {
+      const t = await query(
+        `select advance_test.cobro_social_advance_tariff(m, '2026-12-10'::date, '[]'::jsonb) as t
+         from advance_test.members m where m.id = $1`,
+        [id],
+      );
+      expect(t.rows[0].t).toBeNull();
+      await expect(query(
+        `select advance_test.allocate_advance($1, $2, 70000, '2026-12-10'::date)`,
+        [id, randomUUID()],
+      )).rejects.toThrow(/tarifa social oficial/i);
+    }
+  });
+
+  it('schedule con capital no numérico se ignora y queda el tarifario', async () => {
+    const id = await seedMember({ tier: 'socio_familiar' });
+    const broken = await query(
+      `select advance_test.cobro_social_advance_tariff(
+         m, '2026-12-10'::date,
+         $2::jsonb
+       ) as t
+       from advance_test.members m where m.id = $1`,
+      [id, JSON.stringify([
+        { dueOn: '2026-12-10', capital: 'no-es-numero' },
+        { dueOn: '2026-12-10', capital: '1e5' },
+        { dueOn: '2026-12-10', capital: '' },
+        { dueOn: '2026-12-10', capital: '82.000' },
+      ])],
+    );
+    expect(Number(broken.rows[0].t)).toBe(70000);
+
+    const peeled = await query(
+      `select advance_test.allocate_advance($1, $2, 70000, '2026-12-10'::date, $3::jsonb) as r`,
+      [id, randomUUID(), JSON.stringify([
+        { dueOn: '2026-12-10', capital: 'no-es-numero' },
+        { dueOn: '2026-12-10', capital: '82000' },
+      ])],
+    );
+    expect(Number(peeled.rows[0].r.advances[0].capital)).toBe(70000);
   });
 
   it('conversiones numéricas de meta inválidas no rompen la tarifa', async () => {

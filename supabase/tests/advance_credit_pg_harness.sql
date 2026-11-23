@@ -79,19 +79,22 @@ declare
   v_meta numeric;
 begin
   if advance_test.member_is_dues_exempt(p_member) then return 0; end if;
+  if v_tier not in (
+    'socio_familiar', 'socio_individual', 'socio_familiar_amet', 'socio_individual_amet'
+  ) then
+    return null;
+  end if;
   v_meta := advance_test.cobro_social_meta_numeric(p_member.meta, 'duesAmount');
   if v_meta is not null then return v_meta; end if;
   v_meta := advance_test.cobro_social_meta_numeric(p_member.meta, 'monthlyDues');
   if v_meta is not null then return v_meta; end if;
   v_meta := advance_test.cobro_social_meta_numeric(p_member.meta, 'socialQuota');
   if v_meta is not null then return v_meta; end if;
-  if advance_test.member_is_amet_dues(p_member) then
-    if v_tier like '%individual%' then return 39000; end if;
-    return 68250;
-  end if;
-  if v_tier like '%individual%' then return 40000; end if;
-  if v_tier ~ '(familiar|grupo)' then return 70000; end if;
-  return 70000;
+  if v_tier = 'socio_individual_amet' then return 39000; end if;
+  if v_tier = 'socio_familiar_amet' then return 68250; end if;
+  if v_tier = 'socio_individual' then return 40000; end if;
+  if v_tier = 'socio_familiar' then return 70000; end if;
+  return null;
 end;
 $$;
 
@@ -107,16 +110,22 @@ declare
   v_catalog numeric := advance_test.cobro_social_catalog_tariff(p_member);
   v_from_sched numeric := 0;
 begin
-  if coalesce(v_catalog, 0) <= 0.01 then return 0; end if;
+  if v_catalog is null then return null; end if;
+  if v_catalog <= 0.01 then return 0; end if;
 
-  select round(coalesce(sum((value->>'capital')::numeric), 0), 2)
+  select round(coalesce(sum(
+    advance_test.cobro_social_meta_numeric(jsonb_build_object('capital', value->>'capital'), 'capital')
+  ), 0), 2)
     into v_from_sched
   from jsonb_array_elements(
     case when jsonb_typeof(coalesce(p_schedule, '[]'::jsonb)) = 'array' then p_schedule
          else '[]'::jsonb end
   ) as t(value)
   where left(coalesce(value->>'dueOn', ''), 10) = to_char(v_due, 'YYYY-MM-DD')
-    and coalesce((value->>'capital')::numeric, 0) > 0
+    and advance_test.cobro_social_meta_numeric(
+      jsonb_build_object('capital', value->>'capital'),
+      'capital'
+    ) is not null
     and coalesce(value->>'tierId', value->>'tier', value->>'chargeScope', '')
       !~* 'abono_tenis|tenis|addon';
 
@@ -167,6 +176,12 @@ begin
     if v_due is null or v_due <= date '1900-01-10' then exit; end if;
 
     v_tariff := advance_test.cobro_social_advance_tariff(v_member, v_due, p_schedule);
+    if v_tariff is null then
+      raise exception
+        'Sin tarifa social oficial para anticipar (categoría %). No se genera anticipo.',
+        coalesce(v_member.tier, '')
+        using errcode = 'P0001';
+    end if;
     if v_tariff <= 0.01 then exit; end if;
 
     select coalesce(sum(i.capital), 0) into v_take

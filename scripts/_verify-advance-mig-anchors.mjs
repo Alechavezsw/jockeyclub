@@ -67,6 +67,17 @@ const checks = [
     name: 'meta numérica segura',
     ok: sql.includes('cobro_social_meta_numeric'),
   },
+  {
+    name: 'sin fallback universal de 70000',
+    ok: sql.includes("v_tier not in (")
+      && sql.includes('socio_familiar_amet')
+      && !/return 70000;\s*end;\s*\$fn\$/.test(sql),
+  },
+  {
+    name: 'tarifa NULL no se convierte en crédito',
+    ok: sql.includes('if v_catalog is null then')
+      && sql.includes('Sin tarifa social oficial para anticipar'),
+  },
 ];
 
 let failed = 0;

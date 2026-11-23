@@ -9,7 +9,9 @@ import {
   imputedCapitalForDue,
   isValidDueOn,
   nextDueOnAfter,
+  officialSocialAdvanceTier,
   socialLateBaseExcludesTennis,
+  SocialTariffError,
   socialTariffForTier,
 } from './advanceCreditAccounting';
 
@@ -111,6 +113,13 @@ describe('advanceCreditAccounting', () => {
     expect(effectiveSocialAdvanceTariff({ tier: 'socio_individual_amet' })).toBe(39000);
     expect(effectiveSocialAdvanceTariff({ tier: 'vitalicio' })).toBe(0);
     expect(effectiveSocialAdvanceTariff({ tier: 'comision' })).toBe(0);
+    expect(effectiveSocialAdvanceTariff({ tier: 'sin_categoria' })).toBe(0);
+    expect(effectiveSocialAdvanceTariff({ tier: 'liga_no_socio' })).toBe(0);
+    expect(effectiveSocialAdvanceTariff({ tier: 'turf' })).toBe(0);
+    expect(effectiveSocialAdvanceTariff({ tier: 'abono_tenis' })).toBe(0);
+    expect(effectiveSocialAdvanceTariff({ tier: '' })).toBe(0);
+    expect(officialSocialAdvanceTier({ tier: 'socio_familiar' })).toBe('socio_familiar');
+    expect(officialSocialAdvanceTier({ tier: 'grupo_familiar_familiar' })).toBe('');
     // Tenis no se suma a la tarifa social de anticipo.
     expect(effectiveSocialAdvanceTariff({
       tier: 'socio_familiar',
@@ -256,7 +265,21 @@ describe('advanceCreditAccounting', () => {
     expect(late.includesTennis).toBe(false);
   });
 
-  it('capital histórico distinto de la tarifa no define el anticipo', () => {
+  it('categorías sin cuota social no generan anticipo', () => {
+    for (const tier of ['sin_categoria', 'liga_no_socio', 'turf', 'abono_tenis', 'grupo_familiar_familiar', '']) {
+      expect(() => allocateAdvanceCash({
+        cash: 70000,
+        startDueOn: '2026-12-10',
+        member: { tier },
+      })).toThrow(SocialTariffError);
+    }
+    expect(effectiveSocialAdvanceTariff({
+      tier: 'sin_categoria',
+      meta: { duesAmount: 70000 },
+    })).toBe(0);
+  });
+
+  it('el capital histórico no reemplaza el tarifario oficial', () => {
     // Caso auditado: último período 82.000 (70k+tenis) → futuro sigue 70k.
     expect(effectiveSocialAdvanceTariff({ tier: 'socio_familiar' })).toBe(70000);
     expect(effectiveSocialAdvanceTariff({ tier: 'socio_individual' })).toBe(40000);

@@ -22,8 +22,28 @@ import { isFamilyDependent } from './households.js';
 export const ADVANCE_LOOP_LIMIT = 24;
 export const TENNIS_ABONO_AMOUNT = 12000;
 
+/** Únicas categorías con cuota social oficial (oct-2026). */
+export const OFFICIAL_SOCIAL_ADVANCE_TIERS = Object.freeze({
+  socio_familiar: 70000,
+  socio_individual: 40000,
+  socio_familiar_amet: 68250,
+  socio_individual_amet: 39000,
+});
+
+export class SocialTariffError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'SocialTariffError';
+  }
+}
+
 export function money(value) {
   return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+export function officialSocialAdvanceTier(member) {
+  const tier = String(member?.tier || '').trim().toLowerCase();
+  return Object.prototype.hasOwnProperty.call(OFFICIAL_SOCIAL_ADVANCE_TIERS, tier) ? tier : '';
 }
 
 function metaNumeric(meta, key) {
@@ -41,6 +61,8 @@ function metaNumeric(meta, key) {
  */
 export function effectiveSocialAdvanceTariff(member, on = new Date()) {
   if (!member || isDuesExemptMember(member) || isFamilyDependent(member)) return 0;
+  const tier = officialSocialAdvanceTier(member);
+  if (!tier) return 0;
   const meta = member.meta && typeof member.meta === 'object' ? member.meta : {};
   for (const key of ['duesAmount', 'monthlyDues', 'socialQuota']) {
     const fromMember = metaNumeric(member, key);
@@ -48,7 +70,9 @@ export function effectiveSocialAdvanceTariff(member, on = new Date()) {
     const fromMeta = metaNumeric(meta, key);
     if (fromMeta != null) return fromMeta;
   }
-  return money(duesAmountForMember(member, on, { chargeScope: 'social' }));
+  const catalog = OFFICIAL_SOCIAL_ADVANCE_TIERS[tier];
+  const fromSlices = money(duesAmountForMember(member, on, { chargeScope: 'social' }));
+  return fromSlices > 0.01 ? fromSlices : catalog;
 }
 
 /** El 10 % social no incluye tenis. */
@@ -124,6 +148,18 @@ export function allocateAdvanceCash({
       money(paidAmount) - money(capitalPaid) - money(Math.max(0, money(surchargePaid) - disc)),
     ));
     left = money(Math.min(left, realLeft));
+  }
+
+  if (
+    member
+    && left > 0.01
+    && !isDuesExemptMember(member)
+    && !isFamilyDependent(member)
+    && !officialSocialAdvanceTier(member)
+  ) {
+    throw new SocialTariffError(
+      `Sin tarifa social oficial para anticipar (categoría ${member.tier || 'inválida'}). No se genera anticipo.`,
+    );
   }
 
   const advances = [];

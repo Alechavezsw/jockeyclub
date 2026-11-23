@@ -65,7 +65,17 @@ begin
     return 0;
   end if;
 
-  -- Convenio / override de ficha (nunca tenis).
+  -- Solo el tarifario social oficial. Sin fallback de $70.000.
+  if v_tier not in (
+    'socio_familiar',
+    'socio_individual',
+    'socio_familiar_amet',
+    'socio_individual_amet'
+  ) then
+    return null;
+  end if;
+
+  -- Convenio / override de ficha (nunca tenis), solo en categoría social oficial.
   v_meta := public.cobro_social_meta_numeric(p_member.meta, 'duesAmount');
   if v_meta is not null then return v_meta; end if;
   v_meta := public.cobro_social_meta_numeric(p_member.meta, 'monthlyDues');
@@ -73,22 +83,20 @@ begin
   v_meta := public.cobro_social_meta_numeric(p_member.meta, 'socialQuota');
   if v_meta is not null then return v_meta; end if;
 
-  -- AMET: tarifa neta (base − 2,5 %). Sin mora ni tenis.
-  if public.member_is_amet_dues(p_member) then
-    if v_tier like '%individual%' then
-      return 39000;
-    end if;
+  if v_tier = 'socio_individual_amet' then
+    return 39000;
+  end if;
+  if v_tier = 'socio_familiar_amet' then
     return 68250;
   end if;
-
-  if v_tier like '%individual%' then
+  if v_tier = 'socio_individual' then
     return 40000;
   end if;
-  if v_tier ~ '(familiar|grupo)' then
+  if v_tier = 'socio_familiar' then
     return 70000;
   end if;
 
-  return 70000;
+  return null;
 end;
 $fn$;
 
@@ -111,12 +119,20 @@ declare
   v_catalog numeric := public.cobro_social_catalog_tariff(p_member);
   v_from_sched numeric := 0;
 begin
-  if coalesce(v_catalog, 0) <= 0.01 then
+  -- NULL = categoría sin tarifario oficial (el cobro debe rechazarse).
+  -- 0 = exento. Nunca convertir NULL en 0: eso dejaría un crédito libre.
+  if v_catalog is null then
+    return null;
+  end if;
+  if v_catalog <= 0.01 then
     return 0;
   end if;
 
   -- Schedule del dueOn pedido, solo líneas sociales (sin tenis/addon).
-  select round(coalesce(sum((value->>'capital')::numeric), 0), 2)
+  -- Capital no numérico se ignora (no aborta el cobro).
+  select round(coalesce(sum(
+    public.cobro_social_meta_numeric(jsonb_build_object('capital', value->>'capital'), 'capital')
+  ), 0), 2)
     into v_from_sched
   from jsonb_array_elements(
     case
@@ -125,7 +141,10 @@ begin
     end
   ) as t(value)
   where left(coalesce(value->>'dueOn', ''), 10) = to_char(v_due, 'YYYY-MM-DD')
-    and coalesce((value->>'capital')::numeric, 0) > 0
+    and public.cobro_social_meta_numeric(
+      jsonb_build_object('capital', value->>'capital'),
+      'capital'
+    ) is not null
     and coalesce(value->>'tierId', value->>'tier', value->>'chargeScope', '')
       !~* 'abono_tenis|tenis|addon';
 
@@ -284,6 +303,12 @@ $old$;
           v_advance_due,
           coalesce(p_periodos->'schedule', '[]'::jsonb)
         );
+        if v_tariff is null then
+          raise exception
+            'Sin tarifa social oficial para anticipar (categoría %). No se genera anticipo.'
+            , coalesce(v_member.tier::text, '')
+            using errcode = 'P0001';
+        end if;
         if v_tariff <= 0.01 then
           exit;
         end if;
