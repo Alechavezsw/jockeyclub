@@ -33,6 +33,12 @@ export function isOpenAppPaymentRequest(message) {
   return true;
 }
 
+/** Leer el mensaje no cierra la solicitud ni imputa el pago. */
+export function withAppPaymentRead(message) {
+  if (!message) return message;
+  return { ...message, isRead: true };
+}
+
 /** Cierra la operación en Pagos entrantes (tras cobro, Ver en MP o dismiss). */
 export function withAppPaymentHandled(message, at = new Date().toISOString()) {
   if (!message) return message;
@@ -141,22 +147,6 @@ function daysBetween(a, b) {
   return Math.abs(left - right) / 86400000;
 }
 
-function methodsCompatible(noticeMethod, paymentMethod) {
-  const notice = String(noticeMethod || '').toLowerCase();
-  const pay = String(paymentMethod || '').toLowerCase();
-  if (!notice || !pay) return false;
-  if (notice === pay) return true;
-  // MP a veces llega como «transferencia» con el PDF del pago (Comprobante_<id>.pdf).
-  if (
-    (notice === 'mercadopago' || notice === 'transferencia' || notice === 'debito')
-    && (pay === 'mercadopago' || pay === 'transferencia' || pay === 'debito')
-  ) {
-    return true;
-  }
-  if (notice === 'tarjeta' && (pay === 'tarjeta' || pay === 'card')) return true;
-  return false;
-}
-
 /** Id de pago MP en el nombre del archivo o en el cuerpo (Comprobante_188540448227.pdf). */
 export function appPaymentRequestProviderId(message) {
   const fromMeta = String(
@@ -181,10 +171,7 @@ export function appPaymentRequestProviderId(message) {
 function amountsClose(left, right) {
   if (left == null || right == null) return left == null && right == null;
   if (!(left > 0) || !(right > 0)) return false;
-  if (Math.abs(left - right) <= 1) return true;
-  if (Math.abs(left - right / 1.1) <= 1 || Math.abs(left - right * 1.1) <= 1) return true;
-  const ratio = left / right;
-  return ratio >= 0.85 && ratio <= 1.15;
+  return Math.abs(left - right) <= 1;
 }
 
 function preferIncomingNotice(current, candidate) {
@@ -199,8 +186,7 @@ function preferIncomingNotice(current, candidate) {
 
 /**
  * Un solo aviso por el mismo cobro en Pagos entrantes:
- * mismo socio + mismo importe (±10 %) o mismo id de Mercado Pago en el PDF.
- * Prefiere el aviso automático de MP sobre la «transferencia» del mismo pago.
+ * mismo id de Mercado Pago, o mismo socio, medio e importe.
  */
 export function dedupeOpenAppPaymentRequests(messages = []) {
   const sorted = [...(messages || [])].toSorted((a, b) => (
@@ -222,10 +208,13 @@ export function dedupeOpenAppPaymentRequests(messages = []) {
       if (appPaymentRequestMemberId(other) !== member) continue;
       if (String(other?.meta?.kind || 'dues_payment') !== kind) continue;
       const otherProvider = appPaymentRequestProviderId(other);
+      const sameMethod = String(row?.meta?.method || '').toLowerCase()
+        === String(other?.meta?.method || '').toLowerCase();
       if (providerId && otherProvider && providerId === otherProvider) {
         matchIndex = i;
         break;
       }
+      if (!sameMethod) continue;
       const otherAmount = parseAppPaymentAmountLabel(appPaymentRequestAmountLabel(other));
       const otherDay = String(other?.createdAt || other?.date || '').slice(0, 10);
       if (!amountsClose(amount, otherAmount)) continue;
@@ -291,18 +280,18 @@ export function findAppPaymentRequestCollection(message, member, { windowDays = 
   let bestScore = Infinity;
   for (const row of history) {
     if (String(row?.status || 'paid').toLowerCase() === 'void') continue;
-    if (!methodsCompatible(noticeMethod, row?.method)) continue;
+    const paidMethod = String(row?.method || '').toLowerCase();
+    const sameMethod = paidMethod === noticeMethod
+      || (noticeMethod === 'tarjeta' && (paidMethod === 'tarjeta' || paidMethod === 'card'));
+    if (!sameMethod) continue;
     const day = paymentDay(row);
     if (!day || daysBetween(noticeDay, day) > windowDays) continue;
     const paid = Number(row?.amount);
     if (!Number.isFinite(paid) || paid <= 0) continue;
     if (noticeAmount != null && noticeAmount > 0) {
-      const ratio = paid / noticeAmount;
-      // Exacto, o aviso con 10 % vs cobro solo capital (y al revés).
       const close = Math.abs(paid - noticeAmount) <= 1
         || Math.abs(paid - noticeAmount / 1.1) <= 1
-        || Math.abs(paid - noticeAmount * 1.1) <= 1
-        || (ratio >= 0.85 && ratio <= 1.15);
+        || Math.abs(paid - noticeAmount * 1.1) <= 1;
       if (!close) continue;
     }
     const score = daysBetween(noticeDay, day) + (noticeAmount != null

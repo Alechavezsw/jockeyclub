@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { memberMayOperate } from "../_shared/operationalMember.ts";
+import { isTennisCharge } from "../_shared/mpSettlement.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -411,6 +412,9 @@ Deno.serve(async (req) => {
     const email = firstDeliverableEmail(member.email, profile?.email, user.email);
     const dni = dniOf(member.document_number) || dniOf(profile?.document_number);
     const concept = String(body?.concept || titleOf(kind)).slice(0, 240);
+    if ((kind === "dues" || kind === "subscription") && isTennisCharge(concept, body?.chargeScope)) {
+      return json(400, { error: "El abono de tenis no se cobra como cuota social." });
+    }
     const guestName = String(body?.guestName || "").trim().slice(0, 80);
     const booking = body?.booking && typeof body.booking === "object"
       ? (body.booking as Record<string, unknown>)
@@ -453,6 +457,7 @@ Deno.serve(async (req) => {
             : {}),
           ...(kind === "dues" ? { schedule: duesScheduleOf(body?.schedule) } : {}),
           ...(bookingMeta ? { booking: bookingMeta } : {}),
+          ...((kind === "dues" || kind === "subscription") ? { chargeScope: "cuota_social" } : {}),
         },
       })
       .select("*")

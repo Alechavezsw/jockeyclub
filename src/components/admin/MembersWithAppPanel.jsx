@@ -27,6 +27,7 @@ import {
   recordDuesCollection,
 } from '../../domain/members/memberPayments';
 import { deliverPaymentReceipt } from '../../domain/payments/deliverPaymentReceipt';
+import MpReceiptJobsPanel from './MpReceiptJobsPanel';
 import {
   collectMemberMeta,
   memberAppAccess,
@@ -70,6 +71,7 @@ import {
   isOpenAppPaymentRequest,
   listOpenAppPaymentRequests,
   withAppPaymentHandled,
+  withAppPaymentRead,
 } from '../../domain/members/appPaymentRequests';
 import VirtualCard from '../VirtualCard';
 import CollectDuesModal from './CollectDuesModal';
@@ -534,6 +536,27 @@ export default function MembersWithAppPanel({
     }
   };
 
+  const markRequestRead = async (messageId) => {
+    if (!messageId) return;
+    const patchLocal = (prev) => (prev || []).map((row) => (
+      String(row.id) === String(messageId)
+        ? withAppPaymentRead(row)
+        : row
+    ));
+    if (typeof setMessages === 'function') {
+      setMessages(patchLocal);
+    }
+    setOpsInbox((prev) => (prev == null ? prev : patchLocal(prev)));
+    setLiveMessages(patchLocal);
+    if (isSupabaseConfigured) {
+      try {
+        await repos.updateMessage(messageId, { isRead: true });
+      } catch {
+        /* best-effort */
+      }
+    }
+  };
+
   // Mismo cobro (MP auto + transferencia con el PDF): un solo card y cierra el sobrante.
   useEffect(() => {
     const open = (inboxMessages || []).filter(isOpenAppPaymentRequest);
@@ -551,10 +574,14 @@ export default function MembersWithAppPanel({
     return () => { cancelled = true; };
   }, [inboxMessages]);
 
-  // Si el aviso ya tiene cobro en ficha (p. ej. transferencia del mismo MP), ciérralo.
+  // Mercado Pago ya acreditado: se cierra solo. La transferencia queda hasta Imputar.
   useEffect(() => {
     const pending = Object.entries(incomingCollectedById)
-      .filter(([, payment]) => payment)
+      .filter(([id, payment]) => {
+        if (!payment) return false;
+        const msg = (inboxMessages || []).find((row) => String(row.id) === String(id));
+        return Boolean(msg && isAppPaymentAuto(msg));
+      })
       .map(([id]) => id)
       .filter((id) => !incomingCollectedHandledRef.current.has(String(id)));
     if (!pending.length) return undefined;
@@ -567,7 +594,7 @@ export default function MembersWithAppPanel({
       }
     })();
     return () => { cancelled = true; };
-  }, [incomingCollectedById]);
+  }, [incomingCollectedById, inboxMessages]);
 
   const payments = useMemo(() => {
     const rows = [...(selected?.paymentHistory || [])];
@@ -1006,14 +1033,16 @@ export default function MembersWithAppPanel({
       ) : null}
 
       {listFilter === 'incoming' ? (
+        <>
+        <MpReceiptJobsPanel />
         <div className="members-app-desk__incoming" aria-label="Pagos entrantes desde la app">
           <div className="members-app-desk__incoming-head">
             <Inbox size={16} aria-hidden="true" />
             <div>
               <strong>Pagos entrantes</strong>
               <p>
-                Cuota social y reservas van aparte. Quedan acá hasta imputar, Ver (Mercado Pago)
-                o marcar leída — no se cierran solo por abrir el MD.
+                Cuota social y reservas van aparte. Leer el comprobante no imputa.
+                La transferencia queda abierta hasta que Administración elige Imputar.
               </p>
             </div>
           </div>
@@ -1116,7 +1145,7 @@ export default function MembersWithAppPanel({
                                   <button
                                     type="button"
                                     className="members-app-desk__action-btn"
-                                    onClick={() => void markRequestHandled(msg.id)}
+                                    onClick={() => void markRequestRead(msg.id)}
                                   >
                                     Marcar leída
                                   </button>
@@ -1133,6 +1162,7 @@ export default function MembersWithAppPanel({
             </>
           )}
         </div>
+        </>
       ) : null}
 
       <div className="members-app-desk__search-wrap">

@@ -20,6 +20,7 @@ import {
   listOpenAppPaymentRequests,
   parseAppPaymentAmountLabel,
   withAppPaymentHandled,
+  withAppPaymentRead,
 } from './appPaymentRequests';
 
 describe('appPaymentRequests', () => {
@@ -52,6 +53,14 @@ describe('appPaymentRequests', () => {
     expect(isAppPaymentAuto(transfer)).toBe(false);
   });
 
+  it('leer el comprobante de transferencia no cierra ni imputa', () => {
+    const read = withAppPaymentRead(transfer);
+    expect(read.isRead).toBe(true);
+    expect(read.meta.paymentHandled).toBeUndefined();
+    expect(isOpenAppPaymentRequest(read)).toBe(true);
+    expect(isOpenAppPaymentRequest(withAppPaymentHandled(read))).toBe(false);
+  });
+
   it('quedan abiertas hasta paymentHandled, aunque estén leídas en MD', () => {
     expect(isOpenAppPaymentRequest(transfer)).toBe(true);
     expect(isOpenAppPaymentRequest({ ...transfer, isRead: true })).toBe(true);
@@ -71,7 +80,12 @@ describe('appPaymentRequests', () => {
       senderId: '100714',
       createdAt: '2026-11-14T18:00:00.000Z',
       content: 'Adrian Fernandez (Nº 100714) pagó por Mercado Pago.\nImporte: $ 88,000.00',
-      meta: { kind: 'dues_payment', method: 'mercadopago', paymentAuto: true },
+      meta: {
+        kind: 'dues_payment',
+        method: 'mercadopago',
+        paymentAuto: true,
+        provider_payment_id: '188540448227',
+      },
     };
     const transferMpPdf = {
       ...transfer,
@@ -89,6 +103,19 @@ describe('appPaymentRequests', () => {
     const open = listOpenAppPaymentRequests([transferMpPdf, mp]);
     expect(open.map((m) => m.id)).toEqual(['mp-auto']);
     expect(dedupeOpenAppPaymentRequests([transferMpPdf, mp]).duplicateIds).toEqual(['xfer-mp']);
+  });
+
+  it('no junta una transferencia con un Mercado Pago distinto del mismo importe', () => {
+    const mp = {
+      ...transfer,
+      id: 'mp-otro',
+      createdAt: '2026-11-14T18:00:00.000Z',
+      content: 'Importe: $ 40.000',
+      meta: { kind: 'dues_payment', method: 'mercadopago', paymentAuto: true },
+    };
+    const open = dedupeOpenAppPaymentRequests([transfer, mp]);
+    expect(open.duplicateIds).toEqual([]);
+    expect(open.messages.map((row) => row.id).sort()).toEqual(['1', 'mp-otro']);
   });
 
   it('vincula transferencia al cobro MP por id del comprobante', () => {

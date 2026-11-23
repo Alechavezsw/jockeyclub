@@ -1,4 +1,6 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
+import { currencyIsArs, isApprovedCreditStatus, moneyCentsEqual } from '../../../supabase/functions/_shared/mpSettlement.js';
 
 const SIGNATURE_TIMESTAMP_TOLERANCE_SECONDS = 300;
 
@@ -70,32 +72,6 @@ async function generateValidSignature(secret, resourceId, requestId = null) {
   const manifest = `${chunks.join(';')};`;
   const hash = await computeHmac(manifest, secret);
   return { ts, hash, header: `ts=${ts},v1=${hash}` };
-}
-
-function validatePaymentAmount(expectedAmount, paidAmount, tolerancePercent = 0.01) {
-  if (expectedAmount <= 0 || paidAmount <= 0) return { valid: true, reason: 'skip-zero' };
-  const diff = Math.abs(paidAmount - expectedAmount);
-  const tolerance = expectedAmount * tolerancePercent;
-  if (diff > tolerance) {
-    return {
-      valid: false,
-      reason: 'amount-mismatch',
-      expectedAmount,
-      paidAmount,
-      diff,
-      tolerance,
-    };
-  }
-  return { valid: true };
-}
-
-function validateCurrency(currency) {
-  if (!currency) return { valid: true, reason: 'no-currency-provided' };
-  const normalized = currency.toUpperCase().trim();
-  if (normalized !== 'ARS') {
-    return { valid: false, reason: 'unsupported-currency', currency: normalized };
-  }
-  return { valid: true };
 }
 
 describe('Mercado Pago Webhook Security', () => {
@@ -207,64 +183,40 @@ describe('Mercado Pago Webhook Security', () => {
 
   describe('Moneda incorrecta', () => {
     it('acepta moneda ARS', () => {
-      expect(validateCurrency('ARS').valid).toBe(true);
-      expect(validateCurrency('ars').valid).toBe(true);
-      expect(validateCurrency(' ARS ').valid).toBe(true);
+      expect(currencyIsArs('ARS')).toBe(true);
+      expect(currencyIsArs('ars')).toBe(true);
+      expect(currencyIsArs(' ARS ')).toBe(true);
     });
 
     it('rechaza moneda USD', () => {
-      const result = validateCurrency('USD');
-      expect(result.valid).toBe(false);
-      expect(result.reason).toBe('unsupported-currency');
-      expect(result.currency).toBe('USD');
+      expect(currencyIsArs('USD')).toBe(false);
     });
 
     it('rechaza moneda BRL', () => {
-      const result = validateCurrency('BRL');
-      expect(result.valid).toBe(false);
-      expect(result.currency).toBe('BRL');
+      expect(currencyIsArs('BRL')).toBe(false);
     });
 
-    it('acepta cuando no se especifica moneda (backward compat)', () => {
-      expect(validateCurrency('').valid).toBe(true);
-      expect(validateCurrency(null).valid).toBe(true);
-      expect(validateCurrency(undefined).valid).toBe(true);
+    it('rechaza cuando no se especifica moneda', () => {
+      expect(currencyIsArs('')).toBe(false);
+      expect(currencyIsArs(null)).toBe(false);
+      expect(currencyIsArs(undefined)).toBe(false);
     });
   });
 
   describe('Monto incorrecto', () => {
-    it('acepta monto exacto', () => {
-      const result = validatePaymentAmount(40000, 40000);
-      expect(result.valid).toBe(true);
+    it('acepta monto exacto en centavos', () => {
+      expect(moneyCentsEqual(40000, 40000)).toBe(true);
+      expect(moneyCentsEqual(40000.1, 40000.1)).toBe(true);
     });
 
-    it('acepta diferencia dentro de tolerancia (1%)', () => {
-      expect(validatePaymentAmount(40000, 40200).valid).toBe(true);
-      expect(validatePaymentAmount(40000, 39800).valid).toBe(true);
-      expect(validatePaymentAmount(40000, 40400).valid).toBe(true);
+    it('rechaza un centavo de diferencia', () => {
+      expect(moneyCentsEqual(40000, 40000.01)).toBe(false);
+      expect(moneyCentsEqual(40000, 40200)).toBe(false);
     });
 
-    it('rechaza diferencia mayor al 1%', () => {
-      const result = validatePaymentAmount(40000, 45000);
-      expect(result.valid).toBe(false);
-      expect(result.reason).toBe('amount-mismatch');
-      expect(result.expectedAmount).toBe(40000);
-      expect(result.paidAmount).toBe(45000);
-    });
-
-    it('rechaza pago menor al esperado (más del 1%)', () => {
-      const result = validatePaymentAmount(40000, 35000);
-      expect(result.valid).toBe(false);
-      expect(result.reason).toBe('amount-mismatch');
-    });
-
-    it('no valida cuando el monto esperado es 0', () => {
-      expect(validatePaymentAmount(0, 40000).valid).toBe(true);
-      expect(validatePaymentAmount(0, 40000).reason).toBe('skip-zero');
-    });
-
-    it('no valida cuando el monto pagado es 0', () => {
-      expect(validatePaymentAmount(40000, 0).valid).toBe(true);
+    it('rechaza un pago en cero', () => {
+      expect(moneyCentsEqual(40000, 0)).toBe(false);
+      expect(moneyCentsEqual(0, 40000)).toBe(false);
     });
   });
 
@@ -348,16 +300,13 @@ describe('Mercado Pago Webhook Security', () => {
     });
 
     it('no acredita pagos con estado no aprobado', () => {
-      const shouldCredit = (status) => {
-        const s = String(status || '').toLowerCase();
-        return ['approved', 'authorized', 'accredited', 'processed'].includes(s);
-      };
-
-      expect(shouldCredit('approved')).toBe(true);
-      expect(shouldCredit('authorized')).toBe(true);
-      expect(shouldCredit('pending')).toBe(false);
-      expect(shouldCredit('rejected')).toBe(false);
-      expect(shouldCredit('in_process')).toBe(false);
+      expect(isApprovedCreditStatus('approved')).toBe(true);
+      expect(isApprovedCreditStatus('authorized')).toBe(false);
+      expect(isApprovedCreditStatus('accredited')).toBe(false);
+      expect(isApprovedCreditStatus('processed')).toBe(false);
+      expect(isApprovedCreditStatus('pending')).toBe(false);
+      expect(isApprovedCreditStatus('rejected')).toBe(false);
+      expect(isApprovedCreditStatus('in_process')).toBe(false);
     });
   });
 
@@ -390,5 +339,19 @@ describe('Mercado Pago Webhook Security', () => {
       expect(validateMemberAssociation({ member_id: null }, 'dues').valid).toBe(false);
       expect(validateMemberAssociation({ member_id: null }, 'booking').valid).toBe(true);
     });
+  });
+});
+
+describe('webhook de la rama', () => {
+  const source = readFileSync(new URL('../../../supabase/functions/mp-webhook/index.ts', import.meta.url), 'utf8');
+
+  it('firma, centavos y cola de comprobantes están en el mismo archivo', () => {
+    expect(source).toContain('function todayAR');
+    expect(source).toContain('Idempotency-Key": `mp-debit-failed/${memberId || memberNumber}/${todayAR()}`');
+    expect(source).toContain('settleMpReceipt');
+    expect(source).toContain('moneyCentsEqual');
+    expect(source).toContain('currencyIsArs');
+    expect(source).toContain('mpSignatureOk');
+    expect(source).toContain('SIGNATURE_TIMESTAMP_TOLERANCE_SECONDS = 300');
   });
 });

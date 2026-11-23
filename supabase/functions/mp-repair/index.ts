@@ -1,5 +1,11 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import {
+  currencyIsArs,
+  isApprovedCreditStatus,
+  moneyCentsEqual,
+  paymentStatus,
+} from "../_shared/mpSettlement.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -22,15 +28,6 @@ async function mpGet(path: string, token: string) {
   return data as Record<string, unknown>;
 }
 
-function mpStatus(value: unknown) {
-  return String(value || "").trim().toLowerCase();
-}
-
-function isPaid(value: unknown) {
-  const s = mpStatus(value);
-  return s === "approved" || s === "authorized" || s === "accredited" || s === "processed";
-}
-
 async function resolveIntentId(admin: ReturnType<typeof createClient>, ref: string) {
   const raw = String(ref || "").trim();
   if (!raw) return "";
@@ -47,12 +44,22 @@ async function applyOne(
   providerPaymentId: string,
   status: string,
   paidAmount: number,
+  currency: string,
 ) {
   const resolved = await resolveIntentId(admin, intentId);
+  if (isApprovedCreditStatus(status)) {
+    if (!currencyIsArs(currency)) {
+      return { intentId: resolved, applied: false, error: "Solo se acepta ARS." };
+    }
+    const { data: intent } = await admin.from("mp_intents").select("amount").eq("id", resolved).maybeSingle();
+    if (!moneyCentsEqual(intent?.amount, paidAmount)) {
+      return { intentId: resolved, applied: false, error: "Monto incorrecto." };
+    }
+  }
   const { data, error } = await admin.rpc("apply_mp_approved_payment", {
     p_intent_id: resolved,
     p_provider_payment_id: providerPaymentId,
-    p_status: status,
+    p_status: isApprovedCreditStatus(status) ? "approved" : paymentStatus(status),
     p_paid_amount: paidAmount,
   });
   if (error) return { intentId: resolved, error: error.message };
@@ -102,8 +109,9 @@ Deno.serve(async (req) => {
             admin,
             intentId,
             String(payment.id || id),
-            isPaid(payment.status) ? "approved" : mpStatus(payment.status),
+            isApprovedCreditStatus(payment.status) ? "approved" : paymentStatus(payment.status),
             Number(payment.transaction_amount || 0),
+            String(payment.currency_id || ""),
           ),
         });
       } catch (err) {
@@ -117,7 +125,7 @@ Deno.serve(async (req) => {
         const payments = Array.isArray(order.payments)
           ? (order.payments as Array<Record<string, unknown>>)
           : [];
-        const pick = payments.find((row) => isPaid(row.status)) || payments[0];
+        const pick = payments.find((row) => isApprovedCreditStatus(row.status)) || payments[0];
         if (!pick?.id) {
           results.push({ merchantOrderId: id, skipped: true, reason: "sin-pago" });
           continue;
@@ -134,8 +142,9 @@ Deno.serve(async (req) => {
             admin,
             intentId,
             String(payment.id || pick.id),
-            isPaid(payment.status || pick.status) ? "approved" : mpStatus(payment.status || pick.status),
-            Number(payment.transaction_amount || pick.transaction_amount || order.paid_amount || 0),
+            isApprovedCreditStatus(payment.status || pick.status) ? "approved" : paymentStatus(payment.status || pick.status),
+            Number(payment.transaction_amount || pick.transaction_amount || 0),
+            String(payment.currency_id || pick.currency_id || order.currency_id || ""),
           ),
         });
       } catch (err) {
@@ -160,7 +169,7 @@ Deno.serve(async (req) => {
           const rows = Array.isArray((search as { results?: unknown[] }).results)
             ? (search as { results: Array<Record<string, unknown>> }).results
             : [];
-          const approved = rows.find((row) => isPaid(row.status));
+          const approved = rows.find((row) => isApprovedCreditStatus(row.status));
           if (!approved?.id) {
             results.push({ intentId: intent.id, skipped: true, reason: "sin-pago-aprobado" });
             continue;
@@ -172,7 +181,8 @@ Deno.serve(async (req) => {
               String(intent.id),
               String(approved.id),
               "approved",
-              Number(approved.transaction_amount || intent.amount || 0),
+              Number(approved.transaction_amount || 0),
+              String(approved.currency_id || ""),
             ),
           });
         } catch (err) {
