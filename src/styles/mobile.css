@@ -1,0 +1,557 @@
+/* =========================================================================
+   CAPA MOVIL — Jockey Connect
+   -------------------------------------------------------------------------
+   Se importa DESPUES de index.css, por lo que gana en el cascade a igualdad
+   de especificidad. Todas las reglas viven dentro de media queries, asi que
+   el escritorio queda intacto.
+
+   Breakpoints:
+     <= 1023px  tablet / celular  (shell, contencion de ancho)
+     <=  767px  celular           (formularios, densidad)
+     <=  640px  celular chico     (modales tipo hoja, tablas)
+   ========================================================================= */
+
+/* =========================================================================
+   1. CONTENCION DE ANCHO — cero scroll horizontal de pagina
+   -------------------------------------------------------------------------
+   Causa raiz del "todo se corre a la derecha": un riel o una tabla ancha
+   dentro de un item flex/grid hacia crecer al contenedor (min-content) y la
+   pagina entera terminaba midiendo 500-800px en un visor de 375px. Con la
+   pagina mas ancha que el visor, la navbar y la tabbar fija quedaban
+   cortadas. Acotamos los contenedores para que el scroll ocurra DENTRO del
+   riel o de la tabla, nunca en el documento.
+   ========================================================================= */
+
+@media (max-width: 1023px) {
+  html,
+  body {
+    overflow-x: hidden;
+    overscroll-behavior-x: none;
+  }
+
+  .app-container,
+  .main-content,
+  .page-stage,
+  .admin-shell,
+  .admin-main,
+  .glass-card,
+  .glass-panel {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  /* Las grillas de dos columnas del portal del socio colapsan a una sola,
+     pero con minmax(0,…) para que la columna no se estire con el contenido. */
+  .db-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Barras fijas: nunca mas anchas que el visor. */
+  .member-tabbar,
+  .app-navbar,
+  .navbar {
+    max-width: 100vw;
+  }
+}
+
+/* =========================================================================
+   2. SHELL DE ADMINISTRACION
+   -------------------------------------------------------------------------
+   A <=860px el shell pasa de grilla de dos columnas a columna simple. Como
+   flex-column, el item se estiraba al min-content de su contenido. Con grid
+   de una sola pista minmax(0,1fr) el contenido no puede empujar el ancho.
+   ========================================================================= */
+
+@media (max-width: 860px) {
+  .admin-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: min-content;
+    gap: 0.85rem;
+  }
+
+  .admin-main {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  /* El riel de administracion es un menu plegable: que no quede pegajoso
+     ocupando pantalla cuando esta abierto. */
+  .admin-rail {
+    position: relative;
+    top: 0;
+  }
+
+  .admin-rail.is-menu-open .admin-rail-nav {
+    max-height: min(62vh, 32rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}
+
+/* =========================================================================
+   3. RIELES Y BARRAS DE FILTROS DESLIZABLES
+   -------------------------------------------------------------------------
+   En vez de envolverse en cuatro lineas rotas, las barras de acciones,
+   filtros y sub-navegacion se deslizan horizontalmente con snap.
+   ========================================================================= */
+
+@media (max-width: 1023px) {
+  .admin-filters,
+  .members-toolbar,
+  .members-panel-rail,
+  .padron-top-ops,
+  .acct-subnav-pages,
+  .members-stat-cards,
+  .cuotas-desk-toolbar,
+  .cash-panel-tabs,
+  .reports-section-nav,
+  .acct-view-strip,
+  .tab-rail,
+  .page-header-member-ops {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    min-width: 0;
+    max-width: 100%;
+    scroll-snap-type: x proximity;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 0.3rem;
+    /* Sangrado al borde de la pantalla: se nota que hay mas contenido. */
+    scroll-padding-left: 0.75rem;
+  }
+
+  .admin-filters::-webkit-scrollbar,
+  .members-toolbar::-webkit-scrollbar,
+  .members-panel-rail::-webkit-scrollbar,
+  .padron-top-ops::-webkit-scrollbar,
+  .acct-subnav-pages::-webkit-scrollbar,
+  .members-stat-cards::-webkit-scrollbar,
+  .cuotas-desk-toolbar::-webkit-scrollbar,
+  .cash-panel-tabs::-webkit-scrollbar,
+  .reports-section-nav::-webkit-scrollbar,
+  .acct-view-strip::-webkit-scrollbar,
+  .tab-rail::-webkit-scrollbar,
+  .page-header-member-ops::-webkit-scrollbar {
+    display: none;
+  }
+
+  .admin-filters > *,
+  .members-toolbar > *,
+  .members-panel-rail > *,
+  .padron-top-ops > *,
+  .acct-subnav-pages > *,
+  .members-stat-cards > *,
+  .cuotas-desk-toolbar > *,
+  .cash-panel-tabs > *,
+  .reports-section-nav > *,
+  .acct-view-strip > *,
+  .tab-rail > *,
+  .page-header-member-ops > * {
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+  }
+}
+
+/* =========================================================================
+   4. ENCABEZADOS DE PAGINA
+   ========================================================================= */
+
+@media (max-width: 767px) {
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+  }
+
+  .page-header-aside {
+    align-self: stretch;
+    width: 100%;
+    margin-left: 0;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  /* El contador del encabezado ocupaba un tercio del ancho y cortaba el
+     texto: en celular toma la fila completa. */
+  .page-header-aside > .page-header-member-count,
+  .page-header-member-tools {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .page-subtitle {
+    font-size: 0.92rem;
+  }
+}
+
+/* =========================================================================
+   5. TABLAS
+   -------------------------------------------------------------------------
+   Las tablas que no tienen modo tarjeta se leen mejor deslizandolas con las
+   celdas en una sola linea que comprimidas a una letra por renglon. El
+   scroll queda contenido en el wrapper, no en la pagina.
+   ========================================================================= */
+
+@media (max-width: 767px) {
+  .table-responsive {
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+
+  .admin-table {
+    font-size: 0.84rem;
+  }
+
+  .admin-table th,
+  .admin-table td {
+    padding: 0.6rem 0.65rem;
+  }
+
+  .admin-table th {
+    white-space: nowrap;
+    font-size: 0.7rem;
+  }
+}
+
+/* =========================================================================
+   6. FORMULARIOS
+   -------------------------------------------------------------------------
+   iOS hace zoom automatico al enfocar un campo con fuente menor a 16px y
+   despues la pagina queda desencuadrada. 16px exactos lo evitan.
+   ========================================================================= */
+
+@media (max-width: 767px) {
+  .form-input,
+  .members-search-input,
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  .form-input,
+  select.form-input,
+  textarea.form-input {
+    min-height: 46px;
+    padding: 0.7rem 0.85rem;
+  }
+
+  textarea.form-input {
+    min-height: 96px;
+  }
+
+  .form-group {
+    margin-bottom: 1rem;
+  }
+
+  .form-label {
+    font-size: 0.78rem;
+  }
+
+  /* Pares etiqueta/campo que en escritorio van en dos columnas. */
+  .form-row,
+  .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* =========================================================================
+   7. AREAS TACTILES
+   -------------------------------------------------------------------------
+   Objetivo: nada accionable por debajo de ~40px de alto en celular.
+   ========================================================================= */
+
+@media (max-width: 767px) {
+  .btn {
+    min-height: 44px;
+    padding: 0.7rem 1.1rem;
+  }
+
+  .btn-sm {
+    min-height: 38px;
+    padding: 0.45rem 0.85rem;
+  }
+
+  .btn-xs {
+    width: 34px;
+    height: 34px;
+    min-height: 34px;
+    padding: 0.35rem;
+  }
+
+  .filter-btn,
+  .chip,
+  .tab-chip {
+    min-height: 38px;
+  }
+
+  .session-status-bar__btn {
+    min-height: 36px;
+    padding: 0.4rem 0.8rem;
+    font-size: 0.76rem;
+  }
+
+  /* Botones que ocupan todo el ancho se sienten mucho mejor con el pulgar. */
+  .btn-block,
+  .modal-footer .btn,
+  .form-actions .btn {
+    width: 100%;
+  }
+
+  .modal-footer,
+  .form-actions {
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 0.6rem;
+  }
+}
+
+/* =========================================================================
+   8. MODALES COMO HOJA INFERIOR
+   -------------------------------------------------------------------------
+   Un cuadro centrado con margenes a los cuatro lados desperdicia pantalla y
+   deja el boton de accion lejos del pulgar. En celular el dialogo sube desde
+   abajo, ocupa el ancho completo y su encabezado queda fijo.
+   ========================================================================= */
+
+@media (max-width: 640px) {
+  .modal-overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  /* Varios dialogos fijan maxWidth/width por style inline desde el JSX
+     (ModalDialog contentStyle), asi que aca hace falta !important para que
+     la hoja ocupe el ancho del telefono. */
+  .modal-content {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    max-height: 92dvh;
+    border-radius: 20px 20px 0 0;
+    border-bottom: 0;
+    padding-bottom: env(safe-area-inset-bottom);
+    animation: mobileSheetUp 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .modal-header {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    padding: 1.1rem 1rem 0.85rem;
+    background: color-mix(in srgb, var(--bg-secondary) 94%, transparent);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+  }
+
+  /* Agarradera: senal visual de que es una hoja que se cierra. */
+  .modal-header::before {
+    content: '';
+    position: absolute;
+    top: 0.45rem;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 2.4rem;
+    height: 0.25rem;
+    border-radius: 999px;
+    background: var(--border-glass-hover, rgba(255, 255, 255, 0.22));
+  }
+
+  .modal-body {
+    padding: 1rem 1rem 1.25rem;
+  }
+}
+
+@keyframes mobileSheetUp {
+  from {
+    transform: translateY(14%);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-content {
+    animation: none;
+  }
+}
+
+/* =========================================================================
+   9. PORTAL DEL SOCIO
+   ========================================================================= */
+
+@media (max-width: 767px) {
+  /* La barra de sesion se comia tres renglones arriba de todo en cada
+     pantalla. Queda en una sola fila: datos a la izquierda (con puntos
+     suspensivos si no entran) y boton + sede apilados a la derecha. */
+  .session-status-bar {
+    align-items: center;
+    gap: 0.25rem 0.6rem;
+    padding: 0.5rem 0.7rem;
+    margin-bottom: 0.75rem;
+  }
+
+  /* El wrapper de acciones deja de ser caja: su boton y la sede pasan a ser
+     items directos de la barra y podemos ponerlos donde conviene. */
+  .session-status-bar__actions {
+    display: contents;
+  }
+
+  .session-status-bar__meta {
+    order: 1;
+    flex: 1 1 100%;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  .session-status-bar__meta > * {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .session-status-bar__seat {
+    order: 2;
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 0.68rem;
+    text-align: left;
+  }
+
+  .session-status-bar__btn {
+    order: 3;
+    flex: 0 0 auto;
+    margin-left: auto;
+  }
+
+  .session-status-bar__notice {
+    margin: -0.35rem 0 0.7rem;
+  }
+}
+
+@media (max-width: 1023px) {
+  /* Barra inferior: alto comodo y respeto por el area segura del telefono. */
+  .app-container.is-member-shell .member-tabbar-row {
+    padding: 0 0.15rem;
+  }
+
+  .member-tab {
+    min-height: 56px;
+    padding: 0.35rem 0.1rem 0.45rem;
+  }
+
+  .member-tab-label {
+    font-size: 0.66rem;
+    letter-spacing: -0.01em;
+  }
+
+  /* La credencial y las tarjetas no deben pasarse del ancho util. */
+  .vc-card-face,
+  .db-card,
+  .db-weather {
+    min-width: 0;
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 520px) {
+  /* Carrusel de indicadores: que se vea el borde de la tarjeta siguiente. */
+  .db-stat-row {
+    grid-auto-columns: minmax(10.5rem, 72%);
+    gap: 0.6rem;
+    scroll-padding-left: 0.1rem;
+  }
+
+  .db-stat-row::-webkit-scrollbar {
+    display: none;
+  }
+
+  .db-stat-row {
+    scrollbar-width: none;
+  }
+}
+
+/* =========================================================================
+   10. AJUSTES PUNTUALES DE ADMINISTRACION
+   ========================================================================= */
+
+@media (max-width: 767px) {
+  /* Encabezados con h3 en nowrap que se salian de su tarjeta. */
+  .sys-admin-card-head {
+    flex-wrap: wrap;
+  }
+
+  .sys-admin-card-head h3 {
+    flex: 1 1 100%;
+    white-space: normal;
+  }
+
+  .staff-card,
+  .staff-card > div {
+    min-width: 0;
+  }
+
+  .staff-avatar-container {
+    flex-wrap: wrap;
+  }
+
+  /* Pastillas y botones de icono de los paneles del escritorio admin:
+     por debajo de 32px eran dificiles de acertar con el dedo. */
+  .members-toolbar-btn,
+  .cash-panel-tab,
+  .acct-subnav-family,
+  .acct-subnav-page,
+  .reports-section-pill,
+  .sys-role-chip,
+  .mb-line-btn {
+    min-height: 38px;
+    padding-top: 0.4rem;
+    padding-bottom: 0.4rem;
+  }
+
+  .members-wa-btn,
+  .cash-lila-icon-btn {
+    width: 34px;
+    height: 34px;
+    min-width: 34px;
+  }
+
+  /* Celdas numericas de las tablas anchas: que no se corten al deslizar. */
+  .admin-table td.num {
+    white-space: nowrap;
+  }
+}
+
+/* =========================================================================
+   11. DENSIDAD GENERAL
+   ========================================================================= */
+
+@media (max-width: 767px) {
+  .glass-card {
+    padding: 1rem 0.9rem;
+    border-radius: 16px;
+  }
+
+  .main-content {
+    padding: 0.9rem 0.75rem;
+  }
+
+  /* Pilas de tarjetas con separacion pareja. */
+  .glass-card + .glass-card {
+    margin-top: 0.85rem;
+  }
+}

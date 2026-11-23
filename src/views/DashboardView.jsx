@@ -580,7 +580,7 @@ export default function DashboardView({
           align-items: start;
         }
         @media (max-width: 1100px) {
-          .db-grid { grid-template-columns: 1fr; }
+          .db-grid { grid-template-columns: minmax(0, 1fr); }
           .db-quick-bar { grid-template-columns: repeat(2, 1fr); }
         }
 

@@ -1,0 +1,420 @@
+/* =========================================================================
+   CAPA MOVIL — COHERENCIA VISUAL
+   -------------------------------------------------------------------------
+   Se importa DESPUES de mobile.css. Mientras mobile.css arregla el layout
+   (que nada se salga de la pantalla), este archivo unifica el aspecto.
+
+   El CSS del proyecto crecio por capas y en una misma pantalla convivian
+   radios de 0, 7, 8, 9, 10, 12, 14, 16, 18, 20 y 22px mas tres radios
+   asimetricos, pastillas de 19 a 47px de alto y veinte tamanos de letra
+   distintos para la misma micro-etiqueta. Aca se reduce todo a una escala
+   corta:
+
+     radio      tarjeta 16px · bloque y control 12px · pastilla 999px
+     alto       pastilla 34px · boton 44px · boton de icono 36px
+     etiqueta   0.7rem / 0.07em / 700
+     numeros    tabular-nums
+
+   Son variables locales (--m-*) para ajustar la escala en un solo lugar.
+   Todo vive en media queries de celular: el escritorio no cambia.
+   ========================================================================= */
+
+@media (max-width: 767px) {
+  :root {
+    --m-r-card: 16px;
+    --m-r-block: 12px;
+    --m-r-pill: 999px;
+    --m-pad-card: 1rem 0.95rem;
+    --m-gap: 0.85rem;
+    --m-h-pill: 34px;
+    --m-fs-label: 0.7rem;
+    --m-ls-label: 0.07em;
+    --m-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  }
+}
+
+/* =========================================================================
+   1. TARJETAS — un radio, un borde, una sombra
+   ========================================================================= */
+
+@media (max-width: 767px) {
+  .glass-card,
+  .db-card,
+  .db-hero,
+  .db-weather,
+  .vc-card-face,
+  .mfb-main,
+  .mfb-calendar,
+  .mfb-mine,
+  .mfb-tile,
+  .news-card,
+  .pay-hist-mp-card,
+  .ops-today,
+  .ops-week,
+  .due-collect,
+  .jev-teaser,
+  .members-search-hero,
+  .foldable-block,
+  .cuotas-toolbar,
+  .cash-day-strip,
+  .cash-pocket-card,
+  .cash-day-cal,
+  .staff-card,
+  .sys-admin-card,
+  .admin-rail {
+    border-radius: var(--m-r-card);
+    box-shadow: var(--m-shadow);
+  }
+}
+
+/* =========================================================================
+   2. BLOQUES INTERNOS — el escalon de abajo
+   ========================================================================= */
+
+@media (max-width: 767px) {
+  .session-status-bar,
+  .alerts-banner-item,
+  .dues-banner,
+  .db-quick-btn,
+  .db-stat-card,
+  .db-sport-card,
+  .db-news-item,
+  .db-msg-item,
+  .db-claim-item,
+  .facility-row,
+  .pay-hist-kpi,
+  .pay-hist-transfer,
+  .pay-hist-file,
+  .pay-hist-alert,
+  .pay-hist-row,
+  .pay-alias,
+  .ops-dash-action,
+  .ops-today-pane,
+  .ops-today-alert-item,
+  .ops-dues-strip,
+  .page-header-member-count,
+  .page-header-member-op,
+  .admin-filters,
+  .members-panel-rail,
+  .members-stat-card,
+  .members-padron-row,
+  .cuotas-tool,
+  .acct-treasury-hub,
+  .cash-month-sheet,
+  .ops-weather-outdoor {
+    border-radius: var(--m-r-block);
+  }
+}
+
+/* =========================================================================
+   3. CONTROLES
+   ========================================================================= */
+
+@media (max-width: 767px) {
+  .btn,
+  .form-input,
+  select.form-input,
+  textarea.form-input,
+  .members-search-input,
+  .mfb-cal-day,
+  .ops-padron-mora-btn,
+  .ops-padron-move {
+    border-radius: var(--m-r-block);
+  }
+}
+
+/* =========================================================================
+   4. PASTILLAS — todas con la misma forma, alto y peso
+   ========================================================================= */
+
+@media (max-width: 767px) {
+  .filter-btn,
+  .news-category,
+  .db-hero-badge,
+  .mfb-filter-chip,
+  .mfb-tab,
+  .mfb-badge,
+  .mfb-tile-tag,
+  .mfb-mine-link,
+  .ops-weather-pill,
+  .ops-chip,
+  .ops-padron-cta,
+  .ops-dash-link,
+  .acct-treasury-hub-item,
+  .member-app-chip,
+  .tier-chip,
+  .sys-role-chip,
+  .reports-section-pill,
+  .acct-subnav-family,
+  .acct-subnav-page,
+  .cash-panel-tab,
+  .members-toolbar-btn,
+  .members-toolbar-filter,
+  .members-panel-tab,
+  .admin-rail-menu-toggle,
+  .session-status-bar__btn,
+  .chip {
+    border-radius: var(--m-r-pill);
+  }
+
+  /* Las que son navegacion o filtro comparten alto, padding y peso. */
+  .filter-btn,
+  .mfb-filter-chip,
+  .mfb-tab,
+  .ops-chip,
+  .reports-section-pill,
+  .acct-subnav-family,
+  .acct-subnav-page,
+  .cash-panel-tab,
+  .members-toolbar-btn,
+  .members-panel-tab,
+  .sys-role-chip {
+    min-height: var(--m-h-pill);
+    padding: 0.4rem 0.85rem;
+    font-size: 0.76rem;
+    font-weight: 650;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+
+  /* Botones de icono: circulos del mismo diametro en toda la app. */
+  .btn-xs,
+  .members-wa-btn,
+  .cash-lila-icon-btn,
+  .modal-close {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    min-height: 36px;
+    border-radius: var(--m-r-pill);
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+  }
+
+  /* La cruz de cerrar media 12x19px: imposible de acertar con el pulgar. */
+  .modal-close {
+    font-size: 1.35rem;
+    line-height: 1;
+    border: 1px solid var(--border-glass);
+    background: var(--surface-soft);
+  }
+
+  .ops-padron-move {
+    min-height: 38px;
+  }
+
+  /* Los puntos del carrusel de alertas median 5px. El punto sigue chico,
+     pero el area que responde al dedo pasa a 28px. */
+  .ops-alert-dots > button {
+    min-width: 28px;
+    min-height: 28px;
+    padding: 11px;
+    background-clip: content-box;
+    border-radius: var(--m-r-pill);
+  }
+}
+
+/* =========================================================================
+   5. MICRO-ETIQUETAS — una sola voz
+   -------------------------------------------------------------------------
+   Iban de 10.56px a 12.48px, con interletrado de 0.45 a 1.74px y pesos de
+   400 a 800. Mismo rol visual, veinte formas distintas.
+   ========================================================================= */
+
+@media (max-width: 767px) {
+  .form-label,
+  .db-hero-greeting,
+  .db-hero-stat-lbl,
+  .db-stat-label,
+  .acct-subnav-print,
+  .mb-folio-kicker,
+  .mb-folio-seal,
+  .page-header-member-count-label,
+  .page-header-member-op-label,
+  .members-search-label,
+  .members-padron-actions-h,
+  .tier-chip-main,
+  .cuotas-desk-label,
+  .cash-day-strip-kicker,
+  .cash-day-strip-total-label,
+  .cash-pocket-card-name,
+  .cash-pocket-card-day-label,
+  .cash-pocket-card-stock-label,
+  .cash-day-cal-kicker,
+  .cash-lila-section-title,
+  .cash-month-sheet-kicker,
+  .reports-kpi-label,
+  .admin-table th {
+    font-size: var(--m-fs-label);
+    letter-spacing: var(--m-ls-label);
+    font-weight: 700;
+    line-height: 1.25;
+  }
+}
+
+/* =========================================================================
+   6. NUMEROS ALINEADOS
+   ========================================================================= */
+
+@media (max-width: 767px) {
+  [class*="-value"],
+  [class*="-total"],
+  [class*="-amount"],
+  [class*="-money"],
+  [class*="-kpi"],
+  [class*="-saldo"],
+  .num,
+  .admin-table td.num {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* =========================================================================
+   7. RITMO VERTICAL — una sola separacion entre bloques
+   ========================================================================= */
+
+@media (max-width: 767px) {
+  .page-stage > * + *,
+  .admin-main > * + *,
+  .glass-card + .glass-card {
+    margin-top: var(--m-gap);
+  }
+
+  .glass-card,
+  .db-card,
+  .ops-today,
+  .cash-pocket-card,
+  .cash-day-cal,
+  .cash-day-strip,
+  .members-search-hero,
+  .cuotas-toolbar,
+  .staff-card {
+    padding: var(--m-pad-card);
+  }
+}
+
+/* =========================================================================
+   8. RIELES — todos con el mismo aspecto
+   ========================================================================= */
+
+@media (max-width: 1023px) {
+  .admin-filters,
+  .members-toolbar,
+  .members-panel-rail,
+  .acct-subnav-pages,
+  .cuotas-desk-toolbar,
+  .cash-panel-tabs,
+  .reports-section-nav,
+  .acct-view-strip,
+  .tab-rail {
+    gap: 0.35rem;
+    padding: 0.35rem;
+    background: var(--surface-soft);
+    border: 1px solid var(--border-glass);
+    border-radius: var(--m-r-block, 12px);
+  }
+
+  /* El ultimo item se separa del borde: se nota que el riel sigue. */
+  .admin-filters > :last-child,
+  .members-toolbar > :last-child,
+  .members-panel-rail > :last-child,
+  .acct-subnav-pages > :last-child,
+  .cash-panel-tabs > :last-child,
+  .reports-section-nav > :last-child,
+  .acct-view-strip > :last-child,
+  .padron-top-ops > :last-child,
+  .members-stat-cards > :last-child {
+    margin-right: 0.5rem;
+  }
+}
+
+/* =========================================================================
+   9. ESTADO ACTIVO Y FOCO CONSISTENTES
+   ========================================================================= */
+
+@media (max-width: 767px) {
+  .filter-btn.active,
+  .mfb-filter-chip.is-on,
+  .mfb-tab.is-on,
+  .ops-chip.is-on,
+  .reports-section-pill.is-active,
+  .acct-subnav-family.is-active,
+  .acct-subnav-page.is-active,
+  .cash-panel-tab.is-active,
+  .members-panel-tab.is-active,
+  .sys-role-chip.is-on {
+    border-color: var(--primary-gold);
+    color: var(--primary-gold);
+    background: color-mix(in srgb, var(--primary-gold) 10%, transparent);
+  }
+
+  .btn:focus-visible,
+  .filter-btn:focus-visible,
+  .members-panel-tab:focus-visible,
+  .cash-panel-tab:focus-visible,
+  .acct-subnav-family:focus-visible,
+  .reports-section-pill:focus-visible {
+    outline: 2px solid var(--primary-gold);
+    outline-offset: 2px;
+  }
+}
+
+/* =========================================================================
+   10. ESCALA DE TITULOS
+   -------------------------------------------------------------------------
+   En una misma recorrida habia titulos de seccion de 16.8, 22.4, 26.7 y
+   27.2px. Tres escalones alcanzan: pagina, seccion y tarjeta.
+   ========================================================================= */
+
+@media (max-width: 767px) {
+  .main-content h1,
+  .admin-main h1,
+  .page-title {
+    font-size: 1.5rem;
+    line-height: 1.15;
+  }
+
+  .main-content h2,
+  .main-content h3,
+  .admin-main h2,
+  .admin-main h3 {
+    font-size: 1.25rem;
+    line-height: 1.2;
+  }
+
+  .main-content h4,
+  .main-content h5,
+  .admin-main h4,
+  .admin-main h5 {
+    font-size: 1rem;
+    line-height: 1.25;
+  }
+}
+
+/* =========================================================================
+   11. BARRA INFERIOR DEL SOCIO
+   -------------------------------------------------------------------------
+   La pestana activa solo cambiaba de color. Una marca arriba la hace
+   evidente de un vistazo.
+   ========================================================================= */
+
+@media (max-width: 1023px) {
+  .member-tab {
+    position: relative;
+  }
+
+  .member-tab.is-active::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 1.75rem;
+    height: 3px;
+    border-radius: 0 0 999px 999px;
+    background: var(--primary-gold);
+  }
+}
