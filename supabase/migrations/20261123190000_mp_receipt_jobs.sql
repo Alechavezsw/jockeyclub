@@ -95,7 +95,8 @@ create or replace function public.complete_mp_receipt_job(
   p_ops_notice_id uuid,
   p_receipt_number text,
   p_last_error text,
-  p_permanent boolean default false
+  p_permanent boolean default false,
+  p_close boolean default false
 )
 returns jsonb
 language plpgsql
@@ -134,6 +135,7 @@ begin
     and nullif(btrim(coalesce(v_row.email_id, '')), '') is not null;
 
   v_status := case
+    when coalesce(p_close, false) then 'sent'
     when v_done and not coalesce(p_permanent, false) then 'sent'
     when coalesce(p_permanent, false) or v_row.attempts >= 6 then 'attention'
     else 'retry'
@@ -162,5 +164,5 @@ $function$;
 revoke all on function public.claim_mp_receipt_job(uuid, boolean) from public, anon, authenticated;
 grant execute on function public.claim_mp_receipt_job(uuid, boolean) to service_role;
 
-revoke all on function public.complete_mp_receipt_job(uuid, uuid, text, text, uuid, text, text, boolean) from public, anon, authenticated;
-grant execute on function public.complete_mp_receipt_job(uuid, uuid, text, text, uuid, text, text, boolean) to service_role;
+revoke all on function public.complete_mp_receipt_job(uuid, uuid, text, text, uuid, text, text, boolean, boolean) from public, anon, authenticated;
+grant execute on function public.complete_mp_receipt_job(uuid, uuid, text, text, uuid, text, text, boolean, boolean) to service_role;

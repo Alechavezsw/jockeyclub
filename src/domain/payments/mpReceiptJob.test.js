@@ -55,6 +55,10 @@ function queueAdmin() {
         row.email_id = storedReceiptEmail(args.p_email_id) || row.email_id;
         row.ops_notice_id = args.p_ops_notice_id || row.ops_notice_id;
         row.locked_until = null;
+        if (args.p_close) {
+          row.status = 'sent';
+          return { data: { status: row.status }, error: null };
+        }
         row.status = nextReceiptStatus({
           messageId: row.message_id,
           emailId: row.email_id,
@@ -201,5 +205,38 @@ describe('settleMpReceipt', () => {
     expect(second.status).toBe('sent');
     expect(second.emailId).toBe('mail-real');
     expect(provider.size).toBe(1);
+  });
+
+  it('un comprobante ya guardado en el cobro cierra la cola sin otro envío', async () => {
+    const admin = queueAdmin();
+    const deliver = async () => {
+      admin.sends.push('no');
+      return {
+        skip: 'already',
+        messageId: 'msg-prev',
+        emailId: 'mail-prev',
+        opsNoticeId: 'ops-prev',
+        receiptNumber: 'MP-9',
+      };
+    };
+    const first = await settleMpReceipt({ admin, intentId: 'intent-prev', deliver });
+    expect(first.status).toBe('sent');
+    const second = await settleMpReceipt({ admin, intentId: 'intent-prev', deliver });
+    expect(second.skip).toBe('already');
+    expect(admin.sends).toEqual(['no']);
+  });
+
+  it('un socio exento cierra el comprobante de cuota sin enviarlo', async () => {
+    const admin = queueAdmin();
+    let calls = 0;
+    const deliver = async () => {
+      calls += 1;
+      return { skip: 'dues-exempt' };
+    };
+    const first = await settleMpReceipt({ admin, intentId: 'intent-exempt', deliver });
+    expect(first.status).toBe('sent');
+    const second = await settleMpReceipt({ admin, intentId: 'intent-exempt', deliver });
+    expect(second.skip).toBe('already');
+    expect(calls).toBe(1);
   });
 });

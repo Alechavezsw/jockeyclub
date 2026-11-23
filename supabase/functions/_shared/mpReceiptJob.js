@@ -72,6 +72,7 @@ export async function settleMpReceipt({ admin, intentId, deliver, force = false 
       p_receipt_number: null,
       p_last_error: message,
       p_permanent: false,
+      p_close: false,
     });
     return { error: message, status: saved?.data?.status || 'retry' };
   }
@@ -88,6 +89,7 @@ export async function settleMpReceipt({ admin, intentId, deliver, force = false 
     p_receipt_number: result?.receiptNumber || null,
     p_last_error: result?.error || result?.emailError || null,
     p_permanent: Boolean(result?.permanent),
+    p_close: result?.skip === 'dues-exempt',
   });
   return {
     ...result,

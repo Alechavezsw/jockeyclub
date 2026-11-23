@@ -257,7 +257,15 @@ export async function deliverMpReceipt(
   const alreadyMessage = Boolean(meta.receipt_message_id || prior.messageId);
   const alreadyEmail = Boolean(meta.receipt_email_id || prior.emailId);
   const alreadyOpsNotice = Boolean(meta.ops_payment_notice_id || prior.opsNoticeId);
-  if (alreadyMessage && alreadyEmail && alreadyOpsNotice) return { skip: "already" };
+  if (alreadyMessage && alreadyEmail && alreadyOpsNotice) {
+    return {
+      skip: "already",
+      messageId: meta.receipt_message_id || prior.messageId || null,
+      emailId: meta.receipt_email_id || prior.emailId || null,
+      opsNoticeId: meta.ops_payment_notice_id || prior.opsNoticeId || null,
+      receiptNumber: meta.receipt_number || null,
+    };
+  }
 
   const { data: member } = await admin
     .from("members")

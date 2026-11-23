@@ -462,6 +462,17 @@ describe('imputador real y cuerpo completo de Mercado Pago', () => {
         [tired, MSG, OPS],
       );
     }
+    const closed = '49494949-4949-4494-8494-494949494949';
+    await intent(closed);
+    await query(`select public.claim_mp_receipt_job($1)`, [closed]);
+    const closedResult = await query(
+      `select public.complete_mp_receipt_job($1, null, null, null, null, null, 'Sin comprobante de cuota: socio exento.', false, true) as result`,
+      [closed],
+    );
+    expect(closedResult.rows[0].result.status).toBe('sent');
+    const closedAgain = await query(`select public.claim_mp_receipt_job($1) as result`, [closed]);
+    expect(closedAgain.rows[0].result).toMatchObject({ claimed: false, status: 'sent' });
+
     expect(last.rows[0].result.status).toBe('attention');
     const stopped = await query(`select public.claim_mp_receipt_job($1) as result`, [tired]);
     expect(stopped.rows[0].result).toMatchObject({ claimed: false, status: 'attention' });
