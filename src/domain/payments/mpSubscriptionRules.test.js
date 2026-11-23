@@ -88,6 +88,8 @@ describe('reglas de la adhesión', () => {
     expect(migration).toContain('p_skip_surcharge');
     expect(migration).toContain('preapproval_mismatch');
     expect(migration).toContain('stale_after_close');
+    expect(migration).toContain('revoke all on function public.impute_dues_account_payment(uuid, uuid, numeric, jsonb, date, boolean) from public');
+    expect(migration).toContain('drop function if exists public.impute_dues_account_payment(uuid, uuid, numeric, jsonb, date)');
     expect(migration).not.toContain('debito_automatico');
     expect(migration).not.toContain('jockey.mp_debit_capital_only');
     expect(migration).toContain('mpDebitMethod');

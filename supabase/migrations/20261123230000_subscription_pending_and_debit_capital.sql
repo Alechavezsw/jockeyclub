@@ -395,12 +395,19 @@ create trigger trg_member_payment_posts_dues
 
 drop function if exists public.impute_dues_account_payment(uuid, uuid, numeric, jsonb, date);
 
+-- Una función nueva hereda execute para anon y authenticated.
+-- Se lo sacamos siempre. service_role conserva la llamada directa.
+revoke all on function public.impute_dues_account_payment(uuid, uuid, numeric, jsonb, date, boolean) from public;
+
 do $grant$
 begin
-  if exists (select 1 from pg_roles where rolname = 'service_role') then
-    revoke all on function public.impute_dues_account_payment(uuid, uuid, numeric, jsonb, date, boolean) from public;
+  if exists (select 1 from pg_roles where rolname = 'anon') then
     revoke all on function public.impute_dues_account_payment(uuid, uuid, numeric, jsonb, date, boolean) from anon;
+  end if;
+  if exists (select 1 from pg_roles where rolname = 'authenticated') then
     revoke all on function public.impute_dues_account_payment(uuid, uuid, numeric, jsonb, date, boolean) from authenticated;
+  end if;
+  if exists (select 1 from pg_roles where rolname = 'service_role') then
     grant execute on function public.impute_dues_account_payment(uuid, uuid, numeric, jsonb, date, boolean) to service_role;
   end if;
 end
