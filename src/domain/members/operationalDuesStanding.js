@@ -219,25 +219,13 @@ export function buildOperationalDuesStanding(member, {
     : member;
   const stored = socialDuesStoredBalance(memberForBalance, { entries });
   const openCap = openDuesObligationCapital(member);
-  // Crédito visible solo si no hay obligación neta (stored ya netea openCap).
-  // Si hay imputaciones, no contar como libre un adelanto ya aplicado a un mes.
-  let creditBalance = 0;
-  if (stored <= EPS && outstanding < -EPS) {
-    const rawCredit = money(-outstanding);
-    if (Array.isArray(imputations) && imputations.length) {
-      creditBalance = freeCreditFromStanding({
-        outstandingBalance: outstanding,
-        imputations,
-        today,
-      });
-      if (!(creditBalance > EPS) && rawCredit > EPS) {
-        // Libro ya neteó el adelanto: el residual negativo es crédito real.
-        creditBalance = rawCredit;
-      }
-    } else {
-      creditBalance = rawCredit;
-    }
-  }
+  // Crédito libre = una sola fuente verificable (sin restaurar rawCredit).
+  const creditBalance = stored <= EPS
+    ? freeCreditFromStanding({
+      outstandingBalance: outstanding,
+      explicitCredit: member?.creditBalance ?? member?.meta?.creditBalance,
+    })
+    : 0;
 
   // Sin deuda neta operativa → no exigible, aunque el auxiliar o períodos digan otra cosa.
   if (stored <= EPS) {

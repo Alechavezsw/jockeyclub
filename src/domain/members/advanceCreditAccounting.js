@@ -6,30 +6,57 @@
  * 2. Solo el excedente real (menor a una cuota entera) queda como saldo a favor.
  * 3. Un descuento administrativo no es dinero ingresado: no puede crear crédito.
  * 4. El abono tenis no entra en la base de anticipo de cuota social.
+ * 5. El anticipo de un mes futuro es capital de cuota (sin 10 % de mora).
  */
+
+import {
+  duesAmountForMember,
+  duesDueDayForMember,
+  isDuesExemptMember,
+} from './dues.js';
+import { isFamilyDependent } from './households.js';
+
+export const ADVANCE_LOOP_LIMIT = 24;
 
 export function money(value) {
   return Math.round((Number(value) || 0) * 100) / 100;
 }
 
-/** Tarifa de cuota social vigente (desde oct-2026). */
-export function socialTariffForTier(tier = '') {
-  const key = String(tier || '')
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/\p{M}/gu, '');
-  if (key.includes('individual')) return 40000;
-  if (key.includes('familiar') || key.includes('grupo')) return 70000;
-  return 0;
+/**
+ * Tarifa social efectiva del socio (convenios / AMET / exentos).
+ * `chargeScope: 'social'` excluye tenis.
+ */
+export function effectiveSocialAdvanceTariff(member, on = new Date()) {
+  if (!member || isDuesExemptMember(member) || isFamilyDependent(member)) return 0;
+  const meta = member.meta && typeof member.meta === 'object' ? member.meta : {};
+  for (const key of ['duesAmount', 'monthlyDues', 'socialQuota']) {
+    const raw = member[key] ?? meta[key];
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 0.01) return money(n);
+  }
+  return money(duesAmountForMember(member, on, { chargeScope: 'social' }));
 }
 
-export function nextDueOnAfter(dueOn) {
+/** @deprecated Preferí effectiveSocialAdvanceTariff(member). */
+export function socialTariffForTier(tier = '', member = null) {
+  if (member) return effectiveSocialAdvanceTariff({ ...member, tier: member.tier || tier });
+  return effectiveSocialAdvanceTariff({ tier });
+}
+
+export function nextDueOnAfter(dueOn, member = null) {
   const iso = String(dueOn || '').slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return '';
   const [y, m] = iso.split('-').map(Number);
   const next = m === 12 ? { y: y + 1, m: 1 } : { y, m: m + 1 };
-  return `${next.y}-${String(next.m).padStart(2, '0')}-10`;
+  const dueDay = Math.min(28, Math.max(1, Number(duesDueDayForMember(member || {})) || 10));
+  return `${next.y}-${String(next.m).padStart(2, '0')}-${String(dueDay).padStart(2, '0')}`;
+}
+
+export function isValidDueOn(value) {
+  const iso = String(value || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return false;
+  const day = Number(iso.slice(8, 10));
+  return day >= 1 && day <= 28 && iso > '1900-01-10';
 }
 
 /** Capital ya imputado (cobro o adelanto) a un dueOn, sin anulados. */
@@ -48,7 +75,7 @@ export function imputedCapitalForDue(imputations = [], dueOn) {
 
 /**
  * Reparte el sobrante de caja tras cubrir deudas abiertas.
- * Devuelve imputaciones de adelanto + crédito libre residual.
+ * Solo cuotas enteras → adelanto (surcharge 0). Residual → crédito libre.
  */
 export function allocateAdvanceCash({
   cash = 0,
@@ -59,11 +86,12 @@ export function allocateAdvanceCash({
   paidAmount = null,
   capitalPaid = 0,
   surchargePaid = 0,
+  member = null,
+  loopLimit = ADVANCE_LOOP_LIMIT,
 } = {}) {
   let left = money(cash);
   const disc = money(Math.max(0, discount));
   if (disc > 0.01 && paidAmount != null) {
-    // El descuento no es efectivo: el sobrante no puede superar el dinero real.
     const realLeft = money(Math.max(
       0,
       money(paidAmount) - money(capitalPaid) - money(Math.max(0, money(surchargePaid) - disc)),
@@ -73,89 +101,93 @@ export function allocateAdvanceCash({
 
   const advances = [];
   let dueOn = String(startDueOn || '').slice(0, 10);
-  const rate = money(tariff);
+  const rate = money(
+    Number(tariff) > 0.01
+      ? tariff
+      : (member ? effectiveSocialAdvanceTariff(member, dueOn || undefined) : 0),
+  );
   let guard = 0;
+  const maxLoops = Math.max(1, Math.min(36, Number(loopLimit) || ADVANCE_LOOP_LIMIT));
 
-  while (rate > 0.01 && left + 0.01 >= rate && dueOn && guard < 36) {
+  while (rate > 0.01 && left + 0.01 >= rate && guard < maxLoops) {
     guard += 1;
+    if (!isValidDueOn(dueOn)) break;
+
     const already = imputedCapitalForDue(
       [...(existingImputations || []), ...advances],
       dueOn,
     );
     if (already + 0.01 >= rate) {
-      dueOn = nextDueOnAfter(dueOn);
+      dueOn = nextDueOnAfter(dueOn, member);
       continue;
     }
-    const take = money(Math.min(left, money(rate - already)));
-    if (take <= 0.01) break;
+
+    // Solo cuota entera: no imputar parcial (el resto queda crédito libre).
+    const need = money(rate - already);
+    if (left + 0.01 < need) break;
+
     advances.push({
       dueOn,
-      capital: take,
+      capital: need,
       surcharge: 0,
       kind: 'adelanto',
     });
-    left = money(left - take);
-    dueOn = nextDueOnAfter(dueOn);
+    left = money(left - need);
+    dueOn = nextDueOnAfter(dueOn, member);
   }
 
   return {
     advances,
     freeCredit: money(Math.max(0, left)),
     lastAdvanceDueOn: advances.length ? advances[advances.length - 1].dueOn : null,
+    loops: guard,
   };
 }
 
 /**
- * Crédito libre visible: saldo negativo de ficha, menos capital ya
- * comprometido en adelantos futuros (evita doble lectura en UI).
+ * Crédito libre = una sola fuente contable verificable.
+ * - Ficha negativa → ese monto (canónico).
+ * - Si además hay creditBalance explícito igual al negativo, no se suma otra vez.
+ * - Si la ficha no es negativa → solo el creditBalance explícito (acarreo).
+ * No resta adelantos por heurística.
  */
 export function freeCreditFromStanding({
   outstandingBalance = 0,
-  explicitCredit = 0,
-  imputations = [],
-  today = null,
+  explicitCredit = null,
 } = {}) {
-  const fromNeg = money(Number(outstandingBalance) || 0) < -0.01
-    ? money(-(Number(outstandingBalance) || 0))
+  const stored = money(Number(outstandingBalance) || 0);
+  const explicit = explicitCredit != null && explicitCredit !== ''
+    ? money(Math.max(0, Number(explicitCredit) || 0))
     : 0;
-  const explicit = money(Math.max(0, Number(explicitCredit) || 0));
-  let gross = money(fromNeg + explicit);
-  if (!(gross > 0.01)) return 0;
-
-  const todayIso = today
-    ? String(today).slice(0, 10)
-    : new Date().toISOString().slice(0, 10);
-  let prepaid = 0;
-  for (const row of imputations || []) {
-    if (row?.voidedAt) continue;
-    if (String(row?.kind || '').toLowerCase() !== 'adelanto') continue;
-    const due = String(row?.dueOn || row?.due_on || '').slice(0, 10);
-    if (due > todayIso) prepaid = money(prepaid + (Number(row?.capital) || 0));
-  }
-  // Si el libro ya neteó el adelanto, prepaid no debe restar de nuevo.
-  // Solo recorta cuando el crédito bruto ≥ prepaid (doble conteo típico).
-  if (prepaid > 0.01 && gross + 0.01 >= prepaid) {
-    return money(Math.max(0, gross - prepaid));
-  }
-  return gross;
+  if (stored < -0.01) return money(-stored);
+  return explicit;
 }
 
 /** Invariantes de un socio reconciliado (fixtures de regresión). */
 export function assertAdvanceCreditInvariants(snapshot = {}) {
   const errors = [];
-  const tariff = socialTariffForTier(snapshot.tier);
+  const member = { tier: snapshot.tier, ...snapshot.member };
+  const tariff = snapshot.tariff != null
+    ? money(snapshot.tariff)
+    : effectiveSocialAdvanceTariff(member);
   const imputations = snapshot.imputations || [];
   const entries = snapshot.entries || [];
   const outstanding = money(Number(snapshot.outstandingBalance) || 0);
   const book = money((entries || []).reduce((sum, row) => sum + (Number(row.amount) || 0), 0));
 
-  if (Math.abs(outstanding - book) > 0.02) {
+  if (entries.length && Math.abs(outstanding - book) > 0.02) {
     errors.push(`ficha ${outstanding} ≠ libro ${book}`);
   }
 
   const adelantoImps = imputations.filter((row) => (
     !row?.voidedAt && String(row?.kind || '').toLowerCase() === 'adelanto'
   ));
+  for (const imp of adelantoImps) {
+    if (money(Number(imp.surcharge) || 0) > 0.01) {
+      errors.push(`adelanto ${imp.dueOn || imp.due_on} no debe llevar recargo`);
+    }
+  }
+
   const adelantoEntries = entries.filter((row) => (
     String(row?.kind || '').toLowerCase() === 'adelanto'
     && money(Number(row.amount) || 0) < -0.01
@@ -181,7 +213,6 @@ export function assertAdvanceCreditInvariants(snapshot = {}) {
   }
 
   if (outstanding < -0.01 && tariff > 0 && money(-outstanding) + 0.01 >= tariff) {
-    // Crédito libre ≥ 1 cuota: debería haberse imputado a un período.
     const hasFutureAdvance = adelantoImps.some((row) => money(Number(row.capital) || 0) > 0.01);
     if (!hasFutureAdvance) {
       errors.push(`crédito libre ${-outstanding} ≥ tarifa ${tariff} sin imputación de adelanto`);
