@@ -99,8 +99,20 @@ function dniOf(value: unknown) {
   return digits.length >= 7 && digits.length <= 11 ? digits : "";
 }
 
+function memberMayOperate(member: { status?: string | null; meta?: Record<string, unknown> | null }) {
+  const status = String(member?.status || "").toLowerCase();
+  if (status === "suspended" || status === "pending") return false;
+  const meta = member?.meta && typeof member.meta === "object" ? member.meta : {};
+  const baja = String(meta.bajaFecha || "").slice(0, 10);
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" });
+  if (/^\d{4}-\d{2}-\d{2}$/.test(baja) && baja > today) return true;
+  if (status !== "active") return false;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(baja) && baja <= today) return false;
+  return true;
+}
+
 function memberSelect() {
-  return "id, member_number, full_name, email, profile_id, outstanding_balance, document_number, tier, meta";
+  return "id, member_number, full_name, email, profile_id, outstanding_balance, document_number, tier, status, meta";
 }
 
 function billingDayOf(member: { tier?: string | null; meta?: Record<string, unknown> | null } | null) {
@@ -330,6 +342,9 @@ Deno.serve(async (req) => {
       }
     }
     if (!member) return json(400, { error: "No encontramos la ficha del socio." });
+    if (!memberMayOperate(member)) {
+      return json(400, { error: "El socio está inactivo y no puede generar un cobro." });
+    }
 
     if (kind === "dues" || kind === "subscription") {
       const { data: exempt } = await admin.rpc("member_id_is_dues_exempt", { mid: member.id });

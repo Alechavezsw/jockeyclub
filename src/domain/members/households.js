@@ -4,6 +4,7 @@ import {
   isHouseholdIntegranteTierId,
   SIN_CATEGORIA_TIER,
 } from './tiers';
+import { isOperationalMember } from './operationalVisibility';
 
 /**
  * Relación titular ↔ grupo familiar del padrón datita.
@@ -369,10 +370,11 @@ export function prepareFamilyMemberForBaja(member) {
   };
 }
 
-/** Visible en el desglose del grupo: no baja / inactive. Suspendidos sí se ven. */
+/** Visible en el grupo vigente. La baja efectiva no. Suspendidos sí se ven. */
 export function isFamilyGroupVisibleMember(member) {
+  if (isOperationalMember(member)) return true;
   const status = String(member?.status || 'active').toLowerCase();
-  return status !== 'inactive' && status !== 'baja';
+  return status === 'suspended';
 }
 
 /** El adherente no paga ni alquila: la cuenta y las reservas son del titular. */

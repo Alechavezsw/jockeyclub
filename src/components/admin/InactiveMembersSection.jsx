@@ -40,10 +40,10 @@ export default function InactiveMembersSection({
     }
     let cancelled = false;
     const timer = window.setTimeout(() => {
-      repos.searchMembersDirectory(raw, { limit: 40 })
+      repos.searchMembersForReactivate(raw, { limit: 40 })
         .then((rows) => {
           if (cancelled) return;
-          setRemoteHits((rows || []).filter((member) => (member.status || '') === 'inactive'));
+          setRemoteHits(rows || []);
         })
         .catch(() => {
           if (!cancelled) setRemoteHits([]);

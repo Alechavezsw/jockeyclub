@@ -476,7 +476,7 @@ export function MemberReactivateModal({
     let cancelled = false;
     const timer = window.setTimeout(() => {
       setSearching(true);
-      repos.searchMembersDirectory(raw, { limit: 8 })
+      repos.searchMembersForReactivate(raw, { limit: 8 })
         .then((rows) => {
           const remote = (rows || []).filter((member) => canReactivateMember(member));
           if (!cancelled) setHits(mergeBajaHits(localHits, remote));

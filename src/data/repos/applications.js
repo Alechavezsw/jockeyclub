@@ -3,7 +3,13 @@ import { unwrap, throwOnError } from '../errors';
 import { emptyJoinConflicts, hasJoinIdentityConflict, joinConflictsFromFlags, joinIdentityConflicts, JoinIdentityTakenError, mergeOpenAccessRequest } from '../../domain/members/selfService';
 import { supabase } from '../../lib/supabase';
 import { isUuid, sb, audit } from './shared.js';
-import { searchMembersDirectory, getMemberByNumber, getMember, isMissingRpc } from './members.js';
+import {
+  searchMembersDirectory,
+  searchMembersForReactivate,
+  getMemberByNumber,
+  getMember,
+  isMissingRpc,
+} from './members.js';
 
 export async function listMembershipApplications() {
   const rows = await unwrap(
@@ -137,6 +143,19 @@ function foldMemberName(value) {
 }
 
 /** Intenta atar el trámite a una ficha del padrón (id, Nº, DNI o nombre único). */
+async function searchMembersForIdentity(query, limit = 20) {
+  const [live, archived] = await Promise.all([
+    searchMembersDirectory(query, { limit }),
+    searchMembersForReactivate(query, { limit }).catch(() => []),
+  ]);
+  const byId = new Map();
+  for (const row of [...(live || []), ...(archived || [])]) {
+    const id = String(row?.id || row?.memberId || '');
+    if (id) byId.set(id, row);
+  }
+  return [...byId.values()];
+}
+
 export async function resolveMemberForApplication(app = {}) {
   if (app.memberId && isUuid(app.memberId)) {
     try {
@@ -160,7 +179,7 @@ export async function resolveMemberForApplication(app = {}) {
   const query = doc.length >= 6 ? doc : name;
   if (!query || query.length < 2) return null;
   try {
-    const rows = await searchMembersDirectory(query, { limit: 20 });
+    const rows = await searchMembersForIdentity(query, 20);
     if (doc.length >= 6) {
       const exactDoc = (rows || []).filter((m) => String(m.documentNumber || '').replace(/\D/g, '') === doc);
       if (exactDoc.length === 1) return exactDoc[0];
@@ -209,8 +228,8 @@ export async function checkJoinIdentityTaken(app = {}) {
   }
 
   const queries = [];
-  if (doc.length >= 6) queries.push(searchMembersDirectory(doc, { limit: 20 }));
-  if (name.length >= 5) queries.push(searchMembersDirectory(name, { limit: 20 }));
+  if (doc.length >= 6) queries.push(searchMembersForIdentity(doc, 20));
+  if (name.length >= 5) queries.push(searchMembersForIdentity(name, 20));
   if (!queries.length) return empty;
   const batches = await Promise.all(queries);
   return joinIdentityConflicts(app, batches.flat());

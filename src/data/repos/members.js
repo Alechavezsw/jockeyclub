@@ -3,6 +3,12 @@ import { unwrap, throwOnError } from '../errors';
 import { collectMemberMeta, buildLifecycleMeta, splitMemberName } from '../../domain/members/memberAdminActions';
 import { dbMemberIsDuesExempt } from '../../domain/members/dues';
 import { allocateNextMemberNumber } from '../../domain/members/households';
+import {
+  INACTIVE_MEMBER_OPERATION_ERROR,
+  VISIBILITY_SCOPES,
+  isOperationalMember,
+  isReactivateCandidate,
+} from '../../domain/members/operationalVisibility';
 import { resolveStoredMemberTier } from '../../domain/members/tiers';
 import { todayAR } from '../../lib/arDate';
 import { supabase } from '../../lib/supabase';
@@ -54,6 +60,7 @@ const MEMBERS_LIST_SELECT = [
   'fecha_alta_raw:meta->>fechaAltaRaw',
   'dues_free_through:meta->>duesFreeThrough',
   'birth_date',
+  'baja_fecha:meta->>bajaFecha',
 ].join(', ');
 
 /** Solo listado de bajas / inactivos: el padrón activo no los necesita. */
@@ -329,8 +336,11 @@ export async function listMembers({ onBatch, scope = 'active' } = {}) {
 
   membersListInflight[key] = downloadMembersList({ onBatch, scope: key })
     .then((rows) => {
-      membersListCache[key] = rows;
-      return rows;
+      const visible = (rows || []).filter((member) => (
+        key === 'inactive' ? !isOperationalMember(member) : isOperationalMember(member)
+      ));
+      membersListCache[key] = visible;
+      return visible;
     })
     .finally(() => {
       membersListInflight[key] = null;
@@ -591,8 +601,31 @@ const MEMBER_SEARCH_CACHE = new Map();
 const MEMBER_SEARCH_CACHE_MAX = 48;
 let memberLookupRpcOk = true;
 
-function memberSearchKey(query, cap) {
-  return `${String(query || '').trim().toLowerCase()}|${cap}`;
+function memberSearchKey(query, cap, scope = VISIBILITY_SCOPES.operational) {
+  return `${scope}|${String(query || '').trim().toLowerCase()}|${cap}`;
+}
+
+function memberMatchesVisibility(member, scope) {
+  if (scope === VISIBILITY_SCOPES.historical) return true;
+  if (scope === VISIBILITY_SCOPES.reactivate) return isReactivateCandidate(member);
+  return isOperationalMember(member);
+}
+
+export async function assertOperationalMemberId(memberDbId) {
+  if (!isUuid(memberDbId)) return;
+  const row = await unwrap(
+    sb().from('members').select('status, meta').eq('id', memberDbId).maybeSingle(),
+    'No se pudo verificar el estado del socio',
+  );
+  if (!row) return;
+  const member = {
+    status: row.status,
+    meta: row.meta,
+    bajaFecha: row.meta?.bajaFecha,
+  };
+  if (!isOperationalMember(member)) {
+    throw new Error(INACTIVE_MEMBER_OPERATION_ERROR);
+  }
 }
 
 function rememberMemberSearch(key, rows) {
@@ -609,59 +642,87 @@ export function invalidateMemberSearchCache() {
 export function isMissingRpc(error) {
   const code = String(error?.code || '');
   const msg = String(error?.message || '');
-  return code === 'PGRST202' || code === '42883' || /search_members_lookup/i.test(msg);
+  return code === 'PGRST202' || code === '42883' || /search_members_/i.test(msg);
 }
 
 /** Cache síncrono del typeahead (misma tecla / atrás no espera red). */
-export function peekMembersDirectory(query, { limit = 20 } = {}) {
+export function peekMembersDirectory(query, { limit = 20, scope = VISIBILITY_SCOPES.operational } = {}) {
   const cap = Math.min(50, Math.max(5, Number(limit) || 20));
-  return MEMBER_SEARCH_CACHE.get(memberSearchKey(query, cap)) || null;
+  return MEMBER_SEARCH_CACHE.get(memberSearchKey(query, cap, scope)) || null;
 }
 
+const MEMBER_SEARCH_RPC = {
+  [VISIBILITY_SCOPES.operational]: 'search_members_lookup',
+  [VISIBILITY_SCOPES.reactivate]: 'search_members_reactivate',
+  [VISIBILITY_SCOPES.historical]: 'search_members_historical',
+};
+
 /**
- * Búsqueda puntual para puerta / pileta / registro.
- * Prefiere RPC (índice trigram, sin RLS por fila).
+ * Búsqueda de socios.
+ * operational: solo fichas vigentes (puerta, caja, reservas, padrón).
+ * reactivate: inactivos, solo personal.
+ * historical: cualquier estado, solo administración.
  */
-export async function searchMembersDirectory(query, { limit = 20, signal } = {}) {
+export async function searchMembersDirectory(query, {
+  limit = 20,
+  signal,
+  scope = VISIBILITY_SCOPES.operational,
+} = {}) {
   const raw = String(query || '').trim();
   if (!raw) return [];
+  const visibility = MEMBER_SEARCH_RPC[scope] ? scope : VISIBILITY_SCOPES.operational;
   const cap = Math.min(50, Math.max(5, Number(limit) || 20));
-  const memoKey = memberSearchKey(raw, cap);
+  const memoKey = memberSearchKey(raw, cap, visibility);
   const cached = MEMBER_SEARCH_CACHE.get(memoKey);
   if (cached) return cached;
 
-  if (memberLookupRpcOk) {
-    const { data, error } = await sb().rpc('search_members_lookup', {
+  const rpcName = MEMBER_SEARCH_RPC[visibility];
+  if (visibility === VISIBILITY_SCOPES.operational ? memberLookupRpcOk : true) {
+    const { data, error } = await sb().rpc(rpcName, {
       p_query: raw,
       p_limit: cap,
     }, signal ? { abortSignal: signal } : undefined);
     if (signal?.aborted) return [];
     if (!error) {
-      const mapped = (data || []).map(listRowToMember);
+      const mapped = (data || [])
+        .map(listRowToMember)
+        .filter((member) => memberMatchesVisibility(member, visibility));
       rememberMemberSearch(memoKey, mapped);
       return mapped;
     }
     if (signal?.aborted || error?.name === 'AbortError') return [];
-    if (isMissingRpc(error)) memberLookupRpcOk = false;
-    else throwOnError(error, 'No se pudo buscar socios');
+    if (visibility === VISIBILITY_SCOPES.operational && isMissingRpc(error)) memberLookupRpcOk = false;
+    else if (visibility !== VISIBILITY_SCOPES.operational && isMissingRpc(error)) {
+      /* La RPC nueva todavía no está en este entorno: sigue el filtro en la tabla. */
+    } else throwOnError(error, 'No se pudo buscar socios');
   }
 
   const q = escapeIlike(raw);
   const digits = raw.replace(/\D/g, '');
   const nameLike = /[a-záéíóúüñ]/i.test(raw);
-  const rows = await unwrap(
-    buildMemberSearch(
-      sb().from('members').select(MEMBERS_GATE_SELECT),
-      raw,
-      q,
-      digits,
-      nameLike,
-    ).limit(cap),
-    'No se pudo buscar socios'
+  let req = buildMemberSearch(
+    sb().from('members').select(MEMBERS_GATE_SELECT),
+    raw,
+    q,
+    digits,
+    nameLike,
   );
-  const mapped = (rows || []).map(listRowToMember);
+  if (visibility === VISIBILITY_SCOPES.operational) req = req.eq('status', 'active');
+  if (visibility === VISIBILITY_SCOPES.reactivate) req = req.in('status', ['inactive', 'suspended']);
+  const rows = await unwrap(req.limit(cap), 'No se pudo buscar socios');
+  const mapped = (rows || [])
+    .map(listRowToMember)
+    .filter((member) => memberMatchesVisibility(member, visibility));
   rememberMemberSearch(memoKey, mapped);
   return mapped;
+}
+
+export function searchMembersForReactivate(query, options = {}) {
+  return searchMembersDirectory(query, { ...options, scope: VISIBILITY_SCOPES.reactivate });
+}
+
+export function searchMembersHistorical(query, options = {}) {
+  return searchMembersDirectory(query, { ...options, scope: VISIBILITY_SCOPES.historical });
 }
 
 /**
@@ -727,17 +788,20 @@ export async function listMembersGateIndex() {
   if (gateIndexCache?.length) return gateIndexCache;
   if (gateIndexPromise) return gateIndexPromise;
   gateIndexPromise = fetchAllRowsParallel(
-    sb().from('members').select('id', { count: 'exact', head: true }),
+    sb().from('members').select('id', { count: 'exact', head: true }).eq('status', 'active'),
     (from, to) => sb()
       .from('members')
       .select(MEMBERS_GATE_SELECT)
+      .eq('status', 'active')
       .order('id')
       .range(from, to),
     'No se pudieron cargar socios',
     1000,
     2,
   ).then((rows) => {
-    gateIndexCache = (rows || []).map((r) => M.memberFromRow(r, []));
+    gateIndexCache = (rows || [])
+      .map((r) => M.memberFromRow(r, []))
+      .filter((member) => isOperationalMember(member));
     return gateIndexCache;
   }).finally(() => {
     gateIndexPromise = null;
@@ -1325,6 +1389,7 @@ export async function provisionMemberPortalAccess(member, creds, { actorName = '
 }
 
 export async function insertMemberPayment(memberDbId, payment) {
+  await assertOperationalMemberId(memberDbId);
   if (Number(payment.waivedSurcharge) > 0) {
     throw new Error('El recargo no se perdona al cobrar.');
   }

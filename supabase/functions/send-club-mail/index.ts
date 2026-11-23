@@ -195,11 +195,14 @@ Deno.serve(async (req) => {
       if (!memberNumber) return json(400, { error: "Elegí un socio." });
       const { data, error } = await admin
         .from("members")
-        .select("member_number, email")
+        .select("member_number, email, status")
         .eq("member_number", memberNumber)
         .maybeSingle();
       if (error) return json(500, { error: error.message });
       if (!data) return json(404, { error: "No encontramos a ese socio." });
+      if (String(data.status || "") !== "active") {
+        return json(400, { error: "Ese socio está inactivo y no entra en los avisos." });
+      }
       takeMember(data);
       if (!ready.length) {
         return json(200, {
@@ -257,7 +260,7 @@ Deno.serve(async (req) => {
         const { data, error } = await admin
           .from("members")
           .select("member_number, email")
-          .neq("status", "inactive")
+          .eq("status", "active")
           .not("email", "is", null)
           .order("member_number")
           .range(fromRow, fromRow + PAGE - 1);

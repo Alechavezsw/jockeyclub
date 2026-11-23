@@ -1,5 +1,6 @@
 /** Acceso a pileta: revisación médica, canon de temporada e invitados del día. */
 
+import { isOperationalMember } from '../members/operationalVisibility';
 import { piletaPayAccess, seasonDuesGate } from './seasonDuesGate';
 import { todayAR } from '../../lib/arDate';
 import {
@@ -248,9 +249,9 @@ export function evaluatePoolAccess(member, {
     };
   }
   const blockers = [];
-  if (member.status === 'inactive') blockers.push('El socio está de baja.');
-  else if (member.status === 'suspended') blockers.push('El socio está suspendido.');
-  else if (member.status && member.status !== 'active') blockers.push('La cuenta del socio no está habilitada.');
+  if (!isOperationalMember(member)) {
+    blockers.push(member.status === 'suspended' ? 'El socio está suspendido.' : 'El socio está de baja.');
+  }
 
   const medical = getMedicalStatus(member, { today, validityDays: cfg.medicalValidityDays });
   if (!medical.ok) blockers.push(medical.label);

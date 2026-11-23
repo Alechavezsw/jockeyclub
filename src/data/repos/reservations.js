@@ -1,6 +1,7 @@
 import * as M from '../mappers';
 import { unwrap, reservationSlotTakenMessage, DbError } from '../errors';
 import { sb, audit } from './shared.js';
+import { assertOperationalMemberId } from './members.js';
 
 // ---- Reservations ----
 export async function listReservations({
@@ -37,6 +38,7 @@ function rethrowReservation(err) {
 }
 
 export async function createReservation(res, memberDbId) {
+  await assertOperationalMemberId(memberDbId);
   let saved;
   try {
     saved = await unwrap(
