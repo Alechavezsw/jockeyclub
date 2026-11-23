@@ -19,6 +19,18 @@ const corsHeaders = {
 
 const PORTAL_ACCOUNT = "https://www.jockeyclubsj.com.ar/cuenta";
 const DEFAULT_FROM = "Jockey Club San Juan <socios@jockeyclubsj.com.ar>";
+const AR_TZ = "America/Argentina/Buenos_Aires";
+
+function todayAR(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: AR_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value || "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
 
 type Admin = ReturnType<typeof createClient>;
 
