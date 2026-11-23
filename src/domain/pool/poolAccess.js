@@ -347,7 +347,7 @@ export function enableMemberPoolAccess({
   if (eval_.payBlocked) throw new Error('En mora · regularizá la cuota para pagar pileta.');
   if (eval_.duesBlocked) throw new Error(eval_.duesGate?.reason || 'En mora · no ingresa hasta regularizar.');
   if (!eval_.medical?.ok) throw new Error(eval_.medical?.label || 'Falta revisación médica.');
-  if (member.status !== 'active') throw new Error('Solo socios activos pueden ingresar a pileta.');
+  if (!isOperationalMember(member)) throw new Error('Solo socios activos pueden ingresar a pileta.');
 
   const cfg = mergePoolSettings(settings);
   const personQuote = quotePersonPoolSeason(member, {
@@ -445,7 +445,7 @@ export function enableGuestPoolAccess({
   if (!host?.memberId) throw new Error('Socio anfitrión requerido.');
   const name = String(guestName || '').trim();
   if (!name) throw new Error('Indicá el nombre del invitado.');
-  if (host.status !== 'active') throw new Error('El anfitrión debe estar activo.');
+  if (!isOperationalMember(host)) throw new Error('El anfitrión debe estar activo.');
 
   const cfg = mergePoolSettings(settings);
   const hostAccess = memberDayAccess(accesses, host.memberId, today);
@@ -504,7 +504,7 @@ export function poolEntranceVerdict(member, eval_ = {}, dues = 0) {
   if (eval_.alreadyIn) {
     return { status: 'granted', title: 'ASISTIÓ', detail: 'Anotado en ingresos de hoy' };
   }
-  if (member.status === 'active' && eval_.medical?.ok && (eval_.paidToday || eval_.seasonPaid)) {
+  if (isOperationalMember(member) && eval_.medical?.ok && (eval_.paidToday || eval_.seasonPaid)) {
     return {
       status: 'granted',
       title: 'PUEDE INGRESAR',

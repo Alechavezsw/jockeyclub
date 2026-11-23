@@ -394,10 +394,10 @@ export function billingAccountMember(member, members = []) {
   return titular;
 }
 
-/** Ficha vigente: no está de baja, suspendida ni pendiente. */
-export function isLiveMember(member) {
-  const status = String(member?.status || 'active').toLowerCase();
-  return status !== 'inactive' && status !== 'suspended' && status !== 'baja' && status !== 'pending';
+/** Ficha que todavía opera. Sin status se toma como activa y igual se mira la fecha de baja. */
+export function isLiveMember(member, today = new Date()) {
+  if (!member) return false;
+  return isOperationalMember({ ...member, status: member.status || 'active' }, today);
 }
 
 /** Forma de adherente para UI / ficha a partir de un socio del padrón. */

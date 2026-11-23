@@ -23,6 +23,7 @@ import { todayISODateAR } from '../lib/arDate';
 import { mergePoolSearchHits, mergePoolSettings, searchPoolMembers } from '../domain/pool/poolAccess';
 import { clubEntryGate } from '../domain/pool/seasonDuesGate';
 import { familyPrincipalOf, isFamilyDependent, memberNumberOf } from '../domain/members/households';
+import { isOperationalMember } from '../domain/members/operationalVisibility';
 import { isActiveReservation, reservationDay } from '../domain/reservations/memberBookings';
 import {
   getGuestPassById,
@@ -233,7 +234,7 @@ export default function AccessControlView({
     if (lastAdmitRef.current.id === member.memberId && nowMs - lastAdmitRef.current.at < 1500) return;
     lastAdmitRef.current = { id: member.memberId, at: nowMs };
 
-    const isSuspended = member.status !== 'active';
+    const isSuspended = !isOperationalMember(member);
     // Meses anteriores bloquean; solo mes corriente (aunque vencido) deja pasar.
     const entry = clubEntryGate(member, { today: clubDay, settings: poolCfg, members: gateMembers });
     const { holder, owed, hasDebt, currentMonthOnly } = entry;
@@ -364,7 +365,7 @@ export default function AccessControlView({
         : null;
       const hostBlocked = Boolean(hostEntry?.blocked);
       const hostDebt = Boolean(hostEntry?.hasDebt);
-      const valid = pass && isGuestPassValid(pass, { parsed: guestParsed }) && host?.status === 'active' && !hostBlocked;
+      const valid = pass && isGuestPassValid(pass, { parsed: guestParsed }) && isOperationalMember(host) && !hostBlocked;
       setResult({
         status: valid ? 'granted' : 'denied',
         title: valid

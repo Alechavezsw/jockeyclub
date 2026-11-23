@@ -26,8 +26,49 @@ export const VISIBILITY_SCOPES = Object.freeze({
 });
 
 function bajaDate(member) {
-  const fecha = String(member?.bajaFecha || member?.meta?.bajaFecha || '').slice(0, 10);
+  const fecha = String(member?.bajaFecha || member?.meta?.bajaFecha || member?.baja_fecha || '').slice(0, 10);
   return /^\d{4}-\d{2}-\d{2}$/.test(fecha) ? fecha : '';
+}
+
+function pendingBajaFlag(member) {
+  const flag = member?.pendingBaja ?? member?.meta?.pendingBaja ?? member?.pending_baja;
+  return flag === true || flag === 'true' || flag === 't' || flag === '1';
+}
+
+/**
+ * Filtros PostgREST con la misma regla que isOperationalMember / member_is_operational.
+ * No alcanza con status = active: la baja futura sigue operativa y la de hoy ya no.
+ */
+export function operationalListFilter(today = new Date()) {
+  const iso = todayAR(today);
+  return [
+    `and(status.eq.inactive,meta->>bajaFecha.gt.${iso})`,
+    `and(status.eq.active,meta->>pendingBaja.not.in.(true,t,1))`,
+    `and(status.eq.active,meta->>pendingBaja.is.null)`,
+    `and(status.eq.active,meta->>bajaFecha.gt.${iso})`,
+    `and(status.eq.active,meta->>bajaFecha.is.null)`,
+  ].join(',');
+}
+
+/** Padrón de bajas: quien ya no opera, incluida la baja que entra hoy y sigue en active. */
+export function inactiveListFilter(today = new Date()) {
+  const iso = todayAR(today);
+  return [
+    `and(status.eq.inactive,or(meta->>bajaFecha.is.null,meta->>bajaFecha.lte.${iso}))`,
+    'status.eq.suspended',
+    'status.eq.pending',
+    `and(status.eq.active,meta->>pendingBaja.in.(true,t,1),meta->>bajaFecha.lte.${iso})`,
+  ].join(',');
+}
+
+/** Reactivar: inactivo efectivo o suspendido. La baja de mañana no entra. */
+export function reactivateListFilter(today = new Date()) {
+  const iso = todayAR(today);
+  return [
+    `and(status.eq.inactive,or(meta->>bajaFecha.is.null,meta->>bajaFecha.lte.${iso}))`,
+    'status.eq.suspended',
+    `and(status.eq.active,meta->>pendingBaja.in.(true,t,1),meta->>bajaFecha.lte.${iso})`,
+  ].join(',');
 }
 
 /**
@@ -42,7 +83,7 @@ export function isOperationalMember(member, today = new Date()) {
   if (status === 'suspended' || status === 'pending' || status === 'baja') return false;
   const iso = todayAR(today);
   const baja = bajaDate(member);
-  const pending = member.pendingBaja === true || member.meta?.pendingBaja === true;
+  const pending = pendingBajaFlag(member);
   if (status === 'inactive') return Boolean(baja) && baja > iso;
   if (pending && baja && baja <= iso) return false;
   return status === 'active';

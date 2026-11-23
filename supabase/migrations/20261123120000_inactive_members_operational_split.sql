@@ -2,6 +2,14 @@
 -- No borra fichas, pagos, deuda ni asientos. No se aplica solo: hay que verificar antes.
 -- La baja programada sigue operativa hasta el día anterior a meta.bajaFecha.
 
+-- El retorno de la búsqueda y del padrón suma la fecha de baja.
+-- CREATE OR REPLACE no puede cambiar el tipo de retorno que ya está en la base.
+drop function if exists public.search_members_lookup(text, integer);
+drop function if exists public.search_members_reactivate(text, integer);
+drop function if exists public.search_members_historical(text, integer);
+drop function if exists public.search_members_scoped(text, integer, text);
+drop function if exists public.list_members_padron(text);
+
 create or replace function public.member_is_operational(
   p_member public.members,
   p_today date default null
@@ -84,7 +92,9 @@ returns table (
   tier text,
   outstanding_balance numeric,
   next_due_date date,
-  cuota_categories jsonb
+  cuota_categories jsonb,
+  baja_fecha text,
+  pending_baja text
 )
 language plpgsql
 security definer
@@ -191,7 +201,12 @@ begin
     case
       when v_staff then coalesce(m.meta->'cuotaCategories', '[]'::jsonb)
       else null
-    end as cuota_categories
+    end as cuota_categories,
+    nullif(left(coalesce(m.meta->>'bajaFecha', ''), 10), '') as baja_fecha,
+    case
+      when coalesce(m.meta->>'pendingBaja', '') in ('true', 't', '1') then 'true'
+      else null
+    end as pending_baja
   from public.members m
   where
     (
@@ -265,7 +280,9 @@ returns table (
   tier text,
   outstanding_balance numeric,
   next_due_date date,
-  cuota_categories jsonb
+  cuota_categories jsonb,
+  baja_fecha text,
+  pending_baja text
 )
 language sql
 security definer
@@ -288,7 +305,9 @@ returns table (
   tier text,
   outstanding_balance numeric,
   next_due_date date,
-  cuota_categories jsonb
+  cuota_categories jsonb,
+  baja_fecha text,
+  pending_baja text
 )
 language plpgsql
 security definer
@@ -317,7 +336,9 @@ returns table (
   tier text,
   outstanding_balance numeric,
   next_due_date date,
-  cuota_categories jsonb
+  cuota_categories jsonb,
+  baja_fecha text,
+  pending_baja text
 )
 language plpgsql
 security definer
@@ -386,7 +407,8 @@ returns table(
   has_portal boolean,
   joined_at date,
   dues_free_through text,
-  birth_date date
+  birth_date date,
+  pending_baja text
 )
 language plpgsql
 stable
@@ -431,7 +453,7 @@ begin
       else null
     end,
     case when want_inactive then m.meta->>'bajaMotivo' else null end,
-    case when want_inactive then m.meta->>'bajaFecha' else null end,
+    nullif(left(coalesce(m.meta->>'bajaFecha', ''), 10), ''),
     case when want_inactive then m.meta->>'bajaActorName' else null end,
     case when want_inactive then m.meta->>'bajaRegistradaAt' else null end,
     case when want_inactive then m.meta->>'reactivateActorName' else null end,
@@ -462,7 +484,11 @@ begin
       else m.joined_at
     end,
     nullif(left(coalesce(m.meta->>'duesFreeThrough', ''), 7), ''),
-    m.birth_date
+    m.birth_date,
+    case
+      when coalesce(m.meta->>'pendingBaja', '') in ('true', 't', '1') then 'true'
+      else null
+    end
   from public.members m
   where case
     when want_inactive then not public.member_is_operational(m)

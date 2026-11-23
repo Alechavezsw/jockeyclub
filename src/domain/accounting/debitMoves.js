@@ -101,7 +101,7 @@ function monthKeyOf(iso) {
 }
 
 export function classifyDebitMember(member, { today = todayISODateAR() } = {}) {
-  const live = isLiveMember(member);
+  const live = isLiveMember(member, today);
   const titular = isTitularMember(member);
   const wants = wantsAutomaticDebit(member);
   const adhered = isMpAdhered(member);

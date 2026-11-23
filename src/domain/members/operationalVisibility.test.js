@@ -1,13 +1,19 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   OPERATIONAL_CIRCUITS,
   canReceiveAutomaticNotice,
   canStartOperationalWrite,
   filterOperationalMembers,
   filterReactivateMembers,
+  inactiveListFilter,
   isOperationalMember,
   isReactivateCandidate,
   memberCircuitAccess,
+  operationalListFilter,
+  reactivateListFilter,
   reactivateMemberRecord,
 } from './operationalVisibility.js';
 
@@ -70,6 +76,34 @@ describe('visibilidad operativa de socios', () => {
     expect(filterReactivateMembers([active, inactive], TODAY)).toEqual([inactive]);
   });
 
+  it('la baja de mañana sigue operativa y la de hoy no', () => {
+    const tomorrow = {
+      status: 'inactive',
+      memberId: '10800',
+      bajaFecha: '2026-11-24',
+      meta: { bajaFecha: '2026-11-24' },
+    };
+    const todayInactive = {
+      status: 'inactive',
+      memberId: '10801',
+      bajaFecha: TODAY,
+    };
+    const todayPending = {
+      status: 'active',
+      memberId: '10802',
+      pendingBaja: true,
+      bajaFecha: TODAY,
+    };
+    expect(isOperationalMember(tomorrow, TODAY)).toBe(true);
+    expect(isReactivateCandidate(tomorrow, TODAY)).toBe(false);
+    expect(isOperationalMember(todayInactive, TODAY)).toBe(false);
+    expect(isReactivateCandidate(todayInactive, TODAY)).toBe(true);
+    expect(isOperationalMember(todayPending, TODAY)).toBe(false);
+    expect(isReactivateCandidate(todayPending, TODAY)).toBe(true);
+    expect(canStartOperationalWrite(tomorrow, TODAY)).toBe(true);
+    expect(canReceiveAutomaticNotice(todayPending, TODAY)).toBe(false);
+  });
+
   it('la baja programada no saca al socio antes de la fecha efectiva', () => {
     const scheduled = {
       status: 'inactive',
@@ -108,5 +142,25 @@ describe('visibilidad operativa de socios', () => {
     expect(memberCircuitAccess(inactive, TODAY).historicalAccounting).toBe(true);
     expect(inactive.outstandingBalance).toBe(140000);
     expect(inactive.paymentHistory).toHaveLength(1);
+  });
+
+  it('el filtro de padrón y el de avisos usan la fecha efectiva, no solo status active', () => {
+    const operational = operationalListFilter(TODAY);
+    const inactive = inactiveListFilter(TODAY);
+    const reactivate = reactivateListFilter(TODAY);
+    expect(operational).toContain('status.eq.inactive,meta->>bajaFecha.gt.2026-11-23');
+    expect(operational).toContain('pendingBaja');
+    expect(operational).not.toBe('status.eq.active');
+    expect(inactive).toContain('bajaFecha.lte.2026-11-23');
+    expect(reactivate).toContain('status.eq.suspended');
+    expect(reactivate).not.toContain('status.eq.pending');
+    const edge = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), '../../../supabase/functions/_shared/operationalMember.ts'),
+      'utf8',
+    );
+    expect(edge).toContain('status === "inactive"');
+    expect(edge).toContain('baja > today');
+    expect(edge).toContain('pendingBaja');
+    expect(edge).toContain('meta->>bajaFecha.gt.${today}');
   });
 });

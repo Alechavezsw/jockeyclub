@@ -6,8 +6,11 @@ import { allocateNextMemberNumber } from '../../domain/members/households';
 import {
   INACTIVE_MEMBER_OPERATION_ERROR,
   VISIBILITY_SCOPES,
+  inactiveListFilter,
   isOperationalMember,
   isReactivateCandidate,
+  operationalListFilter,
+  reactivateListFilter,
 } from '../../domain/members/operationalVisibility';
 import { resolveStoredMemberTier } from '../../domain/members/tiers';
 import { todayAR } from '../../lib/arDate';
@@ -61,6 +64,7 @@ const MEMBERS_LIST_SELECT = [
   'dues_free_through:meta->>duesFreeThrough',
   'birth_date',
   'baja_fecha:meta->>bajaFecha',
+  'pending_baja:meta->>pendingBaja',
 ].join(', ');
 
 /** Solo listado de bajas / inactivos: el padrón activo no los necesita. */
@@ -188,9 +192,14 @@ function listRowToMember(row) {
       }
     }
   }
+  const bajaFecha = row.baja_fecha || row.bajaFecha || row.meta?.bajaFecha || null;
+  if (bajaFecha) member.bajaFecha = String(bajaFecha).slice(0, 10);
+  const pendingRaw = row.pending_baja ?? row.pendingBaja ?? row.meta?.pendingBaja;
+  if (pendingRaw === true || pendingRaw === 'true' || pendingRaw === 't' || pendingRaw === '1') {
+    member.pendingBaja = true;
+  }
   if (row.baja_motivo || row.bajaMotivo) {
     member.bajaMotivo = row.baja_motivo || row.bajaMotivo;
-    member.bajaFecha = row.baja_fecha || row.bajaFecha || null;
     member.bajaActorName = row.baja_actor || row.bajaActorName || null;
     member.bajaRegistradaAt = row.baja_registrada || row.bajaRegistradaAt || null;
   }
@@ -243,17 +252,18 @@ export async function listMemberPaymentsForStats({ months = 6 } = {}) {
   }));
 }
 
-/** Activos en el arranque. Inactivos, suspendidos y bajas solo si se piden. */
+/** Activos operativos, o bajas ya vigentes. La fecha efectiva manda sobre el status. */
 function applyMemberScope(req, scope) {
-  if (scope === 'inactive') return req.neq('status', 'active');
-  if (scope === 'active') return req.eq('status', 'active');
+  if (scope === 'inactive') return req.or(inactiveListFilter());
+  if (scope === 'active') return req.or(operationalListFilter());
   return req;
 }
 
 /** Conteo exacto de socios (sin descargar filas). status: 'active' | 'inactive' | otro valor. */
 export async function countMembers(status) {
   let req = sb().from('members').select('id', { count: 'exact', head: true });
-  if (status === 'rest') req = req.neq('status', 'active');
+  if (status === 'active') req = req.or(operationalListFilter());
+  else if (status === 'inactive' || status === 'rest') req = req.or(inactiveListFilter());
   else if (status) req = req.eq('status', status);
   const { count, error } = await req;
   throwOnError(error, 'No se pudo contar socios');
@@ -595,6 +605,8 @@ const MEMBERS_GATE_SELECT = [
   'status',
   'outstanding_balance',
   'profile_id',
+  'baja_fecha:meta->>bajaFecha',
+  'pending_baja:meta->>pendingBaja',
 ].join(', ');
 
 const MEMBER_SEARCH_CACHE = new Map();
@@ -707,8 +719,8 @@ export async function searchMembersDirectory(query, {
     digits,
     nameLike,
   );
-  if (visibility === VISIBILITY_SCOPES.operational) req = req.eq('status', 'active');
-  if (visibility === VISIBILITY_SCOPES.reactivate) req = req.in('status', ['inactive', 'suspended']);
+  if (visibility === VISIBILITY_SCOPES.operational) req = req.or(operationalListFilter());
+  if (visibility === VISIBILITY_SCOPES.reactivate) req = req.or(reactivateListFilter());
   const rows = await unwrap(req.limit(cap), 'No se pudo buscar socios');
   const mapped = (rows || [])
     .map(listRowToMember)
@@ -788,11 +800,11 @@ export async function listMembersGateIndex() {
   if (gateIndexCache?.length) return gateIndexCache;
   if (gateIndexPromise) return gateIndexPromise;
   gateIndexPromise = fetchAllRowsParallel(
-    sb().from('members').select('id', { count: 'exact', head: true }).eq('status', 'active'),
+    sb().from('members').select('id', { count: 'exact', head: true }).or(operationalListFilter()),
     (from, to) => sb()
       .from('members')
       .select(MEMBERS_GATE_SELECT)
-      .eq('status', 'active')
+      .or(operationalListFilter())
       .order('id')
       .range(from, to),
     'No se pudieron cargar socios',

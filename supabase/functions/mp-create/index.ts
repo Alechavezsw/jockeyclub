@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { memberMayOperate } from "../_shared/operationalMember.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -97,18 +98,6 @@ function firstDeliverableEmail(...candidates: unknown[]) {
 function dniOf(value: unknown) {
   const digits = String(value || "").replace(/\D/g, "");
   return digits.length >= 7 && digits.length <= 11 ? digits : "";
-}
-
-function memberMayOperate(member: { status?: string | null; meta?: Record<string, unknown> | null }) {
-  const status = String(member?.status || "").toLowerCase();
-  if (status === "suspended" || status === "pending") return false;
-  const meta = member?.meta && typeof member.meta === "object" ? member.meta : {};
-  const baja = String(meta.bajaFecha || "").slice(0, 10);
-  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" });
-  if (/^\d{4}-\d{2}-\d{2}$/.test(baja) && baja > today) return true;
-  if (status !== "active") return false;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(baja) && baja <= today) return false;
-  return true;
 }
 
 function memberSelect() {
