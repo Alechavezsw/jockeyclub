@@ -2,6 +2,11 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { memberMayOperate } from "../_shared/operationalMember.ts";
 import { isTennisCharge } from "../_shared/mpSettlement.js";
+import {
+  preapprovalAmountUpdate,
+  subscriptionAmountDrift,
+  subscriptionBillingDay,
+} from "../_shared/mpSubscriptionRules.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -103,15 +108,6 @@ function dniOf(value: unknown) {
 
 function memberSelect() {
   return "id, member_number, full_name, email, profile_id, outstanding_balance, document_number, tier, status, meta";
-}
-
-function billingDayOf(member: { tier?: string | null; meta?: Record<string, unknown> | null } | null) {
-  const tier = String(member?.tier || "").toLowerCase();
-  const blob = `${tier} ${JSON.stringify(member?.meta || {})}`.toLowerCase();
-  if (/socio_familiar_amet|socio_individual_amet|socio familiar \(amet\)|socio individual \(amet\)/.test(blob)) {
-    return 18;
-  }
-  return 10;
 }
 
 async function mpJson(path: string, token: string, init: { method?: string; body?: Record<string, unknown> } = {}) {
@@ -366,17 +362,40 @@ Deno.serve(async (req) => {
         return st === "authorized" || st === "approved";
       });
       if (active) {
+        const drift = subscriptionAmountDrift(active.amount, amount);
         return json(409, {
           error: "Ya tenés el débito automático activo. Solo se puede adherir una vez.",
           id: active.id,
           status: active.status,
           already: true,
+          ...(drift ? { amountDrift: drift } : {}),
         });
       }
       const pending = (openSubs || [])[0] || null;
       if (pending) {
         const initPoint = String(pending.init_point || pending.sandbox_init_point || "");
+        const drift = subscriptionAmountDrift(pending.amount, amount);
         if (initPoint) {
+          if (drift && !pending.preapproval_id) {
+            return json(409, {
+              error: "La adhesión pendiente quedó con la tarifa anterior y Mercado Pago no tiene un débito para actualizar.",
+              id: pending.id,
+              status: pending.status,
+              already: true,
+              amountDrift: drift,
+            });
+          }
+          if (drift) {
+            await mpJson(`/preapproval/${pending.preapproval_id}`, token, {
+              method: "PUT",
+              body: preapprovalAmountUpdate(amount),
+            });
+            const { error: amountErr } = await admin
+              .from("mp_intents")
+              .update({ amount, updated_at: new Date().toISOString() })
+              .eq("id", pending.id);
+            if (amountErr) return json(500, { error: amountErr.message || "No se pudo guardar la tarifa nueva." });
+          }
           return json(200, {
             id: pending.id,
             kind: "subscription",
@@ -384,9 +403,10 @@ Deno.serve(async (req) => {
             status: pending.status,
             initPoint,
             qrData: null,
-            amount: money(pending.amount) || amount,
+            amount: drift ? amount : (money(pending.amount) || amount),
             already: true,
             reused: true,
+            ...(drift ? { amountUpdated: true, amountDrift: drift } : {}),
           });
         }
         return json(409, {
@@ -458,6 +478,7 @@ Deno.serve(async (req) => {
           ...(kind === "dues" ? { schedule: duesScheduleOf(body?.schedule) } : {}),
           ...(bookingMeta ? { booking: bookingMeta } : {}),
           ...((kind === "dues" || kind === "subscription") ? { chargeScope: "cuota_social" } : {}),
+          ...(kind === "subscription" ? { billingDay: subscriptionBillingDay(member) } : {}),
         },
       })
       .select("*")
@@ -479,7 +500,7 @@ Deno.serve(async (req) => {
             frequency_type: "months",
             transaction_amount: amount,
             currency_id: "ARS",
-            billing_day: billingDayOf(member),
+            billing_day: subscriptionBillingDay(member),
             billing_day_proportional: false,
           },
           back_url: `${accountOrigin(origin)}/cuenta?mp=sub`,
