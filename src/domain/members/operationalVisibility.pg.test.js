@@ -9,6 +9,11 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import EmbeddedPostgres from 'embedded-postgres';
 import pg from 'pg';
+import {
+  isOperationalMember,
+  operationalListFilter,
+  reactivateListFilter,
+} from './operationalVisibility.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 const migrationSql = readFileSync(
@@ -194,6 +199,52 @@ async function query(text, params) {
   return pool.query(text, params);
 }
 
+function splitTop(input) {
+  const parts = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < input.length; i += 1) {
+    const ch = input[i];
+    if (ch === '(') depth += 1;
+    else if (ch === ')') depth -= 1;
+    else if (ch === ',' && depth === 0) {
+      parts.push(input.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(input.slice(start));
+  return parts.filter((part) => part.length > 0);
+}
+
+function atomSql(expr) {
+  const column = "(m.meta->>'bajaFecha')";
+  if (expr.startsWith('status.eq.')) return `m.status::text = '${expr.slice('status.eq.'.length)}'`;
+  if (expr === 'meta->>bajaFecha.is.null') return `${column} is null`;
+  if (expr.startsWith('meta->>bajaFecha.gt.')) return `${column} > '${expr.slice('meta->>bajaFecha.gt.'.length)}'`;
+  if (expr.startsWith('meta->>bajaFecha.lte.')) return `${column} <= '${expr.slice('meta->>bajaFecha.lte.'.length)}'`;
+  if (expr.startsWith('meta->>bajaFecha.not.match.')) {
+    return `${column} !~ '${expr.slice('meta->>bajaFecha.not.match.'.length)}'`;
+  }
+  if (expr.startsWith('meta->>bajaFecha.match.')) {
+    return `${column} ~ '${expr.slice('meta->>bajaFecha.match.'.length)}'`;
+  }
+  throw new Error(`filtro no reconocido: ${expr}`);
+}
+
+function exprSql(expr) {
+  if (expr.startsWith('and(') && expr.endsWith(')')) {
+    return `(${splitTop(expr.slice(4, -1)).map(exprSql).join(' and ')})`;
+  }
+  if (expr.startsWith('or(') && expr.endsWith(')')) {
+    return `(${splitTop(expr.slice(3, -1)).map(exprSql).join(' or ')})`;
+  }
+  return atomSql(expr);
+}
+
+function postgrestOrToSql(filter) {
+  return splitTop(filter).map(exprSql).join(' or ');
+}
+
 describe('migración de socios inactivos', () => {
   beforeAll(async () => {
     databaseDir = mkdtempSync(join(tmpdir(), 'jc-inactive-'));
@@ -247,9 +298,10 @@ describe('migración de socios inactivos', () => {
   it('separa padrón, reactivar y no deja escribir cargos nuevos', async () => {
     const clock = await query(
       `select (now() at time zone 'America/Argentina/Buenos_Aires')::date::text as today,
-              ((now() at time zone 'America/Argentina/Buenos_Aires')::date + 1)::text as tomorrow`,
+              ((now() at time zone 'America/Argentina/Buenos_Aires')::date + 1)::text as tomorrow,
+              ((now() at time zone 'America/Argentina/Buenos_Aires')::date - 1)::text as yesterday`,
     );
-    const { today, tomorrow } = clock.rows[0];
+    const { today, tomorrow, yesterday } = clock.rows[0];
 
     const live = await seed('active', 'Ana Activa', {
       number: '10009',
@@ -287,6 +339,36 @@ describe('migración de socios inactivos', () => {
       balance: 40000,
       meta: { bajaFecha: today, pendingBaja: true, familyPrincipalNumber: '10802' },
     });
+    const activeTomorrow = await seed('active', 'Activo Futuro', {
+      number: '10803',
+      document: '40111003',
+      balance: 70000,
+      meta: { bajaFecha: tomorrow, familyPrincipalNumber: '10803', familyGroupName: 'Futuro' },
+    });
+    const activeToday = await seed('active', 'Activo Fecha Hoy', {
+      number: '10804',
+      document: '40111004',
+      balance: 70000,
+      meta: { bajaFecha: today, familyPrincipalNumber: '10804' },
+    });
+    const activeFalse = await seed('active', 'Activo Flag Falso', {
+      number: '10805',
+      document: '40111005',
+      balance: 84000,
+      meta: { bajaFecha: yesterday, pendingBaja: false, familyPrincipalNumber: '10805', familyGroupName: 'Falso' },
+    });
+    const activeNull = await seed('active', 'Activo Flag Nulo', {
+      number: '10806',
+      document: '40111006',
+      balance: 70000,
+      meta: { bajaFecha: yesterday, familyPrincipalNumber: '10806' },
+    });
+    const suspended = await seed('suspended', 'Socio Suspendido', {
+      number: '10807',
+      document: '40111007',
+      balance: 70000,
+      meta: { familyPrincipalNumber: '10807' },
+    });
 
     const flags = await query(
       `select id::text, public.member_is_operational(m) as operational,
@@ -304,6 +386,45 @@ describe('migración de socios inactivos', () => {
     expect(byId[dueToday].reactivate).toBe(true);
     expect(byId[pendingToday].operational).toBe(false);
     expect(byId[pendingToday].reactivate).toBe(true);
+    expect(byId[activeTomorrow].operational).toBe(true);
+    expect(byId[activeTomorrow].reactivate).toBe(false);
+    expect(byId[activeToday].operational).toBe(false);
+    expect(byId[activeToday].reactivate).toBe(true);
+    expect(byId[activeFalse].operational).toBe(false);
+    expect(byId[activeFalse].reactivate).toBe(true);
+    expect(byId[activeNull].operational).toBe(false);
+    expect(byId[activeNull].reactivate).toBe(true);
+    expect(byId[suspended].operational).toBe(false);
+    expect(byId[suspended].reactivate).toBe(true);
+
+    const compared = await query(
+      `select id::text, status::text, meta,
+              public.member_is_operational(m) as operational,
+              public.member_is_reactivatable(m) as reactivate
+       from public.members m`,
+    );
+    for (const row of compared.rows) {
+      const member = {
+        status: row.status,
+        meta: row.meta,
+        bajaFecha: row.meta?.bajaFecha,
+        pendingBaja: row.meta?.pendingBaja,
+      };
+      expect(isOperationalMember(member, today)).toBe(row.operational);
+    }
+    const operationalSql = postgrestOrToSql(operationalListFilter(today));
+    const reactivateSql = postgrestOrToSql(reactivateListFilter(today));
+    const byFilter = await query(
+      `select id::text,
+              (${operationalSql}) is true as operational,
+              (${reactivateSql}) is true as reactivate
+       from public.members m`,
+    );
+    const filterById = Object.fromEntries(byFilter.rows.map((row) => [row.id, row]));
+    for (const row of compared.rows) {
+      expect(filterById[row.id].operational).toBe(row.operational);
+      expect(filterById[row.id].reactivate).toBe(row.reactivate);
+    }
 
     await expect(query(
       `select * from public.search_members_reactivate('Daniela', 8)`,
@@ -325,7 +446,11 @@ describe('migración de socios inactivos', () => {
     const reactivate = await query(`select full_name from public.search_members_reactivate('Rojas', 8)`);
     expect(reactivate.rows.map((row) => row.full_name)).toEqual(['Daniela Rojas']);
     const reactivateToday = await query(`select full_name from public.search_members_reactivate('Hoy', 8)`);
-    expect(reactivateToday.rows.map((row) => row.full_name).sort()).toEqual(['Baja Hoy', 'Pendiente Hoy']);
+    expect(reactivateToday.rows.map((row) => row.full_name).sort()).toEqual(['Activo Fecha Hoy', 'Baja Hoy', 'Pendiente Hoy']);
+    const padron = await query(`select id::text from public.list_members_padron('active')`);
+    const padronIds = padron.rows.map((row) => row.id).sort();
+    const operationalIds = compared.rows.filter((row) => row.operational).map((row) => row.id).sort();
+    expect(padronIds).toEqual(operationalIds);
     const reactivateTomorrow = await query(`select full_name from public.search_members_reactivate('Maniana', 8)`);
     expect(reactivateTomorrow.rows).toHaveLength(0);
 
@@ -355,6 +480,15 @@ describe('migración de socios inactivos', () => {
       [gone],
     )).rejects.toThrow(/inactivo/i);
     await expect(query(
+      `insert into public.access_logs (member_id) values ($1)`,
+      [activeFalse],
+    )).rejects.toThrow(/inactivo/i);
+    await expect(query(
+      `insert into public.member_payments (member_id, amount) values ($1, 84000)`,
+      [activeNull],
+    )).rejects.toThrow(/inactivo/i);
+    await query(`insert into public.access_logs (member_id) values ($1)`, [activeTomorrow]);
+    await expect(query(
       `insert into public.messages (sender_name, recipient_key, subject, body, meta)
        values ('Club', '3368', 'Aviso', 'Cuota', '{"kind":"dues_mora"}'::jsonb)`,
     )).rejects.toThrow(/avisos automáticos/i);
@@ -373,6 +507,13 @@ describe('migración de socios inactivos', () => {
     expect(kept.rows[0].motivo).toBe('Renuncia');
     const payments = await query(`select count(*)::int as n from public.member_payments where member_id = $1`, [gone]);
     expect(payments.rows[0].n).toBe(0);
+    const falseKept = await query(
+      `select outstanding_balance::float8 as balance, meta->>'familyGroupName' as household
+       from public.members where id = $1`,
+      [activeFalse],
+    );
+    expect(Number(falseKept.rows[0].balance)).toBe(84000);
+    expect(falseKept.rows[0].household).toBe('Falso');
     const scheduledPay = await query(`select count(*)::int as n from public.member_payments where member_id = $1`, [scheduled]);
     expect(scheduledPay.rows[0].n).toBe(1);
 

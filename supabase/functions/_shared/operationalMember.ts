@@ -14,12 +14,6 @@ function bajaDate(member: { bajaFecha?: unknown; meta?: Record<string, unknown> 
   return /^\d{4}-\d{2}-\d{2}$/.test(fecha) ? fecha : "";
 }
 
-function pendingBaja(member: { pendingBaja?: unknown; meta?: Record<string, unknown> | null }) {
-  const meta = member?.meta && typeof member.meta === "object" ? member.meta : {};
-  const flag = member?.pendingBaja ?? meta.pendingBaja;
-  return flag === true || flag === "true" || flag === "t" || flag === "1";
-}
-
 export function memberMayOperate(
   member: { status?: string | null; meta?: Record<string, unknown> | null; bajaFecha?: unknown; pendingBaja?: unknown } | null,
   today = clubToday(),
@@ -29,17 +23,18 @@ export function memberMayOperate(
   if (status === "suspended" || status === "pending" || status === "baja") return false;
   const baja = bajaDate(member);
   if (status === "inactive") return Boolean(baja) && baja > today;
-  if (pendingBaja(member) && baja && baja <= today) return false;
-  return status === "active";
+  if (status !== "active") return false;
+  return !baja || baja > today;
 }
 
-/** Mismo filtro que operationalListFilter. */
+/**
+ * Mismo filtro que operationalListFilter.
+ * El activo queda adentro de un AND: null, fecha inválida o fecha futura.
+ * Una baja de hoy o anterior no entra por una rama suelta de status=active.
+ */
 export function operationalAudienceFilter(today = clubToday()) {
   return [
-    `and(status.eq.inactive,meta->>bajaFecha.gt.${today})`,
-    `and(status.eq.active,meta->>pendingBaja.not.in.(true,t,1))`,
-    `and(status.eq.active,meta->>pendingBaja.is.null)`,
-    `and(status.eq.active,meta->>bajaFecha.gt.${today})`,
-    `and(status.eq.active,meta->>bajaFecha.is.null)`,
+    `and(status.eq.inactive,meta->>bajaFecha.gt.${today},meta->>bajaFecha.match.^[0-9]{4}-[0-9]{2}-[0-9]{2}$)`,
+    `and(status.eq.active,or(meta->>bajaFecha.is.null,meta->>bajaFecha.not.match.^[0-9]{4}-[0-9]{2}-[0-9]{2}$,meta->>bajaFecha.gt.${today}))`,
   ].join(",");
 }

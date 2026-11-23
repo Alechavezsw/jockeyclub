@@ -30,23 +30,20 @@ function bajaDate(member) {
   return /^\d{4}-\d{2}-\d{2}$/.test(fecha) ? fecha : '';
 }
 
-function pendingBajaFlag(member) {
-  const flag = member?.pendingBaja ?? member?.meta?.pendingBaja ?? member?.pending_baja;
-  return flag === true || flag === 'true' || flag === 't' || flag === '1';
-}
+/** Fecha ISO. En POSIX hace falta [0-9]: \d no es dígito. */
+const VALID_BAJA_DATE = '^[0-9]{4}-[0-9]{2}-[0-9]{2}$';
 
 /**
  * Filtros PostgREST con la misma regla que isOperationalMember / member_is_operational.
- * No alcanza con status = active: la baja futura sigue operativa y la de hoy ya no.
+ * El status active no alcanza: una bajaFecha válida de hoy o anterior excluye,
+ * aunque pendingBaja sea false o null. not.match sobre null no es verdadero,
+ * por eso el nulo va en su propia rama is.null, unida por OR adentro del AND.
  */
 export function operationalListFilter(today = new Date()) {
   const iso = todayAR(today);
   return [
-    `and(status.eq.inactive,meta->>bajaFecha.gt.${iso})`,
-    `and(status.eq.active,meta->>pendingBaja.not.in.(true,t,1))`,
-    `and(status.eq.active,meta->>pendingBaja.is.null)`,
-    `and(status.eq.active,meta->>bajaFecha.gt.${iso})`,
-    `and(status.eq.active,meta->>bajaFecha.is.null)`,
+    `and(status.eq.inactive,meta->>bajaFecha.gt.${iso},meta->>bajaFecha.match.${VALID_BAJA_DATE})`,
+    `and(status.eq.active,or(meta->>bajaFecha.is.null,meta->>bajaFecha.not.match.${VALID_BAJA_DATE},meta->>bajaFecha.gt.${iso}))`,
   ].join(',');
 }
 
@@ -54,20 +51,20 @@ export function operationalListFilter(today = new Date()) {
 export function inactiveListFilter(today = new Date()) {
   const iso = todayAR(today);
   return [
-    `and(status.eq.inactive,or(meta->>bajaFecha.is.null,meta->>bajaFecha.lte.${iso}))`,
+    `and(status.eq.inactive,or(meta->>bajaFecha.is.null,meta->>bajaFecha.not.match.${VALID_BAJA_DATE},meta->>bajaFecha.lte.${iso}))`,
     'status.eq.suspended',
     'status.eq.pending',
-    `and(status.eq.active,meta->>pendingBaja.in.(true,t,1),meta->>bajaFecha.lte.${iso})`,
+    `and(status.eq.active,meta->>bajaFecha.match.${VALID_BAJA_DATE},meta->>bajaFecha.lte.${iso})`,
   ].join(',');
 }
 
-/** Reactivar: inactivo efectivo o suspendido. La baja de mañana no entra. */
+/** Reactivar: inactivo efectivo, suspendido, o activo cuya baja ya entró. La de mañana no entra. */
 export function reactivateListFilter(today = new Date()) {
   const iso = todayAR(today);
   return [
-    `and(status.eq.inactive,or(meta->>bajaFecha.is.null,meta->>bajaFecha.lte.${iso}))`,
+    `and(status.eq.inactive,or(meta->>bajaFecha.is.null,meta->>bajaFecha.not.match.${VALID_BAJA_DATE},meta->>bajaFecha.lte.${iso}))`,
     'status.eq.suspended',
-    `and(status.eq.active,meta->>pendingBaja.in.(true,t,1),meta->>bajaFecha.lte.${iso})`,
+    `and(status.eq.active,meta->>bajaFecha.match.${VALID_BAJA_DATE},meta->>bajaFecha.lte.${iso})`,
   ].join(',');
 }
 
@@ -83,10 +80,9 @@ export function isOperationalMember(member, today = new Date()) {
   if (status === 'suspended' || status === 'pending' || status === 'baja') return false;
   const iso = todayAR(today);
   const baja = bajaDate(member);
-  const pending = pendingBajaFlag(member);
   if (status === 'inactive') return Boolean(baja) && baja > iso;
-  if (pending && baja && baja <= iso) return false;
-  return status === 'active';
+  if (status !== 'active') return false;
+  return !baja || baja > iso;
 }
 
 /** Ficha que Reactivar puede buscar: inactivo efectivo o suspendido. */
@@ -134,16 +130,9 @@ export function canStartOperationalWrite(member, today = new Date()) {
 export function reactivateMemberRecord(member, lifecycleMeta = {}) {
   if (!member) throw new Error('Falta el socio.');
   const prevMeta = member.meta && typeof member.meta === 'object' ? member.meta : {};
-  return {
-    ...member,
-    status: 'active',
-    pendingBaja: false,
-    meta: {
-      ...prevMeta,
-      ...lifecycleMeta,
-      pendingBaja: false,
-    },
-  };
+  const kept = { ...member, status: 'active', pendingBaja: false, bajaFecha: '' };
+  const keptMeta = { ...prevMeta, ...lifecycleMeta, pendingBaja: false, bajaFecha: null };
+  return { ...kept, meta: keptMeta };
 }
 
 export const INACTIVE_MEMBER_OPERATION_ERROR = 'El socio está inactivo y no entra en los circuitos operativos.';

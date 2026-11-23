@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { buildDebitRoster, classifyDebitMember } from '../accounting/debitMoves.js';
 import {
   OPERATIONAL_CIRCUITS,
   canReceiveAutomaticNotice,
@@ -118,8 +119,9 @@ describe('visibilidad operativa de socios', () => {
 
     const stillActive = { status: 'active', bajaFecha: '2026-12-01', meta: { bajaFecha: '2026-12-01' } };
     expect(isOperationalMember(stillActive, TODAY)).toBe(true);
-    const due = { ...stillActive, pendingBaja: true };
+    const due = { ...stillActive, pendingBaja: false, bajaFecha: '2026-12-01', meta: { bajaFecha: '2026-12-01', pendingBaja: false } };
     expect(isOperationalMember(due, '2026-12-01')).toBe(false);
+    expect(isOperationalMember({ ...due, pendingBaja: null, meta: { bajaFecha: '2026-12-01' } }, '2026-12-01')).toBe(false);
   });
 
   it('reactivar conserva número, hogar, pagos y deuda y no borra la baja', () => {
@@ -137,6 +139,8 @@ describe('visibilidad operativa de socios', () => {
     expect(restored.meta.bajaMotivo).toBe('Renuncia');
     expect(restored.meta.bajaActorName).toBe('Secretaría');
     expect(restored.meta.bajaRegistradaAt).toBe('2026-09-02T12:00:00.000Z');
+    expect(restored.bajaFecha).toBe('');
+    expect(restored.meta.bajaFecha).toBeNull();
     expect(restored.meta.reactivateMotivo).toBe('Regularizó situación');
     expect(isOperationalMember(restored, TODAY)).toBe(true);
     expect(memberCircuitAccess(inactive, TODAY).historicalAccounting).toBe(true);
@@ -148,19 +152,57 @@ describe('visibilidad operativa de socios', () => {
     const operational = operationalListFilter(TODAY);
     const inactive = inactiveListFilter(TODAY);
     const reactivate = reactivateListFilter(TODAY);
-    expect(operational).toContain('status.eq.inactive,meta->>bajaFecha.gt.2026-11-23');
-    expect(operational).toContain('pendingBaja');
+    expect(operational).toContain('and(status.eq.inactive,meta->>bajaFecha.gt.2026-11-23,meta->>bajaFecha.match.');
+    expect(operational).toContain('and(status.eq.active,or(meta->>bajaFecha.is.null,meta->>bajaFecha.not.match.');
+    expect(operational).not.toContain('pendingBaja.not.in');
     expect(operational).not.toBe('status.eq.active');
     expect(inactive).toContain('bajaFecha.lte.2026-11-23');
+    expect(inactive).toContain('meta->>bajaFecha.is.null');
     expect(reactivate).toContain('status.eq.suspended');
     expect(reactivate).not.toContain('status.eq.pending');
     const edge = readFileSync(
       join(dirname(fileURLToPath(import.meta.url)), '../../../supabase/functions/_shared/operationalMember.ts'),
       'utf8',
     );
-    expect(edge).toContain('status === "inactive"');
-    expect(edge).toContain('baja > today');
-    expect(edge).toContain('pendingBaja');
-    expect(edge).toContain('meta->>bajaFecha.gt.${today}');
+    const audience = edge.slice(edge.indexOf('export function operationalAudienceFilter'));
+    const clauses = [...audience.matchAll(/`([^`]+)`/g)].map((match) => match[1].replaceAll('${today}', TODAY));
+    expect(clauses.join(',')).toBe(operational);
+    expect(edge).toContain('return !baja || baja > today');
+  });
+
+  it('padrón, portería, débitos y campañas usan la misma fecha efectiva', () => {
+    const roster = [
+      { memberId: '1', name: 'Sin baja', status: 'active' },
+      { memberId: '2', name: 'Activo mañana', status: 'active', bajaFecha: '2026-11-24', meta: { bajaFecha: '2026-11-24' } },
+      { memberId: '3', name: 'Activo hoy', status: 'active', bajaFecha: TODAY, meta: { bajaFecha: TODAY } },
+      { memberId: '4', name: 'Flag falso', status: 'active', pendingBaja: false, bajaFecha: '2026-10-01', meta: { pendingBaja: false, bajaFecha: '2026-10-01' } },
+      { memberId: '5', name: 'Flag nulo', status: 'active', pendingBaja: null, bajaFecha: '2026-10-02', meta: { bajaFecha: '2026-10-02' } },
+      { memberId: '6', name: 'Inactivo futuro', status: 'inactive', bajaFecha: '2026-11-24', meta: { bajaFecha: '2026-11-24' } },
+      { memberId: '7', name: 'Inactivo efectivo', status: 'inactive', bajaFecha: '2026-10-01', meta: { bajaFecha: '2026-10-01', familyPrincipalNumber: '7' } },
+      { memberId: '8', name: 'Suspendido', status: 'suspended' },
+    ];
+    const operationalIds = roster.filter((member) => isOperationalMember(member, TODAY)).map((member) => member.memberId);
+    expect(operationalIds).toEqual(['1', '2', '6']);
+
+    for (const member of roster) {
+      const operational = isOperationalMember(member, TODAY);
+      const access = memberCircuitAccess(member, TODAY);
+      expect(access.circuits.padron).toBe(operational);
+      expect(access.circuits.porteria).toBe(operational);
+      expect(access.circuits.campanas).toBe(operational);
+      expect(access.circuits.debitos).toBe(operational);
+      expect(canReceiveAutomaticNotice(member, TODAY)).toBe(operational);
+      expect(classifyDebitMember({ ...member, paymentMethod: 'debito' }, { today: TODAY }).live).toBe(operational);
+      if (member.status === 'inactive' && !operational) expect(isReactivateCandidate(member, TODAY)).toBe(true);
+      if (member.status === 'suspended') expect(isReactivateCandidate(member, TODAY)).toBe(true);
+    }
+
+    const debits = buildDebitRoster(
+      roster.map((member) => ({ ...member, paymentMethod: 'debito' })),
+      { today: TODAY },
+    );
+    expect(debits.rows.map((row) => row.memberId)).toEqual(['2', '6', '1']);
+    expect(filterOperationalMembers(roster, TODAY).map((member) => member.memberId)).toEqual(operationalIds);
+    expect(filterReactivateMembers(roster, TODAY).map((member) => member.memberId)).toEqual(['3', '4', '5', '7', '8']);
   });
 });

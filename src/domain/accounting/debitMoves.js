@@ -143,7 +143,7 @@ export function classifyDebitMember(member, { today = todayISODateAR() } = {}) {
 /** Padrón vivo de débitos (quien puede descontar la cuota del mes). */
 export function buildDebitRoster(members = [], { today = todayISODateAR() } = {}) {
   const rows = (members || [])
-    .filter((member) => isLiveMember(member) && isTitularMember(member))
+    .filter((member) => isLiveMember(member, today) && isTitularMember(member))
     .map((member) => classifyDebitMember(member, { today }))
     .filter((row) => row.wantsDebit || row.adhered || row.prisma)
     .toSorted((a, b) => (

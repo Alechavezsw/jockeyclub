@@ -25,7 +25,7 @@ declare
   );
   v_status text := lower(coalesce(p_member.status::text, ''));
   v_baja text := left(coalesce(p_member.meta->>'bajaFecha', ''), 10);
-  v_pending boolean := coalesce(p_member.meta->>'pendingBaja', '') in ('true', 't', '1');
+  v_valid boolean := v_baja ~ '^\d{4}-\d{2}-\d{2}$';
 begin
   if p_member.id is null then
     return false;
@@ -34,12 +34,15 @@ begin
     return false;
   end if;
   if v_status = 'inactive' then
-    return v_baja ~ '^\d{4}-\d{2}-\d{2}$' and v_baja::date > v_today;
+    return v_valid and v_baja::date > v_today;
   end if;
-  if v_pending and v_baja ~ '^\d{4}-\d{2}-\d{2}$' and v_baja::date <= v_today then
-    return false;
+  if v_status = 'active' then
+    if not v_valid then
+      return true;
+    end if;
+    return v_baja::date > v_today;
   end if;
-  return v_status = 'active';
+  return false;
 end;
 $fn$;
 
