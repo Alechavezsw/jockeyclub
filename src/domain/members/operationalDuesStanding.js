@@ -24,6 +24,7 @@ import {
   socialDuesStoredBalance,
 } from './dues.js';
 import { isFamilyDependent, memberNumberOf } from './households.js';
+import { freeCreditFromStanding } from './advanceCreditAccounting.js';
 
 const EPS = 0.009;
 
@@ -218,8 +219,21 @@ export function buildOperationalDuesStanding(member, {
     : member;
   const stored = socialDuesStoredBalance(memberForBalance, { entries });
   const openCap = openDuesObligationCapital(member);
-  // Crédito visible solo si no hay obligación neta (stored ya netea openCap).
-  const creditBalance = stored <= EPS && outstanding < -EPS ? money(-outstanding) : 0;
+  // Crédito libre canónico (ficha / creditBalance vivo; sin meta stale).
+  const hasLive = Object.prototype.hasOwnProperty.call(member || {}, 'creditBalance');
+  const creditBalance = stored <= EPS
+    ? freeCreditFromStanding({
+      outstandingBalance: outstanding,
+      explicitCredit: hasLive ? member.creditBalance : null,
+      metaCredit: hasLive ? null : (member?.meta?.creditBalance ?? null),
+      hasLiveCreditField: hasLive,
+      creditConsumed: Boolean(
+        member?.creditBalanceConsumed
+        || member?.meta?.creditConsumedAt
+        || member?.meta?.creditBalanceConsumed,
+      ),
+    })
+    : 0;
 
   // Sin deuda neta operativa → no exigible, aunque el auxiliar o períodos digan otra cosa.
   if (stored <= EPS) {
