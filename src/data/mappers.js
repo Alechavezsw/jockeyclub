@@ -60,6 +60,15 @@ export function memberFromRow(row, payments = []) {
     disciplines: row.disciplines || [],
     tier: canonicalMemberTier(row.tier, row.meta),
     status: row.status,
+    bajaFecha: meta.bajaFecha || row.baja_fecha || row.bajaFecha || '',
+    pendingBaja: meta.pendingBaja === true
+      || meta.pendingBaja === 'true'
+      || meta.pendingBaja === 't'
+      || meta.pendingBaja === '1'
+      || row.pending_baja === true
+      || row.pending_baja === 'true'
+      || row.pendingBaja === true
+      || row.pendingBaja === 'true',
     outstandingBalance: Number(row.outstanding_balance) || 0,
     yearsActive: row.years_active || 0,
     nextDueDate: pinDuesDueDate(row.next_due_date, {

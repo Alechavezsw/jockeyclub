@@ -6,6 +6,7 @@ import {
   BellRing, PartyPopper, DoorOpen, Briefcase, BarChart3, Trash2, RefreshCw,
 } from 'lucide-react';
 import { exportMembersPdf } from '../../domain/members/exportMembersPdf';
+import { filterOperationalMembers } from '../../domain/members/operationalVisibility';
 import { exportJournalPdf } from '../../domain/accounting/exportJournalPdf';
 import { exportExecutiveReportPdf } from '../../domain/reports/exportExecutiveReportPdf';
 import { buildClubReportStats } from '../../domain/reports/buildClubReportStats';
@@ -628,11 +629,11 @@ export default function ReportsTab({
   };
 
   const handleExportMembersPDF = () => {
-    void exportMembersPdf(members, { formatCurrency, filterLabel: 'Padrón completo' }).catch((err) => fail(err, 'No se pudo generar el PDF del padrón.'));
+    void exportMembersPdf(filterOperationalMembers(members), { formatCurrency, filterLabel: 'Padrón completo' }).catch((err) => fail(err, 'No se pudo generar el PDF del padrón.'));
   };
 
   const handleExportDebtorsPDF = () => {
-    const debtors = members.filter((mem) => !isDuesExemptMember(mem) && (Number(mem.outstandingBalance) || 0) > 0);
+    const debtors = filterOperationalMembers(members).filter((mem) => !isDuesExemptMember(mem) && (Number(mem.outstandingBalance) || 0) > 0);
     void exportMembersPdf(debtors, {
       formatCurrency,
       filterLabel: 'Deudores',

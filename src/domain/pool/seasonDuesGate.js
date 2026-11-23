@@ -8,6 +8,7 @@ import {
   socialDuesStoredBalance,
 } from '../members/dues';
 import { familyPrincipalOf, isFamilyDependent, memberNumberOf } from '../members/households';
+import { isOperationalMember } from '../members/operationalVisibility';
 import { isPoolSeasonLive } from './poolSeason';
 
 export const SEASON_DUES_GATE_COPY = {
@@ -247,8 +248,8 @@ export function isPiletaMora(member, { today = new Date(), settings = {}, member
  */
 export function piletaPayAccess(member, { today = new Date(), settings = {}, members = [] } = {}) {
   const gate = seasonDuesGate(member, { today, settings, members });
-  const status = member?.status;
-  if (status && status !== 'active') {
+  if (member && !isOperationalMember(member)) {
+    const status = member?.status;
     const detail = status === 'suspended'
       ? 'Suspendido'
       : status === 'inactive'

@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { memberMayOperate } from "../_shared/operationalMember.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -100,7 +101,7 @@ function dniOf(value: unknown) {
 }
 
 function memberSelect() {
-  return "id, member_number, full_name, email, profile_id, outstanding_balance, document_number, tier, meta";
+  return "id, member_number, full_name, email, profile_id, outstanding_balance, document_number, tier, status, meta";
 }
 
 function billingDayOf(member: { tier?: string | null; meta?: Record<string, unknown> | null } | null) {
@@ -330,6 +331,9 @@ Deno.serve(async (req) => {
       }
     }
     if (!member) return json(400, { error: "No encontramos la ficha del socio." });
+    if (!memberMayOperate(member)) {
+      return json(400, { error: "El socio está inactivo y no puede generar un cobro." });
+    }
 
     if (kind === "dues" || kind === "subscription") {
       const { data: exempt } = await admin.rpc("member_id_is_dues_exempt", { mid: member.id });

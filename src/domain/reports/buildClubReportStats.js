@@ -1,4 +1,5 @@
 import { isDuesExemptMember } from '../members/dues';
+import { isOperationalMember } from '../members/operationalVisibility';
 import { todayAR } from '../../lib/arDate';
 
 
@@ -32,8 +33,8 @@ export function buildClubReportStats({
   totalPasivos = 0,
   totalPatrimonioNetoTotal = 0,
 } = {}) {
-  const activeMembers = members.filter((m) => m.status === 'active');
-  const suspendedMembers = members.filter((m) => m.status !== 'active');
+  const activeMembers = members.filter((m) => isOperationalMember(m));
+  const suspendedMembers = members.filter((m) => !isOperationalMember(m));
   const debtors = members.filter((m) => !isDuesExemptMember(m) && (Number(m.outstandingBalance) || 0) > 0);
   const debtTotal = sum(debtors, (m) => m.outstandingBalance);
   const alDia = members.filter((m) => isDuesExemptMember(m) || (Number(m.outstandingBalance) || 0) <= 0).length;

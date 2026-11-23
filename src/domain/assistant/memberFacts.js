@@ -21,6 +21,7 @@ import { memberHasPortalAccess } from '../members/memberAdminActions';
 import { getTierDisplayName } from '../members/tiers';
 import { mergePoolSettings } from '../pool/poolAccess';
 import { clubEntryGate, piletaPayAccess } from '../pool/seasonDuesGate';
+import { isOperationalMember } from '../members/operationalVisibility';
 
 function fold(value) {
   return String(value || '')
@@ -121,8 +122,9 @@ export function memberFacts(member, { today = new Date(), poolSettings = {}, mem
 
   const entry = clubEntryGate(member, { today: when, settings, members });
   const gate = entry.season;
-  const entryBlocked = status !== 'active' || entry.blocked;
-  const entryReason = status !== 'active'
+  const operational = isOperationalMember(member, when);
+  const entryBlocked = !operational || entry.blocked;
+  const entryReason = !operational
     ? `cuenta ${STATUS_LABEL[status] || status}`
     : (entry.blocked ? entry.reason : '');
   const pool = piletaPayAccess(member, { today: when, settings, members });

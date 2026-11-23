@@ -7,6 +7,7 @@ import { exportMembersExcel } from '../../domain/members/exportMembersExcel';
 import { exportMembersPdf } from '../../domain/members/exportMembersPdf';
 import { DISCIPLINE_OPTIONS } from '../../domain/sports/disciplines';
 import { findTier, getActiveTiers, getTierOptionLabel, getTierDisplayName, splitTierDisplayName, tierChipVars } from '../../domain/members/tiers';
+import { filterOperationalMembers } from '../../domain/members/operationalVisibility';
 import {
   bajaEffectiveOn,
   buildLifecycleMeta,
@@ -829,6 +830,7 @@ export default function MembersTab({
       const withFamily = attachHouseholdToMembers(fresh || []);
       if (withFamily.length) list = withFamily;
     }
+    list = filterOperationalMembers(list);
     if (tierFilter === 'todos') return list;
     const wanted = String(tierFilter).toLowerCase();
     return list.filter((member) => String(member.tier || '').toLowerCase() === wanted);

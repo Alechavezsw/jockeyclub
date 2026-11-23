@@ -2,6 +2,7 @@ import * as M from '../mappers';
 import { unwrap } from '../errors';
 import { todayAR } from '../../lib/arDate';
 import { isUuid, sb, audit } from './shared.js';
+import { assertOperationalMemberId } from './members.js';
 
 // ---- Access ----
 export async function listAccessLogs({ limit = 500, memberNumber, sinceDays } = {}) {
@@ -49,6 +50,7 @@ async function findRowByClientId(table, clientId) {
 }
 
 export async function insertAccessLog(log, memberDbId = null) {
+  await assertOperationalMemberId(memberDbId);
   const clientId = log.id && !isUuid(log.id) ? String(log.id) : null;
   if (clientId) {
     const existing = await findRowByClientId('access_logs', clientId);

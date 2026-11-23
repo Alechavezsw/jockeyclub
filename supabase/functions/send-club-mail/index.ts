@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { memberMayOperate, operationalAudienceFilter } from "../_shared/operationalMember.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -195,11 +196,14 @@ Deno.serve(async (req) => {
       if (!memberNumber) return json(400, { error: "Elegí un socio." });
       const { data, error } = await admin
         .from("members")
-        .select("member_number, email")
+        .select("member_number, email, status, meta")
         .eq("member_number", memberNumber)
         .maybeSingle();
       if (error) return json(500, { error: error.message });
       if (!data) return json(404, { error: "No encontramos a ese socio." });
+      if (!memberMayOperate(data)) {
+        return json(400, { error: "Ese socio está inactivo y no entra en los avisos." });
+      }
       takeMember(data);
       if (!ready.length) {
         return json(200, {
@@ -256,15 +260,18 @@ Deno.serve(async (req) => {
       while (ready.length < need) {
         const { data, error } = await admin
           .from("members")
-          .select("member_number, email")
-          .neq("status", "inactive")
+          .select("member_number, email, status, meta")
+          .or(operationalAudienceFilter())
           .not("email", "is", null)
           .order("member_number")
           .range(fromRow, fromRow + PAGE - 1);
         if (error) return json(500, { error: error.message });
         const rows = data || [];
         scannedFull = rows.length === PAGE;
-        for (const row of rows) takeMember(row);
+        for (const row of rows) {
+          if (!memberMayOperate(row)) continue;
+          takeMember(row);
+        }
         if (rows.length < PAGE) break;
         fromRow += PAGE;
       }
