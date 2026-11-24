@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { allowLocalDemoAuth, isSupabaseConfigured, supabase } from '../lib/supabase';
 import { ROLE_LABELS, canAccessAdmin, primaryRoleFromList } from '../domain/auth/roles';
+import { PROFILE_SESSION_COLUMNS, profileSessionFields } from '../domain/auth/profileSession';
 import {
   SESSION_DESK,
   canUseMemberDesk,
@@ -50,25 +51,25 @@ function mapProfile(sessionUser, profileRow) {
     label: r.label,
     kind: r.kind,
   }));
+  const sessionFields = profileSessionFields(profileRow);
   const primary = primaryRoleFromList([
-    profileRow?.role,
+    sessionFields.role,
     ...roles.map((r) => r.roleKey),
   ]);
 
   return {
     id: sessionUser.id,
     email: sessionUser.email,
-    fullName: profileRow?.full_name || sessionUser.user_metadata?.full_name || sessionUser.email,
-    username: profileRow?.username || sessionUser.user_metadata?.username || null,
-    contactEmail: profileRow?.contact_email || null,
+    fullName: sessionFields.fullName || sessionUser.user_metadata?.full_name || sessionUser.email,
+    username: sessionFields.username || sessionUser.user_metadata?.username || null,
+    contactEmail: sessionFields.contactEmail,
     role: primary,
     roles: roles.length
       ? roles
       : [{ roleKey: primary, label: ROLE_LABELS[primary] || primary, kind: 'system' }],
     memberId: profileRow?.member_number || sessionUser.user_metadata?.memberId || null,
-    disciplineIds: Array.isArray(profileRow?.discipline_ids)
-      ? profileRow.discipline_ids
-      : (Array.isArray(sessionUser.user_metadata?.disciplineIds)
+    disciplineIds: sessionFields.disciplineIds
+      || (Array.isArray(sessionUser.user_metadata?.disciplineIds)
         ? sessionUser.user_metadata.disciplineIds
         : null),
     isLocal: !isSupabaseConfigured,
@@ -81,7 +82,7 @@ async function loadUserFromSession(sessionUser) {
   const [profileRes, roleRes, memberByProfile, memberByEmail] = await Promise.all([
     supabase
       .from('profiles')
-      .select('full_name, role, document_number, username, contact_email')
+      .select(PROFILE_SESSION_COLUMNS)
       .eq('id', sessionUser.id)
       .maybeSingle(),
     supabase

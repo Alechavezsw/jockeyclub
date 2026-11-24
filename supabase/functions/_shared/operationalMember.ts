@@ -60,7 +60,7 @@ export function memberMayOperate(
  */
 export function operationalAudienceFilter(today = clubToday()) {
   return [
-    `and(status.eq.inactive,meta->>bajaFecha.gt.${today},meta->>bajaFecha.match.${CALENDAR_DATE_PATTERN})`,
-    `and(status.eq.active,or(meta->>bajaFecha.is.null,meta->>bajaFecha.not.match.${CALENDAR_DATE_PATTERN},meta->>bajaFecha.gt.${today}))`,
+    `and(status.eq.inactive,meta->>bajaFecha.gt.${today},meta->>bajaFecha.match."${CALENDAR_DATE_PATTERN}")`,
+    `and(status.eq.active,or(meta->>bajaFecha.is.null,meta->>bajaFecha.not.match."${CALENDAR_DATE_PATTERN}",meta->>bajaFecha.gt.${today}))`,
   ].join(",");
 }

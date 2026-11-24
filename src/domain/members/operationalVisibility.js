@@ -32,6 +32,11 @@ export const VISIBILITY_SCOPES = Object.freeze({
  */
 export const CALENDAR_DATE_PATTERN = '^([0-9]{4}-((01|03|05|07|08|10|12)-(0[1-9]|[12][0-9]|3[01])|(04|06|09|11)-(0[1-9]|[12][0-9]|30)|02-(0[1-9]|1[0-9]|2[0-8]))|((([0-9]{2})(0[48]|[2468][048]|[13579][26])|0000|(0[48]|[2468][048]|[13579][26])00)-02-29))$';
 
+/** PostgREST corta el or() en comas y paréntesis. El patrón va entre comillas. */
+function postgrestLiteral(value) {
+  return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
 export function isCalendarDate(value) {
   const fecha = String(value || '').trim().slice(0, 10);
   const match = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/.exec(fecha);
@@ -67,30 +72,33 @@ export function bajaFechaNeedsReview(member) {
  */
 export function operationalListFilter(today = new Date()) {
   const iso = todayAR(today);
+  const pattern = postgrestLiteral(CALENDAR_DATE_PATTERN);
   return [
-    `and(status.eq.inactive,meta->>bajaFecha.gt.${iso},meta->>bajaFecha.match.${CALENDAR_DATE_PATTERN})`,
-    `and(status.eq.active,or(meta->>bajaFecha.is.null,meta->>bajaFecha.not.match.${CALENDAR_DATE_PATTERN},meta->>bajaFecha.gt.${iso}))`,
+    `and(status.eq.inactive,meta->>bajaFecha.gt.${iso},meta->>bajaFecha.match.${pattern})`,
+    `and(status.eq.active,or(meta->>bajaFecha.is.null,meta->>bajaFecha.not.match.${pattern},meta->>bajaFecha.gt.${iso}))`,
   ].join(',');
 }
 
 /** Padrón de bajas: quien ya no opera, incluida la baja que entra hoy y sigue en active. */
 export function inactiveListFilter(today = new Date()) {
   const iso = todayAR(today);
+  const pattern = postgrestLiteral(CALENDAR_DATE_PATTERN);
   return [
-    `and(status.eq.inactive,or(meta->>bajaFecha.is.null,meta->>bajaFecha.not.match.${CALENDAR_DATE_PATTERN},meta->>bajaFecha.lte.${iso}))`,
+    `and(status.eq.inactive,or(meta->>bajaFecha.is.null,meta->>bajaFecha.not.match.${pattern},meta->>bajaFecha.lte.${iso}))`,
     'status.eq.suspended',
     'status.eq.pending',
-    `and(status.eq.active,meta->>bajaFecha.match.${CALENDAR_DATE_PATTERN},meta->>bajaFecha.lte.${iso})`,
+    `and(status.eq.active,meta->>bajaFecha.match.${pattern},meta->>bajaFecha.lte.${iso})`,
   ].join(',');
 }
 
 /** Reactivar: inactivo efectivo, suspendido, o activo cuya baja ya entró. La de mañana no entra. */
 export function reactivateListFilter(today = new Date()) {
   const iso = todayAR(today);
+  const pattern = postgrestLiteral(CALENDAR_DATE_PATTERN);
   return [
-    `and(status.eq.inactive,or(meta->>bajaFecha.is.null,meta->>bajaFecha.not.match.${CALENDAR_DATE_PATTERN},meta->>bajaFecha.lte.${iso}))`,
+    `and(status.eq.inactive,or(meta->>bajaFecha.is.null,meta->>bajaFecha.not.match.${pattern},meta->>bajaFecha.lte.${iso}))`,
     'status.eq.suspended',
-    `and(status.eq.active,meta->>bajaFecha.match.${CALENDAR_DATE_PATTERN},meta->>bajaFecha.lte.${iso})`,
+    `and(status.eq.active,meta->>bajaFecha.match.${pattern},meta->>bajaFecha.lte.${iso})`,
   ].join(',');
 }
 

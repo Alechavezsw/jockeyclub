@@ -208,9 +208,22 @@ async function query(text, params) {
 function splitTop(input) {
   const parts = [];
   let depth = 0;
+  let quote = false;
   let start = 0;
   for (let i = 0; i < input.length; i += 1) {
     const ch = input[i];
+    if (quote) {
+      if (ch === '\\') {
+        i += 1;
+        continue;
+      }
+      if (ch === '"') quote = false;
+      continue;
+    }
+    if (ch === '"') {
+      quote = true;
+      continue;
+    }
     if (ch === '(') depth += 1;
     else if (ch === ')') depth -= 1;
     else if (ch === ',' && depth === 0) {
@@ -222,6 +235,13 @@ function splitTop(input) {
   return parts.filter((part) => part.length > 0);
 }
 
+function postgrestValue(value) {
+  if (value.startsWith('"') && value.endsWith('"')) {
+    return value.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+  }
+  return value;
+}
+
 function atomSql(expr) {
   const column = "(m.meta->>'bajaFecha')";
   if (expr.startsWith('status.eq.')) return `m.status::text = '${expr.slice('status.eq.'.length)}'`;
@@ -229,10 +249,10 @@ function atomSql(expr) {
   if (expr.startsWith('meta->>bajaFecha.gt.')) return `${column} > '${expr.slice('meta->>bajaFecha.gt.'.length)}'`;
   if (expr.startsWith('meta->>bajaFecha.lte.')) return `${column} <= '${expr.slice('meta->>bajaFecha.lte.'.length)}'`;
   if (expr.startsWith('meta->>bajaFecha.not.match.')) {
-    return `${column} !~ '${expr.slice('meta->>bajaFecha.not.match.'.length)}'`;
+    return `${column} !~ '${postgrestValue(expr.slice('meta->>bajaFecha.not.match.'.length))}'`;
   }
   if (expr.startsWith('meta->>bajaFecha.match.')) {
-    return `${column} ~ '${expr.slice('meta->>bajaFecha.match.'.length)}'`;
+    return `${column} ~ '${postgrestValue(expr.slice('meta->>bajaFecha.match.'.length))}'`;
   }
   throw new Error(`filtro no reconocido: ${expr}`);
 }

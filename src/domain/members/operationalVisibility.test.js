@@ -58,6 +58,28 @@ const inactive = {
   },
 };
 
+function unquotedParentheses(filter) {
+  let quote = false;
+  let count = 0;
+  for (let i = 0; i < filter.length; i += 1) {
+    const ch = filter[i];
+    if (quote) {
+      if (ch === '\\') {
+        i += 1;
+        continue;
+      }
+      if (ch === '"') quote = false;
+      continue;
+    }
+    if (ch === '"') {
+      quote = true;
+      continue;
+    }
+    if (ch === '(' || ch === ')') count += 1;
+  }
+  return count;
+}
+
 describe('visibilidad operativa de socios', () => {
   it('un inactivo no entra al padrón ni a caja, débitos, reservas o portería', () => {
     const access = memberCircuitAccess(inactive, TODAY);
@@ -157,8 +179,13 @@ describe('visibilidad operativa de socios', () => {
     const operational = operationalListFilter(TODAY);
     const inactive = inactiveListFilter(TODAY);
     const reactivate = reactivateListFilter(TODAY);
-    expect(operational).toContain('and(status.eq.inactive,meta->>bajaFecha.gt.2026-11-23,meta->>bajaFecha.match.');
-    expect(operational).toContain('and(status.eq.active,or(meta->>bajaFecha.is.null,meta->>bajaFecha.not.match.');
+    expect(operational).toContain(`meta->>bajaFecha.match."${CALENDAR_DATE_PATTERN}"`);
+    expect(operational).toContain(`meta->>bajaFecha.not.match."${CALENDAR_DATE_PATTERN}"`);
+    expect(inactive).toContain(`meta->>bajaFecha.not.match."${CALENDAR_DATE_PATTERN}"`);
+    expect(reactivate).toContain(`meta->>bajaFecha.match."${CALENDAR_DATE_PATTERN}"`);
+    expect(unquotedParentheses(operational)).toBe(6);
+    expect(unquotedParentheses(inactive)).toBe(6);
+    expect(unquotedParentheses(reactivate)).toBe(6);
     expect(operational).not.toContain('pendingBaja.not.in');
     expect(operational).not.toBe('status.eq.active');
     expect(inactive).toContain('bajaFecha.lte.2026-11-23');
