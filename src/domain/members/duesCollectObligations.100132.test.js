@@ -18,6 +18,10 @@ import {
   socialExigibleCapitalForCollect,
   totalExigibleCapitalForCollect,
 } from './duesCollectObligations';
+import {
+  resolveDuesPaymentRequestPeriods,
+  resolveHistoricalAppPaymentRequestPeriods,
+} from './duesPaymentRequestPeriods';
 
 const TODAY = new Date('2026-11-24T15:00:00-03:00');
 
@@ -151,6 +155,24 @@ describe('Imputar / Cobrar cuota — socio 100132 Luciano Virhuez', () => {
     expect(first[0].capital).toBe(42000);
     expect(second[0].capital).toBe(42000);
     expect(first[0].surcharge + second[0].surcharge).toBe(0);
+  });
+
+  it('solicitud histórica: período noviembre $54.000; diciembre queda como próximo de cuenta', () => {
+    const m = luciano();
+    const historic = {
+      meta: { kind: 'dues_payment', method: 'transferencia', paymentRequest: true },
+      content: 'Importe: $ 54.000\nVencimiento: 10 de dic de 2026',
+    };
+    const period = resolveHistoricalAppPaymentRequestPeriods(historic, m);
+    expect(period.periodDueOns).toEqual(['2026-11-10']);
+    expect(period.periodLabel).toMatch(/Noviembre de 2026/i);
+    expect(period.nextAccountDueDate).toBe('2026-12-10');
+    expect(totalExigibleCapitalForCollect(m)).toBe(54000);
+    expect(m.nextDueDate).toBe('2026-12-10');
+    expect(resolveDuesPaymentRequestPeriods({
+      chargeDue: m.nextDueDate,
+      nextAccountDueDate: m.nextDueDate,
+    }).periodDueOns).toEqual([]);
   });
 });
 

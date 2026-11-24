@@ -194,17 +194,29 @@ export function useMemberDuesStanding(member) {
       : (owes
         ? (Number(preview.cash) > 0.01 ? Number(preview.cash) : outstanding)
         : (Number(preview.cash) > 0.01 ? Number(preview.cash) : 0));
-    const nextDue = owes
-      ? ([persisted?.nextDue, fromHistory.nextDue].filter(Boolean).sort()[0] || fromHistory.nextDue)
-      : (persisted?.nextDue || memberForHistory?.nextDueDate || fromHistory.nextDue || null);
+    // next_due_date de ficha = próximo de cuenta (p. ej. 10/12). No es el período a pagar.
+    const nextAccountDue = persisted?.nextDue
+      || memberForHistory?.nextDueDate
+      || fromHistory.nextDue
+      || null;
+    const debtDueOns = (debt?.months || [])
+      .map((row) => String(row?.dueOn || '').slice(0, 10))
+      .filter(Boolean)
+      .toSorted((a, b) => a.localeCompare(b));
+    const previewDueOns = (preview.periods || [])
+      .map((row) => String(row?.dueOn || '').slice(0, 10))
+      .filter(Boolean);
+    // Período a cobrar: meses de deuda / preview. Nunca sustituir por next_due_date.
     const chargeDue = owes
-      ? (debt?.months?.[debt.months.length - 1]?.dueOn || preview.periods?.[0]?.dueOn || nextDue)
-      : nextDue;
+      ? (debtDueOns[0] || previewDueOns[0] || null)
+      : null;
+    const nextDue = owes ? (chargeDue || nextAccountDue) : nextAccountDue;
     return {
       ...fromHistory,
       outstanding,
       monthsBehind,
       nextDue,
+      nextAccountDue,
       chargeDue,
       quota,
       lastDuesDate: persisted?.lastPaymentDate || fromHistory.lastDuesDate,

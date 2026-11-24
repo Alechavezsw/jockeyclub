@@ -110,7 +110,10 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
     : null;
   const subscribeAmount = duesExempt ? 0 : mpSubscribeAmount(monthly);
   const todayIso = todayISODateAR();
-  const chargeDue = summary.chargeDue || summary.nextDue;
+  const chargeDue = summary.chargeDue
+    || (summary.debtMonths || [])[0]?.dueOn
+    || null;
+  const nextAccountDue = summary.nextAccountDue || profile?.nextDueDate || summary.nextDue;
   const dueIsPast = Boolean(chargeDue && String(chargeDue).slice(0, 10) < todayIso);
   const dueVerb = dueIsPast ? 'Venció' : 'Vence';
   const debtAmount = payable > 0 ? payable : (Number(summary.outstanding) || 0);
@@ -120,12 +123,17 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
   const debtHint = !duesExempt && !alDia && !standingPending
     ? [
       debtMonthsLabel || null,
-      `${dueVerb} el ${formatDate(chargeDue)} · ${formatCurrency(debtAmount)}`,
+      chargeDue
+        ? `${dueVerb} el ${formatDate(chargeDue)} · ${formatCurrency(debtAmount)}`
+        : `${formatCurrency(debtAmount)}`,
       surcharge > 0
         ? `(capital ${formatCurrency(quotaDue)} + recargo ${formatCurrency(surcharge)})`
         : null,
       Number(summary.unallocated) > 0
         ? `sin imputar ${formatCurrency(summary.unallocated)}`
+        : null,
+      nextAccountDue && (!chargeDue || String(nextAccountDue).slice(0, 10) !== String(chargeDue).slice(0, 10))
+        ? `Próximo de cuenta ${formatDate(nextAccountDue)}`
         : null,
     ].filter(Boolean).join(' · ')
     : null;
@@ -204,11 +212,25 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
       const attachment = method === 'transferencia'
         ? await uploadDuesReceipt(receiptFile, user?.id)
         : null;
+      const periodDueOns = (summary.debtMonths || [])
+        .map((row) => String(row?.dueOn || '').slice(0, 10))
+        .filter(Boolean);
+      const choiceDueOns = collectionPeriodChoices(standingForCharge, new Date())
+        .map((row) => String(row?.dueOn || '').slice(0, 10))
+        .filter(Boolean);
       const notice = duesPaymentNotice({
         memberName: profile?.name,
         memberId: profile?.memberId,
         amountLabel: formatCurrency(charge),
-        dueLabel: formatDate(summary.nextDue),
+        amount: charge,
+        periodDueOns: periodDueOns.length ? periodDueOns : choiceDueOns,
+        debtMonths: summary.debtMonths || [],
+        chargeDue: summary.chargeDue || null,
+        // Próximo de cuenta: informativo. Nunca como vencimiento del período pagado.
+        nextAccountDueDate: summary.nextAccountDue || profile?.nextDueDate || null,
+        concepts: [
+          duesMonthsPhrase(periodDueOns.length ? periodDueOns : choiceDueOns),
+        ].filter(Boolean),
         method,
         bankName: bank?.name,
         attachment,
@@ -321,9 +343,9 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
               : duesExempt
                 ? (quota.hint || 'No abona cuota social')
                 : alDia
-                  ? (Number(summary.nextAmount) > 0
-                    ? `Cuota abierta ${formatDate(summary.nextDue)} · ${formatCurrency(summary.nextAmount)}`
-                    : `Próximo vencimiento ${formatDate(summary.nextDue)} · sin cuota abierta`)
+                  ? (Number(summary.nextAmount) > 0 && summary.chargeDue
+                    ? `Cuota abierta ${formatDate(summary.chargeDue)} · ${formatCurrency(summary.nextAmount)}`
+                    : `Próximo vencimiento de cuenta ${formatDate(summary.nextAccountDue || summary.nextDue)} · sin cuota abierta`)
                   : `${lateLabel ? `${lateLabel}. ` : ''}${debtHint || ''}`}
           </small>
         </article>
@@ -367,7 +389,7 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
               : alDia
                 ? (payable > 0
                   ? `Podés abonar ${formatCurrency(payable)} de la cuota ya abierta.`
-                  : `No hay cuota abierta para pagar. Próximo vencimiento ${formatDate(summary.nextDue)}.`)
+                  : `No hay cuota abierta para pagar. Próximo vencimiento de cuenta ${formatDate(summary.nextAccountDue || summary.nextDue)}.`)
                 : `${lateLabel ? `${lateLabel}. ` : ''}Saldo a abonar: ${formatCurrency(payable)}${surcharge > 0 ? ` (cuota ${formatCurrency(quotaDue)} + recargo ${formatCurrency(surcharge)})` : ''}. ${dueDayLabel.charAt(0).toUpperCase()}${dueDayLabel.slice(1)}.`}
         </p>
         {!duesExempt ? (
