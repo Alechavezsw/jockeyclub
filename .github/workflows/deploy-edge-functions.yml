@@ -95,13 +95,13 @@ jobs:
         id: manifest
         run: |
           set -euo pipefail
-          mkdir -p .edge-package
+          mkdir -p edge-package
           node scripts/deploy-edge-function.mjs \
             --slug "${{ inputs.slug }}" \
             --require-main-sha "${{ steps.pin.outputs.sha }}" \
-            --write-artifact .edge-package \
-            > .edge-package/check.json
-          HASH=$(node -e "const m=require('./.edge-package/manifest.json'); process.stdout.write(m.packageSha256)")
+            --write-artifact edge-package \
+            > edge-package/check.json
+          HASH=$(node -e "const m=require('./edge-package/manifest.json'); process.stdout.write(m.packageSha256)")
           echo "package_sha256=$HASH" >> "$GITHUB_OUTPUT"
           echo "Manifiesto packageSha256=$HASH"
           # No imprimir secretos: este job no tiene tokens de producción.
@@ -110,7 +110,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: edge-package-${{ inputs.slug }}
-          path: .edge-package
+          path: edge-package
           if-no-files-found: error
           retention-days: 7
 
@@ -198,7 +198,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: edge-package-${{ needs.validate.outputs.slug }}
-          path: .edge-package
+          path: edge-package
 
       - name: Publicar solo el paquete del disco y verificar
         env:
@@ -210,7 +210,7 @@ jobs:
             echo "Faltan secretos del environment production-edge."
             exit 1
           fi
-          EXPECTED=$(node -e "const m=require('./.edge-package/manifest.json'); process.stdout.write(m.packageSha256)")
+          EXPECTED=$(node -e "const m=require('./edge-package/manifest.json'); process.stdout.write(m.packageSha256)")
           if [ "$EXPECTED" != "${{ needs.validate.outputs.package_sha256 }}" ]; then
             echo "El artefacto no coincide con el manifiesto validado."
             exit 1
@@ -247,3 +247,4 @@ jobs:
               console.log('Publicación OK — status=published_verified');
             });
           "
+
