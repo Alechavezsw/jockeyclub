@@ -106,6 +106,42 @@ export async function uploadNewsImage(file, { articleId = 'draft' } = {}) {
 }
 
 /**
+ * Foto de una alerta. El personal ya puede escribir en este bucket.
+ * @returns {{ path, name, mimeType, size }}
+ */
+export async function uploadAlertImage(file, { folder = 'alerts' } = {}) {
+  if (!isSupabaseConfigured || !supabase) {
+    throw new Error('Supabase no configurado: no se puede subir la foto.');
+  }
+  if (!file) throw new Error('Seleccioná una imagen.');
+  if (file.size > MAX_BYTES) throw new Error('La imagen supera 10 MB.');
+  if (file.type && !String(file.type).startsWith('image/')) {
+    throw new Error('Solo se permiten imágenes.');
+  }
+  const safeFolder = String(folder || 'alerts').replace(/[^a-z0-9_-]/gi, '') || 'alerts';
+  const path = `${safeFolder}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${extFromFile(file)}`;
+  const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
+    cacheControl: '3600',
+    upsert: false,
+    contentType: file.type || undefined,
+  });
+  if (error) throw new Error(error.message || 'No se pudo subir la foto.');
+  return {
+    path,
+    name: file.name || path.split('/').pop(),
+    mimeType: file.type || '',
+    size: file.size || 0,
+  };
+}
+
+export async function signAlertImage(path, seconds = 60 * 60) {
+  if (!isSupabaseConfigured || !supabase || !path) return '';
+  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, seconds);
+  if (error) return '';
+  return data?.signedUrl || '';
+}
+
+/**
  * Sube foto de perfil de usuario del portal (bucket concession-docs / profiles/).
  */
 export async function uploadProfilePhoto(file, { profileId = 'new' } = {}) {

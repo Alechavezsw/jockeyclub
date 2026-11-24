@@ -53,6 +53,8 @@ describe('destinatarios de send-club-mail', () => {
     row({ memberNumber: '7', email: '', status: 'active' }),
     row({ memberNumber: '8', email: 'alias@lila-jockey.local', status: 'active' }),
     row({ memberNumber: '9', email: 'interno@jockeyclubsj.com', status: 'active' }),
+    row({ memberNumber: '10', email: 'laura aldaylaura45@gmail.com', status: 'active' }),
+    row({ memberNumber: '11', email: 'roto@gmail.com@gmail.com', status: 'active' }),
   ];
 
   it('elige titular, familiar y baja futura, y deja afuera la baja vigente', () => {
@@ -73,6 +75,8 @@ describe('destinatarios de send-club-mail', () => {
     ]);
     expect(ready.some((item) => item.memberNumber === '6')).toBe(false);
     expect(ready.some((item) => item.memberNumber === '7')).toBe(false);
+    expect(ready.some((item) => item.memberNumber === '10')).toBe(false);
+    expect(ready.some((item) => item.memberNumber === '11')).toBe(false);
   });
 
   it('el filtro PostgREST cita el patrón y pagina de a 500', () => {

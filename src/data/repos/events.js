@@ -1,6 +1,6 @@
 import * as M from '../mappers';
 import { unwrap } from '../errors';
-import { sb } from './shared.js';
+import { isUuid, sb } from './shared.js';
 
 // ---- Events / Alerts ----
 export async function listClubEvents() {
@@ -64,7 +64,7 @@ export async function upsertAlert(alert) {
     requires_ack: Boolean(alert.requiresAck),
     metadata: alert.metadata || {},
   };
-  if (alert.id && String(alert.id).includes('-')) {
+  if (isUuid(alert.id)) {
     const saved = await unwrap(sb().from('alerts').update(row).eq('id', alert.id).select().single());
     return M.alertFromRow(saved);
   }

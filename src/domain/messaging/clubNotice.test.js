@@ -15,6 +15,9 @@ describe('clubNotice', () => {
     expect(deliverableEmail('x@jockeyclubsj.com')).toBe('');
     expect(deliverableEmail('socios@jockeyclubsj.com.ar')).toBe('socios@jockeyclubsj.com.ar');
     expect(deliverableEmail('sin-arroba')).toBe('');
+    expect(deliverableEmail('juliana @gmail.com')).toBe('');
+    expect(deliverableEmail('xavileiva@@live.com.ar')).toBe('');
+    expect(deliverableEmail('alexiskummel@gmail.com@gmail.com')).toBe('');
   });
 
   it('cuenta mails del padrón activo', () => {

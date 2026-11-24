@@ -12,13 +12,15 @@ export function clubMailCap() {
   return CLUB_MAIL_BATCH * CLUB_MAIL_MAX_BATCHES;
 }
 
-/** Mail real. Los alias de prueba y el dominio que rebota no salen. */
+const CLUB_MAIL_ADDRESS = /^[a-z0-9](?:[a-z0-9._%+-]{0,62}[a-z0-9])?@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
+
+/** Mail real. Los alias de prueba, el dominio que rebota y las direcciones rotas no salen. */
 export function deliverableClubEmail(value: string | null | undefined) {
-  const email = String(value || "").trim();
-  if (!email.includes("@")) return "";
-  const lower = email.toLowerCase();
+  const lower = String(value || "").trim().toLowerCase();
+  if (!lower || lower.includes(" ") || lower.split("@").length !== 2) return "";
   if (lower.includes("@lila-jockey")) return "";
   if (lower.endsWith("@jockeyclubsj.com")) return "";
+  if (!CLUB_MAIL_ADDRESS.test(lower)) return "";
   return lower;
 }
 
@@ -136,8 +138,10 @@ export async function sha256Hex(text: string) {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-export async function bodyFingerprint(subject: string, text: string) {
-  return sha256Hex(`${String(subject || "").trim()}\n${String(text || "").trim()}`);
+export async function bodyFingerprint(subject: string, text: string, images: string[] = []) {
+  const base = `${String(subject || "").trim()}\n${String(text || "").trim()}`;
+  const extra = images.map((item) => String(item || "").trim()).filter(Boolean);
+  return sha256Hex(extra.length ? `${base}\n${extra.join("\n")}` : base);
 }
 
 export async function scanClubMailAudience(
