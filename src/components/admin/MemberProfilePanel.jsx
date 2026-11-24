@@ -30,7 +30,7 @@ import {
   membershipTenureLabel,
   shouldOfferVitalicio,
 } from '../../domain/members/membership';
-import { canRemoveDuesSurcharge, canVoidDuesPayment } from '../../domain/auth/roles';
+import { canCorrectFamilyLinks, canRemoveDuesSurcharge, canVoidDuesPayment } from '../../domain/auth/roles';
 import { profileEmailDisplay } from '../../domain/messaging/clubMailSearch';
 import { useAuth } from '../../context/AuthContext';
 import { formatDateTimeAR, formatInstantAR, todayISODateAR } from '../../lib/arDate';
@@ -76,6 +76,7 @@ import {
   uniqueFamilyMembers,
 } from '../../domain/members/households';
 import { assessHouseholdIntegrity } from '../../domain/members/householdIntegrity';
+import FamilyLinkCorrectionModal from './FamilyLinkCorrectionModal';
 import {
   applyMemberProfileUpdate,
   upsertMemberDocument,
@@ -394,7 +395,9 @@ export default function MemberProfilePanel({
   const actorName = user?.fullName || user?.email || 'Usuario';
   const canVoid = canVoidDuesPayment({ roles, role });
   const canRemoveSurcharge = canRemoveDuesSurcharge({ roles, role });
+  const canFixFamilyLink = !selfService && canCorrectFamilyLinks({ roles, role });
   const [section, setSection] = useState('ficha');
+  const [familyLinkOpen, setFamilyLinkOpen] = useState(false);
   const [editForm, setEditForm] = useState(null);
   const [editMsg, setEditMsg] = useState('');
   const [categoryChangePreview, setCategoryChangePreview] = useState(null);
@@ -1319,11 +1322,22 @@ export default function MemberProfilePanel({
               ? ` · ${householdHealth.warnings.length} aviso${householdHealth.warnings.length === 1 ? '' : 's'}`
               : ''}
           </p>
-          {canEditFamily ? (
-            <button type="button" className="btn btn-primary btn-sm" onClick={openAddFamily}>
-              <Plus size={14} /> Agregar
-            </button>
-          ) : null}
+          <div className="mp-family-toolbar-actions">
+            {canFixFamilyLink ? (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setFamilyLinkOpen(true)}
+              >
+                Revisar vínculo familiar
+              </button>
+            ) : null}
+            {canEditFamily ? (
+              <button type="button" className="btn btn-primary btn-sm" onClick={openAddFamily}>
+                <Plus size={14} /> Agregar
+              </button>
+            ) : null}
+          </div>
         </div>
         {!householdReady ? (
           <p className="mp-family-loading" role="status" aria-live="polite">
@@ -2842,6 +2856,17 @@ export default function MemberProfilePanel({
           } finally {
             setFamilyBajaBusy(false);
           }
+        }}
+      />
+
+      <FamilyLinkCorrectionModal
+        open={familyLinkOpen}
+        member={member}
+        members={members}
+        onClose={() => setFamilyLinkOpen(false)}
+        onApplied={() => {
+          setHouseholdEpoch((n) => n + 1);
+          setFamilyLinkOpen(false);
         }}
       />
     </div>

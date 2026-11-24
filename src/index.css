@@ -20853,6 +20853,129 @@ a.ops-outline-btn {
   }
 }
 
+.household-integrity-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  justify-content: flex-end;
+}
+
+.household-integrity-audits {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-glass);
+}
+
+.household-integrity-audits h4 {
+  margin: 0 0 0.55rem;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+.mp-family-toolbar-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.family-link-modal .family-link-head h3 {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.15rem 0 0.45rem;
+  color: var(--text-gold);
+}
+
+.family-link-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0.75rem 0;
+  font-size: 0.84rem;
+  color: var(--text-secondary);
+}
+
+.family-link-field input,
+.family-link-field textarea {
+  width: 100%;
+  border: 1px solid var(--border-glass);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-primary);
+  padding: 0.55rem 0.7rem;
+  font: inherit;
+}
+
+.family-link-lookup {
+  display: flex;
+  gap: 0.45rem;
+}
+
+.family-link-lookup input {
+  flex: 1;
+}
+
+.family-link-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.85rem;
+  margin: 0.75rem 0;
+}
+
+.family-link-columns h4,
+.family-link-changes h4 {
+  margin: 0 0 0.35rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+.family-link-columns ul,
+.family-link-changes ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+.family-link-finance {
+  margin: 0.45rem 0 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.family-link-check {
+  display: flex;
+  gap: 0.45rem;
+  align-items: flex-start;
+  margin: 0.55rem 0;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+.family-link-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.family-link-found {
+  margin: 0.35rem 0 0;
+  font-size: 0.84rem;
+  color: var(--text-primary);
+}
+
+@media (max-width: 720px) {
+  .family-link-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
 .mp-family-standing {
   display: block;
   margin-top: 0.2rem;

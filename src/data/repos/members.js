@@ -1834,3 +1834,62 @@ export async function authorizePosCardFinancingServer(payload = {}) {
   }
   return data;
 }
+
+/** Preview servidor de corrección de vínculo familiar (no escribe). */
+export async function previewFamilyLinkChange(memberNumber, proposedPrincipal) {
+  const { data, error } = await sb().rpc('preview_family_link_change', {
+    p_member_number: String(memberNumber || ''),
+    p_proposed_principal: String(proposedPrincipal || ''),
+  });
+  if (error) {
+    const code = String(error.code || '');
+    if (code === 'PGRST202' || code === '42883') {
+      const err = new Error('La corrección asistida de vínculos aún no está publicada en la base.');
+      err.code = 'FAMILY_LINK_RPC_MISSING';
+      throw err;
+    }
+    throw new Error(error.message || 'No se pudo previsualizar el vínculo');
+  }
+  return data;
+}
+
+/** Aplica corrección de vínculo (RPC transaccional + auditoría). */
+export async function applyFamilyLinkChange({
+  memberNumber,
+  expectedPrincipal,
+  proposedPrincipal,
+  reason,
+  ackInactive = false,
+} = {}) {
+  const { data, error } = await sb().rpc('apply_family_link_change', {
+    p_member_number: String(memberNumber || ''),
+    p_expected_principal: String(expectedPrincipal || ''),
+    p_proposed_principal: String(proposedPrincipal || ''),
+    p_reason: String(reason || ''),
+    p_ack_inactive: Boolean(ackInactive),
+  });
+  if (error) {
+    const code = String(error.code || '');
+    if (code === 'PGRST202' || code === '42883') {
+      const err = new Error('La corrección asistida de vínculos aún no está publicada en la base.');
+      err.code = 'FAMILY_LINK_RPC_MISSING';
+      throw err;
+    }
+    throw new Error(error.message || 'No se pudo aplicar el vínculo');
+  }
+  return data;
+}
+
+/** Historial append-only de correcciones de vínculo. */
+export async function listFamilyLinkAudits({ memberNumber = null, limit = 50 } = {}) {
+  const { data, error } = await sb().rpc('list_family_link_audits', {
+    p_member_number: memberNumber == null ? null : String(memberNumber),
+    p_limit: Number(limit) || 50,
+  });
+  if (error) {
+    const code = String(error.code || '');
+    if (code === 'PGRST202' || code === '42883') return [];
+    throw new Error(error.message || 'No se pudo cargar la auditoría de vínculos');
+  }
+  return Array.isArray(data) ? data : [];
+}
