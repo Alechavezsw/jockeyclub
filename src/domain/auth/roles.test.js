@@ -362,10 +362,11 @@ describe('navItemsForRole', () => {
       'dashboard',
       'reservations',
       'payments',
+      'colonia',
       'news',
     ]);
     expect(navItemsForRole('member', { membersCanViewCurrentAccounts: false }).map((i) => i.id))
-      .toEqual(['dashboard', 'reservations', 'news']);
+      .toEqual(['dashboard', 'reservations', 'colonia', 'news']);
   });
 
   it('el profesor ve solo asistencia', () => {

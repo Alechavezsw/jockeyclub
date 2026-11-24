@@ -38,9 +38,20 @@ export const COLONIA_PLAN_KEYS = Object.freeze({
 export const COLONIA_ENROLLMENT_STATUSES = Object.freeze([
   'borrador',
   'pendiente',
+  'pendiente_pago',
   'confirmada',
+  'observada',
   'cancelada',
 ]);
+
+export const COLONIA_ENROLLMENT_SOURCES = Object.freeze([
+  'admin',
+  'portal',
+  'external',
+]);
+
+/** Mercado Pago Colonia: preparado en frontend, cobros reales deshabilitados. */
+export const COLONIA_MP_ENABLED = false;
 
 export const COLONIA_ATTENDANCE_STATUSES = Object.freeze([
   'presente',

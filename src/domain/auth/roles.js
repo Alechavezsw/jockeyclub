@@ -550,6 +550,7 @@ export function navItemsForRole(role, { membersCanViewCurrentAccounts = true } =
       { id: 'dashboard', label: 'Inicio', shortLabel: 'Inicio' },
       { id: 'reservations', label: 'Reservas', shortLabel: 'Reservas' },
       { id: 'payments', label: 'Mi cuenta', shortLabel: 'Cuenta' },
+      { id: 'colonia', label: 'Colonia', shortLabel: 'Colonia' },
       { id: 'news', label: 'Novedades', shortLabel: 'Novedades' },
     ];
     if (!membersCanViewCurrentAccounts) {

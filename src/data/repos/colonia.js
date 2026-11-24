@@ -341,3 +341,71 @@ export async function coloniaUpsertStudentHealth({
   if (error) mapRpcMissing(error, 'No se pudo guardar datos de salud');
   return data;
 }
+
+/** Inscripciones Colonia visibles desde ficha / portal del socio (RPC). */
+export async function coloniaListForMember(memberId) {
+  requireCloud();
+  const { data, error } = await sb().rpc('colonia_list_for_member', {
+    p_member_id: memberId,
+  });
+  if (error) mapRpcMissing(error, 'No se pudo consultar Colonia del socio');
+  return data || { ok: true, enrollments: [] };
+}
+
+/** Solicitud de inscripción desde Mi cuenta (idempotente). */
+export async function coloniaSubmitPortalEnrollment({
+  seasonId, student, guardian, planKey, memberId, idempotencyKey,
+}) {
+  requireCloud();
+  const { data, error } = await sb().rpc('colonia_submit_portal_enrollment', {
+    p_season_id: seasonId,
+    p_student: student,
+    p_guardian: guardian,
+    p_plan_key: planKey,
+    p_member_id: memberId,
+    p_idempotency_key: idempotencyKey || null,
+  });
+  if (error) mapRpcMissing(error, 'No se pudo enviar la solicitud de Colonia');
+  return data;
+}
+
+/** Aviso de transferencia Colonia desde portal (queda pending). */
+export async function coloniaReportPortalTransfer({
+  enrollmentId, amount, externalReference, receiptUrl, idempotencyKey,
+}) {
+  requireCloud();
+  const { data, error } = await sb().rpc('colonia_report_portal_transfer', {
+    p_enrollment_id: enrollmentId,
+    p_amount: amount,
+    p_external_reference: externalReference,
+    p_receipt_url: receiptUrl || null,
+    p_idempotency_key: idempotencyKey || null,
+  });
+  if (error) mapRpcMissing(error, 'No se pudo informar la transferencia de Colonia');
+  return data;
+}
+
+/** Buscar inscripción / alumno para Caja (staff). */
+export async function searchColoniaEnrollments({ seasonId, query }) {
+  requireCloud();
+  const q = String(query || '').trim();
+  if (!q || !seasonId) return [];
+  const { data, error } = await sb()
+    .from('colonia_enrollments')
+    .select('*, student:colonia_students(*), guardian:colonia_guardians(*)')
+    .eq('season_id', seasonId)
+    .order('created_at', { ascending: false })
+    .limit(80);
+  if (error) mapRpcMissing(error, 'No se pudo buscar en Colonia');
+  const needle = q.toLowerCase();
+  const digits = q.replace(/\D/g, '');
+  return (data || []).filter((row) => {
+    const name = String(row.student?.full_name || '').toLowerCase();
+    const gname = String(row.guardian?.full_name || '').toLowerCase();
+    const num = String(row.student?.member_number || '').replace(/\D/g, '');
+    const doc = String(row.student?.document_number || '').replace(/\D/g, '');
+    return name.includes(needle)
+      || gname.includes(needle)
+      || (digits && (num.includes(digits) || doc.includes(digits)));
+  });
+}

@@ -42,6 +42,11 @@ import {
   canManageColoniaHealth,
   canViewColoniaFinance,
 } from '../../domain/auth/roles';
+import {
+  coloniaSourceLabel,
+  coloniaStatusLabel,
+} from '../../domain/colonia/coloniaPortal';
+import ColoniaCashPanel from '../erp/ColoniaCashPanel';
 
 function money(n) {
   return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(Number(n) || 0);
@@ -284,6 +289,7 @@ export default function ColoniaTab({ roles = [], role }) {
         guardian_id: g.id,
         plan_key: planKey,
         status: 'pendiente',
+        source: 'admin',
         observations: student.notes || null,
       });
       await repos.coloniaPostCharge({
@@ -716,7 +722,15 @@ export default function ColoniaTab({ roles = [], role }) {
                     }}
                   >
                     <strong>{row.student?.full_name || '—'}</strong>
-                    <span>{row.status} · {row.plan_key} · {row.student?.member_kind}</span>
+                    <span>
+                      {coloniaStatusLabel(row.status)}
+                      {' · '}
+                      {row.plan_key}
+                      {' · '}
+                      {row.student?.member_kind}
+                      {' · '}
+                      {coloniaSourceLabel(row.source)}
+                    </span>
                   </button>
                 </li>
               ))}
@@ -735,7 +749,13 @@ export default function ColoniaTab({ roles = [], role }) {
             <div className="colonia-ficha">
               <p><strong>{selectedEnrollment.student?.full_name}</strong></p>
               <p>DNI {selectedEnrollment.student?.document_number || '—'} · {selectedEnrollment.student?.member_kind}</p>
-              <p>Plan {selectedEnrollment.plan_key} · Estado {selectedEnrollment.status}</p>
+              <p>
+                Plan {selectedEnrollment.plan_key}
+                {' · '}
+                {coloniaStatusLabel(selectedEnrollment.status)}
+                {' · '}
+                origen {coloniaSourceLabel(selectedEnrollment.source)}
+              </p>
               <p>Responsable: {selectedEnrollment.guardian?.full_name || '—'} · {selectedEnrollment.guardian?.phone || ''}</p>
               <p className="muted">Cuenta Colonia — contratado {money(accountSummary.totalContracted)} · cobrado {money(accountSummary.totalCollected)} · saldo {money(accountSummary.balanceDue)}</p>
               {selectedEnrollment.student?.member_number ? (
@@ -791,7 +811,9 @@ export default function ColoniaTab({ roles = [], role }) {
       ) : null}
 
       {activeSection === 'cobranzas' ? (
-        <section className="colonia-panel colonia-grid-2">
+        <section className="colonia-panel">
+          <ColoniaCashPanel roles={roles} role={role} />
+          <div className="colonia-grid-2" style={{ marginTop: '1.25rem' }}>
           <div>
             <h3><Wallet size={16} /> Cobranza Colonia</h3>
             <p className="muted">Medios de Jockey Connect. Nunca imputa a cuota social ni tenis.</p>
@@ -907,6 +929,7 @@ export default function ColoniaTab({ roles = [], role }) {
               </div>
             ) : null}
           </div>
+          </div>
         </section>
       ) : null}
 
@@ -994,6 +1017,12 @@ export default function ColoniaTab({ roles = [], role }) {
           <p className="muted">Datos reales de la temporada seleccionada. Deuda exclusiva Colonia (no cuota social).</p>
           <ul className="colonia-list">
             <li>Inscriptos: {enrollments.length}</li>
+            <li>Desde Administración: {enrollments.filter((e) => (e.source || 'admin') === 'admin').length}</li>
+            <li>Desde portal: {enrollments.filter((e) => e.source === 'portal').length}</li>
+            <li>Externas: {enrollments.filter((e) => e.source === 'external').length}</li>
+            <li>Pendientes / observadas: {enrollments.filter((e) => ['pendiente', 'pendiente_pago', 'observada'].includes(e.status)).length}</li>
+            <li>Confirmadas: {enrollments.filter((e) => e.status === 'confirmada').length}</li>
+            <li>Canceladas: {enrollments.filter((e) => e.status === 'cancelada').length}</li>
             <li>Socios / no socios: ver resumen</li>
             <li>Deuda exclusiva Colonia: {money(stats?.balance_due)}</li>
             <li>Ingresos confirmados: {money(stats?.payments_confirmed)}</li>

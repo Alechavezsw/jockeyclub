@@ -239,6 +239,7 @@ function ClubPortal() {
       case 'news': return '/revista';
       case 'messages': return '/mensajes';
       case 'payments': return '/cuenta';
+      case 'colonia': return '/cuenta/colonia';
       case 'profile': return '/perfil';
       case 'concessions': return '/panel/concessions';
       case 'admin': return isOperativeRole ? opsHome : (userRole === 'teacher' ? '/asistencia' : '/');
@@ -257,13 +258,15 @@ function ClubPortal() {
       ? 'news'
       : location.pathname.startsWith('/mensajes')
         ? 'messages'
-        : location.pathname.startsWith('/cuenta')
-          ? 'payments'
-          : location.pathname.startsWith('/perfil')
-            ? 'profile'
-            : location.pathname.startsWith('/concesiones')
-              ? 'concessions'
-              : 'dashboard';
+        : location.pathname.startsWith('/cuenta/colonia')
+          ? 'colonia'
+          : location.pathname.startsWith('/cuenta')
+            ? 'payments'
+            : location.pathname.startsWith('/perfil')
+              ? 'profile'
+              : location.pathname.startsWith('/concesiones')
+                ? 'concessions'
+                : 'dashboard';
 
   useLayoutEffect(() => {
     keepPageAtTop();

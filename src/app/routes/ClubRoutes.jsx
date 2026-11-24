@@ -17,6 +17,7 @@ const NewsBoardView = lazy(() => import('../../views/NewsBoardView'));
 const AdminView = lazy(() => import('../../views/AdminView'));
 const MessagesView = lazy(() => import('../../views/MessagesView'));
 const PaymentHistoryView = lazy(() => import('../../views/PaymentHistoryView'));
+const ColoniaPortalView = lazy(() => import('../../views/ColoniaPortalView'));
 const MemberProfilePanel = lazy(() => import('../../components/admin/MemberProfilePanel'));
 const AccessControlView = lazy(() => import('../../views/AccessControlView'));
 const PoolControlView = lazy(() => import('../../views/PoolControlView'));
@@ -240,6 +241,14 @@ export default function ClubRoutes({
     />
   );
 
+  const coloniaPortalView = (
+    <ColoniaPortalView
+      member={activeMember}
+      household={[]}
+      setCurrentView={setCurrentView}
+    />
+  );
+
   const memberProfileView = (
     <MemberProfilePanel
       member={activeMember}
@@ -359,6 +368,7 @@ export default function ClubRoutes({
           <Route path="/reservas" element={userRole === 'member' ? reservationsView : <Navigate to={pathForView('dashboard')} replace />} />
           <Route path="/revista" element={newsView} />
           <Route path="/cuenta" element={userRole === 'member' ? paymentHistoryView : <Navigate to={pathForView('dashboard')} replace />} />
+          <Route path="/cuenta/colonia" element={userRole === 'member' ? coloniaPortalView : <Navigate to={pathForView('dashboard')} replace />} />
           <Route path="/perfil" element={userRole === 'member' ? memberProfileView : <Navigate to={pathForView('dashboard')} replace />} />
           <Route
             path="/mensajes"
