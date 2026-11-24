@@ -656,7 +656,7 @@ export function MemberReactivateModal({
         {reason ? `Motivo elegido: ${reason.label}. Queda en la ficha y en la auditoría.` : 'Elegí un motivo. Queda en la ficha y en la auditoría.'}
       </p>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.85rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.65rem' }}>
         <label className="form-group" style={{ display: 'block' }}>
           <span className="form-label">Fecha de la reactivación *</span>
           <input
@@ -681,20 +681,27 @@ export function MemberReactivateModal({
           />
         </label>
       </div>
-      {selected ? (
-        <p
-          style={{ margin: '-0.35rem 0 0.55rem', fontSize: '0.82rem', color: 'var(--text-secondary)' }}
+      <label className="form-group" style={{ display: 'block', marginBottom: '0.85rem' }}>
+        <span className="form-label">Meses que debe</span>
+        <textarea
+          className="form-input"
+          rows={2}
+          value={
+            !selected
+              ? ''
+              : owedMonthsLabel
+                || (saldo > 0.01 ? 'Hay saldo, pero sin meses liquidables aún.' : 'Sin deuda de cuotas.')
+          }
+          placeholder="Se calculan al elegir el socio"
+          readOnly
+          aria-readonly="true"
           aria-live="polite"
-        >
-          {owedMonthsLabel
-            ? <>Meses que debe: <strong>{owedMonthsLabel}</strong></>
-            : saldo > 0.01
-              ? 'Hay saldo, pero sin meses liquidables aún.'
-              : 'Sin deuda de cuotas.'}
-        </p>
-      ) : null}
-      <p style={{ margin: '0 0 0.85rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-        El saldo no se edita. Los meses son los liquidables de la ficha. Quedan el usuario, la fecha y la hora. La baja anterior no se borra.
+          tabIndex={-1}
+          style={{ resize: 'none' }}
+        />
+      </label>
+      <p style={{ margin: '-0.35rem 0 0.85rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+        El saldo y los meses no se editan. Quedan el usuario, la fecha y la hora. La baja anterior no se borra.
       </p>
 
       <label className="form-group" style={{ display: 'block', marginBottom: '0.85rem' }}>
