@@ -20,6 +20,8 @@ import {
   isFamilyGroupVisibleMember,
   prepareFamilyMemberForBaja,
   suggestedTierAfterFamilyDetach,
+  householdRoleLabel,
+  householdAccountHint,
 } from './households';
 
 const catalog = [
@@ -66,6 +68,10 @@ describe('households', () => {
     expect(billingAccountMember(titular, [titular, hijo])).toEqual(titular);
     expect(billingAccountMember(hijo, [hijo])).toBeNull();
     expect(billingAccountMember(hijo, [])).toBeNull();
+    expect(householdRoleLabel(titular, '10009')).toBe('Titular');
+    expect(householdRoleLabel(hijo, '10009')).toBe('Integrante');
+    expect(householdAccountHint(hijo)).toBe('Cuenta y reservas del titular Nº 10009.');
+    expect(householdAccountHint(titular)).toBeNull();
   });
 
   it('saca al integrante del grupo y lo deja titular individual', () => {

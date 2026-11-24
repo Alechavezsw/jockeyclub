@@ -46,6 +46,7 @@ import CollectDuesModal from './CollectDuesModal';
 import ModalDialog from '../ModalDialog';
 import FoldableSection from './FoldableSection';
 import FamilyGroupsPadron from './FamilyGroupsPadron';
+import HouseholdIntegrityPanel from './HouseholdIntegrityPanel';
 import MemberTiersPanel from './MemberTiersPanel';
 import MembershipMovesSection from './MembershipMovesSection';
 import InactiveMembersSection from './InactiveMembersSection';
@@ -53,6 +54,7 @@ import MemberRequestsSection from './MemberRequestsSection';
 import { MemberBajaModal, MemberLifecycleModal, MemberCredentialsModal, MemberReactivateModal } from './MemberAdminModals';
 import { formatInstantAR, nowTimeAR, todayISODateAR, todayAR } from '../../lib/arDate';
 import { effectiveJoinDate } from '../../domain/members/membership';
+import { scanPadronHouseholdIssues } from '../../domain/members/householdIntegrity';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { repos } from '../../data/bootstrap';
 import { useAuth } from '../../context/AuthContext';
@@ -200,7 +202,7 @@ const RELATIONSHIP_OPTIONS = [
 
 const MEMBERS_PAGE_SIZE = 50;
 const MEMBERS_PANEL_STORAGE = 'membersPanel:v1';
-const MEMBERS_PANEL_IDS = ['requests', 'moves', 'inactive', 'tiers', 'titulares', 'padron', 'families'];
+const MEMBERS_PANEL_IDS = ['requests', 'moves', 'inactive', 'tiers', 'titulares', 'padron', 'families', 'revision'];
 const PADRON_LIST_PANELS = new Set(['titulares', 'padron']);
 
 function readMembersPanel(fallback = 'titulares') {
@@ -772,6 +774,10 @@ export default function MembersTab({
   }, [onPadronOpsChange]);
 
   const familyGroups = useMemo(() => listFamilyGroups(searchDirectory), [searchDirectory]);
+  const householdIntegrityIssues = useMemo(
+    () => scanPadronHouseholdIssues(searchDirectory),
+    [searchDirectory],
+  );
 
   const filteredFamilies = useMemo(() => {
     const q = searchQuery.trim();
@@ -1576,7 +1582,7 @@ export default function MembersTab({
 
   useEffect(() => {
     if (!isSearching) return;
-    if (membersPanel === 'families') return;
+    if (membersPanel === 'families' || membersPanel === 'revision') return;
     if (!PADRON_LIST_PANELS.has(membersPanel)) selectMembersPanel('padron');
   }, [isSearching, membersPanel, selectMembersPanel]);
 
@@ -2446,6 +2452,12 @@ export default function MembersTab({
             accent: 'var(--emerald-accent)',
           },
           { id: 'families', label: 'Familias', count: filteredFamilies.length, accent: '#b08d57' },
+          {
+            id: 'revision',
+            label: 'Revisión vínculos',
+            count: householdIntegrityIssues.length,
+            accent: '#c45c26',
+          },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -3090,6 +3102,14 @@ export default function MembersTab({
           tierCatalog={tierCatalog}
           onOpenProfile={onOpenProfile}
           forceOpen={isSearching}
+        />
+      ) : null}
+
+      {activePanel === 'revision' ? (
+        <HouseholdIntegrityPanel
+          embedded
+          members={searchDirectory}
+          onOpenProfile={onOpenProfile}
         />
       ) : null}
 
